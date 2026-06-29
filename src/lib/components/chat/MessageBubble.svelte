@@ -17,6 +17,7 @@ import type {
 	DepthAppliedProfile,
 	DocumentWorkspaceItem,
 	FileProductionJob,
+	NormalChatContextPreparationActivityClass,
 	ResponseActivityEntry,
 	ThinkingSegment,
 } from "$lib/types";
@@ -453,7 +454,7 @@ function getKnownEarlyResponseActivityLabelKey(
 		entry.kind === "context" &&
 		entry.status === "running"
 	) {
-		return "chat.responseActivity.contextPreparing";
+		return getContextPreparationActivityLabelKey(entry);
 	}
 	if (
 		entry.id === RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER &&
@@ -463,6 +464,31 @@ function getKnownEarlyResponseActivityLabelKey(
 		return "chat.responseActivity.drafting";
 	}
 	return null;
+}
+
+const CONTEXT_PREPARATION_ACTIVITY_LABEL_KEYS = {
+	planning: "chat.responseActivity.contextPreparation.planning",
+	"context-retrieval": "chat.responseActivity.contextPreparation.retrieval",
+	"attachment-processing":
+		"chat.responseActivity.contextPreparation.attachments",
+	"prompt-assembly": "chat.responseActivity.contextPreparation.assembly",
+	"context-compression": "chat.responseActivity.contextPreparation.compression",
+	"web-grounding": "chat.responseActivity.contextPreparation.web",
+	budgeting: "chat.responseActivity.contextPreparation.budgeting",
+} as const satisfies Record<NormalChatContextPreparationActivityClass, I18nKey>;
+
+function getContextPreparationActivityLabelKey(
+	entry: ResponseActivityEntry,
+): I18nKey {
+	const activityClass = entry.contextPreparationClass;
+	if (!activityClass) return "chat.responseActivity.contextPreparing";
+	return (
+		(
+			CONTEXT_PREPARATION_ACTIVITY_LABEL_KEYS as Readonly<
+				Record<string, I18nKey | undefined>
+			>
+		)[activityClass] ?? "chat.responseActivity.contextPreparing"
+	);
 }
 
 async function copyToClipboard() {

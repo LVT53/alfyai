@@ -31,6 +31,7 @@ import {
 import {
 	createNormalChatContextPreparationActivityHandler,
 	type NormalChatContextPreparationActivity,
+	type NormalChatContextPreparationStageTiming,
 } from "$lib/server/services/normal-chat-context-preparation";
 import {
 	buildNormalChatModelRunProviderOptions,
@@ -88,6 +89,7 @@ export type StreamingNormalChatPreparedContext = {
 	honchoContext?: HonchoContextInfo | null;
 	honchoSnapshot?: HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
+	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 };
 
 export type StreamingNormalChatSendModelResult = {
@@ -265,6 +267,7 @@ export async function runStreamingNormalChatSendModel(
 			honchoContext: prepared.honchoContext,
 			honchoSnapshot: prepared.honchoSnapshot,
 			contextTraceSections: prepared.contextTraceSections,
+			contextPreparationTimings: prepared.contextPreparationTimings,
 		},
 		modelId,
 		modelDisplayName: provider.displayName,

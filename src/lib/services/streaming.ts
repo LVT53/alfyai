@@ -1,4 +1,8 @@
-import type { ModelId, ResponseActivityEntry } from "$lib/types";
+import {
+	isNormalChatContextPreparationActivityClass,
+	type ModelId,
+	type ResponseActivityEntry,
+} from "$lib/types";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
@@ -251,6 +255,10 @@ function buildResponseActivityEntry(
 			: {}),
 		...(isResponseActivitySourceType(parsed.sourceType)
 			? { sourceType: parsed.sourceType }
+			: {}),
+		...(parsed.kind === "context" &&
+		isNormalChatContextPreparationActivityClass(parsed.contextPreparationClass)
+			? { contextPreparationClass: parsed.contextPreparationClass }
 			: {}),
 		...(typeof parsed.title === "string" ? { title: parsed.title } : {}),
 		...(typeof parsed.url === "string" ? { url: parsed.url } : {}),

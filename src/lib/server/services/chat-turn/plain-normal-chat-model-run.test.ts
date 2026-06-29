@@ -198,10 +198,30 @@ describe("runPlainNormalChatSendModel", () => {
 			{ stageId: "prompt_budget", status: "done" },
 		]);
 		expect(responseActivity.mock.calls.map(([entry]) => entry)).toEqual([
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "done" },
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "planning",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "planning",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "budgeting",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "done",
+				contextPreparationClass: "budgeting",
+			},
 		]);
 		expect(
 			responseActivity.mock.calls.map(([entry]) => entry.id),
@@ -214,6 +234,41 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 		expect(responseActivity.mock.calls.every(([entry]) => !entry.detail)).toBe(
 			true,
+		);
+	});
+
+	it("exposes context-preparation timings without passing them to provider transport", async () => {
+		const contextPreparationTimings = [
+			{
+				stageId: "plan" as const,
+				activityClass: "planning" as const,
+				status: "done" as const,
+				startedAt: 10,
+				completedAt: 14,
+				durationMs: 4,
+			},
+			{
+				stageId: "prompt_budget" as const,
+				activityClass: "budgeting" as const,
+				status: "done" as const,
+				startedAt: 20,
+				completedAt: 29,
+				durationMs: 9,
+			},
+		];
+		mocks.prepareOutboundChatContext.mockResolvedValue(
+			createPlainNormalChatPreparedContext({
+				contextPreparationTimings,
+			}),
+		);
+
+		const result = await runSubject();
+
+		expect(result.contextPreparationTimings).toEqual(contextPreparationTimings);
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				contextPreparationTimings: expect.anything(),
+			}),
 		);
 	});
 

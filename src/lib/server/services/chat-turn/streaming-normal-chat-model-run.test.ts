@@ -227,10 +227,30 @@ describe("runStreamingNormalChatSendModel", () => {
 			{ stageId: "prompt_budget", status: "done" },
 		]);
 		expect(responseActivity.mock.calls.map(([entry]) => entry)).toEqual([
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "running" },
-			{ id: "context-preparing", kind: "context", status: "done" },
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "planning",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "planning",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "budgeting",
+			},
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "done",
+				contextPreparationClass: "budgeting",
+			},
 		]);
 		expect(
 			responseActivity.mock.calls.map(([entry]) => entry.id),
@@ -243,6 +263,55 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 		expect(responseActivity.mock.calls.every(([entry]) => !entry.detail)).toBe(
 			true,
+		);
+	});
+
+	it("exposes context-preparation timings without passing them to provider transport", async () => {
+		const contextPreparationTimings = [
+			{
+				stageId: "plan" as const,
+				activityClass: "planning" as const,
+				status: "done" as const,
+				startedAt: 10,
+				completedAt: 15,
+				durationMs: 5,
+			},
+			{
+				stageId: "prompt_budget" as const,
+				activityClass: "budgeting" as const,
+				status: "done" as const,
+				startedAt: 20,
+				completedAt: 28,
+				durationMs: 8,
+			},
+		];
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "Prepared user prompt",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			honchoContext: null,
+			honchoSnapshot: null,
+			contextTraceSections: [],
+			contextPreparationTimings,
+		});
+
+		const result = await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Hello",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		expect(result.prepared.contextPreparationTimings).toEqual(
+			contextPreparationTimings,
+		);
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				contextPreparationTimings: expect.anything(),
+			}),
 		);
 	});
 

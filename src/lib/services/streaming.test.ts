@@ -304,6 +304,60 @@ describe("streamChat", () => {
 		});
 	});
 
+	it("preserves only known sanitized context preparation classes on response activity", async () => {
+		const onResponseActivity = vi.fn();
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "context-preparing",
+						kind: "context",
+						status: "running",
+						contextPreparationClass: "context-retrieval",
+						stageId: "constructed_context",
+						label: "Diagnostic context retrieval",
+						detail: "raw_stage=constructed_context",
+					},
+					transient: true,
+				}),
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "context-preparing",
+						kind: "context",
+						status: "running",
+						contextPreparationClass: "prompt_budget",
+						stageId: "prompt_budget",
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
+		await done;
+
+		expect(onResponseActivity).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "context-retrieval",
+			}),
+		);
+		expect(onResponseActivity.mock.calls[0]?.[0]).not.toHaveProperty("stageId");
+		expect(onResponseActivity).toHaveBeenNthCalledWith(2, {
+			id: "context-preparing",
+			kind: "context",
+			status: "running",
+		});
+	});
+
 	it("maps deliberation response-activity events onto the activity callback", async () => {
 		const onResponseActivity = vi.fn();
 		const { done } = runStreamWithMockedResponse({

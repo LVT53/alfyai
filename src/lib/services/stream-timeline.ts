@@ -1,3 +1,8 @@
+import {
+	isNormalChatContextPreparationActivityClass,
+	type NormalChatContextPreparationActivityClass,
+} from "$lib/types";
+
 export const SERVER_STREAM_TIMELINE_MARKS = {
 	ROUTE_PARSE: "route_parse",
 	CAPACITY: "capacity",
@@ -43,6 +48,36 @@ export type FallbackResponseActivityId = `fallback:${string}:${number}`;
 export type ResponseActivityId =
 	| StaticResponseActivityId
 	| FallbackResponseActivityId;
+export type ContextPreparationTimelineScope =
+	| { type: "primary" }
+	| { type: "fallback"; attempt: number };
+export type ContextPreparationTimelineMark =
+	| `context_preparation_primary_${string}`
+	| `context_preparation_fallback_${number}_${string}`;
+export type StreamTimelineContextPreparationTimingInput = {
+	stageId: string;
+	status?: unknown;
+	completedAt?: unknown;
+	durationMs?: unknown;
+};
+export type StreamTimelineContextPreparationSlowStageTimingInput<
+	StageId extends string = string,
+> = {
+	stageId: StageId;
+	activityClass?: unknown;
+	durationMs?: unknown;
+};
+export type StreamTimelineContextPreparationSlowStageDiagnostic<
+	StageId extends string = string,
+> = {
+	activityClass: NormalChatContextPreparationActivityClass;
+	stageId: StageId;
+	timingMark: ContextPreparationTimelineMark;
+	diagnosticKey: string;
+	durationMs: number;
+	budgetMs: number;
+	overByMs: number;
+};
 
 export type StreamTimelineTimingRecord<Mark extends string = string> = Partial<
 	Record<Mark, number>
@@ -67,6 +102,16 @@ export type BrowserStreamTimingRecord = {
 
 export const STREAM_TIMELINE_PAYLOAD_VERSION = 1;
 
+export const CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS = {
+	planning: 250,
+	"context-retrieval": 1_500,
+	"attachment-processing": 1_000,
+	"prompt-assembly": 750,
+	"context-compression": 4_000,
+	"web-grounding": 6_000,
+	budgeting: 250,
+} as const satisfies Record<NormalChatContextPreparationActivityClass, number>;
+
 export type StreamTimelineTerminalPayload = {
 	version: typeof STREAM_TIMELINE_PAYLOAD_VERSION;
 	server: StreamTimelineTimingRecord;
@@ -77,6 +122,18 @@ export function createFallbackResponseActivityId(
 	attempt: number,
 ): FallbackResponseActivityId {
 	return `fallback:${reason}:${attempt}` as FallbackResponseActivityId;
+}
+
+export function createContextPreparationStageTimelineMark(
+	stageId: string,
+	scope: ContextPreparationTimelineScope = { type: "primary" },
+): ContextPreparationTimelineMark {
+	const safeStageId = normalizeDynamicTimelineSegment(stageId);
+	if (scope.type === "fallback") {
+		const attempt = normalizeTimelineAttempt(scope.attempt);
+		return `context_preparation_fallback_${attempt}_${safeStageId}` as ContextPreparationTimelineMark;
+	}
+	return `context_preparation_primary_${safeStageId}` as ContextPreparationTimelineMark;
 }
 
 export function normalizeStreamTimelineDurationMs(
@@ -122,6 +179,65 @@ export function recordDurationStreamTimelineMark<Mark extends string>(
 	return true;
 }
 
+export function recordContextPreparationTimelineTimings(
+	timings: StreamTimelineTimingRecord,
+	contextPreparationTimings:
+		| readonly StreamTimelineContextPreparationTimingInput[]
+		| null
+		| undefined,
+	scope?: ContextPreparationTimelineScope,
+): void {
+	for (const timing of contextPreparationTimings ?? []) {
+		recordDurationStreamTimelineMark(
+			timings,
+			createContextPreparationStageTimelineMark(timing.stageId, scope),
+			timing.durationMs,
+		);
+	}
+}
+
+export function classifyContextPreparationSlowStageTimings<
+	StageId extends string,
+>(
+	contextPreparationTimings:
+		| readonly StreamTimelineContextPreparationSlowStageTimingInput<StageId>[]
+		| null
+		| undefined,
+	scope?: ContextPreparationTimelineScope,
+): StreamTimelineContextPreparationSlowStageDiagnostic<StageId>[] {
+	const diagnostics: StreamTimelineContextPreparationSlowStageDiagnostic<StageId>[] =
+		[];
+
+	for (const timing of contextPreparationTimings ?? []) {
+		if (!isNormalChatContextPreparationActivityClass(timing.activityClass)) {
+			continue;
+		}
+
+		const activityClass = timing.activityClass;
+		const durationMs = normalizeStreamTimelineDurationMs(timing.durationMs);
+		if (durationMs === undefined) continue;
+
+		const budgetMs = CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS[activityClass];
+		if (durationMs <= budgetMs) continue;
+
+		const timingMark = createContextPreparationStageTimelineMark(
+			timing.stageId,
+			scope,
+		);
+		diagnostics.push({
+			activityClass,
+			stageId: timing.stageId,
+			timingMark,
+			diagnosticKey: `${activityClass}:${timingMark}`,
+			durationMs,
+			budgetMs,
+			overByMs: durationMs - budgetMs,
+		});
+	}
+
+	return diagnostics;
+}
+
 export function normalizeStreamTimelineTimings<Mark extends string>(
 	timings: StreamTimelineTimingInput<Mark>,
 ): StreamTimelineTimingRecord<Mark> {
@@ -135,6 +251,19 @@ export function normalizeStreamTimelineTimings<Mark extends string>(
 		}
 	}
 	return normalized;
+}
+
+function normalizeDynamicTimelineSegment(value: string): string {
+	const normalized = value
+		.trim()
+		.replace(/[^A-Za-z0-9_-]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return normalized || "unknown";
+}
+
+function normalizeTimelineAttempt(attempt: number): number {
+	if (!Number.isFinite(attempt)) return 1;
+	return Math.max(1, Math.floor(attempt));
 }
 
 export function formatServerTimingHeader(

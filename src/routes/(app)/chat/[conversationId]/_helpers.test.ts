@@ -355,6 +355,40 @@ describe("file production chat helpers", () => {
 		});
 	});
 
+	it("preserves sanitized context preparation classes when placeholder activity updates merge", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const running = applyResponseActivityEntryToMessageList(
+			list,
+			"assistant-1",
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "context-retrieval",
+			},
+		);
+		const updated = applyResponseActivityEntryToMessageList(
+			running,
+			"assistant-1",
+			{
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				count: 2,
+			},
+		);
+
+		expect(updated[0].responseActivity).toEqual([
+			expect.objectContaining({
+				id: "context-preparing",
+				kind: "context",
+				status: "running",
+				contextPreparationClass: "context-retrieval",
+				count: 2,
+			}),
+		]);
+	});
+
 	it("mirrors deliberation activity into auditable thinking status segments", () => {
 		const list = [createAssistantPlaceholder("assistant-1")];
 		const running = applyResponseActivityEntryToMessageList(

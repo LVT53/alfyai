@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
+import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type {
 	ContextDebugState,
@@ -40,6 +41,7 @@ export interface NonStreamFallbackResponse {
 	modelId?: ModelId;
 	modelDisplayName?: string;
 	depthMetadata?: DepthMetadata;
+	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 }
 
 export interface NonStreamFallbackDeps {
@@ -88,6 +90,10 @@ export interface NonStreamFallbackDeps {
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
 	onDepthMetadata?: (metadata: DepthMetadata) => void;
 	onRecoveredToolCalls?: (toolCalls: ToolCallEntry[]) => void;
+	onContextPreparationTimings?: (
+		timings: NormalChatContextPreparationStageTiming[],
+		attempt: number,
+	) => void;
 	completedToolCallContext?: string | null;
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 }
@@ -287,6 +293,12 @@ export async function runNonStreamFallback(
 				attempt,
 			};
 			const fallbackResponse = await runFallbackAttempt(deps, iterationContext);
+			if (fallbackResponse.contextPreparationTimings?.length) {
+				deps.onContextPreparationTimings?.(
+					fallbackResponse.contextPreparationTimings,
+					attempt,
+				);
+			}
 			await applyFallbackModelSideEffects(deps, fallbackResponse);
 
 			if (!fallbackResponse.text?.trim()) {

@@ -463,6 +463,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			id: "context-ready",
 			kind: "context" as const,
 			status: "done" as const,
+			contextPreparationClass: "context-retrieval" as const,
 			count: 2,
 		};
 		streamInvocations[0].callbacks.onResponseActivity?.(entry);

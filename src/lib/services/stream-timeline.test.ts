@@ -3,6 +3,9 @@ import {
 	BROWSER_STREAM_TIMING_MARKS,
 	type BrowserStreamTimingMark,
 	type BrowserStreamTimingRecord,
+	CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS,
+	classifyContextPreparationSlowStageTimings,
+	createContextPreparationStageTimelineMark,
 	createFallbackResponseActivityId,
 	createTerminalStreamTimelinePayload,
 	formatServerTimingHeader,
@@ -11,6 +14,7 @@ import {
 	parseServerTimingHeader,
 	RESPONSE_ACTIVITY_IDS,
 	type ResponseActivityId,
+	recordContextPreparationTimelineTimings,
 	recordDurationStreamTimelineMark,
 	recordElapsedStreamTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
@@ -54,6 +58,15 @@ describe("stream timeline vocabulary", () => {
 		expect(createFallbackResponseActivityId("stream_connect_failure", 2)).toBe(
 			"fallback:stream_connect_failure:2",
 		);
+		expect(createContextPreparationStageTimelineMark("prompt_budget")).toBe(
+			"context_preparation_primary_prompt_budget",
+		);
+		expect(
+			createContextPreparationStageTimelineMark("prompt_budget", {
+				type: "fallback",
+				attempt: 2,
+			}),
+		).toBe("context_preparation_fallback_2_prompt_budget");
 		expect(STREAM_TIMELINE_PAYLOAD_VERSION).toBe(1);
 	});
 
@@ -210,5 +223,97 @@ describe("stream timeline vocabulary", () => {
 			},
 		});
 		expect(JSON.parse(JSON.stringify(payload))).toEqual(payload);
+	});
+
+	it("records completed context-preparation timings under scoped timeline marks", () => {
+		const timings = {
+			context_preparation_primary_plan: 999,
+		};
+
+		recordContextPreparationTimelineTimings(timings, [
+			{
+				stageId: "plan",
+				durationMs: 12,
+			},
+			{
+				stageId: "constructed_context",
+				durationMs: "23.5",
+			},
+			{
+				stageId: "prompt_budget",
+				status: "started",
+			},
+			{
+				stageId: "forced web prefetch",
+				durationMs: 4,
+			},
+			{
+				stageId: "invalid",
+				durationMs: -1,
+			},
+		]);
+		recordContextPreparationTimelineTimings(
+			timings,
+			[
+				{
+					stageId: "plan",
+					durationMs: 5,
+				},
+			],
+			{ type: "fallback", attempt: 2 },
+		);
+
+		expect(timings).toEqual({
+			context_preparation_primary_plan: 999,
+			context_preparation_primary_constructed_context: 23.5,
+			context_preparation_primary_forced_web_prefetch: 4,
+			context_preparation_fallback_2_plan: 5,
+		});
+	});
+
+	it("classifies over-budget context-preparation timing records deterministically", () => {
+		const webGroundingBudgetMs =
+			CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS["web-grounding"];
+		const budgetingBudgetMs =
+			CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS.budgeting;
+
+		const diagnostics = classifyContextPreparationSlowStageTimings(
+			[
+				{
+					stageId: "prompt_budget",
+					activityClass: "budgeting",
+					durationMs: budgetingBudgetMs,
+				},
+				{
+					stageId: "forced web prefetch",
+					activityClass: "web-grounding",
+					durationMs: webGroundingBudgetMs + 25,
+				},
+				{
+					stageId: "constructed_context",
+					activityClass: "context-retrieval",
+					durationMs: -1,
+				},
+				{
+					stageId: "api key leak attempt",
+					activityClass: "provider-name-or-user-text" as never,
+					durationMs: Number.MAX_SAFE_INTEGER,
+				},
+			],
+			{ type: "fallback", attempt: 2 },
+		);
+
+		expect(diagnostics).toEqual([
+			{
+				activityClass: "web-grounding",
+				stageId: "forced web prefetch",
+				timingMark: "context_preparation_fallback_2_forced_web_prefetch",
+				diagnosticKey:
+					"web-grounding:context_preparation_fallback_2_forced_web_prefetch",
+				durationMs: webGroundingBudgetMs + 25,
+				budgetMs: webGroundingBudgetMs,
+				overByMs: 25,
+			},
+		]);
 	});
 });

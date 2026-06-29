@@ -19,6 +19,7 @@ describe("runNonStreamFallback", () => {
 	const mockOnHonchoSnapshot = vi.fn();
 	const mockOnProviderUsage = vi.fn();
 	const mockOnRecoveredToolCalls = vi.fn();
+	const mockOnContextPreparationTimings = vi.fn();
 
 	const defaultSendParams = {
 		runtimeConfig: {
@@ -73,6 +74,7 @@ describe("runNonStreamFallback", () => {
 			onHonchoSnapshot: mockOnHonchoSnapshot,
 			onProviderUsage: mockOnProviderUsage,
 			onRecoveredToolCalls: mockOnRecoveredToolCalls,
+			onContextPreparationTimings: mockOnContextPreparationTimings,
 			...overrides,
 		});
 	}
@@ -273,6 +275,61 @@ describe("runNonStreamFallback", () => {
 		);
 		expect(mockEmitText).toHaveBeenCalledWith("fallback response");
 		expect(mockCompleteSuccess).toHaveBeenCalled();
+	});
+
+	it("reports context-preparation timings for each fallback attempt", async () => {
+		const firstAttemptTimings = [
+			{
+				stageId: "plan",
+				activityClass: "planning",
+				status: "done",
+				startedAt: 10,
+				completedAt: 13,
+				durationMs: 3,
+			},
+		];
+		const secondAttemptTimings = [
+			{
+				stageId: "plan",
+				activityClass: "planning",
+				status: "done",
+				startedAt: 20,
+				completedAt: 25,
+				durationMs: 5,
+			},
+			{
+				stageId: "prompt_budget",
+				activityClass: "budgeting",
+				status: "done",
+				startedAt: 30,
+				completedAt: 37,
+				durationMs: 7,
+			},
+		];
+		mockRunPlainNormalChatSendModel
+			.mockResolvedValueOnce({
+				...defaultFallbackResponse,
+				text: null,
+				contextPreparationTimings: firstAttemptTimings,
+			})
+			.mockResolvedValueOnce({
+				...defaultFallbackResponse,
+				contextPreparationTimings: secondAttemptTimings,
+			});
+
+		const result = await callFallback();
+
+		expect(result).toBe(true);
+		expect(mockOnContextPreparationTimings).toHaveBeenNthCalledWith(
+			1,
+			firstAttemptTimings,
+			1,
+		);
+		expect(mockOnContextPreparationTimings).toHaveBeenNthCalledWith(
+			2,
+			secondAttemptTimings,
+			2,
+		);
 	});
 
 	it("uses completed tool context and disables tools when recovering after tool-only stream output", async () => {

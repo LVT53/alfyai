@@ -75,6 +75,7 @@ import {
 	createFallbackResponseActivityId,
 	createTerminalStreamTimelinePayload,
 	RESPONSE_ACTIVITY_IDS,
+	recordContextPreparationTimelineTimings,
 	recordDurationStreamTimelineMark,
 	recordElapsedStreamTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
@@ -1096,6 +1097,12 @@ export function runChatStreamOrchestrator(
 						latestDepthMetadata = metadata;
 					},
 					onRecoveredToolCalls: emitRecoveredToolCalls,
+					onContextPreparationTimings: (timings, fallbackAttempt) => {
+						recordContextPreparationTimelineTimings(phaseTimingMs, timings, {
+							type: "fallback",
+							attempt: fallbackAttempt,
+						});
+					},
 					onResponseActivity: emitResponseActivity,
 					completedToolCallContext: buildCompletedToolCallFallbackContext(
 						chunkRuntime.toolCallRecords,
@@ -1226,6 +1233,10 @@ export function runChatStreamOrchestrator(
 				latestDepthMetadata = modelRun.depthMetadata ?? latestDepthMetadata;
 				const prepared: StreamingNormalChatPreparedContext =
 					modelRun.prepared ?? {};
+				recordContextPreparationTimelineTimings(
+					phaseTimingMs,
+					prepared.contextPreparationTimings,
+				);
 				emitResponseActivity({
 					id: RESPONSE_ACTIVITY_IDS.CONTEXT_READY,
 					kind: "context",

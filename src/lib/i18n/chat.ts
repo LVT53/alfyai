@@ -40,6 +40,18 @@ const chatDict = {
 		"chat.queueMessage": "Send follow-up",
 		"chat.queuedNext": "Queued next",
 		"chat.responseActivity.contextPreparing": "Preparing context...",
+		"chat.responseActivity.contextPreparation.assembly":
+			"Preparing instructions...",
+		"chat.responseActivity.contextPreparation.attachments":
+			"Processing attachments...",
+		"chat.responseActivity.contextPreparation.budgeting":
+			"Checking context size...",
+		"chat.responseActivity.contextPreparation.compression":
+			"Condensing context...",
+		"chat.responseActivity.contextPreparation.planning": "Planning context...",
+		"chat.responseActivity.contextPreparation.retrieval":
+			"Retrieving context...",
+		"chat.responseActivity.contextPreparation.web": "Checking web context...",
 		"chat.responseActivity.drafting": "Drafting response...",
 		"chat.responseActivity.finalizing": "Finalizing response...",
 		"chat.regenerate": "Regenerate",
@@ -667,6 +679,20 @@ const chatDict = {
 		"chat.queueMessage": "Következő üzenet küldése",
 		"chat.queuedNext": "Következő üzenet várakozik",
 		"chat.responseActivity.contextPreparing": "Kontextus előkészítése...",
+		"chat.responseActivity.contextPreparation.assembly":
+			"Utasítások előkészítése...",
+		"chat.responseActivity.contextPreparation.attachments":
+			"Csatolmányok feldolgozása...",
+		"chat.responseActivity.contextPreparation.budgeting":
+			"Kontextus méretének ellenőrzése...",
+		"chat.responseActivity.contextPreparation.compression":
+			"Kontextus tömörítése...",
+		"chat.responseActivity.contextPreparation.planning":
+			"Kontextus tervezése...",
+		"chat.responseActivity.contextPreparation.retrieval":
+			"Kontextus lekérése...",
+		"chat.responseActivity.contextPreparation.web":
+			"Webes kontextus ellenőrzése...",
 		"chat.responseActivity.drafting": "Válasz megfogalmazása...",
 		"chat.responseActivity.finalizing": "Válasz véglegesítése...",
 		"chat.regenerate": "Válasz újragenerálása",

@@ -31,6 +31,7 @@ import { inferModelContextWindow } from "./model-context";
 import {
 	getDefaultNormalChatContextPreparationPlan,
 	type NormalChatContextPreparationActivityCallback,
+	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
 
@@ -76,6 +77,7 @@ export type PreparedOutboundChatContext = {
 	prefetchedToolCalls?: ToolCallEntry[];
 	outputTokenBudget?: OutputTokenBudget;
 	contextLimits: PromptContextLimits;
+	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 };
 
 export type OutputTokenBudget = {
@@ -1542,7 +1544,7 @@ export async function prepareOutboundChatContext(
 			params.modelConfig,
 			getPreparationConfig(),
 		);
-	const { state } =
+	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
 			{
 				plan: getDefaultNormalChatContextPreparationPlan(),
@@ -1694,5 +1696,6 @@ export async function prepareOutboundChatContext(
 			state.contextLimits,
 			"contextLimits",
 		),
+		contextPreparationTimings: timings.map((timing) => ({ ...timing })),
 	};
 }

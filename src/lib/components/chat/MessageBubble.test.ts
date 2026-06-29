@@ -141,6 +141,63 @@ describe("MessageBubble", () => {
 		expect(container).not.toHaveTextContent("123");
 	});
 
+	it("maps sanitized context preparation classes to localized placeholder text", () => {
+		const message: ChatMessage = {
+			id: "assistant-context-class",
+			renderKey: "assistant-context-class",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.CONTEXT_PREPARING,
+					kind: "context",
+					status: "running",
+					contextPreparationClass: "context-retrieval",
+					label: "Raw retrieval label",
+					detail: "stageId=constructed_context",
+				},
+			],
+		};
+
+		const { container } = render(MessageBubble, { message });
+
+		expect(screen.getByText("Retrieving context...")).toBeInTheDocument();
+		expect(screen.queryByText("Preparing context...")).not.toBeInTheDocument();
+		expect(screen.queryByText("Raw retrieval label")).not.toBeInTheDocument();
+		expect(container).not.toHaveTextContent("constructed_context");
+	});
+
+	it("falls back for unknown context preparation classes without rendering diagnostics", () => {
+		const message: ChatMessage = {
+			id: "assistant-context-unknown-class",
+			renderKey: "assistant-context-unknown-class",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.CONTEXT_PREPARING,
+					kind: "context",
+					status: "running",
+					contextPreparationClass: "prompt_budget",
+					label: "Budget prompt label",
+					detail: "raw_stage=prompt_budget",
+				} as unknown as NonNullable<ChatMessage["responseActivity"]>[number],
+			],
+		};
+
+		const { container } = render(MessageBubble, { message });
+
+		expect(screen.getByText("Preparing context...")).toBeInTheDocument();
+		expect(screen.queryByText("Budget prompt label")).not.toBeInTheDocument();
+		expect(container).not.toHaveTextContent("prompt_budget");
+	});
+
 	it("shows a localized drafting label for the latest known early activity", () => {
 		const message: ChatMessage = {
 			id: "assistant-drafting",
@@ -218,6 +275,15 @@ describe("MessageBubble", () => {
 		expect(chatDict.hu["chat.responseActivity.finalizing"]).toBe(
 			"Válasz véglegesítése...",
 		);
+	});
+
+	it("includes localized context preparation class labels", () => {
+		expect(
+			chatDict.en["chat.responseActivity.contextPreparation.retrieval"],
+		).toBe("Retrieving context...");
+		expect(
+			chatDict.hu["chat.responseActivity.contextPreparation.retrieval"],
+		).toBe("Kontextus lekérése...");
 	});
 
 	it("defers the pending Evidence loading row until the assistant response is complete", async () => {

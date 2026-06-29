@@ -11,6 +11,7 @@ import {
 } from "$lib/server/services/chat-turn/active-streams";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
 import {
+	createContextPreparationStageTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
@@ -1043,14 +1044,44 @@ describe("stream-orchestrator SSE contract", () => {
 		(
 			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
 		).mockResolvedValue(
-			createNeutralStreamingResult([
+			createNeutralStreamingResult(
+				[
+					{
+						type: "reasoning_delta",
+						text: "Thinking through the answer before drafting.",
+					},
+					{ type: "text_delta", text: "Hi" },
+					finishEvent,
+				],
 				{
-					type: "reasoning_delta",
-					text: "Thinking through the answer before drafting.",
+					prepared: {
+						contextStatus: null,
+						taskState: null,
+						contextDebug: null,
+						honchoContext: null,
+						honchoSnapshot: null,
+						contextTraceSections: undefined,
+						contextPreparationTimings: [
+							{
+								stageId: "plan",
+								activityClass: "planning",
+								status: "done",
+								startedAt: 10,
+								completedAt: 15,
+								durationMs: 5,
+							},
+							{
+								stageId: "prompt_budget",
+								activityClass: "budgeting",
+								status: "done",
+								startedAt: 20,
+								completedAt: 31,
+								durationMs: 11,
+							},
+						],
+					},
 				},
-				{ type: "text_delta", text: "Hi" },
-				finishEvent,
-			]),
+			),
 		);
 
 		const preparedTurn = createTurn();
@@ -1119,6 +1150,8 @@ describe("stream-orchestrator SSE contract", () => {
 				[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: expect.any(Number),
+				[createContextPreparationStageTimelineMark("plan")]: 5,
+				[createContextPreparationStageTimelineMark("prompt_budget")]: 11,
 				[SERVER_STREAM_TIMELINE_MARKS.END]: expect.any(Number),
 			}),
 		});
@@ -1135,6 +1168,8 @@ describe("stream-orchestrator SSE contract", () => {
 				first_upstream_event_ms: expect.any(Number),
 				first_thinking_ms: expect.any(Number),
 				first_visible_token_ms: expect.any(Number),
+				context_preparation_primary_plan_ms: 5,
+				context_preparation_primary_prompt_budget_ms: 11,
 				end_ms: expect.any(Number),
 			}),
 		);
@@ -1380,7 +1415,27 @@ describe("stream-orchestrator SSE contract", () => {
 					},
 					{ type: "error", error: "socket terminated" },
 				],
-				{ normalChatToolCalls: [recorderEntry] },
+				{
+					normalChatToolCalls: [recorderEntry],
+					prepared: {
+						contextStatus: null,
+						taskState: null,
+						contextDebug: null,
+						honchoContext: null,
+						honchoSnapshot: null,
+						contextTraceSections: undefined,
+						contextPreparationTimings: [
+							{
+								stageId: "plan",
+								activityClass: "planning",
+								status: "done",
+								startedAt: 10,
+								completedAt: 13,
+								durationMs: 3,
+							},
+						],
+					},
+				},
 			),
 		);
 		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -1395,12 +1450,28 @@ describe("stream-orchestrator SSE contract", () => {
 				normalChatToolCalls: [],
 				modelId: "model1",
 				modelDisplayName: "Model One",
+				contextPreparationTimings: [
+					{
+						stageId: "plan",
+						activityClass: "planning",
+						status: "done",
+						startedAt: 20,
+						completedAt: 27,
+						durationMs: 7,
+					},
+				],
 			},
 		);
 
 		const response = runStream();
 		const chunks = await readSseResponse(response);
 		const body = chunks.join("\n\n");
+		const metadataPayload = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+		const serverTimeline =
+			metadataPayload.serverTimeline as StreamTimelineTerminalPayload;
 
 		expect(runPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1412,6 +1483,15 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 		expect(body).toContain("Recovered answer from fetched page.");
 		expect(body).not.toContain("data-stream-error");
+		expect(serverTimeline.server).toEqual(
+			expect.objectContaining({
+				[createContextPreparationStageTimelineMark("plan")]: 3,
+				[createContextPreparationStageTimelineMark("plan", {
+					type: "fallback",
+					attempt: 1,
+				})]: 7,
+			}),
+		);
 		expect(persistAssistantEvidence).toHaveBeenCalledWith(
 			expect.objectContaining({
 				toolCalls: expect.arrayContaining([

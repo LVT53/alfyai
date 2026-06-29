@@ -50,9 +50,12 @@ import {
 	prepareOutboundChatContext,
 } from "./normal-chat-context";
 import {
+	evaluateNormalChatContextPreparationSlowStageBudgets,
 	getDefaultNormalChatContextPreparationPlan,
+	NORMAL_CHAT_CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS,
 	type NormalChatContextPreparationActivity,
 	type NormalChatContextPreparationStageId,
+	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
 
@@ -110,6 +113,18 @@ async function flushMicrotasks(count = 5) {
 	for (let index = 0; index < count; index += 1) {
 		await Promise.resolve();
 	}
+}
+
+function createDeterministicClock(timestamps: number[]) {
+	let index = 0;
+	return () => {
+		const timestamp = timestamps[index];
+		if (timestamp === undefined) {
+			throw new Error(`Deterministic clock exhausted at tick ${index}`);
+		}
+		index += 1;
+		return timestamp;
+	};
 }
 
 const compactContextLimits = {
@@ -202,6 +217,150 @@ describe("normal chat context preparation stages", () => {
 				error: "base prompt failed",
 			}),
 		);
+	});
+
+	it("returns deterministic timing records for every completed stage", async () => {
+		const result = await runNormalChatContextPreparationStages({
+			plan: {
+				stages: [
+					{ id: "plan", dependsOn: [] },
+					{ id: "base_prompt", dependsOn: ["plan"] },
+				],
+			},
+			initialState: { steps: [] as string[] },
+			handlers: {
+				plan: (state) => ({ steps: [...state.steps, "plan"] }),
+				base_prompt: (state) => ({ steps: [...state.steps, "base_prompt"] }),
+			},
+			now: createDeterministicClock([1_000, 1_005, 1_010, 1_025]),
+		});
+
+		expect(result.state.steps).toEqual(["plan", "base_prompt"]);
+		expect(result.timings).toEqual([
+			{
+				stageId: "plan",
+				activityClass: "planning",
+				startedAt: 1_000,
+				completedAt: 1_005,
+				durationMs: 5,
+				status: "done",
+			},
+			{
+				stageId: "base_prompt",
+				activityClass: "prompt-assembly",
+				startedAt: 1_010,
+				completedAt: 1_025,
+				durationMs: 15,
+				status: "done",
+			},
+		]);
+	});
+
+	it("exposes deterministic timing records for a failing started stage", async () => {
+		let thrown: unknown;
+
+		try {
+			await runNormalChatContextPreparationStages({
+				plan: {
+					stages: [
+						{ id: "plan", dependsOn: [] },
+						{ id: "base_prompt", dependsOn: ["plan"] },
+						{ id: "system_prompt", dependsOn: ["base_prompt"] },
+					],
+				},
+				initialState: { steps: [] as string[] },
+				handlers: {
+					plan: (state) => ({ steps: [...state.steps, "plan"] }),
+					base_prompt: () => {
+						throw new Error("base prompt failed");
+					},
+					system_prompt: (state) => state,
+				},
+				now: createDeterministicClock([2_000, 2_008, 2_010, 2_017]),
+			});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(Error);
+		expect((thrown as Error).message).toBe("base prompt failed");
+		expect(
+			(
+				thrown as Error & {
+					contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
+				}
+			).contextPreparationTimings,
+		).toEqual([
+			{
+				stageId: "plan",
+				activityClass: "planning",
+				startedAt: 2_000,
+				completedAt: 2_008,
+				durationMs: 8,
+				status: "done",
+			},
+			{
+				stageId: "base_prompt",
+				activityClass: "prompt-assembly",
+				startedAt: 2_010,
+				completedAt: 2_017,
+				durationMs: 7,
+				status: "error",
+			},
+		]);
+	});
+
+	it("classifies slow-stage budgets without changing stage execution", async () => {
+		const promptAssemblyBudgetMs =
+			NORMAL_CHAT_CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS["prompt-assembly"];
+		const result = await runNormalChatContextPreparationStages({
+			plan: {
+				stages: [
+					{ id: "plan", dependsOn: [] },
+					{ id: "base_prompt", dependsOn: ["plan"] },
+					{ id: "system_prompt", dependsOn: ["base_prompt"] },
+				],
+			},
+			initialState: { steps: [] as string[] },
+			handlers: {
+				plan: (state) => ({ steps: [...state.steps, "plan"] }),
+				base_prompt: (state) => ({ steps: [...state.steps, "base_prompt"] }),
+				system_prompt: (state) => ({
+					steps: [...state.steps, "system_prompt"],
+				}),
+			},
+			now: createDeterministicClock([
+				1_000,
+				1_005,
+				2_000,
+				2_000 + promptAssemblyBudgetMs,
+				3_000,
+				3_000 + promptAssemblyBudgetMs + 1,
+			]),
+		});
+
+		expect(result.state.steps).toEqual([
+			"plan",
+			"base_prompt",
+			"system_prompt",
+		]);
+		expect(() =>
+			evaluateNormalChatContextPreparationSlowStageBudgets(result.timings),
+		).not.toThrow();
+		expect(
+			evaluateNormalChatContextPreparationSlowStageBudgets(result.timings),
+		).toEqual([
+			{
+				activityClass: "prompt-assembly",
+				stageId: "system_prompt",
+				timingMark: "context_preparation_primary_system_prompt",
+				diagnosticKey:
+					"prompt-assembly:context_preparation_primary_system_prompt",
+				durationMs: promptAssemblyBudgetMs + 1,
+				budgetMs: promptAssemblyBudgetMs,
+				overByMs: 1,
+			},
+		]);
 	});
 });
 
@@ -567,6 +726,64 @@ describe("prepareOutboundChatContext", () => {
 		expect(eventIndex("prompt_budget:started")).toBeGreaterThan(
 			eventIndex("forced_web_prefetch:done"),
 		);
+		expect(prepared.contextPreparationTimings).toHaveLength(8);
+		expect(
+			prepared.contextPreparationTimings?.map((timing) => ({
+				stageId: timing.stageId,
+				activityClass: timing.activityClass,
+				status: timing.status,
+				durationMs: timing.durationMs,
+			})),
+		).toEqual([
+			{
+				stageId: "plan",
+				activityClass: "planning",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "constructed_context",
+				activityClass: "context-retrieval",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "base_prompt",
+				activityClass: "prompt-assembly",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "attachment_trace",
+				activityClass: "attachment-processing",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "system_prompt",
+				activityClass: "prompt-assembly",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "automatic_compression",
+				activityClass: "context-compression",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "forced_web_prefetch",
+				activityClass: "web-grounding",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "prompt_budget",
+				activityClass: "budgeting",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+		]);
 	});
 
 	it("still rejects constructed context failures after independent base prompt setup may start", async () => {

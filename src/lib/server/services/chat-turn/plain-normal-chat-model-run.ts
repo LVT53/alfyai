@@ -33,6 +33,7 @@ import {
 import {
 	createNormalChatContextPreparationActivityHandler,
 	type NormalChatContextPreparationActivity,
+	type NormalChatContextPreparationStageTiming,
 } from "$lib/server/services/normal-chat-context-preparation";
 import {
 	buildNormalChatModelRunProviderOptions,
@@ -94,6 +95,7 @@ export type PlainNormalChatSendModelResult = {
 	honchoContext?: HonchoContextInfo | null;
 	honchoSnapshot?: HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
+	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 	providerUsage?: ProviderUsageSnapshot | null;
 	prefetchedToolCalls?: ToolCallEntry[];
 	normalChatToolCalls?: ToolCallEntry[];
@@ -514,6 +516,7 @@ function buildRunResult(
 		honchoContext: prepared.honchoContext,
 		honchoSnapshot: prepared.honchoSnapshot,
 		contextTraceSections: prepared.contextTraceSections,
+		contextPreparationTimings: prepared.contextPreparationTimings,
 		providerUsage: mapNormalChatModelRunUsageToProviderSnapshot(
 			sumUsage(
 				sumUsage(deliberationUsage, result.usage),

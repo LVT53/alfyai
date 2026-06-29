@@ -34,6 +34,28 @@ export type ResponseActivityKind =
 	| "file";
 export type ResponseActivityStatus = "running" | "done" | "error";
 export type ResponseActivitySourceType = "web" | "document" | "memory" | "tool";
+const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES = [
+	"planning",
+	"context-retrieval",
+	"attachment-processing",
+	"prompt-assembly",
+	"context-compression",
+	"web-grounding",
+	"budgeting",
+] as const;
+export type NormalChatContextPreparationActivityClass =
+	(typeof NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES)[number];
+
+export function isNormalChatContextPreparationActivityClass(
+	value: unknown,
+): value is NormalChatContextPreparationActivityClass {
+	return (
+		typeof value === "string" &&
+		NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES.includes(
+			value as NormalChatContextPreparationActivityClass,
+		)
+	);
+}
 
 export interface ResponseActivityEntry {
 	id: string;
@@ -44,6 +66,7 @@ export interface ResponseActivityEntry {
 	callId?: string;
 	toolName?: string;
 	sourceType?: ResponseActivitySourceType;
+	contextPreparationClass?: NormalChatContextPreparationActivityClass;
 	title?: string;
 	url?: string;
 	count?: number;
