@@ -683,13 +683,6 @@ function summarizeSystemPrompt(system: unknown): string {
 function buildPromptCacheKey(
 	context: NormalChatModelRunPromptCacheContext,
 ): string {
-	const adapterProfile = resolveOpenAICompatibleProviderAdapterProfile(
-		context.provider,
-	);
-	if (adapterProfile.family !== "openai") {
-		return "";
-	}
-
 	const modelId =
 		context.modelId ??
 		context.provider.modelId ??
@@ -747,23 +740,56 @@ function buildPromptCacheKey(
 		.slice(0, 32);
 }
 
+function resolvePromptCacheOptionsNamespace(
+	provider: NormalChatModelRunProvider,
+): "openai" | "fireworks" | null {
+	if (
+		resolveOpenAICompatibleProviderAdapterProfile(provider).family === "openai"
+	) {
+		return "openai";
+	}
+	if (isFireworksPromptCacheProvider(provider)) {
+		return "fireworks";
+	}
+	return null;
+}
+
+function isFireworksPromptCacheProvider(
+	provider: NormalChatModelRunProvider,
+): boolean {
+	const signals = [
+		provider.name,
+		provider.displayName,
+		provider.baseUrl,
+		provider.modelName,
+		...(provider.modelAliases ?? []),
+	]
+		.join(" ")
+		.toLowerCase();
+	return (
+		signals.includes("api.fireworks.ai") ||
+		signals.includes(".fireworks.ai") ||
+		signals.includes("accounts/fireworks/") ||
+		/\bfireworks\b/.test(signals)
+	);
+}
+
 function withPromptCacheOption(
 	context: NormalChatModelRunPromptCacheContext,
 	options?: NormalChatModelRunProviderOptions,
 ): NormalChatModelRunProviderOptions | undefined {
-	if (
-		resolveOpenAICompatibleProviderAdapterProfile(context.provider).family !==
-		"openai"
-	) {
-		return options;
-	}
+	const namespace = resolvePromptCacheOptionsNamespace(context.provider);
+	if (!namespace) return options;
 
 	const promptCacheKey = buildPromptCacheKey(context);
 	if (!promptCacheKey) return options;
 
 	const normalizedOptions = stableProviderOptionsObject(options);
-	const openaiOptions = stableProviderOptionsObject(normalizedOptions.openai);
-	const existingPromptCacheKey = openaiOptions.promptCacheKey;
+	const providerOptions = stableProviderOptionsObject(
+		normalizedOptions[namespace],
+	);
+	const existingPromptCacheKey =
+		providerOptions.promptCacheKey ?? providerOptions.prompt_cache_key;
 	if (
 		typeof existingPromptCacheKey === "string" &&
 		existingPromptCacheKey.length > 0
@@ -773,18 +799,34 @@ function withPromptCacheOption(
 
 	return {
 		...normalizedOptions,
-		openai: {
-			...openaiOptions,
+		[namespace]: {
+			...providerOptions,
 			promptCacheKey,
 		},
-	};
+	} as NormalChatModelRunProviderOptions;
 }
 
 function mapInputTokenDetails(usage: LanguageModelUsage): {
 	cacheReadTokens?: number;
 	cacheWriteTokens?: number;
 	cacheMissTokens?: number;
+	hasCacheContext: boolean;
 } {
+	const raw = stableProviderOptionsObject(
+		(usage as LanguageModelUsage & { raw?: unknown }).raw,
+	);
+	const rawPromptTokenDetails = stableProviderOptionsObject(
+		raw.prompt_tokens_details,
+	);
+	const rawCacheHitTokens = asNumber(
+		raw.prompt_cache_hit_tokens ??
+			raw.promptCacheHitTokens ??
+			rawPromptTokenDetails.cached_tokens ??
+			rawPromptTokenDetails.cachedTokens,
+	);
+	const rawCacheMissTokens = asNumber(
+		raw.prompt_cache_miss_tokens ?? raw.promptCacheMissTokens,
+	);
 	const details = usage.inputTokenDetails as
 		| {
 				cacheReadTokens?: number;
@@ -792,10 +834,23 @@ function mapInputTokenDetails(usage: LanguageModelUsage): {
 				noCacheTokens?: number;
 		  }
 		| undefined;
+	const detailCacheReadTokens = asNumber(details?.cacheReadTokens);
+	const detailCacheWriteTokens = asNumber(details?.cacheWriteTokens);
+	const detailNoCacheTokens = asNumber(details?.noCacheTokens);
+	const cacheReadTokens = detailCacheReadTokens ?? rawCacheHitTokens;
+	const cacheWriteTokens = detailCacheWriteTokens;
+	const cacheMissTokens = rawCacheMissTokens ?? detailNoCacheTokens;
+	const hasRawCacheContext =
+		rawCacheHitTokens !== undefined || rawCacheMissTokens !== undefined;
+	const hasPositiveGenericCacheContext =
+		(cacheReadTokens !== undefined && cacheReadTokens > 0) ||
+		(cacheWriteTokens !== undefined && cacheWriteTokens > 0);
+
 	return {
-		cacheReadTokens: asNumber(details?.cacheReadTokens),
-		cacheWriteTokens: asNumber(details?.cacheWriteTokens),
-		cacheMissTokens: asNumber(details?.noCacheTokens),
+		cacheReadTokens,
+		cacheWriteTokens,
+		cacheMissTokens,
+		hasCacheContext: hasRawCacheContext || hasPositiveGenericCacheContext,
 	};
 }
 
@@ -835,18 +890,19 @@ export function mapUsage(
 	const cacheWriteTokens = asNumber(inputTokenDetails.cacheWriteTokens);
 	const cacheMissTokens = asNumber(inputTokenDetails.cacheMissTokens);
 	const cacheHitTokens =
-		cacheReadTokens !== undefined && cacheReadTokens > 0
+		cacheReadTokens !== undefined
 			? cacheReadTokens
 			: providerMetadataCachedPromptTokens.cacheHitTokens;
 	const cachedInputTokens = (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
 	const hasCacheContext =
-		cachedInputTokens > 0 ||
+		inputTokenDetails.hasCacheContext ||
 		providerMetadataCachedPromptTokens.cacheMissTokens !== undefined ||
 		providerMetadataCachedPromptTokens.cacheHitTokens !== undefined ||
 		providerMetadataCachedPromptTokens.cachedInputTokens !== undefined;
 
 	const resolvedCachedInputTokens =
-		cachedInputTokens > 0
+		hasCacheContext &&
+		(cacheReadTokens !== undefined || cacheWriteTokens !== undefined)
 			? cachedInputTokens
 			: providerMetadataCachedPromptTokens.cachedInputTokens;
 	const resolvedCacheMissTokens =
@@ -854,7 +910,7 @@ export function mapUsage(
 			? cacheMissTokens
 			: providerMetadataCachedPromptTokens.cacheMissTokens;
 	const resolvedCacheHitTokens =
-		cacheHitTokens !== undefined && cacheHitTokens > 0
+		cacheHitTokens !== undefined
 			? cacheHitTokens
 			: providerMetadataCachedPromptTokens.cacheHitTokens;
 

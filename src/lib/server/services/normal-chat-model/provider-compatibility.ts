@@ -404,6 +404,7 @@ function transformRequestBodyForProfile(
 	applyStreamingToolCompatibility(transformed, behavior);
 	applyTokenFieldCompatibility(transformed, behavior);
 	applyFamilyRequestAdditions(transformed, behavior);
+	applyFireworksPromptCacheCompatibility(transformed, provider);
 	removeUnsupportedGpt5ToolReasoning(transformed, provider);
 	return transformed;
 }
@@ -458,6 +459,55 @@ function applyFamilyRequestAdditions(
 	if (behavior.family === "deepseek") {
 		normalizeDeepSeekReasoningEffort(body);
 	}
+}
+
+function applyFireworksPromptCacheCompatibility(
+	body: Record<string, unknown>,
+	provider: NormalChatModelRunCompatibilityProvider,
+): void {
+	if (!isFireworksProvider(provider)) return;
+
+	translateBodyField(body, "promptCacheKey", "prompt_cache_key");
+	translateBodyField(
+		body,
+		"promptCacheIsolationKey",
+		"prompt_cache_isolation_key",
+	);
+}
+
+function translateBodyField(
+	body: Record<string, unknown>,
+	camelKey: string,
+	snakeKey: string,
+): void {
+	if (body[snakeKey] !== undefined) {
+		delete body[camelKey];
+		return;
+	}
+	const value = body[camelKey];
+	if (value === undefined) return;
+	body[snakeKey] = value;
+	delete body[camelKey];
+}
+
+function isFireworksProvider(
+	provider: NormalChatModelRunCompatibilityProvider,
+): boolean {
+	const signals = [
+		provider.name,
+		provider.displayName,
+		provider.baseUrl,
+		provider.modelName,
+		...(provider.modelAliases ?? []),
+	]
+		.join(" ")
+		.toLowerCase();
+	return (
+		signals.includes("api.fireworks.ai") ||
+		signals.includes(".fireworks.ai") ||
+		signals.includes("accounts/fireworks/") ||
+		/\bfireworks\b/.test(signals)
+	);
 }
 
 function removeUnsupportedGpt5ToolReasoning(

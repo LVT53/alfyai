@@ -681,6 +681,8 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 			thinking: { type: "enabled" },
 			enable_thinking: true,
 			preserve_thinking: true,
+			promptCacheKey: "fireworks-cache-key",
+			promptCacheIsolationKey: "tenant-cache-isolation",
 		};
 
 		const cases: Array<{
@@ -696,7 +698,21 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 					modelName: "gpt-5-mini",
 				},
 				expected: { max_completion_tokens: 512 },
-				absent: ["max_tokens"],
+				absent: ["max_tokens", "prompt_cache_key"],
+			},
+			{
+				provider: {
+					name: "fireworks",
+					displayName: "Fireworks",
+					baseUrl: "https://api.fireworks.ai/inference/v1",
+					modelName: "accounts/fireworks/models/kimi-k2p6",
+				},
+				expected: {
+					max_completion_tokens: 512,
+					prompt_cache_key: "fireworks-cache-key",
+					prompt_cache_isolation_key: "tenant-cache-isolation",
+				},
+				absent: ["max_tokens", "promptCacheKey", "promptCacheIsolationKey"],
 			},
 			{
 				provider: {

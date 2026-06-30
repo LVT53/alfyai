@@ -177,6 +177,17 @@ function extractPromptCacheKeyFromRequestBody(
 	if (openai && typeof openai.promptCacheKey === "string") {
 		return openai.promptCacheKey;
 	}
+	const fireworks =
+		providerOptionsRecord.fireworks &&
+		typeof providerOptionsRecord.fireworks === "object"
+			? (providerOptionsRecord.fireworks as Record<string, unknown>)
+			: undefined;
+	if (fireworks && typeof fireworks.promptCacheKey === "string") {
+		return fireworks.promptCacheKey;
+	}
+	if (fireworks && typeof fireworks.prompt_cache_key === "string") {
+		return fireworks.prompt_cache_key;
+	}
 	return undefined;
 }
 
@@ -847,7 +858,7 @@ describe("Normal Chat Model Run provider options", () => {
 		expect(extractPromptCacheKeyFromRequestBody(body)).toBe("caller-key-123");
 	});
 
-	it("does not add openai.promptCacheKey for non-OpenAI-compatible family providers", async () => {
+	it("adds a Fireworks prompt-cache key using the Fireworks wire field", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
 			createMockChatCompletionResponse({
 				message: {
@@ -870,12 +881,92 @@ describe("Normal Chat Model Run provider options", () => {
 				baseUrl: "https://api.fireworks.ai/inference/v1",
 				modelName: "accounts/fireworks/models/kimi-k2p6",
 			}),
-			messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+			messages: [userTextMessage("Tell me the latest headline.")],
+			system: "Use short, direct answers.",
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		const promptCacheKey = extractPromptCacheKeyFromRequestBody(body);
+		expect(typeof promptCacheKey).toBe("string");
+		expect(promptCacheKey).toHaveLength(32);
+		expect(promptCacheKey).not.toContain("latest headline");
+		expect(promptCacheKey).not.toContain("Use short, direct answers.");
+		expect(body).toHaveProperty("prompt_cache_key", promptCacheKey);
+		expect(body).not.toHaveProperty("promptCacheKey");
+	});
+
+	it("preserves a caller-supplied Fireworks prompt-cache key", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: {
+					prompt_tokens: 11,
+					completion_tokens: 7,
+					total_tokens: 18,
+				},
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: createModelProvider({
+				id: "fireworks-provider",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+			}),
+			messages: [userTextMessage("Hi")],
+			providerOptions: {
+				fireworks: {
+					promptCacheKey: "caller-fireworks-key",
+				},
+			},
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(extractPromptCacheKeyFromRequestBody(body)).toBe(
+			"caller-fireworks-key",
+		);
+		expect(body).toHaveProperty("prompt_cache_key", "caller-fireworks-key");
+		expect(body).not.toHaveProperty("promptCacheKey");
+	});
+
+	it("does not add a prompt-cache key for DeepSeek automatic context caching", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: {
+					prompt_tokens: 11,
+					completion_tokens: 7,
+					total_tokens: 18,
+				},
+			}),
+		);
+
+		await runPlainNormalChatModelRun({
+			provider: createModelProvider({
+				id: "deepseek-provider",
+				name: "deepseek",
+				displayName: "DeepSeek",
+				baseUrl: "https://api.deepseek.com/v1",
+				modelName: "deepseek-chat",
+			}),
+			messages: [userTextMessage("Hi")],
 			fetch,
 		});
 
 		const body = parseRequestBody(fetch);
 		expect(extractPromptCacheKeyFromRequestBody(body)).toBeUndefined();
+		expect(body).not.toHaveProperty("prompt_cache_key");
+		expect(body).not.toHaveProperty("promptCacheKey");
 	});
 
 	it("suppresses reasoning options when capability evidence says reasoning controls are unsupported", () => {
@@ -1128,6 +1219,72 @@ describe("Normal Chat Model Run usage mapping", () => {
 			totalTokens: 60,
 			cachedInputTokens: 75,
 			cacheHitTokens: 75,
+		});
+	});
+
+	it("maps DeepSeek prompt cache hit and miss tokens from raw usage", () => {
+		expect(
+			mapUsage({
+				inputTokens: 100,
+				outputTokens: 20,
+				totalTokens: 120,
+				inputTokenDetails: {
+					noCacheTokens: undefined,
+					cacheReadTokens: undefined,
+					cacheWriteTokens: undefined,
+				},
+				outputTokenDetails: {
+					textTokens: 20,
+					reasoningTokens: 0,
+				},
+				raw: {
+					prompt_tokens: 100,
+					completion_tokens: 20,
+					total_tokens: 120,
+					prompt_cache_hit_tokens: 9,
+					prompt_cache_miss_tokens: 91,
+				},
+			}),
+		).toEqual({
+			inputTokens: 100,
+			outputTokens: 20,
+			totalTokens: 120,
+			cachedInputTokens: 9,
+			cacheHitTokens: 9,
+			cacheMissTokens: 91,
+		});
+	});
+
+	it("preserves zero DeepSeek cache hits when misses are reported", () => {
+		expect(
+			mapUsage({
+				inputTokens: 100,
+				outputTokens: 20,
+				totalTokens: 120,
+				inputTokenDetails: {
+					noCacheTokens: undefined,
+					cacheReadTokens: undefined,
+					cacheWriteTokens: undefined,
+				},
+				outputTokenDetails: {
+					textTokens: 20,
+					reasoningTokens: 0,
+				},
+				raw: {
+					prompt_tokens: 100,
+					completion_tokens: 20,
+					total_tokens: 120,
+					prompt_cache_hit_tokens: 0,
+					prompt_cache_miss_tokens: 100,
+				},
+			}),
+		).toEqual({
+			inputTokens: 100,
+			outputTokens: 20,
+			totalTokens: 120,
+			cachedInputTokens: 0,
+			cacheHitTokens: 0,
+			cacheMissTokens: 100,
 		});
 	});
 });

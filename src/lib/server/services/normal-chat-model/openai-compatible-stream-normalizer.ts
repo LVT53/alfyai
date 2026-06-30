@@ -23,7 +23,10 @@ export function createOpenAICompatibleStreamNormalizingFetch(
 
 	return async (input, init) => {
 		const response = await baseFetch(input, init);
-		if (!isEventStreamResponse(response) || !response.body) return response;
+		if (!response.body) return response;
+		if (!isEventStreamResponse(response)) {
+			return normalizeOpenAICompatibleJsonResponse(response);
+		}
 
 		const state: StreamNormalizerState = {
 			toolCallIds: new Map(),
@@ -43,12 +46,43 @@ export function createOpenAICompatibleStreamNormalizingFetch(
 	};
 }
 
+async function normalizeOpenAICompatibleJsonResponse(
+	response: Response,
+): Promise<Response> {
+	if (!isJsonResponse(response)) return response;
+
+	let parsed: unknown;
+	try {
+		parsed = await response.clone().json();
+	} catch {
+		return response;
+	}
+
+	const normalized = normalizeChatCompletionUsage(parsed);
+	if (normalized === parsed) return response;
+
+	const headers = new Headers(response.headers);
+	headers.delete("content-length");
+	return new Response(JSON.stringify(normalized), {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
 function isEventStreamResponse(response: Response): boolean {
 	return (
 		response.headers
 			.get("content-type")
 			?.toLowerCase()
 			.includes("text/event-stream") ?? false
+	);
+}
+
+function isJsonResponse(response: Response): boolean {
+	return (
+		response.headers.get("content-type")?.toLowerCase().includes("json") ??
+		false
 	);
 }
 
@@ -200,7 +234,9 @@ function normalizeChatCompletionChunk(
 	if (normalizedToolCalls === OMIT_SERVER_SENT_EVENT) {
 		return OMIT_SERVER_SENT_EVENT;
 	}
-	return normalizeChatCompletionChunkChoiceUsage(normalizedToolCalls);
+	return normalizeChatCompletionUsage(
+		normalizeChatCompletionChunkChoiceUsage(normalizedToolCalls),
+	);
 }
 
 function normalizeChatCompletionChunkToolCalls(
@@ -329,6 +365,39 @@ function normalizeChatCompletionChunkChoiceUsage(value: unknown): unknown {
 		choices,
 		usage: isRecord(value.usage) ? value.usage : liftedUsage,
 	};
+}
+
+function normalizeChatCompletionUsage(value: unknown): unknown {
+	if (!isRecord(value) || !isRecord(value.usage)) return value;
+	const usage = value.usage;
+	const cacheHitTokens = readFiniteNumber(
+		usage.prompt_cache_hit_tokens ?? usage.promptCacheHitTokens,
+	);
+	if (cacheHitTokens === undefined) return value;
+
+	const promptTokenDetails = isRecord(usage.prompt_tokens_details)
+		? usage.prompt_tokens_details
+		: {};
+	if (readFiniteNumber(promptTokenDetails.cached_tokens) !== undefined) {
+		return value;
+	}
+
+	return {
+		...value,
+		usage: {
+			...usage,
+			prompt_tokens_details: {
+				...promptTokenDetails,
+				cached_tokens: cacheHitTokens,
+			},
+		},
+	};
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
 }
 
 function normalizeToolCallId(

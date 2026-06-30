@@ -155,6 +155,75 @@ describe("OpenAI-compatible stream normalizer", () => {
 		);
 	});
 
+	it("normalizes DeepSeek cache usage fields in non-streaming JSON responses", async () => {
+		const fetch = createOpenAICompatibleStreamNormalizingFetch(
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [{ message: { content: "Plain answer" } }],
+							usage: {
+								prompt_tokens: 100,
+								completion_tokens: 20,
+								total_tokens: 120,
+								prompt_cache_hit_tokens: 9,
+								prompt_cache_miss_tokens: 91,
+							},
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+			),
+		);
+
+		const response = await fetch(
+			"https://provider.example/v1/chat/completions",
+		);
+		const payload = await response.json();
+
+		expect(payload.usage).toMatchObject({
+			prompt_cache_hit_tokens: 9,
+			prompt_cache_miss_tokens: 91,
+			prompt_tokens_details: { cached_tokens: 9 },
+		});
+	});
+
+	it("normalizes DeepSeek cache usage fields in stream usage frames", async () => {
+		const fetch = createOpenAICompatibleStreamNormalizingFetch(
+			vi.fn(async () =>
+				eventStreamResponse([
+					{
+						id: "deepseek-cache-1",
+						choices: [],
+						usage: {
+							prompt_tokens: 100,
+							completion_tokens: 20,
+							total_tokens: 120,
+							prompt_cache_hit_tokens: 9,
+							prompt_cache_miss_tokens: 91,
+						},
+					},
+					"[DONE]",
+				]),
+			),
+		);
+
+		const response = await fetch(
+			"https://provider.example/v1/chat/completions",
+		);
+		const frames = parseFixtureEventStreamJson(await response.text());
+
+		expect(frames[0]).toMatchObject({
+			usage: {
+				prompt_cache_hit_tokens: 9,
+				prompt_cache_miss_tokens: 91,
+				prompt_tokens_details: { cached_tokens: 9 },
+			},
+		});
+	});
+
 	it("delays incomplete tool-call deltas until the provider streams the function name", async () => {
 		const fetch = createOpenAICompatibleStreamNormalizingFetch(
 			vi.fn(async () =>
