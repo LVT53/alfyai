@@ -97,6 +97,83 @@ describe("retry cleanup skill side effects", () => {
 		).not.toContain("assistant-1");
 	});
 
+	it("preserves user attachment links while deleting generated output links", async () => {
+		const { cleanupFailedTurn, db } = await createRetryCleanupFixture(dbPath, {
+			createInitialNote: false,
+		});
+
+		await db
+			.insert(schema.messages)
+			.values({
+				id: "user-with-pdf",
+				conversationId: "conv-1",
+				role: "user",
+				content: "Summarize the PDF.",
+			})
+			.run();
+		await db
+			.insert(schema.artifacts)
+			.values([
+				{
+					id: "source-pdf-1",
+					userId: "user-1",
+					conversationId: "conv-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "Report.pdf",
+					mimeType: "application/pdf",
+				},
+				{
+					id: "generated-output-1",
+					userId: "user-1",
+					conversationId: "conv-1",
+					type: "generated_output",
+					retrievalClass: "durable",
+					name: "Draft.pdf",
+					mimeType: "application/pdf",
+				},
+			])
+			.run();
+		await db
+			.insert(schema.artifactLinks)
+			.values([
+				{
+					id: "source-link-1",
+					userId: "user-1",
+					artifactId: "source-pdf-1",
+					conversationId: "conv-1",
+					messageId: "user-with-pdf",
+					linkType: "attached_to_conversation",
+				},
+				{
+					id: "generated-link-1",
+					userId: "user-1",
+					artifactId: "generated-output-1",
+					conversationId: "conv-1",
+					messageId: "assistant-1",
+					linkType: "generated_output",
+				},
+			])
+			.run();
+
+		await cleanupFailedTurn({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+		});
+
+		const remainingLinks = await db
+			.select()
+			.from(schema.artifactLinks)
+			.orderBy(schema.artifactLinks.id);
+
+		expect(remainingLinks.map((link) => link.id)).toEqual(["source-link-1"]);
+		expect(remainingLinks[0]).toMatchObject({
+			artifactId: "source-pdf-1",
+			messageId: "user-with-pdf",
+		});
+	});
+
 	it("rolls back note appends tied to the retried assistant message", async () => {
 		const {
 			artifactId,

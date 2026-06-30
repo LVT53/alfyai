@@ -4,6 +4,7 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
+import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
@@ -165,6 +166,12 @@ export async function prepareRetryChatTurn(params: {
 		}
 	}
 
+	const retryAttachmentIds = await resolveRetryAttachmentIds({
+		conversationId,
+		userMessageId: precedingUserMsg.id,
+		requestedAttachmentIds: attachmentIds,
+	});
+
 	try {
 		const cleanupResult = await cleanupFailedTurn({
 			userId,
@@ -200,7 +207,7 @@ export async function prepareRetryChatTurn(params: {
 		conversationId,
 		message: precedingUserMsg.content,
 		activeDocumentArtifactId,
-		attachmentIds,
+		attachmentIds: retryAttachmentIds,
 		streamId,
 		model,
 		reasoningDepth,
@@ -254,6 +261,43 @@ export async function prepareRetryChatTurn(params: {
 	};
 }
 
+async function resolveRetryAttachmentIds(params: {
+	conversationId: string;
+	userMessageId: string;
+	requestedAttachmentIds: unknown;
+}): Promise<string[]> {
+	const explicitAttachmentIds = normalizeStringArray(
+		params.requestedAttachmentIds,
+	);
+	if (explicitAttachmentIds.length > 0) {
+		return explicitAttachmentIds;
+	}
+
+	const attachmentsByMessage = await listMessageAttachments(
+		params.conversationId,
+	);
+	const persistedAttachments =
+		attachmentsByMessage.get(params.userMessageId) ?? [];
+	return normalizeStringArray(
+		persistedAttachments.map((attachment) => attachment.artifactId),
+	);
+}
+
+function normalizeStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const item of value) {
+		if (typeof item !== "string") continue;
+		const normalized = item.trim();
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		result.push(normalized);
+	}
+	return result;
+}
+
 function buildSyntheticRetryBody(params: {
 	conversationId: string;
 	message: string;
@@ -267,11 +311,10 @@ function buildSyntheticRetryBody(params: {
 	return {
 		message: params.message,
 		conversationId: params.conversationId,
-		attachmentIds: Array.isArray(params.attachmentIds)
-			? params.attachmentIds.filter(
-					(id): id is string => typeof id === "string",
-				)
-			: undefined,
+		attachmentIds:
+			Array.isArray(params.attachmentIds) && params.attachmentIds.length > 0
+				? params.attachmentIds
+				: undefined,
 		activeDocumentArtifactId:
 			typeof params.activeDocumentArtifactId === "string" &&
 			params.activeDocumentArtifactId.trim()

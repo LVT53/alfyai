@@ -132,6 +132,7 @@ export async function cleanupFailedTurn(params: {
 					and(
 						eq(artifactLinks.userId, userId),
 						eq(artifactLinks.conversationId, conversationId),
+						inArray(artifactLinks.artifactId, idsToDelete),
 					),
 				)
 				.run();

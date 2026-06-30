@@ -1,16 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
 
-const { mockConversationMessages, capturedSyntheticBodies } = vi.hoisted(
-	() => ({
-		mockConversationMessages: [] as Array<{
+const {
+	mockConversationMessages,
+	mockMessageAttachments,
+	capturedSyntheticBodies,
+} = vi.hoisted(() => ({
+	mockConversationMessages: [] as Array<{
+		id: string;
+		role: string;
+		content: string;
+	}>,
+	mockMessageAttachments: new Map<
+		string,
+		Array<{
 			id: string;
-			role: string;
-			content: string;
-		}>,
-		capturedSyntheticBodies: [] as Array<Record<string, unknown>>,
-	}),
-);
+			artifactId: string;
+			name: string;
+			type: string;
+			mimeType: string | null;
+			sizeBytes: number | null;
+			conversationId: string | null;
+			messageId: string;
+			createdAt: number;
+		}>
+	>(),
+	capturedSyntheticBodies: [] as Array<Record<string, unknown>>,
+}));
 
 vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(async () => ({ id: "conv-1" })),
@@ -30,6 +46,10 @@ vi.mock("$lib/server/db", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	deleteMessages: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/knowledge", () => ({
+	listMessageAttachments: vi.fn(async () => mockMessageAttachments),
 }));
 
 vi.mock("$lib/server/services/conversation-forks", () => ({
@@ -55,7 +75,9 @@ vi.mock("$lib/server/services/chat-turn/request", () => ({
 				normalizedMessage: body.message,
 				modelDisplayName: "Model 1",
 				modelId: "model1",
-				attachmentIds: [],
+				attachmentIds: Array.isArray(body.attachmentIds)
+					? body.attachmentIds
+					: [],
 				linkedSources: [],
 				pendingSkill: null,
 				reasoningDepth: body.reasoningDepth ?? "auto",
@@ -84,6 +106,7 @@ vi.mock("$lib/server/services/chat-turn/preflight", () => ({
 import { preflightChatTurn } from "$lib/server/services/chat-turn/preflight";
 import { cleanupFailedTurn } from "$lib/server/services/chat-turn/retry-cleanup";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
+import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { deleteMessages } from "$lib/server/services/messages";
 import { prepareRetryChatTurn } from "./retry";
 
@@ -101,6 +124,7 @@ describe("prepareRetryChatTurn", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		capturedSyntheticBodies.length = 0;
+		mockMessageAttachments.clear();
 		mockConversationMessages.splice(
 			0,
 			mockConversationMessages.length,
@@ -184,6 +208,46 @@ describe("prepareRetryChatTurn", () => {
 		expect(capturedSyntheticBodies[0]?.message).toBe("latest prompt");
 		expect(capturedSyntheticBodies[0]?.reasoningDepth).toBe("max");
 		expect(capturedSyntheticBodies[0]).not.toHaveProperty("thinkingMode");
+	});
+
+	it("reuses persisted PDF attachment ids from the retried user message when the retry request omits them", async () => {
+		mockMessageAttachments.set("user-3", [
+			{
+				id: "link-1",
+				artifactId: "source-pdf-1",
+				name: "Report.pdf",
+				type: "source_document",
+				mimeType: "application/pdf",
+				sizeBytes: 1234,
+				conversationId: "conv-1",
+				messageId: "user-3",
+				createdAt: 1,
+			},
+		]);
+
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(listMessageAttachments).toHaveBeenCalledWith("conv-1");
+		expect(capturedSyntheticBodies[0]).toEqual(
+			expect.objectContaining({
+				attachmentIds: ["source-pdf-1"],
+				skipPersistUserMessage: true,
+			}),
+		);
+		expect(result.value.orchestratorInput.turn.attachmentIds).toEqual([
+			"source-pdf-1",
+		]);
 	});
 
 	it("passes resolved Auto Reasoning Depth metadata through the prepared orchestrator input", async () => {
