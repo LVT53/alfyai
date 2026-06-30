@@ -550,6 +550,8 @@ export function runChatStreamOrchestrator(
 					streamId,
 					userId: user.id,
 				});
+			let emitResponseActivity: (entry: ResponseActivityEntry) => void =
+				() => {};
 			const chunkRuntime = createServerChunkRuntime({
 				enqueueChunk,
 				skillControlEnabled,
@@ -575,8 +577,9 @@ export function runChatStreamOrchestrator(
 						});
 					}
 				},
+				onResponseActivity: (entry) => emitResponseActivity(entry),
 			});
-			const emitResponseActivity = (entry: ResponseActivityEntry) => {
+			emitResponseActivity = (entry: ResponseActivityEntry) => {
 				if (ended) return;
 				const activity = {
 					...entry,

@@ -424,6 +424,7 @@ export function createServerChunkRuntime({
 	onToken,
 	onThinking,
 	onToolCall,
+	onResponseActivity,
 	thinkingBatchMin = 20,
 	skillControlEnabled = true,
 }: {
@@ -437,6 +438,7 @@ export function createServerChunkRuntime({
 		outputSummary?: string | null,
 		details?: StreamToolCallDetails,
 	) => void;
+	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 	thinkingBatchMin?: number;
 	skillControlEnabled?: boolean;
 }) {
@@ -460,6 +462,7 @@ export function createServerChunkRuntime({
 	let skillControlEnvelopeBuffer = "";
 	let textPartStarted = false;
 	let reasoningPartStarted = false;
+	let toolProgressNarrationSequence = 0;
 
 	const emitUiTextDelta = (chunk: string): boolean => {
 		const frames: string[] = [];
@@ -524,6 +527,11 @@ export function createServerChunkRuntime({
 		const sanitizedBuffer = stripLeakedToolDiagnostics(
 			visibleTokenBuffer,
 			leakedToolDiagnosticsState,
+			{
+				onToolProgressNarration(text) {
+					emitToolProgressNarrationActivity(text);
+				},
+			},
 		);
 		const envelopeFilteredBuffer = filterSkillControlEnvelopeText(
 			sanitizedBuffer,
@@ -800,6 +808,18 @@ export function createServerChunkRuntime({
 				break;
 			}
 		}
+	};
+
+	const emitToolProgressNarrationActivity = (text: string) => {
+		const label = text.replace(/\s+/g, " ").trim();
+		if (!label) return;
+		toolProgressNarrationSequence += 1;
+		onResponseActivity?.({
+			id: `tool-progress:${toolProgressNarrationSequence}`,
+			kind: "tool",
+			status: "running",
+			label,
+		});
 	};
 
 	const emitStatusSegment = (segment: {

@@ -215,6 +215,12 @@ function isDeliberationActivityEntry(
 	return entry?.kind === "deliberation" && Boolean(entry.label?.trim());
 }
 
+function isToolProgressActivity(
+	entry: ResponseActivityEntry,
+): entry is ResponseActivityEntry & { label: string } {
+	return entry.id.startsWith("tool-progress:") && Boolean(entry.label?.trim());
+}
+
 let visibleThinkingSegmentsForDisplay = $derived(
 	markdownIsStreaming
 		? (() => {
@@ -307,6 +313,11 @@ let liveDeliberationStatusDisplayLabel = $derived.by(() => {
 	}
 	return label;
 });
+let liveToolProgressActivityEntries = $derived(
+	markdownIsStreaming
+		? liveResponseActivityEntries.filter(isToolProgressActivity)
+		: [],
+);
 const liveDeliberationStatusIconType = $derived.by(() => {
 	if (!liveDeliberationStatus) {
 		return "search";
@@ -398,6 +409,7 @@ let showPreparingStatus = $derived(
 		!hasThinking &&
 		!hasVisibleThinkingSegments &&
 		!liveDeliberationStatusLabel &&
+		liveToolProgressActivityEntries.length === 0 &&
 		skillDrafts.length === 0 &&
 		!hasFileProductionCards &&
 		!hasAtlasCards,
@@ -727,6 +739,13 @@ function toggleForkDetails() {
 				<span>{liveDeliberationStatusDisplayLabel}</span>
 			</div>
 			{/key}
+		{/if}
+		{#if !isUser && liveToolProgressActivityEntries.length > 0}
+			<div class="tool-progress-stack" data-testid="tool-progress-stack" aria-live="polite">
+				{#each liveToolProgressActivityEntries as activity (activity.id)}
+					<div class="tool-progress-line">{activity.label}</div>
+				{/each}
+			</div>
 		{/if}
 		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
 		<ThinkingBlock
@@ -1154,6 +1173,24 @@ function toggleForkDetails() {
 		color: var(--accent);
 	}
 
+	.tool-progress-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2xs);
+		margin: 0 0 var(--space-sm);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		line-height: 1.35;
+		color: var(--text-muted);
+	}
+
+	.tool-progress-line {
+		width: fit-content;
+		max-width: 100%;
+		overflow-wrap: anywhere;
+		animation: deliberationStatusFade 220ms var(--ease-out) both;
+	}
+
 	:global(.deliberation-status-icon) {
 		width: 14px;
 		height: 14px;
@@ -1541,7 +1578,8 @@ function toggleForkDetails() {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.deliberation-status-line {
+		.deliberation-status-line,
+		.tool-progress-line {
 			animation: none;
 		}
 

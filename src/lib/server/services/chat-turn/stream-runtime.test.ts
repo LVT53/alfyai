@@ -165,6 +165,14 @@ function toolCallEvents(chunks: string[]): unknown[] {
 	return eventData(chunks, "data-tool-call");
 }
 
+function responseActivityLabels(chunks: string[]): string[] {
+	return eventData(chunks, "data-response-activity").flatMap((data) => {
+		if (!data || typeof data !== "object" || !("label" in data)) return [];
+		const label = (data as { label?: unknown }).label;
+		return typeof label === "string" ? [label] : [];
+	});
+}
+
 describe("createServerChunkRuntime", () => {
 	it("keeps the app-owned encoder compatible with installed AI SDK UI stream framing", async () => {
 		const stream = createUIMessageStream({
@@ -324,6 +332,46 @@ describe("createServerChunkRuntime", () => {
 			"1. A szürke rendszám kormányablaknál igényelhető.",
 		);
 		expect(runtime.fullResponse).not.toContain("Friss adatokat keresek");
+	});
+
+	it("strips split English web-progress narration before visible answer tokens", () => {
+		const chunks: string[] = [];
+		const runtime = createServerChunkRuntime({
+			enqueueChunk(chunk) {
+				chunks.push(chunk);
+				return true;
+			},
+			onResponseActivity(entry) {
+				chunks.push(streamResponseActivityEvent(entry));
+			},
+		});
+
+		runtime.emitChunkWithOutputHandling(
+			"The first batch of searches didn't return great results - the queries were too broad.",
+		);
+		runtime.emitChunkWithOutputHandling(
+			"Let me run more targeted searches now.Let me try a couple more targeted fetches.",
+		);
+		runtime.emitChunkWithOutputHandling(
+			"Now I have solid data. Let me pull it all together.",
+		);
+		runtime.emitChunkWithOutputHandling(
+			"\n\n## 5-Day vs 7-Day Accommodation\n\nThe answer starts here.",
+		);
+		runtime.flushInlineThinkingBuffer();
+
+		expect(tokenTexts(chunks).join("")).toBe(
+			"## 5-Day vs 7-Day Accommodation\n\nThe answer starts here.",
+		);
+		expect(runtime.fullResponse).not.toContain("Let me");
+		expect(runtime.fullResponse).not.toContain("first batch of searches");
+		expect(responseActivityLabels(chunks)).toEqual([
+			"The first batch of searches didn't return great results - the queries were too broad.",
+			"Let me run more targeted searches now.",
+			"Let me try a couple more targeted fetches.",
+			"Now I have solid data.",
+			"Let me pull it all together.",
+		]);
 	});
 
 	it("strips split standalone Hungarian web-planning narration before visible answer tokens", () => {

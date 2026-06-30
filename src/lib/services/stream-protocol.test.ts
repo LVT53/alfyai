@@ -400,6 +400,34 @@ describe("stream-protocol", () => {
 		).toBe("A rövid válasz: igényelhető.");
 	});
 
+	it("strips chained English web-progress narration before the final answer", () => {
+		const cleaned = stripLeakedToolDiagnostics(
+			[
+				"The first batch of searches didn't return great results - the queries were too broad and some got pulled into unrelated territory. Let me run more targeted searches now.",
+				"Let me try a couple more targeted fetches to get concrete details on the TUS SU marketplace and the PMI villages.",
+				"Now I have solid data. Let me pull it all together.",
+				"",
+				"---",
+				"",
+				"## 5-Day vs 7-Day Accommodation - What It Means",
+				"",
+				"**It's about weekend access to your room:**",
+			].join("\n"),
+		);
+
+		expect(cleaned).toBe(
+			[
+				"---",
+				"",
+				"## 5-Day vs 7-Day Accommodation - What It Means",
+				"",
+				"**It's about weekend access to your room:**",
+			].join("\n"),
+		);
+		expect(cleaned).not.toContain("first batch of searches");
+		expect(cleaned).not.toContain("Let me");
+	});
+
 	it("strips consecutive Hungarian web-planning narration and raw page text before the final answer", () => {
 		expect(
 			stripLeakedToolDiagnostics(
@@ -658,6 +686,14 @@ describe("stream-protocol", () => {
 				"Answer before Found 8 source files were useful",
 			),
 		).toBe(0);
+	});
+
+	it("does not hold ordinary first-person or search-feature prose as progress diagnostics", () => {
+		expect(
+			stripLeakedToolDiagnostics("I have two practical options for you."),
+		).toBe("I have two practical options for you.");
+		expect(getLeakedToolDiagnosticPrefixLength("I have")).toBe(0);
+		expect(getLeakedToolDiagnosticPrefixLength("The search feature")).toBe(0);
 	});
 
 	it("detects partial leaked Python REPL diagnostics for streaming buffers", () => {

@@ -45,6 +45,10 @@ export interface SkillControlEnvelopeBlock {
 	rawBlock: string;
 }
 
+interface StripLeakedToolDiagnosticsOptions {
+	onToolProgressNarration?: (text: string) => void;
+}
+
 export function createInlineThinkingState(): InlineThinkingState {
 	return {
 		buffer: "",
@@ -318,7 +322,7 @@ const PYTHON_TOOL_MARKER_PATTERNS = [
 	/code execution (?:completed|failed)\b/i,
 ] as const;
 const LEADING_TOOL_PLANNING_NARRATION_RE =
-	/^\s*(?:(?:i(?:'ll| will| am going to)?|let me)\s+(?:search|look up|fetch|check|research|retrieve)\b|röviden,?\s+(?:(?:ki)?keresem|ellenőrzöm|megnézem|átnézem|lekérdezem|lekérdezek|rákeresek|utánanézek)\b|(?:friss\s+adatokat\s+)?keresek\b|(?:ki)?keresem\b|rákeresek\b|lekérdezek\b|lekérdezem\b|ellenőrzöm\b|megnézem\b|átnézem\b|utánanézek\b|(?:két|több)\s+konkrét\b[\s\S]{0,180}\b(?:forrást|forrás)\b[\s\S]{0,180}\blekérdezek\b)[^.!?\n]*(?:[.!?]|(?=\n|$))\s*/i;
+	/^\s*(?:(?:i(?:'ll| will| am going to| need to| should)?|let me)\s+(?:now\s+)?(?:(?:run|try)\b[^.!?\n]{0,160}\b(?:search(?:es)?|fetch(?:es)?|quer(?:y|ies)|lookup|lookups)\b|(?:search|look up|fetch|check|research|retrieve|pull up|pull|try|run|get|go directly to|pin down|map|compute|nail down|look at|find)\b)|(?:the\s+(?:(?:first|second|third|last)\s+)?(?:batch\s+of\s+)?(?:search(?:es)?|result(?:s)?)\b[^.!?\n]{0,240}\b(?:didn'?t|did not|don'?t|do not|returned?|return|derailed|pulled|got|get)\b)|(?:(?:good|great|excellent)\s*[-—]\s*)?(?:now\s+)?i(?:'ve\s+got|'ve| have| got| found| now have)\b[^.!?\n]{0,180}\b(?:data|details?|results?|sources?|address|location|locations|page|site|campus|neighbou?rhoods?)\b|röviden,?\s+(?:(?:ki)?keresem|ellenőrzöm|megnézem|átnézem|lekérdezem|lekérdezek|rákeresek|utánanézek)\b|(?:friss\s+adatokat\s+)?keresek\b|(?:ki)?keresem\b|rákeresek\b|lekérdezek\b|lekérdezem\b|ellenőrzöm\b|megnézem\b|átnézem\b|utánanézek\b|(?:két|több)\s+konkrét\b[\s\S]{0,180}\b(?:forrást|forrás)\b[\s\S]{0,180}\blekérdezek\b)[^.!?\n]*(?:[.!?]|(?=\n|$))\s*/i;
 const LEADING_FILE_PRODUCTION_REPAIR_NARRATION_RE =
 	/^\s*(?:(?:i(?:'ll| will| am going to| need to| should)?|let me)\s+(?:fix|repair|correct|adjust|rewrite|reformat)\b[^.!?\n]{0,220}\b(?:json|document[_\s-]+source|source\s+json|schema|formatting)\b[^.!?\n]*(?:[.!?]|(?=\n|$)))\s*/i;
 const TOOL_PLANNING_NARRATION_PREFIX_SCAN_CHARS = 240;
@@ -333,6 +337,42 @@ const TOOL_PLANNING_NARRATION_PREFIXES = [
 	"i'll fetch",
 	"i will fetch",
 	"let me fetch",
+	"i'll run",
+	"i will run",
+	"let me run",
+	"i'll try",
+	"i will try",
+	"let me try",
+	"i'll pull",
+	"i will pull",
+	"let me pull",
+	"i'll get",
+	"i will get",
+	"let me get",
+	"let me now",
+	"let me go directly",
+	"let me pin down",
+	"let me map",
+	"let me compute",
+	"let me nail down",
+	"let me look at",
+	"the first batch of searches",
+	"the second search",
+	"the searches",
+	"the search didn't",
+	"the search did not",
+	"the search returned",
+	"the search results",
+	"the results didn't",
+	"the results did not",
+	"the results returned",
+	"now i have",
+	"i've got the campus",
+	"i've got the exact",
+	"good - i now have",
+	"good — i now have",
+	"excellent - i now have",
+	"excellent — i now have",
 	"friss adatokat keresek",
 	"keresek",
 	"kikeresem",
@@ -933,6 +973,8 @@ function startsWithAssistantAnswerBoundary(value: string): boolean {
 	}
 
 	return (
+		/^#{1,6}\s+\S/.test(firstLine) ||
+		/^(?:---|\*\*\*|___)\s*$/.test(firstLine) ||
 		findWebAssistantProseBoundaryIndex(firstLine) === 0 ||
 		/^\d+[.)]\s+\S/.test(firstLine)
 	);
@@ -950,6 +992,7 @@ function shouldSuppressWebOutputAfterToolPlanning(value: string): boolean {
 function stripLeadingToolPlanningNarration(
 	value: string,
 	state?: LeakedToolDiagnosticsState,
+	options: StripLeakedToolDiagnosticsOptions = {},
 ): string {
 	if (!value.trim()) {
 		return value;
@@ -970,6 +1013,7 @@ function stripLeadingToolPlanningNarration(
 		}
 
 		strippedNarration = true;
+		options.onToolProgressNarration?.(match[0].trim());
 		remainder = nextRemainder.trimStart() ? nextRemainder.trimStart() : "";
 	}
 
@@ -1318,11 +1362,13 @@ function stripLeakedDocumentSourceDiagnostics(
 export function stripLeakedToolDiagnostics(
 	value: string,
 	state: LeakedToolDiagnosticsState = createLeakedToolDiagnosticsState(),
+	options: StripLeakedToolDiagnosticsOptions = {},
 ): string {
 	const withoutMarkdownToolBlocks = stripMarkdownToolCallBlocks(value);
 	const withoutLeadingToolNarration = stripLeadingToolPlanningNarration(
 		withoutMarkdownToolBlocks,
 		state,
+		options,
 	);
 	const withoutFileProductionRepair = stripLeadingFileProductionRepairNarration(
 		withoutLeadingToolNarration,

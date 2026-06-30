@@ -141,6 +141,43 @@ describe("MessageBubble", () => {
 		expect(container).not.toHaveTextContent("123");
 	});
 
+	it("renders transient tool progress activity as separate live lines", () => {
+		const message: ChatMessage = {
+			id: "assistant-tool-progress",
+			renderKey: "assistant-tool-progress",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: "tool-progress:1",
+					kind: "tool",
+					status: "running",
+					label: "Let me run more targeted searches now.",
+				},
+				{
+					id: "tool-progress:2",
+					kind: "tool",
+					status: "running",
+					label: "Let me try a couple more targeted fetches.",
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		const stack = screen.getByTestId("tool-progress-stack");
+		expect(
+			within(stack).getByText("Let me run more targeted searches now."),
+		).toBeInTheDocument();
+		expect(
+			within(stack).getByText("Let me try a couple more targeted fetches."),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Preparing response...")).not.toBeInTheDocument();
+	});
+
 	it("maps sanitized context preparation classes to localized placeholder text", () => {
 		const message: ChatMessage = {
 			id: "assistant-context-class",
