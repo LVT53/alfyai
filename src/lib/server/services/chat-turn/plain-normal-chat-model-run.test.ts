@@ -344,6 +344,11 @@ describe("runPlainNormalChatSendModel", () => {
 				"Create a 30-day rollout plan with checkpoints, metrics, risks, and rollback criteria.",
 		});
 
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				fileProductionToolsAvailable: false,
+			}),
+		);
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				tools: {
@@ -369,6 +374,11 @@ describe("runPlainNormalChatSendModel", () => {
 			message: "Please create a downloadable PDF report for me.",
 		});
 
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				fileProductionToolsAvailable: true,
+			}),
+		);
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				tools,

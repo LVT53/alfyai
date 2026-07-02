@@ -95,6 +95,7 @@ export type NormalChatGuidancePackInput = {
 	forceWebSearch?: boolean;
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string | null;
+	fileProductionToolsAvailable?: boolean;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 };
@@ -243,9 +244,15 @@ function estimateGuidancePackTokens({
 function resolveBaseFullPackIds(params: {
 	message: string;
 	forceWebSearch?: boolean;
+	fileProductionToolsAvailable?: boolean;
 }): NormalChatGuidancePackId[] {
 	const hasUrl = containsDirectHttpUrl(params.message);
-	const baseIds = [...NORMAL_CHAT_FULL_GUIDANCE_PACK_IDS];
+	const fileProductionToolsAvailable =
+		params.fileProductionToolsAvailable !== false;
+	const baseIds = NORMAL_CHAT_FULL_GUIDANCE_PACK_IDS.filter((id) => {
+		if (fileProductionToolsAvailable) return true;
+		return id !== "file-core" && id !== "file-detailed";
+	});
 	if (hasUrl) {
 		baseIds.push("url-argument");
 	}
@@ -262,6 +269,7 @@ function resolveCoreGuidancePackIds(): NormalChatGuidancePackId[] {
 function resolveFullGuidancePackIds(params: {
 	message: string;
 	forceWebSearch?: boolean;
+	fileProductionToolsAvailable?: boolean;
 }): NormalChatGuidancePackId[] {
 	return Array.from(new Set(resolveBaseFullPackIds(params)));
 }
@@ -295,10 +303,13 @@ function resolveGuidancePackSelection(
 	const hasAttachmentOrActiveDoc =
 		(params.attachmentIds?.length ?? 0) > 0 ||
 		Boolean(params.activeDocumentArtifactId);
+	const fileProductionToolsAvailable =
+		params.fileProductionToolsAvailable !== false;
 	const fileIntent =
-		isProduceFileRequest(message) ||
-		FILE_INTENT_CONVERSION_RE.test(message) ||
-		(FILE_REVISION_RE.test(message) && FILE_EDIT_CONTEXT_RE.test(message));
+		fileProductionToolsAvailable &&
+		(isProduceFileRequest(message) ||
+			FILE_INTENT_CONVERSION_RE.test(message) ||
+			(FILE_REVISION_RE.test(message) && FILE_EDIT_CONTEXT_RE.test(message)));
 	const fileRevisionIntent = fileIntent && FILE_REVISION_RE.test(message);
 	const imageIntent =
 		IMAGE_INTENT_RE.test(message) || IMAGE_CONTEXT_RE.test(message);
@@ -320,6 +331,7 @@ function resolveGuidancePackSelection(
 	const fullPackIds = resolveFullGuidancePackIds({
 		message,
 		forceWebSearch: params.forceWebSearch,
+		fileProductionToolsAvailable,
 	});
 	let selectedPackIds: NormalChatGuidancePackId[] =
 		resolveCoreGuidancePackIds();
@@ -919,6 +931,7 @@ export function buildOutboundSystemPrompt(params: {
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
 	forceWebSearch?: boolean;
+	fileProductionToolsAvailable?: boolean;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	guidancePackSelection?: NormalChatGuidancePackSelection;
@@ -929,6 +942,7 @@ export function buildOutboundSystemPrompt(params: {
 				message: params.inputValue,
 				responseLanguage: params.responseLanguage,
 				forceWebSearch: params.forceWebSearch,
+				fileProductionToolsAvailable: params.fileProductionToolsAvailable,
 				reasoningDepthEffort: params.reasoningDepthEffort,
 				skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 			});
@@ -1765,6 +1779,7 @@ type PrepareOutboundChatContextParams = {
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
 	forceWebSearch?: boolean;
+	fileProductionToolsAvailable?: boolean;
 	skipHonchoContext?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
@@ -1812,6 +1827,7 @@ function buildPreparationSystemPrompt(
 				forceWebSearch: params.forceWebSearch,
 				attachmentIds: params.attachmentIds,
 				activeDocumentArtifactId: params.activeDocumentArtifactId,
+				fileProductionToolsAvailable: params.fileProductionToolsAvailable,
 				reasoningDepthEffort: params.reasoningDepthEffort,
 				skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 			});
@@ -1843,6 +1859,7 @@ function buildPreparationSystemPromptFromInput(input: {
 			systemPromptAppendix: input.params.systemPromptAppendix,
 			personalityPrompt: input.params.personalityPrompt,
 			forceWebSearch: input.params.forceWebSearch,
+			fileProductionToolsAvailable: input.params.fileProductionToolsAvailable,
 			reasoningDepthEffort: input.params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: input.params.skipDefaultRuntimeGuidance,
 		}),

@@ -558,6 +558,32 @@ describe("prepareOutboundChatContext", () => {
 			expect(plan.selectedPackIds).not.toContain("file-detailed");
 		});
 
+		it("omits file guidance from full fallback prompts when file tools are unavailable", () => {
+			const message =
+				"Create a 30-day rollout plan for changing an AI model reasoning-depth setting. Include checkpoints, metrics, risks, rollback criteria, and who should review the data.";
+			const plan = planNormalChatGuidancePacks({
+				message,
+				responseLanguage: "en",
+				fileProductionToolsAvailable: false,
+			});
+
+			expect(plan.mode).toBe("full");
+			expect(plan.selectedPackIds).not.toContain("file-core");
+			expect(plan.selectedPackIds).not.toContain("file-detailed");
+			expect(plan.fullPackIds).not.toContain("file-core");
+			expect(plan.fullPackIds).not.toContain("file-detailed");
+
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: message,
+				responseLanguage: "en",
+				fileProductionToolsAvailable: false,
+			});
+
+			expect(prompt).not.toContain("produce_file");
+			expect(prompt).not.toContain("read_generated_file");
+		});
+
 		it("selects revision guidance for generated-file edits", () => {
 			const plan = planNormalChatGuidancePacks({
 				message: "Can you shorten the report we made?",

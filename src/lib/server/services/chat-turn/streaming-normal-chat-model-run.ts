@@ -22,7 +22,10 @@ import {
 	resolvePromptContextLimits,
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
-import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
+import {
+	selectNormalChatToolsForRequest,
+	shouldExposeFileProductionTools,
+} from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
 import {
@@ -159,6 +162,9 @@ export async function runStreamingNormalChatSendModel(
 					clarificationGate.depthMetadata ?? depthEffort.depthMetadata,
 			}
 		: null;
+	const fileProductionToolsAvailable = shouldExposeFileProductionTools({
+		message: params.message,
+	});
 	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
@@ -172,6 +178,7 @@ export async function runStreamingNormalChatSendModel(
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
 		forceWebSearch: params.forceWebSearch,
+		fileProductionToolsAvailable,
 		modelId,
 		contextLimits: activeDepthEffort?.contextLimits ?? baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
