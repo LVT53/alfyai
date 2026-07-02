@@ -425,6 +425,69 @@ describe("Normal Chat JSON control model sender", () => {
 		expect(body).not.toHaveProperty("strictJsonSchema");
 	});
 
+	it("returns model text when JSON mode finishes before parsed output is available", async () => {
+		const partialJson = JSON.stringify({ ok: true });
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: partialJson,
+								},
+								finish_reason: "length",
+							},
+						],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		await expect(
+			sendJsonControlMessage("Return JSON", "model1", {
+				systemPrompt: "context-compression",
+				thinkingMode: "off",
+				fetch,
+				skipStructuredOutputs: true,
+				jsonSchema: {
+					name: "control_result",
+					strict: true,
+					schema: {
+						type: "object",
+						properties: { ok: { type: "boolean" } },
+						required: ["ok"],
+						additionalProperties: false,
+					},
+				},
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				text: partialJson,
+				rawResponse: expect.objectContaining({
+					choices: [
+						expect.objectContaining({
+							finish_reason: "length",
+						}),
+					],
+				}),
+			}),
+		);
+	});
+
 	it("can opt into reasoning fallback for schema-guided JSON control responses", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(
 			async () =>

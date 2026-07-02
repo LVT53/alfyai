@@ -119,7 +119,7 @@ function buildJsonFallbackOutput(
 
 function resultText(params: {
 	text: string;
-	output: unknown;
+	output: () => unknown;
 	reasoningText?: string;
 	allowReasoningFallback?: boolean;
 }): string {
@@ -130,8 +130,9 @@ function resultText(params: {
 		return params.reasoningText.trim();
 	}
 
-	if (params.output !== undefined) {
-		return JSON.stringify(params.output);
+	const output = params.output();
+	if (output !== undefined) {
+		return JSON.stringify(output);
 	}
 
 	throw new Error("Could not extract message text from control model response");
@@ -241,7 +242,7 @@ export async function sendJsonControlMessage(
 		return {
 			text: resultText({
 				text: result.text,
-				output: result.output,
+				output: () => result.output,
 				reasoningText: result.reasoningText,
 				allowReasoningFallback: options.allowReasoningFallback,
 			}),
@@ -255,7 +256,7 @@ export async function sendJsonControlMessage(
 			return {
 				text: resultText({
 					text: result.text,
-					output: result.output,
+					output: () => result.output,
 					reasoningText: result.reasoningText,
 					allowReasoningFallback: options.allowReasoningFallback,
 				}),
