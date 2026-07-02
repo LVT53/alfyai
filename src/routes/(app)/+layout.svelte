@@ -63,6 +63,7 @@ import type {
 	UserModelPreference,
 } from "$lib/types";
 import type { LayoutProps } from "./$types";
+import { resolveActiveConversationTitle } from "./layout-title";
 
 let { data, children }: LayoutProps = $props();
 
@@ -123,16 +124,12 @@ const routeConversationId = $derived(
 	page.url.pathname.match(/^\/chat\/([^/]+)$/)?.[1] ?? null,
 );
 const activeConversationTitle = $derived.by(() => {
-	if (!routeConversationId) return null;
-	return (
-		$conversations.find(
-			(conversation) => conversation.id === routeConversationId,
-		)?.title ??
-		shellConversations.find(
-			(conversation) => conversation.id === routeConversationId,
-		)?.title ??
-		null
-	);
+	return resolveActiveConversationTitle({
+		routeConversationId,
+		conversationStore: $conversations,
+		shellConversations,
+		pageData: page.data,
+	});
 });
 
 $effect(() => {
