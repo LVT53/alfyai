@@ -439,11 +439,6 @@ const settingsDict = {
 		"admin.removeModelAliasA11y": "Remove alias {number}",
 		"admin.requestTimeoutDescription": `HTTP request and stream timeout in milliseconds (default 300000 = 5 minutes). Increase for multi-round search workloads.`,
 		"admin.requestTimeoutMs": "Request Timeout (ms)",
-		"admin.reasoningDepthClassifier": "Reasoning Depth classifier",
-		"admin.reasoningDepthClassifierDescription":
-			"Choose a dedicated model for Automatic Depth Selection. Leave unset to classify with the user's selected chat model while keeping that chat model for the final answer.",
-		"admin.reasoningDepthClassifierModel": "Depth classifier model",
-		"admin.reasoningDepthClassifierUseSelected": "Use selected chat model",
 		"admin.resetAccount": "Reset Account",
 		"admin.resetAccountButton": "Reset account",
 		"admin.resetAccountDescription": `This wipes your chats, Knowledge Base, memories, and generated files, but keeps your login credentials, profile preferences, avatar, and historical analytics. You will need to sign in again after the reset finishes.`,
@@ -1149,12 +1144,6 @@ const settingsDict = {
 		"admin.removeModelAliasA11y": "{number}. alias eltávolítása",
 		"admin.requestTimeoutDescription": `HTTP-kérés és stream időkorlátja milliszekundumban (alapértelmezett 300000 = 5 perc). Növeld meg többkörös keresési munkákhoz.`,
 		"admin.requestTimeoutMs": "Kérés időkorlát (ms)",
-		"admin.reasoningDepthClassifier": "Gondolkodási mélység osztályozó",
-		"admin.reasoningDepthClassifierDescription":
-			"Válassz külön modellt az automatikus mélységválasztáshoz. Hagyd üresen, ha a felhasználó kiválasztott chatmodellje osztályozzon, miközben a végső válaszhoz is az marad használatban.",
-		"admin.reasoningDepthClassifierModel": "Mélységosztályozó modell",
-		"admin.reasoningDepthClassifierUseSelected":
-			"A kiválasztott chatmodell használata",
 		"admin.resetAccount": "Fiók visszaállítása",
 		"admin.resetAccountButton": "Fiók visszaállítása",
 		"admin.resetAccountDescription": `Ez törli a beszélgetéseidet, a Tudásbázist, az emlékeket és a generált fájlokat, de megtartja a bejelentkezési adataidat, a profilbeállításokat, az avatart és a korábbi analitikai adatokat. A visszaállítás befejezése után újra be kell jelentkezned.`,

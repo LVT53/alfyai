@@ -98,7 +98,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
 	"DEFAULT_NEW_USER_MODEL",
 	"MEMORY_LEGACY_CURATION_MODEL",
-	"REASONING_DEPTH_CLASSIFIER_MODEL",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
 	"ATLAS_SEARCH_CONCURRENCY",
@@ -163,7 +162,6 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
-	reasoningDepthClassifierModel: string | null;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -256,8 +254,6 @@ function buildDefaultConfig(): RuntimeConfig {
 		model1IconAssetId: null,
 		model2IconAssetId: null,
 		memoryLegacyCurationModel: envConfig.memoryLegacyCurationModel,
-		reasoningDepthClassifierModel:
-			envConfig.reasoningDepthClassifierModel?.trim() || null,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -395,33 +391,6 @@ function applyDerivedMaxMessageLengthDefaults(
 			config.model2MaxModelContext,
 		);
 	}
-}
-
-function validateReasoningDepthClassifierModel(config: RuntimeConfig): void {
-	const modelId = config.reasoningDepthClassifierModel?.trim();
-	if (!modelId) return;
-
-	if (modelId === "model1" || modelId === "model2") {
-		if (!isModelEnabled(modelId, config)) {
-			console.warn(
-				`[CONFIG] Reasoning depth classifier model "${modelId}" is not enabled. Clearing config.`,
-			);
-			config.reasoningDepthClassifierModel = null;
-		}
-		return;
-	}
-
-	if (modelId.startsWith("provider:")) {
-		const parts = modelId.split(":");
-		if (parts.length === 3 && parts[1] && parts[2]) {
-			return;
-		}
-	}
-
-	console.warn(
-		`[CONFIG] Invalid reasoning depth classifier model format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Clearing config.`,
-	);
-	config.reasoningDepthClassifierModel = null;
 }
 
 function validateMemoryLegacyCurationModel(config: RuntimeConfig): void {
@@ -791,9 +760,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MEMORY_LEGACY_CURATION_MODEL: (config, value) => {
 		config.memoryLegacyCurationModel = normalizeConfiguredModelId(value);
 	},
-	REASONING_DEPTH_CLASSIFIER_MODEL: (config, value) => {
-		config.reasoningDepthClassifierModel = value.trim() || null;
-	},
 	ATLAS_WORKER_ENABLED: (config, value) => {
 		config.atlasWorkerEnabled = value !== "false";
 	},
@@ -959,7 +925,6 @@ export async function refreshConfig(): Promise<void> {
 	applyDerivedContextLimitDefaults(base, overrides);
 	validateContextLimitTriples(base);
 	applyDerivedMaxMessageLengthDefaults(base, overrides);
-	validateReasoningDepthClassifierModel(base);
 	validateMemoryLegacyCurationModel(base);
 
 	if (!hasMaxMessageLengthOverride) {
@@ -1230,8 +1195,6 @@ export function getResolvedAdminConfigValues(
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: config.modelTimeoutFailoverTargetModel,
 		DEFAULT_NEW_USER_MODEL: config.defaultNewUserModel,
 		MEMORY_LEGACY_CURATION_MODEL: config.memoryLegacyCurationModel,
-		REASONING_DEPTH_CLASSIFIER_MODEL:
-			config.reasoningDepthClassifierModel ?? "",
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),
 		ATLAS_SEARCH_CONCURRENCY: String(config.atlasSearchConcurrency),

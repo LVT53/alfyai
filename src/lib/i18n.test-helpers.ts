@@ -13,7 +13,6 @@ const I18N_MODULES = [
 ] as const;
 const AUDITED_PREFIXES = [
 	"admin.composerCommandRegistry",
-	"admin.reasoningDepthClassifier",
 	"admin.systemSkills.",
 	"composerCommandRegistry.",
 	"composerCommands.",

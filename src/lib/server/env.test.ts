@@ -76,7 +76,6 @@ describe("Environment Configuration", () => {
 		delete process.env.MAX_MESSAGE_LENGTH;
 		delete process.env.COMPOSER_COMMAND_REGISTRY_ENABLED;
 		delete process.env.MEMORY_LEGACY_CURATION_MODEL;
-		delete process.env.REASONING_DEPTH_CLASSIFIER_MODEL;
 		delete process.env.DATABASE_PATH;
 
 		const { config } = await import("./env");
@@ -117,7 +116,6 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
 		expect(config.memoryLegacyCurationModel).toBe("model1");
-		expect(config.reasoningDepthClassifierModel).toBeNull();
 		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(1_048_576);
 		expect(config.sessionSecret).toBe(
@@ -203,8 +201,6 @@ describe("Environment Configuration", () => {
 		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = "provider:backup:model-a";
 		process.env.MEMORY_LEGACY_CURATION_MODEL =
 			"provider:memory-curator:model-a";
-		process.env.REASONING_DEPTH_CLASSIFIER_MODEL =
-			"provider:classifier:model-a";
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
 		process.env.MAX_MESSAGE_LENGTH = "5000";
 		process.env.SESSION_SECRET =
@@ -257,24 +253,12 @@ describe("Environment Configuration", () => {
 		expect(config.memoryLegacyCurationModel).toBe(
 			"provider:memory-curator:model-a",
 		);
-		expect(config.reasoningDepthClassifierModel).toBe(
-			"provider:classifier:model-a",
-		);
 		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(5000);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",
 		);
 		expect(config.databasePath).toBe("./test-data/test.db");
-	});
-
-	it("should reject invalid REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
-		process.env.SESSION_SECRET =
-			"test-session-secret-12345678901234567890123456789012";
-		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "nonexistent-model";
-
-		const { config } = await import("./env");
-		expect(config.reasoningDepthClassifierModel).toBeNull();
 	});
 
 	it("should fall back when MEMORY_LEGACY_CURATION_MODEL is invalid", async () => {
@@ -284,33 +268,6 @@ describe("Environment Configuration", () => {
 
 		const { config } = await import("./env");
 		expect(config.memoryLegacyCurationModel).toBe("model1");
-	});
-
-	it("should reject whitespace-only REASONING_DEPTH_CLASSIFIER_MODEL", async () => {
-		process.env.SESSION_SECRET =
-			"test-session-secret-12345678901234567890123456789012";
-		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "   ";
-
-		const { config } = await import("./env");
-		expect(config.reasoningDepthClassifierModel).toBeNull();
-	});
-
-	it("should accept valid provider REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
-		process.env.SESSION_SECRET =
-			"test-session-secret-12345678901234567890123456789012";
-		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "provider:test:model-a";
-
-		const { config } = await import("./env");
-		expect(config.reasoningDepthClassifierModel).toBe("provider:test:model-a");
-	});
-
-	it("should reject malformed provider REASONING_DEPTH_CLASSIFIER_MODEL format", async () => {
-		process.env.SESSION_SECRET =
-			"test-session-secret-12345678901234567890123456789012";
-		process.env.REASONING_DEPTH_CLASSIFIER_MODEL = "provider:missing-model-id";
-
-		const { config } = await import("./env");
-		expect(config.reasoningDepthClassifierModel).toBeNull();
 	});
 
 	it("should ignore retired WEBHOOK_PORT values at boot", async () => {

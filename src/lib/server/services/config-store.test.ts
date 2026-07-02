@@ -75,7 +75,6 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
 		memoryLegacyCurationModel: "model1",
-		reasoningDepthClassifierModel: null,
 		atlasOverviewMaxOutputTokens: 8000,
 		atlasInDepthMaxOutputTokens: 12000,
 		atlasExhaustiveMaxOutputTokens: 16000,
@@ -135,7 +134,6 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
 		memoryLegacyCurationModel: "model1",
-		reasoningDepthClassifierModel: null,
 		atlasOverviewMaxOutputTokens: 8000,
 		atlasInDepthMaxOutputTokens: 12000,
 		atlasExhaustiveMaxOutputTokens: 16000,
@@ -517,73 +515,6 @@ describe("Knowledge Store Config", () => {
 
 			expect(getConfig().model2Enabled).toBe(false);
 			expect(getConfig().memoryLegacyCurationModel).toBe("model1");
-		});
-
-		it("getConfig() should persist the optional Reasoning Depth classifier model", async () => {
-			expect(getConfig().reasoningDepthClassifierModel).toBeNull();
-			expect(
-				getResolvedAdminConfigValues().REASONING_DEPTH_CLASSIFIER_MODEL,
-			).toBe("");
-
-			adminConfigRows = [
-				{
-					key: "REASONING_DEPTH_CLASSIFIER_MODEL",
-					value: "provider:classifier:model-a",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().reasoningDepthClassifierModel).toBe(
-				"provider:classifier:model-a",
-			);
-			expect(
-				getResolvedAdminConfigValues().REASONING_DEPTH_CLASSIFIER_MODEL,
-			).toBe("provider:classifier:model-a");
-		});
-
-		it("getConfig() should clear invalid reasoning depth classifier model admin overrides", async () => {
-			adminConfigRows = [
-				{
-					key: "REASONING_DEPTH_CLASSIFIER_MODEL",
-					value: "nonexistent-model",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().reasoningDepthClassifierModel).toBeNull();
-			expect(
-				getResolvedAdminConfigValues().REASONING_DEPTH_CLASSIFIER_MODEL,
-			).toBe("");
-		});
-
-		it("getConfig() should clear reasoning depth classifier model when model2 is disabled", async () => {
-			adminConfigRows = [
-				{ key: "MODEL_2_ENABLED", value: "false" },
-				{
-					key: "REASONING_DEPTH_CLASSIFIER_MODEL",
-					value: "model2",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().model2Enabled).toBe(false);
-			expect(getConfig().reasoningDepthClassifierModel).toBeNull();
-		});
-
-		it("getConfig() should keep model1 as reasoning depth classifier when model1 is enabled", async () => {
-			adminConfigRows = [
-				{
-					key: "REASONING_DEPTH_CLASSIFIER_MODEL",
-					value: "model1",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().reasoningDepthClassifierModel).toBe("model1");
 		});
 
 		it("getConfig() should apply and expose the silent app version override", async () => {

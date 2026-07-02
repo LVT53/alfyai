@@ -197,39 +197,6 @@ describe("SettingsAdminSystemPane", () => {
 		expect(onSaveAdminConfig).toHaveBeenCalledTimes(1);
 	});
 
-	it("lets admins select an optional Reasoning Depth classifier model", async () => {
-		const adminConfig = {
-			REASONING_DEPTH_CLASSIFIER_MODEL: "",
-			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
-			MODEL_2_ENABLED: "true",
-		};
-
-		const { getByLabelText, getByText } = render(SettingsAdminSystemPane, {
-			adminConfig,
-			envDefaults: { REASONING_DEPTH_CLASSIFIER_MODEL: "" },
-			availableModels: [
-				{ id: "model1", displayName: "Model 1" },
-				{
-					id: "provider:provider-1:classifier-1",
-					displayName: "Classifier Mini",
-				},
-			],
-			onCheckHonchoHealth: vi.fn(),
-			onSaveAdminConfig: vi.fn(),
-		});
-
-		expect(getByText("Reasoning Depth classifier")).toBeInTheDocument();
-		expect(getByText("Use selected chat model")).toBeInTheDocument();
-
-		await fireEvent.change(getByLabelText("Depth classifier model"), {
-			target: { value: "provider:provider-1:classifier-1" },
-		});
-
-		expect(adminConfig.REASONING_DEPTH_CLASSIFIER_MODEL).toBe(
-			"provider:provider-1:classifier-1",
-		);
-	});
-
 	it("renders and edits all Atlas runtime settings", async () => {
 		const adminConfig = {
 			ATLAS_WORKER_ENABLED: "true",

@@ -60,7 +60,6 @@ interface Config {
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
-	reasoningDepthClassifierModel: string | null;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -187,29 +186,6 @@ function normalizeModelThinkingType(
 	value: string | undefined,
 ): ModelConfig["thinkingType"] {
 	return value === "enabled" || value === "disabled" ? value : null;
-}
-
-function validateReasoningDepthClassifierModel(
-	value: string | undefined,
-): string | null {
-	const trimmed = value?.trim();
-	if (!trimmed) return null;
-
-	if (trimmed === "model1" || trimmed === "model2") {
-		return trimmed;
-	}
-
-	if (trimmed.startsWith("provider:")) {
-		const parts = trimmed.split(":");
-		if (parts.length === 3 && parts[1] && parts[2]) {
-			return trimmed;
-		}
-	}
-
-	console.warn(
-		`[CONFIG] Invalid REASONING_DEPTH_CLASSIFIER_MODEL format: "${value}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Using null.`,
-	);
-	return null;
 }
 
 function validateConfiguredModelIdEnv(
@@ -448,9 +424,6 @@ function readConfig(): Config {
 		memoryLegacyCurationModel: validateConfiguredModelIdEnv(
 			process.env.MEMORY_LEGACY_CURATION_MODEL,
 			"MEMORY_LEGACY_CURATION_MODEL",
-		),
-		reasoningDepthClassifierModel: validateReasoningDepthClassifierModel(
-			process.env.REASONING_DEPTH_CLASSIFIER_MODEL,
 		),
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
