@@ -359,6 +359,7 @@ export async function resolveReasoningDepthSelection(
 					thinkingMode: "off",
 					maxTokens: tokenBudget,
 					temperature: 0,
+					allowEmptyTextOnLengthFinish: true,
 					skipStructuredOutputs: true,
 					jsonSchema: {
 						name: "reasoning_depth_selection",
@@ -832,7 +833,11 @@ function mapProfileValue(value: string): string {
 	switch (value) {
 		case "deep":
 		case "high":
+		case "advanced":
 			return "extended";
+		case "expert":
+		case "highest":
+		case "very high":
 		case "max":
 			return "maximum";
 		case "low":
@@ -846,39 +851,59 @@ function mapProfileValue(value: string): string {
 function parseClassifierSignals(
 	parsed: Record<string, unknown>,
 ): DepthSelectionSignals | null {
-	const groundingNeed =
-		parsed.groundingNeed === undefined
-			? "none"
-			: parsed.groundingNeed === "none" ||
-					parsed.groundingNeed === "possible" ||
-					parsed.groundingNeed === "useful" ||
-					parsed.groundingNeed === "required"
-				? parsed.groundingNeed
-				: null;
-	const contextBreadth =
-		parsed.contextBreadth === undefined
-			? "normal"
-			: parsed.contextBreadth === "narrow" ||
-					parsed.contextBreadth === "normal" ||
-					parsed.contextBreadth === "broad"
-				? parsed.contextBreadth
-				: null;
-	const outputRoom =
-		parsed.outputRoom === undefined
-			? "normal"
-			: parsed.outputRoom === "concise" ||
-					parsed.outputRoom === "normal" ||
-					parsed.outputRoom === "expanded"
-				? parsed.outputRoom
-				: null;
-	const toolUse =
-		parsed.toolUse === undefined
-			? "normal"
-			: parsed.toolUse === "none" ||
-					parsed.toolUse === "normal" ||
-					parsed.toolUse === "source_heavy"
-				? parsed.toolUse
-				: null;
+	const groundingNeed = parseSignalValue(
+		parsed.groundingNeed,
+		{
+			none: "none",
+			possible: "possible",
+			useful: "useful",
+			required: "required",
+			low: "possible",
+			medium: "useful",
+			moderate: "useful",
+			high: "required",
+		},
+		"none",
+	);
+	const contextBreadth = parseSignalValue(
+		parsed.contextBreadth,
+		{
+			narrow: "narrow",
+			normal: "normal",
+			broad: "broad",
+			low: "narrow",
+			medium: "normal",
+			moderate: "normal",
+			high: "broad",
+		},
+		"normal",
+	);
+	const outputRoom = parseSignalValue(
+		parsed.outputRoom,
+		{
+			concise: "concise",
+			normal: "normal",
+			expanded: "expanded",
+			low: "concise",
+			medium: "normal",
+			moderate: "normal",
+			high: "expanded",
+		},
+		"normal",
+	);
+	const toolUse = parseSignalValue(
+		parsed.toolUse,
+		{
+			none: "none",
+			normal: "normal",
+			source_heavy: "source_heavy",
+			low: "none",
+			medium: "normal",
+			moderate: "normal",
+			high: "source_heavy",
+		},
+		"normal",
+	);
 
 	if (!groundingNeed || !contextBreadth || !outputRoom || !toolUse) {
 		return null;
@@ -890,6 +915,17 @@ function parseClassifierSignals(
 		outputRoom,
 		toolUse,
 	};
+}
+
+function parseSignalValue<T extends string>(
+	raw: unknown,
+	allowed: Record<string, T>,
+	defaultValue: T,
+): T | null {
+	if (raw === undefined) return defaultValue;
+	if (typeof raw !== "string") return null;
+	const normalized = raw.toLowerCase().trim().replaceAll("-", "_");
+	return allowed[normalized] ?? null;
 }
 
 function isTruncatedJson(text: string): boolean {

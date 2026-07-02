@@ -44,6 +44,7 @@ export type JsonControlMessageOptions = {
 	signal?: AbortSignal;
 	jsonSchema?: JsonControlResponseSchema;
 	allowReasoningFallback?: boolean;
+	allowEmptyTextOnLengthFinish?: boolean;
 	skipStructuredOutputs?: boolean;
 	fetch?: typeof fetch;
 };
@@ -120,14 +121,23 @@ function buildJsonFallbackOutput(
 function resultText(params: {
 	text: string;
 	output: () => unknown;
+	rawResponse?: unknown;
 	reasoningText?: string;
 	allowReasoningFallback?: boolean;
+	allowEmptyTextOnLengthFinish?: boolean;
 }): string {
 	const text = params.text.trim();
 	if (text) return text;
 
 	if (params.allowReasoningFallback && params.reasoningText?.trim()) {
 		return params.reasoningText.trim();
+	}
+
+	if (
+		params.allowEmptyTextOnLengthFinish &&
+		hasLengthFinishReason(params.rawResponse)
+	) {
+		return "";
 	}
 
 	const output = params.output();
@@ -154,6 +164,16 @@ function extractReasoningFallbackText(rawResponse: unknown): string | null {
 		return reasoning.trim();
 	}
 	return null;
+}
+
+function hasLengthFinishReason(rawResponse: unknown): boolean {
+	const record =
+		rawResponse && typeof rawResponse === "object"
+			? (rawResponse as Record<string, unknown>)
+			: null;
+	const choices = Array.isArray(record?.choices) ? record.choices : [];
+	const firstChoice = choices[0] as Record<string, unknown> | undefined;
+	return firstChoice?.finish_reason === "length";
 }
 
 function extractRawResponseBody(response: unknown): unknown {
@@ -239,28 +259,34 @@ export async function sendJsonControlMessage(
 		});
 	try {
 		const result = await generate({ useJsonFallbackOutput: false });
+		const rawResponse = result.response.body;
 		return {
 			text: resultText({
 				text: result.text,
 				output: () => result.output,
+				rawResponse,
 				reasoningText: result.reasoningText,
 				allowReasoningFallback: options.allowReasoningFallback,
+				allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 			}),
-			rawResponse: result.response.body,
+			rawResponse,
 			modelId: selectedModelId,
 			modelDisplayName: provider.displayName,
 		};
 	} catch (error) {
 		if (options.jsonSchema && isUnsupportedStructuredOutputError(error)) {
 			const result = await generate({ useJsonFallbackOutput: true });
+			const rawResponse = result.response.body;
 			return {
 				text: resultText({
 					text: result.text,
 					output: () => result.output,
+					rawResponse,
 					reasoningText: result.reasoningText,
 					allowReasoningFallback: options.allowReasoningFallback,
+					allowEmptyTextOnLengthFinish: options.allowEmptyTextOnLengthFinish,
 				}),
-				rawResponse: result.response.body,
+				rawResponse,
 				modelId: selectedModelId,
 				modelDisplayName: provider.displayName,
 			};

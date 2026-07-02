@@ -1080,7 +1080,7 @@ describe("Reasoning Depth Auto selection", () => {
 	it("retries with larger token budget on finish_reason length", async () => {
 		mocks.sendJsonControlMessage
 			.mockResolvedValueOnce({
-				text: "{",
+				text: "",
 				rawResponse: {
 					choices: [{ finish_reason: "length" }],
 				},
@@ -1135,7 +1135,10 @@ describe("Reasoning Depth Auto selection", () => {
 			1,
 			expect.any(String),
 			"model1",
-			expect.objectContaining({ maxTokens: 256 }),
+			expect.objectContaining({
+				allowEmptyTextOnLengthFinish: true,
+				maxTokens: 256,
+			}),
 		);
 		expect(mocks.sendJsonControlMessage).toHaveBeenNthCalledWith(
 			2,
@@ -1304,6 +1307,54 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(result.metadata).toMatchObject({
 			appliedProfile: "maximum",
 			classifierSource: "control_model",
+		});
+	});
+
+	it("normalizes common non-enum classifier values from reasoning models", async () => {
+		mocks.sendJsonControlMessage.mockResolvedValueOnce({
+			text: JSON.stringify({
+				appliedProfile: "expert",
+				reason: "high",
+				groundingNeed: "low",
+				contextBreadth: "high",
+				outputRoom: "high",
+				toolUse: "low",
+			}),
+			rawResponse: {
+				choices: [{ finish_reason: "stop" }],
+			},
+			modelId: "model1",
+			modelDisplayName: "Model One",
+		});
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
+
+		const result = await resolveReasoningDepthSelection({
+			userId: "user-1",
+			conversationId: "conv-1",
+			request: {
+				normalizedMessage: "Compare and analyze failure modes.",
+				reasoningDepth: "auto",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				forceWebSearch: false,
+			},
+			listRecentMessages: async () => [],
+		});
+
+		expect(result.metadata).toMatchObject({
+			appliedProfile: "maximum",
+			classifierSource: "control_model",
+			signals: {
+				groundingNeed: "possible",
+				contextBreadth: "broad",
+				outputRoom: "expanded",
+				toolUse: "none",
+			},
 		});
 	});
 
