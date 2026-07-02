@@ -113,6 +113,7 @@ import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
+import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
 import {
 	appendAssistantPlaceholder,
@@ -2173,6 +2174,16 @@ function handleDrop(event: DragEvent) {
 		class:chat-stage-workspace-open={workspaceOpen && workspaceDocuments.length > 0}
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
+			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
+				<h1
+					class="min-w-0 max-w-[min(42rem,72vw)] truncate text-center text-[13px] font-medium leading-5 text-text-primary"
+					title={effectiveConversationTitle}
+					aria-live="polite"
+				>
+					<ConversationTitleText title={effectiveConversationTitle} />
+				</h1>
+			</div>
+
 			<div class="chat-messages flex flex-1 flex-col overflow-hidden">
 				{#if showInitialLoading}
 					<div class="flex flex-1 items-center justify-center">
@@ -2306,6 +2317,10 @@ function handleDrop(event: DragEvent) {
 
 	.chat-messages {
 		min-width: 0;
+	}
+
+	.chat-title-bar {
+		background: color-mix(in srgb, var(--surface-page) 92%, transparent 8%);
 	}
 
 	.chat-stage-workspace-open .chat-main :global(.scroll-container > div),

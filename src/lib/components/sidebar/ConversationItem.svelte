@@ -19,7 +19,7 @@ import {
 	setupMenuSync,
 } from "$lib/utils/popup-menu";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
-import TypewriterText from "../ui/TypewriterText.svelte";
+import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 
 type SidebarConversation = ConversationListItem & {
 	sidebarPinned?: boolean;
@@ -84,24 +84,6 @@ const PROJECT_SUBMENU_WIDTH = 184;
 const PROJECT_SUBMENU_ESTIMATED_HEIGHT = 220;
 const MENU_VIEWPORT_PADDING = 12;
 const MENU_VERTICAL_OFFSET = 6;
-
-// Track title changes for animation
-let previousTitle = "";
-let isNewTitle = $state(false);
-
-$effect(() => {
-	if (!previousTitle) {
-		previousTitle = conversation.title;
-		return;
-	}
-
-	if (conversation.title !== previousTitle) {
-		isNewTitle =
-			previousTitle === "New Conversation" &&
-			conversation.title !== "New Conversation";
-		previousTitle = conversation.title;
-	}
-});
 
 function handleSelect() {
 	if (!isEditing && !menuOpen) {
@@ -424,11 +406,7 @@ onMount(() => {
 				{/if}
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-[13px] font-sans text-text-primary">
-					{#if isNewTitle && !isEditing}
-						<TypewriterText text={conversation.title} onComplete={() => isNewTitle = false} />
-					{:else}
-						{conversation.title}
-					{/if}
+					<ConversationTitleText title={conversation.title} />
 				</div>
 				{#if projectLabel}
 					<div class="truncate text-[10px] leading-3 text-text-muted">{projectLabel}</div>

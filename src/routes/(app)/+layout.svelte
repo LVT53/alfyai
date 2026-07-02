@@ -16,6 +16,7 @@ import {
 	sidebarChatsExpanded,
 } from "$lib/stores/ui";
 import {
+	conversations,
 	loadConversations,
 	reconcileConversationSnapshot,
 } from "$lib/stores/conversations";
@@ -118,6 +119,21 @@ let shellPayloadSequence = 0;
 let routeProgressVisible = $state(false);
 let routeProgressTimeout: number | null = null;
 const ROUTE_PROGRESS_STUCK_TIMEOUT_MS = 12000;
+const routeConversationId = $derived(
+	page.url.pathname.match(/^\/chat\/([^/]+)$/)?.[1] ?? null,
+);
+const activeConversationTitle = $derived.by(() => {
+	if (!routeConversationId) return null;
+	return (
+		$conversations.find(
+			(conversation) => conversation.id === routeConversationId,
+		)?.title ??
+		shellConversations.find(
+			(conversation) => conversation.id === routeConversationId,
+		)?.title ??
+		null
+	);
+});
 
 $effect(() => {
 	const sequence = ++shellPayloadSequence;
@@ -216,8 +232,7 @@ $effect(() => {
 
 $effect(() => {
 	if (!browser) return;
-	const match = page.url.pathname.match(/^\/chat\/([^/]+)$/);
-	currentConversationId.set(match?.[1] ?? null);
+	currentConversationId.set(routeConversationId);
 });
 
 $effect(() => {
@@ -570,7 +585,7 @@ onDestroy(() => {
   - See SCROLL OWNERSHIP CONTRACT in src/app.css
 -->
 <div class="flex h-[100dvh] w-full flex-col overflow-hidden bg-primary text-text-primary">
-	<Header />
+	<Header conversationTitle={activeConversationTitle} />
 
 	<div class="flex h-full flex-1 overflow-hidden">
 		<Sidebar

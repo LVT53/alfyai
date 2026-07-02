@@ -18,6 +18,14 @@ import {
 	currentConversationId,
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
+import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
+
+let {
+	conversationTitle = null,
+}: {
+	conversationTitle?: string | null;
+} = $props();
+
 let mobileMenuOpen = $state(false);
 let menuRef = $state<HTMLDivElement | undefined>(undefined);
 let triggerRef = $state<HTMLButtonElement | undefined>(undefined);
@@ -116,9 +124,9 @@ onMount(() => {
 <svelte:window onclick={handleOutsideClick} />
 
 <header
-	class="z-10 box-border flex h-[52px] w-full max-w-full flex-none items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
+	class="z-10 box-border grid h-[52px] w-full max-w-full flex-none grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
 >
-	<div class="flex min-w-0 flex-1 items-center justify-start gap-md md:gap-lg">
+	<div class="flex min-w-0 items-center justify-start">
 		<button
 			class="btn-icon-bare mobile-sidebar-toggle"
 			onclick={toggleSidebar}
@@ -128,9 +136,19 @@ onMount(() => {
 		</button>
 	</div>
 
+	<div class="pointer-events-none flex min-w-0 items-center justify-center px-2">
+		{#if conversationTitle}
+			<div
+				class="max-w-full truncate text-center text-[13px] font-medium leading-5 text-text-primary"
+				title={conversationTitle}
+				aria-live="polite"
+			>
+				<ConversationTitleText title={conversationTitle} />
+			</div>
+		{/if}
+	</div>
 
-
-	<div class="flex min-w-0 flex-1 items-center justify-end gap-2 md:gap-3 lg:gap-3">
+	<div class="flex min-w-0 items-center justify-end">
 
 		<div class="hide-on-desktop-lg">
 			<button
