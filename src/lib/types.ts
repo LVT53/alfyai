@@ -118,6 +118,18 @@ export interface DepthAppliedEffortMetadata {
 	clamps?: string[];
 }
 
+export interface DepthSelectionTimingMetadata {
+	totalMs: number;
+	recentMessagesMs?: number;
+	classificationContextMs?: number;
+	classifierModelResolutionMs?: number;
+	controlModelClassifierMs?: number;
+	classifierAttempts: number;
+	classifierSource: string;
+	appliedProfile: DepthAppliedProfile;
+	fallbackReason?: string;
+}
+
 export interface DepthMetadata {
 	requested: ReasoningDepth;
 	appliedProfile: DepthAppliedProfile;
@@ -134,6 +146,7 @@ export interface DepthMetadata {
 	modelDisplayName?: string;
 	providerDisplayName?: string;
 	signals?: DepthSelectionSignals;
+	timing?: DepthSelectionTimingMetadata;
 	appliedEffort?: DepthAppliedEffortMetadata;
 	outcome?: DepthOutcome;
 	clarification?: {

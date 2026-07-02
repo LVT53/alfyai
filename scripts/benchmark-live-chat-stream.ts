@@ -18,6 +18,7 @@ import {
 const DEFAULT_BASE_URL = "https://ai.alfydesign.com";
 const DEFAULT_RUN_COUNT = 5;
 const DEFAULT_TIMEOUT_MS = 240_000;
+const DEFAULT_MAX_ANSWER_TEXT_LENGTH = 12_000;
 
 const CLIENT_TIMING_KEYS = [
 	BROWSER_STREAM_TIMING_MARKS.RESPONSE_HEADERS,
@@ -31,6 +32,7 @@ const CLIENT_TIMING_KEYS = [
 ] as const;
 
 type ClientTimingKey = (typeof CLIENT_TIMING_KEYS)[number];
+export type BenchmarkReasoningDepth = "off" | "auto" | "max";
 
 const BENCHMARK_PROMPTS = [
 	"Reply in one short sentence that this live stream benchmark is harmless. Do not use external tools, web search, or files.",
@@ -62,10 +64,21 @@ export type BenchmarkRunResult = Partial<Record<ClientTimingKey, number>> & {
 	endedAt: string;
 	chunkCount: number;
 	textLength: number;
+	answerText?: string;
+	answerTextTruncated?: boolean;
+	toolCallCount?: number;
+	toolCallNames?: string[];
 	finishReason?: string;
 	serverTimingHeader?: string | null;
 	serverTiming?: StreamTimelineTimingRecord;
 	serverTimeline?: StreamTimelineTimingRecord;
+	depthMetadata?: Record<string, unknown>;
+	tokenCounts?: {
+		thinking?: number;
+		response?: number;
+		total?: number;
+	};
+	generationDurationMs?: number;
 	outcome: BenchmarkOutcome;
 	error?: string;
 };
@@ -108,6 +121,7 @@ type BenchmarkStreamParseOptions = {
 	responseHeadersMs?: number;
 	serverTimingHeader?: string | null;
 	endMs?: number;
+	maxAnswerTextLength?: number;
 };
 
 type BenchmarkConfig = {
@@ -265,6 +279,9 @@ function createBenchmarkStreamParser(
 		responseHeadersMs: options.responseHeadersMs,
 		chunkCount: 0,
 		textLength: 0,
+		answerText: "",
+		toolCallCount: 0,
+		toolCallNames: [],
 		serverTimingHeader: options.serverTimingHeader ?? null,
 		serverTiming: parseServerTimingHeader(options.serverTimingHeader),
 		serverTimeline: {},
@@ -309,6 +326,64 @@ function createBenchmarkStreamParser(
 		if (serverTimeline) {
 			result.serverTimeline = serverTimeline;
 		}
+
+		const depthMetadata = cloneRecord(metadata.depthMetadata);
+		if (depthMetadata) {
+			result.depthMetadata = depthMetadata;
+		}
+
+		const thinkingTokenCount = readFiniteNumber(metadata.thinkingTokenCount);
+		const responseTokenCount = readFiniteNumber(metadata.responseTokenCount);
+		const totalTokenCount = readFiniteNumber(metadata.totalTokenCount);
+		if (
+			thinkingTokenCount !== undefined ||
+			responseTokenCount !== undefined ||
+			totalTokenCount !== undefined
+		) {
+			result.tokenCounts = {
+				...(thinkingTokenCount !== undefined
+					? { thinking: thinkingTokenCount }
+					: {}),
+				...(responseTokenCount !== undefined
+					? { response: responseTokenCount }
+					: {}),
+				...(totalTokenCount !== undefined ? { total: totalTokenCount } : {}),
+			};
+		}
+
+		const generationDurationMs = readFiniteNumber(metadata.generationDurationMs);
+		if (generationDurationMs !== undefined) {
+			result.generationDurationMs = generationDurationMs;
+		}
+	}
+
+	function appendAnswerText(chunk: string) {
+		const maxLength =
+			options.maxAnswerTextLength ?? DEFAULT_MAX_ANSWER_TEXT_LENGTH;
+		if (maxLength <= 0) {
+			result.answerTextTruncated = true;
+			return;
+		}
+
+		const current = result.answerText ?? "";
+		const remaining = maxLength - current.length;
+		if (remaining <= 0) {
+			result.answerTextTruncated = true;
+			return;
+		}
+
+		result.answerText = `${current}${chunk.slice(0, remaining)}`;
+		if (chunk.length > remaining) {
+			result.answerTextTruncated = true;
+		}
+	}
+
+	function recordToolCall(part: UiMessageStreamPart) {
+		result.toolCallCount = (result.toolCallCount ?? 0) + 1;
+		const name = extractToolCallName(part.data);
+		if (name) {
+			result.toolCallNames = [...(result.toolCallNames ?? []), name];
+		}
 	}
 
 	function processPart(part: UiMessageStreamPart, elapsedMs: number) {
@@ -334,6 +409,7 @@ function createBenchmarkStreamParser(
 			}
 
 			case "data-tool-call":
+				recordToolCall(part);
 				recordTiming(BROWSER_STREAM_TIMING_MARKS.FIRST_TOOL_CALL, elapsedMs);
 				break;
 
@@ -347,6 +423,7 @@ function createBenchmarkStreamParser(
 				if (chunk) {
 					recordTiming(BROWSER_STREAM_TIMING_MARKS.FIRST_TOKEN, elapsedMs);
 					result.textLength += chunk.length;
+					appendAnswerText(chunk);
 				}
 				break;
 			}
@@ -506,6 +583,24 @@ function extractServerTimeline(
 	return normalizeStreamTimelineTimings(server as Record<string, unknown>);
 }
 
+function cloneRecord(value: unknown): Record<string, unknown> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	return { ...(value as Record<string, unknown>) };
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function extractToolCallName(value: unknown): string | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const record = value as Record<string, unknown>;
+	const name = record.name ?? record.toolName;
+	return typeof name === "string" && name.trim() ? name.trim() : undefined;
+}
+
 function roundMs(value: number): number {
 	return Math.round(value * 10) / 10;
 }
@@ -534,7 +629,7 @@ class CookieJar {
 	}
 }
 
-class LiveAiClient {
+export class LiveAiClient {
 	readonly #baseUrl: string;
 	readonly #jar = new CookieJar();
 
@@ -633,7 +728,10 @@ async function runLiveBenchmark(config: BenchmarkConfig) {
 	console.log(`wrote ${path.join(config.outputDir, "summary.json")}`);
 }
 
-async function assertModelAvailable(client: LiveAiClient, modelId: string) {
+export async function assertModelAvailable(
+	client: LiveAiClient,
+	modelId: string,
+) {
 	const payload = await client.json<Record<string, unknown>>("/api/models");
 	const models = collectModelRefs(payload);
 	const match = models.find((model) => model.id === modelId);
@@ -692,13 +790,14 @@ function collectModelRefs(payload: Record<string, unknown>): LiveAiModelRef[] {
 	return refs;
 }
 
-async function runSingleStreamBenchmark(
+export async function runSingleStreamBenchmark(
 	client: LiveAiClient,
 	input: {
 		runIndex: number;
 		prompt: string;
 		modelId: string;
 		timeoutMs: number;
+		reasoningDepth?: BenchmarkReasoningDepth;
 	},
 ): Promise<BenchmarkRunResult> {
 	const streamId = randomUUID();
@@ -719,7 +818,10 @@ async function runSingleStreamBenchmark(
 				conversationId,
 				streamId,
 				model: input.modelId,
-				thinkingMode: "auto",
+				reasoningDepth: input.reasoningDepth ?? "auto",
+				thinkingMode: reasoningDepthToBenchmarkThinkingMode(
+					input.reasoningDepth ?? "auto",
+				),
 				forceWebSearch: false,
 			}),
 			signal: controller.signal,
@@ -803,6 +905,14 @@ async function runSingleStreamBenchmark(
 	} finally {
 		clearTimeout(timeout);
 	}
+}
+
+function reasoningDepthToBenchmarkThinkingMode(
+	reasoningDepth: BenchmarkReasoningDepth,
+) {
+	if (reasoningDepth === "off") return "off";
+	if (reasoningDepth === "max") return "on";
+	return "auto";
 }
 
 function attachRunContext(

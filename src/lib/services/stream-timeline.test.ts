@@ -31,6 +31,7 @@ describe("stream timeline vocabulary", () => {
 			ADMISSION: "admission",
 			PRELUDE: "prelude",
 			TURN_PREPARATION: "turn_preparation",
+			DEPTH_SELECTION: "depth_selection",
 			MODEL_STREAM_REQUEST: "model_stream_request",
 			FIRST_UPSTREAM_EVENT: "first_upstream_event",
 			FIRST_THINKING: "first_thinking",

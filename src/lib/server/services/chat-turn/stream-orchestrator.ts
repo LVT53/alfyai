@@ -329,6 +329,13 @@ export function runChatStreamOrchestrator(
 			name,
 			Date.now() - startedAt,
 		);
+	const recordDepthSelectionPhase = (metadata: DepthMetadata | undefined) => {
+		recordDurationStreamTimelineMark(
+			phaseTimingMs,
+			SERVER_STREAM_TIMELINE_MARKS.DEPTH_SELECTION,
+			metadata?.timing?.totalMs,
+		);
+	};
 	const logPhaseTiming = (outcome: "success" | "error" | "stopped") => {
 		recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.END);
 		const payload: Record<string, string | number | boolean | null> = {
@@ -1162,6 +1169,7 @@ export function runChatStreamOrchestrator(
 					? buildSkillSystemPromptAppendix(preparedTurn.skillPromptContext)
 					: undefined;
 				latestDepthMetadata = preparedTurn.depthMetadata;
+				recordDepthSelectionPhase(latestDepthMetadata);
 				emitResponseActivity({
 					id: RESPONSE_ACTIVITY_IDS.DEPTH_SELECTED,
 					kind: "depth",

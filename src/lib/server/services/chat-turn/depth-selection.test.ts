@@ -82,6 +82,11 @@ describe("Reasoning Depth Auto selection", () => {
 			fallback: false,
 			classifierSource: "deterministic_fast_path",
 			constraintNote: "simple_auto_standard_fast_path",
+			timing: {
+				classifierAttempts: 0,
+				classifierSource: "deterministic_fast_path",
+				appliedProfile: "standard",
+			},
 			signals: {
 				groundingNeed: "none",
 				contextBreadth: "normal",
@@ -89,6 +94,12 @@ describe("Reasoning Depth Auto selection", () => {
 				toolUse: "normal",
 			},
 		});
+		expect(result.metadata.timing?.totalMs).toEqual(expect.any(Number));
+		expect(result.metadata.timing?.totalMs).toBeGreaterThanOrEqual(0);
+		expect(result.metadata.timing?.recentMessagesMs).toBeUndefined();
+		expect(result.metadata.timing?.classificationContextMs).toBeUndefined();
+		expect(result.metadata.timing?.classifierModelResolutionMs).toBeUndefined();
+		expect(result.metadata.timing?.controlModelClassifierMs).toBeUndefined();
 		expect(listRecentMessages).not.toHaveBeenCalled();
 		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
 	});
@@ -243,7 +254,28 @@ describe("Reasoning Depth Auto selection", () => {
 			appliedProfile: "extended",
 			fallback: false,
 			classifierSource: "control_model",
+			timing: {
+				classifierAttempts: 1,
+				classifierSource: "control_model",
+				appliedProfile: "extended",
+			},
 		});
+		expect(result.metadata.timing?.totalMs).toEqual(expect.any(Number));
+		expect(result.metadata.timing?.recentMessagesMs).toEqual(
+			expect.any(Number),
+		);
+		expect(result.metadata.timing?.classificationContextMs).toEqual(
+			expect.any(Number),
+		);
+		expect(result.metadata.timing?.classifierModelResolutionMs).toEqual(
+			expect.any(Number),
+		);
+		expect(result.metadata.timing?.controlModelClassifierMs).toEqual(
+			expect.any(Number),
+		);
+		expect(JSON.stringify(result.metadata.timing)).not.toContain(
+			"The request asks for work over the active document.",
+		);
 		expect(listRecentMessages).toHaveBeenCalledTimes(1);
 		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
 	});
@@ -776,6 +808,11 @@ describe("Reasoning Depth Auto selection", () => {
 			fallback: false,
 			classifierSource: "deterministic_bypass",
 			constraintNote: "explicit_off",
+			timing: {
+				classifierAttempts: 0,
+				classifierSource: "deterministic_bypass",
+				appliedProfile: "off",
+			},
 		});
 		expect(max.metadata).toMatchObject({
 			requested: "max",
@@ -783,6 +820,11 @@ describe("Reasoning Depth Auto selection", () => {
 			fallback: false,
 			classifierSource: "deterministic_bypass",
 			constraintNote: "explicit_max",
+			timing: {
+				classifierAttempts: 0,
+				classifierSource: "deterministic_bypass",
+				appliedProfile: "maximum",
+			},
 			signals: {
 				groundingNeed: "useful",
 				contextBreadth: "broad",
@@ -957,7 +999,16 @@ describe("Reasoning Depth Auto selection", () => {
 			fallback: true,
 			fallbackReason: "control_model_error",
 			classifierSource: "deterministic_fallback",
+			timing: {
+				classifierAttempts: 1,
+				classifierSource: "deterministic_fallback",
+				appliedProfile: "standard",
+				fallbackReason: "control_model_error",
+			},
 		});
+		expect(result.metadata.timing?.controlModelClassifierMs).toEqual(
+			expect.any(Number),
+		);
 	});
 
 	it("uses specific compact fallback metadata for classifier no-object failures", async () => {
@@ -1070,7 +1121,15 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(result.metadata).toMatchObject({
 			appliedProfile: "extended",
 			classifierSource: "control_model",
+			timing: {
+				classifierAttempts: 2,
+				classifierSource: "control_model",
+				appliedProfile: "extended",
+			},
 		});
+		expect(result.metadata.timing?.controlModelClassifierMs).toEqual(
+			expect.any(Number),
+		);
 		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(2);
 		expect(mocks.sendJsonControlMessage).toHaveBeenNthCalledWith(
 			1,

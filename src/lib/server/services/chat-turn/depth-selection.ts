@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { NoObjectGeneratedError } from "ai";
 import { eq } from "drizzle-orm";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
@@ -11,6 +12,7 @@ import type {
 	DepthAppliedProfile,
 	DepthMetadata,
 	DepthSelectionSignals,
+	DepthSelectionTimingMetadata,
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
@@ -250,6 +252,7 @@ export type DepthClassificationContext = {
 export async function resolveReasoningDepthSelection(
 	params: ResolveReasoningDepthSelectionParams,
 ): Promise<ResolveReasoningDepthSelectionResult> {
+	const selectionStartedAt = nowDepthSelectionMs();
 	const { request } = params;
 	if (request.reasoningDepth === "off") {
 		return {
@@ -258,11 +261,19 @@ export async function resolveReasoningDepthSelection(
 				appliedProfile: "off",
 				classifierSource: "deterministic_bypass",
 				constraintNote: "explicit_off",
+				timing: buildDepthSelectionTiming({
+					selectionStartedAt,
+					classifierSource: "deterministic_bypass",
+					appliedProfile: "off",
+					classifierAttempts: 0,
+				}),
 			}),
 		};
 	}
 	if (request.reasoningDepth === "max") {
+		const recentMessagesStartedAt = nowDepthSelectionMs();
 		const maxSignals = await resolveMaxSignals(params);
+		const recentMessagesMs = elapsedDepthSelectionMs(recentMessagesStartedAt);
 		return {
 			metadata: buildDepthMetadata({
 				request,
@@ -270,6 +281,13 @@ export async function resolveReasoningDepthSelection(
 				signals: maxSignals,
 				classifierSource: "deterministic_bypass",
 				constraintNote: "explicit_max",
+				timing: buildDepthSelectionTiming({
+					selectionStartedAt,
+					classifierSource: "deterministic_bypass",
+					appliedProfile: "maximum",
+					classifierAttempts: 0,
+					recentMessagesMs,
+				}),
 			}),
 		};
 	}
@@ -287,22 +305,37 @@ export async function resolveReasoningDepthSelection(
 				signals: fastPathResult.signals,
 				classifierSource: "deterministic_fast_path",
 				constraintNote: SIMPLE_AUTO_FAST_PATH_CONSTRAINT_NOTE,
+				timing: buildDepthSelectionTiming({
+					selectionStartedAt,
+					classifierSource: "deterministic_fast_path",
+					appliedProfile: fastPathResult.appliedProfile,
+					classifierAttempts: 0,
+				}),
 			}),
 		};
 	}
 	const listRecentMessages =
 		params.listRecentMessages ?? listRecentDepthConversationMessages;
+	const recentMessagesStartedAt = nowDepthSelectionMs();
 	const recentMessages = await listRecentMessages({
 		userId: params.userId,
 		conversationId: params.conversationId,
 	}).catch(() => []);
+	const recentMessagesMs = elapsedDepthSelectionMs(recentMessagesStartedAt);
+	const classificationContextStartedAt = nowDepthSelectionMs();
 	const context = buildDepthClassificationContext({
 		request,
 		recentMessages,
 	});
-	const classifierModel = await resolveDepthClassifierModel(request);
-
 	const prompt = formatDepthClassificationPrompt(context);
+	const classificationContextMs = elapsedDepthSelectionMs(
+		classificationContextStartedAt,
+	);
+	const classifierModelResolutionStartedAt = nowDepthSelectionMs();
+	const classifierModel = await resolveDepthClassifierModel(request);
+	const classifierModelResolutionMs = elapsedDepthSelectionMs(
+		classifierModelResolutionStartedAt,
+	);
 	let lastError: unknown;
 	let fallbackReason:
 		| "control_model_error"
@@ -312,9 +345,11 @@ export async function resolveReasoningDepthSelection(
 	let attemptCount = 0;
 	let finishReason: string | undefined;
 	let hadReasoningTokens = false;
+	let controlModelClassifierMs = 0;
 
 	for (const tokenBudget of CLASSIFIER_TOKEN_BUDGETS) {
 		attemptCount++;
+		const classifierAttemptStartedAt = nowDepthSelectionMs();
 		try {
 			const result = await sendJsonControlMessage(
 				prompt,
@@ -355,6 +390,9 @@ export async function resolveReasoningDepthSelection(
 
 			const text = result.text;
 			const classification = parseClassifierResult(text);
+			controlModelClassifierMs += elapsedDepthSelectionMs(
+				classifierAttemptStartedAt,
+			);
 
 			if (classification) {
 				logClassifierResult({
@@ -371,6 +409,16 @@ export async function resolveReasoningDepthSelection(
 						signals: classification.signals,
 						classifierSource: "control_model",
 						classifierModel,
+						timing: buildDepthSelectionTiming({
+							selectionStartedAt,
+							classifierSource: "control_model",
+							appliedProfile: classification.appliedProfile,
+							classifierAttempts: attemptCount,
+							recentMessagesMs,
+							classificationContextMs,
+							classifierModelResolutionMs,
+							controlModelClassifierMs,
+						}),
 					}),
 				};
 			}
@@ -383,6 +431,9 @@ export async function resolveReasoningDepthSelection(
 			fallbackReason = "invalid_classifier_response";
 			break;
 		} catch (error) {
+			controlModelClassifierMs += elapsedDepthSelectionMs(
+				classifierAttemptStartedAt,
+			);
 			lastError = error;
 			const errorSummary = summarizeClassifierError(error);
 			fallbackReason = errorSummary.fallbackReason;
@@ -416,6 +467,17 @@ export async function resolveReasoningDepthSelection(
 				fallback: true,
 				fallbackReason: resolvedFallbackReason,
 				classifierModel,
+				timing: buildDepthSelectionTiming({
+					selectionStartedAt,
+					classifierSource: "deterministic_fallback",
+					appliedProfile: keywordResult.appliedProfile,
+					classifierAttempts: attemptCount,
+					fallbackReason: resolvedFallbackReason,
+					recentMessagesMs,
+					classificationContextMs,
+					classifierModelResolutionMs,
+					controlModelClassifierMs,
+				}),
 			}),
 		};
 	}
@@ -440,6 +502,17 @@ export async function resolveReasoningDepthSelection(
 			fallback: true,
 			fallbackReason: "invalid_classifier_response",
 			classifierModel,
+			timing: buildDepthSelectionTiming({
+				selectionStartedAt,
+				classifierSource: "deterministic_fallback",
+				appliedProfile: keywordResult.appliedProfile,
+				classifierAttempts: attemptCount,
+				fallbackReason: "invalid_classifier_response",
+				recentMessagesMs,
+				classificationContextMs,
+				classifierModelResolutionMs,
+				controlModelClassifierMs,
+			}),
 		}),
 	};
 }
@@ -533,6 +606,7 @@ function buildDepthMetadata(params: {
 	constraintNote?: string;
 	signals?: DepthSelectionSignals;
 	classifierModel?: ResolvedDepthClassifierModel;
+	timing?: DepthSelectionTimingMetadata;
 }): DepthMetadata {
 	const metadata: DepthMetadata = {
 		requested: params.request.reasoningDepth,
@@ -543,6 +617,7 @@ function buildDepthMetadata(params: {
 	if (params.fallbackReason) metadata.fallbackReason = params.fallbackReason;
 	if (params.constraintNote) metadata.constraintNote = params.constraintNote;
 	if (params.signals) metadata.signals = params.signals;
+	if (params.timing) metadata.timing = params.timing;
 	if (params.classifierModel) {
 		metadata.classifierModelSource = params.classifierModel.source;
 		if (params.classifierModel.modelId) {
@@ -569,6 +644,74 @@ function buildDepthMetadata(params: {
 		metadata.providerDisplayName = params.request.providerDisplayName;
 	}
 	return metadata;
+}
+
+function buildDepthSelectionTiming(params: {
+	selectionStartedAt: number;
+	classifierSource: string;
+	appliedProfile: DepthAppliedProfile;
+	classifierAttempts: number;
+	fallbackReason?: string;
+	recentMessagesMs?: number;
+	classificationContextMs?: number;
+	classifierModelResolutionMs?: number;
+	controlModelClassifierMs?: number;
+}): DepthSelectionTimingMetadata {
+	const classifierAttempts = Number.isFinite(params.classifierAttempts)
+		? Math.max(0, Math.floor(params.classifierAttempts))
+		: 0;
+	const timing: DepthSelectionTimingMetadata = {
+		totalMs: elapsedDepthSelectionMs(params.selectionStartedAt),
+		classifierAttempts,
+		classifierSource: params.classifierSource,
+		appliedProfile: params.appliedProfile,
+	};
+	assignDepthSelectionDuration(
+		timing,
+		"recentMessagesMs",
+		params.recentMessagesMs,
+	);
+	assignDepthSelectionDuration(
+		timing,
+		"classificationContextMs",
+		params.classificationContextMs,
+	);
+	assignDepthSelectionDuration(
+		timing,
+		"classifierModelResolutionMs",
+		params.classifierModelResolutionMs,
+	);
+	assignDepthSelectionDuration(
+		timing,
+		"controlModelClassifierMs",
+		params.controlModelClassifierMs,
+	);
+	if (params.fallbackReason) {
+		timing.fallbackReason = params.fallbackReason;
+	}
+	return timing;
+}
+
+function assignDepthSelectionDuration(
+	timing: DepthSelectionTimingMetadata,
+	key:
+		| "recentMessagesMs"
+		| "classificationContextMs"
+		| "classifierModelResolutionMs"
+		| "controlModelClassifierMs",
+	value: number | undefined,
+): void {
+	if (value === undefined || !Number.isFinite(value) || value < 0) return;
+	timing[key] = value;
+}
+
+function nowDepthSelectionMs(): number {
+	return performance.now();
+}
+
+function elapsedDepthSelectionMs(startedAt: number): number {
+	const elapsedMs = nowDepthSelectionMs() - startedAt;
+	return Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
 }
 
 async function resolveDepthClassifierModel(

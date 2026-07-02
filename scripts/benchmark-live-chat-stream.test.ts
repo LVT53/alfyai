@@ -137,6 +137,76 @@ describe("live chat stream benchmark stream parser", () => {
 			},
 		});
 	});
+
+	it("captures answer text for deterministic downstream quality scoring", () => {
+		const result = parseBenchmarkStreamChunks(
+			[
+				{
+					text: frame({
+						type: "text-delta",
+						id: "answer",
+						delta: "First sentence. ",
+					}),
+					elapsedMs: 20,
+				},
+				{
+					text: frame({
+						type: "text-delta",
+						id: "answer",
+						delta: "Second sentence.",
+					}),
+					elapsedMs: 40,
+				},
+				{
+					text: frame({
+						type: "data-tool-call",
+						data: { name: "research_web" },
+						transient: true,
+					}),
+					elapsedMs: 50,
+				},
+				{
+					text: frame({
+						type: "data-stream-metadata",
+						data: {
+							depthMetadata: {
+								requested: "auto",
+								appliedProfile: "maximum",
+								fallback: false,
+							},
+							thinkingTokenCount: 7,
+							responseTokenCount: 11,
+							totalTokenCount: 18,
+							generationDurationMs: 1234,
+						},
+						transient: true,
+					}),
+					elapsedMs: 60,
+				},
+				{ text: frame({ type: "finish", finishReason: "stop" }), elapsedMs: 70 },
+			],
+			{ endMs: 80, maxAnswerTextLength: 20 },
+		);
+
+		expect(result).toMatchObject({
+			textLength: 32,
+			answerText: "First sentence. Seco",
+			answerTextTruncated: true,
+			toolCallCount: 1,
+			toolCallNames: ["research_web"],
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "maximum",
+				fallback: false,
+			},
+			tokenCounts: {
+				thinking: 7,
+				response: 11,
+				total: 18,
+			},
+			generationDurationMs: 1234,
+		});
+	});
 });
 
 describe("live chat stream benchmark summary", () => {

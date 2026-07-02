@@ -249,6 +249,12 @@ function createTurn(
 			fallback: false,
 			modelId: "model1",
 			modelDisplayName: "Model One",
+			timing: {
+				totalMs: 4,
+				classifierAttempts: 0,
+				classifierSource: "deterministic_fast_path",
+				appliedProfile: "standard",
+			},
 		},
 		...overrides,
 	};
@@ -1146,6 +1152,7 @@ describe("stream-orchestrator SSE contract", () => {
 				[SERVER_STREAM_TIMELINE_MARKS.ADMISSION]: 3,
 				[SERVER_STREAM_TIMELINE_MARKS.PRELUDE]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.TURN_PREPARATION]: expect.any(Number),
+				[SERVER_STREAM_TIMELINE_MARKS.DEPTH_SELECTION]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: expect.any(Number),
 				[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: expect.any(Number),
@@ -1164,6 +1171,7 @@ describe("stream-orchestrator SSE contract", () => {
 				admission_ms: expect.any(Number),
 				prelude_ms: expect.any(Number),
 				turn_preparation_ms: expect.any(Number),
+				depth_selection_ms: expect.any(Number),
 				model_stream_request_ms: expect.any(Number),
 				first_upstream_event_ms: expect.any(Number),
 				first_thinking_ms: expect.any(Number),
