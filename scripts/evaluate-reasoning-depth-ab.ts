@@ -25,11 +25,7 @@ export type ReasoningDepthAbPromptCategory =
 	| "planning_recommendation"
 	| "hungarian_prompt";
 
-export type DepthAppliedProfile =
-	| "off"
-	| "standard"
-	| "extended"
-	| "maximum";
+export type DepthAppliedProfile = "off" | "standard" | "extended" | "maximum";
 
 type LocalDepthSignals = {
 	groundingNeed: "none" | "possible" | "useful" | "required";
@@ -56,11 +52,7 @@ export type ReasoningDepthAbPrompt = {
 };
 
 export type ReasoningDepthAbVariant = {
-	id:
-		| "lean_baseline_off"
-		| "current_auto"
-		| "local_heuristic_auto"
-		| "max";
+	id: "lean_baseline_off" | "current_auto" | "local_heuristic_auto" | "max";
 	label: string;
 	requestReasoningDepth: BenchmarkReasoningDepth;
 	description: string;
@@ -334,7 +326,11 @@ export function buildReasoningDepthEvaluationPlan(params: {
 	const runQueue: ReasoningDepthAbPlanRun[] = [];
 	let runIndex = 1;
 
-	for (let repetition = 1; repetition <= params.runsPerPrompt; repetition += 1) {
+	for (
+		let repetition = 1;
+		repetition <= params.runsPerPrompt;
+		repetition += 1
+	) {
 		for (const prompt of prompts) {
 			const localClassification = classifyPromptForLocalAuto(prompt);
 			for (const variant of variants) {
@@ -387,14 +383,16 @@ export function classifyPromptForLocalAuto(
 
 	if (category === "source_grounded_current" || mentionsEvidence(normalized)) {
 		return {
-			expectedProfile: "maximum",
+			expectedProfile: "standard",
 			signals: {
-				groundingNeed: "required",
-				contextBreadth: "broad",
-				outputRoom: "expanded",
+				groundingNeed: "useful",
+				contextBreadth: "normal",
+				outputRoom: "normal",
 				toolUse: "source_heavy",
 			},
-			reasons: ["Current/source-grounded task where evidence quality matters."],
+			reasons: [
+				"Current/source-grounded task needs source tooling but should not auto-escalate to maximum.",
+			],
 		};
 	}
 
@@ -443,7 +441,9 @@ export function classifyPromptForLocalAuto(
 				outputRoom: "expanded",
 				toolUse: "normal",
 			},
-			reasons: ["Planning/recommendation prompt with multiple evaluation axes."],
+			reasons: [
+				"Planning/recommendation prompt with multiple evaluation axes.",
+			],
 		};
 	}
 
@@ -514,7 +514,9 @@ export function scoreReasoningDepthRun(params: {
 		passedChecks,
 		failedChecks,
 		answerLength,
-		...(run.firstTokenMs !== undefined ? { firstTokenMs: run.firstTokenMs } : {}),
+		...(run.firstTokenMs !== undefined
+			? { firstTokenMs: run.firstTokenMs }
+			: {}),
 		...(run.endMs !== undefined ? { endMs: run.endMs } : {}),
 		...(run.serverTimeline?.end !== undefined
 			? { serverEndMs: run.serverTimeline.end }
@@ -575,7 +577,9 @@ export function summarizeReasoningDepthEvaluation(params: {
 			variantId,
 			variantLabel: variant?.label ?? rows[0]?.variantLabel ?? variantId,
 			requestReasoningDepth:
-				variant?.requestReasoningDepth ?? rows[0]?.requestReasoningDepth ?? "auto",
+				variant?.requestReasoningDepth ??
+				rows[0]?.requestReasoningDepth ??
+				"auto",
 			runCount: rows.length,
 			okCount: rows.filter((row) => row.outcome === "ok").length,
 			errorCount: rows.filter((row) => row.outcome !== "ok").length,
@@ -650,9 +654,7 @@ function formatReasoningDepthEvaluationConsoleSummary(
 	return lines.join("\n");
 }
 
-async function runReasoningDepthAbEvaluation(
-	config: ReasoningDepthAbConfig,
-) {
+async function runReasoningDepthAbEvaluation(config: ReasoningDepthAbConfig) {
 	const generatedAt = new Date().toISOString();
 	const client = new LiveAiClient(config.baseUrl);
 	await client.login(config.email, config.password);
@@ -718,15 +720,15 @@ async function runReasoningDepthAbEvaluation(
 
 	await mkdir(config.outputDir, { recursive: true });
 	await writeJsonFile(path.join(config.outputDir, "raw-runs.json"), artifact);
+	await writeJsonFile(path.join(config.outputDir, "variant-summaries.json"), {
+		generatedAt,
+		variantSummaries: aggregate.variantSummaries,
+		benchmarkSummaries,
+	});
 	await writeJsonFile(
-		path.join(config.outputDir, "variant-summaries.json"),
-		{
-			generatedAt,
-			variantSummaries: aggregate.variantSummaries,
-			benchmarkSummaries,
-		},
+		path.join(config.outputDir, "score-rows.json"),
+		scoreRows,
 	);
-	await writeJsonFile(path.join(config.outputDir, "score-rows.json"), scoreRows);
 	await writeJsonFile(
 		path.join(config.outputDir, "aggregate-comparison.json"),
 		aggregate,
@@ -812,7 +814,10 @@ function mentionsEvidence(normalized: string): boolean {
 	);
 }
 
-function hasVisibleEvidence(answerText: string, run: BenchmarkRunResult): boolean {
+function hasVisibleEvidence(
+	answerText: string,
+	run: BenchmarkRunResult,
+): boolean {
 	return (
 		(run.toolCallCount ?? 0) > 0 ||
 		/https?:\/\/\S+/.test(answerText) ||
@@ -848,7 +853,9 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function readFiniteNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
 }
 
 function readNumericRows(
@@ -916,7 +923,10 @@ function buildComparisonRows(
 					summary.latency.firstTokenMs?.p50,
 					baseline.latency.firstTokenMs?.p50,
 				),
-				endP50Ms: delta(summary.latency.endMs?.p50, baseline.latency.endMs?.p50),
+				endP50Ms: delta(
+					summary.latency.endMs?.p50,
+					baseline.latency.endMs?.p50,
+				),
 			},
 			scoreDeltaVsLeanBaseline: delta(summary.meanScore, baseline.meanScore),
 			...(currentAuto && variant.id !== "current_auto"
@@ -1062,9 +1072,7 @@ async function main(argv = process.argv.slice(2)) {
 		return;
 	}
 	if (argv.length > 0) {
-		throw new Error(
-			"Usage: npx tsx scripts/evaluate-reasoning-depth-ab.ts",
-		);
+		throw new Error("Usage: npx tsx scripts/evaluate-reasoning-depth-ab.ts");
 	}
 	await runReasoningDepthAbEvaluation(readReasoningDepthAbConfig(process.env));
 }

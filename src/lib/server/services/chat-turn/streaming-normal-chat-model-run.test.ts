@@ -76,7 +76,11 @@ describe("runStreamingNormalChatSendModel", () => {
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runStreamingNormalChatModelRun.mockReset();
 		mocks.createNormalChatTools.mockReturnValue({
-			tools: { produce_file: { __testTool: true } },
+			tools: {
+				research_web: { __testTool: true },
+				produce_file: { __testTool: true },
+				read_generated_file: { __testTool: true },
+			},
 			getToolCalls: () => [],
 		});
 		mocks.resolveNormalChatModelRunProvider.mockResolvedValue({
@@ -316,7 +320,11 @@ describe("runStreamingNormalChatSendModel", () => {
 	});
 
 	it("passes normal chat tools and the prepared output token budget into the streaming model run", async () => {
-		const tools = { produce_file: { __testTool: true } };
+		const tools = {
+			research_web: { __testTool: true },
+			produce_file: { __testTool: true },
+			read_generated_file: { __testTool: true },
+		};
 		mocks.createNormalChatTools.mockReturnValue({
 			tools,
 			getToolCalls: () => [],
@@ -341,7 +349,7 @@ describe("runStreamingNormalChatSendModel", () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",
 			runtimeConfig,
-			message: "Create a report",
+			message: "Create a downloadable PDF report",
 			conversationId: "conv-1",
 			modelId: "model1",
 			createTurnId: () => "normal-chat-turn-1",
@@ -358,6 +366,37 @@ describe("runStreamingNormalChatSendModel", () => {
 				tools,
 				maxOutputTokens: 777,
 				maxToolSteps: 20,
+			}),
+		);
+	});
+
+	it("hides file-production tools for ordinary prose streaming requests", async () => {
+		const tools = {
+			research_web: { __testTool: true },
+			memory_context: { __testTool: true },
+			produce_file: { __testTool: true },
+			read_generated_file: { __testTool: true },
+		};
+		mocks.createNormalChatTools.mockReturnValue({
+			tools,
+			getToolCalls: () => [],
+		});
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message:
+				"Draft a concise engineering decision memo with Context, Decision, Consequences, and Rollout sections.",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools: {
+					research_web: { __testTool: true },
+					memory_context: { __testTool: true },
+				},
 			}),
 		);
 	});
@@ -602,7 +641,11 @@ describe("runStreamingNormalChatSendModel", () => {
 			},
 		];
 		mocks.createNormalChatTools.mockReturnValue({
-			tools: { produce_file: { __testTool: true } },
+			tools: {
+				research_web: { __testTool: true },
+				produce_file: { __testTool: true },
+				read_generated_file: { __testTool: true },
+			},
 			getToolCalls: () => normalChatToolCalls,
 		});
 		mocks.prepareOutboundChatContext.mockResolvedValue({
@@ -620,7 +663,7 @@ describe("runStreamingNormalChatSendModel", () => {
 		const result = await runStreamingNormalChatSendModel({
 			userId: "user-1",
 			runtimeConfig,
-			message: "Create a report",
+			message: "Create a downloadable PDF report",
 			conversationId: "conv-1",
 			modelId: "model1",
 		});

@@ -442,7 +442,7 @@ function runDeterministicRulesClassifier(request: DepthSelectionTurnInput): {
 		REQUIRED_GROUNDING_PATTERN.test(classifierMessage);
 
 	let appliedProfile = keywordResult.appliedProfile;
-	if (hasExplicitMaximumRequest || maximumScore >= 2) {
+	if (hasExplicitMaximumRequest || maximumScore >= 3) {
 		appliedProfile = "maximum";
 	} else if (
 		appliedProfile !== "maximum" &&
@@ -505,7 +505,7 @@ function runDeterministicKeywordClassifier(normalizedMessage: string): {
 	let outputRoom: DepthSelectionSignals["outputRoom"] = "normal";
 	const toolUse: DepthSelectionSignals["toolUse"] = "normal";
 
-	if (maximumScore >= 2 || (maximumScore >= 1 && wordCount > 200)) {
+	if (maximumScore >= 3 || (maximumScore >= 2 && wordCount > 200)) {
 		appliedProfile = "maximum";
 		groundingNeed = "useful";
 		contextBreadth = "broad";

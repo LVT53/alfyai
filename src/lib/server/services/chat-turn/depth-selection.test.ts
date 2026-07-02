@@ -205,6 +205,41 @@ describe("Reasoning Depth Auto selection", () => {
 		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
 	});
 
+	it("does not escalate source/current prompts to maximum just because they mention verification and production", async () => {
+		const { resolveReasoningDepthSelection } = await import(
+			"./depth-selection"
+		);
+
+		const result = await resolveReasoningDepthSelection({
+			userId: "user-1",
+			conversationId: "conv-1",
+			request: {
+				normalizedMessage:
+					"Using current public information if available, summarize what an engineering team should verify before adopting Svelte 5 with SvelteKit 2 in production. Cite sources if you search.",
+				reasoningDepth: "auto",
+				modelId: "model1",
+				modelDisplayName: "Model One",
+				attachmentIds: [],
+				linkedSources: [],
+				pendingSkill: null,
+				forceWebSearch: false,
+			},
+			listRecentMessages: async () => [],
+		});
+
+		expect(result.metadata).toMatchObject({
+			appliedProfile: "standard",
+			classifierSource: "deterministic_rules",
+			signals: {
+				groundingNeed: "useful",
+				contextBreadth: "normal",
+				outputRoom: "normal",
+				toolUse: "source_heavy",
+			},
+		});
+		expect(mocks.sendJsonControlMessage).not.toHaveBeenCalled();
+	});
+
 	it("selects extended for clear multi-axis architecture tradeoffs without an AI classifier", async () => {
 		const { resolveReasoningDepthSelection } = await import(
 			"./depth-selection"

@@ -24,6 +24,7 @@ import {
 	resolvePromptContextLimits,
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
+import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
 import {
@@ -113,6 +114,9 @@ type PreparedModelContext = Awaited<
 type DepthEffort = Awaited<
 	ReturnType<typeof resolveReasoningDepthEffort>
 > | null;
+type NormalChatModelTools = Partial<
+	ReturnType<typeof createNormalChatTools>["tools"]
+>;
 
 type ClarificationDecision = Awaited<
 	ReturnType<typeof evaluateDepthClarificationGate>
@@ -127,7 +131,7 @@ type ProviderRuntime = {
 };
 
 type ToolPack = {
-	tools: ReturnType<typeof createNormalChatTools>["tools"] | undefined;
+	tools: NormalChatModelTools | undefined;
 	recorder: ReturnType<typeof createToolCallRecorder>;
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
 };
@@ -361,7 +365,12 @@ function createToolPack(
 	});
 
 	return {
-		tools: params.disableTools ? undefined : normalChatTools.tools,
+		tools: params.disableTools
+			? undefined
+			: selectNormalChatToolsForRequest(normalChatTools.tools, {
+					message: params.message,
+					forceProduceFileTool: params.forceProduceFileTool,
+				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
 	};

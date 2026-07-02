@@ -22,6 +22,7 @@ import {
 	resolvePromptContextLimits,
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
+import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
 import {
@@ -188,6 +189,9 @@ export async function runStreamingNormalChatSendModel(
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),
 	});
+	const modelTools = selectNormalChatToolsForRequest(normalChatTools.tools, {
+		message: params.message,
+	});
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
 	const deliberationStartMs = Date.now();
 	const deliberation =
@@ -247,7 +251,7 @@ export async function runStreamingNormalChatSendModel(
 			params.signal,
 		),
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
-		tools: normalChatTools.tools,
+		tools: modelTools,
 		toolChoice,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: [

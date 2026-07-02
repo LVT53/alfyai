@@ -63,7 +63,11 @@ describe("runPlainNormalChatSendModel", () => {
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runPlainNormalChatModelRun.mockReset();
 		mocks.createNormalChatTools.mockReturnValue({
-			tools: { produce_file: { __testTool: true } },
+			tools: {
+				research_web: { __testTool: true },
+				produce_file: { __testTool: true },
+				read_generated_file: { __testTool: true },
+			},
 			getToolCalls: () => [],
 		});
 		mocks.resolveNormalChatModelRunProvider.mockResolvedValue(
@@ -323,6 +327,55 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("hides file-production tools for ordinary prose plain requests", async () => {
+		const tools = {
+			research_web: { __testTool: true },
+			memory_context: { __testTool: true },
+			produce_file: { __testTool: true },
+			read_generated_file: { __testTool: true },
+		};
+		mocks.createNormalChatTools.mockReturnValue({
+			tools,
+			getToolCalls: () => [],
+		});
+
+		await runSubject({
+			message:
+				"Create a 30-day rollout plan with checkpoints, metrics, risks, and rollback criteria.",
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools: {
+					research_web: { __testTool: true },
+					memory_context: { __testTool: true },
+				},
+			}),
+		);
+	});
+
+	it("keeps file-production tools available for explicit downloadable file requests", async () => {
+		const tools = {
+			research_web: { __testTool: true },
+			produce_file: { __testTool: true },
+			read_generated_file: { __testTool: true },
+		};
+		mocks.createNormalChatTools.mockReturnValue({
+			tools,
+			getToolCalls: () => [],
+		});
+
+		await runSubject({
+			message: "Please create a downloadable PDF report for me.",
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools,
+			}),
+		);
+	});
+
 	it("uses the prepared output token budget as the plain model max output override", async () => {
 		mocks.prepareOutboundChatContext.mockResolvedValue({
 			...createPlainNormalChatPreparedContext(),
@@ -558,7 +611,11 @@ describe("runPlainNormalChatSendModel", () => {
 				},
 			},
 		];
-		const tools = { produce_file: { __testTool: true } };
+		const tools = {
+			research_web: { __testTool: true },
+			produce_file: { __testTool: true },
+			read_generated_file: { __testTool: true },
+		};
 		mocks.createNormalChatTools.mockReturnValue({
 			tools,
 			getToolCalls: () => normalChatToolCalls,
@@ -569,7 +626,7 @@ describe("runPlainNormalChatSendModel", () => {
 		});
 
 		const result = await runSubject({
-			message: "Create a report",
+			message: "Create a downloadable PDF report",
 			createTurnId: () => "normal-chat-turn-1",
 		});
 
