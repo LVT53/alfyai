@@ -2,7 +2,15 @@
 import { tick } from "svelte";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
-import { AlertCircle, Download, GitBranch, Layers } from "@lucide/svelte";
+import {
+	AlertCircle,
+	Download,
+	GitBranch,
+	Layers,
+	LoaderCircle,
+	Eye,
+	RotateCw,
+} from "@lucide/svelte";
 import type {
 	ChatMessage,
 	ContextDebugState,
@@ -46,6 +54,7 @@ let {
 	onCancelFileProductionJob = undefined,
 	onCancelAtlasJob = undefined,
 	onAtlasLifecycleAction = undefined,
+	onRetryContextCompression = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -110,6 +119,9 @@ let {
 				message: string;
 				profile: AtlasProfile;
 		  }) => void)
+		| undefined;
+	onRetryContextCompression?:
+		| ((payload: { markerId: string }) => void | Promise<void>)
 		| undefined;
 } = $props();
 
@@ -391,16 +403,39 @@ function contextCompressionMarkerLabel(
 	marker: ContextCompressionMarker,
 ): string {
 	if (marker.status === "running") {
-		return marker.trigger === "automatic"
-			? $t("contextCompression.automaticRunning")
-			: $t("contextCompression.manualRunning");
+		return $t("contextCompression.summarizing");
 	}
 	if (marker.status === "failed") {
-		return $t("contextCompression.failed");
+		return $t("contextCompression.couldNotSummarize");
 	}
-	return marker.trigger === "automatic"
-		? $t("contextCompression.automaticValid")
-		: $t("contextCompression.manualValid");
+	const count = marker.sourceMessageCount ?? 0;
+	return $t("contextCompression.summarizedFormat", { count });
+}
+
+// Client-only expand state for the "Show what was kept" panel. Keyed by marker
+// id; no persistence, no endpoint. One marker expanded at a time per id.
+let expandedCompactionMarkerIds = $state<Set<string>>(new Set());
+
+function isCompactionMarkerExpanded(markerId: string): boolean {
+	return expandedCompactionMarkerIds.has(markerId);
+}
+
+function toggleCompactionMarkerExpanded(markerId: string): void {
+	const next = new Set(expandedCompactionMarkerIds);
+	if (next.has(markerId)) {
+		next.delete(markerId);
+	} else {
+		next.add(markerId);
+	}
+	expandedCompactionMarkerIds = next;
+}
+
+function compactionMarkerStatusClass(
+	status: ContextCompressionMarker["status"],
+): string {
+	if (status === "running") return "context-compression-chip--running";
+	if (status === "failed") return "context-compression-chip--failed";
+	return "context-compression-chip--valid";
 }
 
 async function restoreScrollToPosition(position: number) {
@@ -547,17 +582,64 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				{/if}
 				{#each contextCompressionMarkersBySourceEndMessageId.get(message.id) ?? [] as marker (marker.id)}
 					<div
-						class="context-compression-marker"
-						class:context-compression-marker-running={marker.status === 'running'}
-						class:context-compression-marker-failed={marker.status === 'failed'}
+						class={`context-compression-chip ${compactionMarkerStatusClass(marker.status)}`}
 						data-testid={`context-compression-marker-${marker.id}`}
 						role="note"
 						aria-label={contextCompressionMarkerLabel(marker)}
 					>
-						<div class="context-compression-icon" aria-hidden="true">
-							<Layers size={15} strokeWidth={2} aria-hidden="true" />
+						<div class="context-compression-chip-row">
+							<span class="context-compression-divider-line" aria-hidden="true"></span>
+							<div class="context-compression-pill">
+								{#if marker.status === 'running'}
+									<LoaderCircle class="context-compression-icon" size={13} strokeWidth={2} aria-hidden="true" />
+									<span class="context-compression-title context-compression-shimmer">{$t('contextCompression.summarizing')}</span>
+									<span class="context-compression-bar-sweep" aria-hidden="true"><span class="context-compression-bar-sweep-fill"></span></span>
+								{:else if marker.status === 'failed'}
+									<AlertCircle class="context-compression-icon" size={13} strokeWidth={2} aria-hidden="true" />
+									<span class="context-compression-title">{$t('contextCompression.couldNotSummarize')}</span>
+									<button
+										type="button"
+										class="btn-icon-bare context-compression-action"
+										onclick={() => onRetryContextCompression?.({ markerId: marker.id })}
+									>
+										<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+										{$t('contextCompression.retry')}
+									</button>
+								{:else}
+									<Layers class="context-compression-icon" size={13} strokeWidth={2} aria-hidden="true" />
+									<span class="context-compression-title">
+										{$t('contextCompression.summarizedFormat', { count: marker.sourceMessageCount ?? 0 })}
+									</span>
+									<button
+										type="button"
+										class="btn-icon-bare context-compression-action"
+										aria-expanded={isCompactionMarkerExpanded(marker.id)}
+										onclick={() => toggleCompactionMarkerExpanded(marker.id)}
+									>
+										{#if isCompactionMarkerExpanded(marker.id)}
+											{$t('contextCompression.hideWhatWasKept')}
+											<Eye size={12} strokeWidth={2} aria-hidden="true" />
+										{:else}
+											{$t('contextCompression.showWhatWasKept')}
+											<Eye size={12} strokeWidth={2} aria-hidden="true" />
+										{/if}
+									</button>
+								{/if}
+							</div>
+							<span class="context-compression-divider-line" aria-hidden="true"></span>
 						</div>
-						<span class="context-compression-title">{contextCompressionMarkerLabel(marker)}</span>
+						{#if marker.status === 'valid' && isCompactionMarkerExpanded(marker.id)}
+							<div
+								class="context-compression-expand-panel"
+								data-testid={`context-compression-expand-${marker.id}`}
+							>
+								<div class="context-compression-kept-heading">{$t('contextCompression.keptHeading')}</div>
+								{#if marker.summaryExcerpt}
+									<p class="context-compression-kept-body">{marker.summaryExcerpt}</p>
+								{/if}
+								<p class="context-compression-kept-note">{$t('contextCompression.originalsStillSaved')}</p>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			{/each}
@@ -691,45 +773,175 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		color: var(--warning);
 	}
 
-	.context-compression-marker {
+	/* C1 chip-divider compaction marker. The pill is centered between two
+	   hairline gradient lines. Gold tint for done/in-progress, red for failed. */
+	.context-compression-chip {
+		--compaction-gold: #b8945f;
 		display: flex;
+		flex-direction: column;
 		width: 100%;
-		max-width: 100%;
-		align-self: stretch;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-xs);
 		margin: var(--space-xs) 0 var(--space-md);
-		border-left: 3px solid var(--text-muted);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--text-muted) 10%);
-		padding: 0.42rem 0.6rem;
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		line-height: 1.35;
 		color: var(--text-secondary);
 	}
 
-	.context-compression-marker-running {
-		border-left-color: color-mix(in srgb, var(--text-muted) 72%, var(--accent) 28%);
-		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);
+	.context-compression-chip-row {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
-	.context-compression-marker-failed {
-		border-left-color: var(--danger);
+	.context-compression-divider-line {
+		flex: 1 1 auto;
+		height: 1px;
+		background: linear-gradient(
+			to right,
+			transparent,
+			color-mix(in srgb, var(--compaction-gold) 55%, var(--border-default) 45%),
+			transparent
+		);
+	}
+
+	.context-compression-pill {
+		display: inline-flex;
+		flex: 0 1 auto;
+		align-items: center;
+		gap: 0.4rem;
+		max-width: 100%;
+		border: 1px solid color-mix(in srgb, var(--compaction-gold) 32%, var(--border-default) 68%);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 90%, var(--compaction-gold) 10%);
+		padding: 0.42rem 0.7rem;
+		color: var(--text-secondary);
+	}
+
+	.context-compression-chip--failed {
+		--compaction-gold: var(--danger);
+	}
+
+	.context-compression-chip--failed .context-compression-pill {
+		border-color: color-mix(in srgb, var(--danger) 32%, var(--border-default) 68%);
 		background: color-mix(in srgb, var(--surface-elevated) 88%, var(--danger) 12%);
+	}
+
+	.context-compression-chip--failed .context-compression-divider-line {
+		background: linear-gradient(
+			to right,
+			transparent,
+			color-mix(in srgb, var(--danger) 45%, var(--border-default) 55%),
+			transparent
+		);
 	}
 
 	.context-compression-icon {
 		display: inline-flex;
 		flex: 0 0 auto;
-		color: var(--text-muted);
+		color: var(--compaction-gold);
 	}
 
 	.context-compression-title {
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--text-secondary);
+	}
+
+	.context-compression-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-weight: 600;
+		color: var(--accent);
+		text-decoration: underline;
+		text-underline-offset: 0.16em;
 		white-space: nowrap;
+	}
+
+	/* In-progress shimmer: text opacity + indeterminate bar sweep.
+	   The global prefers-reduced-motion override (app.css) collapses all
+	   animation/transition durations to ~0ms, so this is automatically static
+	   under reduced-motion. */
+	.context-compression-shimmer {
+		animation: context-compression-shimmer 1.4s ease-in-out infinite;
+	}
+
+	@keyframes context-compression-shimmer {
+		0%,
+		100% {
+			opacity: 0.6;
+		}
+		50% {
+			opacity: 1;
+		}
+	}
+
+	.context-compression-bar-sweep {
+		position: relative;
+		flex: 1 1 auto;
+		min-width: 2rem;
+		max-width: 6rem;
+		height: 3px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--compaction-gold) 22%, transparent 78%);
+	}
+
+	.context-compression-bar-sweep-fill {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 25%;
+		height: 100%;
+		border-radius: 999px;
+		background: var(--compaction-gold);
+		animation: context-compression-bar-sweep 1.6s ease-in-out infinite;
+	}
+
+	@keyframes context-compression-bar-sweep {
+		0% {
+			left: -25%;
+		}
+		100% {
+			left: 100%;
+		}
+	}
+
+	/* Inline "Show what was kept" expand panel. */
+	.context-compression-expand-panel {
+		width: 100%;
+		margin: var(--space-xs) 0 0;
+		border: 1px solid color-mix(in srgb, var(--compaction-gold) 28%, var(--border-default) 72%);
+		border-top: none;
+		border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 92%, var(--compaction-gold) 8%);
+		padding: 0 var(--space-sm) var(--space-sm);
+	}
+
+	.context-compression-kept-heading {
+		margin-top: var(--space-xs);
+		font-size: var(--text-2xs);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+
+	.context-compression-kept-body {
+		margin: var(--space-xs) 0;
+		font-family: var(--font-serif);
+		font-size: var(--text-xs);
+		line-height: 1.55;
+		color: var(--text-primary);
+		background: var(--surface-page);
+		border: 1px solid color-mix(in srgb, var(--border-default) 80%, transparent 20%);
+		border-radius: var(--radius-sm);
+		padding: var(--space-xs) var(--space-sm);
+	}
+
+	.context-compression-kept-note {
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 
 	.import-lineage-marker {

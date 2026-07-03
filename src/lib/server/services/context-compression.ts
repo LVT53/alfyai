@@ -617,7 +617,7 @@ export function formatContextCompressionSnapshotForPrompt(
 export function serializeContextCompressionSnapshot(
 	snapshot: ContextCompressionSnapshot,
 ): ContextCompressionMarker {
-	return {
+	const marker: ContextCompressionMarker = {
 		id: snapshot.id,
 		trigger: snapshot.trigger,
 		status: snapshot.status,
@@ -627,6 +627,62 @@ export function serializeContextCompressionSnapshot(
 		estimatedTokens: snapshot.estimatedTokens,
 		sourceTokenEstimate: snapshot.sourceTokenEstimate,
 	};
+
+	// Only `valid` snapshots carry a usable summary. The summary lives inside
+	// the parsed `snapshot` field (validated by compressionSnapshotSchema),
+	// NOT in the top-level sourceCoverage column. Expose a bounded excerpt +
+	// authoritative count; the raw structured summary stays server-internal.
+	if (snapshot.status === "valid") {
+		const sourceMessageCount = countSnapshotSourceMessages(snapshot.snapshot);
+		if (sourceMessageCount > 0) {
+			marker.sourceMessageCount = sourceMessageCount;
+		}
+		const summaryExcerpt = buildSummaryExcerpt(snapshot.snapshot);
+		if (summaryExcerpt) {
+			marker.summaryExcerpt = summaryExcerpt;
+		}
+	}
+
+	return marker;
+}
+
+/**
+ * Reads the authoritative compacted-message count from the snapshot's
+ * `sourceCoverage.messageIds` array. Returns 0 when absent/malformed.
+ */
+function countSnapshotSourceMessages(
+	snapshot: ContextCompressionSnapshotJson,
+): number {
+	const sourceCoverage = snapshot.sourceCoverage;
+	if (!sourceCoverage || typeof sourceCoverage !== "object") return 0;
+	const messageIds = (sourceCoverage as Record<string, unknown>).messageIds;
+	if (!Array.isArray(messageIds)) return 0;
+	return messageIds.filter((id): id is string => typeof id === "string").length;
+}
+
+/**
+ * Builds a short, human-readable excerpt from the snapshot's `goal` +
+ * `currentState`, optionally prefixed/extended with the first important fact.
+ * Capped at SUMMARY_EXCERPT_MAX_CHARS so it can't bloat the conversation-detail
+ * payload. Returns null when there is nothing meaningful to show.
+ */
+const SUMMARY_EXCERPT_MAX_CHARS = 400;
+
+function buildSummaryExcerpt(
+	snapshot: ContextCompressionSnapshotJson,
+): string | null {
+	const parts: string[] = [];
+	const goal = readSnapshotString(snapshot, "goal");
+	if (goal) parts.push(goal);
+	const currentState = readSnapshotString(snapshot, "currentState");
+	if (currentState) parts.push(currentState);
+	const importantFacts = readSnapshotStringList(snapshot, "importantFacts");
+	if (importantFacts.length > 0) parts.push(importantFacts[0]);
+
+	const excerpt = parts.join(" ").replace(/\s+/g, " ").trim();
+	if (!excerpt) return null;
+	if (excerpt.length <= SUMMARY_EXCERPT_MAX_CHARS) return excerpt;
+	return `${excerpt.slice(0, SUMMARY_EXCERPT_MAX_CHARS - 1).trimEnd()}…`;
 }
 
 export async function updateContextCompressionSnapshotStatus(

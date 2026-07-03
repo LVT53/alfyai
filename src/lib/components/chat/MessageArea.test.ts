@@ -552,6 +552,179 @@ describe("MessageArea", () => {
 		expect(originMarker.querySelector(".fork-origin-icon-chip")).toBeTruthy();
 	});
 
+	describe("context compression marker — C1 chip-divider", () => {
+		function singleMessage(): ChatMessage[] {
+			return [
+				{
+					id: "message-1",
+					role: "assistant",
+					content: "Earlier answer",
+					timestamp: Date.now(),
+				},
+			];
+		}
+
+		it("renders the running state as a shimmering chip-divider with summary-in-progress copy", () => {
+			const messages = singleMessage();
+			const { getByTestId, getByText } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-running",
+						trigger: "automatic",
+						status: "running",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-running");
+			expect(marker).toHaveClass("context-compression-chip");
+			expect(marker).toHaveClass("context-compression-chip--running");
+			// The indeterminate bar sweep element exists.
+			expect(
+				marker.querySelector(".context-compression-bar-sweep"),
+			).toBeTruthy();
+			expect(getByText("Summarizing earlier messages…")).toBeTruthy();
+		});
+
+		it("renders the valid state with the source count and a Show what was kept toggle", () => {
+			const messages = singleMessage();
+			const { getByTestId, getByText } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-valid",
+						trigger: "automatic",
+						status: "valid",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						sourceMessageCount: 12,
+						summaryExcerpt:
+							"You discussed Q3 revenue and generated a segment chart.",
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-valid");
+			expect(marker).toHaveClass("context-compression-chip");
+			expect(marker).toHaveClass("context-compression-chip--valid");
+			// The authoritive count is rendered inside the label.
+			expect(
+				getByText(
+					"Summarized 12 earlier messages so this chat can keep going.",
+				),
+			).toBeTruthy();
+			// Expand affordance present and collapsed by default.
+			expect(getByText("Show what was kept")).toBeTruthy();
+			expect(
+				marker.querySelector(".context-compression-expand-panel"),
+			).not.toBeTruthy();
+		});
+
+		it("expands the summary panel on click and shows the excerpt + originals-saved note", async () => {
+			const messages = singleMessage();
+			const { getByTestId, getByText, queryByText } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-expand",
+						trigger: "automatic",
+						status: "valid",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						sourceMessageCount: 3,
+						summaryExcerpt:
+							"You discussed Q3 revenue ($4.2M) and a segment breakdown.",
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-expand");
+			// Collapsed initially.
+			expect(
+				queryByText(
+					"Original messages are still saved — this summary just keeps the chat efficient.",
+				),
+			).toBeNull();
+
+			await fireEvent.click(getByText("Show what was kept"));
+
+			expect(
+				marker.querySelector(".context-compression-expand-panel"),
+			).toBeTruthy();
+			expect(
+				getByText("You discussed Q3 revenue ($4.2M) and a segment breakdown."),
+			).toBeTruthy();
+			expect(
+				getByText(
+					"Original messages are still saved — this summary just keeps the chat efficient.",
+				),
+			).toBeTruthy();
+			expect(getByText("Hide what was kept")).toBeTruthy();
+		});
+
+		it("renders the failed state with the consequence note and a Retry affordance", () => {
+			const messages = singleMessage();
+			const { getByTestId, getByText } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-failed",
+						trigger: "automatic",
+						status: "failed",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-failed");
+			expect(marker).toHaveClass("context-compression-chip");
+			expect(marker).toHaveClass("context-compression-chip--failed");
+			expect(
+				getByText(
+					"Couldn't summarize older messages — the full conversation stays in view.",
+				),
+			).toBeTruthy();
+			expect(getByText("Retry")).toBeTruthy();
+		});
+
+		it("renders the chip-divider hairline lines flanking the pill", () => {
+			const messages = singleMessage();
+			const { getByTestId } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-lines",
+						trigger: "automatic",
+						status: "valid",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						sourceMessageCount: 5,
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-lines");
+			const lines = marker.querySelectorAll(
+				".context-compression-divider-line",
+			);
+			expect(lines.length).toBe(2);
+		});
+	});
+
 	it("renders context compression markers as compact timeline events", () => {
 		const messages: ChatMessage[] = [
 			{
@@ -573,19 +746,23 @@ describe("MessageArea", () => {
 					sourceEndMessageId: "message-1",
 					createdAt: Date.now(),
 					updatedAt: Date.now(),
+					sourceMessageCount: 4,
 				},
 			],
 		});
 
+		// The marker is an accessible note carrying the humanized summary copy.
 		expect(getByTestId("context-compression-marker-snapshot-1")).toBe(
-			getByLabelText("Compacted context"),
-		);
-		expect(getByText("Compacted context")).toBeInTheDocument();
-		expect(
-			getByTestId("context-compression-marker-snapshot-1").querySelector(
-				".context-compression-line",
+			getByLabelText(
+				"Summarized 4 earlier messages so this chat can keep going.",
 			),
-		).not.toBeInTheDocument();
+		);
+		expect(
+			getByText("Summarized 4 earlier messages so this chat can keep going."),
+		).toBeInTheDocument();
+		expect(getByTestId("context-compression-marker-snapshot-1")).toHaveClass(
+			"context-compression-chip--valid",
+		);
 	});
 
 	it("scrolls to reveal file-production cards when they appear at the end of the chat", async () => {

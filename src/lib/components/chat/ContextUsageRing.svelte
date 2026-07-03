@@ -165,6 +165,16 @@ let toneClass = $derived(
 						? "ring-button--medium"
 						: "ring-button--normal",
 );
+
+// Near-trigger heads-up: context is filling up and compaction may run soon.
+// Only when not already compacted/reduced (those states already handled).
+let isNearTrigger = $derived(
+	contextStatus !== null &&
+		ratio >= 0.78 &&
+		!contextSources?.compacted &&
+		!contextSources?.reduced &&
+		contextStatus.compactionMode === "none",
+);
 </script>
 
 <div
@@ -213,9 +223,31 @@ let toneClass = $derived(
 		aria-label={$t('contextUsageRing.focusPanel')}
 	>
 		{#if showCost}
+			<!-- "Last turn" cost is intentionally omitted: the per-message cost is
+			     not surfaced to this component without new plumbing (see slice-19
+			     report). Only the conversation running total is shown. -->
 			<div class="popover-section">
-				<div class="popover-label">{$t('contextUsageRing.cost')}</div>
-				<div class="popover-cost">{costText}</div>
+				<div class="popover-cost-row">
+					<span class="popover-label">{$t('contextUsageRing.conversationCost')}</span>
+					<span class="popover-cost-hero">{costText}</span>
+				</div>
+			</div>
+		{/if}
+
+		{#if contextStatus}
+			<div
+				class={`popover-context-room${isNearTrigger ? ' popover-context-room--near' : ''}`}
+			>
+				<div class="popover-context-room-header">
+					<span class="popover-label">{$t('contextUsageRing.contextRoom')}</span>
+					<span class="popover-context-room-pct">{$t('contextUsageRing.usageFormat', { percent })}</span>
+				</div>
+				<div class="popover-context-room-bar" aria-hidden="true">
+					<div class="popover-context-room-fill" style={`width: ${percent}%`}></div>
+				</div>
+				{#if isNearTrigger}
+					<p class="popover-near-trigger">{$t('contextUsageRing.nearTriggerNote')}</p>
+				{/if}
 			</div>
 		{/if}
 
@@ -448,11 +480,75 @@ let toneClass = $derived(
 		color: var(--text-primary);
 	}
 
-	.popover-cost {
-		margin-top: 0.5rem;
-		font-size: var(--text-sm);
-		font-weight: 500;
+	.popover-cost-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin-top: 0.45rem;
+	}
+
+	.popover-cost-hero {
+		font-size: var(--text-base, 0.95rem);
+		font-weight: 600;
 		color: var(--accent);
+	}
+
+	/* Context room bar — the bar communicates remaining capacity, so the old
+	   "plenty left" sub-text is removed; the percent speaks for itself. */
+	.popover-context-room {
+		margin-top: 0.75rem;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default) 82%);
+		border-radius: 0.5rem;
+		background: color-mix(in srgb, var(--accent) 6%, var(--surface-elevated) 94%);
+	}
+
+	.popover-context-room--near {
+		border-color: color-mix(in srgb, var(--warning) 38%, var(--border-default) 62%);
+		background: color-mix(in srgb, var(--warning) 9%, var(--surface-elevated) 91%);
+	}
+
+	.popover-context-room-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		margin-bottom: 0.35rem;
+	}
+
+	.popover-context-room-pct {
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+	}
+
+	.popover-context-room--near .popover-context-room-pct {
+		color: var(--warning-hover);
+		font-weight: 600;
+	}
+
+	.popover-context-room-bar {
+		height: 5px;
+		overflow: hidden;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--border-default) 60%, transparent 40%);
+	}
+
+	.popover-context-room-fill {
+		height: 100%;
+		border-radius: 999px;
+		background: var(--accent);
+		transition: width var(--duration-standard) var(--ease-out);
+	}
+
+	.popover-context-room--near .popover-context-room-fill {
+		background: var(--warning);
+	}
+
+	.popover-near-trigger {
+		margin: 0.4rem 0 0;
+		font-size: var(--text-xs);
+		color: var(--warning-hover);
+		line-height: 1.4;
 	}
 
 	.compaction-active {

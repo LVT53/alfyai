@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ConversationContextStatus } from "$lib/types";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 
 vi.mock("$lib/i18n", () => ({
@@ -185,5 +186,86 @@ describe("ContextUsageRing cost display", () => {
 		renderRing({ totalCostUsd: 1, totalTokens: 1_240_000 });
 
 		expect(screen.getByText(/1\.2M/)).toBeTruthy();
+	});
+});
+
+describe("ContextUsageRing humanized popover", () => {
+	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
+		// targetTokens drives the ratio (estimatedTokens / targetTokens).
+		const targetTokens = 100000;
+		return {
+			conversationId: "conversation-1",
+			userId: "user-1",
+			estimatedTokens: Math.round(targetTokens * ratio),
+			maxContextTokens: 200000,
+			thresholdTokens: 209715,
+			targetTokens,
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 100,
+			verificationStatus: "skipped",
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 8,
+			summary: null,
+			updatedAt: Date.now(),
+		};
+	}
+
+	it("shows the Conversation cost label alongside the conversation total", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.1),
+			totalCostUsd: 0.184,
+			totalTokens: 12400,
+		});
+
+		expect(screen.getByText("contextUsageRing.conversationCost")).toBeTruthy();
+		expect(screen.getByText(/\$0\.184/)).toBeTruthy();
+	});
+
+	it("shows the Context room bar with N% used and no plenty-left subtext", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.1),
+		});
+
+		expect(screen.getByText("contextUsageRing.contextRoom")).toBeTruthy();
+		// usageFormat renders the percent (10% at 0.1 ratio, rounded).
+		expect(screen.getByText("contextUsageRing.usageFormat")).toBeTruthy();
+		// The context-room bar element exists.
+		expect(document.querySelector(".popover-context-room")).toBeTruthy();
+	});
+
+	it("shows the near-trigger heads-up note when ratio >= 0.78", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.8),
+		});
+
+		expect(screen.getByText("contextUsageRing.nearTriggerNote")).toBeTruthy();
+		// The bar should take the near-trigger (amber) accent.
+		const bar = document.querySelector(".popover-context-room");
+		expect(bar?.classList.contains("popover-context-room--near")).toBe(true);
+	});
+
+	it("does not show the near-trigger note well below the threshold", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.4),
+		});
+
+		expect(screen.queryByText("contextUsageRing.nearTriggerNote")).toBeNull();
+	});
+
+	it("does not show the near-trigger note once compacted", () => {
+		const status = contextStatusAtRatio(0.8);
+		status.compactionMode = "llm_fallback";
+		renderRing({
+			contextStatus: status,
+		});
+
+		expect(screen.queryByText("contextUsageRing.nearTriggerNote")).toBeNull();
 	});
 });

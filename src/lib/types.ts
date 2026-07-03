@@ -523,6 +523,18 @@ export interface ContextCompressionMarker {
 	updatedAt: number;
 	estimatedTokens?: number;
 	sourceTokenEstimate?: number;
+	/**
+	 * Bounded human-readable excerpt of the compaction summary (goal +
+	 * currentState, optionally an important fact). Present only when the
+	 * snapshot is `valid` and has summary fields. Capped (~400 chars).
+	 */
+	summaryExcerpt?: string;
+	/**
+	 * Authoritative count of compacted source messages, derived from
+	 * `snapshot.sourceCoverage.messageIds.length`. Present only when the
+	 * snapshot is `valid`.
+	 */
+	sourceMessageCount?: number;
 }
 
 // ConversationListItem interface: id, title, updatedAt
