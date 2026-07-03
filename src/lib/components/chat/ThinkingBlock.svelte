@@ -219,9 +219,15 @@ function extractHostname(raw: string): string {
 }
 
 function getFaviconUrl(raw: string): string | null {
+	// Privacy proxy (ADR 0043, Slice 12): route the favicon through our own
+	// /api/favicon endpoint so researched domains are no longer leaked to
+	// Google's s2/favicons. The endpoint always returns an image (a globe
+	// fallback when no icon exists), so the `onerror` hide-img path below is
+	// now rarely exercised but retained as a safety net.
 	try {
 		const parsed = new URL(raw);
-		return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=64`;
+		const host = parsed.hostname.replace(/^www\./, "");
+		return `/api/favicon?domain=${encodeURIComponent(host)}`;
 	} catch {
 		return null;
 	}
