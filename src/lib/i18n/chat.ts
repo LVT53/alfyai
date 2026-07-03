@@ -202,6 +202,7 @@ const chatDict = {
 		"chatgptImport.uploadPrompt":
 			"Drag and drop your ChatGPT export ZIP here, or click to browse",
 		"codeBlock.collapse": "Collapse code block",
+		"codeBlock.copied": "Copied!",
 		"codeBlock.copyCode": "Copy code",
 		"codeBlock.expand": "Expand code block",
 		"composerCommands.activeAnnouncement": "Active command: {token} {label}",
@@ -859,6 +860,7 @@ const chatDict = {
 		"chatgptImport.uploadPrompt":
 			"Húzd ide a ChatGPT export ZIP-et, vagy kattints a tallózáshoz",
 		"codeBlock.collapse": "Kódblokk összecsukása",
+		"codeBlock.copied": "Másolva!",
 		"codeBlock.copyCode": "Kód másolása",
 		"codeBlock.expand": "Kódblokk kibontása",
 		"composerCommands.activeAnnouncement": "Aktív parancs: {token} {label}",

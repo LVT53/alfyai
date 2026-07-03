@@ -1295,6 +1295,94 @@ describe("MessageBubble", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("reveals the assistant action row on keyboard focus (focus-within)", () => {
+		// ADR-0043: the action row is quiet-by-default on desktop
+		// (opacity-0, reveal on group-hover) but must ALSO reveal when any
+		// button inside it receives keyboard focus, so keyboard users are not
+		// locked out. Structural assertion: the row carries the
+		// focus-within reveal class.
+		const message: ChatMessage = {
+			id: "assistant-focus-within",
+			role: "assistant",
+			content: "Completed answer.",
+			timestamp: Date.now(),
+		};
+
+		const { container } = render(MessageBubble, {
+			message,
+			onRegenerate: vi.fn(),
+		});
+
+		const actionRow = container.querySelector(".copy-action-row");
+		expect(actionRow).not.toBeNull();
+		expect(actionRow?.className).toContain("md:focus-within:opacity-100");
+	});
+
+	it("sizes the audit-info button to the ≥44px touch-target minimum", () => {
+		// ADR-0043: interactive affordances must be ≥44px on touch devices.
+		const message: ChatMessage = {
+			id: "assistant-info-size",
+			role: "assistant",
+			content: "Completed answer.",
+			timestamp: Date.now(),
+			modelDisplayName: "Model 1",
+			providerDisplayName: "Local Provider",
+			responseTokenCount: 10,
+			totalTokenCount: 10,
+		};
+
+		render(MessageBubble, { message });
+
+		const infoButton = screen.getByRole("button", { name: "Info" });
+		expect(infoButton.className).toContain("min-h-[44px]");
+		expect(infoButton.className).toContain("min-w-[44px]");
+	});
+
+	it("toggles the audit-info popover on tap for touch devices", async () => {
+		// ADR-0043: the info popover is hover-driven on desktop and would be
+		// unreachable on touch. On a touch device, tapping the info button
+		// toggles the popover open.
+		const message: ChatMessage = {
+			id: "assistant-info-toggle",
+			role: "assistant",
+			content: "Completed answer.",
+			timestamp: Date.now(),
+			modelDisplayName: "Model 1",
+			providerDisplayName: "Local Provider",
+			responseTokenCount: 10,
+			totalTokenCount: 10,
+		};
+
+		// isTouchDevice() mirrors matchMedia("(hover: none) and (pointer: coarse)").
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: query.includes("pointer: coarse"),
+				media: query,
+				onchange: null,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+
+		const { container } = render(MessageBubble, { message });
+
+		const popover = container.querySelector(".info-popover");
+		expect(popover).not.toBeNull();
+		// Initially closed (no tap yet).
+		expect(popover?.getAttribute("data-open")).toBe("false");
+
+		const infoButton = screen.getByRole("button", { name: "Info" });
+		await fireEvent.click(infoButton);
+
+		// Toggle opened the popover.
+		expect(popover?.getAttribute("data-open")).toBe("true");
+
+		await fireEvent.click(infoButton);
+		expect(popover?.getAttribute("data-open")).toBe("false");
+	});
+
 	it("renders styled hover tooltip labels for message action icons", () => {
 		const assistantMessage: ChatMessage = {
 			id: "assistant-tooltip-actions",

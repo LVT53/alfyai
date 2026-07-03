@@ -56,13 +56,13 @@ async function copyToClipboard() {
 		{#if !collapsed}
 			<button
 				type="button"
-				class="btn-icon-bare copy-button gap-1.5"
+				class="btn-icon-bare copy-button min-h-[44px] min-w-[44px] gap-1.5"
 				onclick={copyToClipboard}
 			aria-label={$t('codeBlock.copyCode')}
 			title={$t('codeBlock.copyCode')}
 			>
 				{#if copied}
-					<span class="text-success font-sans text-[12px] font-medium">Copied!</span>
+					<span class="text-success font-sans text-[12px] font-medium">{$t('codeBlock.copied')}</span>
 				{:else}
 				<Copy size={16} strokeWidth={2} aria-hidden="true" />
 				{/if}
@@ -152,11 +152,19 @@ async function copyToClipboard() {
 
 	@media (min-width: 768px) {
 		.copy-button {
-			opacity: 0;
+			opacity: 0.4;
 		}
 
 		.code-block:hover .copy-button,
 		.copy-button:focus-visible {
+			opacity: 1;
+		}
+	}
+
+	/* Touch devices: affordances are ALWAYS visible at full opacity. The
+	 * query mirrors isTouchDevice() (hover: none + pointer: coarse). */
+	@media (hover: none) and (pointer: coarse) {
+		.copy-button {
 			opacity: 1;
 		}
 	}

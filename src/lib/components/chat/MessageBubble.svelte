@@ -7,6 +7,7 @@ import {
 } from "$lib/utils/tool-calls";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ArtifactSummary,
 	AtlasAction,
@@ -145,6 +146,9 @@ let editText = $state("");
 let editTextarea: HTMLTextAreaElement | null = $state(null);
 let showTimestampTooltip = $state(false);
 let showForkDetails = $state(false);
+// ADR-0043: the audit-info popover is hover-driven on desktop; on touch
+// devices (no hover) a tap on the info button toggles it open.
+let infoPopoverTouched = $state(false);
 let dedupedFileProductionJobs = $derived(
 	fileProductionJobs.reduce(
 		(acc, job) => {
@@ -569,6 +573,14 @@ function toggleTimestampTooltip(e: MouseEvent) {
 	showTimestampTooltip = !showTimestampTooltip;
 }
 
+// ADR-0043: on touch devices only, a tap on the info button toggles the
+// audit-info popover. On desktop the hover/focus-within CSS still drives the
+// popover; this handler is a no-op there.
+function toggleInfoPopoverOnTouch() {
+	if (!isTouchDevice()) return;
+	infoPopoverTouched = !infoPopoverTouched;
+}
+
 function getVisibleReasoningDepthProfile(
 	profile: DepthAppliedProfile | undefined,
 ): "extended" | "maximum" | null {
@@ -941,7 +953,7 @@ function toggleForkDetails() {
 
 	{#if !message.isStreaming && !isEditing && !hasAtlasCards}
 		<div
-			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100"
+			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
 			class:justify-end={isUser}
 			class:justify-start={!isUser}
 		>
@@ -949,15 +961,19 @@ function toggleForkDetails() {
 				<div class="info-container">
 					<button
 						type="button"
-						class="btn-icon-bare info-button sm:!min-h-[36px] sm:!min-w-[36px]"
+						class="btn-icon-bare info-button min-h-[44px] min-w-[44px]"
 						aria-label={$t('messageBubble.info')}
 						aria-describedby={auditDetailsId}
+						aria-expanded={infoPopoverTouched || undefined}
+						onclick={toggleInfoPopoverOnTouch}
 					>
 						<Info size={16} strokeWidth={2} aria-hidden="true" />
 					</button>
 					<div
 						id={auditDetailsId}
 						class="info-popover"
+						data-open={infoPopoverTouched ? "true" : "false"}
+						class:info-popover-open={infoPopoverTouched}
 					>
 					<ResponseAuditDetails
 						{message}
@@ -1469,8 +1485,22 @@ function toggleForkDetails() {
 		max-width: calc(100vw - 2rem);
 	}
 
-	.info-container:hover .info-popover,
-	.info-container:focus-within .info-popover {
+	/* ADR-0043: hover + focus-within are the DESKTOP reveal path (quiet by
+	 * default, revealed on hover / keyboard focus). Scoped to hover-capable
+	 * devices so a touch tap (which also focuses the button) cannot keep the
+	 * popover pinned open via :focus-within — touch uses the tap-toggle. */
+	@media (hover: hover) {
+		.info-container:hover .info-popover,
+		.info-container:focus-within .info-popover {
+			opacity: 1;
+			visibility: visible;
+			transform: translateY(0);
+			pointer-events: auto;
+		}
+	}
+
+	/* ADR-0043: touch tap-toggle (no hover/focus-within on touch). */
+	.info-popover.info-popover-open {
 		opacity: 1;
 		visibility: visible;
 		transform: translateY(0);
