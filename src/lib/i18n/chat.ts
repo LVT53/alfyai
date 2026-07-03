@@ -6,11 +6,12 @@ const chatDict = {
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.attachmentLabel": "Attach file",
 		"chat.characterCount": "{current}/{max}",
-		"chat.conversationReady": "Conversation Ready",
 		"chat.delete": "Delete",
 		"chat.deliberatingProgress": "Deliberating: {current}/{total} · {label}",
 		"chat.edit": "Edit",
 		"chat.emptyConversation": "Start a conversation",
+		"chat.emptyHeadline": "How can I help?",
+		"chat.emptyHint": "Type below to start the conversation.",
 		"chat.error.backend": `The model provider returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.`,
 		"chat.error.capacity":
 			"The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
@@ -32,8 +33,6 @@ const chatDict = {
 		"chat.messagePlaceholder": "Type a message...",
 		"chat.messageWillSendAutomatically":
 			"Message will send automatically when file processing finishes.",
-		"chat.messagesWillAppearHere":
-			"Your messages and generated files will appear here.",
 		"chat.nextMessageQueued": "Next message queued.",
 		"chat.openComposerTools": "Open composer tools",
 		"chat.preparingResponse": "Preparing response...",
@@ -662,11 +661,12 @@ const chatDict = {
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.characterCount": "{current}/{max}",
-		"chat.conversationReady": "A beszélgetés készen áll",
 		"chat.delete": "Törlés",
 		"chat.deliberatingProgress": "Mérlegelés: {current}/{total} · {label}",
 		"chat.edit": "Szerkesztés",
 		"chat.emptyConversation": "Kezdj beszélgetést",
+		"chat.emptyHeadline": "Miben segíthetek?",
+		"chat.emptyHint": "Kezdd a beszélgetést az alábbi írómezőben.",
 		"chat.error.backend": `A modellszolgáltató hibát adott vissza, mielőtt teljes válasz készült volna. Próbáld újra az üzenetet; ha ismétlődik, ellenőrizd a modell- és szolgáltatói naplókat.`,
 		"chat.error.capacity":
 			"A chatszolgáltatás már a maximális számú aktív választ kezeli. Várj egy kicsit, majd próbáld újra.",
@@ -687,8 +687,6 @@ const chatDict = {
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
 			"Az üzenet automatikusan elküldődik, amikor a fájlfeldolgozás befejeződik.",
-		"chat.messagesWillAppearHere":
-			"Az üzeneteid és a generált fájlok itt fognak megjelenni.",
 		"chat.nextMessageQueued": "Következő üzenet várakozik.",
 		"chat.openComposerTools": "Szerkesztőeszközök megnyitása",
 		"chat.preparingResponse": "Válasz előkészítése...",

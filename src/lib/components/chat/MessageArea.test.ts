@@ -164,18 +164,26 @@ describe("MessageArea", () => {
 		expect(getByText(/step one\s+step two/)).toBeTruthy();
 	});
 
-	it("shows a ready state for empty conversations", () => {
-		const { getByText } = render(MessageArea, {
+	it("shows a warm empty state with a serif headline and a quiet hint", () => {
+		const { getByText, getByTestId, queryByText } = render(MessageArea, {
 			messages: [],
 			conversationId: "conv-1",
 			isThinkingActive: false,
 			contextDebug: null,
 		});
 
-		expect(getByText("Conversation Ready")).toBeInTheDocument();
+		// LogoMark stays as the centerpiece (placed by Slice 13).
+		expect(getByTestId("empty-state-logo")).toBeInTheDocument();
+		// New warm headline + composer-pointing hint.
+		expect(getByText("How can I help?")).toBeInTheDocument();
 		expect(
-			getByText("Your messages and generated files will appear here."),
+			getByText("Type below to start the conversation."),
 		).toBeInTheDocument();
+		// The old generic empty-state copy is gone.
+		expect(queryByText("Conversation Ready")).not.toBeInTheDocument();
+		expect(
+			queryByText("Your messages and generated files will appear here."),
+		).not.toBeInTheDocument();
 	});
 
 	it("adds the measured active skill session height to scroll clearance", () => {

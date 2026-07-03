@@ -500,9 +500,9 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				<span data-testid="empty-state-logo" class="conversation-empty-logo">
 					<LogoMark animated={false} size={64} />
 				</span>
-				<div class="conversation-empty-eyebrow">{$t('chat.conversationReady')}</div>
-				<p class="conversation-empty-copy">
-					{$t('chat.messagesWillAppearHere')}
+				<h2 class="conversation-empty-headline">{$t('chat.emptyHeadline')}</h2>
+				<p class="conversation-empty-hint">
+					{$t('chat.emptyHint')}
 				</p>
 			</div>
 		{:else}
@@ -683,25 +683,26 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		text-align: center;
 	}
 
-	.conversation-empty-eyebrow {
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
+	.conversation-empty-headline {
+		margin: 0;
+		font-family: var(--font-serif);
+		font-size: var(--text-lg);
 		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
+		line-height: 1.2;
+		color: var(--text-primary);
+	}
+
+	.conversation-empty-hint {
+		margin: 0 auto;
+		max-width: 34rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		line-height: 1.6;
 		color: var(--text-muted);
 	}
 
 	.conversation-empty-logo {
 		margin-bottom: var(--space-xs);
-	}
-
-	.conversation-empty-copy {
-		margin: 0 auto;
-		max-width: 34rem;
-		font-size: var(--text-base);
-		line-height: 1.6;
-		color: var(--text-secondary);
 	}
 
 	.fork-boundary-marker {
