@@ -35,6 +35,8 @@ import {
 	replaceActiveComposerCommandToken,
 	type ComposerCommandToken,
 } from "./composer-command-parser";
+import { isOverLength } from "./char-count";
+import { browser } from "$app/environment";
 import type {
 	ArtifactSummary,
 	AtlasAvailability,
@@ -228,7 +230,6 @@ const COMMAND_TRAY_CLOSE_DURATION_MS = 150;
 
 let isEmpty = $derived(message.trim().length === 0);
 let isOverMaxLength = $derived(message.length > maxLength);
-let showCharCount = $derived(message.length > maxLength * 0.8);
 let charCountColor = $derived(
 	isOverMaxLength ? "text-danger" : "text-text-muted",
 );
@@ -254,6 +255,17 @@ let attachmentReadinessErrors = $derived(
 );
 
 let canSend = $derived(canSubmitMessageText(message));
+// Reason the send button is disabled despite non-empty, non-overlength text
+// (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText.
+let sendDisabledHint = $derived(
+	!canSend && message.trim().length > 0 && !isOverMaxLength
+		? isUploadingAttachment
+			? "uploading"
+			: hasUnreadyAttachment
+				? "preparing"
+				: null
+		: null,
+);
 let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
 let canStop = $derived(isGenerating && (canStopStreaming ?? true));
 let canAttach = $derived(
@@ -305,6 +317,14 @@ let activeCommandAnnouncement = $derived(
 let composerTextSegments = $derived(tokenizeTextLinks(message));
 let selectedAtlasProfileLabel = $derived(
 	selectedAtlasProfile ? atlasProfileLabel(selectedAtlasProfile) : "",
+);
+// One-time "Press / to start typing" coach hint (ADR-0043 Slice 10, Fix C).
+// Persists dismissal across sessions via localStorage; SSR-guarded.
+const SLASH_SHORTCUT_HINT_KEY = "alfyai:composer:slashHintDismissed";
+let slashHintDismissed = $state(false);
+let isComposerFocused = $state(false);
+let showSlashHint = $derived(
+	isHydrated && !slashHintDismissed && !isComposerFocused,
 );
 
 $effect(() => {
@@ -544,6 +564,53 @@ function handleTextareaScroll(event: Event) {
 		.scrollTop;
 }
 
+/**
+ * Global `/` keyboard shortcut to focus the composer (ADR-0043 Slice 10, Fix C).
+ *
+ * Fires only when the key is the unmodified `/` (no ctrl/meta/alt), and the
+ * active element is not already a text-entry surface (input/textarea/
+ * contenteditable), so it never hijacks typing in another field. The textarea's
+ * own `onkeydown` (`handleKeydown`) handles `/` typed inside the composer, and
+ * that is a separate listener; this handler's guards prevent double-firing.
+ */
+function handleSlashShortcut(event: KeyboardEvent) {
+	if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) {
+		return;
+	}
+	const target = event.target as Element | null;
+	if (
+		target instanceof HTMLInputElement ||
+		target instanceof HTMLTextAreaElement ||
+		(target instanceof HTMLElement && target.isContentEditable)
+	) {
+		return;
+	}
+	event.preventDefault();
+	textarea?.focus();
+}
+
+function handleTextareaFocus() {
+	isComposerFocused = true;
+	// First focus dismisses the one-time coach hint for good.
+	dismissSlashHint();
+}
+
+function handleTextareaBlur() {
+	isComposerFocused = false;
+}
+
+function dismissSlashHint() {
+	if (slashHintDismissed) return;
+	slashHintDismissed = true;
+	if (browser) {
+		try {
+			localStorage.setItem(SLASH_SHORTCUT_HINT_KEY, "1");
+		} catch {
+			// Ignore storage errors (private mode / quota) — hint just won't persist.
+		}
+	}
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (isComposerDisabled) return;
 	if (event.isComposing) return;
@@ -727,6 +794,15 @@ function stop() {
 
 onMount(() => {
 	isHydrated = true;
+	if (browser) {
+		try {
+			if (localStorage.getItem(SLASH_SHORTCUT_HINT_KEY) === "1") {
+				slashHintDismissed = true;
+			}
+		} catch {
+			// Ignore storage errors — hint will just show again next session.
+		}
+	}
 	initViewportTracking();
 	if (textarea) {
 		if (!isMobile()) {
@@ -1564,6 +1640,8 @@ async function emitDraftChange(force = false) {
 }
 </script>
 
+<svelte:window onkeydown={handleSlashShortcut} />
+
 <div class="composer-root relative flex w-full flex-col" use:closeCommandTrayOnOutsideInteraction>
 	{#if showCommandTray}
 		<div
@@ -1631,6 +1709,8 @@ async function emitDraftChange(force = false) {
 			onscroll={handleTextareaScroll}
 			onkeydown={handleKeydown}
 			onkeyup={handleKeyup}
+			onfocus={handleTextareaFocus}
+			onblur={handleTextareaBlur}
 			disabled={isComposerDisabled}
 			aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
 			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
@@ -1884,20 +1964,44 @@ async function emitDraftChange(force = false) {
 		</div>
 	</div>
 
-	{#if showCharCount}
-		<div class="mt-1 flex justify-end px-2">
-			<span class="text-[12px] font-sans {charCountColor}">
+	<div class="mt-1 flex justify-end px-2">
+		<span class="text-[12px] font-sans {charCountColor}">
+			{#if isOverLength(message.length, maxLength)}
+				{$t('chat.tooLongFormat', { current: message.length, max: maxLength })}
+			{:else}
 				{$t('chat.characterCount', { current: message.length, max: maxLength })}
+			{/if}
+		</span>
+	</div>
+
+	{#if sendDisabledHint}
+		<div class="mt-1 flex justify-end px-2">
+			<span class="text-[12px] font-sans text-text-muted" data-testid="send-disabled-hint">
+				{#if sendDisabledHint === 'uploading'}
+					{$t('chat.uploadingFile')}
+				{:else}
+					{$t('chat.extractingDocument')}
+				{/if}
+			</span>
+		</div>
+	{/if}
+
+	{#if showSlashHint}
+		<div class="mt-1 flex justify-end px-2">
+			<span class="text-[12px] font-sans text-text-muted" data-testid="slash-shortcut-hint">
+				{$t('chat.slashShortcutHint')}
 			</span>
 		</div>
 	{/if}
 
 	{#if isUploadingAttachment || attachmentError || attachmentReadinessErrors.length > 0 || queuedSendAfterProcessing}
 		<div class="mt-2 flex flex-col gap-1 px-2 text-xs font-sans">
-			{#if uploadState === 'uploading'}
-				<span class="text-text-muted">{$t('chat.uploadingFile')}</span>
-			{:else if uploadState === 'preparing'}
-				<span class="text-text-muted">{$t('chat.extractingDocument')}</span>
+			{#if (uploadState === 'uploading' && sendDisabledHint !== 'uploading') || (uploadState === 'preparing' && sendDisabledHint !== 'preparing')}
+				{#if uploadState === 'uploading'}
+					<span class="text-text-muted">{$t('chat.uploadingFile')}</span>
+				{:else if uploadState === 'preparing'}
+					<span class="text-text-muted">{$t('chat.extractingDocument')}</span>
+				{/if}
 			{/if}
 			{#if queuedSendAfterProcessing && (isUploadingAttachment || hasUnreadyAttachment)}
 				<span class="text-text-muted">{$t('chat.messageWillSendAutomatically')}</span>

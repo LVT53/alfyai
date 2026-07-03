@@ -1,4 +1,5 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import type { PendingAttachment } from "$lib/types";
@@ -1171,7 +1172,7 @@ describe("MessageInput", () => {
 		expect(button.disabled).toBe(false);
 
 		await fireEvent.input(input, { target: { value: "12345678901" } });
-		expect(getByText("11/10")).toBeDefined();
+		expect(getByText("11 / 10 — too long to send")).toBeDefined();
 		expect(button.disabled).toBe(true);
 
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
@@ -1954,5 +1955,195 @@ describe("MessageInput", () => {
 
 		expect(uploadFilesSpy).not.toHaveBeenCalled();
 		expect(await findByText(/exceed.*100MB|exceed.*upload size/)).toBeDefined();
+	});
+
+	it("always shows the character counter even when the message is short", () => {
+		const { getByText } = render(MessageInput, { maxLength: 10000 });
+		// Counter renders at 0/10000 with an empty composer — no longer gated at 80%.
+		expect(getByText("0/10000")).toBeDefined();
+	});
+
+	it("shows the over-length reason in the character counter", async () => {
+		const { getByPlaceholderText, getByText } = render(MessageInput, {
+			maxLength: 10,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "12345678901" } });
+		expect(getByText("11 / 10 — too long to send")).toBeDefined();
+	});
+
+	it("shows a waiting hint when send is blocked by an unready attachment", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+
+		const { container, getByPlaceholderText, getByTestId } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadFiles: uploadFilesHandler,
+			},
+		);
+
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await fireEvent.input(input, { target: { value: "Use this file" } });
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		// Upload is in flight → "Uploading file..." hint renders beside the send button.
+		await waitFor(() => {
+			expect(getByTestId("send-disabled-hint")).toHaveTextContent(
+				"Uploading file...",
+			);
+		});
+
+		// Simulate the file landing but still not prompt-ready (extracting).
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-unready",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "scan.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("send-disabled-hint")).toHaveTextContent(
+				"Extracting document text… this can take up to ~10s for scanned PDFs.",
+			);
+		});
+	});
+
+	it("hides the disabled-send hint when the message is over-length", async () => {
+		const uploadFilesHandler = vi.fn((_payload: UploadFilesPayload) => {});
+
+		const { container, getByPlaceholderText, queryByTestId } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				maxLength: 10,
+				onUploadFiles: uploadFilesHandler,
+			},
+		);
+
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await fireEvent.input(input, { target: { value: "Over limit!" } });
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		// Upload is in flight, but the over-length red counter takes priority
+		// and no disabled-send hint is shown.
+		await waitFor(() => {
+			expect(queryByTestId("send-disabled-hint")).toBeNull();
+		});
+	});
+
+	it("hides the disabled-send hint when send is enabled", async () => {
+		const { getByPlaceholderText, queryByTestId } = render(MessageInput);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "Hello" } });
+		expect(queryByTestId("send-disabled-hint")).toBeNull();
+	});
+
+	it("focuses the composer when / is pressed outside a text field", async () => {
+		localStorage.removeItem("alfyai:composer:slashHintDismissed");
+		const { getByPlaceholderText } = render(MessageInput);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		input.blur();
+
+		await fireEvent.keyDown(document.body, { key: "/" });
+
+		expect(document.activeElement).toBe(input);
+	});
+
+	it("does not steal focus when / is typed inside a text field", async () => {
+		const { getByPlaceholderText } = render(MessageInput);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const other = document.createElement("input");
+		other.type = "text";
+		document.body.appendChild(other);
+		other.focus();
+
+		await fireEvent.keyDown(other, { key: "/" });
+
+		expect(document.activeElement).toBe(other);
+		expect(input).not.toBe(document.activeElement);
+		other.remove();
+	});
+
+	it("does not trigger the / shortcut with modifier keys", async () => {
+		const { getByPlaceholderText } = render(MessageInput);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		input.blur();
+
+		await fireEvent.keyDown(document.body, { key: "/", ctrlKey: true });
+		expect(document.activeElement).not.toBe(input);
+
+		await fireEvent.keyDown(document.body, { key: "/", metaKey: true });
+		expect(document.activeElement).not.toBe(input);
+	});
+
+	it("dismisses the slash-shortcut coach hint after the first focus", async () => {
+		localStorage.removeItem("alfyai:composer:slashHintDismissed");
+		const { getByPlaceholderText, queryByTestId } = render(MessageInput);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		input.blur();
+		await tick();
+
+		// Hint is visible before the composer is focused.
+		expect(queryByTestId("slash-shortcut-hint")).not.toBeNull();
+
+		// Pressing / focuses the composer, which dismisses the hint.
+		await fireEvent.keyDown(document.body, { key: "/" });
+		await tick();
+
+		expect(queryByTestId("slash-shortcut-hint")).toBeNull();
 	});
 });
