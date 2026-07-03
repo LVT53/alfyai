@@ -138,6 +138,36 @@ describe("SearchModal", () => {
 		).toBeInTheDocument();
 	});
 
+	it("shows a keep-typing hint instead of recents for a 1-char query", async () => {
+		render(SearchModal, {
+			props: {
+				isOpen: true,
+			},
+		});
+
+		// Landing state: recents are fetched and shown for an empty query.
+		await waitFor(() => {
+			expect(fetchWorkspaceSearch).toHaveBeenCalledWith({ query: "" });
+			expect(screen.getByText("Release notes")).toBeInTheDocument();
+		});
+
+		fetchWorkspaceSearch.mockClear();
+
+		const input = screen.getByLabelText("Search conversations and documents");
+		await fireEvent.input(input, { target: { value: "a" } });
+
+		// A 1-char query is too short to search: show the hint, hide recents,
+		// and do not fire a search fetch.
+		await waitFor(() => {
+			expect(screen.getByTestId("search-keep-typing")).toHaveTextContent(
+				"Keep typing to search…",
+			);
+		});
+		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
+		expect(screen.queryByText("Recent conversations")).not.toBeInTheDocument();
+		expect(fetchWorkspaceSearch).not.toHaveBeenCalled();
+	});
+
 	it("opens documents directly and can jump to their source chat", async () => {
 		const onClose = vi.fn();
 

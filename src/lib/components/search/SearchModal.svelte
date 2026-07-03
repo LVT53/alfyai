@@ -556,7 +556,17 @@ onDestroy(() => {
 			</div>
 
 			<div id="workspace-search-results" class="max-h-[420px] overflow-y-auto px-3 py-2.5">
-				{#if searchLoading && !hasResults}
+				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 2}
+					<div
+						data-testid="search-keep-typing"
+						class="flex flex-col items-center justify-center px-4 py-12 text-center"
+					>
+						<div class="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated">
+							<Search size={17} strokeWidth={2} class="text-icon-muted" aria-hidden="true" />
+						</div>
+						<h3 class="text-[13px] font-sans text-text-primary">{$t('searchModal.keepTyping')}</h3>
+					</div>
+				{:else if searchLoading && !hasResults}
 					<div class="flex flex-col items-center justify-center px-4 py-12 text-center">
 						<div class="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated">
 							<Loader class="animate-spin" size={17} strokeWidth={2} aria-hidden="true" />
