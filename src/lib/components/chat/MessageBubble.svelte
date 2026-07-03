@@ -940,9 +940,7 @@ function toggleForkDetails() {
 			{#if message.evidenceSummary && message.evidenceSummary.groups.length > 0}
 				<MessageEvidenceDetails
 					evidenceSummary={message.evidenceSummary}
-					{pinnedArtifactIds}
-					{excludedArtifactIds}
-					onSteer={onSteer}
+					onOpenDocument={onOpenDocument}
 				/>
 			{:else if showEvidencePending}
 				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>

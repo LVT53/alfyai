@@ -1352,7 +1352,7 @@ describe("chat page runtime integration", () => {
 
 			await waitFor(() => {
 				expect(
-					screen.getByRole("button", { name: /Evidence/i }),
+					screen.getByRole("button", { name: /^Sources$/i }),
 				).toBeInTheDocument();
 			});
 			expect(

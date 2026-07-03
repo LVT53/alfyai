@@ -961,7 +961,7 @@ describe("MessageArea", () => {
 		});
 
 		const producedFileName = getByText("summary.txt");
-		const evidenceToggle = getByRole("button", { name: /Evidence/i });
+		const evidenceToggle = getByRole("button", { name: /Sources/i });
 		expect(
 			producedFileName.compareDocumentPosition(evidenceToggle) &
 				Node.DOCUMENT_POSITION_FOLLOWING,

@@ -1,65 +1,92 @@
 <script lang="ts">
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
-import EvidencePreferenceControl from "./EvidencePreferenceControl.svelte";
-import { ChevronDown } from "@lucide/svelte";
+import {
+	Book,
+	ExternalLink,
+	FileText,
+	Globe,
+	Paperclip,
+	Quote,
+	ChevronDown,
+} from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type {
-	EvidencePreference,
+	DocumentWorkspaceItem,
+	EvidenceSourceType,
+	MessageEvidenceItem,
 	MessageEvidenceSummary,
-	TaskSteeringPayload,
 } from "$lib/types";
 
 let {
 	evidenceSummary,
-	pinnedArtifactIds = [],
-	excludedArtifactIds = [],
-	onSteer = undefined,
+	onOpenDocument = undefined,
 }: {
 	evidenceSummary: MessageEvidenceSummary;
-	pinnedArtifactIds?: string[];
-	excludedArtifactIds?: string[];
-	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
+	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 } = $props();
 
 let expanded = $state(false);
 let container = $state<HTMLDivElement | null>(null);
-let groupsPanel = $state<HTMLDivElement | null>(null);
 
-let totalItems = $derived(
-	evidenceSummary.groups.reduce(
-		(count, group) => count + group.items.length,
-		0,
+// Flatten every item across groups; the disclosure reports overall counts
+// and re-groups by status (Used / Set aside), not by sourceType.
+let allItems = $derived(evidenceSummary.groups.flatMap((group) => group.items));
+// `reference` items are contextual memory that informed the answer (task state,
+// recent turns, session memory), so they count as Used alongside `selected`;
+// only `rejected` items are set aside.
+let usedItems = $derived(
+	allItems.filter(
+		(item) => item.status === "selected" || item.status === "reference",
 	),
 );
-let pinnedIds = $derived(new Set(pinnedArtifactIds));
-let excludedIds = $derived(new Set(excludedArtifactIds));
+let setAsideItems = $derived(
+	allItems.filter((item) => item.status === "rejected"),
+);
 
-function steer(payload: TaskSteeringPayload) {
-	onSteer?.(payload);
-}
-
-function preferenceFor(artifactId: string): EvidencePreference {
-	if (excludedIds.has(artifactId)) {
-		return "excluded";
-	}
-	if (pinnedIds.has(artifactId)) {
-		return "pinned";
-	}
-	return "auto";
-}
-
-function formatChannel(channel: string): string {
-	if (channel === "attached") return "Attached";
-	if (channel === "retrieved") return "Retrieved";
-	if (channel === "web") return "Web";
-	if (channel === "memory") return "Memory";
-	return $t("messageEvidenceDetails.toolLabel");
-}
+let consideredCount = $derived(allItems.length);
+let usedCount = $derived(usedItems.length);
 
 async function toggle() {
 	await preserveScrollOnToggle(container ?? undefined, expanded, () => {
 		expanded = !expanded;
 	});
+}
+
+// Map each EvidenceSourceType to its Lucide type icon.
+function typeIconFor(sourceType: EvidenceSourceType): typeof FileText {
+	switch (sourceType) {
+		case "document":
+			return FileText;
+		case "web":
+			return Globe;
+		case "memory":
+			return Quote;
+		case "tool":
+			return Paperclip;
+		default:
+			return FileText;
+	}
+}
+
+function isDocument(item: MessageEvidenceItem): boolean {
+	return (
+		item.sourceType === "document" &&
+		Boolean(item.artifactId) &&
+		Boolean(onOpenDocument)
+	);
+}
+
+function openDocument(item: MessageEvidenceItem) {
+	if (!onOpenDocument || !item.artifactId) return;
+	const document: DocumentWorkspaceItem = {
+		id: `artifact:${item.artifactId}`,
+		source: "knowledge_artifact",
+		filename: item.title,
+		title: item.title,
+		mimeType: null,
+		artifactId: item.artifactId,
+	};
+	onOpenDocument(document);
 }
 </script>
 
@@ -71,73 +98,82 @@ async function toggle() {
 		onclick={toggle}
 	>
 		<span class="evidence-toggle-copy">
-			<span class="evidence-label">{$t('messageEvidenceDetails.evidenceLabel')}</span>
-			<span class="evidence-count">{totalItems}</span>
+			<Book size={14} strokeWidth={2} class="evidence-book" aria-hidden="true" />
+			<span class="evidence-label">{$t('messageEvidenceDetails.sourcesLabel')}</span>
+			{#if expanded}
+				<span class="evidence-summary-line">
+					{$t('messageEvidenceDetails.consideredUsedFormat', {
+						considered: consideredCount,
+						used: usedCount,
+					})}
+				</span>
+			{/if}
 		</span>
 		<ChevronDown size={14} strokeWidth={2} class={`chevron${expanded ? ' expanded' : ''}`} aria-hidden="true" />
 	</button>
 
 	{#if expanded}
-		<div class="evidence-groups" bind:this={groupsPanel}>
-			{#each evidenceSummary.groups as group, groupIndex (`${group.sourceType}-${group.label}-${groupIndex}`)}
-				<div class="evidence-group">
-					<div class="evidence-group-header">
-						<div class="evidence-group-title">{group.label}</div>
-						<div class="evidence-group-meta">
-							{#if group.reranked}
-								<span class="evidence-chip">{$t('messageEvidenceDetails.rerankedLabel')}{#if group.confidence} {group.confidence}%{/if}</span>
-							{/if}
-						</div>
-					</div>
-
-					<div class="evidence-list">
-						{#each group.items as item, itemIndex (`${group.sourceType}-${item.id}-${item.status}-${itemIndex}`)}
-							<div class={`evidence-row evidence-row--${item.status}`}>
-								<div class="evidence-copy">
-									<div class="evidence-title-line">
-										{#if item.url}
-											<a
-												class="evidence-title evidence-link"
-												href={item.url}
-												target="_blank"
-												rel="noopener noreferrer"
-											>
-												{item.title}
-											</a>
-										{:else}
-											<div class="evidence-title">{item.title}</div>
-										{/if}
-										<span class={`evidence-status evidence-status--${item.status}`}>{item.status}</span>
-									</div>
-									{#if item.description}
-										<div class="evidence-description">{item.description}</div>
-									{/if}
-									{#if item.channels && item.channels.length > 0}
-										<div class="evidence-channel-row">
-											{#each item.channels as channel, channelIndex (`${item.id}-${channel}-${channelIndex}`)}
-												<span class="evidence-channel-chip">{formatChannel(channel)}</span>
-											{/each}
-										</div>
-									{/if}
-								</div>
-
-								{#if item.artifactId && !item.currentTurnAttachment}
-									<div class="evidence-actions">
-										<EvidencePreferenceControl
-											artifactId={item.artifactId}
-											preference={preferenceFor(item.artifactId)}
-											onSteer={steer}
-										/>
-									</div>
-								{/if}
-							</div>
+		<div class="evidence-groups">
+			{#if usedItems.length > 0}
+				<section class="evidence-group evidence-group--used">
+					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.used')}</h4>
+					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.used')}>
+						{#each usedItems as item, itemIndex (`used-${item.id}-${item.status}-${itemIndex}`)}
+							{@render renderItem(item)}
 						{/each}
 					</div>
-				</div>
-			{/each}
+				</section>
+			{/if}
+			{#if setAsideItems.length > 0}
+				<section class="evidence-group evidence-group--aside">
+					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.setAside')}</h4>
+					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.setAside')}>
+						{#each setAsideItems as item, itemIndex (`aside-${item.id}-${item.status}-${itemIndex}`)}
+							{@render renderItem(item)}
+						{/each}
+					</div>
+				</section>
+			{/if}
 		</div>
 	{/if}
 </div>
+
+{#snippet renderItem(item: MessageEvidenceItem)}
+	{@const TypeIcon = typeIconFor(item.sourceType)}
+	{@const clickableDoc = isDocument(item)}
+	<div class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}>
+		{#if clickableDoc}
+			<button
+				type="button"
+				class="evidence-row-button"
+				title={$t('messageEvidenceDetails.openDocument')}
+				onclick={() => openDocument(item)}
+			>
+				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+				<span class="evidence-title">{item.title}</span>
+				<ExternalLink size={12} strokeWidth={1.8} class="evidence-open-icon" aria-hidden="true" />
+			</button>
+		{:else if item.url}
+			<a
+				class="evidence-row-link"
+				href={item.url}
+				target="_blank"
+				rel="noopener noreferrer"
+			>
+				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+				<span class="evidence-title evidence-title--web">{item.title}</span>
+			</a>
+		{:else}
+			<div class="evidence-row-plain">
+				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+				<span class="evidence-title">{item.title}</span>
+			</div>
+		{/if}
+		{#if item.description}
+			<div class="evidence-description">{item.description}</div>
+		{/if}
+	</div>
+{/snippet}
 
 <style>
 	.evidence-shell {
@@ -173,22 +209,20 @@ async function toggle() {
 		min-width: 0;
 	}
 
-	.evidence-label {
-		font-size: var(--text-xs);
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
+	.evidence-book {
+		color: var(--accent);
+		flex-shrink: 0;
 	}
 
-	.evidence-count {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 1.35rem;
-		height: 1.35rem;
-		border-radius: 9999px;
-		background: color-mix(in srgb, var(--accent) 16%, transparent 84%);
+	.evidence-label {
+		font-size: var(--text-sm);
+		font-weight: 600;
 		color: var(--text-primary);
-		font-size: var(--text-2xs);
+	}
+
+	.evidence-summary-line {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 
 	.chevron {
@@ -211,62 +245,77 @@ async function toggle() {
 	.evidence-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.45rem;
+		gap: 0.35rem;
 	}
 
-	.evidence-group-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
+	.evidence-group--used {
+		border-left: 2px solid var(--accent);
+		padding-left: 0.6rem;
 	}
 
 	.evidence-group-title {
+		margin: 0;
 		font-family: var(--font-sans);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		font-weight: 600;
-		color: var(--text-primary);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-secondary);
 	}
 
-	.evidence-chip {
-		border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent 30%);
-		border-radius: 9999px;
-		padding: 0.18rem 0.45rem;
-		font-size: var(--text-2xs);
+	.evidence-group--aside .evidence-group-title {
 		color: var(--text-muted);
 	}
 
 	.evidence-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.1rem;
 	}
 
 	.evidence-row {
 		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 0.85rem;
-		padding: 0.55rem 0.65rem;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent 28%);
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+
+	.evidence-row--clickable {
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 52%, transparent 48%);
 	}
 
-	.evidence-row--rejected {
-		opacity: 0.78;
-	}
-
-	.evidence-copy {
-		min-width: 0;
-		flex: 1;
-	}
-
-	.evidence-title-line {
+	.evidence-row-button,
+	.evidence-row-link,
+	.evidence-row-plain {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.45rem;
+		gap: 0.5rem;
+		padding: 0.4rem 0.35rem;
+		width: 100%;
+		border: none;
+		background: transparent;
+		font-family: var(--font-sans);
+		text-align: left;
+		cursor: default;
+		color: var(--text-primary);
+	}
+
+	.evidence-row-button {
+		cursor: pointer;
+		border-radius: var(--radius-sm);
+	}
+
+	.evidence-row-button:hover {
+		background: color-mix(in srgb, var(--surface-elevated) 60%, transparent 40%);
+	}
+
+	.evidence-row-link {
+		cursor: pointer;
+		text-decoration: none;
+	}
+
+	.evidence-type-icon {
+		color: var(--icon-muted);
+		flex-shrink: 0;
 	}
 
 	.evidence-title {
@@ -274,57 +323,36 @@ async function toggle() {
 		line-height: 1.35;
 		color: var(--text-primary);
 		word-break: break-word;
+		flex: 1;
+		min-width: 0;
 	}
 
-	.evidence-link {
+	.evidence-title--web {
 		text-decoration: underline;
+		text-underline-offset: 2px;
+		text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent 60%);
 	}
 
-	.evidence-link:hover {
-		text-decoration: underline;
+	.evidence-row-link:hover .evidence-title--web {
+		text-decoration-color: var(--accent);
 	}
 
-	.evidence-status {
-		font-size: var(--text-2xs);
-		font-family: var(--font-sans);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--text-muted);
+	.evidence-open-icon {
+		color: var(--icon-muted);
+		flex-shrink: 0;
+		opacity: 0.55;
 	}
 
-	.evidence-status--selected {
-		color: var(--accent);
+	.evidence-row--aside {
+		opacity: 0.55;
 	}
 
 	.evidence-description {
-		margin-top: 0.22rem;
 		font-size: var(--text-xs);
 		line-height: 1.45;
 		color: var(--text-secondary);
 		word-break: break-word;
-	}
-
-	.evidence-actions {
-		display: flex;
-		flex-shrink: 0;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-	}
-
-	.evidence-channel-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-		margin-top: 0.4rem;
-	}
-
-	.evidence-channel-chip {
-		border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent 28%);
-		border-radius: 9999px;
-		padding: 0.14rem 0.42rem;
-		font-size: var(--text-2xs);
-		font-family: var(--font-sans);
-		color: var(--text-muted);
+		padding-left: 0.35rem;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
@@ -332,5 +360,4 @@ async function toggle() {
 			transition: none;
 		}
 	}
-
 </style>
