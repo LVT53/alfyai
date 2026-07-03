@@ -16,7 +16,7 @@ Sidebar Pin v1 is done when a user can:
 
 - open the existing three-dots menu for a visible chat and choose `Pin to sidebar`;
 - right-click a chat or Project Folder row and open the same details menu at the pointer position without selecting the chat or expanding/collapsing the Project Folder;
-- see pinned chats once in a global `Pinned` section above Projects, with a subtle project label when a pinned chat belongs to a Project Folder;
+- see pinned chats once in a global `Pinned` section above Projects, with a subtle project label when a pinned chat belongs to a Project Folder (all three sidebar sections — Pinned, Projects, Chats — are collapsible with icon+label headers and project folders show chat-count badges per ADR 0043);
 - reorder Project Folders as one always-on-top Projects list with whole-row drag;
 - choose `Unpin from sidebar` and see a pinned chat return to its ordinary visual location;
 - drag a pinned chat back into a normal chat area to unpin it into the targeted ordinary location;

@@ -50,7 +50,7 @@ Slide action destinations are restricted to an allowlist of internal AlfyAI rout
 
 Campaign interaction analytics are minimal admin-facing events for delivery and engagement: auto-shown, slide viewed, completed, skipped or closed, replay opened, and setup preference changed. Events do not include free-form user content or heatmap-style tracking.
 
-Campaign analytics are shown in the admin campaign detail/history surface as simple campaign-revision summaries, not in the general Analytics tab in v1.
+Campaign analytics are shown in the admin campaign detail/history surface as simple campaign-revision summaries, not in the general analytics surface in v1. (Note: the standalone Analytics tab was removed for normal users in ADR 0043; admin system analytics now lives under Administration. Campaign analytics remain in campaign detail/history regardless.)
 
 First-run onboarding begins with an Onboarding Setup Slide for the most important user defaults: UI language, theme, model default, and AI style. The remaining slides are feature introductions and disclosures. The required data disclosure slide states that AlfyAI is not fully local and may process messages/files through configured providers and integrations while storing memory or analytics according to deployment configuration. It is an acknowledgement disclosure unless the product offers a real opt-out.
 
@@ -116,7 +116,7 @@ We chose reusable immutable campaigns because onboarding, release announcements,
 - Campaign publishing fails with field-level validation when required localized content, required crops, valid action destinations, valid preference controls, or type-specific requirements are missing.
 - V1 campaign action buttons can only navigate to allowlisted internal app routes.
 - Campaign interaction analytics record minimal delivery and engagement events without free-form user content.
-- Campaign analytics summaries are visible from campaign detail/history rather than the general Analytics tab.
+- Campaign analytics summaries are visible from campaign detail/history rather than the general analytics surface.
 - Onboarding feature slides teach released capabilities without creating projects, uploading files, changing admin settings, or mutating workspace content.
 - User-facing campaign text, controls, actions, empty states, and errors are localized in English and Hungarian.
 - Campaign-specific slide copy is stored as campaign content, while reusable controls and validation messages stay in the app i18n dictionary.

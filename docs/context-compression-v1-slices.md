@@ -180,7 +180,7 @@ At the first model-call boundary of a user turn, check whether selected **Prompt
 - [ ] The app checks model-window fit before sending the initial model call.
 - [ ] If the selected prompt fits, no automatic compression runs.
 - [ ] If it does not fit, automatic compression runs on demand and the turn continues after completion.
-- [ ] The completed marker uses automatic wording such as "Automatically compacted context."
+- [ ] The completed marker uses automatic wording such as "Summarized N earlier messages" (see ADR 0043 for the chip-divider marker layout; the prior "Automatically compacted context" wording is superseded).
 - [ ] The arbitrary deterministic truncation fallback is no longer the primary production path for useful selected context.
 
 ### Blocked by

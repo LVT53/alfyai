@@ -40,12 +40,14 @@ All chat components migrated from hardcoded font-size and font-family values to 
 - Degraded state uses `AlertCircle` icon and `var(--warning)` color
 - `data-testid="fork-boundary-marker"` preserved
 
-### Context Compression Marker (commit 594030ab)
+### Context Compression Marker (commit 594030ab; redesigned — see ADR 0043)
 
-Visually differentiated from fork markers:
-- Uses `Layers` Lucide icon instead of `GitBranch`
-- Neutral `var(--text-muted)` left border instead of accent
-- `color-mix(in srgb, var(--surface-elevated) 90%, var(--text-muted) 10%)` background
+The inline compaction marker is a centered chip-divider, not a left-bordered strip:
+- A centered rounded pill between two hairline gradient lines, gold-tinted (`#C8A882` family)
+- In progress: the pill's color breathes (no loading icon — the color change is the signal)
+- Done: static pill labeled "Summarized N earlier messages" with a terracotta `Eye` icon button that expands the LLM-generated summary inline
+- Failed: red-tinted pill with a `RotateCw` retry icon button
+- The prior `Layers` icon / neutral muted left-border form is superseded by ADR 0043
 
 ### Icon and Color Compliance (commit 594030ab)
 
@@ -66,8 +68,8 @@ Visually differentiated from fork markers:
 ### Other Completed Fixes (commit 594030ab)
 
 - User edit mode width stays at `max-w-[85%]` instead of jumping to `max-w-full`
-- Empty conversation state vertically centered instead of `10rem` bottom-padded
-- i18n labels added for "Evidence is loading…", "Evidence", "Tool", and "Reranked" in both English and Hungarian
+- Empty conversation state vertically centered, with the static (non-animated) LogoMark as centerpiece, a serif "How can I help?" headline, and a quiet composer hint (see ADR 0043; the prior plain "Conversation Ready" text is superseded)
+- The per-message disclosure is labeled **"Sources"** (with a Lucide `Book` icon), not "Evidence"; the i18n keys for "Evidence is loading…", "Tool", and "Reranked" are retired — "Reranked N%" is no longer shown, and the surface is informational-only with Used/Set-aside groups (see ADR 0043)
 
 ## Planned Changes
 

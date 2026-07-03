@@ -121,7 +121,8 @@ Do not:
   - It may contain page-local fetches for page-only actions, but shared browser API logic should still move to `src/lib/client/api/` if reused.
 - [`src/routes/(app)/settings/+page.svelte`](./src/routes/(app)/settings/+page.svelte)
   - User settings and admin/runtime config UI surface.
-  - The Administration tab is split into `System` and `Users` panes.
+  - The Profile tab is grouped into Account, Preferences, Assistant, Data & privacy, and Your Activity sections (ADR 0043). Skills is a summary card that opens a dedicated full-screen manager. Personal analytics merged into Profile as "Your Activity"; the standalone Analytics tab is removed for normal users.
+  - The Administration tab (admin only) is split into `System`, `Users`, and `Campaigns` panes, and also hosts system-level analytics (overview, per-user, excluded users) for admins.
   - Route-local `_components/`, `*_helpers.ts`, or `*.svelte.ts` files next to the page are acceptable when splitting page-only UI/controller logic without creating a new shared boundary.
 
 Do not:
@@ -183,8 +184,8 @@ Do not:
   - [`src/lib/server/services/chat-files.ts`](./src/lib/server/services/chat-files.ts)
 - [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/)
   - [`index.ts`](./src/lib/server/services/file-production/index.ts) is the public facade; keep callers on this boundary unless they are inside file-production internals.
-  - [`read-model.ts`](./src/lib/server/services/file-production/read-model.ts) owns read-only conversation/job card projection, legacy generated-file backfill, and internally-visible job-linked file hydration without loading the worker/rendering/storage graph.
-  - [`job-ledger.ts`](./src/lib/server/services/file-production/job-ledger.ts) owns durable job, attempt, retry, cancellation, stale-recovery, and produced-file-link state transitions.
+  - [`read-model.ts`](./src/lib/server/services/file-production/read-model.ts) owns read-only conversation/job card projection, legacy generated-file backfill, internally-visible job-linked file hydration without loading the worker/rendering/storage graph, and the dismissed-job filter (dismissed failed/cancelled jobs are excluded from the conversation-detail job list unless explicitly requested — see ADR 0043).
+  - [`job-ledger.ts`](./src/lib/server/services/file-production/job-ledger.ts) owns durable job, attempt, retry, cancellation, stale-recovery, dismiss (persisted acknowledged-flag for failed/cancelled jobs — see ADR 0043), and produced-file-link state transitions.
   - [`worker-runner.ts`](./src/lib/server/services/file-production/worker-runner.ts) owns worker identity, startup recovery, lazy wakeup, drain-to-idle execution, and current-attempt orchestration.
   - [`execution-adapter.ts`](./src/lib/server/services/file-production/execution-adapter.ts) owns persisted request parsing plus document-source renderer or sandbox program dispatch.
   - [`storage-adapter.ts`](./src/lib/server/services/file-production/storage-adapter.ts) owns output validation, generated-file storage, job-file linking, source-first produced-file mapping, and post-success memory sync.
@@ -577,6 +578,7 @@ These services are actively imported but not documented in the feature sections 
 - Other API endpoints:
   - [`src/routes/api/chat/stream/buffer/+server.ts`](./src/routes/api/chat/stream/buffer/+server.ts) — stream buffer replay for reconnection
   - [`src/routes/api/chat/stream/status/+server.ts`](./src/routes/api/chat/stream/status/+server.ts) — stream capacity/status check
+  - `src/routes/api/favicon/+server.ts` — same-origin favicon proxy (ADR 0043). Unauthenticated-safe, source-site `/favicon.ico` first with a DuckDuckGo fallback, cached, fails gracefully to a generic icon. Replaces the direct third-party Google S2 call in `ThinkingBlock` so researched domains do not leak to Google and favicons work behind firewalls.
 
 - Active project service:
   - [`src/lib/server/services/projects.ts`](./src/lib/server/services/projects.ts) — project CRUD using `db` + `schema.ts` directly. Not a legacy DB wrapper; active service.

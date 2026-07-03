@@ -302,6 +302,14 @@ _Avoid_: tool collection, retrieval demo, manual context setup
 The model-facing retrieval tool for asking AlfyAI what durable memory or historical context is relevant to the current turn. It may retrieve historical chats and documents for source/history questions, but should not reintroduce deleted, suppressed, expired, blocked, or review-needed profile memory as ordinary personalization.
 _Avoid_: project-only tool, persona-memory tool, transcript search tool, hidden personalization bypass
 
+**Forget (a memory)**:
+The user action that suppresses a memory from active recall — AlfyAI stops bringing it up on its own — while keeping the underlying record so it can still be found or restored. It is the lighter of the two memory-removal actions and the default offered on the Memory Profile surface.
+_Avoid_: delete, erase, permanent removal, hide
+
+**Delete permanently (a memory)**:
+The user action that fully erases a memory so AlfyAI no longer remembers it at all, even on direct recall. It is the heavier of the two memory-removal actions and is demoted behind Forget on the Memory Profile surface because it is not reversible.
+_Avoid_: forget, suppress, soft removal, pause
+
 **Memory Rework Update**:
 The complete product update that makes AlfyAI memory usable long-term by replacing raw transcript mirroring and raw maintenance tables with curated Memory Profile, gated intake, bounded maintenance, next-turn-effective user corrections, and first-class telemetry-backed reconciliation.
 _Avoid_: v1, draft, prototype, partial memory path, temporary cleanup pass
@@ -591,12 +599,16 @@ Exact personal or security-sensitive values such as phone numbers, email address
 _Avoid_: raw phone number, exact credential, exposed token, overzealous memory filtering
 
 **Context Sources**:
-The user-facing surface that shows documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering or carrying forward.
-_Avoid_: evidence manager, manual retrieval setup, budget manager
+The concept of the carried-forward pool of documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering for a conversation. On the chat surface it is shown read-only as the **Sources** disclosure; steering it (pin or exclude) lives in the Knowledge library and working-document workspace, not on the chat surface.
+_Avoid_: evidence manager, manual retrieval setup, budget manager, chat-surface steering panel
+
+**Sources**:
+The chat-surface label for the per-message disclosure of what informed a specific assistant answer — split into what was **Used** and what was **Set aside**. It is the user-facing name for **Message Evidence** and is informational only on the chat surface.
+_Avoid_: Evidence tab, citations panel, context manager
 
 **Message Evidence**:
-The user-facing audit of sources used or cited for one assistant message.
-_Avoid_: context sources, carried-forward context, context manager
+The per-assistant-message audit of sources used or cited for that answer. Shown on the chat surface under the label **Sources**.
+_Avoid_: carried-forward context, context manager, conversation-level source pool
 
 **Source Link Chip**:
 A compact assistant-message affordance that represents a safe external source link as a short clickable label plus external-link icon. Hover or focus reveals the full source name and URL while the answer text stays uncluttered.
@@ -1304,9 +1316,8 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Stopping a skill-guided response should leave the **Skill Session** active in a conservative state unless a complete idempotent operation already committed.
 - If a **Skill Control Envelope** is missing or invalid, AlfyAI should keep the **Skill Session** in a conservative active state rather than guessing from prose.
 - This **Composer Command Registry** v1 is scoped to **Normal Chat** and does not change the retired research job lifecycle.
-- **Context Sources** explains and steers automatic context selection; it should not make the user manually budget context.
-- **Context Sources** may expose pin and exclude controls as optional overrides.
-- Pinning or excluding a **Context Source** is scoped to the current conversation or task by default.
+- **Context Sources** is the carried-forward pool; the chat-surface **Sources** disclosure shows it read-only (what informed an answer), while steering it (pin or exclude) happens in the Knowledge library and working-document workspace, not on the chat surface.
+- Pinning or excluding a **Context Source** is scoped to the current conversation or task by default and is managed where the user works with documents, not inline in chat.
 - Global source preference is a separate future concept and should not be implied by ordinary pinning.
 - **Context Sources** may summarize or group sources for a cleaner UI, but it should preserve enough detail for users to understand which important sources are being carried forward.
 - **Context Sources** is conversation-level and compact.
@@ -1318,7 +1329,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Sources** should show the broader carried-forward pool, while **Message Evidence** shows what supported a specific answer.
 - **Context Sources** should avoid unbounded lists by grouping, summarizing, or collapsing lower-priority sources.
 - **Context Sources** should separate active sources from inferred available sources.
-- Active **Context Sources** include current attachments, pinned sources, open or current documents, current generated documents, and strong task sources.
+- Active **Context Sources** include current attachments, pinned sources (managed in the working-document workspace), open or current documents, current generated documents, and strong task sources.
 - In a new chat, the **Knowledge Library** is **Available Context**, not active **Context Sources**, unless the user explicitly asks for library material or retrieval finds a strong relevant hit.
 - A strong Knowledge Library retrieval hit may support the current answer as **Message Evidence** without automatically becoming an active **Context Source**.
 - A retrieved Library Document should become an active **Context Source** only when the user follows up on it as the working subject, opens it, pins it, or otherwise gives a strong source-continuity signal.
@@ -2080,6 +2091,10 @@ _Avoid_: test helper, chat-file extraction path, rendered-file truth
 **File Production Card**:
 A chat card that presents the durable state and actions for a **File Production Request**.
 _Avoid_: stream placeholder, temporary generated-file row, tool-call log
+
+**Dismissed File Production Job**:
+A failed or cancelled **File Production Job** the user has acknowledged and hidden from the chat. It is a persisted flag, not a deletion: the job row and any produced files remain, and the card can be restored via a per-message "show dismissed" affordance. A non-dismissed failed or cancelled card reappears on reload; a dismissed one does not.
+_Avoid_: deleted job, hidden job, soft-deleted card, ephemeral dismiss
 
 **Generated File**:
 A downloadable file produced by AlfyAI during chat.
