@@ -20,6 +20,11 @@ import {
 import { t, type I18nKey } from "$lib/i18n";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
+import {
+	isTouchDevice,
+	initViewportTracking,
+	viewportStore,
+} from "$lib/utils/viewport.svelte";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
 import FileAttachment from "./FileAttachment.svelte";
@@ -434,7 +439,7 @@ function isMobile(): boolean {
 	) {
 		return false;
 	}
-	return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+	return isTouchDevice();
 }
 
 let lastConversationId = "";
@@ -477,7 +482,10 @@ function adjustHeight() {
 	if (!textarea) return;
 	requestAnimationFrame(() => {
 		if (!textarea) return;
-		const isMobileDevice = window.innerWidth < 768;
+		// Map the legacy `innerWidth < 768` rule onto the shared viewport tier.
+		// "phone" (< 640) is the closest bucket; 768 sits inside the phone/tablet
+		// transition but historically only sub-768 widths got the compact layout.
+		const isMobileDevice = viewportStore.tier === "phone";
 		const minHeight = isMobileDevice ? 72 : 88;
 		textarea.style.height = `${minHeight}px`;
 		const maxHeight = isMobileDevice ? 112 : 240;
@@ -719,6 +727,7 @@ function stop() {
 
 onMount(() => {
 	isHydrated = true;
+	initViewportTracking();
 	if (textarea) {
 		if (!isMobile()) {
 			textarea.focus();

@@ -4,6 +4,7 @@ import type { Snippet } from "svelte";
 import { browser } from "$app/environment";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
+import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ArtifactSummary,
 	AtlasAvailability,
@@ -151,7 +152,7 @@ function handleVisualViewportChange() {
 
 onMount(() => {
 	// Detect if this is a mobile device
-	isMobile = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+	isMobile = isTouchDevice();
 
 	// Listen for visualViewport changes (keyboard open/close)
 	const visualViewport = window.visualViewport;

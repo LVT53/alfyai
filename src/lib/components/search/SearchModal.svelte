@@ -4,6 +4,7 @@ import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
+import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import {
 	ChevronRight,
 	ExternalLink,
@@ -166,7 +167,7 @@ function portal(node: HTMLElement) {
 }
 
 function isMobilePointer() {
-	return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+	return isTouchDevice();
 }
 
 function searchResultElementId(rowId: string) {

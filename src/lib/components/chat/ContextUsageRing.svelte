@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
+import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ArtifactSummary,
 	ContextDebugState,
@@ -45,7 +46,7 @@ function detectMobile() {
 		return;
 	}
 
-	mobile = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+	mobile = isTouchDevice();
 }
 
 onMount(() => {

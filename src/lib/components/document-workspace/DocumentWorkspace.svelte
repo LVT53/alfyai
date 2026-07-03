@@ -110,6 +110,11 @@ const MIN_WIDTH = 620;
 const MAX_WIDTH_RATIO = 0.68;
 const LEGACY_NARROW_WIDTH_THRESHOLD = 700;
 const WORKSPACE_WIDTH_STORAGE_KEY = "document-workspace-width";
+// NOTE(ADR 0043 slice 0): intentionally kept separate from the shared
+// $lib/utils/viewport.svelte helper. This query selects the *document preview
+// renderer surface* (desktop vs mobile rendering of an embedded document), not
+// the app-wide viewport tier, and its 768px threshold is a renderer-specific
+// concern. Do not consolidate without a separate affordance review.
 const DESKTOP_PREVIEW_MEDIA_QUERY = "(min-width: 768px)";
 
 let workspaceWidth = $state(getInitialWorkspaceWidth());

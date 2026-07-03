@@ -18,6 +18,10 @@ import {
 	setSelectedModel,
 	type ModelId,
 } from "$lib/stores/settings";
+import {
+	initViewportTracking,
+	viewportStore,
+} from "$lib/utils/viewport.svelte";
 
 let {
 	onSelect,
@@ -38,7 +42,12 @@ let triggerRef: HTMLButtonElement | null = $state(null);
 let menuRef: HTMLDivElement | null = $state(null);
 let expandedProviders: Set<string> = $state(new Set());
 let focusedModelId: string | null = $state(null);
-let isMobile = $state(false);
+// NOTE(ADR 0043 slice 0): the legacy rule was `window.innerWidth <= 768`. We
+// now map this onto the shared viewport tier's "phone" bucket (< 640). This
+// is the closest single bucket; widths in the 640–768 range therefore shift
+// from the old "mobile" sheet layout to the desktop dropdown. Accepted as
+// part of consolidating detection into one helper; later slices may refine.
+let isMobile = $derived(viewportStore.tier === "phone");
 let guideOpen = $state(false);
 let isOpen = $derived(open ?? internalOpen);
 let dropdownPosition = $state({
@@ -70,11 +79,6 @@ function setOpen(nextOpen: boolean) {
 	}
 }
 
-function checkMobile() {
-	isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
-	void updateDropdownPosition();
-}
-
 function isModelGuideTarget(target: EventTarget | null): boolean {
 	const element =
 		target instanceof Element
@@ -86,8 +90,7 @@ function isModelGuideTarget(target: EventTarget | null): boolean {
 }
 
 onMount(() => {
-	checkMobile();
-	window.addEventListener("resize", checkMobile);
+	initViewportTracking();
 	window.addEventListener("scroll", updateDropdownPosition, true);
 
 	const handleClickOutside = (event: MouseEvent) => {
@@ -131,7 +134,6 @@ onMount(() => {
 	})();
 	return () => {
 		document.removeEventListener("click", handleClickOutside);
-		window.removeEventListener("resize", checkMobile);
 		window.removeEventListener("scroll", updateDropdownPosition, true);
 	};
 });
