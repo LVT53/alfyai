@@ -9,7 +9,7 @@ import type {
 } from "$lib/types";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
-import { Check, Eye, Loader, Pencil, Trash2, X } from "@lucide/svelte";
+import { Check, Eye, EyeOff, Loader, Pencil, Trash2, X } from "@lucide/svelte";
 import KnowledgeMemoryModal from "./KnowledgeMemoryModal.svelte";
 
 type CategoryDefinition = {
@@ -75,6 +75,28 @@ let reviewEditTextarea = $state<HTMLTextAreaElement | null>(null);
 let reviewOverflowPreviousFocus: HTMLElement | null = null;
 let reviewEditPreviousFocus: HTMLElement | null = null;
 
+type RemoveTarget =
+	| {
+			kind: "profile_item";
+			item: MemoryProfilePublicItem;
+	  }
+	| {
+			kind: "review_item";
+			item: MemoryProfileReviewItem;
+	  };
+let removeTarget = $state<RemoveTarget | null>(null);
+let removeDialog = $state<HTMLElement | null>(null);
+let removePreviousFocus: HTMLElement | null = null;
+
+let removeCanDelete = $derived(
+	removeTarget?.kind === "profile_item" && removeTarget.item.canDelete,
+);
+let removeStatement = $derived.by(() => {
+	if (!removeTarget) return "";
+	if (removeTarget.kind === "profile_item") return removeTarget.item.statement;
+	return removeTarget.item.subject;
+});
+
 let activeItemCount = $derived.by(() =>
 	(profile?.categories ?? []).reduce(
 		(total, group) => total + group.items.length,
@@ -117,18 +139,6 @@ function actionKey(
 	return `${itemId}:${action}`;
 }
 
-function submitAction(
-	item: MemoryProfilePublicItem,
-	action: "delete" | "suppress",
-) {
-	void onAction({
-		target: "profile_item",
-		action,
-		itemId: item.id,
-		expectedProjectionRevision: profile?.projectionRevision ?? 0,
-	});
-}
-
 function openMemoryItem(item: MemoryProfilePublicItem) {
 	selectedItem = item;
 	void fetchMemoryProfileItemDetail(item.id)
@@ -168,6 +178,40 @@ function closeReviewOverflow() {
 function closeReviewEditor() {
 	editingReviewItem = null;
 	reviewStatement = "";
+}
+
+function openRemoveForProfileItem(item: MemoryProfilePublicItem) {
+	removeTarget = { kind: "profile_item", item };
+}
+
+function openRemoveForReviewItem(item: MemoryProfileReviewItem) {
+	removeTarget = { kind: "review_item", item };
+}
+
+function closeRemove() {
+	removeTarget = null;
+}
+
+async function confirmRemove(action: "delete" | "suppress") {
+	if (!removeTarget) return;
+	const { kind, item } = removeTarget;
+	const revision = profile?.projectionRevision ?? 0;
+	const success =
+		kind === "profile_item"
+			? await onAction({
+					target: "profile_item",
+					action,
+					itemId: item.id,
+					expectedProjectionRevision: revision,
+				})
+			: await onAction({
+					target: "review_item",
+					action: "suppress",
+					itemId: item.id,
+					expectedProjectionRevision: revision,
+				});
+	if (success === false) return;
+	closeRemove();
 }
 
 async function submitReviewEdit() {
@@ -227,6 +271,18 @@ function trapTabNavigation(dialog: HTMLElement | null, event: KeyboardEvent) {
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {
+	if (removeTarget) {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			closeRemove();
+			return;
+		}
+		if (event.key === "Tab") {
+			trapTabNavigation(removeDialog, event);
+		}
+		return;
+	}
+
 	if (editingReviewItem) {
 		if (event.key === "Escape") {
 			event.preventDefault();
@@ -257,6 +313,16 @@ $effect(() => {
 	return () => {
 		reviewOverflowPreviousFocus?.focus?.();
 		reviewOverflowPreviousFocus = null;
+	};
+});
+
+$effect(() => {
+	if (!removeTarget) return;
+	removePreviousFocus = document.activeElement as HTMLElement | null;
+	focusDialog(removeDialog);
+	return () => {
+		removePreviousFocus?.focus?.();
+		removePreviousFocus = null;
 	};
 });
 
@@ -370,26 +436,20 @@ $effect(() => {
 								</button>
 								<button
 									type="button"
-									class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() =>
-										onAction({
-											target: "review_item",
-											action: "suppress",
-											itemId: item.id,
-											expectedProjectionRevision: profile.projectionRevision,
-										})}
+									class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={() => openRemoveForReviewItem(item)}
 									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label={$t("memoryProfile.doNotRememberReviewItem")}
-									title={$t("memoryProfile.doNotRemember")}
+									aria-label={$t("memoryProfile.removeThisMemory")}
+									title={$t("memoryProfile.removeThisMemory")}
 								>
-									<X size={17} strokeWidth={2.1} aria-hidden="true" />
+									<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
 							</div>
 						</div>
 					{/each}
-				</div>
-			</section>
-		{/if}
+					</div>
+				</section>
+			{/if}
 
 		<div class="grid gap-4 lg:grid-cols-2">
 			{#each categoryDefinitions as definition (definition.category)}
@@ -431,32 +491,16 @@ $effect(() => {
 												<Eye size={17} strokeWidth={2.1} aria-hidden="true" />
 											{/if}
 										</button>
-										{#if item.canSuppress}
+										{#if item.canSuppress || item.canDelete}
 											<button
 												type="button"
-												class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-												onclick={() => submitAction(item, "suppress")}
-												disabled={pendingActionKey === actionKey(item.id, "suppress")}
-												aria-label={$t("memoryProfile.doNotRememberMemoryItem")}
-												title={$t("memoryProfile.doNotRemember")}
+												class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
+												onclick={() => openRemoveForProfileItem(item)}
+												disabled={pendingActionKey === actionKey(item.id, "suppress") || pendingActionKey === actionKey(item.id, "delete")}
+												aria-label={$t("memoryProfile.removeThisMemory")}
+												title={$t("memoryProfile.removeThisMemory")}
 											>
-												<X size={17} strokeWidth={2.1} aria-hidden="true" />
-											</button>
-										{/if}
-										{#if item.canDelete}
-											<button
-												type="button"
-												class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-												onclick={() => submitAction(item, "delete")}
-												disabled={pendingActionKey === actionKey(item.id, "delete")}
-												aria-label={$t("memoryProfile.deleteMemoryItem")}
-												title={$t("memoryProfile.delete")}
-											>
-												{#if pendingActionKey === actionKey(item.id, "delete")}
-													<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
-												{:else}
-													<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
-												{/if}
+												<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
 											</button>
 										{/if}
 									</div>
@@ -554,30 +598,96 @@ $effect(() => {
 								</button>
 								<button
 									type="button"
-									class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() =>
-										onAction({
-											target: "review_item",
-											action: "suppress",
-											itemId: item.id,
-											expectedProjectionRevision: profile.projectionRevision,
-										})}
+									class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={() => openRemoveForReviewItem(item)}
 									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label={$t("memoryProfile.doNotRememberReviewItem")}
-									title={$t("memoryProfile.doNotRemember")}
+									aria-label={$t("memoryProfile.removeThisMemory")}
+									title={$t("memoryProfile.removeThisMemory")}
 								>
-									<X size={17} strokeWidth={2.1} aria-hidden="true" />
+									<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
 								</button>
 							</div>
 						</div>
 					{/each}
 				</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+{#if removeTarget}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div
+		class="fixed inset-0 z-[140] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
+		role="presentation"
+		onclick={closeRemove}
+	>
+		<div
+			bind:this={removeDialog}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="memory-remove-title"
+			tabindex={-1}
+			class="w-full max-w-[420px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
+			onclick={(event) => event.stopPropagation()}
+		>
+			<div class="flex items-center justify-between border-b border-border px-4 py-3.5">
+				<h3 id="memory-remove-title" class="text-sm font-sans font-semibold text-text-primary">{$t("memoryProfile.removeTitle")}</h3>
+				<button
+					type="button"
+					class="btn-icon-bare h-9 w-9 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+					onclick={closeRemove}
+					aria-label={$t("memoryProfile.close")}
+					title={$t("memoryProfile.close")}
+				>
+					<X size={16} strokeWidth={2.1} aria-hidden="true" />
+				</button>
+			</div>
+			<div class="memory-remove-quote border-b border-border px-4 py-3">
+				<p class="break-words font-serif text-xs leading-[1.5] text-text-primary">&ldquo;{removeStatement}&rdquo;</p>
+			</div>
+			<p class="px-4 py-3 text-xs font-sans leading-[1.5] text-text-muted border-b border-border">{$t("memoryProfile.removeFraming")}</p>
+			<div class="flex flex-col gap-1.5 p-2">
+				<button
+					type="button"
+					class="memory-remove-option memory-remove-forget cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2.5 text-left transition hover:border-primary"
+					onclick={() => confirmRemove("suppress")}
+					disabled={pendingActionKey === actionKey(removeTarget.item.id, "suppress")}
+				>
+					<span class="flex items-center gap-2">
+						<EyeOff size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
+						<span class="text-xs font-sans font-semibold text-text-primary">{$t("memoryProfile.forget")}</span>
+					</span>
+					<span class="mt-1 block pl-[22px] text-xs font-sans leading-[1.4] text-text-muted">{$t("memoryProfile.forgetDescription")}</span>
+				</button>
+				{#if removeCanDelete}
+					<button
+						type="button"
+						class="memory-remove-option memory-remove-delete cursor-pointer rounded-[0.5rem] border bg-transparent px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50"
+						style="border-color: color-mix(in srgb, var(--danger) 25%, var(--border-default) 75%);"
+						onclick={() => confirmRemove("delete")}
+						disabled={pendingActionKey === actionKey(removeTarget.item.id, "delete")}
+					>
+						<span class="flex items-center gap-2">
+							<Trash2 size={14} strokeWidth={2.1} class="text-danger shrink-0" aria-hidden="true" />
+							<span class="text-xs font-sans font-semibold text-danger">{$t("memoryProfile.deletePermanently")}</span>
+						</span>
+						<span class="mt-1 block pl-[22px] text-xs font-sans leading-[1.4] text-text-muted">{$t("memoryProfile.deletePermanentlyDescription")}</span>
+					</button>
+				{/if}
+				<button
+					type="button"
+					class="memory-remove-cancel mt-0.5 cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2 text-center text-xs font-sans font-medium text-text-muted transition hover:text-text-primary"
+					onclick={closeRemove}
+				>
+					{$t("memoryProfile.cancel")}
+				</button>
 			</div>
 		</div>
 	</div>
 {/if}
 
-<style>
+	<style>
 	.memory-review-title {
 		color: var(--accent);
 		font-size: var(--text-base);
@@ -612,6 +722,10 @@ $effect(() => {
 
 	.memory-review-reason {
 		color: var(--text-muted);
+	}
+
+	.memory-remove-quote {
+		background: color-mix(in srgb, var(--surface-page) 92%, var(--accent) 8%);
 	}
 
 	.memory-review-accept {

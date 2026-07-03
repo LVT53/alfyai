@@ -261,7 +261,65 @@ describe("KnowledgeMemoryView", () => {
 		expect(scrollList).toHaveClass("overflow-y-auto");
 	});
 
-	it("sends projection revision protected actions from icon controls", async () => {
+	it("shows a single Remove entry point and no standalone suppress or delete on the row", () => {
+		renderMemoryView();
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(aboutSection).not.toBeNull();
+
+		// Exactly one Remove (trash) entry point per inline card.
+		expect(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		).toBeInTheDocument();
+
+		// No standalone instant suppress-X or delete-trash on the row.
+		expect(
+			within(aboutSection as HTMLElement).queryByRole("button", {
+				name: "Do not remember memory item",
+			}),
+		).not.toBeInTheDocument();
+		expect(
+			within(aboutSection as HTMLElement).queryByRole("button", {
+				name: "Delete memory item",
+			}),
+		).not.toBeInTheDocument();
+	});
+
+	it("opens a confirm modal from the Remove button showing the memory and options", async () => {
+		renderMemoryView();
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(aboutSection).not.toBeNull();
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		// The memory statement is quoted for context inside the modal.
+		expect(
+			within(dialog).getByText(/Levi prefers concise memory behavior\./),
+		).toBeInTheDocument();
+		// Both Forget and Delete permanently are offered for delete-capable items.
+		expect(
+			within(dialog).getByRole("button", { name: /Forget/ }),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).getByRole("button", { name: /Delete permanently/ }),
+		).toBeInTheDocument();
+		expect(
+			within(dialog).getByRole("button", { name: "Cancel" }),
+		).toBeInTheDocument();
+	});
+
+	it("dispatches suppress on Forget and delete on Delete permanently from the modal", async () => {
 		const onAction = vi.fn();
 		renderMemoryView({ onAction });
 
@@ -269,20 +327,76 @@ describe("KnowledgeMemoryView", () => {
 			.getByRole("heading", { name: "About You" })
 			.closest("section");
 		expect(aboutSection).not.toBeNull();
-		const deleteButton = within(aboutSection as HTMLElement).getByRole(
-			"button",
-			{
-				name: "Delete memory item",
-			},
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
 		);
-		await fireEvent.click(deleteButton);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
 
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: /Delete permanently/ }),
+		);
 		expect(onAction).toHaveBeenCalledWith({
 			target: "profile_item",
 			action: "delete",
 			itemId: "item-about",
 			expectedProjectionRevision: 7,
 		});
+
+		// Cancel the first modal, then verify Forget dispatches suppress.
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Cancel" }),
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("dialog", { name: "Remove this memory?" }),
+			).not.toBeInTheDocument();
+		});
+
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const reopenedDialog = screen.getByRole("dialog", {
+			name: "Remove this memory?",
+		});
+		await fireEvent.click(
+			within(reopenedDialog).getByRole("button", { name: /Forget/ }),
+		);
+		expect(onAction).toHaveBeenCalledWith({
+			target: "profile_item",
+			action: "suppress",
+			itemId: "item-about",
+			expectedProjectionRevision: 7,
+		});
+	});
+
+	it("closes the confirm modal harmlessly on Cancel without dispatching", async () => {
+		const onAction = vi.fn();
+		renderMemoryView({ onAction });
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(aboutSection).not.toBeNull();
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Cancel" }),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("dialog", { name: "Remove this memory?" }),
+			).not.toBeInTheDocument();
+		});
+		expect(onAction).not.toHaveBeenCalled();
 	});
 
 	it("sends review target actions from inline and overflow icon controls", async () => {
@@ -306,10 +420,23 @@ describe("KnowledgeMemoryView", () => {
 		).toBeInTheDocument();
 		expect(within(dialog).getByText("Workflow signal.")).toBeInTheDocument();
 
+		// Review items route their suppress action through the Remove modal.
 		await fireEvent.click(
 			within(dialog).getByRole("button", {
-				name: "Do not remember review item",
+				name: "Remove this memory",
 			}),
+		);
+		const removeDialog = screen.getByRole("dialog", {
+			name: "Remove this memory?",
+		});
+		// Review items only support Forget (suppress) — Delete is not offered.
+		expect(
+			within(removeDialog).queryByRole("button", {
+				name: /Delete permanently/,
+			}),
+		).not.toBeInTheDocument();
+		await fireEvent.click(
+			within(removeDialog).getByRole("button", { name: /Forget/ }),
 		);
 		expect(onAction).toHaveBeenCalledWith({
 			target: "review_item",
@@ -374,14 +501,21 @@ describe("KnowledgeMemoryView", () => {
 			},
 		});
 
+		const reviewSection = screen
+			.getByRole("heading", { name: "Needs Review" })
+			.closest("section");
 		expect(
 			screen.queryByRole("button", { name: "Remember this item" }),
 		).not.toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Edit review item" }),
+			within(reviewSection as HTMLElement).getByRole("button", {
+				name: "Edit review item",
+			}),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Do not remember review item" }),
+			within(reviewSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
 		).toBeInTheDocument();
 	});
 

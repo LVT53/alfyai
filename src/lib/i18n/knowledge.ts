@@ -187,6 +187,9 @@ const knowledgeDict = {
 		"memoryProfile.conversationScope": "Conversation",
 		"memoryProfile.delete": "Delete",
 		"memoryProfile.deleteMemoryItem": "Delete memory item",
+		"memoryProfile.deletePermanently": "Delete permanently",
+		"memoryProfile.deletePermanentlyDescription":
+			"Erases this memory completely. AlfyAI won't remember it at all, even if you ask.",
 		"memoryProfile.documentScope": "Document",
 		"memoryProfile.doNotRemember": "Do not remember",
 		"memoryProfile.doNotRememberMemoryItem": "Do not remember memory item",
@@ -195,6 +198,9 @@ const knowledgeDict = {
 		"memoryProfile.editMemoryItem": "Edit memory item",
 		"memoryProfile.editReviewItem": "Edit review item",
 		"memoryProfile.failedLoad": "Failed to load memory profile.",
+		"memoryProfile.forget": "Forget",
+		"memoryProfile.forgetDescription":
+			"Stops AlfyAI from bringing this up on its own, but keeps the record. You can still find it later if you change your mind.",
 		"memoryProfile.globalScope": "Global",
 		"memoryProfile.goals": "Goals & Ongoing Work",
 		"memoryProfile.goalsEmpty":
@@ -208,6 +214,10 @@ const knowledgeDict = {
 		"memoryProfile.projectScope": "Project",
 		"memoryProfile.remember": "Remember",
 		"memoryProfile.rememberThisItem": "Remember this item",
+		"memoryProfile.removeFraming":
+			"AlfyAI will stop using this in two different ways — pick the one that fits:",
+		"memoryProfile.removeThisMemory": "Remove this memory",
+		"memoryProfile.removeTitle": "Remove this memory?",
 		"memoryProfile.save": "Save",
 		"memoryProfile.saveMemoryItem": "Save memory item",
 		"memoryProfile.saveReviewItem": "Save review item",
@@ -409,6 +419,9 @@ const knowledgeDict = {
 		"memoryProfile.conversationScope": "Beszélgetés",
 		"memoryProfile.delete": "Törlés",
 		"memoryProfile.deleteMemoryItem": "Memóriaelem törlése",
+		"memoryProfile.deletePermanently": "Végleges törlés",
+		"memoryProfile.deletePermanentlyDescription":
+			"Véglegesen törli ezt az emléket. Az AlfyAI egyáltalán nem fog emlékezni rá, még ha rákérdezel is.",
 		"memoryProfile.documentScope": "Dokumentum",
 		"memoryProfile.doNotRemember": "Ne jegyezze meg",
 		"memoryProfile.doNotRememberMemoryItem":
@@ -419,6 +432,9 @@ const knowledgeDict = {
 		"memoryProfile.editMemoryItem": "Memóriaelem szerkesztése",
 		"memoryProfile.editReviewItem": "Felülvizsgálati elem szerkesztése",
 		"memoryProfile.failedLoad": "Nem sikerült betölteni a memóriaprofilt.",
+		"memoryProfile.forget": "Felejtse el",
+		"memoryProfile.forgetDescription":
+			"Az AlfyAI nem hozza fel ezt többé magától, de megőrzi a bejegyzést. Később még megtalálhatod, ha meggondolod magad.",
 		"memoryProfile.globalScope": "Globális",
 		"memoryProfile.goals": "Célok és folyamatban lévő munka",
 		"memoryProfile.goalsEmpty":
@@ -432,6 +448,10 @@ const knowledgeDict = {
 		"memoryProfile.projectScope": "Projekt",
 		"memoryProfile.remember": "Megjegyzés",
 		"memoryProfile.rememberThisItem": "Elem megjegyzése",
+		"memoryProfile.removeFraming":
+			"Az AlfyAI kétféleképpen hagyhatja abba a használatát — válaszd a megfelelőt:",
+		"memoryProfile.removeThisMemory": "Emlék eltávolítása",
+		"memoryProfile.removeTitle": "Eltávolítod ezt az emléket?",
 		"memoryProfile.save": "Mentés",
 		"memoryProfile.saveMemoryItem": "Memóriaelem mentése",
 		"memoryProfile.saveReviewItem": "Felülvizsgálati elem mentése",
