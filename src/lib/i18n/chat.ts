@@ -29,6 +29,8 @@ const chatDict = {
 			"File is {size}MB. Maximum allowed size is {max}MB per file.",
 		"chat.fileTooLarge": "File too large",
 		"chat.fileUnsupported": "File type not supported",
+		"chat.jumpRailA11yLabel": "Conversation navigation",
+		"chat.jumpRailMarkLabel": "Jump to reply: {label}",
 		"chat.loading": "Loading messages...",
 		"chat.messagePlaceholder": "Type a message...",
 		"chat.messageWillSendAutomatically":
@@ -686,6 +688,8 @@ const chatDict = {
 			"A fájl mérete {size} MB. A maximális megengedett méret fájlonként {max} MB.",
 		"chat.fileTooLarge": "A fájl túl nagy",
 		"chat.fileUnsupported": "Nem támogatott fájltípus",
+		"chat.jumpRailA11yLabel": "Beszélgetés navigáció",
+		"chat.jumpRailMarkLabel": "Ugrás a válaszhoz: {label}",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":

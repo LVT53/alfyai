@@ -25,6 +25,7 @@ import type {
 } from "$lib/types";
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
+import ConversationJumpRail from "./ConversationJumpRail.svelte";
 
 let {
 	messages = [],
@@ -484,16 +485,44 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		shouldAutoScroll = false;
 	});
 }
+
+/**
+ * Scroll a specific message into view (used by the conversation jump-rail).
+ * Reuses the same rect-delta math as {@link alignForkBoundaryAfterRender}.
+ * User-initiated jumps disable auto-scroll-follow so streaming content won't
+ * fight the new position.
+ */
+async function scrollToMessage(messageId: string) {
+	if (!scrollContainer) return;
+	await tick();
+	requestAnimationFrame(() => {
+		if (!scrollContainer) return;
+		const target = scrollContainer.querySelector(
+			`[data-message-id="${CSS.escape(messageId)}"]`,
+		) as HTMLElement | null;
+		if (!target) return;
+		const scrollContainerRect = scrollContainer.getBoundingClientRect();
+		const targetRect = target.getBoundingClientRect();
+		// Center the target vertically within the viewport.
+		const offset =
+			targetRect.top -
+			scrollContainerRect.top -
+			(scrollContainer.clientHeight - targetRect.height) / 2;
+		scrollContainer.scrollTop += offset;
+		shouldAutoScroll = false;
+	});
+}
 </script>
 
-<div
-	bind:this={scrollContainer}
-	onscroll={handleScroll}
-	class="scroll-container h-full min-h-0 w-full overflow-x-hidden overflow-y-auto"
-	style="touch-action: pan-y;"
-	aria-live="polite"
-	aria-atomic="false"
->
+<div class="message-area-surface">
+	<div
+		bind:this={scrollContainer}
+		onscroll={handleScroll}
+		class="scroll-container h-full min-h-0 w-full overflow-x-hidden overflow-y-auto"
+		style="touch-action: pan-y;"
+		aria-live="polite"
+		aria-atomic="false"
+	>
 	<div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
 		{#if messages.length === 0}
 			<div class="conversation-empty-state">
@@ -648,12 +677,24 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 				class:scroll-clearance-active-skill={hasActiveSkillSession}
 				style={activeSkillSessionHeight > 0 ? `--active-skill-session-height: ${activeSkillSessionHeight}px;` : undefined}
 				aria-hidden="true"
-			></div>
-		{/if}
+				></div>
+			{/if}
+		</div>
 	</div>
+	<ConversationJumpRail
+		messages={dedupedMessages}
+		{scrollToMessage}
+	/>
 </div>
 
 <style>
+	.message-area-surface {
+		position: relative;
+		height: 100%;
+		min-height: 0;
+		width: 100%;
+	}
+
 	.scroll-container {
 		/* Better momentum scrolling on mobile */
 		-webkit-overflow-scrolling: touch;
