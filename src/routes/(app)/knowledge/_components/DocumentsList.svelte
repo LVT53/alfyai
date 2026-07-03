@@ -6,11 +6,11 @@ import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
 import {
 	Archive,
-	Bot,
 	ChevronLeft,
 	ChevronRight,
 	Code,
 	Download,
+	Eye,
 	File as FileIcon,
 	FileText,
 	Image,
@@ -1021,18 +1021,19 @@ async function handleBulkDelete(): Promise<boolean> {
 											<button
 												type="button"
 												class="action-btn action-btn-ai"
+												data-testid="what-ai-sees-button"
 												aria-label={expandedAiVersions.has(document.id)
 													? $t('knowledge.hideAiVersion')
-													: $t('knowledge.viewAiVersion')}
+													: $t('knowledge.whatAiSees')}
 												title={expandedAiVersions.has(document.id)
 													? $t('knowledge.hideAiVersion')
-													: $t('knowledge.viewAiVersion')}
+													: $t('knowledge.whatAiSees')}
 												onclick={(e) => {
 													e.stopPropagation();
 													void toggleAiVersion(document.id, document.promptArtifactId!);
 												}}
 											>
-												<Bot size={16} strokeWidth={2} aria-hidden="true" />
+												<Eye size={16} strokeWidth={2} aria-hidden="true" />
 											</button>
 										{/if}
 										<button
@@ -1064,7 +1065,10 @@ async function handleBulkDelete(): Promise<boolean> {
 									<td class="col-icon"></td>
 									<td colspan="5" class="ai-version-cell">
 										<div class="ai-version-panel">
-											<span class="ai-version-label">{$t('knowledge.aiFacingVersion')}</span>
+											<div class="ai-version-header">
+												<h4 class="ai-version-label">{$t('knowledge.whatAiSees')}</h4>
+												<p class="ai-version-explainer">{$t('knowledge.whatAiSeesDescription')}</p>
+											</div>
 											{#if content?.loading}
 												<div class="ai-version-loading">
 													<span class="ai-version-spinner">
@@ -1638,11 +1642,19 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.ai-version-label {
+		margin: 0;
 		font-size: 0.75rem;
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--accent);
+	}
+
+	.ai-version-explainer {
+		margin: 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-muted);
 	}
 
 	.ai-version-content {

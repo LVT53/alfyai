@@ -805,7 +805,7 @@ describe("DocumentsList", () => {
 			});
 
 			expect(
-				screen.getByRole("button", { name: /view ai version/i }),
+				screen.getByRole("button", { name: /what the ai sees/i }),
 			).toBeInTheDocument();
 		});
 
@@ -823,7 +823,7 @@ describe("DocumentsList", () => {
 			});
 
 			expect(
-				screen.queryByRole("button", { name: /view ai version/i }),
+				screen.queryByRole("button", { name: /what the ai sees/i }),
 			).toBeNull();
 			expect(
 				screen.queryByRole("button", { name: /hide ai version/i }),
@@ -854,14 +854,14 @@ describe("DocumentsList", () => {
 
 			expect(screen.getByText("Budget.pdf")).toBeInTheDocument();
 			const toggleButton = screen.getByRole("button", {
-				name: /view ai version/i,
+				name: /what the ai sees/i,
 			});
 			await fireEvent.click(toggleButton);
 
 			expect(
 				await screen.findByText("AI-facing normalized markdown text"),
 			).toBeInTheDocument();
-			expect(screen.getByText(/ai-facing version/i)).toBeInTheDocument();
+			expect(screen.getByText(/what the ai sees/i)).toBeInTheDocument();
 			expect(
 				screen.getByRole("button", { name: /hide ai version/i }),
 			).toBeInTheDocument();
@@ -869,6 +869,61 @@ describe("DocumentsList", () => {
 				signal: expect.any(AbortSignal),
 			});
 			fetchMock.mockRestore();
+		});
+
+		it("renders normalized rows with a terracotta Eye button titled 'What the AI sees'", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							...mockUploadedDocument,
+							normalizedAvailable: true,
+							promptArtifactId: "prompt-1",
+						}),
+					],
+				},
+			});
+
+			const button = screen.getByTestId("what-ai-sees-button");
+			expect(button).toBeInTheDocument();
+			expect(button).toHaveAttribute("title", "What the AI sees");
+			expect(button).toHaveAttribute("aria-label", "What the AI sees");
+			// Eye icon (terracotta) present, Bot icon absent
+			expect(button.querySelector("svg.lucide-eye")).not.toBeNull();
+			expect(button.querySelector("svg.lucide-bot")).toBeNull();
+		});
+
+		it("shows the new heading and explainer in the expanded AI-view panel", async () => {
+			vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						artifact: { contentText: "AI-facing normalized markdown text" },
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							...mockUploadedDocument,
+							normalizedAvailable: true,
+							promptArtifactId: "prompt-1",
+						}),
+					],
+				},
+			});
+
+			const toggleButton = screen.getByTestId("what-ai-sees-button");
+			await fireEvent.click(toggleButton);
+
+			// New heading "What the AI sees" replaces "AI-facing version"
+			expect(await screen.findByText("What the AI sees")).toBeInTheDocument();
+			// Explainer line present
+			expect(
+				screen.getByText(/reads this normalized text instead of the raw file/i),
+			).toBeInTheDocument();
 		});
 
 		it("shows no type badge for normalized documents with null documentOrigin", () => {

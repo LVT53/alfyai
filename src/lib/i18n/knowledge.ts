@@ -17,7 +17,6 @@ const knowledgeDict = {
 		"filePreview.zoomIn": "Zoom in",
 		"filePreview.zoomOut": "Zoom out",
 		"knowledge.actions": "Actions",
-		"knowledge.aiFacingVersion": "AI-facing version",
 		"knowledge.aiVersionLoading": "Loading AI-facing version...",
 		"knowledge.aiVersionLoadFailed": "Failed to load AI-facing version",
 		"knowledge.aiVersionNoContent": "No AI-facing content available",
@@ -76,7 +75,9 @@ const knowledgeDict = {
 			"Upload or generate documents to see them here",
 		"knowledge.uploaded": "Uploaded",
 		"knowledge.uploading": "Uploading...",
-		"knowledge.viewAiVersion": "View AI version",
+		"knowledge.whatAiSees": "What the AI sees",
+		"knowledge.whatAiSeesDescription":
+			"AlfyAI reads this normalized text instead of the raw file — shown so you can verify the model understood your document correctly.",
 		"memory.acrossChats": "Across chats",
 		"memory.action": "Action",
 		"memory.activeConstraint": "active constraint",
@@ -233,7 +234,6 @@ const knowledgeDict = {
 		"filePreview.zoomIn": "Nagyítás",
 		"filePreview.zoomOut": "Kicsinyítés",
 		"knowledge.actions": "Műveletek",
-		"knowledge.aiFacingVersion": "AI-nak szánt verzió",
 		"knowledge.aiVersionLoading": "AI-nak szánt verzió betöltése...",
 		"knowledge.aiVersionLoadFailed":
 			"Nem sikerült betölteni az AI-nak szánt verziót",
@@ -295,7 +295,9 @@ const knowledgeDict = {
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
 		"knowledge.uploaded": "Feltöltött",
 		"knowledge.uploading": "Feltöltés...",
-		"knowledge.viewAiVersion": "AI verzió megtekintése",
+		"knowledge.whatAiSees": "Amit az MI lát",
+		"knowledge.whatAiSeesDescription":
+			"Az AlfyAI ezt a normalizált szöveget olvassa a nyers fájl helyett — azért jelenik meg, hogy ellenőrizhesd, a modell helyesen értette-e a dokumentumodat.",
 		"memory.acrossChats": "Beszélgetések között",
 		"memory.action": "Művelet",
 		"memory.activeConstraint": "aktív korlát",
