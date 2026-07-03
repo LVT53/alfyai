@@ -1373,4 +1373,107 @@ describe("DocumentWorkspace", () => {
 		await fireEvent.click(mobileBackdrop);
 		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
 	});
+
+	it("renders exactly one panel body per section in the mobile compare view (no duplicated compared content)", async () => {
+		(global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+			async (input: string | URL | Request) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url.includes("artifact-v2")) {
+					return {
+						ok: true,
+						text: () => Promise.resolve("Title\nCurrent draft\nShared ending"),
+					};
+				}
+				if (url.includes("artifact-v1")) {
+					return {
+						ok: true,
+						text: () => Promise.resolve("Title\nPrevious draft\nShared ending"),
+					};
+				}
+
+				throw new Error(`Unexpected fetch: ${url}`);
+			},
+		);
+
+		renderWorkspace({
+			open: true,
+			documents: [
+				{
+					id: "doc-v2",
+					source: "knowledge_artifact",
+					filename: "brief-v2.md",
+					title: "Client Brief",
+					documentFamilyId: "family-brief",
+					documentLabel: "Client Brief",
+					documentRole: "brief",
+					versionNumber: 2,
+					mimeType: "text/markdown",
+					artifactId: "artifact-v2",
+				},
+			],
+			availableDocuments: [
+				{
+					id: "doc-v1",
+					source: "knowledge_artifact",
+					filename: "brief-v1.md",
+					title: "Client Brief",
+					documentFamilyId: "family-brief",
+					documentLabel: "Client Brief",
+					documentRole: "brief",
+					versionNumber: 1,
+					mimeType: "text/markdown",
+					artifactId: "artifact-v1",
+				},
+			],
+			activeDocumentId: "doc-v2",
+			onSelectDocument: vi.fn(),
+			onOpenDocument: vi.fn(),
+			onCloseDocument: vi.fn(),
+			onCloseWorkspace: vi.fn(),
+		});
+
+		const mobileWorkspace = document.querySelector(
+			".workspace-shell-mobile",
+		) as HTMLElement;
+		expect(mobileWorkspace).toBeInTheDocument();
+
+		await fireEvent.click(
+			within(mobileWorkspace).getByRole("button", {
+				name: /compare versions/i,
+			}),
+		);
+
+		await waitFor(() => {
+			expect(
+				within(mobileWorkspace).getByText("Compare Versions"),
+			).toBeInTheDocument();
+		});
+
+		// Direct selector: one body per section (current + compared) = 2, not 3.
+		const bodies = mobileWorkspace.querySelectorAll(
+			".workspace-compare-panel-body",
+		);
+		expect(bodies).toHaveLength(2);
+
+		// Each section must contain exactly one body.
+		const sections = mobileWorkspace.querySelectorAll(
+			".workspace-compare-panel",
+		);
+		expect(sections).toHaveLength(2);
+		sections.forEach((section) => {
+			expect(
+				section.querySelectorAll(".workspace-compare-panel-body"),
+			).toHaveLength(1);
+		});
+
+		// The compared content must appear exactly once.
+		expect(
+			mobileWorkspace.querySelectorAll(".workspace-diff-line-removed"),
+		).toHaveLength(1);
+	});
 });

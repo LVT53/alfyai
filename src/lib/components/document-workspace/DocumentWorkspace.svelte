@@ -1035,16 +1035,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									<div class="workspace-compare-panel-body" bind:this={leftPanelBody} onscroll={() => syncScroll(leftPanelBody, rightPanelBody)}>
 										{@html compareCurrentTextHtml}
 									</div>
-									<div class="workspace-compare-panel-body" bind:this={rightPanelBody} onscroll={() => syncScroll(rightPanelBody, leftPanelBody)}>
-										{@html compareOtherTextHtml}
-									</div>
 								</section>
 								<section class="workspace-compare-panel">
 									<div class="workspace-compare-panel-head">
 										<span class="workspace-compare-panel-label">{$t('documentWorkspace.compared')}</span>
 										<span class="workspace-compare-panel-meta">{getDocumentTitle(comparedDocument)} {getDocumentVersionLabel(comparedDocument) ?? ''}</span>
 									</div>
-									<div class="workspace-compare-panel-body">
+									<div class="workspace-compare-panel-body" bind:this={rightPanelBody} onscroll={() => syncScroll(rightPanelBody, leftPanelBody)}>
 										{@html compareOtherTextHtml}
 									</div>
 								</section>
