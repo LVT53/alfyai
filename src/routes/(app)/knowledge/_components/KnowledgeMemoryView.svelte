@@ -460,6 +460,15 @@ $effect(() => {
 					</h3>
 					{#if items.length === 0}
 						<p class="mt-3 text-sm font-sans leading-[1.5] text-text-muted">{$t(definition.empty)}</p>
+						<p class="memory-empty-hint mt-2 text-xs font-sans leading-[1.5] text-text-muted">
+							{$t("memoryProfile.emptyHint")}
+							<a
+								href="/settings"
+								class="memory-empty-hint-link text-accent underline underline-offset-2 hover:text-accent-hover"
+							>
+								{$t("settings")}
+							</a>
+						</p>
 					{:else}
 						<div class={`mt-3 grid gap-2 ${items.length > 4 ? "max-h-[356px] overflow-y-auto pr-1" : ""}`}>
 							{#each items as item (item.id)}

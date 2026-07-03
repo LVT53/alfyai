@@ -51,6 +51,8 @@ let memoryLoadError = $state("");
 let pendingMemoryActionKey = $state<string | null>(null);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
+// True while a server-side documents search/sort/page round-trip is in flight.
+let documentsNavigating = $state(false);
 
 let workspaceCoordinator: KnowledgeWorkspaceCoordinator | undefined = $state();
 let workspaceOpenRequestSequence = 0;
@@ -230,10 +232,15 @@ async function updateKnowledgeLibraryParams(params: {
 	pageSize?: number;
 }) {
 	if (!browser) return;
-	await goto(buildKnowledgeLibraryUrl({ ...params, tab: "documents" }), {
-		keepFocus: true,
-		noScroll: true,
-	});
+	documentsNavigating = true;
+	try {
+		await goto(buildKnowledgeLibraryUrl({ ...params, tab: "documents" }), {
+			keepFocus: true,
+			noScroll: true,
+		});
+	} finally {
+		documentsNavigating = false;
+	}
 }
 
 function handleTabChange(tab: KnowledgeTab) {
@@ -584,6 +591,7 @@ $effect(() => {
 					</div>
 					<DocumentsList
 						documents={documents}
+						loading={documentsNavigating}
 						paginationLimit={documentPaginationLimit}
 						currentPage={documentCurrentPage}
 						totalDocuments={documentTotalItems}

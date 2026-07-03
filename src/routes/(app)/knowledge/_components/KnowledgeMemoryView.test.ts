@@ -159,6 +159,53 @@ describe("KnowledgeMemoryView", () => {
 		);
 	});
 
+	it("renders an explainer hint and settings link beneath each empty category state", () => {
+		renderMemoryView();
+
+		// goals_ongoing_work and constraints_boundaries are empty in the fixture.
+		const goalsSection = screen
+			.getByRole("heading", { name: "Goals & Ongoing Work" })
+			.closest("section");
+		const constraintsSection = screen
+			.getByRole("heading", { name: "Constraints & Boundaries" })
+			.closest("section");
+		expect(goalsSection).not.toBeNull();
+		expect(constraintsSection).not.toBeNull();
+
+		// The generic explainer hint renders below each empty state.
+		expect(
+			within(goalsSection as HTMLElement).getByText(
+				/learns these as you chat/i,
+			),
+		).toBeInTheDocument();
+		expect(
+			within(constraintsSection as HTMLElement).getByText(
+				/learns these as you chat/i,
+			),
+		).toBeInTheDocument();
+
+		// A link to settings is present.
+		const goalsLink = within(goalsSection as HTMLElement).getByRole("link", {
+			name: /settings/i,
+		});
+		expect(goalsLink).toHaveAttribute("href", "/settings");
+	});
+
+	it("does not render the explainer hint for categories that have items", () => {
+		renderMemoryView();
+
+		// about_you has one item — no empty hint should be shown.
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(aboutSection).not.toBeNull();
+		expect(
+			within(aboutSection as HTMLElement).queryByText(
+				/learns these as you chat/i,
+			),
+		).not.toBeInTheDocument();
+	});
+
 	it("renders four projection categories and limits Needs Review to three visible items", () => {
 		renderMemoryView();
 

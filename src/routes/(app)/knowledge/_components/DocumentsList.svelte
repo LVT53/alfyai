@@ -1,6 +1,7 @@
 <script lang="ts">
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import type { KnowledgeDocumentItem } from "$lib/types";
+import { partitionUploadableFiles } from "$lib/utils/file-drag";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
@@ -81,6 +82,8 @@ let isDragOver = $state(false);
 let dragCounter = $state(0);
 let fileInputRef = $state<HTMLInputElement | undefined>(undefined);
 let isUploading = $state(false);
+let dropError = $state<string | null>(null);
+let dropErrorTimer: ReturnType<typeof setTimeout> | null = null;
 let localSearchQuery = $state("");
 let activeSortKey = $state<DocumentSortKey>("date");
 let activeSortDirection = $state<SortDirection>("desc");
@@ -123,6 +126,9 @@ $effect(() => {
 		if (searchDebounce) {
 			clearTimeout(searchDebounce);
 		}
+		if (dropErrorTimer) {
+			clearTimeout(dropErrorTimer);
+		}
 		for (const controller of aiVersionAborts.values()) {
 			controller.abort();
 		}
@@ -162,6 +168,11 @@ $effect(() => {
 	};
 });
 
+// Authoritative per-file upload size limit (100 MiB = 104857600 bytes),
+// mirroring the server default in src/lib/server/env.ts (MAX_FILE_UPLOAD_SIZE).
+// Kept as a client constant because $lib/server/* is server-only.
+const MAX_FILE_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+
 // Accepted file types for upload
 const acceptedFileTypes =
 	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
@@ -189,6 +200,16 @@ function handleDragOver(event: DragEvent) {
 	event.stopPropagation();
 }
 
+function showDropError(message: string) {
+	dropError = message;
+	if (dropErrorTimer) clearTimeout(dropErrorTimer);
+	// Auto-dismiss after a short delay so the message doesn't linger forever.
+	dropErrorTimer = setTimeout(() => {
+		dropError = null;
+		dropErrorTimer = null;
+	}, 6000);
+}
+
 async function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	event.stopPropagation();
@@ -198,18 +219,29 @@ async function handleDrop(event: DragEvent) {
 	const files = event.dataTransfer?.files;
 	if (!files || files.length === 0) return;
 
-	const validFiles = Array.from(files).filter((file) => {
-		// Basic file type validation
-		const extension = file.name.split(".").pop()?.toLowerCase();
-		const acceptedExtensions = acceptedFileTypes
-			.split(",")
-			.map((t) => t.replace(".", ""));
-		return extension && acceptedExtensions.includes(extension);
-	});
+	const { valid, rejectedUnsupportedType, rejectedTooLarge } =
+		partitionUploadableFiles(Array.from(files), {
+			acceptedTypes: acceptedFileTypes,
+			maxFileSizeBytes: MAX_FILE_UPLOAD_SIZE_BYTES,
+		});
 
-	if (validFiles.length === 0) return;
+	// Surface rejections to the user. If some files were fine we still upload
+	// them; only fully-invalid batches are aborted.
+	if (rejectedTooLarge.length > 0) {
+		showDropError(
+			$t("knowledge.dropFileTooLarge", {
+				limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
+					trimWholeUnits: true,
+				}),
+			}),
+		);
+	} else if (rejectedUnsupportedType.length > 0 && valid.length === 0) {
+		showDropError($t("knowledge.dropNoValidFiles"));
+	}
 
-	await processUpload(validFiles);
+	if (valid.length === 0) return;
+
+	await processUpload(valid);
 }
 
 function handleUploadClick() {
@@ -803,6 +835,11 @@ async function handleBulkDelete(): Promise<boolean> {
 			data-testid="file-input"
 		/>
 	{/if}
+	{#if dropError}
+		<div class="drop-error" role="alert" data-testid="drop-error">
+			{dropError}
+		</div>
+	{/if}
 	{#if showInitialEmptyState}
 		{#if onUpload}
 			<button
@@ -839,6 +876,11 @@ async function handleBulkDelete(): Promise<boolean> {
 					oninput={handleSearchInput}
 					aria-label={$t('knowledge.searchDocuments')}
 				/>
+				{#if loading}
+					<span class="search-spinner" aria-hidden="true">
+						<Loader size={15} strokeWidth={2} class="animate-spin" aria-hidden="true" />
+					</span>
+				{/if}
 			</div>
 
 			{#if onUpload}
@@ -1097,6 +1139,15 @@ async function handleBulkDelete(): Promise<boolean> {
 				<div class="bulk-action-bar" role="toolbar" aria-label="Bulk actions">
 					<div class="bulk-info">
 						<span class="bulk-count">{selectedCount} {$t('knowledge.selected')}</span>
+						<button
+							type="button"
+							class="bulk-btn bulk-btn-secondary bulk-select-all"
+							data-testid="bulk-select-all"
+							onclick={toggleSelectAll}
+							aria-pressed={isAllSelected}
+						>
+							{$t('knowledge.selectAllCounted', { count: paginatedDocuments.length })}
+						</button>
 					</div>
 					<div class="bulk-actions">
 						<button
@@ -1105,7 +1156,6 @@ async function handleBulkDelete(): Promise<boolean> {
 							onclick={handleBulkDelete}
 							disabled={!onBulkDelete}
 						>
-							...
 							{$t('knowledge.deleteSelected')}
 						</button>
 						<button
@@ -1219,6 +1269,18 @@ async function handleBulkDelete(): Promise<boolean> {
 		margin: 0;
 	}
 
+	.drop-error {
+		display: flex;
+		align-items: center;
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+		background: color-mix(in srgb, var(--danger) 8%, var(--surface-elevated));
+		color: var(--danger);
+		font-size: 0.8125rem;
+		line-height: 1.4;
+	}
+
 	.documents-list {
 		display: flex;
 		flex-direction: column;
@@ -1296,6 +1358,8 @@ async function handleBulkDelete(): Promise<boolean> {
 		flex: 1 1 18rem;
 		max-width: 30rem;
 		min-width: 14rem;
+		position: relative;
+		align-items: center;
 	}
 
 	.documents-search-input {
@@ -1306,6 +1370,15 @@ async function handleBulkDelete(): Promise<boolean> {
 		background: var(--surface-page);
 		color: var(--text-primary);
 		font-size: 0.85rem;
+	}
+
+	.search-spinner {
+		position: absolute;
+		right: 0.55rem;
+		display: inline-flex;
+		align-items: center;
+		color: var(--icon-muted);
+		pointer-events: none;
 	}
 
 	.documents-search-input:focus-visible {
@@ -1376,11 +1449,24 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.table-container {
-		max-height: 600px;
-		overflow-y: auto;
 		border-radius: 1rem;
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
+	}
+
+	/* Desktop: let the table grow with the page scroll instead of nesting its own
+	   inner scroll container. The sticky header remains sticky against the page. */
+	@media (min-width: 720px) {
+		.table-container {
+			max-height: none;
+			overflow: visible;
+		}
+
+		.documents-table thead {
+			position: sticky;
+			top: 0;
+			z-index: 10;
+		}
 	}
 
 	.documents-table {
@@ -1859,12 +1945,19 @@ async function handleBulkDelete(): Promise<boolean> {
 	.bulk-info {
 		display: flex;
 		align-items: center;
+		gap: var(--space-sm);
+		flex-wrap: wrap;
 	}
 
 	.bulk-count {
 		font-size: 0.875rem;
 		font-weight: 500;
 		color: var(--text-primary);
+	}
+
+	.bulk-select-all {
+		padding: 0.25rem 0.625rem;
+		font-size: 0.8125rem;
 	}
 
 	.bulk-actions {

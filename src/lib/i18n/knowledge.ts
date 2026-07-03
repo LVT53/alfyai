@@ -34,7 +34,10 @@ const knowledgeDict = {
 		"knowledge.documentType": "Document type",
 		"knowledge.documentCount": "{count} documents",
 		"knowledge.documents": "Documents",
+		"knowledge.dropFileTooLarge":
+			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max 100MB per file)",
+		"knowledge.dropNoValidFiles": "Those files aren't a supported type.",
 		"knowledge.failedLoadMemory": "Failed to load memory profile.",
 		"knowledge.failedRefreshOverview":
 			"Failed to refresh the live memory overview.",
@@ -61,6 +64,7 @@ const knowledgeDict = {
 		"knowledge.searchPlaceholder": "Search by name, title, role, or content",
 		"knowledge.sections": "Knowledge Base sections",
 		"knowledge.selectAll": "Select all documents on this page",
+		"knowledge.selectAllCounted": "Select all ({count})",
 		"knowledge.selectDocument": "Select {name}",
 		"knowledge.selected": "selected",
 		"knowledge.showing": "Showing {from}-{to} of {total}",
@@ -197,6 +201,8 @@ const knowledgeDict = {
 		"memoryProfile.edit": "Edit",
 		"memoryProfile.editMemoryItem": "Edit memory item",
 		"memoryProfile.editReviewItem": "Edit review item",
+		"memoryProfile.emptyHint":
+			"AlfyAI learns these as you chat. You can review and edit them anytime.",
 		"memoryProfile.failedLoad": "Failed to load memory profile.",
 		"memoryProfile.forget": "Forget",
 		"memoryProfile.forgetDescription":
@@ -262,8 +268,11 @@ const knowledgeDict = {
 		"knowledge.documentType": "Dokumentum típus",
 		"knowledge.documentCount": "{count} dokumentum",
 		"knowledge.documents": "Dokumentumok",
+		"knowledge.dropFileTooLarge":
+			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":
 			"Húzd ide a fájlokat feltöltéshez (max. 100 MB/fájl)",
+		"knowledge.dropNoValidFiles": "Ezek a fájlok nem támogatott típusúak.",
 		"knowledge.failedLoadMemory": "Nem sikerült betölteni a memóriaprofilt.",
 		"knowledge.failedRefreshOverview":
 			"Nem sikerült frissíteni az élő memóriaáttekintést.",
@@ -291,6 +300,7 @@ const knowledgeDict = {
 			"Keresés név, cím, szerep vagy tartalom alapján",
 		"knowledge.sections": "Tudásbázis szakaszai",
 		"knowledge.selectAll": "Minden dokumentum kijelölése ezen az oldalon",
+		"knowledge.selectAllCounted": "Összes kijelölése ({count})",
 		"knowledge.selectDocument": "{name} kijelölése",
 		"knowledge.selected": "kijelölve",
 		"knowledge.showing": "{from}-{to} / {total} megjelenítve",
@@ -431,6 +441,8 @@ const knowledgeDict = {
 		"memoryProfile.edit": "Szerkesztés",
 		"memoryProfile.editMemoryItem": "Memóriaelem szerkesztése",
 		"memoryProfile.editReviewItem": "Felülvizsgálati elem szerkesztése",
+		"memoryProfile.emptyHint":
+			"Az AlfyAI beszélgetés közben tanulja meg ezeket. Bármikor átnézheted és szerkesztheted őket.",
 		"memoryProfile.failedLoad": "Nem sikerült betölteni a memóriaprofilt.",
 		"memoryProfile.forget": "Felejtse el",
 		"memoryProfile.forgetDescription":

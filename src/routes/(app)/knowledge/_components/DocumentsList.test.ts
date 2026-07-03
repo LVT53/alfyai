@@ -242,6 +242,67 @@ describe("DocumentsList", () => {
 				expect.objectContaining({ name: "new-upload.pdf" }),
 			]);
 		});
+
+		it("surfaces an error and does not upload when dropping only unsupported files", async () => {
+			const onUpload = vi.fn().mockResolvedValue(undefined);
+
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					onUpload,
+				},
+			});
+
+			const dropSurface = screen.getByRole("region", {
+				name: /documents/i,
+			});
+			const zip = new File(["data"], "archive.zip", {
+				type: "application/zip",
+			});
+
+			await fireEvent.drop(dropSurface, {
+				dataTransfer: { files: [zip], types: ["Files"] },
+			});
+
+			expect(onUpload).not.toHaveBeenCalled();
+			const errorBanner = screen.getByRole("alert");
+			expect(errorBanner.textContent ?? "").toMatch(/supported type/i);
+		});
+
+		it("skips oversized files but still uploads the valid ones in a mixed drop", async () => {
+			const onUpload = vi.fn().mockResolvedValue(undefined);
+
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					onUpload,
+				},
+			});
+
+			const dropSurface = screen.getByRole("region", {
+				name: /documents/i,
+			});
+			const validPdf = new File(["hello"], "ok.pdf", {
+				type: "application/pdf",
+			});
+			const huge = new File([new Uint8Array(101 * 1024 * 1024)], "huge.pdf", {
+				type: "application/pdf",
+			});
+			Object.defineProperty(huge, "size", {
+				value: 101 * 1024 * 1024,
+			});
+
+			await fireEvent.drop(dropSurface, {
+				dataTransfer: { files: [validPdf, huge], types: ["Files"] },
+			});
+
+			// The valid file is still uploaded; the oversized one is skipped.
+			expect(onUpload).toHaveBeenCalledTimes(1);
+			expect(onUpload).toHaveBeenCalledWith([validPdf]);
+
+			const errorBanner = screen.getByRole("alert");
+			expect(errorBanner.textContent ?? "").toMatch(/larger than/i);
+		});
 	});
 
 	describe("List Rendering", () => {
@@ -460,6 +521,41 @@ describe("DocumentsList", () => {
 			expect(iconCell).not.toBeNull();
 			expect(iconCell?.textContent?.trim().length ?? 0).toBe(0);
 			expect(iconCell?.innerHTML.length ?? 0).toBeGreaterThan(20);
+		});
+	});
+
+	describe("Loading Feedback", () => {
+		it("applies the loading class and shows a search spinner while loading", () => {
+			render(DocumentsList, {
+				props: {
+					documents: mockDocuments,
+					loading: true,
+				},
+			});
+
+			const wrapper = document.querySelector(".documents-list");
+			expect(wrapper).not.toBeNull();
+			expect(wrapper).toHaveClass("loading");
+
+			// A spinner is rendered inside the search controls.
+			const searchControls = screen
+				.getByRole("searchbox", { name: /search documents/i })
+				.closest(".search-controls");
+			expect(searchControls?.querySelector(".search-spinner")).not.toBeNull();
+		});
+
+		it("does not show the search spinner when not loading", () => {
+			render(DocumentsList, {
+				props: {
+					documents: mockDocuments,
+					loading: false,
+				},
+			});
+
+			const searchControls = screen
+				.getByRole("searchbox", { name: /search documents/i })
+				.closest(".search-controls");
+			expect(searchControls?.querySelector(".search-spinner")).toBeNull();
 		});
 	});
 
@@ -970,6 +1066,63 @@ describe("DocumentsList", () => {
 			await fireEvent.change(limitSelector, { target: { value: "50" } });
 
 			expect(onPaginationLimitChange).toHaveBeenCalledWith(50);
+		});
+	});
+
+	describe("Bulk Action Bar", () => {
+		async function openBulkActionBar() {
+			const onBulkDelete = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: mockDocuments,
+					onBulkDelete,
+				},
+			});
+
+			const selectCheckbox = screen.getByRole("checkbox", {
+				name: /select budget\.pdf/i,
+			});
+			await fireEvent.click(selectCheckbox);
+
+			return { onBulkDelete };
+		}
+
+		it("renders the bulk-delete button with the exact label and no stray ellipsis", async () => {
+			await openBulkActionBar();
+
+			const deleteButton = screen.getByRole("button", {
+				name: /delete selected/i,
+			});
+			expect(deleteButton.textContent?.trim()).toBe("Delete Selected");
+			// No leftover "..." text node before the label.
+			expect(deleteButton.textContent).not.toContain("...");
+		});
+
+		it("shows a 'Select all (N)' control in the bulk bar that selects all on the page", async () => {
+			const { onBulkDelete } = await openBulkActionBar();
+
+			// "N" equals the current page count (all four mock documents).
+			const selectAllButton = screen.getByRole("button", {
+				name: /select all \(4\)/i,
+			});
+			expect(selectAllButton).toBeInTheDocument();
+
+			await fireEvent.click(selectAllButton);
+
+			// Now the per-row checkbox count: every row should be selected,
+			// and the bulk bar should report 4 selected.
+			expect(
+				screen.getByText((content) => content.includes("4 selected")),
+			).toBeInTheDocument();
+
+			// Bulk delete should receive all four document ids.
+			const deleteButton = screen.getByRole("button", {
+				name: /delete selected/i,
+			});
+			await fireEvent.click(deleteButton);
+			expect(onBulkDelete).toHaveBeenCalledWith(
+				expect.arrayContaining(["doc-1", "doc-2", "doc-3", "doc-4"]),
+			);
 		});
 	});
 });
