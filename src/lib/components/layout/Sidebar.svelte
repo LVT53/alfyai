@@ -20,6 +20,7 @@ import { markPreviousConversationId } from "$lib/client/conversation-session";
 import ConversationList from "../sidebar/ConversationList.svelte";
 import SearchModal from "../search/SearchModal.svelte";
 import AvatarCircle from "../ui/AvatarCircle.svelte";
+import LogoMark from "../chat/LogoMark.svelte";
 import AppVersionBadge from "./AppVersionBadge.svelte";
 import {
 	ChevronRight,
@@ -186,7 +187,10 @@ onMount(() => {
 		class:px-0={isCollapsed}
 	>
 		{#if !isCollapsed}
-			<div class="flex min-w-0 items-baseline gap-2">
+			<div class="flex min-w-0 items-center gap-2">
+				<span data-testid="sidebar-logo" class="flex shrink-0 items-center">
+					<LogoMark size={20} />
+				</span>
 				<div class="overflow-hidden whitespace-nowrap text-[20px] font-sans font-semibold tracking-[-0.03em] text-text-primary opacity-90 transition-opacity duration-150">
 					AlfyAI
 				</div>
@@ -198,6 +202,11 @@ onMount(() => {
 					/>
 				{/if}
 			</div>
+		{:else}
+			<!-- Collapsed rail: the mark serves as the rail icon. -->
+			<span data-testid="sidebar-logo" class="flex items-center">
+				<LogoMark size={20} />
+			</span>
 		{/if}
 
 		<!-- Desktop: Collapse/Expand toggle -->

@@ -19,6 +19,7 @@ import {
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
+import LogoMark from "$lib/components/chat/LogoMark.svelte";
 
 let {
 	conversationTitle = null,
@@ -136,17 +137,20 @@ onMount(() => {
 		</button>
 	</div>
 
-	<div class="pointer-events-none flex min-w-0 items-center justify-center px-2">
-		{#if conversationTitle}
-			<div
-				class="max-w-full truncate text-center text-[13px] font-medium leading-5 text-text-primary"
-				title={conversationTitle}
-				aria-live="polite"
-			>
-				<ConversationTitleText title={conversationTitle} />
-			</div>
-		{/if}
-	</div>
+	<div class="pointer-events-none flex min-w-0 items-center justify-center gap-2 px-2">
+			<span data-testid="mobile-header-logo" class="flex shrink-0 items-center">
+				<LogoMark size={20} />
+			</span>
+			{#if conversationTitle}
+				<div
+					class="max-w-full truncate text-center text-[13px] font-medium leading-5 text-text-primary"
+					title={conversationTitle}
+					aria-live="polite"
+				>
+					<ConversationTitleText title={conversationTitle} />
+				</div>
+			{/if}
+		</div>
 
 	<div class="flex min-w-0 items-center justify-end">
 

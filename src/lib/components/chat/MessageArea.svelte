@@ -16,6 +16,7 @@ import type {
 	TaskSteeringPayload,
 } from "$lib/types";
 import MessageBubble from "./MessageBubble.svelte";
+import LogoMark from "./LogoMark.svelte";
 
 let {
 	messages = [],
@@ -461,6 +462,9 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 	<div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
 		{#if messages.length === 0}
 			<div class="conversation-empty-state">
+				<span data-testid="empty-state-logo" class="conversation-empty-logo">
+					<LogoMark animated={false} size={64} />
+				</span>
 				<div class="conversation-empty-eyebrow">{$t('chat.conversationReady')}</div>
 				<p class="conversation-empty-copy">
 					{$t('chat.messagesWillAppearHere')}
@@ -604,6 +608,10 @@ async function alignForkBoundaryAfterRender(messageId: string) {
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--text-muted);
+	}
+
+	.conversation-empty-logo {
+		margin-bottom: var(--space-xs);
 	}
 
 	.conversation-empty-copy {
