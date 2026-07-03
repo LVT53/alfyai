@@ -1,10 +1,7 @@
 <script lang='ts'>
-import { onMount, onDestroy } from "svelte";
 import type { Snippet } from "svelte";
-import { browser } from "$app/environment";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
-import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ArtifactSummary,
 	AtlasAvailability,
@@ -126,63 +123,14 @@ let {
 	children?: Snippet;
 } = $props();
 
-// Dynamic keyboard detection using visualViewport API
-let keyboardOffset = $state(0);
-let isMobile = $state(false);
-
-function handleVisualViewportChange() {
-	if (typeof window === "undefined") return;
-
-	const visualViewport = window.visualViewport;
-	if (!visualViewport) return;
-
-	// Calculate the offset between layout viewport height and visual viewport height
-	// When keyboard opens, visual viewport height decreases
-	const layoutHeight = window.innerHeight;
-	const visualHeight = visualViewport.height;
-	const visualTop = visualViewport.offsetTop;
-
-	// The keyboard takes up the space between visualHeight and layoutHeight
-	// We also need to account for any offset from the visual viewport top
-	const keyboardHeight = Math.max(0, layoutHeight - visualHeight - visualTop);
-
-	// Only add offset if it's significant (more than 50px to avoid false positives)
-	keyboardOffset = keyboardHeight > 50 ? keyboardHeight : 0;
-}
-
-onMount(() => {
-	// Detect if this is a mobile device
-	isMobile = isTouchDevice();
-
-	// Listen for visualViewport changes (keyboard open/close)
-	const visualViewport = window.visualViewport;
-	if (visualViewport) {
-		visualViewport.addEventListener("resize", handleVisualViewportChange);
-		visualViewport.addEventListener("scroll", handleVisualViewportChange);
-	}
-
-	// Fallback: listen for window resize
-	window.addEventListener("resize", handleVisualViewportChange);
-
-	// Initial calculation
-	handleVisualViewportChange();
-});
-
-onDestroy(() => {
-	if (!browser) return;
-	const visualViewport = window.visualViewport;
-	if (visualViewport) {
-		visualViewport.removeEventListener("resize", handleVisualViewportChange);
-		visualViewport.removeEventListener("scroll", handleVisualViewportChange);
-	}
-	window.removeEventListener("resize", handleVisualViewportChange);
-});
+// The soft-keyboard offset is handled natively by the browser via the
+// `interactive-widget=resizes-content` viewport directive (see src/app.html):
+// when the keyboard opens the layout viewport shrinks, so the relative parent
+// (`.chat-main`) resizes and this composer — anchored with `position: absolute;
+// bottom: 0` — rides up with it. No manual keyboard-offset math required.
 </script>
 
-<div
-	class='composer-layer'
-	style='padding-bottom: calc(0.35rem + env(safe-area-inset-bottom) + 8px + {keyboardOffset}px);'
->
+<div class='composer-layer'>
 	<div class='composer-shell mx-auto flex w-full max-w-[780px] flex-col gap-3'>
 		{#if sendError}
 			<ErrorMessage error={sendError} onRetry={onRetry} onClose={onErrorClose} />
@@ -242,7 +190,10 @@ onDestroy(() => {
 		left: 0;
 		right: 0;
 		z-index: 10;
-		padding: 0.5rem 0.75rem;
+		/* Static safe-area gap at the bottom; the keyboard is handled natively by
+		   `interactive-widget=resizes-content` resizing the layout viewport, so no
+		   dynamic offset or padding-bottom transition is needed. */
+		padding: 0.5rem 0.75rem calc(0.35rem + env(safe-area-inset-bottom));
 		background: transparent;
 		border: 0;
 		box-shadow: none;
@@ -250,8 +201,6 @@ onDestroy(() => {
 		/* Pass mouse events through the transparent overlay to the scrollbar below.
 		   Interactive children inside .composer-shell restore pointer-events: auto. */
 		pointer-events: none;
-		/* Mobile: ensure content stays above keyboard */
-		transition: padding-bottom 150ms ease;
 	}
 
 	.composer-shell {
