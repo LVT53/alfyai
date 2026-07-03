@@ -1538,6 +1538,9 @@ export const fileProductionJobs = sqliteTable(
 		retryable: integer("retryable", { mode: "boolean" })
 			.notNull()
 			.default(false),
+		dismissed: integer("dismissed", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		errorCode: text("error_code"),
 		errorMessage: text("error_message"),
 		completedAt: integer("completed_at", { mode: "timestamp" }),
