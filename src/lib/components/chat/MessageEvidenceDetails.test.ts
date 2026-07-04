@@ -313,6 +313,41 @@ describe("MessageEvidenceDetails", () => {
 		expect(link).toHaveAttribute("target", "_blank");
 	});
 
+	it("renders web items with a favicon via the /api/favicon proxy route", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "source-1",
+								title: "investopedia.com",
+								sourceType: "web",
+								status: "selected",
+								url: "https://example.com/source",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+		// The web item should render a favicon <img> routed through the
+		// privacy proxy (ADR 0043, Slice 12), keyed by the page's domain.
+		const link = screen.getByRole("link", { name: /investopedia/i });
+		// Decorative (alt="") so it's removed from the a11y role tree; query
+		// by tag name instead of role.
+		const favicon = link.querySelector("img");
+		expect(favicon).not.toBeNull();
+		expect(favicon).toHaveAttribute("src", "/api/favicon?domain=example.com");
+		expect(favicon).toHaveAttribute("alt", "");
+	});
+
 	it("renders memory items as plain text without a link", async () => {
 		render(MessageEvidenceDetails, {
 			evidenceSummary: buildSummary({

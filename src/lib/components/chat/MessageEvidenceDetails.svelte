@@ -68,6 +68,19 @@ function typeIconFor(sourceType: EvidenceSourceType): typeof FileText {
 	}
 }
 
+// Privacy proxy (ADR 0043, Slice 12/15): route web favicons through our own
+// /api/favicon endpoint so researched domains are not leaked to third-party
+// favicon services. Mirrors the getFaviconUrl helper in ThinkingBlock.svelte.
+function getFaviconUrl(raw: string): string | null {
+	try {
+		const parsed = new URL(raw);
+		const host = parsed.hostname.replace(/^www\./, "");
+		return `/api/favicon?domain=${encodeURIComponent(host)}`;
+	} catch {
+		return null;
+	}
+}
+
 function isDocument(item: MessageEvidenceItem): boolean {
 	return (
 		item.sourceType === "document" &&
@@ -154,13 +167,32 @@ function openDocument(item: MessageEvidenceItem) {
 				<ExternalLink size={12} strokeWidth={1.8} class="evidence-open-icon" aria-hidden="true" />
 			</button>
 		{:else if item.url}
+			{@const faviconUrl = getFaviconUrl(item.url)}
 			<a
 				class="evidence-row-link"
 				href={item.url}
 				target="_blank"
 				rel="noopener noreferrer"
 			>
-				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+				<span class="evidence-type-icon-stack" aria-hidden="true">
+					{#if faviconUrl}
+						<img
+							class="evidence-favicon"
+							src={faviconUrl}
+							alt=""
+							loading="lazy"
+							decoding="async"
+							referrerpolicy="no-referrer"
+							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+						/>
+					{/if}
+					<TypeIcon
+						size={13}
+						strokeWidth={1.8}
+						class="evidence-type-icon"
+						aria-hidden="true"
+					/>
+				</span>
 				<span class="evidence-title evidence-title--web">{item.title}</span>
 			</a>
 		{:else}
@@ -316,6 +348,28 @@ function openDocument(item: MessageEvidenceItem) {
 	.evidence-type-icon {
 		color: var(--icon-muted);
 		flex-shrink: 0;
+	}
+
+	.evidence-type-icon-stack {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 13px;
+		height: 13px;
+	}
+
+	.evidence-favicon {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: 2px;
+		/* The Globe icon sits underneath; the favicon covers it when it loads.
+		   If the favicon fails to load, onerror hides the <img> and the Globe
+		   shows through as the graceful fallback. */
 	}
 
 	.evidence-title {
