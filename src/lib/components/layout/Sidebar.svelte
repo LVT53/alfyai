@@ -255,29 +255,26 @@ onMount(() => {
 	<!-- Search + New Chat -->
 	<div class="shrink-0 py-2" class:px-3={!isCollapsed} class:px-0={isCollapsed}>
 		{#if isCollapsed}
-			<!-- Icon-only when collapsed -->
-			<div class="flex w-full flex-col items-center gap-2">
-				<div class="relative flex items-center justify-center">
-					<button
-						data-testid="new-conversation"
-						class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-accent transition-colors duration-150 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-						class:compose-btn-active={hasActiveConversation}
-						onclick={handleNewConversation}
-						title={$t('sidebar.newChat')}
-						aria-label={$t('sidebar.newChat')}
-					>
-					<FilePen size={19} strokeWidth={2.1} aria-hidden="true" />
-					</button>
-					{#if hasActiveConversation}
-						<!-- Collapsed-rail active-conversation indicator: an accent dot
-					signals that a conversation is currently open. -->
-						<span
-							data-testid="collapsed-rail-active-indicator"
-							class="pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent ring-2 ring-surface-overlay"
-							aria-hidden="true"
-						></span>
-					{/if}
-				</div>
+			<!-- Icon-only when collapsed. The active-conversation indicator is a
+			     dedicated accent bar pinned to the rail edge (NOT on the compose
+			     button), signalling "a conversation is open" without implying "new". -->
+			<div class="collapsed-rail relative flex w-full flex-col items-center gap-2">
+				{#if hasActiveConversation}
+					<span
+						data-testid="collapsed-rail-active-indicator"
+						class="rail-active-bar pointer-events-none absolute left-0 top-2 h-6 w-0.5 rounded-full bg-accent"
+						aria-hidden="true"
+					></span>
+				{/if}
+				<button
+					data-testid="new-conversation"
+					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-accent transition-colors duration-150 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					onclick={handleNewConversation}
+					title={$t('sidebar.newChat')}
+					aria-label={$t('sidebar.newChat')}
+				>
+				<FilePen size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 				<button
 					type="button"
 					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -523,17 +520,17 @@ onMount(() => {
 		border-color: var(--border-default);
 	}
 
-	/* Collapsed-rail active-conversation affordance: a subtle accent ring on
-	   the compose button signals an open conversation when the sidebar is
-	   collapsed to icon-only. Uses the semantic --accent token. */
-	.compose-btn.compose-btn-active {
-		border-color: color-mix(in srgb, var(--accent) 55%, transparent 45%);
-		background: color-mix(in srgb, var(--accent) 12%, transparent 88%);
+	/* Collapsed-rail active-conversation affordance: a subtle accent bar pinned
+	   to the rail edge (separate from any button) signals an open conversation
+	   when the sidebar is collapsed to icon-only. Uses the semantic --accent
+	   token and stays quiet (2px wide). */
+	.rail-active-bar {
+		opacity: 0.85;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
 		.compose-btn,
-		.compose-btn-active {
+		.rail-active-bar {
 			transition: none;
 		}
 	}
