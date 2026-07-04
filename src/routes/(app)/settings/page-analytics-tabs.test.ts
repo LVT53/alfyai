@@ -125,15 +125,17 @@ describe("settings page analytics merge (ADR-0043 slice 18c)", () => {
 		it("does NOT show an Analytics tab", () => {
 			renderPage("user");
 
-			// No Analytics tab in the tab list.
+			// No Analytics tab in the tab list (and the single-tab switcher is
+			// hidden for normal users, so there is no tablist at all).
 			expect(
 				screen.queryByRole("tab", { name: "Analytics" }),
 			).not.toBeInTheDocument();
-			// Only Profile tab present (no Administration for a normal user either).
-			expect(screen.getByRole("tab", { name: "Profile" })).toBeInTheDocument();
 			expect(
 				screen.queryByRole("tab", { name: "Administration" }),
 			).not.toBeInTheDocument();
+			// Profile content is rendered (the Profile tab is the default and,
+			// being the only tab, the switcher is omitted but the content shows).
+			expect(screen.getByText("Account")).toBeInTheDocument();
 		});
 
 		it("shows the Your Activity section in Profile with personal analytics", async () => {

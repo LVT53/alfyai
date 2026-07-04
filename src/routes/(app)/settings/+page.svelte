@@ -559,14 +559,16 @@ $effect(() => {
 	<div class="settings-shell mx-auto w-full px-4 py-8" class:settings-shell-admin={activeTab === 'administration' && isAdmin}>
 		<h1 class="mb-6 text-2xl font-semibold text-text-primary">{$t('settings')}</h1>
 
-		<div class="mb-6">
-			<PageSwitcher
-				items={settingsTabs}
-				activeId={activeTab}
-				ariaLabel={$t('settings')}
-				onChange={handlePageSwitcherChange}
-			/>
-		</div>
+		{#if settingsTabs.length > 1}
+			<div class="mb-6">
+				<PageSwitcher
+					items={settingsTabs}
+					activeId={activeTab}
+					ariaLabel={$t('settings')}
+					onChange={handlePageSwitcherChange}
+				/>
+			</div>
+		{/if}
 
 		{#if activeTab === 'profile'}
 			<SettingsProfileTab
