@@ -1,8 +1,22 @@
 <script lang="ts">
-import { Download, Palette, Trash2, Upload } from "@lucide/svelte";
+import { onMount } from "svelte";
+import {
+	ChevronLeft,
+	ChevronRight,
+	Download,
+	Palette,
+	Trash2,
+	Upload,
+} from "@lucide/svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import { t } from "$lib/i18n";
+import {
+	fetchUserSkills,
+	fetchUserSkillVariants,
+	type UserSkill,
+	type UserSkillVariant,
+} from "$lib/client/api/skills";
 import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
@@ -145,14 +159,50 @@ const systemDefaultModelDisplayName = $derived(
 const explicitModelOptions = $derived(
 	availableModels.filter((model) => model.id !== systemDefaultModel),
 );
+
+// --- ADR-0043 slice 18b: Skills summary card + full-screen manager ---
+// View state is client-only ($state); NOT a route/URL change. The manager
+// overlays the Profile content when open.
+let skillsManagerOpen = $state(false);
+
+// Summary counts are lifted up here so the summary card can show
+// "N active · M disabled" without rendering the full editor inline. The
+// UserSkillsSettingsSurface itself is re-homed (rendered unchanged) inside
+// the manager — its data loading is NOT duplicated here beyond the summary.
+let skillsSummary = $state<{ active: number; disabled: number }>({
+	active: 0,
+	disabled: 0,
+});
+
+async function loadSkillsSummary() {
+	if (!skillsEnabled) return;
+	try {
+		const [skills, variants] = await Promise.all([
+			fetchUserSkills(),
+			fetchUserSkillVariants(),
+		]);
+		const all: Array<UserSkill | UserSkillVariant> = [...skills, ...variants];
+		skillsSummary = {
+			active: all.filter((skill) => skill.enabled).length,
+			disabled: all.filter((skill) => !skill.enabled).length,
+		};
+	} catch {
+		// Non-fatal: keep the zeroed summary. The manager surfaces real errors.
+	}
+}
+
+onMount(() => {
+	void loadSkillsSummary();
+});
 </script>
 
 <!-- ============================================================= -->
 <!-- ADR-0043 slice 18a: Profile regrouped into 4 labeled sections. -->
 <!-- ALL existing fields preserved; text CTAs → btn-icon-bare Lucide -->
 <!-- icon buttons; "Default Style" → "Conversation style"; jargon cleared. -->
-<!-- 18b turns Skills into a summary-card-opens-manager; 18c adds the -->
-<!-- 5th "Your Activity" section. Do NOT do those here. -->
+<!-- ADR-0043 slice 18b: Skills promoted to a summary card that opens a -->
+<!-- dedicated full-screen manager (UserSkillsSettingsSurface re-homed). -->
+<!-- 18c adds the 5th "Your Activity" section. Do NOT do that here. -->
 <!-- ============================================================= -->
 
 <!-- ================= GROUP 1: ACCOUNT ================= -->
@@ -393,10 +443,58 @@ const explicitModelOptions = $derived(
 </section>
 
 <!-- ================= GROUP 3: ASSISTANT ================= -->
-<!-- 18b turns this section into a summary card that opens the Skills manager. -->
-<!-- 18a keeps the existing UserSkillsSettingsSurface inline under the header. -->
+<!-- ADR-0043 slice 18b: the inline Skills editor is promoted to a summary card -->
+<!-- that opens a dedicated full-screen manager. The UserSkillsSettingsSurface -->
+<!-- is re-homed (rendered unchanged) inside the manager below — not duplicated. -->
 <p class="settings-group-label">{$t('settings_sectionAssistant')}</p>
-<UserSkillsSettingsSurface {skillsEnabled} />
+<section class="settings-card mb-4">
+	{#if skillsEnabled}
+		<!-- Summary card: label + one-line status + ChevronRight open affordance. -->
+		<button
+			type="button"
+			class="skills-summary-card"
+			data-testid="skills-summary-card"
+			aria-label={$t('settings_skillsManagerSummaryLabel')}
+			title={$t('settings_skillsManagerOpenA11y')}
+			onclick={() => (skillsManagerOpen = true)}
+		>
+			<span class="skills-summary-card-text">
+				<span class="skills-summary-card-label">{$t('settings_skillsManagerSummaryLabel')}</span>
+				<span class="skills-summary-card-status">
+					{$t('settings_skillsManagerStatus', {
+						active: skillsSummary.active,
+						disabled: skillsSummary.disabled,
+					})}
+				</span>
+			</span>
+			<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+		</button>
+	{:else}
+		<!-- Skills disabled by workspace admin: no manager to open into. -->
+		<p class="text-sm text-text-secondary">{$t('skills.disabled')}</p>
+	{/if}
+</section>
+
+<!-- ADR-0043 slice 18b: full-screen Skills manager. Hosts the RE-HOMED -->
+<!-- UserSkillsSettingsSurface (same component, not copied). Overlays the -->
+<!-- Profile content via client-only $state; back chevron returns to Profile. -->
+{#if skillsManagerOpen}
+	<div class="skills-manager" data-testid="skills-manager">
+		<div class="skills-manager-header">
+			<button
+				type="button"
+				class="btn-icon-bare"
+				aria-label={$t('settings_skillsManagerBack')}
+				onclick={() => (skillsManagerOpen = false)}
+			>
+				<ChevronLeft size={20} strokeWidth={2} aria-hidden="true" />
+			</button>
+			<h1 class="skills-manager-title">{$t('settings_skillsManagerTitle')}</h1>
+		</div>
+		<!-- Re-homed: the SAME editor component, rendered here, not inline above. -->
+		<UserSkillsSettingsSurface {skillsEnabled} />
+	</div>
+{/if}
 
 <!-- ================= GROUP 4: DATA & PRIVACY ================= -->
 <p class="settings-group-label">{$t('settings_sectionDataPrivacy')}</p>
@@ -576,10 +674,76 @@ const explicitModelOptions = $derived(
 		min-width: 2rem;
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.btn-icon-bare,
-		.btn-danger {
-			transition: none;
+		@media (prefers-reduced-motion: reduce) {
+			.btn-icon-bare,
+			.btn-danger {
+				transition: none;
+			}
 		}
-	}
-</style>
+
+		/* ADR-0043 slice 18b: Skills summary card + full-screen manager. */
+
+		/* Summary card: full-width button row (label + status left, chevron right). */
+		.skills-summary-card {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.75rem;
+			width: 100%;
+			padding: 0;
+			border: none;
+			background: none;
+			cursor: pointer;
+			color: inherit;
+			transition: color var(--duration-standard);
+		}
+
+		.skills-summary-card:hover {
+			color: var(--accent);
+		}
+
+		.skills-summary-card-text {
+			display: flex;
+			flex-direction: column;
+			gap: 0.125rem;
+			min-width: 0;
+			text-align: left;
+		}
+
+		.skills-summary-card-label {
+			font-size: 0.9375rem;
+			font-weight: 600;
+			color: var(--text-primary);
+		}
+
+		.skills-summary-card-status {
+			font-size: 0.75rem;
+			color: var(--text-secondary);
+		}
+
+		/* Full-screen manager: overlays/replaces the Profile content. */
+		.skills-manager {
+			display: flex;
+			flex-direction: column;
+			gap: var(--space-md);
+		}
+
+		.skills-manager-header {
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+		}
+
+		.skills-manager-title {
+			font-size: 1.25rem;
+			font-weight: 600;
+			color: var(--text-primary);
+			margin: 0;
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			.skills-summary-card {
+				transition: none;
+			}
+		}
+	</style>

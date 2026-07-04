@@ -1,7 +1,39 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/types";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
+
+vi.mock("$lib/client/api/skills", () => ({
+	createUserSkill: vi.fn(),
+	createUserSkillVariant: vi.fn(),
+	deleteUserSkill: vi.fn(),
+	deleteUserSkillVariant: vi.fn(),
+	fetchSystemSkillSummaries: vi.fn(),
+	fetchUserSkills: vi.fn(),
+	fetchUserSkillVariants: vi.fn(),
+	updateUserSkill: vi.fn(),
+	updateUserSkillVariant: vi.fn(),
+}));
+
+import {
+	fetchSystemSkillSummaries,
+	fetchUserSkills,
+	fetchUserSkillVariants,
+} from "$lib/client/api/skills";
+
+const mockFetchUserSkills = fetchUserSkills as ReturnType<typeof vi.fn>;
+const mockFetchUserSkillVariants = fetchUserSkillVariants as ReturnType<
+	typeof vi.fn
+>;
+const mockFetchSystemSkillSummaries = fetchSystemSkillSummaries as ReturnType<
+	typeof vi.fn
+>;
 
 const baseProps = {
 	userId: "user-1",
@@ -47,8 +79,16 @@ const renderTab = (overrides: Record<string, unknown> = {}) =>
 		effectiveModel: "model1",
 		systemDefaultModel: "model1",
 		onChangeModel: vi.fn(),
+		skillsEnabled: true,
 		...overrides,
 	});
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	mockFetchUserSkills.mockResolvedValue([]);
+	mockFetchUserSkillVariants.mockResolvedValue([]);
+	mockFetchSystemSkillSummaries.mockResolvedValue([]);
+});
 
 describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 	it("renders the 4 grouped section labels in order", () => {
@@ -111,8 +151,9 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 		expect(screen.getByText("Appearance")).toBeInTheDocument();
 		expect(screen.getByText("Interface language")).toBeInTheDocument();
 
-		// Assistant: Skills surface present.
-		expect(screen.getByText("Private skills")).toBeInTheDocument();
+		// Assistant: Skills summary card present (18b: inline editor promoted to
+		// a summary card that opens the full-screen manager).
+		expect(screen.getByRole("button", { name: /Skills/ })).toBeInTheDocument();
 
 		// Data & privacy: all 4 actions.
 		expect(screen.getByText("Download my data")).toBeInTheDocument();
@@ -311,5 +352,124 @@ describe("SettingsProfileTab model preference", () => {
 				button.querySelector(".model-preference-pill-label"),
 			).toBeInTheDocument();
 		}
+	});
+});
+
+describe("SettingsProfileTab Skills summary card + manager (ADR-0043 slice 18b)", () => {
+	it("shows a Skills SUMMARY CARD (not the inline editor) with a ChevronRight affordance", () => {
+		renderTab();
+
+		// The summary card is a single button labelled "Skills ...".
+		const summary = screen.getByRole("button", { name: /Skills/ });
+		expect(summary).toBeInTheDocument();
+
+		// The inline editor (Skills title / Save skill form) is NOT rendered by default.
+		expect(screen.queryByText("Private skills")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Save skill" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("the summary card carries a Lucide ChevronRight open affordance", () => {
+		renderTab();
+
+		const summary = screen.getByRole("button", { name: /Skills/ });
+		expect(summary.querySelector("svg")).toBeInTheDocument();
+	});
+
+	it("clicking the summary card opens the full-screen manager (UserSkillsSettingsSurface re-homed)", async () => {
+		renderTab();
+
+		await fireEvent.click(screen.getByRole("button", { name: /Skills/ }));
+
+		// The re-homed Skills surface (its title + new-skill CTAs) now renders in the manager.
+		await waitFor(() =>
+			expect(screen.getByText("Private skills")).toBeInTheDocument(),
+		);
+		expect(
+			screen.getByRole("button", { name: "New skill" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "New variant" }),
+		).toBeInTheDocument();
+	});
+
+	it("the manager has a back chevron (ChevronLeft) that returns to the Profile summary", async () => {
+		renderTab();
+
+		await fireEvent.click(screen.getByRole("button", { name: /Skills/ }));
+		await waitFor(() =>
+			expect(screen.getByText("Private skills")).toBeInTheDocument(),
+		);
+
+		// Back button present.
+		const back = screen.getByRole("button", { name: /Back/ });
+		expect(back.querySelector("svg")).toBeInTheDocument();
+
+		await fireEvent.click(back);
+
+		// Manager gone; summary card back.
+		expect(screen.queryByText("Private skills")).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /Skills/ })).toBeInTheDocument();
+	});
+
+	it("shows disabled message on the summary card when skills are disabled", () => {
+		renderTab({ skillsEnabled: false });
+
+		// When disabled, the summary reflects the disabled state (no open into editor).
+		expect(
+			screen.getByText("Skills are disabled by your workspace administrator."),
+		).toBeInTheDocument();
+		// No open affordance into a disabled manager.
+		expect(
+			screen.queryByRole("button", { name: /Skills/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("derives the active/disabled counts from the skills data on the summary card", async () => {
+		mockFetchUserSkills.mockResolvedValue([
+			{
+				id: "skill-1",
+				ownership: "user",
+				displayName: "Active skill",
+				description: "",
+				instructions: "",
+				activationExamples: [],
+				enabled: true,
+				durationPolicy: "next_message",
+				questionPolicy: "none",
+				notesPolicy: "none",
+				sourceScope: "current_conversation",
+				creationSource: "user_created",
+				version: 1,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+			{
+				id: "skill-2",
+				ownership: "user",
+				displayName: "Disabled skill",
+				description: "",
+				instructions: "",
+				activationExamples: [],
+				enabled: false,
+				durationPolicy: "next_message",
+				questionPolicy: "none",
+				notesPolicy: "none",
+				sourceScope: "current_conversation",
+				creationSource: "user_created",
+				version: 1,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		]);
+
+		renderTab();
+
+		// Summary card shows "1 active · 1 disabled".
+		await waitFor(() =>
+			expect(screen.getByText(/1 active/)).toBeInTheDocument(),
+		);
+		expect(screen.getByText(/1 disabled/)).toBeInTheDocument();
 	});
 });
