@@ -53,6 +53,7 @@ let {
 	onPublishSkillDraft = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
+	onDismissFileProductionJob = undefined,
 	onCancelAtlasJob = undefined,
 	onAtlasLifecycleAction = undefined,
 	onRetryContextCompression = undefined,
@@ -112,6 +113,7 @@ let {
 		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	onDismissFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelAtlasJob?: ((jobId: string) => void) | undefined;
 	onAtlasLifecycleAction?:
 		| ((payload: {
@@ -570,8 +572,9 @@ async function scrollToMessage(messageId: string) {
 					{onSaveSkillDraft}
 					{onDismissSkillDraft}
 					{onPublishSkillDraft}
-					{onRetryFileProductionJob}
-					{onCancelFileProductionJob}
+				{onRetryFileProductionJob}
+				{onCancelFileProductionJob}
+				{onDismissFileProductionJob}
 					{onCancelAtlasJob}
 					{onAtlasLifecycleAction}
 				/>

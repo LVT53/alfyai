@@ -35,6 +35,7 @@ import {
 } from "$lib/client/api/atlas";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
+	dismissFileProductionJob as dismissFileProductionJobRequest,
 	retryFileProductionJob as retryFileProductionJobRequest,
 } from "$lib/client/api/file-production";
 import {
@@ -1272,6 +1273,21 @@ async function handleCancelFileProductionJob(jobId: string) {
 	}
 }
 
+async function handleDismissFileProductionJob(jobId: string) {
+	// Optimistic removal: hide the card immediately, then confirm via the
+	// dismiss route (Slice 3). The read-model filter re-confirms on reload.
+	const previous = fileProductionJobs;
+	fileProductionJobs = fileProductionJobs.filter((job) => job.id !== jobId);
+	try {
+		await dismissFileProductionJobRequest(jobId);
+	} catch (err) {
+		// Roll back on failure so the user can retry the dismiss.
+		fileProductionJobs = previous;
+		sendError =
+			err instanceof Error ? err.message : "Failed to dismiss file production";
+	}
+}
+
 function createClientAtlasTurnId(): string {
 	const random =
 		typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -2219,6 +2235,7 @@ function handleDrop(event: DragEvent) {
 						onPublishSkillDraft={handlePublishSkillDraft}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
+						onDismissFileProductionJob={handleDismissFileProductionJob}
 						onCancelAtlasJob={handleCancelAtlasJob}
 						onAtlasLifecycleAction={handleAtlasLifecycleAction}
 					/>

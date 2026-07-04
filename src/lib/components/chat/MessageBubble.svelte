@@ -68,6 +68,7 @@ let {
 	onOpenDocument = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
+	onDismissFileProductionJob = undefined,
 	onCancelAtlasJob = undefined,
 	onAtlasLifecycleAction = undefined,
 	canPublishSkillDrafts = false,
@@ -105,6 +106,7 @@ let {
 		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	onDismissFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelAtlasJob?: ((jobId: string) => void) | undefined;
 	onAtlasLifecycleAction?:
 		| ((payload: {
@@ -873,6 +875,7 @@ function toggleForkDetails() {
 							onOpenDocument={onOpenDocument}
 							onRetry={onRetryFileProductionJob}
 							onCancel={onCancelFileProductionJob}
+							onDismiss={onDismissFileProductionJob}
 						/>
 					{/each}
 				</div>

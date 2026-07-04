@@ -30,3 +30,16 @@ export async function cancelFileProductionJob(
 	);
 	return payload.job;
 }
+
+export async function dismissFileProductionJob(
+	jobId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<FileProductionJob> {
+	const payload = await requestJson<FileProductionJobResponse>(
+		`/api/chat/files/jobs/${encodeURIComponent(jobId)}/dismiss`,
+		{ method: "POST" },
+		"Failed to dismiss file production",
+		fetchImpl,
+	);
+	return payload.job;
+}

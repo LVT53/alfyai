@@ -36,27 +36,62 @@ describe("FileProductionCard", () => {
 		uiLanguage.set("en");
 	});
 
-	it("renders an active job as a shimmer-only card with an icon cancel action", async () => {
+	it("renders an active running job with title, elapsed, Producing label, progress bar and a Stop action", async () => {
 		const onCancel = vi.fn();
-		const { container, getByRole, queryByText } = render(FileProductionCard, {
-			job: makeJob({ status: "queued" }),
-			onCancel,
-		});
+		const created = 1_700_000_000_000;
+		vi.useFakeTimers();
+		vi.setSystemTime(created + 75_000);
+		try {
+			const { container, getByRole, getByText, queryByText } = render(
+				FileProductionCard,
+				{
+					job: makeJob({ status: "running", createdAt: created }),
+					onCancel,
+				},
+			);
 
-		expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
-		expect(
-			container.querySelector('[data-motion="smooth-shimmer"]'),
-		).toBeInTheDocument();
-		expect(queryByText("Queued")).toBeNull();
-		expect(queryByText("Quarterly report")).toBeNull();
-		expect(queryByText("No files yet")).toBeNull();
-		expect(queryByText("Waiting for the file worker.")).toBeNull();
+			// Title is rendered from job.title (was previously hidden).
+			expect(getByText("Quarterly report")).toBeInTheDocument();
+			// Producing label is visible (not aria-only).
+			expect(getByText("Producing")).toBeInTheDocument();
+			// Elapsed timer formatted as m:ss (75s -> 1:15) with tabular-nums.
+			expect(getByText("1:15")).toBeInTheDocument();
+			// Animated gold sweep progress bar present.
+			expect(
+				container.querySelector(".producing-progress-sweep"),
+			).toBeInTheDocument();
+			// Card is still marked busy.
+			expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+			// No resolved-only copy leaks through.
+			expect(queryByText("No files yet")).toBeNull();
+			expect(queryByText("Waiting for the file worker.")).toBeNull();
 
-		await fireEvent.click(
-			getByRole("button", { name: "Cancel file production" }),
-		);
+			// Cancel is a Stop (Square) icon button, not a dominant X.
+			await fireEvent.click(
+				getByRole("button", { name: "Stop file production" }),
+			);
+			expect(onCancel).toHaveBeenCalledWith("job-1");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
-		expect(onCancel).toHaveBeenCalledWith("job-1");
+	it("renders the stale honesty state (amber heading) for a running job older than 90s", () => {
+		const created = 1_700_000_000_000;
+		vi.useFakeTimers();
+		vi.setSystemTime(created + 91_000);
+		try {
+			const { getByText, queryByText } = render(FileProductionCard, {
+				job: makeJob({ status: "running", createdAt: created }),
+			});
+
+			expect(getByText("Still working… or stalled.")).toBeInTheDocument();
+			expect(getByText("We’ll know in a moment.")).toBeInTheDocument();
+			// Producing label is replaced by the stale honesty copy.
+			expect(queryByText("Producing")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("renders a retryable failed job with its safe error and retry action", async () => {
@@ -73,14 +108,38 @@ describe("FileProductionCard", () => {
 			onRetry,
 		});
 
-		expect(getByText("Error")).toBeInTheDocument();
+		expect(getByText("Couldn’t produce this file")).toBeInTheDocument();
 		expect(getByText("Document rendering timed out.")).toBeInTheDocument();
 
 		await fireEvent.click(
-			getByRole("button", { name: "Retry file production" }),
+			getByRole("button", { name: "Retry" }),
 		);
 
 		expect(onRetry).toHaveBeenCalledWith("job-1");
+	});
+
+	it("renders a non-retryable failed job with Couldn't produce copy, the cause and a Dismiss action", async () => {
+		const onDismiss = vi.fn();
+		const { getByRole, getByText } = render(FileProductionCard, {
+			job: makeJob({
+				status: "failed",
+				error: {
+					code: "sandbox_timeout",
+					message: "Program execution timed out.",
+					retryable: false,
+				},
+			}),
+			onDismiss,
+		});
+
+		expect(getByText("Couldn’t produce this file")).toBeInTheDocument();
+		expect(getByText("Program execution timed out.")).toBeInTheDocument();
+
+		await fireEvent.click(
+			getByRole("button", { name: "Dismiss file production" }),
+		);
+
+		expect(onDismiss).toHaveBeenCalledWith("job-1");
 	});
 
 	it("uses localized safe text for known limit errors instead of raw diagnostics", () => {

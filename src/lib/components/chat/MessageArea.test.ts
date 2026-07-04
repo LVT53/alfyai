@@ -857,7 +857,9 @@ describe("MessageArea", () => {
 			container.querySelector('[data-testid="file-production-card"]'),
 		).toBeInTheDocument();
 		expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
-		expect(queryByText("Draft report")).toBeNull();
+		// ADR-0043 Slice 4: the running card now surfaces the title + "Producing".
+		expect(queryByText("Draft report")).toBeInTheDocument();
+		expect(queryByText("Producing")).toBeInTheDocument();
 		expect(queryByText("In-progress")).toBeNull();
 		expect(queryByText("Generating...")).toBeNull();
 	});
@@ -1280,7 +1282,7 @@ describe("MessageArea", () => {
 			getByRole("button", { name: "Retry file production" }),
 		);
 		await fireEvent.click(
-			getByRole("button", { name: "Cancel file production" }),
+			getByRole("button", { name: "Stop file production" }),
 		);
 
 		expect(onRetryFileProductionJob).toHaveBeenCalledWith("job-failed");

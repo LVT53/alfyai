@@ -40,6 +40,7 @@ let {
 	onPublishSkillDraft,
 	onRetryFileProductionJob,
 	onCancelFileProductionJob,
+	onDismissFileProductionJob,
 	onCancelAtlasJob,
 	onAtlasLifecycleAction,
 }: {
@@ -80,6 +81,7 @@ let {
 	}) => void | Promise<void>;
 	onRetryFileProductionJob?: (jobId: string) => void | Promise<void>;
 	onCancelFileProductionJob?: (jobId: string) => void | Promise<void>;
+	onDismissFileProductionJob?: (jobId: string) => void | Promise<void>;
 	onCancelAtlasJob?: (jobId: string) => void | Promise<void>;
 	onAtlasLifecycleAction?: (payload: {
 		jobId: string;
@@ -121,6 +123,7 @@ let {
 		{onPublishSkillDraft}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
+		{onDismissFileProductionJob}
 		{onCancelAtlasJob}
 		{onAtlasLifecycleAction}
 	/>
