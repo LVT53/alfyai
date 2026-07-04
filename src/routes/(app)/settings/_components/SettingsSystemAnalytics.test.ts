@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
-import SettingsAnalyticsTab from "./SettingsAnalyticsTab.svelte";
+import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
 
 vi.mock("chart.js/auto", () => {
 	class Chart {
@@ -11,32 +11,24 @@ vi.mock("chart.js/auto", () => {
 	return { Chart };
 });
 
-function analyticsFixture(): AnalyticsResponse {
+function systemFixture(): AnalyticsResponse {
 	return {
 		availableMonths: ["2026-04", "2026-05", "2026-06"],
-		systemAvailableMonths: ["2026-04", "2026-05", "2026-06"],
 		personal: {
 			byModel: [],
 			byProvider: [],
-			totalMessages: 1,
-			avgGenerationMs: 1200,
-			totalTokens: 150,
-			promptTokens: 100,
+			totalMessages: 0,
+			avgGenerationMs: 0,
+			totalTokens: 0,
+			promptTokens: 0,
 			cachedInputTokens: 0,
-			outputTokens: 50,
+			outputTokens: 0,
 			reasoningTokens: 0,
-			totalCostUsd: 1,
-			favoriteModel: "model1",
-			chatCount: 1,
-			monthly: [
-				{
-					month: "2026-03",
-					messages: 1,
-					totalTokens: 150,
-					totalCostUsd: 1,
-				},
-			],
+			totalCostUsd: 0,
+			favoriteModel: null,
+			chatCount: 0,
 		},
+		systemAvailableMonths: ["2026-04", "2026-05", "2026-06"],
 		system: {
 			byModel: [],
 			byProvider: [],
@@ -51,27 +43,17 @@ function analyticsFixture(): AnalyticsResponse {
 			totalUsers: 1,
 			totalConversations: 1,
 			monthly: [
-				{
-					month: "2026-03",
-					messages: 1,
-					totalTokens: 150,
-					totalCostUsd: 1,
-				},
-				{
-					month: "2026-06",
-					messages: 1,
-					totalTokens: 600,
-					totalCostUsd: 2.5,
-				},
+				{ month: "2026-03", messages: 1, totalTokens: 150, totalCostUsd: 1 },
+				{ month: "2026-06", messages: 1, totalTokens: 600, totalCostUsd: 2.5 },
 			],
 		},
 		perUser: [],
 	};
 }
 
-function analyticsWithPerUserFixture(): AnalyticsResponse {
+function systemWithPerUserFixture(): AnalyticsResponse {
 	return {
-		...analyticsFixture(),
+		...systemFixture(),
 		perUser: [
 			{
 				userId: "user-2",
@@ -91,54 +73,35 @@ function analyticsWithPerUserFixture(): AnalyticsResponse {
 	};
 }
 
-describe("SettingsAnalyticsTab", () => {
-	it("keeps existing analytics content visible during month refreshes", () => {
-		const { getByText, queryByText } = render(SettingsAnalyticsTab, {
-			analyticsData: analyticsFixture(),
-			analyticsLoading: true,
-			isAdmin: true,
+describe("SettingsSystemAnalytics (ADR-0043 slice 18c)", () => {
+	it("renders the System Overview stats (system-level analytics, admin-only home)", () => {
+		const { getByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
 			modelNames: {},
 			onRetry: vi.fn(),
-			selectedMonth: "2026-06",
 			selectedSystemMonth: null,
-			onMonthChange: vi.fn(),
 			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
 		});
 
-		expect(queryByText("Loading analytics...")).not.toBeInTheDocument();
-		expect(getByText("Your Activity")).toBeInTheDocument();
-		expect(getByText("June 2026")).toBeInTheDocument();
-	});
-
-	it("selects the previous available month from All Time instead of the oldest month", async () => {
-		const onMonthChange = vi.fn();
-		const { getByLabelText } = render(SettingsAnalyticsTab, {
-			analyticsData: analyticsFixture(),
-			isAdmin: true,
-			modelNames: {},
-			onRetry: vi.fn(),
-			selectedMonth: null,
-			selectedSystemMonth: null,
-			onMonthChange,
-			onSystemMonthChange: vi.fn(),
-		});
-
-		await fireEvent.click(getByLabelText("Previous month"));
-
-		expect(onMonthChange).toHaveBeenCalledWith("2026-05");
+		expect(getByText("System Overview")).toBeInTheDocument();
+		expect(getByText("Total users")).toBeInTheDocument();
+		expect(getByText("Total conversations")).toBeInTheDocument();
 	});
 
 	it("uses all-user months for the admin System Overview picker", async () => {
 		const onSystemMonthChange = vi.fn();
-		const { getByLabelText } = render(SettingsAnalyticsTab, {
-			analyticsData: analyticsFixture(),
-			isAdmin: true,
+		const { getByLabelText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
 			modelNames: {},
 			onRetry: vi.fn(),
-			selectedMonth: null,
 			selectedSystemMonth: null,
-			onMonthChange: vi.fn(),
 			onSystemMonthChange,
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
 		});
 
 		await fireEvent.click(getByLabelText("Next system month"));
@@ -148,15 +111,15 @@ describe("SettingsAnalyticsTab", () => {
 
 	it("selects the previous system month from All Time instead of the oldest month", async () => {
 		const onSystemMonthChange = vi.fn();
-		const { getByLabelText } = render(SettingsAnalyticsTab, {
-			analyticsData: analyticsFixture(),
-			isAdmin: true,
+		const { getByLabelText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
 			modelNames: {},
 			onRetry: vi.fn(),
-			selectedMonth: null,
 			selectedSystemMonth: null,
-			onMonthChange: vi.fn(),
 			onSystemMonthChange,
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
 		});
 
 		await fireEvent.click(getByLabelText("Previous system month"));
@@ -164,19 +127,19 @@ describe("SettingsAnalyticsTab", () => {
 		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-05");
 	});
 
-	it("combines user activity and per-user rows under one monthly filtered card", async () => {
+	it("renders the Per-User Breakdown and drives the per-user month picker", async () => {
 		const onSystemMonthChange = vi.fn();
 		const { getByLabelText, getByText, queryByText } = render(
-			SettingsAnalyticsTab,
+			SettingsSystemAnalytics,
 			{
-				analyticsData: analyticsWithPerUserFixture(),
-				isAdmin: true,
+				analyticsData: systemWithPerUserFixture(),
 				modelNames: { model2: "Model 2" },
 				onRetry: vi.fn(),
-				selectedMonth: null,
 				selectedSystemMonth: null,
-				onMonthChange: vi.fn(),
 				onSystemMonthChange,
+				allUsers: [],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
 			},
 		);
 
@@ -187,5 +150,23 @@ describe("SettingsAnalyticsTab", () => {
 		await fireEvent.click(getByLabelText("Next per-user month"));
 
 		expect(onSystemMonthChange).toHaveBeenCalledWith("2026-06");
+	});
+
+	it("renders the Excluded Users section when admin users are provided", () => {
+		const { getByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [
+				{ id: "user-2", email: "user2@example.com", name: "User Two" },
+			],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		expect(getByText("Excluded Users")).toBeInTheDocument();
+		expect(getByText("User Two")).toBeInTheDocument();
 	});
 });

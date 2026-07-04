@@ -82,7 +82,7 @@ ui/
 ### Settings (`src/routes/(app)/settings/+page.svelte`)
 - `ui/ProfilePictureEditor.svelte` — avatar management
 - `ui/ConfirmDialog.svelte` — account deletion
-- Route-local `_components/` — `SettingsProfileTab`, `SettingsAdministrationTab`, `SettingsAdminSystemPane`, `SettingsAdminUsersPane`, `SettingsAnalyticsTab`, and account/user modals
+- Route-local `_components/` — `SettingsProfileTab`, `SettingsAdministrationTab`, `SettingsAdminSystemPane`, `SettingsAdminUsersPane`, `SettingsPersonalAnalytics` (Profile "Your Activity"), `SettingsSystemAnalytics` (admin sub-pane), and account/user modals
 
 ### Shell (`src/routes/(app)/+layout.svelte`)
 - `layout/Sidebar.svelte` — navigation

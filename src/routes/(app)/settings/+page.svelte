@@ -45,7 +45,6 @@ import PrivacyActionModal, {
 	type PrivacyAction,
 } from "./_components/PrivacyActionModal.svelte";
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
-import SettingsAnalyticsTab from "./_components/SettingsAnalyticsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
 import type { ModelId, UserModelPreference } from "$lib/types";
 import type { PageProps } from "./$types";
@@ -83,17 +82,19 @@ interface SettingsPageData {
 let { data }: PageProps = $props();
 const getData = () => data;
 
-type Tab = "profile" | "analytics" | "administration";
+type Tab = "profile" | "administration";
 
 const initialUserSettings = getData().userSettings;
 const initialPreferences = initialUserSettings.preferences;
 const initialCurrentConfigValues = (getData() as SettingsPageData)
 	.currentConfigValues;
 const isAdmin = initialUserSettings.role === "admin";
+// ADR-0043 slice 18c: standalone Analytics tab removed for all users.
+// Personal analytics merged into Profile ("Your Activity"); system analytics
+// lives under Administration (admin-only). Only Profile is always shown.
 const settingsTabs = $derived.by(() => {
 	const tabs: Array<{ id: Tab; label: string }> = [
 		{ id: "profile", label: $t("settingsProfile") },
-		{ id: "analytics", label: $t("settingsAnalytics") },
 	];
 	if (isAdmin) {
 		tabs.push({
@@ -510,16 +511,21 @@ async function saveAdminConfig() {
 
 async function handleTabChange(tab: Tab) {
 	activeTab = tab;
-	if (tab === "analytics" && !analyticsData && !analyticsLoading) {
+	if (
+		tab === "administration" &&
+		isAdmin &&
+		!analyticsData &&
+		!analyticsLoading
+	) {
 		await loadAnalytics();
 	}
-	if (tab === "analytics" && isAdmin) {
+	if (tab === "administration" && isAdmin) {
 		void loadAllAdminUsers();
 	}
 }
 
 function handlePageSwitcherChange(tab: string) {
-	if (tab === "profile" || tab === "analytics" || tab === "administration") {
+	if (tab === "profile" || tab === "administration") {
 		void handleTabChange(tab);
 	}
 }
@@ -540,6 +546,11 @@ $effect(() => {
 				}
 			})
 			.catch(() => {});
+	}
+	// ADR-0043 slice 18c: personal analytics ("Your Activity") lives in Profile
+	// now — load it once on first Profile entry so the section has data.
+	if (activeTab === "profile" && !analyticsData && !analyticsLoading) {
+		void loadAnalytics();
 	}
 });
 </script>
@@ -613,26 +624,15 @@ $effect(() => {
 				privacyControlsMessage={privacyMessage}
 				skillsEnabled={(data as SettingsPageData).composerCommandRegistryEnabled ?? false}
 				projects={$projects}
-			/>
-		{/if}
-
-		{#if activeTab === 'analytics'}
-			<SettingsAnalyticsTab
-				{analyticsData}
-				{analyticsLoading}
-				{analyticsError}
-				{isAdmin}
+				personalAnalyticsData={analyticsData}
+				personalAnalyticsLoading={analyticsLoading}
+				personalAnalyticsError={analyticsError}
 				{modelNames}
 				{modelIcons}
-				onRetry={loadAnalytics}
-				selectedMonth={analyticsMonth}
-				selectedSystemMonth={systemAnalyticsMonth}
-				onMonthChange={handleMonthChange}
-				onSystemMonthChange={handleSystemMonthChange}
-				onTimelineChange={handleTimelineChange}
-				allUsers={allAdminUsers}
-				excludedUserIds={excludedAnalyticsUserIds}
-				onExcludedUsersChange={handleExcludedUsersChange}
+				onRetryPersonalAnalytics={loadAnalytics}
+				selectedPersonalMonth={analyticsMonth}
+				onPersonalMonthChange={handleMonthChange}
+				onPersonalTimelineChange={handleTimelineChange}
 			/>
 		{/if}
 
@@ -650,6 +650,16 @@ $effect(() => {
 				{honchoLoading}
 				onCheckHonchoHealth={checkHonchoHealth}
 				onSaveAdminConfig={saveAdminConfig}
+				systemAnalyticsData={analyticsData}
+				systemAnalyticsLoading={analyticsLoading}
+				systemAnalyticsError={analyticsError}
+				{modelIcons}
+				onRetrySystemAnalytics={loadAnalytics}
+				selectedSystemMonth={systemAnalyticsMonth}
+				onSystemMonthChange={handleSystemMonthChange}
+				systemAnalyticsUsers={allAdminUsers}
+				excludedUserIds={excludedAnalyticsUserIds}
+				onExcludedUsersChange={handleExcludedUsersChange}
 			/>
 		{/if}
 	</div>

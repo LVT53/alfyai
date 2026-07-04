@@ -626,6 +626,9 @@ const settingsDict = {
 		settings_sectionAssistant: "Assistant",
 		settings_sectionDataPrivacy: "Data & privacy",
 		settings_sectionPreferences: "Preferences",
+		// ADR-0043 slice 18c: 5th Profile section (personal analytics merged in).
+		settings_sectionYourActivity: "Your Activity",
+		settings_systemAnalyticsTab: "System analytics",
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Back to settings",
 		settings_skillsManagerOpenA11y: "Open skills manager",
@@ -1354,6 +1357,9 @@ const settingsDict = {
 		settings_sectionAssistant: "Asszisztens",
 		settings_sectionDataPrivacy: "Adatok és adatvédelem",
 		settings_sectionPreferences: "Beállítások",
+		// ADR-0043 slice 18c: 5th Profile section (personal analytics merged in).
+		settings_sectionYourActivity: "A tevékenységed",
+		settings_systemAnalyticsTab: "Rendszerstatisztika",
 		// ADR-0043 slice 18b: Skills summary card + full-screen manager.
 		settings_skillsManagerBack: "Vissza a beállításokhoz",
 		settings_skillsManagerOpenA11y: "Skill-kezelő megnyitása",

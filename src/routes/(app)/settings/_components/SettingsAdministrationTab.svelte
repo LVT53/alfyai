@@ -12,8 +12,10 @@ import CreateUserModal from "./CreateUserModal.svelte";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
 import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
 import SettingsAdminUsersPane from "./SettingsAdminUsersPane.svelte";
+import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
+import type { AnalyticsResponse } from "$lib/client/api/settings";
 
-type AdminPane = "system" | "users" | "campaigns";
+type AdminPane = "system" | "users" | "campaigns" | "analytics";
 
 let {
 	currentUserId,
@@ -28,6 +30,18 @@ let {
 	honchoLoading = false,
 	onCheckHonchoHealth,
 	onSaveAdminConfig,
+	// ADR-0043 slice 18c: system analytics re-homed under Administration.
+	// Admin-only host — this whole tab only renders for admins.
+	systemAnalyticsData = null,
+	systemAnalyticsLoading = false,
+	systemAnalyticsError = "",
+	modelIcons = {},
+	onRetrySystemAnalytics = undefined,
+	selectedSystemMonth = null,
+	onSystemMonthChange = undefined,
+	systemAnalyticsUsers = [],
+	excludedUserIds = [],
+	onExcludedUsersChange = undefined,
 }: {
 	currentUserId: string;
 	modelNames: Record<string, string>;
@@ -49,6 +63,22 @@ let {
 	honchoLoading?: boolean;
 	onCheckHonchoHealth: () => void | Promise<void>;
 	onSaveAdminConfig: () => void | Promise<void>;
+	systemAnalyticsData?: AnalyticsResponse | null;
+	systemAnalyticsLoading?: boolean;
+	systemAnalyticsError?: string;
+	modelIcons?: Record<string, string | null | undefined>;
+	onRetrySystemAnalytics?: (() => void | Promise<void>) | undefined;
+	selectedSystemMonth?: string | null;
+	onSystemMonthChange?: ((month: string | null) => void) | undefined;
+	systemAnalyticsUsers?: Array<{
+		id: string;
+		email: string;
+		name: string | null;
+	}>;
+	excludedUserIds?: string[];
+	onExcludedUsersChange?:
+		| ((userIds: string[]) => Promise<void> | void)
+		| undefined;
 } = $props();
 
 let activePane = $state<AdminPane>("system");
@@ -221,13 +251,20 @@ async function handleDeleteUser(userId: string) {
 	>
 		{$t('settings_usersTab')}
 	</button>
-	<button
-		class="tab-btn flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150"
-		class:tab-active={activePane === 'campaigns'}
-		onclick={() => openPane('campaigns')}
-	>
-		{$t('settings_campaignsTab')}
-	</button>
+		<button
+			class="tab-btn flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150"
+			class:tab-active={activePane === 'campaigns'}
+			onclick={() => openPane('campaigns')}
+		>
+			{$t('settings_campaignsTab')}
+		</button>
+		<button
+			class="tab-btn flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150"
+			class:tab-active={activePane === 'analytics'}
+			onclick={() => openPane('analytics')}
+		>
+			{$t('settings_systemAnalyticsTab')}
+		</button>
 </div>
 
 {#if activePane === 'system'}
@@ -263,8 +300,24 @@ async function handleDeleteUser(userId: string) {
 		onDeleteUser={handleDeleteUser}
 		onRevokeSessions={handleRevokeSessions}
 	/>
-{:else}
+{:else if activePane === 'campaigns'}
 	<SettingsAdminCampaignsPane />
+{:else if activePane === 'analytics'}
+	<!-- ADR-0043 slice 18c: system-level analytics re-homed here from the -->
+	<!-- former standalone Analytics tab. Admin-only (whole tab is admin-gated). -->
+	<SettingsSystemAnalytics
+		analyticsData={systemAnalyticsData}
+		analyticsLoading={systemAnalyticsLoading}
+		analyticsError={systemAnalyticsError}
+		{modelNames}
+		{modelIcons}
+		onRetry={onRetrySystemAnalytics ?? (() => {})}
+		selectedSystemMonth={selectedSystemMonth}
+		onSystemMonthChange={onSystemMonthChange}
+		allUsers={systemAnalyticsUsers}
+		{excludedUserIds}
+		onExcludedUsersChange={onExcludedUsersChange}
+	/>
 {/if}
 
 {#if showCreateUserModal}

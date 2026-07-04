@@ -6,8 +6,17 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/types";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
+
+vi.mock("chart.js/auto", () => {
+	class Chart {
+		static getChart = vi.fn(() => null);
+		destroy = vi.fn();
+	}
+	return { Chart };
+});
 
 vi.mock("$lib/client/api/skills", () => ({
 	createUserSkill: vi.fn(),
@@ -471,5 +480,73 @@ describe("SettingsProfileTab Skills summary card + manager (ADR-0043 slice 18b)"
 			expect(screen.getByText(/1 active/)).toBeInTheDocument(),
 		);
 		expect(screen.getByText(/1 disabled/)).toBeInTheDocument();
+	});
+});
+
+describe("SettingsProfileTab Your Activity section (ADR-0043 slice 18c)", () => {
+	const personalAnalyticsData: AnalyticsResponse = {
+		availableMonths: ["2026-06"],
+		personal: {
+			byModel: [],
+			byProvider: [],
+			totalMessages: 42,
+			avgGenerationMs: 1200,
+			totalTokens: 1500,
+			promptTokens: 1000,
+			cachedInputTokens: 0,
+			outputTokens: 500,
+			reasoningTokens: 0,
+			totalCostUsd: 3.14,
+			favoriteModel: "model1",
+			chatCount: 7,
+		},
+	};
+
+	it("renders the 5th 'Your Activity' section label after Data & privacy", () => {
+		renderTab({ personalAnalyticsData });
+
+		const account = screen.getByText("Account");
+		const dataPrivacy = screen.getByText("Data & privacy");
+		const yourActivity = screen.getByText("Your Activity");
+
+		expect(yourActivity).toBeInTheDocument();
+		// In order: Data & privacy < Your Activity.
+		expect(
+			dataPrivacy.compareDocumentPosition(yourActivity) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		// And the section is the last group (after Data & privacy, which is the 4th).
+		expect(
+			account.compareDocumentPosition(yourActivity) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("renders the personal analytics content inside Your Activity", () => {
+		renderTab({ personalAnalyticsData });
+
+		// Personal usage stats render (the re-homed personal Block A content).
+		expect(screen.getByText("Messages sent")).toBeInTheDocument();
+		expect(screen.getByText("Tokens used")).toBeInTheDocument();
+		expect(screen.getByText("Conversations")).toBeInTheDocument();
+	});
+
+	it("still renders all 4 prior section labels alongside the new 5th section", () => {
+		renderTab({ personalAnalyticsData });
+
+		expect(screen.getByText("Account")).toBeInTheDocument();
+		expect(screen.getByText("Preferences")).toBeInTheDocument();
+		expect(screen.getByText("Assistant")).toBeInTheDocument();
+		expect(screen.getByText("Data & privacy")).toBeInTheDocument();
+		expect(screen.getByText("Your Activity")).toBeInTheDocument();
+	});
+
+	it("does NOT render system-level analytics in the Profile Your Activity section", () => {
+		renderTab({ personalAnalyticsData });
+
+		// System-only sections must stay out of the normal-user Profile section.
+		expect(screen.queryByText("System Overview")).not.toBeInTheDocument();
+		expect(screen.queryByText("Per-User Breakdown")).not.toBeInTheDocument();
+		expect(screen.queryByText("Excluded Users")).not.toBeInTheDocument();
 	});
 });

@@ -24,6 +24,8 @@ import {
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
 import SettingsDataImport from "./SettingsDataImport.svelte";
+import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
+import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId, UserModelPreference } from "$lib/types";
 import type { Project } from "$lib/types";
 
@@ -91,6 +93,17 @@ let {
 	privacyControlsMessage = "",
 	skillsEnabled = false,
 	projects = [],
+	// ADR-0043 slice 18c: 5th "Your Activity" section (personal analytics).
+	// PERSONAL ONLY — the page passes only the personal analytics data path.
+	personalAnalyticsData = null,
+	personalAnalyticsLoading = false,
+	personalAnalyticsError = "",
+	modelNames = {},
+	modelIcons = {},
+	onRetryPersonalAnalytics = undefined,
+	selectedPersonalMonth = null,
+	onPersonalMonthChange = undefined,
+	onPersonalTimelineChange = undefined,
 }: {
 	userId: string;
 	userDisplayName: string;
@@ -150,6 +163,15 @@ let {
 	privacyControlsMessage?: string;
 	skillsEnabled?: boolean;
 	projects?: Project[];
+	personalAnalyticsData?: AnalyticsResponse | null;
+	personalAnalyticsLoading?: boolean;
+	personalAnalyticsError?: string;
+	modelNames?: Record<string, string>;
+	modelIcons?: Record<string, string | null | undefined>;
+	onRetryPersonalAnalytics?: (() => void | Promise<void>) | undefined;
+	selectedPersonalMonth?: string | null;
+	onPersonalMonthChange?: ((month: string | null) => void) | undefined;
+	onPersonalTimelineChange?: ((granularity: string) => void) | undefined;
 } = $props();
 
 const systemDefaultModelDisplayName = $derived(
@@ -565,6 +587,26 @@ onMount(() => {
 			</button>
 		</li>
 	</ul>
+</section>
+
+<!-- ================= GROUP 5: YOUR ACTIVITY ================= -->
+<!-- ADR-0043 slice 18c: personal analytics merged into Profile as the 5th -->
+<!-- section. PERSONAL ONLY (the user's own usage); system analytics stays -->
+<!-- admin-gated under Administration. 18a/18b sections above are untouched. -->
+<!-- The group label serves as the section heading (no redundant inner h2). -->
+<p class="settings-group-label">{$t('settings_sectionYourActivity')}</p>
+<section class="settings-card mb-4">
+	<SettingsPersonalAnalytics
+		analyticsData={personalAnalyticsData}
+		analyticsLoading={personalAnalyticsLoading}
+		analyticsError={personalAnalyticsError}
+		{modelNames}
+		{modelIcons}
+		onRetry={onRetryPersonalAnalytics ?? (() => {})}
+		selectedMonth={selectedPersonalMonth}
+		onMonthChange={onPersonalMonthChange}
+		onTimelineChange={onPersonalTimelineChange}
+	/>
 </section>
 
 <style>
