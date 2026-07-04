@@ -1279,7 +1279,7 @@ describe("MessageArea", () => {
 		});
 
 		await fireEvent.click(
-			getByRole("button", { name: "Retry file production" }),
+			getByRole("button", { name: "Retry" }),
 		);
 		await fireEvent.click(
 			getByRole("button", { name: "Stop file production" }),
