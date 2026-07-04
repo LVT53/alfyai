@@ -187,9 +187,7 @@ describe("MessageEvidenceDetails", () => {
 		expect(
 			within(usedGroup).getByText("Recent task state"),
 		).toBeInTheDocument();
-		expect(
-			within(setAsideGroup).queryByText("Recent task state"),
-		).toBeNull();
+		expect(within(setAsideGroup).queryByText("Recent task state")).toBeNull();
 		expect(
 			within(setAsideGroup).getByText("Irrelevant memory"),
 		).toBeInTheDocument();
