@@ -1,6 +1,5 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { browser } from "$app/environment";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -10,9 +9,9 @@ import {
 	sidebarWidth,
 	clampSidebarWidth,
 	SIDEBAR_DEFAULT_WIDTH,
-	SIDEBAR_DESKTOP_BREAKPOINT,
 	currentConversationId,
 } from "$lib/stores/ui";
+import { viewportStore } from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
 import { fade } from "svelte/transition";
@@ -52,9 +51,7 @@ let {
 	onAppVersionClick?: (() => void) | undefined;
 } = $props();
 
-let isDesktop = $state(
-	browser ? window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT : false,
-);
+const isDesktop = $derived(viewportStore.tier === "desktop");
 let showSearchModal = $state(false);
 let showLogoutConfirm = $state(false);
 let transitionsEnabled = $state(false);
@@ -71,7 +68,7 @@ const hasActiveConversation = $derived($currentConversationId != null);
 async function handleNewConversation() {
 	markPreviousConversationId($currentConversationId);
 	currentConversationId.set(null);
-	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+	if (viewportStore.tier !== "desktop") {
 		sidebarOpen.set(false);
 	}
 	await goto("/");
@@ -127,7 +124,7 @@ function handleResizeKeydown(event: KeyboardEvent) {
 }
 
 function navigateAndClose(path: string) {
-	if (window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT) {
+	if (viewportStore.tier !== "desktop") {
 		sidebarOpen.set(false);
 	}
 	goto(path);
@@ -158,17 +155,12 @@ function cancelLogout() {
 }
 
 onMount(() => {
-	const syncViewportState = () => {
-		isDesktop = window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT;
-	};
-
-	syncViewportState();
+	// isDesktop is now derived from viewportStore, which updates on
+	// resize/orientation/pointer changes (tracked by Slice 0). Only the
+	// transition-enable timing guard remains here.
 	requestAnimationFrame(() => {
 		transitionsEnabled = true;
 	});
-	window.addEventListener("resize", syncViewportState);
-
-	return () => window.removeEventListener("resize", syncViewportState);
 });
 </script>
 

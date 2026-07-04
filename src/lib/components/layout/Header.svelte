@@ -16,8 +16,8 @@ import {
 	sidebarOpen,
 	sidebarCollapsed,
 	currentConversationId,
-	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
+import { viewportStore } from "$lib/utils/viewport.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
 
@@ -46,10 +46,7 @@ async function handleLogout() {
 }
 
 function toggleSidebar() {
-	if (
-		typeof window !== "undefined" &&
-		window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT
-	) {
+	if (viewportStore.tier === "desktop") {
 		sidebarCollapsed.update((collapsed) => !collapsed);
 		return;
 	}
@@ -62,10 +59,7 @@ async function handleNewConversation() {
 		markPreviousConversationId($currentConversationId);
 		currentConversationId.set(null);
 		mobileMenuOpen = false;
-		if (
-			typeof window !== "undefined" &&
-			window.innerWidth < SIDEBAR_DESKTOP_BREAKPOINT
-		) {
+		if (viewportStore.tier !== "desktop") {
 			sidebarOpen.set(false);
 		}
 		await goto("/");
