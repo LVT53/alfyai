@@ -61,9 +61,9 @@ const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
-// Collapsed-rail active-conversation indicator: a conversation is "open" when
-// the app has a current conversation id selected (the chat view is mounted).
-const hasActiveConversation = $derived($currentConversationId != null);
+// Collapsed-rail active-conversation indicator: removed (the accent bar read
+// as a left border on the New Chat button); the open-conversation state is
+// already obvious from the chat surface itself.
 
 async function handleNewConversation() {
 	markPreviousConversationId($currentConversationId);
@@ -213,26 +213,31 @@ onMount(() => {
 				{/if}
 			</div>
 		{:else}
-			<!-- Collapsed rail: the mark serves as the rail icon. -->
-			<span data-testid="sidebar-logo" class="flex items-center">
+			<!-- Collapsed rail: the centered mark is also the expand affordance. -->
+			<button
+				type="button"
+				data-testid="sidebar-logo"
+				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				onclick={toggleCollapse}
+				aria-label={$t('sidebar.expandSidebar')}
+				title={$t('sidebar.expandSidebar')}
+			>
 				<LogoMark size={20} />
-			</span>
+			</button>
 		{/if}
 
-		<!-- Desktop: Collapse/Expand toggle -->
-		<button
-			class="desktop-only btn-icon-bare compose-btn"
-			class:ml-auto={!isCollapsed}
-			onclick={toggleCollapse}
-			aria-label={isCollapsed ? $t('sidebar.expandSidebar') : $t('sidebar.collapseSidebar')}
-			title={isCollapsed ? $t('sidebar.expandSidebar') : $t('sidebar.collapseSidebar')}
-		>
-			{#if isCollapsed}
-				<ChevronRight size={20} strokeWidth={2.2} aria-hidden="true" />
-			{:else}
+		<!-- Desktop: Collapse/Expand toggle (expanded state only; in collapsed
+		     state the logo mark itself expands the sidebar). -->
+		{#if !isCollapsed}
+			<button
+				class="desktop-only btn-icon-bare compose-btn ml-auto"
+				onclick={toggleCollapse}
+				aria-label={$t('sidebar.collapseSidebar')}
+				title={$t('sidebar.collapseSidebar')}
+			>
 				<ChevronLeft size={20} strokeWidth={2.2} aria-hidden="true" />
-			{/if}
 		</button>
+		{/if}
 
 		<!-- Mobile: Close button -->
 		<button
@@ -247,17 +252,8 @@ onMount(() => {
 	<!-- Search + New Chat -->
 	<div class="shrink-0 py-2" class:px-3={!isCollapsed} class:px-0={isCollapsed}>
 		{#if isCollapsed}
-			<!-- Icon-only when collapsed. The active-conversation indicator is a
-			     dedicated accent bar pinned to the rail edge (NOT on the compose
-			     button), signalling "a conversation is open" without implying "new". -->
+			<!-- Icon-only when collapsed. -->
 			<div class="collapsed-rail relative flex w-full flex-col items-center gap-2">
-				{#if hasActiveConversation}
-					<span
-						data-testid="collapsed-rail-active-indicator"
-						class="rail-active-bar pointer-events-none absolute left-0 top-2 h-6 w-0.5 rounded-full bg-accent"
-						aria-hidden="true"
-					></span>
-				{/if}
 				<button
 					data-testid="new-conversation"
 					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-accent transition-colors duration-150 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -512,17 +508,8 @@ onMount(() => {
 		border-color: var(--border-default);
 	}
 
-	/* Collapsed-rail active-conversation affordance: a subtle accent bar pinned
-	   to the rail edge (separate from any button) signals an open conversation
-	   when the sidebar is collapsed to icon-only. Uses the semantic --accent
-	   token and stays quiet (2px wide). */
-	.rail-active-bar {
-		opacity: 0.85;
-	}
-
 	@media (prefers-reduced-motion: reduce) {
-		.compose-btn,
-		.rail-active-bar {
+		.compose-btn {
 			transition: none;
 		}
 	}

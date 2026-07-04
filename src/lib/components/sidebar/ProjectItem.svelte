@@ -275,15 +275,6 @@ function createConversation(e: MouseEvent) {
 		{/if}
 	</div>
 
-	{#if !isEditing && chatCount > 0}
-		<span
-			data-testid={`project-chat-count-${project.id}`}
-			aria-label={$t('sidebar.chatCount', { count: chatCount })}
-			title={$t('sidebar.chatCount', { count: chatCount })}
-			class="project-chat-count-badge mr-1 inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-surface-page px-1 text-[10px] font-medium leading-none text-text-muted tabular-nums"
-		>{chatCount}</span>
-	{/if}
-
 	<div class="project-row-actions flex shrink-0 items-center justify-end gap-px">
 		<button
 			class="project-row-action-button project-inline-action btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
@@ -303,16 +294,31 @@ function createConversation(e: MouseEvent) {
 			{/if}
 		</button>
 
-		<!-- Context menu trigger -->
-		<button
-			bind:this={triggerRef}
-			class="project-row-action-button btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none md:opacity-0 md:group-hover:opacity-100"
-			class:md:opacity-100={menuOpen}
-			onclick={toggleMenu}
-			aria-label={$t('sidebar.projectOptions')}
-		>
-		<EllipsisVertical size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
+		<!-- Count badge + context menu share one slot: the count shows at rest,
+		     the dots reveal on hover/focus/menu-open. -->
+		<div class="project-menu-slot relative flex shrink-0 items-center justify-center">
+			{#if !isEditing && chatCount > 0}
+				<span
+					data-testid={`project-chat-count-${project.id}`}
+					aria-label={$t('sidebar.chatCount', { count: chatCount })}
+					title={$t('sidebar.chatCount', { count: chatCount })}
+					class="project-chat-count-badge pointer-events-none absolute inset-0 inline-flex items-center justify-center text-[10px] font-medium leading-none text-text-muted tabular-nums transition-opacity duration-100 md:opacity-100"
+					class:md:opacity-0={menuOpen}
+					class:group-hover:md:opacity-0={true}
+				>{chatCount}</span>
+			{/if}
+
+			<!-- Context menu trigger -->
+			<button
+				bind:this={triggerRef}
+				class="project-row-action-button btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
+				class:md:opacity-100={menuOpen}
+				onclick={toggleMenu}
+				aria-label={$t('sidebar.projectOptions')}
+			>
+			<EllipsisVertical size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</div>
 	</div>
 
 	{#if menuOpen}
