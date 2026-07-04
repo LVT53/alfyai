@@ -331,8 +331,7 @@ export function createNormalChatClientTurnRuntime(
 
 	function canStopActiveStream() {
 		return (
-			Boolean(activeStream) &&
-			(phase === "preparing" || phase === "generating")
+			Boolean(activeStream) && (phase === "preparing" || phase === "generating")
 		);
 	}
 

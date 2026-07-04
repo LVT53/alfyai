@@ -351,7 +351,9 @@ function createBenchmarkStreamParser(
 			};
 		}
 
-		const generationDurationMs = readFiniteNumber(metadata.generationDurationMs);
+		const generationDurationMs = readFiniteNumber(
+			metadata.generationDurationMs,
+		);
 		if (generationDurationMs !== undefined) {
 			result.generationDurationMs = generationDurationMs;
 		}
@@ -591,7 +593,9 @@ function cloneRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function readFiniteNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
 }
 
 function extractToolCallName(value: unknown): string | undefined {

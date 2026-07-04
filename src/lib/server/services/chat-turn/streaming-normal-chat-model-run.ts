@@ -12,6 +12,10 @@ import {
 	evaluateDepthClarificationGate,
 } from "$lib/server/services/chat-turn/depth-clarification";
 import {
+	selectNormalChatToolsForRequest,
+	shouldExposeFileProductionTools,
+} from "$lib/server/services/chat-turn/normal-chat-tool-gating";
+import {
 	buildReasoningDepthProviderOptions,
 	resolveReasoningDepthEffort,
 	withReasoningDepthPreparedBudget,
@@ -22,10 +26,6 @@ import {
 	resolvePromptContextLimits,
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
-import {
-	selectNormalChatToolsForRequest,
-	shouldExposeFileProductionTools,
-} from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
 import {

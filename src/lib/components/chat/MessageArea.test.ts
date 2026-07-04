@@ -1278,9 +1278,7 @@ describe("MessageArea", () => {
 			onCancelFileProductionJob,
 		});
 
-		await fireEvent.click(
-			getByRole("button", { name: "Retry" }),
-		);
+		await fireEvent.click(getByRole("button", { name: "Retry" }));
 		await fireEvent.click(
 			getByRole("button", { name: "Stop file production" }),
 		);

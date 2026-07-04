@@ -183,7 +183,10 @@ describe("live chat stream benchmark stream parser", () => {
 					}),
 					elapsedMs: 60,
 				},
-				{ text: frame({ type: "finish", finishReason: "stop" }), elapsedMs: 70 },
+				{
+					text: frame({ type: "finish", finishReason: "stop" }),
+					elapsedMs: 70,
+				},
 			],
 			{ endMs: 80, maxAnswerTextLength: 20 },
 		);

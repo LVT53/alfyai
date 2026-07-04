@@ -111,9 +111,7 @@ describe("FileProductionCard", () => {
 		expect(getByText("Couldn’t produce this file")).toBeInTheDocument();
 		expect(getByText("Document rendering timed out.")).toBeInTheDocument();
 
-		await fireEvent.click(
-			getByRole("button", { name: "Retry" }),
-		);
+		await fireEvent.click(getByRole("button", { name: "Retry" }));
 
 		expect(onRetry).toHaveBeenCalledWith("job-1");
 	});

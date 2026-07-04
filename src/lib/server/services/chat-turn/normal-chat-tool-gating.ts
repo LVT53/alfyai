@@ -1,5 +1,5 @@
-import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { createNormalChatTools } from "$lib/server/services/normal-chat-tools";
+import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 
 type NormalChatToolSet = ReturnType<typeof createNormalChatTools>["tools"];
 
