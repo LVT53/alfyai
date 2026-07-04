@@ -494,6 +494,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onDraftChange={handleDraftChange}
 					disabled={creating}
 					maxLength={data.maxMessageLength}
+					showCharCount={false}
+					showSlashHintProp={false}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
 					contextStatus={null}

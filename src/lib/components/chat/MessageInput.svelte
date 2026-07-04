@@ -84,6 +84,8 @@ type DraftPayload = {
 let {
 	disabled = false,
 	maxLength = 10000,
+	showCharCount = true,
+	showSlashHintProp = true,
 	isGenerating = false,
 	canStopStreaming = undefined,
 	conversationId = null,
@@ -127,6 +129,16 @@ let {
 }: {
 	disabled?: boolean;
 	maxLength?: number;
+	/**
+	 * Whether to render the always-visible character counter under the composer.
+	 * The landing hero composer hides it; the in-conversation composer shows it.
+	 */
+	showCharCount?: boolean;
+	/**
+	 * Whether to render the one-time "Press / to start typing" coach hint.
+	 * The landing hero composer hides it.
+	 */
+	showSlashHintProp?: boolean;
 	isGenerating?: boolean;
 	canStopStreaming?: boolean | undefined;
 	conversationId?: string | null;
@@ -326,7 +338,7 @@ const SLASH_SHORTCUT_HINT_KEY = "alfyai:composer:slashHintDismissed";
 let slashHintDismissed = $state(false);
 let isComposerFocused = $state(false);
 let showSlashHint = $derived(
-	isHydrated && !slashHintDismissed && !isComposerFocused,
+	showSlashHintProp && isHydrated && !slashHintDismissed && !isComposerFocused,
 );
 
 $effect(() => {
@@ -1967,15 +1979,17 @@ async function emitDraftChange(force = false) {
 		</div>
 	</div>
 
-	<div class="mt-1 flex justify-end px-2">
-		<span class="text-[12px] font-sans {charCountColor}">
-			{#if isOverLength(message.length, maxLength)}
-				{$t('chat.tooLongFormat', { current: message.length, max: maxLength })}
-			{:else}
-				{$t('chat.characterCount', { current: message.length, max: maxLength })}
-			{/if}
-		</span>
-	</div>
+	{#if showCharCount}
+		<div class="mt-1 flex justify-end px-2">
+			<span class="text-[12px] font-sans {charCountColor}">
+				{#if isOverLength(message.length, maxLength)}
+					{$t('chat.tooLongFormat', { current: message.length, max: maxLength })}
+				{:else}
+					{$t('chat.characterCount', { current: message.length, max: maxLength })}
+				{/if}
+			</span>
+		</div>
+	{/if}
 
 	{#if sendDisabledHint}
 		<div class="mt-1 flex justify-end px-2">
