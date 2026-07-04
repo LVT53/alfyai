@@ -605,6 +605,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				updatedAt: 2,
 				files: [],
 				warnings: [],
+				dismissed: false,
 			},
 		];
 		const mergeFileProductionJobs = vi.fn();

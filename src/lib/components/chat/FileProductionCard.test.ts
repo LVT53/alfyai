@@ -24,6 +24,7 @@ function makeJob(overrides: Partial<FileProductionJob>): FileProductionJob {
 		updatedAt: Date.now(),
 		files: [],
 		warnings: [],
+		dismissed: false,
 		error: null,
 		...overrides,
 	};

@@ -451,6 +451,7 @@ describe("MessageBubble", () => {
 			updatedAt: Date.now(),
 			files: [],
 			warnings: [],
+			dismissed: false,
 			error: null,
 		};
 

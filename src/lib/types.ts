@@ -394,6 +394,7 @@ export interface FileProductionJob {
 	updatedAt: number;
 	files: FileProductionJobFile[];
 	warnings: string[];
+	dismissed: boolean;
 	error?: {
 		code: string;
 		message: string;

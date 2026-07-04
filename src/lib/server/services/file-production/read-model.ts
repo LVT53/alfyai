@@ -439,6 +439,7 @@ function mapJobRow(
 		updatedAt: job.updatedAt.getTime(),
 		files,
 		warnings: [],
+		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
 	};
 }
@@ -446,7 +447,9 @@ function mapJobRow(
 export async function listConversationFileProductionJobs(
 	userId: string,
 	conversationId: string,
+	options: { includeDismissed?: boolean } = {},
 ): Promise<FileProductionJob[]> {
+	const includeDismissed = options.includeDismissed ?? false;
 	const files = await listConversationReadModelChatFiles(conversationId);
 	const userFiles = files.filter((file) => file.userId === userId);
 	await ensureLegacyJobs(userFiles);
@@ -457,6 +460,7 @@ export async function listConversationFileProductionJobs(
 			and(
 				eq(fileProductionJobs.userId, userId),
 				eq(fileProductionJobs.conversationId, conversationId),
+				...(includeDismissed ? [] : [eq(fileProductionJobs.dismissed, false)]),
 			),
 		)
 		.orderBy(desc(fileProductionJobs.createdAt));

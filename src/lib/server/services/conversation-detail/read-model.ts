@@ -171,7 +171,9 @@ export async function getConversationDetail({
 		getContextDebugState(userId, conversationId),
 		getConversationDraft(userId, conversationId),
 		listConversationGeneratedFiles(conversationId),
-		listConversationFileProductionJobs(userId, conversationId),
+		listConversationFileProductionJobs(userId, conversationId, {
+			includeDismissed: false,
+		}),
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),

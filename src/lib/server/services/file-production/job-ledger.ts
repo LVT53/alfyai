@@ -102,6 +102,12 @@ export interface CancelFileProductionJobInput {
 	now?: Date;
 }
 
+export interface DismissFileProductionJobInput {
+	userId: string;
+	jobId: string;
+	now?: Date;
+}
+
 export interface ClaimedFileProductionJob {
 	job: FileProductionJob;
 	attempt: FileProductionJobAttempt;
@@ -184,6 +190,7 @@ export async function createFileProductionJob(
 		updatedAt: now.getTime(),
 		files: [],
 		warnings: [],
+		dismissed: false,
 		error: null,
 	};
 }
@@ -291,6 +298,7 @@ export async function createFailedFileProductionJob(
 		updatedAt: now.getTime(),
 		files: [],
 		warnings: [],
+		dismissed: false,
 		error: {
 			code: input.errorCode,
 			message: input.errorMessage,
@@ -328,6 +336,7 @@ function mapJobRow(
 		updatedAt: job.updatedAt.getTime(),
 		files,
 		warnings: [],
+		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
 	};
 }
@@ -983,6 +992,55 @@ export async function cancelFileProductionJob(
 	});
 
 	return cancelled ? mapJobRow(cancelled, []) : null;
+}
+
+export async function dismissFileProductionJob(
+	input: DismissFileProductionJobInput,
+): Promise<FileProductionJob | null> {
+	const now = input.now ?? new Date();
+	const dismissed = db.transaction((tx) => {
+		const [existingJob] = tx
+			.select()
+			.from(fileProductionJobs)
+			.where(
+				and(
+					eq(fileProductionJobs.id, input.jobId),
+					eq(fileProductionJobs.userId, input.userId),
+					inArray(fileProductionJobs.status, ["failed", "cancelled"]),
+				),
+			)
+			.limit(1)
+			.all();
+
+		if (!existingJob) {
+			return null;
+		}
+
+		tx.update(fileProductionJobs)
+			.set({
+				dismissed: true,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(fileProductionJobs.id, input.jobId),
+					eq(fileProductionJobs.userId, input.userId),
+					inArray(fileProductionJobs.status, ["failed", "cancelled"]),
+				),
+			)
+			.run();
+
+		const [updatedJob] = tx
+			.select()
+			.from(fileProductionJobs)
+			.where(eq(fileProductionJobs.id, input.jobId))
+			.limit(1)
+			.all();
+
+		return updatedJob ?? null;
+	});
+
+	return dismissed ? mapJobRow(dismissed, []) : null;
 }
 
 export async function linkProducedFileToJob(params: {

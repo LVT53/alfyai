@@ -65,6 +65,7 @@ describe("MessageArea", () => {
 			createdAt: overrides.createdAt ?? now,
 			updatedAt: overrides.updatedAt ?? now,
 			warnings: overrides.warnings ?? [],
+			dismissed: overrides.dismissed ?? false,
 			error: overrides.error ?? null,
 			files: overrides.files ?? [
 				{
@@ -1064,6 +1065,7 @@ describe("MessageArea", () => {
 			createdAt: messageTimestamp,
 			updatedAt: messageTimestamp,
 			warnings: [],
+			dismissed: false,
 			error: null,
 			files: [
 				{
@@ -1238,6 +1240,7 @@ describe("MessageArea", () => {
 			createdAt: messageTimestamp,
 			updatedAt: messageTimestamp,
 			warnings: [],
+			dismissed: false,
 			error: {
 				code: "renderer_timeout",
 				message: "Renderer timed out.",

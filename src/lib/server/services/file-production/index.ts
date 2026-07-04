@@ -21,6 +21,7 @@ export type {
 	CreateFileProductionJobInput,
 	CreateOrReuseFileProductionJobInput,
 	CreateOrReuseFileProductionJobResult,
+	DismissFileProductionJobInput,
 	FailFileProductionAttemptInput,
 	FileProductionJobAttempt,
 	OwnedFileProductionAttemptInput,
@@ -81,6 +82,13 @@ export async function cancelFileProductionJob(
 ): ReturnType<JobLedgerModule["cancelFileProductionJob"]> {
 	const { cancelFileProductionJob } = await loadJobLedger();
 	return cancelFileProductionJob(...args);
+}
+
+export async function dismissFileProductionJob(
+	...args: Parameters<JobLedgerModule["dismissFileProductionJob"]>
+): ReturnType<JobLedgerModule["dismissFileProductionJob"]> {
+	const { dismissFileProductionJob } = await loadJobLedger();
+	return dismissFileProductionJob(...args);
 }
 
 export async function claimNextFileProductionJob(

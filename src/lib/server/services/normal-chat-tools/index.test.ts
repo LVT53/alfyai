@@ -68,6 +68,7 @@ function makeFileProductionJob(
 		updatedAt: 1,
 		files: [],
 		warnings: [],
+		dismissed: false,
 		error: null,
 		...overrides,
 	};
