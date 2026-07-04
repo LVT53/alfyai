@@ -114,6 +114,7 @@ let {
 	onUploadReady = undefined,
 	onUploadFiles = undefined,
 	totalCostUsd = 0,
+	lastTurnCostUsd = 0,
 	totalTokens = 0,
 	personalityProfiles = [],
 	selectedPersonalityId = null,
@@ -168,6 +169,7 @@ let {
 		  }) => void)
 		| undefined;
 	totalCostUsd?: number;
+	lastTurnCostUsd?: number;
 	totalTokens?: number;
 	personalityProfiles?: Array<{
 		id: string;
@@ -1917,6 +1919,7 @@ async function emitDraftChange(force = false) {
 					{contextDebug}
 					{contextSources}
 					{totalCostUsd}
+					{lastTurnCostUsd}
 					{totalTokens}
 					{onManageEvidence}
 				/>

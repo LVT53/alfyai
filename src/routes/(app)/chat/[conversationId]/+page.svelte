@@ -293,6 +293,16 @@ let contextStatus = $state<ConversationContextStatus | null>(
 let totalCostUsdMicros = $state(initialTotalCostUsdMicros);
 let totalTokens = $state(initialTotalTokens);
 let totalCostUsd = $derived(totalCostUsdMicros / 1_000_000);
+// Last-turn cost: the costUsd of the most recent assistant message that has one.
+let lastTurnCostUsd = $derived.by(() => {
+	for (let i = $messages.length - 1; i >= 0; i--) {
+		const msg = $messages[i];
+		if (msg.role === "assistant" && typeof msg.costUsd === "number") {
+			return msg.costUsd;
+		}
+	}
+	return 0;
+});
 let attachedArtifacts = $state<ArtifactSummary[]>(initialAttachedArtifacts);
 let activeWorkingSet: ArtifactSummary[] = initialActiveWorkingSet;
 let taskState = $state<TaskState | null>(initialTaskState);
@@ -2266,6 +2276,7 @@ function handleDrop(event: DragEvent) {
 				{contextDebug}
 				{contextSources}
 				{totalCostUsd}
+				{lastTurnCostUsd}
 				{totalTokens}
 				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 				{atlasAvailability}

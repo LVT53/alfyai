@@ -347,6 +347,9 @@ const chatDict = {
 		"contextUsageRing.layer.taskState": "Task state",
 		"contextUsageRing.layer.workingSet": "Working set",
 		"contextUsageRing.lastTurn": "Last turn",
+		"contextUsageRing.whatAlfyRemembers": "What AlfyAI remembers",
+		"contextUsageRing.sourcesIncluded": "Sources included",
+		"contextUsageRing.memoryInPlay": "Memory in play",
 		"contextUsageRing.lockTask": "Lock task",
 		"contextUsageRing.manageEvidence": "Manage context sources",
 		"contextUsageRing.nearTriggerNote":
@@ -1022,6 +1025,9 @@ const chatDict = {
 		"contextUsageRing.layer.taskState": "Feladatállapot",
 		"contextUsageRing.layer.workingSet": "Munkakészlet",
 		"contextUsageRing.lastTurn": "Legutóbbi kör",
+		"contextUsageRing.whatAlfyRemembers": "Amit az AlfyAI megjegyez",
+		"contextUsageRing.sourcesIncluded": "Behúzott források",
+		"contextUsageRing.memoryInPlay": "Aktív memória",
 		"contextUsageRing.lockTask": "Feladat zárolása",
 		"contextUsageRing.manageEvidence": "Kontextusforrások kezelése",
 		"contextUsageRing.nearTriggerNote":

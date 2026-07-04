@@ -51,6 +51,7 @@ let {
 	onUploadReady,
 	onUploadFiles,
 	totalCostUsd,
+	lastTurnCostUsd = 0,
 	totalTokens,
 	composerCommandRegistryEnabled = false,
 	atlasAvailability = null,
@@ -107,6 +108,7 @@ let {
 		  }) => void)
 		| undefined;
 	totalCostUsd?: number;
+	lastTurnCostUsd?: number;
 	totalTokens?: number;
 	composerCommandRegistryEnabled?: boolean;
 	atlasAvailability?: AtlasAvailability | null;
@@ -170,6 +172,7 @@ let {
 			{onUploadReady}
 			{onUploadFiles}
 			{totalCostUsd}
+			{lastTurnCostUsd}
 			{totalTokens}
 			{composerCommandRegistryEnabled}
 			{atlasAvailability}

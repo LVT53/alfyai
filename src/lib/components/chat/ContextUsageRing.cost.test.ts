@@ -163,7 +163,7 @@ describe("ContextUsageRing cost display", () => {
 			},
 		});
 
-		expect(screen.getByText("contextSources.currentSelection")).toBeTruthy();
+		expect(screen.getByText("contextUsageRing.sourcesIncluded")).toBeTruthy();
 		expect(screen.getByText("contextSources.state")).toBeTruthy();
 		expect(screen.getByText("contextSources.reduced")).toBeTruthy();
 		expect(screen.getByText("contextSources.pinned")).toBeTruthy();
@@ -267,5 +267,121 @@ describe("ContextUsageRing humanized popover", () => {
 		});
 
 		expect(screen.queryByText("contextUsageRing.nearTriggerNote")).toBeNull();
+	});
+});
+
+describe("ContextUsageRing last-turn cost line", () => {
+	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
+		const targetTokens = 100000;
+		return {
+			conversationId: "conversation-1",
+			userId: "user-1",
+			estimatedTokens: Math.round(targetTokens * ratio),
+			maxContextTokens: 200000,
+			thresholdTokens: 209715,
+			targetTokens,
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 100,
+			verificationStatus: "skipped",
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 8,
+			summary: null,
+			updatedAt: Date.now(),
+		};
+	}
+
+	it("renders BOTH the conversation-cost hero and the last-turn line when both > 0", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.1),
+			totalCostUsd: 0.184,
+			totalTokens: 12400,
+			lastTurnCostUsd: 0.0042,
+		});
+
+		// Hero conversation total.
+		expect(screen.getByText("contextUsageRing.conversationCost")).toBeTruthy();
+		expect(screen.getByText(/\$0\.184/)).toBeTruthy();
+		// Secondary last-turn line.
+		expect(screen.getByText("contextUsageRing.lastTurn")).toBeTruthy();
+		expect(screen.getByText(/\$0\.0042/)).toBeTruthy();
+	});
+
+	it("does NOT render the last-turn line when lastTurnCostUsd is 0", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.1),
+			totalCostUsd: 0.184,
+			totalTokens: 12400,
+			lastTurnCostUsd: 0,
+		});
+
+		// Conversation total still present.
+		expect(screen.getByText("contextUsageRing.conversationCost")).toBeTruthy();
+		// Last-turn line must be absent (no $0.00, no label).
+		expect(screen.queryByText("contextUsageRing.lastTurn")).toBeNull();
+		expect(screen.queryByText(/\$0\.0000/)).toBeNull();
+	});
+});
+
+describe("ContextUsageRing humanized stat labels", () => {
+	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
+		const targetTokens = 100000;
+		return {
+			conversationId: "conversation-1",
+			userId: "user-1",
+			estimatedTokens: Math.round(targetTokens * ratio),
+			maxContextTokens: 200000,
+			thresholdTokens: 209715,
+			targetTokens,
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 100,
+			verificationStatus: "skipped",
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 8,
+			summary: null,
+			updatedAt: Date.now(),
+		};
+	}
+
+	it("uses the humanized label for the recent-turns stat row", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.4),
+		});
+
+		expect(screen.getByText("contextUsageRing.whatAlfyRemembers")).toBeTruthy();
+	});
+
+	it("uses the humanized label for the sources stat row", () => {
+		renderRing({
+			contextStatus: contextStatusAtRatio(0.4),
+			contextSources: {
+				conversationId: "conversation-1",
+				userId: "user-1",
+				activeCount: 2,
+				inferredCount: 0,
+				selectedCount: 2,
+				pinnedCount: 0,
+				excludedCount: 0,
+				reduced: false,
+				compacted: false,
+				groups: [],
+				updatedAt: Date.now(),
+			},
+		});
+
+		expect(screen.getByText("contextUsageRing.sourcesIncluded")).toBeTruthy();
 	});
 });

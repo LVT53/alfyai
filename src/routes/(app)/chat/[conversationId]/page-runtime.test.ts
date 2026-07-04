@@ -849,7 +849,7 @@ describe("chat page runtime integration", () => {
 		);
 
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
-		expect(screen.getByText("Selected evidence")).toBeInTheDocument();
+		expect(screen.getByText("Sources included")).toBeInTheDocument();
 		expect(
 			screen.getByTestId("context-compression-marker-snapshot-1"),
 		).toBeInTheDocument();
@@ -1284,7 +1284,7 @@ describe("chat page runtime integration", () => {
 		);
 
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
-		expect(screen.getByText("Selected evidence")).toBeInTheDocument();
+		expect(screen.getByText("Sources included")).toBeInTheDocument();
 		expect(
 			screen.getByTestId("context-compression-marker-snapshot-1"),
 		).toBeInTheDocument();

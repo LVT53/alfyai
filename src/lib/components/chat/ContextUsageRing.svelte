@@ -16,6 +16,7 @@ let {
 	contextDebug = null,
 	contextSources = null,
 	totalCostUsd = 0,
+	lastTurnCostUsd = 0,
 	totalTokens = 0,
 	onManageEvidence = undefined,
 }: {
@@ -24,6 +25,7 @@ let {
 	contextDebug?: ContextDebugState | null;
 	contextSources?: ContextSourcesState | null;
 	totalCostUsd?: number;
+	lastTurnCostUsd?: number;
 	totalTokens?: number;
 	onManageEvidence?: (() => void) | undefined;
 } = $props();
@@ -130,6 +132,10 @@ let costText = $derived(
 		? `${formatCostUsd(totalCostUsd)} \u00b7 ${formatTokenCount(totalTokens)} ${$t("contextUsageRing.tokens")}`
 		: "",
 );
+let showLastTurnCost = $derived(lastTurnCostUsd > 0);
+let lastTurnCostText = $derived(
+	showLastTurnCost ? formatCostUsd(lastTurnCostUsd) : "",
+);
 
 let promptBudget = $derived(
 	contextStatus ? Math.max(contextStatus.targetTokens, 1) : 1,
@@ -223,14 +229,20 @@ let isNearTrigger = $derived(
 		aria-label={$t('contextUsageRing.focusPanel')}
 	>
 		{#if showCost}
-			<!-- "Last turn" cost is intentionally omitted: the per-message cost is
-			     not surfaced to this component without new plumbing (see slice-19
-			     report). Only the conversation running total is shown. -->
+			<!-- Two cost lines (ADR #6): conversation running total as the hero,
+			     plus the last turn's per-message cost (ChatMessage.costUsd) as a
+			     muted secondary line. -->
 			<div class="popover-section">
 				<div class="popover-cost-row">
 					<span class="popover-label">{$t('contextUsageRing.conversationCost')}</span>
 					<span class="popover-cost-hero">{costText}</span>
 				</div>
+				{#if showLastTurnCost}
+					<div class="popover-cost-row popover-cost-row--secondary">
+						<span class="popover-cost-secondary-label">{$t('contextUsageRing.lastTurn')}</span>
+						<span class="popover-cost-secondary">{lastTurnCostText}</span>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -266,7 +278,7 @@ let isNearTrigger = $derived(
 				</div>
 				{#if contextSources}
 					<div class="popover-stat">
-						<span>{$t('contextSources.currentSelection')}</span>
+						<span>{$t('contextUsageRing.sourcesIncluded')}</span>
 						<span>{selectedSourceCount}</span>
 					</div>
 					<div class="popover-stat">
@@ -289,7 +301,7 @@ let isNearTrigger = $derived(
 					{/if}
 				{:else if contextDebug}
 					<div class="popover-stat">
-						<span>{$t('contextUsageRing.selectedEvidence')}</span>
+						<span>{$t('contextUsageRing.sourcesIncluded')}</span>
 						<span>{contextDebug.selectedEvidence.length}</span>
 					</div>
 					{#if contextDebug.pinnedEvidence.length > 0}
@@ -312,9 +324,9 @@ let isNearTrigger = $derived(
 					</div>
 				{/if}
 				<div class="popover-stat">
-					<span>{$t('contextUsageRing.recentTurns')}</span>
-					<span>{contextStatus.recentTurnCount}</span>
-				</div>
+						<span>{$t('contextUsageRing.whatAlfyRemembers')}</span>
+						<span>{contextStatus.recentTurnCount}</span>
+					</div>
 				{#if contextStatus.layersUsed.length > 0}
 					<div class="popover-chips">
 						{#each contextStatus.layersUsed as layer}
@@ -492,6 +504,24 @@ let isNearTrigger = $derived(
 		font-size: var(--text-base, 0.95rem);
 		font-weight: 600;
 		color: var(--accent);
+	}
+
+	/* Secondary "Last turn" line — muted and smaller than the hero. */
+	.popover-cost-row--secondary {
+		margin-top: 0.2rem;
+	}
+
+	.popover-cost-secondary-label {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		text-transform: none;
+		letter-spacing: 0;
+		color: var(--text-muted);
+	}
+
+	.popover-cost-secondary {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 
 	/* Context room bar — the bar communicates remaining capacity, so the old
