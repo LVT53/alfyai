@@ -1,16 +1,30 @@
 import { describe, expect, it } from "vitest";
+import type { BenchmarkRunResult } from "./benchmark-live-chat-stream";
 import {
-	REASONING_DEPTH_AB_PROMPTS,
-	REASONING_DEPTH_AB_VARIANTS,
 	buildReasoningDepthEvaluationPlan,
 	classifyPromptForLocalAuto,
+	REASONING_DEPTH_AB_PROMPTS,
+	REASONING_DEPTH_AB_VARIANTS,
+	type ReasoningDepthAbScoreRow,
 	scoreReasoningDepthRun,
 	summarizeReasoningDepthEvaluation,
-	type ReasoningDepthAbScoreRow,
 } from "./evaluate-reasoning-depth-ab";
-import type { BenchmarkRunResult } from "./benchmark-live-chat-stream";
 
-function okRun(overrides: Partial<BenchmarkRunResult> = {}): BenchmarkRunResult {
+/** find() with a clear error instead of a non-null assertion. Test fixtures
+ *  are expected to exist; this fails loudly if one is misnamed/missing. */
+function findOrFail<T>(
+	items: readonly T[],
+	predicate: (item: T) => boolean,
+	label: string,
+): T {
+	const found = items.find(predicate);
+	if (!found) throw new Error(`Test fixture not found: ${label}`);
+	return found;
+}
+
+function okRun(
+	overrides: Partial<BenchmarkRunResult> = {},
+): BenchmarkRunResult {
 	return {
 		runIndex: 1,
 		prompt: "prompt",
@@ -90,9 +104,11 @@ describe("local heuristic Auto classifier", () => {
 	it("predicts lean, source-heavy, and code-review prompts with explainable profiles", () => {
 		expect(
 			classifyPromptForLocalAuto(
-				REASONING_DEPTH_AB_PROMPTS.find(
-					(prompt) => prompt.id === "simple_direct",
-				)!,
+				findOrFail(
+					REASONING_DEPTH_AB_PROMPTS,
+					(p) => p.id === "simple_direct",
+					"simple_direct",
+				),
 			),
 		).toMatchObject({
 			expectedProfile: "off",
@@ -101,9 +117,11 @@ describe("local heuristic Auto classifier", () => {
 
 		expect(
 			classifyPromptForLocalAuto(
-				REASONING_DEPTH_AB_PROMPTS.find(
-					(prompt) => prompt.id === "source_grounded_current",
-				)!,
+				findOrFail(
+					REASONING_DEPTH_AB_PROMPTS,
+					(p) => p.id === "source_grounded_current",
+					"source_grounded_current",
+				),
 			),
 		).toMatchObject({
 			expectedProfile: "maximum",
@@ -112,9 +130,11 @@ describe("local heuristic Auto classifier", () => {
 
 		expect(
 			classifyPromptForLocalAuto(
-				REASONING_DEPTH_AB_PROMPTS.find(
-					(prompt) => prompt.id === "debugging_refactor",
-				)!,
+				findOrFail(
+					REASONING_DEPTH_AB_PROMPTS,
+					(p) => p.id === "debugging_refactor",
+					"debugging_refactor",
+				),
 			),
 		).toMatchObject({
 			expectedProfile: "extended",
@@ -125,12 +145,16 @@ describe("local heuristic Auto classifier", () => {
 
 describe("reasoning depth deterministic quality scoring", () => {
 	it("scores answer text, evidence, format, refusal/error, and depth agreement as data", () => {
-		const prompt = REASONING_DEPTH_AB_PROMPTS.find(
+		const prompt = findOrFail(
+			REASONING_DEPTH_AB_PROMPTS,
 			(item) => item.id === "source_grounded_current",
-		)!;
-		const variant = REASONING_DEPTH_AB_VARIANTS.find(
+			"source_grounded_current",
+		);
+		const variant = findOrFail(
+			REASONING_DEPTH_AB_VARIANTS,
 			(item) => item.id === "current_auto",
-		)!;
+			"current_auto",
+		);
 
 		const row = scoreReasoningDepthRun({
 			run: okRun(),

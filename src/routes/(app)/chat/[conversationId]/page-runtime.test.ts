@@ -7,7 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppShellData } from "$lib/server/services/app-shell";
-import type { StreamCallbacks, StreamMetadata } from "$lib/services/streaming";
+import type { StreamCallbacks } from "$lib/services/streaming";
 import type {
 	AtlasJobCard,
 	ContextDebugEvidenceItem,
