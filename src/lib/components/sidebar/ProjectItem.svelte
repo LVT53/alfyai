@@ -25,6 +25,7 @@ let {
 	menuOpen = false,
 	dropActive = false,
 	creatingConversation = false,
+	chatCount = 0,
 	onToggle,
 	onCreateConversation,
 	onRename,
@@ -37,6 +38,7 @@ let {
 	menuOpen?: boolean;
 	dropActive?: boolean;
 	creatingConversation?: boolean;
+	chatCount?: number;
 	onToggle?: (payload: { id: string; expanded: boolean }) => void;
 	onCreateConversation?: (payload: { id: string }) => void;
 	onRename?: (payload: { id: string; name: string }) => void;
@@ -272,6 +274,15 @@ function createConversation(e: MouseEvent) {
 			<span class="truncate text-[13px] font-medium font-sans text-text-primary">{project.name}</span>
 		{/if}
 	</div>
+
+	{#if !isEditing && chatCount > 0}
+		<span
+			data-testid={`project-chat-count-${project.id}`}
+			aria-label={$t('sidebar.chatCount', { count: chatCount })}
+			title={$t('sidebar.chatCount', { count: chatCount })}
+			class="project-chat-count-badge mr-1 inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-surface-page px-1 text-[10px] font-medium leading-none text-text-muted tabular-nums"
+		>{chatCount}</span>
+	{/if}
 
 	<div class="project-row-actions flex shrink-0 items-center justify-end gap-px">
 		<button

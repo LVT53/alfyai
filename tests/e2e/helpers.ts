@@ -39,6 +39,12 @@ export async function logout(page: Page) {
 	const logoutBtn = page.getByRole("button", { name: "Logout" });
 	if (await logoutBtn.isVisible()) {
 		await logoutBtn.click();
+		// ADR-0043 Slice 16: logout now opens a ConfirmDialog before ending
+		// the session. Confirm to proceed to /login.
+		const confirmBtn = page.getByTestId("confirm-delete");
+		if (await confirmBtn.isVisible().catch(() => false)) {
+			await confirmBtn.click();
+		}
 		await page.waitForURL("/login", { timeout: 10000 });
 	}
 }

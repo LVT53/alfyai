@@ -445,4 +445,20 @@ test.describe("Conversation CRUD operations", () => {
 		await expect(conversationMenu).toBeVisible();
 		await expect(projectMenu).not.toBeVisible();
 	});
+
+	test("confirms before logging out from the sidebar (ADR-0043 Slice 16)", async ({
+		page,
+	}) => {
+		await ensureSidebarExpanded(page);
+
+		// Clicking the sidebar Logout button opens a confirm dialog and does
+		// NOT navigate away yet.
+		await page.getByRole("button", { name: "Logout" }).click();
+		await expect(page.getByText("Log out?")).toBeVisible();
+		await expect(page).not.toHaveURL("/login");
+
+		// Confirming ends the session.
+		await page.getByTestId("confirm-delete").click();
+		await expect(page).toHaveURL("/login");
+	});
 });

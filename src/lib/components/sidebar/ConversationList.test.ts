@@ -13,6 +13,9 @@ import {
 	clearProjectFolderExpanded,
 	currentConversationId,
 	setProjectFolderExpanded,
+	sidebarChatsExpanded,
+	sidebarPinnedExpanded,
+	sidebarProjectsExpanded,
 } from "$lib/stores/ui";
 import type { ConversationListItem, Project } from "$lib/types";
 import ConversationList from "./ConversationList.svelte";
@@ -43,6 +46,9 @@ describe("ConversationList sidebar pinning", () => {
 		conversations.set([]);
 		currentConversationId.set(null);
 		clearProjectStore();
+		sidebarProjectsExpanded.set(true);
+		sidebarChatsExpanded.set(true);
+		sidebarPinnedExpanded.set(true);
 		for (const projectId of [
 			"project-1",
 			"project-first",
@@ -390,5 +396,130 @@ describe("ConversationList sidebar pinning", () => {
 				body: JSON.stringify({ sidebarPinned: false }),
 			}),
 		);
+	});
+});
+
+describe("ConversationList section headers (ADR-0043 Slice 16)", () => {
+	beforeEach(() => {
+		if (!vi.isMockFunction(window.alert)) {
+			vi.spyOn(window, "alert").mockImplementation(() => {});
+		}
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ conversations: [], projects: [] }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		conversations.set([]);
+		currentConversationId.set(null);
+		clearProjectStore();
+		sidebarProjectsExpanded.set(true);
+		sidebarChatsExpanded.set(true);
+		sidebarPinnedExpanded.set(true);
+	});
+
+	it("renders a collapsible Pinned section header with a collapse control when pinned chats exist", () => {
+		conversations.set([
+			{
+				id: "pinned-1",
+				title: "Pinned chat",
+				updatedAt: 100,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+		]);
+
+		render(ConversationList);
+
+		expect(
+			screen.getByRole("button", { name: "Collapse Pinned section" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByTestId("pinned-conversations-section"),
+		).toBeInTheDocument();
+	});
+
+	it("collapses the Pinned section when its header is toggled", async () => {
+		conversations.set([
+			{
+				id: "pinned-1",
+				title: "Pinned chat",
+				updatedAt: 100,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+		]);
+
+		render(ConversationList);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Collapse Pinned section" }),
+		);
+
+		expect(get(sidebarPinnedExpanded)).toBe(false);
+		expect(
+			screen.getByRole("button", { name: "Expand Pinned section" }),
+		).toBeInTheDocument();
+	});
+
+	it("always renders the Chats section header even when there are no conversations", () => {
+		conversations.set([]);
+
+		render(ConversationList);
+
+		// Chats header must remain visible (empty-state lives inside it).
+		expect(
+			screen.getByRole("button", { name: "Collapse Chats section" }),
+		).toBeInTheDocument();
+		expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+	});
+
+	it("shows a chat-count badge on a project row equal to its non-pinned conversations", () => {
+		const initialProjects: Project[] = [
+			{
+				id: "project-1",
+				name: "House tasks",
+				sortOrder: 0,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		];
+		projects.set(initialProjects);
+		conversations.set([
+			{
+				id: "a",
+				title: "Chat A",
+				projectId: "project-1",
+				updatedAt: 1,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "b",
+				title: "Chat B",
+				projectId: "project-1",
+				updatedAt: 2,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+			{
+				id: "c",
+				title: "Pinned C",
+				projectId: "project-1",
+				updatedAt: 3,
+				sidebarPinned: true,
+				sidebarSortOrder: 0,
+			},
+		]);
+
+		render(ConversationList, { initialProjects });
+
+		expect(
+			screen.getByTestId("project-chat-count-project-1"),
+		).toHaveTextContent("2");
 	});
 });

@@ -32,6 +32,7 @@ const SIDEBAR_MAX_WIDTH = 480;
 const PROJECT_FOLDER_EXPANDED_KEY = "projectFolderExpanded";
 const SIDEBAR_PROJECTS_EXPANDED_KEY = "sidebarProjectsExpanded";
 const SIDEBAR_CHATS_EXPANDED_KEY = "sidebarChatsExpanded";
+const SIDEBAR_PINNED_EXPANDED_KEY = "sidebarPinnedExpanded";
 
 const isValidBool = (v: string): v is "true" | "false" =>
 	v === "true" || v === "false";
@@ -180,11 +181,21 @@ export const sidebarChatsExpanded = writable<boolean>(
 	initialSidebarChatsExpandedValue === "true",
 );
 
+const initialSidebarPinnedExpandedValue = browser
+	? read(SIDEBAR_PINNED_EXPANDED_KEY, "true", isValidBool)
+	: "true";
+export const sidebarPinnedExpanded = writable<boolean>(
+	initialSidebarPinnedExpandedValue === "true",
+);
+
 sidebarProjectsExpanded.subscribe((value) =>
 	persist(SIDEBAR_PROJECTS_EXPANDED_KEY, value ? "true" : "false"),
 );
 sidebarChatsExpanded.subscribe((value) =>
 	persist(SIDEBAR_CHATS_EXPANDED_KEY, value ? "true" : "false"),
+);
+sidebarPinnedExpanded.subscribe((value) =>
+	persist(SIDEBAR_PINNED_EXPANDED_KEY, value ? "true" : "false"),
 );
 
 export async function setSidebarProjectsExpandedAndSync(
@@ -207,4 +218,16 @@ export async function setSidebarChatsExpandedAndSync(
 	} catch {
 		// Non-fatal: local preference already applied
 	}
+}
+
+/**
+ * Toggle the Pinned section collapse state.
+ *
+ * Kept local-only (no server preference round-trip) to match the
+ * `projectFolderExpanded` boundary — the Pinned section is a transient
+ * view affordance, not a persisted user preference. The local-storage
+ * subscription above keeps it across reloads on the same device.
+ */
+export function setSidebarPinnedExpandedAndSync(expanded: boolean): void {
+	sidebarPinnedExpanded.set(expanded);
 }

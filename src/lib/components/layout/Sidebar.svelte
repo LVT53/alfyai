@@ -20,6 +20,7 @@ import { markPreviousConversationId } from "$lib/client/conversation-session";
 import ConversationList from "../sidebar/ConversationList.svelte";
 import SearchModal from "../search/SearchModal.svelte";
 import AvatarCircle from "../ui/AvatarCircle.svelte";
+import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 import LogoMark from "../chat/LogoMark.svelte";
 import AppVersionBadge from "./AppVersionBadge.svelte";
 import {
@@ -55,6 +56,7 @@ let isDesktop = $state(
 	browser ? window.innerWidth >= SIDEBAR_DESKTOP_BREAKPOINT : false,
 );
 let showSearchModal = $state(false);
+let showLogoutConfirm = $state(false);
 let transitionsEnabled = $state(false);
 let resizing = $state(false);
 
@@ -62,6 +64,9 @@ const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
+// Collapsed-rail active-conversation indicator: a conversation is "open" when
+// the app has a current conversation id selected (the chat view is mounted).
+const hasActiveConversation = $derived($currentConversationId != null);
 
 async function handleNewConversation() {
 	markPreviousConversationId($currentConversationId);
@@ -128,6 +133,10 @@ function navigateAndClose(path: string) {
 	goto(path);
 }
 
+function requestLogout() {
+	showLogoutConfirm = true;
+}
+
 async function handleLogout() {
 	try {
 		await logout();
@@ -137,6 +146,15 @@ async function handleLogout() {
 	} catch (error) {
 		console.error("Logout failed:", error);
 	}
+}
+
+function confirmLogout() {
+	showLogoutConfirm = false;
+	void handleLogout();
+}
+
+function cancelLogout() {
+	showLogoutConfirm = false;
 }
 
 onMount(() => {
@@ -239,15 +257,27 @@ onMount(() => {
 		{#if isCollapsed}
 			<!-- Icon-only when collapsed -->
 			<div class="flex w-full flex-col items-center gap-2">
-				<button
-					data-testid="new-conversation"
-					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-accent transition-colors duration-150 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-					onclick={handleNewConversation}
-					title={$t('sidebar.newChat')}
-					aria-label={$t('sidebar.newChat')}
-				>
-				<FilePen size={19} strokeWidth={2.1} aria-hidden="true" />
-				</button>
+				<div class="relative flex items-center justify-center">
+					<button
+						data-testid="new-conversation"
+						class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-accent transition-colors duration-150 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+						class:compose-btn-active={hasActiveConversation}
+						onclick={handleNewConversation}
+						title={$t('sidebar.newChat')}
+						aria-label={$t('sidebar.newChat')}
+					>
+					<FilePen size={19} strokeWidth={2.1} aria-hidden="true" />
+					</button>
+					{#if hasActiveConversation}
+						<!-- Collapsed-rail active-conversation indicator: an accent dot
+					signals that a conversation is currently open. -->
+						<span
+							data-testid="collapsed-rail-active-indicator"
+							class="pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent ring-2 ring-surface-overlay"
+							aria-hidden="true"
+						></span>
+					{/if}
+				</div>
 				<button
 					type="button"
 					class="compose-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-icon-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -347,7 +377,7 @@ onMount(() => {
 		<button
 				type="button"
 				class="logout-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				onclick={handleLogout}
+				onclick={requestLogout}
 				title={$t('sidebar.logout')}
 				aria-label={$t('sidebar.logout')}
 			>
@@ -379,7 +409,7 @@ onMount(() => {
 			<button
 				type="button"
 				class="logout-btn flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-icon-muted transition-colors duration-150 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				onclick={handleLogout}
+				onclick={requestLogout}
 				title={$t('sidebar.logout')}
 				aria-label={$t('sidebar.logout')}
 			>
@@ -403,6 +433,18 @@ onMount(() => {
 </aside>
 
 <SearchModal isOpen={showSearchModal} onClose={closeSearchModal} />
+
+{#if showLogoutConfirm}
+	<ConfirmDialog
+		title={$t('sidebar.logoutConfirmTitle')}
+		message={$t('sidebar.logoutConfirmBody')}
+		confirmText={$t('sidebar.logoutConfirmAction')}
+		cancelText={$t('common.cancel')}
+		confirmVariant="danger"
+		onConfirm={confirmLogout}
+		onCancel={cancelLogout}
+	/>
+{/if}
 
 <style>
 	.sidebar-panel {
@@ -479,6 +521,21 @@ onMount(() => {
 	.compose-btn:hover {
 		background: color-mix(in srgb, var(--border-default) 18%, transparent 82%);
 		border-color: var(--border-default);
+	}
+
+	/* Collapsed-rail active-conversation affordance: a subtle accent ring on
+	   the compose button signals an open conversation when the sidebar is
+	   collapsed to icon-only. Uses the semantic --accent token. */
+	.compose-btn.compose-btn-active {
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent 45%);
+		background: color-mix(in srgb, var(--accent) 12%, transparent 88%);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.compose-btn,
+		.compose-btn-active {
+			transition: none;
+		}
 	}
 
 	.logout-btn {

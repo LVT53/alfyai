@@ -30,13 +30,23 @@ import {
 	setProjectFolderExpanded,
 	setSidebarChatsExpandedAndSync,
 	setSidebarProjectsExpandedAndSync,
+	setSidebarPinnedExpandedAndSync,
 	sidebarChatsExpanded,
 	sidebarOpen,
+	sidebarPinnedExpanded,
 	sidebarProjectsExpanded,
 	SIDEBAR_DESKTOP_BREAKPOINT,
 } from "$lib/stores/ui";
 import { t } from "$lib/i18n";
-import { ChevronRight, Plus, FolderPlus } from "@lucide/svelte";
+import {
+	ChevronRight,
+	Folder,
+	FolderPlus,
+	MessageSquare,
+	Pin,
+	Plus,
+} from "@lucide/svelte";
+import { countProjectConversations } from "./project-count";
 import type { ConversationListItem, Project } from "$lib/types";
 import ConversationItem from "./ConversationItem.svelte";
 import ProjectItem from "./ProjectItem.svelte";
@@ -90,6 +100,7 @@ let openSidebarMenu = $state<OpenSidebarMenu>(null);
 const expandedProjects = $derived($projectFolderExpanded);
 const projectsSectionExpanded = $derived($sidebarProjectsExpanded);
 const chatsSectionExpanded = $derived($sidebarChatsExpanded);
+const pinnedSectionExpanded = $derived($sidebarPinnedExpanded);
 let isCreatingProject = $state(false);
 let newProjectName = $state("");
 let newProjectInputRef = $state<HTMLInputElement | undefined>(undefined);
@@ -661,6 +672,11 @@ function toggleChatsSection() {
 	void setSidebarChatsExpandedAndSync(next);
 }
 
+function togglePinnedSection() {
+	const next = !pinnedSectionExpanded;
+	void setSidebarPinnedExpandedAndSync(next);
+}
+
 // ── Create project ─────────────────────────────────────────────────────────
 
 function startCreateProject(e: MouseEvent) {
@@ -697,43 +713,56 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 <div class="flex h-full flex-col gap-0">
 	{#if pinnedConversations.length > 0}
 		<div data-testid="pinned-conversations-section" class="mb-1">
+			<!-- Section header (collapsible, matches Projects/Chats headers) -->
 			<div class="px-2 py-1">
-				<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.pinned')}</span>
+				<button
+					class="flex items-center gap-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					aria-label={pinnedSectionExpanded ? $t('sidebar.collapsePinnedSection') : $t('sidebar.expandPinnedSection')}
+					onclick={togglePinnedSection}
+				>
+					<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={pinnedSectionExpanded}>
+						<ChevronRight size={12} strokeWidth={2.5} aria-hidden="true" />
+					</span>
+					<Pin size={12} strokeWidth={2.4} class="shrink-0 text-icon-muted" aria-hidden="true" />
+					<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.pinned')}</span>
+				</button>
 			</div>
-			<div class="flex flex-col gap-0 px-1">
-				{#each pinnedConversations as conversation (conversation.id)}
-					<SidebarReorderRow
-						id={conversation.id}
-						label={conversation.title}
-						active={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
-						onDragStart={handlePinnedConversationReorderStart}
-						onDragEnd={handleSidebarReorderEnd}
-						onDragOver={handlePinnedConversationReorderDragOver}
-						onDrop={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							void handlePinnedConversationReorderDrop(conversation.id);
-						}}
-					>
-						<ConversationItem
-							{conversation}
-							active={$currentConversationId === conversation.id}
-							menuOpen={isConversationMenuOpen(conversation.id)}
-							projects={allProjects}
-							projectLabel={conversation.projectId ? projectsById.get(conversation.projectId)?.name ?? null : null}
-							dragEnabled={false}
-							isDragging={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
-							onSelect={handleSelect}
-							onRename={handleRename}
-							onDelete={handleDelete}
-							onTogglePin={handleConversationTogglePin}
-							onMoveToProject={handleMoveToProject}
-							onMenuToggle={handleMenuToggle}
-							onMenuClose={handleMenuClose}
-						/>
-					</SidebarReorderRow>
-				{/each}
-			</div>
+			{#if pinnedSectionExpanded}
+				<div class="flex flex-col gap-0 px-1" transition:slide={{ duration: 200 }}>
+					{#each pinnedConversations as conversation (conversation.id)}
+						<SidebarReorderRow
+							id={conversation.id}
+							label={conversation.title}
+							active={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
+							onDragStart={handlePinnedConversationReorderStart}
+							onDragEnd={handleSidebarReorderEnd}
+							onDragOver={handlePinnedConversationReorderDragOver}
+							onDrop={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								void handlePinnedConversationReorderDrop(conversation.id);
+							}}
+						>
+							<ConversationItem
+								{conversation}
+								active={$currentConversationId === conversation.id}
+								menuOpen={isConversationMenuOpen(conversation.id)}
+								projects={allProjects}
+								projectLabel={conversation.projectId ? projectsById.get(conversation.projectId)?.name ?? null : null}
+								dragEnabled={false}
+								isDragging={activeSidebarReorder?.kind === 'pinned-conversation' && activeSidebarReorder.id === conversation.id}
+								onSelect={handleSelect}
+								onRename={handleRename}
+								onDelete={handleDelete}
+								onTogglePin={handleConversationTogglePin}
+								onMoveToProject={handleMoveToProject}
+								onMenuToggle={handleMenuToggle}
+								onMenuClose={handleMenuClose}
+							/>
+						</SidebarReorderRow>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -750,6 +779,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 					<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={projectsSectionExpanded}>
 						<ChevronRight size={12} strokeWidth={2.5} aria-hidden="true" />
 					</span>
+					<Folder size={12} strokeWidth={2.4} class="shrink-0 text-icon-muted" aria-hidden="true" />
 					<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
 				</button>
 				<button
@@ -865,6 +895,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 								menuOpen={isProjectMenuOpen(project.id)}
 								dropActive={dropTarget?.kind === 'project' && dropTarget.projectId === project.id}
 								creatingConversation={creatingProjectConversationId === project.id}
+								chatCount={countProjectConversations(visibleConversations, project.id)}
 								onToggle={handleProjectToggle}
 								onCreateConversation={handleCreateConversationInProject}
 								onRename={handleProjectRename}
@@ -931,6 +962,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 				<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={projectsSectionExpanded}>
 					<ChevronRight size={12} strokeWidth={2.5} aria-hidden="true" />
 				</span>
+				<Folder size={12} strokeWidth={2.4} class="shrink-0 text-icon-muted" aria-hidden="true" />
 				<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.projects')}</span>
 			</button>
 			<button
@@ -1006,7 +1038,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 			void handleUnorganizedDropConversation(getDraggedConversationId(event));
 		}}
 	>
-		{#if allProjects.length > 0 || conversationsByProject.unorganized.length > 0 || canDropIntoUnorganized}
+		{#if allProjects.length > 0 || conversationsByProject.unorganized.length > 0 || canDropIntoUnorganized || visibleConversations.length >= 0}
 				<div class="px-1 pb-1 pt-0.5">
 					<div class="flex items-center justify-between gap-2">
 						<button
@@ -1017,6 +1049,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							<span class="flex h-4 w-4 shrink-0 items-center justify-center text-icon-muted transition-transform duration-150" class:rotate-90={chatsSectionExpanded}>
 								<ChevronRight size={12} strokeWidth={2.5} aria-hidden="true" />
 							</span>
+							<MessageSquare size={12} strokeWidth={2.4} class="shrink-0 text-icon-muted" aria-hidden="true" />
 							<span class="text-[11px] font-medium uppercase tracking-wider text-text-muted">{$t('sidebar.chats')}</span>
 						</button>
 					</div>
@@ -1025,6 +1058,11 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 		{#if chatsSectionExpanded}
 			<div transition:slide={{ duration: 200 }}>
 				{#if visibleConversations.length === 0}
+					<div class="flex h-20 items-center justify-center p-4 text-sm text-text-muted">
+						{$t('sidebar.noConversationsYet')}
+					</div>
+				{:else if conversationsByProject.unorganized.length === 0}
+					<!-- All conversations are inside projects/pinned; keep an empty-state inside Chats so the section never vanishes. -->
 					<div class="flex h-20 items-center justify-center p-4 text-sm text-text-muted">
 						{$t('sidebar.noConversationsYet')}
 					</div>
