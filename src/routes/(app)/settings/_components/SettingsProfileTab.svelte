@@ -1,5 +1,5 @@
 <script lang="ts">
-import clsx from "clsx";
+import { Download, Palette, Trash2, Upload } from "@lucide/svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import { t } from "$lib/i18n";
@@ -147,6 +147,16 @@ const explicitModelOptions = $derived(
 );
 </script>
 
+<!-- ============================================================= -->
+<!-- ADR-0043 slice 18a: Profile regrouped into 4 labeled sections. -->
+<!-- ALL existing fields preserved; text CTAs → btn-icon-bare Lucide -->
+<!-- icon buttons; "Default Style" → "Conversation style"; jargon cleared. -->
+<!-- 18b turns Skills into a summary-card-opens-manager; 18c adds the -->
+<!-- 5th "Your Activity" section. Do NOT do those here. -->
+<!-- ============================================================= -->
+
+<!-- ================= GROUP 1: ACCOUNT ================= -->
+<p class="settings-group-label">{$t('settings_sectionAccount')}</p>
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('settings_avatar')}</h2>
 	<div class="flex items-center gap-4">
@@ -159,31 +169,46 @@ const explicitModelOptions = $derived(
 			size={48}
 		/>
 		<div class="flex flex-wrap items-center gap-2">
-			<button class="btn-secondary" onclick={onOpenPictureEditor}>
-				{$t('settings_uploadPhoto')}
+			<button
+				type="button"
+				class="btn-icon-bare"
+				aria-label={$t('settings_uploadPhotoA11y')}
+				title={$t('settings_uploadPhoto')}
+				onclick={onOpenPictureEditor}
+			>
+				<Upload size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
-			<button class="btn-secondary" onclick={() => (showAvatarPicker = !showAvatarPicker)}>
-				{showAvatarPicker ? $t('settings_done') : $t('settings_changeColor')}
+			<button
+				type="button"
+				class="btn-icon-bare"
+				aria-label={$t('settings_changeColorA11y')}
+				title={$t('settings_changeColor')}
+				onclick={() => (showAvatarPicker = !showAvatarPicker)}
+			>
+				<Palette size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 			{#if profilePicture}
 				<button
-					class="btn-ghost"
-					style="color: var(--color-danger);"
+					type="button"
+					class="btn-icon-bare"
+					style="color: var(--danger);"
+					aria-label={$t('settings_removePhotoA11y')}
+					title={removingPhoto ? $t('settings_removing') : $t('settings_removePhoto')}
 					onclick={onRemovePhoto}
 					disabled={removingPhoto}
 				>
-					{removingPhoto ? $t('settings_removing') : $t('settings_removePhoto')}
+					<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
 				</button>
 			{/if}
-			</div>
 		</div>
-	</section>
+	</div>
+</section>
 
-	<section class="settings-card mb-4">
-		<h2 class="settings-section-title">{$t('settings_profileInformation')}</h2>
-		<div class="flex flex-col gap-3">
-			<div>
-				<label class="settings-label" for="name">{$t('settings_displayName')}</label>
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('settings_profileInformation')}</h2>
+	<div class="flex flex-col gap-3">
+		<div>
+			<label class="settings-label" for="name">{$t('settings_displayName')}</label>
 			<input id="name" type="text" class="settings-input" bind:value={name} placeholder={$t('settings_yourName')} />
 		</div>
 		<div>
@@ -244,8 +269,12 @@ const explicitModelOptions = $derived(
 	</div>
 </section>
 
+<!-- Import (ChatGPT) stays grouped under Account; 18a leaves its modal intact. -->
+<SettingsDataImport {projects} />
+
+<!-- ================= GROUP 2: PREFERENCES ================= -->
+<p class="settings-group-label">{$t('settings_sectionPreferences')}</p>
 <section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('settings_preferences')}</h2>
 	<div class="flex flex-col gap-5">
 		<div>
 			<p class="settings-label">{$t('settings_defaultModel')}</p>
@@ -281,7 +310,9 @@ const explicitModelOptions = $derived(
 
 		{#if personalityProfiles.length > 0}
 			<div>
-				<p class="settings-label">{$t('composerTools.defaultStyleLabel')}</p>
+				<!-- ADR-0043 18a: "Default Style" → "Conversation style" + clarifying note. -->
+				<p class="settings-label">{$t('settings_conversationStyle')}</p>
+				<p class="settings-help-text">{$t('settings_conversationStyleNote')}</p>
 				<div class="flex gap-2">
 					<button
 						class="pref-pill"
@@ -301,7 +332,8 @@ const explicitModelOptions = $derived(
 		{/if}
 
 		<div>
-			<p class="settings-label">{$t('settings_theme')}</p>
+			<!-- ADR-0043 18a: "Theme" → "Appearance" (jargon clearing per mockup). -->
+			<p class="settings-label">{$t('settings_appearance')}</p>
 			<div class="flex gap-2">
 				{#each [
 					{ value: 'system' as const, label: $t('settings_system') },
@@ -320,7 +352,9 @@ const explicitModelOptions = $derived(
 		</div>
 
 		<div>
-			<p class="settings-label">{$t('uiLanguage')}</p>
+			<!-- ADR-0043 18a: "UI Language" → "Interface language" + clarifying note. -->
+			<p class="settings-label">{$t('settings_interfaceLanguage')}</p>
+			<p class="settings-help-text">{$t('settings_interfaceLanguageNote')}</p>
 			<div class="flex gap-2">
 				{#each [
 					{ value: 'en' as const, label: $t('english') },
@@ -358,7 +392,106 @@ const explicitModelOptions = $derived(
 	</div>
 </section>
 
+<!-- ================= GROUP 3: ASSISTANT ================= -->
+<!-- 18b turns this section into a summary card that opens the Skills manager. -->
+<!-- 18a keeps the existing UserSkillsSettingsSurface inline under the header. -->
+<p class="settings-group-label">{$t('settings_sectionAssistant')}</p>
+<UserSkillsSettingsSurface {skillsEnabled} />
+
+<!-- ================= GROUP 4: DATA & PRIVACY ================= -->
+<p class="settings-group-label">{$t('settings_sectionDataPrivacy')}</p>
+<section class="settings-card mb-4">
+	<p class="mb-4 text-sm text-text-secondary">
+		{$t('settings_privacyControlsDescription')}
+	</p>
+	{#if privacyControlsError}
+		<p class="mb-3 text-sm text-danger">{privacyControlsError}</p>
+	{/if}
+	{#if privacyControlsMessage}
+		<p class="mb-3 text-sm text-success">{privacyControlsMessage}</p>
+	{/if}
+	<ul class="privacy-action-list">
+		<li class="privacy-action-row">
+			<span class="privacy-action-label">{$t('settings_downloadMyData')}</span>
+			<button
+				type="button"
+				class="btn-icon-bare privacy-action-btn"
+				aria-label={$t('settings_downloadMyData')}
+				title={$t('settings_downloadMyData')}
+				onclick={onOpenDownloadArchive}
+				disabled={archiveLoading}
+			>
+				<Download size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</li>
+		<li class="privacy-action-row">
+			<span class="privacy-action-label">{$t('settings_clearMemoryAndKnowledge')}</span>
+			<button
+				type="button"
+				class="btn-icon-bare privacy-action-btn"
+				style="color: var(--danger);"
+				aria-label={$t('settings_clearMemoryAndKnowledge')}
+				title={$t('settings_clearMemoryAndKnowledge')}
+				onclick={onOpenClearMemory}
+				disabled={clearMemoryLoading}
+			>
+				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</li>
+		<li class="privacy-action-row">
+			<span class="privacy-action-label">{$t('settings_clearWorkspaceData')}</span>
+			<button
+				type="button"
+				class="btn-icon-bare privacy-action-btn"
+				style="color: var(--danger);"
+				aria-label={$t('settings_clearWorkspaceData')}
+				title={$t('settings_clearWorkspaceData')}
+				onclick={onOpenClearWorkspace}
+				disabled={clearWorkspaceLoading}
+			>
+				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</li>
+		<li class="privacy-action-row">
+			<span class="privacy-action-label privacy-action-label-danger">{$t('settings_deleteAccountPrivacy')}</span>
+			<!-- Account deletion is the destructive action: solid red Trash2 CTA, -->
+			<!-- distinguished from the quiet btn-icon-bare buttons above. -->
+			<button
+				type="button"
+				class="btn-danger privacy-action-btn"
+				aria-label={$t('settings_deleteAccountPrivacy')}
+				title={$t('settings_deleteAccountPrivacy')}
+				onclick={onOpenDeleteModal}
+			>
+				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</li>
+	</ul>
+</section>
+
 <style>
+	/* Section group label: uppercase, letter-spaced, muted, semibold (per mockup). */
+	.settings-group-label {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
+		margin: var(--space-lg) 0 var(--space-sm) 0;
+	}
+
+	/* First group label sits flush at the top (no top margin). */
+	.settings-group-label:first-child {
+		margin-top: 0;
+	}
+
+	.settings-help-text {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		margin-top: -0.125rem;
+		margin-bottom: 0.375rem;
+	}
+
 	.model-preference-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
@@ -405,35 +538,48 @@ const explicitModelOptions = $derived(
 		font-size: 0.75rem;
 		opacity: 0.7;
 	}
+
+	/* Data & privacy action rows (per mockup): label left, icon button right. */
+	.privacy-action-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.privacy-action-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.625rem 0;
+	}
+
+	.privacy-action-row + .privacy-action-row {
+		border-top: 1px solid var(--border-default);
+	}
+
+	.privacy-action-label {
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+	}
+
+	.privacy-action-label-danger {
+		color: var(--danger);
+		font-weight: 500;
+	}
+
+	/* Slightly tighter icon buttons inside the dense privacy list. */
+	.privacy-action-btn {
+		min-height: 2rem;
+		min-width: 2rem;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.btn-icon-bare,
+		.btn-danger {
+			transition: none;
+		}
+	}
 </style>
-
-<SettingsDataImport {projects} />
-
-<UserSkillsSettingsSurface {skillsEnabled} />
-
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('settings_privacyControls')}</h2>
-	<p class="mb-4 text-sm text-text-secondary">
-		{$t('settings_privacyControlsDescription')}
-	</p>
-	{#if privacyControlsError}
-		<p class="mb-3 text-sm text-danger">{privacyControlsError}</p>
-	{/if}
-	{#if privacyControlsMessage}
-		<p class="mb-3 text-sm text-success">{privacyControlsMessage}</p>
-	{/if}
-	<div class="flex flex-wrap gap-2">
-		<button class="btn-secondary" onclick={onOpenDownloadArchive} disabled={archiveLoading}>
-			{archiveLoading ? $t('settings_downloadingData') : $t('settings_downloadMyData')}
-		</button>
-		<button class="btn-secondary" onclick={onOpenClearMemory} disabled={clearMemoryLoading}>
-			{clearMemoryLoading ? $t('settings_clearing') : $t('settings_clearMemoryAndKnowledge')}
-		</button>
-		<button class="btn-secondary" onclick={onOpenClearWorkspace} disabled={clearWorkspaceLoading}>
-			{clearWorkspaceLoading ? $t('settings_clearing') : $t('settings_clearWorkspaceData')}
-		</button>
-		<button class="btn-danger" onclick={onOpenDeleteModal}>
-			{$t('settings_deleteAccountPrivacy')}
-		</button>
-	</div>
-</section>

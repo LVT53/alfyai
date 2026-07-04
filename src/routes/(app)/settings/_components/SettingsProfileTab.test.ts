@@ -40,79 +40,162 @@ const baseProps = {
 	onOpenDeleteModal: vi.fn(),
 };
 
-describe("SettingsProfileTab model preference", () => {
-	it("shows approved Privacy and Data Controls labels and action callbacks", async () => {
+const renderTab = (overrides: Record<string, unknown> = {}) =>
+	render(SettingsProfileTab, {
+		...baseProps,
+		selectedModel: null,
+		effectiveModel: "model1",
+		systemDefaultModel: "model1",
+		onChangeModel: vi.fn(),
+		...overrides,
+	});
+
+describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
+	it("renders the 4 grouped section labels in order", () => {
+		renderTab();
+
+		const account = screen.getByText("Account");
+		const preferences = screen.getByText("Preferences");
+		const assistant = screen.getByText("Assistant");
+		const dataPrivacy = screen.getByText("Data & privacy");
+
+		// All present.
+		expect(account).toBeInTheDocument();
+		expect(preferences).toBeInTheDocument();
+		expect(assistant).toBeInTheDocument();
+		expect(dataPrivacy).toBeInTheDocument();
+
+		// In order: Account < Preferences < Assistant < Data & privacy.
+		expect(
+			account.compareDocumentPosition(preferences) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			preferences.compareDocumentPosition(assistant) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			assistant.compareDocumentPosition(dataPrivacy) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("preserves EVERY existing field across the 4 sections (no field dropped)", () => {
+		renderTab({
+			profilePicture: "https://example.com/p.png",
+			// Conversation style only renders when personality profiles exist
+			// (same conditional as the original "Default style" selector).
+			personalityProfiles: [
+				{ id: "p1", name: "Concise", description: "Short" },
+			],
+		});
+
+		// Account: avatar controls + display name + email + password fields + import.
+		expect(screen.getByLabelText("Upload photo")).toBeInTheDocument();
+		expect(screen.getByLabelText("Change color")).toBeInTheDocument();
+		expect(screen.getByLabelText("Remove photo")).toBeInTheDocument();
+		expect(
+			screen.getByRole("textbox", { name: "Display Name" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("textbox", { name: "Email Address" }),
+		).toBeInTheDocument();
+		expect(screen.getByLabelText("Current password")).toBeInTheDocument();
+		expect(screen.getByLabelText("New password")).toBeInTheDocument();
+		expect(screen.getByLabelText("Confirm new password")).toBeInTheDocument();
+		expect(screen.getByText("Data & Import")).toBeInTheDocument();
+
+		// Preferences: default model + conversation style + theme + languages.
+		expect(screen.getByText("Default model")).toBeInTheDocument();
+		expect(screen.getByText("Conversation style")).toBeInTheDocument();
+		expect(screen.getByText("Appearance")).toBeInTheDocument();
+		expect(screen.getByText("Interface language")).toBeInTheDocument();
+
+		// Assistant: Skills surface present.
+		expect(screen.getByText("Private skills")).toBeInTheDocument();
+
+		// Data & privacy: all 4 actions.
+		expect(screen.getByText("Download my data")).toBeInTheDocument();
+		expect(screen.getByText("Clear memory and knowledge")).toBeInTheDocument();
+		expect(screen.getByText("Clear workspace data")).toBeInTheDocument();
+		expect(screen.getByText("Delete account")).toBeInTheDocument();
+	});
+
+	it("renames 'Default Style' to 'Conversation style' with a clarifying note (jargon cleared)", () => {
+		renderTab({
+			personalityProfiles: [{ id: "p1", name: "Concise", description: "" }],
+		});
+
+		expect(screen.getByText("Conversation style")).toBeInTheDocument();
+		// "Default Style" is gone.
+		expect(screen.queryByText("Default style")).not.toBeInTheDocument();
+		expect(screen.queryByText("Default Style")).not.toBeInTheDocument();
+		// A clarifying note is present.
+		expect(
+			screen.getByText(/How AlfyAI responds by default/),
+		).toBeInTheDocument();
+	});
+
+	it("converts avatar CTAs to btn-icon-bare Lucide icon buttons", () => {
+		renderTab({ profilePicture: "https://example.com/p.png" });
+
+		const upload = screen.getByLabelText("Upload photo");
+		const color = screen.getByLabelText("Change color");
+		const remove = screen.getByLabelText("Remove photo");
+
+		for (const btn of [upload, color, remove]) {
+			expect(btn).toHaveClass("btn-icon-bare");
+			// Lucide svg present.
+			expect(btn.querySelector("svg")).toBeInTheDocument();
+		}
+	});
+
+	it("fires avatar icon-button callbacks", async () => {
+		const onOpenPictureEditor = vi.fn();
+		const onRemovePhoto = vi.fn();
+		renderTab({
+			onOpenPictureEditor,
+			onRemovePhoto,
+			profilePicture: "https://example.com/p.png",
+		});
+
+		await fireEvent.click(screen.getByLabelText("Upload photo"));
+		expect(onOpenPictureEditor).toHaveBeenCalledOnce();
+
+		await fireEvent.click(screen.getByLabelText("Remove photo"));
+		expect(onRemovePhoto).toHaveBeenCalledOnce();
+	});
+
+	it("converts data & privacy CTAs to btn-icon-bare Lucide icon buttons (Download/Trash2)", async () => {
 		const onOpenDownloadArchive = vi.fn();
 		const onOpenClearMemory = vi.fn();
 		const onOpenClearWorkspace = vi.fn();
 		const onOpenDeleteModal = vi.fn();
-
-		render(SettingsProfileTab, {
-			...baseProps,
-			selectedModel: null,
-			effectiveModel: "model1",
-			systemDefaultModel: "model1",
-			onChangeModel: vi.fn(),
+		renderTab({
 			onOpenDownloadArchive,
 			onOpenClearMemory,
 			onOpenClearWorkspace,
 			onOpenDeleteModal,
 		});
 
-		expect(
-			screen.getByRole("heading", { name: "Privacy and Data Controls" }),
-		).toBeInTheDocument();
-		const changePasswordHeading = screen.getByRole("heading", {
-			name: "Change Password",
-		});
-		const privacyHeading = screen.getByRole("heading", {
-			name: "Privacy and Data Controls",
-		});
-		const preferencesHeading = screen.getByRole("heading", {
-			name: "Preferences",
-		});
-		const dataImportHeading = screen.getByRole("heading", {
-			name: "Data & Import",
-		});
-		const skillsHeading = screen.getByRole("heading", {
-			name: "Private skills",
-		});
-		expect(
-			changePasswordHeading.compareDocumentPosition(privacyHeading) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
-			preferencesHeading.compareDocumentPosition(privacyHeading) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
-			dataImportHeading.compareDocumentPosition(privacyHeading) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
-			skillsHeading.compareDocumentPosition(privacyHeading) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(screen.queryByText("Danger Zone")).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: "Reset Account" }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: "Reset Memory" }),
-		).not.toBeInTheDocument();
+		const download = screen.getByLabelText("Download my data");
+		const clearMemory = screen.getByLabelText("Clear memory and knowledge");
+		const clearWorkspace = screen.getByLabelText("Clear workspace data");
+		const del = screen.getByLabelText("Delete account");
 
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Download my data" }),
-		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Clear memory and knowledge" }),
-		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Clear workspace data" }),
-		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Delete account" }),
-		);
+		// The three quiet actions are btn-icon-bare Lucide icon buttons.
+		for (const btn of [download, clearMemory, clearWorkspace]) {
+			expect(btn).toHaveClass("btn-icon-bare");
+			expect(btn.querySelector("svg")).toBeInTheDocument();
+		}
+		// Delete is the destructive action: a Lucide icon, but NOT a quiet icon button
+		// (it gets the solid red CTA treatment — asserted in its own test).
+		expect(del.querySelector("svg")).toBeInTheDocument();
+
+		await fireEvent.click(download);
+		await fireEvent.click(clearMemory);
+		await fireEvent.click(clearWorkspace);
+		await fireEvent.click(del);
 
 		expect(onOpenDownloadArchive).toHaveBeenCalledOnce();
 		expect(onOpenClearMemory).toHaveBeenCalledOnce();
@@ -120,6 +203,30 @@ describe("SettingsProfileTab model preference", () => {
 		expect(onOpenDeleteModal).toHaveBeenCalledOnce();
 	});
 
+	it("distinguishes account deletion with a solid red destructive CTA", () => {
+		renderTab();
+
+		const del = screen.getByLabelText("Delete account");
+		// Solid red destructive button (btn-danger), not a quiet icon button.
+		expect(del).toHaveClass("btn-danger");
+		expect(del).not.toHaveClass("btn-icon-bare");
+		// Lucide trash icon present.
+		expect(del.querySelector("svg")).toBeInTheDocument();
+	});
+
+	it("removes the old standalone Preferences section title and standalone section cards", () => {
+		renderTab();
+
+		// The old standalone "Privacy and Data Controls" heading is gone (now grouped under Data & privacy).
+		expect(
+			screen.queryByRole("heading", { name: "Privacy and Data Controls" }),
+		).not.toBeInTheDocument();
+		// No legacy "Danger Zone".
+		expect(screen.queryByText("Danger Zone")).not.toBeInTheDocument();
+	});
+});
+
+describe("SettingsProfileTab model preference", () => {
 	it("shows System default first with the resolved model and emits null for inheritance", async () => {
 		const onChangeModel = vi.fn();
 
