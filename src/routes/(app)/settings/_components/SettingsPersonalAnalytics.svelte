@@ -5,6 +5,7 @@ import { get } from "svelte/store";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
+import { chartAnimation } from "./chart-reduced-motion";
 
 // ADR-0043 slice 18c: the personal Block A analytics (the user's own usage)
 // extracted from the former standalone SettingsAnalyticsTab. This is the
@@ -178,7 +179,7 @@ async function initCharts(
 			options: {
 				indexAxis: "y",
 				maintainAspectRatio: false,
-				animation: { duration: 700, easing: "easeInOutQuart" },
+				animation: chartAnimation({ duration: 700, easing: "easeInOutQuart" }),
 				plugins: {
 					legend: { display: false },
 					tooltip: {
@@ -229,7 +230,7 @@ async function initCharts(
 			},
 			options: {
 				maintainAspectRatio: false,
-				animation: { duration: 600 },
+				animation: chartAnimation({ duration: 600 }),
 				plugins: {
 					legend: { display: false },
 				},

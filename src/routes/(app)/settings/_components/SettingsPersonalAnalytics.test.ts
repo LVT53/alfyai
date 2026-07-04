@@ -3,13 +3,39 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
 
+// Capture the config passed to each Chart instance so animation behaviour
+// can be asserted (ADR-0043 Wave 9 reduced-motion guard).
+interface CapturedChartConfig {
+	options?: { animation?: false | Record<string, unknown> };
+}
+const chartConfigs: CapturedChartConfig[] = [];
+
 vi.mock("chart.js/auto", () => {
 	class Chart {
 		static getChart = vi.fn(() => null);
 		destroy = vi.fn();
+		constructor(_canvas: unknown, config: CapturedChartConfig) {
+			chartConfigs.push(config);
+		}
 	}
 	return { Chart };
 });
+
+function reducedMotionMatchMedia() {
+	Object.defineProperty(window, "matchMedia", {
+		writable: true,
+		value: (query: string) => ({
+			matches: query === "(prefers-reduced-motion: reduce)",
+			media: query,
+			onchange: null,
+			addListener: () => undefined,
+			removeListener: () => undefined,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined,
+			dispatchEvent: () => false,
+		}),
+	});
+}
 
 function personalFixture(): AnalyticsResponse {
 	return {
@@ -86,5 +112,45 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		});
 
 		expect(getByText("No analytics data yet.")).toBeInTheDocument();
+	});
+
+	it("disables Chart.js animation under prefers-reduced-motion (ADR-0043 Wave 9)", async () => {
+		reducedMotionMatchMedia();
+		chartConfigs.length = 0;
+
+		const data: AnalyticsResponse = {
+			...personalFixture(),
+			personal: {
+				...personalFixture().personal,
+				byModel: [
+					{
+						model: "model1",
+						displayName: "Model 1",
+						msgCount: 1,
+						totalCostUsd: 1.5,
+					},
+				],
+			},
+			timeline: [
+				{ label: "w1", tokens: 100 },
+				{ label: "w2", tokens: 200 },
+			],
+		};
+
+		render(SettingsPersonalAnalytics, {
+			analyticsData: data,
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: "2026-06",
+		});
+
+		// Chart.js runs inside an awaited dynamic import + tick; flush.
+		await vi.waitFor(() => {
+			expect(chartConfigs.length).toBeGreaterThan(0);
+		});
+
+		for (const config of chartConfigs) {
+			expect(config.options?.animation).toBe(false);
+		}
 	});
 });

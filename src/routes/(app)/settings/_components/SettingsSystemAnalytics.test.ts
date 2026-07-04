@@ -7,9 +7,35 @@ vi.mock("chart.js/auto", () => {
 	class Chart {
 		static getChart = vi.fn(() => null);
 		destroy = vi.fn();
+		constructor(_canvas: unknown, config: CapturedChartConfig) {
+			chartConfigs.push(config);
+		}
 	}
 	return { Chart };
 });
+
+// Capture the config passed to each Chart instance so animation behaviour
+// can be asserted (ADR-0043 Wave 9 reduced-motion guard).
+interface CapturedChartConfig {
+	options?: { animation?: false | Record<string, unknown> };
+}
+const chartConfigs: CapturedChartConfig[] = [];
+
+function reducedMotionMatchMedia() {
+	Object.defineProperty(window, "matchMedia", {
+		writable: true,
+		value: (query: string) => ({
+			matches: query === "(prefers-reduced-motion: reduce)",
+			media: query,
+			onchange: null,
+			addListener: () => undefined,
+			removeListener: () => undefined,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined,
+			dispatchEvent: () => false,
+		}),
+	});
+}
 
 function systemFixture(): AnalyticsResponse {
 	return {
@@ -168,5 +194,29 @@ describe("SettingsSystemAnalytics (ADR-0043 slice 18c)", () => {
 
 		expect(getByText("Excluded Users")).toBeInTheDocument();
 		expect(getByText("User Two")).toBeInTheDocument();
+	});
+
+	it("disables Chart.js animation under prefers-reduced-motion (ADR-0043 Wave 9)", async () => {
+		reducedMotionMatchMedia();
+		chartConfigs.length = 0;
+
+		render(SettingsSystemAnalytics, {
+			analyticsData: systemWithPerUserFixture(),
+			modelNames: { model2: "Model 2" },
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await vi.waitFor(() => {
+			expect(chartConfigs.length).toBeGreaterThan(0);
+		});
+
+		for (const config of chartConfigs) {
+			expect(config.options?.animation).toBe(false);
+		}
 	});
 });

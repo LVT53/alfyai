@@ -5,6 +5,7 @@ import { get } from "svelte/store";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
+import { chartAnimation } from "./chart-reduced-motion";
 
 // ADR-0043 slice 18c: the system Blocks B/C/D analytics (admin-only) extracted
 // from the former standalone SettingsAnalyticsTab. Rendered as a sub-pane under
@@ -185,7 +186,7 @@ async function initCharts(
 			options: {
 				indexAxis: "y",
 				maintainAspectRatio: false,
-				animation: { duration: 500 },
+				animation: chartAnimation({ duration: 500 }),
 				plugins: {
 					legend: {
 						position: "top",
