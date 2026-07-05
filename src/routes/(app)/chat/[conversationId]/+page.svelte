@@ -50,6 +50,7 @@ import {
 } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { currentConversationId } from "$lib/stores/ui";
+import { projects } from "$lib/stores/projects";
 import {
 	selectedModel,
 	selectedReasoningDepth,
@@ -269,6 +270,17 @@ let conversationTitle = $derived(data.conversation?.title ?? "");
 let generatedTitleOverride = $state<string | null>(null);
 let effectiveConversationTitle = $derived(
 	generatedTitleOverride ?? conversationTitle,
+);
+
+// Project breadcrumb for the desktop title bar (see the chat-title-bar
+// markup below) — looked up from the shared projects store rather than
+// fetched here, since the sidebar already keeps it populated.
+let activeProjectId = $derived(data.conversation?.projectId ?? null);
+let activeProjectName = $derived(
+	activeProjectId
+		? ($projects.find((project) => project.id === activeProjectId)?.name ??
+				null)
+		: null,
 );
 
 const messages = writable<ChatMessage[]>(initialMessages);
@@ -2202,11 +2214,19 @@ function handleDrop(event: DragEvent) {
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
 			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
 				<h1
-					class="min-w-0 max-w-[min(42rem,72vw)] truncate text-center text-[13px] font-medium leading-5 text-text-primary"
-					title={effectiveConversationTitle}
+					class="flex min-w-0 max-w-[min(42rem,72vw)] items-baseline justify-center text-center text-[13px] font-medium leading-5 text-text-primary"
+					title={activeProjectName
+						? `${activeProjectName} / ${effectiveConversationTitle}`
+						: effectiveConversationTitle}
 					aria-live="polite"
 				>
-					<ConversationTitleText title={effectiveConversationTitle} />
+					{#if activeProjectName}
+						<span class="chat-title-project truncate">{activeProjectName}</span>
+						<span class="chat-title-sep" aria-hidden="true">/</span>
+					{/if}
+					<span class="chat-title-main truncate">
+						<ConversationTitleText title={effectiveConversationTitle} />
+					</span>
 				</h1>
 			</div>
 
@@ -2349,6 +2369,29 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar {
 		background: color-mix(in srgb, var(--surface-page) 92%, transparent 8%);
+	}
+
+	/* Project breadcrumb: dimmed relative to the title so the title itself
+	   still reads as the primary label. Capped narrower than the title so a
+	   long project name can't crowd it out; the title gets the remaining
+	   space and truncates on its own if still too tight. */
+	.chat-title-project {
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 9rem;
+		color: var(--text-muted);
+	}
+
+	.chat-title-sep {
+		flex-shrink: 0;
+		margin: 0 0.4rem;
+		color: var(--text-muted);
+		opacity: 0.6;
+	}
+
+	.chat-title-main {
+		flex: 1 1 auto;
+		min-width: 3rem;
 	}
 
 	.chat-stage-workspace-open .chat-main :global(.scroll-container > div),
