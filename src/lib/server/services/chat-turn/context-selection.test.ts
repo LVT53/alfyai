@@ -382,7 +382,11 @@ describe("selectPromptContext", () => {
 		expect(selected.inputValue).toContain("## Task State");
 		expect(selected.inputValue).toContain("## Current Attachments");
 		expect(selected.inputValue).toContain("## Current User Message");
-		expect(selected.inputValue).not.toContain("UNRELATED_HISTORY");
+		// The oversized session section is trimmed to fit rather than dropped
+		// wholesale — some of it still makes it in, capped with a truncation marker.
+		expect(selected.inputValue).toContain("## Honcho Session Context");
+		expect(selected.inputValue).toContain("UNRELATED_HISTORY");
+		expect(selected.inputValue).toContain("[truncated]");
 		expect(selected.estimatedTokens).toBeLessThanOrEqual(140);
 		expect(estimateTokenCount(selected.inputValue)).toBe(
 			selected.estimatedTokens,
@@ -406,7 +410,7 @@ describe("selectPromptContext", () => {
 				expect.objectContaining({
 					name: "Honcho Session Context",
 					source: "session",
-					inclusionLevel: "omitted",
+					inclusionLevel: "legacy_truncated",
 				}),
 				expect.objectContaining({
 					name: "Current User Message",

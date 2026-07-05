@@ -5,7 +5,6 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.attachmentLabel": "Attach file",
-		"chat.characterCount": "{current}/{max}",
 		"chat.delete": "Delete",
 		"chat.deliberatingProgress": "Deliberating: {current}/{total} · {label}",
 		"chat.edit": "Edit",
@@ -66,7 +65,6 @@ const chatDict = {
 		"chat.thinking": "Thinking...",
 		"chat.thought": "Thought",
 		"chat.thoughtFor": "Thought for {time}",
-		"chat.tooLongFormat": "{current} / {max} — too long to send",
 		"chat.uploadAllFailed": "Failed to upload {count} file(s).",
 		"chat.uploadAttachmentFailed": "Failed to upload attachment.",
 		"chat.uploadError": "Upload failed",
@@ -289,13 +287,10 @@ const chatDict = {
 			"Couldn't summarize older messages — the full conversation stays in view.",
 		"contextCompression.failed": "Context compaction failed",
 		"contextCompression.hideWhatWasKept": "Hide what was kept",
-		"contextCompression.keptHeading": "What AlfyAI kept from those messages",
-		"contextCompression.originalsStillSaved":
-			"Original messages are still saved — this summary just keeps the chat efficient.",
 		"contextCompression.retry": "Retry",
 		"contextCompression.showWhatWasKept": "Show what was kept",
 		"contextCompression.summarizedFormat":
-			"Summarized {count} earlier messages so this chat can keep going.",
+			"Summarized {count} earlier messages, saved {tokens} tokens.",
 		"contextCompression.summarizing": "Summarizing earlier messages…",
 		"contextSources.activeSources": "Active sources",
 		"contextSources.close": "Close Context Sources",
@@ -674,7 +669,6 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.attachmentLabel": "Fájl csatolása",
-		"chat.characterCount": "{current}/{max}",
 		"chat.delete": "Törlés",
 		"chat.deliberatingProgress": "Mérlegelés: {current}/{total} · {label}",
 		"chat.edit": "Szerkesztés",
@@ -736,7 +730,6 @@ const chatDict = {
 		"chat.thinking": "Gondolkodás...",
 		"chat.thought": "Gondolkodott",
 		"chat.thoughtFor": "{time}-ig gondolkodott",
-		"chat.tooLongFormat": "{current} / {max} — túl hosszú a küldéshez",
 		"chat.uploadAllFailed": "Nem sikerült feltölteni {count} fájlt.",
 		"chat.uploadAttachmentFailed": "A fájl csatolása nem sikerült.",
 		"chat.uploadError": "Feltöltés sikertelen",
@@ -965,14 +958,10 @@ const chatDict = {
 			"Nem sikerült összefoglalni a régebbi üzeneteket — a teljes beszélgetés látható marad.",
 		"contextCompression.failed": "A kontextustömörítés sikertelen",
 		"contextCompression.hideWhatWasKept": "Megőrzöttek elrejtése",
-		"contextCompression.keptHeading":
-			"Amit az AlfyAI ezekből az üzenetekből megtartott",
-		"contextCompression.originalsStillSaved":
-			"Az eredeti üzenetek továbbra is mentve vannak — ez az összefoglalás csak hatékonyan tartja a csevegést.",
 		"contextCompression.retry": "Újrapróbálás",
 		"contextCompression.showWhatWasKept": "Megőrzöttek megjelenítése",
 		"contextCompression.summarizedFormat":
-			"{count} korábbi üzenet összegezve, hogy a csevegés folytatódhasson.",
+			"{count} korábbi üzenet összegezve, {tokens} token megtakarítva.",
 		"contextCompression.summarizing": "Korábbi üzenetek összegzése…",
 		"contextSources.activeSources": "Aktív források",
 		"contextSources.close": "Kontextusforrások bezárása",

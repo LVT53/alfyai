@@ -9,6 +9,7 @@ import {
 	Layers,
 	LoaderCircle,
 	Eye,
+	EyeOff,
 	RotateCw,
 } from "@lucide/svelte";
 import type {
@@ -26,6 +27,7 @@ import type {
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
+import { buildJumpRailTurns } from "./jump-rail";
 
 let {
 	messages = [],
@@ -140,6 +142,8 @@ let shouldJumpToConversationBottom = false;
 let pendingForkBoundaryMessageId: string | null = null;
 let lastForkBoundaryJumpKey: string | null = null;
 let pendingRestoreScroll: number | null = null;
+let activeJumpRailTurnId = $state<string | null>(null);
+let jumpRailActiveUpdateQueued = false;
 
 function chatScrollKey(cid: string | null): string {
 	return `alfyai-chat-scroll:${cid ?? "unknown"}`;
@@ -181,6 +185,49 @@ function handleScroll() {
 	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
 	const distanceToBottom = scrollHeight - scrollTop - clientHeight;
 	shouldAutoScroll = distanceToBottom < 50;
+	queueActiveJumpRailTurnUpdate();
+}
+
+/**
+ * Recomputes which jump-rail turn is nearest the viewport center, throttled
+ * to one measurement per animation frame so scroll handling stays cheap.
+ */
+function queueActiveJumpRailTurnUpdate() {
+	if (jumpRailActiveUpdateQueued) return;
+	jumpRailActiveUpdateQueued = true;
+	requestAnimationFrame(() => {
+		jumpRailActiveUpdateQueued = false;
+		updateActiveJumpRailTurn();
+	});
+}
+
+function updateActiveJumpRailTurn() {
+	if (!scrollContainer) return;
+	const turns = buildJumpRailTurns(dedupedMessages);
+	if (turns.length === 0) {
+		activeJumpRailTurnId = null;
+		return;
+	}
+
+	const containerRect = scrollContainer.getBoundingClientRect();
+	const centerY = containerRect.top + containerRect.height / 2;
+	let closestId: string | null = null;
+	let closestDistance = Number.POSITIVE_INFINITY;
+
+	for (const turn of turns) {
+		const element = scrollContainer.querySelector(
+			`[data-message-id="${CSS.escape(turn.id)}"]`,
+		);
+		if (!element) continue;
+		const rect = element.getBoundingClientRect();
+		const distance = Math.abs(rect.top + rect.height / 2 - centerY);
+		if (distance < closestDistance) {
+			closestDistance = distance;
+			closestId = turn.id;
+		}
+	}
+
+	activeJumpRailTurnId = closestId;
 }
 
 // Detect if a new message was added (not just content updates or ID reconciliation on stream end)
@@ -293,6 +340,16 @@ function instantScrollToBottom() {
 	if (!scrollContainer) return;
 	scrollContainer.scrollTop = scrollContainer.scrollHeight;
 }
+
+// Keep the jump-rail's active mark in sync with layout changes that aren't
+// user scrolling — new messages, streaming content, or a conversation switch
+// all shift what's centered without firing a scroll event.
+$effect(() => {
+	dedupedMessages;
+	scrollContainer;
+	if (!browser || !scrollContainer) return;
+	void tick().then(() => queueActiveJumpRailTurnUpdate());
+});
 
 let pinnedArtifactIds = $derived(
 	contextDebug?.pinnedEvidence.map((evidence) => evidence.artifactId) ?? [],
@@ -412,7 +469,19 @@ function contextCompressionMarkerLabel(
 		return $t("contextCompression.couldNotSummarize");
 	}
 	const count = marker.sourceMessageCount ?? 0;
-	return $t("contextCompression.summarizedFormat", { count });
+	const tokens = contextCompressionSavedTokens(marker).toLocaleString();
+	return $t("contextCompression.summarizedFormat", { count, tokens });
+}
+
+// Tokens reclaimed by the summary: the source messages' estimated size minus
+// the resulting summary's own size. Clamped at 0 in case the estimates ever
+// invert (e.g. a very short source with a verbose summary).
+function contextCompressionSavedTokens(
+	marker: ContextCompressionMarker,
+): number {
+	const sourceTokens = marker.sourceTokenEstimate ?? 0;
+	const summaryTokens = marker.estimatedTokens ?? 0;
+	return Math.max(0, sourceTokens - summaryTokens);
 }
 
 // Client-only expand state for the "Show what was kept" panel. Keyed by marker
@@ -640,36 +709,41 @@ async function scrollToMessage(messageId: string) {
 								{:else}
 									<Layers class="context-compression-icon" size={13} strokeWidth={2} aria-hidden="true" />
 									<span class="context-compression-title">
-										{$t('contextCompression.summarizedFormat', { count: marker.sourceMessageCount ?? 0 })}
+										{$t('contextCompression.summarizedFormat', {
+											count: marker.sourceMessageCount ?? 0,
+											tokens: contextCompressionSavedTokens(marker).toLocaleString(),
+										})}
 									</span>
-									<button
-										type="button"
-										class="btn-icon-bare context-compression-action"
-										aria-expanded={isCompactionMarkerExpanded(marker.id)}
-										onclick={() => toggleCompactionMarkerExpanded(marker.id)}
-									>
-										{#if isCompactionMarkerExpanded(marker.id)}
-											{$t('contextCompression.hideWhatWasKept')}
-											<Eye size={12} strokeWidth={2} aria-hidden="true" />
-										{:else}
-											{$t('contextCompression.showWhatWasKept')}
-											<Eye size={12} strokeWidth={2} aria-hidden="true" />
-										{/if}
-									</button>
+									{#if marker.summaryExcerpt}
+										<button
+											type="button"
+											class="btn-icon-bare context-compression-action context-compression-action--icon-only"
+											aria-expanded={isCompactionMarkerExpanded(marker.id)}
+											aria-label={isCompactionMarkerExpanded(marker.id)
+												? $t('contextCompression.hideWhatWasKept')
+												: $t('contextCompression.showWhatWasKept')}
+											title={isCompactionMarkerExpanded(marker.id)
+												? $t('contextCompression.hideWhatWasKept')
+												: $t('contextCompression.showWhatWasKept')}
+											onclick={() => toggleCompactionMarkerExpanded(marker.id)}
+										>
+											{#if isCompactionMarkerExpanded(marker.id)}
+												<EyeOff size={13} strokeWidth={2} aria-hidden="true" />
+											{:else}
+												<Eye size={13} strokeWidth={2} aria-hidden="true" />
+											{/if}
+										</button>
+									{/if}
 								{/if}
 							</div>
 							<span class="context-compression-divider-line" aria-hidden="true"></span>
 						</div>
-						{#if marker.status === 'valid' && isCompactionMarkerExpanded(marker.id)}
+						{#if marker.status === 'valid' && isCompactionMarkerExpanded(marker.id) && marker.summaryExcerpt}
 							<div
 								class="context-compression-expand-panel"
 								data-testid={`context-compression-expand-${marker.id}`}
 							>
-								<div class="context-compression-kept-heading">{$t('contextCompression.keptHeading')}</div>
-								{#if marker.summaryExcerpt}
-									<p class="context-compression-kept-body">{marker.summaryExcerpt}</p>
-								{/if}
-								<p class="context-compression-kept-note">{$t('contextCompression.originalsStillSaved')}</p>
+								<p class="context-compression-kept-body">{marker.summaryExcerpt}</p>
 							</div>
 						{/if}
 					</div>
@@ -687,6 +761,7 @@ async function scrollToMessage(messageId: string) {
 	<ConversationJumpRail
 		messages={dedupedMessages}
 		{scrollToMessage}
+		activeTurnId={activeJumpRailTurnId}
 	/>
 </div>
 
@@ -903,6 +978,20 @@ async function scrollToMessage(messageId: string) {
 		white-space: nowrap;
 	}
 
+	.context-compression-action--icon-only {
+		gap: 0;
+		text-decoration: none;
+		padding: 0.2rem;
+		border-radius: var(--radius-sm);
+		color: var(--compaction-gold);
+	}
+
+	.context-compression-action--icon-only:hover,
+	.context-compression-action--icon-only:focus-visible {
+		background: color-mix(in srgb, var(--compaction-gold) 16%, transparent 84%);
+		color: var(--accent);
+	}
+
 	/* In-progress shimmer: text opacity + indeterminate bar sweep.
 	   The global prefers-reduced-motion override (app.css) collapses all
 	   animation/transition durations to ~0ms, so this is automatically static
@@ -952,41 +1041,26 @@ async function scrollToMessage(messageId: string) {
 		}
 	}
 
-	/* Inline "Show what was kept" expand panel. */
+	/* "Show what was kept" excerpt — a small floating card below the pill
+	   (not attached to it), so it reads as a popover rather than an
+	   extension of the box above. */
 	.context-compression-expand-panel {
-		width: 100%;
-		margin: var(--space-xs) 0 0;
-		border: 1px solid color-mix(in srgb, var(--compaction-gold) 28%, var(--border-default) 72%);
-		border-top: none;
-		border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-elevated) 92%, var(--compaction-gold) 8%);
-		padding: 0 var(--space-sm) var(--space-sm);
-	}
-
-	.context-compression-kept-heading {
-		margin-top: var(--space-xs);
-		font-size: var(--text-2xs);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--text-muted);
+		align-self: center;
+		max-width: min(30rem, 100%);
+		margin: 0.4rem 0 0;
+		border: 1px solid color-mix(in srgb, var(--compaction-gold) 30%, var(--border-default) 70%);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--surface-elevated) 94%, var(--compaction-gold) 6%);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-sm) var(--space-md);
 	}
 
 	.context-compression-kept-body {
-		margin: var(--space-xs) 0;
+		margin: 0;
 		font-family: var(--font-serif);
 		font-size: var(--text-xs);
 		line-height: 1.55;
 		color: var(--text-primary);
-		background: var(--surface-page);
-		border: 1px solid color-mix(in srgb, var(--border-default) 80%, transparent 20%);
-		border-radius: var(--radius-sm);
-		padding: var(--space-xs) var(--space-sm);
-	}
-
-	.context-compression-kept-note {
-		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--text-muted);
 	}
 
 	.import-lineage-marker {

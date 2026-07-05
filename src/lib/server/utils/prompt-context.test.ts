@@ -94,6 +94,72 @@ describe("compactContextSections", () => {
 			}),
 		]);
 	});
+
+	it("trims an oversized section to fit the remaining budget instead of dropping it wholesale", () => {
+		const compacted = compactContextSections({
+			intro: "Context bundle:",
+			message: "What should I do next?",
+			targetTokens: 150,
+			sections: [
+				{
+					title: "Task State",
+					body: "Ship the redesign.",
+					layer: "task_state",
+					protected: true,
+				},
+				{
+					title: "Web Sources",
+					body: "Relevant excerpt. ".repeat(500),
+					layer: "documents",
+				},
+			],
+		});
+
+		expect(compacted.inputValue).toContain("## Web Sources");
+		expect(compacted.inputValue).toContain("Relevant excerpt.");
+		expect(compacted.inputValue).toContain("[truncated]");
+		expect(compacted.estimatedTokens).toBeLessThanOrEqual(150);
+		expect(compacted.compactionApplied).toBe(true);
+		expect(compacted.compactionMode).toBe("deterministic");
+		expect(compacted.sectionSelections).toContainEqual(
+			expect.objectContaining({
+				title: "Web Sources",
+				trimmed: true,
+				inclusionLevel: "trimmed",
+			}),
+		);
+	});
+
+	it("only omits a section wholesale when there is no meaningful room left for it", () => {
+		const compacted = compactContextSections({
+			intro: "Context bundle:",
+			message: "What should I do next?",
+			targetTokens: 40,
+			sections: [
+				{
+					title: "Task State",
+					body: "Important task state. ".repeat(400),
+					layer: "task_state",
+					protected: true,
+				},
+				{
+					title: "Low Priority Notes",
+					body: "Some background detail that would help. ".repeat(50),
+					layer: "session",
+				},
+			],
+		});
+
+		expect(compacted.inputValue).not.toContain("## Low Priority Notes");
+		expect(compacted.sectionSelections).toContainEqual(
+			expect.objectContaining({
+				title: "Low Priority Notes",
+				body: "",
+				trimmed: false,
+				inclusionLevel: "omitted",
+			}),
+		);
+	});
 });
 
 describe("serializeBudgetedAttachments", () => {

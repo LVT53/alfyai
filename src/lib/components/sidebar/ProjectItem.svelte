@@ -302,7 +302,7 @@ function createConversation(e: MouseEvent) {
 					data-testid={`project-chat-count-${project.id}`}
 					aria-label={$t('sidebar.chatCount', { count: chatCount })}
 					title={$t('sidebar.chatCount', { count: chatCount })}
-					class="project-chat-count-badge pointer-events-none absolute inset-0 inline-flex items-center justify-center text-[10px] font-medium leading-none text-text-muted tabular-nums transition-opacity duration-100 md:opacity-100"
+					class="project-chat-count-badge pointer-events-none absolute inset-0 inline-flex items-center justify-center text-[11px] font-medium leading-none text-text-muted tabular-nums transition-opacity duration-100 md:opacity-100"
 					class:md:opacity-0={menuOpen}
 					class:group-hover:md:opacity-0={true}
 				>{chatCount}</span>

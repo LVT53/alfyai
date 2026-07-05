@@ -1155,10 +1155,10 @@ describe("MessageInput", () => {
 		expect(mockSend).not.toHaveBeenCalled();
 	});
 
-	it("shows character count and blocks send when over limit", async () => {
+	it("blocks send when over the max length", async () => {
 		const maxLength = 10;
 		const mockSend = vi.fn();
-		const { getByPlaceholderText, getByLabelText, getByText } = render(
+		const { getByPlaceholderText, getByLabelText } = render(
 			MessageInputWrapper,
 			{ maxLength, onSend: mockSend },
 		);
@@ -1168,11 +1168,9 @@ describe("MessageInput", () => {
 		const button = getByLabelText("Send message") as HTMLButtonElement;
 
 		await fireEvent.input(input, { target: { value: "123456789" } });
-		expect(getByText("9/10")).toBeDefined();
 		expect(button.disabled).toBe(false);
 
 		await fireEvent.input(input, { target: { value: "12345678901" } });
-		expect(getByText("11 / 10 — too long to send")).toBeDefined();
 		expect(button.disabled).toBe(true);
 
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
@@ -1955,24 +1953,6 @@ describe("MessageInput", () => {
 
 		expect(uploadFilesSpy).not.toHaveBeenCalled();
 		expect(await findByText(/exceed.*100MB|exceed.*upload size/)).toBeDefined();
-	});
-
-	it("always shows the character counter even when the message is short", () => {
-		const { getByText } = render(MessageInput, { maxLength: 10000 });
-		// Counter renders at 0/10000 with an empty composer — no longer gated at 80%.
-		expect(getByText("0/10000")).toBeDefined();
-	});
-
-	it("shows the over-length reason in the character counter", async () => {
-		const { getByPlaceholderText, getByText } = render(MessageInput, {
-			maxLength: 10,
-		});
-		const input = getByPlaceholderText(
-			"Type a message...",
-		) as HTMLTextAreaElement;
-
-		await fireEvent.input(input, { target: { value: "12345678901" } });
-		expect(getByText("11 / 10 — too long to send")).toBeDefined();
 	});
 
 	it("shows a waiting hint when send is blocked by an unready attachment", async () => {

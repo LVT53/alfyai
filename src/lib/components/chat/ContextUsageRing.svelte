@@ -246,29 +246,26 @@ let isNearTrigger = $derived(
 			</div>
 		{/if}
 
-		{#if contextStatus}
-			<div
-				class={`popover-context-room${isNearTrigger ? ' popover-context-room--near' : ''}`}
-			>
-				<div class="popover-context-room-header">
-					<span class="popover-label">{$t('contextUsageRing.contextRoom')}</span>
-					<span class="popover-context-room-pct">{$t('contextUsageRing.usageFormat', { percent })}</span>
-				</div>
-				<div class="popover-context-room-bar" aria-hidden="true">
-					<div class="popover-context-room-fill" style={`width: ${percent}%`}></div>
-				</div>
-				{#if isNearTrigger}
-					<p class="popover-near-trigger">{$t('contextUsageRing.nearTriggerNote')}</p>
-				{/if}
-			</div>
-		{/if}
-
 		<div class="popover-section">
 			<div class="popover-label">{$t('contextUsageRing.context')}</div>
 			{#if contextStatus}
-				<div class="popover-stat">
-					<span>{$t('contextUsageRing.promptBudget')}</span>
-					<span>{contextStatus.estimatedTokens.toLocaleString()} / {contextStatus.targetTokens.toLocaleString()}</span>
+				<div
+					class={`popover-context-room popover-context-room-tooltip-container${isNearTrigger ? ' popover-context-room--near' : ''}`}
+				>
+					<div class="popover-context-room-header">
+						<span class="popover-label">{$t('contextUsageRing.contextRoom')}</span>
+						<span class="popover-context-room-pct">{$t('contextUsageRing.usageFormat', { percent })}</span>
+					</div>
+					<div class="popover-context-room-bar" aria-hidden="true">
+						<div class="popover-context-room-fill" style={`width: ${percent}%`}></div>
+					</div>
+					{#if isNearTrigger}
+						<p class="popover-near-trigger">{$t('contextUsageRing.nearTriggerNote')}</p>
+					{/if}
+					<div class="popover-context-room-tooltip" role="tooltip">
+						<span class="popover-context-room-tooltip-label">{$t('contextUsageRing.promptBudget')}</span>
+						<span class="popover-context-room-tooltip-value">{contextStatus.estimatedTokens.toLocaleString()} / {contextStatus.targetTokens.toLocaleString()}</span>
+					</div>
 				</div>
 				<div class="popover-stat">
 					<span>{$t('contextUsageRing.compaction')}</span>
@@ -525,13 +522,62 @@ let isNearTrigger = $derived(
 	}
 
 	/* Context room bar — the bar communicates remaining capacity, so the old
-	   "plenty left" sub-text is removed; the percent speaks for itself. */
+	   "plenty left" sub-text is removed; the percent speaks for itself. Sits
+	   directly under the "Context" subtitle; the exact estimated/target token
+	   figures (formerly a separate "Prompt budget" line) now live in a hover
+	   tooltip instead of taking up a permanent row. */
 	.popover-context-room {
-		margin-top: 0.75rem;
+		position: relative;
+		margin-top: 0.55rem;
 		padding: 0.5rem 0.6rem;
 		border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default) 82%);
 		border-radius: 0.5rem;
 		background: color-mix(in srgb, var(--accent) 6%, var(--surface-elevated) 94%);
+	}
+
+	.popover-context-room-tooltip {
+		position: absolute;
+		bottom: calc(100% + 8px);
+		left: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		width: max-content;
+		max-width: 16rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-lg);
+		padding: var(--space-sm) var(--space-md);
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(4px);
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility var(--duration-standard);
+		pointer-events: none;
+		z-index: 10;
+	}
+
+	.popover-context-room-tooltip-container:hover .popover-context-room-tooltip {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
+	}
+
+	.popover-context-room-tooltip-label {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
+	}
+
+	.popover-context-room-tooltip-value {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-primary);
 	}
 
 	.popover-context-room--near {

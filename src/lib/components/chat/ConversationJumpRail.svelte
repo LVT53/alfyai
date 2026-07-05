@@ -202,24 +202,25 @@ function waveScale(index: number): number {
 	}
 
 	.jr-mark {
-		width: 11px;
+		width: 14px;
 		border: none;
 		padding: 0;
 		margin: 0;
-		border-radius: 1px;
+		border-radius: 1.5px;
 		background: color-mix(in srgb, var(--text-primary) 16%, transparent);
-		/* height encodes content length somewhat (1.5–2px per the mockup). */
+		/* height encodes content length somewhat; kept thick enough to be an
+		   easy mouse target (was 1.5–2px, too thin to reliably click). */
 		cursor: pointer;
 		transform: scaleX(var(--jr-scale, 1));
 		transition: transform 0.18s ease-out, background-color 0.18s ease-out;
 	}
 
 	.jr-mark--short {
-		height: 1.5px;
+		height: 3px;
 	}
 
 	.jr-mark--tall {
-		height: 2px;
+		height: 4px;
 	}
 
 	/* Hover: the hovered mark scales up + shifts toward the accent color. This
@@ -241,8 +242,8 @@ function waveScale(index: number): number {
 	/* Active line: thicker (5px) + terracotta. This is STATE, not motion — it
 	   stays colored/thicker under reduced-motion; only the breath pauses. */
 	.jr-mark--active {
-		width: 14px;
-		height: 5px;
+		width: 17px;
+		height: 6px;
 		background: var(--accent);
 		animation: jr-breath 3s ease-in-out infinite;
 	}

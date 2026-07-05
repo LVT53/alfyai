@@ -87,9 +87,22 @@ export function buildContextSourcesState(
 		0;
 	const pinnedCount = input.contextDebug?.pinnedEvidence.length ?? 0;
 	const excludedCount = input.contextDebug?.excludedEvidence.length ?? 0;
+	// "Compacted" is reserved for sections truly dropped wholesale (or the
+	// LLM-fallback history compaction) — routine trimming of an oversized
+	// section now shows up only as "reduced" (see below), not this harsher
+	// state, since compaction no longer means "wholesale" by default. Trace
+	// sections carry that per-section detail but only exist for a live turn;
+	// the persisted read-model view has no trace data, so it falls back to
+	// the coarser status-level signal (the best available there).
+	const sectionOmitted = input.contextTraceSections?.some(
+		(section) => section.inclusionLevel === "omitted",
+	);
 	const compacted = Boolean(
-		input.contextStatus?.compactionApplied ||
-			(input.contextStatus && input.contextStatus.compactionMode !== "none"),
+		input.contextTraceSections
+			? sectionOmitted || input.contextStatus?.compactionMode === "llm_fallback"
+			: input.contextStatus?.compactionApplied ||
+					(input.contextStatus &&
+						input.contextStatus.compactionMode !== "none"),
 	);
 	const traceReduced = (input.contextTraceSections ?? []).some(
 		isReducedTraceSection,

@@ -122,7 +122,9 @@ function openDocument(item: MessageEvidenceItem) {
 				</span>
 			{/if}
 		</span>
-		<ChevronDown size={14} strokeWidth={2} class={`chevron${expanded ? ' expanded' : ''}`} aria-hidden="true" />
+		<span class={`chevron${expanded ? ' expanded' : ''}`}>
+			<ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
+		</span>
 	</button>
 
 	{#if expanded}
@@ -132,7 +134,7 @@ function openDocument(item: MessageEvidenceItem) {
 					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.used')}</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.used')}>
 						{#each usedItems as item, itemIndex (`used-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item)}
+							{@render renderItem(item, itemIndex)}
 						{/each}
 					</div>
 				</section>
@@ -142,7 +144,7 @@ function openDocument(item: MessageEvidenceItem) {
 					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.setAside')}</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.setAside')}>
 						{#each setAsideItems as item, itemIndex (`aside-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item)}
+							{@render renderItem(item, itemIndex)}
 						{/each}
 					</div>
 				</section>
@@ -151,10 +153,13 @@ function openDocument(item: MessageEvidenceItem) {
 	{/if}
 </div>
 
-{#snippet renderItem(item: MessageEvidenceItem)}
+{#snippet renderItem(item: MessageEvidenceItem, index: number)}
 	{@const TypeIcon = typeIconFor(item.sourceType)}
 	{@const clickableDoc = isDocument(item)}
-	<div class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}>
+	<div
+		class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}
+		style={`animation-delay: ${Math.min(index, 12) * 35}ms`}
+	>
 		{#if clickableDoc}
 			<button
 				type="button"
@@ -255,6 +260,20 @@ function openDocument(item: MessageEvidenceItem) {
 	.evidence-summary-line {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
+		animation: evidence-summary-reveal 0.45s ease-out both;
+	}
+
+	/* Left-to-right reveal: a clip-path wipe combined with a fade, rather than
+	   a plain fade, so the text visibly draws in from the left. */
+	@keyframes evidence-summary-reveal {
+		from {
+			opacity: 0;
+			clip-path: inset(0 100% 0 0);
+		}
+		to {
+			opacity: 1;
+			clip-path: inset(0 0 0 0);
+		}
 	}
 
 	.chevron {
@@ -309,6 +328,21 @@ function openDocument(item: MessageEvidenceItem) {
 		display: flex;
 		flex-direction: column;
 		gap: 0.2rem;
+		/* backwards (not forwards): holds the 0% frame during animation-delay
+		   for the stagger, then releases back to normal cascade so the
+		   --aside dimmed opacity below still applies at rest. */
+		animation: evidence-row-fade-in 0.3s ease-out backwards;
+	}
+
+	@keyframes evidence-row-fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(3px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.evidence-row--clickable {
@@ -412,6 +446,11 @@ function openDocument(item: MessageEvidenceItem) {
 	@media (prefers-reduced-motion: reduce) {
 		.chevron {
 			transition: none;
+		}
+
+		.evidence-summary-line,
+		.evidence-row {
+			animation: none;
 		}
 	}
 </style>

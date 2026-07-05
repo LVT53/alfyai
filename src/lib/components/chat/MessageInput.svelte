@@ -35,7 +35,6 @@ import {
 	replaceActiveComposerCommandToken,
 	type ComposerCommandToken,
 } from "./composer-command-parser";
-import { isOverLength } from "./char-count";
 import { browser } from "$app/environment";
 import type {
 	ArtifactSummary,
@@ -84,7 +83,6 @@ type DraftPayload = {
 let {
 	disabled = false,
 	maxLength = 10000,
-	showCharCount = true,
 	showSlashHintProp = true,
 	isGenerating = false,
 	canStopStreaming = undefined,
@@ -129,11 +127,6 @@ let {
 }: {
 	disabled?: boolean;
 	maxLength?: number;
-	/**
-	 * Whether to render the always-visible character counter under the composer.
-	 * The landing hero composer hides it; the in-conversation composer shows it.
-	 */
-	showCharCount?: boolean;
 	/**
 	 * Whether to render the one-time "Press / to start typing" coach hint.
 	 * The landing hero composer hides it.
@@ -244,9 +237,6 @@ const COMMAND_TRAY_CLOSE_DURATION_MS = 150;
 
 let isEmpty = $derived(message.trim().length === 0);
 let isOverMaxLength = $derived(message.length > maxLength);
-let charCountColor = $derived(
-	isOverMaxLength ? "text-danger" : "text-text-muted",
-);
 let isUploadingAttachment = $derived(uploadState !== "idle");
 let isComposerDisabled = $derived(disabled || !isHydrated);
 let pendingAttachmentArtifacts = $derived(
@@ -1979,18 +1969,6 @@ async function emitDraftChange(force = false) {
 		</div>
 	</div>
 
-	{#if showCharCount}
-		<div class="mt-1 flex justify-end px-2">
-			<span class="text-[12px] font-sans {charCountColor}">
-				{#if isOverLength(message.length, maxLength)}
-					{$t('chat.tooLongFormat', { current: message.length, max: maxLength })}
-				{:else}
-					{$t('chat.characterCount', { current: message.length, max: maxLength })}
-				{/if}
-			</span>
-		</div>
-	{/if}
-
 	{#if sendDisabledHint}
 		<div class="mt-1 flex justify-end px-2">
 			<span class="text-[12px] font-sans text-text-muted" data-testid="send-disabled-hint">
@@ -2345,11 +2323,6 @@ async function emitDraftChange(force = false) {
 		align-self: center;
 	}
 
-	.composer-icon--active {
-		background: color-mix(in srgb, var(--accent) 12%, transparent 88%);
-		color: var(--accent);
-	}
-
 	.composer-textarea {
 		align-self: stretch;
 		position: relative;
@@ -2408,10 +2381,6 @@ async function emitDraftChange(force = false) {
 		border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent 28%);
 	}
 
-	.attachment-chip {
-		background: color-mix(in srgb, var(--surface-page) 88%, var(--surface-elevated) 12%);
-	}
-
 	.composer-send {
 		aspect-ratio: 1 / 1;
 		align-self: center;
@@ -2420,12 +2389,6 @@ async function emitDraftChange(force = false) {
 
 	.action-button-container {
 		align-self: center;
-	}
-
-	.composer-stop {
-		aspect-ratio: 1 / 1;
-		align-self: center;
-		overflow: hidden;
 	}
 
 	.composer-stop-accent {

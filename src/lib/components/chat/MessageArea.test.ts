@@ -389,6 +389,89 @@ describe("MessageArea", () => {
 		);
 	});
 
+	it("marks the jump-rail turn nearest the viewport center as active on scroll", async () => {
+		const messages: ChatMessage[] = [];
+		for (let i = 1; i <= 6; i += 1) {
+			messages.push({
+				id: `user-${i}`,
+				role: "user",
+				content: `Question ${i}`,
+				timestamp: Date.now(),
+			});
+			messages.push({
+				id: `assistant-${i}`,
+				role: "assistant",
+				content: `Answer ${i}`,
+				timestamp: Date.now(),
+			});
+		}
+
+		const farRect = {
+			top: 5000,
+			left: 0,
+			bottom: 5040,
+			right: 760,
+			width: 760,
+			height: 40,
+			x: 0,
+			y: 5000,
+			toJSON: () => ({}),
+		};
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: HTMLElement) {
+				if (this.classList.contains("scroll-container")) {
+					return {
+						top: 0,
+						left: 0,
+						bottom: 600,
+						right: 760,
+						width: 760,
+						height: 600,
+						x: 0,
+						y: 0,
+						toJSON: () => ({}),
+					};
+				}
+				if (this.getAttribute("data-message-id") === "assistant-3") {
+					// Sits right at the scroll container's vertical center (300).
+					return {
+						top: 280,
+						left: 0,
+						bottom: 320,
+						right: 760,
+						width: 760,
+						height: 40,
+						x: 0,
+						y: 280,
+						toJSON: () => ({}),
+					};
+				}
+				return farRect;
+			},
+		);
+
+		const { container } = render(MessageArea, {
+			messages,
+			conversationId: "conv-scroll-tracking",
+		});
+
+		const scrollContainer = container.querySelector(
+			".scroll-container",
+		) as HTMLDivElement;
+		await fireEvent.scroll(scrollContainer);
+
+		await waitFor(() => {
+			const marks = container.querySelectorAll(
+				'[data-testid="jump-rail-mark"]',
+			);
+			expect(marks).toHaveLength(6);
+			// assistant-3 is the third turn (index 2).
+			expect(marks[2]).toHaveAttribute("data-active");
+			expect(marks[0]).not.toHaveAttribute("data-active");
+			expect(marks[5]).not.toHaveAttribute("data-active");
+		});
+	});
+
 	it("aligns the fork boundary to the top of the chat viewport on initial fork open", async () => {
 		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
 			function (this: HTMLElement) {
@@ -600,9 +683,9 @@ describe("MessageArea", () => {
 			expect(getByText("Summarizing earlier messages…")).toBeTruthy();
 		});
 
-		it("renders the valid state with the source count and a Show what was kept toggle", () => {
+		it("renders the valid state with the source count, saved tokens, and an icon-only toggle", () => {
 			const messages = singleMessage();
-			const { getByTestId, getByText } = render(MessageArea, {
+			const { getByTestId, getByText, getByRole } = render(MessageArea, {
 				messages,
 				conversationId: "conv-1",
 				contextCompressionMarkers: [
@@ -614,6 +697,8 @@ describe("MessageArea", () => {
 						createdAt: Date.now(),
 						updatedAt: Date.now(),
 						sourceMessageCount: 12,
+						sourceTokenEstimate: 1500,
+						estimatedTokens: 200,
 						summaryExcerpt:
 							"You discussed Q3 revenue and generated a segment chart.",
 					},
@@ -623,48 +708,54 @@ describe("MessageArea", () => {
 			const marker = getByTestId("context-compression-marker-snap-valid");
 			expect(marker).toHaveClass("context-compression-chip");
 			expect(marker).toHaveClass("context-compression-chip--valid");
-			// The authoritive count is rendered inside the label.
+			// The authoritive count and saved-token delta are rendered inside the label.
 			expect(
-				getByText(
-					"Summarized 12 earlier messages so this chat can keep going.",
-				),
+				getByText("Summarized 12 earlier messages, saved 1,300 tokens."),
 			).toBeTruthy();
-			// Expand affordance present and collapsed by default.
-			expect(getByText("Show what was kept")).toBeTruthy();
+			// Expand affordance present (icon-only — no visible label text) and
+			// collapsed by default.
+			const toggle = getByRole("button", { name: "Show what was kept" });
+			expect(toggle).toBeTruthy();
+			expect(toggle).not.toHaveTextContent("Show what was kept");
 			expect(
 				marker.querySelector(".context-compression-expand-panel"),
 			).not.toBeTruthy();
 		});
 
-		it("expands the summary panel on click and shows the excerpt + originals-saved note", async () => {
+		it("expands the summary panel on click and shows the excerpt", async () => {
 			const messages = singleMessage();
-			const { getByTestId, getByText, queryByText } = render(MessageArea, {
-				messages,
-				conversationId: "conv-1",
-				contextCompressionMarkers: [
-					{
-						id: "snap-expand",
-						trigger: "automatic",
-						status: "valid",
-						sourceEndMessageId: "message-1",
-						createdAt: Date.now(),
-						updatedAt: Date.now(),
-						sourceMessageCount: 3,
-						summaryExcerpt:
-							"You discussed Q3 revenue ($4.2M) and a segment breakdown.",
-					},
-				],
-			});
+			const { getByTestId, getByText, getByRole, queryByText } = render(
+				MessageArea,
+				{
+					messages,
+					conversationId: "conv-1",
+					contextCompressionMarkers: [
+						{
+							id: "snap-expand",
+							trigger: "automatic",
+							status: "valid",
+							sourceEndMessageId: "message-1",
+							createdAt: Date.now(),
+							updatedAt: Date.now(),
+							sourceMessageCount: 3,
+							summaryExcerpt:
+								"You discussed Q3 revenue ($4.2M) and a segment breakdown.",
+						},
+					],
+				},
+			);
 
 			const marker = getByTestId("context-compression-marker-snap-expand");
 			// Collapsed initially.
 			expect(
 				queryByText(
-					"Original messages are still saved — this summary just keeps the chat efficient.",
+					"You discussed Q3 revenue ($4.2M) and a segment breakdown.",
 				),
 			).toBeNull();
 
-			await fireEvent.click(getByText("Show what was kept"));
+			await fireEvent.click(
+				getByRole("button", { name: "Show what was kept" }),
+			);
 
 			expect(
 				marker.querySelector(".context-compression-expand-panel"),
@@ -672,12 +763,7 @@ describe("MessageArea", () => {
 			expect(
 				getByText("You discussed Q3 revenue ($4.2M) and a segment breakdown."),
 			).toBeTruthy();
-			expect(
-				getByText(
-					"Original messages are still saved — this summary just keeps the chat efficient.",
-				),
-			).toBeTruthy();
-			expect(getByText("Hide what was kept")).toBeTruthy();
+			expect(getByRole("button", { name: "Hide what was kept" })).toBeTruthy();
 		});
 
 		it("renders the failed state with the consequence note and a Retry affordance", () => {
@@ -756,18 +842,18 @@ describe("MessageArea", () => {
 					createdAt: Date.now(),
 					updatedAt: Date.now(),
 					sourceMessageCount: 4,
+					sourceTokenEstimate: 900,
+					estimatedTokens: 150,
 				},
 			],
 		});
 
 		// The marker is an accessible note carrying the humanized summary copy.
 		expect(getByTestId("context-compression-marker-snapshot-1")).toBe(
-			getByLabelText(
-				"Summarized 4 earlier messages so this chat can keep going.",
-			),
+			getByLabelText("Summarized 4 earlier messages, saved 750 tokens."),
 		);
 		expect(
-			getByText("Summarized 4 earlier messages so this chat can keep going."),
+			getByText("Summarized 4 earlier messages, saved 750 tokens."),
 		).toBeInTheDocument();
 		expect(getByTestId("context-compression-marker-snapshot-1")).toHaveClass(
 			"context-compression-chip--valid",

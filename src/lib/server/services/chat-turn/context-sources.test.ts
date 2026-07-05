@@ -234,7 +234,7 @@ describe("buildContextSourcesState", () => {
 		);
 	});
 
-	it("exposes an omitted Baseline Memory Profile as reduced memory context", () => {
+	it("exposes an omitted Baseline Memory Profile as reduced and compacted memory context", () => {
 		const state = buildContextSourcesState({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -252,8 +252,10 @@ describe("buildContextSourcesState", () => {
 			now: new Date("2026-05-05T10:00:00.000Z"),
 		});
 
+		// A section is only "compacted" (the severe state) once something was
+		// truly dropped wholesale — an "omitted" trace section, as here.
 		expect(state.reduced).toBe(true);
-		expect(state.compacted).toBe(false);
+		expect(state.compacted).toBe(true);
 		expect(state.groups).toEqual([
 			expect.objectContaining({
 				kind: "memory",
@@ -267,7 +269,7 @@ describe("buildContextSourcesState", () => {
 						sourceType: "memory",
 						reason: "honcho_baseline_profile:live",
 						reduced: true,
-						compacted: false,
+						compacted: true,
 						metadata: {
 							inclusionLevel: "omitted",
 							omitted: true,
@@ -531,6 +533,16 @@ describe("buildContextSourcesState", () => {
 			contextDebug,
 			attachedArtifacts: [artifact("artifact-attachment", "Attached source")],
 			activeWorkingSet: [artifact("artifact-work", "Working set source")],
+			// A section truly dropped wholesale — "compacted" is now reserved for
+			// this (or the LLM-fallback history compaction), not routine trimming.
+			contextTraceSections: [
+				{
+					name: "Old Session History",
+					source: "session",
+					body: "",
+					inclusionLevel: "omitted",
+				},
+			],
 			now: new Date("2026-05-05T10:00:00.000Z"),
 		});
 

@@ -547,6 +547,31 @@ export function compactContextSections(params: {
 			continue;
 		}
 
+		// Doesn't fit whole. Trim it down to whatever room is actually left
+		// instead of dropping it wholesale — a section is only fully omitted
+		// when there's no meaningful room left for it at all (the "ungodly
+		// huge relative to the remaining budget" case).
+		const trimmed = trimSectionToBudget(
+			section,
+			params.targetTokens - estimateWithSection(),
+		);
+		if (trimmed) {
+			bodyParts.push(trimmed.text);
+			sectionSelections.push({
+				title: section.title,
+				body: trimmed.body,
+				layer: section.layer,
+				protected: false,
+				trimmed: true,
+				inclusionLevel: "trimmed",
+				estimatedTokens: estimateTokenCount(trimmed.text),
+			});
+			if (section.layer) layersUsed.add(section.layer);
+			compactionApplied = true;
+			if (compactionMode === "none") compactionMode = "deterministic";
+			continue;
+		}
+
 		sectionSelections.push({
 			title: section.title,
 			body: "",
@@ -572,4 +597,24 @@ export function compactContextSections(params: {
 		estimatedTokens: estimateTokenCount(inputValue),
 		sectionSelections,
 	};
+}
+
+/**
+ * Smallest trimmed excerpt still worth keeping. Below this, whatever would
+ * survive truncation carries no real signal, so the section is omitted
+ * outright instead of padding the prompt with a near-empty stub.
+ */
+const MIN_TRIMMED_SECTION_TOKENS = 40;
+
+function trimSectionToBudget(
+	section: PromptContextSection,
+	remainingBudget: number,
+): { text: string; body: string } | null {
+	if (remainingBudget < MIN_TRIMMED_SECTION_TOKENS) return null;
+	const headerTokens = estimateTokenCount(`## ${section.title}\n`);
+	const bodyBudget = remainingBudget - headerTokens;
+	if (bodyBudget < MIN_TRIMMED_SECTION_TOKENS) return null;
+	const trimmedBody = truncateToTokenBudget(section.body.trim(), bodyBudget);
+	const text = buildContextSection(section.title, trimmedBody);
+	return text ? { text, body: trimmedBody } : null;
 }
