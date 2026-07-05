@@ -472,6 +472,107 @@ describe("MessageArea", () => {
 		});
 	});
 
+	it("pins the jump-rail active mark to the first/last turn at the scroll extremes", async () => {
+		const messages: ChatMessage[] = [];
+		for (let i = 1; i <= 6; i += 1) {
+			messages.push({
+				id: `user-${i}`,
+				role: "user",
+				content: `Question ${i}`,
+				timestamp: Date.now(),
+			});
+			messages.push({
+				id: `assistant-${i}`,
+				role: "assistant",
+				content: `Answer ${i}`,
+				timestamp: Date.now(),
+			});
+		}
+
+		const farRect = {
+			top: 5000,
+			left: 0,
+			bottom: 5040,
+			right: 760,
+			width: 760,
+			height: 40,
+			x: 0,
+			y: 5000,
+			toJSON: () => ({}),
+		};
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: HTMLElement) {
+				if (this.classList.contains("scroll-container")) {
+					return {
+						top: 0,
+						left: 0,
+						bottom: 600,
+						right: 760,
+						width: 760,
+						height: 600,
+						x: 0,
+						y: 0,
+						toJSON: () => ({}),
+					};
+				}
+				// assistant-3 claims to sit at the viewport's geometric center —
+				// nearest-center alone would pick it even when fully scrolled to
+				// an edge. The edge-pinning rule should win instead.
+				if (this.getAttribute("data-message-id") === "assistant-3") {
+					return {
+						top: 280,
+						left: 0,
+						bottom: 320,
+						right: 760,
+						width: 760,
+						height: 40,
+						x: 0,
+						y: 280,
+						toJSON: () => ({}),
+					};
+				}
+				return farRect;
+			},
+		);
+
+		const { container } = render(MessageArea, {
+			messages,
+			conversationId: "conv-scroll-edges",
+		});
+
+		const scrollContainer = container.querySelector(
+			".scroll-container",
+		) as HTMLDivElement;
+		Object.defineProperty(scrollContainer, "clientHeight", {
+			configurable: true,
+			value: 600,
+		});
+		Object.defineProperty(scrollContainer, "scrollHeight", {
+			configurable: true,
+			value: 3000,
+		});
+
+		scrollContainer.scrollTop = 0;
+		await fireEvent.scroll(scrollContainer);
+		await waitFor(() => {
+			const marks = container.querySelectorAll(
+				'[data-testid="jump-rail-mark"]',
+			);
+			expect(marks[0]).toHaveAttribute("data-active");
+			expect(marks[2]).not.toHaveAttribute("data-active");
+		});
+
+		scrollContainer.scrollTop = 3000 - 600;
+		await fireEvent.scroll(scrollContainer);
+		await waitFor(() => {
+			const marks = container.querySelectorAll(
+				'[data-testid="jump-rail-mark"]',
+			);
+			expect(marks[5]).toHaveAttribute("data-active");
+			expect(marks[2]).not.toHaveAttribute("data-active");
+		});
+	});
+
 	it("smooth-scrolls to a message when its jump-rail mark is clicked", async () => {
 		const messages: ChatMessage[] = [];
 		for (let i = 1; i <= 6; i += 1) {

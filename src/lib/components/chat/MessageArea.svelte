@@ -1,6 +1,7 @@
 <script lang="ts">
 import { tick } from "svelte";
 import { fly } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import {
@@ -131,6 +132,8 @@ let {
 		| undefined;
 } = $props();
 
+const flyOut = reducedMotionAware(fly);
+
 let scrollContainer = $state<HTMLDivElement | null>(null);
 let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
 let shouldAutoScroll = true;
@@ -202,11 +205,39 @@ function queueActiveJumpRailTurnUpdate() {
 	});
 }
 
+// How close to the scroll extremes counts as "there" for the purposes of
+// pinning the jump-rail's active mark — a few px of slop for fractional
+// scroll positions (sub-pixel zoom/DPI rounding), not a visible threshold.
+const JUMP_RAIL_EDGE_SLOP_PX = 2;
+
 function updateActiveJumpRailTurn() {
 	if (!scrollContainer) return;
 	const turns = buildJumpRailTurns(dedupedMessages);
 	if (turns.length === 0) {
 		activeJumpRailTurnId = null;
+		return;
+	}
+
+	// Nearest-to-center picks whichever turn's midpoint is closest to the
+	// viewport's center — but the first/last turn's midpoint often never
+	// actually reaches that center (e.g. a short opening reply with lots of
+	// content below it), so scrolling all the way to an edge could stop one
+	// mark short of the true first/last turn. Pin explicitly at the edges
+	// instead of relying on the geometric nearest-center rule there. Only
+	// once there's an actual scrollable range, though — an unmeasured or
+	// not-yet-laid-out container reports 0 for both, which would otherwise
+	// look identical to "scrolled to the top".
+	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+	const isScrollable = scrollHeight > clientHeight;
+	if (isScrollable && scrollTop <= JUMP_RAIL_EDGE_SLOP_PX) {
+		activeJumpRailTurnId = turns[0].id;
+		return;
+	}
+	if (
+		isScrollable &&
+		scrollTop + clientHeight >= scrollHeight - JUMP_RAIL_EDGE_SLOP_PX
+	) {
+		activeJumpRailTurnId = turns[turns.length - 1].id;
 		return;
 	}
 
@@ -754,7 +785,7 @@ async function scrollToMessage(messageId: string) {
 							<div
 								class="context-compression-expand-panel"
 								data-testid={`context-compression-expand-${marker.id}`}
-								out:fly={{ y: -6, duration: 200 }}
+								out:flyOut={{ y: -6, duration: 200 }}
 							>
 								<p class="context-compression-kept-body">{marker.summaryExcerpt}</p>
 							</div>

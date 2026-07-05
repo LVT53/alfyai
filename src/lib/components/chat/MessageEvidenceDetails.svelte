@@ -1,6 +1,8 @@
 <script lang="ts">
+import { cubicOut } from "svelte/easing";
 import { fly } from "svelte/transition";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
+import { prefersReducedMotion, reducedMotionAware } from "$lib/utils/motion";
 import {
 	Book,
 	ExternalLink,
@@ -25,6 +27,23 @@ let {
 	evidenceSummary: MessageEvidenceSummary;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 } = $props();
+
+/**
+ * Left-to-right wipe reveal for the "considered/used" line. A single
+ * custom transition (rather than a CSS animation + a separate out:
+ * transition) so the exit is guaranteed to retrace the same left-to-right
+ * axis in reverse, instead of drifting off in some other direction.
+ */
+function wipeReveal(_node: HTMLElement, params: { duration?: number } = {}) {
+	return {
+		duration: prefersReducedMotion() ? 0 : (params.duration ?? 260),
+		easing: cubicOut,
+		css: (t: number) =>
+			`opacity: ${t}; clip-path: inset(0 ${(1 - t) * 100}% 0 0);`,
+	};
+}
+
+const flyOut = reducedMotionAware(fly);
 
 let expanded = $state(false);
 let container = $state<HTMLDivElement | null>(null);
@@ -131,7 +150,7 @@ function openDocument(item: MessageEvidenceItem) {
 			<Book size={14} strokeWidth={2} class="evidence-book" aria-hidden="true" />
 			<span class="evidence-label">{$t('messageEvidenceDetails.sourcesLabel')}</span>
 			{#if expanded}
-				<span class="evidence-summary-line" out:fly={{ y: -4, duration: 160 }}>
+				<span class="evidence-summary-line" transition:wipeReveal={{ duration: 260 }}>
 					{$t('messageEvidenceDetails.consideredUsedFormat', {
 						considered: consideredCount,
 						used: usedCount,
@@ -145,7 +164,7 @@ function openDocument(item: MessageEvidenceItem) {
 	</button>
 
 	{#if expanded}
-		<div class="evidence-groups" out:fly={{ y: -6, duration: 200 }}>
+		<div class="evidence-groups" out:flyOut={{ y: -6, duration: 200 }}>
 			{#if usedItems.length > 0}
 				<section
 					class="evidence-group evidence-group--used"
@@ -287,20 +306,6 @@ function openDocument(item: MessageEvidenceItem) {
 	.evidence-summary-line {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
-		animation: evidence-summary-reveal 0.45s ease-out both;
-	}
-
-	/* Left-to-right reveal: a clip-path wipe combined with a fade, rather than
-	   a plain fade, so the text visibly draws in from the left. */
-	@keyframes evidence-summary-reveal {
-		from {
-			opacity: 0;
-			clip-path: inset(0 100% 0 0);
-		}
-		to {
-			opacity: 1;
-			clip-path: inset(0 0 0 0);
-		}
 	}
 
 	.chevron {

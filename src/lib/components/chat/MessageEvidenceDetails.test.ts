@@ -406,4 +406,35 @@ describe("MessageEvidenceDetails", () => {
 		// way a plain {#if} without a transition would leave it.
 		expect(document.querySelector(".evidence-groups")).toBeTruthy();
 	});
+
+	it("animates the considered/used line out too instead of vanishing instantly", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-1",
+								title: "Quarterly report",
+								sourceType: "document",
+								status: "selected",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		const toggle = screen.getByRole("button", { name: /Sources/i });
+		await fireEvent.click(toggle);
+		expect(document.querySelector(".evidence-summary-line")).toBeTruthy();
+
+		await fireEvent.click(toggle);
+		// Same reasoning as the box above: a transition: directive delays
+		// removal instead of the line vanishing the instant Sources collapses.
+		expect(document.querySelector(".evidence-summary-line")).toBeTruthy();
+	});
 });
