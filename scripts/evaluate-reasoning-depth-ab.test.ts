@@ -124,8 +124,8 @@ describe("local heuristic Auto classifier", () => {
 				),
 			),
 		).toMatchObject({
-			expectedProfile: "maximum",
-			signals: { groundingNeed: "required", toolUse: "source_heavy" },
+			expectedProfile: "standard",
+			signals: { groundingNeed: "useful", toolUse: "source_heavy" },
 		});
 
 		expect(
@@ -157,7 +157,24 @@ describe("reasoning depth deterministic quality scoring", () => {
 		);
 
 		const row = scoreReasoningDepthRun({
-			run: okRun(),
+			// "source_grounded_current" now heuristically expects "standard" (not
+			// "maximum" — see commit 4d121a65, which tightened auto-depth so
+			// source-grounded prompts don't auto-escalate). Match the run's
+			// actual applied profile to that so this stays the agreement case.
+			run: okRun({
+				depthMetadata: {
+					requested: "auto",
+					appliedProfile: "standard",
+					fallback: false,
+					timing: {
+						totalMs: 320,
+						classifierAttempts: 1,
+						classifierSource: "control_model",
+						appliedProfile: "standard",
+						controlModelClassifierMs: 260,
+					},
+				},
+			}),
 			prompt,
 			variant,
 			repetition: 1,
@@ -167,8 +184,8 @@ describe("reasoning depth deterministic quality scoring", () => {
 			promptId: "source_grounded_current",
 			variantId: "current_auto",
 			outcome: "ok",
-			localExpectedProfile: "maximum",
-			actualAppliedProfile: "maximum",
+			localExpectedProfile: "standard",
+			actualAppliedProfile: "standard",
 			classifierSource: "control_model",
 			classifierAttempts: 1,
 			depthSelectionMs: 320,

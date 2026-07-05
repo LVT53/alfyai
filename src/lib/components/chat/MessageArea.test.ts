@@ -847,6 +847,42 @@ describe("MessageArea", () => {
 			expect(getByRole("button", { name: "Hide what was kept" })).toBeTruthy();
 		});
 
+		it("animates the kept-excerpt panel out instead of removing it instantly on collapse", async () => {
+			const messages = singleMessage();
+			const { getByTestId, getByRole } = render(MessageArea, {
+				messages,
+				conversationId: "conv-1",
+				contextCompressionMarkers: [
+					{
+						id: "snap-collapse",
+						trigger: "automatic",
+						status: "valid",
+						sourceEndMessageId: "message-1",
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+						sourceMessageCount: 3,
+						summaryExcerpt: "Discussed the roadmap and next steps.",
+					},
+				],
+			});
+
+			const marker = getByTestId("context-compression-marker-snap-collapse");
+			const toggle = getByRole("button", { name: "Show what was kept" });
+			await fireEvent.click(toggle);
+			expect(
+				marker.querySelector(".context-compression-expand-panel"),
+			).toBeTruthy();
+
+			await fireEvent.click(
+				getByRole("button", { name: "Hide what was kept" }),
+			);
+			// An out: transition delays removal — the panel should still be in
+			// the DOM right after collapsing (mid-animation), not gone instantly.
+			expect(
+				marker.querySelector(".context-compression-expand-panel"),
+			).toBeTruthy();
+		});
+
 		it("renders the failed state with the consequence note and a Retry affordance", () => {
 			const messages = singleMessage();
 			const { getByTestId, getByText } = render(MessageArea, {

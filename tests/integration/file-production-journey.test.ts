@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
@@ -168,6 +168,21 @@ describe("File Production journey gate", () => {
 		dbPath = join(tempRoot, `${randomUUID()}.db`);
 		process.env.DATABASE_PATH = dbPath;
 		migrateAndSeedJourneyDatabase();
+		// Pre-create the python sandbox's read-only bind-mount source (resolved
+		// from process.cwd(), which becomes tempRoot below) as the current user.
+		// Otherwise Docker auto-creates the missing host path as root the first
+		// time a container mounts it, and the afterEach cleanup rm() below can't
+		// remove its own tempRoot anymore (EACCES).
+		await mkdir(
+			join(
+				tempRoot,
+				"sandbox-python-env",
+				"lib",
+				"python3.11",
+				"site-packages",
+			),
+			{ recursive: true },
+		);
 		process.chdir(tempRoot);
 		vi.resetModules();
 		await installDeterministicProduceFileToolWake();

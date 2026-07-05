@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fly } from "svelte/transition";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
 import {
 	Book,
@@ -130,7 +131,7 @@ function openDocument(item: MessageEvidenceItem) {
 			<Book size={14} strokeWidth={2} class="evidence-book" aria-hidden="true" />
 			<span class="evidence-label">{$t('messageEvidenceDetails.sourcesLabel')}</span>
 			{#if expanded}
-				<span class="evidence-summary-line">
+				<span class="evidence-summary-line" out:fly={{ y: -4, duration: 160 }}>
 					{$t('messageEvidenceDetails.consideredUsedFormat', {
 						considered: consideredCount,
 						used: usedCount,
@@ -144,7 +145,7 @@ function openDocument(item: MessageEvidenceItem) {
 	</button>
 
 	{#if expanded}
-		<div class="evidence-groups">
+		<div class="evidence-groups" out:fly={{ y: -6, duration: 200 }}>
 			{#if usedItems.length > 0}
 				<section
 					class="evidence-group evidence-group--used"

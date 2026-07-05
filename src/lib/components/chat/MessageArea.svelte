@@ -1,5 +1,6 @@
 <script lang="ts">
 import { tick } from "svelte";
+import { fly } from "svelte/transition";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import {
@@ -753,6 +754,7 @@ async function scrollToMessage(messageId: string) {
 							<div
 								class="context-compression-expand-panel"
 								data-testid={`context-compression-expand-${marker.id}`}
+								out:fly={{ y: -6, duration: 200 }}
 							>
 								<p class="context-compression-kept-body">{marker.summaryExcerpt}</p>
 							</div>

@@ -374,4 +374,36 @@ describe("MessageEvidenceDetails", () => {
 		expect(screen.getByText(/Prefers concise summaries/i)).toBeInTheDocument();
 		expect(screen.queryByRole("link")).toBeNull();
 	});
+
+	it("animates the expanded box out instead of removing it instantly on collapse", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-1",
+								title: "Quarterly report",
+								sourceType: "document",
+								status: "selected",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		const toggle = screen.getByRole("button", { name: /Sources/i });
+		await fireEvent.click(toggle);
+		expect(document.querySelector(".evidence-groups")).toBeTruthy();
+
+		await fireEvent.click(toggle);
+		// An out: transition delays removal — the box should still be in the
+		// DOM right after collapsing (mid-animation), not gone instantly the
+		// way a plain {#if} without a transition would leave it.
+		expect(document.querySelector(".evidence-groups")).toBeTruthy();
+	});
 });
