@@ -472,6 +472,87 @@ describe("MessageArea", () => {
 		});
 	});
 
+	it("smooth-scrolls to a message when its jump-rail mark is clicked", async () => {
+		const messages: ChatMessage[] = [];
+		for (let i = 1; i <= 6; i += 1) {
+			messages.push({
+				id: `user-${i}`,
+				role: "user",
+				content: `Question ${i}`,
+				timestamp: Date.now(),
+			});
+			messages.push({
+				id: `assistant-${i}`,
+				role: "assistant",
+				content: `Answer ${i}`,
+				timestamp: Date.now(),
+			});
+		}
+
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: HTMLElement) {
+				if (this.classList.contains("scroll-container")) {
+					return {
+						top: 0,
+						left: 0,
+						bottom: 600,
+						right: 760,
+						width: 760,
+						height: 600,
+						x: 0,
+						y: 0,
+						toJSON: () => ({}),
+					};
+				}
+				if (this.getAttribute("data-message-id") === "assistant-2") {
+					return {
+						top: 900,
+						left: 0,
+						bottom: 940,
+						right: 760,
+						width: 760,
+						height: 40,
+						x: 0,
+						y: 900,
+						toJSON: () => ({}),
+					};
+				}
+				return {
+					top: 0,
+					left: 0,
+					bottom: 0,
+					right: 0,
+					width: 0,
+					height: 0,
+					x: 0,
+					y: 0,
+					toJSON: () => ({}),
+				};
+			},
+		);
+
+		const { container } = render(MessageArea, {
+			messages,
+			conversationId: "conv-smooth-scroll",
+		});
+
+		const scrollContainer = container.querySelector(
+			".scroll-container",
+		) as HTMLDivElement;
+		// jsdom has no native scrollBy — stub it so the call can be observed.
+		const scrollBySpy = vi.fn();
+		scrollContainer.scrollBy = scrollBySpy;
+
+		const marks = container.querySelectorAll('[data-testid="jump-rail-mark"]');
+		await fireEvent.click(marks[1]);
+
+		await waitFor(() => {
+			expect(scrollBySpy).toHaveBeenCalledWith(
+				expect.objectContaining({ behavior: "smooth" }),
+			);
+		});
+	});
+
 	it("aligns the fork boundary to the top of the chat viewport on initial fork open", async () => {
 		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
 			function (this: HTMLElement) {

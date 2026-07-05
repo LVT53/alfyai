@@ -137,17 +137,21 @@ function waveScale(index: number): number {
 					type="button"
 					data-testid="jump-rail-mark"
 					data-active={turn.id === activeId ? "" : undefined}
-					class="jr-mark"
-					class:jr-mark--active={turn.id === activeId}
-					class:jr-mark--short={markHeight(turn.contentLength) === "short"}
-					class:jr-mark--tall={markHeight(turn.contentLength) === "tall"}
-					style="--jr-scale: {waveScale(i)};"
+					class="jr-mark-hit"
 					aria-label={jumpMarkLabel(turn)}
 					tabindex={isPhone ? -1 : 0}
 					onpointerenter={() => handleEnter(turn.id, i)}
 					onpointermove={(e) => handlePointerMove(e, i)}
 					onclick={() => scrollToMessage(turn.id)}
 				></button>
+				<span
+					class="jr-mark"
+					class:jr-mark--active={turn.id === activeId}
+					class:jr-mark--short={markHeight(turn.contentLength) === "short"}
+					class:jr-mark--tall={markHeight(turn.contentLength) === "tall"}
+					style="--jr-scale: {waveScale(i)};"
+					aria-hidden="true"
+				></span>
 
 				{#if hoveredId === turn.id}
 					<div class="jr-snippet" role="tooltip">
@@ -201,6 +205,27 @@ function waveScale(index: number): number {
 		justify-content: center;
 	}
 
+	/* Invisible hit target, sized well beyond the visible mark and centered
+	   on it via absolute positioning — so it doesn't add to the wrap's own
+	   flex-layout height and can't shift the marks' spacing (the rendered
+	   rail looks identical to before). It's this box, not the thin visible
+	   bar, that owns the click/hover/pointer handling, and it overlaps into
+	   the gap on either side so the pointer never lands in dead space
+	   between two marks. */
+	.jr-mark-hit {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: 28px;
+		height: 13px;
+		border: none;
+		padding: 0;
+		margin: 0;
+		background: transparent;
+		cursor: pointer;
+	}
+
 	.jr-mark {
 		width: 14px;
 		border: none;
@@ -210,7 +235,7 @@ function waveScale(index: number): number {
 		background: color-mix(in srgb, var(--text-primary) 16%, transparent);
 		/* height encodes content length somewhat; kept thick enough to be an
 		   easy mouse target (was 1.5–2px, too thin to reliably click). */
-		cursor: pointer;
+		pointer-events: none;
 		transform: scaleX(var(--jr-scale, 1));
 		transition: transform 0.18s ease-out, background-color 0.18s ease-out;
 	}
@@ -229,8 +254,10 @@ function waveScale(index: number): number {
 	   boost (--jr-scale, 1 under reduced-motion), so under reduced-motion a
 	   hovered mark still scales to 1.4 and snaps with no transition. The
 	   cursor-relative WAVE (decay to nearby marks via JS) is gated separately
-	   in script. */
-	.jr-mark:hover {
+	   in script. The hit target (not the mark itself, which ignores pointer
+	   events) is what actually receives :hover; it's the mark's preceding
+	   sibling in markup, so the adjacent-sibling combinator reaches it. */
+	.jr-mark-hit:hover + .jr-mark {
 		background: color-mix(in srgb, var(--accent) 60%, var(--text-primary) 40%);
 		transform: scaleX(calc(var(--jr-scale, 1) * 1.4));
 	}

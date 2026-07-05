@@ -579,7 +579,18 @@ async function scrollToMessage(messageId: string) {
 			targetRect.top -
 			scrollContainerRect.top -
 			(scrollContainer.clientHeight - targetRect.height) / 2;
-		scrollContainer.scrollTop += offset;
+		const reducedMotion =
+			typeof window !== "undefined" &&
+			typeof window.matchMedia === "function" &&
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (typeof scrollContainer.scrollBy === "function") {
+			scrollContainer.scrollBy({
+				top: offset,
+				behavior: reducedMotion ? "auto" : "smooth",
+			});
+		} else {
+			scrollContainer.scrollTop += offset;
+		}
 		shouldAutoScroll = false;
 	});
 }
@@ -1043,7 +1054,9 @@ async function scrollToMessage(messageId: string) {
 
 	/* "Show what was kept" excerpt — a small floating card below the pill
 	   (not attached to it), so it reads as a popover rather than an
-	   extension of the box above. */
+	   extension of the box above. Fades + drops in top-to-bottom on open;
+	   the global prefers-reduced-motion override (app.css) collapses the
+	   animation duration to ~0ms, same as the shimmer/sweep above. */
 	.context-compression-expand-panel {
 		align-self: center;
 		max-width: min(30rem, 100%);
@@ -1053,6 +1066,18 @@ async function scrollToMessage(messageId: string) {
 		background: color-mix(in srgb, var(--surface-elevated) 94%, var(--compaction-gold) 6%);
 		box-shadow: var(--shadow-md);
 		padding: var(--space-sm) var(--space-md);
+		animation: context-compression-panel-reveal 0.26s ease-out both;
+	}
+
+	@keyframes context-compression-panel-reveal {
+		from {
+			opacity: 0;
+			transform: translateY(-6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.context-compression-kept-body {

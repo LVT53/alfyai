@@ -46,6 +46,22 @@ let setAsideItems = $derived(
 let consideredCount = $derived(allItems.length);
 let usedCount = $derived(usedItems.length);
 
+// Entrance-cascade timing: each row/title is one "slot" in a single running
+// sequence (title, then its rows, then the next section's title, etc.) so
+// the whole expanded box reveals top-to-bottom, one piece after another,
+// rather than every group starting its own cascade at the same instant.
+const STAGGER_STEP_MS = 70;
+const MAX_STAGGER_SLOTS = 14;
+
+function slotDelay(slot: number): string {
+	return `${Math.min(slot, MAX_STAGGER_SLOTS) * STAGGER_STEP_MS}ms`;
+}
+
+const usedTitleSlot = 0;
+const usedRowSlotStart = 1;
+let asideTitleSlot = $derived(usedItems.length > 0 ? usedItems.length + 1 : 0);
+let asideRowSlotStart = $derived(asideTitleSlot + 1);
+
 async function toggle() {
 	await preserveScrollOnToggle(container ?? undefined, expanded, () => {
 		expanded = !expanded;
@@ -130,21 +146,31 @@ function openDocument(item: MessageEvidenceItem) {
 	{#if expanded}
 		<div class="evidence-groups">
 			{#if usedItems.length > 0}
-				<section class="evidence-group evidence-group--used">
-					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.used')}</h4>
+				<section
+					class="evidence-group evidence-group--used"
+					style={`animation-delay: ${slotDelay(usedTitleSlot)}`}
+				>
+					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(usedTitleSlot)}`}>
+						{$t('messageEvidenceDetails.used')}
+					</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.used')}>
 						{#each usedItems as item, itemIndex (`used-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item, itemIndex)}
+							{@render renderItem(item, usedRowSlotStart + itemIndex)}
 						{/each}
 					</div>
 				</section>
 			{/if}
 			{#if setAsideItems.length > 0}
-				<section class="evidence-group evidence-group--aside">
-					<h4 class="evidence-group-title">{$t('messageEvidenceDetails.setAside')}</h4>
+				<section
+					class="evidence-group evidence-group--aside"
+					style={`animation-delay: ${slotDelay(asideTitleSlot)}`}
+				>
+					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(asideTitleSlot)}`}>
+						{$t('messageEvidenceDetails.setAside')}
+					</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.setAside')}>
 						{#each setAsideItems as item, itemIndex (`aside-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item, itemIndex)}
+							{@render renderItem(item, asideRowSlotStart + itemIndex)}
 						{/each}
 					</div>
 				</section>
@@ -153,12 +179,12 @@ function openDocument(item: MessageEvidenceItem) {
 	{/if}
 </div>
 
-{#snippet renderItem(item: MessageEvidenceItem, index: number)}
+{#snippet renderItem(item: MessageEvidenceItem, slot: number)}
 	{@const TypeIcon = typeIconFor(item.sourceType)}
 	{@const clickableDoc = isDocument(item)}
 	<div
 		class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}
-		style={`animation-delay: ${Math.min(index, 12) * 35}ms`}
+		style={`animation-delay: ${slotDelay(slot)}`}
 	>
 		{#if clickableDoc}
 			<button
@@ -297,6 +323,10 @@ function openDocument(item: MessageEvidenceItem) {
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
+		/* The section (including its accent border) fades + drops in together
+		   with its title, so the box itself doesn't just snap into existence
+		   while only the text inside animates. */
+		animation: evidence-fade-drop-in 0.26s ease-out backwards;
 	}
 
 	.evidence-group--used {
@@ -312,6 +342,7 @@ function openDocument(item: MessageEvidenceItem) {
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--text-secondary);
+		animation: evidence-fade-drop-in 0.26s ease-out backwards;
 	}
 
 	.evidence-group--aside .evidence-group-title {
@@ -331,13 +362,15 @@ function openDocument(item: MessageEvidenceItem) {
 		/* backwards (not forwards): holds the 0% frame during animation-delay
 		   for the stagger, then releases back to normal cascade so the
 		   --aside dimmed opacity below still applies at rest. */
-		animation: evidence-row-fade-in 0.3s ease-out backwards;
+		animation: evidence-fade-drop-in 0.26s ease-out backwards;
 	}
 
-	@keyframes evidence-row-fade-in {
+	/* Shared top-to-bottom entrance: each piece drops down into place from
+	   just above its resting position, rather than rising up from below. */
+	@keyframes evidence-fade-drop-in {
 		from {
 			opacity: 0;
-			transform: translateY(3px);
+			transform: translateY(-6px);
 		}
 		to {
 			opacity: 1;
@@ -449,6 +482,8 @@ function openDocument(item: MessageEvidenceItem) {
 		}
 
 		.evidence-summary-line,
+		.evidence-group,
+		.evidence-group-title,
 		.evidence-row {
 			animation: none;
 		}
