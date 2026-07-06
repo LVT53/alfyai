@@ -246,6 +246,6 @@ describe("memory-judge segment loader + watermark store", () => {
 			conversationId: "c1",
 		});
 		expect(result.count).toBe(2);
-		expect(result.messages.every((m) => m.role !== "system")).toBe(true);
+		expect(result.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 	});
 });

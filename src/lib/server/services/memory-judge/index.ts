@@ -162,6 +162,9 @@ export async function runMemoryJudgeOnSegment(params: {
 			confidence: d.confidence,
 			expiryClass: d.expiryClass,
 			origin: params.trigger === "recuration" ? "recuration" : "judge_v1",
+			...(d.expiryClass === "time_bound" && d.expiresInDays
+				? { expiresInDays: d.expiresInDays }
+				: {}),
 		};
 
 		if (d.action === "update" || d.action === "strengthen") {
@@ -290,14 +293,16 @@ async function applyItemMetadata(
 	d: JudgeDecision,
 	reviewExpiresAt?: Date,
 ): Promise<void> {
-	// A time_bound decision carries its own content expiry (expiresInDays); it
-	// takes precedence over the review auto-expiry so time_bound review items
-	// expire on their real horizon. Durable items fall back to the review expiry
-	// (when routed to review) or no expiry at all.
-	const expiresAt =
-		d.expiryClass === "time_bound" && d.expiresInDays
+	// Inferred (review_needed) items always use the ~30-day review auto-expiry
+	// window, regardless of expiryClass — the review queue itself must expire.
+	// Their factual horizon (expiresInDays) is preserved in metadata only, so
+	// it can be applied to expiresAt later if/when the item is accepted.
+	// Stated/active time_bound items use their own factual horizon directly.
+	const expiresAt = reviewExpiresAt
+		? reviewExpiresAt
+		: d.expiryClass === "time_bound" && d.expiresInDays
 			? new Date(Date.now() + d.expiresInDays * DAY_MS)
-			: reviewExpiresAt;
+			: undefined;
 	await db
 		.update(memoryProfileItems)
 		.set({

@@ -225,7 +225,9 @@ describe("Memory judge service", () => {
 			.all();
 		expect(provenance.length).toBeGreaterThanOrEqual(1);
 
-		// time_bound review item got an expiresAt ≈ +90d
+		// time_bound review item still gets the review auto-expiry (+30d), not
+		// the factual horizon; the horizon is preserved in metadata for later use
+		// (e.g. recomputing expiresAt if the item is accepted).
 		const reviewItem = svcDb
 			.select()
 			.from(schema.memoryProfileItems)
@@ -238,8 +240,10 @@ describe("Memory judge service", () => {
 			.all()[0];
 		expect(reviewItem.expiresAt).not.toBeNull();
 		const expiresMs = (reviewItem.expiresAt as Date).getTime();
-		const expected90d = Date.now() + 90 * 86_400_000;
-		expect(Math.abs(expiresMs - expected90d)).toBeLessThan(5 * 86_400_000);
+		const expected30d = Date.now() + 30 * 86_400_000;
+		expect(Math.abs(expiresMs - expected30d)).toBeLessThan(5 * 86_400_000);
+		const reviewMetadata = JSON.parse(reviewItem.metadataJson ?? "{}");
+		expect(reviewMetadata.expiresInDays).toBe(90);
 	});
 
 	it("dry-run mode writes telemetry only", async () => {
@@ -499,6 +503,72 @@ describe("Memory judge service", () => {
 			.where(eq(schema.memoryProfileItems.id, existing.id))
 			.all()[0];
 		expect(row.statement).toBe("I live in Budapest.");
+	});
+
+	it("applies a strengthen decision by bumping revision and adding provenance without changing the statement", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I still prefer plain language." },
+				{ role: "assistant", content: "Noted again." },
+			],
+		});
+		const { createMemoryProfileItem } = await import(
+			"../memory-profile/projection-store"
+		);
+		const existing = await createMemoryProfileItem({
+			userId: "u1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "I prefer plain language.",
+		});
+
+		mockControlModel({
+			decisions: [
+				{
+					action: "strengthen",
+					targetItemId: existing.id,
+					statement: "I prefer plain language.",
+					category: "preferences",
+					scope: "global",
+					confidence: "stated",
+					expiryClass: "durable",
+					sourceQuote: "still prefer plain language",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+		expect(result).toMatchObject({
+			status: "ran",
+			admitted: 0,
+			updated: 1,
+			dryRun: false,
+		});
+
+		const { db: svcDb } = await import("$lib/server/db");
+		const row = svcDb
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, existing.id))
+			.all()[0];
+		expect(row.statement).toBe("I prefer plain language.");
+		expect(row.revision).toBe(existing.revision + 1);
+
+		const provenance = svcDb
+			.select()
+			.from(schema.memoryProfileItemProvenance)
+			.where(eq(schema.memoryProfileItemProvenance.itemId, existing.id))
+			.all();
+		expect(provenance.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it("does not advance the watermark on the explicit segmentOverride path", async () => {

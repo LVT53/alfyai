@@ -439,6 +439,23 @@ export async function applyMemoryReviewItemWithRevision(params: {
 			return { status: "stale_projection" as const };
 		}
 
+		// On accept, recompute expiresAt from the review item's own
+		// metadata: a time_bound item gets its factual horizon applied now
+		// (it no longer needs the review auto-expiry window); a durable item
+		// has its expiry cleared entirely.
+		const acceptExpiresInDays =
+			params.action === "accept" &&
+			metadata.expiryClass === "time_bound" &&
+			typeof metadata.expiresInDays === "number"
+				? metadata.expiresInDays
+				: null;
+		const acceptExpiresAt =
+			params.action === "accept"
+				? acceptExpiresInDays !== null
+					? new Date(now.getTime() + acceptExpiresInDays * 86_400_000)
+					: null
+				: undefined;
+
 		let itemId: string | null = null;
 		if (category && statement) {
 			const scope: MemoryProfileScope = { type: "global" };
@@ -463,13 +480,20 @@ export async function applyMemoryReviewItemWithRevision(params: {
 
 			if (existing) {
 				itemId = existing.id;
-				if (existing.status !== "active" || existing.statement !== statement) {
+				if (
+					existing.status !== "active" ||
+					existing.statement !== statement ||
+					acceptExpiresAt !== undefined
+				) {
 					tx.update(memoryProfileItems)
 						.set({
 							statement,
 							status: "active",
 							deletedAt: null,
 							suppressedAt: null,
+							...(acceptExpiresAt !== undefined
+								? { expiresAt: acceptExpiresAt }
+								: {}),
 							revision: sql`${memoryProfileItems.revision} + 1`,
 							updatedAt: now,
 						})
@@ -490,6 +514,7 @@ export async function applyMemoryReviewItemWithRevision(params: {
 						scopeId: scopeColumns.scopeId,
 						statement,
 						status: "active",
+						expiresAt: acceptExpiresAt ?? undefined,
 						revision: 0,
 						createdAt: now,
 						updatedAt: now,

@@ -635,6 +635,54 @@ describe("memory profile foundation", () => {
 		expect(after.projectionRevision).toBe(before.projectionRevision + 1);
 	});
 
+	it("recomputes expiresAt from expiresInDays when a time_bound review item is accepted", async () => {
+		const {
+			applyMemoryReviewItemWithRevision,
+			createOrUpdateMemoryReviewItem,
+			getMemoryProfileReadModel,
+		} = await import("./index");
+
+		const review = await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "mentoring-time-bound",
+			subjectLabel: "I am mentoring a colleague this quarter.",
+			question: "Should I keep remembering this?",
+			reason: "Inferred from conversation, not stated directly.",
+			metadata: {
+				category: "goals_ongoing_work",
+				proposedStatement: "I am mentoring a colleague this quarter.",
+				expiryClass: "time_bound",
+				expiresInDays: 90,
+			},
+		});
+		const before = await getMemoryProfileReadModel({ userId: "user-1" });
+
+		const applied = await applyMemoryReviewItemWithRevision({
+			userId: "user-1",
+			reviewItemId: review.id,
+			expectedProjectionRevision: before.projectionRevision,
+			action: "accept",
+		});
+		expect(applied).toMatchObject({ status: "updated" });
+		expect(applied.status).toBe("updated");
+		const itemId = applied.status === "updated" ? applied.itemId : null;
+		expect(itemId).toEqual(expect.any(String));
+
+		const { db } = await import("$lib/server/db");
+		const [row] = await db
+			.select({
+				status: schema.memoryProfileItems.status,
+				expiresAt: schema.memoryProfileItems.expiresAt,
+			})
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, itemId as string));
+		expect(row?.status).toBe("active");
+		expect(row?.expiresAt).not.toBeNull();
+		const expiresMs = (row?.expiresAt as Date).getTime();
+		const expected90d = Date.now() + 90 * 86_400_000;
+		expect(Math.abs(expiresMs - expected90d)).toBeLessThan(5 * 86_400_000);
+	});
+
 	it("shows the proposed memory text for review items with generic legacy labels", async () => {
 		const { createOrUpdateMemoryReviewItem, getMemoryProfileReadModel } =
 			await import("./index");
@@ -2925,5 +2973,72 @@ describe("memory profile foundation", () => {
 			}),
 		]);
 		expect(JSON.stringify(telemetry)).not.toContain("raw");
+	});
+
+	it("expires overdue review_needed items and resolves their open review rows", async () => {
+		const {
+			createMemoryProfileItem,
+			createOrUpdateMemoryReviewItem,
+			ensureProjectionState,
+			expireOverdueReviewMemoryProfileItems,
+			getCurrentMemoryResetGeneration,
+			getMemoryProfileReadModel,
+		} = await import("./index");
+
+		const item = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "goals_ongoing_work",
+			scope: { type: "global" },
+			statement: "I am mentoring a colleague this quarter.",
+			status: "review_needed",
+		});
+		const { db } = await import("$lib/server/db");
+		await db
+			.update(schema.memoryProfileItems)
+			.set({ expiresAt: new Date("2020-01-01T00:00:00.000Z") })
+			.where(eq(schema.memoryProfileItems.id, item.id))
+			.run();
+		await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: `judge:${item.itemKey}`,
+			subjectLabel: "I am mentoring a colleague this quarter.",
+			question: "Should I keep remembering this?",
+			reason: "Inferred from conversation, not stated directly.",
+			affectedItemIds: [item.id],
+		});
+
+		const beforeReadModel = await getMemoryProfileReadModel({
+			userId: "user-1",
+		});
+		expect(beforeReadModel.review.openCount).toBe(1);
+
+		const resetGeneration = await getCurrentMemoryResetGeneration("user-1");
+		const projection = await ensureProjectionState({
+			userId: "user-1",
+			resetGeneration,
+		});
+		const expiredCount = await expireOverdueReviewMemoryProfileItems({
+			userId: "user-1",
+			resetGeneration,
+			projectionStateId: projection.id,
+		});
+		expect(expiredCount).toBe(1);
+
+		const [itemRow] = await db
+			.select({ status: schema.memoryProfileItems.status })
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, item.id));
+		expect(itemRow?.status).toBe("expired");
+
+		const [reviewRow] = await db
+			.select({ status: schema.memoryReviewItems.status })
+			.from(schema.memoryReviewItems)
+			.where(eq(schema.memoryReviewItems.subjectKey, `judge:${item.itemKey}`));
+		expect(reviewRow?.status).not.toBe("open");
+
+		const afterReadModel = await getMemoryProfileReadModel({
+			userId: "user-1",
+		});
+		expect(afterReadModel.review.openCount).toBe(0);
 	});
 });
