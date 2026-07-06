@@ -1145,7 +1145,8 @@ export type SemanticEmbeddingSubjectType =
 	| "artifact"
 	| "imported_conversation"
 	| "persona_cluster"
-	| "task_state";
+	| "task_state"
+	| "memory_profile_item";
 
 export interface SemanticEmbedding {
 	id: string;
