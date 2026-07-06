@@ -98,6 +98,11 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
 	"DEFAULT_NEW_USER_MODEL",
 	"MEMORY_LEGACY_CURATION_MODEL",
+	"MEMORY_JUDGE_MODEL",
+	"MEMORY_CONSOLIDATION_MODEL",
+	"MEMORY_JUDGE_IDLE_MINUTES",
+	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"MEMORY_JUDGE_DRY_RUN",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
 	"ATLAS_SEARCH_CONCURRENCY",
@@ -162,6 +167,11 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
+	memoryJudgeModel: ModelId;
+	memoryConsolidationModel: ModelId;
+	memoryJudgeIdleMinutes: number;
+	memoryConsolidationIntervalMinutes: number;
+	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -254,6 +264,12 @@ function buildDefaultConfig(): RuntimeConfig {
 		model1IconAssetId: null,
 		model2IconAssetId: null,
 		memoryLegacyCurationModel: envConfig.memoryLegacyCurationModel,
+		memoryJudgeModel: envConfig.memoryJudgeModel,
+		memoryConsolidationModel: envConfig.memoryConsolidationModel,
+		memoryJudgeIdleMinutes: envConfig.memoryJudgeIdleMinutes,
+		memoryConsolidationIntervalMinutes:
+			envConfig.memoryConsolidationIntervalMinutes,
+		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -421,6 +437,58 @@ function validateMemoryLegacyCurationModel(config: RuntimeConfig): void {
 		`[CONFIG] Invalid memory legacy curation model format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Falling back to "model1".`,
 	);
 	config.memoryLegacyCurationModel = "model1";
+}
+
+function validateConfiguredMemoryModelField(
+	config: RuntimeConfig,
+	field: "memoryJudgeModel" | "memoryConsolidationModel",
+	label: string,
+): void {
+	const modelId = config[field]?.trim();
+	if (!modelId) {
+		config[field] = "model1";
+		return;
+	}
+
+	if (modelId === "model1" || modelId === "model2") {
+		if (!isModelEnabled(modelId, config)) {
+			console.warn(
+				`[CONFIG] ${label} "${modelId}" is not enabled. Falling back to "model1".`,
+			);
+			config[field] = "model1";
+		}
+		return;
+	}
+
+	if (modelId.startsWith("provider:")) {
+		const parts = modelId.split(":");
+		if (parts.length === 3 && parts[1] && parts[2]) {
+			return;
+		}
+	}
+
+	console.warn(
+		`[CONFIG] Invalid ${label} format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Falling back to "model1".`,
+	);
+	config[field] = "model1";
+}
+
+function validateMemoryJudgeAndConsolidationConfig(
+	config: RuntimeConfig,
+): void {
+	validateConfiguredMemoryModelField(
+		config,
+		"memoryJudgeModel",
+		"Memory judge model",
+	);
+	validateConfiguredMemoryModelField(
+		config,
+		"memoryConsolidationModel",
+		"Memory consolidation model",
+	);
+	config.memoryJudgeIdleMinutes ??= 30;
+	config.memoryConsolidationIntervalMinutes ??= 1440;
+	config.memoryJudgeDryRun ??= false;
 }
 
 function validateContextLimitTriples(config: RuntimeConfig): void {
@@ -760,6 +828,24 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MEMORY_LEGACY_CURATION_MODEL: (config, value) => {
 		config.memoryLegacyCurationModel = normalizeConfiguredModelId(value);
 	},
+	MEMORY_JUDGE_MODEL: (config, value) => {
+		config.memoryJudgeModel = normalizeConfiguredModelId(value);
+	},
+	MEMORY_CONSOLIDATION_MODEL: (config, value) => {
+		config.memoryConsolidationModel = normalizeConfiguredModelId(value);
+	},
+	MEMORY_JUDGE_IDLE_MINUTES: (config, value) => {
+		const n = Number.parseInt(value, 10);
+		if (Number.isFinite(n) && n > 0) config.memoryJudgeIdleMinutes = n;
+	},
+	MEMORY_CONSOLIDATION_INTERVAL_MINUTES: (config, value) => {
+		const n = Number.parseInt(value, 10);
+		if (Number.isFinite(n) && n > 0)
+			config.memoryConsolidationIntervalMinutes = n;
+	},
+	MEMORY_JUDGE_DRY_RUN: (config, value) => {
+		config.memoryJudgeDryRun = value.trim().toLowerCase() === "true";
+	},
 	ATLAS_WORKER_ENABLED: (config, value) => {
 		config.atlasWorkerEnabled = value !== "false";
 	},
@@ -926,6 +1012,7 @@ export async function refreshConfig(): Promise<void> {
 	validateContextLimitTriples(base);
 	applyDerivedMaxMessageLengthDefaults(base, overrides);
 	validateMemoryLegacyCurationModel(base);
+	validateMemoryJudgeAndConsolidationConfig(base);
 
 	if (!hasMaxMessageLengthOverride) {
 		base.maxMessageLength = await resolveLowestModelMaxMessageLength(base);
@@ -1195,6 +1282,13 @@ export function getResolvedAdminConfigValues(
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: config.modelTimeoutFailoverTargetModel,
 		DEFAULT_NEW_USER_MODEL: config.defaultNewUserModel,
 		MEMORY_LEGACY_CURATION_MODEL: config.memoryLegacyCurationModel,
+		MEMORY_JUDGE_MODEL: config.memoryJudgeModel,
+		MEMORY_CONSOLIDATION_MODEL: config.memoryConsolidationModel,
+		MEMORY_JUDGE_IDLE_MINUTES: String(config.memoryJudgeIdleMinutes),
+		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
+			config.memoryConsolidationIntervalMinutes,
+		),
+		MEMORY_JUDGE_DRY_RUN: String(config.memoryJudgeDryRun),
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),
 		ATLAS_SEARCH_CONCURRENCY: String(config.atlasSearchConcurrency),

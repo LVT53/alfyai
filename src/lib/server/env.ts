@@ -60,6 +60,11 @@ interface Config {
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
 	memoryLegacyCurationModel: ModelId;
+	memoryJudgeModel: ModelId;
+	memoryConsolidationModel: ModelId;
+	memoryJudgeIdleMinutes: number;
+	memoryConsolidationIntervalMinutes: number;
+	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -425,6 +430,23 @@ function readConfig(): Config {
 			process.env.MEMORY_LEGACY_CURATION_MODEL,
 			"MEMORY_LEGACY_CURATION_MODEL",
 		),
+		memoryJudgeModel: validateConfiguredModelIdEnv(
+			process.env.MEMORY_JUDGE_MODEL,
+			"MEMORY_JUDGE_MODEL",
+		),
+		memoryConsolidationModel: validateConfiguredModelIdEnv(
+			process.env.MEMORY_CONSOLIDATION_MODEL,
+			"MEMORY_CONSOLIDATION_MODEL",
+		),
+		memoryJudgeIdleMinutes: Math.max(
+			1,
+			parseIntegerEnv(process.env.MEMORY_JUDGE_IDLE_MINUTES, 30),
+		),
+		memoryConsolidationIntervalMinutes: Math.max(
+			1,
+			parseIntegerEnv(process.env.MEMORY_CONSOLIDATION_INTERVAL_MINUTES, 1440),
+		),
+		memoryJudgeDryRun: process.env.MEMORY_JUDGE_DRY_RUN === "true",
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,
