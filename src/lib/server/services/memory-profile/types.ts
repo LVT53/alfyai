@@ -53,7 +53,8 @@ export type MemoryProfileItemStatus =
 	| "deferred"
 	| "review_needed"
 	| "preserved_legacy"
-	| "inactive";
+	| "inactive"
+	| "retired";
 
 export type MemoryProfileCardItem = {
 	id: string;
