@@ -17,6 +17,7 @@ import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
+import { stopMemoryJudgeRunner } from "$lib/server/services/memory-judge/runner";
 import {
 	ensureMemoryMaintenanceScheduler,
 	stopMemoryMaintenanceScheduler,
@@ -117,6 +118,7 @@ export const init: ServerInit = async () => {
 	process.on("sveltekit:shutdown", (_reason: string) => {
 		console.log("[SHUTDOWN] Server closed, stopping background workers");
 		stopMemoryMaintenanceScheduler();
+		stopMemoryJudgeRunner();
 		// Give in-flight work (Atlas jobs, active responses) a grace period
 		// to complete naturally. systemd TimeoutStopSec=90 is the hard cap.
 		setTimeout(() => {

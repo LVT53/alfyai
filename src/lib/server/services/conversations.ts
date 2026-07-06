@@ -65,6 +65,11 @@ export async function createConversation(
 			projectId,
 		})
 		.returning();
+	// Opportunistically flush any pending idle judge runs for this user now that
+	// they have started a new conversation (prior conversation is likely idle).
+	void import("$lib/server/services/memory-judge/runner")
+		.then(({ flushPendingJudgeRuns }) => flushPendingJudgeRuns(userId))
+		.catch(() => {});
 	if (projectId) {
 		await convergeProjectFolderContinuityForConversation({
 			userId,
