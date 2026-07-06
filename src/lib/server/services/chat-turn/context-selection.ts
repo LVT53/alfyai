@@ -34,9 +34,13 @@ import {
 	logAttachmentTrace,
 	summarizeAttachmentTraceText,
 } from "../attachment-trace";
-import type { ContextCompressionSnapshot } from "../context-compression";
+import {
+	type ContextCompressionSnapshot,
+	listContextCompressionSourceMessages,
+} from "../context-compression";
 import { getConversationForkOrigin } from "../conversation-forks";
-import { loadHonchoPromptContext, type PromptContextMessage } from "../honcho";
+import { getConversationSummary } from "../conversation-summaries";
+import type { PromptContextMessage } from "../honcho";
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
@@ -61,6 +65,7 @@ import {
 	type MemoryProfileScope,
 } from "../memory-profile/active-context";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
 	getConversationProjectLabel,
@@ -789,6 +794,57 @@ function selectRawSessionMessagesAfterCompressionSnapshot(params: {
 	);
 }
 
+type SessionPromptContext = {
+	sessionMessages: PromptContextMessage[];
+	storedMessages: PromptContextMessage[];
+	summary: string | null;
+	honchoContext: HonchoContextInfo | null;
+	honchoSnapshot: HonchoContextSnapshot | null;
+};
+
+/**
+ * Load the local continuity context for a turn: the conversation's own stored
+ * messages (with message sequences for compaction-aware filtering) plus its
+ * maintained conversation summary. Replaces the former Honcho live/session
+ * lookup; the turn path no longer touches Honcho, so the Honcho debug fields
+ * are always null.
+ */
+async function loadSessionPromptContext(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<SessionPromptContext> {
+	const [storedMessages, sourceMessages, summary] = await Promise.all([
+		listMessages(params.conversationId).catch(() => []),
+		listContextCompressionSourceMessages(params.conversationId).catch(() => []),
+		getConversationSummary({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}).catch(() => null),
+	]);
+
+	const sequenceByMessageId = new Map(
+		sourceMessages.map((message) => [message.id, message.messageSequence]),
+	);
+	const promptMessages: PromptContextMessage[] = storedMessages
+		.map((message) => ({
+			id: message.id,
+			role: message.role,
+			content: message.content,
+			createdAt: message.timestamp,
+			messageSequence: sequenceByMessageId.get(message.id),
+			forkCopy: message.forkCopy,
+		}))
+		.sort((a, b) => a.createdAt - b.createdAt);
+
+	return {
+		sessionMessages: promptMessages,
+		storedMessages: promptMessages,
+		summary: summary?.summary ?? null,
+		honchoContext: null,
+		honchoSnapshot: null,
+	};
+}
+
 function summarizeForkContextProvenance(params: {
 	messages: PromptContextMessage[];
 	copiedForkPointMessageId?: string | null;
@@ -929,11 +985,9 @@ async function buildShallowConstructedContext(params: {
 		contextCompressionPromptSnapshot,
 		activeMemoryProfileSection,
 	] = await Promise.all([
-		loadHonchoPromptContext({
+		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
-			message: params.message,
-			liveContextTokens: params.sessionHistoryBudget.totalBudget,
 		}),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,
@@ -1146,11 +1200,9 @@ export async function buildConstructedContext(params: {
 		contextCompressionPromptSnapshot,
 		projectId,
 	] = await Promise.all([
-		loadHonchoPromptContext({
+		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
-			message: params.message,
-			liveContextTokens: sessionHistoryBudget.totalBudget,
 		}),
 		resolvePromptAttachmentArtifacts(params.userId, attachmentIds),
 		listConversationSourceArtifactIds(

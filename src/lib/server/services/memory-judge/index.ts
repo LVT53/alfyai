@@ -332,7 +332,7 @@ async function addProvenanceForItem(
 	});
 }
 
-async function refreshFactEmbedding(
+export async function refreshFactEmbedding(
 	userId: string,
 	itemId: string,
 	statement: string,

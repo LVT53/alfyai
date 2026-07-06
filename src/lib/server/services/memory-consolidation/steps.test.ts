@@ -403,6 +403,15 @@ describe("memory consolidation steps", () => {
 		expect(merged.statement).toBe("I built the swap-site project end to end.");
 		expect(metaOf(merged).origin).toBe("consolidation");
 
+		// The merged item triggers a best-effort embedding refresh. With TEI
+		// unconfigured it must no-op silently (no throw, no stored embedding).
+		const mergedEmbeddings = db
+			.select()
+			.from(schema.semanticEmbeddings)
+			.where(eq(schema.semanticEmbeddings.subjectId, mergedInto))
+			.all();
+		expect(mergedEmbeddings.length).toBe(0);
+
 		// Provenance copied.
 		const mergedProv = db
 			.select()

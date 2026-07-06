@@ -6,6 +6,7 @@ import {
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 } from "$lib/server/db/schema";
+import { refreshFactEmbedding } from "../memory-judge";
 import {
 	createMemoryProfileItem,
 	ensureProjectionState,
@@ -443,6 +444,10 @@ export async function runReconcileAndMerge(params: {
 			});
 			projectionRevision = created.projectionRevision;
 			await mergeItemMetadata(userId, created.id, { origin: "consolidation" });
+
+			// Best-effort: refresh the merged item's semantic embedding so the new
+			// statement is recall-searchable. Fire-and-forget; never fails the merge.
+			await refreshFactEmbedding(userId, created.id, action.mergedStatement);
 
 			// Copy provenance rows from every member to the merged item.
 			for (const memberId of uniqueMemberIds) {

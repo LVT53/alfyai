@@ -2196,16 +2196,13 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		expect(result.inputValue).not.toContain(
 			"HONCHO TOKEN-BOUNDED LIVE MESSAGE ONLY",
 		);
-		expect(result.honchoContext?.source).toBe("live");
+		// The turn path no longer consults Honcho for live/session context; the
+		// persisted transcript is the sole source and the Honcho debug field is null.
+		expect(result.honchoContext).toBeNull();
 	});
 
 	it("uses active projection Baseline Memory Profile instead of raw Honcho or newest conclusions", async () => {
 		mockConfig.honchoEnabled = true;
-		mockPeerContext.mockResolvedValueOnce({
-			representation:
-				"Synthesized baseline profile: prefers concise technical answers.",
-			peerCard: ["Works on AlfyAI context access"],
-		});
 		mockGetActiveMemoryProfileContext.mockResolvedValueOnce({
 			resetGeneration: 0,
 			projectionRevision: 4,
@@ -2230,16 +2227,6 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 				},
 			],
 		});
-		mockScopeList.mockResolvedValue({
-			toArray: async () => [
-				{
-					id: "raw-newest-1",
-					content: "RAW NEWEST CONCLUSION SHOULD NOT BE DUMPED",
-					sessionId: "conv-1",
-					createdAt: new Date().toISOString(),
-				},
-			],
-		});
 		renderSectionsInCompactionMock();
 		const { buildConstructedContext } = await import(
 			"./chat-turn/context-selection"
@@ -2258,13 +2245,7 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		expect(result.inputValue).toContain(
 			"Works on AlfyAI context access from projection.",
 		);
-		expect(result.inputValue).not.toContain(
-			"Synthesized baseline profile: prefers concise technical answers.",
-		);
 		expect(result.inputValue).not.toContain("## User Memory");
-		expect(result.inputValue).not.toContain(
-			"RAW NEWEST CONCLUSION SHOULD NOT BE DUMPED",
-		);
 		expect(result.contextTraceSections).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -2277,20 +2258,12 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		);
 	});
 
-	it("omits baseline memory profile gracefully when Honcho profile synthesis fails", async () => {
+	it("omits baseline memory profile gracefully when the active projection profile is empty", async () => {
 		mockConfig.honchoEnabled = true;
-		mockPeerContext.mockRejectedValueOnce(
-			new Error("honcho profile unavailable"),
-		);
-		mockScopeList.mockResolvedValue({
-			toArray: async () => [
-				{
-					id: "raw-fallback-1",
-					content: "RAW FALLBACK CONCLUSION SHOULD NOT BE DUMPED",
-					sessionId: "conv-1",
-					createdAt: new Date().toISOString(),
-				},
-			],
+		mockGetActiveMemoryProfileContext.mockResolvedValueOnce({
+			resetGeneration: 0,
+			projectionRevision: 0,
+			items: [],
 		});
 		renderSectionsInCompactionMock();
 		const { buildConstructedContext } = await import(
@@ -2300,59 +2273,18 @@ describe("chat-turn context selection - buildConstructedContext", () => {
 		const result = await buildConstructedContext({
 			userId: "user-1",
 			conversationId: "conv-1",
-			message: "Normal chat turn when Honcho profile fails.",
+			message: "Normal chat turn with no projection profile.",
 		});
 
 		expect(result.inputValue).toContain("## Current User Message");
 		expect(result.inputValue).not.toContain("## Baseline Memory Profile");
 		expect(result.inputValue).not.toContain("## User Memory");
-		expect(result.inputValue).not.toContain(
-			"RAW FALLBACK CONCLUSION SHOULD NOT BE DUMPED",
-		);
 		expect(result.contextTraceSections).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
 					name: "Baseline Memory Profile",
 				}),
 			]),
-		);
-	});
-
-	it("omits baseline memory profile gracefully when Honcho profile synthesis times out", async () => {
-		mockConfig.honchoEnabled = true;
-		mockConfig.honchoPersonaContextWaitMs = 1;
-		mockPeerContext.mockImplementationOnce(async () => {
-			await new Promise<never>(() => {
-				// Intentionally unresolved to exercise the timeout fallback.
-			});
-			return { representation: "Timeout representation", peerCard: null };
-		});
-		mockScopeList.mockResolvedValue({
-			toArray: async () => [
-				{
-					id: "raw-timeout-1",
-					content: "RAW TIMEOUT CONCLUSION SHOULD NOT BE DUMPED",
-					sessionId: "conv-1",
-					createdAt: new Date().toISOString(),
-				},
-			],
-		});
-		renderSectionsInCompactionMock();
-		const { buildConstructedContext } = await import(
-			"./chat-turn/context-selection"
-		);
-
-		const result = await buildConstructedContext({
-			userId: "user-1",
-			conversationId: "conv-1",
-			message: "Normal chat turn when Honcho profile times out.",
-		});
-
-		expect(result.inputValue).toContain("## Current User Message");
-		expect(result.inputValue).not.toContain("## Baseline Memory Profile");
-		expect(result.inputValue).not.toContain("## User Memory");
-		expect(result.inputValue).not.toContain(
-			"RAW TIMEOUT CONCLUSION SHOULD NOT BE DUMPED",
 		);
 	});
 });

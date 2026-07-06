@@ -386,7 +386,9 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(constructed.inputValue).not.toContain(
 			"Suppressed profile item should not appear.",
 		);
-		expect(mocks.peerContext).toHaveBeenCalled();
+		// The turn path no longer consults Honcho; baseline memory comes solely
+		// from the active projection profile.
+		expect(mocks.peerContext).not.toHaveBeenCalled();
 		expect(mocks.peerChat).not.toHaveBeenCalled();
 
 		expect(constructed.inputValue).toContain("## Retrieved Evidence");
