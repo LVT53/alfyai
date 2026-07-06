@@ -1,13 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProjectionState, users } from "$lib/server/db/schema";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
-import {
-	bumpProjectionRevision,
-	ensureProjectionState,
-} from "../memory-profile/projection-store";
+import { ensureProjectionState } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 
@@ -169,15 +166,11 @@ export async function generateAndStorePersonaSummary(params: {
 			personaSummaryText: text,
 			personaSummaryLinksJson: JSON.stringify(links),
 			personaSummaryUpdatedAt: now,
+			revision: sql`${memoryProjectionState.revision} + 1`,
 			updatedAt: now,
 		})
 		.where(eq(memoryProjectionState.id, projection.id))
 		.run();
-	bumpProjectionRevision({
-		projectionStateId: projection.id,
-		amount: 1,
-		now,
-	});
 
 	return { text, links, updatedAt: now };
 }
