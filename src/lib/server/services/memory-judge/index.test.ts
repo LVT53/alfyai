@@ -7,6 +7,19 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// Hoisted static mock: vi.doMock registered from inside an `it()` races with
+// sibling files (memory-consolidation/summary.test.ts, memory.v2-actions.test.ts,
+// etc.) that dynamically import this same relative specifier's target module
+// concurrently under file parallelism, causing the real (unmocked) module to
+// resolve intermittently. A hoisted vi.mock is applied once, synchronously,
+// before this file's module graph loads, which removes the runtime timing
+// dependency entirely. Each test configures the shared spy's behavior instead
+// of re-registering the module mock.
+const sendJsonControlMessageMock = vi.fn();
+vi.mock("../normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
 let dbPath: string;
 let seedConnections: Array<{
 	sqlite: Database.Database;
@@ -120,13 +133,11 @@ const ADMIT_REVIEW_DECISIONS = {
 };
 
 function mockControlModel(payload: unknown) {
-	vi.doMock("../normal-chat-control-model", () => ({
-		sendJsonControlMessage: vi.fn(async () => ({
-			text: JSON.stringify(payload),
-			rawResponse: null,
-			modelId: "model1",
-			modelDisplayName: "test",
-		})),
+	sendJsonControlMessageMock.mockImplementation(async () => ({
+		text: JSON.stringify(payload),
+		rawResponse: null,
+		modelId: "model1",
+		modelDisplayName: "test",
 	}));
 }
 
@@ -137,6 +148,7 @@ describe("Memory judge service", () => {
 		delete process.env.MEMORY_JUDGE_DRY_RUN;
 		vi.resetModules();
 		seedConnections = [];
+		sendJsonControlMessageMock.mockReset();
 	});
 
 	afterEach(async () => {

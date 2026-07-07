@@ -7,6 +7,18 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// Hoisted static mock: vi.doMock registered from inside an `it()` races with
+// sibling test files that dynamically import this same relative specifier
+// concurrently under file parallelism, causing the real (unmocked) module to
+// resolve intermittently. A hoisted vi.mock is applied once, synchronously,
+// before this file's module graph loads, which removes the runtime timing
+// dependency entirely. Each test configures the shared spy's behavior
+// instead of re-registering the module mock.
+const sendJsonControlMessageMock = vi.fn();
+vi.mock("./normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
 let dbPath: string;
 let seedConnections: Array<{
 	sqlite: Database.Database;
@@ -162,6 +174,7 @@ describe("memory v2 actions service", () => {
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		seedConnections = [];
+		sendJsonControlMessageMock.mockReset();
 	});
 
 	afterEach(async () => {
@@ -183,7 +196,6 @@ describe("memory v2 actions service", () => {
 		} catch {
 			// best-effort
 		}
-		vi.doUnmock("./normal-chat-control-model");
 	});
 
 	it("correct: replaces statement, marks origin user_authored, advances projection revision, and blocks later judge updates", async () => {
@@ -352,12 +364,9 @@ describe("memory v2 actions service", () => {
 				{ text: "I work as a backend engineer.", factIds: [] },
 			],
 		});
-		const sendJsonControlMessage = vi
-			.fn()
-			.mockResolvedValue(makeControlResponse(personaResponse));
-		vi.doMock("./normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(personaResponse),
+		);
 
 		const { applyKnowledgeMemoryAction } = await import("./memory");
 		await applyKnowledgeMemoryAction(userId, "Tester", {
@@ -387,7 +396,7 @@ describe("memory v2 actions service", () => {
 			["I moved to Berlin last year.", "I work as a backend engineer."].sort(),
 		);
 
-		expect(sendJsonControlMessage).toHaveBeenCalled();
+		expect(sendJsonControlMessageMock).toHaveBeenCalled();
 
 		const { getKnowledgeMemorySummary } = await import("./memory");
 		const { summary } = await getKnowledgeMemorySummary(userId);
@@ -413,12 +422,9 @@ describe("memory v2 actions service", () => {
 		const personaResponse = JSON.stringify({
 			sentences: [{ text: "I moved to Berlin last year.", factIds: [] }],
 		});
-		const sendJsonControlMessage = vi
-			.fn()
-			.mockResolvedValue(makeControlResponse(personaResponse));
-		vi.doMock("./normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(personaResponse),
+		);
 
 		const { applyKnowledgeMemoryAction } = await import("./memory");
 		await applyKnowledgeMemoryAction(userId, "Tester", {
@@ -455,12 +461,9 @@ describe("memory v2 actions service", () => {
 		const personaResponse = JSON.stringify({
 			sentences: [{ text: "I MOVED TO BERLIN LAST YEAR!", factIds: [] }],
 		});
-		const sendJsonControlMessage = vi
-			.fn()
-			.mockResolvedValue(makeControlResponse(personaResponse));
-		vi.doMock("./normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(personaResponse),
+		);
 
 		const { applyKnowledgeMemoryAction } = await import("./memory");
 		await applyKnowledgeMemoryAction(userId, "Tester", {
@@ -490,13 +493,9 @@ describe("memory v2 actions service", () => {
 		const secondResponse = JSON.stringify({
 			sentences: [{ text: "I WORK AS A BACKEND ENGINEER", factIds: [] }],
 		});
-		const sendJsonControlMessage = vi
-			.fn()
+		sendJsonControlMessageMock
 			.mockResolvedValueOnce(makeControlResponse(firstResponse))
 			.mockResolvedValueOnce(makeControlResponse(secondResponse));
-		vi.doMock("./normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
 
 		const { applyKnowledgeMemoryAction } = await import("./memory");
 		await applyKnowledgeMemoryAction(userId, "Tester", {
