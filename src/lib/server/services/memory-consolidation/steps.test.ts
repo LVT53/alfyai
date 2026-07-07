@@ -509,6 +509,45 @@ describe("memory consolidation steps", () => {
 		expect(actions.length).toBe(0);
 	});
 
+	it("applies reconcile actions when the model wraps the JSON envelope in reasoning prose", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+
+		const loserId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am planning an exchange semester.",
+			metadata: { origin: "judge_v1", confidence: "stated" },
+			createdAt: new Date(now.getTime() - 10 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 10 * DAY_MS),
+		});
+		const winnerId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I settled in Limerick for my exchange semester.",
+			metadata: { origin: "judge_v1", confidence: "stated" },
+			createdAt: new Date(now.getTime() - 2 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 2 * DAY_MS),
+		});
+
+		// A reasoning model surfaces its chain-of-thought (which even quotes the
+		// format example) BEFORE the real envelope. Bare JSON.parse would throw;
+		// envelope extraction must recover the trailing object.
+		const responseText = `Let me think. The example format is {"actions": [{"type": "supersede", ...}]}. The newer Limerick fact supersedes the older plan.\n{"actions":[{"type":"supersede","winnerId":"${winnerId}","loserId":"${loserId}"}]}`;
+		setControlResponse(responseText);
+
+		const { runReconcileAndMerge } = await import("./steps");
+		const actions = await runReconcileAndMerge({ userId });
+
+		expect(readItem(db, loserId).status).toBe("retired");
+		expect(metaOf(readItem(db, loserId)).supersededBy).toBe(winnerId);
+		expect(readItem(db, winnerId).status).toBe("active");
+		expect(actions.some((a) => a.type === "superseded")).toBe(true);
+	});
+
 	it("returns [] and records a reconcile_call_failed breadcrumb when the control model call fails", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

@@ -7,7 +7,10 @@ import {
 	memoryProfileItems,
 } from "$lib/server/db/schema";
 import { refreshFactEmbedding } from "../memory-judge";
-import { reasoningAwareMaxTokens } from "../memory-judge/schema";
+import {
+	parseJsonWithEnvelopeExtraction,
+	reasoningAwareMaxTokens,
+} from "../memory-judge/schema";
 import {
 	createMemoryProfileItem,
 	ensureProjectionState,
@@ -335,10 +338,13 @@ export async function runReconcileAndMerge(params: {
 				allowReasoningFallback: true,
 			},
 		);
-		const parsed = JSON.parse(res.text) as {
+		// Reasoning models may wrap the JSON envelope in chain-of-thought
+		// prose surfaced via allowReasoningFallback; extract the real object
+		// from the end rather than failing the whole reconcile pass.
+		const parsed = parseJsonWithEnvelopeExtraction(res.text, "actions") as {
 			actions?: ConsolidationLlmAction[];
-		};
-		llmActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+		} | null;
+		llmActions = Array.isArray(parsed?.actions) ? parsed.actions : [];
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
 			userId,
