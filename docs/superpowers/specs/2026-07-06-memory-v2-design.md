@@ -42,7 +42,7 @@ Four components; lifecycle: **conversation → judge → fact store → nightly 
 
 Existing tables extended, no new storage system:
 
-- `memory_profile_items`: continue using `statement` (first-person, single sentence), `category`, `scopeType`/`scopeId` (global or project), `status`, `revision`, `expiresAt` (now actually used). Add to `metadata_json` (no schema migration where avoidable): `confidence` (`stated` | `inferred`), `expiryClass` (`durable` | `time_bound` | `ephemeral`), `origin` (`judge_v1` | `user_authored` | `recuration`), `supersedesItemId`.
+- `memory_profile_items`: continue using `statement` (first-person, single sentence), `category`, `scopeType`/`scopeId` (global or project), `status`, `revision`, `expiresAt` (now actually used). Add to `metadata_json` (no schema migration where avoidable): `confidence` (`stated` | `inferred`), `expiryClass` (`durable` | `time_bound` | `ephemeral`), `origin` (`judge_v1` | `user_authored` | `recuration` | `consolidation`), `supersedesItemId`.
 - Statuses: `active`, `review_needed` (capped, auto-expiring), `retired` (expired/superseded/merged — replaces ad-hoc `inactive`), `suppressed`, `deleted`. Retirement always links its cause (superseding item id or expiry) — nothing is silently destroyed.
 - `memory_profile_item_provenance`: one row per source (conversation id, message ids, short quote label). Populated for every admitted fact.
 - **Persona summary**: stored per user in `memory_projection_state` (keyed by user + reset generation): summary text (~150–250 words), per-sentence supporting fact ids (structured JSON), `updatedAt`.

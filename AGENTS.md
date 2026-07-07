@@ -344,80 +344,49 @@ Do not:
 - add file deduplication (allow duplicates with auto-rename)
 - use external hosted services for file preview
 
-### Memory, Continuity, And Honcho
+### Memory, Continuity, And The Memory Judge
 
-- Primary continuity/memory boundary:
-  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts)
-- Task-state internal modules:
-  - [`src/lib/server/services/task-state/control-model.ts`](./src/lib/server/services/task-state/control-model.ts)
-  - [`src/lib/server/services/task-state/continuity.ts`](./src/lib/server/services/task-state/continuity.ts)
-  - [`src/lib/server/services/task-state/artifacts.ts`](./src/lib/server/services/task-state/artifacts.ts)
-  - [`src/lib/server/services/task-state/chunk-sync.ts`](./src/lib/server/services/task-state/chunk-sync.ts)
-  - [`src/lib/server/services/task-state/document-preferences.ts`](./src/lib/server/services/task-state/document-preferences.ts)
-  - [`src/lib/server/services/task-state/mappers.ts`](./src/lib/server/services/task-state/mappers.ts)
-- Honcho adapter:
-  - [`src/lib/server/services/honcho.ts`](./src/lib/server/services/honcho.ts)
-- Persona support:
-  - Delegated to Honcho when enabled; local persona clustering has been removed.
+Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.
+
+- Continuity boundary:
+  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, document-preferences, mappers)
+- Profile memory judge (intake):
+  - [`src/lib/server/services/memory-judge/`](./src/lib/server/services/memory-judge/) — `index.ts` (per-segment run), `runner.ts` (idle/dirty sweep), `segment.ts` (watermarks), `prompt.ts`, `schema.ts`
+- Consolidation (nightly rework):
+  - [`src/lib/server/services/memory-consolidation/`](./src/lib/server/services/memory-consolidation/) — `index.ts` (runner + scheduler), `steps.ts` (expire/renew, reconcile/merge), `summary.ts` (persona summary)
+- Recuration (one-time cleanup):
+  - [`src/lib/server/services/memory-recuration.ts`](./src/lib/server/services/memory-recuration.ts)
+- Fact store authority:
+  - [`src/lib/server/services/memory-profile/`](./src/lib/server/services/memory-profile/) — see its narrow seams (`projection-store.ts`, `read-model.ts`, `active-context.ts`, `telemetry.ts`, `review.ts`, `dirty-ledger.ts`, `types.ts`)
+- Recall into prompts:
+  - [`src/lib/server/services/memory-context/`](./src/lib/server/services/memory-context/)
+- Public read facade + maintenance/orchestration:
+  - [`src/lib/server/services/memory.ts`](./src/lib/server/services/memory.ts), [`src/lib/server/services/memory-maintenance.ts`](./src/lib/server/services/memory-maintenance.ts)
 - Event log:
   - [`src/lib/server/services/memory-events.ts`](./src/lib/server/services/memory-events.ts)
-- Maintenance/orchestration:
-  - [`src/lib/server/services/memory.ts`](./src/lib/server/services/memory.ts)
-  - [`src/lib/server/services/memory-maintenance.ts`](./src/lib/server/services/memory-maintenance.ts)
-- Shared helpers:
-  - [`src/lib/server/utils/json.ts`](./src/lib/server/utils/json.ts)
-  - [`src/lib/server/utils/text.ts`](./src/lib/server/utils/text.ts)
-  - [`src/lib/utils/tokens.ts`](./src/lib/utils/tokens.ts)
-  - [`src/lib/server/utils/prompt-context.ts`](./src/lib/server/utils/prompt-context.ts)
 
 Rules:
 
-- `task-state.ts`
-  - public continuity facade
-  - task routing, checkpoints, evidence-context assembly, and related summarization entrypoints
-  - semantic shortlist/rerank assisted task revival/routing over the persisted `task_state` embeddings
-- `task-state/control-model.ts`
-  - context summarizer and control-model helpers used by task-state internals
-- `task-state/continuity.ts`
-  - task memory and project continuity internals
-  - keep project continuity status/event truth deterministic even when task routing gets smarter semantically
-- `task-state/artifacts.ts`
-  - task-state prompt formatting, prompt snippet selection, and historical-context summarization helpers
-- `task-state/chunk-sync.ts`
-  - artifact chunk splitting and persistence
-- `task-state/document-preferences.ts`
-  - family-aware working-document preference conflict detection
-- `task-state/mappers.ts`
-  - task-state row mappers shared by task-state internals
-- `honcho.ts` should stay an integration adapter for Honcho sessions, peers, mirrored messages, and Honcho-specific context.
-- Reset-grade cleanup that is meant to sever memory continuity must rotate the per-user Honcho peer identity, not just delete local rows or current Honcho sessions/conclusions. Reusing the same Honcho peer id after a reset is not a strong enough boundary.
-- Read-side Honcho session memory should prefer Honcho’s canonical `session.queueStatus()` plus `session.context(...)` flow over manual multi-call fanout, but the chat-path call must stay session-limited. Do not pass `searchQuery` there without the required `peerTarget`, do not let live Honcho context widen into workspace-level retrieval when the intent is current-session recall, and skip live session-context reads entirely for genuinely empty/new sessions that have no stored turns or snapshot yet.
-- Per-turn Honcho diagnostics and last-good Honcho snapshots belong in assistant-message metadata via `messages.ts`, not ad hoc route state.
-- `buildConstructedContext` must degrade gracefully when Honcho is disabled, unavailable, or slow. Core chat cannot block on Honcho connectivity or empty-session bootstrap, but the chosen Honcho source for each turn must remain measurable and source-attributed.
-- `getKnowledgeMemory` and other knowledge-memory reads should treat Honcho conclusions and snapshots as the current persona-memory source. Do not block the Memory Profile on live Honcho overview generation.
-- `memory.ts` owns Memory Profile overview source selection, cached Honcho overview reuse, and overview refresh backoff. Prefer source-attributed Honcho data when available, then degrade to stored conclusions or an empty state.
-- Local persona clustering has been removed. Do not add new local temporal-truth, salience, or supersession logic outside the Honcho/memory boundary.
-- Artifact retrieval and cleanup should treat linked conversation ownership as stronger authority than `artifacts.userId` alone. Conversation-scoped working artifacts such as `generated_output` and `work_capsule` are not valid retrieval candidates once their conversation link is gone, even if a stale row survives in SQLite.
-- `memory-events.ts` owns the persisted normalized event log for important state changes such as deadlines, preference updates, persona fact replacement, project continuity transitions, and document supersession. Add new event types there and emit them from the existing state-change boundaries; do not create ad hoc side logs or route-local event tables.
-- `task-state/continuity.ts` now also consumes the latest task-domain project events on the read path. If a newer `project_paused` or `project_resumed` event exists, continuity summaries should prefer that signal over an older still-active row.
-- User-selected task evidence preferences should stay family-aware for working documents. If a user pins or excludes one version inside a document family, clear contradictory user preference links for sibling versions in that same family instead of letting multiple versions stay preferred at once.
-- Live Working Document selection signals (active workspace focus, current generated document, correction/refinement, move-on/reset) belong in `src/lib/server/services/working-document-selection.ts`. Recompute carryover per turn rather than trusting stale reason codes.
-- `memory-maintenance.ts` owns per-user maintenance scheduling. Chat-triggered maintenance must stay serialized and debounced there; do not trigger heavy continuity or embedding repair directly from routes or UI code.
-- `memory-maintenance.ts` is also the lazy semantic-embedding backfill path. Missing or stale artifact/task embeddings should be repaired there rather than blocking chat routes or artifact writes. Treat legacy persona embedding repair as migration cleanup, not a new local persona-memory feature.
-- Generated-output duplicate repair should also run through `memory-maintenance.ts`, not as a separate ad hoc sweep. Reuse `evidence-family.ts` retrieval-class repair so low-value near-duplicate drafts stay compressed out of broad retrieval while document history still remains available through the working-document system.
-- Generated-document lifecycle state should stay on the existing working-document metadata contract. If a generated-document family becomes dormant, let `memory-maintenance.ts` and `evidence-family.ts` mark the latest family representative as `historical`; do not create a second document-lifecycle table or route-local stale-document cache for that purpose.
-- keep Knowledge Memory observability on the existing overview boundary. `memory.ts` now logs a single `[KNOWLEDGE_MEMORY] Selected overview source` summary; do not add route-local overview-source logging when the source decision already happened there.
-- Historical working-document families are soft-deprioritized, not hidden. If maintenance has already marked a family `historical`, retrieval and prompt carryover may apply a bounded ranking penalty, but explicit query/document matches and direct source navigation must still work.
-- Project continuity contradiction handling should stay in the existing continuity boundary: explicit pause/resume language may record task-domain events and update continuity state immediately, but the authoritative current status still belongs to `task-state/continuity.ts`, not Honcho or a route-local heuristic.
-- Prompt-time persona recall belongs on the Honcho/memory boundary; do not build a second lexical/semantic persona search surface beside Honcho conclusions.
-- Treat Honcho conclusion `createdAt` values as storage/observation timestamps, not proof of the real-world date of the remembered event. Prompt text must not invent "today/now" timing for undated persona events.
+- `memory-judge/` is the only intake path from conversation into profile memory. It runs on three tiers of triggers — idle (deferred after a turn), explicit (user asks to remember), and marathon/sweep (long or backlogged conversations) — over the unjudged segment tracked by per-conversation watermarks in `segment.ts`. Advance the watermark only after a real run; never re-judge already-judged messages.
+- The judge admits candidates through five gates in `schema.ts` (hedge, evidence-trail, third-person, missing-expiry for time_bound, missing-target for update/strengthen). Keep the gate order and reasons stable; post-filter rejects must stay measurable via the `judge_candidate_rejected` intake telemetry rather than being dropped silently.
+- Honour the dry-run switch (`MEMORY_JUDGE_DRY_RUN`): in dry-run the judge records `judge_dry_run_decision` telemetry and advances the watermark but writes no profile items. Do not add a second dry-run flag or bypass it in routes.
+- `memory-consolidation/` is revision-based and per-user isolated: expire/renew then reconcile/merge steps run against the current projection revision, write a report row per non-skipped run, and refresh the persona summary. Change detection may skip a user with nothing new. Never let one user's consolidation read or write another user's items.
+- `memory-recuration.ts` is a one-time, admin-triggered rewrite/cleanup of the existing fact store; it is not part of the per-turn path. Do not wire it into chat routes or the scheduler.
+- `memory-profile/` is the authority on fact state: item `status` (including `retired`), provenance, and projection revisions. `user_authored` items are protected — the judge, consolidation, and recuration must never rewrite, retire, or delete them. Read/write item metadata through the shared helpers in `memory-profile/types.ts` (`parseMemoryItemMetadata`, `isUserAuthoredMemoryMetadata`); do not re-implement the origin check locally.
+- Recall belongs to `memory-context/`: the prompt gets the persona summary plus active facts, each fact carrying its own evidence. Do not build a second lexical/semantic persona search surface beside this boundary, and do not invent "today/now" timing for undated facts.
+- `memory.ts` is the public read facade for the Knowledge Base Memory Profile and keeps `/api/knowledge/memory/overview` as a projection-backed wrapper. It must not depend on a live external overview service, raw markdown cleanup, or task-memory tables.
+- `memory-events.ts` owns the persisted normalized event log for important state changes (deadlines, preference updates, fact replacement, project continuity transitions, document supersession). Add new event types there; do not create ad hoc side logs or route-local event tables.
+- `task-state.ts` remains the continuity facade (task routing, checkpoints, evidence-context assembly, semantic task revival). Keep project continuity status/event truth deterministic in `task-state/continuity.ts`, which prefers the latest `project_paused`/`project_resumed` task-domain event over an older still-active row.
+- User-selected task evidence preferences stay family-aware for working documents: pinning/excluding one version clears contradictory preference links for sibling versions in the same family. Live Working Document selection signals belong in `working-document-selection.ts`, recomputed per turn.
+- `memory-maintenance.ts` owns per-user maintenance scheduling and lazy semantic-embedding backfill. Chat-triggered maintenance stays serialized/debounced there; generated-output duplicate repair and dormant-family (`historical`) downgrades reuse `evidence-family.ts` from there rather than a separate sweep. Historical families are soft-deprioritized, not hidden.
+- Artifact retrieval and cleanup treat linked conversation ownership as stronger authority than `artifacts.userId` alone. Conversation-scoped working artifacts (`generated_output`, `work_capsule`) are not valid retrieval candidates once their conversation link is gone.
 
 Do not:
 
 - create a new top-level continuity service when `task-state.ts` can own the behavior
-- copy `clip`, token estimation, JSON parsing, or prompt-compaction helpers into another service
-- move generic prompt-section rendering into `honcho.ts`
-- create or restore `project-memory.ts`; project continuity belongs in `task-state.ts` and `task-state/continuity.ts`
+- add a second intake path, regex persona pipeline, or temporal-truth/salience/supersession subsystem outside `memory-judge`/`memory-consolidation`/`memory-profile`
+- copy the `user_authored`/metadata parse helpers, `clip`, token estimation, or prompt-compaction helpers into another service
+- create or restore `project-memory.ts`, `persona-memory.ts`, or any `honcho.ts`-style external memory adapter
 
 ### Config And Environment
 

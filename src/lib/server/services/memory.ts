@@ -99,15 +99,6 @@ async function markStaleProjectionRead(userId: string, source: string) {
 	});
 }
 
-async function markLegacyMigrationRead(userId: string, source: string) {
-	await markMemoryDirty({
-		userId,
-		reason: "legacy_migration",
-		scope: { type: "global" },
-		metadata: { source },
-	});
-}
-
 function hasActiveMemoryProfileItems(profile: MemoryProfileReadModel): boolean {
 	return profile.categories.some((group) => group.items.length > 0);
 }
@@ -133,7 +124,6 @@ async function bootstrapEmptyMemoryProfile(
 ): Promise<MemoryProfileReadModel> {
 	if (hasActiveMemoryProfileItems(profile)) return profile;
 
-	await markLegacyMigrationRead(userId, source);
 	queueMemoryReadMaintenance(userId, source);
 	return profile;
 }

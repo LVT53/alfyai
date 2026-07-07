@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJudgeDecisions } from "./schema";
+import { parseJudgeDecisions, parseJudgeDecisionsDetailed } from "./schema";
 
 const valid = (over: Record<string, unknown> = {}) => ({
 	action: "add",
@@ -104,5 +104,42 @@ describe("parseJudgeDecisions", () => {
 			}),
 		);
 		expect(out[0].statement).toBe("I prefer tea.");
+	});
+});
+
+describe("parseJudgeDecisionsDetailed", () => {
+	it("returns empty lists on malformed JSON (no candidates to attribute)", () => {
+		expect(parseJudgeDecisionsDetailed("not json")).toEqual({
+			decisions: [],
+			rejected: [],
+		});
+	});
+	it("records one rejected candidate per reason", () => {
+		const cases: Array<[Record<string, unknown>, string]> = [
+			[{ statement: "I might have a bike." }, "hedge"],
+			[
+				{ statement: "I run AlmaLinux, as indicated by the filesystem." },
+				"evidence_trail",
+			],
+			[{ statement: "The user prefers tea." }, "third_person"],
+			[{ category: "vibes" }, "invalid_shape"],
+			[{ expiryClass: "time_bound" }, "missing_expiry"],
+			[{ action: "update" }, "missing_target"],
+		];
+		for (const [over, reason] of cases) {
+			const { decisions, rejected } = parseJudgeDecisionsDetailed(
+				JSON.stringify({ decisions: [valid(over)] }),
+			);
+			expect(decisions).toEqual([]);
+			expect(rejected).toHaveLength(1);
+			expect(rejected[0].reason).toBe(reason);
+		}
+	});
+	it("keeps accepted decisions out of the rejected list", () => {
+		const { decisions, rejected } = parseJudgeDecisionsDetailed(
+			JSON.stringify({ decisions: [valid()] }),
+		);
+		expect(decisions).toHaveLength(1);
+		expect(rejected).toEqual([]);
 	});
 });

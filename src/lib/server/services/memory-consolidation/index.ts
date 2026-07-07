@@ -140,6 +140,7 @@ async function recordRunTelemetry(params: {
 	userId: string;
 	status: "ok" | "error";
 	count: number;
+	reason?: string;
 }): Promise<void> {
 	try {
 		await recordMemoryReworkTelemetry({
@@ -148,6 +149,7 @@ async function recordRunTelemetry(params: {
 			eventName: "consolidation_run",
 			status: params.status,
 			count: params.count,
+			reason: params.reason,
 		});
 	} catch {
 		// Telemetry is best-effort; never fail a run over it.
@@ -166,7 +168,7 @@ async function recordRunTelemetry(params: {
  */
 export async function runUserMemoryConsolidation(
 	userId: string,
-	_reason?: string,
+	reason?: string,
 ): Promise<MemoryConsolidationRunResult> {
 	if (await shouldSkipConsolidation(userId)) {
 		return { status: "skipped" };
@@ -189,7 +191,12 @@ export async function runUserMemoryConsolidation(
 			summaryText,
 			actions,
 		});
-		await recordRunTelemetry({ userId, status: "ok", count: actions.length });
+		await recordRunTelemetry({
+			userId,
+			status: "ok",
+			count: actions.length,
+			reason,
+		});
 		return { status: "succeeded", reportId };
 	} catch (error) {
 		const errorName = error instanceof Error ? error.constructor.name : "Error";
@@ -204,6 +211,7 @@ export async function runUserMemoryConsolidation(
 			userId,
 			status: "error",
 			count: actions.length,
+			reason,
 		});
 		return { status: "failed", reportId };
 	}

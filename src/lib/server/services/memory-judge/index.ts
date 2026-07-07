@@ -12,6 +12,7 @@ import {
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
 import { createOrUpdateMemoryReviewItem } from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
 import {
 	buildJudgeSystemPrompt,
@@ -21,7 +22,8 @@ import {
 import {
 	JUDGE_JSON_SCHEMA,
 	type JudgeDecision,
-	parseJudgeDecisions,
+	parseJudgeDecisionsDetailed,
+	type RejectedJudgeCandidate,
 } from "./schema";
 import {
 	advanceConversationMemoryWatermark,
@@ -80,6 +82,7 @@ export async function runMemoryJudgeOnSegment(params: {
 	]);
 
 	let decisions: JudgeDecision[];
+	let rejected: RejectedJudgeCandidate[] = [];
 	try {
 		const { sendJsonControlMessage } = await import(
 			"../normal-chat-control-model"
@@ -104,7 +107,7 @@ export async function runMemoryJudgeOnSegment(params: {
 				allowReasoningFallback: true,
 			},
 		);
-		decisions = parseJudgeDecisions(res.text);
+		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
 			userId: params.userId,
@@ -139,6 +142,19 @@ export async function runMemoryJudgeOnSegment(params: {
 			});
 		}
 		return { status: "ran", admitted: 0, review: 0, updated: 0, dryRun: true };
+	}
+
+	// Live-run diagnostics: record each post-filter reject so the intake funnel
+	// (spec §3.2/§6) stays measurable. "statement" is privacy-safe per
+	// assertPrivacySafeMetadata; clip to keep telemetry rows bounded.
+	for (const r of rejected) {
+		await recordMemoryReworkTelemetry({
+			userId: params.userId,
+			eventFamily: "intake",
+			eventName: "judge_candidate_rejected",
+			reason: r.reason,
+			metadata: { statement: r.statement.slice(0, 200) },
+		}).catch(() => {});
 	}
 
 	let admitted = 0;
@@ -276,14 +292,7 @@ async function isUserAuthoredItem(
 		)
 		.limit(1);
 	if (!row) return false;
-	try {
-		const parsed = JSON.parse(row.metadataJson ?? "{}") as {
-			origin?: unknown;
-		};
-		return parsed.origin === "user_authored";
-	} catch {
-		return false;
-	}
+	return isUserAuthoredMemoryMetadata(row.metadataJson);
 }
 
 async function applyItemMetadata(

@@ -22,6 +22,7 @@ import { getCurrentMemoryResetGeneration } from "./memory-profile/reset-generati
 import { resolveMemoryReviewItem } from "./memory-profile/review";
 import { recordMemoryReworkTelemetry } from "./memory-profile/telemetry";
 import {
+	isUserAuthoredMemoryMetadata,
 	MEMORY_PROFILE_CATEGORIES,
 	type MemoryProfileCategory,
 } from "./memory-profile/types";
@@ -109,15 +110,6 @@ function buildRecurationUserMessage(
 	});
 }
 
-function isUserAuthoredMetadata(metadataJson: string | null): boolean {
-	try {
-		const parsed = JSON.parse(metadataJson ?? "{}") as { origin?: unknown };
-		return parsed.origin === "user_authored";
-	} catch {
-		return false;
-	}
-}
-
 function tripsRewriteFilter(statement: string): boolean {
 	return (
 		HEDGE_RE.test(statement) ||
@@ -166,7 +158,7 @@ export async function runMemoryRecuration(userId: string): Promise<{
 
 	for (const batch of batches) {
 		const eligible = batch.filter(
-			(row) => !isUserAuthoredMetadata(row.metadataJson),
+			(row) => !isUserAuthoredMemoryMetadata(row.metadataJson),
 		);
 		if (eligible.length === 0) continue;
 

@@ -571,6 +571,54 @@ describe("Memory judge service", () => {
 		expect(provenance.length).toBeGreaterThanOrEqual(1);
 	});
 
+	it("records a rejected-candidate telemetry row for a hedged decision in live mode", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I might have a bike." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		mockControlModel({
+			decisions: [
+				{
+					action: "add",
+					statement: "I might have a bike.",
+					category: "about_you",
+					scope: "global",
+					confidence: "stated",
+					expiryClass: "durable",
+					sourceQuote: "might have a bike",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+		expect(result).toMatchObject({
+			status: "ran",
+			admitted: 0,
+			dryRun: false,
+		});
+
+		const { listMemoryReworkTelemetry } = await import(
+			"../memory-profile/telemetry"
+		);
+		const rows = await listMemoryReworkTelemetry({ userId: "u1" });
+		const rejected = rows.find(
+			(r) => r.eventName === "judge_candidate_rejected",
+		);
+		expect(rejected).toBeDefined();
+		expect(rejected?.reason).toBe("hedge");
+	});
+
 	it("does not advance the watermark on the explicit segmentOverride path", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });

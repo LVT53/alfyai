@@ -67,6 +67,9 @@ const decisionSchema = z.object({
 	sourceQuote: z.string().min(1).max(300),
 });
 
+// The `or has\b` token targets audit-style compound hedges the control model
+// sometimes emits, e.g. "has a bike or has a bike to which insurance might be
+// applicable" — a disjunction dressed up as a fact, which is not a stated truth.
 export const HEDGE_RE =
 	/\b(might|may be|maybe|possibly|perhaps|probably|or has\b|talán|esetleg|lehet,? hogy|valószínűleg)\b/i;
 export const EVIDENCE_TRAIL_RE =
@@ -79,32 +82,87 @@ function firstSentence(statement: string): string {
 	return (match ? match[0] : statement).trim();
 }
 
-export function parseJudgeDecisions(rawText: string): JudgeDecision[] {
+export type RejectedJudgeCandidate = {
+	statement: string;
+	reason:
+		| "hedge"
+		| "evidence_trail"
+		| "third_person"
+		| "invalid_shape"
+		| "missing_expiry"
+		| "missing_target";
+};
+
+/**
+ * Best-effort statement extraction for a raw candidate that failed schema
+ * validation, so a rejected-candidate telemetry row still carries a readable
+ * (privacy-safe) statement. Falls back to "" when no string is present.
+ */
+function rawStatement(raw: unknown): string {
+	if (raw && typeof raw === "object" && "statement" in raw) {
+		const s = (raw as { statement?: unknown }).statement;
+		if (typeof s === "string") return firstSentence(s);
+	}
+	return "";
+}
+
+/**
+ * Parse the judge JSON envelope into accepted decisions plus a diagnostic list
+ * of post-filter rejects. `parseJudgeDecisions` wraps this and returns only the
+ * accepted decisions. A malformed envelope yields empty lists (no rejects) —
+ * there are no candidates to attribute a rejection to.
+ */
+export function parseJudgeDecisionsDetailed(rawText: string): {
+	decisions: JudgeDecision[];
+	rejected: RejectedJudgeCandidate[];
+} {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(rawText);
 	} catch {
-		return [];
+		return { decisions: [], rejected: [] };
 	}
 	const envelope = z
 		.object({ decisions: z.array(z.unknown()) })
 		.safeParse(parsed);
-	if (!envelope.success) return [];
-	const out: JudgeDecision[] = [];
+	if (!envelope.success) return { decisions: [], rejected: [] };
+	const decisions: JudgeDecision[] = [];
+	const rejected: RejectedJudgeCandidate[] = [];
 	for (const raw of envelope.data.decisions) {
 		const d = decisionSchema.safeParse(raw);
-		if (!d.success) continue;
+		if (!d.success) {
+			rejected.push({ statement: rawStatement(raw), reason: "invalid_shape" });
+			continue;
+		}
 		const statement = firstSentence(d.data.statement);
-		if (HEDGE_RE.test(statement)) continue;
-		if (EVIDENCE_TRAIL_RE.test(statement)) continue;
-		if (THIRD_PERSON_RE.test(statement)) continue;
-		if (d.data.expiryClass === "time_bound" && !d.data.expiresInDays) continue;
+		if (HEDGE_RE.test(statement)) {
+			rejected.push({ statement, reason: "hedge" });
+			continue;
+		}
+		if (EVIDENCE_TRAIL_RE.test(statement)) {
+			rejected.push({ statement, reason: "evidence_trail" });
+			continue;
+		}
+		if (THIRD_PERSON_RE.test(statement)) {
+			rejected.push({ statement, reason: "third_person" });
+			continue;
+		}
+		if (d.data.expiryClass === "time_bound" && !d.data.expiresInDays) {
+			rejected.push({ statement, reason: "missing_expiry" });
+			continue;
+		}
 		if (
 			(d.data.action === "update" || d.data.action === "strengthen") &&
 			!d.data.targetItemId
-		)
+		) {
+			rejected.push({ statement, reason: "missing_target" });
 			continue;
-		out.push({ ...d.data, statement });
+		}
+		decisions.push({ ...d.data, statement });
 	}
-	return out;
+	return { decisions, rejected };
+}
+
+export function parseJudgeDecisions(rawText: string): JudgeDecision[] {
+	return parseJudgeDecisionsDetailed(rawText).decisions;
 }

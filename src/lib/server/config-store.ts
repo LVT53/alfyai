@@ -441,9 +441,6 @@ function validateMemoryJudgeAndConsolidationConfig(
 		"memoryConsolidationModel",
 		"Memory consolidation model",
 	);
-	config.memoryJudgeIdleMinutes ??= 30;
-	config.memoryConsolidationIntervalMinutes ??= 1440;
-	config.memoryJudgeDryRun ??= false;
 }
 
 function validateContextLimitTriples(config: RuntimeConfig): void {

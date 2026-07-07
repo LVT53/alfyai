@@ -16,7 +16,11 @@ import {
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
-import { assertMemoryProfileCategory } from "../memory-profile/types";
+import {
+	assertMemoryProfileCategory,
+	isUserAuthoredMemoryMetadata,
+	parseMemoryItemMetadata,
+} from "../memory-profile/types";
 
 const DAY_MS = 86_400_000;
 const RENEW_EXPIRES_WITHIN_DAYS = 7;
@@ -71,21 +75,6 @@ const CONSOLIDATION_SYSTEM_PROMPT =
 	"and should merge into one richer first-person sentence. Only propose actions " +
 	"you are certain about; an empty list is the normal result.";
 
-function parseMetadata(metadataJson: string | null): Record<string, unknown> {
-	try {
-		const parsed = JSON.parse(metadataJson ?? "{}");
-		return parsed && typeof parsed === "object"
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
-	}
-}
-
-function isUserAuthored(metadataJson: string | null): boolean {
-	return parseMetadata(metadataJson).origin === "user_authored";
-}
-
 /**
  * Merge a metadata patch into the item's existing metadataJson so we never
  * clobber confidence/expiryClass/origin written by intake or the judge.
@@ -138,8 +127,9 @@ export async function runExpireAndRenew(params: {
 		);
 
 	for (const item of renewCandidates) {
-		if (parseMetadata(item.metadataJson).expiryClass !== "time_bound") continue;
-		if (isUserAuthored(item.metadataJson)) continue;
+		if (parseMemoryItemMetadata(item.metadataJson).expiryClass !== "time_bound")
+			continue;
+		if (isUserAuthoredMemoryMetadata(item.metadataJson)) continue;
 		if (!item.expiresAt) continue;
 		const prevExpiresAt = item.expiresAt;
 		const nextExpiresAt = new Date(
@@ -296,7 +286,9 @@ export async function runReconcileAndMerge(params: {
 
 	// Candidates presented to the model exclude user_authored items so they are
 	// never proposed as losers/merge members.
-	const candidates = activeItems.filter((i) => !isUserAuthored(i.metadataJson));
+	const candidates = activeItems.filter(
+		(i) => !isUserAuthoredMemoryMetadata(i.metadataJson),
+	);
 	if (candidates.length === 0) return [];
 
 	// Fast lookup of the current, active, non-user-authored candidate set.

@@ -160,6 +160,34 @@ export type MemoryDirtyLedgerReconciliationResult = {
 
 export type JsonRecord = Record<string, unknown>;
 
+/**
+ * Defensively parse an item's metadataJson into a plain record. Any parse
+ * failure or non-object payload degrades to an empty object so callers never
+ * throw on malformed persisted metadata.
+ */
+export function parseMemoryItemMetadata(
+	metadataJson: string | null | undefined,
+): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(metadataJson ?? "{}");
+		return parsed && typeof parsed === "object"
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * True when an item's metadata marks it as user-authored. User-authored items
+ * are protected from judge/consolidation/recuration rewrites and deletion.
+ */
+export function isUserAuthoredMemoryMetadata(
+	metadataJson: string | null | undefined,
+): boolean {
+	return parseMemoryItemMetadata(metadataJson).origin === "user_authored";
+}
+
 export function assertMemoryProfileCategory(
 	category: string,
 ): asserts category is MemoryProfileCategory {

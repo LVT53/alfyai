@@ -144,7 +144,7 @@ describe("knowledge memory service", () => {
 		expect(payloadJson).not.toContain("debug");
 	});
 
-	it("queues legacy migration without blocking an empty projection-backed memory profile read", async () => {
+	it("queues maintenance without blocking an empty projection-backed memory profile read", async () => {
 		const maintenancePromise = new Promise<void>(() => {});
 		mockRunUserMemoryMaintenance.mockReturnValueOnce(maintenancePromise);
 		mockGetMemoryProfileReadModel.mockResolvedValueOnce(emptyProjectionProfile);
@@ -161,14 +161,9 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_read",
 			},
 		});
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "legacy_migration",
-			scope: { type: "global" },
-			metadata: {
-				source: "knowledge_memory_read",
-			},
-		});
+		expect(mockMarkMemoryDirty).not.toHaveBeenCalledWith(
+			expect.objectContaining({ reason: "legacy_migration" }),
+		);
 		await vi.waitFor(() => {
 			expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
 				"user-1",

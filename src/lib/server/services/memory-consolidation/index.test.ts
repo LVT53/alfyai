@@ -240,6 +240,14 @@ describe("memory consolidation runner", () => {
 		expect(report.actions.length).toBeGreaterThan(0);
 
 		expect(readProjectionRevision(db, userId)).toBeGreaterThan(revisionBefore);
+
+		// The run reason is forwarded onto the consolidation_run telemetry row.
+		const { listMemoryReworkTelemetry } = await import(
+			"../memory-profile/telemetry"
+		);
+		const telemetry = await listMemoryReworkTelemetry({ userId });
+		const runRow = telemetry.find((r) => r.eventName === "consolidation_run");
+		expect(runRow?.reason).toBe("test");
 	});
 
 	it("skips when nothing changed since the last succeeded report", async () => {
