@@ -176,6 +176,18 @@ function hasLengthFinishReason(rawResponse: unknown): boolean {
 	return firstChoice?.finish_reason === "length";
 }
 
+const JSON_OBJECT_MODE_GUARD_SENTENCE = "Respond with a single JSON object.";
+
+function withJsonKeywordGuard(params: {
+	systemPrompt: string;
+	message: string;
+}): string {
+	const mentionsJson =
+		/json/i.test(params.systemPrompt) || /json/i.test(params.message);
+	if (mentionsJson) return params.systemPrompt;
+	return `${params.systemPrompt}\n\n${JSON_OBJECT_MODE_GUARD_SENTENCE}`;
+}
+
 function extractRawResponseBody(response: unknown): unknown {
 	const record =
 		response && typeof response === "object"
@@ -232,7 +244,9 @@ export async function sendJsonControlMessage(
 	const generate = (params: { useJsonFallbackOutput?: boolean }) =>
 		generateText({
 			model: openaiCompatible(provider.modelName),
-			system: systemPrompt,
+			system: params.useJsonFallbackOutput
+				? withJsonKeywordGuard({ systemPrompt, message })
+				: systemPrompt,
 			messages,
 			output: params.useJsonFallbackOutput
 				? buildJsonFallbackOutput(options)
