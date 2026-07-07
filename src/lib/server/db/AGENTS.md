@@ -13,7 +13,7 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 ## Schema Overview
 
 **Core Tables:**
-- `users` - Accounts with Honcho peer versioning
+- `users` - Accounts
 - `sessions` - Cookie session storage
 - `conversations` - Chat threads with optional project linking and durable sidebar pin/order state
 - `messages` - Chat turns with thinking/tool call metadata

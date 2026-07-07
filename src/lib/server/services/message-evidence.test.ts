@@ -94,7 +94,7 @@ describe("buildAssistantEvidenceSummary", () => {
 						},
 						{
 							id: "memory-context:persona:user-1",
-							title: "Honcho persona recall",
+							title: "Profile persona recall",
 							snippet: "The user prefers concise answers.",
 							sourceType: "memory",
 						},

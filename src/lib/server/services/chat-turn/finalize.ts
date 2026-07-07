@@ -25,7 +25,6 @@ import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evid
 import {
 	createMessage,
 	updateMessageEvidence,
-	updateMessageHonchoMetadata,
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
@@ -152,8 +151,6 @@ export type FinalizeChatTurnParams = {
 	initialContextDebug: PersistAssistantTurnStateParams["initialContextDebug"];
 	analytics: PersistAssistantTurnStateParams["analytics"];
 	continuitySource: PersistAssistantTurnStateParams["continuitySource"];
-	honchoContext: PersistAssistantTurnStateParams["honchoContext"];
-	honchoSnapshot: PersistAssistantTurnStateParams["honchoSnapshot"];
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
 	startedResetGeneration?: number;
@@ -175,7 +172,6 @@ export type FinalizeChatTurnParams = {
 	deferPostTurnProjection?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
-	skipHonchoEnrichment?: boolean;
 };
 
 function buildSkillControlLogContext(params: {
@@ -598,9 +594,6 @@ export async function finalizeChatTurn(
 						assistantMessageId: assistantMessage.id,
 						analytics: params.analytics,
 						continuitySource: params.continuitySource,
-						honchoContext: params.honchoContext,
-						honchoSnapshot: params.honchoSnapshot,
-						skipHonchoEnrichment: params.skipHonchoEnrichment,
 					});
 				}
 
@@ -677,7 +670,6 @@ export async function finalizeChatTurn(
 							startedResetGeneration: params.startedResetGeneration,
 							skipAssistantProseMemoryIntake:
 								params.skipAssistantProseMemoryIntake,
-							skipHonchoEnrichment: params.skipHonchoEnrichment,
 						});
 
 					if (waitForEvidenceBeforePostTurnTasks) {
@@ -771,9 +763,6 @@ export async function finalizeChatTurn(
 			assistantMessageId: assistantMessage.id,
 			analytics: params.analytics,
 			continuitySource: params.continuitySource,
-			honchoContext: params.honchoContext,
-			honchoSnapshot: params.honchoSnapshot,
-			skipHonchoEnrichment: params.skipHonchoEnrichment,
 		});
 	}
 
@@ -817,7 +806,6 @@ export async function finalizeChatTurn(
 							startedResetGeneration: params.startedResetGeneration,
 							skipAssistantProseMemoryIntake:
 								params.skipAssistantProseMemoryIntake,
-							skipHonchoEnrichment: params.skipHonchoEnrichment,
 						}),
 					)
 				: runPostTurnTasksImpl({
@@ -835,7 +823,6 @@ export async function finalizeChatTurn(
 						startedResetGeneration: params.startedResetGeneration,
 						skipAssistantProseMemoryIntake:
 							params.skipAssistantProseMemoryIntake,
-						skipHonchoEnrichment: params.skipHonchoEnrichment,
 					})
 			: Promise.resolve();
 
@@ -1026,12 +1013,6 @@ export async function persistAssistantTurnState(
 				error,
 			),
 		);
-	}
-	if (!params.skipHonchoEnrichment) {
-		await updateMessageHonchoMetadata(params.assistantMessageId, {
-			honchoContext: params.honchoContext,
-			honchoSnapshot: params.honchoSnapshot,
-		}).catch(() => undefined);
 	}
 	const contextDebug = await getContextDebugState(
 		params.userId,

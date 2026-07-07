@@ -6,7 +6,6 @@ import {
 	deleteAtlasJobsForConversation,
 } from "../atlas";
 import { deleteAllChatFilesForConversation } from "../chat-files";
-import { deleteConversationHonchoState } from "../honcho";
 import {
 	artifactHasReferencesOutsideConversation,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -36,7 +35,6 @@ export async function deleteConversationWithCleanup(
 		return null;
 	}
 
-	await deleteConversationHonchoState(userId, conversationId);
 	await cancelActiveAtlasJobsForConversation({ userId, conversationId });
 
 	const ownedArtifacts = await listConversationOwnedArtifacts(

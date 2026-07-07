@@ -1,5 +1,3 @@
-import type { LegacyPersonaMemoryCandidateBatch } from "./legacy";
-
 export const MEMORY_PROFILE_CATEGORIES = [
 	"about_you",
 	"preferences",
@@ -19,7 +17,6 @@ export const MEMORY_DIRTY_REASONS = [
 	"possible_conflict",
 	"possible_duplicate",
 	"legacy_migration",
-	"honcho_reconciliation",
 	"review_generation",
 ] as const;
 export const MEMORY_REWORK_TELEMETRY_FAMILIES = [
@@ -160,16 +157,6 @@ export type MemoryDirtyLedgerReconciliationResult = {
 	skipped: number;
 	timedOut: boolean;
 };
-
-export type LegacyMemoryCandidateLoader = (
-	userId: string,
-	options: {
-		limit: number;
-		excludeSourceIds?: string[];
-		startPage?: number;
-		maxPages?: number;
-	},
-) => Promise<LegacyPersonaMemoryCandidateBatch>;
 
 export type JsonRecord = Record<string, unknown>;
 

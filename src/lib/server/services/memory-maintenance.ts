@@ -22,17 +22,11 @@ import {
 	repairGeneratedOutputRetrievalClasses,
 } from "./evidence-family";
 import {
-	listLegacyPersonaMemoryCandidates,
-	pruneOrphanHonchoSessions,
-} from "./honcho";
-import {
 	recordStepFailure,
 	recordStepStart,
 	recordStepSuccess,
 } from "./maintenance-metrics";
 import { pruneOldMemoryEvents } from "./memory-events";
-import { reconcileMemoryProfileDirtyLedgerForUser } from "./memory-profile/dirty-ledger-reconciliation";
-import { curatePreservedLegacyMemoryForUser } from "./memory-profile/legacy-curation";
 import { backfillSemanticEmbeddingsForUser } from "./semantic-embedding-refresh";
 import { deleteSemanticEmbeddingsForSubjects } from "./semantic-embeddings";
 import {
@@ -45,7 +39,6 @@ const KEEP_STABLE_CHECKPOINTS = 3;
 const TASK_ARCHIVE_AFTER_DAYS = 30;
 const CHAT_MAINTENANCE_DEBOUNCE_MS = 10 * 60_000;
 const EMBEDDING_BACKFILL_COOLDOWN_MS = 24 * 60 * 60_000;
-const LEGACY_MEMORY_CANDIDATE_BATCH_LIMIT = 5;
 
 let schedulerStarted = false;
 let schedulerHandle: ReturnType<typeof setInterval> | null = null;
@@ -387,25 +380,6 @@ async function performUserMemoryMaintenance(
 		pruneOrphanProjectMemory(userId),
 	);
 
-	// New cleanup steps
-	await safe("reconcile memory profile dirty ledger", () =>
-		reconcileMemoryProfileDirtyLedgerForUser({
-			userId,
-			loadLegacyMemoryCandidates: (candidateUserId, options) =>
-				listLegacyPersonaMemoryCandidates(candidateUserId, {
-					limit: Math.min(
-						LEGACY_MEMORY_CANDIDATE_BATCH_LIMIT,
-						Math.max(1, Math.floor(options.limit)),
-					),
-					excludeSourceIds: options.excludeSourceIds,
-					startPage: options.startPage,
-					maxPages: options.maxPages,
-				}),
-		}),
-	);
-	await safe("curate preserved legacy memory", () =>
-		curatePreservedLegacyMemoryForUser({ userId }),
-	);
 	await safe("prune old memory events", () => pruneOldMemoryEvents({ userId }));
 	await safe("delete orphan semantic embeddings", async () => {
 		const orphanRows = await db
@@ -445,11 +419,6 @@ async function performUserMemoryMaintenance(
 	await runGlobalCleanupOnce("deleteOrphanChatFiles", async () => {
 		const deleted = await deleteOrphanChatFiles();
 		console.info("[MEMORY_MAINTENANCE] Orphan chat files deleted", { deleted });
-	});
-
-	await runGlobalCleanupOnce("pruneOrphanHonchoSessions", async () => {
-		const result = await pruneOrphanHonchoSessions();
-		console.info("[MEMORY_MAINTENANCE] Orphan Honcho sessions pruned", result);
 	});
 
 	await runGlobalCleanupOnce("findOrphanFiles", async () => {

@@ -72,8 +72,6 @@ export type PreparedOutboundChatContext = {
 	contextStatus?: import("$lib/types").ConversationContextStatus;
 	taskState?: import("$lib/types").TaskState | null;
 	contextDebug?: import("$lib/types").ContextDebugState | null;
-	honchoContext?: import("$lib/types").HonchoContextInfo | null;
-	honchoSnapshot?: import("$lib/types").HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls?: ToolCallEntry[];
 	outputTokenBudget?: OutputTokenBudget;
@@ -590,8 +588,6 @@ type OutboundChatContextPreparationState = {
 	contextStatus?: import("$lib/types").ConversationContextStatus;
 	taskState?: import("$lib/types").TaskState | null;
 	contextDebug?: import("$lib/types").ContextDebugState | null;
-	honchoContext?: import("$lib/types").HonchoContextInfo | null;
-	honchoSnapshot?: import("$lib/types").HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls: ToolCallEntry[];
 	reuseData?: ConstructedContextReuseData;
@@ -1688,7 +1684,7 @@ function parseLegacyContextSections(inputValue: string) {
 			signalReasons: [],
 			protected:
 				name === "Current Attachments" ||
-				name === "Honcho Session Context" ||
+				name === "Session Context" ||
 				name === "Task State",
 		};
 	});
@@ -1720,7 +1716,6 @@ export function emitOutboundContextTrace(params: {
 	modelId: ModelId | string | undefined;
 	providerId?: string | null;
 	modelName: string;
-	honchoContext?: import("$lib/types").HonchoContextInfo | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 }): void {
 	try {
@@ -1735,7 +1730,7 @@ export function emitOutboundContextTrace(params: {
 				attempt: 1,
 				phase: "context_selection",
 				contextSource: normalizeContextTraceSource(
-					params.honchoContext?.source,
+					undefined,
 					Boolean(params.userId),
 				),
 				budget: {
@@ -1780,7 +1775,6 @@ type PrepareOutboundChatContextParams = {
 	personalityPrompt?: string;
 	forceWebSearch?: boolean;
 	fileProductionToolsAvailable?: boolean;
-	skipHonchoContext?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
 	modelId?: ModelId | string;
@@ -1801,8 +1795,6 @@ function applyConstructedContextToPreparationState(
 		contextStatus: constructed.contextStatus,
 		taskState: constructed.taskState,
 		contextDebug: constructed.contextDebug,
-		honchoContext: constructed.honchoContext,
-		honchoSnapshot: constructed.honchoSnapshot,
 		contextTraceSections: constructed.contextTraceSections,
 		reuseData: constructed._reuseData,
 	};
@@ -1892,17 +1884,6 @@ async function runAutomaticContextCompressionStage(input: {
 	contextLimits: PromptContextLimits;
 	reuseData?: ConstructedContextReuseData;
 }): Promise<AutomaticContextCompressionStageResult> {
-	if (input.params.skipHonchoContext) {
-		return {
-			decision: automaticCompressionResult({
-				outcome: "not_possible",
-				reason: "honcho_context_disabled",
-				attempted: false,
-			}),
-			rebuiltContext: null,
-		};
-	}
-
 	const decision = await maybeRunAutomaticContextCompression({
 		user: input.params.user,
 		sessionId: input.params.sessionId,
@@ -2054,7 +2035,7 @@ export async function prepareOutboundChatContext(
 				handlers: {
 					plan: (currentState) => currentState,
 					constructed_context: async (currentState) => {
-						if (!params.user?.id || params.skipHonchoContext) {
+						if (!params.user?.id) {
 							return currentState;
 						}
 
@@ -2190,8 +2171,6 @@ export async function prepareOutboundChatContext(
 		contextStatus: state.contextStatus,
 		taskState: state.taskState,
 		contextDebug: state.contextDebug,
-		honchoContext: state.honchoContext,
-		honchoSnapshot: state.honchoSnapshot,
 		contextTraceSections: state.contextTraceSections,
 		prefetchedToolCalls: state.prefetchedToolCalls,
 		outputTokenBudget: requirePreparationValue(

@@ -53,7 +53,6 @@ const defaultCompleteKnowledgeUploadResponse = {
 	},
 	normalizedArtifact: null,
 	reusedExistingArtifact: false,
-	honcho: { uploaded: false, mode: "none" },
 	promptReady: true,
 } as const;
 

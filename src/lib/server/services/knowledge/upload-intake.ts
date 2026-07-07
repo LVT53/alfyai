@@ -88,13 +88,6 @@ type UploadRenameInfo = {
 	wasRenamed: boolean;
 };
 
-type UploadHonchoResult = KnowledgeUploadResponse["honcho"];
-
-const DEFAULT_DOCUMENT_HONCHO_RESULT: UploadHonchoResult = {
-	uploaded: false,
-	mode: "none",
-};
-
 function normalizeConversationId(
 	conversationId: string | null | undefined,
 ): string | null {
@@ -151,7 +144,6 @@ async function buildKnowledgeUploadResponse(params: {
 	conversationId: string | null;
 	artifact: Artifact;
 	normalizedArtifact: Artifact | null;
-	honcho: UploadHonchoResult;
 	traceId: string;
 	reusedExistingArtifact: boolean;
 	renameInfo?: UploadRenameInfo;
@@ -183,7 +175,6 @@ async function buildKnowledgeUploadResponse(params: {
 		artifact: params.artifact,
 		normalizedArtifact: params.normalizedArtifact,
 		reusedExistingArtifact: params.reusedExistingArtifact,
-		honcho: params.honcho,
 		promptReady,
 		promptArtifactId: promptReady
 			? (resolvedItem?.promptArtifact?.id ?? null)
@@ -211,9 +202,6 @@ async function finishKnowledgeUpload(params: {
 	const extractionMessage = params.logPrefix
 		? "upload extraction completed"
 		: "Upload extraction completed";
-	const honchoMessage = params.logPrefix
-		? "upload Honcho sync skipped"
-		: "Upload Honcho sync skipped";
 
 	console.info(knowledgeLogMessage(params.logPrefix, sourceSavedMessage), {
 		traceId: params.traceId,
@@ -241,22 +229,11 @@ async function finishKnowledgeUpload(params: {
 		durationMs: Date.now() - params.startedAt,
 	});
 
-	console.info(knowledgeLogMessage(params.logPrefix, honchoMessage), {
-		traceId: params.traceId,
-		userId: params.userId,
-		conversationId: params.conversationId,
-		artifactId: params.artifact.id,
-		uploaded: DEFAULT_DOCUMENT_HONCHO_RESULT.uploaded,
-		mode: DEFAULT_DOCUMENT_HONCHO_RESULT.mode,
-		durationMs: Date.now() - params.startedAt,
-	});
-
 	return await buildKnowledgeUploadResponse({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		artifact: params.artifact,
 		normalizedArtifact,
-		honcho: DEFAULT_DOCUMENT_HONCHO_RESULT,
 		traceId: params.traceId,
 		reusedExistingArtifact: params.reusedExistingArtifact,
 		renameInfo: params.renameInfo,

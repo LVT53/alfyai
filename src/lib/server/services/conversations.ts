@@ -10,7 +10,6 @@ import {
 import type { Conversation, ConversationListItem } from "$lib/types";
 import { recordConversationAnalytics } from "./analytics";
 import { getConversationForkSummaries } from "./conversation-forks";
-import { getOrCreateSession, isHonchoEnabled } from "./honcho";
 import { convergeProjectFolderContinuityForConversation } from "./task-state/continuity";
 
 type CreateConversationOptions = {
@@ -77,12 +76,6 @@ export async function createConversation(
 			projectId,
 			previousProjectId: null,
 		});
-	}
-	// Pre-create Honcho session for this conversation
-	if (isHonchoEnabled()) {
-		getOrCreateSession(userId, id).catch((err) =>
-			console.error("[HONCHO] Create session failed:", err),
-		);
 	}
 	recordConversationAnalytics({
 		conversationId: conversation.id,

@@ -87,8 +87,6 @@ type ConstructedContextTestResult = {
 	contextStatus: unknown;
 	taskState: unknown;
 	contextDebug: unknown;
-	honchoContext: unknown;
-	honchoSnapshot: unknown;
 	contextTraceSections: unknown[];
 	_reuseData: unknown;
 };
@@ -102,8 +100,6 @@ function createConstructedContextResult(
 		contextStatus: undefined,
 		taskState: null,
 		contextDebug: null,
-		honchoContext: null,
-		honchoSnapshot: null,
 		contextTraceSections: [],
 		_reuseData: undefined,
 		...overrides,
@@ -823,7 +819,6 @@ describe("prepareOutboundChatContext", () => {
 				modelConfig,
 				attachmentIds: ["attachment-1"],
 				attachmentTraceId: "trace-1",
-				skipHonchoContext: true,
 				modelId: "model1",
 				contextLimits: {
 					maxModelContext: 262_144,
@@ -861,7 +856,6 @@ describe("prepareOutboundChatContext", () => {
 			message: "Summarize the current conversation.",
 			sessionId: "conv-1",
 			modelConfig,
-			skipHonchoContext: true,
 			modelId: "model1",
 			contextLimits: {
 				maxModelContext: 262_144,
@@ -1082,38 +1076,6 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.contextLimits).toEqual(resolvedLimits);
 		expect(mocks.getConfig).toHaveBeenCalledTimes(1);
 		expect(mocks.getSystemPrompt).toHaveBeenCalledWith("configured-base");
-	});
-
-	it("records a not-possible compression outcome when Honcho context is skipped", async () => {
-		mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: true });
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
-		try {
-			await prepareOutboundChatContext({
-				message: createLongPromptText("skip context compression"),
-				sessionId: "conv-1",
-				modelConfig: budgetConstrainedModelConfig,
-				user: { id: "user-1" },
-				skipHonchoContext: true,
-				modelId: "model1",
-				contextLimits: compactContextLimits,
-				compressionControlMessageSender: vi.fn() as never,
-				logLabel: "provider request",
-			});
-
-			expect(mocks.buildConstructedContext).not.toHaveBeenCalled();
-			expect(mocks.listContextCompressionSourceMessages).not.toHaveBeenCalled();
-			expect(mocks.runContextCompression).not.toHaveBeenCalled();
-			expect(findBudgetDiagnosticPayload(warn)).toEqual(
-				expect.objectContaining({
-					automaticCompressionOutcome: "not_possible",
-					automaticCompressionAttempted: false,
-					automaticCompressionReason: "honcho_context_disabled",
-				}),
-			);
-		} finally {
-			warn.mockRestore();
-		}
 	});
 
 	it("records a not-possible compression outcome when the user id is missing", async () => {
@@ -1352,7 +1314,6 @@ describe("prepareOutboundChatContext", () => {
 			message: "Ping!",
 			sessionId: "conv-1",
 			modelConfig,
-			skipHonchoContext: true,
 			modelId: "model1",
 			contextLimits: {
 				maxModelContext: 262_144,
@@ -1386,7 +1347,6 @@ describe("prepareOutboundChatContext", () => {
 			sessionId: "conv-1",
 			modelConfig,
 			forceWebSearch: true,
-			skipHonchoContext: true,
 			modelId: "model1",
 			contextLimits: {
 				maxModelContext: 262_144,
@@ -1448,7 +1408,6 @@ describe("prepareOutboundChatContext", () => {
 			message: `What does this page say? ${url}`,
 			sessionId: "conv-1",
 			modelConfig,
-			skipHonchoContext: true,
 			modelId: "model1",
 			contextLimits: {
 				maxModelContext: 262_144,
@@ -1492,7 +1451,6 @@ describe("prepareOutboundChatContext", () => {
 				sessionId: "conv-1",
 				modelConfig,
 				forceWebSearch: true,
-				skipHonchoContext: true,
 				modelId: "model1",
 				contextLimits: {
 					maxModelContext: 262_144,
@@ -1524,7 +1482,6 @@ describe("prepareOutboundChatContext", () => {
 			sessionId: "conv-1",
 			modelConfig,
 			forceWebSearch: true,
-			skipHonchoContext: true,
 			modelId: "model1",
 			contextLimits: {
 				maxModelContext: 262_144,
@@ -1550,7 +1507,6 @@ describe("prepareOutboundChatContext", () => {
 				sessionId: "conv-1",
 				modelConfig: budgetConstrainedModelConfig,
 				forceWebSearch: true,
-				skipHonchoContext: true,
 				modelId: "model1",
 				contextLimits: compactContextLimits,
 				logLabel: "provider request",
@@ -1562,7 +1518,7 @@ describe("prepareOutboundChatContext", () => {
 					sessionId: "conv-1",
 					automaticCompressionOutcome: "not_possible",
 					automaticCompressionAttempted: false,
-					automaticCompressionReason: "honcho_context_disabled",
+					automaticCompressionReason: "missing_user",
 				}),
 			);
 			expect(budgetDiagnostic?.beforeInputTokens).toBeGreaterThan(

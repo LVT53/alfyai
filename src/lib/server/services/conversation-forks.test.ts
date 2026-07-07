@@ -572,19 +572,6 @@ describe("conversation forks", () => {
 						unsupportedCitationCount: 1,
 						citations: [],
 					},
-					honchoContext: {
-						source: "snapshot",
-						waitedMs: 20,
-						queuePendingWorkUnits: 0,
-						queueInProgressWorkUnits: 0,
-						fallbackReason: "timeout",
-						snapshotCreatedAt: 123,
-					},
-					honchoSnapshot: {
-						createdAt: 123,
-						summary: "Source-only Honcho summary",
-						messages: [],
-					},
 					skillQuestion: true,
 					pendingSkillNoteIntents: [
 						{
@@ -662,8 +649,6 @@ describe("conversation forks", () => {
 		expect(copiedAssistantMetadata.evidenceStatus).toBeUndefined();
 		expect(copiedAssistantMetadata.evidenceSummary).toBeUndefined();
 		expect(copiedAssistantMetadata.forkEvidenceSnapshot).toBeUndefined();
-		expect(copiedAssistantMetadata.honchoContext).toBeUndefined();
-		expect(copiedAssistantMetadata.honchoSnapshot).toBeUndefined();
 		expect(copiedAssistantMetadata.skillQuestion).toBeUndefined();
 		expect(copiedAssistantMetadata.pendingSkillNoteIntents).toBeUndefined();
 		expect(copiedAssistantMetadata.skillDrafts).toBeUndefined();
@@ -683,7 +668,6 @@ describe("conversation forks", () => {
 			}),
 		});
 		expect(listedMessages[1]?.evidencePending).toBe(false);
-		expect(listedMessages[1]?.honchoContext).toBeUndefined();
 		expect(listedMessages[1]?.skillQuestion).toBeUndefined();
 		expect(listedMessages[1]?.pendingSkillNoteIntents).toBeUndefined();
 		expect(listedMessages[1]?.skillDrafts).toBeUndefined();

@@ -72,7 +72,6 @@ describe("buildContextSourcesState", () => {
 			selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
 			pinnedEvidence: [],
 			excludedEvidence: [],
-			honcho: null,
 		};
 
 		const state = buildContextSourcesState({
@@ -111,7 +110,6 @@ describe("buildContextSourcesState", () => {
 			selectedEvidenceBySource: [],
 			pinnedEvidence: [],
 			excludedEvidence: [],
-			honcho: null,
 			forkProvenance: {
 				inheritedMessageCount: 2,
 				inheritedTurnCount: 1,
@@ -200,14 +198,6 @@ describe("buildContextSourcesState", () => {
 			selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
 			pinnedEvidence: [],
 			excludedEvidence: [],
-			honcho: {
-				source: "live",
-				waitedMs: 12,
-				queuePendingWorkUnits: 0,
-				queueInProgressWorkUnits: 0,
-				fallbackReason: null,
-				snapshotCreatedAt: null,
-			},
 		};
 
 		const state = buildContextSourcesState({
@@ -223,7 +213,7 @@ describe("buildContextSourcesState", () => {
 		});
 
 		expect(state.activeCount).toBe(2);
-		expect(state.inferredCount).toBe(2);
+		expect(state.inferredCount).toBe(1);
 		expect(state.selectedCount).toBe(1);
 		expect(state.compacted).toBe(false);
 		expect(state.reduced).toBe(false);
@@ -244,7 +234,7 @@ describe("buildContextSourcesState", () => {
 					source: "memory",
 					body: "",
 					inclusionLevel: "omitted",
-					signalReasons: ["honcho_baseline_profile:live"],
+					signalReasons: ["active_memory_profile:projection"],
 					protected: true,
 					trimmed: false,
 				},
@@ -267,7 +257,7 @@ describe("buildContextSourcesState", () => {
 						title: "Baseline Memory Profile",
 						state: "inferred",
 						sourceType: "memory",
-						reason: "honcho_baseline_profile:live",
+						reason: "active_memory_profile:projection",
 						reduced: true,
 						compacted: true,
 						metadata: {
@@ -351,7 +341,6 @@ describe("buildContextSourcesState", () => {
 			selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
 			pinnedEvidence: [],
 			excludedEvidence: [],
-			honcho: null,
 		};
 
 		const state = buildContextSourcesState({
@@ -415,14 +404,6 @@ describe("buildContextSourcesState", () => {
 			selectedEvidenceBySource: [{ sourceType: "document", count: 12 }],
 			pinnedEvidence: [],
 			excludedEvidence: [],
-			honcho: {
-				source: "live",
-				waitedMs: 20,
-				queuePendingWorkUnits: 0,
-				queueInProgressWorkUnits: 0,
-				fallbackReason: null,
-				snapshotCreatedAt: null,
-			},
 		};
 
 		const state = buildContextSourcesState({
@@ -523,7 +504,6 @@ describe("buildContextSourcesState", () => {
 					reason: "excluded by user",
 				},
 			],
-			honcho: null,
 		};
 
 		const state = buildContextSourcesState({

@@ -1,5 +1,4 @@
 import { redirect } from "@sveltejs/kit";
-import { isHonchoEnabled } from "$lib/server/services/honcho";
 import {
 	getKnowledgeLibraryPage,
 	type KnowledgeLibrarySortDirection,
@@ -60,7 +59,6 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		documents: library.documents,
 		library,
-		honchoEnabled: isHonchoEnabled(),
 		userDisplayName: user.displayName,
 		initialTab: resolveInitialTab(event.url),
 	};

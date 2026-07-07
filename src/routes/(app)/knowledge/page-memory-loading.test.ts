@@ -126,7 +126,6 @@ function pageData(): {
 			totalPages: number;
 		};
 	};
-	honchoEnabled: boolean;
 	userDisplayName: string;
 	initialTab: "memory" | "documents";
 } {
@@ -145,7 +144,6 @@ function pageData(): {
 				totalPages: 0,
 			},
 		},
-		honchoEnabled: true,
 		userDisplayName: "Test User",
 		initialTab: "memory",
 	};

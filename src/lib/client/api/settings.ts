@@ -17,12 +17,6 @@ export {
 	updateAdminUserRole,
 } from "./admin";
 
-export interface HonchoHealth {
-	enabled: boolean;
-	connected: boolean;
-	workspace: string | null;
-}
-
 interface AnalyticsByModelRow {
 	model: string;
 	displayName?: string;
@@ -153,14 +147,6 @@ export async function updateUserPreferences(params: {
 			body: JSON.stringify(params),
 		},
 		"Failed to update preferences",
-	);
-}
-
-export async function fetchHonchoHealth(): Promise<HonchoHealth> {
-	return requestJson<HonchoHealth>(
-		"/api/admin/honcho",
-		undefined,
-		"Failed to load Honcho health",
 	);
 }
 

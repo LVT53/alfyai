@@ -119,10 +119,6 @@ const knowledgeDict = {
 			"Forget this task continuity? The conversation can still continue, but its long-horizon checkpoints will be cleared.",
 		"memory.forgetTaskItemConfirm":
 			"Forget this task continuity? The conversation can still continue, but its long-horizon checkpoints will be cleared.",
-		"memory.honchoCacheNotice":
-			"Showing the last successful Honcho overview while a refresh is in progress.",
-		"memory.honchoScopedNotice":
-			"Showing scoped Honcho memory for this account only.",
 		"memory.lastLiveOverview": "Last live overview",
 		"memory.lastOverviewAttempt": "Last overview attempt",
 		"memory.lastSeen": "Last seen",
@@ -151,10 +147,10 @@ const knowledgeDict = {
 		"memory.personaDescription":
 			"Review and forget stored persona memories in a compact table instead of scanning long card stacks.",
 		"memory.personaFallbackNotice":
-			"Showing a local durable-memory fallback while the live Honcho overview is unavailable.",
+			"Showing a local durable-memory fallback while the live overview is unavailable.",
 		"memory.personaMemory": "Persona memory",
 		"memory.personaMemoryUnavailable":
-			"Persona memory controls are unavailable because Honcho is disabled.",
+			"Persona memory controls are unavailable right now.",
 		"memory.personaModalDescription":
 			"Review memory items in a compact table and forget individual entries without scrolling through long cards.",
 		"memory.refreshOverview": "Refresh overview",
@@ -171,10 +167,9 @@ const knowledgeDict = {
 		"memory.status": "Status",
 		"memory.summary": "Summary",
 		"memory.tasks": "Tasks",
-		"memory.temporarilyUnavailable": `Durable persona memory exists, but the Honcho overview is temporarily unavailable right now. The stored profile still contains {count} durable signal{count, plural, one {} other {s}}.`,
+		"memory.temporarilyUnavailable": `Durable persona memory exists, but the overview is temporarily unavailable right now. The stored profile still contains {count} durable signal{count, plural, one {} other {s}}.`,
 		"memory.title": "Memory Profile",
 		"memory.tryAgain": "Try again",
-		"memory.unavailableHoncho": "Unavailable while Honcho is disabled.",
 		"memory.updated": "Updated",
 		"memoryProfile.aboutYou": "About You",
 		"memoryProfile.aboutYouEmpty": "No active memories about you yet.",
@@ -375,10 +370,6 @@ const knowledgeDict = {
 			"Törlöd ezt a feladatfolytonosságot? A beszélgetés folytatódhat, de a hosszú távú ellenőrzőpontok törlődnek.",
 		"memory.forgetTaskItemConfirm":
 			"Törlöd ezt a feladatfolytonosságot? A beszélgetés folytatódhat, de a hosszú távú ellenőrzőpontok törlődnek.",
-		"memory.honchoCacheNotice":
-			"Az utolsó sikeres Honcho-áttekintés látható, amíg a frissítés folyamatban van.",
-		"memory.honchoScopedNotice":
-			"Csak ehhez a fiókhoz tartozó Honcho-memória megjelenítése.",
 		"memory.lastLiveOverview": "Utolsó élő áttekintés",
 		"memory.lastOverviewAttempt": "Utolsó áttekintési kísérlet",
 		"memory.lastSeen": "Utoljára látott",
@@ -408,10 +399,10 @@ const knowledgeDict = {
 		"memory.personaDescription":
 			"Tekintsd át és töröld a tárolt személyiségemlékeket egy kompakt táblázatban, hosszú kártyalisták böngészése nélkül.",
 		"memory.personaFallbackNotice":
-			"Helyi tartós memória látható tartalékként, amíg az élő Honcho-áttekintés nem elérhető.",
+			"Helyi tartós memória látható tartalékként, amíg az élő áttekintés nem elérhető.",
 		"memory.personaMemory": "Személyiségmemória",
 		"memory.personaMemoryUnavailable":
-			"A személyiségemlékek kezelése nem érhető el, mert a Honcho le van tiltva.",
+			"A személyiségemlékek kezelése jelenleg nem érhető el.",
 		"memory.personaModalDescription":
 			"Tekintsd át az emlékelemeket egy kompakt táblázatban, és töröld az egyes bejegyzéseket hosszú kártyák görgetése nélkül.",
 		"memory.refreshOverview": "Áttekintés frissítése",
@@ -429,10 +420,9 @@ const knowledgeDict = {
 		"memory.status": "Állapot",
 		"memory.summary": "Összefoglaló",
 		"memory.tasks": "Feladatok",
-		"memory.temporarilyUnavailable": `Van tartós személyiségmemória, de a Honcho-áttekintés jelenleg nem elérhető. A tárolt profil továbbra is {count} tartós jelet tartalmaz.`,
+		"memory.temporarilyUnavailable": `Van tartós személyiségmemória, de az áttekintés jelenleg nem elérhető. A tárolt profil továbbra is {count} tartós jelet tartalmaz.`,
 		"memory.title": "Memóriaprofil",
 		"memory.tryAgain": "Próbáld újra",
-		"memory.unavailableHoncho": "Nem érhető el, amíg a Honcho le van tiltva.",
 		"memory.updated": "Frissítve",
 		"memoryProfile.aboutYou": "Rólad",
 		"memoryProfile.aboutYouEmpty": "Még nincs aktív emlék rólad.",

@@ -476,7 +476,7 @@ describe("createServerChunkRuntime", () => {
 			'      "Disk - Schedule recurring docker system prune",\n',
 		);
 		runtime.emitChunkWithOutputHandling(
-			'      "Memory - Keep Honcho snapshots separate"\n',
+			'      "Memory - Keep session snapshots separate"\n',
 		);
 		runtime.emitChunkWithOutputHandling("    ]}\n");
 		runtime.emitChunkWithOutputHandling("  ]\n");

@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetPersonaSummary = vi.fn();
@@ -296,13 +295,5 @@ describe("memory-context persona recall v2", () => {
 		});
 		if (res.mode !== "persona") throw new Error("expected persona");
 		expect(res.evidenceCandidates).toEqual([]);
-	});
-
-	it("no honcho reference remains in memory-context source", async () => {
-		const src = await readFile(
-			"src/lib/server/services/memory-context.ts",
-			"utf8",
-		);
-		expect(src.toLowerCase().includes("honcho")).toBe(false);
 	});
 });

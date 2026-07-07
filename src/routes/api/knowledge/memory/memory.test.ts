@@ -162,7 +162,6 @@ describe("knowledge memory routes", () => {
 		expect(mockGetKnowledgeMemory).toHaveBeenCalledWith("user-1", "Test User");
 		expect(dataJson).not.toContain("taskMemories");
 		expect(dataJson).not.toContain("focusContinuities");
-		expect(dataJson).not.toContain("honcho");
 		expect(dataJson).not.toContain("confidence");
 		expect(dataJson).not.toContain("debug");
 	});

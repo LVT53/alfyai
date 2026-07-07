@@ -10,7 +10,6 @@ import {
 	deleteAvatar,
 	downloadAccountDataArchive,
 	fetchAnalytics,
-	fetchHonchoHealth,
 	saveBlobAsDownload,
 	updateAdminConfig,
 	updatePassword,
@@ -181,24 +180,6 @@ let adminConfig = $state<Record<string, string>>(
 let adminSaving = $state(false);
 let adminMessage = $state("");
 let adminError = $state("");
-
-let honchoHealth = $state<{
-	enabled: boolean;
-	connected: boolean;
-	workspace: string | null;
-} | null>(null);
-let honchoLoading = $state(false);
-
-async function checkHonchoHealth() {
-	honchoLoading = true;
-	try {
-		honchoHealth = await fetchHonchoHealth();
-	} catch {
-		honchoHealth = null;
-	} finally {
-		honchoLoading = false;
-	}
-}
 
 // Auto-dismiss success messages after 4 seconds
 let messageTimers: ReturnType<typeof setTimeout>[] = [];
@@ -648,9 +629,6 @@ $effect(() => {
 				{adminSaving}
 				{adminMessage}
 				{adminError}
-				{honchoHealth}
-				{honchoLoading}
-				onCheckHonchoHealth={checkHonchoHealth}
 				onSaveAdminConfig={saveAdminConfig}
 				systemAnalyticsData={analyticsData}
 				systemAnalyticsLoading={analyticsLoading}

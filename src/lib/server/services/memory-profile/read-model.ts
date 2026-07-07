@@ -127,7 +127,6 @@ export async function getMemoryProfileReadModel(params: {
 	const sanitizer = createIdentityTextSanitizer({
 		userId: params.userId,
 		displayName: identity.displayName,
-		honchoPeerVersion: identity.honchoPeerVersion,
 	});
 	const projection = await ensureProjectionState({
 		userId: params.userId,
@@ -226,7 +225,6 @@ export async function getMemoryProfileItemDetail(params: {
 	const sanitizer = createIdentityTextSanitizer({
 		userId: params.userId,
 		displayName: identity.displayName,
-		honchoPeerVersion: identity.honchoPeerVersion,
 	});
 
 	const provenance = await db

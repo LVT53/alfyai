@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-	mockDeleteAllHonchoStateForUser,
-	mockRotateHonchoPeerIdentity,
 	mockClearMessageEvidenceForUser,
 	mockGetArtifactOwnershipScope,
 	mockBuildArtifactVisibilityCondition,
@@ -11,8 +9,6 @@ const {
 	mockTransaction,
 	mockSelect,
 } = vi.hoisted(() => ({
-	mockDeleteAllHonchoStateForUser: vi.fn(),
-	mockRotateHonchoPeerIdentity: vi.fn(),
 	mockClearMessageEvidenceForUser: vi.fn(),
 	mockGetArtifactOwnershipScope: vi.fn(),
 	mockBuildArtifactVisibilityCondition: vi.fn(),
@@ -81,11 +77,6 @@ vi.mock("drizzle-orm", () => ({
 	})),
 }));
 
-vi.mock("../honcho", () => ({
-	deleteAllHonchoStateForUser: mockDeleteAllHonchoStateForUser,
-	rotateHonchoPeerIdentity: mockRotateHonchoPeerIdentity,
-}));
-
 vi.mock("../messages", () => ({
 	clearMessageEvidenceForUser: mockClearMessageEvidenceForUser,
 }));
@@ -103,8 +94,6 @@ vi.mock("../memory-profile", () => ({
 describe("resetKnowledgeBaseState", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockDeleteAllHonchoStateForUser.mockResolvedValue(undefined);
-		mockRotateHonchoPeerIdentity.mockResolvedValue(2);
 		mockAdvanceMemoryResetGeneration.mockResolvedValue(1);
 		mockClearMessageEvidenceForUser.mockResolvedValue(undefined);
 		mockGetArtifactOwnershipScope.mockResolvedValue({
@@ -134,15 +123,13 @@ describe("resetKnowledgeBaseState", () => {
 		});
 	});
 
-	it("clears Honcho, artifacts, continuity state, and message evidence", async () => {
+	it("clears artifacts, continuity state, and message evidence", async () => {
 		const { resetKnowledgeBaseState } = await import("./knowledge-cleanup");
 
 		const result = await resetKnowledgeBaseState("user-1");
 
 		expect(result.deletedArtifactIds).toEqual(["artifact-1"]);
 		expect(mockAdvanceMemoryResetGeneration).toHaveBeenCalledWith("user-1");
-		expect(mockDeleteAllHonchoStateForUser).toHaveBeenCalledWith("user-1");
-		expect(mockRotateHonchoPeerIdentity).toHaveBeenCalledWith("user-1");
 		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", [
 			"artifact-1",
 		]);

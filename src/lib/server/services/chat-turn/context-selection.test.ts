@@ -358,7 +358,7 @@ describe("selectPromptContext", () => {
 					signalReasons: ["attachment_context:excerpt"],
 				},
 				{
-					title: "Honcho Session Context",
+					title: "Session Context",
 					body: "UNRELATED_HISTORY ".repeat(1_000),
 					source: "session",
 					layer: "session",
@@ -372,7 +372,7 @@ describe("selectPromptContext", () => {
 		expect(selected.inputValue).toContain("## Current User Message");
 		// The oversized session section is trimmed to fit rather than dropped
 		// wholesale — some of it still makes it in, capped with a truncation marker.
-		expect(selected.inputValue).toContain("## Honcho Session Context");
+		expect(selected.inputValue).toContain("## Session Context");
 		expect(selected.inputValue).toContain("UNRELATED_HISTORY");
 		expect(selected.inputValue).toContain("[truncated]");
 		expect(selected.estimatedTokens).toBeLessThanOrEqual(140);
@@ -396,7 +396,7 @@ describe("selectPromptContext", () => {
 					protected: true,
 				}),
 				expect.objectContaining({
-					name: "Honcho Session Context",
+					name: "Session Context",
 					source: "session",
 					inclusionLevel: "legacy_truncated",
 				}),
@@ -471,7 +471,7 @@ describe("buildConstructedContext", () => {
 			},
 		});
 
-		expect(constructed.inputValue).toContain("## Honcho Session Context");
+		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain(
 			"Earlier question about the launch plan.",
 		);
@@ -480,7 +480,7 @@ describe("buildConstructedContext", () => {
 			"The user prefers projection-gated launch briefs.",
 		);
 		expect(constructed.inputValue).not.toContain(
-			"The user prefers a suppressed raw Honcho preference.",
+			"The user prefers a suppressed raw internal preference.",
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalledWith({
 			userId: "user-1",
@@ -807,7 +807,7 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain("launch-plan.md");
 		expect(constructed.inputValue).toContain("## Retrieved Evidence");
 		expect(constructed.inputValue).toContain("release-notes.md");
-		expect(constructed.inputValue).toContain("## Honcho Session Context");
+		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain(
 			"Earlier question about the launch plan.",
 		);
@@ -815,14 +815,12 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);
-		// The turn path no longer touches Honcho; local continuity is sourced from
-		// the conversation's own messages and its maintained conversation summary.
+		// The turn path sources local continuity from the conversation's own
+		// messages and its maintained conversation summary.
 		expect(constructed.inputValue).toContain("## Session Summary");
 		expect(constructed.inputValue).toContain(
 			"The session is about launch readiness.",
 		);
-		expect(constructed.honchoContext).toBeNull();
-		expect(constructed.honchoSnapshot).toBeNull();
 		expect(constructed.taskState).toEqual(
 			expect.objectContaining({ objective: "Ship the launch plan" }),
 		);
@@ -840,7 +838,7 @@ describe("buildConstructedContext", () => {
 					signalReasons: expect.arrayContaining(["pinned_evidence"]),
 				}),
 				expect.objectContaining({
-					name: "Honcho Session Context",
+					name: "Session Context",
 					source: "session",
 				}),
 				expect.objectContaining({

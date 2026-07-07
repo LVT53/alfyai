@@ -9,20 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
 const {
-	mockDeleteAllHonchoStateForUser,
-	mockRotateHonchoPeerIdentity,
 	mockQuiesceUserMemoryMaintenance,
 	mockRequestActiveChatStreamsStopForUser,
 } = vi.hoisted(() => ({
-	mockDeleteAllHonchoStateForUser: vi.fn(),
-	mockRotateHonchoPeerIdentity: vi.fn(),
 	mockQuiesceUserMemoryMaintenance: vi.fn(),
 	mockRequestActiveChatStreamsStopForUser: vi.fn(),
-}));
-
-vi.mock("../honcho", () => ({
-	deleteAllHonchoStateForUser: mockDeleteAllHonchoStateForUser,
-	rotateHonchoPeerIdentity: mockRotateHonchoPeerIdentity,
 }));
 
 vi.mock("../memory-maintenance", async (importOriginal) => {
@@ -739,8 +730,6 @@ describe("privacy controls service", () => {
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		vi.clearAllMocks();
-		mockDeleteAllHonchoStateForUser.mockResolvedValue(undefined);
-		mockRotateHonchoPeerIdentity.mockResolvedValue(1);
 		mockQuiesceUserMemoryMaintenance.mockResolvedValue(undefined);
 		mockRequestActiveChatStreamsStopForUser.mockReturnValue({ stopped: 0 });
 	});
@@ -781,7 +770,6 @@ describe("privacy controls service", () => {
 			usageEventIds: ["usage-1"],
 			analyticsConversationIds: ["analytics-conversation-1"],
 		});
-		expect(mockDeleteAllHonchoStateForUser).not.toHaveBeenCalled();
 	});
 
 	it("clears memory and knowledge while preserving chats and generated chat outputs", async () => {
@@ -831,8 +819,6 @@ describe("privacy controls service", () => {
 			analyticsConversationIds: ["analytics-conversation-1"],
 			messageMetadata: null,
 		});
-		expect(mockDeleteAllHonchoStateForUser).toHaveBeenCalledWith("user-1");
-		expect(mockRotateHonchoPeerIdentity).toHaveBeenCalledWith("user-1");
 	});
 
 	it("clears workspace data while preserving the account and historical analytics", async () => {

@@ -22,8 +22,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	ForkContextProvenanceSummary,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
+	ForkCopyMetadata,
 	LinkedContextSource,
 	MemoryLayer,
 } from "$lib/types";
@@ -40,7 +39,6 @@ import {
 } from "../context-compression";
 import { getConversationForkOrigin } from "../conversation-forks";
 import { getConversationSummary } from "../conversation-summaries";
-import type { PromptContextMessage } from "../honcho";
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
@@ -98,8 +96,17 @@ import type {
 	LegacyContextTraceSectionInput,
 } from "./context-trace";
 
-const HONCHO_LIVE_CONTEXT_TOKENS = 2_000;
+const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
+
+type PromptContextMessage = {
+	id?: string;
+	role: "user" | "assistant";
+	content: string;
+	createdAt: number;
+	messageSequence?: number;
+	forkCopy?: ForkCopyMetadata;
+};
 const ATTACHMENT_TASK_PER_ATTACHMENT_TOKEN_BUDGET = 2_400;
 const ATTACHMENT_EXCERPT_PER_ATTACHMENT_TOKEN_BUDGET = 600;
 const RECENT_TURN_COUNT = 3;
@@ -457,7 +464,7 @@ function buildContextSelectionCandidates(params: {
 									]
 								: isEvidenceSection
 									? documentContextSignalReasons
-									: section.title === "Honcho Session Context"
+									: section.title === "Session Context"
 										? ["recent_turn_context:budgeted"]
 										: section.title === "Context Compression Snapshot"
 											? ["context_compression_snapshot:valid"]
@@ -798,16 +805,12 @@ type SessionPromptContext = {
 	sessionMessages: PromptContextMessage[];
 	storedMessages: PromptContextMessage[];
 	summary: string | null;
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
 };
 
 /**
  * Load the local continuity context for a turn: the conversation's own stored
  * messages (with message sequences for compaction-aware filtering) plus its
- * maintained conversation summary. Replaces the former Honcho live/session
- * lookup; the turn path no longer touches Honcho, so the Honcho debug fields
- * are always null.
+ * maintained conversation summary.
  */
 async function loadSessionPromptContext(params: {
 	userId: string;
@@ -840,8 +843,6 @@ async function loadSessionPromptContext(params: {
 		sessionMessages: promptMessages,
 		storedMessages: promptMessages,
 		summary: summary?.summary ?? null,
-		honchoContext: null,
-		honchoSnapshot: null,
 	};
 }
 
@@ -938,7 +939,6 @@ function resolveContextLatencyTier(params: {
 }
 
 function buildMinimalContextDebugState(params: {
-	honchoContext: HonchoContextInfo | null;
 	forkProvenance?: ForkContextProvenanceSummary | null;
 }): ContextDebugState {
 	return {
@@ -952,7 +952,6 @@ function buildMinimalContextDebugState(params: {
 		selectedEvidenceBySource: [],
 		pinnedEvidence: [],
 		excludedEvidence: [],
-		honcho: params.honchoContext,
 		forkProvenance: params.forkProvenance ?? null,
 	};
 }
@@ -971,8 +970,6 @@ async function buildShallowConstructedContext(params: {
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
@@ -1009,8 +1006,6 @@ async function buildShallowConstructedContext(params: {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		honchoContext,
-		honchoSnapshot,
 	} = sessionContext;
 	const promptSessionMessages = contextCompressionPromptSnapshot
 		? selectRawSessionMessagesAfterCompressionSnapshot({
@@ -1063,7 +1058,7 @@ async function buildShallowConstructedContext(params: {
 	}
 	if (sessionTurnContext.body) {
 		sections.push({
-			title: "Honcho Session Context",
+			title: "Session Context",
 			body: sessionTurnContext.body,
 			layer: "session",
 			protected: true,
@@ -1116,11 +1111,8 @@ async function buildShallowConstructedContext(params: {
 		contextStatus: status,
 		taskState: null,
 		contextDebug: buildMinimalContextDebugState({
-			honchoContext,
 			forkProvenance,
 		}),
-		honchoContext,
-		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
 	};
 }
@@ -1144,8 +1136,6 @@ export async function buildConstructedContext(params: {
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
@@ -1165,7 +1155,7 @@ export async function buildConstructedContext(params: {
 	});
 	const sessionHistoryBudget = deriveSessionHistoryBudget({
 		contextBudget: modelContextBudget,
-		minTotalBudget: HONCHO_LIVE_CONTEXT_TOKENS,
+		minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
 		minRecentTurnCount: RECENT_TURN_COUNT,
 	});
 	const latencyTier = resolveContextLatencyTier({
@@ -1249,8 +1239,6 @@ export async function buildConstructedContext(params: {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		honchoContext,
-		honchoSnapshot,
 	} = sessionContext;
 	const promptSessionMessages = contextCompressionPromptSnapshot
 		? selectRawSessionMessagesAfterCompressionSnapshot({
@@ -1722,7 +1710,7 @@ export async function buildConstructedContext(params: {
 
 	if (sessionTurnContext.body) {
 		sections.push({
-			title: "Honcho Session Context",
+			title: "Session Context",
 			body: sessionTurnContext.body,
 			layer: "session",
 			protected: true,
@@ -1845,7 +1833,6 @@ export async function buildConstructedContext(params: {
 				debug
 					? {
 							...debug,
-							honcho: honchoContext,
 							forkProvenance,
 						}
 					: ({
@@ -1859,12 +1846,11 @@ export async function buildConstructedContext(params: {
 							selectedEvidenceBySource: [],
 							pinnedEvidence: [],
 							excludedEvidence: [],
-							honcho: honchoContext,
 							forkProvenance,
 						} satisfies ContextDebugState),
 			)
 			.catch(() =>
-				forkProvenance || honchoContext
+				forkProvenance
 					? ({
 							activeTaskId: null,
 							activeTaskObjective: null,
@@ -1876,13 +1862,10 @@ export async function buildConstructedContext(params: {
 							selectedEvidenceBySource: [],
 							pinnedEvidence: [],
 							excludedEvidence: [],
-							honcho: honchoContext,
 							forkProvenance,
 						} satisfies ContextDebugState)
 					: null,
 			),
-		honchoContext,
-		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
 		_reuseData: params.reuseFrom
 			? undefined

@@ -256,26 +256,31 @@ export async function storeConversationSummary(
 	}
 }
 
-export async function syncSummaryToHoncho(
+export async function queueImportedSummaryForMemoryJudge(
 	userId: string,
 	conversationId: string,
-	summary: string,
-	title: string,
 ): Promise<void> {
 	try {
-		const { mirrorMessage } = await import("$lib/server/services/honcho");
-
-		const content = `[Conversation Summary: "${title}"]\n\n${summary}`;
-		await mirrorMessage(userId, conversationId, "assistant", content);
+		const { markMemoryDirty } = await import(
+			"$lib/server/services/memory-profile/dirty-ledger"
+		);
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: conversationId },
+		});
 	} catch (err) {
-		console.error("[CHATGPT_IMPORT] Failed to sync summary to Honcho:", err);
+		console.error(
+			"[CHATGPT_IMPORT] Failed to queue imported summary for memory judge:",
+			err,
+		);
 	}
 }
 
 /**
- * Full summarization pipeline: summarize, store in DB, sync to Honcho.
- * Designed for fire-and-forget usage during import. All failures are logged,
- * never propagated.
+ * Full summarization pipeline: summarize, store in DB, and queue the stored
+ * summary for the nightly memory judge sweep. Designed for fire-and-forget
+ * usage during import. All failures are logged, never propagated.
  */
 export async function summarizeAndStoreConversation(
 	userId: string,
@@ -287,9 +292,9 @@ export async function summarizeAndStoreConversation(
 		const summary = await summarizeConversation(messages, title);
 		await storeConversationSummary(userId, conversationId, summary);
 
-		syncSummaryToHoncho(userId, conversationId, summary, title).catch((err) => {
+		queueImportedSummaryForMemoryJudge(userId, conversationId).catch((err) => {
 			console.error(
-				"[CHATGPT_IMPORT] Honcho sync failed for conversation",
+				"[CHATGPT_IMPORT] Failed to queue imported summary for conversation",
 				conversationId,
 				err,
 			);

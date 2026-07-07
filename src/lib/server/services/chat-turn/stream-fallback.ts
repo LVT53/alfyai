@@ -6,8 +6,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	ModelId,
 	ResponseActivityEntry,
 	TaskState,
@@ -33,8 +31,6 @@ export interface NonStreamFallbackResponse {
 	contextStatus?: ConversationContextStatus | null;
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
-	honchoContext?: HonchoContextInfo | null;
-	honchoSnapshot?: HonchoContextSnapshot | null;
 	providerUsage?: ProviderUsageSnapshot | null;
 	normalChatToolCalls?: ToolCallEntry[];
 	toolCalls?: ToolCallEntry[];
@@ -80,12 +76,9 @@ export interface NonStreamFallbackDeps {
 	signal: AbortSignal;
 	systemPromptAppendix: string | undefined;
 	personalityPrompt: string | undefined;
-	skipHonchoContext: boolean | undefined;
 	onContextStatus: (status: ConversationContextStatus | undefined) => void;
 	onTaskState: (state: TaskState | null) => void;
 	onContextDebug: (debug: ContextDebugState | null) => void;
-	onHonchoContext: (ctx: HonchoContextInfo | null) => void;
-	onHonchoSnapshot: (snap: HonchoContextSnapshot | null) => void;
 	onProviderUsage: (usage: ProviderUsageSnapshot | null) => void;
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
 	onDepthMetadata?: (metadata: DepthMetadata) => void;
@@ -203,8 +196,6 @@ function applyFallbackModelSideEffects(
 		onContextStatus,
 		onTaskState,
 		onContextDebug,
-		onHonchoContext,
-		onHonchoSnapshot,
 		onProviderUsage,
 		onResolvedModel,
 		onDepthMetadata,
@@ -224,8 +215,6 @@ function applyFallbackModelSideEffects(
 		.then((taskState) => {
 			onTaskState(taskState);
 			onContextDebug(response.contextDebug ?? null);
-			onHonchoContext(response.honchoContext ?? null);
-			onHonchoSnapshot(response.honchoSnapshot ?? null);
 			onProviderUsage(response.providerUsage ?? null);
 			if (response.modelId && response.modelDisplayName) {
 				onResolvedModel?.(response.modelId, response.modelDisplayName);

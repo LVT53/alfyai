@@ -74,7 +74,6 @@ vi.mock("$lib/client/api/settings", async (importOriginal) => {
 	return {
 		...actual,
 		fetchAnalytics: vi.fn().mockResolvedValue(analyticsFixture),
-		fetchHonchoHealth: vi.fn().mockResolvedValue(null),
 		updateUserPreferences: vi.fn().mockResolvedValue(undefined),
 	};
 });

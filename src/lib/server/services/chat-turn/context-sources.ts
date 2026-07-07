@@ -68,7 +68,6 @@ export function buildContextSourcesState(
 			contextTraceSections: input.contextTraceSections ?? [],
 		}),
 		buildMemoryGroup({
-			contextDebug: input.contextDebug,
 			contextTraceSections: input.contextTraceSections ?? [],
 			toolCalls: input.toolCalls ?? [],
 		}),
@@ -254,21 +253,11 @@ function buildEvidenceGroup(input: {
 }
 
 function buildMemoryGroup(params: {
-	contextDebug: ContextDebugState | null | undefined;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	toolCalls: ToolCallEntry[];
 }): ContextSourceGroup | null {
-	const { contextDebug, contextTraceSections, toolCalls } = params;
+	const { contextTraceSections, toolCalls } = params;
 	const items: ContextSourceGroup["items"] = [];
-	if (contextDebug?.honcho) {
-		items.push({
-			id: "memory:honcho",
-			title: "Session memory",
-			state: "inferred",
-			sourceType: "memory",
-			reason: contextDebug.honcho.source,
-		});
-	}
 
 	const baselineMemoryProfile = contextTraceSections.find(
 		(section) =>

@@ -29,7 +29,6 @@ import { estimateTokenCount } from "$lib/utils/tokens";
 import { computeCrossConversationDecay } from "../utils/artifact-decay";
 import { collapseArtifactsByFamily } from "./evidence-family";
 import { parseWorkingDocumentMetadata } from "./knowledge/store";
-import { getLatestHonchoMetadata } from "./messages";
 import { queueTaskStateSemanticEmbeddingRefresh } from "./semantic-embedding-refresh";
 import { shortlistSemanticMatchesBySubject } from "./semantic-ranking";
 import { formatTaskStateForPrompt } from "./task-state/artifacts";
@@ -58,7 +57,6 @@ import { scoreMatch } from "./working-set";
 // - task-state owns task/workflow continuity and prompt-time task evidence assembly
 // - persona-memory owns persona/temporal/preference clustering
 // - document identity/version continuity belongs to artifact metadata plus document-resolution
-// - Honcho may enrich context, but it is not the authority for current task/document/temporal truth
 
 export {
 	formatTaskStateForPrompt,
@@ -1387,25 +1385,18 @@ export async function getContextDebugState(
 	conversationId: string,
 ): Promise<ContextDebugState | null> {
 	const taskState = await getConversationTaskState(userId, conversationId);
-	const [[statusRow], latestHonchoMetadata] = await Promise.all([
-		db
-			.select()
-			.from(conversationContextStatus)
-			.where(
-				and(
-					eq(conversationContextStatus.userId, userId),
-					eq(conversationContextStatus.conversationId, conversationId),
-				),
-			)
-			.limit(1),
-		getLatestHonchoMetadata(conversationId).catch(() => ({
-			honchoContext: null,
-			honchoSnapshot: null,
-		})),
-	]);
+	const [statusRow] = await db
+		.select()
+		.from(conversationContextStatus)
+		.where(
+			and(
+				eq(conversationContextStatus.userId, userId),
+				eq(conversationContextStatus.conversationId, conversationId),
+			),
+		)
+		.limit(1);
 
-	if (!taskState && !statusRow && !latestHonchoMetadata.honchoContext)
-		return null;
+	if (!taskState && !statusRow) return null;
 
 	const links = taskState
 		? await db
@@ -1462,7 +1453,6 @@ export async function getContextDebugState(
 		selectedEvidenceBySource,
 		pinnedEvidence: toDebugItems("pinned"),
 		excludedEvidence: toDebugItems("excluded"),
-		honcho: latestHonchoMetadata.honchoContext,
 	};
 }
 

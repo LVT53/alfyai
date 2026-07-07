@@ -28,7 +28,7 @@ api/                   # API endpoints
   chat/                # Send, stream, retry, stop, file production
   conversations/       # CRUD, title, draft, messages, evidence, context-status, task-steering
   knowledge/           # Upload, search, documents, memory, actions
-  admin/               # Config, users, sessions, honcho
+  admin/               # Config, users, sessions
   models/              # Available model list
   projects/            # Project CRUD
   settings/            # Account, profile, password, avatar
@@ -72,7 +72,6 @@ logout/                # Logout page
 | `api/knowledge/documents/behavior/+server.ts` | Document behavior |
 | `api/admin/config/+server.ts` | Runtime config overrides |
 | `api/admin/users/+server.ts` | User management |
-| `api/admin/honcho/+server.ts` | Honcho admin |
 | `api/auth/login/+server.ts` | Login endpoint |
 | `api/auth/logout/+server.ts` | Logout endpoint |
 | `api/models/+server.ts` | Available models |

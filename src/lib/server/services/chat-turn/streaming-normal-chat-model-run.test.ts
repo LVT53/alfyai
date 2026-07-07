@@ -102,8 +102,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: { status: "ready" },
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 		});
 		mocks.runStreamingNormalChatModelRun.mockReturnValue(streamEvents());
@@ -127,8 +125,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: { status: "ready" },
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 			prefetchedToolCalls,
 		});
@@ -201,8 +197,6 @@ describe("runStreamingNormalChatSendModel", () => {
 				contextStatus: undefined,
 				taskState: null,
 				contextDebug: null,
-				honchoContext: null,
-				honchoSnapshot: null,
 				contextTraceSections: [],
 				contextLimits: {
 					maxModelContext: 10_000,
@@ -295,8 +289,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: undefined,
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 			contextPreparationTimings,
 		});
@@ -335,8 +327,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: undefined,
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 			outputTokenBudget: {
 				configuredMaxTokens: 4096,
@@ -429,8 +419,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: undefined,
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 			outputTokenBudget: {
 				configuredMaxTokens: 4096,
@@ -664,8 +652,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			contextStatus: undefined,
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: [],
 			prefetchedToolCalls,
 		});

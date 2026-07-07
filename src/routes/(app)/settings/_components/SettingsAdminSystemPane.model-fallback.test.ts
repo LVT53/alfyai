@@ -153,7 +153,6 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				},
 				envDefaults: {},
 				availableModels: [{ id: "model1", displayName: "Model 1" }],
-				onCheckHonchoHealth: vi.fn(),
 				onSaveAdminConfig: vi.fn(),
 			});
 
@@ -210,7 +209,6 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 					displayName: "Provider 1 - Model 1",
 				},
 			],
-			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
 		});
 

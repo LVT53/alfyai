@@ -44,7 +44,6 @@ const {
 	mockAccess,
 	mockCreateGeneratedOutputArtifact,
 	mockCreateArtifactLink,
-	mockSyncArtifactToHoncho,
 	mockExtractDocumentText,
 	mockRecordMemoryEvent,
 } = vi.hoisted(() => {
@@ -98,10 +97,6 @@ const {
 		}),
 	);
 	const mockCreateArtifactLink = vi.fn(async () => undefined);
-	const mockSyncArtifactToHoncho = vi.fn(async () => ({
-		uploaded: true,
-		mode: "native",
-	}));
 	const mockExtractDocumentText = vi.fn(async () => ({
 		text: "Extracted generated file text",
 		normalizedName: "generated.txt",
@@ -122,7 +117,6 @@ const {
 		mockAccess,
 		mockCreateGeneratedOutputArtifact,
 		mockCreateArtifactLink,
-		mockSyncArtifactToHoncho,
 		mockExtractDocumentText,
 		mockRecordMemoryEvent,
 	};
@@ -475,12 +469,6 @@ vi.mock("$lib/server/services/knowledge", () => ({
 vi.mock("$lib/server/services/memory-events", () => ({
 	recordMemoryEvent: (...args: Parameters<typeof mockRecordMemoryEvent>) =>
 		mockRecordMemoryEvent(...args),
-}));
-
-vi.mock("$lib/server/services/honcho", () => ({
-	syncArtifactToHoncho: (
-		...args: Parameters<typeof mockSyncArtifactToHoncho>
-	) => mockSyncArtifactToHoncho(...args),
 }));
 
 vi.mock("./document-extraction", () => ({
@@ -876,7 +864,7 @@ describe("chat-files service", () => {
 	});
 
 	describe("syncGeneratedFilesToMemory", () => {
-		it("keeps source-first rendered document source out of direct Honcho sync by default", async () => {
+		it("keeps source-first rendered document source out of direct extraction by default", async () => {
 			const { syncGeneratedFilesToMemory } = await import("./chat-files");
 			const now = new Date("2026-01-01T12:00:00.000Z");
 			mockRows.push(
@@ -954,7 +942,6 @@ describe("chat-files service", () => {
 			expect(mockReadFile).not.toHaveBeenCalled();
 			expect(mockExtractDocumentText).not.toHaveBeenCalled();
 			expect(mockCreateGeneratedOutputArtifact).not.toHaveBeenCalled();
-			expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 		});
 
 		it("preserves generated-file version metadata when text extraction fails", async () => {
@@ -1004,7 +991,6 @@ describe("chat-files service", () => {
 			expect(
 				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
 			).toContain("Generated file version: v1");
-			expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 			expect(console.warn).toHaveBeenCalledWith(
 				"[CHAT_FILES] Generated file text extraction failed; preserving version metadata",
 				expect.objectContaining({
@@ -1014,7 +1000,7 @@ describe("chat-files service", () => {
 			);
 		});
 
-		it("records generated document supersession metadata without Honcho artifact sync", async () => {
+		it("records generated document supersession metadata", async () => {
 			const { syncGeneratedFilesToMemory } = await import("./chat-files");
 			const previousUpdatedAt = new Date("2026-01-01T12:00:00.000Z");
 			mockArtifactRows.push({
@@ -1106,7 +1092,6 @@ describe("chat-files service", () => {
 					}),
 				}),
 			);
-			expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 		});
 	});
 

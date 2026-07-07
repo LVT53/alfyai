@@ -74,7 +74,6 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
-		memoryLegacyCurationModel: "model1",
 		atlasOverviewMaxOutputTokens: 8000,
 		atlasInDepthMaxOutputTokens: 12000,
 		atlasExhaustiveMaxOutputTokens: 16000,
@@ -133,7 +132,6 @@ vi.mock("../env", () => ({
 		modelTimeoutFailoverTimeoutMs: 60000,
 		modelTimeoutFailoverTargetModel: "model2",
 		defaultNewUserModel: "model1",
-		memoryLegacyCurationModel: "model1",
 		atlasOverviewMaxOutputTokens: 8000,
 		atlasInDepthMaxOutputTokens: 12000,
 		atlasExhaustiveMaxOutputTokens: 16000,
@@ -468,55 +466,6 @@ describe("Knowledge Store Config", () => {
 			expect(getConfig().defaultNewUserModel).toBe("provider:firepass");
 		});
 
-		it("getConfig() should persist the memory legacy curation model", async () => {
-			expect(getConfig().memoryLegacyCurationModel).toBe("model1");
-			expect(getResolvedAdminConfigValues().MEMORY_LEGACY_CURATION_MODEL).toBe(
-				"model1",
-			);
-
-			adminConfigRows = [
-				{
-					key: "MEMORY_LEGACY_CURATION_MODEL",
-					value: "provider:memory-curator:model-a",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().memoryLegacyCurationModel).toBe(
-				"provider:memory-curator:model-a",
-			);
-			expect(getResolvedAdminConfigValues().MEMORY_LEGACY_CURATION_MODEL).toBe(
-				"provider:memory-curator:model-a",
-			);
-		});
-
-		it("getConfig() should fall back when memory legacy curation model is invalid or disabled", async () => {
-			adminConfigRows = [
-				{
-					key: "MEMORY_LEGACY_CURATION_MODEL",
-					value: "invalid-model",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().memoryLegacyCurationModel).toBe("model1");
-
-			adminConfigRows = [
-				{ key: "MODEL_2_ENABLED", value: "false" },
-				{
-					key: "MEMORY_LEGACY_CURATION_MODEL",
-					value: "model2",
-				},
-			];
-
-			await refreshConfig();
-
-			expect(getConfig().model2Enabled).toBe(false);
-			expect(getConfig().memoryLegacyCurationModel).toBe("model1");
-		});
-
 		it("getConfig() should apply and expose the silent app version override", async () => {
 			adminConfigRows = [
 				{ key: "APP_VERSION_OVERRIDE", value: "2026.05-admin" },
@@ -546,7 +495,6 @@ describe("Knowledge Store Config", () => {
 			expect(values).toMatchObject({
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 				DEFAULT_NEW_USER_MODEL: "model1",
-				MEMORY_LEGACY_CURATION_MODEL: "model1",
 			});
 		});
 

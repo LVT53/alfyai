@@ -701,7 +701,6 @@ describe("Conversation Detail Read Model", () => {
 				},
 			],
 			excludedEvidence: [],
-			honcho: null,
 		});
 		mockGetProjectReferenceContext.mockResolvedValue({
 			source: "project_folder",

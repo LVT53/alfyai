@@ -206,7 +206,7 @@ vi.mock("./knowledge", () => ({
 	listMessageAttachments: vi.fn(async () => new Map()),
 }));
 
-describe("messages Honcho metadata", () => {
+describe("messages metadata", () => {
 	beforeEach(() => {
 		mockRows.length = 0;
 		mockUsageRows.length = 0;
@@ -364,122 +364,6 @@ describe("messages Honcho metadata", () => {
 		]);
 	});
 
-	it("preserves Honcho metadata when evidence metadata is updated", async () => {
-		mockRows.push({
-			id: "assistant-1",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Stored answer",
-			thinking: null,
-			toolCalls: null,
-			createdAt: new Date("2026-03-29T12:00:00.000Z"),
-			metadataJson: JSON.stringify({
-				honchoContext: {
-					source: "live",
-					waitedMs: 42,
-					queuePendingWorkUnits: 0,
-					queueInProgressWorkUnits: 0,
-					fallbackReason: null,
-					snapshotCreatedAt: 111,
-				},
-				honchoSnapshot: {
-					createdAt: 111,
-					summary: "Stored summary",
-					messages: [
-						{
-							role: "assistant",
-							content: "Stored answer",
-							createdAt: Date.parse("2026-03-29T12:00:00.000Z"),
-						},
-					],
-				},
-			}),
-		});
-
-		const { updateMessageEvidence } = await import("./messages");
-
-		await updateMessageEvidence("assistant-1", {
-			evidenceStatus: "ready",
-			evidenceSummary: {
-				structuredWebSearch: false,
-				groups: [
-					{
-						sourceType: "memory",
-						label: "Memory",
-						reranked: false,
-						items: [],
-					},
-				],
-			},
-		});
-
-		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
-		expect(metadata.honchoContext).toMatchObject({ source: "live" });
-		expect(metadata.honchoSnapshot).toMatchObject({
-			summary: "Stored summary",
-		});
-		expect(metadata.evidenceStatus).toBe("ready");
-		expect(metadata.evidenceSummary.groups).toHaveLength(1);
-	});
-
-	it("preserves evidence metadata when Honcho metadata is updated", async () => {
-		mockRows.push({
-			id: "assistant-1",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Stored answer",
-			thinking: null,
-			toolCalls: null,
-			createdAt: new Date("2026-03-29T12:00:00.000Z"),
-			metadataJson: JSON.stringify({
-				evidenceStatus: "ready",
-				evidenceSummary: {
-					groups: [
-						{
-							label: "Memory",
-							items: [],
-						},
-					],
-				},
-			}),
-		});
-
-		const { updateMessageHonchoMetadata } = await import("./messages");
-
-		await updateMessageHonchoMetadata("assistant-1", {
-			honchoContext: {
-				source: "snapshot",
-				waitedMs: 100,
-				queuePendingWorkUnits: 1,
-				queueInProgressWorkUnits: 0,
-				fallbackReason: "timeout",
-				snapshotCreatedAt: 222,
-			},
-			honchoSnapshot: {
-				createdAt: 222,
-				summary: "Snapshot summary",
-				messages: [
-					{
-						role: "user",
-						content: "Snapshot question",
-						createdAt: Date.parse("2026-03-29T12:00:00.000Z"),
-					},
-				],
-			},
-		});
-
-		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
-		expect(metadata.evidenceStatus).toBe("ready");
-		expect(metadata.evidenceSummary.groups).toHaveLength(1);
-		expect(metadata.honchoContext).toMatchObject({
-			source: "snapshot",
-			fallbackReason: "timeout",
-		});
-		expect(metadata.honchoSnapshot).toMatchObject({
-			summary: "Snapshot summary",
-		});
-	});
-
 	it("preserves existing metadata when web citation audit is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",
@@ -498,14 +382,6 @@ describe("messages Honcho metadata", () => {
 							items: [],
 						},
 					],
-				},
-				honchoContext: {
-					source: "live",
-					waitedMs: 42,
-					queuePendingWorkUnits: 0,
-					queueInProgressWorkUnits: 0,
-					fallbackReason: null,
-					snapshotCreatedAt: 111,
 				},
 			}),
 		});
@@ -534,114 +410,9 @@ describe("messages Honcho metadata", () => {
 		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
 		expect(metadata.evidenceStatus).toBe("ready");
 		expect(metadata.evidenceSummary.groups).toHaveLength(1);
-		expect(metadata.honchoContext).toMatchObject({ source: "live" });
 		expect(metadata.webCitationAudit).toMatchObject({
 			status: "unsupported_citations",
 			unsupportedCitationCount: 1,
-		});
-	});
-
-	it("returns the newest available Honcho context and snapshot across assistant messages", async () => {
-		mockRows.push(
-			{
-				id: "assistant-newest",
-				conversationId: "conv-1",
-				role: "assistant",
-				content: "Newest answer",
-				thinking: null,
-				toolCalls: null,
-				createdAt: new Date("2026-03-29T12:01:00.000Z"),
-				metadataJson: JSON.stringify({
-					honchoContext: {
-						source: "live",
-						waitedMs: 75,
-						queuePendingWorkUnits: 0,
-						queueInProgressWorkUnits: 0,
-						fallbackReason: null,
-						snapshotCreatedAt: 333,
-					},
-				}),
-			},
-			{
-				id: "assistant-older",
-				conversationId: "conv-1",
-				role: "assistant",
-				content: "Older answer",
-				thinking: null,
-				toolCalls: null,
-				createdAt: new Date("2026-03-29T12:00:00.000Z"),
-				metadataJson: JSON.stringify({
-					honchoSnapshot: {
-						createdAt: 222,
-						summary: "Older snapshot",
-						messages: [
-							{
-								role: "assistant",
-								content: "Older answer",
-								createdAt: Date.parse("2026-03-29T12:00:00.000Z"),
-							},
-						],
-					},
-				}),
-			},
-		);
-
-		const { getLatestHonchoMetadata } = await import("./messages");
-
-		const metadata = await getLatestHonchoMetadata("conv-1");
-
-		expect(metadata.honchoContext).toMatchObject({
-			source: "live",
-			waitedMs: 75,
-		});
-		expect(metadata.honchoSnapshot).toMatchObject({
-			summary: "Older snapshot",
-		});
-	});
-
-	it("ignores Honcho metadata inherited on copied fork messages", async () => {
-		mockRows.push({
-			id: "assistant-copied",
-			conversationId: "fork-conv-1",
-			role: "assistant",
-			content: "Copied source answer",
-			thinking: null,
-			toolCalls: null,
-			createdAt: new Date("2026-03-29T12:00:00.000Z"),
-			metadataJson: JSON.stringify({
-				forkCopy: {
-					sourceMessageId: "source-assistant-1",
-					sourceConversationId: "source-conv-1",
-					sourceRole: "assistant",
-					sourceCreatedAt: "2026-03-29T11:00:00.000Z",
-				},
-				honchoContext: {
-					source: "snapshot",
-					waitedMs: 100,
-					queuePendingWorkUnits: 1,
-					queueInProgressWorkUnits: 0,
-					fallbackReason: "timeout",
-					snapshotCreatedAt: 222,
-				},
-				honchoSnapshot: {
-					createdAt: 222,
-					summary: "Source conversation snapshot",
-					messages: [
-						{
-							role: "assistant",
-							content: "Source-only memory",
-							createdAt: Date.parse("2026-03-29T11:00:00.000Z"),
-						},
-					],
-				},
-			}),
-		});
-
-		const { getLatestHonchoMetadata } = await import("./messages");
-
-		await expect(getLatestHonchoMetadata("fork-conv-1")).resolves.toEqual({
-			honchoContext: null,
-			honchoSnapshot: null,
 		});
 	});
 

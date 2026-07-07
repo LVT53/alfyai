@@ -24,19 +24,6 @@ function hasColumn(tableName: string, columnName: string): boolean {
 		.some((row) => String((row as TableInfoRow).name) === columnName);
 }
 
-function ensureUsersHonchoPeerVersionColumn(): void {
-	if (!hasTable("users") || hasColumn("users", "honcho_peer_version")) {
-		return;
-	}
-
-	sqlite.exec(
-		"ALTER TABLE users ADD COLUMN honcho_peer_version integer DEFAULT 0 NOT NULL",
-	);
-	console.warn(
-		"[DB_COMPAT] Added missing users.honcho_peer_version column at runtime",
-	);
-}
-
 function ensureUsersUiLanguageColumn(): void {
 	if (!hasTable("users") || hasColumn("users", "ui_language")) {
 		return;
@@ -55,7 +42,6 @@ export async function ensureRuntimeSchemaCompatibility(): Promise<void> {
 
 	if (!ensureRuntimeSchemaCompatibilityPromise) {
 		ensureRuntimeSchemaCompatibilityPromise = Promise.resolve().then(() => {
-			ensureUsersHonchoPeerVersionColumn();
 			ensureUsersUiLanguageColumn();
 			runtimeSchemaCompatibilityEnsured = true;
 		});

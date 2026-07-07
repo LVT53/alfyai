@@ -13,8 +13,6 @@ import type {
 	ChatMessage,
 	DepthMetadata,
 	ForkEvidenceSnapshot,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	MessageEvidenceStatusState,
 	MessageEvidenceSummary,
 	MessageRole,
@@ -25,7 +23,7 @@ import type {
 	WebCitationAudit,
 } from "$lib/types";
 import { listMessageAttachments } from "./knowledge";
-import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
+import { messageOrderAsc } from "./message-ordering";
 import {
 	repairConversationMessageSequences,
 	repairConversationMessageSequencesWithExecutor,
@@ -34,8 +32,6 @@ import {
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
 	evidenceStatus?: MessageEvidenceStatusState;
-	honchoContext?: HonchoContextInfo | null;
-	honchoSnapshot?: HonchoContextSnapshot | null;
 	modelDisplayName?: string | null;
 	providerDisplayName?: string | null;
 	providerIconUrl?: string | null;
@@ -213,7 +209,6 @@ function projectMessageMetadata(
 	| "evidencePending"
 	| "wasStopped"
 	| "depthMetadata"
-	| "honchoContext"
 	| "skillQuestion"
 	| "pendingSkillNoteIntents"
 	| "skillDrafts"
@@ -233,7 +228,6 @@ function projectMessageMetadata(
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
 		depthMetadata: readDepthMetadataFromMetadata(metadata),
-		honchoContext: metadata?.honchoContext ?? undefined,
 		skillQuestion: metadata?.skillQuestion || undefined,
 		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,
 		skillDrafts: Array.isArray(metadata?.skillDrafts)
@@ -622,47 +616,6 @@ export async function updateMessageWebCitationAudit(
 		.where(eq(messages.id, messageId));
 }
 
-export async function updateMessageHonchoMetadata(
-	messageId: string,
-	params: {
-		honchoContext?: HonchoContextInfo | null;
-		honchoSnapshot?: HonchoContextSnapshot | null;
-	},
-): Promise<void> {
-	const [row] = await db
-		.select({ metadataJson: messages.metadataJson })
-		.from(messages)
-		.where(eq(messages.id, messageId))
-		.limit(1);
-
-	if (!row) return;
-
-	const next = { ...(parseMetadata(row.metadataJson) ?? {}) };
-
-	if (params.honchoContext === undefined) {
-		// Leave existing value untouched.
-	} else if (params.honchoContext) {
-		next.honchoContext = params.honchoContext;
-	} else {
-		delete next.honchoContext;
-	}
-
-	if (params.honchoSnapshot === undefined) {
-		// Leave existing value untouched.
-	} else if (params.honchoSnapshot) {
-		next.honchoSnapshot = params.honchoSnapshot;
-	} else {
-		delete next.honchoSnapshot;
-	}
-
-	await db
-		.update(messages)
-		.set({
-			metadataJson: Object.keys(next).length > 0 ? JSON.stringify(next) : null,
-		})
-		.where(eq(messages.id, messageId));
-}
-
 export async function getAssistantMessageSkillDraft(params: {
 	conversationId: string;
 	messageId: string;
@@ -798,46 +751,6 @@ export async function updateAssistantMessageSkillDraftStatus(params: {
 		);
 
 	return nextDraft;
-}
-
-export async function getLatestHonchoMetadata(conversationId: string): Promise<{
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
-}> {
-	repairConversationMessageSequences(conversationId);
-
-	const rows = await db
-		.select({ metadataJson: messages.metadataJson })
-		.from(messages)
-		.where(
-			and(
-				eq(messages.conversationId, conversationId),
-				eq(messages.role, "assistant"),
-			),
-		)
-		.orderBy(...messageOrderDesc());
-
-	let honchoContext: HonchoContextInfo | null = null;
-	let honchoSnapshot: HonchoContextSnapshot | null = null;
-
-	for (const row of rows) {
-		const metadata = parseMetadata(row.metadataJson);
-		if (!metadata) continue;
-		if (metadata.forkCopy) continue;
-
-		if (!honchoContext && metadata.honchoContext) {
-			honchoContext = metadata.honchoContext;
-		}
-		if (!honchoSnapshot && metadata.honchoSnapshot) {
-			honchoSnapshot = metadata.honchoSnapshot;
-		}
-
-		if (honchoContext && honchoSnapshot) {
-			break;
-		}
-	}
-
-	return { honchoContext, honchoSnapshot };
 }
 
 export async function clearMessageEvidenceForUser(

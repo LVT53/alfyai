@@ -7,10 +7,6 @@ vi.mock("./store", () => ({
 	saveUploadedArtifactFromStoredFile: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/honcho", () => ({
-	syncArtifactToHoncho: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/attachment-trace", () => ({
 	logAttachmentTrace: vi.fn(),
 }));
@@ -31,7 +27,6 @@ import { getConfig } from "$lib/server/config-store";
 import { getAdapterBodySizeLimitBytes } from "$lib/server/env";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
-import { syncArtifactToHoncho } from "$lib/server/services/honcho";
 import {
 	createNormalizedArtifact,
 	resolvePromptAttachmentArtifacts,
@@ -54,9 +49,6 @@ const mockSaveUploadedArtifact = saveUploadedArtifact as ReturnType<
 >;
 const mockSaveUploadedArtifactFromStoredFile =
 	saveUploadedArtifactFromStoredFile as ReturnType<typeof vi.fn>;
-const mockSyncArtifactToHoncho = syncArtifactToHoncho as ReturnType<
-	typeof vi.fn
->;
 const mockLogAttachmentTrace = logAttachmentTrace as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
@@ -98,10 +90,6 @@ describe("Knowledge Upload Intake", () => {
 		mockGetConfig.mockReturnValue({ maxFileUploadSize: 50 * 1024 * 1024 });
 		mockGetAdapterBodySizeLimitBytes.mockReturnValue(40 * 1024 * 1024);
 		mockCreateNormalizedArtifact.mockResolvedValue(null);
-		mockSyncArtifactToHoncho.mockResolvedValue({
-			uploaded: true,
-			mode: "native",
-		});
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [],
 			promptArtifacts: [],
@@ -180,7 +168,6 @@ describe("Knowledge Upload Intake", () => {
 			artifact: sourceArtifact,
 			normalizedArtifact,
 			reusedExistingArtifact: false,
-			honcho: { uploaded: false, mode: "none" },
 			promptReady: true,
 			promptArtifactId: "normalized-1",
 			readinessError: null,
@@ -190,7 +177,6 @@ describe("Knowledge Upload Intake", () => {
 			conversationId: "conv-1",
 			file,
 		});
-		expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 		expect(mockLogAttachmentTrace).toHaveBeenCalledWith(
 			"upload_result",
 			expect.objectContaining({
@@ -267,7 +253,6 @@ describe("Knowledge Upload Intake", () => {
 		expect(response).toMatchObject({
 			artifact: sourceArtifact,
 			normalizedArtifact,
-			honcho: { uploaded: false, mode: "none" },
 			promptReady: true,
 			promptArtifactId: "normalized-stored",
 			readinessError: null,
@@ -285,10 +270,9 @@ describe("Knowledge Upload Intake", () => {
 			binaryHash: "stored-binary-hash",
 			tempPathAbsolute: "/tmp/report-upload",
 		});
-		expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 	});
 
-	it("does not sync native or normalized document text to Honcho by default", async () => {
+	it("resolves prompt readiness from the normalized artifact for a native upload", async () => {
 		const sourceArtifact = artifact({
 			id: "artifact-image",
 			name: "photo.png",
@@ -338,10 +322,8 @@ describe("Knowledge Upload Intake", () => {
 			startedAt: now,
 		});
 
-		expect(response.honcho).toEqual({ uploaded: false, mode: "none" });
 		expect(response.promptReady).toBe(true);
 		expect(response.promptArtifactId).toBe("normalized-image");
-		expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 	});
 
 	it("returns readiness failure metadata when extraction cannot produce prompt-ready text", async () => {
@@ -357,10 +339,6 @@ describe("Knowledge Upload Intake", () => {
 			reusedExistingArtifact: false,
 		});
 		mockCreateNormalizedArtifact.mockResolvedValue(null);
-		mockSyncArtifactToHoncho.mockResolvedValue({
-			uploaded: false,
-			mode: "none",
-		});
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [sourceArtifact],
 			promptArtifacts: [],
@@ -428,6 +406,5 @@ describe("Knowledge Upload Intake", () => {
 
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
 		expect(mockSaveUploadedArtifactFromStoredFile).not.toHaveBeenCalled();
-		expect(mockSyncArtifactToHoncho).not.toHaveBeenCalled();
 	});
 });

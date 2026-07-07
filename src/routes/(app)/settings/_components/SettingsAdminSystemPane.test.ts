@@ -158,7 +158,6 @@ describe("SettingsAdminSystemPane", () => {
 			adminConfig,
 			envDefaults: { COMPOSER_COMMAND_REGISTRY_ENABLED: "false" },
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
-			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
 		});
 
@@ -184,7 +183,6 @@ describe("SettingsAdminSystemPane", () => {
 			adminConfig,
 			envDefaults: { APP_VERSION_OVERRIDE: "" },
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
-			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig,
 		});
 
@@ -237,7 +235,6 @@ describe("SettingsAdminSystemPane", () => {
 					displayName: "Atlas Audit",
 				},
 			],
-			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
 		});
 
@@ -322,7 +319,6 @@ describe("SettingsAdminSystemPane", () => {
 				MODEL_2_ENABLED: "true",
 			},
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
-			onCheckHonchoHealth: vi.fn(),
 			onSaveAdminConfig: vi.fn(),
 		});
 

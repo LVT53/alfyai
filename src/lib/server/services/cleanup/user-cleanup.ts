@@ -25,10 +25,6 @@ import { cancelActiveAtlasJobsForUser, deleteAtlasJobsForUser } from "../atlas";
 import { verifyPassword } from "../auth";
 import { deleteAllChatFilesForUser } from "../chat-files";
 import {
-	deleteAllHonchoStateForUser,
-	rotateHonchoPeerIdentity,
-} from "../honcho";
-import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	hardDeleteArtifactsForUser,
@@ -45,7 +41,6 @@ export type ResetUserAccountResult =
 	| { status: "incorrect_password" };
 
 export async function purgeUserData(userId: string): Promise<void> {
-	await deleteAllHonchoStateForUser(userId);
 	await cancelActiveAtlasJobsForUser(userId);
 	await deleteAllChatFilesForUser(userId);
 	await deleteAtlasJobsForUser(userId);
@@ -157,7 +152,6 @@ export async function resetUserAccountStateWithCleanup(
 	}
 
 	await purgeUserData(userId);
-	await rotateHonchoPeerIdentity(userId);
 
 	return { status: "reset" };
 }

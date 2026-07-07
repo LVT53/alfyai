@@ -10,8 +10,6 @@ import type {
 	ConversationContextStatus,
 	DepthMetadata,
 	FileProductionJob,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	LinkedContextSource,
 	ReasoningDepth,
 	TaskState,
@@ -92,8 +90,6 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	latestActiveWorkingSet: WorkingSetItem[] | undefined;
 	latestTaskState: TaskState | null | undefined;
 	latestContextDebug: ContextDebugState | null | undefined;
-	latestHonchoContext: HonchoContextInfo | null | undefined;
-	latestHonchoSnapshot: HonchoContextSnapshot | null | undefined;
 	latestContextTraceSections?: LegacyContextTraceSectionInput[];
 	latestProviderUsage: ProviderUsageSnapshot | null;
 	upstreamFinishReason?: FinishReason | null;
@@ -187,8 +183,6 @@ export async function completeStreamTurn(
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
 		latestContextStatus,
-		latestHonchoContext,
-		latestHonchoSnapshot,
 		latestContextTraceSections,
 		latestProviderUsage,
 		upstreamFinishReason = "stop",
@@ -450,8 +444,6 @@ export async function completeStreamTurn(
 				providerUsage: latestProviderUsage,
 			},
 			continuitySource: "stream",
-			honchoContext: latestHonchoContext,
-			honchoSnapshot: latestHonchoSnapshot,
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
 			toolCalls: toolCallRecords,

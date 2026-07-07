@@ -799,7 +799,6 @@ export interface ChatMessage {
 	wasStopped?: boolean;
 	depthMetadata?: DepthMetadata;
 	responseActivity?: ResponseActivityEntry[];
-	honchoContext?: HonchoContextInfo;
 	skillQuestion?: boolean;
 	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
@@ -1108,10 +1107,6 @@ export interface KnowledgeUploadResponse {
 	artifact: ArtifactSummary;
 	normalizedArtifact: ArtifactSummary | null;
 	reusedExistingArtifact: boolean;
-	honcho: {
-		uploaded: boolean;
-		mode: "native" | "normalized" | "none";
-	};
 	promptReady: boolean;
 	promptArtifactId?: string | null;
 	readinessError?: string | null;
@@ -1348,36 +1343,6 @@ export interface ForkContextProvenanceSummary {
 	copiedForkPointMessageId?: string | null;
 }
 
-export type HonchoContextSource = "live" | "snapshot" | "persisted_fallback";
-
-export type HonchoFallbackReason =
-	| "timeout"
-	| "queue_timeout"
-	| "context_error"
-	| "empty_live_context";
-
-export interface HonchoContextInfo {
-	source: HonchoContextSource;
-	waitedMs: number;
-	queuePendingWorkUnits: number;
-	queueInProgressWorkUnits: number;
-	fallbackReason: HonchoFallbackReason | null;
-	snapshotCreatedAt: number | null;
-}
-
-export interface HonchoSnapshotMessage {
-	role: MessageRole;
-	content: string;
-	createdAt: number;
-	forkCopy?: ForkCopyMetadata;
-}
-
-export interface HonchoContextSnapshot {
-	createdAt: number;
-	summary: string | null;
-	messages: HonchoSnapshotMessage[];
-}
-
 export interface ContextDebugState {
 	activeTaskId: string | null;
 	activeTaskObjective: string | null;
@@ -1389,7 +1354,6 @@ export interface ContextDebugState {
 	selectedEvidenceBySource: ContextDebugEvidenceSummaryItem[];
 	pinnedEvidence: ContextDebugEvidenceItem[];
 	excludedEvidence: ContextDebugEvidenceItem[];
-	honcho?: HonchoContextInfo | null;
 	forkProvenance?: ForkContextProvenanceSummary | null;
 }
 
@@ -1531,12 +1495,7 @@ export interface TaskContinuitySummary {
 	updatedAt: number;
 }
 
-export type KnowledgeMemoryOverviewSource =
-	| "honcho_live"
-	| "honcho_scoped"
-	| "honcho_cache"
-	| "persona_fallback"
-	| null;
+export type KnowledgeMemoryOverviewSource = "persona_fallback" | null;
 
 export type KnowledgeMemoryOverviewStatus =
 	| "ready"

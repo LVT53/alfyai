@@ -6,10 +6,8 @@ const mockRecordMemoryReworkTelemetry = vi.fn();
 const mockUpdateMemoryProfileItemWithRevision = vi.fn();
 const mockApplyMemoryReviewItemWithRevision = vi.fn();
 const mockRunUserMemoryMaintenance = vi.fn();
-const mockListPersonaMemories = vi.fn();
 const mockListTaskMemoryItems = vi.fn();
 const mockListFocusContinuityItems = vi.fn();
-const mockGetPeerContext = vi.fn();
 
 vi.mock("./memory-profile", () => ({
 	applyMemoryReviewItemWithRevision: mockApplyMemoryReviewItemWithRevision,
@@ -21,11 +19,6 @@ vi.mock("./memory-profile", () => ({
 
 vi.mock("./memory-maintenance", () => ({
 	runUserMemoryMaintenance: mockRunUserMemoryMaintenance,
-}));
-
-vi.mock("./honcho", () => ({
-	getPeerContext: mockGetPeerContext,
-	listPersonaMemories: mockListPersonaMemories,
 }));
 
 vi.mock("./task-state", () => ({
@@ -141,15 +134,12 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_read",
 			},
 		});
-		expect(mockGetPeerContext).not.toHaveBeenCalled();
-		expect(mockListPersonaMemories).not.toHaveBeenCalled();
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
 		expect(mockRunUserMemoryMaintenance).not.toHaveBeenCalled();
 		expect(payloadJson).not.toContain("taskMemories");
 		expect(payloadJson).not.toContain("focusContinuities");
 		expect(payloadJson).not.toContain("personaMemories");
-		expect(payloadJson).not.toContain("honcho");
 		expect(payloadJson).not.toContain("confidence");
 		expect(payloadJson).not.toContain("debug");
 	});
@@ -207,13 +197,10 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_overview_force_read",
 			},
 		});
-		expect(mockGetPeerContext).not.toHaveBeenCalled();
-		expect(mockListPersonaMemories).not.toHaveBeenCalled();
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
 		expect(payloadJson).not.toContain("taskMemories");
 		expect(payloadJson).not.toContain("focusContinuities");
-		expect(payloadJson).not.toContain("honcho");
 	});
 
 	it("deletes a profile item with projection revision protection and queues reconciliation", async () => {
