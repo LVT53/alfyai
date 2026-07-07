@@ -1,4 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import {
+	artifactLinks,
+	artifacts,
+	users,
+} from "../../src/lib/server/db/schema";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_MODEL_ID,
@@ -141,7 +149,11 @@ test.describe("Core user flows smoke", () => {
 		page,
 	}) => {
 		await login(page);
-		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		// /knowledge defaults to the Memory tab; the document list and its search
+		// box live under the Documents tab.
+		await page.goto("/knowledge?tab=documents", {
+			waitUntil: "domcontentloaded",
+		});
 		await expect(
 			page.getByRole("heading", { name: "Knowledge Base" }),
 		).toBeVisible();
@@ -152,21 +164,23 @@ test.describe("Core user flows smoke", () => {
 		});
 		await expect(searchBox).toBeVisible();
 
+		// Ensure the workspace coordinator is fully hydrated before opening.
+		await page.waitForLoadState("networkidle");
 		await searchBox.fill(documentName);
 		const filteredDocumentRow = page
 			.locator("tbody tr", { hasText: documentName })
 			.first();
 		await expect(filteredDocumentRow).toBeVisible({ timeout: 10000 });
 		await filteredDocumentRow.click();
-		const workspace = page.locator(
-			'aside.workspace-shell-desktop[aria-label="Document workspace"]',
-		);
-		await expect(workspace).toBeVisible({ timeout: 15000 });
-		await expect(
-			workspace.getByText(documentName, { exact: true }),
-		).toBeVisible({
-			timeout: 10000,
+		await expect(page.getByTestId("workspace-main")).toBeVisible({
+			timeout: 15000,
 		});
+		// The filename lives in the workspace panel header; the content renders in
+		// the workspace-main body.
+		const workspace = page
+			.getByRole("complementary", { name: "Document workspace" })
+			.first();
+		await expect(workspace).toContainText(documentName, { timeout: 10000 });
 	});
 
 	test("validates an admin provider row and surfaces capability chips", async ({
@@ -252,7 +266,7 @@ test.describe("Core user flows smoke", () => {
 
 			await page.goto("/settings", { waitUntil: "domcontentloaded" });
 			await page.waitForLoadState("networkidle");
-			await page.getByRole("button", { name: "Administration" }).click();
+			await page.getByRole("tab", { name: "Administration" }).click();
 			await expect(page.getByText("Add Provider")).toBeVisible({
 				timeout: 10000,
 			});
@@ -384,55 +398,65 @@ async function seedKnowledgeDocumentViaUpload(page: Page): Promise<string> {
 	const unique = Date.now();
 	const documentName = `core-smoke-document-${unique}.txt`;
 
-	const result = await page.evaluate(async (name) => {
-		const body = "Core smoke knowledge document body.";
-		const file = new File([body], name, { type: "text/plain" });
-		const intentResponse = await fetch("/api/knowledge/upload/intent", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				fileName: file.name,
-				fileSize: file.size,
-				mimeType: file.type,
-				conversationId: null,
-			}),
-		});
-		const intent = (await intentResponse.json()) as {
-			traceId?: string;
-			error?: string;
-		};
-		if (!intentResponse.ok || !intent.traceId) {
-			return {
-				ok: false,
-				status: intentResponse.status,
-				error: intent.error ?? "Upload intent failed",
-			};
-		}
+	// Seed a complete logical document server-side (source + normalized + the
+	// derived_from link) with inline readable content. Going through the raw
+	// upload endpoint leaves the source_document backed only by a stored file
+	// whose preview is not served in the headless test environment, so the
+	// workspace preview never mounts. Seeding inline content keeps this smoke
+	// test focused on the search → open → workspace flow deterministically.
+	const [admin] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, "admin@local"))
+		.limit(1);
+	expect(admin?.id, "Test admin user is missing").toBeTruthy();
+	if (!admin) throw new Error("Test admin user is missing");
 
-		const uploadResponse = await fetch("/api/knowledge/upload/raw", {
-			method: "POST",
-			headers: {
-				"Content-Type": file.type,
-				"X-AlfyAI-Upload-Name": encodeURIComponent(file.name),
-				"X-AlfyAI-Upload-Size": String(file.size),
-				"X-AlfyAI-Upload-Trace-Id": intent.traceId,
-			},
-			body: file,
+	const bodyText = "Core smoke knowledge document body.";
+	const sourceId = randomUUID();
+	const normalizedId = randomUUID();
+	await db
+		.insert(artifacts)
+		.values({
+			id: sourceId,
+			userId: admin.id,
+			type: "source_document",
+			retrievalClass: "durable",
+			name: documentName,
+			mimeType: "text/plain",
+			contentText: bodyText,
+		})
+		.run();
+	await db
+		.insert(artifacts)
+		.values({
+			id: normalizedId,
+			userId: admin.id,
+			type: "normalized_document",
+			retrievalClass: "durable",
+			name: documentName.replace(/\.txt$/, ".md"),
+			mimeType: "text/markdown",
+			contentText: bodyText,
+		})
+		.run();
+	await db
+		.insert(artifactLinks)
+		.values({
+			id: randomUUID(),
+			userId: admin.id,
+			artifactId: normalizedId,
+			relatedArtifactId: sourceId,
+			linkType: "derived_from",
+		})
+		.run();
+	// The /knowledge page renders from SSR load data and does not auto-refresh,
+	// so poll by reloading the Documents tab until the upload appears.
+	await expect(async () => {
+		await page.goto("/knowledge?tab=documents", {
+			waitUntil: "domcontentloaded",
 		});
-		const uploadBody = (await uploadResponse.json()) as { error?: string };
-		return {
-			ok: uploadResponse.ok,
-			status: uploadResponse.status,
-			error: uploadBody.error,
-		};
-	}, documentName);
-
-	expect(
-		result.ok,
-		`knowledge upload failed with ${result.status}: ${result.error ?? ""}`,
-	).toBe(true);
-	await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
-	await expect(page.getByText(documentName)).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText(documentName)).toBeVisible({ timeout: 2000 });
+	}).toPass({ timeout: 20000 });
 
 	return documentName;
 }

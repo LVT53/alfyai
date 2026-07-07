@@ -7,6 +7,42 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// Hoisted, always-registered mock for the control model. Using a static
+// vi.mock (rather than per-test vi.doMock + dynamic import) removes a
+// mock-registration/import ordering race that made the supersede/merge tests
+// flaky under full-suite parallelism: if the doMock factory was not applied
+// before steps.ts imported the module, the real sendJsonControlMessage was
+// called, threw, and runReconcileAndMerge silently returned [] (its graceful
+// catch), leaving items "active" instead of "retired". The response is
+// injected per test via setControlResponse().
+const controlModelMock = vi.hoisted(() => ({
+	response: null as ReturnType<typeof makeControlResponseValue> | null,
+	sendJsonControlMessage: vi.fn(),
+}));
+
+function makeControlResponseValue(text: string) {
+	return {
+		text,
+		rawResponse: {},
+		modelId: "model1" as const,
+		modelDisplayName: "Model 1",
+	};
+}
+
+vi.mock("../normal-chat-control-model", () => ({
+	sendJsonControlMessage: (...args: unknown[]) => {
+		controlModelMock.sendJsonControlMessage(...args);
+		if (!controlModelMock.response) {
+			throw new Error("control model response not configured for test");
+		}
+		return Promise.resolve(controlModelMock.response);
+	},
+}));
+
+function setControlResponse(text: string) {
+	controlModelMock.response = makeControlResponseValue(text);
+}
+
 let dbPath: string;
 let seedConnections: Array<{
 	sqlite: Database.Database;
@@ -122,21 +158,14 @@ function metaOf(row: { metadataJson: string | null }): Record<string, unknown> {
 	}
 }
 
-function makeControlResponse(text: string) {
-	return {
-		text,
-		rawResponse: {},
-		modelId: "model1" as const,
-		modelDisplayName: "Model 1",
-	};
-}
-
 describe("memory consolidation steps", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-consolidation-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		seedConnections = [];
+		controlModelMock.response = null;
+		controlModelMock.sendJsonControlMessage.mockClear();
 	});
 
 	afterEach(async () => {
@@ -158,7 +187,6 @@ describe("memory consolidation steps", () => {
 		} catch {
 			// best-effort
 		}
-		vi.doUnmock("../normal-chat-control-model");
 	});
 
 	it("renews a time_bound fact touched recently; expires an untouched one", async () => {
@@ -374,11 +402,7 @@ describe("memory consolidation steps", () => {
 				},
 			],
 		});
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage: vi
-				.fn()
-				.mockResolvedValue(makeControlResponse(responseText)),
-		}));
+		setControlResponse(responseText);
 
 		const { runReconcileAndMerge } = await import("./steps");
 		const actions = await runReconcileAndMerge({ userId });
@@ -465,11 +489,7 @@ describe("memory consolidation steps", () => {
 		const responseText = JSON.stringify({
 			actions: [{ type: "supersede", winnerId, loserId: authoredId }],
 		});
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage: vi
-				.fn()
-				.mockResolvedValue(makeControlResponse(responseText)),
-		}));
+		setControlResponse(responseText);
 
 		const { runReconcileAndMerge } = await import("./steps");
 		const actions = await runReconcileAndMerge({ userId });

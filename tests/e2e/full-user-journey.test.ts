@@ -3,6 +3,7 @@ import {
 	buildAiSdkUiStreamBody,
 	createConversation,
 	login,
+	logout,
 	openConversationComposer,
 } from "./helpers";
 
@@ -55,7 +56,8 @@ test.describe("Full User Journey", () => {
 
 	test("user can logout", async ({ page }) => {
 		await login(page);
-		await page.getByRole("button", { name: "Logout" }).click();
+		// logout() clicks Logout and confirms the ConfirmDialog (ADR-0043 Slice 16).
+		await logout(page);
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 	});
 });

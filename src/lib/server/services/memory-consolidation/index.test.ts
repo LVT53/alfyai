@@ -7,6 +7,17 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// Hoisted static mock for the control model. Per-test vi.doMock of this
+// specifier races with sibling files (steps.test.ts, summary.test.ts) that
+// import the same relative module under file parallelism, letting the real
+// (unmocked) module resolve intermittently. A hoisted vi.mock is applied once,
+// before this file's module graph loads; each test configures the shared spy's
+// behavior instead of re-registering the module mock.
+const sendJsonControlMessageMock = vi.hoisted(() => vi.fn());
+vi.mock("../normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
 let dbPath: string;
 let seedConnections: Array<{
 	sqlite: Database.Database;
@@ -144,6 +155,7 @@ describe("memory consolidation runner", () => {
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		seedConnections = [];
+		sendJsonControlMessageMock.mockReset();
 	});
 
 	afterEach(async () => {
@@ -165,7 +177,6 @@ describe("memory consolidation runner", () => {
 		} catch {
 			// best-effort
 		}
-		vi.doUnmock("../normal-chat-control-model");
 	});
 
 	it("runs sweep → steps → summary, writes a succeeded report and bumps projection revision", async () => {
@@ -215,13 +226,9 @@ describe("memory consolidation runner", () => {
 			],
 		});
 		// reconcile is called first, then persona summary.
-		const sendJsonControlMessage = vi
-			.fn()
+		sendJsonControlMessageMock
 			.mockResolvedValueOnce(makeControlResponse(reconcileResponse))
 			.mockResolvedValue(makeControlResponse(PERSONA_RESPONSE));
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
 
 		const revisionBefore = readProjectionRevision(db, userId);
 
@@ -265,15 +272,11 @@ describe("memory consolidation runner", () => {
 			updatedAt: new Date(now.getTime() - 5 * DAY_MS),
 		});
 
-		const sendJsonControlMessage = vi
-			.fn()
+		sendJsonControlMessageMock
 			.mockResolvedValueOnce(
 				makeControlResponse(JSON.stringify({ actions: [] })),
 			)
 			.mockResolvedValue(makeControlResponse(PERSONA_RESPONSE));
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
 
 		const { runUserMemoryConsolidation, listMemoryConsolidationReports } =
 			await import("./index");
@@ -313,12 +316,9 @@ describe("memory consolidation runner", () => {
 				runReconcileAndMerge: vi.fn().mockRejectedValue(new TypeError("boom")),
 			};
 		});
-		const sendJsonControlMessage = vi
-			.fn()
-			.mockResolvedValue(makeControlResponse(PERSONA_RESPONSE));
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(PERSONA_RESPONSE),
+		);
 
 		const { runUserMemoryConsolidation, listMemoryConsolidationReports } =
 			await import("./index");

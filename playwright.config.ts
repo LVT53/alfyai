@@ -10,6 +10,16 @@ const E2E_DATABASE_PATH =
 const E2E_SESSION_SECRET =
   process.env.SESSION_SECRET || 'e2e-test-session-secret-long-enough-1234567890';
 
+// Some specs import `$lib/server/db` directly into the Playwright RUNNER
+// process (e.g. to seed rows the server will list). That singleton resolves
+// its file from DATABASE_PATH at import time, so the runner must point at the
+// same e2e database the webServer uses — otherwise it opens ./data/chat.db and
+// cannot see the seeded admin/user. webServer gets its own env below; this sets
+// the runner's.
+process.env.DATABASE_PATH = E2E_DATABASE_PATH;
+process.env.E2E_DATABASE_PATH = E2E_DATABASE_PATH;
+process.env.SESSION_SECRET = E2E_SESSION_SECRET;
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,

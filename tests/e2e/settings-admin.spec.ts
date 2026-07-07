@@ -75,7 +75,7 @@ async function setAdminOverrideViaApi(page: Page, key: string, value: string) {
 async function openAdministrationTab(page: Page) {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
-	await page.getByRole("button", { name: "Administration" }).click();
+	await page.getByRole("tab", { name: "Administration" }).click();
 	// Wait for the Models section header to be visible (always present on the System tab)
 	await expect(page.getByText("Add Provider")).toBeVisible();
 }
@@ -83,7 +83,7 @@ async function openAdministrationTab(page: Page) {
 async function openAdministrationUsersPane(page: Page) {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
-	await page.getByRole("button", { name: "Administration" }).click();
+	await page.getByRole("tab", { name: "Administration" }).click();
 	await expect(page.getByText("Add Provider")).toBeVisible();
 	await page.getByRole("button", { name: "Users" }).click();
 	await expect(page.getByRole("button", { name: "Create User" })).toBeVisible();
@@ -110,7 +110,7 @@ async function savePromptFromUi(page: Page, value: string) {
 async function reloadAdministrationTab(page: Page) {
 	await page.reload();
 	await page.waitForLoadState("networkidle");
-	await page.getByRole("button", { name: "Administration" }).click();
+	await page.getByRole("tab", { name: "Administration" }).click();
 	await expect(page.getByText("Add Provider")).toBeVisible();
 }
 
@@ -177,23 +177,26 @@ test.describe("Admin prompt settings", () => {
 	});
 });
 
+// Memory v2 removed the Honcho turn-path config (HONCHO_CONTEXT_WAIT_MS /
+// HONCHO_PERSONA_CONTEXT_WAIT_MS) from the admin UI. This block preserves the
+// original intent — a numeric admin-config latency override persists through
+// the UI save + reload cycle — against the surviving model-timeout-failover
+// latency budget field.
 test.describe("Admin model routing settings", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
-		await setAdminOverrideViaApi(page, "HONCHO_CONTEXT_WAIT_MS", "");
-		await setAdminOverrideViaApi(page, "HONCHO_PERSONA_CONTEXT_WAIT_MS", "");
+		await setAdminOverrideViaApi(page, "MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS", "");
 		await openAdministrationTab(page);
 	});
 
 	test.afterEach(async ({ page }) => {
-		await setAdminOverrideViaApi(page, "HONCHO_CONTEXT_WAIT_MS", "");
-		await setAdminOverrideViaApi(page, "HONCHO_PERSONA_CONTEXT_WAIT_MS", "");
+		await setAdminOverrideViaApi(page, "MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS", "");
 	});
 
-	test("saving the Honcho context wait override persists the latency budget", async ({
+	test("saving the model-timeout failover override persists the latency budget", async ({
 		page,
 	}) => {
-		const field = page.locator("#HONCHO_CONTEXT_WAIT_MS");
+		const field = page.locator("#MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS");
 		await field.fill("4500");
 
 		await Promise.all([
@@ -207,35 +210,14 @@ test.describe("Admin model routing settings", () => {
 		]);
 
 		const savedConfig = await fetchAdminConfig(page);
-		expect(savedConfig.overrides.HONCHO_CONTEXT_WAIT_MS).toBe("4500");
-
-		await reloadAdministrationTab(page);
-		await expect(page.locator("#HONCHO_CONTEXT_WAIT_MS")).toHaveValue("4500");
-	});
-
-	test("saving the Honcho persona context wait override persists the dedicated latency budget", async ({
-		page,
-	}) => {
-		const field = page.locator("#HONCHO_PERSONA_CONTEXT_WAIT_MS");
-		await field.fill("1200");
-
-		await Promise.all([
-			page.waitForResponse(
-				(response) =>
-					response.url().includes("/api/admin/config") &&
-					response.request().method() === "PUT" &&
-					response.status() === 200,
-			),
-			page.getByRole("button", { name: "Save Configuration" }).click(),
-		]);
-
-		const savedConfig = await fetchAdminConfig(page);
-		expect(savedConfig.overrides.HONCHO_PERSONA_CONTEXT_WAIT_MS).toBe("1200");
-
-		await reloadAdministrationTab(page);
-		await expect(page.locator("#HONCHO_PERSONA_CONTEXT_WAIT_MS")).toHaveValue(
-			"1200",
+		expect(savedConfig.overrides.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS).toBe(
+			"4500",
 		);
+
+		await reloadAdministrationTab(page);
+		await expect(
+			page.locator("#MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS"),
+		).toHaveValue("4500");
 	});
 });
 

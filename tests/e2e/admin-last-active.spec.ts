@@ -12,7 +12,7 @@ test.describe("Admin last active tracking", () => {
 	}) => {
 		await page.goto("/settings");
 		await page.waitForLoadState("networkidle");
-		await page.getByRole("button", { name: "Administration" }).click();
+		await page.getByRole("tab", { name: "Administration" }).click();
 		await page.getByRole("button", { name: "Users" }).click();
 
 		const userRows = page.locator('[data-testid="admin-user-row"]');
@@ -36,7 +36,7 @@ test.describe("Admin last active tracking", () => {
 	test("admin user detail shows last active timestamp", async ({ page }) => {
 		await page.goto("/settings");
 		await page.waitForLoadState("networkidle");
-		await page.getByRole("button", { name: "Administration" }).click();
+		await page.getByRole("tab", { name: "Administration" }).click();
 		await page.getByRole("button", { name: "Users" }).click();
 
 		const userRows = page.locator('[data-testid="admin-user-row"]');
