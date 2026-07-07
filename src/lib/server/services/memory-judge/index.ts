@@ -21,6 +21,7 @@ import {
 } from "./prompt";
 import {
 	JUDGE_JSON_SCHEMA,
+	JUDGE_MAX_TOKENS,
 	type JudgeDecision,
 	parseJudgeDecisionsDetailed,
 	type RejectedJudgeCandidate,
@@ -102,7 +103,7 @@ export async function runMemoryJudgeOnSegment(params: {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
-				maxTokens: 1600,
+				maxTokens: JUDGE_MAX_TOKENS,
 				jsonSchema: JUDGE_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

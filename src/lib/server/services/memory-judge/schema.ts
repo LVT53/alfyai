@@ -4,6 +4,14 @@ import {
 	type MemoryProfileCategory,
 } from "../memory-profile/types";
 
+// Shared completion budget for the judge call, used by both the production
+// runner (index.ts) and the offline eval harness (scripts/memory-judge-eval.ts)
+// so they exercise the same headroom. Non-strict json_object fallback
+// providers (e.g. DeepSeek without strict structured outputs) sometimes emit
+// free-text chain-of-thought before the JSON envelope; this budget must be
+// large enough to survive that plus the JSON payload itself.
+export const JUDGE_MAX_TOKENS = 2400;
+
 export type JudgeDecision = {
 	action: "add" | "update" | "strengthen";
 	targetItemId?: string;
@@ -82,6 +90,23 @@ function firstSentence(statement: string): string {
 	return (match ? match[0] : statement).trim();
 }
 
+// Non-strict json_object fallback providers occasionally free-form the
+// `action` value as "create" (a synonym never in our enum) instead of "add".
+// Alias it before validation so an otherwise-valid candidate isn't rejected
+// for a naming mismatch alone; this does not add or infer any missing
+// required field, so genuinely incomplete candidates still fail validation.
+function normalizeRawAction(raw: unknown): unknown {
+	if (
+		raw &&
+		typeof raw === "object" &&
+		"action" in raw &&
+		(raw as { action?: unknown }).action === "create"
+	) {
+		return { ...raw, action: "add" };
+	}
+	return raw;
+}
+
 export type RejectedJudgeCandidate = {
 	statement: string;
 	reason:
@@ -129,7 +154,7 @@ export function parseJudgeDecisionsDetailed(rawText: string): {
 	const decisions: JudgeDecision[] = [];
 	const rejected: RejectedJudgeCandidate[] = [];
 	for (const raw of envelope.data.decisions) {
-		const d = decisionSchema.safeParse(raw);
+		const d = decisionSchema.safeParse(normalizeRawAction(raw));
 		if (!d.success) {
 			rejected.push({ statement: rawStatement(raw), reason: "invalid_shape" });
 			continue;

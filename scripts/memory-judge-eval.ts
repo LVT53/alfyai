@@ -7,6 +7,7 @@ import {
 } from "../src/lib/server/services/memory-judge/prompt";
 import {
 	JUDGE_JSON_SCHEMA,
+	JUDGE_MAX_TOKENS,
 	parseJudgeDecisions,
 } from "../src/lib/server/services/memory-judge/schema";
 
@@ -29,7 +30,7 @@ async function main() {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
-				maxTokens: 1200,
+				maxTokens: JUDGE_MAX_TOKENS,
 				jsonSchema: JUDGE_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

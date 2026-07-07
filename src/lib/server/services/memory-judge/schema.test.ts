@@ -105,6 +105,13 @@ describe("parseJudgeDecisions", () => {
 		);
 		expect(out[0].statement).toBe("I prefer tea.");
 	});
+	it("aliases action 'create' to 'add' before validation", () => {
+		const out = parseJudgeDecisions(
+			JSON.stringify({ decisions: [valid({ action: "create" })] }),
+		);
+		expect(out).toHaveLength(1);
+		expect(out[0].action).toBe("add");
+	});
 });
 
 describe("parseJudgeDecisionsDetailed", () => {
