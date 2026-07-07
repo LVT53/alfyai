@@ -31,12 +31,17 @@ import {
 	type MemoryProfileReadModel,
 	markMemoryDirty,
 	mergeMemoryProfileItemMetadata,
+	normalizeRememberedStatement,
 	recordMemoryReworkTelemetry,
 	updateMemoryProfileItemWithRevision,
 } from "./memory-profile";
 
 export class MemoryProfileActionError extends Error {
-	readonly code: "invalid_action" | "stale_projection" | "not_found";
+	readonly code:
+		| "invalid_action"
+		| "stale_projection"
+		| "not_found"
+		| "undo_partial_failure";
 	readonly status: number;
 
 	constructor(
@@ -665,6 +670,16 @@ async function applyProfileItemRetire(
 	);
 }
 
+/**
+ * Normalizes a statement for dedupe comparison: lowercase, collapse
+ * whitespace (via normalizeRememberedStatement), and strip trailing
+ * terminal punctuation so re-punctuated/re-cased restatements of the same
+ * fact are recognized as duplicates.
+ */
+function normalizeForDedupeComparison(statement: string): string {
+	return normalizeRememberedStatement(statement).replace(/[.!?]+$/, "");
+}
+
 async function applySummaryEdit(
 	userId: string,
 	action: Extract<MemoryV2ActionPayload, { kind: "summary"; action: "edit" }>,
@@ -672,11 +687,14 @@ async function applySummaryEdit(
 	const sentences = splitSentences(action.text);
 	const activeContext = await getActiveMemoryProfileContext({ userId });
 	const existingStatements = new Set(
-		activeContext.items.map((item) => item.statement.trim()),
+		activeContext.items.map((item) =>
+			normalizeForDedupeComparison(item.statement),
+		),
 	);
 
 	for (const sentence of sentences) {
-		if (existingStatements.has(sentence)) continue;
+		const normalizedSentence = normalizeForDedupeComparison(sentence);
+		if (existingStatements.has(normalizedSentence)) continue;
 		const item = await createMemoryProfileItem({
 			userId,
 			category: "about_you",
@@ -689,7 +707,7 @@ async function applySummaryEdit(
 			itemId: item.id,
 			patch: { origin: "user_authored" },
 		});
-		existingStatements.add(sentence);
+		existingStatements.add(normalizedSentence);
 	}
 
 	const summary = await generateAndStorePersonaSummary({ userId });
@@ -735,7 +753,18 @@ async function applyConsolidationUndo(
 
 	const activeContext = await getActiveMemoryProfileContext({ userId });
 	let projectionRevision = activeContext.projectionRevision;
+	let appliedCount = 0;
+	const failedItemIds: string[] = [];
 	for (const undo of target.undo) {
+		// prevExpiresAt round-trips through actionsJson as an ISO string (or
+		// null/undefined), since ConsolidationAction is persisted via
+		// JSON.stringify. Parse it back into a Date here.
+		const prevExpiresAt =
+			undo.prevExpiresAt === undefined
+				? undefined
+				: undo.prevExpiresAt === null
+					? null
+					: new Date(undo.prevExpiresAt);
 		const result = await updateMemoryProfileItemWithRevision({
 			userId,
 			itemId: undo.itemId,
@@ -743,11 +772,29 @@ async function applyConsolidationUndo(
 			patch: {
 				statement: undo.prevStatement,
 				status: undo.prevStatus as MemoryProfileItemStatus,
+				...(prevExpiresAt !== undefined ? { expiresAt: prevExpiresAt } : {}),
 			},
 		});
 		if (result.status === "updated") {
 			projectionRevision = result.projectionRevision;
+			appliedCount += 1;
+		} else {
+			failedItemIds.push(undo.itemId);
 		}
+	}
+
+	if (failedItemIds.length > 0) {
+		// Entries that already applied stay applied: this store is
+		// revision-based and each undo entry commits its own atomic
+		// projection-revision bump, so there is no overarching transaction to
+		// roll back. We surface the partial-failure count so the caller can
+		// decide how to reconcile rather than silently losing entries.
+		throw new MemoryProfileActionError(
+			"undo_partial_failure",
+			`Undo applied to ${appliedCount} of ${target.undo.length} item(s); ` +
+				`${failedItemIds.length} failed (itemIds: ${failedItemIds.join(", ")}).`,
+			409,
+		);
 	}
 
 	await markProfileActionReconciliation({

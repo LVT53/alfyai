@@ -435,6 +435,94 @@ describe("memory v2 actions service", () => {
 		expect(rows.length).toBe(1);
 	});
 
+	it("summary edit: does not duplicate a re-punctuated/re-cased restatement of an existing active fact", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I moved to Berlin last year.",
+			metadata: { origin: "user_authored" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		// Second edit restates the same fact with different casing and
+		// terminal punctuation.
+		const personaResponse = JSON.stringify({
+			sentences: [{ text: "I MOVED TO BERLIN LAST YEAR!", factIds: [] }],
+		});
+		const sendJsonControlMessage = vi
+			.fn()
+			.mockResolvedValue(makeControlResponse(personaResponse));
+		vi.doMock("./normal-chat-control-model", () => ({
+			sendJsonControlMessage,
+		}));
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "summary",
+			action: "edit",
+			text: "I MOVED TO BERLIN LAST YEAR!",
+		});
+
+		const rows = db
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.userId, userId))
+			.all();
+		expect(rows.length).toBe(1);
+	});
+
+	it("summary edit: editing the summary twice with a re-punctuated/case-changed sentence creates the fact only once", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+
+		const firstResponse = JSON.stringify({
+			sentences: [{ text: "I work as a backend engineer.", factIds: [] }],
+		});
+		const secondResponse = JSON.stringify({
+			sentences: [{ text: "I WORK AS A BACKEND ENGINEER", factIds: [] }],
+		});
+		const sendJsonControlMessage = vi
+			.fn()
+			.mockResolvedValueOnce(makeControlResponse(firstResponse))
+			.mockResolvedValueOnce(makeControlResponse(secondResponse));
+		vi.doMock("./normal-chat-control-model", () => ({
+			sendJsonControlMessage,
+		}));
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "summary",
+			action: "edit",
+			text: "I work as a backend engineer.",
+		});
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "summary",
+			action: "edit",
+			text: "I WORK AS A BACKEND ENGINEER",
+		});
+
+		const rows = db
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(
+				and(
+					eq(schema.memoryProfileItems.userId, userId),
+					eq(schema.memoryProfileItems.status, "active"),
+				),
+			)
+			.all();
+		expect(rows.length).toBe(1);
+	});
+
 	it("undo: restores a retired item's prior status and statement from a consolidation report action", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();
@@ -480,6 +568,129 @@ describe("memory v2 actions service", () => {
 		const row = readItem(db, itemId);
 		expect(row.status).toBe("active");
 		expect(row.statement).toBe("I original fact.");
+	});
+
+	it("undo: restores prevExpiresAt for a renewed action, parsing the serialized ISO string back to a Date", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const prevExpiresAt = new Date(now.getTime() + 3 * 86_400_000);
+		const nextExpiresAt = new Date(now.getTime() + 33 * 86_400_000);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "My visa expires soon.",
+			status: "active",
+			expiresAt: nextExpiresAt,
+			createdAt: now,
+			updatedAt: now,
+		});
+		// Seed the report the way the real consolidation step actually
+		// serializes it: prevExpiresAt is JSON.stringify'd as an ISO string.
+		const reportId = seedConsolidationReport(db, {
+			userId,
+			actions: [
+				{
+					type: "renewed",
+					itemIds: [itemId],
+					description: "Renewed time-bound fact.",
+					undo: [
+						{
+							itemId,
+							prevStatus: "active",
+							prevStatement: "My visa expires soon.",
+							prevExpiresAt: prevExpiresAt.toISOString(),
+						},
+					],
+				},
+			],
+			createdAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "consolidation",
+			action: "undo",
+			reportId,
+			actionIndex: 0,
+		});
+
+		const row = readItem(db, itemId);
+		expect(row.expiresAt).toBeInstanceOf(Date);
+		// sqlite integer timestamp columns truncate to whole seconds, so
+		// compare at second-level precision.
+		expect(Math.floor((row.expiresAt as Date).getTime() / 1000)).toBe(
+			Math.floor(prevExpiresAt.getTime() / 1000),
+		);
+	});
+
+	it("undo: partial failure throws undo_partial_failure while already-applied entries stay applied", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const survivingItemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I retired fact one.",
+			status: "retired",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const deletedItemId = "does-not-exist-item";
+
+		const reportId = seedConsolidationReport(db, {
+			userId,
+			actions: [
+				{
+					type: "merged",
+					itemIds: [survivingItemId, deletedItemId],
+					description: "Merged two facts.",
+					undo: [
+						{
+							itemId: survivingItemId,
+							prevStatus: "active",
+							prevStatement: "I original fact one.",
+						},
+						{
+							itemId: deletedItemId,
+							prevStatus: "active",
+							prevStatement: "I original fact two.",
+						},
+					],
+				},
+			],
+			createdAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction, MemoryProfileActionError } =
+			await import("./memory");
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "consolidation",
+				action: "undo",
+				reportId,
+				actionIndex: 0,
+			}),
+		).rejects.toMatchObject({ code: "undo_partial_failure" });
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "consolidation",
+				action: "undo",
+				reportId,
+				actionIndex: 0,
+			}),
+		).rejects.toBeInstanceOf(MemoryProfileActionError);
+
+		// The entry that targeted a real item should have applied even
+		// though the sibling entry (targeting a deleted item id) failed —
+		// there is no rollback in this revision-based store.
+		const row = readItem(db, survivingItemId);
+		expect(row.status).toBe("active");
+		expect(row.statement).toBe("I original fact one.");
 	});
 
 	it("undo: unknown reportId throws not_found error", async () => {

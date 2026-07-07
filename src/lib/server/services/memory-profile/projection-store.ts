@@ -428,6 +428,8 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	patch: {
 		statement?: string;
 		status?: MemoryProfileItemStatus;
+		/** Optional expiry override. `null` clears the item's expiry. */
+		expiresAt?: Date | null;
 	};
 }): Promise<
 	| { status: "updated"; projectionRevision: number }
@@ -514,6 +516,9 @@ export async function updateMemoryProfileItemWithRevision(params: {
 							suppressedAt:
 								params.patch.status === "suppressed" ? now : undefined,
 						}
+					: {}),
+				...(params.patch.expiresAt !== undefined
+					? { expiresAt: params.patch.expiresAt }
 					: {}),
 				revision: sql`${memoryProfileItems.revision} + 1`,
 				updatedAt: now,
