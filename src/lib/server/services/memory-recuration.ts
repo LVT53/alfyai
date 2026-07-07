@@ -12,6 +12,7 @@ import { buildJudgeSystemPrompt } from "./memory-judge/prompt";
 import {
 	EVIDENCE_TRAIL_RE,
 	HEDGE_RE,
+	JUDGE_MAX_TOKENS,
 	THIRD_PERSON_RE,
 } from "./memory-judge/schema";
 import {
@@ -91,6 +92,20 @@ function buildRecurationSystemPrompt(): string {
 	return [
 		buildJudgeSystemPrompt(),
 		"These are EXISTING stored memories being re-audited. 'rewrite' when the underlying fact is real but the statement is third-person, contains peer tokens (U_xxxx), evidence-trail prose, or should be time_bound; 'retire' when it fails any gate; 'keep' only if already perfect. Rewrite statements in FIRST PERSON, one sentence, in the statement's original language.",
+		"",
+		"OUTPUT FORMAT FOR THIS RE-AUDIT TASK (this overrides the decisions/candidate format described above — you are producing VERDICTS on existing items, not new candidates):",
+		"Reply with ONLY a single JSON object. No reasoning, no chain-of-thought, no markdown code fences, no prose before or after — the first character of your reply must be '{' and the last must be '}'.",
+		'The JSON object has exactly one top-level key, "verdicts", an array with exactly one entry per item you were given.',
+		"EVERY object in the verdicts array MUST include ALL of these fields — a verdict missing a required field is invalid and will be discarded:",
+		'  - "itemId": REQUIRED, copied exactly from the input item',
+		'  - "verdict": REQUIRED, one of "keep", "rewrite", "retire" (exactly these three strings)',
+		'  - "statement": REQUIRED whenever verdict is "rewrite" (the new first-person, one-sentence statement); omit otherwise',
+		`  - "category": one of ${MEMORY_PROFILE_CATEGORIES.map((c) => `"${c}"`).join(", ")} — include when verdict is "rewrite" and the category should change`,
+		'  - "expiryClass": "durable" or "time_bound" — include when verdict is "rewrite" or "keep" and the expiry classification should be set or changed',
+		'  - "expiresInDays": a number of days — REQUIRED whenever expiryClass is "time_bound", omit otherwise',
+		"Unknown or extra fields and any verdict not in keep/rewrite/retire are all invalid.",
+		"Example of a fully valid response:",
+		'{"verdicts":[{"itemId":"f1","verdict":"keep"},{"itemId":"f2","verdict":"rewrite","statement":"I prefer plain, jargon-free explanations.","category":"preferences","expiryClass":"durable"},{"itemId":"f3","verdict":"retire"}]}',
 	].join("\n");
 }
 
@@ -178,6 +193,7 @@ export async function runMemoryRecuration(userId: string): Promise<{
 				{
 					systemPrompt: buildRecurationSystemPrompt(),
 					temperature: 0,
+					maxTokens: JUDGE_MAX_TOKENS,
 					jsonSchema: RECURATION_JSON_SCHEMA,
 					allowReasoningFallback: true,
 				},

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProjectionState, users } from "$lib/server/db/schema";
+import { JUDGE_MAX_TOKENS } from "../memory-judge/schema";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
 import { ensureProjectionState } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
@@ -61,12 +62,28 @@ function languageNameForCode(code: string): string {
 }
 
 function buildSystemPrompt(language: string): string {
-	return (
-		`Write a persona summary of this user in ${language}, 150-250 words, ` +
-		"plain prose, present tense, grouped as: who they are; durable " +
-		"preferences; current context. Use ONLY the numbered facts provided; " +
-		"attach the ids of the facts supporting each sentence."
-	);
+	return [
+		`Write a persona summary of this user in ${language}, present tense, ` +
+			"grouped as: who they are; durable preferences; current context. " +
+			"Use ONLY the numbered facts provided — do not pad, speculate, or " +
+			"invent detail beyond them. One short sentence per fact or tightly " +
+			"related group of facts is enough; a handful of facts should produce " +
+			"a handful of sentences, not a padded essay. It is normal and correct " +
+			"for the summary to be short when few facts are given.",
+		"Break the summary into individual sentences. For each sentence, attach " +
+			"the ids of the facts that support it. Do not explain your reasoning " +
+			"or discuss how you built the summary — go straight to the sentences.",
+		"",
+		"OUTPUT FORMAT (read carefully — this is a strict contract, not a style guide):",
+		"Reply with ONLY a single JSON object. No reasoning, no chain-of-thought, no markdown code fences, no prose before or after — the first character of your reply must be '{' and the last must be '}'.",
+		'The JSON object has exactly one top-level key, "sentences", an array.',
+		"EVERY object in the sentences array MUST include ALL of these fields — a sentence missing any field is invalid and will be discarded:",
+		`  - "text": one sentence of the summary, written in ${language}, with no ids or parenthetical citations inside the text itself`,
+		'  - "factIds": an array of the fact ids (the bracketed ids in the numbered facts, e.g. "abc-123") that support this sentence — use [] only if truly none apply',
+		"Unknown or extra top-level keys are invalid.",
+		"Example of a fully valid response shape (ids are illustrative only):",
+		'{"sentences":[{"text":"They are a software engineer based in Berlin.","factIds":["f1"]},{"text":"They prefer concise, direct answers.","factIds":["f2","f5"]}]}',
+	].join("\n");
 }
 
 async function resolveSummaryLanguage(userId: string): Promise<string> {
@@ -83,6 +100,15 @@ async function resolveSummaryLanguage(userId: string): Promise<string> {
 			? userRow.titleLanguage
 			: (userRow?.uiLanguage ?? "en");
 	return languageNameForCode(code);
+}
+
+function isParseableJson(responseText: string): boolean {
+	try {
+		JSON.parse(responseText);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function parseLinks(
@@ -139,20 +165,27 @@ export async function generateAndStorePersonaSummary(params: {
 			{
 				systemPrompt: buildSystemPrompt(language),
 				temperature: 0,
+				maxTokens: JUDGE_MAX_TOKENS,
 				jsonSchema: PERSONA_SUMMARY_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},
 		);
 		responseText = res.text;
-	} catch {
-		await recordPersonaSummaryFailure(userId);
+	} catch (error) {
+		await recordPersonaSummaryFailure(
+			userId,
+			`llm_error:${error instanceof Error ? error.name : "Unknown"}`,
+		);
 		return null;
 	}
 
 	const activeFactIds = new Set(context.items.map((item) => item.id));
 	const links = parseLinks(responseText, activeFactIds);
 	if (!links) {
-		await recordPersonaSummaryFailure(userId);
+		const reason = isParseableJson(responseText)
+			? "no_usable_sentences"
+			: "invalid_json";
+		await recordPersonaSummaryFailure(userId, reason);
 		return null;
 	}
 
@@ -175,12 +208,16 @@ export async function generateAndStorePersonaSummary(params: {
 	return { text, links, updatedAt: now };
 }
 
-async function recordPersonaSummaryFailure(userId: string): Promise<void> {
+async function recordPersonaSummaryFailure(
+	userId: string,
+	reason: "invalid_json" | "no_usable_sentences" | `llm_error:${string}`,
+): Promise<void> {
 	try {
 		await recordMemoryReworkTelemetry({
 			userId,
 			eventFamily: "maintenance",
 			eventName: "persona_summary_failed",
+			reason,
 		});
 	} catch {
 		// Telemetry is best-effort; never fail summary generation over it.

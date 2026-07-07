@@ -499,4 +499,43 @@ describe("memory consolidation steps", () => {
 		expect(metaOf(authored).supersededBy).toBeUndefined();
 		expect(actions.length).toBe(0);
 	});
+
+	it("returns [] and records a reconcile_call_failed breadcrumb when the control model call fails", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am planning an exchange semester.",
+			metadata: { origin: "judge_v1", confidence: "stated" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		// No setControlResponse(...) call: the shared mock throws because no
+		// response was configured, simulating an LLM/network failure.
+		controlModelMock.response = null;
+
+		const { runReconcileAndMerge } = await import("./steps");
+		const actions = await runReconcileAndMerge({ userId });
+		expect(actions).toEqual([]);
+
+		const telemetryRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.userId, userId))
+			.all();
+		expect(
+			telemetryRows.some(
+				(r) =>
+					r.eventFamily === "maintenance" &&
+					r.eventName === "reconcile_call_failed" &&
+					typeof r.reason === "string" &&
+					r.reason.startsWith("llm_error:"),
+			),
+		).toBe(true);
+	});
 });

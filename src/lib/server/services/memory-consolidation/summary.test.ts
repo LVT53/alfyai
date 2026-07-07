@@ -280,7 +280,7 @@ describe("persona summary generation", () => {
 		expect(row?.personaSummaryText ?? null).toBeNull();
 	});
 
-	it("returns null, stores nothing, and records telemetry when the response is unusable", async () => {
+	it("returns null, stores nothing, and records a no_usable_sentences reason when the response has no usable text", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();
 		const userId = "u1";
@@ -314,7 +314,80 @@ describe("persona summary generation", () => {
 			telemetryRows.some(
 				(r) =>
 					r.eventFamily === "maintenance" &&
-					r.eventName === "persona_summary_failed",
+					r.eventName === "persona_summary_failed" &&
+					r.reason === "no_usable_sentences",
+			),
+		).toBe(true);
+	});
+
+	it("records an invalid_json reason when the response text is not parseable JSON", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am a teacher.",
+			now,
+		});
+
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(
+				"We are asked to write a persona summary... (chain of thought, no JSON)",
+			),
+		);
+
+		const { generateAndStorePersonaSummary } = await import("./summary");
+		const created = await generateAndStorePersonaSummary({ userId });
+		expect(created).toBeNull();
+
+		const telemetryRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.userId, userId))
+			.all();
+		expect(
+			telemetryRows.some(
+				(r) =>
+					r.eventFamily === "maintenance" &&
+					r.eventName === "persona_summary_failed" &&
+					r.reason === "invalid_json",
+			),
+		).toBe(true);
+	});
+
+	it("records an llm_error reason when the control model call throws", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am a teacher.",
+			now,
+		});
+
+		sendJsonControlMessageMock.mockRejectedValue(new TypeError("network down"));
+
+		const { generateAndStorePersonaSummary } = await import("./summary");
+		const created = await generateAndStorePersonaSummary({ userId });
+		expect(created).toBeNull();
+
+		const telemetryRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.userId, userId))
+			.all();
+		expect(
+			telemetryRows.some(
+				(r) =>
+					r.eventFamily === "maintenance" &&
+					r.eventName === "persona_summary_failed" &&
+					r.reason === "llm_error:TypeError",
 			),
 		).toBe(true);
 	});

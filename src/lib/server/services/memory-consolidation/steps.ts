@@ -7,6 +7,7 @@ import {
 	memoryProfileItems,
 } from "$lib/server/db/schema";
 import { refreshFactEmbedding } from "../memory-judge";
+import { JUDGE_MAX_TOKENS } from "../memory-judge/schema";
 import {
 	createMemoryProfileItem,
 	ensureProjectionState,
@@ -16,6 +17,7 @@ import {
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
+import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import {
 	assertMemoryProfileCategory,
 	isUserAuthoredMemoryMetadata,
@@ -69,11 +71,23 @@ export const CONSOLIDATION_JSON_SCHEMA = {
 	},
 };
 
-const CONSOLIDATION_SYSTEM_PROMPT =
+const CONSOLIDATION_SYSTEM_PROMPT = [
 	"You maintain a user's memory facts. Identify (a) pairs where a newer fact " +
-	"contradicts/supersedes an older one, (b) clusters that state the same thing " +
-	"and should merge into one richer first-person sentence. Only propose actions " +
-	"you are certain about; an empty list is the normal result.";
+		"contradicts/supersedes an older one, (b) clusters that state the same thing " +
+		"and should merge into one richer first-person sentence. Only propose actions " +
+		"you are certain about; an empty list is the normal result.",
+	"",
+	"OUTPUT FORMAT (read carefully — this is a strict contract, not a style guide):",
+	"Reply with ONLY a single JSON object. No reasoning, no chain-of-thought, no markdown code fences, no prose before or after — the first character of your reply must be '{' and the last must be '}'.",
+	'The JSON object has exactly one top-level key, "actions", an array (use [] when nothing qualifies).',
+	"EVERY object in the actions array MUST include ALL of the fields required for its type — an action missing a required field is invalid and will be discarded:",
+	'  - "type": "supersede" or "merge" (exactly these two strings, required on every action)',
+	'  - for "supersede": "winnerId" (the id of the fact that stays) and "loserId" (the id of the fact being replaced) are both REQUIRED',
+	'  - for "merge": "itemIds" (an array of two or more fact ids being merged), "mergedStatement" (the new first-person sentence replacing them), "category" (one of the fact categories), and "scope" ("global" or "project") are all REQUIRED',
+	"Unknown or extra fields, unknown enum values, and any type not in supersede/merge are all invalid.",
+	"Example of a fully valid response with both action types:",
+	'{"actions":[{"type":"supersede","winnerId":"f2","loserId":"f1"},{"type":"merge","itemIds":["f3","f4"],"mergedStatement":"I work remotely as a backend engineer and prefer async communication.","category":"about_you","scope":"global"}]}',
+].join("\n");
 
 /**
  * Merge a metadata patch into the item's existing metadataJson so we never
@@ -313,6 +327,7 @@ export async function runReconcileAndMerge(params: {
 			{
 				systemPrompt: CONSOLIDATION_SYSTEM_PROMPT,
 				temperature: 0,
+				maxTokens: JUDGE_MAX_TOKENS,
 				jsonSchema: CONSOLIDATION_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},
@@ -321,7 +336,13 @@ export async function runReconcileAndMerge(params: {
 			actions?: ConsolidationLlmAction[];
 		};
 		llmActions = Array.isArray(parsed.actions) ? parsed.actions : [];
-	} catch {
+	} catch (error) {
+		await recordMemoryReworkTelemetry({
+			userId,
+			eventFamily: "maintenance",
+			eventName: "reconcile_call_failed",
+			reason: `llm_error:${error instanceof Error ? error.name : "Unknown"}`,
+		}).catch(() => {});
 		return [];
 	}
 
