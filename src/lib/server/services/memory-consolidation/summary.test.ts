@@ -7,6 +7,18 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// Hoisted static mock: vi.doMock registered from inside an `it()` races with
+// sibling test files (steps.test.ts, index.test.ts) that dynamically import
+// this same relative specifier concurrently under file parallelism, causing
+// the real (unmocked) module to resolve intermittently. A hoisted vi.mock is
+// applied once, synchronously, before this file's module graph loads, which
+// removes the runtime timing dependency entirely. Each test configures the
+// shared spy's behavior instead of re-registering the module mock.
+const sendJsonControlMessageMock = vi.fn();
+vi.mock("../normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
 let dbPath: string;
 let seedConnections: Array<{
 	sqlite: Database.Database;
@@ -127,6 +139,7 @@ describe("persona summary generation", () => {
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		seedConnections = [];
+		sendJsonControlMessageMock.mockReset();
 	});
 
 	afterEach(async () => {
@@ -148,7 +161,6 @@ describe("persona summary generation", () => {
 		} catch {
 			// best-effort
 		}
-		vi.doUnmock("../normal-chat-control-model");
 	});
 
 	it("stores summary text with per-sentence fact links; getPersonaSummary round-trips", async () => {
@@ -186,11 +198,9 @@ describe("persona summary generation", () => {
 				{ text: "He prefers plain language.", factIds: [id3] },
 			],
 		});
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage: vi
-				.fn()
-				.mockResolvedValue(makeControlResponse(responseText)),
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(responseText),
+		);
 
 		const { generateAndStorePersonaSummary, getPersonaSummary } = await import(
 			"./summary"
@@ -238,11 +248,9 @@ describe("persona summary generation", () => {
 				{ text: "They enjoy hiking.", factIds: ["another-bogus-id"] },
 			],
 		});
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage: vi
-				.fn()
-				.mockResolvedValue(makeControlResponse(responseText)),
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(responseText),
+		);
 
 		const { generateAndStorePersonaSummary } = await import("./summary");
 		const created = await generateAndStorePersonaSummary({ userId });
@@ -259,17 +267,12 @@ describe("persona summary generation", () => {
 		const userId = "u2";
 		seedUser(db, userId, now);
 
-		const sendJsonControlMessage = vi.fn();
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
-
 		const { generateAndStorePersonaSummary, getPersonaSummary } = await import(
 			"./summary"
 		);
 		const created = await generateAndStorePersonaSummary({ userId });
 		expect(created).toBeNull();
-		expect(sendJsonControlMessage).not.toHaveBeenCalled();
+		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
 
 		const read = await getPersonaSummary({ userId });
 		expect(read).toBeNull();
@@ -291,11 +294,9 @@ describe("persona summary generation", () => {
 		});
 
 		const responseText = JSON.stringify({ sentences: [{ text: "   " }] });
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage: vi
-				.fn()
-				.mockResolvedValue(makeControlResponse(responseText)),
-		}));
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(responseText),
+		);
 
 		const { generateAndStorePersonaSummary } = await import("./summary");
 		const created = await generateAndStorePersonaSummary({ userId });
@@ -338,32 +339,27 @@ describe("persona summary generation", () => {
 			now,
 		});
 
-		const sendJsonControlMessage = vi
-			.fn()
-			.mockImplementation((_message: string) =>
-				Promise.resolve(
-					makeControlResponse(
-						JSON.stringify({
-							sentences: [{ text: "A sentence.", factIds: [] }],
-						}),
-					),
+		sendJsonControlMessageMock.mockImplementation((_message: string) =>
+			Promise.resolve(
+				makeControlResponse(
+					JSON.stringify({
+						sentences: [{ text: "A sentence.", factIds: [] }],
+					}),
 				),
-			);
-		vi.doMock("../normal-chat-control-model", () => ({
-			sendJsonControlMessage,
-		}));
+			),
+		);
 
 		const { generateAndStorePersonaSummary } = await import("./summary");
 
 		await generateAndStorePersonaSummary({ userId: "u-hu" });
-		expect(sendJsonControlMessage).toHaveBeenCalledTimes(1);
-		const huCall = sendJsonControlMessage.mock.calls[0];
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
+		const huCall = sendJsonControlMessageMock.mock.calls[0];
 		expect(huCall[2].systemPrompt).toContain("Hungarian");
 		expect(huCall[0]).toContain(huFactId);
 
 		await generateAndStorePersonaSummary({ userId: "u-en" });
-		expect(sendJsonControlMessage).toHaveBeenCalledTimes(2);
-		const enCall = sendJsonControlMessage.mock.calls[1];
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(2);
+		const enCall = sendJsonControlMessageMock.mock.calls[1];
 		expect(enCall[2].systemPrompt).toContain("English");
 		expect(enCall[0]).toContain(enFactId);
 	});
