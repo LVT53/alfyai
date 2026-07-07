@@ -12,7 +12,7 @@ import {
 	serializeWorkingSetArtifacts,
 	truncateToTokenBudget,
 } from "$lib/server/utils/prompt-context";
-import { clipText } from "$lib/server/utils/text";
+import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import {
 	detectTopicShift,
 	shouldSuppressCarryover,
@@ -203,12 +203,21 @@ async function recordPromptMemoryTelemetry(params: {
 	}
 }
 
+const ACTIVE_MEMORY_PROFILE_SECTION_TITLE = "Baseline Memory Profile";
+const PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS = 120;
+
+type ActiveMemoryProfilePromptSection = {
+	section: PromptContextSection;
+	itemIds: string[];
+	itemTitles: string[];
+};
+
 async function buildActiveMemoryProfilePromptSection(params: {
 	userId: string;
 	conversationId: string;
 	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
-}): Promise<PromptContextSection | null> {
+}): Promise<ActiveMemoryProfilePromptSection | null> {
 	let context: ActiveMemoryProfileContext;
 	try {
 		context = await getActiveMemoryProfileContext({
@@ -283,12 +292,27 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		},
 	});
 
+	const statementById = new Map(
+		context.items.map((item) => [item.id, item.statement] as const),
+	);
+	const itemIds = formattedContext.includedItemIds ?? [];
+	const itemTitles = itemIds.map((itemId) =>
+		clipText(
+			normalizeWhitespace(statementById.get(itemId) ?? ""),
+			PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS,
+		),
+	);
+
 	return {
-		title: "Baseline Memory Profile",
-		body,
-		layer: "session",
-		protected: true,
-		llmCompactible: true,
+		section: {
+			title: ACTIVE_MEMORY_PROFILE_SECTION_TITLE,
+			body,
+			layer: "session",
+			protected: true,
+			llmCompactible: true,
+		},
+		itemIds,
+		itemTitles,
 	};
 }
 
@@ -377,6 +401,7 @@ function buildContextSelectionCandidates(params: {
 	attachmentContext?: BudgetedAttachmentContext | null;
 	carriedForwardAttachmentContext?: BudgetedAttachmentContext | null;
 	projectFolderSiblingPromotion?: ProjectFolderSiblingPromotionContext | null;
+	personaMemoryProfile?: ActiveMemoryProfilePromptSection | null;
 	documentContextIntent?: DocumentContextIntent;
 	documentDepthBudget?: DocumentContextDepthBudget | null;
 	linkedSourceItems?: Array<{
@@ -404,6 +429,9 @@ function buildContextSelectionCandidates(params: {
 		const isEvidenceSection = section.title === "Retrieved Evidence";
 		const isProjectFolderSiblingSection =
 			section.title === "Project Folder Sibling Context";
+		const isPersonaMemorySection =
+			section.title === ACTIVE_MEMORY_PROFILE_SECTION_TITLE &&
+			Boolean(params.personaMemoryProfile);
 		const attachmentItems = isAttachmentSection
 			? (params.attachmentContext?.items ?? [])
 			: isCarriedForwardAttachmentSection
@@ -424,20 +452,24 @@ function buildContextSelectionCandidates(params: {
 				: inferContextTraceSourceForSection(section),
 			layer: section.layer,
 			protected: section.protected,
-			itemIds: isEvidenceSection
-				? evidenceItems.map((item) => item.id)
-				: isLinkedSourceSection
-					? linkedSourceItems.map((item) => item.id)
-					: promotedSibling
-						? [`conversation:${promotedSibling.conversationId}`]
-						: attachmentItems.map((item) => item.id),
-			itemTitles: isEvidenceSection
-				? evidenceItems.map((item) => item.title)
-				: isLinkedSourceSection
-					? linkedSourceItems.map((item) => item.title)
-					: promotedSibling
-						? [promotedSibling.title]
-						: attachmentItems.map((item) => item.title),
+			itemIds: isPersonaMemorySection
+				? (params.personaMemoryProfile?.itemIds ?? [])
+				: isEvidenceSection
+					? evidenceItems.map((item) => item.id)
+					: isLinkedSourceSection
+						? linkedSourceItems.map((item) => item.id)
+						: promotedSibling
+							? [`conversation:${promotedSibling.conversationId}`]
+							: attachmentItems.map((item) => item.id),
+			itemTitles: isPersonaMemorySection
+				? (params.personaMemoryProfile?.itemTitles ?? [])
+				: isEvidenceSection
+					? evidenceItems.map((item) => item.title)
+					: isLinkedSourceSection
+						? linkedSourceItems.map((item) => item.title)
+						: promotedSibling
+							? [promotedSibling.title]
+							: attachmentItems.map((item) => item.title),
 			signalReasons:
 				isAttachmentSection && params.attachmentContext
 					? [
@@ -1066,13 +1098,16 @@ async function buildShallowConstructedContext(params: {
 		});
 	}
 	if (activeMemoryProfileSection) {
-		sections.push(activeMemoryProfileSection);
+		sections.push(activeMemoryProfileSection.section);
 	}
 
 	const selectedPromptContext = selectPromptContext({
 		intro: "Context from your recent conversation:",
 		message: params.message,
-		candidates: buildContextSelectionCandidates({ sections }),
+		candidates: buildContextSelectionCandidates({
+			sections,
+			personaMemoryProfile: activeMemoryProfileSection,
+		}),
 		targetTokens: params.targetBudget,
 		initialCompactionMode: "none",
 		traceSignalReasons: [
@@ -1719,7 +1754,7 @@ export async function buildConstructedContext(params: {
 	}
 
 	if (activeMemoryProfileSection) {
-		sections.push(activeMemoryProfileSection);
+		sections.push(activeMemoryProfileSection.section);
 	}
 
 	const effectiveSections = [
@@ -1773,6 +1808,7 @@ export async function buildConstructedContext(params: {
 			attachmentContext,
 			carriedForwardAttachmentContext,
 			projectFolderSiblingPromotion,
+			personaMemoryProfile: activeMemoryProfileSection,
 			documentContextIntent,
 			documentDepthBudget,
 			linkedSourceItems: linkedSourceArtifacts.map((artifact) => ({

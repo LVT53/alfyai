@@ -151,7 +151,7 @@ vi.mock("../context-compression", () => ({
 vi.mock("../memory-profile/active-context", () => ({
 	formatActiveMemoryProfileContextForPrompt: (
 		context: {
-			items: Array<{ statement: string; updatedAt: Date }>;
+			items: Array<{ id: string; statement: string; updatedAt: Date }>;
 		},
 		options: { maxTokens: number },
 	) => {
@@ -159,12 +159,14 @@ vi.mock("../memory-profile/active-context", () => ({
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		);
 		const included: string[] = [];
+		const includedItemIds: string[] = [];
 		let estimatedTokens = 0;
 		for (const item of ordered) {
 			const line = `- ${item.statement}`;
 			const lineTokens = Math.ceil(line.length / 4);
 			if (estimatedTokens + lineTokens > options.maxTokens) continue;
 			included.push(line);
+			includedItemIds.push(item.id);
 			estimatedTokens += lineTokens;
 		}
 		const omittedCount = ordered.length - included.length;
@@ -180,6 +182,7 @@ vi.mock("../memory-profile/active-context", () => ({
 			content,
 			estimatedTokens,
 			includedCount: included.length,
+			includedItemIds,
 			omittedCount,
 		};
 	},
@@ -492,6 +495,12 @@ describe("buildConstructedContext", () => {
 		expect(constructed.taskState).toBeNull();
 		expect(constructed.contextTraceSections).toEqual(
 			expect.arrayContaining([
+				expect.objectContaining({
+					name: "Baseline Memory Profile",
+					source: "memory",
+					itemIds: ["memory-active-1"],
+					itemTitles: ["The user prefers projection-gated launch briefs."],
+				}),
 				expect.objectContaining({
 					name: "Current User Message",
 					signalReasons: expect.arrayContaining([
@@ -844,6 +853,8 @@ describe("buildConstructedContext", () => {
 				expect.objectContaining({
 					name: "Baseline Memory Profile",
 					source: "memory",
+					itemIds: ["memory-active-1"],
+					itemTitles: ["The user prefers projection-gated launch briefs."],
 				}),
 				expect.objectContaining({
 					name: "Current User Message",
