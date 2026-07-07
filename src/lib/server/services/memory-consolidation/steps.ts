@@ -7,7 +7,7 @@ import {
 	memoryProfileItems,
 } from "$lib/server/db/schema";
 import { refreshFactEmbedding } from "../memory-judge";
-import { JUDGE_MAX_TOKENS } from "../memory-judge/schema";
+import { reasoningAwareMaxTokens } from "../memory-judge/schema";
 import {
 	createMemoryProfileItem,
 	ensureProjectionState,
@@ -327,7 +327,10 @@ export async function runReconcileAndMerge(params: {
 			{
 				systemPrompt: CONSOLIDATION_SYSTEM_PROMPT,
 				temperature: 0,
-				maxTokens: JUDGE_MAX_TOKENS,
+				// Reasoning-aware: chain-of-thought scales with the candidate count
+				// and counts against max_tokens on these providers; a flat budget
+				// starves large profiles (see memory-judge/schema.ts).
+				maxTokens: reasoningAwareMaxTokens(candidates.length),
 				jsonSchema: CONSOLIDATION_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

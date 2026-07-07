@@ -3,7 +3,10 @@ import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProjectionState, users } from "$lib/server/db/schema";
-import { JUDGE_MAX_TOKENS } from "../memory-judge/schema";
+import {
+	parseJsonWithEnvelopeExtraction,
+	reasoningAwareMaxTokens,
+} from "../memory-judge/schema";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
 import { ensureProjectionState } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
@@ -103,24 +106,18 @@ async function resolveSummaryLanguage(userId: string): Promise<string> {
 }
 
 function isParseableJson(responseText: string): boolean {
-	try {
-		JSON.parse(responseText);
-		return true;
-	} catch {
-		return false;
-	}
+	return parseJsonWithEnvelopeExtraction(responseText, "sentences") !== null;
 }
 
 function parseLinks(
 	responseText: string,
 	activeFactIds: Set<string>,
 ): Array<{ text: string; factIds: string[] }> | null {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(responseText);
-	} catch {
-		return null;
-	}
+	// The envelope may be embedded in reasoning prose (see
+	// parseJsonWithEnvelopeExtraction); the extracted object still goes through
+	// the same schema validation below.
+	const raw = parseJsonWithEnvelopeExtraction(responseText, "sentences");
+	if (raw === null) return null;
 	const parsed = personaSummaryResponseSchema.safeParse(raw);
 	if (!parsed.success) return null;
 
@@ -165,7 +162,10 @@ export async function generateAndStorePersonaSummary(params: {
 			{
 				systemPrompt: buildSystemPrompt(language),
 				temperature: 0,
-				maxTokens: JUDGE_MAX_TOKENS,
+				// Reasoning-aware: chain-of-thought scales with the fact count and
+				// counts against max_tokens on these providers; a flat budget starves
+				// large profiles into invalid_json (see memory-judge/schema.ts).
+				maxTokens: reasoningAwareMaxTokens(context.items.length),
 				jsonSchema: PERSONA_SUMMARY_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

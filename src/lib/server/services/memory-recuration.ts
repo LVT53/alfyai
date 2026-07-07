@@ -7,12 +7,14 @@ import {
 	memoryReviewItems,
 	users,
 } from "$lib/server/db/schema";
+import type { ModelId } from "$lib/types";
 import { runUserMemoryConsolidation } from "./memory-consolidation/index";
 import { buildJudgeSystemPrompt } from "./memory-judge/prompt";
 import {
 	EVIDENCE_TRAIL_RE,
 	HEDGE_RE,
-	JUDGE_MAX_TOKENS,
+	parseJsonWithEnvelopeExtraction,
+	reasoningAwareMaxTokens,
 	THIRD_PERSON_RE,
 } from "./memory-judge/schema";
 import {
@@ -28,7 +30,35 @@ import {
 	type MemoryProfileCategory,
 } from "./memory-profile/types";
 
-const BATCH_SIZE = 20;
+// Batch-size and token-budget arithmetic (production-snapshot evidence):
+// The recuration judge runs on reasoning models (e.g. DeepSeek R1-style) whose
+// chain-of-thought tokens COUNT AGAINST max_tokens on OpenAI-compatible
+// providers. Captured raw responses show finish_reason="length" with
+// usage.completion_tokens_details.reasoning_tokens equal to the entire
+// completion budget and an EMPTY content channel: the model burned the whole
+// cap reasoning about the items and never got to emit the verdicts JSON
+// (a 3-item batch used 1083 reasoning tokens before emitting the first
+// verdict bytes). allowReasoningFallback then surfaces the reasoning PROSE,
+// which can never parse -> parseRecurationVerdicts() returns [] -> the whole
+// batch silently applied zero verdicts (the original all-zeros failure at 20
+// items / 2400 maxTokens; the same run applied a 3-item user fine because a
+// 3-item task's reasoning still fit under 2400).
+//
+// So the budget must cover reasoning-that-grows-with-batch-size PLUS the
+// verdicts JSON (~150 tokens worst case per rewrite verdict: 36-char UUID +
+// enum + <=400-char statement + expiry fields + punctuation). We keep batches
+// at 10 items to bound the reasoning volume and provision tokens via
+// reasoningAwareMaxTokens (JUDGE_MAX_TOKENS base + 500/item, capped at 8000 —
+// see memory-judge/schema.ts). The unparsed-split-retry safety net below
+// covers residual overruns: halves re-run with proportionally lighter
+// reasoning loads.
+const BATCH_SIZE = 10;
+
+// When a batch still parses to zero verdicts despite being non-empty, we split
+// it in half and re-run each half exactly once (one level of recursion only —
+// the halves are processed directly, they do NOT recurse again). Guards against
+// any residual truncation or a transient malformed response.
+const MAX_SPLIT_DEPTH = 1;
 
 const RECURATION_JSON_SCHEMA = {
 	name: "memory_recuration_verdicts",
@@ -69,13 +99,13 @@ const verdictSchema = z.object({
 
 type RecurationVerdict = z.infer<typeof verdictSchema>;
 
+// Parse the raw model text into verdicts. The envelope may be embedded in
+// reasoning prose (see parseJsonWithEnvelopeExtraction); the extracted object
+// still goes through the same strict zod validation — the extraction only
+// relaxes WHERE the envelope may sit, not its shape.
 function parseRecurationVerdicts(rawText: string): RecurationVerdict[] {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(rawText);
-	} catch {
-		return [];
-	}
+	const parsed = parseJsonWithEnvelopeExtraction(rawText, "verdicts");
+	if (parsed === null) return [];
 	const envelope = z
 		.object({ verdicts: z.array(z.unknown()) })
 		.safeParse(parsed);
@@ -141,6 +171,178 @@ function chunk<T>(items: T[], size: number): T[][] {
 	return out;
 }
 
+type EligibleRow = typeof memoryProfileItems.$inferSelect;
+
+// Call the control model on one set of eligible items and parse the verdicts.
+// maxTokens is reasoning-aware (see the arithmetic comment at BATCH_SIZE and
+// reasoningAwareMaxTokens in memory-judge/schema.ts). Throws on transport
+// failure; returns [] when the response parses to no valid verdicts.
+async function fetchRecurationVerdicts(
+	eligible: EligibleRow[],
+	memoryJudgeModel: ModelId | undefined,
+): Promise<RecurationVerdict[]> {
+	const { sendJsonControlMessage } = await import(
+		"./normal-chat-control-model"
+	);
+	const maxTokens = reasoningAwareMaxTokens(eligible.length);
+	const res = await sendJsonControlMessage(
+		buildRecurationUserMessage(
+			eligible.map((row) => {
+				const category = row.category as MemoryProfileCategory;
+				return { id: row.id, statement: row.statement, category };
+			}),
+		),
+		memoryJudgeModel,
+		{
+			systemPrompt: buildRecurationSystemPrompt(),
+			temperature: 0,
+			maxTokens,
+			jsonSchema: RECURATION_JSON_SCHEMA,
+			allowReasoningFallback: true,
+		},
+	);
+	return parseRecurationVerdicts(res.text);
+}
+
+type ApplyVerdictsResult = {
+	kept: number;
+	rewritten: number;
+	retired: number;
+	unknownIds: number;
+};
+
+// Apply a parsed verdict list to one set of eligible rows. Returns per-
+// disposition counts plus the number of verdicts that referenced an id not in
+// this set (silently dropped, but counted so the caller can surface telemetry).
+async function applyRecurationVerdicts(params: {
+	userId: string;
+	resetGeneration: number;
+	eligible: EligibleRow[];
+	verdicts: RecurationVerdict[];
+}): Promise<ApplyVerdictsResult> {
+	const { userId, resetGeneration, eligible, verdicts } = params;
+	const eligibleById = new Map(eligible.map((row) => [row.id, row]));
+	let projectionRevision: number | null = null;
+	let kept = 0;
+	let rewritten = 0;
+	let retired = 0;
+	let unknownIds = 0;
+
+	for (const verdict of verdicts) {
+		const row = eligibleById.get(verdict.itemId);
+		if (!row) {
+			unknownIds++;
+			continue; // drop unknown ids
+		}
+
+		if (projectionRevision === null) {
+			const { ensureProjectionState } = await import(
+				"./memory-profile/projection-store"
+			);
+			const projection = await ensureProjectionState({
+				userId,
+				resetGeneration,
+			});
+			projectionRevision = projection.revision;
+		}
+
+		let effectiveVerdict = verdict.verdict;
+		if (effectiveVerdict === "rewrite") {
+			const newStatement = verdict.statement?.trim();
+			if (!newStatement || tripsRewriteFilter(newStatement)) {
+				effectiveVerdict = "retire";
+			}
+		}
+
+		if (effectiveVerdict === "rewrite") {
+			const newStatement = (verdict.statement as string).trim();
+			const expiryClass = verdict.expiryClass;
+			const wasReviewNeeded = row.status === "review_needed";
+			const expiresAt =
+				expiryClass === "time_bound" && verdict.expiresInDays
+					? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
+					: undefined;
+			// On a review_needed -> active transition, always recompute
+			// expiresAt from the verdict (mirrors the accept flow in
+			// memory-profile/review.ts): time_bound sets a fresh horizon,
+			// otherwise the review-window expiry is cleared entirely.
+			const expiresAtPatch = wasReviewNeeded
+				? { expiresAt: expiresAt ?? null }
+				: expiresAt
+					? { expiresAt }
+					: {};
+			const patched = await updateMemoryProfileItemWithRevision({
+				userId,
+				itemId: row.id,
+				expectedProjectionRevision: projectionRevision,
+				patch: {
+					statement: newStatement,
+					...(wasReviewNeeded ? { status: "active" } : {}),
+					...expiresAtPatch,
+				},
+			});
+			if (patched.status === "updated") {
+				projectionRevision = patched.projectionRevision;
+				await mergeMemoryProfileItemMetadata({
+					userId,
+					itemId: row.id,
+					patch: {
+						origin: "recuration",
+						...(expiryClass ? { expiryClass } : {}),
+					},
+				});
+				rewritten++;
+			}
+			continue;
+		}
+
+		if (effectiveVerdict === "retire") {
+			const patched = await updateMemoryProfileItemWithRevision({
+				userId,
+				itemId: row.id,
+				expectedProjectionRevision: projectionRevision,
+				patch: { status: "retired" },
+			});
+			if (patched.status === "updated") {
+				projectionRevision = patched.projectionRevision;
+			}
+			await mergeMemoryProfileItemMetadata({
+				userId,
+				itemId: row.id,
+				patch: { origin: "recuration" },
+			});
+			retired++;
+			continue;
+		}
+
+		// keep
+		if (row.status === "review_needed") {
+			const expiryClass = verdict.expiryClass;
+			const expiresAt =
+				expiryClass === "time_bound" && verdict.expiresInDays
+					? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
+					: null;
+			const patched = await updateMemoryProfileItemWithRevision({
+				userId,
+				itemId: row.id,
+				expectedProjectionRevision: projectionRevision,
+				patch: { status: "active", expiresAt },
+			});
+			if (patched.status === "updated") {
+				projectionRevision = patched.projectionRevision;
+			}
+		}
+		await mergeMemoryProfileItemMetadata({
+			userId,
+			itemId: row.id,
+			patch: { origin: "recuration" },
+		});
+		kept++;
+	}
+
+	return { kept, rewritten, retired, unknownIds };
+}
+
 export async function runMemoryRecuration(userId: string): Promise<{
 	kept: number;
 	rewritten: number;
@@ -171,34 +373,22 @@ export async function runMemoryRecuration(userId: string): Promise<{
 	const config = getConfig();
 	const batches = chunk(rows, BATCH_SIZE);
 
-	for (const batch of batches) {
-		const eligible = batch.filter(
-			(row) => !isUserAuthoredMemoryMetadata(row.metadataJson),
-		);
-		if (eligible.length === 0) continue;
+	// Process one eligible set: call the model, and if a non-empty set parses to
+	// ZERO verdicts (the truncation failure), emit telemetry and retry once with
+	// the set split in half. `depth` bounds the split recursion to MAX_SPLIT_DEPTH
+	// (one level): the halves are applied directly and never split again.
+	const processEligibleSet = async (
+		eligible: EligibleRow[],
+		depth: number,
+	): Promise<void> => {
+		if (eligible.length === 0) return;
 
 		let verdicts: RecurationVerdict[];
 		try {
-			const { sendJsonControlMessage } = await import(
-				"./normal-chat-control-model"
-			);
-			const res = await sendJsonControlMessage(
-				buildRecurationUserMessage(
-					eligible.map((row) => {
-						const category = row.category as MemoryProfileCategory;
-						return { id: row.id, statement: row.statement, category };
-					}),
-				),
+			verdicts = await fetchRecurationVerdicts(
+				eligible,
 				config.memoryJudgeModel,
-				{
-					systemPrompt: buildRecurationSystemPrompt(),
-					temperature: 0,
-					maxTokens: JUDGE_MAX_TOKENS,
-					jsonSchema: RECURATION_JSON_SCHEMA,
-					allowReasoningFallback: true,
-				},
 			);
-			verdicts = parseRecurationVerdicts(res.text);
 		} catch (error) {
 			await recordMemoryReworkTelemetry({
 				userId,
@@ -208,120 +398,59 @@ export async function runMemoryRecuration(userId: string): Promise<{
 					error instanceof Error ? error.message.slice(0, 200) : "unknown",
 				status: "error",
 			}).catch(() => {});
-			continue;
+			return;
 		}
 
-		const eligibleById = new Map(eligible.map((row) => [row.id, row]));
-		let projectionRevision: number | null = null;
-
-		for (const verdict of verdicts) {
-			const row = eligibleById.get(verdict.itemId);
-			if (!row) continue; // drop unknown ids
-
-			if (projectionRevision === null) {
-				const { ensureProjectionState } = await import(
-					"./memory-profile/projection-store"
-				);
-				const projection = await ensureProjectionState({
-					userId,
-					resetGeneration,
-				});
-				projectionRevision = projection.revision;
-			}
-
-			let effectiveVerdict = verdict.verdict;
-			if (effectiveVerdict === "rewrite") {
-				const newStatement = verdict.statement?.trim();
-				if (!newStatement || tripsRewriteFilter(newStatement)) {
-					effectiveVerdict = "retire";
-				}
-			}
-
-			if (effectiveVerdict === "rewrite") {
-				const newStatement = (verdict.statement as string).trim();
-				const expiryClass = verdict.expiryClass;
-				const wasReviewNeeded = row.status === "review_needed";
-				const expiresAt =
-					expiryClass === "time_bound" && verdict.expiresInDays
-						? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
-						: undefined;
-				// On a review_needed -> active transition, always recompute
-				// expiresAt from the verdict (mirrors the accept flow in
-				// memory-profile/review.ts): time_bound sets a fresh horizon,
-				// otherwise the review-window expiry is cleared entirely.
-				const expiresAtPatch = wasReviewNeeded
-					? { expiresAt: expiresAt ?? null }
-					: expiresAt
-						? { expiresAt }
-						: {};
-				const patched = await updateMemoryProfileItemWithRevision({
-					userId,
-					itemId: row.id,
-					expectedProjectionRevision: projectionRevision,
-					patch: {
-						statement: newStatement,
-						...(wasReviewNeeded ? { status: "active" } : {}),
-						...expiresAtPatch,
-					},
-				});
-				if (patched.status === "updated") {
-					projectionRevision = patched.projectionRevision;
-					await mergeMemoryProfileItemMetadata({
-						userId,
-						itemId: row.id,
-						patch: {
-							origin: "recuration",
-							...(expiryClass ? { expiryClass } : {}),
-						},
-					});
-					rewritten++;
-				}
-				continue;
-			}
-
-			if (effectiveVerdict === "retire") {
-				const patched = await updateMemoryProfileItemWithRevision({
-					userId,
-					itemId: row.id,
-					expectedProjectionRevision: projectionRevision,
-					patch: { status: "retired" },
-				});
-				if (patched.status === "updated") {
-					projectionRevision = patched.projectionRevision;
-				}
-				await mergeMemoryProfileItemMetadata({
-					userId,
-					itemId: row.id,
-					patch: { origin: "recuration" },
-				});
-				retired++;
-				continue;
-			}
-
-			// keep
-			if (row.status === "review_needed") {
-				const expiryClass = verdict.expiryClass;
-				const expiresAt =
-					expiryClass === "time_bound" && verdict.expiresInDays
-						? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
-						: null;
-				const patched = await updateMemoryProfileItemWithRevision({
-					userId,
-					itemId: row.id,
-					expectedProjectionRevision: projectionRevision,
-					patch: { status: "active", expiresAt },
-				});
-				if (patched.status === "updated") {
-					projectionRevision = patched.projectionRevision;
-				}
-			}
-			await mergeMemoryProfileItemMetadata({
+		if (verdicts.length === 0) {
+			// A non-empty batch that yields no verdicts almost always means the
+			// model response was truncated into invalid JSON. Make it VISIBLE and,
+			// at the top level only, split-retry so a large batch's truncation
+			// doesn't silently drop every item.
+			await recordMemoryReworkTelemetry({
 				userId,
-				itemId: row.id,
-				patch: { origin: "recuration" },
-			});
-			kept++;
+				eventFamily: "intake",
+				eventName: "recuration_batch_unparsed",
+				reason: `size=${eligible.length}${
+					depth < MAX_SPLIT_DEPTH ? " retrying-split" : " gave-up-after-split"
+				}`,
+				status: "error",
+				count: eligible.length,
+			}).catch(() => {});
+
+			if (depth < MAX_SPLIT_DEPTH && eligible.length > 1) {
+				const mid = Math.ceil(eligible.length / 2);
+				await processEligibleSet(eligible.slice(0, mid), depth + 1);
+				await processEligibleSet(eligible.slice(mid), depth + 1);
+			}
+			return;
 		}
+
+		const applied = await applyRecurationVerdicts({
+			userId,
+			resetGeneration,
+			eligible,
+			verdicts,
+		});
+		kept += applied.kept;
+		rewritten += applied.rewritten;
+		retired += applied.retired;
+		if (applied.unknownIds > 0) {
+			await recordMemoryReworkTelemetry({
+				userId,
+				eventFamily: "intake",
+				eventName: "recuration_verdicts_dropped",
+				reason: `unknown-item-ids in batch of ${eligible.length}`,
+				status: "warning",
+				count: applied.unknownIds,
+			}).catch(() => {});
+		}
+	};
+
+	for (const batch of batches) {
+		const eligible = batch.filter(
+			(row) => !isUserAuthoredMemoryMetadata(row.metadataJson),
+		);
+		await processEligibleSet(eligible, 0);
 	}
 
 	// Items still stuck in review_needed after the batches ran (e.g. their

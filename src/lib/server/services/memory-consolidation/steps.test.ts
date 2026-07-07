@@ -460,6 +460,15 @@ describe("memory consolidation steps", () => {
 		expect(mergeAction?.itemIds.sort()).toEqual([z1Id, z2Id].sort());
 		expect(mergeAction?.resultItemId).toBe(mergedInto);
 		expect(mergeAction?.undo.length).toBe(2);
+
+		// Reasoning-aware token budget: 2400 base + 500 per candidate (4 here).
+		// A flat budget starves large profiles: reasoning tokens count against
+		// max_tokens on the OpenAI-compatible providers this runs on.
+		const reconcileOptions =
+			controlModelMock.sendJsonControlMessage.mock.calls.at(-1)?.[2] as {
+				maxTokens?: number;
+			};
+		expect(reconcileOptions?.maxTokens).toBe(2400 + 500 * 4);
 	});
 
 	it("never touches user_authored items", async () => {

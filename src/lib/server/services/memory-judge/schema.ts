@@ -12,6 +12,84 @@ import {
 // large enough to survive that plus the JSON payload itself.
 export const JUDGE_MAX_TOKENS = 2400;
 
+// Reasoning-aware completion budget for memory-rework calls whose input scales
+// with the number of items shown to the model (recuration verdicts,
+// reconcile-and-merge, persona summary). On the OpenAI-compatible providers
+// these run on, a reasoning model's chain-of-thought tokens COUNT AGAINST
+// max_tokens: captured production traffic shows finish_reason="length" with
+// usage.completion_tokens_details.reasoning_tokens consuming the entire budget
+// and an empty content channel when the cap is too small for the item count
+// (a 3-item task burned 1083 reasoning tokens before emitting its first
+// payload byte). Budget = the flat JUDGE_MAX_TOKENS base (empirically enough
+// for ~3 items end-to-end) plus 500 per item, capped at 8000 to stay within
+// provider limits.
+export function reasoningAwareMaxTokens(itemCount: number): number {
+	return Math.min(JUDGE_MAX_TOKENS + 500 * itemCount, 8000);
+}
+
+// Scan for a balanced JSON object starting at `start` (which must point at a
+// "{"), respecting string literals and escapes. Returns the matching substring
+// or null when the braces never balance (e.g. the text was truncated).
+function extractBalancedJsonObject(text: string, start: number): string | null {
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	for (let i = start; i < text.length; i++) {
+		const ch = text[i];
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (ch === "\\") escaped = true;
+			else if (ch === '"') inString = false;
+			continue;
+		}
+		if (ch === '"') inString = true;
+		else if (ch === "{") depth++;
+		else if (ch === "}") {
+			depth--;
+			if (depth === 0) return text.slice(start, i + 1);
+		}
+	}
+	return null;
+}
+
+// Parse a control-model response that is expected to be a JSON object with the
+// given top-level `key`. Reasoning models sometimes surround the JSON envelope
+// with chain-of-thought prose (surfaced via the reasoning-fallback path) or
+// markdown fences, so when the bare parse fails we additionally look for a
+// balanced object containing `"key"` inside the text — scanning occurrences
+// LAST first, because reasoning prose may quote a format example while
+// thinking and the real envelope is emitted after the reasoning ends. The
+// extracted object must still pass the caller's schema validation — this only
+// relaxes WHERE the envelope may sit, not its shape. Returns null when no
+// parseable envelope is found.
+export function parseJsonWithEnvelopeExtraction(
+	rawText: string,
+	key: string,
+): unknown | null {
+	try {
+		return JSON.parse(rawText);
+	} catch {
+		// fall through to embedded-envelope extraction
+	}
+	const quotedKey = `"${key}"`;
+	let keyIdx = rawText.lastIndexOf(quotedKey);
+	while (keyIdx !== -1) {
+		const start = rawText.lastIndexOf("{", keyIdx);
+		if (start !== -1) {
+			const candidate = extractBalancedJsonObject(rawText, start);
+			if (candidate) {
+				try {
+					return JSON.parse(candidate);
+				} catch {
+					// not valid JSON here; keep scanning
+				}
+			}
+		}
+		keyIdx = rawText.lastIndexOf(quotedKey, keyIdx - 1);
+	}
+	return null;
+}
+
 export type JudgeDecision = {
 	action: "add" | "update" | "strengthen";
 	targetItemId?: string;

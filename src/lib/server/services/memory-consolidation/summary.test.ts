@@ -224,6 +224,14 @@ describe("persona summary generation", () => {
 		const row = readProjectionRow(db, userId);
 		expect(row?.personaSummaryText).toBe(created?.text);
 		expect(row?.revision).toBeGreaterThanOrEqual(1);
+
+		// Reasoning-aware token budget: 2400 base + 500 per fact (3 facts here).
+		// A flat budget starves large profiles: reasoning tokens count against
+		// max_tokens on the OpenAI-compatible providers this runs on.
+		const callOptions = sendJsonControlMessageMock.mock.calls[0]?.[2] as {
+			maxTokens?: number;
+		};
+		expect(callOptions?.maxTokens).toBe(2400 + 500 * 3);
 	});
 
 	it("drops fact links that reference unknown ids but keeps the sentence", async () => {
