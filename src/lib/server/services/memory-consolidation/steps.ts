@@ -12,6 +12,7 @@ import {
 	ensureProjectionState,
 	expireOverdueActiveMemoryProfileItems,
 	expireOverdueReviewMemoryProfileItems,
+	mergeMemoryProfileItemMetadata,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
@@ -94,27 +95,7 @@ async function mergeItemMetadata(
 	itemId: string,
 	patch: Record<string, unknown>,
 ): Promise<void> {
-	const [row] = await db
-		.select({ metadataJson: memoryProfileItems.metadataJson })
-		.from(memoryProfileItems)
-		.where(
-			and(
-				eq(memoryProfileItems.userId, userId),
-				eq(memoryProfileItems.id, itemId),
-			),
-		)
-		.limit(1);
-	const next = { ...parseMetadata(row?.metadataJson ?? "{}"), ...patch };
-	await db
-		.update(memoryProfileItems)
-		.set({ metadataJson: JSON.stringify(next) })
-		.where(
-			and(
-				eq(memoryProfileItems.userId, userId),
-				eq(memoryProfileItems.id, itemId),
-			),
-		)
-		.run();
+	await mergeMemoryProfileItemMetadata({ userId, itemId, patch });
 }
 
 /**

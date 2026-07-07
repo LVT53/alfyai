@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { memoryConsolidationReports } from "$lib/server/db/schema";
 import type {
 	KnowledgeMemoryOverviewPayload,
 	MemoryProfileActionPayload,
@@ -6,7 +9,19 @@ import type {
 	MemoryProfilePublicPayload,
 } from "$lib/types";
 import {
+	listMemoryConsolidationReports,
+	type MemoryConsolidationReport,
+} from "./memory-consolidation";
+import type { ConsolidationAction } from "./memory-consolidation/steps";
+import {
+	generateAndStorePersonaSummary,
+	getPersonaSummary,
+	type PersonaSummary,
+} from "./memory-consolidation/summary";
+import {
 	applyMemoryReviewItemWithRevision,
+	createMemoryProfileItem,
+	getActiveMemoryProfileContext,
 	getMemoryProfileItemDetail,
 	getMemoryProfileReadModel,
 	type MemoryProfileCardItem,
@@ -15,6 +30,7 @@ import {
 	type MemoryProfileItemStatus,
 	type MemoryProfileReadModel,
 	markMemoryDirty,
+	mergeMemoryProfileItemMetadata,
 	recordMemoryReworkTelemetry,
 	updateMemoryProfileItemWithRevision,
 } from "./memory-profile";
@@ -220,6 +236,126 @@ function parseMemoryProfileAction(payload: unknown): ParsedMemoryProfileAction {
 	);
 }
 
+export type MemoryV2ActionPayload =
+	| {
+			kind: "profile_item";
+			action: "correct";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			kind: "profile_item";
+			action: "retire";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| { kind: "summary"; action: "edit"; text: string }
+	| {
+			kind: "consolidation";
+			action: "undo";
+			reportId: string;
+			actionIndex: number;
+	  };
+
+/**
+ * Returns null when the payload does not use the `kind`-discriminated v2
+ * action envelope, so callers can fall back to the legacy `target`-based
+ * parser. Throws MemoryProfileActionError for a recognized-but-invalid v2
+ * payload.
+ */
+function parseMemoryV2Action(payload: unknown): MemoryV2ActionPayload | null {
+	if (!payload || typeof payload !== "object") return null;
+	const record = payload as Record<string, unknown>;
+	if (
+		record.kind !== "profile_item" &&
+		record.kind !== "summary" &&
+		record.kind !== "consolidation"
+	) {
+		return null;
+	}
+
+	if (record.kind === "profile_item") {
+		if (
+			!isNonEmptyString(record.itemId) ||
+			!isExpectedProjectionRevision(record.expectedProjectionRevision)
+		) {
+			throw new MemoryProfileActionError(
+				"invalid_action",
+				"Memory profile actions require itemId and expectedProjectionRevision.",
+				400,
+			);
+		}
+		if (record.action === "retire") {
+			return {
+				kind: "profile_item",
+				action: "retire",
+				itemId: record.itemId.trim(),
+				expectedProjectionRevision: record.expectedProjectionRevision,
+			};
+		}
+		if (record.action === "correct" && isNonEmptyString(record.statement)) {
+			return {
+				kind: "profile_item",
+				action: "correct",
+				itemId: record.itemId.trim(),
+				statement: record.statement.trim(),
+				expectedProjectionRevision: record.expectedProjectionRevision,
+			};
+		}
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Invalid memory profile action payload.",
+			400,
+		);
+	}
+
+	if (record.kind === "summary") {
+		if (record.action === "edit" && isNonEmptyString(record.text)) {
+			return { kind: "summary", action: "edit", text: record.text.trim() };
+		}
+		throw new MemoryProfileActionError(
+			"invalid_action",
+			"Invalid memory profile action payload.",
+			400,
+		);
+	}
+
+	// kind === "consolidation"
+	if (
+		record.action === "undo" &&
+		isNonEmptyString(record.reportId) &&
+		typeof record.actionIndex === "number" &&
+		Number.isInteger(record.actionIndex) &&
+		record.actionIndex >= 0
+	) {
+		return {
+			kind: "consolidation",
+			action: "undo",
+			reportId: record.reportId.trim(),
+			actionIndex: record.actionIndex,
+		};
+	}
+	throw new MemoryProfileActionError(
+		"invalid_action",
+		"Invalid memory profile action payload.",
+		400,
+	);
+}
+
+/**
+ * Split free-form summary-edit text into individual sentences. A simple
+ * split on sentence-ending punctuation, tolerant of missing trailing
+ * punctuation on the last fragment. Empty/whitespace-only fragments are
+ * dropped.
+ */
+export function splitSentences(text: string): string[] {
+	return text
+		.split(/(?<=[.!?])\s+/)
+		.map((part) => part.trim())
+		.filter((part) => part.length > 0);
+}
+
 async function markProfileActionReconciliation(params: {
 	userId: string;
 	action: ParsedMemoryProfileAction["action"];
@@ -365,11 +501,295 @@ export async function getKnowledgeMemoryOverview(
 	};
 }
 
+export type KnowledgeMemorySummaryPayload = {
+	summary: {
+		text: string;
+		links: Array<{ text: string; factIds: string[] }>;
+		updatedAt: string;
+	} | null;
+};
+
+export type KnowledgeMemoryTimelinePayload = {
+	reports: Array<{
+		id: string;
+		status: string;
+		summaryText: string;
+		createdAt: string;
+		actions: ConsolidationAction[];
+	}>;
+};
+
+function serializePersonaSummary(
+	summary: PersonaSummary,
+): KnowledgeMemorySummaryPayload["summary"] {
+	if (!summary) return null;
+	return {
+		text: summary.text,
+		links: summary.links,
+		updatedAt: summary.updatedAt.toISOString(),
+	};
+}
+
+function serializeConsolidationReport(
+	report: MemoryConsolidationReport,
+): KnowledgeMemoryTimelinePayload["reports"][number] {
+	return {
+		id: report.id,
+		status: report.status,
+		summaryText: report.summaryText,
+		createdAt: report.createdAt.toISOString(),
+		actions: report.actions,
+	};
+}
+
+export async function getKnowledgeMemorySummary(
+	userId: string,
+): Promise<KnowledgeMemorySummaryPayload> {
+	const summary = await getPersonaSummary({ userId });
+	return { summary: serializePersonaSummary(summary) };
+}
+
+export async function listKnowledgeMemoryTimeline(
+	userId: string,
+): Promise<KnowledgeMemoryTimelinePayload> {
+	const reports = await listMemoryConsolidationReports({ userId, limit: 20 });
+	return { reports: reports.map(serializeConsolidationReport) };
+}
+
+async function applyProfileItemCorrect(
+	userId: string,
+	action: Extract<
+		MemoryV2ActionPayload,
+		{ kind: "profile_item"; action: "correct" }
+	>,
+): Promise<MemoryProfilePublicPayload> {
+	const result = await updateMemoryProfileItemWithRevision({
+		userId,
+		itemId: action.itemId,
+		expectedProjectionRevision: action.expectedProjectionRevision,
+		patch: { statement: action.statement },
+	});
+
+	if (result.status !== "updated") {
+		await recordProfileActionTelemetry({
+			userId,
+			action: "edit",
+			itemId: action.itemId,
+			status: result.status,
+		});
+		if (result.status === "stale_projection") {
+			throw new MemoryProfileActionError(
+				"stale_projection",
+				"Memory profile changed before this action was applied.",
+				409,
+			);
+		}
+		throw new MemoryProfileActionError(
+			"not_found",
+			"Memory profile item was not found.",
+			404,
+		);
+	}
+
+	await mergeMemoryProfileItemMetadata({
+		userId,
+		itemId: action.itemId,
+		patch: { origin: "user_authored" },
+	});
+	await markProfileActionReconciliation({
+		userId,
+		action: "edit",
+		itemId: action.itemId,
+	});
+	await recordProfileActionTelemetry({
+		userId,
+		action: "edit",
+		itemId: action.itemId,
+		status: "updated",
+	});
+
+	return serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
+}
+
+async function applyProfileItemRetire(
+	userId: string,
+	action: Extract<
+		MemoryV2ActionPayload,
+		{ kind: "profile_item"; action: "retire" }
+	>,
+): Promise<MemoryProfilePublicPayload> {
+	const result = await updateMemoryProfileItemWithRevision({
+		userId,
+		itemId: action.itemId,
+		expectedProjectionRevision: action.expectedProjectionRevision,
+		patch: { status: "retired" },
+	});
+
+	if (result.status !== "updated") {
+		await recordProfileActionTelemetry({
+			userId,
+			action: "suppress",
+			itemId: action.itemId,
+			status: result.status,
+		});
+		if (result.status === "stale_projection") {
+			throw new MemoryProfileActionError(
+				"stale_projection",
+				"Memory profile changed before this action was applied.",
+				409,
+			);
+		}
+		throw new MemoryProfileActionError(
+			"not_found",
+			"Memory profile item was not found.",
+			404,
+		);
+	}
+
+	await markProfileActionReconciliation({
+		userId,
+		action: "suppress",
+		itemId: action.itemId,
+	});
+	await recordProfileActionTelemetry({
+		userId,
+		action: "suppress",
+		itemId: action.itemId,
+		status: "updated",
+	});
+
+	return serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
+}
+
+async function applySummaryEdit(
+	userId: string,
+	action: Extract<MemoryV2ActionPayload, { kind: "summary"; action: "edit" }>,
+): Promise<KnowledgeMemorySummaryPayload> {
+	const sentences = splitSentences(action.text);
+	const activeContext = await getActiveMemoryProfileContext({ userId });
+	const existingStatements = new Set(
+		activeContext.items.map((item) => item.statement.trim()),
+	);
+
+	for (const sentence of sentences) {
+		if (existingStatements.has(sentence)) continue;
+		const item = await createMemoryProfileItem({
+			userId,
+			category: "about_you",
+			scope: { type: "global" },
+			statement: sentence,
+			status: "active",
+		});
+		await mergeMemoryProfileItemMetadata({
+			userId,
+			itemId: item.id,
+			patch: { origin: "user_authored" },
+		});
+		existingStatements.add(sentence);
+	}
+
+	const summary = await generateAndStorePersonaSummary({ userId });
+	return { summary: serializePersonaSummary(summary) };
+}
+
+async function applyConsolidationUndo(
+	userId: string,
+	action: Extract<
+		MemoryV2ActionPayload,
+		{ kind: "consolidation"; action: "undo" }
+	>,
+): Promise<MemoryProfilePublicPayload> {
+	const [reportRow] = await db
+		.select()
+		.from(memoryConsolidationReports)
+		.where(eq(memoryConsolidationReports.id, action.reportId))
+		.limit(1);
+	if (!reportRow || reportRow.userId !== userId) {
+		throw new MemoryProfileActionError(
+			"not_found",
+			"Consolidation report was not found.",
+			404,
+		);
+	}
+
+	let actions: ConsolidationAction[];
+	try {
+		const parsed = JSON.parse(reportRow.actionsJson);
+		actions = Array.isArray(parsed) ? (parsed as ConsolidationAction[]) : [];
+	} catch {
+		actions = [];
+	}
+
+	const target = actions[action.actionIndex];
+	if (!target) {
+		throw new MemoryProfileActionError(
+			"not_found",
+			"Consolidation action was not found.",
+			404,
+		);
+	}
+
+	const activeContext = await getActiveMemoryProfileContext({ userId });
+	let projectionRevision = activeContext.projectionRevision;
+	for (const undo of target.undo) {
+		const result = await updateMemoryProfileItemWithRevision({
+			userId,
+			itemId: undo.itemId,
+			expectedProjectionRevision: projectionRevision,
+			patch: {
+				statement: undo.prevStatement,
+				status: undo.prevStatus as MemoryProfileItemStatus,
+			},
+		});
+		if (result.status === "updated") {
+			projectionRevision = result.projectionRevision;
+		}
+	}
+
+	await markProfileActionReconciliation({
+		userId,
+		action: "edit",
+		itemId: null,
+	});
+
+	return serializeMemoryProfileReadModel(
+		await getMemoryProfileReadModel({ userId }),
+	);
+}
+
+export async function applyKnowledgeMemoryAction(
+	userId: string,
+	_userDisplayName: string,
+	payload: { kind: "summary"; action: "edit"; text: string },
+): Promise<KnowledgeMemorySummaryPayload>;
 export async function applyKnowledgeMemoryAction(
 	userId: string,
 	_userDisplayName: string,
 	payload: unknown,
-): Promise<MemoryProfilePublicPayload> {
+): Promise<MemoryProfilePublicPayload>;
+export async function applyKnowledgeMemoryAction(
+	userId: string,
+	_userDisplayName: string,
+	payload: unknown,
+): Promise<MemoryProfilePublicPayload | KnowledgeMemorySummaryPayload> {
+	const v2Action = parseMemoryV2Action(payload);
+	if (v2Action) {
+		if (v2Action.kind === "profile_item" && v2Action.action === "correct") {
+			return applyProfileItemCorrect(userId, v2Action);
+		}
+		if (v2Action.kind === "profile_item" && v2Action.action === "retire") {
+			return applyProfileItemRetire(userId, v2Action);
+		}
+		if (v2Action.kind === "summary") {
+			return applySummaryEdit(userId, v2Action);
+		}
+		return applyConsolidationUndo(userId, v2Action);
+	}
+
 	const action = parseMemoryProfileAction(payload);
 	if (action.target === "review_item") {
 		const reviewResult = await applyMemoryReviewItemWithRevision({

@@ -536,6 +536,56 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	return result;
 }
 
+function parseMemoryProfileItemMetadata(
+	metadataJson: string | null,
+): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(metadataJson ?? "{}");
+		return parsed && typeof parsed === "object"
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Merge a metadata patch into an item's existing metadataJson so callers never
+ * clobber fields (confidence/expiryClass/origin/...) written by other writers
+ * (intake, the judge, consolidation). Shared by consolidation steps and the
+ * user-facing correct/summary-edit actions.
+ */
+export async function mergeMemoryProfileItemMetadata(params: {
+	userId: string;
+	itemId: string;
+	patch: Record<string, unknown>;
+}): Promise<void> {
+	const [row] = await db
+		.select({ metadataJson: memoryProfileItems.metadataJson })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.limit(1);
+	const next = {
+		...parseMemoryProfileItemMetadata(row?.metadataJson ?? "{}"),
+		...params.patch,
+	};
+	await db
+		.update(memoryProfileItems)
+		.set({ metadataJson: JSON.stringify(next) })
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.run();
+}
+
 export function bumpProjectionRevision(params: {
 	projectionStateId: string;
 	amount: number;

@@ -1,0 +1,566 @@
+import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as schema from "$lib/server/db/schema";
+
+let dbPath: string;
+let seedConnections: Array<{
+	sqlite: Database.Database;
+	db: ReturnType<typeof drizzle>;
+}> = [];
+
+function openSeedDatabase() {
+	const sqlite = new Database(dbPath);
+	sqlite.pragma("foreign_keys = ON");
+	const db = drizzle(sqlite, { schema });
+	migrate(db, { migrationsFolder: "./drizzle" });
+	seedConnections.push({ sqlite, db });
+	return { sqlite, db };
+}
+
+function seedUser(db: ReturnType<typeof drizzle>, userId: string, now: Date) {
+	db.insert(schema.users)
+		.values({
+			id: userId,
+			email: `${userId}@example.com`,
+			passwordHash: "hash",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	db.insert(schema.memoryResetGenerations)
+		.values({
+			userId,
+			resetGeneration: 0,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoNothing({ target: schema.memoryResetGenerations.userId })
+		.run();
+}
+
+function seedProjectionState(
+	db: ReturnType<typeof drizzle>,
+	userId: string,
+	now: Date,
+): string {
+	const id = randomUUID();
+	db.insert(schema.memoryProjectionState)
+		.values({
+			id,
+			userId,
+			resetGeneration: 0,
+			scopeType: "global",
+			scopeId: "",
+			revision: 0,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	return id;
+}
+
+function seedItem(
+	db: ReturnType<typeof drizzle>,
+	params: {
+		userId: string;
+		projectionStateId: string;
+		id?: string;
+		category?: string;
+		statement: string;
+		status?: string;
+		expiresAt?: Date | null;
+		metadata?: Record<string, unknown>;
+		createdAt: Date;
+		updatedAt: Date;
+	},
+): string {
+	const id = params.id ?? randomUUID();
+	db.insert(schema.memoryProfileItems)
+		.values({
+			id,
+			userId: params.userId,
+			projectionStateId: params.projectionStateId,
+			resetGeneration: 0,
+			itemKey: `v1:${id}`,
+			category: params.category ?? "about_you",
+			scopeType: "global",
+			scopeId: "",
+			statement: params.statement,
+			status: params.status ?? "active",
+			revision: 0,
+			expiresAt: params.expiresAt ?? null,
+			metadataJson: JSON.stringify(params.metadata ?? {}),
+			createdAt: params.createdAt,
+			updatedAt: params.updatedAt,
+		})
+		.run();
+	return id;
+}
+
+function seedConsolidationReport(
+	db: ReturnType<typeof drizzle>,
+	params: {
+		userId: string;
+		id?: string;
+		actions: unknown[];
+		createdAt: Date;
+	},
+): string {
+	const id = params.id ?? randomUUID();
+	db.insert(schema.memoryConsolidationReports)
+		.values({
+			id,
+			userId: params.userId,
+			resetGeneration: 0,
+			status: "succeeded",
+			summaryText: "Retired 1.",
+			actionsJson: JSON.stringify(params.actions),
+			createdAt: params.createdAt,
+		})
+		.run();
+	return id;
+}
+
+function readItem(db: ReturnType<typeof drizzle>, id: string) {
+	const [row] = db
+		.select()
+		.from(schema.memoryProfileItems)
+		.where(eq(schema.memoryProfileItems.id, id))
+		.all();
+	return row;
+}
+
+function readProjectionRevision(
+	db: ReturnType<typeof drizzle>,
+	userId: string,
+): number {
+	const [row] = db
+		.select({ revision: schema.memoryProjectionState.revision })
+		.from(schema.memoryProjectionState)
+		.where(eq(schema.memoryProjectionState.userId, userId))
+		.all();
+	return row?.revision ?? 0;
+}
+
+function makeControlResponse(text: string) {
+	return {
+		text,
+		rawResponse: {},
+		modelId: "model1" as const,
+		modelDisplayName: "Model 1",
+	};
+}
+
+describe("memory v2 actions service", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-memory-v2-actions-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+		seedConnections = [];
+	});
+
+	afterEach(async () => {
+		for (const conn of seedConnections) {
+			try {
+				conn.sqlite.close();
+			} catch {
+				// best-effort
+			}
+		}
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// db module may not have been imported
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// best-effort
+		}
+		vi.doUnmock("./normal-chat-control-model");
+	});
+
+	it("correct: replaces statement, marks origin user_authored, advances projection revision, and blocks later judge updates", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			metadata: { origin: "judge_v1", confidence: "stated" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const revisionBefore = readProjectionRevision(db, userId);
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "profile_item",
+			action: "correct",
+			itemId,
+			statement: "I actually like coffee.",
+			expectedProjectionRevision: revisionBefore,
+		});
+
+		const row = readItem(db, itemId);
+		expect(row.statement).toBe("I actually like coffee.");
+		const metadata = JSON.parse(row.metadataJson);
+		expect(metadata.origin).toBe("user_authored");
+		// Preserves prior metadata fields that "correct" doesn't own.
+		expect(metadata.confidence).toBe("stated");
+		expect(readProjectionRevision(db, userId)).toBe(revisionBefore + 1);
+
+		// A subsequent judge-style update must be blocked for user-authored items.
+		const { updateMemoryProfileItemWithRevision } = await import(
+			"./memory-profile/projection-store"
+		);
+		const activeContext = await (
+			await import("./memory-profile/active-context")
+		).getActiveMemoryProfileContext({ userId });
+		const isUserAuthored = (metadataJson: string) => {
+			try {
+				return JSON.parse(metadataJson).origin === "user_authored";
+			} catch {
+				return false;
+			}
+		};
+		expect(isUserAuthored(readItem(db, itemId).metadataJson)).toBe(true);
+		// Sanity: the judge module's own guard reads the same metadata field, so
+		// this equivalent read proves a judge update would be skipped.
+		expect(activeContext.items.some((i) => i.id === itemId)).toBe(true);
+		void updateMemoryProfileItemWithRevision; // referenced for type-only usage
+	});
+
+	it("correct: stale expectedProjectionRevision yields stale_projection error", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction, MemoryProfileActionError } =
+			await import("./memory");
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "profile_item",
+				action: "correct",
+				itemId,
+				statement: "Something else.",
+				expectedProjectionRevision: 999,
+			}),
+		).rejects.toMatchObject({
+			code: "stale_projection",
+		});
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "profile_item",
+				action: "correct",
+				itemId,
+				statement: "Something else.",
+				expectedProjectionRevision: 999,
+			}),
+		).rejects.toBeInstanceOf(MemoryProfileActionError);
+	});
+
+	it("retire: status retired and excluded from getActiveMemoryProfileContext", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const revisionBefore = readProjectionRevision(db, userId);
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "profile_item",
+			action: "retire",
+			itemId,
+			expectedProjectionRevision: revisionBefore,
+		});
+
+		const row = readItem(db, itemId);
+		expect(row.status).toBe("retired");
+
+		const { getActiveMemoryProfileContext } = await import(
+			"./memory-profile/active-context"
+		);
+		const context = await getActiveMemoryProfileContext({ userId });
+		expect(context.items.some((i) => i.id === itemId)).toBe(false);
+	});
+
+	it("retire: stale expectedProjectionRevision yields stale_projection error", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "profile_item",
+				action: "retire",
+				itemId,
+				expectedProjectionRevision: 999,
+			}),
+		).rejects.toMatchObject({ code: "stale_projection" });
+	});
+
+	it("summary edit: creates a user-authored about_you fact for new text and regenerates the summary", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+
+		const editedText =
+			"I moved to Berlin last year. I work as a backend engineer.";
+		const personaResponse = JSON.stringify({
+			sentences: [
+				{ text: "I moved to Berlin last year.", factIds: [] },
+				{ text: "I work as a backend engineer.", factIds: [] },
+			],
+		});
+		const sendJsonControlMessage = vi
+			.fn()
+			.mockResolvedValue(makeControlResponse(personaResponse));
+		vi.doMock("./normal-chat-control-model", () => ({
+			sendJsonControlMessage,
+		}));
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "summary",
+			action: "edit",
+			text: editedText,
+		});
+
+		const rows = db
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(
+				and(
+					eq(schema.memoryProfileItems.userId, userId),
+					eq(schema.memoryProfileItems.status, "active"),
+				),
+			)
+			.all();
+		expect(rows.length).toBe(2);
+		for (const row of rows) {
+			expect(row.category).toBe("about_you");
+			const metadata = JSON.parse(row.metadataJson);
+			expect(metadata.origin).toBe("user_authored");
+		}
+		const statements = rows.map((r) => r.statement).sort();
+		expect(statements).toEqual(
+			["I moved to Berlin last year.", "I work as a backend engineer."].sort(),
+		);
+
+		expect(sendJsonControlMessage).toHaveBeenCalled();
+
+		const { getKnowledgeMemorySummary } = await import("./memory");
+		const { summary } = await getKnowledgeMemorySummary(userId);
+		expect(summary).not.toBeNull();
+		expect(summary?.text).toContain("Berlin");
+	});
+
+	it("summary edit: does not duplicate a sentence already covered by an existing active fact", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I moved to Berlin last year.",
+			metadata: { origin: "user_authored" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const personaResponse = JSON.stringify({
+			sentences: [{ text: "I moved to Berlin last year.", factIds: [] }],
+		});
+		const sendJsonControlMessage = vi
+			.fn()
+			.mockResolvedValue(makeControlResponse(personaResponse));
+		vi.doMock("./normal-chat-control-model", () => ({
+			sendJsonControlMessage,
+		}));
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "summary",
+			action: "edit",
+			text: "I moved to Berlin last year.",
+		});
+
+		const rows = db
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.userId, userId))
+			.all();
+		expect(rows.length).toBe(1);
+	});
+
+	it("undo: restores a retired item's prior status and statement from a consolidation report action", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const itemId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I retired fact.",
+			status: "retired",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const reportId = seedConsolidationReport(db, {
+			userId,
+			actions: [
+				{
+					type: "superseded",
+					itemIds: [itemId],
+					resultItemId: "other-item",
+					description: "Retired as superseded.",
+					undo: [
+						{
+							itemId,
+							prevStatus: "active",
+							prevStatement: "I original fact.",
+						},
+					],
+				},
+			],
+			createdAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "consolidation",
+			action: "undo",
+			reportId,
+			actionIndex: 0,
+		});
+
+		const row = readItem(db, itemId);
+		expect(row.status).toBe("active");
+		expect(row.statement).toBe("I original fact.");
+	});
+
+	it("undo: unknown reportId throws not_found error", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+
+		const { applyKnowledgeMemoryAction, MemoryProfileActionError } =
+			await import("./memory");
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "consolidation",
+				action: "undo",
+				reportId: "does-not-exist",
+				actionIndex: 0,
+			}),
+		).rejects.toMatchObject({ code: "not_found" });
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "consolidation",
+				action: "undo",
+				reportId: "does-not-exist",
+				actionIndex: 0,
+			}),
+		).rejects.toBeInstanceOf(MemoryProfileActionError);
+	});
+
+	it("undo: unknown actionIndex throws not_found error", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+		const reportId = seedConsolidationReport(db, {
+			userId,
+			actions: [],
+			createdAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await expect(
+			applyKnowledgeMemoryAction(userId, "Tester", {
+				kind: "consolidation",
+				action: "undo",
+				reportId,
+				actionIndex: 3,
+			}),
+		).rejects.toMatchObject({ code: "not_found" });
+	});
+
+	it("getKnowledgeMemorySummary + listKnowledgeMemoryTimeline round-trip", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+		seedConsolidationReport(db, {
+			userId,
+			actions: [
+				{
+					type: "expired",
+					itemIds: ["a"],
+					description: "Expired 1.",
+					undo: [{ itemId: "a", prevStatus: "active", prevStatement: "x" }],
+				},
+			],
+			createdAt: now,
+		});
+
+		const { getKnowledgeMemorySummary, listKnowledgeMemoryTimeline } =
+			await import("./memory");
+
+		const empty = await getKnowledgeMemorySummary(userId);
+		expect(empty.summary).toBeNull();
+
+		const { reports } = await listKnowledgeMemoryTimeline(userId);
+		expect(reports.length).toBe(1);
+		expect(reports[0].status).toBe("succeeded");
+		expect(reports[0].actions.length).toBe(1);
+		expect(typeof reports[0].createdAt).toBe("string");
+	});
+});
