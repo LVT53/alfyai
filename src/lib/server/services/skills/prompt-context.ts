@@ -242,6 +242,9 @@ function buildSkillOperatingRuleLines(context: SkillPromptContext): string[] {
 		sourceScopeLine,
 		"- Follow the skill's workflow directly. Do not explain that a skill is active unless the user asks.",
 		...buildQuestionPolicyLines(context),
+		"- When your answer depends on facts not present in this turn, state what is missing or assumed before proceeding, rather than inventing it.",
+		"- Separate what the sources or user actually provided from your own inference or recommendation.",
+		"- When you deliver the main result, give it a clear, labeled structure — a short takeaway first, then detail — suited to the task.",
 	];
 }
 

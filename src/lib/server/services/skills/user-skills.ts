@@ -302,9 +302,11 @@ const spreadsheetPromptResources = [
 	{
 		...spreadsheetManagedResources[1],
 		content: [
-			"Use finance model structure such as cover/summary, assumptions, drivers, model, outputs, scenarios/sensitivities, checks, and sources/audit.",
-			"Apply finance number formats for currency, percentages, multiples, counts, and dates. Keep assumptions in labeled cells and avoid hardcoded business logic inside formulas.",
-			"Include visible checks for nontrivial models: source completeness, totals, sign/units, scenario inputs, balance/cash-flow ties when applicable, and model status formulas.",
+			"Use a finance model structure — assumptions, drivers, model, outputs, scenarios, checks, sources/audit — with assumptions in labeled cells, not hardcoded in formulas.",
+			"Build explicit scenario columns (base / downside / upside) from those assumption cells, and surface trigger points such as cash falling below one payroll.",
+			"Include unit economics where relevant (gross/contribution margin, CAC payback, LTV/CAC) and flag any line operating below breakeven.",
+			"Apply finance number formats and visible checks (totals, sign/units, scenario inputs, balance/cash-flow ties).",
+			'End recommendations with an explicit "what would change this conclusion" note or cell.',
 		].join(" "),
 		keywords: [
 			"finance",
@@ -395,6 +397,9 @@ const builtInSystemSkills = [
 				"If a question is needed, ask one focused question and include your recommended answer. If the answer can be discovered from available context, discover it instead of asking.",
 				"Prefer concrete revisions: changed wording, added acceptance criteria, removed scope, renamed terms, or an explicit decision that should be recorded.",
 				"Output with the highest-impact issues first. Keep summaries brief and make the next action obvious.",
+				"Tag each finding with a severity — Blocker (breaks correctness or a hard constraint), Major (likely rework), or Minor (polish) — and lead with Blockers.",
+				'For every Blocker, name the concrete failure it causes if the plan ships as-is, not just that it is "risky".',
+				"Give the plan one overall risk read (Low / Medium / High) with a one-line rationale, so the user knows whether it is safe to proceed.",
 			].join("\n"),
 		},
 		hu: {
@@ -409,6 +414,9 @@ const builtInSystemSkills = [
 				"Ha kérdés szükséges, egyetlen fókuszált kérdést tegyél fel, és add meg az általad ajánlott választ is. Ha a válasz kideríthető az elérhető kontextusból, inkább derítsd ki.",
 				"Konkrét javításokat javasolj: szövegmódosítást, elfogadási kritériumot, scope-csökkentést, terminológiai pontosítást vagy rögzítendő döntést.",
 				"A legnagyobb hatású problémákkal kezdj. A következő lépés legyen egyértelmű.",
+				"Minden megállapítást láss el súlyossággal — Blokkoló (helyességet vagy kemény korlátot sért), Jelentős (valószínűleg újramunkát igényel) vagy Kisebb (csiszolás) —, és a Blokkolókkal kezdj.",
+				'Minden Blokkolónál nevezd meg a konkrét hibát, amit okoz, ha a terv változatlanul kerül végrehajtásra, ne csak azt, hogy "kockázatos".',
+				"Adj a tervnek egy összesített kockázati besorolást (Alacsony / Közepes / Magas) egysoros indoklással, hogy a felhasználó tudja, biztonságos-e a folytatás.",
 			].join("\n"),
 		},
 		activationExamples: [
@@ -431,6 +439,9 @@ const builtInSystemSkills = [
 				"Preserve important concrete details such as dates, thresholds, names, requirements, and exceptions. Do not flatten them into vague summaries.",
 				"Adapt depth to the user's apparent familiarity. For beginners, define terms before using them; for advanced users, focus on implications and edge cases.",
 				"When useful, end with a short list of decisions, risks, or follow-up questions the document implies.",
+				"Lead with a one-line takeaway, then a short plain-language summary, then the detailed breakdown, so the user can stop at the depth they need.",
+				'For any claim that is uncertain or that the document leaves ambiguous, add an explicit inline "Confidence: high/medium/low" label with a one-line reason — never bury the uncertainty in prose.',
+				"Keep visibly separate: what the document actually states, what you are inferring, and what needs outside verification.",
 			].join("\n"),
 		},
 		hu: {
@@ -444,6 +455,9 @@ const builtInSystemSkills = [
 				"Őrizd meg a lényeges konkrétumokat, például dátumokat, küszöbértékeket, neveket, követelményeket és kivételeket.",
 				"A részletességet igazítsd a felhasználó tudásszintjéhez. Kezdőnél definiáld a fogalmakat, haladónál fókuszálj a következményekre és szélső esetekre.",
 				"Ha hasznos, zárj rövid döntés-, kockázat- vagy utánkövetési kérdéslistával.",
+				"Kezdd egy egysoros lényegi megállapítással, majd egy rövid közérthető összefoglalóval, majd a részletes bontással, hogy a felhasználó ott álljon meg, ameddig szüksége van rá.",
+				'Minden bizonytalan vagy a dokumentum által kétértelműen hagyott állításnál adj kifejezett, beágyazott "Megbízhatóság: magas/közepes/alacsony" jelölést egysoros indoklással — a bizonytalanságot soha ne rejtsd el a szövegben.',
+				"Láthatóan különítsd el: mit állít ténylegesen a dokumentum, mit következtetsz te, és mit kell külsőleg ellenőrizni.",
 			].join("\n"),
 		},
 		activationExamples: [
@@ -501,6 +515,9 @@ const builtInSystemSkills = [
 				"Treat prices, availability, laws, insurance terms, and product specifications as freshness-sensitive. Use available current sources when possible; otherwise label uncertainty clearly.",
 				"Preserve concrete user facts from the conversation, such as owned items, existing subscriptions, region, compatibility requirements, and prior preferences.",
 				"End with a recommendation only when the evidence supports it. Otherwise provide a shortlist, decision matrix, or the one missing fact that would decide it.",
+				"When comparing options, present them as a comparison table across the criteria that matter to this user (price, the two or three specs they care about, key differentiators), not as prose paragraphs.",
+				"For your leading recommendation, always name at least one real weakness or who should skip it — never present a pick as flawless.",
+				"End with a clear call — buy now / wait / skip, tied to this user's use case — or the single missing fact that would decide it.",
 			].join("\n"),
 		},
 		hu: {
@@ -514,6 +531,9 @@ const builtInSystemSkills = [
 				"Az árakat, elérhetőséget, jogszabályokat, biztosítási feltételeket és termékspecifikációkat frissességfüggőnek kezeld. Ha lehet, aktuális forrást használj; ha nem, egyértelműen jelezd a bizonytalanságot.",
 				"Őrizd meg a beszélgetés konkrét felhasználói tényeit, például tulajdonolt eszközöket, meglévő előfizetéseket, régiót, kompatibilitási igényeket és korábbi preferenciákat.",
 				"Csak akkor adj végső ajánlást, ha a bizonyítékok ezt alátámasztják. Ellenkező esetben adj shortlistet, döntési mátrixot vagy azt az egy hiányzó tényt, amely eldöntené a kérdést.",
+				"Ha lehetőségeket hasonlítasz össze, összehasonlító táblázatként mutasd be őket a felhasználó számára fontos szempontok mentén (ár, a két-három legfontosabb specifikáció, kulcsfontosságú megkülönböztető jegyek), ne folyószövegben.",
+				"A vezető ajánlásodnál mindig nevezz meg legalább egy valódi gyengeséget vagy azt, kinek nem ajánlott — sose mutass be egy választást hibátlanként.",
+				"Zárd egyértelmű döntéssel — vedd meg most / várj / hagyd ki, a felhasználó konkrét felhasználási esetéhez kötve — vagy azzal az egy hiányzó ténnyel, amely eldöntené a kérdést.",
 			].join("\n"),
 		},
 		activationExamples: [
@@ -571,6 +591,9 @@ const builtInSystemSkills = [
 				"Preserve concrete facts from the conversation and selected sources. Do not invent appointment details, eligibility rules, deadlines, or legal/medical/financial advice.",
 				"If the situation is high-stakes or current-rule-dependent, flag what should be verified with an official source or professional.",
 				"Keep the output usable during the appointment: concise phrasing, prioritized questions, and a short checklist.",
+				"Lead with the actions that matter most before the appointment, not with background — the user may be reading this minutes beforehand.",
+				'Add a short "verify / flag" section for anything high-stakes or rule-dependent: what to confirm with an official source or professional, and how urgently.',
+				"Where relevant, call out what to avoid saying or committing to, and what to preserve or bring (documents, evidence, references).",
 			].join("\n"),
 		},
 		hu: {
@@ -584,6 +607,9 @@ const builtInSystemSkills = [
 				"Őrizd meg a beszélgetés és kijelölt források konkrét tényeit. Ne találj ki időpontadatokat, jogosultsági szabályokat, határidőket vagy jogi/orvosi/pénzügyi tanácsot.",
 				"Nagy tétű vagy aktuális szabályoktól függő helyzetben jelezd, mit kell hivatalos forrásból vagy szakemberrel ellenőrizni.",
 				"A kimenet legyen használható az időpont alatt: tömör megfogalmazás, priorizált kérdések és rövid ellenőrzőlista.",
+				"Az időpont előtt legfontosabb teendőkkel kezdj, ne a háttérrel — előfordulhat, hogy a felhasználó ezt percekkel előtte olvassa.",
+				"Adj rövid „ellenőrizni / jelezni” szakaszt minden nagy tétű vagy szabályfüggő ponthoz: mit kell hivatalos forrásból vagy szakembertől megerősíteni, és milyen sürgősséggel.",
+				"Ahol releváns, emeld ki, mit kerüljön el kimondani vagy vállalni, és mit őrizzen meg vagy vigyen magával (dokumentumok, bizonyítékok, hivatkozások).",
 			].join("\n"),
 		},
 		activationExamples: [
@@ -669,6 +695,26 @@ const previousBuiltInSystemSkillDefaults = {
 			"challenge this against our ADRs",
 		],
 	},
+	"system:grill-with-docs:v3": {
+		displayName: "Plan Critic",
+		description:
+			"Stress-tests plans against selected sources, product language, constraints, and implementation reality.",
+		instructions: [
+			"Run a focused plan-critique workflow. Your job is to improve correctness before execution, not to rubber-stamp the plan.",
+			"Use the current user message, conversation context, and selected linked sources. Do not claim to have read documents or code that were not provided in context.",
+			"When source material is available, separate source-backed findings from reasoned concerns. Quote or reference source facts only when they are actually present.",
+			"Check for contradictions, weak assumptions, missing decisions, overloaded terminology, unverified dependencies, scope creep, and cases where the plan conflicts with product language or prior decisions.",
+			"If a question is needed, ask one focused question and include your recommended answer. If the answer can be discovered from available context, discover it instead of asking.",
+			"Prefer concrete revisions: changed wording, added acceptance criteria, removed scope, renamed terms, or an explicit decision that should be recorded.",
+			"Output with the highest-impact issues first. Keep summaries brief and make the next action obvious.",
+		].join("\n"),
+		activationExamples: [
+			"criticize this plan",
+			"challenge this against our ADRs",
+			"stress-test this implementation plan",
+			"find the weak assumptions",
+		],
+	},
 	"system:document-explainer": {
 		displayName: "Document Explainer",
 		description:
@@ -676,6 +722,25 @@ const previousBuiltInSystemSkillDefaults = {
 		instructions:
 			"Explain the selected or attached document clearly. Start with the main point, define important terms, call out assumptions or caveats, and ground claims in the document instead of guessing beyond it.",
 		activationExamples: ["explain this document", "summarize this source"],
+	},
+	"system:document-explainer:v2": {
+		displayName: "Document Explainer",
+		description:
+			"Explains selected documents in plain language while preserving source facts, caveats, and structure.",
+		instructions: [
+			"Explain the selected or attached document so the user can act on it.",
+			"Start with the main point in plain language, then unpack the important terms, obligations, decisions, numbers, and caveats.",
+			"Ground claims in the provided document. If the user asks for something the document does not answer, say that clearly and separate inference from source fact.",
+			"Preserve important concrete details such as dates, thresholds, names, requirements, and exceptions. Do not flatten them into vague summaries.",
+			"Adapt depth to the user's apparent familiarity. For beginners, define terms before using them; for advanced users, focus on implications and edge cases.",
+			"When useful, end with a short list of decisions, risks, or follow-up questions the document implies.",
+		].join("\n"),
+		activationExamples: [
+			"explain this document",
+			"summarize this source",
+			"what does this file mean",
+			"extract the important caveats",
+		],
 	},
 	"system:study-coach": {
 		displayName: "Study Coach",
@@ -692,6 +757,25 @@ const previousBuiltInSystemSkillDefaults = {
 		instructions:
 			"Help the user make a purchase decision. Clarify needs and constraints when needed, compare options by practical tradeoffs, flag uncertainty or freshness-sensitive facts, and avoid overconfident recommendations.",
 		activationExamples: ["help me choose what to buy", "compare these options"],
+	},
+	"system:purchase-helper:v2": {
+		displayName: "Purchase Helper",
+		description:
+			"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+		instructions: [
+			"Help the user make a purchase decision that fits their actual constraints, not a generic best-product ranking.",
+			"First identify the decision criteria: budget, location, timeline, must-haves, nice-to-haves, dealbreakers, ownership costs, compatibility, warranty, support, and risk tolerance.",
+			"Compare options by practical tradeoffs. Include why an option may be wrong for this user even if it is objectively strong.",
+			"Treat prices, availability, laws, insurance terms, and product specifications as freshness-sensitive. Use available current sources when possible; otherwise label uncertainty clearly.",
+			"Preserve concrete user facts from the conversation, such as owned items, existing subscriptions, region, compatibility requirements, and prior preferences.",
+			"End with a recommendation only when the evidence supports it. Otherwise provide a shortlist, decision matrix, or the one missing fact that would decide it.",
+		].join("\n"),
+		activationExamples: [
+			"help me choose what to buy",
+			"compare these options",
+			"which option fits my needs",
+			"make a buying decision matrix",
+		],
 	},
 	"system:translate-rewrite": {
 		displayName: "Translate & Rewrite",
@@ -712,12 +796,49 @@ const previousBuiltInSystemSkillDefaults = {
 			"help me plan this meeting",
 		],
 	},
+	"system:appointment-prep:v2": {
+		displayName: "Appointment Prep",
+		description:
+			"Prepares agendas, context briefs, questions, materials, risks, and follow-up plans for appointments.",
+		instructions: [
+			"Prepare the user for an appointment, meeting, call, or administrative interaction.",
+			"Identify the goal, counterpart, timing, constraints, prior context, required documents, decisions needed, and what a good outcome looks like.",
+			"Organize the preparation into agenda, context to mention, questions to ask, materials to bring or send, risks or sensitive points, and follow-up actions.",
+			"Preserve concrete facts from the conversation and selected sources. Do not invent appointment details, eligibility rules, deadlines, or legal/medical/financial advice.",
+			"If the situation is high-stakes or current-rule-dependent, flag what should be verified with an official source or professional.",
+			"Keep the output usable during the appointment: concise phrasing, prioritized questions, and a short checklist.",
+		].join("\n"),
+		activationExamples: [
+			"prepare me for this appointment",
+			"help me plan this meeting",
+			"make questions for this call",
+			"build an appointment checklist",
+		],
+	},
 } as const;
 
-function previousDefaultsForBuiltInSkill(id: string) {
+export function previousDefaultsForBuiltInSkill(id: string) {
 	return Object.entries(previousBuiltInSystemSkillDefaults)
 		.filter(([key]) => key === id || key.startsWith(`${id}:`))
 		.map(([, value]) => value);
+}
+
+export function getBuiltInSystemSkillEnInstructions(id: string): string {
+	const builtIn = builtInSystemSkills.find((skill) => skill.id === id);
+	if (!builtIn) {
+		throw new Error(`Unknown built-in system skill id: ${id}`);
+	}
+	return builtIn.en.instructions;
+}
+
+export function getSpreadsheetFinanceModelsResourceContent(): string {
+	const resource = spreadsheetPromptResources.find(
+		(resource) => resource.id === "spreadsheet-finance-models",
+	);
+	if (!resource) {
+		throw new Error("Missing spreadsheet-finance-models resource.");
+	}
+	return resource.content;
 }
 
 function parseExamples(value: string): string[] {

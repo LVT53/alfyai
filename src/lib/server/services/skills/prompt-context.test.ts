@@ -368,4 +368,59 @@ describe("skill prompt context", () => {
 		expect(appendix).not.toContain("ask at most one focused question");
 		expect(mocks.getActiveSkillSession).toHaveBeenCalledTimes(1);
 	});
+
+	it("always includes the universal Tier A operating rule lines after the other rule lines", async () => {
+		mocks.getActiveSkillSession.mockResolvedValueOnce({
+			id: "session-1",
+			userId: "user-1",
+			conversationId: "conv-1",
+			skillId: "skill-1",
+			skillOwnership: "system",
+			status: "active",
+			pauseReason: null,
+			endReason: null,
+			skillDisplayName: "Code Review",
+			skillDescription: "Reviews changes.",
+			skillInstructions: "Lead with bugs and missing tests.",
+			activationExamples: ["review this diff"],
+			durationPolicy: "session",
+			questionPolicy: "ask_when_needed",
+			notesPolicy: "none",
+			sourceScope: "current_conversation",
+			skillVersion: 5,
+			startedFrom: "pending_skill",
+			startedAt: 1,
+			updatedAt: 2,
+			pausedAt: null,
+			endedAt: null,
+			milestones: [],
+		});
+
+		const context = await resolveSkillPromptContext({
+			userId: "user-1",
+			turn: makeTurn(),
+		});
+		const appendix = buildSkillSystemPromptAppendix(context);
+
+		expect(appendix).toBeDefined();
+		expect(appendix).toContain(
+			"- When your answer depends on facts not present in this turn, state what is missing or assumed before proceeding, rather than inventing it.",
+		);
+		expect(appendix).toContain(
+			"- Separate what the sources or user actually provided from your own inference or recommendation.",
+		);
+		expect(appendix).toContain(
+			"- When you deliver the main result, give it a clear, labeled structure — a short takeaway first, then detail — suited to the task.",
+		);
+
+		const factsLineIndex = appendix?.indexOf(
+			"- When your answer depends on facts not present in this turn",
+		);
+		const bundleLineIndex = appendix?.indexOf(
+			"Do not bundle multiple interview or clarification questions",
+		);
+		expect(factsLineIndex).toBeGreaterThan(-1);
+		expect(bundleLineIndex).toBeGreaterThan(-1);
+		expect(factsLineIndex as number).toBeGreaterThan(bundleLineIndex as number);
+	});
 });

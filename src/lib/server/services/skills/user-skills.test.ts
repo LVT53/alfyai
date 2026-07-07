@@ -1259,4 +1259,219 @@ describe("user skill definitions", () => {
 			"VARIANT-OTHER-USER_OVERLAY_SECRET",
 		);
 	});
+
+	it("strengthens grill-with-docs, document-explainer, purchase-helper, and appointment-prep instructions with severity, confidence, comparison, and verify/flag guidance", async () => {
+		seedUsers();
+		const { getBuiltInSystemSkillEnInstructions } = await import(
+			"./user-skills"
+		);
+
+		expect(
+			getBuiltInSystemSkillEnInstructions("system:grill-with-docs"),
+		).toContain("Blocker");
+		expect(
+			getBuiltInSystemSkillEnInstructions("system:document-explainer"),
+		).toContain("Confidence: high/medium/low");
+		expect(
+			getBuiltInSystemSkillEnInstructions("system:purchase-helper"),
+		).toContain("comparison table");
+		expect(
+			getBuiltInSystemSkillEnInstructions("system:appointment-prep"),
+		).toContain("verify / flag");
+	});
+
+	it("enriches the spreadsheet finance-models managed resource with scenario and breakeven guidance", async () => {
+		seedUsers();
+		const { getSpreadsheetFinanceModelsResourceContent } = await import(
+			"./user-skills"
+		);
+
+		const content = getSpreadsheetFinanceModelsResourceContent();
+		expect(content).toContain("below breakeven");
+		expect(content).toContain("scenario");
+		expect(content).toContain("what would change this conclusion");
+		expect(content.length).toBeLessThanOrEqual(700);
+		expect(content.slice(0, 650)).toContain("scenario");
+		expect(content.slice(0, 650)).toContain("below breakeven");
+		expect(content.slice(0, 650)).toContain(
+			"what would change this conclusion",
+		);
+	});
+
+	it("registers pre-edit English instructions as previous defaults for the four strengthened packs", async () => {
+		seedUsers();
+		const { previousDefaultsForBuiltInSkill } = await import("./user-skills");
+
+		const grillPreEdit = [
+			"Run a focused plan-critique workflow. Your job is to improve correctness before execution, not to rubber-stamp the plan.",
+			"Use the current user message, conversation context, and selected linked sources. Do not claim to have read documents or code that were not provided in context.",
+			"When source material is available, separate source-backed findings from reasoned concerns. Quote or reference source facts only when they are actually present.",
+			"Check for contradictions, weak assumptions, missing decisions, overloaded terminology, unverified dependencies, scope creep, and cases where the plan conflicts with product language or prior decisions.",
+			"If a question is needed, ask one focused question and include your recommended answer. If the answer can be discovered from available context, discover it instead of asking.",
+			"Prefer concrete revisions: changed wording, added acceptance criteria, removed scope, renamed terms, or an explicit decision that should be recorded.",
+			"Output with the highest-impact issues first. Keep summaries brief and make the next action obvious.",
+		].join("\n");
+		expect(
+			previousDefaultsForBuiltInSkill("system:grill-with-docs").some(
+				(d) => d.instructions === grillPreEdit,
+			),
+		).toBe(true);
+
+		const documentExplainerPreEdit = [
+			"Explain the selected or attached document so the user can act on it.",
+			"Start with the main point in plain language, then unpack the important terms, obligations, decisions, numbers, and caveats.",
+			"Ground claims in the provided document. If the user asks for something the document does not answer, say that clearly and separate inference from source fact.",
+			"Preserve important concrete details such as dates, thresholds, names, requirements, and exceptions. Do not flatten them into vague summaries.",
+			"Adapt depth to the user's apparent familiarity. For beginners, define terms before using them; for advanced users, focus on implications and edge cases.",
+			"When useful, end with a short list of decisions, risks, or follow-up questions the document implies.",
+		].join("\n");
+		expect(
+			previousDefaultsForBuiltInSkill("system:document-explainer").some(
+				(d) => d.instructions === documentExplainerPreEdit,
+			),
+		).toBe(true);
+
+		const purchaseHelperPreEdit = [
+			"Help the user make a purchase decision that fits their actual constraints, not a generic best-product ranking.",
+			"First identify the decision criteria: budget, location, timeline, must-haves, nice-to-haves, dealbreakers, ownership costs, compatibility, warranty, support, and risk tolerance.",
+			"Compare options by practical tradeoffs. Include why an option may be wrong for this user even if it is objectively strong.",
+			"Treat prices, availability, laws, insurance terms, and product specifications as freshness-sensitive. Use available current sources when possible; otherwise label uncertainty clearly.",
+			"Preserve concrete user facts from the conversation, such as owned items, existing subscriptions, region, compatibility requirements, and prior preferences.",
+			"End with a recommendation only when the evidence supports it. Otherwise provide a shortlist, decision matrix, or the one missing fact that would decide it.",
+		].join("\n");
+		expect(
+			previousDefaultsForBuiltInSkill("system:purchase-helper").some(
+				(d) => d.instructions === purchaseHelperPreEdit,
+			),
+		).toBe(true);
+
+		const appointmentPrepPreEdit = [
+			"Prepare the user for an appointment, meeting, call, or administrative interaction.",
+			"Identify the goal, counterpart, timing, constraints, prior context, required documents, decisions needed, and what a good outcome looks like.",
+			"Organize the preparation into agenda, context to mention, questions to ask, materials to bring or send, risks or sensitive points, and follow-up actions.",
+			"Preserve concrete facts from the conversation and selected sources. Do not invent appointment details, eligibility rules, deadlines, or legal/medical/financial advice.",
+			"If the situation is high-stakes or current-rule-dependent, flag what should be verified with an official source or professional.",
+			"Keep the output usable during the appointment: concise phrasing, prioritized questions, and a short checklist.",
+		].join("\n");
+		expect(
+			previousDefaultsForBuiltInSkill("system:appointment-prep").some(
+				(d) => d.instructions === appointmentPrepPreEdit,
+			),
+		).toBe(true);
+	});
+
+	it("upgrades a seeded row holding pre-edit grill-with-docs instructions but leaves admin-edited text untouched", async () => {
+		seedUsers();
+		const sqlite = new Database(dbPath);
+		sqlite.pragma("foreign_keys = ON");
+		const legacyDb = drizzle(sqlite, { schema });
+		const grillPreEditV2 = [
+			"Run a focused plan-critique workflow. Your job is to improve correctness before execution, not to rubber-stamp the plan.",
+			"Use the current user message, conversation context, and selected linked sources. Do not claim to have read documents or code that were not provided in context.",
+			"When source material is available, separate source-backed findings from reasoned concerns. Quote or reference source facts only when they are actually present.",
+			"Check for contradictions, weak assumptions, missing decisions, overloaded terminology, unverified dependencies, scope creep, and cases where the plan conflicts with product language or prior decisions.",
+			"If a question is needed, ask one focused question and include your recommended answer. If the answer can be discovered from available context, discover it instead of asking.",
+			"Prefer concrete revisions: changed wording, added acceptance criteria, removed scope, renamed terms, or an explicit decision that should be recorded.",
+			"Output with the highest-impact issues first. Keep summaries brief and make the next action obvious.",
+		].join("\n");
+		legacyDb
+			.insert(schema.userSkillDefinitions)
+			.values([
+				{
+					id: "system:grill-with-docs",
+					userId: "user-1",
+					ownership: "system",
+					displayName: "Plan Critic",
+					description:
+						"Stress-tests plans against selected sources, product language, constraints, and implementation reality.",
+					instructions: grillPreEditV2,
+					activationExamplesJson: JSON.stringify([
+						"criticize this plan",
+						"challenge this against our ADRs",
+						"stress-test this implementation plan",
+						"find the weak assumptions",
+					]),
+					enabled: true,
+					published: true,
+					durationPolicy: "next_message",
+					questionPolicy: "ask_when_needed",
+					notesPolicy: "none",
+					sourceScope: "selected_sources_only",
+					creationSource: "system_seed",
+				},
+				{
+					id: "system:purchase-helper",
+					userId: "user-1",
+					ownership: "system",
+					displayName: "Purchase Helper",
+					description:
+						"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+					instructions: "Admin-edited purchase helper instructions.",
+					activationExamplesJson: JSON.stringify([
+						"help me choose what to buy",
+						"compare these options",
+						"which option fits my needs",
+						"make a buying decision matrix",
+					]),
+					enabled: true,
+					published: true,
+					durationPolicy: "next_message",
+					questionPolicy: "ask_when_needed",
+					notesPolicy: "none",
+					sourceScope: "selected_sources_only",
+					creationSource: "system_seed",
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { getSystemSkillDefinition, seedBuiltInSystemSkillDefinitions } =
+			await import("./user-skills");
+
+		await seedBuiltInSystemSkillDefinitions("user-1");
+
+		const upgradedGrill = await getSystemSkillDefinition(
+			"system:grill-with-docs",
+		);
+		expect(upgradedGrill?.instructions).toContain("Blocker");
+		expect(upgradedGrill?.instructions).not.toBe(grillPreEditV2);
+
+		const untouchedPurchaseHelper = await getSystemSkillDefinition(
+			"system:purchase-helper",
+		);
+		expect(untouchedPurchaseHelper?.instructions).toBe(
+			"Admin-edited purchase helper instructions.",
+		);
+	});
+
+	it("leaves translate-rewrite and study-coach instructions unchanged", async () => {
+		seedUsers();
+		const { getBuiltInSystemSkillEnInstructions } = await import(
+			"./user-skills"
+		);
+
+		expect(
+			getBuiltInSystemSkillEnInstructions("system:translate-rewrite"),
+		).toBe(
+			[
+				"Transform the user's text while preserving meaning, intent, facts, and audience fit.",
+				"Before changing ambiguous meaning, ask a focused question or provide the safest version with a brief note about the ambiguity.",
+				"Keep terminology, names, dates, numbers, and formatting-sensitive details consistent unless the user asks to change them.",
+				"For translation, prefer natural target-language phrasing over word-for-word literalism, while preserving register and nuance.",
+				"For rewriting, match the requested tone and medium. Remove clutter, improve structure, and keep the user's voice where possible.",
+				"Usually provide the revised text first. Add a short explanation only when changes are material or the user asked for reasoning.",
+			].join("\n"),
+		);
+
+		expect(getBuiltInSystemSkillEnInstructions("system:study-coach")).toBe(
+			[
+				"Coach the user through active learning rather than only summarizing material.",
+				"Break the topic into learnable chunks, identify prerequisites, and explain the first chunk before moving deeper.",
+				"Use retrieval practice: ask one short check-for-understanding question when useful, then adapt based on the user's answer.",
+				"Correct misunderstandings directly and kindly. Explain why the correction matters, not just what the right answer is.",
+				"Use examples, contrasts, and small exercises. Prefer concrete practice over abstract encouragement.",
+				"End with practical next study steps, spaced repetition prompts, or a small self-test when appropriate.",
+			].join("\n"),
+		);
+	});
 });
