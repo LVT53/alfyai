@@ -81,6 +81,7 @@ const publicProfile = {
 		items: group.items.map((item) => ({
 			...item,
 			updatedAt: item.updatedAt.toISOString(),
+			expiresAt: null,
 		})),
 	})),
 };

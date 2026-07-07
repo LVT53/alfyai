@@ -133,7 +133,6 @@ describe("memory profile foundation", () => {
 		]);
 		expect(publicJson).not.toContain("Suppressed sensitive profile fact");
 		expect(publicJson).not.toContain("honcho");
-		expect(publicJson).not.toContain("confidence");
 		expect(publicJson).not.toContain("debug");
 
 		const detail = await getMemoryProfileItemDetail({
@@ -153,6 +152,92 @@ describe("memory profile foundation", () => {
 					},
 				],
 			}),
+		);
+	});
+
+	it("exposes confidence, expiry class and expiresAt on card items and review expiry", async () => {
+		const { createMemoryProfileItem, createOrUpdateMemoryReviewItem } =
+			await import("./index");
+		const { getMemoryProfileReadModel } = await import("./read-model");
+
+		const statedItem = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "Prefers dark roast coffee.",
+		});
+		const inferredItem = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "goals_ongoing_work",
+			scope: { type: "global" },
+			statement: "Working toward a spring launch.",
+		});
+		const reviewNeededItem = await createMemoryProfileItem({
+			userId: "user-1",
+			category: "about_you",
+			scope: { type: "global" },
+			statement: "Might be moving to Berlin.",
+			status: "review_needed",
+		});
+
+		const statedExpiry = new Date("2026-09-01T00:00:00.000Z");
+		const reviewExpiry = new Date("2026-08-06T00:00:00.000Z");
+		const { sqlite, db } = openSeedDatabase();
+		db.update(schema.memoryProfileItems)
+			.set({
+				metadataJson: JSON.stringify({
+					confidence: "stated",
+					expiryClass: "time_bound",
+				}),
+				expiresAt: statedExpiry,
+			})
+			.where(eq(schema.memoryProfileItems.id, statedItem.id))
+			.run();
+		db.update(schema.memoryProfileItems)
+			.set({
+				metadataJson: JSON.stringify({
+					confidence: "inferred",
+					expiryClass: "durable",
+				}),
+			})
+			.where(eq(schema.memoryProfileItems.id, inferredItem.id))
+			.run();
+		db.update(schema.memoryProfileItems)
+			.set({ expiresAt: reviewExpiry })
+			.where(eq(schema.memoryProfileItems.id, reviewNeededItem.id))
+			.run();
+		sqlite.close();
+
+		await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "judge:berlin-move",
+			subjectLabel: "Might be moving to Berlin.",
+			question: "Should I keep remembering this?",
+			reason: "Inferred from conversation, not stated directly.",
+			affectedItemIds: [reviewNeededItem.id],
+			metadata: {
+				category: "about_you",
+				proposedStatement: "Might be moving to Berlin.",
+			},
+		});
+
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+		const items = profile.categories.flatMap((group) => group.items);
+		const stated = items.find((item) => item.id === statedItem.id);
+		const inferred = items.find((item) => item.id === inferredItem.id);
+
+		expect(stated).toMatchObject({
+			confidence: "stated",
+			expiryClass: "time_bound",
+		});
+		expect(stated?.expiresAt?.toISOString()).toBe(statedExpiry.toISOString());
+		expect(inferred).toMatchObject({
+			confidence: "inferred",
+			expiryClass: "durable",
+			expiresAt: null,
+		});
+		expect(profile.review.visibleItems[0]?.expiresAt).toBe(
+			reviewExpiry.toISOString(),
 		);
 	});
 
@@ -707,6 +792,7 @@ describe("memory profile foundation", () => {
 				question: "Should AlfyAI remember this?",
 				reason: "Needs user confirmation before becoming active memory.",
 				canAccept: true,
+				expiresAt: null,
 			},
 		]);
 	});
@@ -883,6 +969,7 @@ describe("memory profile foundation", () => {
 				question: "Should this be remembered?",
 				reason: "The intake gate could not safely admit this automatically.",
 				canAccept: false,
+				expiresAt: null,
 			},
 		]);
 	});
@@ -1565,6 +1652,7 @@ describe("memory profile foundation", () => {
 				reason:
 					"Maintenance found exact active duplicate memory profile items.",
 				canAccept: false,
+				expiresAt: null,
 			},
 		]);
 		expect(JSON.stringify(profile.review.items)).not.toContain(
@@ -1624,6 +1712,7 @@ describe("memory profile foundation", () => {
 				question: "Which memory profile value should AlfyAI keep?",
 				reason: "Maintenance found a deterministic conflict marker.",
 				canAccept: false,
+				expiresAt: null,
 			},
 		]);
 		expect(JSON.stringify(profile.review.items)).not.toContain("home-city");

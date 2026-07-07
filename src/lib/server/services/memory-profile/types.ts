@@ -56,6 +56,9 @@ export type MemoryProfileItemStatus =
 	| "inactive"
 	| "retired";
 
+export type MemoryProfileItemConfidence = "stated" | "inferred";
+export type MemoryProfileItemExpiryClass = "durable" | "time_bound";
+
 export type MemoryProfileCardItem = {
 	id: string;
 	itemKey: string;
@@ -65,6 +68,9 @@ export type MemoryProfileCardItem = {
 	status: "active";
 	revision: number;
 	updatedAt: Date;
+	confidence: MemoryProfileItemConfidence | null;
+	expiryClass: MemoryProfileItemExpiryClass | null;
+	expiresAt: Date | null;
 	canEdit: boolean;
 	canDelete: boolean;
 	canSuppress: boolean;
@@ -96,6 +102,7 @@ export type MemoryProfileReadModel = {
 			question: string;
 			reason: string;
 			canAccept: boolean;
+			expiresAt: string | null;
 		}>;
 		visibleItems: Array<{
 			id: string;
@@ -103,6 +110,7 @@ export type MemoryProfileReadModel = {
 			question: string;
 			reason: string;
 			canAccept: boolean;
+			expiresAt: string | null;
 		}>;
 		openCount: number;
 		overflowCount: number;

@@ -1581,6 +1581,9 @@ export interface MemoryProfilePublicItem {
 	status: "active";
 	revision: number;
 	updatedAt: string;
+	confidence?: "stated" | "inferred" | null;
+	expiryClass?: "durable" | "time_bound" | null;
+	expiresAt?: string | null;
 	canEdit: boolean;
 	canDelete: boolean;
 	canSuppress: boolean;
@@ -1604,6 +1607,7 @@ export interface MemoryProfileReviewItem {
 	question: string;
 	reason: string;
 	canAccept: boolean;
+	expiresAt?: string | null;
 }
 
 export interface MemoryProfilePublicPayload {
@@ -1659,6 +1663,65 @@ export type MemoryProfileActionPayload =
 			itemId: string;
 			statement: string;
 			expectedProjectionRevision: number;
+	  };
+
+export interface MemoryPersonaSummaryPayload {
+	summary: {
+		text: string;
+		links: Array<{ text: string; factIds: string[] }>;
+		updatedAt: string;
+	} | null;
+}
+
+export interface MemoryTimelineAction {
+	type: "expired" | "renewed" | "superseded" | "merged";
+	itemIds: string[];
+	resultItemId?: string;
+	description: string;
+	undo: Array<{
+		itemId: string;
+		prevStatus: string;
+		prevStatement: string;
+		prevExpiresAt?: string | null;
+	}>;
+}
+
+export interface MemoryTimelineReport {
+	id: string;
+	status: string;
+	summaryText: string;
+	createdAt: string;
+	actions: MemoryTimelineAction[];
+}
+
+export interface MemoryTimelinePayload {
+	reports: MemoryTimelineReport[];
+}
+
+export type MemoryV2ActionPayload =
+	| {
+			kind: "profile_item";
+			action: "correct";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			kind: "profile_item";
+			action: "retire";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			kind: "summary";
+			action: "edit";
+			text: string;
+	  }
+	| {
+			kind: "consolidation";
+			action: "undo";
+			reportId: string;
+			actionIndex: number;
 	  };
 
 export interface KnowledgeMemoryPayload {

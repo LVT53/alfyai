@@ -1,7 +1,29 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageEvidenceSummary } from "$lib/types";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
+
+const {
+	fetchMemoryProfileMock,
+	submitKnowledgeMemoryActionMock,
+	submitMemoryV2ActionMock,
+} = vi.hoisted(() => ({
+	fetchMemoryProfileMock: vi.fn(),
+	submitKnowledgeMemoryActionMock: vi.fn(),
+	submitMemoryV2ActionMock: vi.fn(),
+}));
+
+vi.mock("$lib/client/api/knowledge", () => ({
+	fetchMemoryProfile: fetchMemoryProfileMock,
+	submitKnowledgeMemoryAction: submitKnowledgeMemoryActionMock,
+	submitMemoryV2Action: submitMemoryV2ActionMock,
+}));
 
 function buildSummary(
 	overrides: Partial<MessageEvidenceSummary> = {},
@@ -373,6 +395,169 @@ describe("MessageEvidenceDetails", () => {
 
 		expect(screen.getByText(/Prefers concise summaries/i)).toBeInTheDocument();
 		expect(screen.queryByRole("link")).toBeNull();
+	});
+
+	describe("memory-fact actions", () => {
+		beforeEach(() => {
+			fetchMemoryProfileMock.mockReset();
+			submitKnowledgeMemoryActionMock.mockReset();
+			submitMemoryV2ActionMock.mockReset();
+			fetchMemoryProfileMock.mockResolvedValue({ projectionRevision: 7 });
+			submitKnowledgeMemoryActionMock.mockResolvedValue({});
+			submitMemoryV2ActionMock.mockResolvedValue({});
+		});
+
+		function renderWithMemoryFact() {
+			return render(MessageEvidenceDetails, {
+				evidenceSummary: buildSummary({
+					groups: [
+						{
+							sourceType: "memory",
+							label: "Memory",
+							reranked: false,
+							items: [
+								{
+									id: "memory-fact:item-9",
+									title: "Prefers dark roast coffee.",
+									sourceType: "memory",
+									status: "selected",
+									metadata: { memoryItemId: "item-9" },
+								},
+							],
+						},
+					],
+				}),
+			});
+		}
+
+		it("makes memory-fact items tappable and reveals Correct / Don't use / Retire", async () => {
+			renderWithMemoryFact();
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
+			);
+
+			expect(
+				screen.getByRole("button", { name: "Correct" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Don't use" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Retire" }),
+			).toBeInTheDocument();
+		});
+
+		it("Don't use suppresses the fact via the legacy action with a fetched revision", async () => {
+			renderWithMemoryFact();
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Don't use" }));
+
+			await waitFor(() => {
+				expect(submitKnowledgeMemoryActionMock).toHaveBeenCalledWith({
+					target: "profile_item",
+					action: "suppress",
+					itemId: "item-9",
+					expectedProjectionRevision: 7,
+				});
+			});
+			expect(
+				await screen.findByText("Won't be used anymore"),
+			).toBeInTheDocument();
+		});
+
+		it("Retire posts the v2 retire action and confirms", async () => {
+			renderWithMemoryFact();
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Retire" }));
+
+			await waitFor(() => {
+				expect(submitMemoryV2ActionMock).toHaveBeenCalledWith({
+					kind: "profile_item",
+					action: "retire",
+					itemId: "item-9",
+					expectedProjectionRevision: 7,
+				});
+			});
+			expect(await screen.findByText("Memory retired")).toBeInTheDocument();
+		});
+
+		it("Correct opens a prefilled inline input and posts the corrected statement", async () => {
+			renderWithMemoryFact();
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Correct" }));
+
+			const input = screen.getByRole("textbox");
+			expect(input).toHaveValue("Prefers dark roast coffee.");
+			await fireEvent.input(input, {
+				target: { value: "Prefers light roast coffee." },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Save correction" }),
+			);
+
+			await waitFor(() => {
+				expect(submitMemoryV2ActionMock).toHaveBeenCalledWith({
+					kind: "profile_item",
+					action: "correct",
+					itemId: "item-9",
+					statement: "Prefers light roast coffee.",
+					expectedProjectionRevision: 7,
+				});
+			});
+			expect(await screen.findByText("Memory updated")).toBeInTheDocument();
+		});
+
+		it("shows an error state when the action fails", async () => {
+			submitMemoryV2ActionMock.mockRejectedValueOnce(new Error("boom"));
+			renderWithMemoryFact();
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Retire" }));
+
+			expect(
+				await screen.findByText(/Couldn't update this memory/i),
+			).toBeInTheDocument();
+		});
+
+		it("leaves ordinary memory items without the action row", async () => {
+			render(MessageEvidenceDetails, {
+				evidenceSummary: buildSummary({
+					groups: [
+						{
+							sourceType: "memory",
+							label: "Memory",
+							reranked: false,
+							items: [
+								{
+									id: "memory-1",
+									title: "Recent task state",
+									sourceType: "memory",
+									status: "reference",
+								},
+							],
+						},
+					],
+				}),
+			});
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+			expect(
+				screen.queryByRole("button", { name: /Recent task state/i }),
+			).not.toBeInTheDocument();
+		});
 	});
 
 	it("animates the expanded box out instead of removing it instantly on collapse", async () => {

@@ -62,6 +62,7 @@ function serializeMemoryProfileItem(
 	return {
 		...item,
 		updatedAt: item.updatedAt.toISOString(),
+		expiresAt: item.expiresAt ? item.expiresAt.toISOString() : null,
 	};
 }
 

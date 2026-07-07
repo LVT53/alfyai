@@ -4,9 +4,12 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 	KnowledgeUploadResponse,
+	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
+	MemoryTimelinePayload,
+	MemoryV2ActionPayload,
 	WorkCapsule,
 } from "$lib/types";
 import { _unwrapList } from "./_utils";
@@ -219,6 +222,59 @@ export async function submitKnowledgeMemoryAction(
 	fetchImpl: FetchLike = fetch,
 ): Promise<MemoryProfilePublicPayload> {
 	return requestJson<MemoryProfilePublicPayload>(
+		"/api/knowledge/memory/actions",
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(payload),
+		},
+		"Failed to update memory profile.",
+		fetchImpl,
+	);
+}
+
+export async function fetchMemorySummary(
+	fetchImpl: FetchLike = fetch,
+): Promise<MemoryPersonaSummaryPayload> {
+	return requestJson<MemoryPersonaSummaryPayload>(
+		"/api/knowledge/memory/summary",
+		undefined,
+		"Failed to load memory summary.",
+		fetchImpl,
+	);
+}
+
+export async function fetchMemoryTimeline(
+	fetchImpl: FetchLike = fetch,
+): Promise<MemoryTimelinePayload> {
+	return requestJson<MemoryTimelinePayload>(
+		"/api/knowledge/memory/timeline",
+		undefined,
+		"Failed to load memory timeline.",
+		fetchImpl,
+	);
+}
+
+/**
+ * Sends one of the v2 kind-discriminated memory actions. Summary edits
+ * come back as the updated summary payload; profile-item corrections,
+ * retirements and consolidation undos come back as the refreshed profile.
+ */
+export async function submitMemoryV2Action(
+	payload: Extract<MemoryV2ActionPayload, { kind: "summary" }>,
+	fetchImpl?: FetchLike,
+): Promise<MemoryPersonaSummaryPayload>;
+export async function submitMemoryV2Action(
+	payload: Exclude<MemoryV2ActionPayload, { kind: "summary" }>,
+	fetchImpl?: FetchLike,
+): Promise<MemoryProfilePublicPayload>;
+export async function submitMemoryV2Action(
+	payload: MemoryV2ActionPayload,
+	fetchImpl: FetchLike = fetch,
+): Promise<MemoryPersonaSummaryPayload | MemoryProfilePublicPayload> {
+	return requestJson<MemoryPersonaSummaryPayload | MemoryProfilePublicPayload>(
 		"/api/knowledge/memory/actions",
 		{
 			method: "POST",

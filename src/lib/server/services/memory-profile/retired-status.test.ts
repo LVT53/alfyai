@@ -99,13 +99,18 @@ describe("retired status + persona summary columns", () => {
 		const { ensureProjectionState } = await import("./projection-store");
 		const { db: appDb } = await import("$lib/server/db");
 		const appSchema = await import("$lib/server/db/schema");
-		const state = await ensureProjectionState({ userId: "u1", resetGeneration: 0 });
+		const state = await ensureProjectionState({
+			userId: "u1",
+			resetGeneration: 0,
+		});
 		const { eq } = await import("drizzle-orm");
 		await appDb
 			.update(appSchema.memoryProjectionState)
 			.set({
 				personaSummaryText: "Test.",
-				personaSummaryLinksJson: JSON.stringify([{ text: "Test.", factIds: [] }]),
+				personaSummaryLinksJson: JSON.stringify([
+					{ text: "Test.", factIds: [] },
+				]),
 				personaSummaryUpdatedAt: new Date(),
 			})
 			.where(eq(appSchema.memoryProjectionState.id, state.id));
