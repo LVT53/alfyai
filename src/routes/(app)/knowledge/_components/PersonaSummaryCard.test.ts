@@ -83,6 +83,37 @@ describe("PersonaSummaryCard", () => {
 		).toBeInTheDocument();
 	});
 
+	it("keeps the editor and draft when onEdit resolves false", async () => {
+		const onEdit = vi.fn().mockResolvedValue(false);
+		renderCard({ onEdit });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+		await fireEvent.input(screen.getByRole("textbox"), {
+			target: { value: "A draft that must survive the failed save." },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
+
+		expect(onEdit).toHaveBeenCalledWith(
+			"A draft that must survive the failed save.",
+		);
+		// Failed save: the editor stays open and the draft is untouched.
+		expect(screen.getByRole("textbox")).toHaveValue(
+			"A draft that must survive the failed save.",
+		);
+	});
+
+	it("closes the editor when onEdit resolves true", async () => {
+		const onEdit = vi.fn().mockResolvedValue(true);
+		renderCard({ onEdit });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
+
+		await vi.waitFor(() => {
+			expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+		});
+	});
+
 	it("disables saving while busy and when the text is empty", async () => {
 		renderCard({ busy: true });
 

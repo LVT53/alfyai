@@ -179,7 +179,7 @@ const knowledgeDict = {
 		"memoryProfile.aboutYou": "About You",
 		"memoryProfile.aboutYouEmpty": "No active memories about you yet.",
 		"memoryProfile.activeCount": "{count} active",
-		"memoryProfile.autoExpiresInDays": "auto-expires in {count} days",
+		"memoryProfile.autoExpiresInDays": `auto-expires in {count} day{count, plural, one {} other {s}}`,
 		"memoryProfile.cancel": "Cancel",
 		"memoryProfile.cancelEditing": "Cancel editing",
 		"memoryProfile.cancelReviewEdit": "Cancel review edit",

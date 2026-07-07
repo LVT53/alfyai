@@ -1,4 +1,6 @@
+import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
+import { t } from "./i18n";
 import chatDict from "./i18n/chat";
 import settingsDict from "./i18n/settings";
 import { collectDictionaryKeys } from "./i18n.test-helpers";
@@ -87,6 +89,17 @@ describe("i18n composer and skills namespaces", () => {
 			"Munkaterületi adatok törlése",
 		);
 		expect(settingsDict.hu.settings_deleteAccountPrivacy).toBe("Fiók törlése");
+	});
+
+	it("renders ICU-style plural blocks for singular and plural counts", () => {
+		const translate = get(t);
+
+		expect(translate("memoryProfile.autoExpiresInDays", { count: 1 })).toBe(
+			"auto-expires in 1 day",
+		);
+		expect(translate("memoryProfile.autoExpiresInDays", { count: 10 })).toBe(
+			"auto-expires in 10 days",
+		);
 	});
 
 	it("collects and sorts i18n keys for both languages", () => {

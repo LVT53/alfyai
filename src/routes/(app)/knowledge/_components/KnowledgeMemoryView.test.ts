@@ -276,6 +276,50 @@ describe("KnowledgeMemoryView", () => {
 		});
 	});
 
+	it("keeps the Remove modal open when retire fails", async () => {
+		const onRetire = vi.fn().mockResolvedValue(false);
+		renderMemoryView({ onRetire });
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: /Retire/ }),
+		);
+
+		expect(onRetire).toHaveBeenCalledWith("item-about");
+		// Failed retire follows the Forget/Delete contract: the modal stays open.
+		expect(
+			screen.getByRole("dialog", { name: "Remove this memory?" }),
+		).toBeInTheDocument();
+	});
+
+	it("disables the Retire option while the retire action is pending", async () => {
+		renderMemoryView({
+			onRetire: vi.fn(),
+			pendingActionKey: "item-about:retire",
+		});
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		expect(
+			within(dialog).getByRole("button", { name: /Retire/ }),
+		).toBeDisabled();
+	});
+
 	it("does not offer Retire without an onRetire handler or for review items", async () => {
 		const onRetire = vi.fn();
 		renderMemoryView({ onRetire });
@@ -318,6 +362,34 @@ describe("KnowledgeMemoryView", () => {
 			});
 
 			expect(screen.getByText("auto-expires in 10 days")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("uses the singular form when the countdown is one day", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
+		try {
+			renderMemoryView({
+				profile: {
+					...profile,
+					review: {
+						...profile.review,
+						visibleItems: [
+							{
+								...profile.review.visibleItems[0],
+								expiresAt: "2026-07-07T00:00:00.000Z",
+							},
+						],
+						items: undefined,
+						openCount: 1,
+						overflowCount: 0,
+					},
+				},
+			});
+
+			expect(screen.getByText("auto-expires in 1 day")).toBeInTheDocument();
 		} finally {
 			vi.useRealTimers();
 		}

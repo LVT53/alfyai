@@ -81,12 +81,16 @@ let {
 	) => boolean | Promise<boolean | undefined>;
 	summary?: { text: string; updatedAt: string } | null;
 	summaryBusy?: boolean;
-	onEditSummary?: ((text: string) => void | Promise<void>) | undefined;
+	onEditSummary?:
+		| ((text: string) => boolean | undefined | Promise<boolean | undefined>)
+		| undefined;
 	timelineReports?: MemoryTimelineReport[];
 	onUndoConsolidation?:
 		| ((reportId: string, actionIndex: number) => void | Promise<void>)
 		| undefined;
-	onRetire?: ((itemId: string) => void | Promise<void>) | undefined;
+	onRetire?:
+		| ((itemId: string) => boolean | undefined | Promise<boolean | undefined>)
+		| undefined;
 } = $props();
 
 let selectedItem = $state<
@@ -169,8 +173,15 @@ async function confirmRetire() {
 	if (!removeTarget || removeTarget.kind !== "profile_item" || !onRetire) {
 		return;
 	}
-	await onRetire(removeTarget.item.id);
+	const success = await onRetire(removeTarget.item.id);
+	// Same contract as Forget/Delete: an explicit `false` keeps the modal open
+	// so the user can retry or pick another option.
+	if (success === false) return;
 	closeRemove();
+}
+
+function retireKey(itemId: string): string {
+	return `${itemId}:retire`;
 }
 
 function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
@@ -429,7 +440,7 @@ $effect(() => {
 		<PersonaSummaryCard
 			{summary}
 			busy={summaryBusy}
-			onEdit={(text) => void onEditSummary?.(text)}
+			onEdit={(text) => onEditSummary?.(text)}
 		/>
 
 		<div class="grid gap-4 lg:grid-cols-2">
@@ -529,6 +540,7 @@ $effect(() => {
 
 		<MemoryTimeline
 			reports={timelineReports}
+			{pendingActionKey}
 			onUndo={(reportId, actionIndex) =>
 				void onUndoConsolidation?.(reportId, actionIndex)}
 		/>
@@ -765,8 +777,9 @@ $effect(() => {
 				{#if removeTarget.kind === "profile_item" && onRetire}
 					<button
 						type="button"
-						class="memory-remove-option memory-remove-retire cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2.5 text-left transition hover:border-primary"
+						class="memory-remove-option memory-remove-retire cursor-pointer rounded-[0.5rem] border border-border bg-transparent px-3 py-2.5 text-left transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={() => void confirmRetire()}
+						disabled={pendingActionKey === retireKey(removeTarget.item.id)}
 					>
 						<span class="flex items-center gap-2">
 							<Archive size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />

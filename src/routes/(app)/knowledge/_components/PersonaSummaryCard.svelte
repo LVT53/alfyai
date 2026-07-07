@@ -10,7 +10,7 @@ let {
 }: {
 	summary: { text: string; updatedAt: string } | null;
 	busy: boolean;
-	onEdit: (text: string) => void;
+	onEdit: (text: string) => boolean | undefined | Promise<boolean | undefined>;
 } = $props();
 
 let editing = $state(false);
@@ -27,11 +27,14 @@ function closeEditor() {
 	draft = "";
 }
 
-function save() {
+async function save() {
 	const text = draft.trim();
 	if (!text || busy) return;
-	onEdit(text);
-	editing = false;
+	const success = await onEdit(text);
+	// Mirror the onAction contract: an explicit `false` means the save failed,
+	// so keep the editor (and the draft) open for another attempt.
+	if (success === false) return;
+	closeEditor();
 }
 
 let updatedLabel = $derived(

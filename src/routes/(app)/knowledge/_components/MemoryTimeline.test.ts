@@ -130,6 +130,19 @@ describe("MemoryTimeline", () => {
 		expect(onUndo).toHaveBeenCalledWith("report-new", 1);
 	});
 
+	it("disables the Undo button whose action is pending", async () => {
+		renderTimeline({ pendingActionKey: "report-new:1:undo" });
+
+		const newest = screen.getAllByRole("listitem")[0];
+		await fireEvent.click(
+			within(newest).getByText("Merged 2 duplicates, then stopped early."),
+		);
+		const undoButtons = within(newest).getAllByRole("button", { name: "Undo" });
+
+		expect(undoButtons[1]).toBeDisabled();
+		expect(undoButtons[0]).not.toBeDisabled();
+	});
+
 	it("renders a quiet empty state when there are no reports", () => {
 		renderTimeline({ reports: [] });
 

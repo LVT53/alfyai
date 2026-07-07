@@ -479,25 +479,27 @@ async function refreshMemoryTimeline() {
 	}
 }
 
-async function handleSummaryEdit(text: string) {
-	if (memorySummaryBusy) return;
+async function handleSummaryEdit(text: string): Promise<boolean> {
+	if (memorySummaryBusy) return false;
 	manageError = "";
 	memorySummaryBusy = true;
 	try {
 		memorySummary = (
 			await submitMemoryV2Action({ kind: "summary", action: "edit", text })
 		).summary;
+		return true;
 	} catch (error) {
 		manageError =
 			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		return false;
 	} finally {
 		memorySummaryBusy = false;
 	}
 }
 
-async function handleRetireMemoryItem(itemId: string) {
+async function handleRetireMemoryItem(itemId: string): Promise<boolean> {
 	const key = `${itemId}:retire`;
-	if (pendingMemoryActionKey === key) return;
+	if (pendingMemoryActionKey === key) return false;
 
 	manageError = "";
 	pendingMemoryActionKey = key;
@@ -509,6 +511,7 @@ async function handleRetireMemoryItem(itemId: string) {
 			expectedProjectionRevision: memoryProfile?.projectionRevision ?? 0,
 		});
 		memoryLoaded = true;
+		return true;
 	} catch (error) {
 		if (
 			error instanceof ApiError &&
@@ -517,10 +520,11 @@ async function handleRetireMemoryItem(itemId: string) {
 			await loadMemoryProfile(true);
 			manageError =
 				"Memory profile was updated. Review the latest profile and try again.";
-			return;
+			return false;
 		}
 		manageError =
 			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		return false;
 	} finally {
 		pendingMemoryActionKey = null;
 	}

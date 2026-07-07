@@ -6,10 +6,16 @@ import { Moon, RotateCcw } from "@lucide/svelte";
 let {
 	reports,
 	onUndo,
+	pendingActionKey = null,
 }: {
 	reports: MemoryTimelineReport[];
 	onUndo: (reportId: string, actionIndex: number) => void;
+	pendingActionKey?: string | null;
 } = $props();
+
+function undoKey(reportId: string, actionIndex: number): string {
+	return `${reportId}:${actionIndex}:undo`;
+}
 
 let sortedReports = $derived(
 	[...reports].sort(
@@ -78,8 +84,9 @@ function formatReportDate(createdAt: string): string {
 										</p>
 										<button
 											type="button"
-											class="memory-timeline-undo inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-sans font-medium text-text-primary transition hover:border-primary"
+											class="memory-timeline-undo inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-sans font-medium text-text-primary transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
 											onclick={() => onUndo(report.id, actionIndex)}
+											disabled={pendingActionKey === undoKey(report.id, actionIndex)}
 											title={$t("memoryProfile.undoAction")}
 										>
 											<RotateCcw size={13} strokeWidth={2.1} aria-hidden="true" />
