@@ -812,6 +812,93 @@ describe("runMemoryRecuration", () => {
 		expect(unparsed.length).toBe(3);
 	});
 
+	it("falls back to a per-item pass when a split half still parses to zero, so no item is silently skipped", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u7b";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+
+		// Three eligible items. Any call with MORE THAN ONE item returns reasoning
+		// prose (the live DeepSeek failure: reasoning burns the budget on multi-
+		// item batches). Only single-item calls emit valid JSON. Success = the
+		// depth-cap per-item fallback recovers EVERY item rather than dropping a
+		// whole failing half — the exact production-snapshot gave-up scenario.
+		const ids = [0, 1, 2].map((n) =>
+			seedItem(db, {
+				userId,
+				projectionStateId,
+				statement: `${PEER_TOKEN} statement number ${n}, as mentioned in conversation.`,
+				now,
+			}),
+		);
+
+		sendJsonControlMessageMock.mockImplementation(
+			(
+				userMessage: string,
+				_model: string,
+				options: { jsonSchema?: { name?: string } },
+			) => {
+				if (options?.jsonSchema?.name === "memory_recuration_verdicts") {
+					const parsed = JSON.parse(userMessage) as {
+						items: Array<{ itemId: string }>;
+					};
+					if (parsed.items.length > 1) {
+						return Promise.resolve(
+							makeControlResponse(
+								"Let me reason through each of these items against the five gates before emitting anything.",
+							),
+						);
+					}
+					return Promise.resolve(
+						makeControlResponse(
+							JSON.stringify({
+								verdicts: parsed.items.map((i) => ({
+									itemId: i.itemId,
+									verdict: "retire",
+								})),
+							}),
+						),
+					);
+				}
+				if (options?.jsonSchema?.name === "persona_summary") {
+					return Promise.resolve(
+						makeControlResponse(
+							JSON.stringify({ sentences: [{ text: "A user.", factIds: [] }] }),
+						),
+					);
+				}
+				return Promise.resolve(
+					makeControlResponse(JSON.stringify({ actions: [] })),
+				);
+			},
+		);
+
+		const { runMemoryRecuration } = await import("./memory-recuration");
+		const result = await runMemoryRecuration(userId);
+
+		// Every item recovered by the per-item fallback — nothing silently dropped.
+		expect(result.retired).toBe(3);
+		for (const id of ids) {
+			expect(readItem(db, id)?.status).toBe("retired");
+		}
+
+		// A per-item-fallback breadcrumb was emitted (the failing multi-item half),
+		// and no batch was recorded as a terminal single-item give-up.
+		const unparsed = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.userId, userId))
+			.all()
+			.filter((r) => r.eventName === "recuration_batch_unparsed");
+		expect(unparsed.some((r) => r.reason?.includes("per-item-fallback"))).toBe(
+			true,
+		);
+		expect(
+			unparsed.some((r) => r.reason?.includes("gave-up-single-item")),
+		).toBe(false);
+	});
+
 	it("recovers a verdicts envelope embedded in reasoning prose (and ignores a quoted format example)", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

@@ -403,24 +403,39 @@ export async function runMemoryRecuration(userId: string): Promise<{
 
 		if (verdicts.length === 0) {
 			// A non-empty batch that yields no verdicts almost always means the
-			// model response was truncated into invalid JSON. Make it VISIBLE and,
-			// at the top level only, split-retry so a large batch's truncation
-			// doesn't silently drop every item.
+			// model burned its whole reasoning budget and emitted no parseable
+			// JSON. Make it VISIBLE, then recover so no real fact is silently
+			// dropped: split in half once, and at the split cap fall back to a
+			// flat per-item pass (each item its own call at the smallest — thus
+			// most reasoning-headroom-per-item — budget). A lone item that still
+			// fails is the genuine terminal give-up. Call count is bounded O(n)
+			// per batch (split is one level; the per-item pass is a flat loop of
+			// single-item calls that cannot recurse), never exponential.
+			const canSplit = eligible.length > 1 && depth < MAX_SPLIT_DEPTH;
+			const canPerItem = eligible.length > 1 && depth >= MAX_SPLIT_DEPTH;
 			await recordMemoryReworkTelemetry({
 				userId,
 				eventFamily: "intake",
 				eventName: "recuration_batch_unparsed",
-				reason: `size=${eligible.length}${
-					depth < MAX_SPLIT_DEPTH ? " retrying-split" : " gave-up-after-split"
+				reason: `size=${eligible.length} ${
+					canSplit
+						? "retrying-split"
+						: canPerItem
+							? "per-item-fallback"
+							: "gave-up-single-item"
 				}`,
 				status: "error",
 				count: eligible.length,
 			}).catch(() => {});
 
-			if (depth < MAX_SPLIT_DEPTH && eligible.length > 1) {
+			if (canSplit) {
 				const mid = Math.ceil(eligible.length / 2);
 				await processEligibleSet(eligible.slice(0, mid), depth + 1);
 				await processEligibleSet(eligible.slice(mid), depth + 1);
+			} else if (canPerItem) {
+				for (const item of eligible) {
+					await processEligibleSet([item], depth + 1);
+				}
 			}
 			return;
 		}
