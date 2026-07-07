@@ -232,18 +232,28 @@ export async function runMemoryRecuration(userId: string): Promise<{
 			if (effectiveVerdict === "rewrite") {
 				const newStatement = (verdict.statement as string).trim();
 				const expiryClass = verdict.expiryClass;
+				const wasReviewNeeded = row.status === "review_needed";
 				const expiresAt =
 					expiryClass === "time_bound" && verdict.expiresInDays
 						? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
 						: undefined;
+				// On a review_needed -> active transition, always recompute
+				// expiresAt from the verdict (mirrors the accept flow in
+				// memory-profile/review.ts): time_bound sets a fresh horizon,
+				// otherwise the review-window expiry is cleared entirely.
+				const expiresAtPatch = wasReviewNeeded
+					? { expiresAt: expiresAt ?? null }
+					: expiresAt
+						? { expiresAt }
+						: {};
 				const patched = await updateMemoryProfileItemWithRevision({
 					userId,
 					itemId: row.id,
 					expectedProjectionRevision: projectionRevision,
 					patch: {
 						statement: newStatement,
-						...(row.status === "review_needed" ? { status: "active" } : {}),
-						...(expiresAt ? { expiresAt } : {}),
+						...(wasReviewNeeded ? { status: "active" } : {}),
+						...expiresAtPatch,
 					},
 				});
 				if (patched.status === "updated") {
@@ -282,11 +292,16 @@ export async function runMemoryRecuration(userId: string): Promise<{
 
 			// keep
 			if (row.status === "review_needed") {
+				const expiryClass = verdict.expiryClass;
+				const expiresAt =
+					expiryClass === "time_bound" && verdict.expiresInDays
+						? new Date(Date.now() + verdict.expiresInDays * 86_400_000)
+						: null;
 				const patched = await updateMemoryProfileItemWithRevision({
 					userId,
 					itemId: row.id,
 					expectedProjectionRevision: projectionRevision,
-					patch: { status: "active" },
+					patch: { status: "active", expiresAt },
 				});
 				if (patched.status === "updated") {
 					projectionRevision = patched.projectionRevision;
@@ -301,8 +316,30 @@ export async function runMemoryRecuration(userId: string): Promise<{
 		}
 	}
 
+	// Items still stuck in review_needed after the batches ran (e.g. their
+	// batch's control-model call failed) must not have their review row
+	// force-resolved: that would orphan the item in review_needed with no
+	// visible review row. Only resolve rows that don't reference any such
+	// still-pending item.
+	const stillReviewNeededRows = await db
+		.select({ id: memoryProfileItems.id })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, userId),
+				eq(memoryProfileItems.resetGeneration, resetGeneration),
+				eq(memoryProfileItems.status, "review_needed"),
+			),
+		);
+	const stillReviewNeededIds = new Set(
+		stillReviewNeededRows.map((row) => row.id),
+	);
+
 	const openReviewRows = await db
-		.select({ id: memoryReviewItems.id })
+		.select({
+			id: memoryReviewItems.id,
+			affectedItemIdsJson: memoryReviewItems.affectedItemIdsJson,
+		})
 		.from(memoryReviewItems)
 		.where(
 			and(
@@ -312,6 +349,18 @@ export async function runMemoryRecuration(userId: string): Promise<{
 			),
 		);
 	for (const review of openReviewRows) {
+		let affectedItemIds: string[] = [];
+		try {
+			const parsed = JSON.parse(review.affectedItemIdsJson ?? "[]");
+			if (Array.isArray(parsed)) affectedItemIds = parsed;
+		} catch {
+			// malformed metadata: fall through with an empty list, resolve as usual
+		}
+		const referencesUnprocessedItem = affectedItemIds.some((id) =>
+			stillReviewNeededIds.has(id),
+		);
+		if (referencesUnprocessedItem) continue;
+
 		const result = await resolveMemoryReviewItem({
 			userId,
 			reviewItemId: review.id,
@@ -326,19 +375,23 @@ export async function runMemoryRecuration(userId: string): Promise<{
 	return { kept, rewritten, retired, reviewResolved };
 }
 
-export async function runAllUsersMemoryRecuration(): Promise<
+export async function runAllUsersMemoryRecuration(
+	userIds?: string[],
+): Promise<
 	Record<
 		string,
 		{ kept: number; rewritten: number; retired: number; reviewResolved: number }
 	>
 > {
-	const rows = await db.select({ id: users.id }).from(users);
+	const ids =
+		userIds ??
+		(await db.select({ id: users.id }).from(users)).map((row) => row.id);
 	const results: Record<
 		string,
 		{ kept: number; rewritten: number; retired: number; reviewResolved: number }
 	> = {};
-	for (const row of rows) {
-		results[row.id] = await runMemoryRecuration(row.id);
+	for (const id of ids) {
+		results[id] = await runMemoryRecuration(id);
 	}
 	return results;
 }

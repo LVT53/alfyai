@@ -1,8 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireAdmin } from "$lib/server/auth/hooks";
-import { db } from "$lib/server/db";
-import { users } from "$lib/server/db/schema";
-import { runMemoryRecuration } from "$lib/server/services/memory-recuration";
+import { runAllUsersMemoryRecuration } from "$lib/server/services/memory-recuration";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -13,22 +11,9 @@ export const POST: RequestHandler = async (event) => {
 			userId?: string;
 		};
 
-		const userIds = body.userId
-			? [body.userId]
-			: (await db.select({ id: users.id }).from(users)).map((row) => row.id);
-
-		const results: Record<
-			string,
-			{
-				kept: number;
-				rewritten: number;
-				retired: number;
-				reviewResolved: number;
-			}
-		> = {};
-		for (const userId of userIds) {
-			results[userId] = await runMemoryRecuration(userId);
-		}
+		const results = await runAllUsersMemoryRecuration(
+			body.userId ? [body.userId] : undefined,
+		);
 
 		return json({ results });
 	} catch (error) {
