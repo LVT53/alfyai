@@ -30,6 +30,8 @@ async function main() {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
+				// Mirror production: the judge disables chain-of-thought.
+				thinkingMode: "off",
 				maxTokens: reasoningAwareMaxTokens(fx.segment.length),
 				jsonSchema: JUDGE_JSON_SCHEMA,
 				allowReasoningFallback: true,

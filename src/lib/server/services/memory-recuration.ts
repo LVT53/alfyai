@@ -196,6 +196,11 @@ async function fetchRecurationVerdicts(
 		{
 			systemPrompt: buildRecurationSystemPrompt(),
 			temperature: 0,
+			// Re-curation is structured extraction, not reasoning: disable the
+			// model's chain-of-thought. On a thinking model (e.g. a Qwen served
+			// with enable_thinking=true) CoT adds ~40-60% latency/tokens per call
+			// and overflows large batches into unparseable output for zero gain.
+			thinkingMode: "off",
 			maxTokens,
 			jsonSchema: RECURATION_JSON_SCHEMA,
 			allowReasoningFallback: true,
