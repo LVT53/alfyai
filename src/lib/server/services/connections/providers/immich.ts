@@ -23,6 +23,7 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
+import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -100,19 +101,26 @@ function stripTrailingSlashes(value: string): string {
 
 // Accepts `https://host`, `https://host/`, or `https://host/api` (with or
 // without a trailing slash) and always returns the bare origin the way the
-// rest of this module expects to build `{origin}/api/...` calls.
+// rest of this module expects to build `{origin}/api/...` calls. Delegates
+// the https + private/loopback/link-local host guard to the shared
+// `assertPublicHttpsUrl` (see nextcloud-files.ts) — the user-pasted server
+// URL here is fetched server-side with the user's secret attached, exactly
+// like the Nextcloud connector's serverUrl, so it needs the same SSRF guard.
 function normalizeOrigin(serverUrl: string): string {
 	const trimmed = serverUrl.trim();
 	if (!trimmed) {
 		throw new ImmichError("A server URL is required", "invalid_config");
 	}
-	if (!/^https?:\/\//i.test(trimmed)) {
+	let validated: string;
+	try {
+		validated = assertPublicHttpsUrl(trimmed);
+	} catch (err) {
 		throw new ImmichError(
-			"Server URL must start with http:// or https://",
+			err instanceof Error ? err.message : String(err),
 			"invalid_config",
 		);
 	}
-	let origin = stripTrailingSlashes(trimmed);
+	let origin = stripTrailingSlashes(validated);
 	if (/\/api$/i.test(origin)) {
 		origin = stripTrailingSlashes(origin.slice(0, -4));
 	}

@@ -244,6 +244,65 @@ describe("immichConnect", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["a plain http:// URL", "http://photos.example.com"],
+		["a loopback IPv4 host", "https://127.0.0.1:2283"],
+		["a private RFC1918 host", "https://192.168.1.10"],
+		["the cloud metadata address", "https://169.254.169.254/latest"],
+		["a loopback IPv6 host", "https://[::1]:2283"],
+	])("rejects %s as invalid_config without ever calling fetch (SSRF guard)", async (_label, serverUrl) => {
+		seedUser(USER_ID);
+		const { immichConnect, ImmichError } = await import("./immich");
+		const fetchMock = vi.fn();
+
+		try {
+			await immichConnect({
+				userId: USER_ID,
+				serverUrl,
+				email: "alice@example.com",
+				password: "hunter2",
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+			throw new Error("expected immichConnect to throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(ImmichError);
+			expect((err as InstanceType<typeof ImmichError>).code).toBe(
+				"invalid_config",
+			);
+		}
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("still normalizes a public https server URL with a trailing /api/", async () => {
+		seedUser(USER_ID);
+		const { immichConnect } = await import("./immich");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.endsWith("/api/auth/login")) {
+				return jsonResponse(200, {
+					accessToken: "token",
+					userId: "user-1",
+					userEmail: "alice@example.com",
+				});
+			}
+			if (url.endsWith("/api/api-keys")) {
+				return jsonResponse(201, { secret: "s3cr3t", apiKey: {} });
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		const { connection } = await immichConnect({
+			userId: USER_ID,
+			serverUrl: "https://photos.example.com/api/",
+			email: "alice@example.com",
+			password: "hunter2",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.config.origin).toBe("https://photos.example.com");
+	});
+
 	it("a 401 on login surfaces a clear invalid_credentials error with no password in the message", async () => {
 		seedUser(USER_ID);
 		const { immichConnect, ImmichError } = await import("./immich");
