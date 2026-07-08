@@ -23,6 +23,11 @@ import {
 	sanitizeCalendarToolInput,
 } from "./calendar";
 import {
+	contactsToolInputSchema,
+	runContactsTool,
+	sanitizeContactsToolInput,
+} from "./contacts";
+import {
 	emailToolInputSchema,
 	runEmailTool,
 	sanitizeEmailToolInput,
@@ -198,6 +203,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the user's own current or past location from their connected OwnTracks device — e.g. 'where am I' or 'where was I yesterday'. Always resolves to the user's own self-selected device only. Read-only.",
 			errorPrefix: "Location lookup failed",
 		},
+		contacts: {
+			description:
+				"Look up a contact's identity (email/phone) by name across the user's connected contacts sources (Google, Apple iCloud). Use when the user asks for someone's email address, phone number, or wants you to address a message to a named person. Read-only.",
+			errorPrefix: "Contacts lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -254,6 +264,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó saját, csatlakoztatott OwnTracks eszközének jelenlegi vagy korábbi helyzetének lekérdezése — pl. 'hol vagyok' vagy 'hol voltam tegnap'. Mindig kizárólag a felhasználó saját, általa kiválasztott eszközére vonatkozik. Csak olvasható.",
 			errorPrefix: "A helyadat lekérdezése sikertelen",
 		},
+		contacts: {
+			description:
+				"Egy kapcsolattartó adatainak (e-mail/telefonszám) keresése név alapján a felhasználó csatlakoztatott kapcsolattartó-forrásaiban (Google, Apple iCloud). Akkor használd, ha a felhasználó valakinek az e-mail címét, telefonszámát kéri, vagy szeretné, hogy egy megnevezett személynek címezz egy üzenetet. Csak olvasható.",
+			errorPrefix: "A kapcsolattartók elérése sikertelen",
+		},
 	},
 };
 
@@ -284,6 +299,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includeLocationTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("location"),
+	);
+	const includeContactsTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("contacts"),
 	);
 
 	const tools = {
@@ -1249,6 +1267,86 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "location",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeContactsTool
+			? {
+					contacts: asExecutableTool(
+						tool({
+							description: i18n.contacts.description,
+							inputSchema: contactsToolInputSchema,
+							execute: async (
+								input: z.infer<typeof contactsToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeContactsToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "contacts",
+									timeoutMs: TOOL_TIMEOUTS_MS.contacts,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runContactsTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "contacts",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													contactCount: modelPayload.contacts.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.contacts.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "contacts" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											contacts: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "contacts",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

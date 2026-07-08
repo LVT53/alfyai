@@ -24,6 +24,11 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
+// Type-only — ContactMatch is owned by contacts.ts (5.8's shared resolver
+// hub, see its module doc comment); this is erased at compile time so it
+// creates no runtime circular dependency with contacts.ts importing
+// appleSearchContacts from this module.
+import type { ContactMatch } from "./contacts";
 import type { CalendarEvent } from "./google-calendar";
 
 export type { CalendarEvent } from "./google-calendar";
@@ -44,6 +49,13 @@ const { JSDOM } = require("jsdom") as {
 
 const USER_AGENT = "AlfyAI";
 const WELL_KNOWN_URL = "https://caldav.icloud.com/.well-known/caldav";
+// CardDAV (contacts, 5.8) has its own well-known discovery entry point,
+// distinct from CalDAV's — both live on iCloud and both redirect to the same
+// kind of per-account "partition" host, but the well-known paths themselves
+// differ and are discovered independently (contacts does NOT reuse the
+// calendar discovery's cached principal/home URLs).
+const WELL_KNOWN_CARDDAV_URL =
+	"https://contacts.icloud.com/.well-known/carddav";
 const REQUEST_TIMEOUT_MS = 15_000;
 // Bounds how many 3xx hops a single discovery/read request will follow — a
 // real iCloud discovery is at most one redirect (well-known -> partition
@@ -52,6 +64,7 @@ const MAX_REDIRECTS = 5;
 
 const DAV_NS = "DAV:";
 const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
+const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
 
 export type AppleCalDavErrorCode =
 	| "invalid_credentials"
@@ -353,6 +366,152 @@ async function discoverAppleCalendars(
 		calendarHomeUrl,
 	);
 	return { appleId, principalUrl, calendarHomeUrl, calendarUrls };
+}
+
+// ---------------------------------------------------------------------------
+// CardDAV discovery for Contacts (5.8): .well-known/carddav ->
+// current-user-principal -> addressbook-home-set -> addressbook collections.
+// Same redirect-following/XML-parsing plumbing as the CalDAV discovery above
+// (caldavRequest, parseXml, textOf, firstNs) — CardDAV and CalDAV are sibling
+// WebDAV extensions and share the same PROPFIND/REPORT mechanics, only the
+// XML namespace and element names differ.
+// ---------------------------------------------------------------------------
+
+const ADDRESSBOOK_HOME_SET_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+	<d:prop>
+		<card:addressbook-home-set/>
+	</d:prop>
+</d:propfind>`;
+
+const ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+	<d:prop>
+		<d:resourcetype/>
+		<d:displayname/>
+	</d:prop>
+</d:propfind>`;
+
+async function discoverAddressbookPrincipalUrl(
+	fetchImpl: typeof fetch,
+	auth: string,
+): Promise<string> {
+	const { xml, finalUrl } = await caldavRequest(
+		fetchImpl,
+		WELL_KNOWN_CARDDAV_URL,
+		auth,
+		"PROPFIND",
+		"0",
+		PRINCIPAL_PROPFIND_BODY,
+	);
+	const doc = parseXml(xml);
+	const principalHref = textOf(
+		firstNs(
+			firstNs(doc, DAV_NS, "current-user-principal") ?? doc,
+			DAV_NS,
+			"href",
+		),
+	);
+	if (!principalHref) {
+		throw new AppleCalDavError(
+			"Apple CardDAV discovery did not return a current-user-principal",
+			"request_failed",
+		);
+	}
+	return new URL(principalHref, finalUrl).toString();
+}
+
+async function discoverAddressbookHomeUrl(
+	fetchImpl: typeof fetch,
+	auth: string,
+	principalUrl: string,
+): Promise<string> {
+	const { xml, finalUrl } = await caldavRequest(
+		fetchImpl,
+		principalUrl,
+		auth,
+		"PROPFIND",
+		"0",
+		ADDRESSBOOK_HOME_SET_PROPFIND_BODY,
+	);
+	const doc = parseXml(xml);
+	const homeHref = textOf(
+		firstNs(
+			firstNs(doc, CARDDAV_NS, "addressbook-home-set") ?? doc,
+			DAV_NS,
+			"href",
+		),
+	);
+	if (!homeHref) {
+		throw new AppleCalDavError(
+			"Apple CardDAV discovery did not return an addressbook-home-set",
+			"request_failed",
+		);
+	}
+	return new URL(homeHref, finalUrl).toString();
+}
+
+// A response entry is kept when its resourcetype includes
+// CARDDAV:addressbook — filters out the home-set root collection itself
+// (which has no addressbook resourcetype), mirroring
+// isVeventCalendarCollection's filtering role for CalDAV above.
+function isAddressbookCollection(responseEl: Element): boolean {
+	const propstats = Array.from(
+		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
+	);
+	const okPropstat =
+		propstats.find((ps) => {
+			const status = textOf(firstNs(ps, DAV_NS, "status"));
+			return status ? / 200 /.test(` ${status} `) : false;
+		}) ?? propstats[0];
+	const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+	if (!prop) return false;
+
+	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
+	return resourcetype
+		? resourcetype.getElementsByTagNameNS(CARDDAV_NS, "addressbook").length > 0
+		: false;
+}
+
+async function discoverAddressbookUrls(
+	fetchImpl: typeof fetch,
+	auth: string,
+	addressbookHomeUrl: string,
+): Promise<string[]> {
+	const { xml, finalUrl } = await caldavRequest(
+		fetchImpl,
+		addressbookHomeUrl,
+		auth,
+		"PROPFIND",
+		"1",
+		ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY,
+	);
+	const doc = parseXml(xml);
+	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
+
+	const urls: string[] = [];
+	for (const responseEl of responses) {
+		if (!isAddressbookCollection(responseEl)) continue;
+		const href = textOf(firstNs(responseEl, DAV_NS, "href"));
+		if (!href) continue;
+		urls.push(new URL(href, finalUrl).toString());
+	}
+	return urls;
+}
+
+async function discoverAppleAddressbooks(
+	fetchImpl: typeof fetch,
+	appleId: string,
+	appPassword: string,
+): Promise<string[]> {
+	const auth = basicAuthHeader(appleId, appPassword);
+	const principalUrl = await discoverAddressbookPrincipalUrl(fetchImpl, auth);
+	const homeUrl = await discoverAddressbookHomeUrl(
+		fetchImpl,
+		auth,
+		principalUrl,
+	);
+	return discoverAddressbookUrls(fetchImpl, auth, homeUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -752,6 +911,207 @@ export async function appleListEvents(
 	}
 
 	return events.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+// ---------------------------------------------------------------------------
+// vCard (RFC 6350) parser for Contacts (5.8) — hand-rolled, no dependency,
+// deliberately mirroring parseICalEvents above: vCard and iCalendar share the
+// same RFC 5545 §3.1-style line-folding and "NAME;PARAM=VALUE:value" content
+// line grammar (RFC 6350 explicitly reuses it), so unfoldICalLines and
+// parseICalProperty are reused as-is rather than duplicated. Only extracts
+// what the contacts resolver needs (FN, EMAIL, TEL) — not a general-purpose
+// vCard library.
+// ---------------------------------------------------------------------------
+
+export type ParsedVCard = {
+	fn?: string;
+	emails: string[];
+	phones: string[];
+};
+
+export function parseVCards(vcardText: string): ParsedVCard[] {
+	const lines = unfoldICalLines(vcardText);
+	const cards: ParsedVCard[] = [];
+
+	let inCard = false;
+	let fn: string | undefined;
+	let emails: string[] = [];
+	let phones: string[] = [];
+
+	for (const line of lines) {
+		if (line === "BEGIN:VCARD") {
+			inCard = true;
+			fn = undefined;
+			emails = [];
+			phones = [];
+			continue;
+		}
+		if (line === "END:VCARD") {
+			if (inCard)
+				cards.push({ ...(fn !== undefined ? { fn } : {}), emails, phones });
+			inCard = false;
+			continue;
+		}
+		if (!inCard) continue;
+
+		const prop = parseICalProperty(line);
+		if (!prop) continue;
+		switch (prop.name) {
+			case "FN":
+				fn = unescapeICalText(prop.value);
+				break;
+			case "EMAIL": {
+				const value = unescapeICalText(prop.value.trim());
+				if (value) emails.push(value);
+				break;
+			}
+			case "TEL": {
+				const value = unescapeICalText(prop.value.trim());
+				if (value) phones.push(value);
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
+	return cards;
+}
+
+const ADDRESSBOOK_QUERY_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+<card:addressbook-query xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+	<d:prop>
+		<d:getetag/>
+		<card:address-data/>
+	</d:prop>
+</card:addressbook-query>`;
+
+function parseAddressbookReportMultistatus(xml: string): ParsedVCard[] {
+	const doc = parseXml(xml);
+	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
+
+	const cards: ParsedVCard[] = [];
+	for (const responseEl of responses) {
+		const propstats = Array.from(
+			responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
+		);
+		const okPropstat =
+			propstats.find((ps) => {
+				const status = textOf(firstNs(ps, DAV_NS, "status"));
+				return status ? / 200 /.test(` ${status} `) : false;
+			}) ?? propstats[0];
+		const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+		if (!prop) continue;
+
+		const addressData = textOf(firstNs(prop, CARDDAV_NS, "address-data"));
+		if (!addressData) continue;
+		cards.push(...parseVCards(addressData));
+	}
+	return cards;
+}
+
+function appleContactsCachedAddressbookUrls(
+	conn: ConnectionPublic,
+): string[] | null {
+	const urls = conn.config.addressbookUrls;
+	if (!Array.isArray(urls)) return null;
+	const strings = urls.filter(
+		(value): value is string => typeof value === "string",
+	);
+	return strings.length > 0 ? strings : null;
+}
+
+// Resolves contacts across the Apple ID's CardDAV addressbooks for the
+// contacts chat tool / resolveContacts (5.8) — discovery is cached into the
+// connection's config on first use (see appleContactsCachedAddressbookUrls
+// above), same caching posture as appleListEvents's calendarUrls. Matching
+// is client-side (FN or any EMAIL contains `query`, case-insensitive) since
+// CardDAV's addressbook-query REPORT has no free-text search primitive worth
+// relying on across servers — same rationale as calendar.ts not passing
+// `query` through to appleListEvents.
+export async function appleSearchContacts(
+	userId: string,
+	connectionId: string,
+	params: { query: string; limit?: number },
+	opts?: FetchOpt,
+): Promise<ContactMatch[]> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new AppleCalDavError(
+			"Apple connection not found",
+			"connection_not_found",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new AppleCalDavError(
+			"No app-specific password stored for this Apple connection",
+			"needs_reauth",
+		);
+	}
+
+	const appleId =
+		typeof conn.config.appleId === "string"
+			? conn.config.appleId
+			: conn.accountIdentifier;
+	const auth = basicAuthHeader(appleId, appPassword);
+	const limit = params.limit ?? 10;
+	const query = params.query.trim().toLowerCase();
+
+	try {
+		let addressbookUrls = appleContactsCachedAddressbookUrls(conn);
+		if (!addressbookUrls) {
+			addressbookUrls = await discoverAppleAddressbooks(
+				fetchImpl,
+				appleId,
+				appPassword,
+			);
+			await updateConnection(userId, connectionId, {
+				config: { ...conn.config, addressbookUrls },
+			});
+		}
+
+		const matches: ContactMatch[] = [];
+		for (const addressbookUrl of addressbookUrls) {
+			const { xml } = await caldavRequest(
+				fetchImpl,
+				addressbookUrl,
+				auth,
+				"REPORT",
+				"1",
+				ADDRESSBOOK_QUERY_BODY,
+			);
+			for (const card of parseAddressbookReportMultistatus(xml)) {
+				const fn = card.fn ?? "";
+				const isMatch =
+					query.length === 0 ||
+					fn.toLowerCase().includes(query) ||
+					card.emails.some((email) => email.toLowerCase().includes(query));
+				if (!isMatch) continue;
+				matches.push({
+					name: fn,
+					emails: card.emails,
+					phones: card.phones,
+					source: "apple",
+					account: conn.accountIdentifier,
+				});
+				if (matches.length >= limit) return matches;
+			}
+		}
+		return matches;
+	} catch (err) {
+		if (err instanceof AppleCalDavError && err.code === "invalid_credentials") {
+			const detail = "Apple rejected the stored app-specific password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new AppleCalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
 }
 
 // ---------------------------------------------------------------------------

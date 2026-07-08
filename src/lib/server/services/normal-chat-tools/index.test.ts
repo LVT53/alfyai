@@ -4,6 +4,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { resolveContacts } from "$lib/server/services/connections/providers/contacts";
 import {
 	googleFreeBusy,
 	googleListEvents,
@@ -67,6 +68,9 @@ vi.mock("$lib/server/services/connections/locality", () => ({
 	isCloudModel: vi.fn(),
 	distillConnectorPayload: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/providers/contacts", () => ({
+	resolveContacts: vi.fn(),
+}));
 vi.mock(
 	"$lib/server/services/connections/providers/nextcloud-files",
 	async () => {
@@ -119,6 +123,7 @@ const googleFreeBusyMock = vi.mocked(googleFreeBusy);
 const immichSmartSearchMock = vi.mocked(immichSmartSearch);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
+const resolveContactsMock = vi.mocked(resolveContacts);
 
 function makeNextcloudConnection(
 	overrides: Partial<ConnectionPublic> = {},
@@ -2154,6 +2159,147 @@ describe("createNormalChatTools", () => {
 				name: "location",
 				metadata: expect.objectContaining({ ok: false }),
 			});
+		});
+	});
+
+	describe("contacts tool gating", () => {
+		it("does not include the contacts tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("contacts");
+		});
+
+		it("does not include the contacts tool when enabledConnectionCapabilities lacks 'contacts'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("contacts");
+		});
+
+		it("includes the contacts tool when enabledConnectionCapabilities contains 'contacts'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["contacts"]),
+			});
+
+			expect(tools).toHaveProperty("contacts");
+		});
+	});
+
+	describe("contacts tool execute", () => {
+		function createToolsWithContacts() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["contacts"]),
+			});
+		}
+
+		it("lookup returns the single matching contact and its citation", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeNextcloudConnection({
+					provider: "google",
+					capabilities: ["contacts"],
+				}),
+			]);
+			resolveContactsMock.mockResolvedValue([
+				{
+					name: "Zsombor Kovács",
+					emails: ["zsombor@example.com"],
+					phones: [],
+					source: "google",
+					account: "alice@example.com",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-lookup", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				contacts: [
+					expect.objectContaining({
+						name: "Zsombor Kovács",
+						emails: ["zsombor@example.com"],
+					}),
+				],
+				citations: [{ label: "Zsombor Kovács", url: "" }],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-contacts-lookup",
+					name: "contacts",
+					sourceType: "tool",
+					candidates: [expect.objectContaining({ title: "Zsombor Kovács" })],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Contacts connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Contacts-capable connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-contacts-none",
+				name: "contacts",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces disambiguation when more than one distinct person matches", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeNextcloudConnection({
+					provider: "google",
+					capabilities: ["contacts"],
+				}),
+			]);
+			resolveContactsMock.mockResolvedValue([
+				{
+					name: "Zsombor Kovács",
+					emails: ["zsombor.k@example.com"],
+					phones: [],
+					source: "google",
+				},
+				{
+					name: "Zsombor Nagy",
+					emails: ["zsombor.n@example.com"],
+					phones: [],
+					source: "google",
+				},
+			]);
+
+			const { tools } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 matching contacts",
+			);
 		});
 	});
 });

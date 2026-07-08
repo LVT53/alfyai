@@ -457,6 +457,365 @@ describe("appleListEvents", () => {
 	});
 });
 
+describe("appleSearchContacts", () => {
+	const CARD_WELL_KNOWN = "https://contacts.icloud.com/.well-known/carddav";
+	const CARD_PARTITION = "https://p50-contacts.icloud.com";
+
+	const CARD_PRINCIPAL_XML = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+	<d:response>
+		<d:href>/12345678/principal2/</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:current-user-principal><d:href>/12345678/principal2/</d:href></d:current-user-principal>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>
+</d:multistatus>`;
+
+	const CARD_HOME_XML = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+	<d:response>
+		<d:href>/12345678/principal2/</d:href>
+		<d:propstat>
+			<d:prop>
+				<card:addressbook-home-set><d:href>/12345678/carddavhome/</d:href></card:addressbook-home-set>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>
+</d:multistatus>`;
+
+	const CARD_COLLECTIONS_XML = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+	<d:response>
+		<d:href>/12345678/carddavhome/</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:resourcetype><d:collection/></d:resourcetype>
+				<d:displayname>root</d:displayname>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>
+	<d:response>
+		<d:href>/12345678/carddavhome/card/</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype>
+				<d:displayname>Contacts</d:displayname>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>
+</d:multistatus>`;
+
+	const VCARD_ANN = [
+		"BEGIN:VCARD",
+		"VERSION:3.0",
+		"FN:This is a very long display na",
+		" me that wraps",
+		"EMAIL:ann@example.com",
+		"EMAIL:ann.work@example.com",
+		"TEL:+1-555-1000",
+		"END:VCARD",
+		"",
+	].join("\r\n");
+
+	const VCARD_BOB = [
+		"BEGIN:VCARD",
+		"VERSION:3.0",
+		"FN:Bob Smith",
+		"EMAIL:bob@example.com",
+		"END:VCARD",
+		"",
+	].join("\r\n");
+
+	function addressbookMultistatus(
+		entries: { href: string; etag: string; vcard: string }[],
+	) {
+		const responses = entries
+			.map(
+				(entry) => `
+	<d:response>
+		<d:href>${entry.href}</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:getetag>${entry.etag}</d:getetag>
+				<card:address-data>${entry.vcard
+					.replace(/&/g, "&amp;")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;")}</card:address-data>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>`,
+			)
+			.join("");
+		return `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">${responses}
+</d:multistatus>`;
+	}
+
+	async function seedContactsConnection() {
+		const { createConnection } = await import("../store");
+		return createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+			capabilities: ["calendar", "contacts"],
+			status: "connected",
+			secret: "app-specific-pw",
+			config: {
+				appleId: "alice@icloud.com",
+				principalUrl: `${PARTITION}/12345678/principal/`,
+				calendarHomeUrl: `${PARTITION}/12345678/calendars/`,
+				calendarUrls: [`${PARTITION}/12345678/calendars/home/`],
+			},
+		});
+	}
+
+	function discoveryPlusReportFetchMock() {
+		return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			if (url === CARD_WELL_KNOWN) {
+				return redirectResponse(301, `${CARD_PARTITION}/.well-known/carddav`);
+			}
+			if (url === `${CARD_PARTITION}/.well-known/carddav`) {
+				return xmlResponse(207, CARD_PRINCIPAL_XML);
+			}
+			if (url === `${CARD_PARTITION}/12345678/principal2/`) {
+				return xmlResponse(207, CARD_HOME_XML);
+			}
+			if (url === `${CARD_PARTITION}/12345678/carddavhome/`) {
+				return xmlResponse(207, CARD_COLLECTIONS_XML);
+			}
+			if (url === `${CARD_PARTITION}/12345678/carddavhome/card/`) {
+				expect(init?.method).toBe("REPORT");
+				return xmlResponse(
+					207,
+					addressbookMultistatus([
+						{
+							href: "/12345678/carddavhome/card/ann.vcf",
+							etag: '"etag-ann"',
+							vcard: VCARD_ANN,
+						},
+						{
+							href: "/12345678/carddavhome/card/bob.vcf",
+							etag: '"etag-bob"',
+							vcard: VCARD_BOB,
+						},
+					]),
+				);
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+	}
+
+	it("discovers addressbooks (following a partition redirect), parses+filters vCards by query, and caches addressbookUrls to config without disturbing existing calendar config", async () => {
+		seedUser("userA");
+		const conn = await seedContactsConnection();
+		const { appleSearchContacts } = await import("./apple-caldav");
+		const { getConnection } = await import("../store");
+
+		const fetchMock = discoveryPlusReportFetchMock();
+
+		const matches = await appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "ann" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			{
+				name: "This is a very long display name that wraps",
+				emails: ["ann@example.com", "ann.work@example.com"],
+				phones: ["+1-555-1000"],
+				source: "apple",
+				account: "alice@icloud.com",
+			},
+		]);
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.config.addressbookUrls).toEqual([
+			`${CARD_PARTITION}/12345678/carddavhome/card/`,
+		]);
+		// The pre-existing calendar config (cached by 5.3) must survive the
+		// config merge — updateConnection replaces the whole config column, so
+		// appleSearchContacts must spread the existing config rather than
+		// overwrite it wholesale.
+		expect(updated?.config.calendarUrls).toEqual([
+			`${PARTITION}/12345678/calendars/home/`,
+		]);
+	});
+
+	it("does not filter out any contact when the query is empty", async () => {
+		seedUser("userA");
+		const conn = await seedContactsConnection();
+		const { appleSearchContacts } = await import("./apple-caldav");
+
+		const matches = await appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "" },
+			{ fetch: discoveryPlusReportFetchMock() as unknown as typeof fetch },
+		);
+
+		expect(matches.map((m) => m.name)).toEqual([
+			"This is a very long display name that wraps",
+			"Bob Smith",
+		]);
+	});
+
+	it("reuses cached addressbookUrls on a second call instead of re-running discovery", async () => {
+		seedUser("userA");
+		const conn = await seedContactsConnection();
+		const { appleSearchContacts } = await import("./apple-caldav");
+
+		await appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "ann" },
+			{ fetch: discoveryPlusReportFetchMock() as unknown as typeof fetch },
+		);
+
+		// This mock only understands the REPORT endpoint — any discovery call
+		// (well-known/principal/home/collections) throws, proving the cached
+		// addressbookUrls were reused instead of rediscovered.
+		const reportOnlyFetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === `${CARD_PARTITION}/12345678/carddavhome/card/`) {
+					expect(init?.method).toBe("REPORT");
+					return xmlResponse(
+						207,
+						addressbookMultistatus([
+							{
+								href: "/12345678/carddavhome/card/ann.vcf",
+								etag: '"etag-ann"',
+								vcard: VCARD_ANN,
+							},
+						]),
+					);
+				}
+				throw new Error(`Unexpected (re-discovery) fetch to ${url}`);
+			},
+		);
+
+		const matches = await appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "ann" },
+			{ fetch: reportOnlyFetchMock as unknown as typeof fetch },
+		);
+		expect(matches).toHaveLength(1);
+	});
+
+	it("a 401 on the addressbook REPORT throws a typed needs_reauth error and flags the connection, without leaking the password", async () => {
+		seedUser("userA");
+		const { createConnection, getConnection } = await import("../store");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+			capabilities: ["contacts"],
+			status: "connected",
+			secret: "app-specific-pw",
+			config: {
+				appleId: "alice@icloud.com",
+				addressbookUrls: [`${CARD_PARTITION}/12345678/carddavhome/card/`],
+			},
+		});
+		const { appleSearchContacts, AppleCalDavError } = await import(
+			"./apple-caldav"
+		);
+
+		const fetchMock = vi.fn(async () => new Response("", { status: 401 }));
+
+		const promise = appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "ann" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		await expect(promise).rejects.toBeInstanceOf(AppleCalDavError);
+		await expect(promise).rejects.toMatchObject({ code: "needs_reauth" });
+		await expect(promise).rejects.not.toMatchObject({
+			message: expect.stringContaining("app-specific-pw"),
+		});
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
+});
+
+describe("parseVCards", () => {
+	it("unfolds a folded (continuation) FN line per RFC 6350/5545 and collects multiple EMAIL/TEL", async () => {
+		const { parseVCards } = await import("./apple-caldav");
+		const vcard = [
+			"BEGIN:VCARD",
+			"VERSION:3.0",
+			"FN:This is a very long display na",
+			" me that wraps",
+			"EMAIL:ann@example.com",
+			"EMAIL:ann.work@example.com",
+			"TEL:+1-555-1000",
+			"TEL:+1-555-2000",
+			"END:VCARD",
+			"",
+		].join("\r\n");
+
+		expect(parseVCards(vcard)).toEqual([
+			{
+				fn: "This is a very long display name that wraps",
+				emails: ["ann@example.com", "ann.work@example.com"],
+				phones: ["+1-555-1000", "+1-555-2000"],
+			},
+		]);
+	});
+
+	it("handles a vCard with no TEL", async () => {
+		const { parseVCards } = await import("./apple-caldav");
+		const vcard = [
+			"BEGIN:VCARD",
+			"VERSION:3.0",
+			"FN:Bob Smith",
+			"EMAIL:bob@example.com",
+			"END:VCARD",
+			"",
+		].join("\r\n");
+
+		expect(parseVCards(vcard)).toEqual([
+			{ fn: "Bob Smith", emails: ["bob@example.com"], phones: [] },
+		]);
+	});
+
+	it("parses multiple VCARDs in one address-data blob", async () => {
+		const { parseVCards } = await import("./apple-caldav");
+		const vcard = [
+			"BEGIN:VCARD",
+			"FN:Ann",
+			"EMAIL:ann@example.com",
+			"END:VCARD",
+			"BEGIN:VCARD",
+			"FN:Bob",
+			"EMAIL:bob@example.com",
+			"END:VCARD",
+			"",
+		].join("\r\n");
+
+		expect(parseVCards(vcard)).toEqual([
+			{ fn: "Ann", emails: ["ann@example.com"], phones: [] },
+			{ fn: "Bob", emails: ["bob@example.com"], phones: [] },
+		]);
+	});
+});
+
 describe("iCal VEVENT parsing", () => {
 	it("unfolds a folded (continuation) SUMMARY line per RFC 5545", async () => {
 		const { parseICalEvents } = await import("./apple-caldav");
