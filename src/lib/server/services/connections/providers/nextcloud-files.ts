@@ -361,6 +361,11 @@ export class NextcloudFilesError extends Error {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only.
+// PROPFIND/SEARCH responses are metadata-only XML and should never
+// legitimately approach this size; capped separately (and much lower than
+// MAX_READ_BYTES) as defense-in-depth against a malicious/misbehaving server
+// returning an unbounded multistatus body.
+const MAX_MULTISTATUS_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // Normalizes a caller-supplied relative path against the user's Nextcloud
 // files root and rejects any attempt to escape it with `..`. This is the
@@ -464,6 +469,23 @@ function assertNotAuthFailure(response: Response): void {
 		throw new NextcloudFilesError(
 			"Nextcloud rejected the stored app password",
 			"needs_reauth",
+		);
+	}
+}
+
+// Defense-in-depth cap on PROPFIND/SEARCH multistatus bodies, checked against
+// the declared Content-Length before `response.text()` ever buffers the
+// body — mirrors the read-size pre-check in nextcloudReadFile, just against
+// a much smaller ceiling appropriate for XML metadata.
+function assertMultistatusSizeWithinLimit(response: Response): void {
+	const header = response.headers.get("Content-Length");
+	if (!header) return;
+	const declared = Number.parseInt(header, 10);
+	if (Number.isFinite(declared) && declared > MAX_MULTISTATUS_BYTES) {
+		const maxMb = MAX_MULTISTATUS_BYTES / (1024 * 1024);
+		throw new NextcloudFilesError(
+			`Nextcloud multistatus response exceeds the ${maxMb}MB size limit`,
+			"too_large",
 		);
 	}
 }
@@ -599,6 +621,9 @@ async function propfind(
 	});
 
 	assertNotAuthFailure(response);
+	if (response.status === 207) {
+		assertMultistatusSizeWithinLimit(response);
+	}
 	const xml = response.status === 207 ? await response.text() : "";
 	return { status: response.status, xml, normalizedPath };
 }
@@ -743,9 +768,20 @@ function escapeXmlText(value: string): string {
 	});
 }
 
+// Escapes SQL LIKE metacharacters (`%`, `_`) in the caller-supplied query so
+// they're matched as literal characters rather than wildcards once wrapped
+// in our own `%...%` pattern below — e.g. a query of "50% off" should search
+// for that literal string, not "50" + any-chars + " off". Backslash is
+// escaped first so a query already containing one doesn't get reinterpreted.
+// This is independent of (and applied before) escapeXmlText, which only
+// guards against XML injection, not LIKE-pattern semantics.
+function escapeLikeWildcards(value: string): string {
+	return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 function searchRequestBody(loginName: string, query: string): string {
 	const scopeHref = `/files/${encodeURIComponent(loginName)}/`;
-	const literal = `%${escapeXmlText(query)}%`;
+	const literal = `%${escapeXmlText(escapeLikeWildcards(query))}%`;
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <d:searchrequest xmlns:d="DAV:">
 	<d:basicsearch>
@@ -809,6 +845,7 @@ export async function nextcloudSearch(
 			"request_failed",
 		);
 	}
+	assertMultistatusSizeWithinLimit(response);
 
 	const xml = await response.text();
 	return parseMultistatus(xml, loginName);
