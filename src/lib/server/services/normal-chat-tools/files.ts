@@ -4,10 +4,12 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
 	nextcloudReadFile,
 	nextcloudSearch,
+	nextcloudStat,
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
 	needsDisambiguation,
@@ -15,14 +17,22 @@ import {
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
+import {
+	buildWritePreview,
+	idempotencyKey,
+	resolveWriteTarget,
+	type WriteOperation,
+	type WritePreview,
+} from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
-	action: z.enum(["search", "read"]),
+	action: z.enum(["search", "read", "save"]),
 	query: z.string().optional(),
 	path: z.string().optional(),
+	content: z.string().optional(),
 });
 
 export type FilesToolInput = z.infer<typeof filesToolInputSchema>;
@@ -32,6 +42,7 @@ export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 		action: input.action,
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.path ? { path: input.path.trim() } : {}),
+		...(input.content !== undefined ? { content: input.content } : {}),
 	};
 }
 
@@ -56,6 +67,10 @@ export type FilesToolModelPayload = {
 	message: string;
 	results: FilesToolResultItem[];
 	citations: FilesCitation[];
+	// Only set for a successful "save" action — the write has NOT executed,
+	// this is the id the user's confirm/cancel decision applies to (4.3).
+	pendingWriteId?: string;
+	preview?: WritePreview;
 };
 
 export type FilesToolOutcome = {
@@ -129,6 +144,8 @@ function buildPayload(params: {
 	message: string;
 	results?: FilesToolResultItem[];
 	citations?: FilesCitation[];
+	pendingWriteId?: string;
+	preview?: WritePreview;
 }): FilesToolOutcome {
 	const citations = params.citations ?? [];
 	return {
@@ -140,6 +157,10 @@ function buildPayload(params: {
 			message: params.message,
 			results: params.results ?? [],
 			citations,
+			...(params.pendingWriteId
+				? { pendingWriteId: params.pendingWriteId }
+				: {}),
+			...(params.preview ? { preview: params.preview } : {}),
 		},
 		candidates: citations.map(toCandidate),
 	};
@@ -270,6 +291,111 @@ function readOutcome(
 	});
 }
 
+// Best-effort check for whether `path` already has a file at it, used only to
+// set the WriteOperation's `destructive` flag for the confirm preview (4.1).
+// Never throws and never blocks the proposal on failure — an inconclusive
+// stat degrades to "not known to be destructive" rather than aborting the
+// save action, since the write itself still cannot happen without a
+// subsequent explicit user confirm regardless of this flag's value.
+async function wouldOverwrite(
+	conn: ConnectionPublic,
+	secret: string,
+	path: string,
+): Promise<boolean> {
+	try {
+		const existing = await nextcloudStat(conn, secret, path);
+		return existing !== null && !existing.isDir;
+	} catch {
+		return false;
+	}
+}
+
+// Issue 4.3 — the tool's write action. Builds a WriteOperation + preview via
+// the write-guard (4.1) and creates a PENDING row (pending-writes.ts) that
+// records the assistant-authored text content. This function NEVER calls
+// executeNextcloudWrite (4.2): the only path from here to an actual Nextcloud
+// mutation is the user explicitly confirming via the confirm API, which is a
+// separate request entirely.
+async function saveOutcome(
+	userId: string,
+	conn: ConnectionPublic,
+	input: FilesToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<FilesToolOutcome> {
+	// Hard gate, checked BEFORE the connection's secret is ever decrypted —
+	// same posture as executeNextcloudWrite's allowWrites check (4.2). No
+	// pending row is created when writes are disabled.
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "save",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!input.content) {
+		return buildPayload({
+			success: false,
+			action: "save",
+			message: "Content is required to save a file.",
+		});
+	}
+
+	const secret = await getConnectionSecret(userId, conn.id);
+	if (!secret) {
+		return buildPayload({
+			success: false,
+			action: "save",
+			message:
+				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+		});
+	}
+
+	const target = resolveWriteTarget({
+		allowlist: conn.writeAllowlist,
+		requestedPath: input.path,
+		defaultArea: conn.writeAllowlist[0],
+	});
+	const destructive = await wouldOverwrite(conn, secret, target.path);
+	const label = fileLabel(target.path);
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "files.put",
+		summary: `Save ${label} to ${target.path}`,
+		reversible: true, // Nextcloud keeps versions/trash for overwritten files.
+		destructive,
+		target: { path: target.path, withinAllowlist: target.withinAllowlist },
+	};
+	const preview = buildWritePreview(op);
+
+	const { id } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: input.content,
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared a write of "${label}" to ${target.path}, but it has NOT been saved yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "save",
+		message,
+		pendingWriteId: id,
+		preview,
+	});
+}
+
 // Locality Option A: when the user has opted in to local distillation and the
 // selected chat model is cloud, replace raw connector content with a summary
 // produced by a local model before it reaches the (cloud) model — raw file
@@ -358,6 +484,14 @@ export async function runFilesTool(
 			message:
 				"You don't have a Files connection set up yet. Connect your Nextcloud account in Settings to search or read files.",
 		});
+	}
+
+	// "save" (4.3) is a write proposal, not a read: it must check the
+	// allowWrites gate BEFORE any secret is decrypted, so it branches here —
+	// before the shared getConnectionSecret call below — and manages its own
+	// secret fetch internally once the gate has passed.
+	if (input.action === "save") {
+		return saveOutcome(userId, conn, input, ambiguous, connections);
 	}
 
 	const secret = await getConnectionSecret(userId, conn.id);

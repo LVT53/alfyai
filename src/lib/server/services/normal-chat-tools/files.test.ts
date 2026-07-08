@@ -5,10 +5,13 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
+	executeNextcloudWrite,
 	NextcloudFilesError,
 	nextcloudReadFile,
 	nextcloudSearch,
+	nextcloudStat,
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
 	needsDisambiguation,
@@ -26,6 +29,9 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnectionSecret: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	createPendingWrite: vi.fn(),
+}));
 vi.mock(
 	"$lib/server/services/connections/providers/nextcloud-files",
 	async () => {
@@ -36,6 +42,8 @@ vi.mock(
 			...actual,
 			nextcloudSearch: vi.fn(),
 			nextcloudReadFile: vi.fn(),
+			nextcloudStat: vi.fn(),
+			executeNextcloudWrite: vi.fn(),
 		};
 	},
 );
@@ -52,6 +60,9 @@ const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const getConnectionSecretMock = vi.mocked(getConnectionSecret);
 const nextcloudSearchMock = vi.mocked(nextcloudSearch);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
+const nextcloudStatMock = vi.mocked(nextcloudStat);
+const executeNextcloudWriteMock = vi.mocked(executeNextcloudWrite);
+const createPendingWriteMock = vi.mocked(createPendingWrite);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -469,5 +480,103 @@ describe("runFilesTool — locality Option A distillation gate", () => {
 		expect(serialized).not.toContain("123-45-6789");
 		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain("withheld");
+	});
+});
+
+describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudStatMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudStatMock.mockResolvedValue(null);
+		createPendingWriteMock.mockResolvedValue({
+			id: "pending-1",
+			preview: {
+				title: "Save note.txt",
+				detail: "files.put — /AlfyAI/note.txt",
+				reversible: true,
+				destructive: false,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		});
+	});
+
+	it("allowWrites=true: returns a PENDING result (preview + id), creates a pending row, and never calls executeNextcloudWrite", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("save");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+		expect(outcome.modelPayload.preview).toBeDefined();
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+		expect(outcome.modelPayload.message).not.toMatch(/\bsaved\b(?!.*not)/i);
+		expect(outcome.modelPayload.message).toContain("has NOT been saved yet");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		expect(createPendingWriteMock.mock.calls[0]?.[0]).toBe("user-1");
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call).toMatchObject({
+			connectionId: "conn-1",
+			provider: "nextcloud",
+			content: "hello world",
+		});
+		expect(call?.op).toMatchObject({
+			action: "files.put",
+			provider: "nextcloud",
+			connectionId: "conn-1",
+		});
+
+		// The chokepoint that would actually mutate Nextcloud is never touched
+		// by the tool's "save" action — no adapter fetch happens at proposal
+		// time.
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: returns a note and creates NO pending row", async () => {
+		const conn = makeConn({ allowWrites: false, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(outcome.modelPayload.message).toContain("settings");
+
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		// allowWrites is checked before the secret is ever decrypted — same
+		// hard-gate posture as executeNextcloudWrite (4.2).
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+
+	it("requires content to save", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "save", path: "/AlfyAI/note.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
 	});
 });

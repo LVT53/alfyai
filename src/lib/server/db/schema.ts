@@ -2272,3 +2272,33 @@ export const userConnections = sqliteTable(
 		userIdx: index("user_connections_user_idx").on(table.userId),
 	}),
 );
+
+// Explicit-confirm write flow (4.3): a tool's "save" action creates a row
+// here (never executes) and the confirm/cancel API is the only path that can
+// move it to `executed`/`cancelled`. `opJson` bundles the serialized
+// WriteOperation (write-guard, 4.1) plus the text payload the assistant
+// produced — TEXT only, no binary payloads are supported through this table.
+export const connectionPendingWrites = sqliteTable(
+	"connection_pending_writes",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		connectionId: text("connection_id").notNull(),
+		provider: text("provider").notNull(),
+		opJson: text("op_json").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		status: text("status").notNull().default("pending"),
+		previewJson: text("preview_json").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userStatusIdx: index("connection_pending_writes_user_status_idx").on(
+			table.userId,
+			table.status,
+		),
+	}),
+);
