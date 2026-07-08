@@ -610,6 +610,13 @@
       "when": 1777140000073,
       "tag": "1777140000073_user_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1777140000074,
+      "tag": "1777140000074_user_connections_config",
+      "breakpoints": true
     }
   ]
 }

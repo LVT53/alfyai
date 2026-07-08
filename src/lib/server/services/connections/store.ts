@@ -23,6 +23,7 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	config: Record<string, unknown>;
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
 	hasSecret: boolean;
@@ -36,6 +37,17 @@ function parseJsonArray(value: string): string[] {
 		return Array.isArray(parsed) ? parsed.map(String) : [];
 	} catch {
 		return [];
+	}
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(value);
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
 	}
 }
 
@@ -58,6 +70,7 @@ function toPublic(row: ConnectionRow): ConnectionPublic {
 		allowWrites: row.allowWrites,
 		writeAllowlist: parseJsonArray(row.writeAllowlistJson),
 		capabilities: parseJsonArray(row.capabilitiesJson),
+		config: parseJsonObject(row.configJson),
 		oauthScopes: parseJsonArray(row.oauthScopesJson),
 		tokenExpiresAt: row.tokenExpiresAt
 			? toEpochSeconds(row.tokenExpiresAt)
@@ -82,6 +95,7 @@ export async function createConnection(params: {
 	allowWrites?: boolean;
 	capabilities?: string[];
 	writeAllowlist?: string[];
+	config?: Record<string, unknown>;
 	oauthScopes?: string[];
 	secret?: string;
 	tokenExpiresAt?: number | null;
@@ -101,6 +115,7 @@ export async function createConnection(params: {
 			allowWrites: params.allowWrites ?? false,
 			writeAllowlistJson: JSON.stringify(params.writeAllowlist ?? []),
 			capabilitiesJson: JSON.stringify(params.capabilities ?? []),
+			configJson: JSON.stringify(params.config ?? {}),
 			oauthScopesJson: JSON.stringify(params.oauthScopes ?? []),
 			secretCiphertext: secret?.ciphertext ?? null,
 			secretIv: secret?.iv ?? null,
@@ -149,6 +164,7 @@ export async function updateConnection(
 		allowWrites: boolean;
 		capabilities: string[];
 		writeAllowlist: string[];
+		config: Record<string, unknown>;
 		oauthScopes: string[];
 		tokenExpiresAt: number | null;
 	}>,
@@ -169,6 +185,9 @@ export async function updateConnection(
 	}
 	if (patch.writeAllowlist !== undefined) {
 		set.writeAllowlistJson = JSON.stringify(patch.writeAllowlist);
+	}
+	if (patch.config !== undefined) {
+		set.configJson = JSON.stringify(patch.config);
 	}
 	if (patch.oauthScopes !== undefined) {
 		set.oauthScopesJson = JSON.stringify(patch.oauthScopes);

@@ -2238,6 +2238,7 @@ export const userConnections = sqliteTable(
 			.default(false),
 		writeAllowlistJson: text("write_allowlist_json").notNull().default("[]"),
 		capabilitiesJson: text("capabilities_json").notNull().default("[]"),
+		configJson: text("config_json").notNull().default("{}"),
 		secretCiphertext: text("secret_ciphertext"),
 		secretIv: text("secret_iv"),
 		secretAuthTag: text("secret_auth_tag"),

@@ -313,6 +313,83 @@ describe("connections store", () => {
 		expect(afterCaps?.capabilities).toEqual(["email", "calendar"]);
 	});
 
+	it("createConnection stores and returns a parsed config object; defaults to {} when omitted", async () => {
+		const { createConnection, getConnection } = await import("./store");
+		seedUser("userA");
+
+		const withConfig = await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Home Nextcloud",
+			config: { serverUrl: "https://cloud.example.com" },
+		});
+		expect(withConfig.config).toEqual({
+			serverUrl: "https://cloud.example.com",
+		});
+		const fetchedWithConfig = await getConnection("userA", withConfig.id);
+		expect(fetchedWithConfig?.config).toEqual({
+			serverUrl: "https://cloud.example.com",
+		});
+
+		const withoutConfig = await createConnection({
+			userId: "userA",
+			provider: "imap",
+			label: "Work email",
+		});
+		expect(withoutConfig.config).toEqual({});
+	});
+
+	it("updateConnection({ config }) replaces the whole config object, bumps updatedAt, and leaves other users unaffected", async () => {
+		const { createConnection, updateConnection, getConnection } = await import(
+			"./store"
+		);
+		seedUser("userA");
+		seedUser("userB");
+		const connA = await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "A's Nextcloud",
+			config: { serverUrl: "https://old.example.com" },
+		});
+		const connB = await createConnection({
+			userId: "userB",
+			provider: "nextcloud",
+			label: "B's Nextcloud",
+			config: { serverUrl: "https://b.example.com" },
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 1100));
+
+		const updated = await updateConnection("userA", connA.id, {
+			config: { serverUrl: "https://new.example.com", port: 8443 },
+		});
+		expect(updated?.config).toEqual({
+			serverUrl: "https://new.example.com",
+			port: 8443,
+		});
+		expect(updated?.updatedAt).toBeGreaterThan(connA.updatedAt);
+
+		const stillB = await getConnection("userB", connB.id);
+		expect(stillB?.config).toEqual({ serverUrl: "https://b.example.com" });
+	});
+
+	it("config is not a secret: it is present on ConnectionPublic while secret columns remain absent", async () => {
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "imap",
+			label: "Work email",
+			secret: "hunter2",
+			config: { host: "imap.example.com", port: 993 },
+		});
+		expect(conn.config).toEqual({ host: "imap.example.com", port: 993 });
+		expect(conn.hasSecret).toBe(true);
+		for (const key of SECRET_KEYS) {
+			expect(key in conn).toBe(false);
+		}
+	});
+
 	it("getConnection/updateConnection/deleteConnection return null/false for a nonexistent id", async () => {
 		const { getConnection, updateConnection, deleteConnection } = await import(
 			"./store"
