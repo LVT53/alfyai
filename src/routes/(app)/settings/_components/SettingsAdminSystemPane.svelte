@@ -619,6 +619,26 @@ function timeoutFailoverTargetModelValue(): ModelId {
 	return options[0]?.id ?? "model2";
 }
 
+function memoryModelOptions(
+	key: "MEMORY_JUDGE_MODEL" | "MEMORY_CONSOLIDATION_MODEL",
+): Array<{
+	id: ModelId;
+	displayName: string;
+}> {
+	const options = timeoutFailoverTargetModelOptions();
+	const configured = adminConfig[key] || "";
+	if (configured && !options.some((model) => model.id === configured)) {
+		return [...options, { id: configured as ModelId, displayName: configured }];
+	}
+	return options;
+}
+
+function memoryModelValue(
+	key: "MEMORY_JUDGE_MODEL" | "MEMORY_CONSOLIDATION_MODEL",
+): ModelId {
+	return (adminConfig[key] || "") as ModelId;
+}
+
 function defaultNewUserModelOptions(): Array<{
 	id: ModelId;
 	displayName: string;
@@ -733,6 +753,8 @@ function configLabelKey(key: string): I18nKey {
 		ATLAS_SEARCH_BATCH_DELAY_MS: "admin.atlasSearchBatchDelayMs",
 		ATLAS_SYNTHESIS_MODEL: "admin.atlasSynthesisModel",
 		ATLAS_AUDIT_MODEL: "admin.atlasAuditModel",
+		MEMORY_JUDGE_MODEL: "admin.memoryJudgeModel",
+		MEMORY_CONSOLIDATION_MODEL: "admin.memoryConsolidationModel",
 		WEB_PUSH_VAPID_PUBLIC_KEY: "admin.webPushVapidPublicKey",
 		WEB_PUSH_VAPID_PRIVATE_KEY: "admin.webPushVapidPrivateKey",
 		WEB_PUSH_VAPID_SUBJECT: "admin.webPushVapidSubject",
@@ -1144,6 +1166,45 @@ function placeholderFor(key: string): string {
 			</div>
 		</div>
 		<p class="text-xs text-text-muted">{$t('admin.atlasWebPushDescription')}</p>
+	</div>
+</section>
+
+<!-- Memory -->
+<section class="settings-card mb-4">
+	<h2 class="settings-section-title">{$t('admin.memory')}</h2>
+	<div class="grid gap-3 md:grid-cols-2">
+		<div>
+			<label class="settings-label" for="MEMORY_JUDGE_MODEL">{$t(configLabelKey('MEMORY_JUDGE_MODEL'))}</label>
+			<select
+				id="MEMORY_JUDGE_MODEL"
+				class="settings-input"
+				value={memoryModelValue('MEMORY_JUDGE_MODEL')}
+				onchange={(event) => {
+					adminConfig.MEMORY_JUDGE_MODEL = event.currentTarget.value;
+				}}
+			>
+				{#each memoryModelOptions('MEMORY_JUDGE_MODEL') as model}
+					<option value={model.id}>{model.displayName}</option>
+				{/each}
+			</select>
+			<p class="mt-1 text-xs text-text-muted">{$t('admin.memoryJudgeModelDescription')}</p>
+		</div>
+		<div>
+			<label class="settings-label" for="MEMORY_CONSOLIDATION_MODEL">{$t(configLabelKey('MEMORY_CONSOLIDATION_MODEL'))}</label>
+			<select
+				id="MEMORY_CONSOLIDATION_MODEL"
+				class="settings-input"
+				value={memoryModelValue('MEMORY_CONSOLIDATION_MODEL')}
+				onchange={(event) => {
+					adminConfig.MEMORY_CONSOLIDATION_MODEL = event.currentTarget.value;
+				}}
+			>
+				{#each memoryModelOptions('MEMORY_CONSOLIDATION_MODEL') as model}
+					<option value={model.id}>{model.displayName}</option>
+				{/each}
+			</select>
+			<p class="mt-1 text-xs text-text-muted">{$t('admin.memoryConsolidationModelDescription')}</p>
+		</div>
 	</div>
 </section>
 

@@ -440,6 +440,7 @@ $effect(() => {
 		<PersonaSummaryCard
 			{summary}
 			busy={summaryBusy}
+			hasFacts={activeItemCount > 0}
 			onEdit={(text) => onEditSummary?.(text)}
 		/>
 

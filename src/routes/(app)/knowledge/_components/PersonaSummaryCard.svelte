@@ -6,10 +6,12 @@ import { Check, Loader, Pencil, X } from "@lucide/svelte";
 let {
 	summary,
 	busy,
+	hasFacts,
 	onEdit,
 }: {
 	summary: { text: string; updatedAt: string } | null;
 	busy: boolean;
+	hasFacts: boolean;
 	onEdit: (text: string) => boolean | undefined | Promise<boolean | undefined>;
 } = $props();
 
@@ -100,6 +102,10 @@ let updatedLabel = $derived(
 		</p>
 		<p class="mt-3 text-xs font-sans text-text-muted">
 			{$t("memoryProfile.summaryUpdated", { time: updatedLabel })}
+		</p>
+	{:else if hasFacts}
+		<p class="mt-3 text-sm font-sans leading-[1.6] text-text-muted">
+			{$t("memoryProfile.summaryPending")}
 		</p>
 	{:else}
 		<p class="mt-3 text-sm font-sans leading-[1.6] text-text-muted">

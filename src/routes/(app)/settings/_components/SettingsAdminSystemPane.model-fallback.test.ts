@@ -240,4 +240,79 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			),
 		).toBe(false);
 	});
+
+	it("renders the memory judge and consolidation model selectors with the failover option set", async () => {
+		const { getByRole, getAllByRole } = render(SettingsAdminSystemPane, {
+			adminConfig: {
+				COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
+				MODEL_2_ENABLED: "true",
+				MEMORY_JUDGE_MODEL: "provider:provider-1:model-1",
+				MEMORY_CONSOLIDATION_MODEL: "model2",
+			},
+			envDefaults: {},
+			availableModels: [
+				{ id: "model1", displayName: "Model 1" },
+				{ id: "model2", displayName: "Model 2" },
+				{ id: "provider:provider-1", displayName: "Provider 1" },
+				{
+					id: "provider:provider-1:model-1",
+					displayName: "Provider 1 - Model 1",
+				},
+			],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await waitFor(() => {
+			expect(
+				getAllByRole("button", { name: "Manage models" }),
+			).not.toHaveLength(0);
+		});
+
+		const judgeSelect = getByRole("combobox", {
+			name: "Memory judge model",
+		}) as HTMLSelectElement;
+		const consolidationSelect = getByRole("combobox", {
+			name: "Memory consolidation model",
+		}) as HTMLSelectElement;
+
+		expect(
+			Array.from(judgeSelect.options).map((option) => option.value),
+		).toEqual(["model1", "model2", "provider:provider-1:model-1"]);
+		expect(judgeSelect.value).toBe("provider:provider-1:model-1");
+		expect(consolidationSelect.value).toBe("model2");
+
+		await fireEvent.change(judgeSelect, { target: { value: "model1" } });
+		await fireEvent.change(consolidationSelect, {
+			target: { value: "provider:provider-1:model-1" },
+		});
+	});
+
+	it("keeps a stale configured memory model id visible and selected instead of dropping it", async () => {
+		const adminConfig = {
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
+			MODEL_2_ENABLED: "true",
+			MEMORY_JUDGE_MODEL: "provider:stale-provider:stale-model",
+		};
+
+		const { getByRole } = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: {},
+			availableModels: [
+				{ id: "model1", displayName: "Model 1" },
+				{ id: "model2", displayName: "Model 2" },
+			],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		const judgeSelect = getByRole("combobox", {
+			name: "Memory judge model",
+		}) as HTMLSelectElement;
+
+		expect(judgeSelect.value).toBe("provider:stale-provider:stale-model");
+		expect(
+			Array.from(judgeSelect.options).some(
+				(option) => option.value === "provider:stale-provider:stale-model",
+			),
+		).toBe(true);
+	});
 });
