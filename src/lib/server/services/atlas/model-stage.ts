@@ -91,20 +91,31 @@ async function calculateStageCostUsdMicros(input: {
 	usage: Omit<AtlasModelStageUsage, "costUsdMicros">;
 }): Promise<number> {
 	try {
-		const { calculateCostUsdMicros, findPriceRule } = await import(
-			"$lib/server/services/analytics"
-		);
+		const {
+			calculateCostUsdMicros,
+			findPriceRule,
+			listPriceWindowsForModel,
+			resolveEffectivePriceRule,
+		} = await import("$lib/server/services/analytics");
 		const modelId = input.model?.modelId ?? String(input.modelSelection);
 		const providerId = input.model?.providerId ?? null;
 		const providerModelName =
 			input.model?.responseModelName ??
 			input.model?.requestedModelName ??
 			providerModelNameFromSelection(input.modelSelection);
-		const priceRule = await findPriceRule({
+		const baseRule = await findPriceRule({
 			modelId,
 			providerId,
 			providerModelName,
 		});
+		// Apply any active time-slot window at the moment this stage is priced.
+		const priceRule = baseRule
+			? resolveEffectivePriceRule(
+					baseRule,
+					await listPriceWindowsForModel(baseRule.id),
+					new Date(),
+				)
+			: baseRule;
 		return calculateCostUsdMicros(priceRule, {
 			promptTokens: input.usage.inputTokens,
 			cachedInputTokens: 0,

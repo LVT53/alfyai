@@ -1364,6 +1364,44 @@ export const providerModels = sqliteTable(
 	}),
 );
 
+// Optional per-provider-model schedule of price windows that OVERRIDE the flat
+// provider_models rates while active (DeepSeek-style peak/off-peak). Windows are
+// defined in UTC; a null rate column inherits the base rate. When no window is
+// active the flat rates apply. See resolveEffectivePriceRule in analytics.ts.
+export const providerModelPriceWindows = sqliteTable(
+	"provider_model_price_windows",
+	{
+		id: text("id").primaryKey(),
+		providerModelId: text("provider_model_id")
+			.notNull()
+			.references(() => providerModels.id, { onDelete: "cascade" }),
+		label: text("label").notNull(),
+		// Subset of 0..6 (0=Sunday, UTC) the window applies to; "0123456" = every day.
+		daysOfWeek: text("days_of_week").notNull().default("0123456"),
+		// Minutes from UTC midnight. start is inclusive (0..1439), end is exclusive
+		// (0..1440); when end <= start the window wraps past midnight into next day.
+		startMinute: integer("start_minute").notNull(),
+		endMinute: integer("end_minute").notNull(),
+		inputUsdMicrosPer1m: integer("input_usd_micros_per_1m"),
+		cachedInputUsdMicrosPer1m: integer("cached_input_usd_micros_per_1m"),
+		cacheHitUsdMicrosPer1m: integer("cache_hit_usd_micros_per_1m"),
+		cacheMissUsdMicrosPer1m: integer("cache_miss_usd_micros_per_1m"),
+		outputUsdMicrosPer1m: integer("output_usd_micros_per_1m"),
+		enabled: integer("enabled").notNull().default(1),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		providerModelIdx: index("provider_model_price_windows_model_idx").on(
+			table.providerModelId,
+		),
+	}),
+);
+
 export const importJobs = sqliteTable(
 	"import_jobs",
 	{

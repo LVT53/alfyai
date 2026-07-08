@@ -1,7 +1,12 @@
 import { and, eq, gte } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryReworkTelemetry } from "$lib/server/db/schema";
-import { calculateCostUsdMicros, resolveModelPriceRule } from "./analytics";
+import {
+	calculateCostUsdMicros,
+	listPriceWindowsForModel,
+	resolveEffectivePriceRule,
+	resolveModelPriceRule,
+} from "./analytics";
 import { parseJsonRecord } from "./memory-profile/internal-json";
 import { recordMemoryReworkTelemetry } from "./memory-profile/telemetry";
 
@@ -18,6 +23,12 @@ export type MemoryModelUsage = {
 	promptTokens: number;
 	completionTokens: number;
 	totalTokens: number;
+	// Optional cache breakdown so cache-aware providers (e.g. DeepSeek) price
+	// memory-pipeline control-model calls at their hit/miss rates rather than the
+	// flat input rate. Absent fields default to zero (no cache accounting).
+	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
 };
 
 const COST_EVENT_NAME = "model_usage";
@@ -40,13 +51,25 @@ export async function recordMemoryModelUsage(params: {
 		const completionTokens = params.usage?.completionTokens ?? 0;
 		const totalTokens =
 			params.usage?.totalTokens || promptTokens + completionTokens;
+		const cachedInputTokens = params.usage?.cachedInputTokens ?? 0;
+		const cacheHitTokens = params.usage?.cacheHitTokens ?? 0;
+		const cacheMissTokens = params.usage?.cacheMissTokens ?? 0;
 
-		const rule = await resolveModelPriceRule(params.modelId);
+		const baseRule = await resolveModelPriceRule(params.modelId);
+		// Price at the rate active right now: a time-slot window overrides the
+		// flat rate while active, otherwise the base rule is used unchanged.
+		const rule = baseRule
+			? resolveEffectivePriceRule(
+					baseRule,
+					await listPriceWindowsForModel(baseRule.id),
+					new Date(),
+				)
+			: baseRule;
 		const costUsdMicros = calculateCostUsdMicros(rule, {
 			promptTokens,
-			cachedInputTokens: 0,
-			cacheHitTokens: 0,
-			cacheMissTokens: 0,
+			cachedInputTokens,
+			cacheHitTokens,
+			cacheMissTokens,
 			completionTokens,
 			reasoningTokens: 0,
 		});

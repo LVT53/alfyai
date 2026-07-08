@@ -11,6 +11,12 @@ import {
 	getProviderModelFallbackOptions,
 	type FallbackCompatibilityReason,
 } from "./model-fallback";
+import {
+	fetchPriceWindows,
+	savePriceWindows,
+	type PriceWindow,
+	type PriceWindowInput,
+} from "$lib/client/api/admin";
 
 const tVal = get(t);
 
@@ -319,6 +325,165 @@ function handleSave() {
 	}
 
 	onSave?.(data);
+}
+
+// --- Optional time-slot (peak/off-peak) pricing ---------------------------
+// Utilitarian admin-only editor. Windows are defined in UTC and OVERRIDE the
+// flat rates above while active. Managed and saved independently of the model
+// (its own API + Save button) so it stays decoupled from the main form.
+type WindowRow = {
+	label: string;
+	days: boolean[];
+	start: string;
+	end: string;
+	inputUsd: string;
+	cachedInputUsd: string;
+	cacheMissUsd: string;
+	outputUsd: string;
+	enabled: boolean;
+};
+
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+let priceWindowRows = $state<WindowRow[]>([]);
+let priceWindowsLoaded = $state(false);
+let priceWindowsLoading = $state(false);
+let priceWindowsSaving = $state(false);
+let priceWindowsError = $state("");
+let priceWindowsSaved = $state(false);
+
+function minuteToHHMM(minute: number): string {
+	const clamped = ((minute % 1440) + 1440) % 1440;
+	const h = Math.floor(clamped / 60);
+	const m = clamped % 60;
+	return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function hhmmToMinute(value: string): number {
+	const [h, m] = value.split(":");
+	const hours = Number(h);
+	const minutes = Number(m);
+	if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+	return Math.max(0, Math.min(1439, hours * 60 + minutes));
+}
+
+function microsToDollarsMaybe(micros: number | null): string {
+	if (micros == null) return "";
+	return (micros / 1_000_000).toString();
+}
+
+function dollarsToMicrosMaybe(dollars: string): number | null {
+	const num = stringToNum(dollars);
+	if (num == null) return null;
+	return Math.round(num * 1_000_000);
+}
+
+function windowToRow(window: PriceWindow): WindowRow {
+	return {
+		label: window.label,
+		days: DAY_LABELS.map((_, day) => window.daysOfWeek.includes(String(day))),
+		start: minuteToHHMM(window.startMinute),
+		end: minuteToHHMM(window.endMinute),
+		inputUsd: microsToDollarsMaybe(window.inputUsdMicrosPer1m),
+		cachedInputUsd: microsToDollarsMaybe(window.cachedInputUsdMicrosPer1m),
+		cacheMissUsd: microsToDollarsMaybe(window.cacheMissUsdMicrosPer1m),
+		outputUsd: microsToDollarsMaybe(window.outputUsdMicrosPer1m),
+		enabled: window.enabled,
+	};
+}
+
+function rowToInput(row: WindowRow): PriceWindowInput {
+	const days = row.days.map((on, day) => (on ? String(day) : "")).join("");
+	const cachedInputMicros = dollarsToMicrosMaybe(row.cachedInputUsd);
+	return {
+		label: row.label.trim(),
+		daysOfWeek: days || "0123456",
+		startMinute: hhmmToMinute(row.start),
+		endMinute: hhmmToMinute(row.end),
+		inputUsdMicrosPer1m: dollarsToMicrosMaybe(row.inputUsd),
+		cachedInputUsdMicrosPer1m: cachedInputMicros,
+		// Mirror cached-input onto the legacy cache-hit rate, matching the flat
+		// pricing fields above.
+		cacheHitUsdMicrosPer1m: cachedInputMicros,
+		cacheMissUsdMicrosPer1m: dollarsToMicrosMaybe(row.cacheMissUsd),
+		outputUsdMicrosPer1m: dollarsToMicrosMaybe(row.outputUsd),
+		enabled: row.enabled,
+	};
+}
+
+function emptyWindowRow(): WindowRow {
+	return {
+		label: "",
+		days: DAY_LABELS.map(() => true),
+		start: "00:00",
+		end: "08:00",
+		inputUsd: "",
+		cachedInputUsd: "",
+		cacheMissUsd: "",
+		outputUsd: "",
+		enabled: true,
+	};
+}
+
+async function loadPriceWindows() {
+	if (isCreate || !model?.id || priceWindowsLoaded || priceWindowsLoading) {
+		return;
+	}
+	priceWindowsLoading = true;
+	priceWindowsError = "";
+	try {
+		const windows = await fetchPriceWindows(providerId, model.id);
+		priceWindowRows = windows.map(windowToRow);
+		priceWindowsLoaded = true;
+	} catch (err) {
+		priceWindowsError =
+			err instanceof Error ? err.message : "Failed to load price windows";
+	} finally {
+		priceWindowsLoading = false;
+	}
+}
+
+function handlePriceWindowsToggle(event: Event) {
+	if ((event.currentTarget as HTMLDetailsElement).open) {
+		void loadPriceWindows();
+	}
+}
+
+function addPriceWindowRow() {
+	priceWindowRows = [...priceWindowRows, emptyWindowRow()];
+	priceWindowsSaved = false;
+}
+
+function removePriceWindowRow(index: number) {
+	priceWindowRows = priceWindowRows.filter((_, i) => i !== index);
+	priceWindowsSaved = false;
+}
+
+async function handleSavePriceWindows() {
+	if (isCreate || !model?.id) return;
+	for (const row of priceWindowRows) {
+		if (!row.label.trim()) {
+			priceWindowsError = "Each time-slot window needs a label.";
+			return;
+		}
+	}
+	priceWindowsSaving = true;
+	priceWindowsError = "";
+	priceWindowsSaved = false;
+	try {
+		const saved = await savePriceWindows(
+			providerId,
+			model.id,
+			priceWindowRows.map(rowToInput),
+		);
+		priceWindowRows = saved.map(windowToRow);
+		priceWindowsSaved = true;
+	} catch (err) {
+		priceWindowsError =
+			err instanceof Error ? err.message : "Failed to save price windows";
+	} finally {
+		priceWindowsSaving = false;
+	}
 }
 </script>
 
@@ -678,6 +843,177 @@ function handleSave() {
 						</div>
 					</details>
 				</div>
+
+				{#if !isCreate && model?.id}
+					<div class="mt-2 border-t border-border pt-3">
+						<details
+							class="rounded-md border border-border bg-surface-page px-3 py-2"
+							ontoggle={handlePriceWindowsToggle}
+						>
+							<summary class="cursor-pointer text-sm font-medium text-text-primary">
+								Time-slot pricing (optional)
+							</summary>
+							<p class="mt-2 text-xs text-text-muted">
+								Optional UTC peak/off-peak windows that override the flat rates
+								above while active. Leave a rate blank to inherit the flat rate.
+								Times are UTC. Saved separately from the model.
+							</p>
+
+							{#if priceWindowsLoading}
+								<p class="mt-3 text-xs text-text-muted">Loading…</p>
+							{:else}
+								<div class="mt-3 space-y-4">
+									{#each priceWindowRows as _row, index (index)}
+										<div class="rounded border border-border p-3">
+											<div class="flex items-end gap-3">
+												<div class="min-w-0 flex-1">
+													<label class="settings-label" for={`price-window-label-${index}`}>Label</label>
+													<input
+														id={`price-window-label-${index}`}
+														type="text"
+														class="settings-input"
+														bind:value={priceWindowRows[index].label}
+														placeholder="off-peak"
+													/>
+												</div>
+												<label
+													class="mb-2 inline-flex cursor-pointer items-center gap-2 text-xs text-text-secondary"
+												>
+													<input
+														type="checkbox"
+														bind:checked={priceWindowRows[index].enabled}
+													/>
+													Enabled
+												</label>
+												<button
+													type="button"
+													class="btn-secondary mb-1 h-9 px-2 text-xs"
+													aria-label={`Remove time-slot window ${index + 1}`}
+													onclick={() => removePriceWindowRow(index)}
+												>
+													Remove
+												</button>
+											</div>
+
+											<div class="mt-2">
+												<span class="settings-label">Days (UTC)</span>
+												<div class="flex flex-wrap gap-2">
+													{#each DAY_LABELS as dayLabel, day (day)}
+														<label class="inline-flex items-center gap-1 text-xs text-text-secondary">
+															<input
+																type="checkbox"
+																aria-label={`Window ${index + 1} ${dayLabel}`}
+																bind:checked={priceWindowRows[index].days[day]}
+															/>
+															{dayLabel}
+														</label>
+													{/each}
+												</div>
+											</div>
+
+											<div class="mt-2 grid gap-3 md:grid-cols-2">
+												<div>
+													<label class="settings-label" for={`price-window-start-${index}`}>Start (UTC)</label>
+													<input
+														id={`price-window-start-${index}`}
+														type="time"
+														class="settings-input"
+														bind:value={priceWindowRows[index].start}
+													/>
+												</div>
+												<div>
+													<label class="settings-label" for={`price-window-end-${index}`}>End (UTC)</label>
+													<input
+														id={`price-window-end-${index}`}
+														type="time"
+														class="settings-input"
+														bind:value={priceWindowRows[index].end}
+													/>
+												</div>
+											</div>
+
+											<div class="mt-2 grid gap-3 md:grid-cols-2">
+												<div>
+													<label class="settings-label" for={`price-window-input-${index}`}>Input override ($/1M)</label>
+													<input
+														id={`price-window-input-${index}`}
+														type="number"
+														class="settings-input"
+														bind:value={priceWindowRows[index].inputUsd}
+														placeholder="inherit"
+														min="0"
+														step="0.000001"
+													/>
+												</div>
+												<div>
+													<label class="settings-label" for={`price-window-cached-${index}`}>Cached input override ($/1M)</label>
+													<input
+														id={`price-window-cached-${index}`}
+														type="number"
+														class="settings-input"
+														bind:value={priceWindowRows[index].cachedInputUsd}
+														placeholder="inherit"
+														min="0"
+														step="0.000001"
+													/>
+												</div>
+												<div>
+													<label class="settings-label" for={`price-window-miss-${index}`}>Cache miss override ($/1M)</label>
+													<input
+														id={`price-window-miss-${index}`}
+														type="number"
+														class="settings-input"
+														bind:value={priceWindowRows[index].cacheMissUsd}
+														placeholder="inherit"
+														min="0"
+														step="0.000001"
+													/>
+												</div>
+												<div>
+													<label class="settings-label" for={`price-window-output-${index}`}>Output override ($/1M)</label>
+													<input
+														id={`price-window-output-${index}`}
+														type="number"
+														class="settings-input"
+														bind:value={priceWindowRows[index].outputUsd}
+														placeholder="inherit"
+														min="0"
+														step="0.000001"
+													/>
+												</div>
+											</div>
+										</div>
+									{/each}
+								</div>
+
+								<div class="mt-3 flex items-center gap-3">
+									<button
+										type="button"
+										class="btn-secondary text-xs"
+										onclick={addPriceWindowRow}
+									>
+										Add time-slot window
+									</button>
+									<button
+										type="button"
+										class="btn-primary text-xs"
+										onclick={handleSavePriceWindows}
+										disabled={priceWindowsSaving}
+									>
+										{priceWindowsSaving ? "Saving…" : "Save time-slot pricing"}
+									</button>
+									{#if priceWindowsSaved}
+										<span class="text-xs text-text-muted">Saved.</span>
+									{/if}
+								</div>
+							{/if}
+
+							{#if priceWindowsError}
+								<p class="mt-2 text-xs text-danger">{priceWindowsError}</p>
+							{/if}
+						</details>
+					</div>
+				{/if}
 
 			</div>
 		</div>

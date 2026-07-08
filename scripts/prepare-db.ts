@@ -77,6 +77,7 @@ const requiredExistingTables = [
 	"admin_config",
 	"providers",
 	"provider_models",
+	"provider_model_price_windows",
 	"message_analytics",
 	"analytics_conversations",
 	"usage_events",

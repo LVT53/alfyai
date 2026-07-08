@@ -17,6 +17,8 @@ vi.mock("$lib/server/services/analytics", () => ({
 				1_000_000,
 		),
 	),
+	listPriceWindowsForModel: vi.fn(async () => []),
+	resolveEffectivePriceRule: vi.fn((rule) => rule),
 }));
 
 describe("Atlas model stage", () => {

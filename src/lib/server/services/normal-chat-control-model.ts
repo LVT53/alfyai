@@ -33,6 +33,12 @@ export type JsonControlMessageUsage = {
 	promptTokens: number;
 	completionTokens: number;
 	totalTokens: number;
+	// Optional cache breakdown surfaced from cache-aware providers (DeepSeek's
+	// prompt_cache_hit_tokens/prompt_cache_miss_tokens, OpenAI's
+	// prompt_tokens_details.cached_tokens) so memory-cost pricing is cache-aware.
+	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
 };
 
 export type JsonControlMessageResult = {
@@ -206,6 +212,39 @@ function readFiniteNumber(value: unknown): number | undefined {
 // fall back to the raw OpenAI-shaped usage on the response body
 // (prompt_tokens/completion_tokens/total_tokens). Returns undefined when neither
 // carries any usage so callers can treat "no usage" distinctly from zero.
+// Read the DeepSeek/OpenAI-shaped cache-token breakdown from a raw usage object.
+function readCacheBreakdown(source: unknown): {
+	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
+} {
+	const obj =
+		source && typeof source === "object"
+			? (source as Record<string, unknown>)
+			: null;
+	if (!obj) return {};
+	const details =
+		obj.prompt_tokens_details && typeof obj.prompt_tokens_details === "object"
+			? (obj.prompt_tokens_details as Record<string, unknown>)
+			: null;
+	const cacheHitTokens = readFiniteNumber(
+		obj.prompt_cache_hit_tokens ??
+			obj.promptCacheHitTokens ??
+			details?.cached_tokens ??
+			details?.cachedTokens,
+	);
+	const cacheMissTokens = readFiniteNumber(
+		obj.prompt_cache_miss_tokens ?? obj.promptCacheMissTokens,
+	);
+	if (cacheHitTokens === undefined && cacheMissTokens === undefined) return {};
+	return {
+		...(cacheHitTokens !== undefined
+			? { cachedInputTokens: cacheHitTokens, cacheHitTokens }
+			: {}),
+		...(cacheMissTokens !== undefined ? { cacheMissTokens } : {}),
+	};
+}
+
 function extractControlModelUsage(params: {
 	usage: unknown;
 	rawResponse: unknown;
@@ -214,6 +253,21 @@ function extractControlModelUsage(params: {
 		params.usage && typeof params.usage === "object"
 			? (params.usage as Record<string, unknown>)
 			: null;
+	const body =
+		params.rawResponse && typeof params.rawResponse === "object"
+			? (params.rawResponse as Record<string, unknown>)
+			: null;
+	const rawUsage =
+		body?.usage && typeof body.usage === "object"
+			? (body.usage as Record<string, unknown>)
+			: null;
+	// Cache tokens can live on the SDK usage's `raw` passthrough or on the
+	// OpenAI-shaped response-body usage; prefer whichever carries them.
+	const cacheBreakdown = {
+		...readCacheBreakdown(rawUsage),
+		...readCacheBreakdown(sdkUsage?.raw),
+	};
+
 	const inputTokens = readFiniteNumber(sdkUsage?.inputTokens);
 	const outputTokens = readFiniteNumber(sdkUsage?.outputTokens);
 	const sdkTotalTokens = readFiniteNumber(sdkUsage?.totalTokens);
@@ -228,17 +282,10 @@ function extractControlModelUsage(params: {
 			promptTokens,
 			completionTokens,
 			totalTokens: sdkTotalTokens ?? promptTokens + completionTokens,
+			...cacheBreakdown,
 		};
 	}
 
-	const body =
-		params.rawResponse && typeof params.rawResponse === "object"
-			? (params.rawResponse as Record<string, unknown>)
-			: null;
-	const rawUsage =
-		body?.usage && typeof body.usage === "object"
-			? (body.usage as Record<string, unknown>)
-			: null;
 	const promptTokens = readFiniteNumber(rawUsage?.prompt_tokens);
 	const completionTokens = readFiniteNumber(rawUsage?.completion_tokens);
 	const rawTotalTokens = readFiniteNumber(rawUsage?.total_tokens);
@@ -253,6 +300,7 @@ function extractControlModelUsage(params: {
 			promptTokens: prompt,
 			completionTokens: completion,
 			totalTokens: rawTotalTokens ?? prompt + completion,
+			...cacheBreakdown,
 		};
 	}
 

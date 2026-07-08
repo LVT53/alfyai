@@ -163,6 +163,54 @@ describe("Normal Chat JSON control model sender", () => {
 		]);
 	});
 
+	it("surfaces DeepSeek cache hit/miss tokens on the control-model usage", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-cache",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+						usage: {
+							prompt_tokens: 1000,
+							completion_tokens: 500,
+							total_tokens: 1500,
+							prompt_cache_hit_tokens: 800,
+							prompt_cache_miss_tokens: 200,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		const result = await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			maxTokens: 8192,
+			fetch,
+		});
+
+		expect(result.usage).toMatchObject({
+			promptTokens: 1000,
+			completionTokens: 500,
+			totalTokens: 1500,
+			cacheHitTokens: 800,
+			cacheMissTokens: 200,
+		});
+	});
+
 	it("falls back to plain JSON output when a provider rejects strict JSON schema response format", async () => {
 		const fetch = vi
 			.fn()

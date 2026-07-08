@@ -302,4 +302,105 @@ describe("memory cost tracking", () => {
 		expect(summary.totals.calls).toBe(0);
 		expect(summary.byFeature).toHaveLength(0);
 	});
+
+	it("prices a cache-aware memory call at the hit/miss rates", async () => {
+		const { db } = openSeedDatabase();
+		seedUser(db, "u1");
+		db.insert(schema.providers)
+			.values({
+				id: "provider-1",
+				name: "deepseek",
+				displayName: "DeepSeek",
+				baseUrl: "https://deepseek.example",
+				apiKeyEncrypted: "encrypted",
+				apiKeyIv: "iv",
+			})
+			.run();
+		db.insert(schema.providerModels)
+			.values({
+				id: "pm-1",
+				providerId: "provider-1",
+				name: MODEL_NAME,
+				displayName: "Cost Test Model",
+				enabled: 1,
+				inputUsdMicrosPer1m: 1_000_000,
+				cacheHitUsdMicrosPer1m: 100_000,
+				cacheMissUsdMicrosPer1m: 1_000_000,
+				outputUsdMicrosPer1m: 2_000_000,
+			})
+			.run();
+
+		const { recordMemoryModelUsage } = await import("./memory-cost");
+		await recordMemoryModelUsage({
+			userId: "u1",
+			feature: "judge",
+			modelId: "model1",
+			usage: {
+				promptTokens: 1000,
+				completionTokens: 500,
+				totalTokens: 1500,
+				cacheHitTokens: 800,
+				cacheMissTokens: 200,
+			},
+		});
+
+		const rows = readCostRows(db);
+		const metadata = JSON.parse(rows[0].metadataJson);
+		// regularInput = max(0, 1000 - (800+200)) = 0 -> 0
+		// hit: 800 * 100_000 / 1e6 = 80; miss: 200 * 1_000_000 / 1e6 = 200
+		// output: 500 * 2_000_000 / 1e6 = 1000 -> 1280
+		expect(metadata.costUsdMicros).toBe(1280);
+	});
+
+	it("applies an active time-slot window to a memory call", async () => {
+		const { db } = openSeedDatabase();
+		seedUser(db, "u1");
+		db.insert(schema.providers)
+			.values({
+				id: "provider-1",
+				name: "deepseek",
+				displayName: "DeepSeek",
+				baseUrl: "https://deepseek.example",
+				apiKeyEncrypted: "encrypted",
+				apiKeyIv: "iv",
+			})
+			.run();
+		db.insert(schema.providerModels)
+			.values({
+				id: "pm-1",
+				providerId: "provider-1",
+				name: MODEL_NAME,
+				displayName: "Cost Test Model",
+				enabled: 1,
+				inputUsdMicrosPer1m: 1_000_000,
+				outputUsdMicrosPer1m: 0,
+			})
+			.run();
+		// Always-active window discounting input to 1/10th.
+		db.insert(schema.providerModelPriceWindows)
+			.values({
+				id: "w1",
+				providerModelId: "pm-1",
+				label: "off-peak",
+				daysOfWeek: "0123456",
+				startMinute: 0,
+				endMinute: 1440,
+				inputUsdMicrosPer1m: 100_000,
+				enabled: 1,
+			})
+			.run();
+
+		const { recordMemoryModelUsage } = await import("./memory-cost");
+		await recordMemoryModelUsage({
+			userId: "u1",
+			feature: "judge",
+			modelId: "model1",
+			usage: { promptTokens: 100, completionTokens: 0, totalTokens: 100 },
+		});
+
+		const rows = readCostRows(db);
+		const metadata = JSON.parse(rows[0].metadataJson);
+		// 100 * 100_000 / 1e6 = 10 (window rate), not 100 (flat rate).
+		expect(metadata.costUsdMicros).toBe(10);
+	});
 });

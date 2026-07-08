@@ -544,3 +544,68 @@ export async function batchCreateProviderModels(
 	);
 	return response.models;
 }
+
+// Optional per-model time-slot pricing. Rates are nullable (null = inherit the
+// model's flat rate); minutes are minutes-from-UTC-midnight.
+export interface PriceWindow {
+	id: string;
+	providerModelId: string;
+	label: string;
+	daysOfWeek: string;
+	startMinute: number;
+	endMinute: number;
+	inputUsdMicrosPer1m: number | null;
+	cachedInputUsdMicrosPer1m: number | null;
+	cacheHitUsdMicrosPer1m: number | null;
+	cacheMissUsdMicrosPer1m: number | null;
+	outputUsdMicrosPer1m: number | null;
+	enabled: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type PriceWindowInput = {
+	label: string;
+	daysOfWeek: string;
+	startMinute: number;
+	endMinute: number;
+	inputUsdMicrosPer1m: number | null;
+	cachedInputUsdMicrosPer1m: number | null;
+	cacheHitUsdMicrosPer1m: number | null;
+	cacheMissUsdMicrosPer1m: number | null;
+	outputUsdMicrosPer1m: number | null;
+	enabled: boolean;
+};
+
+interface PriceWindowsResponse {
+	windows: PriceWindow[];
+}
+
+export async function fetchPriceWindows(
+	providerId: string,
+	modelId: string,
+): Promise<PriceWindow[]> {
+	const response = await requestJson<PriceWindowsResponse>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/price-windows`,
+		undefined,
+		"Failed to load price windows",
+	);
+	return response.windows;
+}
+
+export async function savePriceWindows(
+	providerId: string,
+	modelId: string,
+	windows: PriceWindowInput[],
+): Promise<PriceWindow[]> {
+	const response = await requestJson<PriceWindowsResponse>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/price-windows`,
+		{
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ windows }),
+		},
+		"Failed to save price windows",
+	);
+	return response.windows;
+}

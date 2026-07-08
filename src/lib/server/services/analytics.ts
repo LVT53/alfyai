@@ -8,6 +8,7 @@ import {
 	analyticsConversations,
 	conversations,
 	messageAnalytics,
+	providerModelPriceWindows,
 	providerModels,
 	providers,
 	usageEvents,
@@ -919,6 +920,135 @@ export function calculateCostUsdMicros(
 	return Math.round(inputCost + cacheHitCost + cacheMissCost + outputCost);
 }
 
+// The subset of a provider_model_price_windows row the resolver needs. The rate
+// columns are nullable — null means "inherit the base provider_models rate".
+export interface EffectivePriceWindow {
+	id: string;
+	// Subset of "0123456" (0=Sunday, UTC) the window's START day applies to.
+	daysOfWeek: string;
+	// Minutes from UTC midnight. start inclusive, end exclusive; when
+	// end <= start the window wraps past midnight into the next day.
+	startMinute: number;
+	endMinute: number;
+	inputUsdMicrosPer1m: number | null;
+	cachedInputUsdMicrosPer1m: number | null;
+	cacheHitUsdMicrosPer1m: number | null;
+	cacheMissUsdMicrosPer1m: number | null;
+	outputUsdMicrosPer1m: number | null;
+	enabled: boolean;
+}
+
+function priceWindowSortKey(a: EffectivePriceWindow, b: EffectivePriceWindow) {
+	if (a.startMinute !== b.startMinute) return a.startMinute - b.startMinute;
+	return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function priceWindowCoversDay(window: EffectivePriceWindow, day: number) {
+	return window.daysOfWeek.includes(String(day));
+}
+
+// Whether `window` is active at the given UTC weekday (0=Sunday) + minute-of-day.
+// Non-wrapping windows (end > start) match [start, end) on their own day.
+// Wrapping windows (end <= start) run from `start` on their START day through
+// `end` on the following day, so the early-morning tail belongs to the window
+// that STARTED the previous day — days_of_week is checked against that day.
+function priceWindowActiveAt(
+	window: EffectivePriceWindow,
+	weekday: number,
+	minuteOfDay: number,
+): boolean {
+	if (!window.enabled) return false;
+	if (window.endMinute > window.startMinute) {
+		return (
+			priceWindowCoversDay(window, weekday) &&
+			minuteOfDay >= window.startMinute &&
+			minuteOfDay < window.endMinute
+		);
+	}
+	// Wraparound: today's leading portion, or yesterday's spilled tail.
+	if (
+		minuteOfDay >= window.startMinute &&
+		priceWindowCoversDay(window, weekday)
+	) {
+		return true;
+	}
+	const previousDay = (weekday + 6) % 7;
+	return (
+		minuteOfDay < window.endMinute && priceWindowCoversDay(window, previousDay)
+	);
+}
+
+// Find the FIRST active window for `now`, ordered by start_minute then id so
+// overlapping windows resolve to a stable, documented winner (earliest start,
+// then lexicographically smallest id).
+export function findActivePriceWindow(
+	windows: readonly EffectivePriceWindow[],
+	now: Date,
+): EffectivePriceWindow | null {
+	const weekday = now.getUTCDay();
+	const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+	const ordered = [...windows].sort(priceWindowSortKey);
+	for (const window of ordered) {
+		if (priceWindowActiveAt(window, weekday, minuteOfDay)) return window;
+	}
+	return null;
+}
+
+// Given the base provider_models rule and its enabled windows, return a
+// shallow-cloned rule with each non-null rate of the first active window
+// overriding the base. With no windows (or none active) the base rule is
+// returned unchanged.
+export function resolveEffectivePriceRule(
+	rule: typeof providerModels.$inferSelect | null,
+	windows: readonly EffectivePriceWindow[],
+	now: Date,
+): typeof providerModels.$inferSelect | null {
+	if (!rule || windows.length === 0) return rule;
+	const active = findActivePriceWindow(windows, now);
+	if (!active) return rule;
+	return {
+		...rule,
+		inputUsdMicrosPer1m: active.inputUsdMicrosPer1m ?? rule.inputUsdMicrosPer1m,
+		cachedInputUsdMicrosPer1m:
+			active.cachedInputUsdMicrosPer1m ?? rule.cachedInputUsdMicrosPer1m,
+		cacheHitUsdMicrosPer1m:
+			active.cacheHitUsdMicrosPer1m ?? rule.cacheHitUsdMicrosPer1m,
+		cacheMissUsdMicrosPer1m:
+			active.cacheMissUsdMicrosPer1m ?? rule.cacheMissUsdMicrosPer1m,
+		outputUsdMicrosPer1m:
+			active.outputUsdMicrosPer1m ?? rule.outputUsdMicrosPer1m,
+	};
+}
+
+// Load the ENABLED price windows for a provider model, shaped for
+// resolveEffectivePriceRule. Returns [] for models without any window rows so
+// callers stay a no-op in the common (flat-rate) case.
+export async function listPriceWindowsForModel(
+	providerModelId: string,
+): Promise<EffectivePriceWindow[]> {
+	const rows = await db
+		.select()
+		.from(providerModelPriceWindows)
+		.where(
+			and(
+				eq(providerModelPriceWindows.providerModelId, providerModelId),
+				eq(providerModelPriceWindows.enabled, 1),
+			),
+		);
+	return rows.map((row) => ({
+		id: row.id,
+		daysOfWeek: row.daysOfWeek,
+		startMinute: row.startMinute,
+		endMinute: row.endMinute,
+		inputUsdMicrosPer1m: row.inputUsdMicrosPer1m,
+		cachedInputUsdMicrosPer1m: row.cachedInputUsdMicrosPer1m,
+		cacheHitUsdMicrosPer1m: row.cacheHitUsdMicrosPer1m,
+		cacheMissUsdMicrosPer1m: row.cacheMissUsdMicrosPer1m,
+		outputUsdMicrosPer1m: row.outputUsdMicrosPer1m,
+		enabled: row.enabled === 1,
+	}));
+}
+
 export async function recordConversationAnalytics(params: {
 	conversationId: string;
 	userId: string;
@@ -997,11 +1127,20 @@ export async function recordMessageAnalytics(
 		createdAt: conversation.createdAt,
 	}).catch(() => undefined);
 
-	const priceRule = await findPriceRule({
+	const basePriceRule = await findPriceRule({
 		modelId: params.model,
 		providerId: model.providerId,
 		providerModelName: model.providerModelName,
 	});
+	// Price at the rate active at call time: a time-slot window overrides the
+	// flat rate while active, otherwise the base rule is used unchanged.
+	const priceRule = basePriceRule
+		? resolveEffectivePriceRule(
+				basePriceRule,
+				await listPriceWindowsForModel(basePriceRule.id),
+				new Date(),
+			)
+		: basePriceRule;
 	const costUsdMicros = calculateCostUsdMicros(priceRule, {
 		promptTokens,
 		cachedInputTokens,

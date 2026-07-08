@@ -1287,6 +1287,44 @@ describe("Normal Chat Model Run usage mapping", () => {
 			cacheMissTokens: 100,
 		});
 	});
+
+	// The provider snapshot is what recordMessageAnalytics reads before pricing.
+	// mapUsage feeds it for BOTH streaming and non-streaming runs (both call
+	// mapUsage), so a DeepSeek-shaped usage must surface hit/miss on the snapshot
+	// with promptTokens = hit + miss (so regular input prices to ~0 downstream).
+	it("surfaces DeepSeek cache hit/miss on the provider usage snapshot", () => {
+		const snapshot = mapNormalChatModelRunUsageToProviderSnapshot(
+			mapUsage({
+				inputTokens: 1000,
+				outputTokens: 500,
+				totalTokens: 1500,
+				inputTokenDetails: {
+					noCacheTokens: undefined,
+					cacheReadTokens: undefined,
+					cacheWriteTokens: undefined,
+				},
+				outputTokenDetails: { textTokens: 500, reasoningTokens: 0 },
+				raw: {
+					prompt_tokens: 1000,
+					completion_tokens: 500,
+					total_tokens: 1500,
+					prompt_cache_hit_tokens: 800,
+					prompt_cache_miss_tokens: 200,
+				},
+			}),
+		);
+		expect(snapshot).toMatchObject({
+			promptTokens: 1000,
+			completionTokens: 500,
+			cacheHitTokens: 800,
+			cacheMissTokens: 200,
+			source: "provider",
+		});
+		// prompt = hit + miss, so calculateCostUsdMicros charges 0 regular input.
+		expect(
+			(snapshot?.cacheHitTokens ?? 0) + (snapshot?.cacheMissTokens ?? 0),
+		).toBe(snapshot?.promptTokens);
+	});
 });
 
 describe("Plain Normal Chat Model Run", () => {
