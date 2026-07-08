@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import type { ConnectionProvider } from "$lib/server/db/schema";
+import { CONNECTION_PROVIDERS } from "$lib/server/db/schema";
+import {
+	CAPABILITIES,
+	CAPABILITY_META,
+	type ConnectMethod,
+	PROVIDER_META,
+} from "./registry";
+
+const CONNECT_METHODS: readonly ConnectMethod[] = [
+	"oauth",
+	"login-flow-v2",
+	"password-key",
+	"app-password",
+];
+
+describe("connections registry", () => {
+	it("is bidirectionally consistent: provider -> capability -> provider", () => {
+		for (const provider of CONNECTION_PROVIDERS) {
+			const meta = PROVIDER_META[provider];
+			for (const capability of meta.capabilities) {
+				expect(CAPABILITY_META[capability].providers).toContain(provider);
+			}
+		}
+	});
+
+	it("is bidirectionally consistent: capability -> provider -> capability", () => {
+		for (const capability of CAPABILITIES) {
+			const meta = CAPABILITY_META[capability];
+			for (const provider of meta.providers) {
+				expect(
+					PROVIDER_META[provider as ConnectionProvider].capabilities,
+				).toContain(capability);
+			}
+		}
+	});
+
+	it("has a CAPABILITY_META entry with at least one provider for every Capability", () => {
+		for (const capability of CAPABILITIES) {
+			const meta = CAPABILITY_META[capability];
+			expect(meta).toBeDefined();
+			expect(meta.providers.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("has a PROVIDER_META entry for every ConnectionProvider", () => {
+		for (const provider of CONNECTION_PROVIDERS) {
+			expect(PROVIDER_META[provider]).toBeDefined();
+		}
+	});
+
+	it("marks exactly calendar and email as proactive tier", () => {
+		const proactive = CAPABILITIES.filter(
+			(c) => CAPABILITY_META[c].tier === "proactive",
+		).sort();
+		expect(proactive).toEqual(["calendar", "email"]);
+	});
+
+	it("marks all other capabilities as explicit tier", () => {
+		const explicit = CAPABILITIES.filter(
+			(c) => CAPABILITY_META[c].tier === "explicit",
+		).sort();
+		expect(explicit).toEqual(
+			["contacts", "files", "location", "media", "photos"].sort(),
+		);
+	});
+
+	it("uses only valid ConnectMethod values", () => {
+		for (const provider of CONNECTION_PROVIDERS) {
+			expect(CONNECT_METHODS).toContain(PROVIDER_META[provider].connectMethod);
+		}
+	});
+});
