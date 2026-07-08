@@ -234,6 +234,50 @@ describe("persona summary generation", () => {
 		expect(callOptions?.maxTokens).toBe(2400 + 500 * 3);
 	});
 
+	it("caps the model input at the 30 newest facts so a large profile does not overflow the token budget", async () => {
+		const { db } = openSeedDatabase();
+		const base = new Date("2026-01-01T00:00:00Z");
+		const userId = "u1";
+		seedUser(db, userId, base, { uiLanguage: "en" });
+		const projectionStateId = seedProjectionState(db, userId, base);
+
+		// 35 active facts with strictly increasing updatedAt. Facts 0..4 are the
+		// oldest (must be excluded); facts 30..34 are the newest (must be kept).
+		for (let i = 0; i < 35; i++) {
+			seedItem(db, {
+				userId,
+				projectionStateId,
+				statement: `Fact number ${i}.`,
+				now: new Date(base.getTime() + i * 60_000),
+			});
+		}
+
+		sendJsonControlMessageMock.mockResolvedValue(
+			makeControlResponse(
+				JSON.stringify({ sentences: [{ text: "A user.", factIds: [] }] }),
+			),
+		);
+
+		const { generateAndStorePersonaSummary } = await import("./summary");
+		await generateAndStorePersonaSummary({ userId });
+
+		const userMessage = sendJsonControlMessageMock.mock.calls[0]?.[0] as string;
+		const lines = userMessage.split("\n").filter((l) => l.startsWith("- ["));
+		expect(lines).toHaveLength(30);
+		// Newest kept, oldest dropped.
+		expect(userMessage).toContain("Fact number 34.");
+		expect(userMessage).toContain("Fact number 5.");
+		expect(userMessage).not.toContain("Fact number 4.");
+		expect(userMessage).not.toContain("Fact number 0.");
+
+		// Budget is derived from the capped count (30), not the raw 35; at 30
+		// facts reasoningAwareMaxTokens is already at its 8000 ceiling.
+		const callOptions = sendJsonControlMessageMock.mock.calls[0]?.[2] as {
+			maxTokens?: number;
+		};
+		expect(callOptions?.maxTokens).toBe(8000);
+	});
+
 	it("drops fact links that reference unknown ids but keeps the sentence", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

@@ -18,6 +18,13 @@ export type PersonaSummary = {
 	updatedAt: Date;
 } | null;
 
+// A persona summary is a ~150-250 word synthesis; beyond a few dozen facts the
+// summary cannot reference them all, and a very large fact list drives reasoning
+// models past their token budget into invalid_json. Cap the input to the most
+// recent facts (the list is ordered newest-first). Older facts still reach the
+// model at recall time via memory-context's own top-K selection.
+const PERSONA_SUMMARY_MAX_FACTS = 30;
+
 const PERSONA_SUMMARY_JSON_SCHEMA = {
 	name: "persona_summary",
 	strict: true as const,
@@ -65,27 +72,20 @@ function languageNameForCode(code: string): string {
 }
 
 function buildSystemPrompt(language: string): string {
+	// Kept deliberately lean: a long, heavily-emphasised prompt drives reasoning
+	// models to spend their whole token budget on chain-of-thought and emit an
+	// empty content channel (observed live as invalid_json on 49- and 81-fact
+	// profiles). A short contract yields clean JSON directly.
 	return [
-		`Write a persona summary of this user in ${language}, present tense, ` +
-			"grouped as: who they are; durable preferences; current context. " +
-			"Use ONLY the numbered facts provided — do not pad, speculate, or " +
-			"invent detail beyond them. One short sentence per fact or tightly " +
-			"related group of facts is enough; a handful of facts should produce " +
-			"a handful of sentences, not a padded essay. It is normal and correct " +
-			"for the summary to be short when few facts are given.",
-		"Break the summary into individual sentences. For each sentence, attach " +
-			"the ids of the facts that support it. Do not explain your reasoning " +
-			"or discuss how you built the summary — go straight to the sentences.",
+		`Write a persona summary of this user in ${language} from the facts below.`,
+		"Present tense; group as who they are, durable preferences, current context.",
+		"Use ONLY the given facts — do not pad or invent. Few facts → few sentences.",
 		"",
-		"OUTPUT FORMAT (read carefully — this is a strict contract, not a style guide):",
-		"Reply with ONLY a single JSON object. No reasoning, no chain-of-thought, no markdown code fences, no prose before or after — the first character of your reply must be '{' and the last must be '}'.",
-		'The JSON object has exactly one top-level key, "sentences", an array.',
-		"EVERY object in the sentences array MUST include ALL of these fields — a sentence missing any field is invalid and will be discarded:",
-		`  - "text": one sentence of the summary, written in ${language}, with no ids or parenthetical citations inside the text itself`,
-		'  - "factIds": an array of the fact ids (the bracketed ids in the numbered facts, e.g. "abc-123") that support this sentence — use [] only if truly none apply',
-		"Unknown or extra top-level keys are invalid.",
-		"Example of a fully valid response shape (ids are illustrative only):",
-		'{"sentences":[{"text":"They are a software engineer based in Berlin.","factIds":["f1"]},{"text":"They prefer concise, direct answers.","factIds":["f2","f5"]}]}',
+		`Output ONLY a JSON object {"sentences":[{"text":"...","factIds":["..."]}]}:`,
+		`each sentence's "text" is one sentence in ${language} (no ids inside it),`,
+		'and "factIds" lists the bracketed ids of the facts supporting it ([] if none).',
+		"No reasoning, no prose, no code fences — start with { and end with }.",
+		'Example: {"sentences":[{"text":"They are a software engineer in Berlin.","factIds":["f1"]}]}',
 	].join("\n");
 }
 
@@ -146,8 +146,16 @@ export async function generateAndStorePersonaSummary(params: {
 	const context = await getActiveMemoryProfileContext({ userId });
 	if (context.items.length === 0) return null;
 
+	// A 150-250 word summary cannot faithfully encode dozens of facts, and
+	// feeding a very large profile drives reasoning models past their token
+	// budget into invalid_json (observed live at 49 and 81 active facts). The
+	// items arrive newest-first (active-context orders by updatedAt desc), so
+	// the most recent, most relevant facts are kept; older facts still inform
+	// recall via memory-context's own top-K path, just not the prose summary.
+	const summaryFacts = context.items.slice(0, PERSONA_SUMMARY_MAX_FACTS);
+
 	const language = await resolveSummaryLanguage(userId);
-	const userMessage = context.items
+	const userMessage = summaryFacts
 		.map((item) => `- [${item.id}] (${item.category}) ${item.statement}`)
 		.join("\n");
 
@@ -179,7 +187,7 @@ export async function generateAndStorePersonaSummary(params: {
 		return null;
 	}
 
-	const activeFactIds = new Set(context.items.map((item) => item.id));
+	const activeFactIds = new Set(summaryFacts.map((item) => item.id));
 	const links = parseLinks(responseText, activeFactIds);
 	if (!links) {
 		const reason = isParseableJson(responseText)
