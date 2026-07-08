@@ -5,10 +5,12 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import { appleListEvents } from "$lib/server/services/connections/providers/apple-caldav";
 import {
 	GoogleCalendarError,
 	googleFreeBusy,
+	googleGetEvent,
 	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
@@ -33,6 +35,7 @@ vi.mock(
 			...actual,
 			googleListEvents: vi.fn(),
 			googleFreeBusy: vi.fn(),
+			googleGetEvent: vi.fn(),
 		};
 	},
 );
@@ -50,6 +53,9 @@ vi.mock("$lib/server/services/connections/locality", () => ({
 	isCloudModel: vi.fn(),
 	distillConnectorPayload: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	createPendingWrite: vi.fn(),
+}));
 
 const resolveConnectionsForCapabilityMock = vi.mocked(
 	resolveConnectionsForCapability,
@@ -57,10 +63,12 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const googleListEventsMock = vi.mocked(googleListEvents);
 const googleFreeBusyMock = vi.mocked(googleFreeBusy);
+const googleGetEventMock = vi.mocked(googleGetEvent);
 const appleListEventsMock = vi.mocked(appleListEvents);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
+const createPendingWriteMock = vi.mocked(createPendingWrite);
 
 const LOCAL_MODEL_ID = "model1";
 
@@ -636,5 +644,391 @@ describe("runCalendarTool — locality Option A distillation with an apple event
 				title: "Therapy session — anxiety follow-up",
 			}),
 		]);
+	});
+});
+
+describe("runCalendarTool — write actions (Issue 6.1)", () => {
+	const WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+	function makeWritableGoogleConn(
+		overrides: Partial<ConnectionPublic> = {},
+	): ConnectionPublic {
+		return makeConn({
+			allowWrites: true,
+			oauthScopes: [WRITE_SCOPE],
+			...overrides,
+		});
+	}
+
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		googleGetEventMock.mockReset();
+		appleListEventsMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+		createPendingWriteMock.mockImplementation(async (_userId, params) => ({
+			id: "pending-1",
+			preview: params.preview,
+		}));
+	});
+
+	describe("create_event", () => {
+		it("allowWrites=true + write scope granted: returns a PENDING result (preview + id) and creates a pending row — never a real mutation", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "create_event",
+					title: "Standup",
+					start: "2026-07-10T09:00:00-04:00",
+					end: "2026-07-10T09:30:00-04:00",
+					location: "Zoom",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.action).toBe("create_event");
+			expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+			expect(outcome.modelPayload.preview).toBeDefined();
+			expect(outcome.modelPayload.message).toContain(
+				"has NOT been created yet",
+			);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call).toMatchObject({
+				connectionId: "conn-1",
+				provider: "google",
+			});
+			expect(call?.op).toMatchObject({
+				provider: "google",
+				connectionId: "conn-1",
+				action: "calendar.create_event",
+				destructive: false,
+				reversible: true,
+			});
+			const content = JSON.parse(call?.content ?? "{}");
+			expect(content).toEqual({
+				calendarId: "primary",
+				event: {
+					summary: "Standup",
+					start: "2026-07-10T09:00:00-04:00",
+					end: "2026-07-10T09:30:00-04:00",
+					location: "Zoom",
+				},
+			});
+			// Create never reads an existing event off the connector — no locality
+			// gate call, no adapter fetch beyond the (mocked) pending-write write.
+			expect(googleGetEventMock).not.toHaveBeenCalled();
+		});
+
+		it("allowWrites=false: returns a note and creates NO pending row", async () => {
+			const conn = makeWritableGoogleConn({ allowWrites: false });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "create_event",
+					title: "Standup",
+					start: "2026-07-10T09:00:00Z",
+					end: "2026-07-10T09:30:00Z",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("turned off");
+			expect(outcome.modelPayload.message).toContain("settings");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("missing calendar.events write scope: returns a note asking to reconnect and grant write access, creates NO pending row", async () => {
+			const conn = makeWritableGoogleConn({ oauthScopes: [] });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "create_event",
+					title: "Standup",
+					start: "2026-07-10T09:00:00Z",
+					end: "2026-07-10T09:30:00Z",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("reconnect Google");
+			expect(outcome.modelPayload.message).toContain("write access");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("an apple calendar connection is refused with a note pointing at 6.2, no pending row", async () => {
+			const conn = makeWritableGoogleConn({ provider: "apple" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "create_event",
+					title: "Standup",
+					start: "2026-07-10T09:00:00Z",
+					end: "2026-07-10T09:30:00Z",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("Apple");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("requires title, start, and end — missing any of them returns a note with no pending row", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "create_event", title: "Standup" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("required");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("update_event / delete_event", () => {
+		function existingEvent(
+			overrides: Partial<
+				import("$lib/server/services/connections/providers/google-calendar").CalendarEvent
+			> = {},
+		) {
+			return {
+				id: "evt-1",
+				summary: "Therapy session — anxiety follow-up",
+				start: "2026-07-09T09:00:00-04:00",
+				end: "2026-07-09T09:30:00-04:00",
+				location: "123 Clinic Rd",
+				htmlLink: "https://calendar.google.com/event?eid=evt-1",
+				...overrides,
+			};
+		}
+
+		it("requires an eventId — missing it returns a note with no pending row and no googleGetEvent call", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", title: "New title" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("required");
+			expect(googleGetEventMock).not.toHaveBeenCalled();
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("non-recurring event: update_event creates a pending row with the changed fields only", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(existingEvent());
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({
+				action: "calendar.update_event",
+				destructive: true,
+				reversible: true,
+				target: { id: "evt-1", label: "Therapy session — anxiety follow-up" },
+			});
+			const content = JSON.parse(call?.content ?? "{}");
+			expect(content).toEqual({
+				calendarId: "primary",
+				eventId: "evt-1",
+				event: { location: "New Room" },
+			});
+		});
+
+		it("delete_event on a not-found event returns a note, no pending row", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(null);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "delete_event", eventId: "evt-missing" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain(
+				"couldn't find that event",
+			);
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("a needs_reauth error fetching the target event maps to a graceful note, no pending row", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockRejectedValue(
+				new GoogleCalendarError("nope", "needs_reauth"),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("reconnected");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("recurring instance WITHOUT recurringScope: asks the user to choose, creates NO pending row", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({ recurringEventId: "evt-master" }),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("recurring");
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("series");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("recurring master WITHOUT recurringScope (detected via `recurrence`): also asks the user to choose, no pending row", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({ recurrence: ["RRULE:FREQ=WEEKLY"] }),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "delete_event", eventId: "evt-master" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("recurring");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("recurring instance WITH recurringScope: proposes the pending write, carrying the scope through to content", async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({ recurringEventId: "evt-master" }),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "update_event",
+					eventId: "evt-1",
+					location: "New Room",
+					recurringScope: "this_event",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			const content = JSON.parse(call?.content ?? "{}");
+			expect(content).toEqual({
+				calendarId: "primary",
+				eventId: "evt-1",
+				event: { location: "New Room" },
+				recurringScope: "this_event",
+			});
+		});
+
+		it("Option A on + cloud model: the update preview reads an existing event, but its raw summary/location are absent from the WHOLE model-facing payload", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "A therapy appointment.",
+			});
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(existingEvent());
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				"whichever-cloud-model",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			const serializedPayload = JSON.stringify(outcome.modelPayload);
+			expect(serializedPayload).not.toContain("Therapy session");
+			expect(serializedPayload).not.toContain("Clinic Rd");
+			expect(outcome.modelPayload.message).toContain("A therapy appointment.");
+			expect(distillConnectorPayloadMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "user-1",
+					capability: "calendar",
+					rawText: expect.stringContaining("Therapy session"),
+				}),
+			);
+
+			// The row actually persisted to the DB (createPendingWrite's `preview`
+			// argument — what a future confirm-card UI would source) keeps the
+			// REAL data; only the model-facing copy returned in modelPayload is
+			// redacted. This is never sent back through the model.
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.preview.title).toContain("Therapy session");
+		});
+
+		it("Option A off: the update preview/message keep the real event title (no distill call)", async () => {
+			hasLocalDistillEnabledMock.mockResolvedValue(false);
+			isCloudModelMock.mockResolvedValue(true);
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(existingEvent());
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{ action: "update_event", eventId: "evt-1", location: "New Room" },
+				"whichever-cloud-model",
+			);
+
+			expect(outcome.modelPayload.message).toContain("Therapy session");
+			expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+		});
 	});
 });

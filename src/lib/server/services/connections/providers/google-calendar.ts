@@ -1,10 +1,13 @@
 // Google Calendar v3 READ methods (5.2): list calendars, list events over a
-// range, and free/busy — built on top of the OAuth connect/refresh lifecycle
-// in ./google (5.1). Read-only (write scopes/methods land in Phase 6). Every
-// call obtains a fresh access token via googleRefreshAccessToken (which
-// itself decrypts the stored refresh token and hits Google's token
-// endpoint) and every network call accepts an injectable `fetch` so this
-// module is fully testable against mocked Google endpoints.
+// range, free/busy, and (6.1) a single-event lookup used to build write
+// previews — built on top of the OAuth connect/refresh lifecycle in ./google
+// (5.1). The actual mutating calls (insert/patch/delete) live in
+// providers/google-calendar-write.ts (6.1), not here — this module stays
+// read-only. Every call obtains a fresh access token via
+// googleRefreshAccessToken (which itself decrypts the stored refresh token
+// and hits Google's token endpoint) and every network call accepts an
+// injectable `fetch` so this module is fully testable against mocked Google
+// endpoints.
 import { updateConnection } from "../store";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 
@@ -18,6 +21,12 @@ export type GoogleCalendarErrorCode =
 	| "needs_reauth"
 	| "request_failed"
 	| "connection_not_found";
+
+// Not thrown as an error today — googleGetEvent (6.1) returns `null` for a
+// missing event rather than throwing, mirroring how a missing pending write
+// resolves to `null` in pending-writes.ts, so a "not found" here is one more
+// ordinary outcome for a write-action caller to branch on rather than a typed
+// exception every caller must catch.
 
 export class GoogleCalendarError extends Error {
 	constructor(
@@ -48,6 +57,18 @@ export type CalendarEvent = {
 	// the calendar chat tool's model-facing payload (see
 	// normal-chat-tools/calendar.ts's toToolEventItem), only used internally.
 	etag?: string;
+	// Google-only (6.1 write guardrail): present on an expanded recurring
+	// instance, pointing at its recurring master event's id. Used by the
+	// calendar write tool to detect "this is part of a recurring series"
+	// before proposing an update/delete, and by the write executor to resolve
+	// which id to actually PATCH/DELETE for a "series"-scoped write. Never
+	// surfaced to the model-facing tool payload.
+	recurringEventId?: string;
+	// Google-only: present (non-empty) on a recurring MASTER event itself
+	// (RRULE/EXDATE/etc. strings). Combined with `recurringEventId` above,
+	// `isRecurring` (normal-chat-tools/calendar.ts) treats either signal as
+	// "this event is part of a series".
+	recurrence?: string[];
 };
 
 export type CalendarFreeBusy = {
@@ -234,6 +255,15 @@ function parseCalendarEvent(item: unknown): CalendarEvent | null {
 	const summary = typeof item.summary === "string" ? item.summary : "";
 	const location =
 		typeof item.location === "string" ? item.location : undefined;
+	const recurringEventId =
+		typeof item.recurringEventId === "string"
+			? item.recurringEventId
+			: undefined;
+	const recurrence = Array.isArray(item.recurrence)
+		? item.recurrence.filter(
+				(entry): entry is string => typeof entry === "string",
+			)
+		: undefined;
 	return {
 		id,
 		summary,
@@ -241,6 +271,8 @@ function parseCalendarEvent(item: unknown): CalendarEvent | null {
 		end,
 		...(location ? { location } : {}),
 		htmlLink,
+		...(recurringEventId ? { recurringEventId } : {}),
+		...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
 	};
 }
 
@@ -279,6 +311,50 @@ export async function googleListEvents(
 		if (parsed) events.push(parsed);
 	}
 	return events;
+}
+
+// ---------------------------------------------------------------------------
+// googleGetEvent (6.1) — fetches a single event by id, used by the calendar
+// write tool to build an update/delete preview and to detect whether the
+// target event is part of a recurring series (recurringEventId/recurrence)
+// before proposing a pending write. Deliberately NOT built on top of
+// `calendarGet` (which throws on any non-2xx): a 404/410 here is an ordinary,
+// expected outcome for a stale eventId, not a transport failure — so this
+// resolves to `null` instead of throwing, exactly like getPendingWrite
+// resolves to `null` for an unknown id rather than raising.
+// ---------------------------------------------------------------------------
+
+export async function googleGetEvent(
+	userId: string,
+	connectionId: string,
+	params: { calendarId?: string; eventId: string },
+	opts?: FetchOpt,
+): Promise<CalendarEvent | null> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const accessToken = await getAccessToken(userId, connectionId, opts);
+	const calendarId = encodeURIComponent(params.calendarId ?? "primary");
+	const eventId = encodeURIComponent(params.eventId);
+
+	const response = await fetchWithTimeout(
+		fetchImpl,
+		`${CALENDAR_API_BASE}/calendars/${calendarId}/events/${eventId}`,
+		{
+			method: "GET",
+			headers: { Authorization: `Bearer ${accessToken}` },
+		},
+	);
+
+	await assertNotAuthFailure(response, userId, connectionId);
+	if (response.status === 404 || response.status === 410) return null;
+	if (!response.ok) {
+		throw new GoogleCalendarError(
+			`Google Calendar request failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+
+	const body: unknown = await response.json().catch(() => null);
+	return parseCalendarEvent(body);
 }
 
 // ---------------------------------------------------------------------------

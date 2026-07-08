@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	AppleCalDavError,
 	appleListEvents,
@@ -7,6 +8,7 @@ import {
 	type CalendarEvent,
 	GoogleCalendarError,
 	googleFreeBusy,
+	googleGetEvent,
 	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
@@ -14,15 +16,41 @@ import {
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import {
+	buildWritePreview,
+	idempotencyKey,
+	type WriteOperation,
+	type WritePreview,
+} from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
 
 export const calendarToolInputSchema = z.object({
-	action: z.enum(["list_events", "check_availability"]),
+	action: z.enum([
+		"list_events",
+		"check_availability",
+		"create_event",
+		"update_event",
+		"delete_event",
+	]),
 	start: z.string().optional(),
 	end: z.string().optional(),
 	query: z.string().optional(),
+	// Write-action fields (6.1). `title`/`start`/`end`/`location`/
+	// `description` double as the new event's fields for create_event and as
+	// the (only the ones actually provided) changed fields for update_event;
+	// `start`/`end` are reused from the read-side range fields above rather
+	// than duplicated. `eventId` identifies the target for update/delete.
+	// `recurringScope` is required by the tool (never inferred) whenever the
+	// target turns out to be part of a recurring series — see
+	// runCalendarTool's recurring guardrail below.
+	title: z.string().optional(),
+	location: z.string().optional(),
+	description: z.string().optional(),
+	eventId: z.string().optional(),
+	calendarId: z.string().optional(),
+	recurringScope: z.enum(["this_event", "series"]).optional(),
 });
 
 export type CalendarToolInput = z.infer<typeof calendarToolInputSchema>;
@@ -35,6 +63,12 @@ export function sanitizeCalendarToolInput(
 		...(input.start ? { start: input.start.trim() } : {}),
 		...(input.end ? { end: input.end.trim() } : {}),
 		...(input.query ? { query: input.query.trim() } : {}),
+		...(input.title ? { title: input.title.trim() } : {}),
+		...(input.location ? { location: input.location.trim() } : {}),
+		...(input.description ? { description: input.description.trim() } : {}),
+		...(input.eventId ? { eventId: input.eventId.trim() } : {}),
+		...(input.calendarId ? { calendarId: input.calendarId.trim() } : {}),
+		...(input.recurringScope ? { recurringScope: input.recurringScope } : {}),
 	};
 }
 
@@ -68,6 +102,11 @@ export type CalendarToolModelPayload = {
 	events: CalendarToolEventItem[];
 	busy: CalendarToolBusyItem[];
 	citations: CalendarCitation[];
+	// Only set for a successful create_event/update_event/delete_event action
+	// (6.1) — the write has NOT executed, this is the id the user's
+	// confirm/cancel decision applies to (mirrors files.ts's "save").
+	pendingWriteId?: string;
+	preview?: WritePreview;
 };
 
 export type CalendarToolOutcome = {
@@ -119,6 +158,8 @@ function buildPayload(params: {
 	events?: CalendarToolEventItem[];
 	busy?: CalendarToolBusyItem[];
 	citations?: CalendarCitation[];
+	pendingWriteId?: string;
+	preview?: WritePreview;
 }): CalendarToolOutcome {
 	const citations = params.citations ?? [];
 	return {
@@ -131,6 +172,10 @@ function buildPayload(params: {
 			events: params.events ?? [],
 			busy: params.busy ?? [],
 			citations,
+			...(params.pendingWriteId
+				? { pendingWriteId: params.pendingWriteId }
+				: {}),
+			...(params.preview ? { preview: params.preview } : {}),
 		},
 		candidates: citations.map(toCandidate),
 	};
@@ -365,12 +410,333 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Write actions (Issue 6.1) — create_event/update_event/delete_event. These
+// NEVER execute a mutation: like files.ts's "save" action, each one builds a
+// WriteOperation, runs it through buildWritePreview (4.1), and hands it to
+// createPendingWrite (4.3), which persists a PENDING row and nothing more.
+// The only path from here to an actual Google Calendar mutation is the user
+// explicitly confirming via the confirm API — a separate request entirely,
+// dispatched by the "google" write-executor (providers/google-calendar-write
+// .ts) registered in Issue 6.1.
+// ---------------------------------------------------------------------------
+
+// Calendar reads (5.1/5.2) only ever requested calendar.readonly; a write
+// needs the broader calendar.events scope, requested incrementally rather
+// than up front (Phase 7 UI). Until the user reconnects and grants it, every
+// write action degrades to a note — never a pending row.
+const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+function hasCalendarWriteScope(conn: ConnectionPublic): boolean {
+	return conn.oauthScopes.includes(CALENDAR_WRITE_SCOPE);
+}
+
+// True when `event` is part of a recurring series — either it's an expanded
+// instance (recurringEventId points at its master) or it IS the master
+// itself (non-empty `recurrence`). Either signal is enough to require the
+// user pick a recurringScope before this tool ever proposes a write for it.
+function isRecurring(event: CalendarEvent): boolean {
+	return Boolean(event.recurringEventId) || Boolean(event.recurrence?.length);
+}
+
+type CalendarWriteAction = "create_event" | "update_event" | "delete_event";
+
+function isCalendarWriteAction(
+	action: CalendarToolInput["action"],
+): action is CalendarWriteAction {
+	return (
+		action === "create_event" ||
+		action === "update_event" ||
+		action === "delete_event"
+	);
+}
+
+async function proposeCreateEvent(
+	userId: string,
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<CalendarToolOutcome> {
+	// title/start/end are the user's own words from this turn, not connector-
+	// read data — no locality distillation gate applies here (contrast with
+	// update/delete below, which read an EXISTING event off the connector).
+	if (!input.title || !input.start || !input.end) {
+		return buildPayload({
+			success: false,
+			action: "create_event",
+			message:
+				"A title, start time, and end time are required to create an event.",
+		});
+	}
+
+	const calendarId = input.calendarId ?? "primary";
+	const eventFields = {
+		summary: input.title,
+		start: input.start,
+		end: input.end,
+		...(input.location ? { location: input.location } : {}),
+		...(input.description ? { description: input.description } : {}),
+	};
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "calendar.create_event",
+		summary: `Create "${input.title}" on your Google Calendar`,
+		reversible: true, // Google keeps history/trash for created events.
+		destructive: false,
+		target: { label: input.title },
+		// Ties the deterministic client-supplied Google event id (6.1 write
+		// executor) to this exact payload: an identical create request (a
+		// retried confirm, or a byte-for-byte repeat tool call) maps onto the
+		// same idempotencyKey and therefore the same Google event id, so
+		// Google's own 409 on re-insert becomes the idempotent-success signal
+		// rather than a silent duplicate event.
+		payloadFingerprint: JSON.stringify({ calendarId, ...eventFields }),
+	};
+	const preview = buildWritePreview(op);
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({ calendarId, event: eventFields }),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared "${input.title}" to be added to your Google Calendar, but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "create_event",
+		message,
+		pendingWriteId,
+		preview,
+	});
+}
+
+async function proposeUpdateOrDeleteEvent(
+	userId: string,
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+	action: "update_event" | "delete_event",
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<CalendarToolOutcome> {
+	if (!input.eventId) {
+		return buildPayload({
+			success: false,
+			action,
+			message: "An event id is required to update or delete an event.",
+		});
+	}
+
+	const calendarId = input.calendarId ?? "primary";
+	let existing: CalendarEvent | null;
+	try {
+		existing = await googleGetEvent(userId, conn.id, {
+			calendarId,
+			eventId: input.eventId,
+		});
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action,
+			message: mapAdapterError(err),
+		});
+	}
+	if (!existing) {
+		return buildPayload({
+			success: false,
+			action,
+			message: "I couldn't find that event on your calendar.",
+		});
+	}
+
+	// Recurring guardrail — never silently pick "this event" or "the whole
+	// series" on the user's behalf. Both scoping signals a single fetched
+	// event can carry (recurringEventId for an instance, recurrence for the
+	// master) are checked by isRecurring above.
+	if (isRecurring(existing) && !input.recurringScope) {
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				'That event is part of a recurring series. Should I apply this to just this event, or the whole series? Reply with "this event" or "the whole series" and I\'ll try again.',
+		});
+	}
+
+	const isUpdate = action === "update_event";
+	const label = input.title ?? existing.summary ?? "(untitled event)";
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: isUpdate ? "calendar.update_event" : "calendar.delete_event",
+		summary: isUpdate
+			? `Update "${label}" on your Google Calendar`
+			: `Delete "${label}" from your Google Calendar`,
+		reversible: true, // Google keeps history/trash for updated/deleted events.
+		destructive: true, // update-that-overwrites and delete are both destructive.
+		target: { id: input.eventId, label },
+	};
+	const rawPreview = buildWritePreview(op);
+
+	const content = {
+		calendarId,
+		eventId: input.eventId,
+		...(isUpdate
+			? {
+					event: {
+						...(input.title !== undefined ? { summary: input.title } : {}),
+						...(input.start !== undefined ? { start: input.start } : {}),
+						...(input.end !== undefined ? { end: input.end } : {}),
+						...(input.location !== undefined
+							? { location: input.location }
+							: {}),
+						...(input.description !== undefined
+							? { description: input.description }
+							: {}),
+					},
+				}
+			: {}),
+		...(input.recurringScope ? { recurringScope: input.recurringScope } : {}),
+	};
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify(content),
+		idempotencyKey: idempotencyKey(op),
+		// The DB row keeps the RAW preview (real title/location) — this is
+		// what a future confirm-card UI would render for the user on their own
+		// screen, a channel entirely separate from the model-facing payload
+		// built below. It is never sent back through the model.
+		preview: rawPreview,
+	});
+
+	// Option A (locality): `existing.summary`/`existing.location` are
+	// connector-READ data (fetched from Google above), exactly the kind of
+	// raw content the files/calendar READ paths already gate — so the same
+	// gate applies here to the MODEL-FACING preview/message. Unlike a plain
+	// read, the pending write's stored preview (just above) is deliberately
+	// left untouched: only the copy returned in this outcome's `preview`/
+	// `message` (what the model sees) is redacted.
+	const rawTextParts = [existing.summary, existing.location].filter(
+		(value): value is string => Boolean(value),
+	);
+	const decision =
+		rawTextParts.length > 0
+			? await decideLocalDistill({
+					userId,
+					modelId,
+					capability: "calendar",
+					userQuestion: input.title ?? "",
+					rawText: rawTextParts.join(" @ "),
+				})
+			: ({ shouldDistill: false } as const);
+
+	let modelPreview = rawPreview;
+	let redactedNote = "";
+	if (decision.shouldDistill) {
+		modelPreview = {
+			...rawPreview,
+			title: isUpdate ? "Update a calendar event" : "Delete a calendar event",
+			detail: `${op.action} — calendar event`,
+		};
+		redactedNote =
+			"distilled" in decision
+				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
+				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.";
+	}
+
+	const actionVerb = isUpdate ? "changes to" : "the deletion of";
+	const notYetVerb = isUpdate ? "applied" : "deleted";
+	const baseMessage = `I've prepared ${actionVerb} a calendar event, but it has NOT been ${notYetVerb} yet — it is PENDING and awaiting your explicit confirmation. ${modelPreview.detail}${redactedNote}${modelPreview.warnings.length > 0 && !decision.shouldDistill ? ` Warnings: ${modelPreview.warnings.join("; ")}.` : ""}`;
+
+	const message = withAmbiguityPrefix(
+		baseMessage,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action,
+		message,
+		pendingWriteId,
+		preview: modelPreview,
+	});
+}
+
+async function calendarWriteOutcome(
+	userId: string,
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+	action: CalendarWriteAction,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<CalendarToolOutcome> {
+	// Google-only for v1 (6.2 handles Apple). No pending write for a
+	// connection this tool can't act on.
+	if (conn.provider !== "google") {
+		return buildPayload({
+			success: false,
+			action,
+			message: "Calendar writes to Apple are handled separately.",
+		});
+	}
+
+	// Hard gate, checked BEFORE any network call — same posture as
+	// executeNextcloudWrite/saveOutcome (4.2/4.3): nothing below this line
+	// runs, and no pending row is created, when writes are disabled.
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action,
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!hasCalendarWriteScope(conn)) {
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				"I don't have permission to make changes to your Google Calendar yet — please reconnect Google and grant calendar write access, then try again.",
+		});
+	}
+
+	if (action === "create_event") {
+		return proposeCreateEvent(userId, conn, input, ambiguous, connections);
+	}
+	return proposeUpdateOrDeleteEvent(
+		userId,
+		conn,
+		input,
+		action,
+		ambiguous,
+		connections,
+		modelId,
+	);
+}
+
 // Resolves the user's Calendar connection(s) — now spanning both google and
 // apple providers (5.3) — and executes a list_events/check_availability
-// lookup, degrading gracefully (never throwing) so a connection problem
-// never aborts the chat turn: no connection, ambiguity, and adapter failures
-// all resolve to a `{ success: false, message }`-shaped payload instead.
-// Read-only — writes (creating/updating events) land in Phase 6.
+// lookup, or (6.1) proposes a create/update/delete_event write, degrading
+// gracefully (never throwing) so a connection problem never aborts the chat
+// turn: no connection, ambiguity, and adapter failures all resolve to a
+// `{ success: false, message }`-shaped payload instead.
 export async function runCalendarTool(
 	userId: string,
 	input: CalendarToolInput,
@@ -395,6 +761,21 @@ export async function runCalendarTool(
 			message:
 				"You don't have a Calendar connection set up yet. Connect your Google or Apple iCloud account in Settings to check your calendar.",
 		});
+	}
+
+	// Write actions (6.1) are proposal-only and branch here — before the
+	// read-side range resolution below — same posture as files.ts's "save"
+	// branching ahead of its shared secret-fetch flow.
+	if (isCalendarWriteAction(input.action)) {
+		return calendarWriteOutcome(
+			userId,
+			conn,
+			input,
+			input.action,
+			ambiguous,
+			connections,
+			modelId,
+		);
 	}
 
 	const { timeMin, timeMax } = resolveRange(input);

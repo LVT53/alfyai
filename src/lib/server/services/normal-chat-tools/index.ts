@@ -180,7 +180,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		calendar: {
 			description:
-				"Read the user's connected calendar (Google or Apple iCloud): list upcoming/ranged events or check free/busy availability (Google only). Use when the user asks about their schedule, upcoming events, or whether they're free at a time.",
+				"Read the user's connected calendar (Google or Apple iCloud): list upcoming/ranged events or check free/busy availability (Google only). Use when the user asks about their schedule, upcoming events, or whether they're free at a time. Can also create_event/update_event/delete_event on a connected Google Calendar (requires the user to have enabled writes) — these NEVER apply immediately: each one only proposes a pending change that the user must explicitly confirm before anything is created, changed, or deleted. If the target event is part of a recurring series, you must ask the user whether to affect just that occurrence or the whole series before proposing the change.",
 			errorPrefix: "Calendar lookup failed",
 		},
 		email: {
@@ -241,7 +241,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		calendar: {
 			description:
-				"A felhasználó csatlakoztatott naptárának (Google vagy Apple iCloud) olvasása: közelgő/időszakra vonatkozó események listázása vagy a szabad/foglalt állapot lekérdezése (csak Google). Akkor használd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy adott időpontban.",
+				"A felhasználó csatlakoztatott naptárának (Google vagy Apple iCloud) olvasása: közelgő/időszakra vonatkozó események listázása vagy a szabad/foglalt állapot lekérdezése (csak Google). Akkor használd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy adott időpontban. Google Calendaren esemény létrehozására (create_event), módosítására (update_event) és törlésére (delete_event) is képes (ehhez az írásnak engedélyezve kell lennie) — ezek SOHA nem lépnek életbe azonnal: mindegyik csak egy függőben lévő módosítást javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi létrejönne, módosulna vagy törlődne. Ha a célesemény egy ismétlődő sorozat része, a módosítás javaslata előtt meg kell kérdezned a felhasználót, hogy csak az adott alkalomra vagy az egész sorozatra vonatkozzon-e.",
 			errorPrefix: "A naptár elérése sikertelen",
 		},
 		email: {
