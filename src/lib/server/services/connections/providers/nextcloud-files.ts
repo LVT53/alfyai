@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { registerConnectionAdapter } from "../adapters";
 import type { ConnectionAdapter } from "../registry";
@@ -5,9 +6,12 @@ import {
 	type ConnectionPublic,
 	createConnection,
 	findConnectionByAccount,
+	getConnection,
+	getConnectionSecret,
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
+import { resolveWriteTarget } from "../write-guard";
 
 const USER_AGENT = "AlfyAI";
 
@@ -347,7 +351,11 @@ export type NextcloudFilesErrorCode =
 	| "needs_reauth"
 	| "not_found"
 	| "too_large"
-	| "request_failed";
+	| "request_failed"
+	| "etag_mismatch"
+	| "conflict"
+	| "writes_disabled"
+	| "connection_not_found";
 
 export class NextcloudFilesError extends Error {
 	constructor(
@@ -849,6 +857,408 @@ export async function nextcloudSearch(
 
 	const xml = await response.text();
 	return parseMultistatus(xml, loginName);
+}
+
+// ---------------------------------------------------------------------------
+// WRITE methods (4.2) — put / move / delete over Nextcloud WebDAV, guarded by
+// the write-guard (4.1) at the executeNextcloudWrite chokepoint below. Every
+// path here still routes through normalizeNextcloudPath first; nothing new
+// is exempt from that guard just because it mutates instead of reads.
+// ---------------------------------------------------------------------------
+
+// 5 MB per chunk for chunked upload v2 — bounds how much of the payload is
+// ever held as a single in-flight request body, independent of how large the
+// overall file is.
+const CHUNK_SIZE_BYTES = 5 * 1024 * 1024;
+// Files at or below this size go through a single PUT; anything larger uses
+// chunked upload v2 so an interrupted upload can never leave a partial file
+// at the destination path.
+const DEFAULT_CHUNKED_THRESHOLD_BYTES = 10 * 1024 * 1024;
+
+function uploadsRootUrl(
+	serverUrl: string,
+	loginName: string,
+	transferId: string,
+): string {
+	return `${serverUrl}/remote.php/dav/uploads/${encodeURIComponent(loginName)}/${transferId}`;
+}
+
+// A 412 on a conditional write (If-Match) means the file changed since the
+// caller last read its etag — this must throw rather than fall back to an
+// unconditional PUT, or a "safe" overwrite would silently clobber a
+// concurrent edit.
+function assertNotEtagMismatch(response: Response): void {
+	if (response.status === 412) {
+		throw new NextcloudFilesError(
+			"Nextcloud rejected the write: the file changed since it was last read (etag mismatch)",
+			"etag_mismatch",
+		);
+	}
+}
+
+async function directPut(
+	fetchImpl: typeof fetch,
+	loginName: string,
+	appPassword: string,
+	url: string,
+	bytes: Uint8Array,
+	ifMatch: string | undefined,
+): Promise<{ etag: string | null }> {
+	const headers: Record<string, string> = {
+		Authorization: basicAuthHeader(loginName, appPassword),
+		"Content-Type": "application/octet-stream",
+		"User-Agent": USER_AGENT,
+	};
+	if (ifMatch) headers["If-Match"] = ifMatch;
+
+	const response = await fetchWithTimeout(fetchImpl, url, {
+		method: "PUT",
+		headers,
+		// Buffer.from copies into a Uint8Array<ArrayBuffer> — the DOM fetch
+		// typings' BodyInit rejects a plain Uint8Array<ArrayBufferLike> (the
+		// type callers of this module pass) even though undici accepts it at
+		// runtime.
+		body: Buffer.from(bytes),
+	});
+
+	assertNotAuthFailure(response);
+	assertNotEtagMismatch(response);
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud PUT failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+	return { etag: response.headers.get("ETag") };
+}
+
+// Chunked upload v2: MKCOL a per-transfer scratch collection, PUT each
+// (bounded-size) chunk into it in order, then MOVE the assembled `.file`
+// pseudo-entry to the real destination. This is the pattern Nextcloud's own
+// clients use for large files specifically because a plain PUT that dies
+// partway through leaves a truncated file at the destination path — the
+// chunked scratch space is invisible to readers until the final MOVE
+// succeeds atomically.
+async function chunkedPut(
+	fetchImpl: typeof fetch,
+	serverUrl: string,
+	loginName: string,
+	appPassword: string,
+	destinationUrl: string,
+	bytes: Uint8Array,
+	ifMatch: string | undefined,
+): Promise<{ etag: string | null }> {
+	const transferId = randomUUID();
+	const uploadsRoot = uploadsRootUrl(serverUrl, loginName, transferId);
+
+	const mkcolResponse = await fetchWithTimeout(fetchImpl, uploadsRoot, {
+		method: "MKCOL",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			"User-Agent": USER_AGENT,
+		},
+	});
+	assertNotAuthFailure(mkcolResponse);
+	if (!mkcolResponse.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud chunked-upload MKCOL failed with status ${mkcolResponse.status}`,
+			"request_failed",
+		);
+	}
+
+	const chunkCount = Math.max(
+		1,
+		Math.ceil(bytes.byteLength / CHUNK_SIZE_BYTES),
+	);
+	for (let index = 0; index < chunkCount; index++) {
+		const start = index * CHUNK_SIZE_BYTES;
+		const end = Math.min(start + CHUNK_SIZE_BYTES, bytes.byteLength);
+		const chunk = bytes.subarray(start, end);
+		const chunkUrl = `${uploadsRoot}/${String(index + 1).padStart(5, "0")}`;
+
+		const chunkResponse = await fetchWithTimeout(fetchImpl, chunkUrl, {
+			method: "PUT",
+			headers: {
+				Authorization: basicAuthHeader(loginName, appPassword),
+				"Content-Type": "application/octet-stream",
+				"User-Agent": USER_AGENT,
+			},
+			body: Buffer.from(chunk),
+		});
+		assertNotAuthFailure(chunkResponse);
+		if (!chunkResponse.ok) {
+			throw new NextcloudFilesError(
+				`Nextcloud chunk upload failed with status ${chunkResponse.status}`,
+				"request_failed",
+			);
+		}
+	}
+
+	const assembleHeaders: Record<string, string> = {
+		Authorization: basicAuthHeader(loginName, appPassword),
+		Destination: destinationUrl,
+		"OC-Total-Length": String(bytes.byteLength),
+		"User-Agent": USER_AGENT,
+	};
+	if (ifMatch) assembleHeaders["If-Match"] = ifMatch;
+
+	const moveResponse = await fetchWithTimeout(
+		fetchImpl,
+		`${uploadsRoot}/.file`,
+		{
+			method: "MOVE",
+			headers: assembleHeaders,
+		},
+	);
+	assertNotAuthFailure(moveResponse);
+	assertNotEtagMismatch(moveResponse);
+	if (!moveResponse.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud chunked-upload assembly failed with status ${moveResponse.status}`,
+			"request_failed",
+		);
+	}
+	return { etag: moveResponse.headers.get("ETag") };
+}
+
+// Writes `bytes` to `path`. Small payloads (<= chunkedThreshold, default
+// 10MB) go through a single PUT; larger ones use chunked upload v2 (see
+// chunkedPut) so an interrupted upload can never corrupt the destination.
+// When `ifMatch` is supplied, a 412 from Nextcloud throws `etag_mismatch`
+// rather than silently falling back to an unconditional write.
+export async function nextcloudPutFile(
+	conn: ConnectionPublic,
+	appPassword: string,
+	path: string,
+	bytes: Uint8Array,
+	opts?: {
+		ifMatch?: string;
+		chunkedThreshold?: number;
+	} & FetchOpt,
+): Promise<{ etag: string | null }> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const normalizedPath = normalizeNextcloudPath(path);
+	if (!normalizedPath) {
+		throw new NextcloudFilesError(
+			"Cannot write to the files root as a file",
+			"invalid_path",
+		);
+	}
+	const destinationUrl = filesUrl(serverUrl, loginName, normalizedPath);
+	const threshold = opts?.chunkedThreshold ?? DEFAULT_CHUNKED_THRESHOLD_BYTES;
+
+	if (bytes.byteLength > threshold) {
+		return chunkedPut(
+			fetchImpl,
+			serverUrl,
+			loginName,
+			appPassword,
+			destinationUrl,
+			bytes,
+			opts?.ifMatch,
+		);
+	}
+	return directPut(
+		fetchImpl,
+		loginName,
+		appPassword,
+		destinationUrl,
+		bytes,
+		opts?.ifMatch,
+	);
+}
+
+// Moves/renames a file. `Overwrite: F` (the WebDAV default posture here)
+// unless the caller explicitly opts in — a MOVE onto an existing path
+// without permission comes back as a typed `conflict` error, never a silent
+// clobber of the destination.
+export async function nextcloudMoveFile(
+	conn: ConnectionPublic,
+	appPassword: string,
+	fromPath: string,
+	toPath: string,
+	opts?: { overwrite?: boolean } & FetchOpt,
+): Promise<void> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const normalizedFrom = normalizeNextcloudPath(fromPath);
+	const normalizedTo = normalizeNextcloudPath(toPath);
+	if (!normalizedFrom || !normalizedTo) {
+		throw new NextcloudFilesError(
+			"Cannot move the files root itself",
+			"invalid_path",
+		);
+	}
+	const fromUrl = filesUrl(serverUrl, loginName, normalizedFrom);
+	const toUrl = filesUrl(serverUrl, loginName, normalizedTo);
+
+	const response = await fetchWithTimeout(fetchImpl, fromUrl, {
+		method: "MOVE",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			Destination: toUrl,
+			Overwrite: opts?.overwrite ? "T" : "F",
+			"User-Agent": USER_AGENT,
+		},
+	});
+
+	assertNotAuthFailure(response);
+	if (response.status === 412) {
+		throw new NextcloudFilesError(
+			"Nextcloud refused to overwrite an existing file at the destination",
+			"conflict",
+		);
+	}
+	if (response.status === 404) {
+		throw new NextcloudFilesError(
+			`File not found: ${normalizedFrom}`,
+			"not_found",
+		);
+	}
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud MOVE failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+}
+
+// Deletes a file via a plain WebDAV DELETE. Nextcloud's server-side default
+// is to move the item into the user's trashbin rather than purge it — this
+// function issues exactly that request and nothing else; it never adds a
+// permanent-delete parameter, so the operation stays reversible from the
+// Nextcloud UI regardless of what AlfyAI's own confirm flow does upstream.
+export async function nextcloudDeleteFile(
+	conn: ConnectionPublic,
+	appPassword: string,
+	path: string,
+	opts?: FetchOpt,
+): Promise<void> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const normalizedPath = normalizeNextcloudPath(path);
+	if (!normalizedPath) {
+		throw new NextcloudFilesError(
+			"Cannot delete the files root itself",
+			"invalid_path",
+		);
+	}
+	const url = filesUrl(serverUrl, loginName, normalizedPath);
+
+	const response = await fetchWithTimeout(fetchImpl, url, {
+		method: "DELETE",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			"User-Agent": USER_AGENT,
+		},
+	});
+
+	assertNotAuthFailure(response);
+	if (response.status === 404) {
+		throw new NextcloudFilesError(
+			`File not found: ${normalizedPath}`,
+			"not_found",
+		);
+	}
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud DELETE failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Guarded execute service (4.2) — the single chokepoint a chat-tool write
+// action (4.3) is expected to call through. Confirmation is assumed to have
+// already happened upstream; this function's job is the hard `allowWrites`
+// gate plus safe, typed execution. It never throws: every adapter error
+// (typed or not) is mapped to `{ ok: false, reason }` so a caller can surface
+// it directly without risking a raw error (and its message) leaking further
+// than intended — in particular, the decrypted app password is never placed
+// in a thrown message or a returned reason string.
+// ---------------------------------------------------------------------------
+
+export type NextcloudWriteRequest =
+	| {
+			kind: "put";
+			requestedPath?: string;
+			bytes: Uint8Array;
+			ifMatch?: string;
+			contentSummary: string;
+	  }
+	| { kind: "move"; fromPath: string; toPath: string }
+	| { kind: "delete"; path: string };
+
+export async function executeNextcloudWrite(
+	userId: string,
+	connectionId: string,
+	req: NextcloudWriteRequest,
+	opts?: FetchOpt,
+): Promise<{ ok: true; etag?: string | null } | { ok: false; reason: string }> {
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		return { ok: false, reason: "connection_not_found" };
+	}
+	// Hard gate — checked before the secret is ever decrypted and before any
+	// adapter method (and therefore any fetch) is invoked. Nothing below this
+	// line runs when writes are disabled.
+	if (conn.allowWrites !== true) {
+		return { ok: false, reason: "writes_disabled" };
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		return { ok: false, reason: "needs_reauth" };
+	}
+
+	try {
+		switch (req.kind) {
+			case "put": {
+				const target = resolveWriteTarget({
+					allowlist: conn.writeAllowlist,
+					requestedPath: req.requestedPath,
+					defaultArea: conn.writeAllowlist[0],
+				});
+				const result = await nextcloudPutFile(
+					conn,
+					appPassword,
+					target.path,
+					req.bytes,
+					{ ifMatch: req.ifMatch, fetch: opts?.fetch },
+				);
+				return { ok: true, etag: result.etag };
+			}
+			case "move": {
+				await nextcloudMoveFile(conn, appPassword, req.fromPath, req.toPath, {
+					fetch: opts?.fetch,
+				});
+				return { ok: true };
+			}
+			case "delete": {
+				await nextcloudDeleteFile(conn, appPassword, req.path, {
+					fetch: opts?.fetch,
+				});
+				return { ok: true };
+			}
+			default: {
+				const exhaustive: never = req;
+				throw new Error(
+					`Unhandled Nextcloud write kind: ${JSON.stringify(exhaustive)}`,
+				);
+			}
+		}
+	} catch (err) {
+		if (err instanceof NextcloudFilesError) {
+			return { ok: false, reason: err.code };
+		}
+		// Never surface a raw error message here: it could (in principle)
+		// originate from a layer that interpolated the password into an
+		// Error before this chokepoint existed. Only a generic, fixed reason
+		// is returned for anything not already a typed NextcloudFilesError.
+		return { ok: false, reason: "request_failed" };
+	}
 }
 
 // Not annotated as `: ConnectionAdapter` — that would narrow checkHealth's
