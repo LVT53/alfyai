@@ -1754,7 +1754,7 @@ describe("MessageInput", () => {
 		const { findByText, queryByText } = render(MessageInput, {
 			conversationId: "conv-1",
 			attachmentsEnabled: true,
-			onUploadReady: (uploadFn) => {
+			onUploadReady: (uploadFn: (files: FileList | null) => Promise<void>) => {
 				registeredUpload = uploadFn;
 			},
 			onUploadFiles: uploadFilesHandler,
