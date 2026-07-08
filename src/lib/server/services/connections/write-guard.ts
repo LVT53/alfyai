@@ -16,9 +16,11 @@ export type WriteTarget = {
 	// Populated by the caller from resolveWriteTarget's result when the
 	// target is path-based. Absent (or undefined) means either the target
 	// isn't path-based (id/label only) or the caller hasn't run it through
-	// resolveWriteTarget — in both cases buildWritePreview treats a
-	// present-but-unset flag as "assume within allowlist" (true), since the
-	// only way to get an explicit `false` is via resolveWriteTarget itself.
+	// resolveWriteTarget. A "corruption firewall" must never treat "unknown"
+	// as "safe": buildWritePreview treats a path-bearing target with this
+	// flag unset as UNVERIFIED (surfaced as `withinAllowlist: null` plus a
+	// warning), never as an implicit `true`. Only an explicit `true` (as
+	// produced by resolveWriteTarget) suppresses the warning.
 	withinAllowlist?: boolean;
 };
 
@@ -53,8 +55,19 @@ const DEFAULT_AREA = "/AlfyAI";
 // local and provider-agnostic — this module must not import anything
 // WebDAV/provider-specific.
 function normalizeAllowlistPath(path: string): string {
+	// Percent-decode before splitting into segments so an encoded escape
+	// (`%2e%2e`, or an encoded separator like `..%2f..`) can't disguise a
+	// `..` segment from the traversal check below. Malformed sequences are
+	// left as-is rather than throwing here — decodeURIComponent's own error
+	// is not a security signal, only genuine `..` segments are.
+	let decoded = path;
+	try {
+		decoded = decodeURIComponent(path);
+	} catch {
+		decoded = path;
+	}
 	const stack: string[] = [];
-	for (const raw of path.split("/")) {
+	for (const raw of decoded.split("/")) {
 		const segment = raw.trim();
 		if (segment === "" || segment === ".") continue;
 		if (segment === "..") {
@@ -119,8 +132,20 @@ function describeTarget(target: WriteTarget | undefined): string {
 // "corruption firewall": an unrecoverable destructive change, and a target
 // outside the connection's allowed area.
 export function buildWritePreview(op: WriteOperation): WritePreview {
-	const withinAllowlist =
-		op.target?.path === undefined ? null : (op.target.withinAllowlist ?? true);
+	const hasPath = op.target?.path !== undefined;
+	const explicitFlag = op.target?.withinAllowlist;
+	// Only an explicit true/false (as produced by resolveWriteTarget) is
+	// trusted. A path-bearing target with the flag unset is UNVERIFIED, not
+	// "assumed safe" — it surfaces as null (unknown), same as a non-path
+	// target, but with its own warning so it's never mistaken for "no
+	// allowlist concept applies here".
+	const withinAllowlist: boolean | null = !hasPath
+		? null
+		: explicitFlag === true
+			? true
+			: explicitFlag === false
+				? false
+				: null;
 
 	const warnings: string[] = [];
 	if (op.destructive && !op.reversible) {
@@ -128,6 +153,11 @@ export function buildWritePreview(op: WriteOperation): WritePreview {
 	}
 	if (withinAllowlist === false) {
 		warnings.push("Outside your allowed area");
+	}
+	if (hasPath && explicitFlag === undefined) {
+		warnings.push(
+			"Allowlist status could not be verified for this destination.",
+		);
 	}
 
 	return {

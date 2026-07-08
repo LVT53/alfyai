@@ -15,7 +15,9 @@ function op(overrides: Partial<WriteOperation> = {}): WriteOperation {
 		summary: "Upload report.pdf to /AlfyAI",
 		reversible: true,
 		destructive: false,
-		target: { path: "/AlfyAI/report.pdf" },
+		// withinAllowlist explicitly true here, as a well-behaved caller would
+		// set it by spreading resolveWriteTarget's result.
+		target: { path: "/AlfyAI/report.pdf", withinAllowlist: true },
 		...overrides,
 	};
 }
@@ -103,6 +105,24 @@ describe("resolveWriteTarget", () => {
 		).toThrow();
 	});
 
+	it("rejects a percent-encoded traversal segment (%2e%2e)", () => {
+		expect(() =>
+			resolveWriteTarget({
+				allowlist: ["/AlfyAI"],
+				requestedPath: "%2e%2e/x",
+			}),
+		).toThrow();
+	});
+
+	it("rejects a mixed percent-encoded traversal (encoded slash)", () => {
+		expect(() =>
+			resolveWriteTarget({
+				allowlist: ["/AlfyAI"],
+				requestedPath: "..%2f..",
+			}),
+		).toThrow();
+	});
+
 	it("rejects traversal even when the escape lands back under the allowlist", () => {
 		expect(() =>
 			resolveWriteTarget({
@@ -149,6 +169,20 @@ describe("buildWritePreview", () => {
 		const preview = buildWritePreview(op());
 		expect(preview.warnings).toEqual([]);
 		expect(preview.withinAllowlist).toBe(true);
+	});
+
+	it("does not silently report a path-based target as safe when withinAllowlist is unset", () => {
+		// A forgetful caller constructs `target: { path }` directly instead of
+		// spreading resolveWriteTarget's result — withinAllowlist is unverified,
+		// not "assumed safe". "/Outside/x.pdf" is not under any allowlist root.
+		const preview = buildWritePreview(
+			op({ target: { path: "/Outside/x.pdf" } }),
+		);
+		expect(preview.withinAllowlist).not.toBe(true);
+		expect(preview.warnings.length).toBeGreaterThan(0);
+		expect(preview.warnings.some((w) => /could not be verified/i.test(w))).toBe(
+			true,
+		);
 	});
 
 	it("reports withinAllowlist as null for non-path-based targets", () => {
