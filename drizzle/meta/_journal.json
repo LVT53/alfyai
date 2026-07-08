@@ -617,6 +617,13 @@
       "when": 1777140000074,
       "tag": "1777140000074_user_connections_config",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1777140000075,
+      "tag": "1777140000075_users_connection_cloud_ack",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,12 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// True once the user has acknowledged the "connector data is sent to a
+	// third-party cloud model" warning at least once (Option C in the
+	// connections locality guard). Sticky — never reset back to false.
+	connectionCloudAck: integer("connection_cloud_ack", { mode: "boolean" })
+		.notNull()
+		.default(false),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
