@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+	nextcloudReadFile,
+	nextcloudSearch,
+} from "$lib/server/services/connections/providers/nextcloud-files";
+import {
+	needsDisambiguation,
+	resolveConnectionsForCapability,
+} from "$lib/server/services/connections/resolve";
+import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import { getConnectionSecret } from "$lib/server/services/connections/store";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
@@ -36,11 +46,63 @@ vi.mock("$lib/server/config-store", () => ({
 		webResearchFreshnessHours: 24,
 	})),
 }));
+vi.mock("$lib/server/services/connections/resolve", () => ({
+	resolveConnectionsForCapability: vi.fn(),
+	needsDisambiguation: vi.fn(),
+}));
+vi.mock("$lib/server/services/connections/store", () => ({
+	getConnectionSecret: vi.fn(),
+}));
+vi.mock(
+	"$lib/server/services/connections/providers/nextcloud-files",
+	async () => {
+		const actual = await vi.importActual<
+			typeof import("$lib/server/services/connections/providers/nextcloud-files")
+		>("$lib/server/services/connections/providers/nextcloud-files");
+		return {
+			...actual,
+			nextcloudSearch: vi.fn(),
+			nextcloudReadFile: vi.fn(),
+		};
+	},
+);
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
 const researchWebMock = vi.mocked(researchWeb);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
 const searchImagesMock = vi.mocked(searchImages);
+const resolveConnectionsForCapabilityMock = vi.mocked(
+	resolveConnectionsForCapability,
+);
+const needsDisambiguationMock = vi.mocked(needsDisambiguation);
+const getConnectionSecretMock = vi.mocked(getConnectionSecret);
+const nextcloudSearchMock = vi.mocked(nextcloudSearch);
+const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
+
+function makeNextcloudConnection(
+	overrides: Partial<ConnectionPublic> = {},
+): ConnectionPublic {
+	return {
+		id: "conn-1",
+		userId: "user-1",
+		provider: "nextcloud",
+		label: "Nextcloud",
+		accountIdentifier: "alice",
+		status: "connected",
+		statusDetail: null,
+		defaultOn: false,
+		allowWrites: false,
+		writeAllowlist: [],
+		capabilities: ["files"],
+		config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+		oauthScopes: [],
+		tokenExpiresAt: null,
+		hasSecret: true,
+		createdAt: Date.now(),
+		updatedAt: Date.now(),
+		...overrides,
+	};
+}
 
 function hasInstructions(
 	result:
@@ -86,6 +148,12 @@ describe("createNormalChatTools", () => {
 		researchWebMock.mockReset();
 		getMemoryContextMock.mockReset();
 		searchImagesMock.mockReset();
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
 	});
 
 	it("submits produce_file intake with server-owned user, conversation, and turn idempotency scope", async () => {
@@ -1515,6 +1583,143 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	describe("files tool gating", () => {
+		it("does not include the files tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("files");
+		});
+
+		it("does not include the files tool when enabledConnectionCapabilities lacks 'files'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("files");
+		});
+
+		it("includes the files tool when enabledConnectionCapabilities contains 'files'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+
+			expect(tools).toHaveProperty("files");
+		});
+	});
+
+	describe("files tool execute", () => {
+		function createToolsWithFiles() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+		}
+
+		it("search returns results and citations", async () => {
+			const conn = makeNextcloudConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudSearchMock.mockResolvedValue([
+				{
+					name: "report.pdf",
+					path: "Documents/report.pdf",
+					isDir: false,
+					size: 4096,
+					mtime: null,
+					contentType: "application/pdf",
+					etag: "etag-1",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-search", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [
+					{
+						label: "report.pdf",
+						path: "Documents/report.pdf",
+						url: expect.stringContaining("cloud.example.com"),
+					},
+				],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-files-search",
+					name: "files",
+					sourceType: "document",
+					candidates: [
+						expect.objectContaining({
+							id: "files:Documents/report.pdf",
+							title: "report.pdf",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Files connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Files connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-files-none",
+				name: "files",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Files connection is available", async () => {
+			const connA = makeNextcloudConnection({
+				id: "conn-a",
+				label: "Alice Nextcloud",
+			});
+			const connB = makeNextcloudConnection({
+				id: "conn-b",
+				label: "Bob Nextcloud",
+			});
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudSearchMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Files connections",
+			);
+		});
 	});
 });
 

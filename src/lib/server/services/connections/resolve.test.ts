@@ -164,3 +164,88 @@ describe("resolveConnectionsForCapability", () => {
 		expect(result).toEqual([]);
 	});
 });
+
+describe("getEnabledConnectionCapabilities", () => {
+	it("returns an empty set when the user has no connections", async () => {
+		const { getEnabledConnectionCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		const result = await getEnabledConnectionCapabilities("userA");
+		expect(result).toEqual(new Set());
+	});
+
+	it("includes 'files' when a connected Nextcloud connection has files enabled", async () => {
+		const { createConnection } = await import("./store");
+		const { getEnabledConnectionCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+		});
+
+		const result = await getEnabledConnectionCapabilities("userA");
+		expect(result).toEqual(new Set(["files"]));
+	});
+
+	it("excludes 'files' when the Nextcloud connection is not connected", async () => {
+		const { createConnection } = await import("./store");
+		const { getEnabledConnectionCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "needs_reauth",
+			capabilities: ["files"],
+		});
+
+		const result = await getEnabledConnectionCapabilities("userA");
+		expect(result).toEqual(new Set());
+	});
+
+	it("excludes 'files' when the connection does not have it enabled", async () => {
+		const { createConnection } = await import("./store");
+		const { getEnabledConnectionCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["contacts"],
+		});
+
+		const result = await getEnabledConnectionCapabilities("userA");
+		expect(result.has("files")).toBe(false);
+	});
+
+	it("aggregates capabilities across multiple connected providers", async () => {
+		const { createConnection } = await import("./store");
+		const { getEnabledConnectionCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+		});
+		await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		const result = await getEnabledConnectionCapabilities("userA");
+		expect(result).toEqual(new Set(["files", "calendar"]));
+	});
+});

@@ -27,6 +27,8 @@ import {
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
+import type { Capability } from "$lib/server/services/connections/registry";
+import { getEnabledConnectionCapabilities } from "$lib/server/services/connections/resolve";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -183,11 +185,17 @@ export async function runStreamingNormalChatSendModel(
 		logLabel: "provider streaming request",
 	});
 	const turnId = params.createTurnId?.() ?? randomUUID();
+	// Fail closed on error — a connections-lookup hiccup should never block
+	// the turn, it should just mean no connection-backed tools this turn.
+	const enabledConnectionCapabilities = await getEnabledConnectionCapabilities(
+		params.userId,
+	).catch(() => new Set<Capability>());
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		turnId,
 		language: detectLanguage(params.message),
+		enabledConnectionCapabilities,
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

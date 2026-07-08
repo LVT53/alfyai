@@ -645,6 +645,7 @@ describe("runPlainNormalChatSendModel", () => {
 			conversationId: "conv-1",
 			turnId: "normal-chat-turn-1",
 			language: "hu",
+			enabledConnectionCapabilities: new Set(),
 		});
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({

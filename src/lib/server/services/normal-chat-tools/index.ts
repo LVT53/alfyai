@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import type { Capability } from "$lib/server/services/connections/registry";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
@@ -17,12 +18,16 @@ import {
 } from "$lib/server/services/web-grounding";
 import { researchWeb } from "$lib/server/services/web-research";
 import {
+	filesToolInputSchema,
+	runFilesTool,
+	sanitizeFilesToolInput,
+} from "./files";
+import {
 	compactImageSearchResults,
 	createImageSearchCandidates,
 	imageSearchInputSchema,
 	sanitizeImageSearchInput,
 } from "./image-search";
-
 import {
 	compactMemoryContextCandidates,
 	compactMemoryContextModelPayload,
@@ -32,7 +37,6 @@ import {
 	sanitizeMemoryContextInput,
 	summarizeMemoryContextResult,
 } from "./memory-context";
-
 import {
 	applyTextPatches,
 	buildSameTurnProduceFileDedupeKey,
@@ -45,7 +49,6 @@ import {
 	sanitizeUnsafeProduceFileInput,
 	summarizeProduceFileResult,
 } from "./produce-file";
-
 import {
 	buildReadGeneratedFileModelPayload,
 	extractContentFromMemoryText,
@@ -54,7 +57,6 @@ import {
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } from "./read-generated-file";
-
 import {
 	researchWebInputSchema,
 	sanitizeResearchWebInput,
@@ -96,6 +98,13 @@ export interface CreateNormalChatToolsContext {
 	recorder?: ToolCallRecorder;
 	language?: "en" | "hu";
 	webSourceBudget?: ReasoningDepthWebSourceBudget;
+	// The capabilities the user currently has at least one connected
+	// connection serving (see getEnabledConnectionCapabilities). Controls
+	// which connection-backed tools (e.g. "files") are exposed to the model —
+	// callers compute this upstream and should fail closed (omit/empty) on
+	// error rather than block the turn. Connections work in incognito (issue
+	// 0.1 removed incognito gating) — this is deliberately NOT gated on it.
+	enabledConnectionCapabilities?: Set<Capability>;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -128,6 +137,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the full content of a previously generated file by filename or title, so you can review it before making surgical edits.",
 			errorPrefix: "Read generated file failed",
 		},
+		files: {
+			description:
+				"Search and read the user's connected files (e.g. their Nextcloud). Use when the user asks to find, look up, or read a document/file.",
+			errorPrefix: "Files lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -154,6 +168,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Egy korábban generált fájl teljes tartalmának beolvasása fájlnév vagy cím alapján, hogy ellenőrizhesd a tartalmát a módosítások előtt.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
+		files: {
+			description:
+				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) keresése és olvasása. Akkor használd, ha a felhasználó egy dokumentum/fájl megkeresését, megnyitását vagy elolvasását kéri.",
+			errorPrefix: "A fájlok elérése sikertelen",
+		},
 	},
 };
 
@@ -167,6 +186,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		string,
 		Extract<FileProductionIntakeResult, { ok: true }>
 	>();
+	const includeFilesTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("files"),
+	);
 
 	const tools = {
 		research_web: asExecutableTool(
@@ -668,6 +690,85 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 				},
 			}),
 		),
+		...(includeFilesTool
+			? {
+					files: asExecutableTool(
+						tool({
+							description: i18n.files.description,
+							inputSchema: filesToolInputSchema,
+							execute: async (
+								input: z.infer<typeof filesToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeFilesToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "files",
+									timeoutMs: TOOL_TIMEOUTS_MS.files,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runFilesTool(
+											ctx.userId,
+											safeInput,
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "files",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "document",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: modelPayload.results.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.files.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "files" as const,
+											sourceType: "document" as const,
+											action: safeInput.action,
+											message,
+											results: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "files",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "document",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
 		done: tool({
 			description:
 				"Call this when the task is fully complete and you have nothing more to add. Include a brief summary of what was accomplished. Calling this ends the agent loop — do not call it until you are truly finished.",
