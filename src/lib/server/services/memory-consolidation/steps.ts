@@ -6,6 +6,7 @@ import {
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 } from "$lib/server/db/schema";
+import { recordMemoryModelUsage } from "../memory-cost";
 import { refreshFactEmbedding } from "../memory-judge";
 import {
 	parseJsonWithEnvelopeExtraction,
@@ -341,6 +342,12 @@ export async function runReconcileAndMerge(params: {
 				allowReasoningFallback: true,
 			},
 		);
+		await recordMemoryModelUsage({
+			userId,
+			feature: "consolidation",
+			modelId: config.memoryConsolidationModel,
+			usage: res.usage,
+		});
 		// Reasoning models may wrap the JSON envelope in chain-of-thought
 		// prose surfaced via allowReasoningFallback; extract the real object
 		// from the end rather than failing the whole reconcile pass.

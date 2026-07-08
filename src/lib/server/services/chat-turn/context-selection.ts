@@ -997,6 +997,9 @@ async function buildShallowConstructedContext(params: {
 	targetBudget: number;
 	compactionThreshold: number;
 	maxModelContext: number;
+	// Read-side incognito: when true, no persona/memory or project context is
+	// injected into the prompt for this conversation.
+	memoryIncognito?: boolean;
 }): Promise<{
 	inputValue: string;
 	contextStatus: ConversationContextStatus;
@@ -1022,17 +1025,19 @@ async function buildShallowConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		projectIdPromise.then((projectId) =>
-			buildActiveMemoryProfilePromptSection({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				applicableScopes: buildApplicableMemoryProfileScopes({
-					conversationId: params.conversationId,
-					projectId,
-				}),
-				modelContextBudget: params.modelContextBudget,
-			}),
-		),
+		params.memoryIncognito
+			? Promise.resolve(null)
+			: projectIdPromise.then((projectId) =>
+					buildActiveMemoryProfilePromptSection({
+						userId: params.userId,
+						conversationId: params.conversationId,
+						applicableScopes: buildApplicableMemoryProfileScopes({
+							conversationId: params.conversationId,
+							projectId,
+						}),
+						modelContextBudget: params.modelContextBudget,
+					}),
+				),
 	]);
 	const {
 		sessionMessages,
@@ -1166,6 +1171,9 @@ export async function buildConstructedContext(params: {
 		targetConstructedContext: number;
 	};
 	reuseFrom?: ConstructedContextReuseData;
+	// Read-side incognito: when true, no persona/memory or project context is
+	// injected into the prompt for this conversation.
+	memoryIncognito?: boolean;
 }): Promise<{
 	inputValue: string;
 	contextStatus: ConversationContextStatus;
@@ -1209,6 +1217,7 @@ export async function buildConstructedContext(params: {
 			targetBudget,
 			compactionThreshold,
 			maxModelContext,
+			memoryIncognito: params.memoryIncognito,
 		});
 	}
 	const [
@@ -1242,25 +1251,33 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => []),
-		selectWorkingSetArtifactsForPrompt(
-			params.userId,
-			params.conversationId,
-			params.message,
-			attachmentIds,
-			params.activeDocumentArtifactId,
-		).catch(() => []),
-		getConversationProjectLabel(params.userId, params.conversationId).catch(
-			() => null,
-		),
-		getProjectReferenceContext({
-			userId: params.userId,
-			conversationId: params.conversationId,
-		}).catch(() => null),
-		selectProjectFolderSiblingPromotion({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			query: params.message,
-		}).catch(() => null),
+		params.memoryIncognito
+			? Promise.resolve<Artifact[]>([])
+			: selectWorkingSetArtifactsForPrompt(
+					params.userId,
+					params.conversationId,
+					params.message,
+					attachmentIds,
+					params.activeDocumentArtifactId,
+				).catch(() => []),
+		params.memoryIncognito
+			? Promise.resolve(null)
+			: getConversationProjectLabel(params.userId, params.conversationId).catch(
+					() => null,
+				),
+		params.memoryIncognito
+			? Promise.resolve(null)
+			: getProjectReferenceContext({
+					userId: params.userId,
+					conversationId: params.conversationId,
+				}).catch(() => null),
+		params.memoryIncognito
+			? Promise.resolve(null)
+			: selectProjectFolderSiblingPromotion({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					query: params.message,
+				}).catch(() => null),
 		getConversationForkOrigin(params.conversationId).catch(() => null),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,
@@ -1498,19 +1515,21 @@ export async function buildConstructedContext(params: {
 					totalCharBudget: documentDepthBudget.totalBudget,
 					useFullContent: documentDepthBudget.useFullContent,
 				}).catch(() => new Map<string, string>()),
-		buildActiveMemoryProfilePromptSection({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			applicableScopes: buildApplicableMemoryProfileScopes({
-				conversationId: params.conversationId,
-				projectId,
-				documentArtifactIds: [
-					params.activeDocumentArtifactId,
-					...promptArtifacts.keys(),
-				],
-			}),
-			modelContextBudget,
-		}),
+		params.memoryIncognito
+			? Promise.resolve(null)
+			: buildActiveMemoryProfilePromptSection({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					applicableScopes: buildApplicableMemoryProfileScopes({
+						conversationId: params.conversationId,
+						projectId,
+						documentArtifactIds: [
+							params.activeDocumentArtifactId,
+							...promptArtifacts.keys(),
+						],
+					}),
+					modelContextBudget,
+				}),
 	]);
 
 	const allTurns = selectRecentRoleTurns(

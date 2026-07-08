@@ -73,7 +73,15 @@ export async function sweepDirtyConversations(userId: string): Promise<number> {
 	];
 	let ran = 0;
 	const { runMemoryJudgeOnSegment } = await import("./index");
+	const { isConversationIncognito } = await import("../memory-controls");
 	for (const conversationId of conversationIds) {
+		// Defense in depth: a conversation may have been marked dirty before it
+		// was flipped to incognito. Never judge an incognito conversation — just
+		// clear its dirty rows so it doesn't linger in the queue.
+		if (await isConversationIncognito(conversationId)) {
+			await completeDirtyRowsForConversation(userId, conversationId);
+			continue;
+		}
 		const result = await runMemoryJudgeOnSegment({
 			userId,
 			conversationId,

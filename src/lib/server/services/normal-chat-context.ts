@@ -27,6 +27,7 @@ import {
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { ContextCompressionControlSender } from "./context-compression";
 import { detectLanguage, type SupportedLanguage } from "./language";
+import { isConversationIncognito } from "./memory-controls";
 import { inferModelContextWindow } from "./model-context";
 import {
 	getDefaultNormalChatContextPreparationPlan,
@@ -1631,6 +1632,9 @@ async function maybeRunAutomaticContextCompression(params: {
 		modelId: params.modelId,
 		contextLimits: params.contextLimits,
 		reuseFrom: params.reuseFromContext,
+		memoryIncognito: await isConversationIncognito(params.sessionId).catch(
+			() => false,
+		),
 	});
 	return automaticCompressionResult({
 		context,
@@ -2048,6 +2052,9 @@ export async function prepareOutboundChatContext(
 							attachmentTraceId: params.attachmentTraceId,
 							modelId: params.modelId,
 							contextLimits,
+							memoryIncognito: await isConversationIncognito(
+								params.sessionId,
+							).catch(() => false),
 						});
 						return applyConstructedContextToPreparationState(
 							currentState,

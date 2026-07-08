@@ -1107,4 +1107,63 @@ describe("runMemoryRecuration", () => {
 		// OpenAI-compatible providers this runs on.
 		expect(batchMaxTokens).toEqual([7400, 7400, 3900]);
 	});
+
+	it("records a per-batch memory-cost telemetry row with the recuration call's usage", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: `${PEER_TOKEN} enjoys hiking on weekends.`,
+			now,
+		});
+
+		sendJsonControlMessageMock.mockImplementation(
+			(
+				_userMessage: string,
+				_model: string,
+				options: { jsonSchema?: { name?: string } },
+			) => {
+				if (options?.jsonSchema?.name === "memory_recuration_verdicts") {
+					return Promise.resolve({
+						...makeControlResponse(JSON.stringify({ verdicts: [] })),
+						usage: { promptTokens: 60, completionTokens: 20, totalTokens: 80 },
+					});
+				}
+				if (options?.jsonSchema?.name === "persona_summary") {
+					return Promise.resolve(
+						makeControlResponse(
+							JSON.stringify({
+								sentences: [{ text: "You are a user.", factIds: [] }],
+							}),
+						),
+					);
+				}
+				return Promise.resolve(
+					makeControlResponse(JSON.stringify({ actions: [] })),
+				);
+			},
+		);
+
+		const { runMemoryRecuration } = await import("./memory-recuration");
+		await runMemoryRecuration(userId);
+
+		const recurationCostRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.eventFamily, "cost"))
+			.all()
+			.filter((r) => JSON.parse(r.metadataJson).feature === "recuration");
+		expect(recurationCostRows).toHaveLength(1);
+		expect(recurationCostRows[0].count).toBe(80);
+		expect(JSON.parse(recurationCostRows[0].metadataJson)).toMatchObject({
+			feature: "recuration",
+			promptTokens: 60,
+			completionTokens: 20,
+			totalTokens: 80,
+		});
+	});
 });

@@ -296,6 +296,11 @@ export interface Conversation {
 	sealedAt?: number | null;
 	sidebarPinned: boolean;
 	sidebarSortOrder: number | null;
+	// Incognito: this conversation is excluded from the memory pipeline both
+	// ways — nothing is learned from it and no memory/project context is
+	// injected into its prompts. Optional in the type (older payloads omit it);
+	// always present at runtime from toConversation(), defaulting to false.
+	memoryIncognito?: boolean;
 	createdAt: number; // Unix timestamp
 	updatedAt: number; // Unix timestamp
 }
@@ -1636,6 +1641,9 @@ export interface MemoryTimelineAction {
 	type: "expired" | "renewed" | "superseded" | "merged";
 	itemIds: string[];
 	resultItemId?: string;
+	// The current statement of resultItemId (the surviving/merged-into fact),
+	// resolved at read time so the UI can show "superseded by / merged into X".
+	resultStatement?: string;
 	description: string;
 	undo: Array<{
 		itemId: string;
@@ -1699,6 +1707,11 @@ export interface KnowledgeMemoryPayload {
 export interface KnowledgeMemoryOverviewPayload {
 	summary: KnowledgeMemorySummary;
 	profile?: KnowledgeMemoryPayload;
+	// The user's master memory toggle (users.memoryEnabled).
+	memoryEnabled: boolean;
+	// Whether the memory pipeline currently has queued/in-flight work for this
+	// user, so the UI can show a compact "memory is processing" notice.
+	processing: { active: boolean; pendingCount: number };
 }
 
 export type TaskSteeringAction =

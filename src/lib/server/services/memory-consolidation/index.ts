@@ -170,6 +170,12 @@ export async function runUserMemoryConsolidation(
 	userId: string,
 	reason?: string,
 ): Promise<MemoryConsolidationRunResult> {
+	// Master memory toggle: a user who turned memory off gets no consolidation
+	// (no reorganization, no summary regeneration, no model spend).
+	const { isUserMemoryEnabled } = await import("../memory-controls");
+	if (!(await isUserMemoryEnabled(userId))) {
+		return { status: "skipped" };
+	}
 	if (await shouldSkipConsolidation(userId)) {
 		return { status: "skipped" };
 	}
@@ -233,12 +239,19 @@ function parseActionsJson(actionsJson: string): ConsolidationAction[] {
 export async function listMemoryConsolidationReports(params: {
 	userId: string;
 	limit?: number;
+	since?: Date;
 }): Promise<MemoryConsolidationReport[]> {
 	const limit = params.limit ?? 20;
+	const scope = params.since
+		? and(
+				eq(memoryConsolidationReports.userId, params.userId),
+				gt(memoryConsolidationReports.createdAt, params.since),
+			)
+		: eq(memoryConsolidationReports.userId, params.userId);
 	const rows = await db
 		.select()
 		.from(memoryConsolidationReports)
-		.where(eq(memoryConsolidationReports.userId, params.userId))
+		.where(scope)
 		.orderBy(desc(memoryConsolidationReports.createdAt))
 		.limit(limit);
 

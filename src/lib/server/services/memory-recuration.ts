@@ -9,6 +9,7 @@ import {
 } from "$lib/server/db/schema";
 import type { ModelId } from "$lib/types";
 import { runUserMemoryConsolidation } from "./memory-consolidation/index";
+import { recordMemoryModelUsage } from "./memory-cost";
 import { buildJudgeSystemPrompt } from "./memory-judge/prompt";
 import {
 	EVIDENCE_TRAIL_RE,
@@ -180,6 +181,7 @@ type EligibleRow = typeof memoryProfileItems.$inferSelect;
 async function fetchRecurationVerdicts(
 	eligible: EligibleRow[],
 	memoryJudgeModel: ModelId | undefined,
+	userId: string,
 ): Promise<RecurationVerdict[]> {
 	const { sendJsonControlMessage } = await import(
 		"./normal-chat-control-model"
@@ -206,6 +208,14 @@ async function fetchRecurationVerdicts(
 			allowReasoningFallback: true,
 		},
 	);
+	// Per-batch usage/cost: re-curation loops many control-model calls, so each
+	// batch (and per-item fallback call) is priced independently.
+	await recordMemoryModelUsage({
+		userId,
+		feature: "recuration",
+		modelId: memoryJudgeModel ?? "model1",
+		usage: res.usage,
+	});
 	return parseRecurationVerdicts(res.text);
 }
 
@@ -393,6 +403,7 @@ export async function runMemoryRecuration(userId: string): Promise<{
 			verdicts = await fetchRecurationVerdicts(
 				eligible,
 				config.memoryJudgeModel,
+				userId,
 			);
 		} catch (error) {
 			await recordMemoryReworkTelemetry({

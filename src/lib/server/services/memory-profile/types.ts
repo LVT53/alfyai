@@ -28,6 +28,7 @@ export const MEMORY_REWORK_TELEMETRY_FAMILIES = [
 	"profile_action",
 	"reset_forget",
 	"error_fallback",
+	"cost",
 ] as const;
 
 export type MemoryProfileCategory = (typeof MEMORY_PROFILE_CATEGORIES)[number];

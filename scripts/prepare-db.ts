@@ -55,6 +55,8 @@ const requiredExistingTables = [
 	"memory_review_resolutions",
 	"memory_dirty_ledger",
 	"memory_rework_telemetry",
+	"conversation_memory_watermarks",
+	"memory_consolidation_reports",
 	"persona_memory_attributions",
 	"persona_memory_clusters",
 	"persona_memory_cluster_members",

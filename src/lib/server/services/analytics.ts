@@ -871,6 +871,21 @@ export async function findPriceRule(params: {
 	);
 }
 
+// Resolve the enabled price rule that applies to a configured model id
+// ("model1"/"model2" or "provider:<uuid>:<uuid>"). Thin wrapper over
+// getModelSnapshot + findPriceRule so callers outside analytics can price a
+// call without reimplementing the snapshot/rule resolution.
+export async function resolveModelPriceRule(
+	modelId: string,
+): Promise<typeof providerModels.$inferSelect | null> {
+	const snapshot = await getModelSnapshot(modelId);
+	return findPriceRule({
+		modelId,
+		providerId: snapshot.providerId,
+		providerModelName: snapshot.providerModelName,
+	});
+}
+
 export function calculateCostUsdMicros(
 	rule: typeof providerModels.$inferSelect | null,
 	usage: {

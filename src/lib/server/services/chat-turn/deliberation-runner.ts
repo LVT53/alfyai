@@ -1,3 +1,4 @@
+import type { ToolSet } from "ai";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
@@ -148,6 +149,9 @@ export type NormalChatDeliberationParams = {
 	recorder: ToolCallRecorder;
 	onStatus?: (entry: ResponseActivityEntry) => void;
 	abortSignal?: AbortSignal;
+	// Read-side incognito: withhold the memory-recall tool from deliberation
+	// passes so an incognito conversation cannot pull memory via tool calls.
+	memoryIncognito?: boolean;
 };
 
 type RunPassResult = {
@@ -1350,7 +1354,7 @@ function emptyUsage(): NormalChatModelRunUsage {
 
 function createDeliberationTools(
 	params: NormalChatDeliberationParams & { recorder: ToolCallRecorder },
-) {
+): ToolSet {
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -1362,6 +1366,9 @@ function createDeliberationTools(
 			: {}),
 	});
 	const { research_web, memory_context } = normalChatTools.tools;
+	if (params.memoryIncognito) {
+		return { research_web };
+	}
 	return { research_web, memory_context };
 }
 

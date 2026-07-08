@@ -589,6 +589,13 @@
       "when": 1777140000070,
       "tag": "1777140000070_memory_watermarks_reports_persona_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1777140000071,
+      "tag": "1777140000071_memory_controls",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProjectionState, users } from "$lib/server/db/schema";
+import { recordMemoryModelUsage } from "../memory-cost";
 import {
 	parseJsonWithEnvelopeExtraction,
 	reasoningAwareMaxTokens,
@@ -182,6 +183,12 @@ export async function generateAndStorePersonaSummary(params: {
 			},
 		);
 		responseText = res.text;
+		await recordMemoryModelUsage({
+			userId,
+			feature: "summary",
+			modelId: getConfig().memoryConsolidationModel,
+			usage: res.usage,
+		});
 	} catch (error) {
 		await recordPersonaSummaryFailure(
 			userId,

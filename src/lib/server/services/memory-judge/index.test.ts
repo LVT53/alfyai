@@ -688,4 +688,46 @@ describe("Memory judge service", () => {
 			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
 		).toBe(2);
 	});
+
+	it("records a memory-cost telemetry row with the call's token usage", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		sendJsonControlMessageMock.mockImplementation(async () => ({
+			text: JSON.stringify(ADMIT_REVIEW_DECISIONS),
+			rawResponse: null,
+			modelId: "model1",
+			modelDisplayName: "test",
+			usage: { promptTokens: 120, completionTokens: 40, totalTokens: 160 },
+		}));
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+
+		const costRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.eventFamily, "cost"))
+			.all();
+		expect(costRows).toHaveLength(1);
+		expect(costRows[0].eventName).toBe("model_usage");
+		expect(costRows[0].count).toBe(160);
+		expect(JSON.parse(costRows[0].metadataJson)).toMatchObject({
+			feature: "judge",
+			promptTokens: 120,
+			completionTokens: 40,
+			totalTokens: 160,
+		});
+	});
 });

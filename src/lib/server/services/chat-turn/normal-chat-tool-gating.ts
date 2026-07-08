@@ -16,13 +16,20 @@ export function selectNormalChatToolsForRequest(
 	params: {
 		message: string;
 		forceProduceFileTool?: boolean;
+		// Read-side incognito: withhold the memory-recall tool so an incognito
+		// conversation cannot pull persona/project/history memory via tool calls.
+		memoryIncognito?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
-	if (shouldExposeFileProductionTools(params)) return tools;
+	const { memory_context: _memoryContext, ...withoutMemory } = tools;
+	const base: Partial<NormalChatToolSet> = params.memoryIncognito
+		? withoutMemory
+		: tools;
+	if (shouldExposeFileProductionTools(params)) return base;
 	const {
 		produce_file: _produceFile,
 		read_generated_file: _readGeneratedFile,
 		...chatTools
-	} = tools;
+	} = base;
 	return chatTools;
 }

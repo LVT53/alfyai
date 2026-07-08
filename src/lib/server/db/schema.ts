@@ -32,6 +32,11 @@ export const users = sqliteTable("users", {
 	sidebarChatsExpanded: integer("sidebar_chats_expanded", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// When false, the memory pipeline (judge intake + consolidation) skips this
+	// user entirely: existing facts are kept but no new ones are formed.
+	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
+		.notNull()
+		.default(true),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
@@ -91,6 +96,11 @@ export const conversations = sqliteTable(
 		status: text("status").notNull().default("open"),
 		sealedAt: integer("sealed_at", { mode: "timestamp" }),
 		sidebarPinned: integer("sidebar_pinned", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		// Incognito: when true, this conversation is never fed to the memory
+		// pipeline (no judge intake, excluded from the nightly sweep).
+		memoryIncognito: integer("memory_incognito", { mode: "boolean" })
 			.notNull()
 			.default(false),
 		sidebarSortOrder: integer("sidebar_sort_order"),

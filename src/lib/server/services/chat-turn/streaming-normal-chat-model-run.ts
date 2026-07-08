@@ -28,6 +28,7 @@ import {
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
+import { isConversationIncognito } from "$lib/server/services/memory-controls";
 import {
 	type AuthenticatedPromptUser,
 	prepareOutboundChatContext,
@@ -183,6 +184,9 @@ export async function runStreamingNormalChatSendModel(
 		logLabel: "provider streaming request",
 	});
 	const turnId = params.createTurnId?.() ?? randomUUID();
+	const memoryIncognito = await isConversationIncognito(
+		params.conversationId,
+	).catch(() => false);
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -194,6 +198,7 @@ export async function runStreamingNormalChatSendModel(
 	});
 	const modelTools = selectNormalChatToolsForRequest(normalChatTools.tools, {
 		message: params.message,
+		memoryIncognito,
 	});
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
 	const deliberationStartMs = Date.now();
@@ -212,6 +217,7 @@ export async function runStreamingNormalChatSendModel(
 					language: detectLanguage(params.message),
 					turnId,
 					recorder,
+					memoryIncognito,
 					onStatus: params.onResponseActivity,
 					abortSignal: createRequestAbortSignal(
 						params.runtimeConfig.requestTimeoutMs,

@@ -569,6 +569,136 @@ describe("memory v2 actions service", () => {
 		expect(row.statement).toBe("I original fact.");
 	});
 
+	it("undo: reversing a merge restores the members, retires the synthetic merged item, and clears mergedInto markers", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const mergedId = "merged-item";
+		// The synthetic item consolidation created from the two members.
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			id: mergedId,
+			statement: "I like tea and coffee.",
+			status: "active",
+			metadata: { origin: "consolidation" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		// The two members were retired and stamped mergedInto=mergedId.
+		const memberA = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			status: "retired",
+			metadata: { mergedInto: mergedId },
+			createdAt: now,
+			updatedAt: now,
+		});
+		const memberB = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like coffee.",
+			status: "retired",
+			metadata: { mergedInto: mergedId },
+			createdAt: now,
+			updatedAt: now,
+		});
+		const reportId = seedConsolidationReport(db, {
+			userId,
+			actions: [
+				{
+					type: "merged",
+					itemIds: [memberA, memberB],
+					resultItemId: mergedId,
+					description:
+						'Merged 2 duplicate facts into "I like tea and coffee.".',
+					undo: [
+						{
+							itemId: memberA,
+							prevStatus: "active",
+							prevStatement: "I like tea.",
+						},
+						{
+							itemId: memberB,
+							prevStatus: "active",
+							prevStatement: "I like coffee.",
+						},
+					],
+				},
+			],
+			createdAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "consolidation",
+			action: "undo",
+			reportId,
+			actionIndex: 0,
+		});
+
+		// Members are back, and no longer point at the merged item.
+		for (const memberId of [memberA, memberB]) {
+			const member = readItem(db, memberId);
+			expect(member.status).toBe("active");
+			expect(
+				JSON.parse(member.metadataJson ?? "{}").mergedInto ?? null,
+			).toBeNull();
+		}
+		// The synthetic merged item is retired — not left active alongside the
+		// restored originals.
+		expect(readItem(db, mergedId).status).toBe("retired");
+	});
+
+	it("timeline: only returns reports from the last 7 days and resolves the target statement", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const winnerId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I prefer tea over coffee.",
+			status: "active",
+			createdAt: now,
+			updatedAt: now,
+		});
+		// Recent report (2 days ago) referencing the winner as its target.
+		seedConsolidationReport(db, {
+			userId,
+			id: "recent",
+			createdAt: new Date(now.getTime() - 2 * 86_400_000),
+			actions: [
+				{
+					type: "superseded",
+					itemIds: ["loser"],
+					resultItemId: winnerId,
+					description: "Retired as superseded.",
+					undo: [],
+				},
+			],
+		});
+		// Old report (10 days ago) — outside the 7-day window.
+		seedConsolidationReport(db, {
+			userId,
+			id: "old",
+			createdAt: new Date(now.getTime() - 10 * 86_400_000),
+			actions: [],
+		});
+
+		const { listKnowledgeMemoryTimeline } = await import("./memory");
+		const { reports } = await listKnowledgeMemoryTimeline(userId);
+
+		expect(reports.map((r) => r.id)).toEqual(["recent"]);
+		expect(reports[0].actions[0].resultStatement).toBe(
+			"I prefer tea over coffee.",
+		);
+	});
+
 	it("undo: restores prevExpiresAt for a renewed action, parsing the serialized ISO string back to a Date", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

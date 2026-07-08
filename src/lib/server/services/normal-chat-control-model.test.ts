@@ -118,6 +118,11 @@ describe("Normal Chat JSON control model sender", () => {
 			}),
 			modelId: "model1",
 			modelDisplayName: "Model One",
+			usage: {
+				promptTokens: 11,
+				completionTokens: 7,
+				totalTokens: 18,
+			},
 		});
 		expect(fetch).toHaveBeenCalledWith(
 			"https://openai-compatible.example/v1/chat/completions",

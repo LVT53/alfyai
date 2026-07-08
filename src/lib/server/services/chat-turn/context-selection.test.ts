@@ -896,6 +896,120 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
+	it("excludes persona/memory and project context when the conversation is incognito", async () => {
+		resetConstructedContextMocks();
+		mocks.getConversationProjectId.mockResolvedValue("project-1");
+		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
+		mocks.getProjectReferenceContext.mockResolvedValue({
+			source: "project_folder",
+			projectName: "Launch Project",
+			omittedSiblingCount: 0,
+			entries: [
+				{
+					title: "Sibling launch retro",
+					objective: "SIBLING_PROJECT_OBJECTIVE_SECRET",
+					summary: "Sibling checkpoint details.",
+				},
+			],
+		});
+		mocks.selectProjectFolderSiblingPromotion.mockResolvedValue({
+			projectName: "Launch Project",
+			title: "Promoted sibling",
+			objective: "PROMOTED_SIBLING_SECRET",
+			summary: "Promoted sibling summary.",
+			score: 5,
+			matchedTerms: ["launch"],
+			messages: [{ role: "user", content: "Sibling turn content." }],
+			omittedMessageCount: 0,
+		});
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Review the launch plan against release risks.",
+			attachmentIds: ["attachment-1"],
+			activeDocumentArtifactId: "active-document-1",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+			memoryIncognito: true,
+		});
+
+		// No persona/memory profile is fetched or injected.
+		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(constructed.inputValue).not.toContain("## Baseline Memory Profile");
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		// No project reference / sibling / folder / working-set context is fetched
+		// or injected.
+		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
+		expect(mocks.getConversationProjectLabel).not.toHaveBeenCalled();
+		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
+		expect(constructed.inputValue).not.toContain("## Project Folder");
+		expect(constructed.inputValue).not.toContain("## Project Folder Awareness");
+		expect(constructed.inputValue).not.toContain(
+			"## Project Folder Sibling Context",
+		);
+		expect(constructed.inputValue).not.toContain(
+			"SIBLING_PROJECT_OBJECTIVE_SECRET",
+		);
+		expect(constructed.inputValue).not.toContain("PROMOTED_SIBLING_SECRET");
+		expect(
+			constructed.contextTraceSections.some(
+				(section) => section.source === "memory",
+			),
+		).toBe(false);
+		// The non-privacy context (session continuity, attachments) still flows.
+		expect(constructed.inputValue).toContain("## Session Context");
+		expect(constructed.inputValue).toContain("## Current Attachments");
+	});
+
+	it("keeps persona/memory and project context byte-for-byte when memoryIncognito is false", async () => {
+		resetConstructedContextMocks();
+		mocks.getConversationProjectId.mockResolvedValue("project-1");
+		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
+
+		const baseParams = {
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Review the launch plan against release risks.",
+			attachmentIds: ["attachment-1"],
+			activeDocumentArtifactId: "active-document-1",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		};
+
+		const baseline = await buildConstructedContext(baseParams);
+
+		resetConstructedContextMocks();
+		mocks.getConversationProjectId.mockResolvedValue("project-1");
+		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
+
+		const explicitlyDisabled = await buildConstructedContext({
+			...baseParams,
+			memoryIncognito: false,
+		});
+
+		expect(explicitlyDisabled.inputValue).toBe(baseline.inputValue);
+		expect(explicitlyDisabled.inputValue).toContain(
+			"## Baseline Memory Profile",
+		);
+		expect(explicitlyDisabled.inputValue).toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalled();
+		expect(mocks.selectWorkingSetArtifactsForPrompt).toHaveBeenCalled();
+	});
+
 	it("does not clamp retrieved evidence to legacy working-set floors on large-context models", async () => {
 		resetConstructedContextMocks();
 		const evidenceArtifacts = Array.from({ length: 12 }, (_, index) =>

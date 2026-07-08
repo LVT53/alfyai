@@ -25,6 +25,7 @@ function toConversation(row: typeof conversations.$inferSelect): Conversation {
 		sealedAt: row.sealedAt ? row.sealedAt.getTime() / 1000 : null,
 		sidebarPinned: row.sidebarPinned,
 		sidebarSortOrder: row.sidebarSortOrder ?? null,
+		memoryIncognito: row.memoryIncognito,
 		createdAt: row.createdAt.getTime() / 1000,
 		updatedAt: row.updatedAt.getTime() / 1000,
 	};
@@ -292,6 +293,24 @@ export async function setConversationSidebarPinned(
 	const [conversation] = await db
 		.update(conversations)
 		.set({ sidebarPinned: true, sidebarSortOrder: nextSortOrder })
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
+		.returning();
+	return conversation ? toConversation(conversation) : null;
+}
+
+export async function setConversationMemoryIncognito(
+	userId: string,
+	conversationId: string,
+	memoryIncognito: boolean,
+): Promise<Conversation | null> {
+	const [conversation] = await db
+		.update(conversations)
+		.set({ memoryIncognito })
 		.where(
 			and(
 				eq(conversations.id, conversationId),

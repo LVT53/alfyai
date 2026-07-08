@@ -29,11 +29,18 @@ export type JsonControlResponseSchema = {
 	strict?: boolean;
 };
 
+export type JsonControlMessageUsage = {
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+};
+
 export type JsonControlMessageResult = {
 	text: string;
 	rawResponse: unknown;
 	modelId: ModelId;
 	modelDisplayName: string;
+	usage?: JsonControlMessageUsage;
 };
 
 export type JsonControlMessageOptions = {
@@ -188,6 +195,70 @@ function withJsonKeywordGuard(params: {
 	return `${params.systemPrompt}\n\n${JSON_OBJECT_MODE_GUARD_SENTENCE}`;
 }
 
+function readFiniteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
+}
+
+// Surface token usage from a control-model call. The AI SDK v5 exposes usage on
+// `result.usage` (inputTokens/outputTokens/totalTokens). When that is absent we
+// fall back to the raw OpenAI-shaped usage on the response body
+// (prompt_tokens/completion_tokens/total_tokens). Returns undefined when neither
+// carries any usage so callers can treat "no usage" distinctly from zero.
+function extractControlModelUsage(params: {
+	usage: unknown;
+	rawResponse: unknown;
+}): JsonControlMessageUsage | undefined {
+	const sdkUsage =
+		params.usage && typeof params.usage === "object"
+			? (params.usage as Record<string, unknown>)
+			: null;
+	const inputTokens = readFiniteNumber(sdkUsage?.inputTokens);
+	const outputTokens = readFiniteNumber(sdkUsage?.outputTokens);
+	const sdkTotalTokens = readFiniteNumber(sdkUsage?.totalTokens);
+	if (
+		inputTokens !== undefined ||
+		outputTokens !== undefined ||
+		sdkTotalTokens !== undefined
+	) {
+		const promptTokens = inputTokens ?? 0;
+		const completionTokens = outputTokens ?? 0;
+		return {
+			promptTokens,
+			completionTokens,
+			totalTokens: sdkTotalTokens ?? promptTokens + completionTokens,
+		};
+	}
+
+	const body =
+		params.rawResponse && typeof params.rawResponse === "object"
+			? (params.rawResponse as Record<string, unknown>)
+			: null;
+	const rawUsage =
+		body?.usage && typeof body.usage === "object"
+			? (body.usage as Record<string, unknown>)
+			: null;
+	const promptTokens = readFiniteNumber(rawUsage?.prompt_tokens);
+	const completionTokens = readFiniteNumber(rawUsage?.completion_tokens);
+	const rawTotalTokens = readFiniteNumber(rawUsage?.total_tokens);
+	if (
+		promptTokens !== undefined ||
+		completionTokens !== undefined ||
+		rawTotalTokens !== undefined
+	) {
+		const prompt = promptTokens ?? 0;
+		const completion = completionTokens ?? 0;
+		return {
+			promptTokens: prompt,
+			completionTokens: completion,
+			totalTokens: rawTotalTokens ?? prompt + completion,
+		};
+	}
+
+	return undefined;
+}
+
 function extractRawResponseBody(response: unknown): unknown {
 	const record =
 		response && typeof response === "object"
@@ -286,6 +357,7 @@ export async function sendJsonControlMessage(
 			rawResponse,
 			modelId: selectedModelId,
 			modelDisplayName: provider.displayName,
+			usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 		};
 	} catch (error) {
 		if (options.jsonSchema && isUnsupportedStructuredOutputError(error)) {
@@ -303,6 +375,7 @@ export async function sendJsonControlMessage(
 				rawResponse,
 				modelId: selectedModelId,
 				modelDisplayName: provider.displayName,
+				usage: extractControlModelUsage({ usage: result.usage, rawResponse }),
 			};
 		} else if (
 			options.allowReasoningFallback &&
@@ -316,6 +389,10 @@ export async function sendJsonControlMessage(
 					rawResponse,
 					modelId: selectedModelId,
 					modelDisplayName: provider.displayName,
+					usage: extractControlModelUsage({
+						usage: undefined,
+						rawResponse,
+					}),
 				};
 			}
 			throw error;

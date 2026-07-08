@@ -1097,6 +1097,16 @@ export async function runPostTurnTasks(
 	if (!params.skipAssistantProseMemoryIntake) {
 		postTurnTasks.push(
 			(async () => {
+				// Respect the user's master memory toggle and per-conversation
+				// incognito mode: neither should ever contribute to memory.
+				const { isMemoryActiveForConversation } = await import(
+					"../memory-controls"
+				);
+				const memoryActive = await isMemoryActiveForConversation({
+					userId: params.userId,
+					conversationId: params.conversationId,
+				}).catch(() => true);
+				if (!memoryActive) return;
 				const { detectExplicitMemoryRequest, scheduleConversationJudge } =
 					await import("../memory-judge/runner");
 				const { markMemoryDirty } = await import(

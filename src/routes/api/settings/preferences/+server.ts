@@ -31,6 +31,7 @@ export const PATCH: RequestHandler = async (event) => {
 		preferredPersonalityId?: unknown;
 		sidebarProjectsExpanded?: unknown;
 		sidebarChatsExpanded?: unknown;
+		memoryEnabled?: unknown;
 	};
 	try {
 		body = await event.request.json();
@@ -101,6 +102,10 @@ export const PATCH: RequestHandler = async (event) => {
 
 	if (body.sidebarChatsExpanded !== undefined) {
 		updates.sidebarChatsExpanded = Boolean(body.sidebarChatsExpanded);
+	}
+
+	if (body.memoryEnabled !== undefined) {
+		updates.memoryEnabled = Boolean(body.memoryEnabled);
 	}
 
 	await db.update(users).set(updates).where(eq(users.id, userId));

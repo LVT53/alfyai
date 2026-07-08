@@ -488,4 +488,44 @@ describe("persona summary generation", () => {
 		expect(enCall[2].systemPrompt).toContain("English");
 		expect(enCall[0]).toContain(enFactId);
 	});
+
+	it("records a memory-cost telemetry row with the summary call's usage", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now, { uiLanguage: "en" });
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const factId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I prefer plain language.",
+			now,
+		});
+
+		sendJsonControlMessageMock.mockResolvedValue({
+			...makeControlResponse(
+				JSON.stringify({
+					sentences: [{ text: "A plain-language user.", factIds: [factId] }],
+				}),
+			),
+			usage: { promptTokens: 80, completionTokens: 25, totalTokens: 105 },
+		});
+
+		const { generateAndStorePersonaSummary } = await import("./summary");
+		await generateAndStorePersonaSummary({ userId });
+
+		const costRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.eventFamily, "cost"))
+			.all();
+		expect(costRows).toHaveLength(1);
+		expect(costRows[0].count).toBe(105);
+		expect(JSON.parse(costRows[0].metadataJson)).toMatchObject({
+			feature: "summary",
+			promptTokens: 80,
+			completionTokens: 25,
+			totalTokens: 105,
+		});
+	});
 });

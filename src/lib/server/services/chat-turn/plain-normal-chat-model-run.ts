@@ -30,6 +30,7 @@ import {
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import { detectLanguage } from "$lib/server/services/language";
+import { isConversationIncognito } from "$lib/server/services/memory-controls";
 import {
 	type AuthenticatedPromptUser,
 	prepareOutboundChatContext,
@@ -179,7 +180,15 @@ export async function runPlainNormalChatSendModel(
 		activeDepthEffort,
 	);
 	const turnId = params.createTurnId?.() ?? randomUUID();
-	const toolPack = createToolPack(params, turnId, activeDepthEffort);
+	const memoryIncognito = await isConversationIncognito(
+		params.conversationId,
+	).catch(() => false);
+	const toolPack = createToolPack(
+		params,
+		turnId,
+		activeDepthEffort,
+		memoryIncognito,
+	);
 	const deliberation = await runDeliberationIfNeeded(
 		params,
 		runtime,
@@ -187,6 +196,7 @@ export async function runPlainNormalChatSendModel(
 		prepared,
 		turnId,
 		toolPack.recorder,
+		memoryIncognito,
 	);
 	const result = await runPlainModelRun({
 		params,
@@ -354,6 +364,7 @@ function createToolPack(
 	params: PlainNormalChatSendModelParams,
 	turnId: string,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
+	memoryIncognito: boolean,
 ): ToolPack {
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
@@ -371,6 +382,7 @@ function createToolPack(
 			: selectNormalChatToolsForRequest(normalChatTools.tools, {
 					message: params.message,
 					forceProduceFileTool: params.forceProduceFileTool,
+					memoryIncognito,
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
@@ -384,6 +396,7 @@ async function runDeliberationIfNeeded(
 	prepared: PreparedModelContext,
 	turnId: string,
 	recorder: ReturnType<typeof createToolCallRecorder>,
+	memoryIncognito: boolean,
 ) {
 	if (!activeDepthEffort || params.disableTools) return null;
 	if (!shouldRunDeliberationPasses(activeDepthEffort)) return null;
@@ -401,6 +414,7 @@ async function runDeliberationIfNeeded(
 		language: detectLanguage(params.message),
 		turnId,
 		recorder,
+		memoryIncognito,
 		onStatus: params.onResponseActivity,
 		abortSignal: createRequestAbortSignal(
 			params.runtimeConfig.requestTimeoutMs,

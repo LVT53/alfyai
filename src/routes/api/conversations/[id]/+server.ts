@@ -4,6 +4,7 @@ import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
 import { getConversationDetail } from "$lib/server/services/conversation-detail/read-model";
 import {
 	moveConversationToProject,
+	setConversationMemoryIncognito,
 	setConversationSidebarPinned,
 	updateConversationTitle,
 } from "$lib/server/services/conversations";
@@ -67,6 +68,24 @@ export const PATCH: RequestHandler = async (event) => {
 			user.id,
 			id,
 			body.sidebarPinned,
+		);
+		if (!conversation) {
+			return json({ error: "Conversation not found" }, { status: 404 });
+		}
+		return json(conversation);
+	}
+
+	if ("memoryIncognito" in body) {
+		if (typeof body.memoryIncognito !== "boolean") {
+			return json(
+				{ error: "memoryIncognito must be a boolean" },
+				{ status: 400 },
+			);
+		}
+		const conversation = await setConversationMemoryIncognito(
+			user.id,
+			id,
+			body.memoryIncognito,
 		);
 		if (!conversation) {
 			return json({ error: "Conversation not found" }, { status: 404 });

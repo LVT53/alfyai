@@ -3,6 +3,7 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
 import { getConversationSummary } from "../conversation-summaries";
+import { recordMemoryModelUsage } from "../memory-cost";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
 import {
 	addMemoryProfileItemProvenance,
@@ -118,6 +119,12 @@ export async function runMemoryJudgeOnSegment(params: {
 				allowReasoningFallback: true,
 			},
 		);
+		await recordMemoryModelUsage({
+			userId: params.userId,
+			feature: "judge",
+			modelId: config.memoryJudgeModel,
+			usage: res.usage,
+		});
 		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
 	} catch (error) {
 		await recordMemoryReworkTelemetry({

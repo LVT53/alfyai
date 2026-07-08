@@ -1,6 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { memoryConsolidationReports } from "$lib/server/db/schema";
+import {
+	memoryConsolidationReports,
+	memoryProfileItems,
+} from "$lib/server/db/schema";
 import type {
 	KnowledgeMemoryOverviewPayload,
 	MemoryProfileActionPayload,
@@ -491,9 +494,19 @@ export async function getKnowledgeMemoryOverview(
 			await getMemoryProfileReadModel({ userId }),
 		),
 	);
+	const { isUserMemoryEnabled } = await import("./memory-controls");
+	const { listPendingMemoryDirtyEntries } = await import(
+		"./memory-profile/dirty-ledger"
+	);
+	const [memoryEnabled, pending] = await Promise.all([
+		isUserMemoryEnabled(userId),
+		listPendingMemoryDirtyEntries({ userId }).catch(() => []),
+	]);
 	return {
 		summary: buildCompatibilitySummary(profile),
 		profile,
+		memoryEnabled,
+		processing: { active: pending.length > 0, pendingCount: pending.length },
 	};
 }
 
@@ -528,15 +541,51 @@ function serializePersonaSummary(
 
 function serializeConsolidationReport(
 	report: MemoryConsolidationReport,
+	statementById: Map<string, string>,
 ): KnowledgeMemoryTimelinePayload["reports"][number] {
 	return {
 		id: report.id,
 		status: report.status,
 		summaryText: report.summaryText,
 		createdAt: report.createdAt.toISOString(),
-		actions: report.actions,
+		// Resolve each action's target (resultItemId) to its current statement so
+		// the UI can name what a fact was superseded/merged into, instead of just
+		// an opaque id. Dropped silently if the target no longer exists.
+		actions: report.actions.map((action) => {
+			const resultStatement = action.resultItemId
+				? statementById.get(action.resultItemId)
+				: undefined;
+			return resultStatement ? { ...action, resultStatement } : action;
+		}),
 	};
 }
+
+// Batch-resolve the current statements for every resultItemId referenced across
+// a set of consolidation reports, in a single query.
+async function resolveResultStatements(
+	reports: MemoryConsolidationReport[],
+): Promise<Map<string, string>> {
+	const ids = new Set<string>();
+	for (const report of reports) {
+		for (const action of report.actions) {
+			if (action.resultItemId) ids.add(action.resultItemId);
+		}
+	}
+	if (ids.size === 0) return new Map();
+	const rows = await db
+		.select({
+			id: memoryProfileItems.id,
+			statement: memoryProfileItems.statement,
+		})
+		.from(memoryProfileItems)
+		.where(inArray(memoryProfileItems.id, [...ids]));
+	return new Map(rows.map((row) => [row.id, row.statement]));
+}
+
+// The consolidation timeline surfaces only recent activity — see spec: "While
+// you were away" shows what changed lately, not the full history.
+const TIMELINE_WINDOW_DAYS = 7;
+const TIMELINE_WINDOW_MS = TIMELINE_WINDOW_DAYS * 86_400_000;
 
 export async function getKnowledgeMemorySummary(
 	userId: string,
@@ -548,8 +597,17 @@ export async function getKnowledgeMemorySummary(
 export async function listKnowledgeMemoryTimeline(
 	userId: string,
 ): Promise<KnowledgeMemoryTimelinePayload> {
-	const reports = await listMemoryConsolidationReports({ userId, limit: 20 });
-	return { reports: reports.map(serializeConsolidationReport) };
+	const reports = await listMemoryConsolidationReports({
+		userId,
+		limit: 20,
+		since: new Date(Date.now() - TIMELINE_WINDOW_MS),
+	});
+	const statementById = await resolveResultStatements(reports);
+	return {
+		reports: reports.map((report) =>
+			serializeConsolidationReport(report, statementById),
+		),
+	};
 }
 
 async function applyProfileItemCorrect(
@@ -786,6 +844,29 @@ async function applyConsolidationUndo(
 				`${failedItemIds.length} failed (itemIds: ${failedItemIds.join(", ")}).`,
 			409,
 		);
+	}
+
+	// Restore the OTHER side of the operation now that every member is back:
+	// clear the supersededBy/mergedInto markers written during consolidation, and
+	// for a merge, retire the synthetic merged item — otherwise undo would leave
+	// both the restored originals AND the merged duplicate active at once.
+	for (const undo of target.undo) {
+		await mergeMemoryProfileItemMetadata({
+			userId,
+			itemId: undo.itemId,
+			patch: { supersededBy: null, mergedInto: null },
+		});
+	}
+	if (target.type === "merged" && target.resultItemId) {
+		const retired = await updateMemoryProfileItemWithRevision({
+			userId,
+			itemId: target.resultItemId,
+			expectedProjectionRevision: projectionRevision,
+			patch: { status: "retired" },
+		});
+		if (retired.status === "updated") {
+			projectionRevision = retired.projectionRevision;
+		}
 	}
 
 	await markProfileActionReconciliation({

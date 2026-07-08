@@ -586,4 +586,45 @@ describe("memory consolidation steps", () => {
 			),
 		).toBe(true);
 	});
+
+	it("records a memory-cost telemetry row with the reconcile call's usage", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am planning an exchange semester.",
+			metadata: { origin: "judge_v1", confidence: "stated" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		// The mock's response type is inferred without `usage`; the value is
+		// returned as-is at runtime, so attach usage via a cast to exercise the
+		// cost-recording wiring.
+		controlModelMock.response = {
+			...makeControlResponseValue(JSON.stringify({ actions: [] })),
+			usage: { promptTokens: 90, completionTokens: 30, totalTokens: 120 },
+		} as typeof controlModelMock.response;
+
+		const { runReconcileAndMerge } = await import("./steps");
+		await runReconcileAndMerge({ userId });
+
+		const costRows = db
+			.select()
+			.from(schema.memoryReworkTelemetry)
+			.where(eq(schema.memoryReworkTelemetry.eventFamily, "cost"))
+			.all();
+		expect(costRows).toHaveLength(1);
+		expect(costRows[0].count).toBe(120);
+		expect(JSON.parse(costRows[0].metadataJson)).toMatchObject({
+			feature: "consolidation",
+			promptTokens: 90,
+			completionTokens: 30,
+			totalTokens: 120,
+		});
+	});
 });
