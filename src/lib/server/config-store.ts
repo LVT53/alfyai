@@ -72,6 +72,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_MAX_TEXTS",
 	"MINERU_API_URL",
 	"MINERU_TIMEOUT_MS",
+	"GOOGLE_OAUTH_CLIENT_ID",
+	"GOOGLE_OAUTH_CLIENT_SECRET",
 	"SEARXNG_BASE_URL",
 	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
 	"WEB_RESEARCH_SEARXNG_LANGUAGE",
@@ -218,6 +220,8 @@ export interface RuntimeConfig {
 	webResearchExtractCacheTtlHours: number;
 	webResearchLlmExtractionReviewEnabled: boolean;
 	braveSearchApiKey: string;
+	googleOauthClientId: string;
+	googleOauthClientSecret: string;
 	concurrentStreamLimit: number;
 	perUserStreamLimit: number;
 	systemPrompt: string;
@@ -728,6 +732,12 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
 	},
+	GOOGLE_OAUTH_CLIENT_ID: (config, value) => {
+		config.googleOauthClientId = value.trim();
+	},
+	GOOGLE_OAUTH_CLIENT_SECRET: (config, value) => {
+		config.googleOauthClientSecret = value.trim();
+	},
 	APP_VERSION_OVERRIDE: (config, value) => {
 		config.appVersionOverride = value.trim() || null;
 	},
@@ -1196,6 +1206,8 @@ export function getResolvedAdminConfigValues(
 			config.webResearchExtractCacheTtlHours,
 		),
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
+		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
+		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
 		APP_VERSION_OVERRIDE: config.appVersionOverride ?? "",
 		SYSTEM_PROMPT: getSystemPrompt(config.systemPrompt),
 		MAX_FILE_UPLOAD_SIZE: String(config.maxFileUploadSize),

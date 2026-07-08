@@ -112,6 +112,8 @@ interface Config {
 	webResearchExtractCacheTtlHours: number;
 	webResearchLlmExtractionReviewEnabled: boolean;
 	braveSearchApiKey: string;
+	googleOauthClientId: string;
+	googleOauthClientSecret: string;
 	concurrentStreamLimit: number;
 	systemPrompt: string;
 	perUserStreamLimit: number;
@@ -592,6 +594,8 @@ function readConfig(): Config {
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
+		googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+		googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
 		concurrentStreamLimit: Math.max(
 			1,
 			parseInt(process.env.CONCURRENT_STREAM_LIMIT || "3", 10) || 3,
