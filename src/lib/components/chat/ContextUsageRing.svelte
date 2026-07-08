@@ -427,7 +427,10 @@ let isNearTrigger = $derived(
 		left: 0;
 		bottom: calc(100% + 10px);
 		z-index: 40;
-		width: min(22rem, calc(100vw - 2rem));
+		/* Wide enough that the cost hero ("$x · yK tokens") never wraps the
+		   "tokens" word onto its own line on desktop. Mobile uses the full-width
+		   --mobile variant below, so this only affects the desktop popover. */
+		width: min(25rem, calc(100vw - 2rem));
 		border: 1px solid color-mix(in srgb, var(--border-default) 82%, transparent 18%);
 		border-radius: 1rem;
 		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
@@ -501,6 +504,8 @@ let isNearTrigger = $derived(
 		font-size: var(--text-base, 0.95rem);
 		font-weight: 600;
 		color: var(--accent);
+		/* Keep "$x · yK tokens" together on one line. */
+		white-space: nowrap;
 	}
 
 	/* Secondary "Last turn" line — muted and smaller than the hero. */
