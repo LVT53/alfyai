@@ -5,27 +5,37 @@ import { connectionPendingWrites } from "$lib/server/db/schema";
 
 // ---------------------------------------------------------------------------
 // Pending-write store (Issue 4.3) — the "explicit confirm" chokepoint between
-// a tool's write proposal (files.ts "save" action) and the actual mutation
-// (executeNextcloudWrite, 4.2). A row here is created ONCE with status
-// "pending" and NEVER executed at creation time.
+// a tool's write proposal (files.ts "save" action) and the actual mutation,
+// dispatched by provider via the write-executor registry (Issue 6.0; see
+// write-executors.ts). A row here is created ONCE with status "pending" and
+// NEVER executed at creation time.
 //
 // Status lifecycle: pending -> executing -> executed | failed, or
 // pending -> cancelled. The pending -> executing transition
-// (claimPendingWrite) is a single conditional UPDATE that runs BEFORE
-// executeNextcloudWrite is ever called — this is what makes "executes
-// exactly once" hold under concurrent confirms (two POST /confirm calls
-// racing each other, a client retry, multiple server workers). Only the
-// confirm that wins the claim (changes === 1) may call the executor; a
-// loser (changes === 0) returns without ever touching Nextcloud. This
-// replaces an earlier, buggy version of this module that checked `status`
-// in application code and only updated the row AFTER awaiting the network
-// call — a classic TOCTOU race (flagged in 4.3 review).
+// (claimPendingWrite) is a single conditional UPDATE that runs BEFORE the
+// dispatched executor is ever called — this is what makes "executes exactly
+// once" hold under concurrent confirms (two POST /confirm calls racing each
+// other, a client retry, multiple server workers). Only the confirm that
+// wins the claim (changes === 1) may call the executor; a loser
+// (changes === 0) returns without ever touching the provider. This replaces
+// an earlier, buggy version of this module that checked `status` in
+// application code and only updated the row AFTER awaiting the network call
+// — a classic TOCTOU race (flagged in 4.3 review).
 // ---------------------------------------------------------------------------
 
-import {
-	executeNextcloudWrite,
-	type NextcloudWriteRequest,
-} from "./providers/nextcloud-files";
+// Side-effect import ONLY — loads providers/nextcloud-files.ts so its
+// top-level registerWriteExecutor("nextcloud", ...) call (Issue 6.0) has run
+// before confirmPendingWrite below ever dispatches to getWriteExecutor. This
+// mirrors how, before 6.0, this module's own direct import of
+// executeNextcloudWrite from the same file caused the same module evaluation
+// (and its registerConnectionAdapter side effect) to happen as a byproduct.
+// Nothing in this module calls into nextcloud-files.ts directly anymore —
+// dispatch happens purely through the write-executors registry — but the
+// registration still needs to run somewhere in every path that reaches
+// confirmPendingWrite (prod request handling AND pending-writes.test.ts,
+// which does not import nextcloud-files.ts itself).
+import "./providers/nextcloud-files";
+import { getWriteExecutor } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";
 
 type PendingWriteRow = typeof connectionPendingWrites.$inferSelect;
@@ -205,40 +215,20 @@ export async function cancelPendingWrite(
 	return result.changes > 0;
 }
 
-// Only "files.put" is supported by the confirm executor today (the only
-// write action a tool can currently propose, files.ts "save"). Any other
-// action is refused rather than silently mis-executed.
-function toNextcloudWriteRequest(
-	op: WriteOperation,
-	content: string,
-): NextcloudWriteRequest | null {
-	if (op.action !== "files.put") return null;
-	const MAX_SUMMARY_CHARS = 200;
-	const contentSummary =
-		content.length > MAX_SUMMARY_CHARS
-			? `${content.slice(0, MAX_SUMMARY_CHARS)}…`
-			: content;
-	return {
-		kind: "put",
-		requestedPath: op.target?.path,
-		bytes: new TextEncoder().encode(content),
-		contentSummary,
-	};
-}
-
 export type ConfirmPendingWriteResult =
 	| { ok: true; alreadyExecuted: boolean; etag?: string | null }
 	| { ok: false; status: 404 | 409; reason: string };
 
 // The single chokepoint that turns a confirmed pending write into a real
-// mutation, via executeNextcloudWrite (4.2). Idempotent AND safe under
-// concurrency: a pending write already in "executed" short-circuits to a
-// success response WITHOUT calling the executor again, and — critically —
+// mutation, dispatched by `record.provider` to whichever WriteExecutor is
+// registered for it (Issue 6.0 — write-executors.ts). Idempotent AND safe
+// under concurrency: a pending write already in "executed" short-circuits to
+// a success response WITHOUT calling the executor again, and — critically —
 // the "pending" -> "executing" transition is claimed ATOMICALLY
-// (claimPendingWrite) BEFORE executeNextcloudWrite is ever called. Two
+// (claimPendingWrite) BEFORE the dispatched executor is ever called. Two
 // concurrent confirms for the same id can both read "pending" from
 // getPendingWrite, but only one of them can win the claim; the other sees
-// `claimed === false` and returns without touching Nextcloud at all. A
+// `claimed === false` and returns without touching the provider at all. A
 // "cancelled"/"failed" (or missing/other-user) pending write is refused
 // outright; a row another confirm currently has claimed ("executing") is
 // also refused rather than raced.
@@ -263,15 +253,16 @@ export async function confirmPendingWrite(
 	if (record.status === "executing") {
 		// Another confirm has already claimed this row and is (or was)
 		// mid-flight. Refuse rather than issuing a second, racing call to
-		// executeNextcloudWrite — this is the state a losing confirm should
-		// land in when it reads the row AFTER the winner's claim commits.
+		// the dispatched executor — this is the state a losing confirm
+		// should land in when it reads the row AFTER the winner's claim
+		// commits.
 		return { ok: false, status: 409, reason: "in_progress" };
 	}
 
 	// record.status === "pending" here. Claim BEFORE doing anything that
-	// talks to Nextcloud. This is the fix for the TOCTOU race: previously
-	// this function checked `record.status` (read above) and only updated
-	// the row AFTER awaiting executeNextcloudWrite, so two concurrent
+	// talks to the provider. This is the fix for the TOCTOU race:
+	// previously this function checked `record.status` (read above) and
+	// only updated the row AFTER awaiting the write, so two concurrent
 	// confirms could both pass the check and both issue a real write.
 	const claimed = await claimPendingWrite(userId, id);
 	if (!claimed) {
@@ -286,18 +277,22 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 409, reason: "in_progress" };
 	}
 
-	const request = toNextcloudWriteRequest(record.op, record.content);
-	if (!request) {
-		// We already claimed the row (flipped it to "executing") — move it
-		// to a terminal "failed" state rather than leaving it stuck.
+	// Provider dispatch (Issue 6.0) — an unregistered provider is refused
+	// exactly like Nextcloud's own "unsupported operation" case used to be
+	// (previously a null `toNextcloudWriteRequest`): the row was already
+	// claimed above, so it must move to a terminal "failed" state rather
+	// than being left stuck in "executing".
+	const executor = getWriteExecutor(record.provider);
+	if (!executor) {
 		await markPendingWriteFailed(userId, id);
 		return { ok: false, status: 409, reason: "unsupported_operation" };
 	}
 
-	const result = await executeNextcloudWrite(
+	const result = await executor.execute(
 		userId,
 		record.connectionId,
-		request,
+		record.op,
+		record.content,
 		opts,
 	);
 	if (!result.ok) {

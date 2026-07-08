@@ -11,7 +11,8 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
-import { resolveWriteTarget } from "../write-guard";
+import { registerWriteExecutor } from "../write-executors";
+import { resolveWriteTarget, type WriteOperation } from "../write-guard";
 
 const USER_AGENT = "AlfyAI";
 
@@ -1273,3 +1274,41 @@ export const nextcloudFilesAdapter = {
 };
 
 registerConnectionAdapter(nextcloudFilesAdapter satisfies ConnectionAdapter);
+
+// ---------------------------------------------------------------------------
+// Write-executor registration (Issue 6.0) — only "files.put" is supported by
+// the confirm executor today (the only write action a tool can currently
+// propose, files.ts "save"). Any other action is refused rather than
+// silently mis-executed. This mapping (WriteOperation -> the shape
+// executeNextcloudWrite needs) previously lived inline in pending-writes.ts's
+// confirmPendingWrite; it moved here, unchanged, so it sits behind the
+// write-executor registry instead of being hardwired into the generic
+// confirm flow (see write-executors.ts).
+// ---------------------------------------------------------------------------
+
+function toNextcloudWriteRequest(
+	op: WriteOperation,
+	content: string,
+): NextcloudWriteRequest | null {
+	if (op.action !== "files.put") return null;
+	const MAX_SUMMARY_CHARS = 200;
+	const contentSummary =
+		content.length > MAX_SUMMARY_CHARS
+			? `${content.slice(0, MAX_SUMMARY_CHARS)}…`
+			: content;
+	return {
+		kind: "put",
+		requestedPath: op.target?.path,
+		bytes: new TextEncoder().encode(content),
+		contentSummary,
+	};
+}
+
+registerWriteExecutor({
+	provider: "nextcloud",
+	async execute(userId, connectionId, op, content, opts) {
+		const request = toNextcloudWriteRequest(op, content);
+		if (!request) return { ok: false, reason: "unsupported_operation" };
+		return executeNextcloudWrite(userId, connectionId, request, opts);
+	},
+});
