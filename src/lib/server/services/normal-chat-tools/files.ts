@@ -86,9 +86,18 @@ function fileLabel(path: string): string {
 }
 
 // Best-effort deep link into the Nextcloud Files web UI so citations are
-// clickable. Nextcloud's Files-app URL scheme has varied across versions;
-// this targets the long-standing `?dir=...&scrollto=...` form. If a given
-// server doesn't honor it, the link still lands the user in their files app.
+// clickable. Verified against Nextcloud server source/issue history: the
+// long-standing, documented form is `/index.php/apps/files/?dir=<dir>&scrollto=<name>`
+// (see e.g. nextcloud/server#7874, #27100). A newer `openfile=<fileId>` form
+// exists (nextcloud/server, NC19+) and is preferred by current versions, but
+// it requires the file's *numeric* internal fileId, which our WebDAV
+// PROPFIND (list/search) does not currently request or expose (see
+// `NcFile` — no `fileid` field) — adding it is an adapter change (2.2),
+// out of scope here. `scrollto` is reported to no-op (no highlight/scroll)
+// on some newer server versions per nextcloud/server#46113, but it never
+// produces an invalid URL: worst case the link still opens the Files app at
+// the file's parent directory, which satisfies the "safe, correct link"
+// bar for a v1 citation.
 function nextcloudWebUiUrl(conn: ConnectionPublic, path: string): string {
 	const serverUrl =
 		typeof conn.config.serverUrl === "string" ? conn.config.serverUrl : "";

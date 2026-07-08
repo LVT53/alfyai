@@ -10,9 +10,14 @@ import {
 
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
+	getEnabledConnectionCapabilities: vi.fn(),
 	prepareOutboundChatContext: vi.fn(),
 	resolveNormalChatModelRunProvider: vi.fn(),
 	runPlainNormalChatModelRun: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/connections/resolve", () => ({
+	getEnabledConnectionCapabilities: mocks.getEnabledConnectionCapabilities,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", () => ({
@@ -59,9 +64,11 @@ function runSubject(
 describe("runPlainNormalChatSendModel", () => {
 	beforeEach(() => {
 		mocks.createNormalChatTools.mockReset();
+		mocks.getEnabledConnectionCapabilities.mockReset();
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runPlainNormalChatModelRun.mockReset();
+		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __testTool: true },
@@ -659,6 +666,66 @@ describe("runPlainNormalChatSendModel", () => {
 			normalChatToolCalls[0],
 		]);
 		expect(result.prefetchedToolCalls).toEqual(prefetchedToolCalls);
+	});
+
+	it("exposes the files tool when the connections resolver reports the files capability enabled", async () => {
+		mocks.getEnabledConnectionCapabilities.mockResolvedValue(
+			new Set(["files"]),
+		);
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runSubject({
+			createTurnId: () => "normal-chat-turn-1",
+		});
+
+		expect(mocks.getEnabledConnectionCapabilities).toHaveBeenCalledWith(
+			"user-1",
+		);
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(["files"]),
+			}),
+		);
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools: expect.objectContaining({
+					files: { __testTool: true },
+				}),
+			}),
+		);
+	});
+
+	it("hides the files tool when the connections resolver reports no enabled capabilities", async () => {
+		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runSubject({
+			createTurnId: () => "normal-chat-turn-1",
+		});
+
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(),
+			}),
+		);
+		const call = mocks.runPlainNormalChatModelRun.mock.calls[0]?.[0];
+		expect(call.tools).not.toHaveProperty("files");
 	});
 
 	it("can disable tools for recovery-only plain model runs", async () => {
