@@ -219,17 +219,28 @@ async function getAccessTokenOrReauth(
 	}
 }
 
-// Resolves which event id a "series"-scoped update/delete must actually act
-// on: Google's recurring-instance ids (as returned by list/get with
-// singleEvents=true) are distinct from their series MASTER id, and PATCHing/
-// DELETEing the master is what changes the whole series. For
-// "this_event" (or no scope at all — non-recurring targets never reach this
-// module with a scope set, see calendar.ts's recurring guardrail), the
-// caller-supplied id is used as-is: this is the guardrail the tool enforces
-// by requiring an explicit scope before ever proposing the write; the
-// executor's job is to never patch/delete the wrong id once that scope is
-// known. Looked up fresh at execute time (not trusted from propose time)
-// because the confirm can happen long after the tool call proposed it.
+// Resolves which event id an update/delete must actually act on, and — for
+// "this_event" — refuses to act at all when the given id would clobber a
+// whole series. Google's recurring-instance ids (as returned by list/get with
+// singleEvents=true) are distinct from their series MASTER id (the event that
+// carries the `recurrence` array); PATCHing/DELETEing the master is what
+// changes the WHOLE series. `eventId` is caller-supplied and not guaranteed
+// to have come from this tool's own reads (pasted id, stale context, a
+// pending write confirmed long after propose time, model error), so this is
+// looked up fresh at execute time rather than trusted from propose time —
+// same posture as the "series" resolution below, which predates this check.
+//
+//   - "this_event": fetch the target. If it turns out to BE the master
+//     (has a non-empty `recurrence` array) → fail closed with
+//     "recurring_instance_ambiguous" and never issue the PATCH/DELETE — a
+//     "this event only" request must never fall through to mutating the
+//     series definition. A genuine instance (has `recurringEventId`, no
+//     `recurrence`) is patched/deleted using the id AS GIVEN, not the master.
+//   - "series": resolve to the master id — either the fetched event already
+//     IS the master, or its `recurringEventId` points at the real one.
+//   - no scope at all: non-recurring targets never reach this module with a
+//     scope set (calendar.ts's recurring guardrail requires one whenever the
+//     target is recurring) — use the id as-is, no fetch needed.
 async function resolveTargetEventId(
 	fetchImpl: typeof fetch,
 	userId: string,
@@ -241,7 +252,7 @@ async function resolveTargetEventId(
 ): Promise<
 	{ ok: true; id: string } | { ok: false; result: WriteExecutionResult }
 > {
-	if (recurringScope !== "series") return { ok: true, id: eventId };
+	if (recurringScope === undefined) return { ok: true, id: eventId };
 
 	const response = await fetchWithTimeout(
 		fetchImpl,
@@ -259,13 +270,31 @@ async function resolveTargetEventId(
 		return { ok: false, result: { ok: false, reason: "request_failed" } };
 	}
 	const body: unknown = await response.json().catch(() => null);
-	const master =
-		body &&
-		typeof body === "object" &&
-		typeof (body as Record<string, unknown>).recurringEventId === "string"
-			? ((body as Record<string, unknown>).recurringEventId as string)
-			: eventId; // already the master (or a non-recurring event) — use as-is.
-	return { ok: true, id: master };
+	const record =
+		body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+	const isMaster =
+		Array.isArray(record.recurrence) && record.recurrence.length > 0;
+	const recurringEventId =
+		typeof record.recurringEventId === "string"
+			? record.recurringEventId
+			: undefined;
+
+	if (recurringScope === "this_event") {
+		if (isMaster) {
+			// The id given for a "this_event" scope IS the series' own
+			// definition, not a single occurrence — patching or deleting it here
+			// would silently apply to the whole series. Fail closed instead of
+			// guessing which occurrence was meant.
+			return {
+				ok: false,
+				result: { ok: false, reason: "recurring_instance_ambiguous" },
+			};
+		}
+		return { ok: true, id: eventId };
+	}
+
+	// recurringScope === "series"
+	return { ok: true, id: recurringEventId ?? eventId };
 }
 
 // ---------------------------------------------------------------------------

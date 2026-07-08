@@ -439,6 +439,20 @@ function isRecurring(event: CalendarEvent): boolean {
 	return Boolean(event.recurringEventId) || Boolean(event.recurrence?.length);
 }
 
+// True when `event` IS the recurring series' own definition (carries a
+// non-empty `recurrence` array) rather than one of its expanded instances
+// (which carry `recurringEventId` instead). Distinguishing this from
+// isRecurring above matters specifically for `recurringScope: "this_event"`:
+// if the id the user/model gave for "this event only" turns out to resolve
+// to the master itself, there is no single occurrence to scope the write to
+// — proceeding would let a "this event only" request silently mutate the
+// whole series at confirm time. See resolveTargetEventId's matching
+// fail-closed check in the write executor for the same guardrail applied
+// again right before the actual PATCH/DELETE.
+function isRecurringMaster(event: CalendarEvent): boolean {
+	return Boolean(event.recurrence?.length);
+}
+
 type CalendarWriteAction = "create_event" | "update_event" | "delete_event";
 
 function isCalendarWriteAction(
@@ -571,6 +585,22 @@ async function proposeUpdateOrDeleteEvent(
 			action,
 			message:
 				'That event is part of a recurring series. Should I apply this to just this event, or the whole series? Reply with "this event" or "the whole series" and I\'ll try again.',
+		});
+	}
+
+	// The id given resolves to the series' own definition (the master), not a
+	// single occurrence — "this event only" has nothing to scope to. Ask which
+	// occurrence was meant (or to apply to the whole series instead) rather
+	// than ever creating a pending write that would clobber the whole series
+	// at confirm time. This is caught here, before any pending row exists; the
+	// write executor enforces the same rule again, fail-closed, at confirm
+	// time in case content ever reaches it some other way.
+	if (isRecurringMaster(existing) && input.recurringScope === "this_event") {
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				'That event id refers to the whole recurring series, not a single occurrence, so I can\'t apply this to "this event only." Tell me which occurrence you mean (e.g. its date), or say "the whole series" to apply it to all of them.',
 		});
 	}
 

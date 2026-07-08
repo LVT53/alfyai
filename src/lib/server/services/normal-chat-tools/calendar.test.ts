@@ -947,6 +947,87 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 		});
 
+		it('recurring MASTER with recurringScope "this_event": asks the user to pick an occurrence (or the whole series) instead, creates NO pending row — "this event only" can\'t apply to the series definition itself', async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({
+					id: "evt-master",
+					recurrence: ["RRULE:FREQ=WEEKLY"],
+				}),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "update_event",
+					eventId: "evt-master",
+					location: "New Room",
+					recurringScope: "this_event",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain(
+				"occurrence",
+			);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain("series");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it('recurring MASTER with recurringScope "this_event" on delete_event: same guard applies, creates NO pending row', async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({
+					id: "evt-master",
+					recurrence: ["RRULE:FREQ=WEEKLY"],
+				}),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "delete_event",
+					eventId: "evt-master",
+					recurringScope: "this_event",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message.toLowerCase()).toContain(
+				"occurrence",
+			);
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it('recurring MASTER with recurringScope "series": still proceeds and creates a pending row (series-scoped writes on the master remain allowed)', async () => {
+			const conn = makeWritableGoogleConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleGetEventMock.mockResolvedValue(
+				existingEvent({
+					id: "evt-master",
+					recurrence: ["RRULE:FREQ=WEEKLY"],
+				}),
+			);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "update_event",
+					eventId: "evt-master",
+					location: "New Room",
+					recurringScope: "series",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		});
+
 		it("recurring instance WITH recurringScope: proposes the pending write, carrying the scope through to content", async () => {
 			const conn = makeWritableGoogleConn();
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);

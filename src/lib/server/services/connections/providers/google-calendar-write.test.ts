@@ -367,13 +367,64 @@ describe("google write-executor — calendar.create_event", () => {
 });
 
 describe("google write-executor — calendar.update_event", () => {
-	it("scope 'this_event': PATCHes the given eventId directly with only the changed fields, no extra GET", async () => {
+	it("scope 'this_event' on a genuine instance: GETs first to confirm the id isn't the series master, then PATCHes that SAME id with only the changed fields", async () => {
 		const op = makeUpdateOp();
 		const content = JSON.stringify({
 			calendarId: "primary",
 			eventId: "evt-1",
 			event: { location: "New Room" },
 			recurringScope: "this_event",
+		});
+
+		const calls: { method: string; url: string }[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const method = init?.method ?? "GET";
+				calls.push({ method, url: String(input) });
+				if (method === "GET") {
+					// A genuine instance: recurringEventId points at its master, and
+					// it carries no `recurrence` of its own.
+					return jsonResponse(200, {
+						id: "evt-1",
+						recurringEventId: "evt-1-master",
+					});
+				}
+				expect(JSON.parse(String(init?.body))).toEqual({
+					location: "New Room",
+				});
+				return jsonResponse(200, { etag: '"e2"' });
+			},
+		);
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+
+		expect(calls).toEqual([
+			{
+				method: "GET",
+				url: "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-1",
+			},
+			{
+				method: "PATCH",
+				url: "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-1",
+			},
+		]);
+		expect(result).toEqual({ ok: true, etag: '"e2"', detail: "event updated" });
+	});
+
+	it("no recurringScope at all: PATCHes the given eventId directly with no GET (non-recurring targets never reach the executor with a scope)", async () => {
+		const op = makeUpdateOp();
+		const content = JSON.stringify({
+			calendarId: "primary",
+			eventId: "evt-1",
+			event: { location: "New Room" },
 		});
 
 		const fetchMock = vi.fn(
@@ -401,6 +452,43 @@ describe("google write-executor — calendar.update_event", () => {
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(result).toEqual({ ok: true, etag: '"e2"', detail: "event updated" });
+	});
+
+	it("scope 'this_event' where the given eventId is actually the series MASTER (carries `recurrence`): refuses without ever PATCHing, so a \"this event only\" request can never clobber the whole series", async () => {
+		const op = makeUpdateOp({ target: { id: "evt-master", label: "Standup" } });
+		const content = JSON.stringify({
+			calendarId: "primary",
+			eventId: "evt-master",
+			event: { location: "New Room" },
+			recurringScope: "this_event",
+		});
+
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				expect(init?.method ?? "GET").toBe("GET");
+				return jsonResponse(200, {
+					id: "evt-master",
+					recurrence: ["RRULE:FREQ=WEEKLY"],
+				});
+			},
+		);
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "recurring_instance_ambiguous",
+		});
+		// Only the GET happened — no PATCH was ever issued against the master.
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("scope 'series': resolves the instance's recurringEventId via GET first, then PATCHes the MASTER id — never the instance id", async () => {
@@ -603,6 +691,88 @@ describe("google write-executor — calendar.delete_event", () => {
 				fetch: fetchMock as unknown as typeof fetch,
 			},
 		);
+		expect(result).toEqual({ ok: true, detail: "deleted" });
+	});
+
+	it("scope 'this_event' where the given eventId is actually the series MASTER (carries `recurrence`): refuses without ever DELETEing, so a \"this event only\" request can never destroy the whole series", async () => {
+		const op = makeDeleteOp({ target: { id: "evt-master", label: "Standup" } });
+		const content = JSON.stringify({
+			calendarId: "primary",
+			eventId: "evt-master",
+			recurringScope: "this_event",
+		});
+
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				expect(init?.method ?? "GET").toBe("GET");
+				return jsonResponse(200, {
+					id: "evt-master",
+					recurrence: ["RRULE:FREQ=WEEKLY"],
+				});
+			},
+		);
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "recurring_instance_ambiguous",
+		});
+		// Only the GET happened — no DELETE was ever issued against the master.
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("scope 'this_event' on a genuine instance: GETs first to confirm the id isn't the series master, then DELETEs that SAME id", async () => {
+		const op = makeDeleteOp();
+		const content = JSON.stringify({
+			calendarId: "primary",
+			eventId: "evt-1",
+			recurringScope: "this_event",
+		});
+
+		const calls: { method: string; url: string }[] = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const method = init?.method ?? "GET";
+				calls.push({ method, url: String(input) });
+				if (method === "GET") {
+					return jsonResponse(200, {
+						id: "evt-1",
+						recurringEventId: "evt-1-master",
+					});
+				}
+				return new Response(null, { status: 204 });
+			},
+		);
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+			},
+		);
+
+		expect(calls).toEqual([
+			{
+				method: "GET",
+				url: "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-1",
+			},
+			{
+				method: "DELETE",
+				url: "https://www.googleapis.com/calendar/v3/calendars/primary/events/evt-1",
+			},
+		]);
 		expect(result).toEqual({ ok: true, detail: "deleted" });
 	});
 
