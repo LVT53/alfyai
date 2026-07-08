@@ -131,6 +131,27 @@ export async function createConnection(params: {
 	return toPublic(row);
 }
 
+// Looks up a connection by its natural key (matches the
+// user_connections_user_provider_account_unique index) — used to upsert
+// instead of colliding on re-connect flows.
+export async function findConnectionByAccount(
+	userId: string,
+	provider: ConnectionProvider,
+	accountIdentifier: string,
+): Promise<ConnectionPublic | null> {
+	const [row] = await db
+		.select()
+		.from(userConnections)
+		.where(
+			and(
+				eq(userConnections.userId, userId),
+				eq(userConnections.provider, provider),
+				eq(userConnections.accountIdentifier, accountIdentifier),
+			),
+		);
+	return row ? toPublic(row) : null;
+}
+
 export async function listConnectionsForUser(
 	userId: string,
 ): Promise<ConnectionPublic[]> {

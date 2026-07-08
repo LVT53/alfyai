@@ -88,6 +88,45 @@ describe("nextcloudConnectStart", () => {
 	});
 });
 
+describe("assertPublicHttpsUrl", () => {
+	it("accepts a public https URL", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(assertPublicHttpsUrl("https://alfycloud.hu")).toBe(
+			"https://alfycloud.hu",
+		);
+	});
+
+	it("rejects a non-https URL", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("http://alfycloud.hu")).toThrow();
+	});
+
+	it("rejects localhost", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("https://localhost")).toThrow();
+	});
+
+	it("rejects loopback IPv4", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("https://127.0.0.1")).toThrow();
+	});
+
+	it("rejects 10.0.0.0/8 private range", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("https://10.1.2.3")).toThrow();
+	});
+
+	it("rejects 192.168.0.0/16 private range", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("https://192.168.1.5")).toThrow();
+	});
+
+	it("rejects a non-URL string", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("not-a-url")).toThrow();
+	});
+});
+
 describe("nextcloudConnectPoll", () => {
 	it("returns { status: 'pending' } on 404 and stores nothing", async () => {
 		const { nextcloudConnectPoll } = await import("./nextcloud-files");
@@ -100,7 +139,6 @@ describe("nextcloudConnectPoll", () => {
 			userId: "userA",
 			serverUrl: "https://cloud.example.com",
 			pollToken: "poll-token-abc",
-			pollEndpoint: "https://cloud.example.com/index.php/login/v2/poll",
 			fetch: fetchMock as unknown as typeof fetch,
 		});
 
@@ -132,7 +170,6 @@ describe("nextcloudConnectPoll", () => {
 			userId: "userA",
 			serverUrl: "https://cloud.example.com",
 			pollToken: "poll-token-abc",
-			pollEndpoint: "https://cloud.example.com/index.php/login/v2/poll",
 			fetch: fetchMock as unknown as typeof fetch,
 		});
 
@@ -153,6 +190,97 @@ describe("nextcloudConnectPoll", () => {
 
 		const decrypted = await getConnectionSecret("userA", result.connection.id);
 		expect(decrypted).toBe("app-password-xyz");
+	});
+
+	it("derives the poll endpoint from serverUrl and rejects a private serverUrl", async () => {
+		const { nextcloudConnectPoll } = await import("./nextcloud-files");
+		seedUser("userA");
+
+		const fetchMock = vi.fn(async () => new Response("", { status: 404 }));
+
+		await expect(
+			nextcloudConnectPoll({
+				userId: "userA",
+				serverUrl: "https://192.168.1.5",
+				pollToken: "poll-token-abc",
+				fetch: fetchMock as unknown as typeof fetch,
+			}),
+		).rejects.toThrow();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("treats a malformed 200 body (missing appPassword) as an error and creates no connection", async () => {
+		const { nextcloudConnectPoll } = await import("./nextcloud-files");
+		const { listConnectionsForUser } = await import("../store");
+		seedUser("userA");
+
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(200, {
+				server: "https://cloud.example.com",
+				loginName: "alice",
+				// appPassword missing
+			}),
+		);
+
+		await expect(
+			nextcloudConnectPoll({
+				userId: "userA",
+				serverUrl: "https://cloud.example.com",
+				pollToken: "poll-token-abc",
+				fetch: fetchMock as unknown as typeof fetch,
+			}),
+		).rejects.toThrow();
+
+		expect(await listConnectionsForUser("userA")).toEqual([]);
+	});
+
+	it("a second successful poll for the same loginName updates the existing connection instead of duplicating it", async () => {
+		const { nextcloudConnectPoll } = await import("./nextcloud-files");
+		const { listConnectionsForUser, getConnectionSecret } = await import(
+			"../store"
+		);
+		seedUser("userA");
+
+		const firstFetch = vi.fn(async () =>
+			jsonResponse(200, {
+				server: "https://cloud.example.com",
+				loginName: "alice",
+				appPassword: "app-password-xyz",
+			}),
+		);
+		const first = await nextcloudConnectPoll({
+			userId: "userA",
+			serverUrl: "https://cloud.example.com",
+			pollToken: "poll-token-abc",
+			fetch: firstFetch as unknown as typeof fetch,
+		});
+		expect(first.status).toBe("connected");
+		if (first.status !== "connected") throw new Error("unreachable");
+
+		const secondFetch = vi.fn(async () =>
+			jsonResponse(200, {
+				server: "https://cloud.example.com",
+				loginName: "alice",
+				appPassword: "app-password-refreshed",
+			}),
+		);
+		const second = await nextcloudConnectPoll({
+			userId: "userA",
+			serverUrl: "https://cloud.example.com",
+			pollToken: "poll-token-def",
+			fetch: secondFetch as unknown as typeof fetch,
+		});
+		expect(second.status).toBe("connected");
+		if (second.status !== "connected") throw new Error("unreachable");
+
+		expect(second.connection.id).toBe(first.connection.id);
+		expect(second.connection.status).toBe("connected");
+
+		const rows = await listConnectionsForUser("userA");
+		expect(rows).toHaveLength(1);
+
+		const decrypted = await getConnectionSecret("userA", second.connection.id);
+		expect(decrypted).toBe("app-password-refreshed");
 	});
 });
 

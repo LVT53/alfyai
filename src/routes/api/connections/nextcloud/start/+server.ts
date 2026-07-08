@@ -1,15 +1,10 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { nextcloudConnectStart } from "$lib/server/services/connections/providers/nextcloud-files";
+import {
+	assertPublicHttpsUrl,
+	nextcloudConnectStart,
+} from "$lib/server/services/connections/providers/nextcloud-files";
 import type { RequestHandler } from "./$types";
-
-function isHttpsUrl(value: string): boolean {
-	try {
-		return new URL(value).protocol === "https:";
-	} catch {
-		return false;
-	}
-}
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -21,11 +16,20 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "Invalid JSON" }, { status: 400 });
 	}
 
-	const serverUrl =
+	const rawServerUrl =
 		typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-	if (!serverUrl || !isHttpsUrl(serverUrl)) {
+
+	let serverUrl: string;
+	try {
+		serverUrl = assertPublicHttpsUrl(rawServerUrl);
+	} catch (err) {
 		return json(
-			{ error: "serverUrl must be a non-empty https URL" },
+			{
+				error:
+					err instanceof Error
+						? err.message
+						: "serverUrl must be a non-empty public https URL",
+			},
 			{ status: 400 },
 		);
 	}

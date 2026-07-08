@@ -1,6 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { nextcloudConnectPoll } from "$lib/server/services/connections/providers/nextcloud-files";
+import {
+	assertPublicHttpsUrl,
+	nextcloudConnectPoll,
+} from "$lib/server/services/connections/providers/nextcloud-files";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -10,7 +13,6 @@ export const POST: RequestHandler = async (event) => {
 	let body: {
 		serverUrl?: unknown;
 		pollToken?: unknown;
-		pollEndpoint?: unknown;
 	};
 	try {
 		body = await event.request.json();
@@ -18,18 +20,28 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "Invalid JSON" }, { status: 400 });
 	}
 
-	const serverUrl =
+	const rawServerUrl =
 		typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
 	const pollToken =
 		typeof body.pollToken === "string" ? body.pollToken.trim() : "";
-	const pollEndpoint =
-		typeof body.pollEndpoint === "string" ? body.pollEndpoint.trim() : "";
 
-	if (!serverUrl || !pollToken || !pollEndpoint) {
+	let serverUrl: string;
+	try {
+		serverUrl = assertPublicHttpsUrl(rawServerUrl);
+	} catch (err) {
 		return json(
-			{ error: "serverUrl, pollToken, and pollEndpoint are required" },
+			{
+				error:
+					err instanceof Error
+						? err.message
+						: "serverUrl must be a non-empty public https URL",
+			},
 			{ status: 400 },
 		);
+	}
+
+	if (!pollToken) {
+		return json({ error: "pollToken is required" }, { status: 400 });
 	}
 
 	try {
@@ -37,7 +49,6 @@ export const POST: RequestHandler = async (event) => {
 			userId: user.id,
 			serverUrl,
 			pollToken,
-			pollEndpoint,
 		});
 		return json(result);
 	} catch (err) {
