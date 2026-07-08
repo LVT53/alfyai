@@ -74,6 +74,9 @@ export const ADMIN_CONFIG_KEYS = [
 	"MINERU_TIMEOUT_MS",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
+	"OWNTRACKS_RECORDER_URL",
+	"OWNTRACKS_RECORDER_USER",
+	"OWNTRACKS_RECORDER_PASS",
 	"SEARXNG_BASE_URL",
 	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
 	"WEB_RESEARCH_SEARXNG_LANGUAGE",
@@ -206,6 +209,9 @@ export interface RuntimeConfig {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
+	owntracksRecorderUrl: string;
+	owntracksRecorderUser: string;
+	owntracksRecorderPass: string;
 	searxngBaseUrl: string;
 	webResearchSearxngNumResults: number;
 	webResearchSearxngLanguage: string;
@@ -673,6 +679,15 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined) {
 			config.mineruTimeoutMs = Math.max(10000, parsed);
 		}
+	},
+	OWNTRACKS_RECORDER_URL: (config, value) => {
+		config.owntracksRecorderUrl = value.trim();
+	},
+	OWNTRACKS_RECORDER_USER: (config, value) => {
+		config.owntracksRecorderUser = value.trim();
+	},
+	OWNTRACKS_RECORDER_PASS: (config, value) => {
+		config.owntracksRecorderPass = value;
 	},
 	SEARXNG_BASE_URL: (config, value) => {
 		config.searxngBaseUrl = value.trim();
@@ -1187,6 +1202,9 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
 		MINERU_API_URL: config.mineruApiUrl,
 		MINERU_TIMEOUT_MS: String(config.mineruTimeoutMs),
+		OWNTRACKS_RECORDER_URL: config.owntracksRecorderUrl,
+		OWNTRACKS_RECORDER_USER: config.owntracksRecorderUser,
+		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		SEARXNG_BASE_URL: config.searxngBaseUrl,
 		WEB_RESEARCH_SEARXNG_NUM_RESULTS: String(
 			config.webResearchSearxngNumResults,

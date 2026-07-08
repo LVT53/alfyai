@@ -2097,6 +2097,65 @@ describe("createNormalChatTools", () => {
 			);
 		});
 	});
+
+	describe("location tool gating", () => {
+		it("does not include the location tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("location");
+		});
+
+		it("does not include the location tool when enabledConnectionCapabilities lacks 'location'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools).not.toHaveProperty("location");
+		});
+
+		it("includes the location tool when enabledConnectionCapabilities contains 'location'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["location"]),
+			});
+
+			expect(tools).toHaveProperty("location");
+		});
+
+		it("degrades gracefully with a note when there is no Location connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["location"]),
+			});
+			const result = await tools.location?.execute?.(
+				{ action: "last" },
+				{ toolCallId: "call-location-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Location connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-location-none",
+				name: "location",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+	});
 });
 
 describe("shouldForceProduceFileTool", () => {

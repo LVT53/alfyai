@@ -39,6 +39,11 @@ import {
 	sanitizeImageSearchInput,
 } from "./image-search";
 import {
+	locationToolInputSchema,
+	runLocationTool,
+	sanitizeLocationToolInput,
+} from "./location";
+import {
 	mediaToolInputSchema,
 	runMediaTool,
 	sanitizeMediaToolInput,
@@ -188,6 +193,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the user's connected media server (Plex) watch history and library sections — analytics only, e.g. 'what did we watch this week' or 'how many episodes of X have we seen'. Use when the user asks about what they've watched or their media library. Read-only.",
 			errorPrefix: "Media lookup failed",
 		},
+		location: {
+			description:
+				"Read the user's own current or past location from their connected OwnTracks device — e.g. 'where am I' or 'where was I yesterday'. Always resolves to the user's own self-selected device only. Read-only.",
+			errorPrefix: "Location lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -239,6 +249,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó csatlakoztatott médiaszerverének (Plex) megtekintési előzményeinek és könyvtárrészeinek olvasása — csak analitika, pl. 'mit néztünk ezen a héten' vagy 'hány részt láttunk X-ből'. Akkor használd, ha a felhasználó arra kérdez rá, mit nézett, vagy a médiakönyvtárára. Csak olvasható.",
 			errorPrefix: "A média elérése sikertelen",
 		},
+		location: {
+			description:
+				"A felhasználó saját, csatlakoztatott OwnTracks eszközének jelenlegi vagy korábbi helyzetének lekérdezése — pl. 'hol vagyok' vagy 'hol voltam tegnap'. Mindig kizárólag a felhasználó saját, általa kiválasztott eszközére vonatkozik. Csak olvasható.",
+			errorPrefix: "A helyadat lekérdezése sikertelen",
+		},
 	},
 };
 
@@ -266,6 +281,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includeMediaTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("media"),
+	);
+	const includeLocationTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("location"),
 	);
 
 	const tools = {
@@ -1151,6 +1169,86 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "media",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeLocationTool
+			? {
+					location: asExecutableTool(
+						tool({
+							description: i18n.location.description,
+							inputSchema: locationToolInputSchema,
+							execute: async (
+								input: z.infer<typeof locationToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeLocationToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "location",
+									timeoutMs: TOOL_TIMEOUTS_MS.location,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runLocationTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "location",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: modelPayload.results.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.location.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "location" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											results: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "location",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

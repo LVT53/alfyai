@@ -110,6 +110,7 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	email: 20_000,
 	photos: 20_000,
 	media: 20_000,
+	location: 20_000,
 };
 
 export async function withTimeout<T>(
