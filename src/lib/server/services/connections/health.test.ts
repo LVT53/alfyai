@@ -102,6 +102,17 @@ describe("checkConnectionHealth", () => {
 		return conn;
 	}
 
+	async function seedSecretlessConnection() {
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "owntracks",
+			label: "A's OwnTracks",
+		});
+		return conn;
+	}
+
 	it("happy path: connected status is returned and persisted", async () => {
 		const { registerConnectionAdapter } = await import("./adapters");
 		const { checkConnectionHealth } = await import("./health");
@@ -176,6 +187,55 @@ describe("checkConnectionHealth", () => {
 		const persisted = await getConnection("userA", conn.id);
 		expect(persisted?.status).toBe(result?.status);
 		expect(persisted?.statusDetail).toBe(result?.detail);
+	});
+
+	it("default (secret-requiring) adapter with a missing secret still short-circuits to needs_reauth without calling the adapter", async () => {
+		const { registerConnectionAdapter } = await import("./adapters");
+		const { checkConnectionHealth } = await import("./health");
+		const { getConnection } = await import("./store");
+		const conn = await seedSecretlessConnection();
+
+		const checkHealth = vi.fn(async () => ({
+			status: "connected" as const,
+			detail: null,
+		}));
+		registerConnectionAdapter({ provider: "owntracks", checkHealth });
+
+		const result = await checkConnectionHealth("userA", conn.id);
+		expect(result).toEqual({
+			status: "needs_reauth",
+			detail: "No secret is set for this connection",
+		});
+		expect(checkHealth).not.toHaveBeenCalled();
+
+		const persisted = await getConnection("userA", conn.id);
+		expect(persisted?.status).toBe("needs_reauth");
+	});
+
+	it("secret-less provider (requiresSecret: false) reaches its adapter's checkHealth and can report connected even with no stored secret", async () => {
+		const { registerConnectionAdapter } = await import("./adapters");
+		const { checkConnectionHealth } = await import("./health");
+		const { getConnection } = await import("./store");
+		const conn = await seedSecretlessConnection();
+
+		const checkHealth = vi.fn(async () => ({
+			status: "connected" as const,
+			detail: null,
+		}));
+		registerConnectionAdapter({
+			provider: "owntracks",
+			requiresSecret: false,
+			checkHealth,
+		});
+
+		const result = await checkConnectionHealth("userA", conn.id);
+		expect(result).toEqual({ status: "connected", detail: null });
+		expect(checkHealth).toHaveBeenCalledTimes(1);
+		expect(checkHealth).toHaveBeenCalledWith("", conn);
+
+		const persisted = await getConnection("userA", conn.id);
+		expect(persisted?.status).toBe("connected");
+		expect(persisted?.statusDetail).toBeNull();
 	});
 
 	it("connection id not owned by the user returns null and does not mutate the row", async () => {

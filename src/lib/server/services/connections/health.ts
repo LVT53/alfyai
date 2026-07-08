@@ -26,14 +26,14 @@ export async function checkConnectionHealth(
 			status: "error",
 			detail: `No adapter registered for provider "${conn.provider}"`,
 		};
-	} else if (!secret) {
+	} else if (!secret && adapter.requiresSecret !== false) {
 		result = {
 			status: "needs_reauth",
 			detail: "No secret is set for this connection",
 		};
 	} else {
 		try {
-			const health = await adapter.checkHealth(secret, conn);
+			const health = await adapter.checkHealth(secret ?? "", conn);
 			result = { status: health.status, detail: health.detail };
 		} catch (err) {
 			result = {

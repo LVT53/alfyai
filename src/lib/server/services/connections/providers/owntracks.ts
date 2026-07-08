@@ -505,6 +505,7 @@ async function checkHealth(
 // pass a third `{ fetch }` opts arg.
 export const owntracksAdapter = {
 	provider: "owntracks" as const,
+	requiresSecret: false,
 	checkHealth,
 };
 

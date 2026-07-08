@@ -130,6 +130,12 @@ export const CAPABILITY_META: Record<
 // this base only fixes the lifecycle shape the framework calls generically.
 export interface ConnectionAdapter {
 	readonly provider: ConnectionProvider;
+	// undefined/true: this provider stores a per-user secret, so health
+	// checks should short-circuit to needs_reauth when it's missing. Set to
+	// false for providers with no per-user secret (e.g. OwnTracks, whose
+	// recorder credentials are admin-config, not per-user) so health always
+	// calls checkHealth instead.
+	requiresSecret?: boolean;
 	checkHealth(
 		secret: string,
 		conn: ConnectionPublic,
