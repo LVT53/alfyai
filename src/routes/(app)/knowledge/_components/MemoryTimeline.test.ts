@@ -150,4 +150,66 @@ describe("MemoryTimeline", () => {
 			screen.getByText("No memory maintenance has run yet."),
 		).toBeInTheDocument();
 	});
+
+	it("is a single-open accordion: opening one report collapses the other", async () => {
+		renderTimeline();
+
+		const [newest, oldest] = screen.getAllByRole("listitem");
+		await fireEvent.click(
+			within(newest).getByText("Merged 2 duplicates, then stopped early."),
+		);
+		expect(
+			within(newest).getByText("Merged two coffee preferences into one."),
+		).toBeInTheDocument();
+
+		// Opening the older report collapses the newer one.
+		await fireEvent.click(
+			within(oldest).getByText("Renewed 1 memory, nothing else to tidy."),
+		);
+		expect(
+			within(oldest).getByText("Renewed “Working toward a spring launch.”"),
+		).toBeInTheDocument();
+		expect(
+			within(newest).queryByText("Merged two coffee preferences into one."),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows the merge/supersede target statement when present", async () => {
+		const targeted: MemoryTimelineReport[] = [
+			{
+				id: "report-target",
+				status: "completed",
+				summaryText: "Tidied up two overlapping facts.",
+				createdAt: "2026-07-06T02:00:00.000Z",
+				actions: [
+					{
+						type: "merged",
+						itemIds: ["a", "b"],
+						resultItemId: "c",
+						resultStatement: "Prefers dark roast, black.",
+						description: "Merged two coffee notes.",
+						undo: [],
+					},
+					{
+						type: "superseded",
+						itemIds: ["d"],
+						resultItemId: "e",
+						resultStatement: "Now based in Berlin.",
+						description: "Replaced an outdated location.",
+						undo: [],
+					},
+				],
+			},
+		];
+		renderTimeline({ reports: targeted });
+
+		await fireEvent.click(screen.getByText("Tidied up two overlapping facts."));
+
+		expect(
+			screen.getByText(/Merged into:.*Prefers dark roast, black\./),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/Superseded by:.*Now based in Berlin\./),
+		).toBeInTheDocument();
+	});
 });

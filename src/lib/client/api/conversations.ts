@@ -217,6 +217,25 @@ export async function setConversationSidebarPinned(
 	);
 }
 
+export async function setConversationMemoryIncognito(
+	id: string,
+	memoryIncognito: boolean,
+	fetchImpl: FetchLike = fetch,
+): Promise<Conversation> {
+	return requestJson<Conversation>(
+		`/api/conversations/${id}`,
+		{
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ memoryIncognito }),
+		},
+		"Failed to update conversation memory setting",
+		fetchImpl,
+	);
+}
+
 export async function savePinnedConversationSidebarOrder(
 	orderedIds: string[],
 	fetchImpl: FetchLike = fetch,

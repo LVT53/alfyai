@@ -1,4 +1,5 @@
 <script lang="ts">
+import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
 import { Check, Loader, Pencil, X } from "@lucide/svelte";
@@ -9,7 +10,11 @@ let {
 	hasFacts,
 	onEdit,
 }: {
-	summary: { text: string; updatedAt: string } | null;
+	summary: {
+		text: string;
+		links?: Array<{ text: string; factIds: string[] }>;
+		updatedAt: string;
+	} | null;
 	busy: boolean;
 	hasFacts: boolean;
 	onEdit: (text: string) => boolean | undefined | Promise<boolean | undefined>;
@@ -42,6 +47,31 @@ async function save() {
 let updatedLabel = $derived(
 	summary ? formatRelativeTime(Date.parse(summary.updatedAt)) : "",
 );
+
+// Break the one-blob portrait into digestible sentences so it reads as a
+// short portrait rather than a wall of text. Prefer the per-sentence `links`
+// pieces the backend already segments; fall back to splitting on sentence
+// boundaries. Sentences are then grouped two-per-paragraph.
+function splitSentences(text: string): string[] {
+	return text
+		.split(/(?<=[.!?])\s+(?=[A-ZÀ-Þ0-9"“])/u)
+		.map((sentence) => sentence.trim())
+		.filter((sentence) => sentence.length > 0);
+}
+
+let paragraphs = $derived.by<string[]>(() => {
+	if (!summary) return [];
+	const sentences =
+		summary.links && summary.links.length > 0
+			? summary.links.map((link) => link.text.trim()).filter(Boolean)
+			: splitSentences(summary.text);
+	if (sentences.length === 0) return [summary.text];
+	const grouped: string[] = [];
+	for (let index = 0; index < sentences.length; index += 2) {
+		grouped.push(sentences.slice(index, index + 2).join(" "));
+	}
+	return grouped;
+});
 </script>
 
 <section
@@ -49,9 +79,15 @@ let updatedLabel = $derived(
 	aria-labelledby="persona-summary-title"
 >
 	<div class="flex flex-wrap items-start justify-between gap-3">
-		<h3 id="persona-summary-title" class="text-xl font-serif text-text-primary">
-			{$t("memoryProfile.summaryTitle")}
-		</h3>
+		<div class="flex min-w-0 items-center gap-1.5">
+			<h3 id="persona-summary-title" class="text-xl font-serif text-text-primary">
+				{$t("memoryProfile.summaryTitle")}
+			</h3>
+			<InfoTooltip
+				text={$t("memoryProfile.summaryInfoTooltip")}
+				label={$t("memoryProfile.summaryInfoLabel")}
+			/>
+		</div>
 		{#if summary && !editing}
 			<button
 				type="button"
@@ -97,9 +133,13 @@ let updatedLabel = $derived(
 			</button>
 		</div>
 	{:else if summary}
-		<p class="mt-3 break-words font-serif text-[0.98rem] leading-[1.7] text-text-primary">
-			{summary.text}
-		</p>
+		<div class="persona-summary-body mt-3 flex flex-col gap-2.5">
+			{#each paragraphs as paragraph, index (index)}
+				<p class="break-words font-serif text-[0.98rem] leading-[1.7] text-text-primary">
+					{paragraph}
+				</p>
+			{/each}
+		</div>
 		<p class="mt-3 text-xs font-sans text-text-muted">
 			{$t("memoryProfile.summaryUpdated", { time: updatedLabel })}
 		</p>

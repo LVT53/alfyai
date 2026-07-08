@@ -433,6 +433,10 @@ body {
 	}
 
 	.btn-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 0;
 		background-color: transparent;
 		min-width: 40px;
 		min-height: 40px;

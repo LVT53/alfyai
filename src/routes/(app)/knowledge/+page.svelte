@@ -4,6 +4,7 @@ import { browser } from "$app/environment";
 import { page as kitPage } from "$app/state";
 import {
 	deleteKnowledgeArtifact,
+	fetchKnowledgeMemoryOverview,
 	fetchMemoryProfile,
 	fetchMemorySummary,
 	fetchMemoryTimeline,
@@ -57,6 +58,9 @@ let pendingMemoryActionKey = $state<string | null>(null);
 let memorySummary = $state<MemoryPersonaSummaryPayload["summary"]>(null);
 let memorySummaryBusy = $state(false);
 let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
+let memoryProcessing = $state<{ active: boolean; pendingCount: number } | null>(
+	null,
+);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
 // True while a server-side documents search/sort/page round-trip is in flight.
@@ -461,6 +465,15 @@ async function loadMemoryProfile(force = false) {
 	// stale-projection recovery path).
 	void refreshMemorySummary();
 	void refreshMemoryTimeline();
+	void refreshMemoryOverview();
+}
+
+async function refreshMemoryOverview() {
+	try {
+		memoryProcessing = (await fetchKnowledgeMemoryOverview()).processing;
+	} catch (error) {
+		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory overview", error);
+	}
 }
 
 async function refreshMemorySummary() {
@@ -681,6 +694,7 @@ $effect(() => {
 						onAction={handleMemoryAction}
 						summary={memorySummary}
 						summaryBusy={memorySummaryBusy}
+						processing={memoryProcessing}
 						onEditSummary={handleSummaryEdit}
 						timelineReports={memoryTimelineReports}
 						onUndoConsolidation={handleUndoConsolidation}

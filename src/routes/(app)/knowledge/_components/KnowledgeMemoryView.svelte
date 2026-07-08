@@ -64,6 +64,7 @@ let {
 	onAction,
 	summary = null,
 	summaryBusy = false,
+	processing = null,
 	onEditSummary = undefined,
 	timelineReports = [],
 	onUndoConsolidation = undefined,
@@ -79,8 +80,13 @@ let {
 	onAction: (
 		payload: MemoryProfileActionPayload,
 	) => boolean | Promise<boolean | undefined>;
-	summary?: { text: string; updatedAt: string } | null;
+	summary?: {
+		text: string;
+		links?: Array<{ text: string; factIds: string[] }>;
+		updatedAt: string;
+	} | null;
 	summaryBusy?: boolean;
+	processing?: { active: boolean; pendingCount: number } | null;
 	onEditSummary?:
 		| ((text: string) => boolean | undefined | Promise<boolean | undefined>)
 		| undefined;
@@ -437,6 +443,23 @@ $effect(() => {
 			</span>
 		</div>
 
+		{#if processing?.active}
+			<div
+				class="memory-processing-notice flex items-center gap-2 rounded-[0.75rem] border px-3 py-2"
+				role="status"
+				aria-live="polite"
+			>
+				<Loader size={15} strokeWidth={2.1} class="shrink-0 animate-spin" aria-hidden="true" />
+				<span class="text-xs font-sans leading-[1.4]">
+					{processing.pendingCount > 1
+						? $t("memoryProfile.processingNoticeCount", {
+								count: processing.pendingCount,
+							})
+						: $t("memoryProfile.processingNotice")}
+				</span>
+			</div>
+		{/if}
+
 		<PersonaSummaryCard
 			{summary}
 			busy={summaryBusy}
@@ -456,10 +479,10 @@ $effect(() => {
 						<p class="memory-empty-hint mt-2 text-xs font-sans leading-[1.5] text-text-muted">
 							{$t("memoryProfile.emptyHint")}
 							<a
-								href="/settings"
+								href="/settings?section=memory"
 								class="memory-empty-hint-link text-accent underline underline-offset-2 hover:text-accent-hover"
 							>
-								{$t("settings")}
+								{$t("memoryProfile.emptyHintLink")}
 							</a>
 						</p>
 					{:else}
@@ -817,6 +840,12 @@ $effect(() => {
 {/if}
 
 	<style>
+	.memory-processing-notice {
+		border-color: color-mix(in srgb, var(--accent) 28%, var(--border-default) 72%);
+		background: color-mix(in srgb, var(--accent) 6%, var(--surface-elevated) 94%);
+		color: var(--accent);
+	}
+
 	.memory-review-title {
 		color: var(--accent);
 		font-size: var(--text-base);

@@ -411,20 +411,20 @@ describe("KnowledgeMemoryView", () => {
 		// The generic explainer hint renders below each empty state.
 		expect(
 			within(goalsSection as HTMLElement).getByText(
-				/learns these as you chat/i,
+				/builds these from your chats/i,
 			),
 		).toBeInTheDocument();
 		expect(
 			within(constraintsSection as HTMLElement).getByText(
-				/learns these as you chat/i,
+				/builds these from your chats/i,
 			),
 		).toBeInTheDocument();
 
-		// A link to settings is present.
+		// A link to the memory settings section is present.
 		const goalsLink = within(goalsSection as HTMLElement).getByRole("link", {
-			name: /settings/i,
+			name: /memory settings/i,
 		});
-		expect(goalsLink).toHaveAttribute("href", "/settings");
+		expect(goalsLink).toHaveAttribute("href", "/settings?section=memory");
 	});
 
 	it("does not render the explainer hint for categories that have items", () => {
@@ -437,7 +437,7 @@ describe("KnowledgeMemoryView", () => {
 		expect(aboutSection).not.toBeNull();
 		expect(
 			within(aboutSection as HTMLElement).queryByText(
-				/learns these as you chat/i,
+				/builds these from your chats/i,
 			),
 		).not.toBeInTheDocument();
 	});
@@ -1114,5 +1114,25 @@ describe("KnowledgeMemoryView", () => {
 			).not.toBeInTheDocument();
 		});
 		expect(editButton).toHaveFocus();
+	});
+
+	it("shows an in-progress notice only when processing is active", () => {
+		const { rerender } = renderMemoryView({
+			processing: { active: false, pendingCount: 0 },
+		});
+		expect(screen.queryByText(/Updating your memory/i)).not.toBeInTheDocument();
+
+		rerender({
+			profile,
+			memoryLoading: false,
+			memoryLoaded: true,
+			memoryLoadError: "",
+			pendingActionKey: null,
+			actionError: "",
+			onRetryLoadMemory: vi.fn(),
+			onAction: vi.fn(),
+			processing: { active: true, pendingCount: 3 },
+		});
+		expect(screen.getByText(/3 updates in progress/i)).toBeInTheDocument();
 	});
 });

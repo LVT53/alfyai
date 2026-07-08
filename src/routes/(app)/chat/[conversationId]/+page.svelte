@@ -2306,6 +2306,7 @@ function handleDrop(event: DragEvent) {
 				onModelChange={setSelectedConversationModelId}
 				reasoningDepth={$selectedReasoningDepth}
 				onReasoningDepthChange={setSelectedReasoningDepth}
+				memoryIncognito={data.conversation.memoryIncognito ?? false}
 				draftText={conversationDraft?.draftText ?? ''}
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
 				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}

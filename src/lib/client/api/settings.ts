@@ -138,6 +138,7 @@ export async function updateUserPreferences(params: {
 	preferredPersonalityId?: string | null;
 	sidebarProjectsExpanded?: boolean;
 	sidebarChatsExpanded?: boolean;
+	memoryEnabled?: boolean;
 }): Promise<void> {
 	await requestJson<{ success?: boolean }>(
 		"/api/settings/preferences",

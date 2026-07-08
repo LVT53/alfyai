@@ -202,7 +202,8 @@ const knowledgeDict = {
 		"memoryProfile.editReviewItem": "Edit review item",
 		"memoryProfile.editSummary": "Edit summary",
 		"memoryProfile.emptyHint":
-			"AlfyAI learns these as you chat. You can review and edit them anytime.",
+			"AlfyAI builds these from your chats. Manage what it remembers in your",
+		"memoryProfile.emptyHintLink": "memory settings",
 		"memoryProfile.expiresOn": "expires {date}",
 		"memoryProfile.failedLoad": "Failed to load memory profile.",
 		"memoryProfile.forget": "Forget",
@@ -218,6 +219,9 @@ const knowledgeDict = {
 		"memoryProfile.needsReview": "Needs Review",
 		"memoryProfile.preferences": "Preferences",
 		"memoryProfile.preferencesEmpty": "No preferences remembered yet.",
+		"memoryProfile.processingNotice": "Updating your memory…",
+		"memoryProfile.processingNoticeCount":
+			"Updating your memory… {count} updates in progress",
 		"memoryProfile.projectScope": "Project",
 		"memoryProfile.remember": "Remember",
 		"memoryProfile.rememberThisItem": "Remember this item",
@@ -238,6 +242,9 @@ const knowledgeDict = {
 		"memoryProfile.statement": "Statement",
 		"memoryProfile.summaryEmpty":
 			"Nothing here yet. As we talk, a short portrait of you takes shape here — and you can read and edit it anytime.",
+		"memoryProfile.summaryInfoLabel": "About this summary",
+		"memoryProfile.summaryInfoTooltip":
+			"This summary is what AlfyAI actually reads to personalize its replies. The cards below show the raw facts it's built from.",
 		"memoryProfile.summaryPending":
 			"Your portrait will appear the next time your memories are tidied up — overnight, or right after a clean-up.",
 		"memoryProfile.summaryTitle": "What I remember about you",
@@ -246,6 +253,8 @@ const knowledgeDict = {
 		"memoryProfile.timelineFailed": "Failed",
 		"memoryProfile.timelineHint":
 			"Every overnight tidy-up is logged here — nothing changes without a trace.",
+		"memoryProfile.timelineMergedInto": "Merged into: “{statement}”",
+		"memoryProfile.timelineSupersededBy": "Superseded by: “{statement}”",
 		"memoryProfile.timelineTitle": "While you were away",
 		"memoryProfile.undo": "Undo",
 		"memoryProfile.undoAction": "Undo this change",
@@ -461,7 +470,8 @@ const knowledgeDict = {
 		"memoryProfile.editReviewItem": "Felülvizsgálati elem szerkesztése",
 		"memoryProfile.editSummary": "Összefoglaló szerkesztése",
 		"memoryProfile.emptyHint":
-			"Az AlfyAI beszélgetés közben tanulja meg ezeket. Bármikor átnézheted és szerkesztheted őket.",
+			"Az AlfyAI a beszélgetéseidből építi ezeket. Azt, hogy mire emlékezzen, itt kezelheted:",
+		"memoryProfile.emptyHintLink": "memóriabeállítások",
 		"memoryProfile.expiresOn": "lejár: {date}",
 		"memoryProfile.failedLoad": "Nem sikerült betölteni a memóriaprofilt.",
 		"memoryProfile.forget": "Felejtse el",
@@ -477,6 +487,9 @@ const knowledgeDict = {
 		"memoryProfile.needsReview": "Felülvizsgálatra vár",
 		"memoryProfile.preferences": "Preferenciák",
 		"memoryProfile.preferencesEmpty": "Még nincsenek megjegyzett preferenciák.",
+		"memoryProfile.processingNotice": "A memóriád frissítése…",
+		"memoryProfile.processingNoticeCount":
+			"A memóriád frissítése… {count} frissítés folyamatban",
 		"memoryProfile.projectScope": "Projekt",
 		"memoryProfile.remember": "Megjegyzés",
 		"memoryProfile.rememberThisItem": "Elem megjegyzése",
@@ -497,6 +510,9 @@ const knowledgeDict = {
 		"memoryProfile.statement": "Állítás",
 		"memoryProfile.summaryEmpty":
 			"Még nincs itt semmi. Ahogy beszélgetünk, itt áll össze rólad egy rövid kép — bármikor elolvashatod és szerkesztheted.",
+		"memoryProfile.summaryInfoLabel": "Erről az összefoglalóról",
+		"memoryProfile.summaryInfoTooltip":
+			"Ezt az összefoglalót olvassa az AlfyAI, hogy személyre szabja a válaszait. Az alábbi kártyák mutatják a nyers tényeket, amelyekből felépült.",
 		"memoryProfile.summaryPending":
 			"A portréd a memóriáid legközelebbi rendberakásakor jelenik meg — éjszaka, vagy közvetlenül egy takarítás után.",
 		"memoryProfile.summaryTitle": "Amit rólad megjegyeztem",
@@ -505,6 +521,8 @@ const knowledgeDict = {
 		"memoryProfile.timelineFailed": "Sikertelen",
 		"memoryProfile.timelineHint":
 			"Minden éjszakai rendrakás ide kerül — semmi sem változik nyomtalanul.",
+		"memoryProfile.timelineMergedInto": "Összevonva ebbe: „{statement}”",
+		"memoryProfile.timelineSupersededBy": "Felváltotta: „{statement}”",
 		"memoryProfile.timelineTitle": "Amíg távol voltál",
 		"memoryProfile.undo": "Visszavonás",
 		"memoryProfile.undoAction": "Változtatás visszavonása",

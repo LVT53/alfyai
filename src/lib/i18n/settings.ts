@@ -677,6 +677,9 @@ const settingsDict = {
 		settings_hidePassword: "Hide password",
 		settings_hungarian: "Hungarian",
 		settings_light: "Light",
+		settings_memory: "Memory",
+		settings_memoryHelp:
+			"When on, AlfyAI learns and remembers facts about you across chats to personalize replies. Turn off to pause all learning — your existing memories are kept but nothing new is added.",
 		settings_newPassword: "New password",
 		settings_optionalDisplayName: "Optional display name",
 		settings_passwordLabel: "Password",
@@ -1402,6 +1405,9 @@ const settingsDict = {
 		settings_hidePassword: "Jelszó elrejtése",
 		settings_hungarian: "Magyar",
 		settings_light: "Világos",
+		settings_memory: "Memória",
+		settings_memoryHelp:
+			"Bekapcsolva az AlfyAI a beszélgetéseken átívelően megtanulja és megjegyzi a rólad szóló tényeket, hogy személyre szabja a válaszait. Kikapcsolással minden tanulás szünetel — a meglévő emlékeid megmaradnak, de újak nem keletkeznek.",
 		settings_newPassword: "Új jelszó",
 		settings_optionalDisplayName: "Opcionális megjelenítési név",
 		settings_passwordLabel: "Jelszó",

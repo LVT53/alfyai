@@ -61,6 +61,8 @@ let {
 	onModelChange,
 	reasoningDepth,
 	onReasoningDepthChange,
+	memoryIncognito = false,
+	onMemoryIncognitoChange,
 	children,
 }: {
 	sendError: string | null;
@@ -122,6 +124,8 @@ let {
 	onModelChange?: ((modelId: ModelId) => void) | undefined;
 	reasoningDepth?: ReasoningDepth;
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
+	memoryIncognito?: boolean;
+	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
 	children?: Snippet;
 } = $props();
 
@@ -182,6 +186,8 @@ let {
 			{onModelChange}
 			{reasoningDepth}
 			{onReasoningDepthChange}
+			{memoryIncognito}
+			{onMemoryIncognitoChange}
 		/>
 	</div>
 </div>

@@ -40,6 +40,7 @@ export const GET: RequestHandler = async (event) => {
 			preferredPersonalityId: userRow.preferredPersonalityId ?? null,
 			sidebarProjectsExpanded: userRow.sidebarProjectsExpanded ?? true,
 			sidebarChatsExpanded: userRow.sidebarChatsExpanded ?? true,
+			memoryEnabled: userRow.memoryEnabled ?? true,
 		},
 		profilePicture: userRow.profilePicture ?? null,
 	};

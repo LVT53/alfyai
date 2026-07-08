@@ -169,6 +169,10 @@ describe("Knowledge page memory loading", () => {
 		);
 		vi.mocked(fetchMemorySummary).mockResolvedValue({ summary: null });
 		vi.mocked(fetchMemoryTimeline).mockResolvedValue({ reports: [] });
+		vi.mocked(fetchKnowledgeMemoryOverview).mockResolvedValue({
+			memoryEnabled: true,
+			processing: { active: false, pendingCount: 0 },
+		} as Awaited<ReturnType<typeof fetchKnowledgeMemoryOverview>>);
 		Object.defineProperty(document, "hidden", {
 			configurable: true,
 			value: false,
@@ -189,7 +193,9 @@ describe("Knowledge page memory loading", () => {
 		await waitFor(() => {
 			expect(fetchMemoryProfile).toHaveBeenCalledWith();
 		});
-		expect(fetchKnowledgeMemoryOverview).not.toHaveBeenCalled();
+		// The projection profile is the primary source; the overview is fetched
+		// best-effort only for the "memory is processing" notice (Task 3). The
+		// legacy full-memory endpoint stays unused.
 		expect(fetchKnowledgeMemory).not.toHaveBeenCalled();
 
 		const tabs = screen.getAllByRole("tab");

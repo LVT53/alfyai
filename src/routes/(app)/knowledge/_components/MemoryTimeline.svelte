@@ -1,6 +1,6 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { MemoryTimelineReport } from "$lib/types";
+import type { MemoryTimelineAction, MemoryTimelineReport } from "$lib/types";
 import { Moon, RotateCcw } from "@lucide/svelte";
 
 let {
@@ -12,6 +12,13 @@ let {
 	onUndo: (reportId: string, actionIndex: number) => void;
 	pendingActionKey?: string | null;
 } = $props();
+
+// Single-open accordion: only one report's actions are expanded at a time.
+let openReportId = $state<string | null>(null);
+
+function toggleReport(reportId: string) {
+	openReportId = openReportId === reportId ? null : reportId;
+}
 
 function undoKey(reportId: string, actionIndex: number): string {
 	return `${reportId}:${actionIndex}:undo`;
@@ -30,6 +37,23 @@ function formatReportDate(createdAt: string): string {
 		dateStyle: "medium",
 		timeStyle: "short",
 	}).format(parsed);
+}
+
+// The surviving/merged-into statement only reads clearly for supersede and
+// merge actions; expiry/renewal have no target to point at.
+function targetLabel(action: MemoryTimelineAction): string | null {
+	if (!action.resultStatement) return null;
+	if (action.type === "merged") {
+		return $t("memoryProfile.timelineMergedInto", {
+			statement: action.resultStatement,
+		});
+	}
+	if (action.type === "superseded") {
+		return $t("memoryProfile.timelineSupersededBy", {
+			statement: action.resultStatement,
+		});
+	}
+	return null;
 }
 </script>
 
@@ -54,9 +78,17 @@ function formatReportDate(createdAt: string): string {
 	{:else}
 		<ul class="memory-timeline-list mt-3 grid list-none gap-2 p-0">
 			{#each sortedReports as report (report.id)}
+				{@const isOpen = openReportId === report.id}
 				<li class="memory-timeline-row rounded-[0.75rem] border border-border bg-surface-page">
-					<details>
-						<summary class="flex cursor-pointer list-none items-start gap-3 px-3 py-3">
+					<details open={isOpen}>
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<summary
+							class="flex cursor-pointer list-none items-start gap-3 px-3 py-3"
+							onclick={(event) => {
+								event.preventDefault();
+								toggleReport(report.id);
+							}}
+						>
 							<span
 								class={`memory-timeline-dot mt-1.5 shrink-0 ${report.status === "failed" ? "memory-timeline-dot--failed" : ""}`}
 								aria-hidden="true"
@@ -75,13 +107,21 @@ function formatReportDate(createdAt: string): string {
 								</span>
 							</span>
 						</summary>
-						{#if report.actions.length > 0}
-							<div class="border-t border-border px-3 py-2">
+						{#if isOpen && report.actions.length > 0}
+							<ul class="memory-timeline-actions list-none border-t border-border px-3 py-2">
 								{#each report.actions as action, actionIndex (`${report.id}-${actionIndex}`)}
-									<div class="flex items-start justify-between gap-3 py-1.5">
-										<p class="min-w-0 break-words text-xs font-sans leading-[1.5] text-text-secondary">
-											{action.description}
-										</p>
+									{@const target = targetLabel(action)}
+									<li class="memory-timeline-action flex items-start justify-between gap-3 py-2">
+										<div class="min-w-0 flex-1">
+											<p class="break-words text-xs font-sans leading-[1.5] text-text-primary">
+												{action.description}
+											</p>
+											{#if target}
+												<p class="memory-timeline-target mt-1 break-words text-xs font-sans leading-[1.45]">
+													{target}
+												</p>
+											{/if}
+										</div>
 										<button
 											type="button"
 											class="memory-timeline-undo inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-sans font-medium text-text-primary transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-50"
@@ -92,9 +132,9 @@ function formatReportDate(createdAt: string): string {
 											<RotateCcw size={13} strokeWidth={2.1} aria-hidden="true" />
 											{$t("memoryProfile.undo")}
 										</button>
-									</div>
+									</li>
 								{/each}
-							</div>
+							</ul>
 						{/if}
 					</details>
 				</li>
@@ -120,6 +160,30 @@ function formatReportDate(createdAt: string): string {
 			color-mix(in srgb, var(--danger) 35%, var(--border-default) 65%);
 		color: var(--danger);
 		background: color-mix(in srgb, var(--danger) 7%, transparent 93%);
+	}
+
+	.memory-timeline-actions {
+		margin: 0;
+	}
+
+	.memory-timeline-action + .memory-timeline-action {
+		border-top: 1px solid
+			color-mix(in srgb, var(--border-default) 55%, transparent 45%);
+	}
+
+	/* The supersede/merge target reads as secondary supporting detail: a
+	   leading arrow marks it as the consequence of the action above. */
+	.memory-timeline-target {
+		color: var(--text-muted);
+		padding-left: 0.85rem;
+		position: relative;
+	}
+
+	.memory-timeline-target::before {
+		content: "\2192";
+		position: absolute;
+		left: 0;
+		color: var(--accent);
 	}
 
 	.memory-timeline-row summary::-webkit-details-marker {

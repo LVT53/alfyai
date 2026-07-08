@@ -1,8 +1,9 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Bell, Plus, Send, Square, X } from "@lucide/svelte";
+import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
+import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
 	linkedContextSourceArtifactIds,
@@ -124,6 +125,8 @@ let {
 	onReasoningDepthChange = undefined,
 	composerCommandRegistryEnabled = false,
 	atlasAvailability = null,
+	memoryIncognito = false,
+	onMemoryIncognitoChange = undefined,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -188,6 +191,10 @@ let {
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	composerCommandRegistryEnabled?: boolean;
 	atlasAvailability?: AtlasAvailability | null;
+	/** Whether the current conversation is excluded from the memory pipeline. */
+	memoryIncognito?: boolean;
+	/** Emitted after a successful incognito toggle so parents can reconcile. */
+	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -337,6 +344,67 @@ $effect(() => {
 		ensureDraftConversationPromise = null;
 	}
 });
+
+// Per-conversation incognito toggle. `incognitoOn` mirrors the conversation's
+// stored value but is held locally so it can be toggled mid-chat and, for a
+// brand-new (unsaved) conversation, applied once the conversation exists.
+let incognitoOn = $state(false);
+let incognitoBusy = $state(false);
+// Tracks the conversation id the current `incognitoOn` value has been synced
+// with, so switching conversations re-reads the stored flag but in-chat toggles
+// are not clobbered, and a pending local choice is persisted on creation.
+let incognitoSyncedConversationId = $state<string | null>(null);
+
+$effect(() => {
+	// Reset the local flag to the stored value whenever the conversation the
+	// composer is bound to changes (including the null → id creation step).
+	const boundId = conversationId ?? null;
+	if (incognitoSyncedConversationId === boundId) return;
+	if (boundId === null) {
+		incognitoSyncedConversationId = null;
+		incognitoOn = memoryIncognito;
+		return;
+	}
+	// A conversation just became available. If the user pre-set incognito on the
+	// draft composer, persist that choice; otherwise adopt the stored value.
+	if (
+		incognitoSyncedConversationId === null &&
+		incognitoOn &&
+		!memoryIncognito
+	) {
+		incognitoSyncedConversationId = boundId;
+		void persistIncognito(boundId, true);
+		return;
+	}
+	incognitoSyncedConversationId = boundId;
+	incognitoOn = memoryIncognito;
+});
+
+async function persistIncognito(id: string, value: boolean): Promise<boolean> {
+	try {
+		await setConversationMemoryIncognito(id, value);
+		onMemoryIncognitoChange?.(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function toggleIncognito() {
+	if (incognitoBusy) return;
+	const next = !incognitoOn;
+	incognitoOn = next;
+	const id = conversationId ?? resolvedConversationId;
+	if (!id) {
+		// Brand-new conversation with no id yet: hold the choice locally; the
+		// conversation-bound effect above persists it once the id exists.
+		return;
+	}
+	incognitoBusy = true;
+	const ok = await persistIncognito(id, next);
+	if (!ok) incognitoOn = !next;
+	incognitoBusy = false;
+}
 
 $effect(() => {
 	if (commandTrayCanOpen) {
@@ -1695,6 +1763,21 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
+	{#if incognitoOn}
+		<div class="composer-incognito-notice" role="status">
+			<VenetianMask size={14} strokeWidth={2.1} class="shrink-0" aria-hidden="true" />
+			<span class="composer-incognito-notice-text">{$t('chat.incognitoNotice')}</span>
+			<button
+				type="button"
+				class="composer-incognito-off"
+				onclick={toggleIncognito}
+				disabled={incognitoBusy}
+			>
+				{$t('chat.incognitoTurnOff')}
+			</button>
+		</div>
+	{/if}
+
 	<div class="message-composer relative z-[2] flex min-h-[70px] flex-col rounded-[1.25rem] border border-border px-[8px] pt-[8px] pb-0 transition-all duration-150 focus-within:border-focus-ring md:min-h-[78px] md:px-[10px] md:pt-[10px]">
 		<input
 			bind:this={fileInput}
@@ -1914,6 +1997,20 @@ async function emitDraftChange(force = false) {
 						/>
 					{/if}
 				</div>
+
+				<button
+					type="button"
+					data-testid="incognito-toggle"
+					class="btn-icon-bare composer-icon composer-incognito-btn flex flex-shrink-0 items-center justify-center"
+					class:composer-incognito-btn--active={incognitoOn}
+					onclick={toggleIncognito}
+					disabled={incognitoBusy}
+					aria-pressed={incognitoOn}
+					aria-label={$t('chat.incognitoToggle')}
+					title={$t('chat.incognitoToggle')}
+				>
+					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 
 				<ContextUsageRing
 					{contextStatus}
@@ -2321,6 +2418,61 @@ async function emitDraftChange(force = false) {
 
 	.composer-icon {
 		align-self: center;
+	}
+
+	/* Incognito toggle: quiet by default, accent-filled when active. */
+	.composer-incognito-btn {
+		color: var(--icon-muted);
+	}
+
+	.composer-incognito-btn--active {
+		color: var(--accent-contrast);
+		background: var(--accent);
+	}
+
+	.composer-incognito-btn--active:hover {
+		color: var(--accent-contrast);
+		background: var(--accent-hover);
+		opacity: 1;
+	}
+
+	/* One-line "incognito on" notice above the input box. */
+	.composer-incognito-notice {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0 0.25rem 0.4rem;
+		padding: 0.3rem 0.6rem;
+		border-radius: 9999px;
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
+		color: var(--accent);
+		font-size: 0.75rem;
+		line-height: 1.3;
+	}
+
+	.composer-incognito-notice-text {
+		min-width: 0;
+		flex: 1;
+		overflow-wrap: anywhere;
+	}
+
+	.composer-incognito-off {
+		flex-shrink: 0;
+		cursor: pointer;
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--accent);
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-decoration: underline;
+		text-underline-offset: 0.16em;
+	}
+
+	.composer-incognito-off:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	.composer-textarea {

@@ -79,6 +79,9 @@ let {
 	onChangeTheme,
 	onChangeTitleLanguage,
 	onChangeUiLanguage,
+	memoryEnabled = true,
+	memorySaving = false,
+	onChangeMemoryEnabled = undefined,
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onChangePersonality = undefined,
@@ -145,6 +148,11 @@ let {
 	onChangeTheme: (theme: Theme) => void | Promise<void>;
 	onChangeTitleLanguage: (lang: TitleLanguage) => void | Promise<void>;
 	onChangeUiLanguage: (lang: UiLanguage) => void | Promise<void>;
+	memoryEnabled?: boolean;
+	memorySaving?: boolean;
+	onChangeMemoryEnabled?:
+		| ((enabled: boolean) => void | Promise<void>)
+		| undefined;
 	personalityProfiles?: Array<{
 		id: string;
 		name: string;
@@ -464,6 +472,28 @@ onMount(() => {
 	</div>
 </section>
 
+<!-- Memory master toggle: pauses/resumes all cross-chat learning. -->
+<section id="settings-memory-card" class="settings-card mb-4">
+	<div class="memory-toggle-row">
+		<div class="memory-toggle-text">
+			<p class="settings-label memory-toggle-label">{$t('settings_memory')}</p>
+			<p class="settings-help-text memory-toggle-help">{$t('settings_memoryHelp')}</p>
+		</div>
+		<button
+			type="button"
+			role="switch"
+			aria-checked={memoryEnabled}
+			aria-label={$t('settings_memory')}
+			class="toggle-btn"
+			class:toggle-on={memoryEnabled}
+			disabled={memorySaving}
+			onclick={() => onChangeMemoryEnabled?.(!memoryEnabled)}
+		>
+			<span class="toggle-thumb"></span>
+		</button>
+	</div>
+</section>
+
 <!-- ================= GROUP 3: ASSISTANT ================= -->
 <!-- ADR-0043 slice 18b: the inline Skills editor is promoted to a summary card -->
 <!-- that opens a dedicated full-screen manager. The UserSkillsSettingsSurface -->
@@ -630,6 +660,31 @@ onMount(() => {
 		color: var(--text-secondary);
 		margin-top: -0.125rem;
 		margin-bottom: 0.375rem;
+	}
+
+	/* Memory master toggle: label/help on the left, switch on the right. */
+	.memory-toggle-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.memory-toggle-text {
+		min-width: 0;
+	}
+
+	.memory-toggle-label {
+		margin-bottom: 0.25rem;
+	}
+
+	.memory-toggle-help {
+		margin-bottom: 0;
+	}
+
+	.toggle-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
 	}
 
 	.model-preference-grid {

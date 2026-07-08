@@ -1,4 +1,5 @@
 <script lang="ts">
+import { onMount } from "svelte";
 import { goto, invalidate } from "$app/navigation";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import ProfilePictureEditor from "$lib/components/ui/ProfilePictureEditor.svelte";
@@ -63,6 +64,7 @@ interface SettingsPageData {
 			titleLanguage: "auto" | "en" | "hu";
 			uiLanguage: "en" | "hu";
 			avatarId: number | null;
+			memoryEnabled?: boolean;
 		};
 		profilePicture: string | null;
 	};
@@ -156,6 +158,10 @@ let selectedAvatar = $state<number | null>(initialPreferences.avatarId);
 let selectedPersonalityId = $state<string | null>(
 	initialPreferences.preferredPersonalityId ?? null,
 );
+let selectedMemoryEnabled = $state<boolean>(
+	initialPreferences.memoryEnabled ?? true,
+);
+let memorySaving = $state(false);
 let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
 >([]);
@@ -392,6 +398,36 @@ async function changeUiLanguage(lang: UiLanguage) {
 	await setUiLanguageAndSync(lang);
 }
 
+// Deep-link from the Knowledge memory empty state (/settings?section=memory):
+// bring the Profile tab forward and scroll the Memory card into view.
+onMount(() => {
+	if (typeof window === "undefined") return;
+	const section = new URLSearchParams(window.location.search).get("section");
+	if (section !== "memory") return;
+	activeTab = "profile";
+	requestAnimationFrame(() => {
+		const card = document.getElementById("settings-memory-card");
+		if (!card) return;
+		card.scrollIntoView({ behavior: "smooth", block: "center" });
+		card.classList.add("settings-card-highlight");
+		setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+	});
+});
+
+async function changeMemoryEnabled(enabled: boolean) {
+	const previous = selectedMemoryEnabled;
+	selectedMemoryEnabled = enabled;
+	memorySaving = true;
+	try {
+		await updateUserPreferences({ memoryEnabled: enabled });
+	} catch {
+		// Revert the optimistic switch if the write fails.
+		selectedMemoryEnabled = previous;
+	} finally {
+		memorySaving = false;
+	}
+}
+
 function openPrivacyAction(action: PrivacyAction) {
 	privacyAction = action;
 	privacyPassword = "";
@@ -593,6 +629,9 @@ $effect(() => {
 				onChangeTheme={changeTheme}
 				onChangeTitleLanguage={changeTitleLanguage}
 				onChangeUiLanguage={changeUiLanguage}
+				memoryEnabled={selectedMemoryEnabled}
+				{memorySaving}
+				onChangeMemoryEnabled={changeMemoryEnabled}
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onChangePersonality={changePersonality}
@@ -733,6 +772,11 @@ $effect(() => {
 		color: var(--accent);
 		background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
 		font-weight: 500;
+	}
+
+	:global(.settings-card-highlight) {
+		box-shadow: 0 0 0 2px var(--accent);
+		transition: box-shadow var(--duration-standard) var(--ease-out);
 	}
 
 	:global(.toggle-btn) {

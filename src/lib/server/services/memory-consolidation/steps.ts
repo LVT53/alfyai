@@ -37,6 +37,10 @@ export type ConsolidationAction = {
 	type: "expired" | "renewed" | "superseded" | "merged";
 	itemIds: string[];
 	resultItemId?: string;
+	// Read-time enrichment only (never persisted): the current statement of
+	// resultItemId, attached when the timeline is serialized so the UI can name
+	// what a fact was superseded/merged into.
+	resultStatement?: string;
 	description: string;
 	undo: Array<{
 		itemId: string;

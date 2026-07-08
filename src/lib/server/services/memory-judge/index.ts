@@ -60,6 +60,14 @@ export async function runMemoryJudgeOnSegment(params: {
 	trigger: JudgeTrigger;
 	segmentOverride?: JudgeSegmentMessage[];
 }): Promise<JudgeRunResult> {
+	// Single chokepoint for incognito: every judge path (explicit, idle-scheduled,
+	// marathon, sweep, re-curation) funnels through here, so a conversation that
+	// was flipped to incognito is never judged — even for turns that were queued
+	// before the flip and whose delayed idle pass fires afterwards.
+	const { isConversationIncognito } = await import("../memory-controls");
+	if (await isConversationIncognito(params.conversationId).catch(() => false)) {
+		return { status: "empty" };
+	}
 	const config = getConfig();
 	let segmentMessages: JudgeSegmentMessage[];
 	let highestSequence = 0;

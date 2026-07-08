@@ -226,6 +226,7 @@ export interface UserPreferences {
 	preferredPersonalityId: string | null;
 	sidebarProjectsExpanded: boolean;
 	sidebarChatsExpanded: boolean;
+	memoryEnabled: boolean;
 }
 
 export interface UserSettings {

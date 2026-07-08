@@ -136,4 +136,41 @@ describe("PersonaSummaryCard", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
 		expect(screen.getByRole("button", { name: "Save summary" })).toBeDisabled();
 	});
+
+	it("exposes an info tooltip explaining what the summary is used for", async () => {
+		renderCard();
+
+		const infoTrigger = screen.getByRole("button", {
+			name: "About this summary",
+		});
+		await fireEvent.mouseEnter(infoTrigger);
+		expect(
+			screen.getByRole("tooltip", {
+				name: /what AlfyAI actually reads to personalize/i,
+			}),
+		).toBeInTheDocument();
+	});
+
+	it("renders the summary as digestible paragraphs from per-sentence links", () => {
+		renderCard({
+			summary: {
+				text: "Levi builds AlfyAI. He prefers terse answers. He works from Budapest. He ships nightly.",
+				links: [
+					{ text: "Levi builds AlfyAI.", factIds: ["f1"] },
+					{ text: "He prefers terse answers.", factIds: ["f2"] },
+					{ text: "He works from Budapest.", factIds: ["f3"] },
+					{ text: "He ships nightly.", factIds: ["f4"] },
+				],
+				updatedAt: summary.updatedAt,
+			},
+		});
+
+		// Four sentences group two-per-paragraph → two paragraphs.
+		expect(
+			screen.getByText("Levi builds AlfyAI. He prefers terse answers."),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("He works from Budapest. He ships nightly."),
+		).toBeInTheDocument();
+	});
 });

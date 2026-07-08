@@ -550,3 +550,42 @@ describe("SettingsProfileTab Your Activity section (ADR-0043 slice 18c)", () => 
 		expect(screen.queryByText("Excluded Users")).not.toBeInTheDocument();
 	});
 });
+
+describe("SettingsProfileTab memory toggle", () => {
+	it("reflects the enabled state and toggles it off via the callback", async () => {
+		const onChangeMemoryEnabled = vi.fn();
+		render(SettingsProfileTab, {
+			...baseProps,
+			selectedModel: null,
+			effectiveModel: "model1",
+			systemDefaultModel: "model1",
+			onChangeModel: vi.fn(),
+			memoryEnabled: true,
+			onChangeMemoryEnabled,
+		});
+
+		const toggle = screen.getByRole("switch", { name: "Memory" });
+		expect(toggle).toHaveAttribute("aria-checked", "true");
+
+		await fireEvent.click(toggle);
+		expect(onChangeMemoryEnabled).toHaveBeenCalledWith(false);
+	});
+
+	it("renders the memory help copy and lives in a scroll-target card", () => {
+		const { container } = render(SettingsProfileTab, {
+			...baseProps,
+			selectedModel: null,
+			effectiveModel: "model1",
+			systemDefaultModel: "model1",
+			onChangeModel: vi.fn(),
+			memoryEnabled: false,
+		});
+
+		expect(screen.getByText(/pause all learning/i)).toBeInTheDocument();
+		expect(container.querySelector("#settings-memory-card")).not.toBeNull();
+		expect(screen.getByRole("switch", { name: "Memory" })).toHaveAttribute(
+			"aria-checked",
+			"false",
+		);
+	});
+});

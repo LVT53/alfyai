@@ -60,6 +60,7 @@ function spyOnScrollIntoView() {
 
 const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
+const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
@@ -67,6 +68,10 @@ vi.mock("$lib/client/api/knowledge", () => ({
 
 vi.mock("$lib/client/api/skills", () => ({
 	discoverSkills: discoverSkillsMock,
+}));
+
+vi.mock("$lib/client/api/conversations", () => ({
+	setConversationMemoryIncognito: setConversationMemoryIncognitoMock,
 }));
 
 describe("MessageInput", () => {
@@ -79,6 +84,7 @@ describe("MessageInput", () => {
 			workflows: [],
 		});
 		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
 	});
 
 	it("renders correctly", () => {
@@ -2125,5 +2131,68 @@ describe("MessageInput", () => {
 		await tick();
 
 		expect(queryByTestId("slash-shortcut-hint")).toBeNull();
+	});
+});
+
+describe("MessageInput incognito toggle", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+	});
+
+	it("reflects the conversation's stored incognito state", () => {
+		const { getByTestId } = render(MessageInput, {
+			props: { conversationId: "conv-1", memoryIncognito: true },
+		});
+		expect(getByTestId("incognito-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	it("persists the toggle for an existing conversation and shows the notice", async () => {
+		const { getByTestId, findByText } = render(MessageInput, {
+			props: { conversationId: "conv-1", memoryIncognito: false },
+		});
+
+		const toggle = getByTestId("incognito-toggle");
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		await fireEvent.click(toggle);
+
+		await waitFor(() => {
+			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith(
+				"conv-1",
+				true,
+			);
+		});
+		expect(getByTestId("incognito-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await findByText(/won't be saved to memory/i);
+	});
+
+	it("holds local state for a brand-new conversation with no id yet", async () => {
+		const { getByTestId, findByText } = render(MessageInput, {
+			props: { conversationId: null, memoryIncognito: false },
+		});
+
+		await fireEvent.click(getByTestId("incognito-toggle"));
+
+		// No conversation id: nothing is persisted, but the UI reflects it.
+		expect(setConversationMemoryIncognitoMock).not.toHaveBeenCalled();
+		expect(getByTestId("incognito-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await findByText(/won't be saved to memory/i);
 	});
 });
