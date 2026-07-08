@@ -2200,3 +2200,60 @@ export const personalityProfiles = sqliteTable("personality_profiles", {
 		.notNull()
 		.default(sql`(unixepoch())`),
 });
+
+// External accounts a user privately connects to AlfyAI (Google, Apple,
+// Nextcloud, Immich, email, Plex, OwnTracks, contacts). Secrets are stored
+// encrypted (see connections service, issue 1.2); this table only holds the
+// ciphertext + metadata needed to manage the connection.
+export const CONNECTION_PROVIDERS = [
+	"nextcloud",
+	"immich",
+	"imap",
+	"google",
+	"apple",
+	"plex",
+	"owntracks",
+	"contacts",
+] as const;
+
+export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+
+export const userConnections = sqliteTable(
+	"user_connections",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		provider: text("provider").notNull(),
+		label: text("label").notNull(),
+		accountIdentifier: text("account_identifier").notNull().default(""),
+		status: text("status").notNull().default("disconnected"),
+		statusDetail: text("status_detail"),
+		defaultOn: integer("default_on", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		allowWrites: integer("allow_writes", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		writeAllowlistJson: text("write_allowlist_json").notNull().default("[]"),
+		capabilitiesJson: text("capabilities_json").notNull().default("[]"),
+		secretCiphertext: text("secret_ciphertext"),
+		secretIv: text("secret_iv"),
+		secretAuthTag: text("secret_auth_tag"),
+		oauthScopesJson: text("oauth_scopes_json").notNull().default("[]"),
+		tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userProviderAccountUniqueIdx: uniqueIndex(
+			"user_connections_user_provider_account_unique",
+		).on(table.userId, table.provider, table.accountIdentifier),
+		userIdx: index("user_connections_user_idx").on(table.userId),
+	}),
+);

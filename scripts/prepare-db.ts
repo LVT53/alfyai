@@ -88,6 +88,7 @@ const requiredExistingTables = [
 	"atlas_jobs",
 	"atlas_round_checkpoints",
 	"personality_profiles",
+	"user_connections",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
