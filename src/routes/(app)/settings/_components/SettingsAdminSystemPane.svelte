@@ -636,7 +636,15 @@ function memoryModelOptions(
 function memoryModelValue(
 	key: "MEMORY_JUDGE_MODEL" | "MEMORY_CONSOLIDATION_MODEL",
 ): ModelId {
-	return (adminConfig[key] || "") as ModelId;
+	const configured = adminConfig[key] || "";
+	// memoryModelOptions() appends any stale/unknown configured id, so a
+	// non-empty value always matches an option. Fall back to the first option
+	// (never a blank, index -1 select) if the config is somehow empty — matches
+	// the sibling failover/default-user-model value getters.
+	if (configured) {
+		return configured as ModelId;
+	}
+	return memoryModelOptions(key)[0]?.id ?? "model1";
 }
 
 function defaultNewUserModelOptions(): Array<{
