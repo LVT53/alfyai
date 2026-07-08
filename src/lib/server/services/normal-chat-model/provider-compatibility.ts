@@ -456,6 +456,9 @@ function applyFamilyRequestAdditions(
 	if (behavior.usesChatTemplateThinking === true) {
 		translateThinkingToChatTemplateKwargs(body);
 	}
+	if (behavior.thinkingOptions === "qwen") {
+		mirrorQwenThinkingToChatTemplate(body);
+	}
 	if (behavior.family === "deepseek") {
 		normalizeDeepSeekReasoningEffort(body);
 	}
@@ -770,6 +773,28 @@ function translateThinkingToChatTemplateKwargs(
 		enable_thinking: thinking.type === "enabled",
 	};
 	delete body.thinking;
+}
+
+// Qwen exposes its thinking switch two different ways depending on how it is
+// served. Alibaba DashScope reads a TOP-LEVEL `enable_thinking`; a self-hosted
+// OpenAI-compatible server (vLLM/SGLang) reads it from
+// `chat_template_kwargs.enable_thinking` and silently ignores the top-level
+// field. buildThinkingProviderOptions emits the top-level form (correct for
+// DashScope); mirror it into chat_template_kwargs so self-hosted servers honor
+// it too. Verified against a local vLLM: with only the top-level field a
+// reasoning prompt still thinks (196 tokens); with the nested field it does not
+// (2 tokens). Both endpoints ignore the form they don't use, so sending both is
+// safe. Without this, "thinking off" is a silent no-op on self-hosted Qwen —
+// the memory judge/consolidation and the main-chat thinking toggle all stay on.
+function mirrorQwenThinkingToChatTemplate(body: Record<string, unknown>): void {
+	if (typeof body.enable_thinking !== "boolean") return;
+	const current = isRecord(body.chat_template_kwargs)
+		? body.chat_template_kwargs
+		: {};
+	body.chat_template_kwargs = {
+		...current,
+		enable_thinking: body.enable_thinking,
+	};
 }
 
 function normalizeDeepSeekReasoningEffort(body: Record<string, unknown>): void {

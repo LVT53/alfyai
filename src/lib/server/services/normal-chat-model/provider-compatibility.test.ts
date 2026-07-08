@@ -744,7 +744,14 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 					baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
 					modelName: "qwen3-max",
 				},
-				expected: { max_tokens: 512, enable_thinking: false },
+				// enable_thinking is kept top-level (DashScope) AND mirrored into
+				// chat_template_kwargs (self-hosted vLLM/SGLang) — the tool-choice
+				// path forces it off here, and both forms must reflect that.
+				expected: {
+					max_tokens: 512,
+					enable_thinking: false,
+					chat_template_kwargs: { enable_thinking: false },
+				},
 				absent: ["preserve_thinking", "max_completion_tokens"],
 			},
 			{
@@ -783,5 +790,50 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 				transformNormalChatModelRunRequestBody(body, testCase.provider),
 			).toEqual(transformed);
 		}
+	});
+
+	it("mirrors Qwen enable_thinking into chat_template_kwargs for self-hosted servers", () => {
+		const qwenProvider: NormalChatModelRunCompatibilityProvider = {
+			name: "local_vllm",
+			displayName: "Qwen 3.6 40B",
+			baseUrl: "http://192.168.1.96:30000/v1",
+			modelName: "qwen3-6-27b",
+		};
+
+		// thinking off: nested form must carry false (vLLM ignores the top-level).
+		const off = transformNormalChatModelRunRequestBody(
+			{
+				model: "qwen3-6-27b",
+				messages: [{ role: "user", content: "Hi" }],
+				enable_thinking: false,
+			},
+			qwenProvider,
+		);
+		expect(off).toMatchObject({
+			enable_thinking: false,
+			chat_template_kwargs: { enable_thinking: false },
+		});
+
+		// thinking on: mirrored true, and any pre-existing kwargs are preserved.
+		const on = transformNormalChatModelRunRequestBody(
+			{
+				model: "qwen3-6-27b",
+				messages: [{ role: "user", content: "Hi" }],
+				enable_thinking: true,
+				chat_template_kwargs: { some_other_flag: 1 },
+			},
+			qwenProvider,
+		);
+		expect(on).toMatchObject({
+			enable_thinking: true,
+			chat_template_kwargs: { some_other_flag: 1, enable_thinking: true },
+		});
+
+		// no thinking field: nothing is fabricated.
+		const none = transformNormalChatModelRunRequestBody(
+			{ model: "qwen3-6-27b", messages: [{ role: "user", content: "Hi" }] },
+			qwenProvider,
+		);
+		expect(none).not.toHaveProperty("chat_template_kwargs");
 	});
 });
