@@ -638,6 +638,13 @@
       "when": 1777140000077,
       "tag": "1777140000077_connection_pending_writes",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1777140000078,
+      "tag": "1777140000078_connection_pending_writes_etag",
+      "breakpoints": true
     }
   ]
 }

@@ -289,3 +289,153 @@ describe("confirmPendingWrite", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
+
+// 4.3 review fix — the confirm flow previously checked `status` in
+// application code and only updated the row AFTER awaiting
+// executeNextcloudWrite, a TOCTOU race that let two concurrent confirms both
+// issue a real Nextcloud write. These tests prove the atomic
+// claim-before-execute fix deterministically, without relying on real
+// event-loop interleaving of two in-flight confirms.
+describe("claimPendingWrite (atomic claim-before-execute)", () => {
+	it("the first claim on a pending row succeeds; a second claim on the same row fails (changes === 0)", async () => {
+		const { createPendingWrite, claimPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const firstClaim = await claimPendingWrite("user-1", created.id);
+		expect(firstClaim).toBe(true);
+
+		const afterFirstClaim = await getPendingWrite("user-1", created.id);
+		expect(afterFirstClaim?.status).toBe("executing");
+
+		// Simulates the losing side of a race: another confirm reading the
+		// same row tries to claim it too, after the winner already flipped
+		// it to "executing".
+		const secondClaim = await claimPendingWrite("user-1", created.id);
+		expect(secondClaim).toBe(false);
+	});
+
+	it("a confirm that arrives after another confirm already claimed the row is refused and never calls executeNextcloudWrite (proves 'executes exactly once' under concurrency)", async () => {
+		const { createPendingWrite, claimPendingWrite, confirmPendingWrite } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		let putCount = 0;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				if (init?.method === "PUT") putCount++;
+				return new Response(null, { status: 201, headers: { ETag: '"e1"' } });
+			},
+		);
+
+		// A concurrent confirm "wins" the race first — claim the row directly
+		// to deterministically put it in the exact state a second, racing
+		// confirmPendingWrite call would observe (status === "executing",
+		// claimed by someone else, execution not necessarily finished yet).
+		const wonRace = await claimPendingWrite("user-1", created.id);
+		expect(wonRace).toBe(true);
+
+		// The losing confirm call must refuse — NOT call executeNextcloudWrite —
+		// because it can no longer win the claim (the row is already
+		// "executing").
+		const losingConfirm = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(losingConfirm.ok).toBe(false);
+		if (!losingConfirm.ok) expect(losingConfirm.status).toBe(409);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(putCount).toBe(0);
+	});
+
+	it("execute failure moves the row to 'failed' — it is never left stuck in 'executing'", async () => {
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				if (init?.method === "PUT") {
+					return new Response("server error", { status: 500 });
+				}
+				return new Response(null, { status: 201 });
+			},
+		);
+
+		const result = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(result.ok).toBe(false);
+
+		const afterFailure = await getPendingWrite("user-1", created.id);
+		expect(afterFailure?.status).toBe("failed");
+		expect(afterFailure?.status).not.toBe("executing");
+
+		// A later confirm on a "failed" row is refused outright, not
+		// silently retried, and still never calls the executor.
+		const fetchMockAfter = vi.fn();
+		const retry = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMockAfter as unknown as typeof fetch,
+		});
+		expect(retry.ok).toBe(false);
+		if (!retry.ok) expect(retry.status).toBe(409);
+		expect(fetchMockAfter).not.toHaveBeenCalled();
+	});
+
+	it("alreadyExecuted responses carry the etag from the original execution", async () => {
+		const { createPendingWrite, confirmPendingWrite } = await import(
+			"./pending-writes"
+		);
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const fetchMock = vi.fn(async (_input: RequestInfo | URL) => {
+			return new Response(null, { status: 201, headers: { ETag: '"e-42"' } });
+		});
+
+		const first = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(first.ok).toBe(true);
+		if (first.ok) expect(first.etag).toBe('"e-42"');
+
+		const second = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(second.ok).toBe(true);
+		if (second.ok) {
+			expect(second.alreadyExecuted).toBe(true);
+			expect(second.etag).toBe('"e-42"');
+		}
+	});
+});

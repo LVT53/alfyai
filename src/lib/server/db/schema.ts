@@ -2275,9 +2275,16 @@ export const userConnections = sqliteTable(
 
 // Explicit-confirm write flow (4.3): a tool's "save" action creates a row
 // here (never executes) and the confirm/cancel API is the only path that can
-// move it to `executed`/`cancelled`. `opJson` bundles the serialized
-// WriteOperation (write-guard, 4.1) plus the text payload the assistant
-// produced — TEXT only, no binary payloads are supported through this table.
+// move it onward. Status lifecycle: `pending` -> (claimed atomically by a
+// confirm) -> `executing` -> `executed` | `failed`, or `pending` -> `cancelled`.
+// The `pending` -> `executing` transition is a single conditional UPDATE
+// (claimPendingWrite in pending-writes.ts) that happens BEFORE the real
+// Nextcloud call — this is what makes "executes exactly once" hold under
+// concurrent confirms (4.3 review Important finding); everything past that
+// point is one specific confirm's row to finish. `opJson` bundles the
+// serialized WriteOperation (write-guard, 4.1) plus the text payload the
+// assistant produced — TEXT only, no binary payloads are supported through
+// this table.
 export const connectionPendingWrites = sqliteTable(
 	"connection_pending_writes",
 	{
@@ -2291,6 +2298,11 @@ export const connectionPendingWrites = sqliteTable(
 		idempotencyKey: text("idempotency_key").notNull(),
 		status: text("status").notNull().default("pending"),
 		previewJson: text("preview_json").notNull(),
+		// Populated once a "put" actually executes successfully — lets a
+		// later, already-executed confirm return the same etag instead of
+		// only the confirm call that ran the write ever seeing it (4.3
+		// review Minor #1).
+		etag: text("etag"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
