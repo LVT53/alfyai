@@ -473,6 +473,10 @@ export async function googleRefreshAccessToken(
 	const secretRaw = await getConnectionSecret(userId, connectionId);
 	const secret = secretRaw ? parseStoredSecret(secretRaw) : null;
 	if (!secret?.refreshToken) {
+		await updateConnection(userId, connectionId, {
+			status: "needs_reauth",
+			statusDetail: "No refresh token stored for this Google connection",
+		});
 		throw new GoogleOAuthError(
 			"No refresh token stored for this Google connection",
 			"needs_reauth",
@@ -495,14 +499,17 @@ export async function googleRefreshAccessToken(
 
 	if (!response.ok) {
 		if (isErrorBody(body) && body.error === "invalid_grant") {
+			// Message matches the thrown error below verbatim: checkHealth
+			// surfaces err.message as the health detail and health.ts persists
+			// it again, so keeping the two strings identical avoids the row's
+			// statusDetail flapping between two different descriptions of the
+			// same event.
+			const detail = "Google rejected the stored refresh token";
 			await updateConnection(userId, connectionId, {
 				status: "needs_reauth",
-				statusDetail: "Google rejected the stored refresh token",
+				statusDetail: detail,
 			});
-			throw new GoogleOAuthError(
-				"Google refresh token is no longer valid",
-				"invalid_grant",
-			);
+			throw new GoogleOAuthError(detail, "invalid_grant");
 		}
 		throw new GoogleOAuthError(
 			"Google token refresh request failed",
@@ -531,11 +538,21 @@ export async function googleRefreshAccessToken(
 }
 
 // ---------------------------------------------------------------------------
-// Adapter — health is derived from whether a refresh succeeds, since that's
-// the cheapest call that fully exercises the stored credential. `_secret` is
-// unused (the refresh path re-derives its own decrypted secret from
-// conn.userId/conn.id) but kept in the signature to match ConnectionAdapter.
+// Adapter — a real token refresh is the cheapest call that fully exercises
+// the stored credential, but it's still a network round trip that mutates
+// the stored access token, so it's only worth doing when the current access
+// token is actually missing or close to expiring. Otherwise the existing
+// token is still good and the connection is reported healthy without
+// touching the network. `_secret` is unused (the refresh path re-derives its
+// own decrypted secret from conn.userId/conn.id) but kept in the signature
+// to match ConnectionAdapter.
 // ---------------------------------------------------------------------------
+
+// How close to `tokenExpiresAt` a health check must be before it bothers
+// refreshing — comfortably larger than any single health-check round trip,
+// small enough that scheduled health checks (which run far more often than
+// tokens expire) don't refresh on every call.
+const HEALTH_CHECK_REFRESH_WINDOW_SECONDS = 60;
 
 async function checkHealth(
 	_secret: string,
@@ -545,6 +562,14 @@ async function checkHealth(
 	status: "connected" | "needs_reauth" | "error";
 	detail: string | null;
 }> {
+	const now = Math.floor(Date.now() / 1000);
+	const tokenIsFreshEnough =
+		conn.tokenExpiresAt != null &&
+		conn.tokenExpiresAt - now > HEALTH_CHECK_REFRESH_WINDOW_SECONDS;
+	if (tokenIsFreshEnough) {
+		return { status: "connected", detail: null };
+	}
+
 	try {
 		await googleRefreshAccessToken(conn.userId, conn.id, {
 			fetch: opts?.fetch,

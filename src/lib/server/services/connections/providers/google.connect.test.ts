@@ -256,20 +256,11 @@ describe("googleConnectFinish", () => {
 		expect(parsedSecret.accessToken).toBe("access-abc");
 	});
 
-	it("rejects a state-userId mismatch upstream of finish (the callback route's guard)", async () => {
-		setSigningKeyOnly();
-		const { signOAuthState, verifyOAuthState } = await import("./google");
-
-		const stateForUserB = signOAuthState({
-			userId: "userB",
-			capabilities: ["calendar"],
-		});
-		const payload = verifyOAuthState(stateForUserB);
-
-		// This is exactly the guard the callback route runs before calling
-		// googleConnectFinish: statePayload.userId === event.locals.user.id.
-		expect(payload.userId === "userA").toBe(false);
-	});
+	// The user-binding guard itself (rejecting a state signed for a different
+	// user than the session presenting it) lives in the callback route, not in
+	// googleConnectFinish — it is exercised end to end, against the real route
+	// handler, in
+	// src/routes/api/oauth/google/callback/callback.test.ts.
 });
 
 describe("googleConnectFinish re-connect", () => {
@@ -422,6 +413,51 @@ describe("googleRefreshAccessToken", () => {
 		const updated = await getConnection("userA", conn.id);
 		expect(updated?.status).toBe("needs_reauth");
 	});
+
+	it("persists needs_reauth on the connection row when no refresh token is stored, before throwing", async () => {
+		setConfiguredEnv();
+		seedUser("userA");
+		const { createConnection } = await import("../store");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "alice@example.com",
+			capabilities: ["calendar"],
+			status: "connected",
+			secret: JSON.stringify({
+				refreshToken: null,
+				accessToken: "old-access",
+			}),
+			config: {},
+			oauthScopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+			tokenExpiresAt: Math.floor(Date.now() / 1000) - 10,
+		});
+
+		const { googleRefreshAccessToken, GoogleOAuthError } = await import(
+			"./google"
+		);
+		const { getConnection } = await import("../store");
+		const fetchMock = vi.fn();
+
+		try {
+			await googleRefreshAccessToken("userA", conn.id, {
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+			throw new Error("expected googleRefreshAccessToken to throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(GoogleOAuthError);
+			expect((err as InstanceType<typeof GoogleOAuthError>).code).toBe(
+				"needs_reauth",
+			);
+		}
+
+		// No refresh token means no network call should even be attempted.
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
 });
 
 describe("googleAdapter.checkHealth", () => {
@@ -486,5 +522,37 @@ describe("googleAdapter.checkHealth", () => {
 		});
 		expect(health.status).toBe("needs_reauth");
 		expect(health.detail).not.toContain("refresh-xyz");
+	});
+
+	it("skips the network refresh entirely when the access token is nowhere near expiry", async () => {
+		seedUser("userA");
+		setConfiguredEnv();
+		const { createConnection } = await import("../store");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "alice@example.com",
+			capabilities: ["calendar"],
+			status: "connected",
+			secret: JSON.stringify({
+				refreshToken: "refresh-xyz",
+				accessToken: "still-good",
+			}),
+			config: {},
+			oauthScopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+			// Far from expiry — well outside the health-check refresh window.
+			tokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+		});
+
+		const { googleAdapter } = await import("./google");
+		const fetchMock = vi.fn();
+
+		const health = await googleAdapter.checkHealth("refresh-xyz", conn, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(health.status).toBe("connected");
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
