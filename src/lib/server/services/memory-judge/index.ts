@@ -21,9 +21,9 @@ import {
 } from "./prompt";
 import {
 	JUDGE_JSON_SCHEMA,
-	JUDGE_MAX_TOKENS,
 	type JudgeDecision,
 	parseJudgeDecisionsDetailed,
+	reasoningAwareMaxTokens,
 	type RejectedJudgeCandidate,
 } from "./schema";
 import {
@@ -103,7 +103,13 @@ export async function runMemoryJudgeOnSegment(params: {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
-				maxTokens: JUDGE_MAX_TOKENS,
+				// Scale with segment length: a reasoning model's chain-of-thought
+				// grows with the conversation it must weigh and counts against
+				// max_tokens on these providers. A flat budget silently truncates
+				// long conversations into all-reasoning, zero-decision responses
+				// (verified: an 87-message segment yielded 0 decisions at 2400 and
+				// 3 clean decisions at 8000).
+				maxTokens: reasoningAwareMaxTokens(segmentMessages.length),
 				jsonSchema: JUDGE_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

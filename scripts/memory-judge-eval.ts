@@ -7,8 +7,8 @@ import {
 } from "../src/lib/server/services/memory-judge/prompt";
 import {
 	JUDGE_JSON_SCHEMA,
-	JUDGE_MAX_TOKENS,
 	parseJudgeDecisions,
+	reasoningAwareMaxTokens,
 } from "../src/lib/server/services/memory-judge/schema";
 
 async function main() {
@@ -30,7 +30,7 @@ async function main() {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
-				maxTokens: JUDGE_MAX_TOKENS,
+				maxTokens: reasoningAwareMaxTokens(fx.segment.length),
 				jsonSchema: JUDGE_JSON_SCHEMA,
 				allowReasoningFallback: true,
 			},

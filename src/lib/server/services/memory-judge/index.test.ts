@@ -631,6 +631,35 @@ describe("Memory judge service", () => {
 		expect(rejected?.reason).toBe("hedge");
 	});
 
+	it("scales the model token budget with segment length so long conversations are not truncated", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		// 12 messages → a segment large enough that a flat budget would starve a
+		// reasoning model into an all-reasoning, zero-decision response.
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: Array.from({ length: 12 }, (_, i) => ({
+				role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+				content: `Message number ${i}.`,
+			})),
+		});
+		mockControlModel(ADMIT_REVIEW_DECISIONS);
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+
+		// 12 messages → reasoningAwareMaxTokens(12) = min(2400 + 500*12, 8000) = 8000.
+		const callOptions = sendJsonControlMessageMock.mock.calls[0]?.[2] as {
+			maxTokens?: number;
+		};
+		expect(callOptions?.maxTokens).toBe(8000);
+	});
+
 	it("does not advance the watermark on the explicit segmentOverride path", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });
