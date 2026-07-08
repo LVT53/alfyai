@@ -5,6 +5,8 @@ import {
 	memoryProfileItemProvenance,
 	memoryProfileItems,
 	memoryProjectionState,
+	memoryReviewItems,
+	memoryReviewResolutions,
 } from "$lib/server/db/schema";
 import {
 	assertExpectedMemoryResetGeneration,
@@ -104,6 +106,115 @@ export async function expireOverdueActiveMemoryProfileItems(params: {
 			.where(eq(memoryProjectionState.id, params.projectionStateId))
 			.run();
 	}
+	return expiredCount;
+}
+
+export async function expireOverdueReviewMemoryProfileItems(params: {
+	userId: string;
+	resetGeneration: number;
+	projectionStateId: string;
+	now?: Date;
+}): Promise<number> {
+	const now = params.now ?? new Date();
+	const overdueItems = await db
+		.select({ id: memoryProfileItems.id })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				eq(memoryProfileItems.status, "review_needed"),
+				lt(memoryProfileItems.expiresAt, now),
+			),
+		);
+	if (overdueItems.length === 0) return 0;
+	const overdueItemIds = new Set(overdueItems.map((row) => row.id));
+
+	const result = (await db
+		.update(memoryProfileItems)
+		.set({
+			status: "expired",
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				eq(memoryProfileItems.status, "review_needed"),
+				lt(memoryProfileItems.expiresAt, now),
+			),
+		)
+		.run()) as { changes?: number };
+	const expiredCount = result.changes ?? 0;
+	if (expiredCount === 0) return 0;
+
+	// Close any open review rows that reference an item we just expired, using
+	// the same "resolved" state transition as a dismissal
+	// (see resolveMemoryReviewItem in review.ts). We replicate it here rather
+	// than importing from review.ts, which imports this module.
+	const openReviewRows = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.resetGeneration, params.resetGeneration),
+				eq(memoryReviewItems.status, "open"),
+			),
+		);
+	const reviewRowsToClose = openReviewRows.filter((row) => {
+		let affectedItemIds: unknown;
+		try {
+			affectedItemIds = JSON.parse(row.affectedItemIdsJson ?? "[]");
+		} catch {
+			return false;
+		}
+		return (
+			Array.isArray(affectedItemIds) &&
+			affectedItemIds.some(
+				(id) => typeof id === "string" && overdueItemIds.has(id),
+			)
+		);
+	});
+
+	if (reviewRowsToClose.length > 0) {
+		db.transaction((tx) => {
+			for (const row of reviewRowsToClose) {
+				tx.insert(memoryReviewResolutions)
+					.values({
+						id: randomUUID(),
+						reviewItemId: row.id,
+						userId: params.userId,
+						resetGeneration: params.resetGeneration,
+						resolutionType: "do_not_remember",
+						metadataJson: JSON.stringify({ reason: "review_item_expired" }),
+						createdAt: now,
+					})
+					.onConflictDoNothing({
+						target: memoryReviewResolutions.reviewItemId,
+					})
+					.run();
+				tx.update(memoryReviewItems)
+					.set({
+						status: "resolved",
+						resolvedAt: now,
+						updatedAt: now,
+					})
+					.where(eq(memoryReviewItems.id, row.id))
+					.run();
+			}
+		});
+	}
+
+	await db
+		.update(memoryProjectionState)
+		.set({
+			revision: sql`${memoryProjectionState.revision} + ${expiredCount}`,
+			updatedAt: now,
+		})
+		.where(eq(memoryProjectionState.id, params.projectionStateId))
+		.run();
+
 	return expiredCount;
 }
 
@@ -317,6 +428,8 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	patch: {
 		statement?: string;
 		status?: MemoryProfileItemStatus;
+		/** Optional expiry override. `null` clears the item's expiry. */
+		expiresAt?: Date | null;
 	};
 }): Promise<
 	| { status: "updated"; projectionRevision: number }
@@ -404,6 +517,9 @@ export async function updateMemoryProfileItemWithRevision(params: {
 								params.patch.status === "suppressed" ? now : undefined,
 						}
 					: {}),
+				...(params.patch.expiresAt !== undefined
+					? { expiresAt: params.patch.expiresAt }
+					: {}),
 				revision: sql`${memoryProfileItems.revision} + 1`,
 				updatedAt: now,
 			})
@@ -423,6 +539,56 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	});
 
 	return result;
+}
+
+function parseMemoryProfileItemMetadata(
+	metadataJson: string | null,
+): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(metadataJson ?? "{}");
+		return parsed && typeof parsed === "object"
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Merge a metadata patch into an item's existing metadataJson so callers never
+ * clobber fields (confidence/expiryClass/origin/...) written by other writers
+ * (intake, the judge, consolidation). Shared by consolidation steps and the
+ * user-facing correct/summary-edit actions.
+ */
+export async function mergeMemoryProfileItemMetadata(params: {
+	userId: string;
+	itemId: string;
+	patch: Record<string, unknown>;
+}): Promise<void> {
+	const [row] = await db
+		.select({ metadataJson: memoryProfileItems.metadataJson })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.limit(1);
+	const next = {
+		...parseMemoryProfileItemMetadata(row?.metadataJson ?? "{}"),
+		...params.patch,
+	};
+	await db
+		.update(memoryProfileItems)
+		.set({ metadataJson: JSON.stringify(next) })
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.run();
 }
 
 export function bumpProjectionRevision(params: {

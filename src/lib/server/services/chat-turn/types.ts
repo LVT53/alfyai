@@ -6,8 +6,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	LinkedContextSource,
 	ModelId,
 	PendingSkillSelection,
@@ -160,9 +158,6 @@ export type PersistAssistantTurnStateParams = {
 	contextStatus?: ConversationContextStatus | null;
 	initialTaskState?: TaskState | null;
 	initialContextDebug?: ContextDebugState | null;
-	honchoContext?: HonchoContextInfo | null;
-	honchoSnapshot?: HonchoContextSnapshot | null;
-	skipHonchoEnrichment?: boolean;
 	userMessageId?: string | null;
 	assistantMessageId: string;
 	analytics?: AssistantAnalytics | null;
@@ -208,5 +203,4 @@ export type RunPostTurnTasksParams = {
 	maintenanceReason: "chat_send" | "chat_stream";
 	startedResetGeneration?: number;
 	skipAssistantProseMemoryIntake?: boolean;
-	skipHonchoEnrichment?: boolean;
 };

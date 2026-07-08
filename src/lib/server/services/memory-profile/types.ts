@@ -1,5 +1,3 @@
-import type { LegacyPersonaMemoryCandidateBatch } from "./legacy";
-
 export const MEMORY_PROFILE_CATEGORIES = [
 	"about_you",
 	"preferences",
@@ -19,7 +17,6 @@ export const MEMORY_DIRTY_REASONS = [
 	"possible_conflict",
 	"possible_duplicate",
 	"legacy_migration",
-	"honcho_reconciliation",
 	"review_generation",
 ] as const;
 export const MEMORY_REWORK_TELEMETRY_FAMILIES = [
@@ -53,7 +50,11 @@ export type MemoryProfileItemStatus =
 	| "deferred"
 	| "review_needed"
 	| "preserved_legacy"
-	| "inactive";
+	| "inactive"
+	| "retired";
+
+export type MemoryProfileItemConfidence = "stated" | "inferred";
+export type MemoryProfileItemExpiryClass = "durable" | "time_bound";
 
 export type MemoryProfileCardItem = {
 	id: string;
@@ -64,6 +65,9 @@ export type MemoryProfileCardItem = {
 	status: "active";
 	revision: number;
 	updatedAt: Date;
+	confidence: MemoryProfileItemConfidence | null;
+	expiryClass: MemoryProfileItemExpiryClass | null;
+	expiresAt: Date | null;
 	canEdit: boolean;
 	canDelete: boolean;
 	canSuppress: boolean;
@@ -95,6 +99,7 @@ export type MemoryProfileReadModel = {
 			question: string;
 			reason: string;
 			canAccept: boolean;
+			expiresAt: string | null;
 		}>;
 		visibleItems: Array<{
 			id: string;
@@ -102,6 +107,7 @@ export type MemoryProfileReadModel = {
 			question: string;
 			reason: string;
 			canAccept: boolean;
+			expiresAt: string | null;
 		}>;
 		openCount: number;
 		overflowCount: number;
@@ -152,17 +158,35 @@ export type MemoryDirtyLedgerReconciliationResult = {
 	timedOut: boolean;
 };
 
-export type LegacyMemoryCandidateLoader = (
-	userId: string,
-	options: {
-		limit: number;
-		excludeSourceIds?: string[];
-		startPage?: number;
-		maxPages?: number;
-	},
-) => Promise<LegacyPersonaMemoryCandidateBatch>;
-
 export type JsonRecord = Record<string, unknown>;
+
+/**
+ * Defensively parse an item's metadataJson into a plain record. Any parse
+ * failure or non-object payload degrades to an empty object so callers never
+ * throw on malformed persisted metadata.
+ */
+export function parseMemoryItemMetadata(
+	metadataJson: string | null | undefined,
+): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(metadataJson ?? "{}");
+		return parsed && typeof parsed === "object"
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * True when an item's metadata marks it as user-authored. User-authored items
+ * are protected from judge/consolidation/recuration rewrites and deletion.
+ */
+export function isUserAuthoredMemoryMetadata(
+	metadataJson: string | null | undefined,
+): boolean {
+	return parseMemoryItemMetadata(metadataJson).origin === "user_authored";
+}
 
 export function assertMemoryProfileCategory(
 	category: string,

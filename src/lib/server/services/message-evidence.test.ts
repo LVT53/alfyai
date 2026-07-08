@@ -94,7 +94,7 @@ describe("buildAssistantEvidenceSummary", () => {
 						},
 						{
 							id: "memory-context:persona:user-1",
-							title: "Honcho persona recall",
+							title: "Profile persona recall",
 							snippet: "The user prefers concise answers.",
 							sourceType: "memory",
 						},
@@ -222,5 +222,123 @@ describe("buildAssistantEvidenceSummary", () => {
 		});
 
 		expect(summary).toBeNull();
+	});
+
+	it("emits per-fact persona memory evidence from the ambient Baseline Memory Profile trace section", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-7",
+			message: "what do you remember about me and my preferences?",
+			taskState: null,
+			contextStatus: {
+				layersUsed: ["session"],
+				summary: "Session summary text.",
+			} as never,
+			contextTraceSections: [
+				{
+					name: "Baseline Memory Profile",
+					source: "memory",
+					body: "Facts:\n- Prefers concise answers.\n- Works in TypeScript.",
+					inclusionLevel: "legacy_full",
+					itemIds: ["fact-a", "fact-b"],
+					itemTitles: ["Prefers concise answers.", "Works in TypeScript."],
+				},
+			],
+		});
+
+		const memoryGroup = summary?.groups.find(
+			(group) => group.sourceType === "memory",
+		);
+		expect(memoryGroup).toBeTruthy();
+		const factItems = memoryGroup?.items.filter((item) =>
+			item.id.startsWith("memory-fact:"),
+		);
+		expect(factItems).toEqual([
+			expect.objectContaining({
+				id: "memory-fact:fact-a",
+				title: "Prefers concise answers.",
+				sourceType: "memory",
+				metadata: expect.objectContaining({ memoryItemId: "fact-a" }),
+			}),
+			expect.objectContaining({
+				id: "memory-fact:fact-b",
+				title: "Works in TypeScript.",
+				sourceType: "memory",
+				metadata: expect.objectContaining({ memoryItemId: "fact-b" }),
+			}),
+		]);
+		// The aggregate "session-memory" item is replaced by the per-fact items.
+		expect(
+			memoryGroup?.items.some((item) => item.id === "session-memory"),
+		).toBe(false);
+	});
+
+	it("includes persona-fact memory_context tool candidates that carry memoryItemId even without an explicit selected flag", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-7",
+			message: "what do you remember about me?",
+			taskState: null,
+			toolCalls: [
+				{
+					name: "memory_context",
+					input: { mode: "persona", query: "preferences" },
+					status: "done",
+					sourceType: "memory",
+					candidates: [
+						{
+							id: "memory-fact:fact-a",
+							title: "Prefers concise answers.",
+							sourceType: "memory",
+							metadata: { memoryItemId: "fact-a" },
+						},
+						{
+							id: "memory-context:summary:user-7",
+							title: "Persona summary",
+							sourceType: "memory",
+						},
+					],
+				},
+			],
+		});
+
+		const memoryGroup = summary?.groups.find(
+			(group) => group.sourceType === "memory",
+		);
+		expect(memoryGroup).toBeTruthy();
+		expect(
+			memoryGroup?.items.find((item) => item.id === "memory-fact:fact-a"),
+		).toEqual(
+			expect.objectContaining({
+				id: "memory-fact:fact-a",
+				sourceType: "memory",
+				metadata: expect.objectContaining({ memoryItemId: "fact-a" }),
+			}),
+		);
+		expect(
+			memoryGroup?.items.some(
+				(item) => item.id === "memory-context:summary:user-7",
+			),
+		).toBe(true);
+	});
+
+	it("falls back to the aggregate session-memory item when no persona facts are present", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-7",
+			message: "continue",
+			taskState: null,
+			contextStatus: {
+				layersUsed: ["session"],
+				summary: "Session summary text.",
+			} as never,
+		});
+
+		const memoryGroup = summary?.groups.find(
+			(group) => group.sourceType === "memory",
+		);
+		expect(
+			memoryGroup?.items.some((item) => item.id === "session-memory"),
+		).toBe(true);
+		expect(
+			memoryGroup?.items.some((item) => item.id.startsWith("memory-fact:")),
+		).toBe(false);
 	});
 });

@@ -799,7 +799,6 @@ export interface ChatMessage {
 	wasStopped?: boolean;
 	depthMetadata?: DepthMetadata;
 	responseActivity?: ResponseActivityEntry[];
-	honchoContext?: HonchoContextInfo;
 	skillQuestion?: boolean;
 	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
@@ -1108,10 +1107,6 @@ export interface KnowledgeUploadResponse {
 	artifact: ArtifactSummary;
 	normalizedArtifact: ArtifactSummary | null;
 	reusedExistingArtifact: boolean;
-	honcho: {
-		uploaded: boolean;
-		mode: "native" | "normalized" | "none";
-	};
 	promptReady: boolean;
 	promptArtifactId?: string | null;
 	readinessError?: string | null;
@@ -1145,7 +1140,8 @@ export type SemanticEmbeddingSubjectType =
 	| "artifact"
 	| "imported_conversation"
 	| "persona_cluster"
-	| "task_state";
+	| "task_state"
+	| "memory_profile_item";
 
 export interface SemanticEmbedding {
 	id: string;
@@ -1347,36 +1343,6 @@ export interface ForkContextProvenanceSummary {
 	copiedForkPointMessageId?: string | null;
 }
 
-export type HonchoContextSource = "live" | "snapshot" | "persisted_fallback";
-
-export type HonchoFallbackReason =
-	| "timeout"
-	| "queue_timeout"
-	| "context_error"
-	| "empty_live_context";
-
-export interface HonchoContextInfo {
-	source: HonchoContextSource;
-	waitedMs: number;
-	queuePendingWorkUnits: number;
-	queueInProgressWorkUnits: number;
-	fallbackReason: HonchoFallbackReason | null;
-	snapshotCreatedAt: number | null;
-}
-
-export interface HonchoSnapshotMessage {
-	role: MessageRole;
-	content: string;
-	createdAt: number;
-	forkCopy?: ForkCopyMetadata;
-}
-
-export interface HonchoContextSnapshot {
-	createdAt: number;
-	summary: string | null;
-	messages: HonchoSnapshotMessage[];
-}
-
 export interface ContextDebugState {
 	activeTaskId: string | null;
 	activeTaskObjective: string | null;
@@ -1388,7 +1354,6 @@ export interface ContextDebugState {
 	selectedEvidenceBySource: ContextDebugEvidenceSummaryItem[];
 	pinnedEvidence: ContextDebugEvidenceItem[];
 	excludedEvidence: ContextDebugEvidenceItem[];
-	honcho?: HonchoContextInfo | null;
 	forkProvenance?: ForkContextProvenanceSummary | null;
 }
 
@@ -1530,12 +1495,7 @@ export interface TaskContinuitySummary {
 	updatedAt: number;
 }
 
-export type KnowledgeMemoryOverviewSource =
-	| "honcho_live"
-	| "honcho_scoped"
-	| "honcho_cache"
-	| "persona_fallback"
-	| null;
+export type KnowledgeMemoryOverviewSource = "persona_fallback" | null;
 
 export type KnowledgeMemoryOverviewStatus =
 	| "ready"
@@ -1580,6 +1540,9 @@ export interface MemoryProfilePublicItem {
 	status: "active";
 	revision: number;
 	updatedAt: string;
+	confidence?: "stated" | "inferred" | null;
+	expiryClass?: "durable" | "time_bound" | null;
+	expiresAt?: string | null;
 	canEdit: boolean;
 	canDelete: boolean;
 	canSuppress: boolean;
@@ -1603,6 +1566,7 @@ export interface MemoryProfileReviewItem {
 	question: string;
 	reason: string;
 	canAccept: boolean;
+	expiresAt?: string | null;
 }
 
 export interface MemoryProfilePublicPayload {
@@ -1658,6 +1622,65 @@ export type MemoryProfileActionPayload =
 			itemId: string;
 			statement: string;
 			expectedProjectionRevision: number;
+	  };
+
+export interface MemoryPersonaSummaryPayload {
+	summary: {
+		text: string;
+		links: Array<{ text: string; factIds: string[] }>;
+		updatedAt: string;
+	} | null;
+}
+
+export interface MemoryTimelineAction {
+	type: "expired" | "renewed" | "superseded" | "merged";
+	itemIds: string[];
+	resultItemId?: string;
+	description: string;
+	undo: Array<{
+		itemId: string;
+		prevStatus: string;
+		prevStatement: string;
+		prevExpiresAt?: string | null;
+	}>;
+}
+
+export interface MemoryTimelineReport {
+	id: string;
+	status: string;
+	summaryText: string;
+	createdAt: string;
+	actions: MemoryTimelineAction[];
+}
+
+export interface MemoryTimelinePayload {
+	reports: MemoryTimelineReport[];
+}
+
+export type MemoryV2ActionPayload =
+	| {
+			kind: "profile_item";
+			action: "correct";
+			itemId: string;
+			statement: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			kind: "profile_item";
+			action: "retire";
+			itemId: string;
+			expectedProjectionRevision: number;
+	  }
+	| {
+			kind: "summary";
+			action: "edit";
+			text: string;
+	  }
+	| {
+			kind: "consolidation";
+			action: "undo";
+			reportId: string;
+			actionIndex: number;
 	  };
 
 export interface KnowledgeMemoryPayload {

@@ -25,7 +25,7 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `json.ts` | `task-state/`, `knowledge/` |
 | `text.ts` | `task-state/`, `messages.ts` |
 | `$lib/utils/tokens.ts` | `prompt-context.ts`, `token-budget.ts`, chat/title/token accounting services |
-| `prompt-context.ts` | `honcho.ts`, `task-state.ts` |
+| `prompt-context.ts` | `context-selection.ts`, `task-state.ts` |
 | `token-budget.ts` | Context compaction decisions |
 | `artifact-decay.ts` | Knowledge retrieval ranking |
 | `conversation-boundary-filter.ts` | Chat context assembly |

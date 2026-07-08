@@ -7,8 +7,7 @@
  *   2. Delete task checkpoints for the conversation's task state.
  *   3. Delete generated_output artifacts + their links + working-set refs.
  *   4. Delete the work capsule artifact for the conversation.
- *   5. Delete Honcho session state (mirrored messages and conclusions).
- *   6. Delete the assistant message. Immutable usage_events rows intentionally remain.
+ *   5. Delete the assistant message. Immutable usage_events rows intentionally remain.
  *
  * Limitations:
  *   - User messages are never touched.
@@ -31,7 +30,6 @@ import {
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
 import { deleteMessages } from "$lib/server/services/messages";
-import { deleteConversationHonchoState } from "../honcho";
 import { deleteSemanticEmbeddingsForSubjects } from "../semantic-embeddings";
 
 export type CleanupResult = {
@@ -194,14 +192,6 @@ export async function cleanupFailedTurn(params: {
 	} catch (error) {
 		log("cleanup skill side effects", false, String(error));
 		warnings.push(`skill-side-effects: ${String(error)}`);
-	}
-
-	try {
-		await deleteConversationHonchoState(userId, conversationId);
-		log("delete Honcho session state", true);
-	} catch (error) {
-		log("delete Honcho session state", false, String(error));
-		warnings.push(`honcho-cleanup: ${String(error)}`);
 	}
 
 	try {

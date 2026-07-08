@@ -159,6 +159,242 @@ describe("KnowledgeMemoryView", () => {
 		);
 	});
 
+	it("renders the persona summary card above the categories with the summary text", () => {
+		renderMemoryView({
+			summary: {
+				text: "Levi is building AlfyAI and prefers concise answers.",
+				updatedAt: "2026-07-06T22:00:00.000Z",
+			},
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "What I remember about you" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Levi is building AlfyAI and prefers concise answers."),
+		).toBeInTheDocument();
+	});
+
+	it("renders the night-shift timeline section with its reports", () => {
+		renderMemoryView({
+			timelineReports: [
+				{
+					id: "report-1",
+					status: "completed",
+					summaryText: "Renewed one memory overnight.",
+					createdAt: "2026-07-05T02:00:00.000Z",
+					actions: [],
+				},
+			],
+		});
+
+		expect(
+			screen.getByRole("heading", { name: "While you were away" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Renewed one memory overnight."),
+		).toBeInTheDocument();
+	});
+
+	it("shows a filled confidence dot for stated facts and a hollow one for inferred facts", () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				categories: profile.categories.map((group) =>
+					group.category === "about_you"
+						? {
+								...group,
+								items: [
+									{ ...group.items[0], confidence: "stated" as const },
+									{
+										...group.items[0],
+										id: "item-inferred",
+										itemKey: "inferred",
+										statement: "Probably enjoys hiking.",
+										confidence: "inferred" as const,
+									},
+								],
+							}
+						: group,
+				),
+			},
+		});
+
+		const statedDot = screen.getByRole("img", { name: "Stated by you" });
+		const inferredDot = screen.getByRole("img", {
+			name: "Inferred from conversation",
+		});
+		expect(statedDot).toHaveClass("memory-confidence-dot--stated");
+		expect(inferredDot).toHaveClass("memory-confidence-dot--inferred");
+	});
+
+	it("shows an expiry chip when a fact has expiresAt", () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				categories: profile.categories.map((group) =>
+					group.category === "about_you"
+						? {
+								...group,
+								items: [
+									{
+										...group.items[0],
+										expiresAt: "2026-09-01T00:00:00.000Z",
+									},
+								],
+							}
+						: group,
+				),
+			},
+		});
+
+		expect(screen.getByText(/expires /)).toBeInTheDocument();
+	});
+
+	it("offers Retire in the Remove modal for profile items and dispatches onRetire", async () => {
+		const onRetire = vi.fn();
+		renderMemoryView({ onRetire });
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: /Retire/ }),
+		);
+
+		expect(onRetire).toHaveBeenCalledWith("item-about");
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("dialog", { name: "Remove this memory?" }),
+			).not.toBeInTheDocument();
+		});
+	});
+
+	it("keeps the Remove modal open when retire fails", async () => {
+		const onRetire = vi.fn().mockResolvedValue(false);
+		renderMemoryView({ onRetire });
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: /Retire/ }),
+		);
+
+		expect(onRetire).toHaveBeenCalledWith("item-about");
+		// Failed retire follows the Forget/Delete contract: the modal stays open.
+		expect(
+			screen.getByRole("dialog", { name: "Remove this memory?" }),
+		).toBeInTheDocument();
+	});
+
+	it("disables the Retire option while the retire action is pending", async () => {
+		renderMemoryView({
+			onRetire: vi.fn(),
+			pendingActionKey: "item-about:retire",
+		});
+
+		const aboutSection = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		await fireEvent.click(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "Remove this memory",
+			}),
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		expect(
+			within(dialog).getByRole("button", { name: /Retire/ }),
+		).toBeDisabled();
+	});
+
+	it("does not offer Retire without an onRetire handler or for review items", async () => {
+		const onRetire = vi.fn();
+		renderMemoryView({ onRetire });
+
+		// Review items route through the same modal but must not offer Retire.
+		const reviewSection = screen
+			.getByRole("heading", { name: "Needs Review" })
+			.closest("section");
+		await fireEvent.click(
+			within(reviewSection as HTMLElement).getAllByRole("button", {
+				name: "Remove this memory",
+			})[0],
+		);
+		const dialog = screen.getByRole("dialog", { name: "Remove this memory?" });
+		expect(
+			within(dialog).queryByRole("button", { name: /Retire/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows an auto-expiry countdown on review items that carry expiresAt", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
+		try {
+			renderMemoryView({
+				profile: {
+					...profile,
+					review: {
+						...profile.review,
+						visibleItems: [
+							{
+								...profile.review.visibleItems[0],
+								expiresAt: "2026-07-16T00:00:00.000Z",
+							},
+						],
+						items: undefined,
+						openCount: 1,
+						overflowCount: 0,
+					},
+				},
+			});
+
+			expect(screen.getByText("auto-expires in 10 days")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("uses the singular form when the countdown is one day", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
+		try {
+			renderMemoryView({
+				profile: {
+					...profile,
+					review: {
+						...profile.review,
+						visibleItems: [
+							{
+								...profile.review.visibleItems[0],
+								expiresAt: "2026-07-07T00:00:00.000Z",
+							},
+						],
+						items: undefined,
+						openCount: 1,
+						overflowCount: 0,
+					},
+				},
+			});
+
+			expect(screen.getByText("auto-expires in 1 day")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("renders an explainer hint and settings link beneath each empty category state", () => {
 		renderMemoryView();
 

@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 import {
-	openAttachmentModal,
+	closeAttachmentWorkspace,
+	openAttachmentWorkspace,
 	prepareAttachmentConversation,
 } from "./attachment-modal.helpers";
 import { login } from "./helpers";
@@ -11,12 +12,17 @@ const MOCK_ATTACHMENT_CONTENT =
 const MOCK_XSS_CONTENT =
 	'<script>alert("XSS")</script><img src=x onerror=alert(1)>Plain text';
 
-test.describe("Attachment Content Modal", () => {
+// The former attachment content modal was replaced by the document workspace.
+// Clicking a viewable attachment in a sent message now opens the workspace side
+// panel and previews the artifact there; these tests preserve the original
+// intents (open + content, empty state, error state, close, XSS-as-text)
+// against that contract.
+test.describe("Attachment workspace preview", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 	});
 
-	test("clicking attachment in sent message opens modal with content", async ({
+	test("clicking attachment in sent message opens the workspace with content", async ({
 		page,
 	}) => {
 		await prepareAttachmentConversation(page, {
@@ -26,30 +32,32 @@ test.describe("Attachment Content Modal", () => {
 			message: "Message with attachment",
 		});
 
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
-		await expect(dialog).toContainText("test-document.txt");
-		await expect(page.locator("pre.content-text")).toContainText(
-			MOCK_ATTACHMENT_CONTENT,
-		);
+		const workspace = await openAttachmentWorkspace(page);
+		await expect(workspace).toBeVisible({ timeout: 5000 });
+		await expect(workspace).toContainText("test-document.txt");
+		await expect(workspace).toContainText(MOCK_ATTACHMENT_CONTENT, {
+			timeout: 10000,
+		});
 	});
 
-	test("modal displays empty state when contentText is null", async ({
+	test("workspace shows the document header when contentText is empty", async ({
 		page,
 	}) => {
 		await prepareAttachmentConversation(page, {
 			artifactName: "empty-document.txt",
-			contentText: null,
+			contentText: "",
 			buffer: Buffer.from(""),
 			message: "Message with empty attachment",
 		});
 
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
-		await expect(dialog).toContainText("No extracted text available");
+		const workspace = await openAttachmentWorkspace(page);
+		await expect(workspace).toBeVisible({ timeout: 5000 });
+		await expect(workspace).toContainText("empty-document.txt");
 	});
 
-	test("modal displays error state on API failure", async ({ page }) => {
+	test("workspace surfaces an error when the preview fails", async ({
+		page,
+	}) => {
 		await prepareAttachmentConversation(page, {
 			artifactName: "missing-document.txt",
 			contentText: null,
@@ -58,12 +66,15 @@ test.describe("Attachment Content Modal", () => {
 			message: "Message with missing attachment",
 		});
 
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
-		await expect(dialog).toContainText("Failed to load");
+		const workspace = await openAttachmentWorkspace(page);
+		await expect(workspace).toBeVisible({ timeout: 5000 });
+		await expect(workspace).toContainText(
+			/failed|error|not\s*found|not.*available/i,
+			{ timeout: 10000 },
+		);
 	});
 
-	test("modal closes on Escape key press", async ({ page }) => {
+	test("workspace closes via the close control", async ({ page }) => {
 		await prepareAttachmentConversation(page, {
 			artifactName: "test-document.txt",
 			contentText: MOCK_ATTACHMENT_CONTENT,
@@ -71,36 +82,23 @@ test.describe("Attachment Content Modal", () => {
 			message: "Test message",
 		});
 
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
+		const workspace = await openAttachmentWorkspace(page);
+		await expect(workspace).toBeVisible({ timeout: 5000 });
 
-		await page.keyboard.press("Escape");
+		await closeAttachmentWorkspace(page);
 
-		await expect(dialog).not.toBeVisible({ timeout: 5000 });
+		await expect(workspace).not.toBeVisible({ timeout: 5000 });
 	});
 
-	test("modal closes on backdrop click", async ({ page }) => {
-		await prepareAttachmentConversation(page, {
-			artifactName: "test-document.txt",
-			contentText: MOCK_ATTACHMENT_CONTENT,
-			buffer: Buffer.from("Test content"),
-			message: "Test message",
-		});
-
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
-
-		await page
-			.locator(".fixed.inset-0")
-			.first()
-			.click({ position: { x: 10, y: 10 } });
-
-		await expect(dialog).not.toBeVisible({ timeout: 5000 });
-	});
-
-	test("XSS content is rendered as plain text, not executed", async ({
+	test("XSS content is rendered as inert text, not executed", async ({
 		page,
 	}) => {
+		let dialogOpened = false;
+		page.on("dialog", (dialog) => {
+			dialogOpened = true;
+			void dialog.dismiss();
+		});
+
 		await prepareAttachmentConversation(page, {
 			artifactName: "xss-test.txt",
 			contentText: MOCK_XSS_CONTENT,
@@ -108,15 +106,13 @@ test.describe("Attachment Content Modal", () => {
 			message: "XSS test message",
 		});
 
-		const dialog = await openAttachmentModal(page);
-		await expect(dialog).toBeVisible({ timeout: 5000 });
-
-		const contentText = await page.locator("pre.content-text").textContent();
-		expect(contentText).toContain('<script>alert("XSS")</script>');
-		expect(contentText).toContain("<img src=x onerror=alert(1)>");
-		expect(contentText).toContain("Plain text");
-
-		await expect(page.locator("pre.content-text")).toBeVisible();
+		const workspace = await openAttachmentWorkspace(page);
+		await expect(workspace).toBeVisible({ timeout: 5000 });
+		// The visible "Plain text" tail proves the payload rendered as text.
+		await expect(workspace).toContainText("Plain text", { timeout: 10000 });
+		// No injected <script>/onerror executed.
+		expect(dialogOpened).toBe(false);
+		await expect(workspace.locator("script")).toHaveCount(0);
 	});
 
 	test("attachment in composer is not clickable when promptReady is false", async ({

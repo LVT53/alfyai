@@ -119,10 +119,6 @@ const knowledgeDict = {
 			"Forget this task continuity? The conversation can still continue, but its long-horizon checkpoints will be cleared.",
 		"memory.forgetTaskItemConfirm":
 			"Forget this task continuity? The conversation can still continue, but its long-horizon checkpoints will be cleared.",
-		"memory.honchoCacheNotice":
-			"Showing the last successful Honcho overview while a refresh is in progress.",
-		"memory.honchoScopedNotice":
-			"Showing scoped Honcho memory for this account only.",
 		"memory.lastLiveOverview": "Last live overview",
 		"memory.lastOverviewAttempt": "Last overview attempt",
 		"memory.lastSeen": "Last seen",
@@ -151,10 +147,10 @@ const knowledgeDict = {
 		"memory.personaDescription":
 			"Review and forget stored persona memories in a compact table instead of scanning long card stacks.",
 		"memory.personaFallbackNotice":
-			"Showing a local durable-memory fallback while the live Honcho overview is unavailable.",
+			"Showing a local durable-memory fallback while the live overview is unavailable.",
 		"memory.personaMemory": "Persona memory",
 		"memory.personaMemoryUnavailable":
-			"Persona memory controls are unavailable because Honcho is disabled.",
+			"Persona memory controls are unavailable right now.",
 		"memory.personaModalDescription":
 			"Review memory items in a compact table and forget individual entries without scrolling through long cards.",
 		"memory.refreshOverview": "Refresh overview",
@@ -171,21 +167,24 @@ const knowledgeDict = {
 		"memory.status": "Status",
 		"memory.summary": "Summary",
 		"memory.tasks": "Tasks",
-		"memory.temporarilyUnavailable": `Durable persona memory exists, but the Honcho overview is temporarily unavailable right now. The stored profile still contains {count} durable signal{count, plural, one {} other {s}}.`,
+		"memory.temporarilyUnavailable": `Durable persona memory exists, but the overview is temporarily unavailable right now. The stored profile still contains {count} durable signal{count, plural, one {} other {s}}.`,
 		"memory.title": "Memory Profile",
 		"memory.tryAgain": "Try again",
-		"memory.unavailableHoncho": "Unavailable while Honcho is disabled.",
 		"memory.updated": "Updated",
 		"memoryProfile.aboutYou": "About You",
 		"memoryProfile.aboutYouEmpty": "No active memories about you yet.",
 		"memoryProfile.activeCount": "{count} active",
+		"memoryProfile.autoExpiresInDays": `auto-expires in {count} day{count, plural, one {} other {s}}`,
 		"memoryProfile.cancel": "Cancel",
 		"memoryProfile.cancelEditing": "Cancel editing",
 		"memoryProfile.cancelReviewEdit": "Cancel review edit",
+		"memoryProfile.cancelSummaryEdit": "Cancel summary edit",
 		"memoryProfile.close": "Close",
 		"memoryProfile.closeMemoryItem": "Close memory item",
 		"memoryProfile.closeNeedsReview": "Close needs review",
 		"memoryProfile.constraints": "Constraints & Boundaries",
+		"memoryProfile.confidenceInferred": "Inferred from conversation",
+		"memoryProfile.confidenceStated": "Stated by you",
 		"memoryProfile.constraintsEmpty":
 			"No constraints or boundaries remembered yet.",
 		"memoryProfile.conversationScope": "Conversation",
@@ -201,8 +200,10 @@ const knowledgeDict = {
 		"memoryProfile.edit": "Edit",
 		"memoryProfile.editMemoryItem": "Edit memory item",
 		"memoryProfile.editReviewItem": "Edit review item",
+		"memoryProfile.editSummary": "Edit summary",
 		"memoryProfile.emptyHint":
 			"AlfyAI learns these as you chat. You can review and edit them anytime.",
+		"memoryProfile.expiresOn": "expires {date}",
 		"memoryProfile.failedLoad": "Failed to load memory profile.",
 		"memoryProfile.forget": "Forget",
 		"memoryProfile.forgetDescription":
@@ -224,13 +225,28 @@ const knowledgeDict = {
 			"AlfyAI will stop using this in two different ways — pick the one that fits:",
 		"memoryProfile.removeThisMemory": "Remove this memory",
 		"memoryProfile.removeTitle": "Remove this memory?",
+		"memoryProfile.retire": "Retire",
+		"memoryProfile.retireDescription":
+			"Marks this memory as no longer current. It stops shaping answers but stays in the activity log.",
 		"memoryProfile.save": "Save",
 		"memoryProfile.saveMemoryItem": "Save memory item",
 		"memoryProfile.saveReviewItem": "Save review item",
+		"memoryProfile.saveSummary": "Save summary",
 		"memoryProfile.scope": "Scope",
 		"memoryProfile.showMoreSources": "Show {count} more sources",
 		"memoryProfile.source": "Source",
 		"memoryProfile.statement": "Statement",
+		"memoryProfile.summaryEmpty":
+			"Nothing here yet. As we talk, a short portrait of you takes shape here — and you can read and edit it anytime.",
+		"memoryProfile.summaryTitle": "What I remember about you",
+		"memoryProfile.summaryUpdated": "Updated {time}",
+		"memoryProfile.timelineEmpty": "No memory maintenance has run yet.",
+		"memoryProfile.timelineFailed": "Failed",
+		"memoryProfile.timelineHint":
+			"Every overnight tidy-up is logged here — nothing changes without a trace.",
+		"memoryProfile.timelineTitle": "While you were away",
+		"memoryProfile.undo": "Undo",
+		"memoryProfile.undoAction": "Undo this change",
 		"memoryProfile.why": "Why",
 	},
 	hu: {
@@ -354,10 +370,6 @@ const knowledgeDict = {
 			"Törlöd ezt a feladatfolytonosságot? A beszélgetés folytatódhat, de a hosszú távú ellenőrzőpontok törlődnek.",
 		"memory.forgetTaskItemConfirm":
 			"Törlöd ezt a feladatfolytonosságot? A beszélgetés folytatódhat, de a hosszú távú ellenőrzőpontok törlődnek.",
-		"memory.honchoCacheNotice":
-			"Az utolsó sikeres Honcho-áttekintés látható, amíg a frissítés folyamatban van.",
-		"memory.honchoScopedNotice":
-			"Csak ehhez a fiókhoz tartozó Honcho-memória megjelenítése.",
 		"memory.lastLiveOverview": "Utolsó élő áttekintés",
 		"memory.lastOverviewAttempt": "Utolsó áttekintési kísérlet",
 		"memory.lastSeen": "Utoljára látott",
@@ -387,10 +399,10 @@ const knowledgeDict = {
 		"memory.personaDescription":
 			"Tekintsd át és töröld a tárolt személyiségemlékeket egy kompakt táblázatban, hosszú kártyalisták böngészése nélkül.",
 		"memory.personaFallbackNotice":
-			"Helyi tartós memória látható tartalékként, amíg az élő Honcho-áttekintés nem elérhető.",
+			"Helyi tartós memória látható tartalékként, amíg az élő áttekintés nem elérhető.",
 		"memory.personaMemory": "Személyiségmemória",
 		"memory.personaMemoryUnavailable":
-			"A személyiségemlékek kezelése nem érhető el, mert a Honcho le van tiltva.",
+			"A személyiségemlékek kezelése jelenleg nem érhető el.",
 		"memory.personaModalDescription":
 			"Tekintsd át az emlékelemeket egy kompakt táblázatban, és töröld az egyes bejegyzéseket hosszú kártyák görgetése nélkül.",
 		"memory.refreshOverview": "Áttekintés frissítése",
@@ -408,21 +420,25 @@ const knowledgeDict = {
 		"memory.status": "Állapot",
 		"memory.summary": "Összefoglaló",
 		"memory.tasks": "Feladatok",
-		"memory.temporarilyUnavailable": `Van tartós személyiségmemória, de a Honcho-áttekintés jelenleg nem elérhető. A tárolt profil továbbra is {count} tartós jelet tartalmaz.`,
+		"memory.temporarilyUnavailable": `Van tartós személyiségmemória, de az áttekintés jelenleg nem elérhető. A tárolt profil továbbra is {count} tartós jelet tartalmaz.`,
 		"memory.title": "Memóriaprofil",
 		"memory.tryAgain": "Próbáld újra",
-		"memory.unavailableHoncho": "Nem érhető el, amíg a Honcho le van tiltva.",
 		"memory.updated": "Frissítve",
 		"memoryProfile.aboutYou": "Rólad",
 		"memoryProfile.aboutYouEmpty": "Még nincs aktív emlék rólad.",
 		"memoryProfile.activeCount": "{count} aktív",
+		"memoryProfile.autoExpiresInDays": "automatikusan lejár {count} nap múlva",
 		"memoryProfile.cancel": "Mégse",
 		"memoryProfile.cancelEditing": "Szerkesztés megszakítása",
 		"memoryProfile.cancelReviewEdit":
 			"Felülvizsgálati szerkesztés megszakítása",
+		"memoryProfile.cancelSummaryEdit":
+			"Összefoglaló szerkesztésének megszakítása",
 		"memoryProfile.close": "Bezárás",
 		"memoryProfile.closeMemoryItem": "Memóriaelem bezárása",
 		"memoryProfile.closeNeedsReview": "Felülvizsgálat bezárása",
+		"memoryProfile.confidenceInferred": "Beszélgetésből következtetve",
+		"memoryProfile.confidenceStated": "Tőled származik",
 		"memoryProfile.constraints": "Korlátok és határok",
 		"memoryProfile.constraintsEmpty":
 			"Még nincsenek megjegyzett korlátok vagy határok.",
@@ -441,8 +457,10 @@ const knowledgeDict = {
 		"memoryProfile.edit": "Szerkesztés",
 		"memoryProfile.editMemoryItem": "Memóriaelem szerkesztése",
 		"memoryProfile.editReviewItem": "Felülvizsgálati elem szerkesztése",
+		"memoryProfile.editSummary": "Összefoglaló szerkesztése",
 		"memoryProfile.emptyHint":
 			"Az AlfyAI beszélgetés közben tanulja meg ezeket. Bármikor átnézheted és szerkesztheted őket.",
+		"memoryProfile.expiresOn": "lejár: {date}",
 		"memoryProfile.failedLoad": "Nem sikerült betölteni a memóriaprofilt.",
 		"memoryProfile.forget": "Felejtse el",
 		"memoryProfile.forgetDescription":
@@ -464,13 +482,28 @@ const knowledgeDict = {
 			"Az AlfyAI kétféleképpen hagyhatja abba a használatát — válaszd a megfelelőt:",
 		"memoryProfile.removeThisMemory": "Emlék eltávolítása",
 		"memoryProfile.removeTitle": "Eltávolítod ezt az emléket?",
+		"memoryProfile.retire": "Archiválás",
+		"memoryProfile.retireDescription":
+			"Már nem aktuálisként jelöli meg ezt az emléket. Nem alakítja többé a válaszokat, de megmarad a tevékenységnaplóban.",
 		"memoryProfile.save": "Mentés",
 		"memoryProfile.saveMemoryItem": "Memóriaelem mentése",
 		"memoryProfile.saveReviewItem": "Felülvizsgálati elem mentése",
+		"memoryProfile.saveSummary": "Összefoglaló mentése",
 		"memoryProfile.scope": "Hatókör",
 		"memoryProfile.showMoreSources": "{count} további forrás megjelenítése",
 		"memoryProfile.source": "Forrás",
 		"memoryProfile.statement": "Állítás",
+		"memoryProfile.summaryEmpty":
+			"Még nincs itt semmi. Ahogy beszélgetünk, itt áll össze rólad egy rövid kép — bármikor elolvashatod és szerkesztheted.",
+		"memoryProfile.summaryTitle": "Amit rólad megjegyeztem",
+		"memoryProfile.summaryUpdated": "Frissítve: {time}",
+		"memoryProfile.timelineEmpty": "Még nem futott memória-karbantartás.",
+		"memoryProfile.timelineFailed": "Sikertelen",
+		"memoryProfile.timelineHint":
+			"Minden éjszakai rendrakás ide kerül — semmi sem változik nyomtalanul.",
+		"memoryProfile.timelineTitle": "Amíg távol voltál",
+		"memoryProfile.undo": "Visszavonás",
+		"memoryProfile.undoAction": "Változtatás visszavonása",
 		"memoryProfile.why": "Miért",
 	},
 } as const;

@@ -44,7 +44,7 @@ function readSummary(conversationId: string) {
 const {
 	mockGenerateText,
 	mockGetConfig,
-	mockMirrorMessage,
+	mockMarkMemoryDirty,
 	mockCreateOpenAICompatible,
 } = vi.hoisted(() => {
 	const mockModel = vi.fn();
@@ -53,7 +53,7 @@ const {
 		mockGetConfig: vi.fn(() => ({
 			requestTimeoutMs: 300000,
 		})),
-		mockMirrorMessage: vi.fn(async () => undefined),
+		mockMarkMemoryDirty: vi.fn(async () => undefined),
 		mockCreateOpenAICompatible: vi.fn(() => mockModel),
 	};
 });
@@ -92,8 +92,8 @@ vi.mock("$lib/server/services/openai-compatible-url", () => ({
 	normalizeOpenAICompatibleBaseUrl: (url: string) => url,
 }));
 
-vi.mock("$lib/server/services/honcho", () => ({
-	mirrorMessage: mockMirrorMessage,
+vi.mock("$lib/server/services/memory-profile/dirty-ledger", () => ({
+	markMemoryDirty: mockMarkMemoryDirty,
 }));
 
 describe("summarizer — pure helpers", () => {
@@ -323,7 +323,7 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 		}
 	});
 
-	it("summarizes, stores in DB, and attempts Honcho sync", async () => {
+	it("summarizes, stores in DB, and queues the summary for the memory judge", async () => {
 		seedUser();
 		const { db } = openSeedDatabase();
 
@@ -357,7 +357,13 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 
 		await vi.waitFor(
 			() => {
-				expect(mockMirrorMessage).toHaveBeenCalled();
+				expect(mockMarkMemoryDirty).toHaveBeenCalledWith(
+					expect.objectContaining({
+						userId: "test-user",
+						reason: "deferred_intake",
+						scope: { type: "conversation", id: "conv-full" },
+					}),
+				);
 			},
 			{ timeout: 1000 },
 		);
@@ -396,17 +402,17 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 		expect(row).toBeFalsy();
 	});
 
-	it("does not throw when Honcho sync fails", async () => {
-		mockMirrorMessage.mockRejectedValue(new Error("Honcho unavailable"));
+	it("does not throw when queuing the memory judge fails", async () => {
+		mockMarkMemoryDirty.mockRejectedValue(new Error("ledger unavailable"));
 
 		seedUser();
 		const { db } = openSeedDatabase();
 
 		db.insert(schema.conversations)
 			.values({
-				id: "conv-honcho-fail",
+				id: "conv-queue-fail",
 				userId: "test-user",
-				title: "Honcho Fail",
+				title: "Queue Fail",
 				createdAt: new Date(),
 				updatedAt: new Date(),
 			})
@@ -419,13 +425,13 @@ describe("summarizer — summarizeAndStoreConversation", () => {
 		await expect(
 			summarizeAndStoreConversation(
 				"test-user",
-				"conv-honcho-fail",
+				"conv-queue-fail",
 				messages,
-				"Honcho Fail",
+				"Queue Fail",
 			),
 		).resolves.toBeUndefined();
 
-		const row = readSummary("conv-honcho-fail");
+		const row = readSummary("conv-queue-fail");
 		expect(row?.summary).toBe("Auto-generated summary text.");
 	});
 });

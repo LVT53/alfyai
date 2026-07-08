@@ -52,8 +52,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	ModelId,
 	ResponseActivityEntry,
 	TaskState,
@@ -90,8 +88,6 @@ export type StreamingNormalChatPreparedContext = {
 	contextStatus?: ConversationContextStatus;
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
-	honchoContext?: HonchoContextInfo | null;
-	honchoSnapshot?: HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 };
@@ -275,8 +271,6 @@ export async function runStreamingNormalChatSendModel(
 			contextStatus: prepared.contextStatus,
 			taskState: prepared.taskState,
 			contextDebug: prepared.contextDebug,
-			honchoContext: prepared.honchoContext,
-			honchoSnapshot: prepared.honchoSnapshot,
 			contextTraceSections: prepared.contextTraceSections,
 			contextPreparationTimings: prepared.contextPreparationTimings,
 		},

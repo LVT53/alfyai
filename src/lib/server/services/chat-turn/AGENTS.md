@@ -35,14 +35,14 @@ failures → retry-cleanup.ts
 | AI SDK UI stream frame grammar, terminal detection, metadata extraction | `src/lib/services/ai-sdk-ui-stream-contract.ts` |
 | Stream terminal persistence and `data-stream-metadata` / `finish` payloads | `stream-completion.ts` |
 | Reconnect replay and live stream subscription | `stream-reconnect.ts` |
-| Post-turn persistence fan-out (messages, honcho, task-state, knowledge) | `finalize.ts` |
+| Post-turn persistence fan-out (messages, task-state, knowledge) | `finalize.ts` |
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |
 | Shared types | `types.ts` |
 
 ## CONVENTIONS
 
-- `context-selection.ts` owns constructed prompt-context assembly for Normal Chat, including memory/session/task/document candidate selection and budgeting. Keep prompt-context ranking here, not in routes or Honcho.
+- `context-selection.ts` owns constructed prompt-context assembly for Normal Chat, including memory/session/task/document candidate selection and budgeting. Keep prompt-context ranking here, not in routes.
 - Context-window target and compaction defaults come from `src/lib/model-context-defaults.ts`, while provider-specific prompt-limit projection comes from `provider-model-runtime-defaults.ts`. Do not duplicate provider context ratio math in chat-turn helpers.
 - `stream-orchestrator.ts` owns the live streaming lifecycle: active-stream registration, upstream model-run invocation, neutral event adaptation, model-preserving non-stream transport recovery, phase timing, heartbeat/prelude scheduling, and delegation to completion/reconnect helpers. Provider-attempt policy, timeout failover, and rate-limit fallback belong in `normal-chat-model/`.
 - `stream.ts` and its submodules own AI SDK UI stream runtime helpers, neutral event cleanup, thinking tags, and structured tool-call markers. Shared AI SDK UI stream frame encoding/complete-block decoding, terminal detection, and metadata extraction belong in `src/lib/services/ai-sdk-ui-stream-contract.ts`, not in routes or browser-local parsers.
@@ -58,7 +58,7 @@ failures → retry-cleanup.ts
 
 - Do not duplicate AI SDK UI stream framing, terminal detection, tool-call handling, or thinking extraction between `stream-orchestrator.ts`, `stream.ts`, browser transport, reconnect, and route files.
 - Do not put terminal stream payload changes in the route or orchestrator without updating `stream-completion.ts` and its focused tests.
-- Do not rebuild prompt-context selection in Honcho, routes, or tests; call `context-selection.ts` through the Normal Chat context boundary and keep its budget/trace contract coherent.
+- Do not rebuild prompt-context selection in routes or tests; call `context-selection.ts` through the Normal Chat context boundary and keep its budget/trace contract coherent.
 - Do not add post-turn persistence directly in `/api/chat/send` or `/api/chat/stream`; route through `finalize.ts`.
 - Do not collapse user-requested stop and passive disconnect into one generic abort. Use `active-streams.ts` for explicit stops; let navigation/unmount detach locally without marking the turn stopped.
 - Do not read active stream or replay-buffer state by `streamId` or `conversationId` alone; owner context is part of the registry contract.

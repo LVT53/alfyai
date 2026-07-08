@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	memoryProfileItemProvenance,
@@ -12,6 +12,11 @@ import {
 	sanitizePublicMemoryText,
 } from "./identity-sanitizer";
 import {
+	parseJsonArray,
+	parseJsonRecord,
+	readSafeStringArray,
+} from "./internal-json";
+import {
 	ensureProjectionState,
 	expireOverdueActiveMemoryProfileItems,
 } from "./projection-store";
@@ -22,15 +27,26 @@ import {
 	assertMemoryProfileCategory,
 	MEMORY_PROFILE_CATEGORIES,
 	type MemoryProfileCardItem,
+	type MemoryProfileItemConfidence,
 	type MemoryProfileItemDetail,
+	type MemoryProfileItemExpiryClass,
 	type MemoryProfileReadModel,
 } from "./types";
+
+function readConfidence(value: unknown): MemoryProfileItemConfidence | null {
+	return value === "stated" || value === "inferred" ? value : null;
+}
+
+function readExpiryClass(value: unknown): MemoryProfileItemExpiryClass | null {
+	return value === "durable" || value === "time_bound" ? value : null;
+}
 
 function toCardItem(
 	row: typeof memoryProfileItems.$inferSelect,
 	sanitizer: MemoryProfileTextSanitizer,
 ): MemoryProfileCardItem {
 	assertMemoryProfileCategory(row.category);
+	const metadata = parseJsonRecord(row.metadataJson);
 	return {
 		id: row.id,
 		itemKey: row.itemKey,
@@ -40,10 +56,67 @@ function toCardItem(
 		status: "active",
 		revision: row.revision,
 		updatedAt: row.updatedAt,
+		confidence: readConfidence(metadata.confidence),
+		expiryClass: readExpiryClass(metadata.expiryClass),
+		expiresAt: row.expiresAt ?? null,
 		canEdit: true,
 		canDelete: true,
 		canSuppress: true,
 	};
+}
+
+/**
+ * Maps each open review row to the earliest auto-expiry of the
+ * review_needed profile items it refers to, so the UI can show an
+ * "auto-expires in {n} days" countdown for the review queue.
+ */
+async function getReviewExpiryByRowId(params: {
+	userId: string;
+	resetGeneration: number;
+	reviewRows: Array<typeof memoryReviewItems.$inferSelect>;
+}): Promise<Map<string, string | null>> {
+	const affectedIdsByRow = new Map<string, string[]>();
+	const allAffectedIds = new Set<string>();
+	for (const row of params.reviewRows) {
+		const ids = readSafeStringArray(parseJsonArray(row.affectedItemIdsJson));
+		affectedIdsByRow.set(row.id, ids);
+		for (const id of ids) allAffectedIds.add(id);
+	}
+
+	const expiryById = new Map<string, Date>();
+	if (allAffectedIds.size > 0) {
+		const rows = await db
+			.select({
+				id: memoryProfileItems.id,
+				expiresAt: memoryProfileItems.expiresAt,
+			})
+			.from(memoryProfileItems)
+			.where(
+				and(
+					eq(memoryProfileItems.userId, params.userId),
+					eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+					eq(memoryProfileItems.status, "review_needed"),
+					inArray(memoryProfileItems.id, [...allAffectedIds]),
+				),
+			);
+		for (const row of rows) {
+			if (row.expiresAt) expiryById.set(row.id, row.expiresAt);
+		}
+	}
+
+	const result = new Map<string, string | null>();
+	for (const row of params.reviewRows) {
+		const expiries = (affectedIdsByRow.get(row.id) ?? [])
+			.map((id) => expiryById.get(id))
+			.filter((value): value is Date => Boolean(value));
+		result.set(
+			row.id,
+			expiries.length > 0
+				? new Date(Math.min(...expiries.map((d) => d.getTime()))).toISOString()
+				: null,
+		);
+	}
+	return result;
 }
 
 export async function getMemoryProfileReadModel(params: {
@@ -54,7 +127,6 @@ export async function getMemoryProfileReadModel(params: {
 	const sanitizer = createIdentityTextSanitizer({
 		userId: params.userId,
 		displayName: identity.displayName,
-		honchoPeerVersion: identity.honchoPeerVersion,
 	});
 	const projection = await ensureProjectionState({
 		userId: params.userId,
@@ -89,12 +161,19 @@ export async function getMemoryProfileReadModel(params: {
 		)
 		.orderBy(asc(memoryReviewItems.updatedAt));
 	const dedupedReviewRows = dedupeReviewRows(reviewRows);
+	const reviewExpiryByRowId = await getReviewExpiryByRowId({
+		userId: params.userId,
+		resetGeneration,
+		reviewRows: dedupedReviewRows,
+	});
+	const toReviewItemWithExpiry = (row: (typeof dedupedReviewRows)[number]) => ({
+		...toPublicReviewItem(row, sanitizer),
+		expiresAt: reviewExpiryByRowId.get(row.id) ?? null,
+	});
 	const visibleReviews = dedupedReviewRows
 		.slice(0, 3)
-		.map((row) => toPublicReviewItem(row, sanitizer));
-	const allReviews = dedupedReviewRows.map((row) =>
-		toPublicReviewItem(row, sanitizer),
-	);
+		.map(toReviewItemWithExpiry);
+	const allReviews = dedupedReviewRows.map(toReviewItemWithExpiry);
 
 	return {
 		resetGeneration,
@@ -146,7 +225,6 @@ export async function getMemoryProfileItemDetail(params: {
 	const sanitizer = createIdentityTextSanitizer({
 		userId: params.userId,
 		displayName: identity.displayName,
-		honchoPeerVersion: identity.honchoPeerVersion,
 	});
 
 	const provenance = await db

@@ -16,9 +16,11 @@ import { resolveWorkingDocumentSelection } from "$lib/server/services/working-do
 import type { ChatMessage } from "$lib/types";
 
 const {
-	mockMirrorMessage,
-	mockMirrorWorkCapsuleConclusion,
-	mockMemoryIntake,
+	mockDetectExplicitMemoryRequest,
+	mockScheduleConversationJudge,
+	mockMarkMemoryDirty,
+	mockCountUnjudgedMessages,
+	mockRunMemoryJudgeOnSegment,
 	mockIsCurrentMemoryResetGeneration,
 	mockListMessages,
 	mockRefreshConversationSummary,
@@ -27,9 +29,15 @@ const {
 	mockSyncGeneratedFilesToMemory,
 	mockShouldTrackTaskContinuityFromTurn,
 } = vi.hoisted(() => ({
-	mockMirrorMessage: vi.fn(async () => undefined),
-	mockMirrorWorkCapsuleConclusion: vi.fn(async () => undefined),
-	mockMemoryIntake: vi.fn(async () => ({ status: "rejected" })),
+	mockDetectExplicitMemoryRequest: vi.fn(() => false),
+	mockScheduleConversationJudge: vi.fn(() => undefined),
+	mockMarkMemoryDirty: vi.fn(async () => ({
+		id: "dirty-1",
+		reason: "deferred_intake" as const,
+		count: 1,
+	})),
+	mockCountUnjudgedMessages: vi.fn(async () => 0),
+	mockRunMemoryJudgeOnSegment: vi.fn(async () => ({ status: "ran" as const })),
 	mockIsCurrentMemoryResetGeneration: vi.fn(async () => true),
 	mockListMessages: vi.fn(async () => [] as ChatMessage[]),
 	mockRefreshConversationSummary: vi.fn(async () => undefined),
@@ -79,7 +87,6 @@ vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(async () => ({ id: "message-1" })),
 	listMessages: mockListMessages,
 	updateMessageEvidence: vi.fn(async () => undefined),
-	updateMessageHonchoMetadata: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 }));
 
@@ -91,9 +98,21 @@ vi.mock("$lib/server/services/conversation-summaries", () => ({
 	refreshConversationSummary: mockRefreshConversationSummary,
 }));
 
-vi.mock("$lib/server/services/honcho", () => ({
-	mirrorMessage: mockMirrorMessage,
-	mirrorWorkCapsuleConclusion: mockMirrorWorkCapsuleConclusion,
+vi.mock("$lib/server/services/memory-judge/runner", () => ({
+	detectExplicitMemoryRequest: mockDetectExplicitMemoryRequest,
+	scheduleConversationJudge: mockScheduleConversationJudge,
+}));
+
+vi.mock("$lib/server/services/memory-judge", () => ({
+	runMemoryJudgeOnSegment: mockRunMemoryJudgeOnSegment,
+}));
+
+vi.mock("$lib/server/services/memory-judge/segment", () => ({
+	countUnjudgedMessages: mockCountUnjudgedMessages,
+}));
+
+vi.mock("$lib/server/services/memory-profile/dirty-ledger", () => ({
+	markMemoryDirty: mockMarkMemoryDirty,
 }));
 
 vi.mock("$lib/server/services/knowledge", () => ({
@@ -120,10 +139,6 @@ vi.mock("$lib/server/services/memory-maintenance", () => ({
 
 vi.mock("$lib/server/services/memory-profile", () => ({
 	isCurrentMemoryResetGeneration: mockIsCurrentMemoryResetGeneration,
-}));
-
-vi.mock("$lib/server/services/memory-profile/intake", () => ({
-	intakePostTurnMemory: mockMemoryIntake,
 }));
 
 vi.mock("$lib/server/services/message-evidence", () => ({
@@ -216,6 +231,14 @@ describe("runPostTurnTasks", () => {
 		vi.clearAllMocks();
 		mockIsCurrentMemoryResetGeneration.mockResolvedValue(true);
 		mockListMessages.mockResolvedValue([]);
+		mockDetectExplicitMemoryRequest.mockReturnValue(false);
+		mockCountUnjudgedMessages.mockResolvedValue(0);
+		mockMarkMemoryDirty.mockResolvedValue({
+			id: "dirty-1",
+			reason: "deferred_intake",
+			count: 1,
+		});
+		mockRunMemoryJudgeOnSegment.mockResolvedValue({ status: "ran" });
 	});
 
 	it("logs summary refresh failures without rejecting post-turn tasks", async () => {
@@ -258,12 +281,9 @@ describe("runPostTurnTasks", () => {
 		errorSpy.mockRestore();
 	});
 
-	it("routes ordinary user-authored stable facts through memory intake without raw Honcho transcript mirroring", async () => {
-		mockListMessages.mockResolvedValue([
-			makeChatMessage("prior-user", "user", "I prefer concise answers."),
-			makeChatMessage("prior-assistant", "assistant", "Noted."),
-			makeChatMessage("user-message-1", "user", "My company is Acme Studio."),
-		]);
+	it("marks the conversation dirty and debounces an idle judge run for ordinary user turns", async () => {
+		mockDetectExplicitMemoryRequest.mockReturnValue(false);
+		mockCountUnjudgedMessages.mockResolvedValue(3);
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -284,39 +304,16 @@ describe("runPostTurnTasks", () => {
 			maintenanceReason: "chat_send",
 		});
 
-		expect(mockMemoryIntake).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: "user-1",
-				conversationId: "conv-1",
-				userMessage: "My company is Acme Studio.",
-				assistantMessage: "assistant mirror text",
-				userMessageId: "user-message-1",
-				assistantMessageId: "assistant-message-1",
-				recentMessages: [
-					{
-						id: "prior-user",
-						role: "user",
-						content: "I prefer concise answers.",
-					},
-					{
-						id: "prior-assistant",
-						role: "assistant",
-						content: "Noted.",
-					},
-					{
-						id: "user-message-1",
-						role: "user",
-						content: "My company is Acme Studio.",
-					},
-				],
-			}),
-		);
-		expect(mockMirrorMessage).not.toHaveBeenCalled();
-		expect(mockMirrorWorkCapsuleConclusion).toHaveBeenCalledWith({
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "conv-1" },
+		});
+		expect(mockScheduleConversationJudge).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			content: "Brief update\nFinished the brief.",
 		});
+		expect(mockRunMemoryJudgeOnSegment).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -329,8 +326,39 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
-	it("passes the started reset generation to intake and skips work-capsule mirroring after reset", async () => {
-		mockIsCurrentMemoryResetGeneration.mockResolvedValueOnce(false);
+	it("runs an immediate marathon judge when the unjudged segment reaches the threshold", async () => {
+		mockDetectExplicitMemoryRequest.mockReturnValue(false);
+		mockCountUnjudgedMessages.mockResolvedValue(25);
+		const { runPostTurnTasks } = await import("./finalize");
+
+		await runPostTurnTasks({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "upstream prompt payload",
+			userMessage: "Another ordinary message.",
+			userMessageId: "user-message-1",
+			assistantResponse: "Understood.",
+			assistantMirrorContent: "assistant mirror text",
+			assistantMessageId: "assistant-message-1",
+			maintenanceReason: "chat_send",
+		});
+
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "conv-1" },
+		});
+		expect(mockRunMemoryJudgeOnSegment).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			trigger: "marathon",
+		});
+		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
+	});
+
+	it("runs an immediate explicit judge over the current turn when the user asks to remember", async () => {
+		mockDetectExplicitMemoryRequest.mockReturnValue(true);
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -343,25 +371,25 @@ describe("runPostTurnTasks", () => {
 			assistantResponse: "I will keep that in mind.",
 			assistantMirrorContent: "assistant mirror text",
 			assistantMessageId: "assistant-message-1",
-			workCapsule: {
-				workflowSummary: "Finished the brief.",
-				taskSummary: "Brief update",
-				artifact: { name: "brief.md" },
-			},
 			maintenanceReason: "chat_send",
 			startedResetGeneration: 7,
 		});
 
-		expect(mockMemoryIntake).toHaveBeenCalledWith(
-			expect.objectContaining({
-				startedResetGeneration: 7,
-			}),
-		);
-		expect(mockIsCurrentMemoryResetGeneration).toHaveBeenCalledWith({
+		expect(mockRunMemoryJudgeOnSegment).toHaveBeenCalledWith({
 			userId: "user-1",
-			resetGeneration: 7,
+			conversationId: "conv-1",
+			trigger: "explicit",
+			segmentOverride: [
+				{
+					role: "user",
+					content: "Please remember that I prefer concise answers.",
+				},
+				{ role: "assistant", content: "assistant mirror text" },
+			],
 		});
-		expect(mockMirrorWorkCapsuleConclusion).not.toHaveBeenCalled();
+		// Explicit path short-circuits before the dirty-ledger / debounce logic.
+		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
+		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith(
 			expect.objectContaining({
 				startedResetGeneration: 7,
@@ -505,8 +533,6 @@ describe("finalizeChatTurn", () => {
 			initialContextDebug: null,
 			analytics: null,
 			continuitySource: "stream",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant response",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -642,8 +668,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			createMessage,
@@ -739,8 +763,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "",
 			maintenanceReason: "chat_send",
 			createMessage,
@@ -823,8 +845,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "stream",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -903,8 +923,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "stream",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -973,8 +991,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			createMessage,
@@ -1060,8 +1076,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			createMessage,
@@ -1139,8 +1153,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "stream",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -1208,8 +1220,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			waitForEvidenceBeforePostTurnTasks: false,
@@ -1273,15 +1283,12 @@ describe("finalizeChatTurn", () => {
 			initialContextDebug: null,
 			analytics: null,
 			continuitySource: "send",
-			honchoContext: { source: "disabled" } as never,
-			honchoSnapshot: { summary: "should not persist" } as never,
 			assistantMirrorContent: "atlas queued",
 			maintenanceReason: "chat_send",
 			createMessage,
 			persistAssistantTurnState,
 			runPostTurnTasks,
 			skipAssistantProseMemoryIntake: true,
-			skipHonchoEnrichment: true,
 		});
 
 		await completion.createPostTurnTask();
@@ -1289,19 +1296,17 @@ describe("finalizeChatTurn", () => {
 		expect(persistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantResponse: "atlas queued",
-				skipHonchoEnrichment: true,
 			}),
 		);
 		expect(runPostTurnTasks).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantResponse: "atlas queued",
 				skipAssistantProseMemoryIntake: true,
-				skipHonchoEnrichment: true,
 			}),
 		);
 	});
 
-	it("skips assistant-prose memory intake and Honcho enrichment while preserving summary refresh and maintenance", async () => {
+	it("skips assistant-prose memory intake while preserving summary refresh and maintenance", async () => {
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -1322,11 +1327,11 @@ describe("finalizeChatTurn", () => {
 			maintenanceReason: "chat_send",
 			startedResetGeneration: 0,
 			skipAssistantProseMemoryIntake: true,
-			skipHonchoEnrichment: true,
 		});
 
-		expect(mockMemoryIntake).not.toHaveBeenCalled();
-		expect(mockMirrorWorkCapsuleConclusion).not.toHaveBeenCalled();
+		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
+		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
+		expect(mockRunMemoryJudgeOnSegment).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -1406,8 +1411,6 @@ describe("finalizeChatTurn", () => {
 				providerUsage: null,
 			},
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			linkedSources: [
@@ -1537,8 +1540,6 @@ describe("finalizeChatTurn", () => {
 			assistantMessageId: "assistant-message-1",
 			analytics: null,
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 		});
 
 		expect(mockRecordMemoryEvent).toHaveBeenCalledWith(
@@ -1594,8 +1595,6 @@ describe("finalizeChatTurn", () => {
 			assistantMessageId: "assistant-message-1",
 			analytics: null,
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 		});
 
 		expect(mockRecordMemoryEvent).not.toHaveBeenCalled();
@@ -1654,8 +1653,6 @@ describe("finalizeChatTurn", () => {
 			assistantMessageId: "assistant-message-1",
 			analytics: null,
 			continuitySource: "send",
-			honchoContext: null,
-			honchoSnapshot: null,
 		});
 
 		expect(mockSyncContinuity).not.toHaveBeenCalled();

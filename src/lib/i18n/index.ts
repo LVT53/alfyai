@@ -59,6 +59,15 @@ export const t = derived(uiLanguage, ($uiLanguage) => {
 	return (key: I18nKey, params?: Record<string, string | number>) => {
 		let value: string = lang[key] ?? dictionary.en[key] ?? key;
 		for (const [name, replacement] of Object.entries(params ?? {})) {
+			// Minimal ICU-style plural: {name, plural, one {...} other {...}}.
+			const count = Number(replacement);
+			value = value.replace(
+				new RegExp(
+					`\\{${name}, plural, one \\{([^{}]*)\\} other \\{([^{}]*)\\}\\}`,
+					"g",
+				),
+				(_, one: string, other: string) => (count === 1 ? one : other),
+			);
 			value = value.replaceAll(`{${name}}`, String(replacement));
 		}
 		return value;

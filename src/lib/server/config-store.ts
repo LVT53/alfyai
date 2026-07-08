@@ -70,10 +70,6 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_URL",
 	"TEI_RERANKER_MODEL",
 	"TEI_RERANKER_MAX_TEXTS",
-	"HONCHO_ENABLED",
-	"HONCHO_CONTEXT_WAIT_MS",
-	"HONCHO_PERSONA_CONTEXT_WAIT_MS",
-	"HONCHO_OVERVIEW_WAIT_MS",
 	"MINERU_API_URL",
 	"MINERU_TIMEOUT_MS",
 	"SEARXNG_BASE_URL",
@@ -97,7 +93,11 @@ export const ADMIN_CONFIG_KEYS = [
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
 	"DEFAULT_NEW_USER_MODEL",
-	"MEMORY_LEGACY_CURATION_MODEL",
+	"MEMORY_JUDGE_MODEL",
+	"MEMORY_CONSOLIDATION_MODEL",
+	"MEMORY_JUDGE_IDLE_MINUTES",
+	"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+	"MEMORY_JUDGE_DRY_RUN",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
 	"ATLAS_SEARCH_CONCURRENCY",
@@ -161,7 +161,11 @@ export interface RuntimeConfig {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
-	memoryLegacyCurationModel: ModelId;
+	memoryJudgeModel: ModelId;
+	memoryConsolidationModel: ModelId;
+	memoryJudgeIdleMinutes: number;
+	memoryConsolidationIntervalMinutes: number;
+	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -197,14 +201,6 @@ export interface RuntimeConfig {
 	model1IconAssetId: string | null;
 	model2IconAssetId: string | null;
 	model2Enabled: boolean;
-	honchoApiKey: string;
-	honchoBaseUrl: string;
-	honchoWorkspace: string;
-	honchoIdentityNamespace: string;
-	honchoEnabled: boolean;
-	honchoContextWaitMs: number;
-	honchoPersonaContextWaitMs: number;
-	honchoOverviewWaitMs: number;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
@@ -253,7 +249,12 @@ function buildDefaultConfig(): RuntimeConfig {
 		appVersionOverride: null,
 		model1IconAssetId: null,
 		model2IconAssetId: null,
-		memoryLegacyCurationModel: envConfig.memoryLegacyCurationModel,
+		memoryJudgeModel: envConfig.memoryJudgeModel,
+		memoryConsolidationModel: envConfig.memoryConsolidationModel,
+		memoryJudgeIdleMinutes: envConfig.memoryJudgeIdleMinutes,
+		memoryConsolidationIntervalMinutes:
+			envConfig.memoryConsolidationIntervalMinutes,
+		memoryJudgeDryRun: envConfig.memoryJudgeDryRun,
 		composerCommandRegistryEnabled:
 			envConfig.composerCommandRegistryEnabled ?? true,
 		analyticsExcludedUserIds: [],
@@ -393,19 +394,23 @@ function applyDerivedMaxMessageLengthDefaults(
 	}
 }
 
-function validateMemoryLegacyCurationModel(config: RuntimeConfig): void {
-	const modelId = config.memoryLegacyCurationModel?.trim();
+function validateConfiguredMemoryModelField(
+	config: RuntimeConfig,
+	field: "memoryJudgeModel" | "memoryConsolidationModel",
+	label: string,
+): void {
+	const modelId = config[field]?.trim();
 	if (!modelId) {
-		config.memoryLegacyCurationModel = "model1";
+		config[field] = "model1";
 		return;
 	}
 
 	if (modelId === "model1" || modelId === "model2") {
 		if (!isModelEnabled(modelId, config)) {
 			console.warn(
-				`[CONFIG] Memory legacy curation model "${modelId}" is not enabled. Falling back to "model1".`,
+				`[CONFIG] ${label} "${modelId}" is not enabled. Falling back to "model1".`,
 			);
-			config.memoryLegacyCurationModel = "model1";
+			config[field] = "model1";
 		}
 		return;
 	}
@@ -418,9 +423,24 @@ function validateMemoryLegacyCurationModel(config: RuntimeConfig): void {
 	}
 
 	console.warn(
-		`[CONFIG] Invalid memory legacy curation model format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Falling back to "model1".`,
+		`[CONFIG] Invalid ${label} format: "${modelId}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Falling back to "model1".`,
 	);
-	config.memoryLegacyCurationModel = "model1";
+	config[field] = "model1";
+}
+
+function validateMemoryJudgeAndConsolidationConfig(
+	config: RuntimeConfig,
+): void {
+	validateConfiguredMemoryModelField(
+		config,
+		"memoryJudgeModel",
+		"Memory judge model",
+	);
+	validateConfiguredMemoryModelField(
+		config,
+		"memoryConsolidationModel",
+		"Memory consolidation model",
+	);
 }
 
 function validateContextLimitTriples(config: RuntimeConfig): void {
@@ -641,25 +661,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) config.teiRerankerMaxTexts = Math.max(1, parsed);
 	},
-	HONCHO_ENABLED: (config, value) => {
-		config.honchoEnabled = value === "true";
-	},
-	HONCHO_CONTEXT_WAIT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) config.honchoContextWaitMs = Math.max(0, parsed);
-	},
-	HONCHO_PERSONA_CONTEXT_WAIT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.honchoPersonaContextWaitMs = Math.max(0, parsed);
-		}
-	},
-	HONCHO_OVERVIEW_WAIT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.honchoOverviewWaitMs = Math.max(0, parsed);
-		}
-	},
 	MINERU_API_URL: (config, value) => {
 		config.mineruApiUrl = value;
 	},
@@ -757,8 +758,23 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	DEFAULT_NEW_USER_MODEL: (config, value) => {
 		config.defaultNewUserModel = normalizeConfiguredModelId(value);
 	},
-	MEMORY_LEGACY_CURATION_MODEL: (config, value) => {
-		config.memoryLegacyCurationModel = normalizeConfiguredModelId(value);
+	MEMORY_JUDGE_MODEL: (config, value) => {
+		config.memoryJudgeModel = normalizeConfiguredModelId(value);
+	},
+	MEMORY_CONSOLIDATION_MODEL: (config, value) => {
+		config.memoryConsolidationModel = normalizeConfiguredModelId(value);
+	},
+	MEMORY_JUDGE_IDLE_MINUTES: (config, value) => {
+		const n = Number.parseInt(value, 10);
+		if (Number.isFinite(n) && n > 0) config.memoryJudgeIdleMinutes = n;
+	},
+	MEMORY_CONSOLIDATION_INTERVAL_MINUTES: (config, value) => {
+		const n = Number.parseInt(value, 10);
+		if (Number.isFinite(n) && n > 0)
+			config.memoryConsolidationIntervalMinutes = n;
+	},
+	MEMORY_JUDGE_DRY_RUN: (config, value) => {
+		config.memoryJudgeDryRun = value.trim().toLowerCase() === "true";
 	},
 	ATLAS_WORKER_ENABLED: (config, value) => {
 		config.atlasWorkerEnabled = value !== "false";
@@ -925,7 +941,7 @@ export async function refreshConfig(): Promise<void> {
 	applyDerivedContextLimitDefaults(base, overrides);
 	validateContextLimitTriples(base);
 	applyDerivedMaxMessageLengthDefaults(base, overrides);
-	validateMemoryLegacyCurationModel(base);
+	validateMemoryJudgeAndConsolidationConfig(base);
 
 	if (!hasMaxMessageLengthOverride) {
 		base.maxMessageLength = await resolveLowestModelMaxMessageLength(base);
@@ -1159,10 +1175,6 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_URL: config.teiRerankerUrl,
 		TEI_RERANKER_MODEL: config.teiRerankerModel,
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
-		HONCHO_ENABLED: String(config.honchoEnabled),
-		HONCHO_CONTEXT_WAIT_MS: String(config.honchoContextWaitMs),
-		HONCHO_PERSONA_CONTEXT_WAIT_MS: String(config.honchoPersonaContextWaitMs),
-		HONCHO_OVERVIEW_WAIT_MS: String(config.honchoOverviewWaitMs),
 		MINERU_API_URL: config.mineruApiUrl,
 		MINERU_TIMEOUT_MS: String(config.mineruTimeoutMs),
 		SEARXNG_BASE_URL: config.searxngBaseUrl,
@@ -1194,7 +1206,13 @@ export function getResolvedAdminConfigValues(
 		),
 		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: config.modelTimeoutFailoverTargetModel,
 		DEFAULT_NEW_USER_MODEL: config.defaultNewUserModel,
-		MEMORY_LEGACY_CURATION_MODEL: config.memoryLegacyCurationModel,
+		MEMORY_JUDGE_MODEL: config.memoryJudgeModel,
+		MEMORY_CONSOLIDATION_MODEL: config.memoryConsolidationModel,
+		MEMORY_JUDGE_IDLE_MINUTES: String(config.memoryJudgeIdleMinutes),
+		MEMORY_CONSOLIDATION_INTERVAL_MINUTES: String(
+			config.memoryConsolidationIntervalMinutes,
+		),
+		MEMORY_JUDGE_DRY_RUN: String(config.memoryJudgeDryRun),
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),
 		ATLAS_SEARCH_CONCURRENCY: String(config.atlasSearchConcurrency),

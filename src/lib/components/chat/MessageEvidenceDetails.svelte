@@ -4,15 +4,24 @@ import { fly } from "svelte/transition";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
 import { prefersReducedMotion, reducedMotionAware } from "$lib/utils/motion";
 import {
+	Archive,
 	Book,
+	Check,
 	ExternalLink,
+	EyeOff,
 	FileText,
 	Globe,
 	Paperclip,
+	Pencil,
 	Quote,
 	ChevronDown,
 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
+import {
+	fetchMemoryProfile,
+	submitKnowledgeMemoryAction,
+	submitMemoryV2Action,
+} from "$lib/client/api/knowledge";
 import type {
 	DocumentWorkspaceItem,
 	EvidenceSourceType,
@@ -114,6 +123,106 @@ function getFaviconUrl(raw: string): string | null {
 		return `/api/favicon?domain=${encodeURIComponent(host)}`;
 	} catch {
 		return null;
+	}
+}
+
+// --- Memory-fact inline actions (ADR-aligned Correct / Don't use / Retire) ---
+// Persona facts surface in evidence with ids like `memory-fact:<itemId>`;
+// tapping one reveals inline actions that post through the same knowledge
+// memory API the Knowledge page uses.
+const MEMORY_FACT_PREFIX = "memory-fact:";
+
+type MemoryActionOutcome = "corrected" | "suppressed" | "retired";
+
+let openMemoryActionId = $state<string | null>(null);
+let correctingId = $state<string | null>(null);
+let correctionDraft = $state("");
+let memoryActionBusyId = $state<string | null>(null);
+let memoryActionErrorId = $state<string | null>(null);
+let memoryActionDoneById = $state<Record<string, MemoryActionOutcome>>({});
+
+function isMemoryFact(item: MessageEvidenceItem): boolean {
+	return item.id.startsWith(MEMORY_FACT_PREFIX);
+}
+
+function memoryItemIdOf(item: MessageEvidenceItem): string {
+	const fromMetadata = item.metadata?.memoryItemId;
+	if (typeof fromMetadata === "string" && fromMetadata) return fromMetadata;
+	return item.id.slice(MEMORY_FACT_PREFIX.length);
+}
+
+function toggleMemoryActions(item: MessageEvidenceItem) {
+	if (memoryActionDoneById[item.id]) return;
+	openMemoryActionId = openMemoryActionId === item.id ? null : item.id;
+	correctingId = null;
+	memoryActionErrorId = null;
+}
+
+function startCorrection(item: MessageEvidenceItem) {
+	correctingId = item.id;
+	correctionDraft = item.title;
+}
+
+function outcomeLabel(outcome: MemoryActionOutcome): string {
+	if (outcome === "corrected")
+		return $t("messageEvidenceDetails.memoryCorrected");
+	if (outcome === "retired") return $t("messageEvidenceDetails.memoryRetired");
+	return $t("messageEvidenceDetails.memorySuppressed");
+}
+
+async function runMemoryAction(
+	item: MessageEvidenceItem,
+	action: "correct" | "suppress" | "retire",
+) {
+	if (memoryActionBusyId) return;
+	const statement = correctionDraft.trim();
+	if (action === "correct" && !statement) return;
+	memoryActionBusyId = item.id;
+	memoryActionErrorId = null;
+	try {
+		const itemId = memoryItemIdOf(item);
+		// The optimistic-concurrency flow needs the latest projection
+		// revision; chat has no profile in scope, so fetch it just-in-time.
+		const profile = await fetchMemoryProfile();
+		const expectedProjectionRevision = profile.projectionRevision;
+		if (action === "suppress") {
+			await submitKnowledgeMemoryAction({
+				target: "profile_item",
+				action: "suppress",
+				itemId,
+				expectedProjectionRevision,
+			});
+			memoryActionDoneById = {
+				...memoryActionDoneById,
+				[item.id]: "suppressed",
+			};
+		} else if (action === "retire") {
+			await submitMemoryV2Action({
+				kind: "profile_item",
+				action: "retire",
+				itemId,
+				expectedProjectionRevision,
+			});
+			memoryActionDoneById = { ...memoryActionDoneById, [item.id]: "retired" };
+		} else {
+			await submitMemoryV2Action({
+				kind: "profile_item",
+				action: "correct",
+				itemId,
+				statement,
+				expectedProjectionRevision,
+			});
+			memoryActionDoneById = {
+				...memoryActionDoneById,
+				[item.id]: "corrected",
+			};
+		}
+		openMemoryActionId = null;
+		correctingId = null;
+	} catch {
+		memoryActionErrorId = item.id;
+	} finally {
+		memoryActionBusyId = null;
 	}
 }
 
@@ -246,6 +355,80 @@ function openDocument(item: MessageEvidenceItem) {
 				</span>
 				<span class="evidence-title evidence-title--web">{item.title}</span>
 			</a>
+		{:else if isMemoryFact(item)}
+			<button
+				type="button"
+				class="evidence-row-button"
+				aria-expanded={openMemoryActionId === item.id}
+				onclick={() => toggleMemoryActions(item)}
+			>
+				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+				<span class="evidence-title">{item.title}</span>
+			</button>
+			{#if memoryActionDoneById[item.id]}
+				<div class="evidence-memory-confirm" role="status">
+					<Check size={12} strokeWidth={2.1} aria-hidden="true" />
+					{outcomeLabel(memoryActionDoneById[item.id])}
+				</div>
+			{:else if openMemoryActionId === item.id}
+				<div
+					class="evidence-memory-actions"
+					role="group"
+					aria-label={$t('messageEvidenceDetails.memoryActions')}
+				>
+					{#if correctingId === item.id}
+						<input
+							type="text"
+							class="evidence-memory-input"
+							bind:value={correctionDraft}
+							placeholder={$t('messageEvidenceDetails.memoryCorrectPlaceholder')}
+							aria-label={$t('messageEvidenceDetails.memoryCorrect')}
+						/>
+						<button
+							type="button"
+							class="evidence-memory-action"
+							disabled={memoryActionBusyId === item.id || correctionDraft.trim().length === 0}
+							onclick={() => void runMemoryAction(item, 'correct')}
+						>
+							<Check size={12} strokeWidth={2.1} aria-hidden="true" />
+							{$t('messageEvidenceDetails.memorySaveCorrection')}
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="evidence-memory-action"
+							disabled={memoryActionBusyId === item.id}
+							onclick={() => startCorrection(item)}
+						>
+							<Pencil size={12} strokeWidth={2.1} aria-hidden="true" />
+							{$t('messageEvidenceDetails.memoryCorrect')}
+						</button>
+						<button
+							type="button"
+							class="evidence-memory-action"
+							disabled={memoryActionBusyId === item.id}
+							onclick={() => void runMemoryAction(item, 'suppress')}
+						>
+							<EyeOff size={12} strokeWidth={2.1} aria-hidden="true" />
+							{$t('messageEvidenceDetails.memoryDontUse')}
+						</button>
+						<button
+							type="button"
+							class="evidence-memory-action"
+							disabled={memoryActionBusyId === item.id}
+							onclick={() => void runMemoryAction(item, 'retire')}
+						>
+							<Archive size={12} strokeWidth={2.1} aria-hidden="true" />
+							{$t('messageEvidenceDetails.memoryRetire')}
+						</button>
+					{/if}
+				</div>
+				{#if memoryActionErrorId === item.id}
+					<div class="evidence-memory-error" role="alert">
+						{$t('messageEvidenceDetails.memoryActionFailed')}
+					</div>
+				{/if}
+			{/if}
 		{:else}
 			<div class="evidence-row-plain">
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
@@ -472,6 +655,77 @@ function openDocument(item: MessageEvidenceItem) {
 
 	.evidence-row--aside {
 		opacity: 0.55;
+	}
+
+	.evidence-memory-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.15rem 0.35rem 0.3rem 1.6rem;
+	}
+
+	.evidence-memory-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		border: 1px solid var(--border-default);
+		border-radius: 9999px;
+		background: transparent;
+		padding: 0.25rem 0.6rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+		cursor: pointer;
+		transition: border-color var(--duration-standard) var(--ease-out);
+	}
+
+	.evidence-memory-action:hover {
+		border-color: var(--accent);
+	}
+
+	.evidence-memory-action:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.evidence-memory-action:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.evidence-memory-input {
+		flex: 1;
+		min-width: 10rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		background: var(--surface-page);
+		padding: 0.3rem 0.5rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+	}
+
+	.evidence-memory-input:focus-visible {
+		outline: none;
+		border-color: var(--accent);
+	}
+
+	.evidence-memory-confirm {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.1rem 0.35rem 0.2rem 1.6rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--accent);
+	}
+
+	.evidence-memory-error {
+		padding: 0.1rem 0.35rem 0.2rem 1.6rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--danger);
 	}
 
 	.evidence-description {

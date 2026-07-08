@@ -1,8 +1,5 @@
 export * from "./active-context";
 export * from "./dirty-ledger";
-export * from "./dirty-ledger-reconciliation";
-export { migrateLegacyMemoryForUser } from "./legacy";
-export * from "./legacy-curation";
 export * from "./projection-store";
 export * from "./read-model";
 export * from "./reset-generation";

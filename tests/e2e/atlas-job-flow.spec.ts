@@ -454,10 +454,12 @@ async function startFakeAtlasModelServer(input: {
 						await delay(input.coverageDelayMs);
 					}
 				}
-				await writeJson(
-					response,
-					chatCompletion(modelTextForStage(stage, input)),
-				);
+				const content = modelTextForStage(stage, input);
+				if (isStreamingChatCompletion(body)) {
+					await writeChatCompletionStream(response, content);
+				} else {
+					await writeJson(response, chatCompletion(content));
+				}
 				return;
 			}
 			await writeJson(response, { error: "Not found" }, 404);
@@ -562,11 +564,11 @@ function modelTextForStage(
 				claimBasis: [
 					{
 						locator: {
-							sectionTitle: "Executive Summary",
+							sectionTitle: "Findings",
 							paragraphIndex: 0,
 							claimIndex: 0,
-							claimText: "Revenue increased by 12%",
-							quote: "Revenue increased by 12%",
+							claimText: "controlled rollout",
+							quote: "controlled rollout",
 							startOffset: null,
 							endOffset: null,
 						},
@@ -591,6 +593,56 @@ function modelTextForStage(
 		default:
 			return "Atlas deterministic fake model fallback.";
 	}
+}
+
+function isStreamingChatCompletion(body: unknown): boolean {
+	return (
+		Boolean(body) &&
+		typeof body === "object" &&
+		(body as { stream?: unknown }).stream === true
+	);
+}
+
+async function writeChatCompletionStream(
+	response: ServerResponse,
+	content: string,
+): Promise<void> {
+	response.writeHead(200, {
+		"Access-Control-Allow-Headers": "authorization, content-type",
+		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+		"Access-Control-Allow-Origin": "*",
+		"Cache-Control": "no-cache",
+		Connection: "keep-alive",
+		"Content-Type": "text/event-stream; charset=utf-8",
+	});
+	const chunkBase = {
+		id: "chatcmpl_atlas_e2e",
+		object: "chat.completion.chunk",
+		created: 1_700_000_000,
+		model: ATLAS_E2E_MODEL,
+	};
+	const writeChunk = (chunk: unknown): void => {
+		response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+	};
+	writeChunk({
+		...chunkBase,
+		choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+	});
+	writeChunk({
+		...chunkBase,
+		choices: [{ index: 0, delta: { content }, finish_reason: null }],
+	});
+	writeChunk({
+		...chunkBase,
+		choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+		usage: {
+			prompt_tokens: 100,
+			completion_tokens: 50,
+			total_tokens: 150,
+		},
+	});
+	response.write("data: [DONE]\n\n");
+	response.end();
 }
 
 function chatCompletion(content: string): unknown {

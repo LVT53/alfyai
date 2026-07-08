@@ -23,8 +23,6 @@ describe("memory profile module seams", () => {
 			"telemetry.ts",
 			"review.ts",
 			"dirty-ledger.ts",
-			"dirty-ledger-reconciliation.ts",
-			"legacy-curation.ts",
 		];
 
 		for (const modulePath of ownedModules) {
@@ -53,16 +51,6 @@ describe("memory profile module seams", () => {
 		expect(memoryContext).toContain(
 			'from "$lib/server/services/memory-profile/telemetry"',
 		);
-	});
-
-	it("keeps maintenance callers on reconciliation and legacy curation seams", () => {
-		const maintenance = readService("memory-maintenance.ts");
-
-		expect(maintenance).not.toContain('from "./memory-profile"');
-		expect(maintenance).toContain(
-			'from "./memory-profile/dirty-ledger-reconciliation"',
-		);
-		expect(maintenance).toContain('from "./memory-profile/legacy-curation"');
 	});
 
 	it("keeps active profile reads detached from the control-model adapter", () => {

@@ -1,7 +1,5 @@
 // src/lib/server/env.ts
 // Centralized environment configuration module
-import { createHash } from "node:crypto";
-import { resolve } from "node:path";
 import type { ModelId } from "$lib/types";
 import {
 	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
@@ -59,7 +57,11 @@ interface Config {
 	modelTimeoutFailoverTimeoutMs: number;
 	modelTimeoutFailoverTargetModel: ModelId;
 	defaultNewUserModel: ModelId;
-	memoryLegacyCurationModel: ModelId;
+	memoryJudgeModel: ModelId;
+	memoryConsolidationModel: ModelId;
+	memoryJudgeIdleMinutes: number;
+	memoryConsolidationIntervalMinutes: number;
+	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
 	atlasSearchConcurrency: number;
@@ -93,14 +95,6 @@ interface Config {
 	model1: ModelConfig;
 	model2: ModelConfig;
 	model2Enabled: boolean;
-	honchoApiKey: string;
-	honchoBaseUrl: string;
-	honchoWorkspace: string;
-	honchoIdentityNamespace: string;
-	honchoEnabled: boolean;
-	honchoContextWaitMs: number;
-	honchoPersonaContextWaitMs: number;
-	honchoOverviewWaitMs: number;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
@@ -246,17 +240,6 @@ function parsePositiveIntegerEnv(
 	);
 }
 
-function buildDefaultHonchoIdentityNamespace(
-	databasePath: string,
-	honchoWorkspace: string,
-): string {
-	const digest = createHash("sha256")
-		.update(`${honchoWorkspace}\0${resolve(databasePath)}`)
-		.digest("hex")
-		.slice(0, 16);
-	return `db_${digest}`;
-}
-
 // Read and validate environment variables
 function readConfig(): Config {
 	// Required variables (mocked if missing for local dev/testing)
@@ -264,7 +247,6 @@ function readConfig(): Config {
 		process.env.SESSION_SECRET || "mock-session-secret-for-dev-testing-only";
 
 	const databasePath = getDatabasePath();
-	const honchoWorkspace = process.env.HONCHO_WORKSPACE || "alfyai-prod";
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
 	const maxModelContext = parsePositiveIntegerEnv(
 		process.env.MAX_MODEL_CONTEXT,
@@ -421,10 +403,23 @@ function readConfig(): Config {
 		defaultNewUserModel: normalizeConfiguredModelId(
 			process.env.DEFAULT_NEW_USER_MODEL || "model1",
 		),
-		memoryLegacyCurationModel: validateConfiguredModelIdEnv(
-			process.env.MEMORY_LEGACY_CURATION_MODEL,
-			"MEMORY_LEGACY_CURATION_MODEL",
+		memoryJudgeModel: validateConfiguredModelIdEnv(
+			process.env.MEMORY_JUDGE_MODEL,
+			"MEMORY_JUDGE_MODEL",
 		),
+		memoryConsolidationModel: validateConfiguredModelIdEnv(
+			process.env.MEMORY_CONSOLIDATION_MODEL,
+			"MEMORY_CONSOLIDATION_MODEL",
+		),
+		memoryJudgeIdleMinutes: Math.max(
+			1,
+			parseIntegerEnv(process.env.MEMORY_JUDGE_IDLE_MINUTES, 30),
+		),
+		memoryConsolidationIntervalMinutes: Math.max(
+			1,
+			parseIntegerEnv(process.env.MEMORY_CONSOLIDATION_INTERVAL_MINUTES, 1440),
+		),
+		memoryJudgeDryRun: process.env.MEMORY_JUDGE_DRY_RUN === "true",
 		atlasWorkerEnabled: process.env.ATLAS_WORKER_ENABLED !== "false",
 		atlasGlobalActiveLimit: Math.max(
 			1,
@@ -535,26 +530,6 @@ function readConfig(): Config {
 			),
 		},
 		model2Enabled,
-		honchoApiKey: process.env.HONCHO_API_KEY || "",
-		honchoBaseUrl: process.env.HONCHO_BASE_URL || "http://localhost:8000",
-		honchoWorkspace,
-		honchoIdentityNamespace:
-			process.env.HONCHO_IDENTITY_NAMESPACE ||
-			buildDefaultHonchoIdentityNamespace(databasePath, honchoWorkspace),
-		honchoEnabled: process.env.HONCHO_ENABLED === "true",
-		honchoContextWaitMs: Math.max(
-			0,
-			parseInt(process.env.HONCHO_CONTEXT_WAIT_MS || "8000", 10) || 8000,
-		),
-		honchoPersonaContextWaitMs: Math.max(
-			0,
-			parseInt(process.env.HONCHO_PERSONA_CONTEXT_WAIT_MS || "8000", 10) ||
-				8000,
-		),
-		honchoOverviewWaitMs: Math.max(
-			0,
-			parseInt(process.env.HONCHO_OVERVIEW_WAIT_MS || "10000", 10) || 10000,
-		),
 		memoryMaintenanceIntervalMinutes: Math.max(
 			0,
 			parseInt(process.env.MEMORY_MAINTENANCE_INTERVAL_MINUTES || "0", 10) || 0,

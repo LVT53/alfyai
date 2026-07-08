@@ -81,7 +81,7 @@ describe("DELETE /api/settings/account", () => {
 	});
 
 	it("returns 500 when cleanup fails", async () => {
-		mockEraseUserAccount.mockRejectedValue(new Error("honcho down"));
+		mockEraseUserAccount.mockRejectedValue(new Error("backend down"));
 
 		const response = await DELETE(makeEvent({ password: "secret" }));
 		const data = await response.json();

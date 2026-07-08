@@ -73,7 +73,6 @@ vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
 	updateMessageEvidence: vi.fn(async () => undefined),
-	updateMessageHonchoMetadata: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 }));
 
@@ -132,12 +131,6 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(async () => null),
 	syncTaskContinuityFromTaskState: vi.fn(async () => null),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
-}));
-
-vi.mock("$lib/server/services/honcho", () => ({
-	listPersonaMemories: vi.fn(async () => []),
-	mirrorMessage: vi.fn(async () => undefined),
-	mirrorWorkCapsuleConclusion: vi.fn(async () => undefined),
 }));
 
 vi.mock("$lib/server/services/memory-profile", () => ({
@@ -205,7 +198,6 @@ import { addConversationLinkedContextSources } from "$lib/server/services/linked
 import {
 	createMessage,
 	updateMessageEvidence,
-	updateMessageHonchoMetadata,
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
@@ -250,8 +242,6 @@ const mockCreateMessage = createMessage as ReturnType<typeof vi.fn>;
 const mockUpdateMessageEvidence = updateMessageEvidence as ReturnType<
 	typeof vi.fn
 >;
-const mockUpdateMessageHonchoMetadata =
-	updateMessageHonchoMetadata as ReturnType<typeof vi.fn>;
 const mockUpdateMessageWebCitationAudit =
 	updateMessageWebCitationAudit as ReturnType<typeof vi.fn>;
 const mockAssertPromptReadyAttachments =
@@ -339,25 +329,6 @@ describe("POST /api/chat/send", () => {
 			text: "Hello from AI!",
 			rawResponse: {},
 			contextStatus: undefined,
-			honchoContext: {
-				source: "live",
-				waitedMs: 25,
-				queuePendingWorkUnits: 0,
-				queueInProgressWorkUnits: 0,
-				fallbackReason: null,
-				snapshotCreatedAt: 123,
-			},
-			honchoSnapshot: {
-				createdAt: 123,
-				summary: "Latest Honcho summary",
-				messages: [
-					{
-						role: "assistant",
-						content: "Hello from AI!",
-						createdAt: Date.now(),
-					},
-				],
-			},
 		});
 
 		const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
@@ -379,15 +350,6 @@ describe("POST /api/chat/send", () => {
 				},
 				attachmentIds: [],
 			}),
-		);
-		expect(mockUpdateMessageHonchoMetadata).toHaveBeenCalledWith(
-			"assistant-msg",
-			{
-				honchoContext: expect.objectContaining({ source: "live" }),
-				honchoSnapshot: expect.objectContaining({
-					summary: "Latest Honcho summary",
-				}),
-			},
 		);
 	});
 

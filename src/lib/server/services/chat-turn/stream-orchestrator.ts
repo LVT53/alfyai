@@ -85,8 +85,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	ModelId,
 	ResponseActivityEntry,
 	TaskState,
@@ -250,7 +248,6 @@ export interface StreamOrchestratorOptions {
 	requestStartTime: number;
 	startedResetGeneration?: StreamCompletionFact<number>;
 	isReconnect?: boolean;
-	skipHonchoContext?: boolean;
 	systemPromptAppendix?: string;
 	routePhaseTimings?: StreamPhaseTimings;
 }
@@ -286,7 +283,6 @@ export function runChatStreamOrchestrator(
 		requestStartTime,
 		startedResetGeneration,
 		isReconnect,
-		skipHonchoContext,
 		systemPromptAppendix: retryAppendix,
 		routePhaseTimings,
 		prepareTurn,
@@ -816,8 +812,6 @@ export function runChatStreamOrchestrator(
 			let latestActiveWorkingSet: WorkingSetItem[] | undefined;
 			let latestTaskState: TaskState | null | undefined;
 			let latestContextDebug: ContextDebugState | null | undefined;
-			let latestHonchoContext: HonchoContextInfo | null | undefined;
-			let latestHonchoSnapshot: HonchoContextSnapshot | null | undefined;
 			let latestContextTraceSections:
 				| LegacyContextTraceSectionInput[]
 				| undefined;
@@ -893,8 +887,6 @@ export function runChatStreamOrchestrator(
 					latestActiveWorkingSet,
 					latestTaskState,
 					latestContextDebug,
-					latestHonchoContext,
-					latestHonchoSnapshot,
 					latestContextTraceSections,
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
@@ -1077,7 +1069,6 @@ export function runChatStreamOrchestrator(
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),
 					personalityPrompt,
-					skipHonchoContext,
 					onContextStatus: (status) => {
 						latestContextStatus = status;
 						initialContextStatus = status;
@@ -1089,12 +1080,6 @@ export function runChatStreamOrchestrator(
 					onContextDebug: (debug) => {
 						latestContextDebug = debug;
 						initialContextDebug = debug;
-					},
-					onHonchoContext: (ctx) => {
-						latestHonchoContext = ctx;
-					},
-					onHonchoSnapshot: (snap) => {
-						latestHonchoSnapshot = snap;
 					},
 					onProviderUsage: (usage) => {
 						latestProviderUsage = usage;
@@ -1272,8 +1257,6 @@ export function runChatStreamOrchestrator(
 						() => null,
 					));
 				initialContextDebug = latestContextDebug;
-				latestHonchoContext = prepared.honchoContext ?? null;
-				latestHonchoSnapshot = prepared.honchoSnapshot ?? null;
 				latestContextTraceSections = prepared.contextTraceSections;
 				initialContextTraceSections = latestContextTraceSections;
 				emitResponseActivity({

@@ -12,7 +12,7 @@ import {
 	serializeWorkingSetArtifacts,
 	truncateToTokenBudget,
 } from "$lib/server/utils/prompt-context";
-import { clipText } from "$lib/server/utils/text";
+import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import {
 	detectTopicShift,
 	shouldSuppressCarryover,
@@ -22,8 +22,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	ForkContextProvenanceSummary,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
+	ForkCopyMetadata,
 	LinkedContextSource,
 	MemoryLayer,
 } from "$lib/types";
@@ -34,9 +33,12 @@ import {
 	logAttachmentTrace,
 	summarizeAttachmentTraceText,
 } from "../attachment-trace";
-import type { ContextCompressionSnapshot } from "../context-compression";
+import {
+	type ContextCompressionSnapshot,
+	listContextCompressionSourceMessages,
+} from "../context-compression";
 import { getConversationForkOrigin } from "../conversation-forks";
-import { loadHonchoPromptContext, type PromptContextMessage } from "../honcho";
+import { getConversationSummary } from "../conversation-summaries";
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
@@ -61,6 +63,7 @@ import {
 	type MemoryProfileScope,
 } from "../memory-profile/active-context";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
 	getConversationProjectLabel,
@@ -93,8 +96,17 @@ import type {
 	LegacyContextTraceSectionInput,
 } from "./context-trace";
 
-const HONCHO_LIVE_CONTEXT_TOKENS = 2_000;
+const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
+
+type PromptContextMessage = {
+	id?: string;
+	role: "user" | "assistant";
+	content: string;
+	createdAt: number;
+	messageSequence?: number;
+	forkCopy?: ForkCopyMetadata;
+};
 const ATTACHMENT_TASK_PER_ATTACHMENT_TOKEN_BUDGET = 2_400;
 const ATTACHMENT_EXCERPT_PER_ATTACHMENT_TOKEN_BUDGET = 600;
 const RECENT_TURN_COUNT = 3;
@@ -191,12 +203,21 @@ async function recordPromptMemoryTelemetry(params: {
 	}
 }
 
+const ACTIVE_MEMORY_PROFILE_SECTION_TITLE = "Baseline Memory Profile";
+const PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS = 120;
+
+type ActiveMemoryProfilePromptSection = {
+	section: PromptContextSection;
+	itemIds: string[];
+	itemTitles: string[];
+};
+
 async function buildActiveMemoryProfilePromptSection(params: {
 	userId: string;
 	conversationId: string;
 	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
-}): Promise<PromptContextSection | null> {
+}): Promise<ActiveMemoryProfilePromptSection | null> {
 	let context: ActiveMemoryProfileContext;
 	try {
 		context = await getActiveMemoryProfileContext({
@@ -271,12 +292,27 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		},
 	});
 
+	const statementById = new Map(
+		context.items.map((item) => [item.id, item.statement] as const),
+	);
+	const itemIds = formattedContext.includedItemIds ?? [];
+	const itemTitles = itemIds.map((itemId) =>
+		clipText(
+			normalizeWhitespace(statementById.get(itemId) ?? ""),
+			PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS,
+		),
+	);
+
 	return {
-		title: "Baseline Memory Profile",
-		body,
-		layer: "session",
-		protected: true,
-		llmCompactible: true,
+		section: {
+			title: ACTIVE_MEMORY_PROFILE_SECTION_TITLE,
+			body,
+			layer: "session",
+			protected: true,
+			llmCompactible: true,
+		},
+		itemIds,
+		itemTitles,
 	};
 }
 
@@ -365,6 +401,7 @@ function buildContextSelectionCandidates(params: {
 	attachmentContext?: BudgetedAttachmentContext | null;
 	carriedForwardAttachmentContext?: BudgetedAttachmentContext | null;
 	projectFolderSiblingPromotion?: ProjectFolderSiblingPromotionContext | null;
+	personaMemoryProfile?: ActiveMemoryProfilePromptSection | null;
 	documentContextIntent?: DocumentContextIntent;
 	documentDepthBudget?: DocumentContextDepthBudget | null;
 	linkedSourceItems?: Array<{
@@ -392,6 +429,9 @@ function buildContextSelectionCandidates(params: {
 		const isEvidenceSection = section.title === "Retrieved Evidence";
 		const isProjectFolderSiblingSection =
 			section.title === "Project Folder Sibling Context";
+		const isPersonaMemorySection =
+			section.title === ACTIVE_MEMORY_PROFILE_SECTION_TITLE &&
+			Boolean(params.personaMemoryProfile);
 		const attachmentItems = isAttachmentSection
 			? (params.attachmentContext?.items ?? [])
 			: isCarriedForwardAttachmentSection
@@ -412,20 +452,24 @@ function buildContextSelectionCandidates(params: {
 				: inferContextTraceSourceForSection(section),
 			layer: section.layer,
 			protected: section.protected,
-			itemIds: isEvidenceSection
-				? evidenceItems.map((item) => item.id)
-				: isLinkedSourceSection
-					? linkedSourceItems.map((item) => item.id)
-					: promotedSibling
-						? [`conversation:${promotedSibling.conversationId}`]
-						: attachmentItems.map((item) => item.id),
-			itemTitles: isEvidenceSection
-				? evidenceItems.map((item) => item.title)
-				: isLinkedSourceSection
-					? linkedSourceItems.map((item) => item.title)
-					: promotedSibling
-						? [promotedSibling.title]
-						: attachmentItems.map((item) => item.title),
+			itemIds: isPersonaMemorySection
+				? (params.personaMemoryProfile?.itemIds ?? [])
+				: isEvidenceSection
+					? evidenceItems.map((item) => item.id)
+					: isLinkedSourceSection
+						? linkedSourceItems.map((item) => item.id)
+						: promotedSibling
+							? [`conversation:${promotedSibling.conversationId}`]
+							: attachmentItems.map((item) => item.id),
+			itemTitles: isPersonaMemorySection
+				? (params.personaMemoryProfile?.itemTitles ?? [])
+				: isEvidenceSection
+					? evidenceItems.map((item) => item.title)
+					: isLinkedSourceSection
+						? linkedSourceItems.map((item) => item.title)
+						: promotedSibling
+							? [promotedSibling.title]
+							: attachmentItems.map((item) => item.title),
 			signalReasons:
 				isAttachmentSection && params.attachmentContext
 					? [
@@ -452,7 +496,7 @@ function buildContextSelectionCandidates(params: {
 									]
 								: isEvidenceSection
 									? documentContextSignalReasons
-									: section.title === "Honcho Session Context"
+									: section.title === "Session Context"
 										? ["recent_turn_context:budgeted"]
 										: section.title === "Context Compression Snapshot"
 											? ["context_compression_snapshot:valid"]
@@ -789,6 +833,51 @@ function selectRawSessionMessagesAfterCompressionSnapshot(params: {
 	);
 }
 
+type SessionPromptContext = {
+	sessionMessages: PromptContextMessage[];
+	storedMessages: PromptContextMessage[];
+	summary: string | null;
+};
+
+/**
+ * Load the local continuity context for a turn: the conversation's own stored
+ * messages (with message sequences for compaction-aware filtering) plus its
+ * maintained conversation summary.
+ */
+async function loadSessionPromptContext(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<SessionPromptContext> {
+	const [storedMessages, sourceMessages, summary] = await Promise.all([
+		listMessages(params.conversationId).catch(() => []),
+		listContextCompressionSourceMessages(params.conversationId).catch(() => []),
+		getConversationSummary({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}).catch(() => null),
+	]);
+
+	const sequenceByMessageId = new Map(
+		sourceMessages.map((message) => [message.id, message.messageSequence]),
+	);
+	const promptMessages: PromptContextMessage[] = storedMessages
+		.map((message) => ({
+			id: message.id,
+			role: message.role,
+			content: message.content,
+			createdAt: message.timestamp,
+			messageSequence: sequenceByMessageId.get(message.id),
+			forkCopy: message.forkCopy,
+		}))
+		.sort((a, b) => a.createdAt - b.createdAt);
+
+	return {
+		sessionMessages: promptMessages,
+		storedMessages: promptMessages,
+		summary: summary?.summary ?? null,
+	};
+}
+
 function summarizeForkContextProvenance(params: {
 	messages: PromptContextMessage[];
 	copiedForkPointMessageId?: string | null;
@@ -882,7 +971,6 @@ function resolveContextLatencyTier(params: {
 }
 
 function buildMinimalContextDebugState(params: {
-	honchoContext: HonchoContextInfo | null;
 	forkProvenance?: ForkContextProvenanceSummary | null;
 }): ContextDebugState {
 	return {
@@ -896,7 +984,6 @@ function buildMinimalContextDebugState(params: {
 		selectedEvidenceBySource: [],
 		pinnedEvidence: [],
 		excludedEvidence: [],
-		honcho: params.honchoContext,
 		forkProvenance: params.forkProvenance ?? null,
 	};
 }
@@ -915,8 +1002,6 @@ async function buildShallowConstructedContext(params: {
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
@@ -929,11 +1014,9 @@ async function buildShallowConstructedContext(params: {
 		contextCompressionPromptSnapshot,
 		activeMemoryProfileSection,
 	] = await Promise.all([
-		loadHonchoPromptContext({
+		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
-			message: params.message,
-			liveContextTokens: params.sessionHistoryBudget.totalBudget,
 		}),
 		loadContextCompressionPromptSnapshot({
 			userId: params.userId,
@@ -955,8 +1038,6 @@ async function buildShallowConstructedContext(params: {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		honchoContext,
-		honchoSnapshot,
 	} = sessionContext;
 	const promptSessionMessages = contextCompressionPromptSnapshot
 		? selectRawSessionMessagesAfterCompressionSnapshot({
@@ -1009,7 +1090,7 @@ async function buildShallowConstructedContext(params: {
 	}
 	if (sessionTurnContext.body) {
 		sections.push({
-			title: "Honcho Session Context",
+			title: "Session Context",
 			body: sessionTurnContext.body,
 			layer: "session",
 			protected: true,
@@ -1017,13 +1098,16 @@ async function buildShallowConstructedContext(params: {
 		});
 	}
 	if (activeMemoryProfileSection) {
-		sections.push(activeMemoryProfileSection);
+		sections.push(activeMemoryProfileSection.section);
 	}
 
 	const selectedPromptContext = selectPromptContext({
 		intro: "Context from your recent conversation:",
 		message: params.message,
-		candidates: buildContextSelectionCandidates({ sections }),
+		candidates: buildContextSelectionCandidates({
+			sections,
+			personaMemoryProfile: activeMemoryProfileSection,
+		}),
 		targetTokens: params.targetBudget,
 		initialCompactionMode: "none",
 		traceSignalReasons: [
@@ -1062,11 +1146,8 @@ async function buildShallowConstructedContext(params: {
 		contextStatus: status,
 		taskState: null,
 		contextDebug: buildMinimalContextDebugState({
-			honchoContext,
 			forkProvenance,
 		}),
-		honchoContext,
-		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
 	};
 }
@@ -1090,8 +1171,6 @@ export async function buildConstructedContext(params: {
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
-	honchoContext: HonchoContextInfo | null;
-	honchoSnapshot: HonchoContextSnapshot | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
@@ -1111,7 +1190,7 @@ export async function buildConstructedContext(params: {
 	});
 	const sessionHistoryBudget = deriveSessionHistoryBudget({
 		contextBudget: modelContextBudget,
-		minTotalBudget: HONCHO_LIVE_CONTEXT_TOKENS,
+		minTotalBudget: SESSION_HISTORY_CONTEXT_TOKENS,
 		minRecentTurnCount: RECENT_TURN_COUNT,
 	});
 	const latencyTier = resolveContextLatencyTier({
@@ -1146,11 +1225,9 @@ export async function buildConstructedContext(params: {
 		contextCompressionPromptSnapshot,
 		projectId,
 	] = await Promise.all([
-		loadHonchoPromptContext({
+		loadSessionPromptContext({
 			userId: params.userId,
 			conversationId: params.conversationId,
-			message: params.message,
-			liveContextTokens: sessionHistoryBudget.totalBudget,
 		}),
 		resolvePromptAttachmentArtifacts(params.userId, attachmentIds),
 		listConversationSourceArtifactIds(
@@ -1197,8 +1274,6 @@ export async function buildConstructedContext(params: {
 		sessionMessages,
 		storedMessages,
 		summary: sessionSummary,
-		honchoContext,
-		honchoSnapshot,
 	} = sessionContext;
 	const promptSessionMessages = contextCompressionPromptSnapshot
 		? selectRawSessionMessagesAfterCompressionSnapshot({
@@ -1670,7 +1745,7 @@ export async function buildConstructedContext(params: {
 
 	if (sessionTurnContext.body) {
 		sections.push({
-			title: "Honcho Session Context",
+			title: "Session Context",
 			body: sessionTurnContext.body,
 			layer: "session",
 			protected: true,
@@ -1679,7 +1754,7 @@ export async function buildConstructedContext(params: {
 	}
 
 	if (activeMemoryProfileSection) {
-		sections.push(activeMemoryProfileSection);
+		sections.push(activeMemoryProfileSection.section);
 	}
 
 	const effectiveSections = [
@@ -1733,6 +1808,7 @@ export async function buildConstructedContext(params: {
 			attachmentContext,
 			carriedForwardAttachmentContext,
 			projectFolderSiblingPromotion,
+			personaMemoryProfile: activeMemoryProfileSection,
 			documentContextIntent,
 			documentDepthBudget,
 			linkedSourceItems: linkedSourceArtifacts.map((artifact) => ({
@@ -1793,7 +1869,6 @@ export async function buildConstructedContext(params: {
 				debug
 					? {
 							...debug,
-							honcho: honchoContext,
 							forkProvenance,
 						}
 					: ({
@@ -1807,12 +1882,11 @@ export async function buildConstructedContext(params: {
 							selectedEvidenceBySource: [],
 							pinnedEvidence: [],
 							excludedEvidence: [],
-							honcho: honchoContext,
 							forkProvenance,
 						} satisfies ContextDebugState),
 			)
 			.catch(() =>
-				forkProvenance || honchoContext
+				forkProvenance
 					? ({
 							activeTaskId: null,
 							activeTaskObjective: null,
@@ -1824,13 +1898,10 @@ export async function buildConstructedContext(params: {
 							selectedEvidenceBySource: [],
 							pinnedEvidence: [],
 							excludedEvidence: [],
-							honcho: honchoContext,
 							forkProvenance,
 						} satisfies ContextDebugState)
 					: null,
 			),
-		honchoContext,
-		honchoSnapshot,
 		contextTraceSections: selectedPromptContext.contextTraceSections,
 		_reuseData: params.reuseFrom
 			? undefined

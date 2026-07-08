@@ -17,10 +17,6 @@ import {
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
 import {
-	deleteAllHonchoStateForUser,
-	rotateHonchoPeerIdentity,
-} from "../honcho";
-import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	hardDeleteArtifactsForUser,
@@ -32,8 +28,6 @@ export async function resetKnowledgeBaseState(userId: string): Promise<{
 	deletedArtifactIds: string[];
 }> {
 	await advanceMemoryResetGeneration(userId);
-	await deleteAllHonchoStateForUser(userId);
-	await rotateHonchoPeerIdentity(userId);
 
 	const ownershipScope = await getArtifactOwnershipScope(userId);
 	const artifactRows = await db

@@ -157,7 +157,6 @@ describe("file-production architecture boundaries", () => {
 			'from "./storage-adapter"',
 			"from './storage-adapter'",
 			"$lib/server/services/chat-files",
-			"$lib/server/services/honcho",
 			"document-extraction",
 		]) {
 			expect(readModel).not.toContain(eagerImport);

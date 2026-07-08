@@ -9,7 +9,6 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import { mirrorWorkCapsuleConclusion } from "$lib/server/services/honcho";
 import {
 	attachArtifactsToMessage,
 	createGeneratedOutputArtifact,
@@ -22,14 +21,10 @@ import {
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store";
 import { recordMemoryEvent } from "$lib/server/services/memory-events";
 import { runUserMemoryMaintenance } from "$lib/server/services/memory-maintenance";
-import { isCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
-import { intakePostTurnMemory } from "$lib/server/services/memory-profile/intake";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import {
 	createMessage,
-	listMessages,
 	updateMessageEvidence,
-	updateMessageHonchoMetadata,
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
@@ -49,7 +44,6 @@ import { resolveWorkingDocumentSelection } from "$lib/server/services/working-do
 import type {
 	ArtifactSummary,
 	ChatGeneratedFile,
-	ChatMessage,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
@@ -157,8 +151,6 @@ export type FinalizeChatTurnParams = {
 	initialContextDebug: PersistAssistantTurnStateParams["initialContextDebug"];
 	analytics: PersistAssistantTurnStateParams["analytics"];
 	continuitySource: PersistAssistantTurnStateParams["continuitySource"];
-	honchoContext: PersistAssistantTurnStateParams["honchoContext"];
-	honchoSnapshot: PersistAssistantTurnStateParams["honchoSnapshot"];
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
 	startedResetGeneration?: number;
@@ -180,7 +172,6 @@ export type FinalizeChatTurnParams = {
 	deferPostTurnProjection?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
-	skipHonchoEnrichment?: boolean;
 };
 
 function buildSkillControlLogContext(params: {
@@ -272,24 +263,6 @@ function isArtifactSummaryLike(value: unknown): value is ArtifactSummary {
 		"type" in value &&
 		typeof value.type === "string"
 	);
-}
-
-function compactRecentMemoryIntakeMessages(messages: ChatMessage[]): Array<{
-	id: string;
-	role: "user" | "assistant";
-	content: string;
-}> {
-	return messages
-		.filter(
-			(message): message is ChatMessage & { role: "user" | "assistant" } =>
-				message.role === "user" || message.role === "assistant",
-		)
-		.slice(-12)
-		.map((message) => ({
-			id: message.id,
-			role: message.role,
-			content: message.content,
-		}));
 }
 
 async function createTurnMessage(
@@ -621,9 +594,6 @@ export async function finalizeChatTurn(
 						assistantMessageId: assistantMessage.id,
 						analytics: params.analytics,
 						continuitySource: params.continuitySource,
-						honchoContext: params.honchoContext,
-						honchoSnapshot: params.honchoSnapshot,
-						skipHonchoEnrichment: params.skipHonchoEnrichment,
 					});
 				}
 
@@ -700,7 +670,6 @@ export async function finalizeChatTurn(
 							startedResetGeneration: params.startedResetGeneration,
 							skipAssistantProseMemoryIntake:
 								params.skipAssistantProseMemoryIntake,
-							skipHonchoEnrichment: params.skipHonchoEnrichment,
 						});
 
 					if (waitForEvidenceBeforePostTurnTasks) {
@@ -794,9 +763,6 @@ export async function finalizeChatTurn(
 			assistantMessageId: assistantMessage.id,
 			analytics: params.analytics,
 			continuitySource: params.continuitySource,
-			honchoContext: params.honchoContext,
-			honchoSnapshot: params.honchoSnapshot,
-			skipHonchoEnrichment: params.skipHonchoEnrichment,
 		});
 	}
 
@@ -840,7 +806,6 @@ export async function finalizeChatTurn(
 							startedResetGeneration: params.startedResetGeneration,
 							skipAssistantProseMemoryIntake:
 								params.skipAssistantProseMemoryIntake,
-							skipHonchoEnrichment: params.skipHonchoEnrichment,
 						}),
 					)
 				: runPostTurnTasksImpl({
@@ -858,7 +823,6 @@ export async function finalizeChatTurn(
 						startedResetGeneration: params.startedResetGeneration,
 						skipAssistantProseMemoryIntake:
 							params.skipAssistantProseMemoryIntake,
-						skipHonchoEnrichment: params.skipHonchoEnrichment,
 					})
 			: Promise.resolve();
 
@@ -1050,12 +1014,6 @@ export async function persistAssistantTurnState(
 			),
 		);
 	}
-	if (!params.skipHonchoEnrichment) {
-		await updateMessageHonchoMetadata(params.assistantMessageId, {
-			honchoContext: params.honchoContext,
-			honchoSnapshot: params.honchoSnapshot,
-		}).catch(() => undefined);
-	}
 	const contextDebug = await getContextDebugState(
 		params.userId,
 		params.conversationId,
@@ -1135,50 +1093,60 @@ export async function persistAssistantEvidence(
 export async function runPostTurnTasks(
 	params: RunPostTurnTasksParams,
 ): Promise<void> {
-	const honchoTasks: Promise<unknown>[] = [];
+	const postTurnTasks: Promise<unknown>[] = [];
 	if (!params.skipAssistantProseMemoryIntake) {
-		honchoTasks.push(
+		postTurnTasks.push(
 			(async () => {
-				const recentMessages = await listMessages(params.conversationId)
-					.then(compactRecentMemoryIntakeMessages)
-					.catch(() => []);
-				return intakePostTurnMemory({
-					userId: params.userId,
-					conversationId: params.conversationId,
-					userMessage: params.userMessage,
-					assistantMessage:
-						params.assistantMirrorContent ?? params.assistantResponse,
-					userMessageId: params.userMessageId ?? null,
-					assistantMessageId: params.assistantMessageId ?? null,
-					startedResetGeneration: params.startedResetGeneration,
-					recentMessages,
-				});
-			})().catch((err) =>
-				console.error("[MEMORY_INTAKE] Post-turn intake failed:", err),
-			),
-		);
-	}
-
-	const workCapsule = params.workCapsule;
-	if (!params.skipHonchoEnrichment && workCapsule?.workflowSummary) {
-		honchoTasks.push(
-			(async () => {
-				if (
-					params.startedResetGeneration !== undefined &&
-					!(await isCurrentMemoryResetGeneration({
+				const { detectExplicitMemoryRequest, scheduleConversationJudge } =
+					await import("../memory-judge/runner");
+				const { markMemoryDirty } = await import(
+					"../memory-profile/dirty-ledger"
+				);
+				const { countUnjudgedMessages } = await import(
+					"../memory-judge/segment"
+				);
+				if (detectExplicitMemoryRequest(params.userMessage)) {
+					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
+					await runMemoryJudgeOnSegment({
 						userId: params.userId,
-						resetGeneration: params.startedResetGeneration,
-					}))
-				) {
+						conversationId: params.conversationId,
+						trigger: "explicit",
+						segmentOverride: [
+							{ role: "user", content: params.userMessage },
+							{
+								role: "assistant",
+								content:
+									params.assistantMirrorContent ?? params.assistantResponse,
+							},
+						],
+					});
 					return;
 				}
-				await mirrorWorkCapsuleConclusion({
+				await markMemoryDirty({
+					userId: params.userId,
+					reason: "deferred_intake",
+					scope: { type: "conversation", id: params.conversationId },
+				});
+				if (
+					(await countUnjudgedMessages({
+						userId: params.userId,
+						conversationId: params.conversationId,
+					})) >= 25
+				) {
+					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
+					await runMemoryJudgeOnSegment({
+						userId: params.userId,
+						conversationId: params.conversationId,
+						trigger: "marathon",
+					});
+					return;
+				}
+				scheduleConversationJudge({
 					userId: params.userId,
 					conversationId: params.conversationId,
-					content: `${workCapsule.taskSummary ?? workCapsule.artifact.name}\n${workCapsule.workflowSummary}`,
 				});
 			})().catch((err) =>
-				console.error("[HONCHO] Mirror work capsule failed:", err),
+				console.error("[MEMORY_JUDGE] Post-turn trigger failed:", err),
 			),
 		);
 	}
@@ -1200,7 +1168,7 @@ export async function runPostTurnTasks(
 			: Promise.resolve();
 
 	try {
-		await Promise.allSettled([...honchoTasks, summaryRefreshTask]);
+		await Promise.allSettled([...postTurnTasks, summaryRefreshTask]);
 		void runUserMemoryMaintenance(
 			params.userId,
 			params.maintenanceReason,

@@ -18,6 +18,11 @@ import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import {
+	ensureMemoryConsolidationScheduler,
+	stopMemoryConsolidationScheduler,
+} from "$lib/server/services/memory-consolidation";
+import { stopMemoryJudgeRunner } from "$lib/server/services/memory-judge/runner";
+import {
 	ensureMemoryMaintenanceScheduler,
 	stopMemoryMaintenanceScheduler,
 } from "$lib/server/services/memory-maintenance";
@@ -101,6 +106,7 @@ export const init: ServerInit = async () => {
 		console.error("Failed to seed default providers:", error),
 	);
 	ensureMemoryMaintenanceScheduler();
+	ensureMemoryConsolidationScheduler();
 	prewarmSandboxImageInBackground();
 	ensureFileProductionWorker().catch((error) =>
 		console.error("Failed to start file production worker:", error),
@@ -117,6 +123,8 @@ export const init: ServerInit = async () => {
 	process.on("sveltekit:shutdown", (_reason: string) => {
 		console.log("[SHUTDOWN] Server closed, stopping background workers");
 		stopMemoryMaintenanceScheduler();
+		stopMemoryConsolidationScheduler();
+		stopMemoryJudgeRunner();
 		// Give in-flight work (Atlas jobs, active responses) a grace period
 		// to complete naturally. systemd TimeoutStopSec=90 is the hard cap.
 		setTimeout(() => {

@@ -6,10 +6,8 @@ const mockRecordMemoryReworkTelemetry = vi.fn();
 const mockUpdateMemoryProfileItemWithRevision = vi.fn();
 const mockApplyMemoryReviewItemWithRevision = vi.fn();
 const mockRunUserMemoryMaintenance = vi.fn();
-const mockListPersonaMemories = vi.fn();
 const mockListTaskMemoryItems = vi.fn();
 const mockListFocusContinuityItems = vi.fn();
-const mockGetPeerContext = vi.fn();
 
 vi.mock("./memory-profile", () => ({
 	applyMemoryReviewItemWithRevision: mockApplyMemoryReviewItemWithRevision,
@@ -21,11 +19,6 @@ vi.mock("./memory-profile", () => ({
 
 vi.mock("./memory-maintenance", () => ({
 	runUserMemoryMaintenance: mockRunUserMemoryMaintenance,
-}));
-
-vi.mock("./honcho", () => ({
-	getPeerContext: mockGetPeerContext,
-	listPersonaMemories: mockListPersonaMemories,
 }));
 
 vi.mock("./task-state", () => ({
@@ -81,6 +74,7 @@ const publicProfile = {
 		items: group.items.map((item) => ({
 			...item,
 			updatedAt: item.updatedAt.toISOString(),
+			expiresAt: null,
 		})),
 	})),
 };
@@ -140,20 +134,17 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_read",
 			},
 		});
-		expect(mockGetPeerContext).not.toHaveBeenCalled();
-		expect(mockListPersonaMemories).not.toHaveBeenCalled();
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
 		expect(mockRunUserMemoryMaintenance).not.toHaveBeenCalled();
 		expect(payloadJson).not.toContain("taskMemories");
 		expect(payloadJson).not.toContain("focusContinuities");
 		expect(payloadJson).not.toContain("personaMemories");
-		expect(payloadJson).not.toContain("honcho");
 		expect(payloadJson).not.toContain("confidence");
 		expect(payloadJson).not.toContain("debug");
 	});
 
-	it("queues legacy migration without blocking an empty projection-backed memory profile read", async () => {
+	it("queues maintenance without blocking an empty projection-backed memory profile read", async () => {
 		const maintenancePromise = new Promise<void>(() => {});
 		mockRunUserMemoryMaintenance.mockReturnValueOnce(maintenancePromise);
 		mockGetMemoryProfileReadModel.mockResolvedValueOnce(emptyProjectionProfile);
@@ -170,14 +161,9 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_read",
 			},
 		});
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "legacy_migration",
-			scope: { type: "global" },
-			metadata: {
-				source: "knowledge_memory_read",
-			},
-		});
+		expect(mockMarkMemoryDirty).not.toHaveBeenCalledWith(
+			expect.objectContaining({ reason: "legacy_migration" }),
+		);
 		await vi.waitFor(() => {
 			expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
 				"user-1",
@@ -206,13 +192,10 @@ describe("knowledge memory service", () => {
 				source: "knowledge_memory_overview_force_read",
 			},
 		});
-		expect(mockGetPeerContext).not.toHaveBeenCalled();
-		expect(mockListPersonaMemories).not.toHaveBeenCalled();
 		expect(mockListTaskMemoryItems).not.toHaveBeenCalled();
 		expect(mockListFocusContinuityItems).not.toHaveBeenCalled();
 		expect(payloadJson).not.toContain("taskMemories");
 		expect(payloadJson).not.toContain("focusContinuities");
-		expect(payloadJson).not.toContain("honcho");
 	});
 
 	it("deletes a profile item with projection revision protection and queues reconciliation", async () => {

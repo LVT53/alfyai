@@ -33,10 +33,6 @@ import { cancelActiveAtlasJobsForUser } from "../atlas";
 import { verifyPassword } from "../auth";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
 import { purgeUserData } from "../cleanup/user-cleanup";
-import {
-	deleteAllHonchoStateForUser,
-	rotateHonchoPeerIdentity,
-} from "../honcho";
 import { hardDeleteArtifactsForUser } from "../knowledge";
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
 import { advanceMemoryResetGeneration } from "../memory-profile";
@@ -97,7 +93,6 @@ export async function clearWorkspaceData(
 
 	await quiesceUserWorkspace(userId);
 	await purgeUserData(userId);
-	await rotateHonchoPeerIdentity(userId);
 
 	return { status: "reset" };
 }
@@ -310,8 +305,6 @@ async function clearMemoryAndKnowledgeForUser(
 	userId: string,
 ): Promise<string[]> {
 	await advanceMemoryResetGeneration(userId);
-	await deleteAllHonchoStateForUser(userId);
-	await rotateHonchoPeerIdentity(userId);
 
 	const artifactRows = await db
 		.select({ id: artifacts.id })

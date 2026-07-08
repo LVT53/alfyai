@@ -59,7 +59,6 @@ describe("schema core tables", () => {
 			expect(user?.id).toBe(userId);
 			expect(user?.email).toBe("test@example.com");
 			expect(user?.name).toBe("Test User");
-			expect(user?.honchoPeerVersion).toBe(0);
 		});
 
 		it("keeps model preference storage non-null with a separate inheritance mode", () => {

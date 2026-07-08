@@ -75,7 +75,6 @@ describe("Environment Configuration", () => {
 		delete process.env.REQUEST_TIMEOUT_MS;
 		delete process.env.MAX_MESSAGE_LENGTH;
 		delete process.env.COMPOSER_COMMAND_REGISTRY_ENABLED;
-		delete process.env.MEMORY_LEGACY_CURATION_MODEL;
 		delete process.env.DATABASE_PATH;
 
 		const { config } = await import("./env");
@@ -115,7 +114,6 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
 		expect(config.modelTimeoutFailoverTimeoutMs).toBe(60000);
 		expect(config.modelTimeoutFailoverTargetModel).toBe("model2");
-		expect(config.memoryLegacyCurationModel).toBe("model1");
 		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(1_048_576);
 		expect(config.sessionSecret).toBe(
@@ -199,8 +197,6 @@ describe("Environment Configuration", () => {
 		process.env.MODEL_TIMEOUT_FAILOVER_ENABLED = "true";
 		process.env.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS = "2500";
 		process.env.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = "provider:backup:model-a";
-		process.env.MEMORY_LEGACY_CURATION_MODEL =
-			"provider:memory-curator:model-a";
 		process.env.COMPOSER_COMMAND_REGISTRY_ENABLED = "true";
 		process.env.MAX_MESSAGE_LENGTH = "5000";
 		process.env.SESSION_SECRET =
@@ -250,24 +246,12 @@ describe("Environment Configuration", () => {
 		expect(config.modelTimeoutFailoverTargetModel).toBe(
 			"provider:backup:model-a",
 		);
-		expect(config.memoryLegacyCurationModel).toBe(
-			"provider:memory-curator:model-a",
-		);
 		expect(config.composerCommandRegistryEnabled).toBe(true);
 		expect(config.maxMessageLength).toBe(5000);
 		expect(config.sessionSecret).toBe(
 			"test-session-secret-12345678901234567890123456789012",
 		);
 		expect(config.databasePath).toBe("./test-data/test.db");
-	});
-
-	it("should fall back when MEMORY_LEGACY_CURATION_MODEL is invalid", async () => {
-		process.env.SESSION_SECRET =
-			"test-session-secret-12345678901234567890123456789012";
-		process.env.MEMORY_LEGACY_CURATION_MODEL = "missing-model";
-
-		const { config } = await import("./env");
-		expect(config.memoryLegacyCurationModel).toBe("model1");
 	});
 
 	it("should ignore retired WEBHOOK_PORT values at boot", async () => {

@@ -15,8 +15,6 @@ describe("runNonStreamFallback", () => {
 	const mockOnContextStatus = vi.fn();
 	const mockOnTaskState = vi.fn();
 	const mockOnContextDebug = vi.fn();
-	const mockOnHonchoContext = vi.fn();
-	const mockOnHonchoSnapshot = vi.fn();
 	const mockOnProviderUsage = vi.fn();
 	const mockOnRecoveredToolCalls = vi.fn();
 	const mockOnContextPreparationTimings = vi.fn();
@@ -46,8 +44,6 @@ describe("runNonStreamFallback", () => {
 		contextStatus: { active: true } as Record<string, unknown>,
 		taskState: { id: "task-1" } as Record<string, unknown>,
 		contextDebug: { debug: true } as Record<string, unknown>,
-		honchoContext: { peer: "peer-1" } as Record<string, unknown>,
-		honchoSnapshot: { snap: "snap-1" } as Record<string, unknown>,
 		providerUsage: { tokens: 100 } as Record<string, unknown>,
 	};
 
@@ -66,12 +62,9 @@ describe("runNonStreamFallback", () => {
 			signal: new AbortController().signal,
 			systemPromptAppendix: undefined,
 			personalityPrompt: undefined,
-			skipHonchoContext: undefined,
 			onContextStatus: mockOnContextStatus,
 			onTaskState: mockOnTaskState,
 			onContextDebug: mockOnContextDebug,
-			onHonchoContext: mockOnHonchoContext,
-			onHonchoSnapshot: mockOnHonchoSnapshot,
 			onProviderUsage: mockOnProviderUsage,
 			onRecoveredToolCalls: mockOnRecoveredToolCalls,
 			onContextPreparationTimings: mockOnContextPreparationTimings,
@@ -116,7 +109,6 @@ describe("runNonStreamFallback", () => {
 		await callFallback({
 			systemPromptAppendix: "retry fresh",
 			personalityPrompt: "be terse",
-			skipHonchoContext: true,
 		});
 
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
@@ -220,16 +212,6 @@ describe("runNonStreamFallback", () => {
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			...defaultFallbackResponse,
 			contextDebug: null,
-		});
-
-		await callFallback();
-	});
-
-	it("handles null honchoContext and honchoSnapshot gracefully", async () => {
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			...defaultFallbackResponse,
-			honchoContext: null,
-			honchoSnapshot: null,
 		});
 
 		await callFallback();

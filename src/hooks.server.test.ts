@@ -57,6 +57,7 @@ vi.mock("$lib/server/services/auth", () => ({
 
 vi.mock("$lib/server/config-store", () => ({
 	refreshConfig: mockRefreshConfig,
+	getConfig: vi.fn(() => ({ memoryConsolidationIntervalMinutes: 0 })),
 }));
 
 vi.mock("$lib/server/services/memory-maintenance", () => ({

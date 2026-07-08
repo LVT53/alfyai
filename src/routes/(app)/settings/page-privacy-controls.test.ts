@@ -41,7 +41,6 @@ vi.mock("$lib/client/api/settings", async () => {
 			filename: "AlfyAI Data Archive 2026-06-15.zip",
 		}),
 		fetchAnalytics: vi.fn().mockResolvedValue(null),
-		fetchHonchoHealth: vi.fn().mockResolvedValue(null),
 		saveBlobAsDownload: vi.fn(),
 		updateUserPreferences: vi.fn().mockResolvedValue(undefined),
 	};

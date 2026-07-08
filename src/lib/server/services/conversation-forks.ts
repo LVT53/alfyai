@@ -381,8 +381,6 @@ function copyMetadata(
 	delete next.pendingSkillNoteIntents;
 	delete next.skillDrafts;
 	delete next.skillControl;
-	delete next.honchoContext;
-	delete next.honchoSnapshot;
 	delete next.evidenceStatus;
 	const evidenceSummary =
 		sourceMetadata.evidenceSummary &&

@@ -304,8 +304,6 @@ function createNeutralStreamingResult(
 			contextStatus: null,
 			taskState: null,
 			contextDebug: null,
-			honchoContext: null,
-			honchoSnapshot: null,
 			contextTraceSections: undefined,
 		},
 		modelId: "model1",
@@ -1064,8 +1062,6 @@ describe("stream-orchestrator SSE contract", () => {
 						contextStatus: null,
 						taskState: null,
 						contextDebug: null,
-						honchoContext: null,
-						honchoSnapshot: null,
 						contextTraceSections: undefined,
 						contextPreparationTimings: [
 							{
@@ -1207,8 +1203,6 @@ describe("stream-orchestrator SSE contract", () => {
 				pinnedEvidence: [],
 				excludedEvidence: [],
 			},
-			honchoContext: { source: "live" },
-			honchoSnapshot: { summary: "Snapshot" },
 			contextTraceSections: [{ title: "Trace", items: [] }],
 		};
 		(
@@ -1233,8 +1227,6 @@ describe("stream-orchestrator SSE contract", () => {
 				contextStatus: prepared.contextStatus,
 				initialTaskState: prepared.taskState,
 				initialContextDebug: prepared.contextDebug,
-				honchoContext: prepared.honchoContext,
-				honchoSnapshot: prepared.honchoSnapshot,
 			}),
 		);
 		expect(endPayload).not.toHaveProperty("contextStatus");
@@ -1429,8 +1421,6 @@ describe("stream-orchestrator SSE contract", () => {
 						contextStatus: null,
 						taskState: null,
 						contextDebug: null,
-						honchoContext: null,
-						honchoSnapshot: null,
 						contextTraceSections: undefined,
 						contextPreparationTimings: [
 							{
@@ -1452,8 +1442,6 @@ describe("stream-orchestrator SSE contract", () => {
 				contextStatus: null,
 				taskState: null,
 				contextDebug: null,
-				honchoContext: null,
-				honchoSnapshot: null,
 				providerUsage: null,
 				normalChatToolCalls: [],
 				modelId: "model1",
@@ -1576,8 +1564,6 @@ describe("stream-orchestrator SSE contract", () => {
 				contextStatus: null,
 				taskState: null,
 				contextDebug: null,
-				honchoContext: null,
-				honchoSnapshot: null,
 				providerUsage: null,
 				normalChatToolCalls: [],
 				modelId: "model1",

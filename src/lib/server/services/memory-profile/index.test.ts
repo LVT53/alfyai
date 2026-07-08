@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as activeContext from "./active-context";
 import * as dirtyLedger from "./dirty-ledger";
-import * as reconciliation from "./dirty-ledger-reconciliation";
 import * as facade from "./index";
-import * as legacyCuration from "./legacy-curation";
 import * as projectionStore from "./projection-store";
 import * as readModel from "./read-model";
 import * as resetGeneration from "./reset-generation";
@@ -31,11 +29,5 @@ describe("memory profile facade", () => {
 			review.createOrUpdateMemoryReviewItem,
 		);
 		expect(facade.markMemoryDirty).toBe(dirtyLedger.markMemoryDirty);
-		expect(facade.reconcileMemoryProfileDirtyLedgerForUser).toBe(
-			reconciliation.reconcileMemoryProfileDirtyLedgerForUser,
-		);
-		expect(facade.curatePreservedLegacyMemoryForUser).toBe(
-			legacyCuration.curatePreservedLegacyMemoryForUser,
-		);
 	});
 });

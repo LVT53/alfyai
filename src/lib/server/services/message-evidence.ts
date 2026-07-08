@@ -84,12 +84,34 @@ function candidateMatchesSelectedMemoryId(
 	return false;
 }
 
+function personaMemoryItemId(candidate: ToolEvidenceCandidate): string | null {
+	const metadataItemId = candidate.metadata?.memoryItemId;
+	if (typeof metadataItemId === "string" && metadataItemId.trim()) {
+		return metadataItemId.trim();
+	}
+	if (candidate.id.startsWith("memory-fact:")) {
+		return candidate.id.slice("memory-fact:".length) || null;
+	}
+	return null;
+}
+
+function isPersonaMemoryCandidate(candidate: ToolEvidenceCandidate): boolean {
+	// Persona-mode facts and the persona summary are ambient, always-material
+	// context: they are injected into every persona turn rather than explicitly
+	// picked, so they must reach the evidence group without a selected flag.
+	return (
+		personaMemoryItemId(candidate) !== null ||
+		candidate.id.startsWith("memory-context:summary:")
+	);
+}
+
 function isSelectedMemoryCandidate(
 	candidate: ToolEvidenceCandidate,
 	tool: ToolCallEntry,
 ): boolean {
 	const metadata = candidate.metadata;
 	return (
+		isPersonaMemoryCandidate(candidate) ||
 		candidate.selected === true ||
 		candidate.material === true ||
 		candidate.status === "selected" ||
@@ -133,6 +155,41 @@ function mergeChannels(
 	return Array.from(new Set([...(left ?? []), ...(right ?? [])]));
 }
 
+function buildAmbientPersonaFactItems(
+	contextTraceSections: LegacyContextTraceSectionInput[] | undefined,
+): MessageEvidenceItem[] {
+	const items: MessageEvidenceItem[] = [];
+	const seen = new Set<string>();
+	for (const section of contextTraceSections ?? []) {
+		if (
+			section.name !== "Baseline Memory Profile" ||
+			section.source !== "memory" ||
+			section.inclusionLevel === "omitted"
+		) {
+			continue;
+		}
+		const itemIds = section.itemIds ?? [];
+		const itemTitles = section.itemTitles ?? [];
+		for (let index = 0; index < itemIds.length; index += 1) {
+			const itemId = itemIds[index]?.trim();
+			if (!itemId || seen.has(itemId)) continue;
+			seen.add(itemId);
+			const title = itemTitles[index]?.trim() || "Remembered detail";
+			items.push({
+				id: `memory-fact:${itemId}`,
+				canonicalId: `memory:fact:${itemId}`,
+				title,
+				sourceType: "memory",
+				status: "reference",
+				description: "Durable memory recalled for this turn.",
+				channels: ["memory"],
+				metadata: { memoryItemId: itemId },
+			});
+		}
+	}
+	return items;
+}
+
 function buildMemoryGroup(params: {
 	contextStatus: ConversationContextStatus | null | undefined;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
@@ -140,6 +197,14 @@ function buildMemoryGroup(params: {
 }): MessageEvidenceGroup | null {
 	const items: MessageEvidenceItem[] = [];
 	const contextStatus = params.contextStatus;
+
+	// Per-fact persona memory injected ambiently this turn (Baseline Memory
+	// Profile). Each fact becomes a tappable evidence item carrying its
+	// memoryItemId so the UI can offer correct/don't-use/retire affordances.
+	const personaFactItems = buildAmbientPersonaFactItems(
+		params.contextTraceSections,
+	);
+	const hasPersonaFacts = personaFactItems.length > 0;
 
 	if (contextStatus?.taskStateApplied) {
 		items.push({
@@ -162,7 +227,12 @@ function buildMemoryGroup(params: {
 		});
 	}
 
-	if (contextStatus?.layersUsed.includes("session")) {
+	// Prefer the per-fact persona items when the ambient persona layer supplied
+	// them: one mental model, no duplicate "Session memory" chip. Fall back to
+	// the aggregate item when persona mode returned no facts this turn.
+	if (hasPersonaFacts) {
+		items.push(...personaFactItems);
+	} else if (contextStatus?.layersUsed.includes("session")) {
 		items.push({
 			id: "session-memory",
 			title: "Session memory",
@@ -213,19 +283,28 @@ function buildMemoryGroup(params: {
 				? (tool.candidates ?? [])
 						.filter((candidate) => candidate.sourceType === "memory")
 						.filter((candidate) => isSelectedMemoryCandidate(candidate, tool))
-						.map((candidate) => ({
-							id: candidate.id,
-							canonicalId: canonicalKeyForCandidate("memory", candidate),
-							title: candidate.title,
-							sourceType: "memory" as const,
-							status: "reference" as const,
-							description: candidate.snippet
-								? clipText(candidate.snippet, 180)
-								: null,
-							url: sanitizeUrl(candidate.url),
-							channels: ["memory"] as EvidenceChannel[],
-							metadata: memoryContextMetadata(tool),
-						}))
+						.map((candidate) => {
+							const memoryItemId = personaMemoryItemId(candidate);
+							const baseMetadata = memoryContextMetadata(tool);
+							// Preserve the per-fact memoryItemId so the UI can offer
+							// tap-to-correct/retire on the exact memory item.
+							const metadata = memoryItemId
+								? { ...(baseMetadata ?? {}), memoryItemId }
+								: baseMetadata;
+							return {
+								id: candidate.id,
+								canonicalId: canonicalKeyForCandidate("memory", candidate),
+								title: candidate.title,
+								sourceType: "memory" as const,
+								status: "reference" as const,
+								description: candidate.snippet
+									? clipText(candidate.snippet, 180)
+									: null,
+								url: sanitizeUrl(candidate.url),
+								channels: ["memory"] as EvidenceChannel[],
+								metadata,
+							};
+						})
 				: [],
 		),
 	).slice(0, MAX_SELECTED_MEMORY_TOOL_CANDIDATES);

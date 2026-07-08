@@ -223,8 +223,6 @@ describe("completeStreamTurn", () => {
 		latestActiveWorkingSet: undefined,
 		latestTaskState: null,
 		latestContextDebug: null,
-		latestHonchoContext: null,
-		latestHonchoSnapshot: null,
 		latestContextTraceSections: defaultLatestContextTraceSections,
 		latestProviderUsage: null,
 		serverTimeline: defaultServerTimeline,
@@ -299,7 +297,6 @@ describe("completeStreamTurn", () => {
 		selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
 		pinnedEvidence: [],
 		excludedEvidence: [],
-		honcho: null,
 	});
 
 	const taskState = (taskId: string): TaskState => ({

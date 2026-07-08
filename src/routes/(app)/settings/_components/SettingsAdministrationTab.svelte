@@ -26,9 +26,6 @@ let {
 	adminSaving = false,
 	adminMessage = "",
 	adminError = "",
-	honchoHealth = null,
-	honchoLoading = false,
-	onCheckHonchoHealth,
 	onSaveAdminConfig,
 	// ADR-0043 slice 18c: system analytics re-homed under Administration.
 	// Admin-only host — this whole tab only renders for admins.
@@ -55,13 +52,6 @@ let {
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
-	honchoHealth?: {
-		enabled: boolean;
-		connected: boolean;
-		workspace: string | null;
-	} | null;
-	honchoLoading?: boolean;
-	onCheckHonchoHealth: () => void | Promise<void>;
 	onSaveAdminConfig: () => void | Promise<void>;
 	systemAnalyticsData?: AnalyticsResponse | null;
 	systemAnalyticsLoading?: boolean;
@@ -275,9 +265,6 @@ async function handleDeleteUser(userId: string) {
 		{adminSaving}
 		{adminMessage}
 		{adminError}
-		{honchoHealth}
-		{honchoLoading}
-		{onCheckHonchoHealth}
 		{onSaveAdminConfig}
 	/>
 {:else if activePane === 'users'}

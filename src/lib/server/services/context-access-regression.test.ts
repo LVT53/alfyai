@@ -8,14 +8,6 @@ import * as schema from "$lib/server/db/schema";
 
 const mocks = vi.hoisted(() => {
 	const config = {
-		honchoApiKey: "test-api-key",
-		honchoBaseUrl: "http://honcho.test",
-		honchoWorkspace: "test-workspace",
-		honchoIdentityNamespace: "context-access-harness",
-		honchoEnabled: true,
-		honchoContextWaitMs: 100,
-		honchoContextPollIntervalMs: 10,
-		honchoPersonaContextWaitMs: 100,
 		contextDiagnosticsDebug: false,
 		teiEmbedderUrl: "",
 		teiEmbedderApiKey: "",
@@ -36,18 +28,6 @@ const mocks = vi.hoisted(() => {
 		model2CompactionUiThreshold: 209_715,
 		model2TargetConstructedContext: 157_286,
 	};
-	const peerContext = vi.fn(async () => ({
-		representation:
-			"Synthesized baseline profile: prefers concise technical answers and tracks cycling gear.",
-		peerCard: ["Works on Context Access v1"],
-	}));
-	const peerChat = vi.fn(
-		async () => "persona recall should only happen through memory_context",
-	);
-	const sessionContext = vi.fn(async () => ({
-		messages: [],
-		summary: null,
-	}));
 	const shortlistSemanticMatchesBySubject = vi.fn(
 		async (_params: SemanticSubjectMockParams) =>
 			[] as Array<{
@@ -59,9 +39,6 @@ const mocks = vi.hoisted(() => {
 
 	return {
 		config,
-		peerContext,
-		peerChat,
-		sessionContext,
 		shortlistSemanticMatchesBySubject,
 	};
 });
@@ -85,40 +62,6 @@ vi.mock("$lib/server/config-store", async (importActual) => {
 			mocks.config.workingSetPromptTokenBudget,
 		getSmallFileThreshold: () => mocks.config.smallFileThreshold,
 	};
-});
-
-vi.mock("@honcho-ai/sdk", () => {
-	function makePeer(id: string) {
-		return {
-			id,
-			context: mocks.peerContext,
-			chat: mocks.peerChat,
-			message: (
-				content: string,
-				options?: { metadata?: Record<string, unknown> },
-			) => ({
-				content,
-				metadata: options?.metadata ?? {},
-				peerId: id,
-				createdAt: new Date("2026-05-16T09:00:00.000Z").toISOString(),
-			}),
-		};
-	}
-
-	function Honcho() {
-		return {
-			peer: vi.fn(async (id: string) => makePeer(id)),
-			session: vi.fn(async (id: string) => ({
-				id,
-				setMetadata: vi.fn(async () => undefined),
-				setPeers: vi.fn(async () => undefined),
-				context: mocks.sessionContext,
-				addMessages: vi.fn(async () => undefined),
-			})),
-		};
-	}
-
-	return { Honcho };
 });
 
 vi.mock("$lib/server/services/semantic-ranking", () => ({
@@ -228,16 +171,6 @@ describe("Context Access v1 integrated regression harness", () => {
 		process.env.DATABASE_PATH = dbPath;
 		vi.resetModules();
 		vi.clearAllMocks();
-		mocks.config.honchoEnabled = true;
-		mocks.peerContext.mockResolvedValue({
-			representation:
-				"Synthesized baseline profile: prefers concise technical answers and tracks cycling gear.",
-			peerCard: ["Works on Context Access v1"],
-		});
-		mocks.sessionContext.mockResolvedValue({
-			messages: [],
-			summary: null,
-		});
 		mocks.shortlistSemanticMatchesBySubject.mockResolvedValue([]);
 	});
 
@@ -255,7 +188,7 @@ describe("Context Access v1 integrated regression harness", () => {
 		}
 	});
 
-	it("assembles baseline Honcho profile, fuzzy document evidence, and account history before relying on tools", async () => {
+	it("assembles baseline projection profile, fuzzy document evidence, and account history before relying on tools", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		seedUserAndConversation(db);
 		seedMemoryProjection(db);
@@ -386,9 +319,7 @@ describe("Context Access v1 integrated regression harness", () => {
 		expect(constructed.inputValue).not.toContain(
 			"Suppressed profile item should not appear.",
 		);
-		expect(mocks.peerContext).toHaveBeenCalled();
-		expect(mocks.peerChat).not.toHaveBeenCalled();
-
+		// Baseline memory comes solely from the active projection profile.
 		expect(constructed.inputValue).toContain("## Retrieved Evidence");
 		expect(constructed.inputValue).toContain("Operations handbook.txt");
 		expect(constructed.inputValue).toContain("refund risk predictors");

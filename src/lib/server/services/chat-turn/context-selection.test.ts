@@ -6,7 +6,13 @@ import {
 } from "./context-selection";
 
 const mocks = vi.hoisted(() => ({
-	loadHonchoPromptContext: vi.fn(),
+	listMessages: vi.fn(),
+	listContextCompressionSourceMessages: vi.fn<
+		(
+			conversationId: string,
+		) => Promise<Array<{ id: string; messageSequence: number }>>
+	>(async () => []),
+	getConversationSummary: vi.fn(),
 	getConfig: vi.fn(),
 	resolvePromptAttachmentArtifacts: vi.fn(),
 	listConversationSourceArtifactIds: vi.fn(),
@@ -35,10 +41,6 @@ const mocks = vi.hoisted(() => ({
 	getLatestValidContextCompressionSnapshot: vi.fn(),
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
-}));
-
-vi.mock("../honcho", () => ({
-	loadHonchoPromptContext: mocks.loadHonchoPromptContext,
 }));
 
 vi.mock("../../config-store", () => ({
@@ -76,8 +78,11 @@ vi.mock("../linked-context-sources", () => ({
 }));
 
 vi.mock("../messages", () => ({
-	getLatestHonchoMetadata: vi.fn(),
-	listMessages: vi.fn(),
+	listMessages: mocks.listMessages,
+}));
+
+vi.mock("../conversation-summaries", () => ({
+	getConversationSummary: mocks.getConversationSummary,
 }));
 
 vi.mock("../projects", () => ({
@@ -115,6 +120,8 @@ vi.mock("../working-document-selection", () => ({
 vi.mock("../context-compression", () => ({
 	getLatestValidContextCompressionSnapshot:
 		mocks.getLatestValidContextCompressionSnapshot,
+	listContextCompressionSourceMessages:
+		mocks.listContextCompressionSourceMessages,
 	formatContextCompressionSnapshotForPrompt: (snapshot: {
 		snapshot: {
 			goal?: string;
@@ -144,7 +151,7 @@ vi.mock("../context-compression", () => ({
 vi.mock("../memory-profile/active-context", () => ({
 	formatActiveMemoryProfileContextForPrompt: (
 		context: {
-			items: Array<{ statement: string; updatedAt: Date }>;
+			items: Array<{ id: string; statement: string; updatedAt: Date }>;
 		},
 		options: { maxTokens: number },
 	) => {
@@ -152,12 +159,14 @@ vi.mock("../memory-profile/active-context", () => ({
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
 		);
 		const included: string[] = [];
+		const includedItemIds: string[] = [];
 		let estimatedTokens = 0;
 		for (const item of ordered) {
 			const line = `- ${item.statement}`;
 			const lineTokens = Math.ceil(line.length / 4);
 			if (estimatedTokens + lineTokens > options.maxTokens) continue;
 			included.push(line);
+			includedItemIds.push(item.id);
 			estimatedTokens += lineTokens;
 		}
 		const omittedCount = ordered.length - included.length;
@@ -173,6 +182,7 @@ vi.mock("../memory-profile/active-context", () => ({
 			content,
 			estimatedTokens,
 			includedCount: included.length,
+			includedItemIds,
 			omittedCount,
 		};
 	},
@@ -212,42 +222,23 @@ function resetConstructedContextMocks() {
 	mocks.getTargetConstructedContext.mockReturnValue(8_000);
 	mocks.getCompactionUiThreshold.mockReturnValue(12_000);
 	mocks.getMaxModelContext.mockReturnValue(16_000);
-	mocks.loadHonchoPromptContext.mockResolvedValue({
-		sessionMessages: [
-			{
-				role: "user",
-				content: "Earlier question about the launch plan.",
-				createdAt: 1,
-			},
-			{
-				role: "assistant",
-				content: "Earlier answer about the launch plan.",
-				createdAt: 2,
-			},
-		],
-		storedMessages: [
-			{
-				role: "user",
-				content: "Earlier question about the launch plan.",
-				createdAt: 1,
-			},
-			{
-				role: "assistant",
-				content: "Earlier answer about the launch plan.",
-				createdAt: 2,
-			},
-		],
-		summary: "The session is about launch readiness.",
-		peerContext: "The user prefers a suppressed raw Honcho preference.",
-		honchoContext: {
-			source: "live",
-			waitedMs: 12,
-			queuePendingWorkUnits: 0,
-			queueInProgressWorkUnits: 0,
-			fallbackReason: null,
-			snapshotCreatedAt: null,
+	mocks.listMessages.mockResolvedValue([
+		{
+			id: "message-user-1",
+			role: "user",
+			content: "Earlier question about the launch plan.",
+			timestamp: 1,
 		},
-		honchoSnapshot: null,
+		{
+			id: "message-assistant-1",
+			role: "assistant",
+			content: "Earlier answer about the launch plan.",
+			timestamp: 2,
+		},
+	]);
+	mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
+	mocks.getConversationSummary.mockResolvedValue({
+		summary: "The session is about launch readiness.",
 	});
 	mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
 		displayArtifacts: [
@@ -370,7 +361,7 @@ describe("selectPromptContext", () => {
 					signalReasons: ["attachment_context:excerpt"],
 				},
 				{
-					title: "Honcho Session Context",
+					title: "Session Context",
 					body: "UNRELATED_HISTORY ".repeat(1_000),
 					source: "session",
 					layer: "session",
@@ -384,7 +375,7 @@ describe("selectPromptContext", () => {
 		expect(selected.inputValue).toContain("## Current User Message");
 		// The oversized session section is trimmed to fit rather than dropped
 		// wholesale — some of it still makes it in, capped with a truncation marker.
-		expect(selected.inputValue).toContain("## Honcho Session Context");
+		expect(selected.inputValue).toContain("## Session Context");
 		expect(selected.inputValue).toContain("UNRELATED_HISTORY");
 		expect(selected.inputValue).toContain("[truncated]");
 		expect(selected.estimatedTokens).toBeLessThanOrEqual(140);
@@ -408,7 +399,7 @@ describe("selectPromptContext", () => {
 					protected: true,
 				}),
 				expect.objectContaining({
-					name: "Honcho Session Context",
+					name: "Session Context",
 					source: "session",
 					inclusionLevel: "legacy_truncated",
 				}),
@@ -483,7 +474,7 @@ describe("buildConstructedContext", () => {
 			},
 		});
 
-		expect(constructed.inputValue).toContain("## Honcho Session Context");
+		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain(
 			"Earlier question about the launch plan.",
 		);
@@ -492,7 +483,7 @@ describe("buildConstructedContext", () => {
 			"The user prefers projection-gated launch briefs.",
 		);
 		expect(constructed.inputValue).not.toContain(
-			"The user prefers a suppressed raw Honcho preference.",
+			"The user prefers a suppressed raw internal preference.",
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalledWith({
 			userId: "user-1",
@@ -504,6 +495,12 @@ describe("buildConstructedContext", () => {
 		expect(constructed.taskState).toBeNull();
 		expect(constructed.contextTraceSections).toEqual(
 			expect.arrayContaining([
+				expect.objectContaining({
+					name: "Baseline Memory Profile",
+					source: "memory",
+					itemIds: ["memory-active-1"],
+					itemTitles: ["The user prefers projection-gated launch briefs."],
+				}),
 				expect.objectContaining({
 					name: "Current User Message",
 					signalReasons: expect.arrayContaining([
@@ -603,58 +600,32 @@ describe("buildConstructedContext", () => {
 
 	it("uses valid compression snapshots for terse shallow turns without replaying covered raw messages", async () => {
 		resetConstructedContextMocks();
-		mocks.loadHonchoPromptContext.mockResolvedValue({
-			sessionMessages: [
-				{
-					id: "old-user",
-					role: "user",
-					content: "OLD_RAW_SECRET_USER_CONTENT",
-					createdAt: 1,
-					messageSequence: 1,
-				},
-				{
-					id: "old-assistant",
-					role: "assistant",
-					content: "OLD_RAW_SECRET_ASSISTANT_CONTENT",
-					createdAt: 2,
-					messageSequence: 2,
-				},
-				{
-					id: "new-user",
-					role: "user",
-					content: "NEW_RAW_RECENT_CONTENT",
-					createdAt: 3,
-					messageSequence: 3,
-				},
-			],
-			storedMessages: [
-				{
-					id: "old-user",
-					role: "user",
-					content: "OLD_RAW_SECRET_USER_CONTENT",
-					createdAt: 1,
-					messageSequence: 1,
-				},
-				{
-					id: "old-assistant",
-					role: "assistant",
-					content: "OLD_RAW_SECRET_ASSISTANT_CONTENT",
-					createdAt: 2,
-					messageSequence: 2,
-				},
-				{
-					id: "new-user",
-					role: "user",
-					content: "NEW_RAW_RECENT_CONTENT",
-					createdAt: 3,
-					messageSequence: 3,
-				},
-			],
-			summary: null,
-			peerContext: "",
-			honchoContext: null,
-			honchoSnapshot: null,
-		});
+		mocks.listMessages.mockResolvedValue([
+			{
+				id: "old-user",
+				role: "user",
+				content: "OLD_RAW_SECRET_USER_CONTENT",
+				timestamp: 1,
+			},
+			{
+				id: "old-assistant",
+				role: "assistant",
+				content: "OLD_RAW_SECRET_ASSISTANT_CONTENT",
+				timestamp: 2,
+			},
+			{
+				id: "new-user",
+				role: "user",
+				content: "NEW_RAW_RECENT_CONTENT",
+				timestamp: 3,
+			},
+		]);
+		mocks.listContextCompressionSourceMessages.mockResolvedValue([
+			{ id: "old-user", messageSequence: 1 },
+			{ id: "old-assistant", messageSequence: 2 },
+			{ id: "new-user", messageSequence: 3 },
+		]);
+		mocks.getConversationSummary.mockResolvedValue(null);
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue({
 			id: "snapshot-1",
 			conversationId: "conversation-1",
@@ -715,84 +686,45 @@ describe("buildConstructedContext", () => {
 
 	it("preserves shallow fork provenance when compression filters inherited fork copies from the prompt", async () => {
 		resetConstructedContextMocks();
-		mocks.loadHonchoPromptContext.mockResolvedValue({
-			sessionMessages: [
-				{
-					id: "fork-user-1",
-					role: "user",
-					content: "INHERITED_RAW_SOURCE_QUESTION",
-					createdAt: 1,
-					messageSequence: 1,
-					forkCopy: {
-						sourceMessageId: "source-user-1",
-						sourceConversationId: "source-conv",
-						sourceRole: "user",
-						sourceCreatedAt: "2026-05-15T10:00:01.000Z",
-					},
+		mocks.listMessages.mockResolvedValue([
+			{
+				id: "fork-user-1",
+				role: "user",
+				content: "INHERITED_RAW_SOURCE_QUESTION",
+				timestamp: 1,
+				forkCopy: {
+					sourceMessageId: "source-user-1",
+					sourceConversationId: "source-conv",
+					sourceRole: "user",
+					sourceCreatedAt: "2026-05-15T10:00:01.000Z",
 				},
-				{
-					id: "fork-assistant-1",
-					role: "assistant",
-					content: "INHERITED_RAW_SOURCE_ANSWER",
-					createdAt: 2,
-					messageSequence: 2,
-					forkCopy: {
-						sourceMessageId: "source-assistant-1",
-						sourceConversationId: "source-conv",
-						sourceRole: "assistant",
-						sourceCreatedAt: "2026-05-15T10:00:02.000Z",
-					},
+			},
+			{
+				id: "fork-assistant-1",
+				role: "assistant",
+				content: "INHERITED_RAW_SOURCE_ANSWER",
+				timestamp: 2,
+				forkCopy: {
+					sourceMessageId: "source-assistant-1",
+					sourceConversationId: "source-conv",
+					sourceRole: "assistant",
+					sourceCreatedAt: "2026-05-15T10:00:02.000Z",
 				},
-				{
-					id: "fork-user-2",
-					role: "user",
-					content: "Fork-local follow-up",
-					createdAt: 3,
-					messageSequence: 3,
-					forkCopy: null,
-				},
-			],
-			storedMessages: [
-				{
-					id: "fork-user-1",
-					role: "user",
-					content: "INHERITED_RAW_SOURCE_QUESTION",
-					createdAt: 1,
-					messageSequence: 1,
-					forkCopy: {
-						sourceMessageId: "source-user-1",
-						sourceConversationId: "source-conv",
-						sourceRole: "user",
-						sourceCreatedAt: "2026-05-15T10:00:01.000Z",
-					},
-				},
-				{
-					id: "fork-assistant-1",
-					role: "assistant",
-					content: "INHERITED_RAW_SOURCE_ANSWER",
-					createdAt: 2,
-					messageSequence: 2,
-					forkCopy: {
-						sourceMessageId: "source-assistant-1",
-						sourceConversationId: "source-conv",
-						sourceRole: "assistant",
-						sourceCreatedAt: "2026-05-15T10:00:02.000Z",
-					},
-				},
-				{
-					id: "fork-user-2",
-					role: "user",
-					content: "Fork-local follow-up",
-					createdAt: 3,
-					messageSequence: 3,
-					forkCopy: null,
-				},
-			],
-			summary: null,
-			peerContext: "",
-			honchoContext: null,
-			honchoSnapshot: null,
-		});
+			},
+			{
+				id: "fork-user-2",
+				role: "user",
+				content: "Fork-local follow-up",
+				timestamp: 3,
+				forkCopy: null,
+			},
+		]);
+		mocks.listContextCompressionSourceMessages.mockResolvedValue([
+			{ id: "fork-user-1", messageSequence: 1 },
+			{ id: "fork-assistant-1", messageSequence: 2 },
+			{ id: "fork-user-2", messageSequence: 3 },
+		]);
+		mocks.getConversationSummary.mockResolvedValue(null);
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue({
 			id: "snapshot-1",
 			conversationId: "fork-conv",
@@ -858,7 +790,7 @@ describe("buildConstructedContext", () => {
 		});
 	});
 
-	it("combines Honcho, task, attachment, and evidence candidates from the chat-turn boundary", async () => {
+	it("combines local session continuity, task, attachment, and evidence candidates from the chat-turn boundary", async () => {
 		resetConstructedContextMocks();
 		mocks.getConversationProjectId.mockResolvedValue("project-1");
 
@@ -884,7 +816,7 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain("launch-plan.md");
 		expect(constructed.inputValue).toContain("## Retrieved Evidence");
 		expect(constructed.inputValue).toContain("release-notes.md");
-		expect(constructed.inputValue).toContain("## Honcho Session Context");
+		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain(
 			"Earlier question about the launch plan.",
 		);
@@ -892,11 +824,11 @@ describe("buildConstructedContext", () => {
 		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);
-		expect(constructed.inputValue).not.toContain(
-			"The user prefers a suppressed raw Honcho preference.",
-		);
-		expect(constructed.honchoContext).toEqual(
-			expect.objectContaining({ source: "live" }),
+		// The turn path sources local continuity from the conversation's own
+		// messages and its maintained conversation summary.
+		expect(constructed.inputValue).toContain("## Session Summary");
+		expect(constructed.inputValue).toContain(
+			"The session is about launch readiness.",
 		);
 		expect(constructed.taskState).toEqual(
 			expect.objectContaining({ objective: "Ship the launch plan" }),
@@ -915,12 +847,14 @@ describe("buildConstructedContext", () => {
 					signalReasons: expect.arrayContaining(["pinned_evidence"]),
 				}),
 				expect.objectContaining({
-					name: "Honcho Session Context",
+					name: "Session Context",
 					source: "session",
 				}),
 				expect.objectContaining({
 					name: "Baseline Memory Profile",
 					source: "memory",
+					itemIds: ["memory-active-1"],
+					itemTitles: ["The user prefers projection-gated launch briefs."],
 				}),
 				expect.objectContaining({
 					name: "Current User Message",

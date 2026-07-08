@@ -15,12 +15,9 @@ import {
 	conversations,
 	messages,
 } from "$lib/server/db/schema";
-import {
-	type HonchoPersonaRecallResult,
-	recallPersonaMemory,
-} from "$lib/server/services/honcho";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
+import { getPersonaSummary } from "$lib/server/services/memory-consolidation/summary";
 import {
 	getProjectContext,
 	type ProjectContextResult,
@@ -39,7 +36,12 @@ import {
 } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { getConversationProjectId } from "$lib/server/services/projects";
-import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
+import { shortlistSemanticMatchesBySubject } from "$lib/server/services/semantic-ranking";
+import {
+	clipNullableText,
+	clipText,
+	normalizeWhitespace,
+} from "$lib/server/utils/text";
 import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 
 export type MemoryContextMode = "project" | "persona" | "history";
@@ -68,11 +70,8 @@ export type ProjectMemoryContextResult = Omit<ProjectContextResult, "mode"> & {
 export type PersonaMemoryContextResult = {
 	success: true;
 	mode: "persona";
-	status: "available" | HonchoPersonaRecallResult["status"];
-	source:
-		| "active_memory_profile"
-		| "historical_honcho_evidence"
-		| HonchoPersonaRecallResult["source"];
+	status: "available" | "empty" | "error";
+	source: "active_memory_profile";
 	content: string | null;
 	error?: string;
 	evidenceCandidates: ToolEvidenceCandidate[];
@@ -145,8 +144,6 @@ const PROJECT_REPORT_QUERY_RE =
 	/\b(report|pdf|docx?|document|export|download|file|summari[sz]e|write[- ]?up)\b|(?:jelentés|jelentes|riport|dokumentum|fájl|fajl|letöltés|letoltes|összefoglal(?:ó|o)?|foglalj\s+össze|foglalj\s+ossze|írd\s+meg|ird\s+meg|készíts|keszits)/iu;
 const PROJECT_FOLDER_QUERY_RE =
 	/\b(project folder|folder|project|workspace|content from|content of|memory)\b|(?:projektmappa|projekt[\p{L}]*|mappa|munkaterület|munkaterulet|memória|memoria|korábbi\s+beszélgetések|korabbi\s+beszelgetesek|kapcsolódó\s+beszélgetések|kapcsolodo\s+beszelgetesek)/iu;
-const PERSONA_HISTORY_EVIDENCE_QUERY_RE =
-	/\b(source|sources|evidence|why do you remember|where did you get|past memory|old memory|deleted|suppressed)\b|(?:forrás|forras|bizonyíték|bizonyitek|miért\s+emlékszel|miert\s+emlekszel|honnan\s+tudod|törölt|torolt|elnyomott)/iu;
 const HISTORY_QUERY_STOPWORDS = new Set([
 	"a",
 	"about",
@@ -253,26 +250,6 @@ type ProjectionPolicyBlockedStatement = Awaited<
 	ReturnType<typeof listProjectionPolicyBlockedStatements>
 >[number];
 
-function buildPersonaEvidenceCandidate(params: {
-	userId: string;
-	content: string | null;
-	title: string;
-}): ToolEvidenceCandidate[] {
-	const snippet = clipNullableText(
-		normalizeWhitespace(params.content ?? ""),
-		700,
-	);
-	if (!snippet) return [];
-	return [
-		{
-			id: `memory-context:persona:${params.userId}`,
-			title: params.title,
-			snippet,
-			sourceType: "memory",
-		},
-	];
-}
-
 function summarizeActiveMemoryProfileTelemetry(
 	context: ActiveMemoryProfileContext,
 ): {
@@ -309,10 +286,6 @@ async function recordMemoryContextPromptTelemetry(params: {
 	} catch {
 		// Tool responses should not fail because telemetry is unavailable.
 	}
-}
-
-function isHistoricalPersonaEvidenceQuery(query: string): boolean {
-	return PERSONA_HISTORY_EVIDENCE_QUERY_RE.test(query);
 }
 
 function normalizeMemoryPolicyText(value: string): string {
@@ -358,22 +331,6 @@ function screenContentAgainstProjectionPolicy(params: {
 	};
 }
 
-async function historicalPersonaEvidenceBlockedByProjection(params: {
-	userId: string;
-	content: string | null;
-}): Promise<{
-	blocked: boolean;
-	blockedCount: number;
-	unresolvedStatuses: string[];
-}> {
-	return screenContentAgainstProjectionPolicy({
-		blockedStatements: await listProjectionPolicyBlockedStatements({
-			userId: params.userId,
-		}),
-		content: params.content,
-	});
-}
-
 export function resolveProjectMemoryContextMode(params: {
 	query?: string | null;
 	siblingConversationId?: string | null;
@@ -412,89 +369,42 @@ async function getProjectMemoryContext(
 	};
 }
 
+const PERSONA_FACT_TITLE_MAX_CHARS = 120;
+const PERSONA_SEMANTIC_SHORTLIST_THRESHOLD = 12;
+const PERSONA_SEMANTIC_SHORTLIST_LIMIT = 12;
+const PERSONA_FACTS_MIN_TOKEN_BUDGET = 1_000;
+
+type ActiveMemoryProfileItem = ActiveMemoryProfileContext["items"][number];
+
+function buildPersonaFactEvidenceCandidates(params: {
+	includedItemIds: string[];
+	itemsById: Map<string, ActiveMemoryProfileItem>;
+}): ToolEvidenceCandidate[] {
+	const candidates: ToolEvidenceCandidate[] = [];
+	for (const itemId of params.includedItemIds) {
+		const item = params.itemsById.get(itemId);
+		if (!item) continue;
+		const title = clipText(
+			normalizeWhitespace(item.statement),
+			PERSONA_FACT_TITLE_MAX_CHARS,
+		);
+		candidates.push({
+			id: `memory-fact:${itemId}`,
+			title,
+			sourceType: "memory",
+			metadata: { memoryItemId: itemId },
+		});
+	}
+	return candidates;
+}
+
 async function getPersonaMemoryContext(
 	params: GetMemoryContextParams,
 ): Promise<PersonaMemoryContextResult> {
 	const query = params.query?.trim() || DEFAULT_PERSONA_RECALL_QUERY;
-	if (isHistoricalPersonaEvidenceQuery(query)) {
-		const recall = await recallPersonaMemory({
-			userId: params.userId,
-			userDisplayName: params.userDisplayName,
-			query,
-		});
-		const blocked =
-			recall.status === "ok"
-				? await historicalPersonaEvidenceBlockedByProjection({
-						userId: params.userId,
-						content: recall.content,
-					})
-				: { blocked: false, blockedCount: 0, unresolvedStatuses: [] };
-		if (blocked.blocked) {
-			await recordMemoryContextPromptTelemetry({
-				userId: params.userId,
-				eventName: "memory_context_persona_historical_evidence_blocked",
-				reason: "projection_policy_blocked_deleted_or_suppressed",
-				status: "blocked",
-				count: blocked.blockedCount,
-			});
+	const trimmedQuery = params.query?.trim() ?? "";
 
-			return {
-				success: true,
-				mode: "persona",
-				status: "empty",
-				source: "historical_honcho_evidence",
-				content: null,
-				evidenceCandidates: [],
-				audit: {
-					conversationId: params.conversationId,
-					query,
-				},
-			};
-		}
-		const status = recall.status === "ok" ? "available" : recall.status;
-		const hasUnresolvedPolicyMatch = blocked.unresolvedStatuses.length > 0;
-		const title = hasUnresolvedPolicyMatch
-			? "Unresolved historical persona evidence"
-			: "Historical persona evidence";
-		const content = recall.content
-			? `${title} (not current profile truth): ${recall.content}`
-			: null;
-		await recordMemoryContextPromptTelemetry({
-			userId: params.userId,
-			eventName: "memory_context_persona_historical_evidence",
-			reason: hasUnresolvedPolicyMatch
-				? "projection_policy_unresolved_historical"
-				: `honcho_recall_${recall.status}`,
-			status,
-			count: content ? 1 : 0,
-			metadata: hasUnresolvedPolicyMatch
-				? { matchedPolicyStatuses: blocked.unresolvedStatuses }
-				: undefined,
-		});
-
-		return {
-			success: true,
-			mode: "persona",
-			status,
-			source:
-				recall.status === "ok" ? "historical_honcho_evidence" : recall.source,
-			content,
-			...(recall.error ? { error: recall.error } : {}),
-			evidenceCandidates:
-				params.includeEvidenceCandidates === false
-					? []
-					: buildPersonaEvidenceCandidate({
-							userId: params.userId,
-							content,
-							title,
-						}),
-			audit: {
-				conversationId: params.conversationId,
-				query,
-			},
-		};
-	}
-
+	let summary: Awaited<ReturnType<typeof getPersonaSummary>>;
 	let activeProfile: ActiveMemoryProfileContext;
 	try {
 		const projectId = await getConversationProjectId(
@@ -509,10 +419,13 @@ async function getPersonaMemoryContext(
 			type: "conversation",
 			id: params.conversationId,
 		});
-		activeProfile = await getActiveMemoryProfileContext({
-			userId: params.userId,
-			applicableScopes,
-		});
+		[summary, activeProfile] = await Promise.all([
+			getPersonaSummary({ userId: params.userId }),
+			getActiveMemoryProfileContext({
+				userId: params.userId,
+				applicableScopes,
+			}),
+		]);
 	} catch (error) {
 		await recordMemoryContextPromptTelemetry({
 			userId: params.userId,
@@ -526,7 +439,7 @@ async function getPersonaMemoryContext(
 			success: true,
 			mode: "persona",
 			status: "error",
-			source: "none",
+			source: "active_memory_profile",
 			content: null,
 			error:
 				error instanceof Error ? error.message : "Memory profile unavailable",
@@ -538,13 +451,42 @@ async function getPersonaMemoryContext(
 		};
 	}
 
-	const formattedProfile = formatActiveMemoryProfileContextForPrompt(
-		activeProfile,
-		{
-			maxTokens: PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET,
-		},
+	// Top-K: only when a query is present and the active fact set is large, rank
+	// facts semantically and keep the best matches. A null shortlist (no TEI
+	// configured) leaves the full fact set untouched.
+	let factItems = activeProfile.items;
+	if (trimmedQuery && factItems.length > PERSONA_SEMANTIC_SHORTLIST_THRESHOLD) {
+		const shortlist = await shortlistSemanticMatchesBySubject({
+			userId: params.userId,
+			subjectType: "memory_profile_item",
+			query: trimmedQuery,
+			items: factItems,
+			getSubjectId: (item) => item.id,
+			limit: PERSONA_SEMANTIC_SHORTLIST_LIMIT,
+		}).catch(() => null);
+		if (shortlist) {
+			factItems = shortlist.map((match) => match.item);
+		}
+	}
+
+	const summaryTokens = summary ? Math.ceil(summary.text.length / 4) : 0;
+	const factsMaxTokens = Math.max(
+		PERSONA_FACTS_MIN_TOKEN_BUDGET,
+		PERSONA_ACTIVE_PROFILE_TOKEN_BUDGET - summaryTokens,
 	);
-	const content = formattedProfile.content;
+	const formatted = formatActiveMemoryProfileContextForPrompt(
+		{ ...activeProfile, items: factItems },
+		{ maxTokens: factsMaxTokens },
+	);
+
+	const summarySection = summary
+		? `Persona summary (auto-maintained):\n${summary.text}`
+		: null;
+	const factsSection =
+		formatted.includedCount > 0 ? `Facts:\n${formatted.content}` : null;
+	const content =
+		[summarySection, factsSection].filter(Boolean).join("\n\n") || null;
+
 	if (!content) {
 		await recordMemoryContextPromptTelemetry({
 			userId: params.userId,
@@ -556,7 +498,8 @@ async function getPersonaMemoryContext(
 				projectionRevision: activeProfile.projectionRevision,
 				resetGeneration: activeProfile.resetGeneration,
 				totalItemCount: activeProfile.items.length,
-				omittedItemCount: formattedProfile.omittedCount,
+				omittedItemCount: formatted.omittedCount,
+				hasSummary: false,
 			},
 		});
 
@@ -579,16 +522,34 @@ async function getPersonaMemoryContext(
 		eventName: "memory_context_persona_active_profile_included",
 		reason: "active_projection_items",
 		status: "included",
-		count: formattedProfile.includedCount,
+		count: formatted.includedCount,
 		metadata: {
 			projectionRevision: activeProfile.projectionRevision,
 			resetGeneration: activeProfile.resetGeneration,
 			totalItemCount: activeProfile.items.length,
-			omittedItemCount: formattedProfile.omittedCount,
-			estimatedTokens: formattedProfile.estimatedTokens,
+			shortlistedItemCount: factItems.length,
+			omittedItemCount: formatted.omittedCount,
+			estimatedTokens: formatted.estimatedTokens,
+			hasSummary: Boolean(summary),
 			...summarizeActiveMemoryProfileTelemetry(activeProfile),
 		},
 	});
+
+	let evidenceCandidates: ToolEvidenceCandidate[] = [];
+	if (params.includeEvidenceCandidates !== false) {
+		const itemsById = new Map(factItems.map((item) => [item.id, item]));
+		evidenceCandidates = buildPersonaFactEvidenceCandidates({
+			includedItemIds: formatted.includedItemIds,
+			itemsById,
+		});
+		if (summary) {
+			evidenceCandidates.push({
+				id: `memory-context:summary:${params.userId}`,
+				title: "Persona summary",
+				sourceType: "memory",
+			});
+		}
+	}
 
 	return {
 		success: true,
@@ -596,14 +557,7 @@ async function getPersonaMemoryContext(
 		status: "available",
 		source: "active_memory_profile",
 		content,
-		evidenceCandidates:
-			params.includeEvidenceCandidates === false
-				? []
-				: buildPersonaEvidenceCandidate({
-						userId: params.userId,
-						content,
-						title: "Active memory profile",
-					}),
+		evidenceCandidates,
 		audit: {
 			conversationId: params.conversationId,
 			query,

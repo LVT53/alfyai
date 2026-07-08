@@ -10,14 +10,12 @@ import * as schema from "$lib/server/db/schema";
 const {
 	mockArtifactHasReferencesOutsideConversation,
 	mockDeleteAllChatFilesForConversation,
-	mockDeleteConversationHonchoState,
 	mockGetSourceArtifactIdForNormalizedArtifact,
 	mockHardDeleteArtifactsForUser,
 	mockListConversationOwnedArtifacts,
 } = vi.hoisted(() => ({
 	mockArtifactHasReferencesOutsideConversation: vi.fn(),
 	mockDeleteAllChatFilesForConversation: vi.fn(),
-	mockDeleteConversationHonchoState: vi.fn(),
 	mockGetSourceArtifactIdForNormalizedArtifact: vi.fn(),
 	mockHardDeleteArtifactsForUser: vi.fn(),
 	mockListConversationOwnedArtifacts: vi.fn(),
@@ -25,10 +23,6 @@ const {
 
 vi.mock("../chat-files", () => ({
 	deleteAllChatFilesForConversation: mockDeleteAllChatFilesForConversation,
-}));
-
-vi.mock("../honcho", () => ({
-	deleteConversationHonchoState: mockDeleteConversationHonchoState,
 }));
 
 vi.mock("../knowledge", () => ({
@@ -78,7 +72,6 @@ describe("deleteConversationWithCleanup", () => {
 		mockListConversationOwnedArtifacts.mockResolvedValue([]);
 		mockHardDeleteArtifactsForUser.mockResolvedValue(undefined);
 		mockDeleteAllChatFilesForConversation.mockResolvedValue(undefined);
-		mockDeleteConversationHonchoState.mockResolvedValue(undefined);
 	});
 
 	afterEach(async () => {
@@ -119,10 +112,6 @@ describe("deleteConversationWithCleanup", () => {
 			.where(eq(schema.conversations.id, "conversation-1"));
 
 		expect(conversations).toEqual([]);
-		expect(mockDeleteConversationHonchoState).toHaveBeenCalledWith(
-			"user-1",
-			"conversation-1",
-		);
 		expect(mockDeleteAllChatFilesForConversation).toHaveBeenCalledWith(
 			"conversation-1",
 		);

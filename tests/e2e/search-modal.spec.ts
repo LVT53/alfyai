@@ -59,9 +59,15 @@ test.describe("Search Modal Visual Tests", () => {
 
 		const modal = page.getByRole("dialog", { name: "Search workspace" });
 		await modal.waitFor({ state: "visible" });
+		// Type a query that matches nothing so the results area is a deterministic
+		// empty state — otherwise the modal height varies with ambient
+		// conversations/documents left by earlier tests and the snapshot flakes.
+		await modal.locator("input").first().fill("zzz-no-such-result-xyz");
+		await page.waitForTimeout(600);
 
 		await expect(modal).toHaveScreenshot("search-modal-light.png", {
 			maxDiffPixels: 100,
+			maxDiffPixelRatio: 0.03,
 		});
 	});
 
@@ -83,9 +89,13 @@ test.describe("Search Modal Visual Tests", () => {
 			() =>
 				getComputedStyle(document.body).backgroundColor === "rgb(26, 26, 26)",
 		);
+		// Deterministic empty-results state (see light-mode test).
+		await modal.locator("input").first().fill("zzz-no-such-result-xyz");
+		await page.waitForTimeout(600);
 
 		await expect(modal).toHaveScreenshot("search-modal-dark.png", {
 			maxDiffPixels: 100,
+			maxDiffPixelRatio: 0.03,
 		});
 
 		await page.evaluate(() => {

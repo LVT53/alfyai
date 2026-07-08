@@ -54,8 +54,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
-	HonchoContextInfo,
-	HonchoContextSnapshot,
 	ModelId,
 	TaskState,
 	ThinkingMode,
@@ -96,8 +94,6 @@ export type PlainNormalChatSendModelResult = {
 	contextStatus?: ConversationContextStatus;
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
-	honchoContext?: HonchoContextInfo | null;
-	honchoSnapshot?: HonchoContextSnapshot | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 	providerUsage?: ProviderUsageSnapshot | null;
@@ -278,8 +274,6 @@ function buildClarificationResult(
 	| "contextStatus"
 	| "taskState"
 	| "contextDebug"
-	| "honchoContext"
-	| "honchoSnapshot"
 	| "contextTraceSections"
 	| "providerUsage"
 	| "prefetchedToolCalls"
@@ -295,8 +289,6 @@ function buildClarificationResult(
 		contextStatus: undefined,
 		taskState: null,
 		contextDebug: null,
-		honchoContext: null,
-		honchoSnapshot: null,
 		contextTraceSections: [],
 		providerUsage: null,
 		prefetchedToolCalls: [],
@@ -531,8 +523,6 @@ function buildRunResult(
 		contextStatus: prepared.contextStatus,
 		taskState: prepared.taskState,
 		contextDebug: prepared.contextDebug,
-		honchoContext: prepared.honchoContext,
-		honchoSnapshot: prepared.honchoSnapshot,
 		contextTraceSections: prepared.contextTraceSections,
 		contextPreparationTimings: prepared.contextPreparationTimings,
 		providerUsage: mapNormalChatModelRunUsageToProviderSnapshot(

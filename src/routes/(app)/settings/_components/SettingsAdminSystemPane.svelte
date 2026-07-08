@@ -44,9 +44,6 @@ let {
 	adminSaving = false,
 	adminMessage = "",
 	adminError = "",
-	honchoHealth = null,
-	honchoLoading = false,
-	onCheckHonchoHealth,
 	onSaveAdminConfig,
 }: {
 	adminConfig: Record<string, string>;
@@ -59,13 +56,6 @@ let {
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
-	honchoHealth?: {
-		enabled: boolean;
-		connected: boolean;
-		workspace: string | null;
-	} | null;
-	honchoLoading?: boolean;
-	onCheckHonchoHealth: () => void | Promise<void>;
 	onSaveAdminConfig: () => void | Promise<void>;
 } = $props();
 
@@ -723,9 +713,6 @@ function configLabelKey(key: string): I18nKey {
 		TITLE_GEN_SYSTEM_PROMPT_HU: "admin.titleGenPromptHu",
 		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN: "admin.titleGenCodeAppendixEn",
 		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_HU: "admin.titleGenCodeAppendixHu",
-		HONCHO_CONTEXT_WAIT_MS: "admin.honchoContextWaitMs",
-		HONCHO_PERSONA_CONTEXT_WAIT_MS: "admin.honchoPersonaContextWaitMs",
-		HONCHO_OVERVIEW_WAIT_MS: "admin.honchoOverviewWaitMs",
 		MINERU_API_URL: "admin.mineruApiUrl",
 		MINERU_TIMEOUT_MS: "admin.mineruTimeoutMs",
 		MAX_MODEL_CONTEXT: "admin.maxModelContext",
@@ -754,14 +741,11 @@ function configLabelKey(key: string): I18nKey {
 }
 
 const NUMBER_KEYS = new Set([
-	"HONCHO_CONTEXT_WAIT_MS",
-	"HONCHO_OVERVIEW_WAIT_MS",
 	"MAX_MODEL_CONTEXT",
 	"COMPACTION_UI_THRESHOLD",
 	"TARGET_CONSTRUCTED_CONTEXT",
 	"MAX_MESSAGE_LENGTH",
 	"MINERU_TIMEOUT_MS",
-	"HONCHO_PERSONA_CONTEXT_WAIT_MS",
 	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
 	"WEB_RESEARCH_SEARXNG_SAFESEARCH",
 	"WEB_RESEARCH_MAX_SOURCES",
@@ -1328,70 +1312,6 @@ function placeholderFor(key: string): string {
 			{/each}
 		</div>
 		<p class="text-xs text-text-muted">{$t('admin.webResearchExtractionDescription')}</p>
-	</div>
-</section>
-
-<!-- Honcho Memory -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.honchoMemory')}</h2>
-	<div class="mb-3 flex items-center justify-between">
-		<div>
-			<label class="settings-label mb-0" for="HONCHO_ENABLED">{$t('admin.enableHoncho')}</label>
-			<p class="text-xs text-text-tertiary">{$t('admin.honchoDescription')}</p>
-		</div>
-		<label class="relative inline-flex cursor-pointer items-center">
-			<input
-				id="HONCHO_ENABLED"
-				type="checkbox"
-				class="peer sr-only"
-				checked={adminConfig.HONCHO_ENABLED === 'true'}
-				onchange={(event) => {
-					adminConfig.HONCHO_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-				}}
-			/>
-			<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-		</label>
-	</div>
-	<div class="flex items-center gap-2 text-xs text-text-secondary">
-		<button class="text-accent hover:underline" onclick={onCheckHonchoHealth} disabled={honchoLoading}>
-			{honchoLoading ? $t('admin.checking') : $t('admin.checkConnection')}
-		</button>
-		{#if honchoHealth}
-			<span class="inline-flex items-center gap-1">
-				<span class={`inline-block h-2 w-2 rounded-full ${honchoHealth.connected ? 'bg-success' : 'bg-danger'}`}></span>
-				{honchoHealth.connected ? $t('admin.connected') : $t('admin.disconnected')}
-				{#if honchoHealth.workspace}
-					<span class="text-text-tertiary">({honchoHealth.workspace})</span>
-				{/if}
-			</span>
-		{/if}
-	</div>
-	<div class="mt-4 flex flex-col gap-3">
-		{#each ['HONCHO_CONTEXT_WAIT_MS', 'HONCHO_PERSONA_CONTEXT_WAIT_MS', 'HONCHO_OVERVIEW_WAIT_MS'] as key}
-			<div>
-				<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-				<input
-					id={key}
-					type="number"
-					class="settings-input"
-					bind:value={adminConfig[key]}
-					placeholder={placeholderFor(key)}
-				/>
-				{#if key === 'HONCHO_CONTEXT_WAIT_MS'}
-					<p class="mt-1 text-xs text-text-muted">
-						{$t('admin.honchoContextWaitDescription')}
-					</p>
-				{:else if key === 'HONCHO_PERSONA_CONTEXT_WAIT_MS'}
-					<p class="mt-1 text-xs text-text-muted">
-						{$t('admin.honchoPersonaWaitDescription')}
-					</p>
-				{:else}
-					<p class="mt-1 text-xs text-text-muted">
-						{$t('admin.honchoOverviewWaitDescription')}
-					</p>
-				{/if}
-			</div>
-		{/each}
 	</div>
 </section>
 

@@ -62,7 +62,6 @@ function uploadResponse(overrides: Partial<KnowledgeUploadResponse> = {}) {
 		artifact,
 		normalizedArtifact: null,
 		reusedExistingArtifact: false,
-		honcho: { uploaded: true, mode: "native" },
 		promptReady: true,
 		promptArtifactId: null,
 		readinessError: null,
@@ -167,7 +166,7 @@ describe("POST /api/knowledge/upload", () => {
 		expect(data.readinessError).toBeNull();
 	});
 
-	it("keeps upload successful when Honcho native sync is unsupported and fallback sync succeeds", async () => {
+	it("keeps upload successful when a normalized fallback provides prompt-ready text", async () => {
 		const artifact = {
 			id: "artifact-image-415",
 			type: "source_document",
@@ -197,7 +196,6 @@ describe("POST /api/knowledge/upload", () => {
 			uploadResponse({
 				artifact,
 				normalizedArtifact,
-				honcho: { uploaded: true, mode: "normalized" },
 				promptReady: true,
 				readinessError: null,
 			}),
@@ -216,7 +214,6 @@ describe("POST /api/knowledge/upload", () => {
 		expect(response.status).toBe(200);
 		expect(data.promptReady).toBe(true);
 		expect(data.readinessError).toBeNull();
-		expect(data.honcho).toEqual({ uploaded: true, mode: "normalized" });
 	});
 
 	it("returns a readiness error when the file cannot be normalized for chat", async () => {
@@ -236,7 +233,6 @@ describe("POST /api/knowledge/upload", () => {
 			uploadResponse({
 				artifact,
 				normalizedArtifact: null,
-				honcho: { uploaded: false, mode: "none" },
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: "This file could not be prepared for chat.",

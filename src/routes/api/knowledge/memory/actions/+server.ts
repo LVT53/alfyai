@@ -6,50 +6,14 @@ import {
 } from "$lib/server/services/memory";
 import type { RequestHandler } from "./$types";
 
-function isValidPayload(body: unknown): body is
-	| {
-			target?: "profile_item";
-			action: "delete";
-			itemId: string;
-			expectedProjectionRevision: number;
-	  }
-	| {
-			target?: "profile_item";
-			action: "suppress";
-			itemId: string;
-			expectedProjectionRevision: number;
-	  }
-	| {
-			target?: "profile_item";
-			action: "edit";
-			itemId: string;
-			statement: string;
-			expectedProjectionRevision: number;
-	  }
-	| {
-			target: "review_item";
-			action: "accept";
-			itemId: string;
-			expectedProjectionRevision: number;
-	  }
-	| {
-			target: "review_item";
-			action: "suppress";
-			itemId: string;
-			expectedProjectionRevision: number;
-	  }
-	| {
-			target: "review_item";
-			action: "edit";
-			itemId: string;
-			statement: string;
-			expectedProjectionRevision: number;
-	  } {
+function hasNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+function isValidLegacyPayload(body: unknown): boolean {
 	if (!body || typeof body !== "object") return false;
 	const action = (body as Record<string, unknown>).action;
 	const target = (body as Record<string, unknown>).target;
-	const hasNonEmptyString = (value: unknown) =>
-		typeof value === "string" && value.trim().length > 0;
 	const expectedProjectionRevision = (body as Record<string, unknown>)
 		.expectedProjectionRevision;
 	if (
@@ -78,6 +42,51 @@ function isValidPayload(body: unknown): body is
 		action === "edit" &&
 		hasNonEmptyString((body as Record<string, unknown>).statement)
 	);
+}
+
+/**
+ * Validates the newer `kind`-discriminated action envelope
+ * (profile_item correct/retire, summary edit, consolidation undo). Returns
+ * false for anything that doesn't match one of those shapes, including
+ * payloads with no `kind` at all (those fall through to the legacy check).
+ */
+function isValidV2Payload(body: unknown): boolean {
+	if (!body || typeof body !== "object") return false;
+	const record = body as Record<string, unknown>;
+	if (record.kind === "profile_item") {
+		if (
+			!hasNonEmptyString(record.itemId) ||
+			!Number.isInteger(record.expectedProjectionRevision) ||
+			Number(record.expectedProjectionRevision) < 0
+		) {
+			return false;
+		}
+		if (record.action === "retire") return true;
+		return record.action === "correct" && hasNonEmptyString(record.statement);
+	}
+	if (record.kind === "summary") {
+		return record.action === "edit" && hasNonEmptyString(record.text);
+	}
+	if (record.kind === "consolidation") {
+		return (
+			record.action === "undo" &&
+			hasNonEmptyString(record.reportId) &&
+			Number.isInteger(record.actionIndex) &&
+			Number(record.actionIndex) >= 0
+		);
+	}
+	return false;
+}
+
+function isValidPayload(body: unknown): boolean {
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in (body as Record<string, unknown>)
+	) {
+		return isValidV2Payload(body);
+	}
+	return isValidLegacyPayload(body);
 }
 
 export const POST: RequestHandler = async (event) => {

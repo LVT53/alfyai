@@ -6,27 +6,6 @@ type FindOrphanFilesResult = {
 	totalFilesOnDisk: number;
 	totalOrphanBytes: number;
 };
-type LegacyPersonaMemoryCandidate = {
-	id: string;
-	content: string;
-	scope: "self" | "assistant_about_user";
-	sessionId: string | null;
-	createdAt: number;
-};
-type LegacyPersonaMemoryCandidateBatch = {
-	totalAvailable: number;
-	candidates: LegacyPersonaMemoryCandidate[];
-};
-type LegacyMemoryCandidateLoader = (
-	userId: string,
-	options: { limit: number; excludeSourceIds?: string[] },
-) => Promise<LegacyPersonaMemoryCandidateBatch>;
-type DirtyLedgerReconciliationParams = {
-	userId: string;
-	batchSize?: number;
-	maxRuntimeMs?: number;
-	loadLegacyMemoryCandidates?: LegacyMemoryCandidateLoader;
-};
 
 const mockState = vi.hoisted(() => {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,33 +30,7 @@ const mockState = vi.hoisted(() => {
 	};
 
 	let mockPruneOldMemoryEvents = vi.fn(async () => ({ deletedCount: 0 }));
-	let mockReconcileMemoryProfileDirtyLedgerForUser = vi.fn(
-		async (_params: DirtyLedgerReconciliationParams) => ({
-			claimed: 0,
-			completed: 0,
-			failed: 0,
-			skipped: 0,
-			timedOut: false,
-		}),
-	);
-	let mockCuratePreservedLegacyMemoryForUser = vi.fn(async () => ({
-		status: "completed",
-		inspected: 0,
-		active: 0,
-		review: 0,
-		rejected: 0,
-		remainingPreserved: 0,
-	}));
 	let mockDeleteSemanticEmbeddingsForSubjects = vi.fn(async () => 0);
-	let mockPruneOrphanHonchoSessions = vi.fn(async () => ({
-		deleted: 0,
-		errors: 0,
-	}));
-	let mockListLegacyPersonaMemoryCandidates =
-		vi.fn<LegacyMemoryCandidateLoader>(async () => ({
-			totalAvailable: 0,
-			candidates: [],
-		}));
 	let mockDeleteOrphanChatFiles = vi.fn(async () => 0);
 	let mockFindOrphanFiles = vi.fn(
 		async () =>
@@ -120,34 +73,7 @@ const mockState = vi.hoisted(() => {
 		mockUserRows.length = 0;
 		mockConfig = { memoryMaintenanceIntervalMinutes: 0 };
 		mockPruneOldMemoryEvents = vi.fn(async () => ({ deletedCount: 0 }));
-		mockReconcileMemoryProfileDirtyLedgerForUser = vi.fn(
-			async (_params: DirtyLedgerReconciliationParams) => ({
-				claimed: 0,
-				completed: 0,
-				failed: 0,
-				skipped: 0,
-				timedOut: false,
-			}),
-		);
-		mockCuratePreservedLegacyMemoryForUser = vi.fn(async () => ({
-			status: "completed",
-			inspected: 0,
-			active: 0,
-			review: 0,
-			rejected: 0,
-			remainingPreserved: 0,
-		}));
 		mockDeleteSemanticEmbeddingsForSubjects = vi.fn(async () => 0);
-		mockPruneOrphanHonchoSessions = vi.fn(async () => ({
-			deleted: 0,
-			errors: 0,
-		}));
-		mockListLegacyPersonaMemoryCandidates = vi.fn<LegacyMemoryCandidateLoader>(
-			async () => ({
-				totalAvailable: 0,
-				candidates: [],
-			}),
-		);
 		mockDeleteOrphanChatFiles = vi.fn(async () => 0);
 		mockFindOrphanFiles = vi.fn(
 			async () =>
@@ -171,11 +97,7 @@ const mockState = vi.hoisted(() => {
 		mockUserRows,
 		mockConfig,
 		mockPruneOldMemoryEvents,
-		mockReconcileMemoryProfileDirtyLedgerForUser,
-		mockCuratePreservedLegacyMemoryForUser,
 		mockDeleteSemanticEmbeddingsForSubjects,
-		mockPruneOrphanHonchoSessions,
-		mockListLegacyPersonaMemoryCandidates,
 		mockDeleteOrphanChatFiles,
 		mockFindOrphanFiles,
 		tableMeta,
@@ -205,33 +127,12 @@ vi.mock("./memory-events", () => ({
 	) => mockState.mockPruneOldMemoryEvents(...args),
 }));
 
-vi.mock("./memory-profile/dirty-ledger-reconciliation", () => ({
-	reconcileMemoryProfileDirtyLedgerForUser: (
-		...args: Parameters<
-			typeof mockState.mockReconcileMemoryProfileDirtyLedgerForUser
-		>
-	) => mockState.mockReconcileMemoryProfileDirtyLedgerForUser(...args),
-}));
-
-vi.mock("./memory-profile/legacy-curation", () => ({
-	curatePreservedLegacyMemoryForUser: (
-		...args: Parameters<typeof mockState.mockCuratePreservedLegacyMemoryForUser>
-	) => mockState.mockCuratePreservedLegacyMemoryForUser(...args),
-}));
-
 vi.mock("./semantic-embeddings", () => ({
 	deleteSemanticEmbeddingsForSubjects: (
 		...args: Parameters<
 			typeof mockState.mockDeleteSemanticEmbeddingsForSubjects
 		>
 	) => mockState.mockDeleteSemanticEmbeddingsForSubjects(...args),
-}));
-
-vi.mock("./honcho", () => ({
-	pruneOrphanHonchoSessions: () => mockState.mockPruneOrphanHonchoSessions(),
-	listLegacyPersonaMemoryCandidates: (
-		...args: Parameters<typeof mockState.mockListLegacyPersonaMemoryCandidates>
-	) => mockState.mockListLegacyPersonaMemoryCandidates(...args),
 }));
 
 vi.mock("./chat-files", () => ({
@@ -445,95 +346,6 @@ describe("memory-maintenance", () => {
 			);
 		});
 
-		it("reconciles the memory profile dirty ledger during maintenance", async () => {
-			addUserRow("user-1");
-
-			await runUserMemoryMaintenance("user-1", "manual");
-
-			expect(
-				mockState.mockReconcileMemoryProfileDirtyLedgerForUser,
-			).toHaveBeenCalledWith(
-				expect.objectContaining({
-					userId: "user-1",
-					loadLegacyMemoryCandidates: expect.any(Function),
-				}),
-			);
-		});
-
-		it("passes a bounded Honcho legacy candidate loader into dirty-ledger reconciliation", async () => {
-			addUserRow("user-1");
-			mockState.mockListLegacyPersonaMemoryCandidates.mockResolvedValueOnce({
-				totalAvailable: 1,
-				candidates: [
-					{
-						id: "legacy-1",
-						content: "User prefers concise technical answers.",
-						scope: "assistant_about_user",
-						sessionId: null,
-						createdAt: 123,
-					},
-				],
-			});
-
-			await runUserMemoryMaintenance("user-1", "manual");
-
-			const lastReconcileCall =
-				mockState.mockReconcileMemoryProfileDirtyLedgerForUser.mock.calls.at(
-					-1,
-				);
-			expect(lastReconcileCall).toBeDefined();
-			if (!lastReconcileCall) {
-				throw new Error("Expected dirty-ledger reconciliation to run.");
-			}
-			const [params] = lastReconcileCall;
-			expect(params).toEqual(
-				expect.objectContaining({
-					userId: "user-1",
-					loadLegacyMemoryCandidates: expect.any(Function),
-				}),
-			);
-			const { loadLegacyMemoryCandidates } = params;
-			expect(loadLegacyMemoryCandidates).toBeDefined();
-			if (!loadLegacyMemoryCandidates) {
-				throw new Error("Expected legacy memory candidate loader.");
-			}
-			await expect(
-				loadLegacyMemoryCandidates("user-1", { limit: 5 }),
-			).resolves.toEqual({
-				totalAvailable: 1,
-				candidates: [
-					{
-						id: "legacy-1",
-						content: "User prefers concise technical answers.",
-						scope: "assistant_about_user",
-						sessionId: null,
-						createdAt: 123,
-					},
-				],
-			});
-			expect(
-				mockState.mockListLegacyPersonaMemoryCandidates,
-			).toHaveBeenCalledWith("user-1", {
-				limit: 5,
-				excludeSourceIds: undefined,
-			});
-		});
-
-		it("continues cleanup when memory profile dirty-ledger reconciliation fails", async () => {
-			addUserRow("user-1");
-			mockState.mockReconcileMemoryProfileDirtyLedgerForUser.mockRejectedValueOnce(
-				new Error("dirty ledger failed"),
-			);
-
-			await expect(
-				runUserMemoryMaintenance("user-1", "manual"),
-			).resolves.toBeUndefined();
-
-			expect(mockState.mockPruneOldMemoryEvents).toHaveBeenCalledWith(
-				expect.objectContaining({ userId: "user-1" }),
-			);
-		});
-
 		it("calls deleteSemanticEmbeddingsForSubjects for orphan artifacts", async () => {
 			addUserRow("user-1");
 			addArtifactRow("art-1", "user-1");
@@ -638,15 +450,6 @@ describe("memory-maintenance", () => {
 			await runAllUsersMemoryMaintenance("scheduler");
 
 			expect(mockState.mockDeleteOrphanChatFiles).toHaveBeenCalledTimes(1);
-		});
-
-		it("calls pruneOrphanHonchoSessions only once across all users", async () => {
-			addUserRow("user-1");
-			addUserRow("user-2");
-
-			await runAllUsersMemoryMaintenance("scheduler");
-
-			expect(mockState.mockPruneOrphanHonchoSessions).toHaveBeenCalledTimes(1);
 		});
 
 		it("calls findOrphanFiles only once across all users", async () => {

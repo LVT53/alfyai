@@ -118,7 +118,6 @@ export async function getActiveMemoryProfileContext(params: {
 	const sanitizer = createIdentityTextSanitizer({
 		userId: params.userId,
 		displayName: identity.displayName,
-		honchoPeerVersion: identity.honchoPeerVersion,
 	});
 	const projection = await ensureProjectionState({
 		userId: params.userId,

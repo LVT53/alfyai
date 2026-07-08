@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import { createRetryCleanupFixture } from "./retry-cleanup.test-helpers";
 
-vi.mock("$lib/server/services/honcho", () => ({
-	deleteConversationHonchoState: vi.fn(async () => undefined),
-}));
-
 let dbPath: string;
 
 describe("retry cleanup skill side effects", () => {

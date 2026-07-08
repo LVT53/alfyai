@@ -5,7 +5,10 @@ import { page as kitPage } from "$app/state";
 import {
 	deleteKnowledgeArtifact,
 	fetchMemoryProfile,
+	fetchMemorySummary,
+	fetchMemoryTimeline,
 	submitKnowledgeMemoryAction,
+	submitMemoryV2Action,
 	uploadKnowledgeAttachment,
 } from "$lib/client/api/knowledge";
 import { ApiError } from "$lib/client/api/http";
@@ -21,8 +24,10 @@ import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorks
 import type {
 	DocumentWorkspaceItem,
 	KnowledgeDocumentItem,
+	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicPayload,
+	MemoryTimelineReport,
 } from "$lib/types";
 import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
@@ -49,6 +54,9 @@ let memoryLoaded = $state(false);
 let memoryLoading = $state(false);
 let memoryLoadError = $state("");
 let pendingMemoryActionKey = $state<string | null>(null);
+let memorySummary = $state<MemoryPersonaSummaryPayload["summary"]>(null);
+let memorySummaryBusy = $state(false);
+let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
 // True while a server-side documents search/sort/page round-trip is in flight.
@@ -447,6 +455,102 @@ async function loadMemoryProfile(force = false) {
 	} finally {
 		memoryLoading = false;
 	}
+
+	// Summary and timeline are additive surfaces — load them best-effort and
+	// without blocking callers that await the profile itself (e.g. the
+	// stale-projection recovery path).
+	void refreshMemorySummary();
+	void refreshMemoryTimeline();
+}
+
+async function refreshMemorySummary() {
+	try {
+		memorySummary = (await fetchMemorySummary()).summary;
+	} catch (error) {
+		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory summary", error);
+	}
+}
+
+async function refreshMemoryTimeline() {
+	try {
+		memoryTimelineReports = (await fetchMemoryTimeline()).reports;
+	} catch (error) {
+		console.warn("[KNOWLEDGE_MEMORY] Failed to load memory timeline", error);
+	}
+}
+
+async function handleSummaryEdit(text: string): Promise<boolean> {
+	if (memorySummaryBusy) return false;
+	manageError = "";
+	memorySummaryBusy = true;
+	try {
+		memorySummary = (
+			await submitMemoryV2Action({ kind: "summary", action: "edit", text })
+		).summary;
+		return true;
+	} catch (error) {
+		manageError =
+			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		return false;
+	} finally {
+		memorySummaryBusy = false;
+	}
+}
+
+async function handleRetireMemoryItem(itemId: string): Promise<boolean> {
+	const key = `${itemId}:retire`;
+	if (pendingMemoryActionKey === key) return false;
+
+	manageError = "";
+	pendingMemoryActionKey = key;
+	try {
+		memoryProfile = await submitMemoryV2Action({
+			kind: "profile_item",
+			action: "retire",
+			itemId,
+			expectedProjectionRevision: memoryProfile?.projectionRevision ?? 0,
+		});
+		memoryLoaded = true;
+		return true;
+	} catch (error) {
+		if (
+			error instanceof ApiError &&
+			(error.status === 409 || error.code === "stale_projection")
+		) {
+			await loadMemoryProfile(true);
+			manageError =
+				"Memory profile was updated. Review the latest profile and try again.";
+			return false;
+		}
+		manageError =
+			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+		return false;
+	} finally {
+		pendingMemoryActionKey = null;
+	}
+}
+
+async function handleUndoConsolidation(reportId: string, actionIndex: number) {
+	const key = `${reportId}:${actionIndex}:undo`;
+	if (pendingMemoryActionKey === key) return;
+
+	manageError = "";
+	pendingMemoryActionKey = key;
+	try {
+		memoryProfile = await submitMemoryV2Action({
+			kind: "consolidation",
+			action: "undo",
+			reportId,
+			actionIndex,
+		});
+		memoryLoaded = true;
+		await refreshMemoryTimeline();
+	} catch (error) {
+		manageError =
+			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
+	} finally {
+		pendingMemoryActionKey = null;
+	}
 }
 
 async function handleMemoryAction(
@@ -575,6 +679,12 @@ $effect(() => {
 						actionError={manageError}
 						onRetryLoadMemory={() => void loadMemoryProfile(true)}
 						onAction={handleMemoryAction}
+						summary={memorySummary}
+						summaryBusy={memorySummaryBusy}
+						onEditSummary={handleSummaryEdit}
+						timelineReports={memoryTimelineReports}
+						onUndoConsolidation={handleUndoConsolidation}
+						onRetire={handleRetireMemoryItem}
 					/>
 				</div>
 			{:else}

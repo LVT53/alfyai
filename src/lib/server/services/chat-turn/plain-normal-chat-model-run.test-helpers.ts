@@ -42,8 +42,6 @@ const basePreparedContext: PreparedContext = {
 	contextStatus: undefined,
 	taskState: null,
 	contextDebug: null,
-	honchoContext: null,
-	honchoSnapshot: null,
 	contextTraceSections: [],
 	contextLimits: {
 		maxModelContext: 10_000,

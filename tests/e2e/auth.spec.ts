@@ -51,6 +51,12 @@ test.describe("Authentication", () => {
 		await login(page);
 		await page.waitForURL("/");
 		await page.getByRole("button", { name: "Logout" }).click();
+		// ADR-0043 Slice 16: logout opens a ConfirmDialog before ending the
+		// session; confirm it to proceed to /login.
+		const confirmBtn = page.getByTestId("confirm-delete");
+		if (await confirmBtn.isVisible().catch(() => false)) {
+			await confirmBtn.click();
+		}
 		await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 	});
 });

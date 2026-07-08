@@ -109,7 +109,7 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 		);
 
 		await expect(async () => {
-			await page.getByRole("button", { name: "Administration" }).click();
+			await page.getByRole("tab", { name: "Administration" }).click();
 			await expect(page.getByText("Add Provider")).toBeVisible({
 				timeout: 1000,
 			});

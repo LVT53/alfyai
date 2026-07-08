@@ -42,8 +42,11 @@ vi.mock("$lib/client/api/knowledge", async () => {
 		fetchKnowledgeMemory: vi.fn(),
 		fetchKnowledgeMemoryOverview: vi.fn(),
 		fetchMemoryProfileItemDetail: vi.fn(),
+		fetchMemorySummary: vi.fn(),
+		fetchMemoryTimeline: vi.fn(),
 		recordDocumentWorkspaceOpen: vi.fn(),
 		submitKnowledgeMemoryAction: vi.fn(),
+		submitMemoryV2Action: vi.fn(),
 	};
 });
 
@@ -52,6 +55,8 @@ import {
 	fetchKnowledgeMemoryOverview,
 	fetchMemoryProfile,
 	fetchMemoryProfileItemDetail,
+	fetchMemorySummary,
+	fetchMemoryTimeline,
 	submitKnowledgeMemoryAction,
 } from "$lib/client/api/knowledge";
 import Page from "./+page.svelte";
@@ -121,7 +126,6 @@ function pageData(): {
 			totalPages: number;
 		};
 	};
-	honchoEnabled: boolean;
 	userDisplayName: string;
 	initialTab: "memory" | "documents";
 } {
@@ -140,7 +144,6 @@ function pageData(): {
 				totalPages: 0,
 			},
 		},
-		honchoEnabled: true,
 		userDisplayName: "Test User",
 		initialTab: "memory",
 	};
@@ -164,6 +167,8 @@ describe("Knowledge page memory loading", () => {
 		vi.mocked(submitKnowledgeMemoryAction).mockResolvedValue(
 			memoryProfilePayload,
 		);
+		vi.mocked(fetchMemorySummary).mockResolvedValue({ summary: null });
+		vi.mocked(fetchMemoryTimeline).mockResolvedValue({ reports: [] });
 		Object.defineProperty(document, "hidden", {
 			configurable: true,
 			value: false,

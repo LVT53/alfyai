@@ -14,7 +14,6 @@ export const users = sqliteTable("users", {
 	email: text("email").notNull().unique(),
 	passwordHash: text("password_hash").notNull(),
 	name: text("name"),
-	honchoPeerVersion: integer("honcho_peer_version").notNull().default(0),
 	role: text("role").notNull().default("user"),
 	preferredModel: text("preferred_model").notNull().default("model1"),
 	modelPreferenceMode: text("model_preference_mode"),
@@ -720,6 +719,13 @@ export const memoryProjectionState = sqliteTable(
 		status: text("status").notNull().default("ready"),
 		lastRefreshedAt: integer("last_refreshed_at", { mode: "timestamp" }),
 		metadataJson: text("metadata_json").notNull().default("{}"),
+		personaSummaryText: text("persona_summary_text"),
+		personaSummaryLinksJson: text("persona_summary_links_json")
+			.notNull()
+			.default("[]"),
+		personaSummaryUpdatedAt: integer("persona_summary_updated_at", {
+			mode: "timestamp",
+		}),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -734,6 +740,45 @@ export const memoryProjectionState = sqliteTable(
 		userUpdatedIdx: index("memory_projection_state_user_updated_idx").on(
 			table.userId,
 			table.updatedAt,
+		),
+	}),
+);
+
+export const conversationMemoryWatermarks = sqliteTable(
+	"conversation_memory_watermarks",
+	{
+		conversationId: text("conversation_id")
+			.primaryKey()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		lastJudgedSequence: integer("last_judged_sequence").notNull().default(0),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+);
+
+export const memoryConsolidationReports = sqliteTable(
+	"memory_consolidation_reports",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		resetGeneration: integer("reset_generation").notNull().default(0),
+		status: text("status").notNull(), // "succeeded" | "failed"
+		summaryText: text("summary_text").notNull(),
+		actionsJson: text("actions_json").notNull().default("[]"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userCreatedIdx: index("memory_consolidation_reports_user_created_idx").on(
+			table.userId,
+			table.createdAt,
 		),
 	}),
 );
