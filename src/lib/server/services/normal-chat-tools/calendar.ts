@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+	AppleCalDavError,
+	appleListEvents,
+} from "$lib/server/services/connections/providers/apple-caldav";
+import {
+	type CalendarEvent,
 	GoogleCalendarError,
 	googleFreeBusy,
 	googleListEvents,
@@ -159,7 +164,58 @@ function mapAdapterError(err: unknown): string {
 				return "I couldn't reach your calendar right now. Please try again in a moment.";
 		}
 	}
+	if (err instanceof AppleCalDavError) {
+		switch (err.code) {
+			case "needs_reauth":
+				return "Your Apple iCloud Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.";
+			case "connection_not_found":
+				return "Your Apple iCloud Calendar connection couldn't be found. Please reconnect it in Settings.";
+			default:
+				return "I couldn't reach your calendar right now. Please try again in a moment.";
+		}
+	}
 	return "I couldn't reach your calendar right now. Please try again in a moment.";
+}
+
+// Maps a provider's CalendarEvent[] onto the tool's own model-facing shape,
+// dropping any provider-internal fields that shouldn't reach the payload —
+// today that's just `etag` (Apple CalDAV only; carried on CalendarEvent for
+// Phase 6.2 writes, never meant for the model or the Sources tab).
+function toToolEventItem(event: CalendarEvent): CalendarToolEventItem {
+	return {
+		id: event.id,
+		...(event.summary ? { summary: event.summary } : {}),
+		start: event.start,
+		end: event.end,
+		...(event.location ? { location: event.location } : {}),
+		htmlLink: event.htmlLink,
+	};
+}
+
+// Dispatches list_events to the right provider adapter based on
+// `conn.provider` — google -> googleListEvents (server-side `q` search +
+// `maxResults`), apple -> appleListEvents (CalDAV REPORT has no equivalent
+// free-text search, so `query` is not applied server-side for Apple; results
+// are still capped at MAX_EVENTS client-side to match Google's bound).
+async function listEventsForConnection(
+	userId: string,
+	conn: ConnectionPublic,
+	params: { timeMin: string; timeMax: string; query?: string },
+): Promise<CalendarToolEventItem[]> {
+	if (conn.provider === "apple") {
+		const events = await appleListEvents(userId, conn.id, {
+			timeMin: params.timeMin,
+			timeMax: params.timeMax,
+		});
+		return events.slice(0, MAX_EVENTS).map(toToolEventItem);
+	}
+	const events = await googleListEvents(userId, conn.id, {
+		timeMin: params.timeMin,
+		timeMax: params.timeMax,
+		q: params.query,
+		maxResults: MAX_EVENTS,
+	});
+	return events.map(toToolEventItem);
 }
 
 function listEventsOutcome(
@@ -309,12 +365,12 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
-// Resolves the user's Calendar connection(s) and executes a list_events/
-// check_availability lookup against Google, degrading gracefully (never
-// throwing) so a connection problem never aborts the chat turn: no
-// connection, ambiguity, and adapter failures all resolve to a
-// `{ success: false, message }`-shaped payload instead. Read-only — writes
-// (creating/updating events) land in Phase 6.
+// Resolves the user's Calendar connection(s) — now spanning both google and
+// apple providers (5.3) — and executes a list_events/check_availability
+// lookup, degrading gracefully (never throwing) so a connection problem
+// never aborts the chat turn: no connection, ambiguity, and adapter failures
+// all resolve to a `{ success: false, message }`-shaped payload instead.
+// Read-only — writes (creating/updating events) land in Phase 6.
 export async function runCalendarTool(
 	userId: string,
 	input: CalendarToolInput,
@@ -326,7 +382,7 @@ export async function runCalendarTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Calendar connection set up yet. Connect your Google account in Settings to check your calendar.",
+				"You don't have a Calendar connection set up yet. Connect your Google or Apple iCloud account in Settings to check your calendar.",
 		});
 	}
 
@@ -337,7 +393,7 @@ export async function runCalendarTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Calendar connection set up yet. Connect your Google account in Settings to check your calendar.",
+				"You don't have a Calendar connection set up yet. Connect your Google or Apple iCloud account in Settings to check your calendar.",
 		});
 	}
 
@@ -345,18 +401,42 @@ export async function runCalendarTool(
 
 	try {
 		if (input.action === "list_events") {
-			const events = await googleListEvents(userId, conn.id, {
+			const events = await listEventsForConnection(userId, conn, {
 				timeMin,
 				timeMax,
-				q: input.query,
-				maxResults: MAX_EVENTS,
+				query: input.query,
 			});
 			const outcome = listEventsOutcome(conn, events, ambiguous, connections);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
-		const busy = await googleFreeBusy(userId, conn.id, { timeMin, timeMax });
-		return freeBusyOutcome(conn, busy, ambiguous, connections);
+		// check_availability has no CalDAV free/busy equivalent wired up yet
+		// (5.3 scope) — it stays google-only. If the resolved connection isn't
+		// google, look for any google connection among the user's Calendar
+		// connections before giving up.
+		const googleConnections = connections.filter(
+			(c) => c.provider === "google",
+		);
+		const googleConn = googleConnections[0];
+		if (!googleConn) {
+			return buildPayload({
+				success: false,
+				action: "check_availability",
+				message:
+					"Checking availability needs a Google Calendar connection — Apple iCloud calendars don't support free/busy lookups yet. Connect a Google account in Settings, or ask me to list your Apple events instead.",
+			});
+		}
+		const googleAmbiguous = needsDisambiguation(googleConnections);
+		const busy = await googleFreeBusy(userId, googleConn.id, {
+			timeMin,
+			timeMax,
+		});
+		return freeBusyOutcome(
+			googleConn,
+			busy,
+			googleAmbiguous,
+			googleConnections,
+		);
 	} catch (err) {
 		return buildPayload({
 			success: false,

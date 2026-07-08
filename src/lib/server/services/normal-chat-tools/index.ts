@@ -155,7 +155,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		calendar: {
 			description:
-				"Read the user's connected calendar (Google): list upcoming/ranged events or check free/busy availability. Use when the user asks about their schedule, upcoming events, or whether they're free at a time.",
+				"Read the user's connected calendar (Google or Apple iCloud): list upcoming/ranged events or check free/busy availability (Google only). Use when the user asks about their schedule, upcoming events, or whether they're free at a time.",
 			errorPrefix: "Calendar lookup failed",
 		},
 	},
@@ -191,7 +191,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		calendar: {
 			description:
-				"A felhasználó csatlakoztatott naptárának (Google) olvasása: közelgő/időszakra vonatkozó események listázása vagy a szabad/foglalt állapot lekérdezése. Akkor használd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy adott időpontban.",
+				"A felhasználó csatlakoztatott naptárának (Google vagy Apple iCloud) olvasása: közelgő/időszakra vonatkozó események listázása vagy a szabad/foglalt állapot lekérdezése (csak Google). Akkor használd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy adott időpontban.",
 			errorPrefix: "A naptár elérése sikertelen",
 		},
 	},

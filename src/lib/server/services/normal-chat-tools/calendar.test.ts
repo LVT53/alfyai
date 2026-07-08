@@ -5,6 +5,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { appleListEvents } from "$lib/server/services/connections/providers/apple-caldav";
 import {
 	GoogleCalendarError,
 	googleFreeBusy,
@@ -35,6 +36,15 @@ vi.mock(
 		};
 	},
 );
+vi.mock("$lib/server/services/connections/providers/apple-caldav", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/apple-caldav")
+	>("$lib/server/services/connections/providers/apple-caldav");
+	return {
+		...actual,
+		appleListEvents: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	isCloudModel: vi.fn(),
@@ -47,6 +57,7 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const googleListEventsMock = vi.mocked(googleListEvents);
 const googleFreeBusyMock = vi.mocked(googleFreeBusy);
+const appleListEventsMock = vi.mocked(appleListEvents);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -97,6 +108,7 @@ describe("runCalendarTool", () => {
 		needsDisambiguationMock.mockReset();
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
+		appleListEventsMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -267,6 +279,7 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 		needsDisambiguationMock.mockReset();
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
+		appleListEventsMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -378,6 +391,246 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 		expect(serializedPayload).not.toContain("Clinic Rd");
 		expect(outcome.modelPayload.message).toContain("withheld");
 		// Candidates (Sources tab) still carry the real title in this branch too.
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({
+				title: "Therapy session — anxiety follow-up",
+			}),
+		]);
+	});
+});
+
+describe("runCalendarTool — provider dispatch (5.3)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		appleListEventsMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+	});
+
+	it("list_events dispatches to appleListEvents for an apple connection, never touching googleListEvents", async () => {
+		const conn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		appleListEventsMock.mockResolvedValue([
+			{
+				id: "evt-apple-1",
+				summary: "Dentist",
+				start: "2026-07-09T15:00:00Z",
+				end: "2026-07-09T15:30:00Z",
+				htmlLink: "https://p1-caldav.icloud.com/cal/evt-apple-1.ics",
+				etag: '"etag-1"',
+			},
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(appleListEventsMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-apple",
+			expect.objectContaining({ timeMin: expect.any(String) }),
+		);
+		expect(googleListEventsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.events).toEqual([
+			{
+				id: "evt-apple-1",
+				summary: "Dentist",
+				start: "2026-07-09T15:00:00Z",
+				end: "2026-07-09T15:30:00Z",
+				htmlLink: "https://p1-caldav.icloud.com/cal/evt-apple-1.ics",
+			},
+		]);
+		// The internal-only `etag` field must never reach the model-facing
+		// payload — it's carried on the provider's CalendarEvent purely for
+		// Phase 6.2 writes.
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain("etag-1");
+	});
+
+	it("with BOTH a google and an apple connection, ambiguity is surfaced and the first (sorted) connection's provider is used", async () => {
+		const googleConn = makeConn({
+			id: "conn-google",
+			provider: "google",
+			label: "Alice Google",
+		});
+		const appleConn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Bob Apple",
+			accountIdentifier: "bob@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			googleConn,
+			appleConn,
+		]);
+		needsDisambiguationMock.mockReturnValue(true);
+		googleListEventsMock.mockResolvedValue([]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListEventsMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-google",
+			expect.objectContaining({ timeMin: expect.any(String) }),
+		);
+		expect(appleListEventsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.message).toContain("2 Calendar connections");
+		expect(outcome.modelPayload.message).toContain("Alice Google");
+		expect(outcome.modelPayload.message).toContain("Bob Apple");
+	});
+
+	it("check_availability with only an apple connection returns a graceful note instead of calling any adapter", async () => {
+		const appleConn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([appleConn]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"Google Calendar connection",
+		);
+		expect(googleFreeBusyMock).not.toHaveBeenCalled();
+		expect(appleListEventsMock).not.toHaveBeenCalled();
+	});
+
+	it("check_availability with BOTH google and apple connections still uses google, ignoring apple", async () => {
+		const googleConn = makeConn({ id: "conn-google", provider: "google" });
+		const appleConn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			appleConn,
+			googleConn,
+		]);
+		googleFreeBusyMock.mockResolvedValue([{ calendarId: "primary", busy: [] }]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleFreeBusyMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-google",
+			expect.objectContaining({ timeMin: expect.any(String) }),
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+	});
+
+	it("maps an Apple needs_reauth adapter error to a graceful note", async () => {
+		const conn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		const { AppleCalDavError } = await import(
+			"$lib/server/services/connections/providers/apple-caldav"
+		);
+		appleListEventsMock.mockRejectedValue(
+			new AppleCalDavError(
+				"Apple rejected the stored app-specific password",
+				"needs_reauth",
+			),
+		);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Apple iCloud Calendar");
+		expect(outcome.modelPayload.message).toContain("reconnected");
+	});
+});
+
+describe("runCalendarTool — locality Option A distillation with an apple event", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		appleListEventsMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+
+		const conn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		appleListEventsMock.mockResolvedValue([
+			{
+				id: "evt-apple-1",
+				summary: "Therapy session — anxiety follow-up",
+				start: "2026-07-09T09:00:00Z",
+				end: "2026-07-09T09:30:00Z",
+				location: "123 Clinic Rd",
+				htmlLink: "https://p1-caldav.icloud.com/cal/evt-apple-1.ics",
+				etag: '"etag-1"',
+			},
+		]);
+	});
+
+	it("Option A on + cloud model: the raw apple event summary/location are absent from the WHOLE model-facing payload, citations preserved on the user's Sources tab", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One appointment in the morning.",
+		});
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			"whichever-model",
+		);
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Therapy session");
+		expect(serializedPayload).not.toContain("Clinic Rd");
+		expect(serializedPayload).not.toContain("etag-1");
+		expect(outcome.modelPayload.events[0]?.summary).toBeUndefined();
+		expect(outcome.modelPayload.events[0]?.location).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain(
+			"One appointment in the morning.",
+		);
+		// The user's own Sources-tab candidates may keep the real event title.
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({
 				title: "Therapy session — anxiety follow-up",

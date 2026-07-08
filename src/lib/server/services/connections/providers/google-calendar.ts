@@ -42,6 +42,12 @@ export type CalendarEvent = {
 	end: string;
 	location?: string;
 	htmlLink: string;
+	// Only ever populated by the Apple CalDAV adapter (providers/apple-caldav
+	// .ts) — a CalDAV resource's ETag, kept for Phase 6.2 writes (conditional
+	// updates need it). Google events never set this; it is NOT surfaced to
+	// the calendar chat tool's model-facing payload (see
+	// normal-chat-tools/calendar.ts's toToolEventItem), only used internally.
+	etag?: string;
 };
 
 export type CalendarFreeBusy = {
