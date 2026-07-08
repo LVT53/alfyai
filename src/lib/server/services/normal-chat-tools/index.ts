@@ -39,6 +39,11 @@ import {
 	sanitizeImageSearchInput,
 } from "./image-search";
 import {
+	mediaToolInputSchema,
+	runMediaTool,
+	sanitizeMediaToolInput,
+} from "./media";
+import {
 	compactMemoryContextCandidates,
 	compactMemoryContextModelPayload,
 	createMemoryContextMetadata,
@@ -178,6 +183,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Search the user's connected photo library (Immich) with a natural-language smart search. Use when the user asks you to find, look up, or recall specific photos or videos.",
 			errorPrefix: "Photos lookup failed",
 		},
+		media: {
+			description:
+				"Read the user's connected media server (Plex) watch history and library sections — analytics only, e.g. 'what did we watch this week' or 'how many episodes of X have we seen'. Use when the user asks about what they've watched or their media library. Read-only.",
+			errorPrefix: "Media lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -224,6 +234,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó csatlakoztatott fényképtárának (Immich) keresése természetes nyelvű intelligens kereséssel. Akkor használd, ha a felhasználó konkrét fényképeket vagy videókat keres, vagy szeretné felidézni azokat.",
 			errorPrefix: "A fényképek elérése sikertelen",
 		},
+		media: {
+			description:
+				"A felhasználó csatlakoztatott médiaszerverének (Plex) megtekintési előzményeinek és könyvtárrészeinek olvasása — csak analitika, pl. 'mit néztünk ezen a héten' vagy 'hány részt láttunk X-ből'. Akkor használd, ha a felhasználó arra kérdez rá, mit nézett, vagy a médiakönyvtárára. Csak olvasható.",
+			errorPrefix: "A média elérése sikertelen",
+		},
 	},
 };
 
@@ -248,6 +263,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includePhotosTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("photos"),
+	);
+	const includeMediaTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("media"),
 	);
 
 	const tools = {
@@ -1052,6 +1070,87 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "photos",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeMediaTool
+			? {
+					media: asExecutableTool(
+						tool({
+							description: i18n.media.description,
+							inputSchema: mediaToolInputSchema,
+							execute: async (
+								input: z.infer<typeof mediaToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeMediaToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "media",
+									timeoutMs: TOOL_TIMEOUTS_MS.media,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runMediaTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "media",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: modelPayload.results.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.media.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "media" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											results: [] as never[],
+											libraries: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "media",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,
