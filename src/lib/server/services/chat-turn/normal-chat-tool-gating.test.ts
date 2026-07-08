@@ -25,23 +25,22 @@ describe("selectNormalChatToolsForRequest", () => {
 		expect(selected).toHaveProperty("research_web");
 	});
 
-	it("withholds the memory-recall tool when the conversation is incognito", () => {
+	it("exposes the memory-recall tool regardless of incognito (read side is not gated)", () => {
+		// Incognito is "saved-but-untracked": it must not degrade a chat's
+		// memory recall. The gate no longer accepts a memoryIncognito param.
 		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
 			message: "Tell me about the launch plan.",
-			memoryIncognito: true,
 		});
-		expect(selected).not.toHaveProperty("memory_context");
-		// Non-memory tools remain available under incognito.
+		expect(selected).toHaveProperty("memory_context");
 		expect(selected).toHaveProperty("research_web");
 	});
 
-	it("still withholds memory even when file-production tools are exposed", () => {
+	it("keeps exposing memory when file-production tools are exposed", () => {
 		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
 			message: "Please create a file with the summary.",
 			forceProduceFileTool: true,
-			memoryIncognito: true,
 		});
-		expect(selected).not.toHaveProperty("memory_context");
+		expect(selected).toHaveProperty("memory_context");
 		expect(selected).toHaveProperty("produce_file");
 	});
 });

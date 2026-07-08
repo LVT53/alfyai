@@ -868,20 +868,28 @@ export async function persistAssistantTurnState(
 ): Promise<PersistAssistantTurnStateResult> {
 	const analytics = params.analytics ?? null;
 	if (analytics) {
-		await recordMessageAnalytics({
-			messageId: params.assistantMessageId,
-			conversationId: params.conversationId,
-			userId: params.userId,
-			model: analytics.model,
-			modelDisplayName: analytics.modelDisplayName,
-			promptTokens: analytics.promptTokens,
-			completionTokens: analytics.completionTokens,
-			reasoningTokens: analytics.reasoningTokens,
-			generationTimeMs: analytics.generationTimeMs,
-			providerUsage: analytics.providerUsage,
-		}).catch((err) => {
-			console.error("[ANALYTICS] Failed to record message analytics:", err);
-		});
+		// Incognito conversations are saved-but-untracked: skip usage/cost
+		// analytics for this turn while still persisting everything else below.
+		const { isConversationIncognito } = await import("../memory-controls");
+		const incognito = await isConversationIncognito(
+			params.conversationId,
+		).catch(() => false);
+		if (!incognito) {
+			await recordMessageAnalytics({
+				messageId: params.assistantMessageId,
+				conversationId: params.conversationId,
+				userId: params.userId,
+				model: analytics.model,
+				modelDisplayName: analytics.modelDisplayName,
+				promptTokens: analytics.promptTokens,
+				completionTokens: analytics.completionTokens,
+				reasoningTokens: analytics.reasoningTokens,
+				generationTimeMs: analytics.generationTimeMs,
+				providerUsage: analytics.providerUsage,
+			}).catch((err) => {
+				console.error("[ANALYTICS] Failed to record message analytics:", err);
+			});
+		}
 	}
 
 	const sourceArtifactIds =

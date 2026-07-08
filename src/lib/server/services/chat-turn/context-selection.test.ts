@@ -896,7 +896,11 @@ describe("buildConstructedContext", () => {
 		);
 	});
 
-	it("excludes persona/memory and project context when the conversation is incognito", async () => {
+	it("does not accept a memoryIncognito param — context assembly always runs persona/memory and project context", async () => {
+		// Incognito is "saved-but-untracked": a fully normal, fully functional
+		// chat that just isn't learned into memory or tracked in telemetry.
+		// buildConstructedContext must no longer take a memoryIncognito param at
+		// all, and its behavior must be identical to the non-incognito path.
 		resetConstructedContextMocks();
 		mocks.getConversationProjectId.mockResolvedValue("project-1");
 		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
@@ -907,7 +911,7 @@ describe("buildConstructedContext", () => {
 			entries: [
 				{
 					title: "Sibling launch retro",
-					objective: "SIBLING_PROJECT_OBJECTIVE_SECRET",
+					objective: "SIBLING_PROJECT_OBJECTIVE",
 					summary: "Sibling checkpoint details.",
 				},
 			],
@@ -915,7 +919,7 @@ describe("buildConstructedContext", () => {
 		mocks.selectProjectFolderSiblingPromotion.mockResolvedValue({
 			projectName: "Launch Project",
 			title: "Promoted sibling",
-			objective: "PROMOTED_SIBLING_SECRET",
+			objective: "PROMOTED_SIBLING",
 			summary: "Promoted sibling summary.",
 			score: 5,
 			matchedTerms: ["launch"],
@@ -923,7 +927,7 @@ describe("buildConstructedContext", () => {
 			omittedMessageCount: 0,
 		});
 
-		const constructed = await buildConstructedContext({
+		const params = {
 			userId: "user-1",
 			conversationId: "conversation-1",
 			message: "Review the launch plan against release risks.",
@@ -935,41 +939,41 @@ describe("buildConstructedContext", () => {
 				compactionUiThreshold: 12_000,
 				targetConstructedContext: 8_000,
 			},
+		};
+
+		// memoryIncognito is not a valid buildConstructedContext param anymore —
+		// an incognito conversation must go through the exact same
+		// context-assembly path as a normal one.
+		const constructed = await buildConstructedContext({
+			...params,
+			// @ts-expect-error memoryIncognito no longer exists on this param type.
 			memoryIncognito: true,
 		});
 
-		// No persona/memory profile is fetched or injected.
-		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
-		expect(constructed.inputValue).not.toContain("## Baseline Memory Profile");
-		expect(constructed.inputValue).not.toContain(
+		// Persona/memory profile is still fetched and injected.
+		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalled();
+		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
+		expect(constructed.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);
-		// No project reference / sibling / folder / working-set context is fetched
-		// or injected.
-		expect(mocks.getProjectReferenceContext).not.toHaveBeenCalled();
-		expect(mocks.selectProjectFolderSiblingPromotion).not.toHaveBeenCalled();
-		expect(mocks.getConversationProjectLabel).not.toHaveBeenCalled();
-		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
-		expect(constructed.inputValue).not.toContain("## Project Folder");
-		expect(constructed.inputValue).not.toContain("## Project Folder Awareness");
-		expect(constructed.inputValue).not.toContain(
-			"## Project Folder Sibling Context",
-		);
-		expect(constructed.inputValue).not.toContain(
-			"SIBLING_PROJECT_OBJECTIVE_SECRET",
-		);
-		expect(constructed.inputValue).not.toContain("PROMOTED_SIBLING_SECRET");
+		// Project reference / sibling / folder / working-set context is still
+		// fetched and injected.
+		expect(mocks.getProjectReferenceContext).toHaveBeenCalled();
+		expect(mocks.selectProjectFolderSiblingPromotion).toHaveBeenCalled();
+		expect(mocks.getConversationProjectLabel).toHaveBeenCalled();
+		expect(mocks.selectWorkingSetArtifactsForPrompt).toHaveBeenCalled();
+		expect(constructed.inputValue).toContain("## Project Folder");
 		expect(
 			constructed.contextTraceSections.some(
 				(section) => section.source === "memory",
 			),
-		).toBe(false);
-		// The non-privacy context (session continuity, attachments) still flows.
+		).toBe(true);
+		// The rest of the context still flows too.
 		expect(constructed.inputValue).toContain("## Session Context");
 		expect(constructed.inputValue).toContain("## Current Attachments");
 	});
 
-	it("keeps persona/memory and project context byte-for-byte when memoryIncognito is false", async () => {
+	it("produces byte-for-byte identical constructed context whether or not a (now-ignored) memoryIncognito flag is passed", async () => {
 		resetConstructedContextMocks();
 		mocks.getConversationProjectId.mockResolvedValue("project-1");
 		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
@@ -994,16 +998,15 @@ describe("buildConstructedContext", () => {
 		mocks.getConversationProjectId.mockResolvedValue("project-1");
 		mocks.getConversationProjectLabel.mockResolvedValue("Launch Project");
 
-		const explicitlyDisabled = await buildConstructedContext({
+		const withStaleFlag = await buildConstructedContext({
 			...baseParams,
-			memoryIncognito: false,
+			// @ts-expect-error memoryIncognito no longer exists on this param type.
+			memoryIncognito: true,
 		});
 
-		expect(explicitlyDisabled.inputValue).toBe(baseline.inputValue);
-		expect(explicitlyDisabled.inputValue).toContain(
-			"## Baseline Memory Profile",
-		);
-		expect(explicitlyDisabled.inputValue).toContain(
+		expect(withStaleFlag.inputValue).toBe(baseline.inputValue);
+		expect(withStaleFlag.inputValue).toContain("## Baseline Memory Profile");
+		expect(withStaleFlag.inputValue).toContain(
 			"The user prefers projection-gated launch briefs.",
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalled();

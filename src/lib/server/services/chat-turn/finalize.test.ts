@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
 import { getArtifactsForUser } from "$lib/server/services/knowledge";
 import { recordMemoryEvent } from "$lib/server/services/memory-events";
@@ -28,6 +29,7 @@ const {
 	mockRunUserMemoryMaintenance,
 	mockSyncGeneratedFilesToMemory,
 	mockShouldTrackTaskContinuityFromTurn,
+	mockIsConversationIncognito,
 } = vi.hoisted(() => ({
 	mockDetectExplicitMemoryRequest: vi.fn(() => false),
 	mockScheduleConversationJudge: vi.fn(() => undefined),
@@ -69,6 +71,7 @@ const {
 	})),
 	mockRunUserMemoryMaintenance: vi.fn(async () => undefined),
 	mockShouldTrackTaskContinuityFromTurn: vi.fn(() => true),
+	mockIsConversationIncognito: vi.fn(async () => false),
 }));
 
 vi.mock("$lib/server/services/chat-files", () => ({
@@ -81,6 +84,12 @@ vi.mock("$lib/server/config-store", () => ({
 
 vi.mock("$lib/server/services/analytics", () => ({
 	recordMessageAnalytics: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/memory-controls", () => ({
+	isConversationIncognito: mockIsConversationIncognito,
+	isMemoryActiveForConversation: vi.fn(async () => true),
+	isUserMemoryEnabled: vi.fn(async () => true),
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -1657,5 +1666,144 @@ describe("finalizeChatTurn", () => {
 
 		expect(mockSyncContinuity).not.toHaveBeenCalled();
 		expect(mockApplyProjectContinuity).not.toHaveBeenCalled();
+	});
+
+	describe("incognito telemetry suppression", () => {
+		beforeEach(() => {
+			mockIsConversationIncognito.mockResolvedValue(false);
+		});
+
+		it("persistAssistantTurnState records usage/cost analytics for a normal (non-incognito) turn", async () => {
+			mockIsConversationIncognito.mockResolvedValueOnce(false);
+			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
+				typeof vi.fn
+			>;
+			const { persistAssistantTurnState } = await import("./finalize");
+
+			await persistAssistantTurnState({
+				userId: "user-1",
+				conversationId: "conv-1",
+				normalizedMessage: "What is the capital of France?",
+				assistantResponse: "Paris.",
+				attachmentIds: [],
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				userMessageId: "user-message-1",
+				assistantMessageId: "assistant-message-1",
+				analytics: {
+					model: "model-1",
+					modelDisplayName: "Model One",
+					promptTokens: 10,
+					completionTokens: 5,
+				},
+				continuitySource: "send",
+			});
+
+			expect(mockIsConversationIncognito).toHaveBeenCalledWith("conv-1");
+			expect(mockRecordMessageAnalytics).toHaveBeenCalledWith(
+				expect.objectContaining({
+					messageId: "assistant-message-1",
+					conversationId: "conv-1",
+					userId: "user-1",
+					model: "model-1",
+				}),
+			);
+		});
+
+		it("persistAssistantTurnState skips usage/cost analytics for an incognito turn", async () => {
+			mockIsConversationIncognito.mockResolvedValueOnce(true);
+			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
+				typeof vi.fn
+			>;
+			const { persistAssistantTurnState } = await import("./finalize");
+
+			await persistAssistantTurnState({
+				userId: "user-1",
+				conversationId: "conv-secret",
+				normalizedMessage: "What is the capital of France?",
+				assistantResponse: "Paris.",
+				attachmentIds: [],
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				userMessageId: "user-message-1",
+				assistantMessageId: "assistant-message-1",
+				analytics: {
+					model: "model-1",
+					modelDisplayName: "Model One",
+					promptTokens: 10,
+					completionTokens: 5,
+				},
+				continuitySource: "send",
+			});
+
+			expect(mockIsConversationIncognito).toHaveBeenCalledWith("conv-secret");
+			expect(mockRecordMessageAnalytics).not.toHaveBeenCalled();
+		});
+
+		it("finalizeChatTurn still persists the assistant message and writes no usage row for an incognito turn", async () => {
+			mockIsConversationIncognito.mockResolvedValue(true);
+			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
+				typeof vi.fn
+			>;
+			const createMessage = vi.fn(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> =>
+					makeChatMessage(
+						`${role}-message`,
+						role,
+						role === "user" ? "user message" : "assistant response",
+					),
+			);
+			const runPostTurnTasks = vi.fn(async () => undefined);
+			const { finalizeChatTurn } = await import("./finalize");
+
+			const completion = await finalizeChatTurn({
+				logPrefix: "[SEND]",
+				userId: "user-1",
+				conversationId: "conv-secret",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: {
+					model: "model-1",
+					modelDisplayName: "Model One",
+					promptTokens: 10,
+					completionTokens: 5,
+				},
+				continuitySource: "send",
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				createMessage,
+				runPostTurnTasks,
+			});
+
+			// The conversation and its messages stay saved (incognito is
+			// saved-but-untracked, not hidden).
+			expect(createMessage).toHaveBeenCalledWith(
+				"conv-secret",
+				"assistant",
+				"assistant response",
+				undefined,
+				undefined,
+				expect.anything(),
+			);
+			expect(completion.assistantMessage?.id).toBe("assistant-message");
+			// No usage/cost analytics row is written for this turn.
+			expect(mockRecordMessageAnalytics).not.toHaveBeenCalled();
+		});
 	});
 });
