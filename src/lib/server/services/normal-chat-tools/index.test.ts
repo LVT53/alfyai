@@ -8,6 +8,7 @@ import {
 	googleFreeBusy,
 	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
+import { immichSmartSearch } from "$lib/server/services/connections/providers/immich";
 import {
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -92,6 +93,15 @@ vi.mock(
 		};
 	},
 );
+vi.mock("$lib/server/services/connections/providers/immich", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/immich")
+	>("$lib/server/services/connections/providers/immich");
+	return {
+		...actual,
+		immichSmartSearch: vi.fn(),
+	};
+});
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
 const researchWebMock = vi.mocked(researchWeb);
@@ -106,6 +116,7 @@ const nextcloudSearchMock = vi.mocked(nextcloudSearch);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
 const googleListEventsMock = vi.mocked(googleListEvents);
 const googleFreeBusyMock = vi.mocked(googleFreeBusy);
+const immichSmartSearchMock = vi.mocked(immichSmartSearch);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 
@@ -185,6 +196,7 @@ describe("createNormalChatTools", () => {
 		nextcloudReadFileMock.mockReset();
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
+		immichSmartSearchMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
@@ -1931,6 +1943,158 @@ describe("createNormalChatTools", () => {
 				action: "check_availability",
 				busy: [{ calendarId: "primary", busy: [] }],
 			});
+		});
+	});
+
+	describe("photos tool gating", () => {
+		it("does not include the photos tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("photos");
+		});
+
+		it("does not include the photos tool when enabledConnectionCapabilities lacks 'photos'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("photos");
+		});
+
+		it("includes the photos tool when enabledConnectionCapabilities contains 'photos'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools).toHaveProperty("photos");
+		});
+	});
+
+	describe("photos tool execute", () => {
+		function makeImmichConnection(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return {
+				id: "conn-1",
+				userId: "user-1",
+				provider: "immich",
+				label: "Immich",
+				accountIdentifier: "alice@example.com",
+				status: "connected",
+				statusDetail: null,
+				defaultOn: false,
+				allowWrites: false,
+				writeAllowlist: [],
+				capabilities: ["photos"],
+				config: {
+					origin: "https://photos.example.com",
+					immichUserId: "user-1",
+				},
+				oauthScopes: [],
+				tokenExpiresAt: null,
+				hasSecret: true,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		function createToolsWithPhotos() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+		}
+
+		it("search returns results and citations", async () => {
+			const conn = makeImmichConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			immichSmartSearchMock.mockResolvedValue([
+				{
+					id: "asset-1",
+					fileName: "beach.jpg",
+					takenAt: "2026-06-01T09:55:00.000Z",
+					type: "IMAGE",
+					thumbnailPath: "/api/assets/asset-1/thumbnail",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-search", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [{ label: "beach.jpg", url: "" }],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-photos-search",
+					name: "photos",
+					sourceType: "tool",
+					candidates: [
+						expect.objectContaining({
+							id: "photos:asset-1",
+							title: "beach.jpg",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Photos connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Photos connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-photos-none",
+				name: "photos",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Photos connection is available", async () => {
+			const connA = makeImmichConnection({
+				id: "conn-a",
+				label: "Alice Immich",
+			});
+			const connB = makeImmichConnection({ id: "conn-b", label: "Bob Immich" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			immichSmartSearchMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Photos connections",
+			);
 		});
 	});
 });

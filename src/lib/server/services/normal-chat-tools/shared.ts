@@ -108,6 +108,7 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	files: 20_000,
 	calendar: 20_000,
 	email: 20_000,
+	photos: 20_000,
 };
 
 export async function withTimeout<T>(

@@ -48,6 +48,11 @@ import {
 	summarizeMemoryContextResult,
 } from "./memory-context";
 import {
+	photosToolInputSchema,
+	runPhotosTool,
+	sanitizePhotosToolInput,
+} from "./photos";
+import {
 	applyTextPatches,
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
@@ -168,6 +173,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the user's connected email (IMAP): list recent messages, search, or read a specific message by uid. Use when the user asks about their inbox, a specific email, or wants you to look something up in their email.",
 			errorPrefix: "Email lookup failed",
 		},
+		photos: {
+			description:
+				"Search the user's connected photo library (Immich) with a natural-language smart search. Use when the user asks you to find, look up, or recall specific photos or videos.",
+			errorPrefix: "Photos lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -209,6 +219,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó csatlakoztatott e-mail fiókjának (IMAP) olvasása: legutóbbi üzenetek listázása, keresés, vagy egy adott üzenet elolvasása uid alapján. Akkor használd, ha a felhasználó a postafiókjára vagy egy konkrét e-mailre kérdez rá, vagy szeretnéd, hogy megnézz valamit az e-mailjei között.",
 			errorPrefix: "Az e-mail elérése sikertelen",
 		},
+		photos: {
+			description:
+				"A felhasználó csatlakoztatott fényképtárának (Immich) keresése természetes nyelvű intelligens kereséssel. Akkor használd, ha a felhasználó konkrét fényképeket vagy videókat keres, vagy szeretné felidézni azokat.",
+			errorPrefix: "A fényképek elérése sikertelen",
+		},
 	},
 };
 
@@ -230,6 +245,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includeEmailTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("email"),
+	);
+	const includePhotosTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("photos"),
 	);
 
 	const tools = {
@@ -954,6 +972,86 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "email",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includePhotosTool
+			? {
+					photos: asExecutableTool(
+						tool({
+							description: i18n.photos.description,
+							inputSchema: photosToolInputSchema,
+							execute: async (
+								input: z.infer<typeof photosToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizePhotosToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "photos",
+									timeoutMs: TOOL_TIMEOUTS_MS.photos,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runPhotosTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "photos",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													resultCount: modelPayload.results.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.photos.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "photos" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											results: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "photos",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,
