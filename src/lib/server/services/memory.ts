@@ -38,6 +38,7 @@ import {
 	recordMemoryReworkTelemetry,
 	updateMemoryProfileItemWithRevision,
 } from "./memory-profile";
+import type { MemoryDirtyReason } from "./memory-profile/types";
 
 export class MemoryProfileActionError extends Error {
 	readonly code:
@@ -502,11 +503,28 @@ export async function getKnowledgeMemoryOverview(
 		isUserMemoryEnabled(userId),
 		listPendingMemoryDirtyEntries({ userId }).catch(() => []),
 	]);
+	// The "updating your memory" notice must reflect genuine learning/consolidation
+	// of the user's content — NOT internal bookkeeping. In particular
+	// `stale_projection` is marked on every profile read (markStaleProjectionRead
+	// above), so counting it would make merely opening this page announce that
+	// memory is updating. Restrict the signal to reasons that mean new content is
+	// being ingested or reconciled.
+	const processingReasons = new Set<MemoryDirtyReason>([
+		"deferred_intake",
+		"possible_conflict",
+		"possible_duplicate",
+	]);
+	const activeWork = pending.filter((entry) =>
+		processingReasons.has(entry.reason),
+	);
 	return {
 		summary: buildCompatibilitySummary(profile),
 		profile,
 		memoryEnabled,
-		processing: { active: pending.length > 0, pendingCount: pending.length },
+		processing: {
+			active: activeWork.length > 0,
+			pendingCount: activeWork.length,
+		},
 	};
 }
 

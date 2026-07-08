@@ -699,6 +699,37 @@ describe("memory v2 actions service", () => {
 		);
 	});
 
+	it("overview processing counts only genuine intake work, never read-induced stale_projection", async () => {
+		const now = new Date();
+		const userId = "u1";
+		const { db } = openSeedDatabase();
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+
+		const { markMemoryDirty } = await import("./memory-profile");
+		const { getKnowledgeMemoryOverview } = await import("./memory");
+
+		// Only a read-induced staleness marker exists (and getKnowledgeMemoryOverview
+		// itself marks another on read): the notice must stay OFF.
+		await markMemoryDirty({
+			userId,
+			reason: "stale_projection",
+			scope: { type: "global" },
+		});
+		let overview = await getKnowledgeMemoryOverview(userId, "Tester");
+		expect(overview.processing).toEqual({ active: false, pendingCount: 0 });
+
+		// A real pending chat-intake entry turns the notice ON.
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "c1" },
+		});
+		overview = await getKnowledgeMemoryOverview(userId, "Tester");
+		expect(overview.processing.active).toBe(true);
+		expect(overview.processing.pendingCount).toBe(1);
+	});
+
 	it("undo: restores prevExpiresAt for a renewed action, parsing the serialized ISO string back to a Date", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();
