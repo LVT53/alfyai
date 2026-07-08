@@ -18,6 +18,11 @@ import {
 } from "$lib/server/services/web-grounding";
 import { researchWeb } from "$lib/server/services/web-research";
 import {
+	calendarToolInputSchema,
+	runCalendarTool,
+	sanitizeCalendarToolInput,
+} from "./calendar";
+import {
 	filesToolInputSchema,
 	runFilesTool,
 	sanitizeFilesToolInput,
@@ -148,6 +153,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Search and read the user's connected files (e.g. their Nextcloud). Use when the user asks to find, look up, or read a document/file.",
 			errorPrefix: "Files lookup failed",
 		},
+		calendar: {
+			description:
+				"Read the user's connected calendar (Google): list upcoming/ranged events or check free/busy availability. Use when the user asks about their schedule, upcoming events, or whether they're free at a time.",
+			errorPrefix: "Calendar lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -179,6 +189,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) keresése és olvasása. Akkor használd, ha a felhasználó egy dokumentum/fájl megkeresését, megnyitását vagy elolvasását kéri.",
 			errorPrefix: "A fájlok elérése sikertelen",
 		},
+		calendar: {
+			description:
+				"A felhasználó csatlakoztatott naptárának (Google) olvasása: közelgő/időszakra vonatkozó események listázása vagy a szabad/foglalt állapot lekérdezése. Akkor használd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy adott időpontban.",
+			errorPrefix: "A naptár elérése sikertelen",
+		},
 	},
 };
 
@@ -194,6 +209,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	>();
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
+	);
+	const includeCalendarTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("calendar"),
 	);
 
 	const tools = {
@@ -761,6 +779,87 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												status: "done",
 												outputSummary: message,
 												sourceType: "document",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeCalendarTool
+			? {
+					calendar: asExecutableTool(
+						tool({
+							description: i18n.calendar.description,
+							inputSchema: calendarToolInputSchema,
+							execute: async (
+								input: z.infer<typeof calendarToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeCalendarToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "calendar",
+									timeoutMs: TOOL_TIMEOUTS_MS.calendar,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runCalendarTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "calendar",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													eventCount: modelPayload.events.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.calendar.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "calendar" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											events: [] as never[],
+											busy: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "calendar",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
 												candidates: [],
 												metadata: {
 													ok: false,

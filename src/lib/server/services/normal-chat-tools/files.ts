@@ -1,9 +1,4 @@
 import { z } from "zod";
-import {
-	distillConnectorPayload,
-	hasLocalDistillEnabled,
-	isCloudModel,
-} from "$lib/server/services/connections/locality";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
@@ -26,6 +21,7 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
+import { decideLocalDistill } from "./connector-distill";
 import { truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
@@ -418,28 +414,26 @@ async function applyLocalDistillGate(params: {
 	// inlined text) — the gate is a no-op.
 	if (rawTextParts.length === 0) return outcome;
 
-	const shouldDistill =
-		(await hasLocalDistillEnabled(userId)) && (await isCloudModel(modelId));
-	if (!shouldDistill) return outcome;
+	const decision = await decideLocalDistill({
+		userId,
+		modelId,
+		capability: "files",
+		userQuestion: input.query ?? input.path ?? "",
+		rawText: rawTextParts.join("\n\n"),
+	});
+	if (!decision.shouldDistill) return outcome;
 
 	const strippedResults = outcome.modelPayload.results.map((result) => {
 		const { content: _content, ...rest } = result;
 		return rest;
 	});
 
-	const distillResult = await distillConnectorPayload({
-		userId,
-		capability: "files",
-		userQuestion: input.query ?? input.path ?? "",
-		rawText: rawTextParts.join("\n\n"),
-	});
-
-	if ("distilled" in distillResult) {
+	if ("distilled" in decision) {
 		return {
 			...outcome,
 			modelPayload: {
 				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${distillResult.distilled}`,
+				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
 				results: strippedResults,
 			},
 		};

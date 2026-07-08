@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	hasLocalDistillEnabled,
+	isCloudModel,
+} from "$lib/server/services/connections/locality";
+import {
+	googleFreeBusy,
+	googleListEvents,
+} from "$lib/server/services/connections/providers/google-calendar";
+import {
 	nextcloudReadFile,
 	nextcloudSearch,
 } from "$lib/server/services/connections/providers/nextcloud-files";
@@ -53,6 +61,11 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnectionSecret: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/locality", () => ({
+	hasLocalDistillEnabled: vi.fn(),
+	isCloudModel: vi.fn(),
+	distillConnectorPayload: vi.fn(),
+}));
 vi.mock(
 	"$lib/server/services/connections/providers/nextcloud-files",
 	async () => {
@@ -63,6 +76,19 @@ vi.mock(
 			...actual,
 			nextcloudSearch: vi.fn(),
 			nextcloudReadFile: vi.fn(),
+		};
+	},
+);
+vi.mock(
+	"$lib/server/services/connections/providers/google-calendar",
+	async () => {
+		const actual = await vi.importActual<
+			typeof import("$lib/server/services/connections/providers/google-calendar")
+		>("$lib/server/services/connections/providers/google-calendar");
+		return {
+			...actual,
+			googleListEvents: vi.fn(),
+			googleFreeBusy: vi.fn(),
 		};
 	},
 );
@@ -78,6 +104,10 @@ const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const getConnectionSecretMock = vi.mocked(getConnectionSecret);
 const nextcloudSearchMock = vi.mocked(nextcloudSearch);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
+const googleListEventsMock = vi.mocked(googleListEvents);
+const googleFreeBusyMock = vi.mocked(googleFreeBusy);
+const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
+const isCloudModelMock = vi.mocked(isCloudModel);
 
 function makeNextcloudConnection(
 	overrides: Partial<ConnectionPublic> = {},
@@ -153,7 +183,15 @@ describe("createNormalChatTools", () => {
 		getConnectionSecretMock.mockReset();
 		nextcloudSearchMock.mockReset();
 		nextcloudReadFileMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
+		// Default: Option A off — the calendar/files distill gate short-circuits
+		// via hasLocalDistillEnabled before touching the real DB.
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
 	});
 
 	it("submits produce_file intake with server-owned user, conversation, and turn idempotency scope", async () => {
@@ -1719,6 +1757,180 @@ describe("createNormalChatTools", () => {
 			expect((result as { message: string }).message).toContain(
 				"2 Files connections",
 			);
+		});
+	});
+
+	describe("calendar tool gating", () => {
+		it("does not include the calendar tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("calendar");
+		});
+
+		it("does not include the calendar tool when enabledConnectionCapabilities lacks 'calendar'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+
+			expect(tools).not.toHaveProperty("calendar");
+		});
+
+		it("includes the calendar tool when enabledConnectionCapabilities contains 'calendar'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).toHaveProperty("calendar");
+		});
+	});
+
+	describe("calendar tool execute", () => {
+		function makeGoogleConnection(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return {
+				id: "conn-1",
+				userId: "user-1",
+				provider: "google",
+				label: "Google",
+				accountIdentifier: "alice@example.com",
+				status: "connected",
+				statusDetail: null,
+				defaultOn: false,
+				allowWrites: false,
+				writeAllowlist: [],
+				capabilities: ["calendar"],
+				config: {},
+				oauthScopes: [],
+				tokenExpiresAt: null,
+				hasSecret: true,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		function createToolsWithCalendar() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+		}
+
+		it("list_events returns events and citations", async () => {
+			const conn = makeGoogleConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleListEventsMock.mockResolvedValue([
+				{
+					id: "evt-1",
+					summary: "Standup",
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					htmlLink: "https://calendar.google.com/event?eid=evt-1",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-list", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [
+					{
+						label: "Standup",
+						url: "https://calendar.google.com/event?eid=evt-1",
+					},
+				],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-calendar-list",
+					name: "calendar",
+					sourceType: "tool",
+					candidates: [
+						expect.objectContaining({
+							id: "calendar:https://calendar.google.com/event?eid=evt-1",
+							title: "Standup",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Calendar connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Calendar connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-calendar-none",
+				name: "calendar",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Calendar connection is available", async () => {
+			const connA = makeGoogleConnection({
+				id: "conn-a",
+				label: "Alice Google",
+			});
+			const connB = makeGoogleConnection({ id: "conn-b", label: "Bob Google" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			googleListEventsMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Calendar connections",
+			);
+		});
+
+		it("check_availability summarizes free/busy", async () => {
+			const conn = makeGoogleConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleFreeBusyMock.mockResolvedValue([
+				{ calendarId: "primary", busy: [] },
+			]);
+
+			const { tools } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "check_availability" },
+				{ toolCallId: "call-calendar-freebusy", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				action: "check_availability",
+				busy: [{ calendarId: "primary", busy: [] }],
+			});
 		});
 	});
 });
