@@ -327,9 +327,13 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 
 		const outcome = await listOnce();
 
-		const serializedEvents = JSON.stringify(outcome.modelPayload.events);
-		expect(serializedEvents).not.toContain("Therapy session");
-		expect(serializedEvents).not.toContain("Clinic Rd");
+		// The single most important assertion: the raw event text must not
+		// appear anywhere in the WHOLE model-facing payload — not just
+		// `events`, but also `citations` (which used to leak the raw summary
+		// verbatim via its `label`, see C1 of the 5.2 review).
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Therapy session");
+		expect(serializedPayload).not.toContain("Clinic Rd");
 		expect(outcome.modelPayload.events[0]?.summary).toBeUndefined();
 		expect(outcome.modelPayload.events[0]?.location).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain(
@@ -342,11 +346,21 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 				rawText: expect.stringContaining("Therapy session"),
 			}),
 		);
-		// Citations (event title + link — metadata, not sensitive content) are
-		// kept, mirroring the files tool's posture on filenames.
+		// The MODEL-facing citation label is redacted to a non-sensitive
+		// placeholder — the raw event title must not reach the cloud model
+		// through this side channel.
 		expect(outcome.modelPayload.citations).toEqual([
 			expect.objectContaining({
-				label: "Therapy session — anxiety follow-up",
+				label: "Calendar event at 2026-07-09T09:00:00-04:00",
+				url: "https://calendar.google.com/event?eid=evt-1",
+			}),
+		]);
+		// But the user's own Sources-tab candidates (a different, user-facing
+		// channel — recorded separately from modelPayload) may keep the real
+		// event title, since that's the user's own data on their own screen.
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({
+				title: "Therapy session — anxiety follow-up",
 				url: "https://calendar.google.com/event?eid=evt-1",
 			}),
 		]);
@@ -359,9 +373,15 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 
 		const outcome = await listOnce();
 
-		const serializedEvents = JSON.stringify(outcome.modelPayload.events);
-		expect(serializedEvents).not.toContain("Therapy session");
-		expect(serializedEvents).not.toContain("Clinic Rd");
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Therapy session");
+		expect(serializedPayload).not.toContain("Clinic Rd");
 		expect(outcome.modelPayload.message).toContain("withheld");
+		// Candidates (Sources tab) still carry the real title in this branch too.
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({
+				title: "Therapy session — anxiety follow-up",
+			}),
+		]);
 	});
 });

@@ -70,6 +70,11 @@ export type CalendarToolOutcome = {
 	candidates: ToolEvidenceCandidate[];
 };
 
+// This tool's own cap, always passed explicitly to googleListEvents — it
+// takes precedence over (and makes dead, for this call site) the adapter's
+// own `DEFAULT_MAX_EVENTS` (25 — see google-calendar.ts), since a caller-
+// supplied `maxResults` always wins there. Intentional: 20 is this tool's
+// deliberate limit, not an oversight.
 const MAX_EVENTS = 20;
 const DEFAULT_RANGE_DAYS = 7;
 
@@ -205,13 +210,38 @@ function freeBusyOutcome(
 	});
 }
 
+// Redacts the MODEL-FACING citation labels once Option A distillation has
+// applied. Unlike files.ts (where citations[].label is a filename — metadata
+// distinct from the protected file body), calendar.ts's citations[].label is
+// populated with the exact same raw event `summary` that Option A strips
+// from `events[]`. Leaving it untouched would let the raw title reach the
+// cloud model through `citations` even though `events[].summary` was
+// stripped two fields earlier in the same payload — so it must be redacted
+// here too. `outcome.candidates` (built from the *original*, unredacted
+// citations in `buildPayload`, before this gate ever runs) is intentionally
+// left alone: it feeds the user's own Sources tab on their own screen, a
+// different channel from what the model sees, and may keep the real title.
+function redactCitationsForModel(
+	events: CalendarToolEventItem[],
+	citations: CalendarCitation[],
+): CalendarCitation[] {
+	return citations.map((citation, index) => {
+		const start = events[index]?.start;
+		return {
+			...citation,
+			label: start ? `Calendar event at ${start}` : "Calendar event",
+		};
+	});
+}
+
 // Locality Option A: when the user has opted in to local distillation and the
 // selected chat model is cloud, replace raw event text (summary/location —
 // analogous to a file's body content) with a summary produced by a local
-// model before it reaches the (cloud) model. Citations (event title + link,
-// used for Sources-tab candidates) are metadata for this tool the same way a
-// filename is for the files tool, and are left untouched by this gate — see
-// files.ts's applyLocalDistillGate for the identical posture there.
+// model before it reaches the (cloud) model. This includes redacting
+// `citations[].label` in the MODEL-facing payload (see
+// `redactCitationsForModel` above) — citations are not metadata here the way
+// a filename is for the files tool, since the label is the raw summary
+// itself.
 async function applyLocalDistillGate(params: {
 	userId: string;
 	modelId: string;
@@ -247,6 +277,13 @@ async function applyLocalDistillGate(params: {
 		const { summary: _summary, location: _location, ...rest } = event;
 		return rest;
 	});
+	// Redact only the MODEL-facing copy — `outcome.candidates` (the
+	// user-facing Sources-tab list) was already built from the original,
+	// unredacted citations in `buildPayload` and is untouched by this gate.
+	const redactedCitations = redactCitationsForModel(
+		outcome.modelPayload.events,
+		outcome.modelPayload.citations,
+	);
 
 	if ("distilled" in decision) {
 		return {
@@ -255,6 +292,7 @@ async function applyLocalDistillGate(params: {
 				...outcome.modelPayload,
 				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
 				events: strippedEvents,
+				citations: redactedCitations,
 			},
 		};
 	}
@@ -265,6 +303,7 @@ async function applyLocalDistillGate(params: {
 			...outcome.modelPayload,
 			message:
 				"These events couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
+			citations: redactedCitations,
 			events: strippedEvents,
 		},
 	};

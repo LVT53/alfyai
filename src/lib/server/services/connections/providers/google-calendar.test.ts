@@ -247,7 +247,7 @@ describe("googleFreeBusy", () => {
 		]);
 	});
 
-	it("a post-refresh 401 throws a typed needs_reauth error", async () => {
+	it("a post-refresh 401 throws a typed needs_reauth error and flags the connection", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse(401, { error: "invalid" }),
 		);
@@ -264,5 +264,11 @@ describe("googleFreeBusy", () => {
 
 		await expect(promise).rejects.toBeInstanceOf(GoogleCalendarError);
 		await expect(promise).rejects.toMatchObject({ code: "needs_reauth" });
+
+		expect(updateConnectionMock).toHaveBeenCalledWith(
+			USER_ID,
+			CONNECTION_ID,
+			expect.objectContaining({ status: "needs_reauth" }),
+		);
 	});
 });
