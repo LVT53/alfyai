@@ -624,6 +624,13 @@
       "when": 1777140000075,
       "tag": "1777140000075_users_connection_cloud_ack",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1777140000076,
+      "tag": "1777140000076_users_connection_local_distill",
+      "breakpoints": true
     }
   ]
 }

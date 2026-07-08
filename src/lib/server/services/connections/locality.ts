@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
@@ -66,4 +67,72 @@ export async function shouldWarnCloudConnector(params: {
 function isEmpty(values: Iterable<string>): boolean {
 	for (const _ of values) return false;
 	return true;
+}
+
+/**
+ * Option A: whether the user has opted in to routing connector data through a
+ * local model for privacy-preserving distillation before it can reach a cloud
+ * chat model. Defaults to off (Option C's warning-and-ack path governs).
+ */
+export async function hasLocalDistillEnabled(userId: string): Promise<boolean> {
+	const [row] = await db
+		.select({ connectionLocalDistill: users.connectionLocalDistill })
+		.from(users)
+		.where(eq(users.id, userId));
+	return row?.connectionLocalDistill ?? false;
+}
+
+/** Sets the user's Option-A local-distill preference. */
+export async function setLocalDistillEnabled(
+	userId: string,
+	on: boolean,
+): Promise<void> {
+	await db
+		.update(users)
+		.set({ connectionLocalDistill: on, updatedAt: new Date() })
+		.where(eq(users.id, userId));
+}
+
+export type DistillConnectorPayloadResult =
+	| { distilled: string }
+	| { unavailable: true };
+
+/**
+ * Routes a connector's raw text through the deployment's local
+ * (structured-extraction) model to extract only what's relevant to the
+ * user's question, so a cloud chat model never sees the raw connector data
+ * (Option A). Verifies the configured distill model is actually local before
+ * calling it — if it resolves to a cloud model, or the call fails for any
+ * reason, returns `{ unavailable: true }` so the caller can fail safe
+ * (withhold raw content) rather than risk distilling via a cloud model.
+ */
+export async function distillConnectorPayload(params: {
+	userId: string;
+	capability: string;
+	userQuestion: string;
+	rawText: string;
+}): Promise<DistillConnectorPayloadResult> {
+	try {
+		const distillModelId = getConfig().memoryConsolidationModel;
+		if (await isCloudModel(distillModelId)) {
+			return { unavailable: true };
+		}
+
+		const { sendJsonControlMessage } = await import(
+			"$lib/server/services/normal-chat-control-model"
+		);
+		const message = [
+			`User question: ${params.userQuestion}`,
+			"",
+			"Data:",
+			params.rawText,
+		].join("\n");
+		const res = await sendJsonControlMessage(message, distillModelId, {
+			systemPrompt: `Extract only the parts of the following ${params.capability} data relevant to the user's question. Output a concise summary; omit everything irrelevant.`,
+			thinkingMode: "off",
+		});
+		return { distilled: res.text };
+	} catch {
+		return { unavailable: true };
+	}
 }

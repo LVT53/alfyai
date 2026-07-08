@@ -105,6 +105,12 @@ export interface CreateNormalChatToolsContext {
 	// error rather than block the turn. Connections work in incognito (issue
 	// 0.1 removed incognito gating) — this is deliberately NOT gated on it.
 	enabledConnectionCapabilities?: Set<Capability>;
+	// The chat model selected for this turn. Threaded through to
+	// connection-backed tools (e.g. "files") so they can gate connector data
+	// on the locality Option-A distillation rule (isCloudModel(modelId) +
+	// hasLocalDistillEnabled(userId)). Falls back to "model1" (local) when
+	// omitted, which matches today's behavior for callers not yet updated.
+	modelId?: string;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -710,6 +716,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										const { modelPayload, candidates } = await runFilesTool(
 											ctx.userId,
 											safeInput,
+											ctx.modelId ?? "model1",
 										);
 										return {
 											modelPayload,

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	distillConnectorPayload,
+	hasLocalDistillEnabled,
+	isCloudModel,
+} from "$lib/server/services/connections/locality";
+import {
 	NextcloudFilesError,
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -34,6 +39,11 @@ vi.mock(
 		};
 	},
 );
+vi.mock("$lib/server/services/connections/locality", () => ({
+	hasLocalDistillEnabled: vi.fn(),
+	isCloudModel: vi.fn(),
+	distillConnectorPayload: vi.fn(),
+}));
 
 const resolveConnectionsForCapabilityMock = vi.mocked(
 	resolveConnectionsForCapability,
@@ -42,6 +52,11 @@ const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const getConnectionSecretMock = vi.mocked(getConnectionSecret);
 const nextcloudSearchMock = vi.mocked(nextcloudSearch);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
+const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
+const isCloudModelMock = vi.mocked(isCloudModel);
+const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
+
+const LOCAL_MODEL_ID = "model1";
 
 function makeConn(overrides: Partial<ConnectionPublic> = {}): ConnectionPublic {
 	return {
@@ -84,16 +99,27 @@ describe("runFilesTool", () => {
 		getConnectionSecretMock.mockReset();
 		nextcloudSearchMock.mockReset();
 		nextcloudReadFileMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
+		// Default: Option A off — matches today's behavior for tests that don't
+		// exercise the distillation gate.
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
 	});
 
 	it("returns a graceful note without throwing when there is no Files connection", async () => {
 		resolveConnectionsForCapabilityMock.mockResolvedValue([]);
 
-		const outcome = await runFilesTool("user-1", {
-			action: "search",
-			query: "x",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "search",
+				query: "x",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain(
@@ -112,10 +138,14 @@ describe("runFilesTool", () => {
 		getConnectionSecretMock.mockResolvedValue("secret");
 		nextcloudSearchMock.mockResolvedValue([]);
 
-		const outcome = await runFilesTool("user-1", {
-			action: "search",
-			query: "report",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "search",
+				query: "report",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(nextcloudSearchMock).toHaveBeenCalledWith(connA, "secret", "report");
 		expect(outcome.modelPayload.message).toContain("2 Files connections");
@@ -148,10 +178,14 @@ describe("runFilesTool", () => {
 			},
 		]);
 
-		const outcome = await runFilesTool("user-1", {
-			action: "search",
-			query: "report",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "search",
+				query: "report",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.results).toEqual([
@@ -196,10 +230,14 @@ describe("runFilesTool", () => {
 			contentType: "text/plain",
 		});
 
-		const outcome = await runFilesTool("user-1", {
-			action: "read",
-			path: "notes/todo.txt",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "read",
+				path: "notes/todo.txt",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.results).toEqual([
@@ -231,10 +269,14 @@ describe("runFilesTool", () => {
 			contentType: "image/png",
 		});
 
-		const outcome = await runFilesTool("user-1", {
-			action: "read",
-			path: "photos/logo.png",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "read",
+				path: "photos/logo.png",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.results[0]).toMatchObject({
@@ -256,10 +298,14 @@ describe("runFilesTool", () => {
 			),
 		);
 
-		const outcome = await runFilesTool("user-1", {
-			action: "search",
-			query: "report",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "search",
+				query: "report",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("reconnected");
@@ -272,10 +318,14 @@ describe("runFilesTool", () => {
 		getConnectionSecretMock.mockResolvedValue("secret");
 		nextcloudReadFileMock.mockRejectedValue(new Error("network exploded"));
 
-		const outcome = await runFilesTool("user-1", {
-			action: "read",
-			path: "notes/todo.txt",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "read",
+				path: "notes/todo.txt",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).toContain("couldn't reach your files");
@@ -286,10 +336,14 @@ describe("runFilesTool", () => {
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 		getConnectionSecretMock.mockResolvedValue(null);
 
-		const outcome = await runFilesTool("user-1", {
-			action: "search",
-			query: "report",
-		});
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "search",
+				query: "report",
+			},
+			LOCAL_MODEL_ID,
+		);
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(nextcloudSearchMock).not.toHaveBeenCalled();
@@ -300,14 +354,120 @@ describe("runFilesTool", () => {
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 		getConnectionSecretMock.mockResolvedValue("secret");
 
-		const searchOutcome = await runFilesTool("user-1", { action: "search" });
+		const searchOutcome = await runFilesTool(
+			"user-1",
+			{ action: "search" },
+			LOCAL_MODEL_ID,
+		);
 		expect(searchOutcome.modelPayload.success).toBe(false);
 		expect(searchOutcome.modelPayload.message).toContain(
 			"search query is required",
 		);
 
-		const readOutcome = await runFilesTool("user-1", { action: "read" });
+		const readOutcome = await runFilesTool(
+			"user-1",
+			{ action: "read" },
+			LOCAL_MODEL_ID,
+		);
 		expect(readOutcome.modelPayload.success).toBe(false);
 		expect(readOutcome.modelPayload.message).toContain("path is required");
+	});
+});
+
+describe("runFilesTool — locality Option A distillation gate", () => {
+	const RAW_CONTENT = "SSN 123-45-6789, balance due $9,999.";
+
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode(RAW_CONTENT),
+			etag: "etag-1",
+			contentType: "text/plain",
+		});
+	});
+
+	async function readOnce() {
+		return runFilesTool(
+			"user-1",
+			{ action: "read", path: "notes/sensitive.txt" },
+			"whichever-model",
+		);
+	}
+
+	it("Option A off: raw content is returned unchanged and distill is not called", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const outcome = await readOnce();
+
+		expect(outcome.modelPayload.results[0]?.content).toBe(RAW_CONTENT);
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("Option A on + local model: raw content is returned unchanged and distill is not called", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(false);
+
+		const outcome = await readOnce();
+
+		expect(outcome.modelPayload.results[0]?.content).toBe(RAW_CONTENT);
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("Option A on + cloud model: the model-bound payload carries only the distilled summary — raw content is absent", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "The balance due is $9,999.",
+		});
+
+		const outcome = await readOnce();
+
+		// The single most important assertion: the raw content string must not
+		// appear anywhere in what's returned to the model.
+		const serialized = JSON.stringify(outcome.modelPayload);
+		expect(serialized).not.toContain(RAW_CONTENT);
+		expect(serialized).not.toContain("123-45-6789");
+		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain(
+			"The balance due is $9,999.",
+		);
+		expect(distillConnectorPayloadMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				capability: "files",
+				rawText: expect.stringContaining(RAW_CONTENT),
+			}),
+		);
+		// Citations (file name/path — metadata, not sensitive content) are kept.
+		expect(outcome.modelPayload.citations).toEqual([
+			expect.objectContaining({ path: "notes/sensitive.txt" }),
+		]);
+	});
+
+	it("Option A on + cloud model + distill unavailable: raw content is withheld, not leaked", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+		const outcome = await readOnce();
+
+		const serialized = JSON.stringify(outcome.modelPayload);
+		expect(serialized).not.toContain(RAW_CONTENT);
+		expect(serialized).not.toContain("123-45-6789");
+		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain("withheld");
 	});
 });

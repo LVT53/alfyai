@@ -43,6 +43,14 @@ export const users = sqliteTable("users", {
 	connectionCloudAck: integer("connection_cloud_ack", { mode: "boolean" })
 		.notNull()
 		.default(false),
+	// Option A: when true, connector data (files/emails/etc.) is routed through
+	// a local model to produce a privacy-preserving distilled summary before it
+	// reaches a cloud chat model, instead of surfacing the Option-C warning.
+	connectionLocalDistill: integer("connection_local_distill", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()

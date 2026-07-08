@@ -27,6 +27,11 @@ vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 	};
 });
 
+const sendJsonControlMessageMock = vi.fn();
+vi.mock("$lib/server/services/normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
 function seedUser(userId: string) {
 	const db = drizzle(sqlite, { schema });
 	const now = new Date();
@@ -58,6 +63,7 @@ beforeEach(() => {
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });
 	mockResolveProvider.mockReset();
+	sendJsonControlMessageMock.mockReset();
 });
 
 afterEach(() => {
@@ -178,5 +184,89 @@ describe("shouldWarnCloudConnector", () => {
 
 		expect(result).toBe(false);
 		expect(mockResolveProvider).not.toHaveBeenCalled();
+	});
+});
+
+describe("hasLocalDistillEnabled / setLocalDistillEnabled", () => {
+	it("round-trips: false before enabling, true after setLocalDistillEnabled(true)", async () => {
+		const { hasLocalDistillEnabled, setLocalDistillEnabled } = await import(
+			"./locality"
+		);
+		seedUser("user-distill");
+
+		expect(await hasLocalDistillEnabled("user-distill")).toBe(false);
+
+		await setLocalDistillEnabled("user-distill", true);
+		expect(await hasLocalDistillEnabled("user-distill")).toBe(true);
+
+		await setLocalDistillEnabled("user-distill", false);
+		expect(await hasLocalDistillEnabled("user-distill")).toBe(false);
+	});
+});
+
+describe("distillConnectorPayload", () => {
+	it("returns the distilled summary when the configured distill model is local", async () => {
+		mockResolveProvider.mockResolvedValue(
+			providerWithBaseUrl("http://192.168.1.96:30000/v1"),
+		);
+		sendJsonControlMessageMock.mockResolvedValue({
+			text: "Summary: the invoice is due Friday.",
+			rawResponse: {},
+			modelId: "model1",
+			modelDisplayName: "Local Qwen",
+		});
+		const { distillConnectorPayload } = await import("./locality");
+
+		const result = await distillConnectorPayload({
+			userId: "user-1",
+			capability: "files",
+			userQuestion: "When is the invoice due?",
+			rawText: "Invoice #123, amount $500, due Friday, account 9876543210.",
+		});
+
+		expect(result).toEqual({
+			distilled: "Summary: the invoice is due Friday.",
+		});
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
+		const [message, , options] = sendJsonControlMessageMock.mock.calls[0];
+		expect(message).toContain("When is the invoice due?");
+		expect(message).toContain("account 9876543210");
+		expect(options).toMatchObject({ thinkingMode: "off" });
+	});
+
+	it("returns unavailable without calling the control model when the configured distill model resolves cloud", async () => {
+		mockResolveProvider.mockResolvedValue(
+			providerWithBaseUrl("https://api.deepseek.com/v1"),
+		);
+		const { distillConnectorPayload } = await import("./locality");
+
+		const result = await distillConnectorPayload({
+			userId: "user-1",
+			capability: "files",
+			userQuestion: "When is the invoice due?",
+			rawText: "Invoice #123, amount $500, due Friday.",
+		});
+
+		expect(result).toEqual({ unavailable: true });
+		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+	});
+
+	it("returns unavailable when the control model call errors", async () => {
+		mockResolveProvider.mockResolvedValue(
+			providerWithBaseUrl("http://192.168.1.96:30000/v1"),
+		);
+		sendJsonControlMessageMock.mockRejectedValue(
+			new Error("control model down"),
+		);
+		const { distillConnectorPayload } = await import("./locality");
+
+		const result = await distillConnectorPayload({
+			userId: "user-1",
+			capability: "files",
+			userQuestion: "When is the invoice due?",
+			rawText: "Invoice #123, amount $500, due Friday.",
+		});
+
+		expect(result).toEqual({ unavailable: true });
 	});
 });

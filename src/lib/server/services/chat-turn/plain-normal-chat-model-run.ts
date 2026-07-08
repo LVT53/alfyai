@@ -181,7 +181,12 @@ export async function runPlainNormalChatSendModel(
 		activeDepthEffort,
 	);
 	const turnId = params.createTurnId?.() ?? randomUUID();
-	const toolPack = await createToolPack(params, turnId, activeDepthEffort);
+	const toolPack = await createToolPack(
+		params,
+		turnId,
+		activeDepthEffort,
+		runtime.modelId,
+	);
 	const deliberation = await runDeliberationIfNeeded(
 		params,
 		runtime,
@@ -356,6 +361,7 @@ async function createToolPack(
 	params: PlainNormalChatSendModelParams,
 	turnId: string,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
+	modelId: ModelId,
 ): Promise<ToolPack> {
 	// Fail closed on error — a connections-lookup hiccup should never block
 	// the turn, it should just mean no connection-backed tools this turn.
@@ -368,6 +374,7 @@ async function createToolPack(
 		turnId,
 		language: detectLanguage(params.message),
 		enabledConnectionCapabilities,
+		modelId,
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+	distillConnectorPayload,
+	hasLocalDistillEnabled,
+	isCloudModel,
+} from "$lib/server/services/connections/locality";
+import {
 	NextcloudFilesError,
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -265,6 +270,66 @@ function readOutcome(
 	});
 }
 
+// Locality Option A: when the user has opted in to local distillation and the
+// selected chat model is cloud, replace raw connector content with a summary
+// produced by a local model before it reaches the (cloud) model — raw file
+// content must never reach the cloud model in that case. Citations (names/
+// paths, used for Sources-tab candidates) are metadata, not sensitive
+// content, and are left untouched by this gate.
+async function applyLocalDistillGate(params: {
+	userId: string;
+	modelId: string;
+	input: FilesToolInput;
+	outcome: FilesToolOutcome;
+}): Promise<FilesToolOutcome> {
+	const { userId, modelId, input, outcome } = params;
+	if (!outcome.modelPayload.success) return outcome;
+
+	const rawTextParts = outcome.modelPayload.results
+		.map((result) => result.content)
+		.filter((content): content is string => Boolean(content));
+	// Nothing raw to protect (e.g. a search listing, or a binary file with no
+	// inlined text) — the gate is a no-op.
+	if (rawTextParts.length === 0) return outcome;
+
+	const shouldDistill =
+		(await hasLocalDistillEnabled(userId)) && (await isCloudModel(modelId));
+	if (!shouldDistill) return outcome;
+
+	const strippedResults = outcome.modelPayload.results.map((result) => {
+		const { content: _content, ...rest } = result;
+		return rest;
+	});
+
+	const distillResult = await distillConnectorPayload({
+		userId,
+		capability: "files",
+		userQuestion: input.query ?? input.path ?? "",
+		rawText: rawTextParts.join("\n\n"),
+	});
+
+	if ("distilled" in distillResult) {
+		return {
+			...outcome,
+			modelPayload: {
+				...outcome.modelPayload,
+				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${distillResult.distilled}`,
+				results: strippedResults,
+			},
+		};
+	}
+
+	return {
+		...outcome,
+		modelPayload: {
+			...outcome.modelPayload,
+			message:
+				"This file's content couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
+			results: strippedResults,
+		},
+	};
+}
+
 // Resolves the user's Files connection(s) and executes a search/read against
 // Nextcloud, degrading gracefully (never throwing) so a connection problem
 // never aborts the chat turn: no connection, ambiguity, and adapter failures
@@ -272,6 +337,7 @@ function readOutcome(
 export async function runFilesTool(
 	userId: string,
 	input: FilesToolInput,
+	modelId: string,
 ): Promise<FilesToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "files");
 	if (connections.length === 0) {
@@ -314,7 +380,8 @@ export async function runFilesTool(
 				});
 			}
 			const files = await nextcloudSearch(conn, secret, input.query);
-			return searchOutcome(conn, files, ambiguous, connections);
+			const outcome = searchOutcome(conn, files, ambiguous, connections);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		if (!input.path) {
@@ -325,7 +392,8 @@ export async function runFilesTool(
 			});
 		}
 		const file = await nextcloudReadFile(conn, secret, input.path);
-		return readOutcome(conn, input.path, file, ambiguous, connections);
+		const outcome = readOutcome(conn, input.path, file, ambiguous, connections);
+		return applyLocalDistillGate({ userId, modelId, input, outcome });
 	} catch (err) {
 		return buildPayload({
 			success: false,

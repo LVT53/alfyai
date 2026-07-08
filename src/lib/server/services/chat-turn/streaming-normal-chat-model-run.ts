@@ -196,6 +196,7 @@ export async function runStreamingNormalChatSendModel(
 		turnId,
 		language: detectLanguage(params.message),
 		enabledConnectionCapabilities,
+		modelId,
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),
