@@ -103,6 +103,10 @@ export async function runMemoryJudgeOnSegment(params: {
 			{
 				systemPrompt: buildJudgeSystemPrompt(),
 				temperature: 0,
+				// Structured extraction, not reasoning: disable chain-of-thought.
+				// On a thinking model this is same-quality and ~7x faster (measured
+				// 9s vs 69s across the eval fixtures on a Qwen thinking model).
+				thinkingMode: "off",
 				// Scale with segment length: a reasoning model's chain-of-thought
 				// grows with the conversation it must weigh and counts against
 				// max_tokens on these providers. A flat budget silently truncates

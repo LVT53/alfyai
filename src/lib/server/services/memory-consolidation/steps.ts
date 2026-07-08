@@ -330,6 +330,9 @@ export async function runReconcileAndMerge(params: {
 			{
 				systemPrompt: CONSOLIDATION_SYSTEM_PROMPT,
 				temperature: 0,
+				// Structured extraction, not reasoning — disable chain-of-thought
+				// (same quality, far cheaper on thinking models). See memory-recuration.
+				thinkingMode: "off",
 				// Reasoning-aware: chain-of-thought scales with the candidate count
 				// and counts against max_tokens on these providers; a flat budget
 				// starves large profiles (see memory-judge/schema.ts).
