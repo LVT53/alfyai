@@ -23,8 +23,8 @@ import {
 	JUDGE_JSON_SCHEMA,
 	type JudgeDecision,
 	parseJudgeDecisionsDetailed,
-	reasoningAwareMaxTokens,
 	type RejectedJudgeCandidate,
+	reasoningAwareMaxTokens,
 } from "./schema";
 import {
 	advanceConversationMemoryWatermark,

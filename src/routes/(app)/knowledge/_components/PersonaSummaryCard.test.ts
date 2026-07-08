@@ -12,6 +12,7 @@ function renderCard(overrides = {}) {
 		props: {
 			summary,
 			busy: false,
+			hasFacts: true,
 			onEdit: vi.fn(),
 			...overrides,
 		},
@@ -31,8 +32,8 @@ describe("PersonaSummaryCard", () => {
 		expect(screen.getByText(/Updated /)).toBeInTheDocument();
 	});
 
-	it("renders an inviting empty state when summary is null", () => {
-		renderCard({ summary: null });
+	it("renders an inviting empty state when summary is null and there are no facts yet", () => {
+		renderCard({ summary: null, hasFacts: false });
 
 		expect(
 			screen.getByRole("heading", { name: "What I remember about you" }),
@@ -43,6 +44,21 @@ describe("PersonaSummaryCard", () => {
 			screen.queryByRole("button", { name: "Edit summary" }),
 		).not.toBeInTheDocument();
 		expect(screen.queryByText(/Updated /)).not.toBeInTheDocument();
+	});
+
+	it("renders a pending-summary message when summary is null but facts already exist", () => {
+		renderCard({ summary: null, hasFacts: true });
+
+		expect(
+			screen.getByRole("heading", { name: "What I remember about you" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(/Your portrait will appear the next time/i),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/Nothing here yet/i)).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Edit summary" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("edit flow: prefills the textarea and saves the new text via onEdit", async () => {

@@ -238,6 +238,8 @@ const knowledgeDict = {
 		"memoryProfile.statement": "Statement",
 		"memoryProfile.summaryEmpty":
 			"Nothing here yet. As we talk, a short portrait of you takes shape here — and you can read and edit it anytime.",
+		"memoryProfile.summaryPending":
+			"Your portrait will appear the next time your memories are tidied up — overnight, or right after a clean-up.",
 		"memoryProfile.summaryTitle": "What I remember about you",
 		"memoryProfile.summaryUpdated": "Updated {time}",
 		"memoryProfile.timelineEmpty": "No memory maintenance has run yet.",
@@ -495,6 +497,8 @@ const knowledgeDict = {
 		"memoryProfile.statement": "Állítás",
 		"memoryProfile.summaryEmpty":
 			"Még nincs itt semmi. Ahogy beszélgetünk, itt áll össze rólad egy rövid kép — bármikor elolvashatod és szerkesztheted.",
+		"memoryProfile.summaryPending":
+			"A portréd a memóriáid legközelebbi rendberakásakor jelenik meg — éjszaka, vagy közvetlenül egy takarítás után.",
 		"memoryProfile.summaryTitle": "Amit rólad megjegyeztem",
 		"memoryProfile.summaryUpdated": "Frissítve: {time}",
 		"memoryProfile.timelineEmpty": "Még nem futott memória-karbantartás.",
