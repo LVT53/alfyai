@@ -5,6 +5,7 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.attachmentLabel": "Attach file",
+		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
 		"chat.deliberatingProgress": "Deliberating: {current}/{total} · {label}",
 		"chat.edit": "Edit",
@@ -691,6 +692,7 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.attachmentLabel": "Fájl csatolása",
+		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
 		"chat.deliberatingProgress": "Mérlegelés: {current}/{total} · {label}",
 		"chat.edit": "Szerkesztés",

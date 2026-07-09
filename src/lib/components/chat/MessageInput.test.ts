@@ -2574,4 +2574,66 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 		});
 		expect(checkCloudWarningMock).not.toHaveBeenCalled();
 	});
+
+	it("does not bypass the warning on a double-send while the check is still in flight (7.4 review C1)", async () => {
+		selectedModel.set("provider:abc:def");
+		let resolveCheck: ((value: { shouldWarn: boolean }) => void) | undefined;
+		checkCloudWarningMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveCheck = resolve;
+				}),
+		);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByText } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "Race me" } });
+
+		// First send() starts the async check.
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		});
+
+		// The composer reflects the pending check: Send is disabled while it's
+		// in flight, not left looking idle/clickable.
+		await waitFor(() => {
+			expect(
+				(getByRole("button", { name: "Send message" }) as HTMLButtonElement)
+					.disabled,
+			).toBe(true);
+		});
+
+		// A second send — via the Enter key, which isn't blocked by the Send
+		// button's native `disabled` attribute the way a click would be —
+		// while the first check's promise is still unresolved. Before the
+		// fix, shouldCheckCloudWarning() would fail its !cloudWarningChecking
+		// guard here and send() would fall straight through to dispatchSend,
+		// sending unwarned. It must instead be a complete no-op.
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await tick();
+
+		expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		expect(sendSpy).not.toHaveBeenCalled();
+
+		// Resolve the single in-flight check: the warning modal appears
+		// exactly once, and still nothing has been dispatched — the user
+		// hasn't acted on the modal yet.
+		resolveCheck?.({ shouldWarn: true });
+
+		expect(
+			await findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(sendSpy).not.toHaveBeenCalled();
+	});
 });

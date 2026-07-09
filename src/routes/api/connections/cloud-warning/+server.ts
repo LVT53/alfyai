@@ -60,9 +60,14 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// Bound the raw client-supplied array *before* filtering (not after), so
+	// an arbitrarily large payload (e.g. a huge junk array) can't force O(n)
+	// filter work over the whole thing before being discarded — it's capped
+	// to the known-capability count up front. The final `activeCapabilities`
+	// set below is already server-scoped and correctly bounded regardless.
 	const claimedCapabilities = body.capabilities
-		.filter(isCapability)
-		.slice(0, CAPABILITIES.length);
+		.slice(0, CAPABILITIES.length)
+		.filter(isCapability);
 	const served = await getEnabledConnectionCapabilities(userId);
 	const activeCapabilities = claimedCapabilities.filter((capability) =>
 		served.has(capability),

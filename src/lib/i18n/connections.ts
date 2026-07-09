@@ -258,15 +258,15 @@ const connectionsDict = {
 		// Option A (settings "Privacy & locality" local-distill toggle).
 		"connections.cloudWarning.title": "Adatküldés egy felhőmodellnek",
 		"connections.cloudWarning.description":
-			"Ez a csevegőmodell egy külső fél felhőmodellje. A csatlakoztatott fiókjaid adatai (például naptár, e-mail vagy fájlok) elküldődhetnek neki az üzeneted megválaszolásához. Folytathatod, vagy a helyi móddal ezeket az adatokat az eszközödön tarthatod.",
+			"Ez a csevegőmodell egy harmadik féltől származó felhőalapú modell. A csatlakoztatott fiókjaid adatai (például naptár, e-mail vagy fájlok) elküldődhetnek neki az üzeneted megválaszolásához. Folytathatod, vagy a helyi móddal ezeket az adatokat az eszközödön tarthatod.",
 		"connections.cloudWarning.continue": "Folytatás",
 		"connections.cloudWarning.enableLocalMode": "Helyi mód bekapcsolása",
 
-		"connections.locality.title": "Adatvédelem és helyiség",
+		"connections.locality.title": "Adatvédelem és adatkezelés helye",
 		"connections.locality.toggleLabel":
-			"Kapcsolati adatok tartása ezen az eszközön",
+			"Csatlakoztatott fiókjaid adatainak tartása ezen az eszközön",
 		"connections.locality.help":
-			"Ha bekapcsolod, egy helyi modell összegzi a csatlakoztatott fiókjaid adatait, mielőtt bármelyik külső fél felhőmodell látná őket. Ez az eszközön tartja a nyers adatokat, de csökkentheti a válasz részletességét.",
+			"Ha bekapcsolod, egy helyi modell összegzi a csatlakoztatott fiókjaid adatait, mielőtt bármelyik harmadik féltől származó felhőalapú modell látná őket. Ez az eszközön tartja a nyers adatokat, de csökkentheti a válasz részletességét.",
 		"connections.locality.fidelityNote":
 			"A helyi összegzés a kérdésed szempontjából releváns részleteket próbálja megőrizni, bár a nyers adatküldéshez képest némi árnyaltság elveszhet.",
 	},

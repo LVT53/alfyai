@@ -305,16 +305,25 @@ let attachmentReadinessErrors = $derived(
 	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
 );
 
-let canSend = $derived(canSubmitMessageText(message));
+// Issue 7.4 (Option C) fix — C1: canSend also gates on the cloud-warning
+// check being in flight and on the warning modal being open, so the Send
+// button (and, via send()'s own guard below, the Enter-key path) is disabled
+// for the whole window during which a re-entrant send() must not dispatch.
+let canSend = $derived(
+	canSubmitMessageText(message) && !cloudWarningChecking && !cloudWarningOpen,
+);
 // Reason the send button is disabled despite non-empty, non-overlength text
-// (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText.
+// (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText,
+// plus the Issue 7.4 cloud-warning check (see canSend above).
 let sendDisabledHint = $derived(
 	!canSend && message.trim().length > 0 && !isOverMaxLength
-		? isUploadingAttachment
-			? "uploading"
-			: hasUnreadyAttachment
-				? "preparing"
-				: null
+		? cloudWarningChecking
+			? "checkingPrivacy"
+			: isUploadingAttachment
+				? "uploading"
+				: hasUnreadyAttachment
+					? "preparing"
+					: null
 		: null,
 );
 let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
@@ -998,6 +1007,18 @@ function handleCloudWarningCancel() {
 function send(nextMessage: string = message) {
 	if (isComposerDisabled) return;
 	if (isGenerating) return;
+	// Issue 7.4 (Option C) fix — C1: while a cloud-warning check is in
+	// flight, or while the warning modal is open awaiting the user's choice,
+	// a re-entrant send() (double Enter, double click) MUST be a no-op
+	// rather than falling through to dispatchSend below. Previously,
+	// shouldCheckCloudWarning() returning false for either of these reasons
+	// caused send() to fall straight through and dispatch unwarned — a
+	// double-send race that bypassed the warning entirely (see the 7.4
+	// review, finding C1). Only resolveCloudWarningThenSend's own resolution,
+	// or the modal's Continue/Enable-local-mode handlers, may dispatch from
+	// here on; this guard must run before the canSubmitMessageText early
+	// return too, since the pending message may differ from `message`.
+	if (cloudWarningChecking || cloudWarningOpen) return;
 	if (!canSubmitMessageText(nextMessage)) {
 		if (
 			nextMessage.trim().length > 0 &&
@@ -2253,6 +2274,8 @@ async function emitDraftChange(force = false) {
 			<span class="text-[12px] font-sans text-text-muted" data-testid="send-disabled-hint">
 				{#if sendDisabledHint === 'uploading'}
 					{$t('chat.uploadingFile')}
+				{:else if sendDisabledHint === 'checkingPrivacy'}
+					{$t('chat.checkingPrivacy')}
 				{:else}
 					{$t('chat.extractingDocument')}
 				{/if}
