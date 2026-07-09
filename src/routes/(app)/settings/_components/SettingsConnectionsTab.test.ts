@@ -2,8 +2,8 @@ import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
+	CONNECTABLE_PROVIDER_LIST,
 	getProviderCatalogEntry,
-	PROVIDER_LIST,
 } from "$lib/client/connections/provider-catalog";
 import SettingsConnectionsTab from "./SettingsConnectionsTab.svelte";
 
@@ -52,13 +52,17 @@ describe("SettingsConnectionsTab", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
-				connections: [makeConnection()],
+				connections: [makeConnection({ id: "conn-1" })],
 			}),
 		);
 
-		expect(screen.getByText("Google")).toBeInTheDocument();
-		expect(screen.getByText("person@example.com")).toBeInTheDocument();
-		expect(screen.getByText("Connected")).toBeInTheDocument();
+		// Scoped to the connection card: the provider's display name and
+		// "Connected" also appear in the persistent Add-a-connection section
+		// below (as the Connect button label / already-connected hint).
+		const card = screen.getByTestId("connection-card-conn-1");
+		expect(within(card).getByText("Google")).toBeInTheDocument();
+		expect(within(card).getByText("person@example.com")).toBeInTheDocument();
+		expect(within(card).getByText("Connected")).toBeInTheDocument();
 	});
 
 	it("shows a Reconnect button and status detail for needs_reauth connections", () => {
@@ -276,7 +280,7 @@ describe("SettingsConnectionsTab", () => {
 		expect(onDisconnect).toHaveBeenCalledWith("conn-1");
 	});
 
-	it("renders the empty state listing every connectable provider with a Connect button", () => {
+	it("renders the empty state message plus an Add-a-connection section listing every connectable provider", () => {
 		const onStartConnect = vi.fn();
 		render(
 			SettingsConnectionsTab,
@@ -286,19 +290,36 @@ describe("SettingsConnectionsTab", () => {
 			}),
 		);
 
-		const emptySection = screen.getByTestId("connections-empty");
-		expect(emptySection).toBeInTheDocument();
-		for (const provider of PROVIDER_LIST) {
+		expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
+		expect(screen.getByText("No connections yet.")).toBeInTheDocument();
+
+		const addSection = screen.getByTestId("connections-add");
+		expect(addSection).toBeInTheDocument();
+		expect(
+			within(addSection).getByText("Add a connection"),
+		).toBeInTheDocument();
+		for (const provider of CONNECTABLE_PROVIDER_LIST) {
 			const displayName = getProviderCatalogEntry(provider).displayName;
 			expect(
-				within(emptySection).getByRole("button", {
+				within(addSection).getByRole("button", {
 					name: `Connect ${displayName}`,
 				}),
 			).toBeInTheDocument();
 		}
 	});
 
-	it("clicking a provider's Connect button in the empty state calls onStartConnect(provider)", async () => {
+	it("excludes resolver-only providers (contacts) from the Add-a-connection list", () => {
+		render(SettingsConnectionsTab, baseProps({ connections: [] }));
+
+		const addSection = screen.getByTestId("connections-add");
+		expect(
+			within(addSection).queryByRole("button", {
+				name: "Connect Contacts (CardDAV)",
+			}),
+		).not.toBeInTheDocument();
+	});
+
+	it("clicking a provider's Connect button in the Add-a-connection section calls onStartConnect(provider)", async () => {
 		const onStartConnect = vi.fn();
 		render(
 			SettingsConnectionsTab,
@@ -315,13 +336,48 @@ describe("SettingsConnectionsTab", () => {
 		expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
 	});
 
-	it("shows a loading indicator instead of the empty state while loading", () => {
+	it("keeps the Add-a-connection section visible when connections already exist, and hints at already-connected providers", async () => {
+		const onStartConnect = vi.fn();
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", provider: "google" })],
+				onStartConnect,
+			}),
+		);
+
+		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
+		const addSection = screen.getByTestId("connections-add");
+		expect(addSection).toBeInTheDocument();
+
+		// Adding another account of an already-connected provider stays allowed —
+		// the button remains present and clickable, just with a hint.
+		const googleConnectBtn = within(addSection).getByRole("button", {
+			name: "Connect Google",
+		});
+		expect(googleConnectBtn).toBeInTheDocument();
+		expect(within(googleConnectBtn).getByText("Connected")).toBeInTheDocument();
+
+		await fireEvent.click(googleConnectBtn);
+		expect(onStartConnect).toHaveBeenCalledWith("google");
+
+		// A provider with no existing connection shows no hint.
+		const nextcloudConnectBtn = within(addSection).getByRole("button", {
+			name: "Connect Nextcloud",
+		});
+		expect(
+			within(nextcloudConnectBtn).queryByText("Connected"),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows a loading indicator instead of the empty state / Add section while loading", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({ connections: [], loading: true }),
 		);
 
 		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("connections-add")).not.toBeInTheDocument();
 		expect(screen.getByText("Loading…")).toBeInTheDocument();
 	});
 });

@@ -24,9 +24,9 @@ import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
+	CONNECTABLE_PROVIDER_LIST,
 	type ConnectionProvider,
 	getProviderCatalogEntry,
-	PROVIDER_LIST,
 } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
 
@@ -82,6 +82,14 @@ let {
 let newAllowlistEntry = $state<Record<string, string>>({});
 let disconnectCandidate = $state<ConnectionPublic | null>(null);
 
+// Drives the "already connected" hint in the persistent "Add a connection"
+// section below — multiple accounts per provider are supported, so a
+// provider already having a connection doesn't remove it from the list, it
+// just gets a hint next to its Connect button.
+const connectedProviders = $derived(
+	new Set(connections.map((conn) => conn.provider)),
+);
+
 function addAllowlistEntry(conn: ConnectionPublic) {
 	const raw = (newAllowlistEntry[conn.id] ?? "").trim();
 	if (!raw) return;
@@ -104,27 +112,12 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 	<section class="settings-card mb-4">
 		<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
 	</section>
-{:else if connections.length === 0}
-	<section class="settings-card mb-4" data-testid="connections-empty">
-		<p class="text-sm text-text-secondary mb-3">{$t('connections.empty')}</p>
-		<p class="settings-label mb-2">{$t('connections.emptyAddPrompt')}</p>
-		<div class="connections-provider-grid">
-			{#each PROVIDER_LIST as provider}
-				{@const entry = getProviderCatalogEntry(provider)}
-				{@const Icon = iconFor(entry.icon)}
-				<button
-					type="button"
-					class="pref-pill connections-provider-pill"
-					aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
-					onclick={() => onStartConnect(provider)}
-				>
-					<Icon size={16} strokeWidth={2} aria-hidden="true" />
-					{entry.displayName}
-				</button>
-			{/each}
-		</div>
-	</section>
 {:else}
+	{#if connections.length === 0}
+		<section class="settings-card mb-4" data-testid="connections-empty">
+			<p class="text-sm text-text-secondary">{$t('connections.empty')}</p>
+		</section>
+	{/if}
 	{#each connections as conn (conn.id)}
 		{@const entry = getProviderCatalogEntry(conn.provider)}
 		{@const Icon = iconFor(entry.icon)}
@@ -279,6 +272,29 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 			</div>
 		</section>
 	{/each}
+
+	<section class="settings-card mb-4" data-testid="connections-add">
+		<p class="settings-label mb-2">{$t('connections.addConnection.title')}</p>
+		<div class="connections-provider-grid">
+			{#each CONNECTABLE_PROVIDER_LIST as provider}
+				{@const entry = getProviderCatalogEntry(provider)}
+				{@const Icon = iconFor(entry.icon)}
+				{@const alreadyConnected = connectedProviders.has(provider)}
+				<button
+					type="button"
+					class="pref-pill connections-provider-pill"
+					aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
+					onclick={() => onStartConnect(provider)}
+				>
+					<Icon size={16} strokeWidth={2} aria-hidden="true" />
+					{entry.displayName}
+					{#if alreadyConnected}
+						<span class="connections-provider-connected-hint">{$t('connections.status.connected')}</span>
+					{/if}
+				</button>
+			{/each}
+		</div>
+	</section>
 {/if}
 
 {#if disconnectCandidate}
@@ -323,6 +339,12 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.connections-provider-connected-hint {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--success);
 	}
 
 	.connection-card {

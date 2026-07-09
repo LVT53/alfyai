@@ -109,6 +109,23 @@ describe("settings page OAuth return handling", () => {
 		});
 	});
 
+	it("clears only the params it consumed, preserving unrelated query params", async () => {
+		renderAt(
+			"/settings?debug=1&section=connections&connected=google&ref=email",
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("Connected to Google.")).toBeInTheDocument();
+		});
+
+		const params = new URLSearchParams(window.location.search);
+		expect(params.get("section")).toBeNull();
+		expect(params.get("connected")).toBeNull();
+		expect(params.get("error")).toBeNull();
+		expect(params.get("debug")).toBe("1");
+		expect(params.get("ref")).toBe("email");
+	});
+
 	it("does nothing special for a bare ?section=connections (existing deep link)", async () => {
 		renderAt("/settings?section=connections");
 

@@ -222,6 +222,77 @@ describe("ConnectWizardModal", () => {
 			});
 		});
 
+		it("stops polling and shows a timeout message once pollTimeoutMs elapses (fake timers)", async () => {
+			vi.useFakeTimers();
+			try {
+				mockStartNextcloudConnect.mockResolvedValue({
+					loginUrl: "https://cloud.example.com/login/v2/flow/abc",
+					pollToken: "tok-1",
+					pollEndpoint: "https://cloud.example.com/login/v2/poll",
+					serverUrl: "https://cloud.example.com",
+				});
+				// Every automatic poll reports "pending" — the wizard should give up
+				// on its own once pollTimeoutMs of elapsed poll intervals is reached,
+				// without the user ever clicking "I've approved".
+				mockPollNextcloudConnect.mockResolvedValue({ status: "pending" });
+				const onConnected = vi.fn();
+				const onClose = vi.fn();
+
+				render(
+					ConnectWizardModal,
+					baseProps({
+						provider: "nextcloud",
+						onClose,
+						onConnected,
+						openWindow: vi.fn(),
+						pollIntervalMs: 1000,
+						pollTimeoutMs: 3000,
+					}),
+				);
+
+				await fireEvent.input(screen.getByLabelText("Server URL"), {
+					target: { value: "https://cloud.example.com" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+				// Flush the startNextcloudConnect() resolution so ncPhase flips to
+				// "waiting" and the first poll gets scheduled.
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(
+					screen.getByText("Waiting for you to approve in Nextcloud…"),
+				).toBeInTheDocument();
+
+				// 3 poll intervals (3000ms / 1000ms) of "pending" responses exhaust
+				// pollTimeoutMs and the wizard should flip to the timeout state on
+				// its own.
+				await vi.advanceTimersByTimeAsync(3000);
+
+				expect(
+					screen.getByText(
+						"This took too long — the login link may have expired. Please try again.",
+					),
+				).toBeInTheDocument();
+				expect(onConnected).not.toHaveBeenCalled();
+				expect(onClose).not.toHaveBeenCalled();
+
+				const callsAtTimeout = mockPollNextcloudConnect.mock.calls.length;
+				expect(callsAtTimeout).toBeGreaterThan(0);
+
+				// Advancing well past another poll interval must not schedule any
+				// further polls — pollOnce() bails out once ncPhase is no longer
+				// "waiting" (see the early-return guard in the component).
+				await vi.advanceTimersByTimeAsync(10_000);
+				expect(mockPollNextcloudConnect.mock.calls.length).toBe(callsAtTimeout);
+
+				// Retry takes the user back to the form instead of leaving them
+				// stuck on the timeout screen.
+				await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+				expect(screen.getByLabelText("Server URL")).toBeInTheDocument();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("Cancel during the waiting phase closes the modal", async () => {
 			mockStartNextcloudConnect.mockResolvedValue({
 				loginUrl: "https://cloud.example.com/login/v2/flow/abc",

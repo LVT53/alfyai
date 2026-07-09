@@ -488,7 +488,16 @@ onMount(() => {
 		});
 	}
 	if (connectedProvider || oauthErrorCode) {
-		window.history.replaceState(null, "", window.location.pathname);
+		// Strip only the params this handler consumed (section/connected/error)
+		// so any other query params the URL arrived with survive the redirect
+		// cleanup — e.g. a hypothetical ?debug=1 tacked on by the caller.
+		params.delete("section");
+		params.delete("connected");
+		params.delete("error");
+		const remaining = params.toString();
+		const nextUrl =
+			window.location.pathname + (remaining ? `?${remaining}` : "");
+		window.history.replaceState(null, "", nextUrl);
 	}
 });
 

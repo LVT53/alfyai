@@ -49,6 +49,14 @@ export type ProviderCatalogEntry = {
 	// the panel via a small local icon map — kept as a string here so this
 	// module has no Svelte/component dependency.
 	icon: string;
+	// True if this provider has its own standalone connect flow and should
+	// be offered in the "Add a connection" list. False for resolver-only
+	// providers (currently just "contacts") that ride on another
+	// connection's capability (Google/Apple/Nextcloud contacts) instead of
+	// having a connect route of their own — see
+	// ConnectWizardModal.svelte's "unavailable" fallback for the backstop
+	// if one of these is ever opened directly.
+	connectable: boolean;
 };
 
 export const PROVIDER_CATALOG: Record<
@@ -62,6 +70,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: true,
 		pathBasedWrites: true,
 		icon: "Cloud",
+		connectable: true,
 	},
 	immich: {
 		displayName: "Immich",
@@ -70,6 +79,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: true,
 		pathBasedWrites: false,
 		icon: "Image",
+		connectable: true,
 	},
 	imap: {
 		displayName: "Email",
@@ -78,6 +88,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: true,
 		pathBasedWrites: false,
 		icon: "Mail",
+		connectable: true,
 	},
 	google: {
 		displayName: "Google",
@@ -86,6 +97,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: true,
 		pathBasedWrites: false,
 		icon: "Calendar",
+		connectable: true,
 	},
 	apple: {
 		displayName: "Apple iCloud",
@@ -94,6 +106,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: true,
 		pathBasedWrites: false,
 		icon: "Apple",
+		connectable: true,
 	},
 	plex: {
 		displayName: "Plex",
@@ -102,6 +115,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "CirclePlay",
+		connectable: true,
 	},
 	owntracks: {
 		displayName: "OwnTracks",
@@ -110,6 +124,7 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "MapPin",
+		connectable: true,
 	},
 	contacts: {
 		displayName: "Contacts (CardDAV)",
@@ -118,12 +133,22 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "Contact",
+		// Resolver-only: contacts ride on Google/Apple/Nextcloud connections
+		// and have no standalone connect route (see registry.ts on the
+		// server side). Excluded from the "Add a connection" list.
+		connectable: false,
 	},
 };
 
 export const PROVIDER_LIST: ConnectionProvider[] = Object.keys(
 	PROVIDER_CATALOG,
 ) as ConnectionProvider[];
+
+// Providers to offer in the "Add a connection" list (SettingsConnectionsTab).
+// Excludes resolver-only providers like "contacts" — see the `connectable`
+// flag above.
+export const CONNECTABLE_PROVIDER_LIST: ConnectionProvider[] =
+	PROVIDER_LIST.filter((provider) => PROVIDER_CATALOG[provider].connectable);
 
 export function isKnownProvider(
 	provider: string,
@@ -147,5 +172,6 @@ export function getProviderCatalogEntry(
 		writable: false,
 		pathBasedWrites: false,
 		icon: "Cloud",
+		connectable: false,
 	};
 }

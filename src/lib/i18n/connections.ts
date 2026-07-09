@@ -6,6 +6,7 @@ const connectionsDict = {
 		"connections.actions.connect": "Connect",
 		"connections.actions.disconnect": "Disconnect",
 		"connections.actions.reconnect": "Reconnect",
+		"connections.addConnection.title": "Add a connection",
 		"connections.allowWrites.label": "Allow writes",
 		"connections.allowWrites.warning":
 			"Writing is off by default. When on, AlfyAI can modify this account only after you confirm each change.",
@@ -24,7 +25,6 @@ const connectionsDict = {
 			"AlfyAI will no longer be able to access {provider}. You can reconnect it later.",
 		"connections.disconnectConfirm.title": "Disconnect {provider}?",
 		"connections.empty": "No connections yet.",
-		"connections.emptyAddPrompt": "Add a connection to get started.",
 		"connections.status.connected": "Connected",
 		"connections.status.disconnected": "Disconnected",
 		"connections.status.error": "Error",
@@ -125,6 +125,7 @@ const connectionsDict = {
 		"connections.actions.connect": "Csatlakoztatás",
 		"connections.actions.disconnect": "Leválasztás",
 		"connections.actions.reconnect": "Újracsatlakoztatás",
+		"connections.addConnection.title": "Kapcsolat hozzáadása",
 		"connections.allowWrites.label": "Írás engedélyezése",
 		"connections.allowWrites.warning":
 			"Az írás alapértelmezetten ki van kapcsolva. Ha bekapcsolod, az AlfyAI csak a jóváhagyásod után módosíthatja ezt a fiókot, minden egyes változtatásnál.",
@@ -143,7 +144,6 @@ const connectionsDict = {
 			"Az AlfyAI a továbbiakban nem fog hozzáférni ehhez: {provider}. Később újra csatlakoztathatod.",
 		"connections.disconnectConfirm.title": "Leválasztod ezt: {provider}?",
 		"connections.empty": "Még nincs kapcsolat.",
-		"connections.emptyAddPrompt": "Kezdéshez adj hozzá egy kapcsolatot.",
 		"connections.status.connected": "Csatlakoztatva",
 		"connections.status.disconnected": "Leválasztva",
 		"connections.status.error": "Hiba",
