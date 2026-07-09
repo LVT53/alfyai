@@ -603,6 +603,62 @@
       "when": 1777140000072,
       "tag": "1777140000072_price_windows",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1777140000073,
+      "tag": "1777140000073_user_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1777140000074,
+      "tag": "1777140000074_user_connections_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1777140000075,
+      "tag": "1777140000075_users_connection_cloud_ack",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1777140000076,
+      "tag": "1777140000076_users_connection_local_distill",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1777140000077,
+      "tag": "1777140000077_connection_pending_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1777140000078,
+      "tag": "1777140000078_connection_pending_writes_etag",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1777140000079,
+      "tag": "1777140000079_user_connections_write_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1777140000080,
+      "tag": "1777140000080_connection_pending_writes_message_link",
+      "breakpoints": true
     }
   ]
 }

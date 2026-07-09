@@ -37,6 +37,20 @@ export const users = sqliteTable("users", {
 	memoryEnabled: integer("memory_enabled", { mode: "boolean" })
 		.notNull()
 		.default(true),
+	// True once the user has acknowledged the "connector data is sent to a
+	// third-party cloud model" warning at least once (Option C in the
+	// connections locality guard). Sticky — never reset back to false.
+	connectionCloudAck: integer("connection_cloud_ack", { mode: "boolean" })
+		.notNull()
+		.default(false),
+	// Option A: when true, connector data (files/emails/etc.) is routed through
+	// a local model to produce a privacy-preserving distilled summary before it
+	// reaches a cloud chat model, instead of surfacing the Option-C warning.
+	connectionLocalDistill: integer("connection_local_distill", {
+		mode: "boolean",
+	})
+		.notNull()
+		.default(false),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
@@ -2200,3 +2214,136 @@ export const personalityProfiles = sqliteTable("personality_profiles", {
 		.notNull()
 		.default(sql`(unixepoch())`),
 });
+
+// External accounts a user privately connects to AlfyAI (Google, Apple,
+// Nextcloud, Immich, email, Plex, OwnTracks, contacts). Secrets are stored
+// encrypted (see connections service, issue 1.2); this table only holds the
+// ciphertext + metadata needed to manage the connection.
+export const CONNECTION_PROVIDERS = [
+	"nextcloud",
+	"immich",
+	"imap",
+	"google",
+	"apple",
+	"plex",
+	"owntracks",
+	"contacts",
+] as const;
+
+export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+
+export const userConnections = sqliteTable(
+	"user_connections",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		provider: text("provider").notNull(),
+		label: text("label").notNull(),
+		accountIdentifier: text("account_identifier").notNull().default(""),
+		status: text("status").notNull().default("disconnected"),
+		statusDetail: text("status_detail"),
+		defaultOn: integer("default_on", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		allowWrites: integer("allow_writes", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		writeAllowlistJson: text("write_allowlist_json").notNull().default("[]"),
+		capabilitiesJson: text("capabilities_json").notNull().default("[]"),
+		configJson: text("config_json").notNull().default("{}"),
+		secretCiphertext: text("secret_ciphertext"),
+		secretIv: text("secret_iv"),
+		secretAuthTag: text("secret_auth_tag"),
+		// A SEPARATE, write-scoped secret (Issue 6.4) — distinct columns (never
+		// reusing secretCiphertext/secretIv/secretAuthTag above) so a provider
+		// that mints two differently-scoped keys (Immich: a read-only key from
+		// 5.5's connect flow, plus an optional write-scoped key from 6.4's
+		// enable-writes flow) can hold both at once. Nullable: most connections
+		// never populate this. Never exposed on ConnectionPublic — only a
+		// derived `hasWriteSecret` boolean is (see store.ts's toPublic).
+		writeSecretCiphertext: text("write_secret_ciphertext"),
+		writeSecretIv: text("write_secret_iv"),
+		writeSecretAuthTag: text("write_secret_auth_tag"),
+		oauthScopesJson: text("oauth_scopes_json").notNull().default("[]"),
+		tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userProviderAccountUniqueIdx: uniqueIndex(
+			"user_connections_user_provider_account_unique",
+		).on(table.userId, table.provider, table.accountIdentifier),
+		userIdx: index("user_connections_user_idx").on(table.userId),
+	}),
+);
+
+// Explicit-confirm write flow (4.3): a tool's "save" action creates a row
+// here (never executes) and the confirm/cancel API is the only path that can
+// move it onward. Status lifecycle: `pending` -> (claimed atomically by a
+// confirm) -> `executing` -> `executed` | `failed`, or `pending` -> `cancelled`.
+// The `pending` -> `executing` transition is a single conditional UPDATE
+// (claimPendingWrite in pending-writes.ts) that happens BEFORE the real
+// Nextcloud call — this is what makes "executes exactly once" hold under
+// concurrent confirms (4.3 review Important finding); everything past that
+// point is one specific confirm's row to finish. `opJson` bundles the
+// serialized WriteOperation (write-guard, 4.1) plus the text payload the
+// assistant produced — TEXT only, no binary payloads are supported through
+// this table.
+export const connectionPendingWrites = sqliteTable(
+	"connection_pending_writes",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		connectionId: text("connection_id").notNull(),
+		provider: text("provider").notNull(),
+		opJson: text("op_json").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		status: text("status").notNull().default("pending"),
+		previewJson: text("preview_json").notNull(),
+		// Populated once a "put" actually executes successfully — lets a
+		// later, already-executed confirm return the same etag instead of
+		// only the confirm call that ran the write ever seeing it (4.3
+		// review Minor #1).
+		etag: text("etag"),
+		// Issue 7.5 — nullable, indexed association to the conversation/
+		// assistant message that proposed this write, so the client can
+		// render an inline write-confirm card on reload without any
+		// server-side session state. Mirrors file_production_jobs'
+		// conversationId/assistantMessageId columns (schema.ts ~1628/1631)
+		// exactly: conversationId is threaded in at creation time (the
+		// write tool already has it via ctx), while assistantMessageId is
+		// unknown until the turn finalizes and is backfilled then (see
+		// assignPendingWritesToAssistantMessage in pending-writes.ts).
+		conversationId: text("conversation_id").references(() => conversations.id, {
+			onDelete: "cascade",
+		}),
+		assistantMessageId: text("assistant_message_id").references(
+			() => messages.id,
+			{ onDelete: "set null" },
+		),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userStatusIdx: index("connection_pending_writes_user_status_idx").on(
+			table.userId,
+			table.status,
+		),
+		conversationIdx: index("connection_pending_writes_conversation_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+		assistantMessageIdx: index(
+			"connection_pending_writes_assistant_message_idx",
+		).on(table.assistantMessageId, table.createdAt),
+	}),
+);

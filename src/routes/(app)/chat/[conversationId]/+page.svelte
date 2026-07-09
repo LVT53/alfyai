@@ -49,6 +49,16 @@ import {
 	uploadKnowledgeAttachment,
 } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
+import {
+	ackCloudConnector,
+	checkCloudWarning,
+	setLocalDistill,
+} from "$lib/client/api/connections";
+import {
+	cancelWrite as cancelWriteRequest,
+	confirmWrite as confirmWriteRequest,
+	fetchConversationPendingWrites,
+} from "$lib/client/api/connection-writes";
 import { currentConversationId } from "$lib/stores/ui";
 import { projects } from "$lib/stores/projects";
 import {
@@ -58,6 +68,8 @@ import {
 	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
+import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
+import { isProviderModelId } from "$lib/types";
 import type {
 	ArtifactSummary,
 	AtlasAction,
@@ -75,6 +87,7 @@ import type {
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	NormalChatRuntimePhase,
+	PendingWrite,
 	SkillSession,
 	ModelId,
 	TaskState,
@@ -124,6 +137,7 @@ import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
+	attachUnassignedPendingWritesToAssistant,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
@@ -201,6 +215,7 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
+const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
@@ -298,6 +313,144 @@ let normalChatRuntimeCanStop = $derived(
 let queuedTurn = $state<SendPayload | null>(null);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
+
+// Issue 7.4 fix pass — single chokepoint for the cloud-connector privacy
+// warning. Previously this check/modal lived inside MessageInput.svelte's
+// local send() path, so any caller that reached normalChatRuntime.send()
+// (or the runtime's separate retry() path) WITHOUT going through that one
+// component's send() — regenerate, edit-then-resend, retry, and (found while
+// doing this pass) the Atlas lifecycle-action send — could dispatch a
+// message to a cloud model with active connector capabilities without ever
+// showing the warning. The check + modal now live here, at the page, and
+// EVERY fresh-send-to-model path (handleSend/handleRegenerate/handleEdit/
+// handleRetry/handleAtlasLifecycleAction, plus the composer's own send and
+// its queued-after-upload send via the `beforeSend` prop MessageInput now
+// awaits) funnels through `ensureCloudWarningAcked()` before it may proceed.
+// `composerActiveCapabilities` is bound two-way from MessageInput (which
+// still owns loading/toggling the per-conversation capability set — that's
+// composer UI state, not part of the gate) so every gated path checks the
+// SAME "does the user currently have connector capabilities active" signal
+// the composer itself would use.
+let composerActiveCapabilities = $state<Set<string>>(new Set());
+let cloudWarningOpen = $state(false);
+let cloudWarningChecking = $state(false);
+let cloudWarningAcked = $state(false);
+let cloudWarningResolve: ((proceed: boolean) => void) | null = null;
+// Issue 7.4 race-fix follow-up — MessageInput hands this up once on mount
+// (see its `onCapabilitiesReady` prop). Calling it returns the SAME
+// in-flight-or-settled promise as its own on-mount `fetchActiveCapabilities()`
+// call, so `ensureCloudWarningAcked` can await the real capability set
+// instead of racing it. Left null if the composer hasn't mounted yet (should
+// never happen in practice — ChatComposerPanel is always rendered on this
+// page — but `ensureCloudWarningAcked` degrades gracefully if so, by simply
+// reading whatever `composerActiveCapabilities` currently holds).
+let ensureComposerCapabilitiesLoaded: (() => Promise<void>) | null = null;
+function handleCapabilitiesReady(ensureLoaded: () => Promise<void>) {
+	ensureComposerCapabilitiesLoaded = ensureLoaded;
+}
+
+function shouldCheckCloudWarning(): boolean {
+	return (
+		!cloudWarningAcked &&
+		composerActiveCapabilities.size > 0 &&
+		isProviderModelId($selectedModel)
+	);
+}
+
+// Returns true once it's safe to dispatch (no warning needed, or the user
+// acknowledged/enabled local mode), false if a warning is already in
+// progress for a different caller (reentrancy — treat as a no-op, matching
+// the pre-existing double-Enter-must-be-a-no-op guarantee) or the user
+// cancelled.
+async function ensureCloudWarningAcked(): Promise<boolean> {
+	if (cloudWarningChecking || cloudWarningOpen) return false;
+	if (cloudWarningAcked) return true;
+
+	// Cheap, synchronous pre-check: an on-box/local model never needs the
+	// warning regardless of connector capabilities, so we can return
+	// immediately without ever touching the (possibly still-loading)
+	// capability fetch below. Keeps the overwhelmingly common local-model
+	// send path latency-free.
+	if (!isProviderModelId($selectedModel)) return true;
+
+	// `composerActiveCapabilities` is populated asynchronously by
+	// MessageInput's on-mount `fetchActiveCapabilities()` call. If that
+	// fetch hasn't resolved yet, the set is still its empty initial value —
+	// reading it right now would silently conclude "no connectors, no
+	// warning" purely because the fetch hasn't finished, not because the
+	// user actually has no active connectors. This is exactly the race that
+	// let `maybeSendPendingInitialMessage` (a brand-new conversation's very
+	// first message, sent moments after mount) under-warn. Await the SAME
+	// promise MessageInput itself is awaiting before deciding: if it's
+	// already resolved this costs a single microtask (no perceptible
+	// delay); if it's still in flight, wait for the real answer instead of
+	// guessing "empty".
+	if (ensureComposerCapabilitiesLoaded) {
+		await ensureComposerCapabilitiesLoaded();
+	}
+
+	if (!shouldCheckCloudWarning()) return true;
+
+	cloudWarningChecking = true;
+	let shouldWarn = false;
+	try {
+		const result = await checkCloudWarning($selectedModel, [
+			...composerActiveCapabilities,
+		]);
+		shouldWarn = result.shouldWarn;
+	} catch {
+		// Fail open: this is a UI nudge, not a data boundary (the actual
+		// on-device-vs-cloud handling is enforced server-side). Don't block
+		// sending a message over a network hiccup on the warning check itself.
+		shouldWarn = false;
+	} finally {
+		cloudWarningChecking = false;
+	}
+
+	if (!shouldWarn) return true;
+
+	cloudWarningOpen = true;
+	return new Promise<boolean>((resolve) => {
+		cloudWarningResolve = resolve;
+	});
+}
+
+async function handleCloudWarningContinue() {
+	try {
+		await ackCloudConnector();
+	} catch {
+		// Non-fatal: the ack didn't persist, so the warning may simply
+		// reappear on a future send — not a reason to block this one.
+	}
+	cloudWarningAcked = true;
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(true);
+}
+
+async function handleCloudWarningEnableLocalMode() {
+	try {
+		await setLocalDistill(true);
+	} catch {
+		// Non-fatal: local mode can be turned on later from Settings.
+	}
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(true);
+}
+
+function handleCloudWarningCancel() {
+	// Aborts the pending send; whatever state the caller preserved (composer
+	// text/attachments for a fresh send, the not-yet-mutated message list for
+	// regenerate/edit) is untouched, since every gated caller awaits this
+	// resolution before doing anything destructive.
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(false);
+}
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
 	initialContextStatus,
@@ -327,6 +480,7 @@ let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
+let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -334,6 +488,9 @@ let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
 let skillSessionBusy = $state(false);
 let skillSessionError = $state<string | null>(null);
 let skillDraftActionState = $state<
+	Record<string, { busy?: boolean; error?: string | null }>
+>({});
+let writeActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
 let forkingMessageId = $state<string | null>(null);
@@ -556,6 +713,9 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		totalTokens = metadata?.totalTokens ?? totalTokens;
 	},
 	attachFileProductionJobsToAssistantMessage,
+	refreshPendingWrites: () => {
+		void refreshPendingWrites();
+	},
 	pollMessageEvidence: (assistantMessageId) => {
 		void pollMessageEvidence(assistantMessageId);
 	},
@@ -854,7 +1014,23 @@ function maybeSendPendingInitialMessage() {
 		setSelectedConversationModelId(pendingDraft.modelId);
 	}
 	setSelectedPersonalityId(pendingDraft.personalityProfileId ?? null);
-	handleSend({ ...pendingDraft, pendingAttachments: [] });
+	// Issue 7.4 fix pass — the landing-page-to-conversation bootstrap send
+	// calls handleSend() directly, never through MessageInput's UI at all, so
+	// it never went through any cloud-warning check even before this pass
+	// (it predates 7.4). Gated here for the same reason as the other direct
+	// normalChatRuntime.send() callers. This send fires moments after mount
+	// (via a requestAnimationFrame in resetState), which used to race
+	// MessageInput's own on-mount capability fetch: `composerActiveCapabilities`
+	// could still be its empty initial value here, making the gate under-warn
+	// on a brand-new conversation's very first message — the canonical moment
+	// Option-C exists for. `ensureCloudWarningAcked` now closes that race by
+	// awaiting the capability fetch itself before deciding (see its own
+	// comment above), so this call site no longer needs special handling.
+	void (async () => {
+		const proceed = await ensureCloudWarningAcked();
+		if (!proceed) return;
+		handleSend({ ...pendingDraft, pendingAttachments: [] });
+	})();
 }
 
 function resetState() {
@@ -892,6 +1068,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	atlasJobs = data.atlasJobs ?? [];
+	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
@@ -989,6 +1166,21 @@ function applyConversationDetailMetadata(
 	if (detail.totalCostUsdMicros != null) {
 		totalCostUsdMicros = detail.totalCostUsdMicros;
 		totalTokens = detail.totalTokens ?? 0;
+	}
+	// Issue 7.5 — pending writes aren't part of ConversationDetail (dedicated
+	// endpoint, see +page.ts), so both callers of this function (the
+	// non-streaming polling fallback and the post-timeout persisted-data
+	// reload) get their pending-write cards refreshed here too.
+	void refreshPendingWrites();
+}
+
+async function refreshPendingWrites() {
+	try {
+		pendingWrites = await fetchConversationPendingWrites(data.conversation.id);
+	} catch {
+		// Best-effort — the page still functions with a stale/empty list; the
+		// next successful refresh (turn completion, tool-call hydrate, or a
+		// full page reload) will bring it back in sync.
 	}
 }
 
@@ -1244,6 +1436,12 @@ async function hydrateConversationDetail(conversationId: string) {
 	} finally {
 		hydratingConversation = false;
 	}
+	// Issue 7.5 — this is the SAME trigger a completed connection tool call
+	// (files/calendar/email/photos) uses to hydrate mid-turn (see
+	// shouldHydrateFileProductionJobsOnToolCall in ./_helpers), so a
+	// "save"/"send"/etc. write proposal's pending-write card can appear
+	// without a dedicated, parallel hydration path.
+	void refreshPendingWrites();
 }
 
 async function endCurrentSkillSession(reason: "ended" | "dismissed") {
@@ -1273,6 +1471,15 @@ function attachFileProductionJobsToAssistantMessage(
 			assistantMessageId,
 		},
 	);
+	// Issue 7.5 — same zero-latency optimistic stamp as above, applied to
+	// pending writes; see attachUnassignedPendingWritesToAssistant's doc
+	// comment in ./_helpers for why this runs alongside (not instead of)
+	// the durable refreshPendingWrites() refetch (ctx.refreshPendingWrites,
+	// called by the runtime right after this function).
+	pendingWrites = attachUnassignedPendingWritesToAssistant(pendingWrites, {
+		conversationId: data.conversation.id,
+		assistantMessageId,
+	});
 }
 
 async function handleRetryFileProductionJob(jobId: string) {
@@ -1331,13 +1538,18 @@ async function handleCancelAtlasJob(jobId: string) {
 	}
 }
 
-function handleAtlasLifecycleAction(payload: {
+async function handleAtlasLifecycleAction(payload: {
 	jobId: string;
 	action: AtlasAction;
 	message: string;
 	profile: AtlasProfile;
 }) {
 	if (isConversationReadOnlyForChat) return;
+	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
+	// that bypassed MessageInput's send() entirely (found while centralizing
+	// the cloud-warning gate; not one of the three previously-known leaks).
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	void normalChatRuntime.send({
 		message: payload.message,
 		attachmentIds: [],
@@ -1418,6 +1630,20 @@ $effect(() => {
 	if (data.atlasJobs !== prevAtlasJobsData) {
 		prevAtlasJobsData = data.atlasJobs;
 		atlasJobs = [...(data.atlasJobs ?? [])];
+	}
+});
+
+let initializedPendingWritesData = false;
+let prevPendingWritesData: typeof data.pendingWrites;
+$effect(() => {
+	if (!initializedPendingWritesData) {
+		prevPendingWritesData = data.pendingWrites;
+		initializedPendingWritesData = true;
+		return;
+	}
+	if (data.pendingWrites !== prevPendingWritesData) {
+		prevPendingWritesData = data.pendingWrites;
+		pendingWrites = [...(data.pendingWrites ?? [])];
 	}
 });
 
@@ -1746,6 +1972,52 @@ async function handlePublishSkillDraft(payload: {
 	}
 }
 
+// Issue 7.5 — write-confirm card actions. Mirrors the skill-draft handlers
+// above: {busy,error} is owned here (keyed by write id — write ids are
+// globally unique, so no message-id compound key is needed the way skill
+// drafts need `${messageId}:${draftId}`), and the source of truth for the
+// card's rendered status is always `pendingWrites` (refreshed from the
+// server after every confirm/cancel — including on failure, since a 409
+// "already_executed"/"cancelled" means the row's true state moved even
+// though THIS call didn't do it, and the card must reflect that rather
+// than get stuck showing a stale "still pending" view under an error).
+function setWriteActionState(
+	writeId: string,
+	state: { busy?: boolean; error?: string | null },
+) {
+	writeActionState = { ...writeActionState, [writeId]: state };
+}
+
+async function handleConfirmWrite(writeId: string) {
+	setWriteActionState(writeId, { busy: true, error: null });
+	try {
+		await confirmWriteRequest(writeId);
+		setWriteActionState(writeId, { busy: false, error: null });
+	} catch {
+		setWriteActionState(writeId, {
+			busy: false,
+			error: get(t)("connections.writeConfirm.confirmError"),
+		});
+	} finally {
+		await refreshPendingWrites();
+	}
+}
+
+async function handleCancelWrite(writeId: string) {
+	setWriteActionState(writeId, { busy: true, error: null });
+	try {
+		await cancelWriteRequest(writeId);
+		setWriteActionState(writeId, { busy: false, error: null });
+	} catch {
+		setWriteActionState(writeId, {
+			busy: false,
+			error: get(t)("connections.writeConfirm.cancelError"),
+		});
+	} finally {
+		await refreshPendingWrites();
+	}
+}
+
 async function handleFork(payload: { messageId: string }) {
 	if (isConversationReadOnlyForChat || forkingMessageId) return;
 	if (normalChatRuntimeActive) {
@@ -1808,15 +2080,32 @@ async function handleSend(
 	});
 }
 
-function handleRetry() {
+async function handleRetry() {
+	// Issue 7.4 fix pass — retry() is a runtime path entirely separate from
+	// handleSend/normalChatRuntime.send() (it replays the last user message
+	// via its own startStream call), so it never went through MessageInput's
+	// send() and, before this pass, never went through any cloud-warning
+	// check at all.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	normalChatRuntime.retry();
 }
 
-function handleRegenerate(
+async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	// Issue 7.4 fix pass — gate BEFORE any optimistic mutation (removing the
+	// assistant message from $messages below), so a cancelled regenerate
+	// leaves the timeline untouched rather than showing a response already
+	// removed while the user is still deciding. handleSend() itself is NOT
+	// gated a second time below — it's already covered by this check, and
+	// re-running it would risk a second round-trip re-showing the modal
+	// (e.g. after "Turn on local mode", which doesn't ack — see
+	// shouldWarnCloudConnector) for a single regenerate action.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	const { messageId } = payload;
 	const msgs = $messages;
 	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
@@ -1885,6 +2174,12 @@ async function handleEdit(
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	// Issue 7.4 fix pass — gate BEFORE deleting the edited-and-onward messages
+	// below, so a cancelled edit leaves the conversation untouched. handleSend()
+	// at the end of this function is intentionally NOT gated again — see the
+	// matching note in handleRegenerate.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	const { messageId, newText } = payload;
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
@@ -2039,6 +2334,19 @@ function handleCompact() {
 	normalChatRuntime.compact();
 }
 
+// Issue 7.4 — this queues `payload` while a previous turn is still
+// streaming; it is drained later by `normalChatRuntime.drainPostTurnQueue()`
+// (see normal-chat-client-turn-runtime.ts), which calls the runtime's own
+// internal `send()` directly once the active turn finishes — NOT through
+// this page's `handleSend`/`ensureCloudWarningAcked`. This is an
+// INTENTIONAL, currently-unfixed gap in the Option-C cloud-warning gate:
+// routing a mid-stream queue-drain through a blocking modal would be
+// confusing UX (the warning would pop up mid-generation, disconnected from
+// any user action), so it was explicitly left out of scope rather than
+// papered over. It is the only remaining un-gated send path — every other
+// send-to-model path (composer send, queued-after-attachment-upload,
+// regenerate, edit, retry, Atlas lifecycle actions, and the landing-page
+// bootstrap send) funnels through `ensureCloudWarningAcked()`.
 function handleQueue(payload: SendPayload) {
 	normalChatRuntime.queue(payload);
 }
@@ -2247,6 +2555,7 @@ function handleDrop(event: DragEvent) {
 						{modelIcons}
 						{fileProductionJobs}
 						{atlasJobs}
+						{pendingWrites}
 						contextCompressionMarkers={contextCompressionMarkers}
 						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
@@ -2268,6 +2577,9 @@ function handleDrop(event: DragEvent) {
 						onDismissFileProductionJob={handleDismissFileProductionJob}
 						onCancelAtlasJob={handleCancelAtlasJob}
 						onAtlasLifecycleAction={handleAtlasLifecycleAction}
+						{writeActionState}
+						onConfirmWrite={handleConfirmWrite}
+						onCancelWrite={handleCancelWrite}
 					/>
 				{/if}
 			</div>
@@ -2317,6 +2629,10 @@ function handleDrop(event: DragEvent) {
 				draftVersion={conversationDraft?.updatedAt ?? 0}
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
+				bind:activeCapabilities={composerActiveCapabilities}
+				beforeSend={ensureCloudWarningAcked}
+				checkingCloudWarning={cloudWarningChecking}
+				onCapabilitiesReady={handleCapabilitiesReady}
 			>
 				{#if activeSkillSession}
 					<SkillSessionPanel
@@ -2356,6 +2672,14 @@ function handleDrop(event: DragEvent) {
 		onClose={closeEvidenceManager}
 		onSteer={handleSteering}
 	/>
+
+	{#if cloudWarningOpen}
+		<CloudConnectorWarningModal
+			onCancel={handleCloudWarningCancel}
+			onContinue={handleCloudWarningContinue}
+			onEnableLocalMode={handleCloudWarningEnableLocalMode}
+		/>
+	{/if}
 </div>
 
 <style>

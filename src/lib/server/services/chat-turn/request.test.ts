@@ -195,3 +195,120 @@ describe("parseChatTurnRequest Atlas fields", () => {
 		);
 	});
 });
+
+describe("parseChatTurnRequest enabledConnectionCapabilities", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("parses an array of strings", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ enabledConnectionCapabilities: ["files", "calendar"] }),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					enabledConnectionCapabilities: ["files", "calendar"],
+				}),
+			}),
+		);
+	});
+
+	it("preserves an explicit empty array (fail-closed narrowing to nothing)", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ enabledConnectionCapabilities: [] }),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					enabledConnectionCapabilities: [],
+				}),
+			}),
+		);
+	});
+
+	it("ignores a non-array value and falls back to undefined", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ enabledConnectionCapabilities: "files" }),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					enabledConnectionCapabilities: undefined,
+				}),
+			}),
+		);
+	});
+
+	it("is undefined when the field is missing (older clients)", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({}),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					enabledConnectionCapabilities: undefined,
+				}),
+			}),
+		);
+	});
+
+	it("drops non-string entries and caps length", async () => {
+		const overlong = Array.from({ length: 50 }, (_, i) => `cap-${i}`);
+		const result = await parseChatTurnRequest(
+			makeRequest({
+				enabledConnectionCapabilities: [
+					"files",
+					123,
+					null,
+					{ nested: true },
+					...overlong,
+				],
+			}),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value.enabledConnectionCapabilities).toHaveLength(32);
+		expect(result.value.enabledConnectionCapabilities?.[0]).toBe("files");
+	});
+
+	it("is forced undefined for Atlas turns", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({
+				atlasMode: true,
+				atlasProfile: "overview",
+				enabledConnectionCapabilities: ["files"],
+			}),
+			makeRuntimeConfig(),
+			"send",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					enabledConnectionCapabilities: undefined,
+				}),
+			}),
+		);
+	});
+});

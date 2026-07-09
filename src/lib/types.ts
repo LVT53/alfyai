@@ -408,6 +408,38 @@ export interface FileProductionJob {
 	} | null;
 }
 
+// Issue 7.5 — inline write-confirm card. Mirrors the shape returned by
+// GET /api/conversations/[id]/pending-writes (see
+// src/lib/server/services/connections/write-guard.ts's WritePreview for the
+// server-side source of truth this is kept in sync with) and by
+// $lib/client/api/connection-writes.ts's confirm/cancel calls.
+export type PendingWriteStatus =
+	| "pending"
+	| "executing"
+	| "executed"
+	| "cancelled"
+	| "failed";
+
+export interface WritePreview {
+	title: string;
+	detail: string;
+	reversible: boolean;
+	destructive: boolean;
+	withinAllowlist: boolean | null;
+	warnings: string[];
+}
+
+export interface PendingWrite {
+	id: string;
+	conversationId: string | null;
+	assistantMessageId: string | null;
+	status: PendingWriteStatus;
+	preview: WritePreview;
+	provider: string;
+	createdAt: number;
+	etag?: string | null;
+}
+
 export type AtlasProfile = "overview" | "in-depth" | "exhaustive";
 export type AtlasAction = "create" | "continue" | "fork" | "revise";
 export type AtlasJobStatus =

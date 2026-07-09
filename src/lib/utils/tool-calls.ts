@@ -7,6 +7,20 @@ const FILE_PRODUCTION_TOOL_IDENTIFIERS = [
 	"file_production",
 ];
 const URL_OR_FETCH_TOOL_IDENTIFIERS = ["fetch", "url", "browse"];
+// The four connection tools (normal-chat-tools/index.ts) that carry a
+// write-proposal action alongside their read actions — "files"/"calendar"/
+// "email"/"photos". Deliberately coarse: this can't distinguish a write
+// action (e.g. files.save) from a read (files.search) from the tool NAME
+// alone, so it over-fires on every completed read too. That mirrors
+// isFileProductionToolName's own granularity (fires on every produce_file
+// completion) — an extra pending-writes snapshot query on a read-only call
+// is a negligible cost next to correctly catching every write.
+const CONNECTION_WRITE_TOOL_IDENTIFIERS = [
+	"files",
+	"calendar",
+	"email",
+	"photos",
+];
 
 function normalizeToolNameForComparison(name: string): string {
 	return name
@@ -67,6 +81,11 @@ export function isFileProductionToolName(name: string): boolean {
 		isToolNameMatch(normalized, FILE_PRODUCTION_TOOL_IDENTIFIERS) ||
 		isToolNameContains(normalized, FILE_PRODUCTION_TOOL_IDENTIFIERS[2])
 	);
+}
+
+export function isConnectionWriteToolName(name: string): boolean {
+	const normalized = normalizeToolNameForComparison(name);
+	return isToolNameMatch(normalized, CONNECTION_WRITE_TOOL_IDENTIFIERS);
 }
 
 export function isVisibleThinkingToolCall(

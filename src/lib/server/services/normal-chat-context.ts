@@ -24,7 +24,9 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
+import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-context";
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
+import type { Capability } from "./connections/registry";
 import type { ContextCompressionControlSender } from "./context-compression";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
@@ -777,6 +779,21 @@ const TOOL_TERMINATION_GUARD = [
 	"- If you are uncertain whether more tool calls are needed, err on the side of calling another tool rather than calling `done` prematurely.",
 ].join("\n");
 
+// Redesign R8 — concise holistic framing for the connection tools
+// (calendar/files/email/photos/media/location/contacts). Only spliced into
+// the outbound system prompt when the caller reports the user has at least
+// one active connection capability (buildOutboundSystemPrompt's
+// `hasActiveConnections`), so turns with no connections don't pay the token
+// cost. Deliberately English-only, matching every other guard constant in
+// this file — the model is instructed in English regardless of
+// responseLanguage, which only governs the user-facing reply language.
+const CONNECTIONS_FRAMING_GUARD = [
+	"Connected Accounts:",
+	"- The user may have connected personal accounts (calendar, files, email, photos, media, location, contacts). Use the relevant connection tool when the user's request calls for it. Do not announce tool use mechanically, and only surface connected-account data when it is relevant to the request.",
+	"- Every write to a connected account — creating/updating/deleting a calendar event, saving a file, sending/trashing/flagging an email, adding photos to an album — is only a proposal. You never modify a connected account immediately or autonomously; the user must explicitly confirm before anything is written.",
+	"- If more than one connected account could serve a request (e.g. two calendars), ask the user which one to use, unless the conversation or memory already makes it clear.",
+].join("\n");
+
 const FORCE_WEB_SEARCH_GUARD = [
 	"Current-turn forced web retrieval:",
 	"- The user explicitly requested web grounding for this turn; use available web retrieval for this answer when a web retrieval tool is listed in the runtime tool schema.",
@@ -931,6 +948,13 @@ export function buildOutboundSystemPrompt(params: {
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	guidancePackSelection?: NormalChatGuidancePackSelection;
+	// Redesign R8 — true when the caller resolved at least one active
+	// connection capability for this turn (see activeConnectionCapabilities
+	// on PrepareOutboundChatContextParams). Splices CONNECTIONS_FRAMING_GUARD
+	// into the prompt so a connections-enabled turn always carries the
+	// confirm-before-write framing, even before any connection tool is
+	// actually called.
+	hasActiveConnections?: boolean;
 }): string {
 	const guidancePlan = params.guidancePackSelection
 		? params.guidancePackSelection
@@ -1006,6 +1030,10 @@ export function buildOutboundSystemPrompt(params: {
 		guidanceAdditions.push(
 			buildReasoningDepthEffortGuard(params.reasoningDepthEffort),
 		);
+	}
+
+	if (params.hasActiveConnections) {
+		guidanceAdditions.push(CONNECTIONS_FRAMING_GUARD);
 	}
 
 	if (
@@ -1782,6 +1810,13 @@ type PrepareOutboundChatContextParams = {
 	compressionControlMessageSender?: ContextCompressionControlSender;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	onContextPreparationActivity?: NormalChatContextPreparationActivityCallback;
+	// Issue 8.1 — the turn's resolved active capability set (calendar/email/
+	// etc.), resolved by the caller (resolveActiveCapabilities) BEFORE calling
+	// prepareOutboundChatContext rather than after, specifically so the
+	// proactive_connector_context stage can gate its fetch on it. Undefined
+	// (older/partial call sites) is treated the same as an empty set — the
+	// stage simply injects nothing, never fails the turn.
+	activeConnectionCapabilities?: ReadonlySet<Capability>;
 	logLabel: string;
 };
 
@@ -1854,6 +1889,10 @@ function buildPreparationSystemPromptFromInput(input: {
 			fileProductionToolsAvailable: input.params.fileProductionToolsAvailable,
 			reasoningDepthEffort: input.params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: input.params.skipDefaultRuntimeGuidance,
+			hasActiveConnections: Boolean(
+				input.params.activeConnectionCapabilities &&
+					input.params.activeConnectionCapabilities.size > 0,
+			),
 		}),
 		promptPackPlan: input.promptPackPlan,
 	};
@@ -1972,6 +2011,81 @@ async function runForcedWebPrefetchStage(input: {
 	return {
 		inputValue: nextState.inputValue,
 		prefetchedToolCalls: nextState.prefetchedToolCalls,
+		systemPrompt: builtPrompt.systemPrompt,
+		promptPackPlan: builtPrompt.promptPackPlan,
+	};
+}
+
+// Issue 8.1 — proactive_connector_context stage. Mirrors
+// runForcedWebPrefetchStage above exactly: build the (locality-gated,
+// budget-bounded) block in a separate module, splice it in with the SAME
+// insertContextBeforeCurrentMessage helper the web-prefetch stage uses, and
+// only rebuild the system prompt when something was actually injected.
+// Never throws: buildProactiveConnectorContext already fails safe (silently
+// skips a broken connector, withholds on distill-unavailable), and the
+// `.catch` below is a second backstop so a bug in that module can never
+// abort the chat turn — same posture as maybePrefetchWebResearch's own
+// try/catch.
+async function runProactiveConnectorContextStage(input: {
+	params: PrepareOutboundChatContextParams;
+	state: OutboundChatContextPreparationState;
+}): Promise<
+	Pick<OutboundChatContextPreparationState, "inputValue"> &
+		Partial<
+			Pick<
+				OutboundChatContextPreparationState,
+				"systemPrompt" | "promptPackPlan"
+			>
+		>
+> {
+	const { params, state } = input;
+	const userId = params.user?.id;
+	const activeCapabilities = params.activeConnectionCapabilities;
+	if (
+		!userId ||
+		!activeCapabilities ||
+		(!activeCapabilities.has("calendar") && !activeCapabilities.has("email"))
+	) {
+		return { inputValue: state.inputValue };
+	}
+
+	const built = await buildProactiveConnectorContext({
+		userId,
+		conversationId: params.sessionId,
+		modelId: params.modelId ?? "model1",
+		message: params.message,
+		activeCapabilities,
+		targetConstructedContextTokens: requirePreparationValue(
+			state.contextLimits,
+			"contextLimits",
+		).targetConstructedContext,
+	}).catch((error) => {
+		console.warn(
+			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Proactive connector context skipped`,
+			{
+				sessionId: params.sessionId,
+				modelId: params.modelId ?? "model1",
+				error: error instanceof Error ? error.message : String(error),
+			},
+		);
+		return null;
+	});
+
+	if (!built) {
+		return { inputValue: state.inputValue };
+	}
+
+	const nextState = {
+		...state,
+		inputValue: insertContextBeforeCurrentMessage(
+			state.inputValue,
+			params.message,
+			built.block,
+		),
+	};
+	const builtPrompt = buildPreparationSystemPrompt(params, nextState);
+	return {
+		inputValue: nextState.inputValue,
 		systemPrompt: builtPrompt.systemPrompt,
 		promptPackPlan: builtPrompt.promptPackPlan,
 	};
@@ -2150,6 +2264,12 @@ export async function prepareOutboundChatContext(
 					},
 					forced_web_prefetch: async (currentState) => {
 						return runForcedWebPrefetchStage({
+							params,
+							state: currentState,
+						});
+					},
+					proactive_connector_context: async (currentState) => {
+						return runProactiveConnectorContextStage({
 							params,
 							state: currentState,
 						});

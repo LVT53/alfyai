@@ -5,6 +5,7 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.attachmentLabel": "Attach file",
+		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
 		"chat.deliberatingProgress": "Deliberating: {current}/{total} · {label}",
 		"chat.edit": "Edit",
@@ -28,6 +29,12 @@ const chatDict = {
 			"File is {size}MB. Maximum allowed size is {max}MB per file.",
 		"chat.fileTooLarge": "File too large",
 		"chat.fileUnsupported": "File type not supported",
+		"chat.connectionsToggleOn":
+			"Connections: on — AlfyAI may use your connected accounts this chat",
+		"chat.connectionsToggleOff":
+			"Connections: off — your connected accounts won't be used this chat",
+		"chat.connectionsToggleNoConnections":
+			"No connections yet — connect your first service in Settings",
 		"chat.incognitoNotice": "Incognito on — this chat won't be saved to memory",
 		"chat.incognitoToggle": "Incognito — don't remember this chat",
 		"chat.incognitoTurnOff": "Turn off",
@@ -683,6 +690,7 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.attachmentLabel": "Fájl csatolása",
+		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
 		"chat.deliberatingProgress": "Mérlegelés: {current}/{total} · {label}",
 		"chat.edit": "Szerkesztés",
@@ -705,6 +713,12 @@ const chatDict = {
 			"A fájl mérete {size} MB. A maximális megengedett méret fájlonként {max} MB.",
 		"chat.fileTooLarge": "A fájl túl nagy",
 		"chat.fileUnsupported": "Nem támogatott fájltípus",
+		"chat.connectionsToggleOn":
+			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
+		"chat.connectionsToggleOff":
+			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
+		"chat.connectionsToggleNoConnections":
+			"Még nincs kapcsolat — csatlakoztasd az első szolgáltatásod a Beállításokban",
 		"chat.incognitoNotice":
 			"Inkognitó bekapcsolva — ez a beszélgetés nem kerül a memóriába",
 		"chat.incognitoToggle": "Inkognitó — ne jegyezze meg ezt a beszélgetést",

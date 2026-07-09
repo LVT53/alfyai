@@ -105,6 +105,13 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	image_search: 30_000,
 	produce_file: 30_000,
 	read_generated_file: 10_000,
+	files: 20_000,
+	calendar: 20_000,
+	email: 20_000,
+	photos: 20_000,
+	media: 20_000,
+	location: 20_000,
+	contacts: 20_000,
 };
 
 export async function withTimeout<T>(

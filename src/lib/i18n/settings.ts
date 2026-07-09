@@ -684,6 +684,7 @@ const settingsDict = {
 		settings_optionalDisplayName: "Optional display name",
 		settings_passwordLabel: "Password",
 		settings_preferences: "Preferences",
+		settings_privacyPolicy: "Privacy policy",
 		settings_privacyControls: "Privacy and Data Controls",
 		settings_privacyControlsDescription:
 			"Download your account archive or clear data from this workspace. Each action requires your password before anything changes.",
@@ -1412,6 +1413,7 @@ const settingsDict = {
 		settings_optionalDisplayName: "Opcionális megjelenítési név",
 		settings_passwordLabel: "Jelszó",
 		settings_preferences: "Beállítások",
+		settings_privacyPolicy: "Adatvédelmi irányelvek",
 		settings_privacyControls: "Adatvédelmi és adatkezelési vezérlők",
 		settings_privacyControlsDescription:
 			"Töltsd le a fiókarchívumodat, vagy törölj adatokat ebből a munkaterületből. Minden művelethez meg kell adnod a jelszavad, mielőtt bármi változna.",

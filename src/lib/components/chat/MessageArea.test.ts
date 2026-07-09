@@ -1,6 +1,11 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AtlasJobCard, ChatMessage, FileProductionJob } from "$lib/types";
+import type {
+	AtlasJobCard,
+	ChatMessage,
+	FileProductionJob,
+	PendingWrite,
+} from "$lib/types";
 import MessageArea from "./MessageArea.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({
@@ -1589,5 +1594,160 @@ describe("MessageArea", () => {
 
 		expect(onRetryFileProductionJob).toHaveBeenCalledWith("job-failed");
 		expect(onCancelFileProductionJob).toHaveBeenCalledWith("job-running");
+	});
+
+	describe("pending writes (Issue 7.5 — getPendingWritesForMessage matching)", () => {
+		function makePendingWrite(
+			assistantMessageId: string | null,
+			overrides: Partial<PendingWrite> = {},
+		): PendingWrite {
+			return {
+				id: overrides.id ?? `pw-${assistantMessageId}`,
+				conversationId: overrides.conversationId ?? "conv-1",
+				assistantMessageId,
+				status: overrides.status ?? "pending",
+				provider: overrides.provider ?? "nextcloud",
+				createdAt: overrides.createdAt ?? Date.now(),
+				preview: overrides.preview ?? {
+					title: "Save note.txt to /AlfyAI",
+					detail: "files.put — /AlfyAI/note.txt",
+					reversible: true,
+					destructive: false,
+					withinAllowlist: true,
+					warnings: [],
+				},
+			};
+		}
+
+		it("renders a write already stamped with this message's id, and never on a different message", () => {
+			const write = makePendingWrite("assistant-1");
+			const { getByRole, queryAllByRole } = render(MessageArea, {
+				messages: [
+					{
+						id: "assistant-1",
+						renderKey: "assistant-1",
+						role: "assistant",
+						content: "Saved.",
+						timestamp: Date.now(),
+						isStreaming: false,
+						isThinkingStreaming: false,
+					},
+					{
+						id: "assistant-2",
+						renderKey: "assistant-2",
+						role: "assistant",
+						content: "Unrelated.",
+						timestamp: Date.now() + 1000,
+						isStreaming: false,
+						isThinkingStreaming: false,
+					},
+				],
+				conversationId: "conv-1",
+				isThinkingActive: false,
+				contextDebug: null,
+				pendingWrites: [write],
+			});
+
+			expect(
+				getByRole("article", {
+					name: "Pending write: Save note.txt to /AlfyAI",
+				}),
+			).toBeInTheDocument();
+			// Only one card total — never duplicated onto the second message.
+			expect(queryAllByRole("article", { name: /Pending write/ })).toHaveLength(
+				1,
+			);
+		});
+
+		it("attaches an unstamped write (assistantMessageId null) to the currently streaming assistant message", () => {
+			const write = makePendingWrite(null, { createdAt: Date.now() });
+			const { getByRole } = render(MessageArea, {
+				messages: [
+					{
+						id: "assistant-streaming",
+						renderKey: "assistant-streaming",
+						role: "assistant",
+						content: "Working on it.",
+						timestamp: Date.now(),
+						isStreaming: true,
+						isThinkingStreaming: false,
+					},
+				],
+				conversationId: "conv-1",
+				isThinkingActive: false,
+				contextDebug: null,
+				pendingWrites: [write],
+			});
+
+			expect(
+				getByRole("article", {
+					name: "Pending write: Save note.txt to /AlfyAI",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("does not attach an unstamped write from a different conversation to the streaming message", () => {
+			const write = makePendingWrite(null, {
+				conversationId: "conv-other",
+				createdAt: Date.now(),
+			});
+			const { queryByRole } = render(MessageArea, {
+				messages: [
+					{
+						id: "assistant-streaming",
+						renderKey: "assistant-streaming",
+						role: "assistant",
+						content: "Working on it.",
+						timestamp: Date.now(),
+						isStreaming: true,
+						isThinkingStreaming: false,
+					},
+				],
+				conversationId: "conv-1",
+				isThinkingActive: false,
+				contextDebug: null,
+				pendingWrites: [write],
+			});
+
+			expect(
+				queryByRole("article", { name: /Pending write/ }),
+			).not.toBeInTheDocument();
+		});
+
+		it("wires Confirm/Cancel through to onConfirmWrite/onCancelWrite with the write id", async () => {
+			const onConfirmWrite = vi.fn();
+			const onCancelWrite = vi.fn();
+			const write = makePendingWrite("assistant-1");
+
+			const { getByRole } = render(MessageArea, {
+				messages: [
+					{
+						id: "assistant-1",
+						renderKey: "assistant-1",
+						role: "assistant",
+						content: "Saved.",
+						timestamp: Date.now(),
+						isStreaming: false,
+						isThinkingStreaming: false,
+					},
+				],
+				conversationId: "conv-1",
+				isThinkingActive: false,
+				contextDebug: null,
+				pendingWrites: [write],
+				onConfirmWrite,
+				onCancelWrite,
+			});
+
+			await fireEvent.click(
+				getByRole("button", { name: "Confirm: Save note.txt to /AlfyAI" }),
+			);
+			await fireEvent.click(
+				getByRole("button", { name: "Cancel: Save note.txt to /AlfyAI" }),
+			);
+
+			expect(onConfirmWrite).toHaveBeenCalledWith(write.id);
+			expect(onCancelWrite).toHaveBeenCalledWith(write.id);
+		});
 	});
 });

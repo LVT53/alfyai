@@ -43,6 +43,13 @@ export type ParsedChatTurnRequest = {
 	reasoningDepth: ReasoningDepth;
 	thinkingMode: ThinkingMode;
 	forceWebSearch: boolean;
+	// Issue 7.2 — per-turn connection capability selection from the composer.
+	// undefined = the client didn't send a selection (older client, or none
+	// made yet): the model-run resolver falls back to the defaultOn set.
+	// A defined array (including []) is a fail-closed request to narrow the
+	// server's served-capabilities set to this list — see
+	// resolveActiveCapabilities in connections/resolve.ts.
+	enabledConnectionCapabilities?: string[];
 	skipPersistUserMessage: boolean;
 	attachmentTraceId?: string;
 	atlasMode: boolean;

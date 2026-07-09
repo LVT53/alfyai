@@ -1,5 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+	hasLocalDistillEnabled,
+	isCloudModel,
+} from "$lib/server/services/connections/locality";
+import { resolveContacts } from "$lib/server/services/connections/providers/contacts";
+import {
+	googleFreeBusy,
+	googleListEvents,
+} from "$lib/server/services/connections/providers/google-calendar";
+import { immichSmartSearch } from "$lib/server/services/connections/providers/immich";
+import {
+	nextcloudReadFile,
+	nextcloudSearch,
+} from "$lib/server/services/connections/providers/nextcloud-files";
+import {
+	needsDisambiguation,
+	resolveConnectionsForCapability,
+} from "$lib/server/services/connections/resolve";
+import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import { getConnectionSecret } from "$lib/server/services/connections/store";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
@@ -36,11 +56,100 @@ vi.mock("$lib/server/config-store", () => ({
 		webResearchFreshnessHours: 24,
 	})),
 }));
+vi.mock("$lib/server/services/connections/resolve", () => ({
+	resolveConnectionsForCapability: vi.fn(),
+	needsDisambiguation: vi.fn(),
+}));
+vi.mock("$lib/server/services/connections/store", () => ({
+	getConnectionSecret: vi.fn(),
+}));
+vi.mock("$lib/server/services/connections/locality", () => ({
+	hasLocalDistillEnabled: vi.fn(),
+	isCloudModel: vi.fn(),
+	distillConnectorPayload: vi.fn(),
+}));
+vi.mock("$lib/server/services/connections/providers/contacts", () => ({
+	resolveContacts: vi.fn(),
+}));
+vi.mock(
+	"$lib/server/services/connections/providers/nextcloud-files",
+	async () => {
+		const actual = await vi.importActual<
+			typeof import("$lib/server/services/connections/providers/nextcloud-files")
+		>("$lib/server/services/connections/providers/nextcloud-files");
+		return {
+			...actual,
+			nextcloudSearch: vi.fn(),
+			nextcloudReadFile: vi.fn(),
+		};
+	},
+);
+vi.mock(
+	"$lib/server/services/connections/providers/google-calendar",
+	async () => {
+		const actual = await vi.importActual<
+			typeof import("$lib/server/services/connections/providers/google-calendar")
+		>("$lib/server/services/connections/providers/google-calendar");
+		return {
+			...actual,
+			googleListEvents: vi.fn(),
+			googleFreeBusy: vi.fn(),
+		};
+	},
+);
+vi.mock("$lib/server/services/connections/providers/immich", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/immich")
+	>("$lib/server/services/connections/providers/immich");
+	return {
+		...actual,
+		immichSmartSearch: vi.fn(),
+	};
+});
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
 const researchWebMock = vi.mocked(researchWeb);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
 const searchImagesMock = vi.mocked(searchImages);
+const resolveConnectionsForCapabilityMock = vi.mocked(
+	resolveConnectionsForCapability,
+);
+const needsDisambiguationMock = vi.mocked(needsDisambiguation);
+const getConnectionSecretMock = vi.mocked(getConnectionSecret);
+const nextcloudSearchMock = vi.mocked(nextcloudSearch);
+const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
+const googleListEventsMock = vi.mocked(googleListEvents);
+const googleFreeBusyMock = vi.mocked(googleFreeBusy);
+const immichSmartSearchMock = vi.mocked(immichSmartSearch);
+const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
+const isCloudModelMock = vi.mocked(isCloudModel);
+const resolveContactsMock = vi.mocked(resolveContacts);
+
+function makeNextcloudConnection(
+	overrides: Partial<ConnectionPublic> = {},
+): ConnectionPublic {
+	return {
+		id: "conn-1",
+		userId: "user-1",
+		provider: "nextcloud",
+		label: "Nextcloud",
+		accountIdentifier: "alice",
+		status: "connected",
+		statusDetail: null,
+		defaultOn: false,
+		allowWrites: false,
+		writeAllowlist: [],
+		capabilities: ["files"],
+		config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+		oauthScopes: [],
+		tokenExpiresAt: null,
+		hasSecret: true,
+		hasWriteSecret: false,
+		createdAt: Date.now(),
+		updatedAt: Date.now(),
+		...overrides,
+	};
+}
 
 function hasInstructions(
 	result:
@@ -86,6 +195,21 @@ describe("createNormalChatTools", () => {
 		researchWebMock.mockReset();
 		getMemoryContextMock.mockReset();
 		searchImagesMock.mockReset();
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		immichSmartSearchMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		// Default: Option A off — the calendar/files distill gate short-circuits
+		// via hasLocalDistillEnabled before touching the real DB.
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
 	});
 
 	it("submits produce_file intake with server-owned user, conversation, and turn idempotency scope", async () => {
@@ -1515,6 +1639,792 @@ describe("createNormalChatTools", () => {
 				},
 			}),
 		]);
+	});
+
+	describe("files tool gating", () => {
+		it("does not include the files tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("files");
+		});
+
+		it("does not include the files tool when enabledConnectionCapabilities lacks 'files'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("files");
+		});
+
+		it("includes the files tool when enabledConnectionCapabilities contains 'files'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+
+			expect(tools).toHaveProperty("files");
+		});
+	});
+
+	describe("files tool execute", () => {
+		function createToolsWithFiles() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+		}
+
+		it("search returns results and citations", async () => {
+			const conn = makeNextcloudConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudSearchMock.mockResolvedValue([
+				{
+					name: "report.pdf",
+					path: "Documents/report.pdf",
+					isDir: false,
+					size: 4096,
+					mtime: null,
+					contentType: "application/pdf",
+					etag: "etag-1",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-search", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [
+					{
+						label: "report.pdf",
+						path: "Documents/report.pdf",
+						url: expect.stringContaining("cloud.example.com"),
+					},
+				],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-files-search",
+					name: "files",
+					sourceType: "document",
+					candidates: [
+						expect.objectContaining({
+							id: "files:Documents/report.pdf",
+							title: "report.pdf",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Files connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Files connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-files-none",
+				name: "files",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Files connection is available", async () => {
+			const connA = makeNextcloudConnection({
+				id: "conn-a",
+				label: "Alice Nextcloud",
+			});
+			const connB = makeNextcloudConnection({
+				id: "conn-b",
+				label: "Bob Nextcloud",
+			});
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			getConnectionSecretMock.mockResolvedValue("secret");
+			nextcloudSearchMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithFiles();
+			const result = await tools.files?.execute?.(
+				{ action: "search", query: "report" },
+				{ toolCallId: "call-files-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Files connections",
+			);
+		});
+	});
+
+	describe("calendar tool gating", () => {
+		it("does not include the calendar tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("calendar");
+		});
+
+		it("does not include the calendar tool when enabledConnectionCapabilities lacks 'calendar'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["files"]),
+			});
+
+			expect(tools).not.toHaveProperty("calendar");
+		});
+
+		it("includes the calendar tool when enabledConnectionCapabilities contains 'calendar'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).toHaveProperty("calendar");
+		});
+	});
+
+	describe("calendar tool execute", () => {
+		function makeGoogleConnection(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return {
+				id: "conn-1",
+				userId: "user-1",
+				provider: "google",
+				label: "Google",
+				accountIdentifier: "alice@example.com",
+				status: "connected",
+				statusDetail: null,
+				defaultOn: false,
+				allowWrites: false,
+				writeAllowlist: [],
+				capabilities: ["calendar"],
+				config: {},
+				oauthScopes: [],
+				tokenExpiresAt: null,
+				hasSecret: true,
+				hasWriteSecret: false,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		function createToolsWithCalendar() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+		}
+
+		it("list_events returns events and citations", async () => {
+			const conn = makeGoogleConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleListEventsMock.mockResolvedValue([
+				{
+					id: "evt-1",
+					summary: "Standup",
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					htmlLink: "https://calendar.google.com/event?eid=evt-1",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-list", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [
+					{
+						label: "Standup",
+						url: "https://calendar.google.com/event?eid=evt-1",
+					},
+				],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-calendar-list",
+					name: "calendar",
+					sourceType: "tool",
+					candidates: [
+						expect.objectContaining({
+							id: "calendar:https://calendar.google.com/event?eid=evt-1",
+							title: "Standup",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Calendar connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Calendar connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-calendar-none",
+				name: "calendar",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Calendar connection is available", async () => {
+			const connA = makeGoogleConnection({
+				id: "conn-a",
+				label: "Alice Google",
+			});
+			const connB = makeGoogleConnection({ id: "conn-b", label: "Bob Google" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			googleListEventsMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "list_events" },
+				{ toolCallId: "call-calendar-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Calendar connections",
+			);
+		});
+
+		it("check_availability summarizes free/busy", async () => {
+			const conn = makeGoogleConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			googleFreeBusyMock.mockResolvedValue([
+				{ calendarId: "primary", busy: [] },
+			]);
+
+			const { tools } = createToolsWithCalendar();
+			const result = await tools.calendar?.execute?.(
+				{ action: "check_availability" },
+				{ toolCallId: "call-calendar-freebusy", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				action: "check_availability",
+				busy: [{ calendarId: "primary", busy: [] }],
+			});
+		});
+	});
+
+	describe("photos tool gating", () => {
+		it("does not include the photos tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("photos");
+		});
+
+		it("does not include the photos tool when enabledConnectionCapabilities lacks 'photos'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("photos");
+		});
+
+		it("includes the photos tool when enabledConnectionCapabilities contains 'photos'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools).toHaveProperty("photos");
+		});
+	});
+
+	describe("photos tool execute", () => {
+		function makeImmichConnection(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return {
+				id: "conn-1",
+				userId: "user-1",
+				provider: "immich",
+				label: "Immich",
+				accountIdentifier: "alice@example.com",
+				status: "connected",
+				statusDetail: null,
+				defaultOn: false,
+				allowWrites: false,
+				writeAllowlist: [],
+				capabilities: ["photos"],
+				config: {
+					origin: "https://photos.example.com",
+					immichUserId: "user-1",
+				},
+				oauthScopes: [],
+				tokenExpiresAt: null,
+				hasSecret: true,
+				hasWriteSecret: false,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		function createToolsWithPhotos() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+		}
+
+		it("search returns results and citations", async () => {
+			const conn = makeImmichConnection();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			immichSmartSearchMock.mockResolvedValue([
+				{
+					id: "asset-1",
+					fileName: "beach.jpg",
+					takenAt: "2026-06-01T09:55:00.000Z",
+					type: "IMAGE",
+					thumbnailPath: "/api/assets/asset-1/thumbnail",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-search", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				citations: [{ label: "beach.jpg", url: "" }],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-photos-search",
+					name: "photos",
+					sourceType: "tool",
+					candidates: [
+						expect.objectContaining({
+							id: "photos:asset-1",
+							title: "beach.jpg",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Photos connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Photos connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-photos-none",
+				name: "photos",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Photos connection is available", async () => {
+			const connA = makeImmichConnection({
+				id: "conn-a",
+				label: "Alice Immich",
+			});
+			const connB = makeImmichConnection({ id: "conn-b", label: "Bob Immich" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			immichSmartSearchMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithPhotos();
+			const result = await tools.photos?.execute?.(
+				{ action: "search", query: "beach" },
+				{ toolCallId: "call-photos-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Photos connections",
+			);
+		});
+	});
+
+	describe("location tool gating", () => {
+		it("does not include the location tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("location");
+		});
+
+		it("does not include the location tool when enabledConnectionCapabilities lacks 'location'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools).not.toHaveProperty("location");
+		});
+
+		it("includes the location tool when enabledConnectionCapabilities contains 'location'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["location"]),
+			});
+
+			expect(tools).toHaveProperty("location");
+		});
+
+		it("degrades gracefully with a note when there is no Location connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["location"]),
+			});
+			const result = await tools.location?.execute?.(
+				{ action: "last" },
+				{ toolCallId: "call-location-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Location connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-location-none",
+				name: "location",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+	});
+
+	describe("contacts tool gating", () => {
+		it("does not include the contacts tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("contacts");
+		});
+
+		it("does not include the contacts tool when enabledConnectionCapabilities lacks 'contacts'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("contacts");
+		});
+
+		it("includes the contacts tool when enabledConnectionCapabilities contains 'contacts'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["contacts"]),
+			});
+
+			expect(tools).toHaveProperty("contacts");
+		});
+	});
+
+	describe("contacts tool execute", () => {
+		function createToolsWithContacts() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["contacts"]),
+			});
+		}
+
+		it("lookup returns the single matching contact and its citation", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeNextcloudConnection({
+					provider: "google",
+					capabilities: ["contacts"],
+				}),
+			]);
+			resolveContactsMock.mockResolvedValue([
+				{
+					name: "Zsombor Kovács",
+					emails: ["zsombor@example.com"],
+					phones: [],
+					source: "google",
+					account: "alice@example.com",
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-lookup", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				contacts: [
+					expect.objectContaining({
+						name: "Zsombor Kovács",
+						emails: ["zsombor@example.com"],
+					}),
+				],
+				citations: [{ label: "Zsombor Kovács", url: "" }],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-contacts-lookup",
+					name: "contacts",
+					sourceType: "tool",
+					candidates: [expect.objectContaining({ title: "Zsombor Kovács" })],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Contacts connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Contacts-capable connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-contacts-none",
+				name: "contacts",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces disambiguation when more than one distinct person matches", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeNextcloudConnection({
+					provider: "google",
+					capabilities: ["contacts"],
+				}),
+			]);
+			resolveContactsMock.mockResolvedValue([
+				{
+					name: "Zsombor Kovács",
+					emails: ["zsombor.k@example.com"],
+					phones: [],
+					source: "google",
+				},
+				{
+					name: "Zsombor Nagy",
+					emails: ["zsombor.n@example.com"],
+					phones: [],
+					source: "google",
+				},
+			]);
+
+			const { tools } = createToolsWithContacts();
+			const result = await tools.contacts?.execute?.(
+				{ action: "lookup", query: "Zsombor" },
+				{ toolCallId: "call-contacts-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 matching contacts",
+			);
+		});
+	});
+
+	describe("connection write guidance in tool descriptions (Redesign R8)", () => {
+		it.each([
+			{
+				lang: "en" as const,
+				tool: "files",
+				writeSubstring: "save",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "en" as const,
+				tool: "email",
+				writeSubstring: "send",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "en" as const,
+				tool: "photos",
+				writeSubstring: "add photos to",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "hu" as const,
+				tool: "files",
+				writeSubstring: "mentés",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+			{
+				lang: "hu" as const,
+				tool: "email",
+				writeSubstring: "küldés",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+			{
+				lang: "hu" as const,
+				tool: "photos",
+				writeSubstring: "album",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+		])("$lang $tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
+			lang,
+			tool,
+			writeSubstring,
+			confirmSubstring,
+			enableSubstring,
+		}) => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: lang,
+				enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
+			});
+
+			const description = (
+				tools as unknown as Record<string, { description: string }>
+			)[tool].description;
+
+			expect(description.toLowerCase()).toContain(writeSubstring.toLowerCase());
+			expect(description.toLowerCase()).toContain(
+				confirmSubstring.toLowerCase(),
+			);
+			expect(description.toLowerCase()).toContain(
+				enableSubstring.toLowerCase(),
+			);
+		});
+
+		it("email description warns a sent email cannot be unsent (en)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["email"]),
+			});
+
+			expect(tools.email?.description).toContain("cannot be unsent");
+		});
+
+		it("email description warns a sent email cannot be unsent (hu)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "hu",
+				enabledConnectionCapabilities: new Set(["email"]),
+			});
+
+			expect(tools.email?.description).toContain("nem lehet visszavonni");
+		});
+
+		it("photos description says originals are never deleted or modified (en)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools.photos?.description).toContain("never deletes or modifies");
+		});
+
+		it("photos description says originals are never deleted or modified (hu)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "hu",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools.photos?.description).toContain(
+				"soha nem törli és nem módosítja",
+			);
+		});
 	});
 });
 

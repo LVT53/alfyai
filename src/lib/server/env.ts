@@ -98,6 +98,14 @@ interface Config {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
+	// On-box OwnTracks Recorder base URL (e.g. http://127.0.0.1:8083). Admin
+	// config only — the user never supplies this (see providers/owntracks.ts)
+	// — so, unlike Immich/Plex/Nextcloud's user-pasted serverUrl, this is
+	// intentionally NOT run through the SSRF guard (assertPublicHttpsUrl):
+	// there is no user-controlled fetch target here to protect against.
+	owntracksRecorderUrl: string;
+	owntracksRecorderUser: string;
+	owntracksRecorderPass: string;
 	searxngBaseUrl: string;
 	webResearchSearxngNumResults: number;
 	webResearchSearxngLanguage: string;
@@ -112,6 +120,8 @@ interface Config {
 	webResearchExtractCacheTtlHours: number;
 	webResearchLlmExtractionReviewEnabled: boolean;
 	braveSearchApiKey: string;
+	googleOauthClientId: string;
+	googleOauthClientSecret: string;
 	concurrentStreamLimit: number;
 	systemPrompt: string;
 	perUserStreamLimit: number;
@@ -544,6 +554,9 @@ function readConfig(): Config {
 				10,
 			) || 300000,
 		),
+		owntracksRecorderUrl: process.env.OWNTRACKS_RECORDER_URL || "",
+		owntracksRecorderUser: process.env.OWNTRACKS_RECORDER_USER || "",
+		owntracksRecorderPass: process.env.OWNTRACKS_RECORDER_PASS || "",
 		searxngBaseUrl: process.env.SEARXNG_BASE_URL || "",
 		webResearchSearxngNumResults: Math.max(
 			1,
@@ -592,6 +605,8 @@ function readConfig(): Config {
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
+		googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
+		googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
 		concurrentStreamLimit: Math.max(
 			1,
 			parseInt(process.env.CONCURRENT_STREAM_LIMIT || "3", 10) || 3,

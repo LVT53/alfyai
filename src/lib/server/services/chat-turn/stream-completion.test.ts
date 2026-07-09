@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import {
+	assignPendingWritesToAssistantMessage,
+	listPendingWritesForConversation,
+} from "$lib/server/services/connections/pending-writes";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
@@ -41,6 +45,17 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 
 vi.mock("$lib/server/services/skills/notes", () => ({
 	commitSkillNoteOperationsAfterAssistantMessage: vi.fn(async () => null),
+}));
+
+// Issue 7.5 — finalize.ts's pending-write reconciliation falls back to these
+// real store functions (no override param exists on completeStreamTurn,
+// unlike the file-production job functions below which are injected
+// directly). Mock the module so the stream-completion glue tests below can
+// assert on the exact ids/assistantMessageId it stamps, without touching a
+// real database.
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	listPendingWritesForConversation: vi.fn(async () => []),
+	assignPendingWritesToAssistantMessage: vi.fn(async () => undefined),
 }));
 
 const defaultLatestContextTraceSections: LegacyContextTraceSectionInput[] = [
@@ -95,6 +110,11 @@ describe("completeStreamTurn", () => {
 		applySkillControlOperations as ReturnType<typeof vi.fn>;
 	const mockCommitSkillNoteOperations =
 		commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
+	const mockListPendingWrites = listPendingWritesForConversation as ReturnType<
+		typeof vi.fn
+	>;
+	const mockAssignPendingWrites =
+		assignPendingWritesToAssistantMessage as ReturnType<typeof vi.fn>;
 
 	function getLatestEndPayload(): Record<string, unknown> {
 		const endEvent = mockEnqueueChunk.mock.calls
@@ -186,6 +206,8 @@ describe("completeStreamTurn", () => {
 		mockGetStreamBuffer.mockReturnValue(null);
 		mockSyncGeneratedFiles.mockResolvedValue(undefined);
 		mockGetChatFilesForMsg.mockResolvedValue([]);
+		mockListPendingWrites.mockResolvedValue([]);
+		mockAssignPendingWrites.mockResolvedValue(undefined);
 		mockGetFileProductionJobs.mockResolvedValue([]);
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
 		mockEnqueueChunk.mockReturnValue(true);
@@ -1687,5 +1709,135 @@ describe("completeStreamTurn", () => {
 				fileIds: ["gf-new"],
 			}),
 		);
+	});
+
+	// Issue 7.5 — the wiring reviewed as untested: does a connection-write-only
+	// turn (no file-production call) widen the generatedOutputReconciliation
+	// gate and stamp new pending writes onto the FINALIZED assistant message
+	// id, does a no-op turn skip it cleanly, and does a rejected snapshot
+	// degrade safely instead of crashing or mis-stamping.
+	describe("pending-write reconciliation at stream completion", () => {
+		it("stamps a new pending write onto the finalized assistant message id for a connection-write-only turn (no file production)", async () => {
+			mockListPendingWrites.mockResolvedValue([
+				{ id: "pw-existing" },
+				{ id: "pw-new" },
+			]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				pendingWriteIdsAtStart: new Set(["pw-existing"]),
+				toolCallRecords: [{ name: "files", input: {}, status: "done" }],
+			});
+
+			expect(mockListPendingWrites).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(mockAssignPendingWrites).toHaveBeenCalledWith(
+				"user-1",
+				"conv-1",
+				"asst-msg-1",
+				["pw-new"],
+			);
+			// A connection-write-only turn must not spuriously stamp file-production
+			// jobs — the gate widens for pending writes without pulling in
+			// unrelated file-production behavior.
+			expect(mockAssignFileProductionJobs).not.toHaveBeenCalled();
+		});
+
+		it("widens the reconciliation gate for any of the four connection tool names, not just files", async () => {
+			mockListPendingWrites.mockResolvedValue([{ id: "pw-new" }]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				pendingWriteIdsAtStart: new Set(),
+				toolCallRecords: [{ name: "calendar", input: {}, status: "done" }],
+			});
+
+			expect(mockAssignPendingWrites).toHaveBeenCalledWith(
+				"user-1",
+				"conv-1",
+				"asst-msg-1",
+				["pw-new"],
+			);
+		});
+
+		it("does not stamp anything when a connection-write-only turn creates no new pending write", async () => {
+			mockListPendingWrites.mockResolvedValue([{ id: "pw-existing" }]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				pendingWriteIdsAtStart: new Set(["pw-existing"]),
+				toolCallRecords: [{ name: "email", input: {}, status: "done" }],
+			});
+
+			expect(mockListPendingWrites).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(mockAssignPendingWrites).not.toHaveBeenCalled();
+		});
+
+		it("never queries pending writes when the turn had no file-production or connection tool call", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				pendingWriteIdsAtStart: new Set(["pw-existing"]),
+				toolCallRecords: [{ name: "research_web", input: {}, status: "done" }],
+			});
+
+			expect(mockListPendingWrites).not.toHaveBeenCalled();
+			expect(mockAssignPendingWrites).not.toHaveBeenCalled();
+		});
+
+		it("degrades pending-write reconciliation safely when the pendingWriteIdsAtStart fact rejects, without crashing the turn", async () => {
+			const snapshotError = new Error("pending-write snapshot failed");
+			const rejectedSnapshot = Promise.reject(snapshotError);
+			rejectedSnapshot.catch(() => undefined);
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementation(() => undefined);
+
+			try {
+				await completeStreamTurn({
+					...defaultParams,
+					pendingWriteIdsAtStart: rejectedSnapshot,
+					toolCallRecords: [{ name: "files", input: {}, status: "done" }],
+				});
+
+				expect(mockListPendingWrites).not.toHaveBeenCalled();
+				expect(mockAssignPendingWrites).not.toHaveBeenCalled();
+				expect(getLatestEndPayload()).toMatchObject({
+					assistantMessageId: "asst-msg-1",
+				});
+				expect(getLatestFinishPayload()).toMatchObject({
+					type: "finish",
+					finishReason: "stop",
+				});
+				expect(warn).toHaveBeenCalledWith(
+					"[CHAT_STREAM] Failed to snapshot pending writes at stream start",
+					expect.objectContaining({
+						conversationId: "conv-1",
+						streamId: "stream-1",
+						error: snapshotError,
+					}),
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		});
+
+		it("resolves a hot (promise) pendingWriteIdsAtStart fact before stamping the finalized assistant message", async () => {
+			mockListPendingWrites.mockResolvedValue([
+				{ id: "pw-existing" },
+				{ id: "pw-new" },
+			]);
+
+			await completeStreamTurn({
+				...defaultParams,
+				pendingWriteIdsAtStart: Promise.resolve(new Set(["pw-existing"])),
+				toolCallRecords: [{ name: "photos", input: {}, status: "done" }],
+			});
+
+			expect(mockAssignPendingWrites).toHaveBeenCalledWith(
+				"user-1",
+				"conv-1",
+				"asst-msg-1",
+				["pw-new"],
+			);
+		});
 	});
 });

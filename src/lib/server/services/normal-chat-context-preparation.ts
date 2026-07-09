@@ -20,6 +20,7 @@ const NORMAL_CHAT_CONTEXT_PREPARATION_STAGE_IDS = [
 	"system_prompt",
 	"automatic_compression",
 	"forced_web_prefetch",
+	"proactive_connector_context",
 	"prompt_budget",
 ] as const;
 
@@ -34,6 +35,13 @@ const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASS_BY_STAGE_ID = {
 	system_prompt: "prompt-assembly",
 	automatic_compression: "context-compression",
 	forced_web_prefetch: "web-grounding",
+	// Reuses "context-retrieval" rather than adding a new activity class:
+	// this stage retrieves connector (calendar/email) context, the same
+	// user-facing category as constructed_context, and adding a bespoke
+	// class would mean also updating $lib/types.ts's activity-class union
+	// plus the client-side label mapping (streaming.ts/MessageBubble.svelte)
+	// for a distinction the UI doesn't need to draw.
+	proactive_connector_context: "context-retrieval",
 	prompt_budget: "budgeting",
 } as const satisfies Record<
 	NormalChatContextPreparationStageId,
@@ -150,7 +158,21 @@ const DEFAULT_NORMAL_CHAT_CONTEXT_PREPARATION_PLAN = {
 		{ id: "system_prompt", dependsOn: ["attachment_trace", "base_prompt"] },
 		{ id: "automatic_compression", dependsOn: ["system_prompt"] },
 		{ id: "forced_web_prefetch", dependsOn: ["automatic_compression"] },
-		{ id: "prompt_budget", dependsOn: ["forced_web_prefetch"] },
+		// Chained strictly after forced_web_prefetch (not just
+		// constructed_context, though it transitively depends on that too via
+		// automatic_compression -> system_prompt -> attachment_trace/
+		// base_prompt -> constructed_context/plan) rather than run in parallel
+		// with it: both stages splice text into the SAME `inputValue` field, and
+		// the stage runner starts every stage whose deps are satisfied against
+		// the SAME state snapshot — two stages racing to mutate inputValue from
+		// that shared snapshot would silently lose whichever one's insert lands
+		// first when the other's result merges in over it. Sequencing avoids
+		// that lost-update hazard entirely.
+		{
+			id: "proactive_connector_context",
+			dependsOn: ["forced_web_prefetch"],
+		},
+		{ id: "prompt_budget", dependsOn: ["proactive_connector_context"] },
 	],
 } as const satisfies NormalChatContextPreparationPlan;
 

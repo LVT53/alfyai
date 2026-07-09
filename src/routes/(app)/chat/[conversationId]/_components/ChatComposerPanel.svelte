@@ -63,6 +63,10 @@ let {
 	onReasoningDepthChange,
 	memoryIncognito = false,
 	onMemoryIncognitoChange,
+	activeCapabilities = $bindable(new Set<string>()),
+	beforeSend = undefined,
+	checkingCloudWarning = false,
+	onCapabilitiesReady = undefined,
 	children,
 }: {
 	sendError: string | null;
@@ -126,6 +130,20 @@ let {
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	memoryIncognito?: boolean;
 	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	// Issue 7.4 fix pass — pass-through to MessageInput. See its prop docs:
+	// `activeCapabilities` lets the page (the single cloud-warning chokepoint)
+	// read the composer's current capability selection for regenerate/edit/
+	// retry gate checks; `beforeSend`/`checkingCloudWarning` let the page
+	// drive the composer's own send + queued-after-upload send through that
+	// same chokepoint.
+	activeCapabilities?: Set<string>;
+	beforeSend?: (() => Promise<boolean>) | undefined;
+	checkingCloudWarning?: boolean;
+	// Issue 7.4 race-fix follow-up — pass-through to MessageInput; see its
+	// prop doc for the full race this closes.
+	onCapabilitiesReady?:
+		| ((ensureLoaded: () => Promise<void>) => void)
+		| undefined;
 	children?: Snippet;
 } = $props();
 
@@ -188,6 +206,10 @@ let {
 			{onReasoningDepthChange}
 			{memoryIncognito}
 			{onMemoryIncognitoChange}
+			bind:activeCapabilities
+			{beforeSend}
+			{checkingCloudWarning}
+			{onCapabilitiesReady}
 		/>
 	</div>
 </div>

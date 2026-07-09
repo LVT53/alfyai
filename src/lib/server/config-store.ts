@@ -72,6 +72,11 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_MAX_TEXTS",
 	"MINERU_API_URL",
 	"MINERU_TIMEOUT_MS",
+	"GOOGLE_OAUTH_CLIENT_ID",
+	"GOOGLE_OAUTH_CLIENT_SECRET",
+	"OWNTRACKS_RECORDER_URL",
+	"OWNTRACKS_RECORDER_USER",
+	"OWNTRACKS_RECORDER_PASS",
 	"SEARXNG_BASE_URL",
 	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
 	"WEB_RESEARCH_SEARXNG_LANGUAGE",
@@ -204,6 +209,9 @@ export interface RuntimeConfig {
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
 	mineruTimeoutMs: number;
+	owntracksRecorderUrl: string;
+	owntracksRecorderUser: string;
+	owntracksRecorderPass: string;
 	searxngBaseUrl: string;
 	webResearchSearxngNumResults: number;
 	webResearchSearxngLanguage: string;
@@ -218,6 +226,8 @@ export interface RuntimeConfig {
 	webResearchExtractCacheTtlHours: number;
 	webResearchLlmExtractionReviewEnabled: boolean;
 	braveSearchApiKey: string;
+	googleOauthClientId: string;
+	googleOauthClientSecret: string;
 	concurrentStreamLimit: number;
 	perUserStreamLimit: number;
 	systemPrompt: string;
@@ -670,6 +680,15 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 			config.mineruTimeoutMs = Math.max(10000, parsed);
 		}
 	},
+	OWNTRACKS_RECORDER_URL: (config, value) => {
+		config.owntracksRecorderUrl = value.trim();
+	},
+	OWNTRACKS_RECORDER_USER: (config, value) => {
+		config.owntracksRecorderUser = value.trim();
+	},
+	OWNTRACKS_RECORDER_PASS: (config, value) => {
+		config.owntracksRecorderPass = value;
+	},
 	SEARXNG_BASE_URL: (config, value) => {
 		config.searxngBaseUrl = value.trim();
 	},
@@ -727,6 +746,12 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
+	},
+	GOOGLE_OAUTH_CLIENT_ID: (config, value) => {
+		config.googleOauthClientId = value.trim();
+	},
+	GOOGLE_OAUTH_CLIENT_SECRET: (config, value) => {
+		config.googleOauthClientSecret = value.trim();
 	},
 	APP_VERSION_OVERRIDE: (config, value) => {
 		config.appVersionOverride = value.trim() || null;
@@ -1177,6 +1202,9 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
 		MINERU_API_URL: config.mineruApiUrl,
 		MINERU_TIMEOUT_MS: String(config.mineruTimeoutMs),
+		OWNTRACKS_RECORDER_URL: config.owntracksRecorderUrl,
+		OWNTRACKS_RECORDER_USER: config.owntracksRecorderUser,
+		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		SEARXNG_BASE_URL: config.searxngBaseUrl,
 		WEB_RESEARCH_SEARXNG_NUM_RESULTS: String(
 			config.webResearchSearxngNumResults,
@@ -1196,6 +1224,8 @@ export function getResolvedAdminConfigValues(
 			config.webResearchExtractCacheTtlHours,
 		),
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
+		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
+		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
 		APP_VERSION_OVERRIDE: config.appVersionOverride ?? "",
 		SYSTEM_PROMPT: getSystemPrompt(config.systemPrompt),
 		MAX_FILE_UPLOAD_SIZE: String(config.maxFileUploadSize),

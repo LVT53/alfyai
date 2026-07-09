@@ -22,6 +22,18 @@ import {
 	fetchAdminUsers,
 	fetchPublicPersonalityProfiles,
 } from "$lib/client/api/admin";
+import {
+	disconnectConnection,
+	fetchConnections,
+	fetchLocality,
+	setLocalDistill,
+	updateConnection,
+	type ConnectionPublic,
+} from "$lib/client/api/connections";
+import {
+	getProviderCatalogEntry,
+	type ConnectionProvider,
+} from "$lib/client/connections/provider-catalog";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
 import {
 	avatarState,
@@ -39,13 +51,16 @@ import {
 } from "$lib/stores/settings";
 import { setThemeAndSync } from "$lib/stores/theme";
 import { currentConversationId } from "$lib/stores/ui";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import { AVATAR_COLORS, AVATAR_COUNT } from "$lib/utils/avatar";
+import ConnectWizardModal from "./_components/ConnectWizardModal.svelte";
 import PrivacyActionModal, {
 	type PrivacyAction,
 } from "./_components/PrivacyActionModal.svelte";
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
+import SettingsConnectionsTab from "./_components/SettingsConnectionsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
+import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/types";
 import type { PageProps } from "./$types";
 
@@ -83,7 +98,7 @@ interface SettingsPageData {
 let { data }: PageProps = $props();
 const getData = () => data;
 
-type Tab = "profile" | "administration";
+type Tab = "profile" | "connections" | "administration";
 
 const initialUserSettings = getData().userSettings;
 const initialPreferences = initialUserSettings.preferences;
@@ -96,6 +111,8 @@ const isAdmin = initialUserSettings.role === "admin";
 const settingsTabs = $derived.by(() => {
 	const tabs: Array<{ id: Tab; label: string }> = [
 		{ id: "profile", label: $t("settingsProfile") },
+		// Issue 7.1: visible to ALL users, not admin-gated (unlike Administration).
+		{ id: "connections", label: $t("settingsConnections") },
 	];
 	if (isAdmin) {
 		tabs.push({
@@ -217,6 +234,49 @@ let excludedUsersLoading = $state(false);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
+
+// Issue 7.1 — Connections tab. Loaded lazily on first visit (see the
+// $effect below), then mutated optimistically (mirrors changeMemoryEnabled).
+let connections = $state<ConnectionPublic[]>([]);
+let connectionsLoaded = $state(false);
+let connectionsLoading = $state(false);
+// Issue 7.4 — Option A (local-distill) privacy toggle. Loaded alongside
+// connections in the same lazy-load effect below, but tracked independently
+// since it isn't part of the connections list.
+let localDistill = $state(false);
+let localityLoaded = $state(false);
+let localityLoading = $state(false);
+// Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
+// props; consumed by the ConnectWizardModal below (Issue 7.3).
+let connectWizardProvider = $state<ConnectionProvider | null>(null);
+let reconnectConnectionId = $state<string | null>(null);
+// Non-null only while reconnectConnectionId is set — resolved from the
+// already-loaded connections list so the wizard can prefill non-secret
+// fields (server URL, email, ...) from the existing connection's config.
+// Named distinctly from the reconnectConnection() handler function below
+// (SettingsConnectionsTab's onReconnect callback prop).
+const reconnectConnectionRecord = $derived(
+	reconnectConnectionId
+		? (connections.find((conn) => conn.id === reconnectConnectionId) ?? null)
+		: null,
+);
+// Issue 7.3 — transient banner shown above the Connections tab after the
+// Google OAuth callback redirects back here (?connected=<provider> /
+// ?error=<code>; see the onMount handler below and
+// src/routes/api/oauth/google/callback/+server.ts).
+let connectionsNotice = $state<{
+	type: "success" | "error";
+	provider?: string;
+	reasonKey?: I18nKey;
+} | null>(null);
+
+function showConnectionsNotice(notice: NonNullable<typeof connectionsNotice>) {
+	connectionsNotice = notice;
+	const timer = setTimeout(() => {
+		connectionsNotice = null;
+	}, 6000);
+	messageTimers.push(timer);
+}
 
 function parseExcludedUserIds(): string[] {
 	const raw = initialCurrentConfigValues?.ANALYTICS_EXCLUDED_USER_IDS;
@@ -399,19 +459,54 @@ async function changeUiLanguage(lang: UiLanguage) {
 }
 
 // Deep-link from the Knowledge memory empty state (/settings?section=memory):
-// bring the Profile tab forward and scroll the Memory card into view.
+// bring the Profile tab forward and scroll the Memory card into view. Also
+// handles the Google OAuth callback's return to
+// /settings?section=connections&connected=<provider> (or &error=<code>) —
+// see src/routes/api/oauth/google/callback/+server.ts for the exact param
+// names/values this reads.
 onMount(() => {
 	if (typeof window === "undefined") return;
-	const section = new URLSearchParams(window.location.search).get("section");
-	if (section !== "memory") return;
-	activeTab = "profile";
-	requestAnimationFrame(() => {
-		const card = document.getElementById("settings-memory-card");
-		if (!card) return;
-		card.scrollIntoView({ behavior: "smooth", block: "center" });
-		card.classList.add("settings-card-highlight");
-		setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
-	});
+	const params = new URLSearchParams(window.location.search);
+	const section = params.get("section");
+
+	if (section === "memory") {
+		activeTab = "profile";
+		requestAnimationFrame(() => {
+			const card = document.getElementById("settings-memory-card");
+			if (!card) return;
+			card.scrollIntoView({ behavior: "smooth", block: "center" });
+			card.classList.add("settings-card-highlight");
+			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+		});
+		return;
+	}
+
+	if (section !== "connections") return;
+	activeTab = "connections";
+
+	const connectedProvider = params.get("connected");
+	const oauthErrorCode = params.get("error");
+	if (connectedProvider) {
+		void loadConnections();
+		showConnectionsNotice({ type: "success", provider: connectedProvider });
+	} else if (oauthErrorCode) {
+		showConnectionsNotice({
+			type: "error",
+			reasonKey: getOAuthErrorReasonKey(oauthErrorCode),
+		});
+	}
+	if (connectedProvider || oauthErrorCode) {
+		// Strip only the params this handler consumed (section/connected/error)
+		// so any other query params the URL arrived with survive the redirect
+		// cleanup — e.g. a hypothetical ?debug=1 tacked on by the caller.
+		params.delete("section");
+		params.delete("connected");
+		params.delete("error");
+		const remaining = params.toString();
+		const nextUrl =
+			window.location.pathname + (remaining ? `?${remaining}` : "");
+		window.history.replaceState(null, "", nextUrl);
+	}
 });
 
 async function changeMemoryEnabled(enabled: boolean) {
@@ -426,6 +521,136 @@ async function changeMemoryEnabled(enabled: boolean) {
 	} finally {
 		memorySaving = false;
 	}
+}
+
+// Issue 7.1 — Connections tab handlers. Each toggle flips local state
+// optimistically then persists via updateConnection, reverting on failure
+// (mirrors changeMemoryEnabled above). onDisconnect removes the row from
+// local state only after the DELETE succeeds (no optimistic removal —
+// there's nothing sensible to "revert" a vanished card back to).
+async function loadConnections() {
+	connectionsLoading = true;
+	try {
+		connections = await fetchConnections();
+	} catch {
+		// Non-fatal: panel shows an empty list; user can retry by revisiting.
+	} finally {
+		connectionsLoading = false;
+		connectionsLoaded = true;
+	}
+}
+
+// Issue 7.4 — Option A. Loaded alongside connections (see the $effect
+// below); toggled optimistically with revert-on-failure (mirrors the
+// connection toggle handlers below).
+async function loadLocality() {
+	localityLoading = true;
+	try {
+		const result = await fetchLocality();
+		localDistill = result.localDistill;
+	} catch {
+		// Non-fatal: toggle shows its default (off); user can retry by
+		// revisiting the tab.
+	} finally {
+		localityLoading = false;
+		localityLoaded = true;
+	}
+}
+
+async function toggleLocalDistill(next: boolean) {
+	const previous = localDistill;
+	localDistill = next;
+	try {
+		await setLocalDistill(next);
+	} catch {
+		localDistill = previous;
+	}
+}
+
+function patchConnectionLocal(id: string, patch: Partial<ConnectionPublic>) {
+	connections = connections.map((conn) =>
+		conn.id === id ? { ...conn, ...patch } : conn,
+	);
+}
+
+async function toggleConnectionCapability(
+	id: string,
+	capability: string,
+	next: boolean,
+) {
+	const previous = connections.find((conn) => conn.id === id)?.capabilities;
+	if (!previous) return;
+	const nextCapabilities = next
+		? [...previous, capability]
+		: previous.filter((cap) => cap !== capability);
+	patchConnectionLocal(id, { capabilities: nextCapabilities });
+	try {
+		await updateConnection(id, { capabilities: nextCapabilities });
+	} catch {
+		patchConnectionLocal(id, { capabilities: previous });
+	}
+}
+
+async function toggleConnectionAllowWrites(id: string, next: boolean) {
+	const previous = connections.find((conn) => conn.id === id)?.allowWrites;
+	if (previous === undefined) return;
+	patchConnectionLocal(id, { allowWrites: next });
+	try {
+		await updateConnection(id, { allowWrites: next });
+	} catch {
+		patchConnectionLocal(id, { allowWrites: previous });
+	}
+}
+
+async function toggleConnectionDefaultOn(id: string, next: boolean) {
+	const previous = connections.find((conn) => conn.id === id)?.defaultOn;
+	if (previous === undefined) return;
+	patchConnectionLocal(id, { defaultOn: next });
+	try {
+		await updateConnection(id, { defaultOn: next });
+	} catch {
+		patchConnectionLocal(id, { defaultOn: previous });
+	}
+}
+
+async function updateConnectionWriteAllowlist(id: string, next: string[]) {
+	const previous = connections.find((conn) => conn.id === id)?.writeAllowlist;
+	if (!previous) return;
+	patchConnectionLocal(id, { writeAllowlist: next });
+	try {
+		await updateConnection(id, { writeAllowlist: next });
+	} catch {
+		patchConnectionLocal(id, { writeAllowlist: previous });
+	}
+}
+
+async function disconnectConnectionById(id: string) {
+	try {
+		await disconnectConnection(id);
+		connections = connections.filter((conn) => conn.id !== id);
+	} catch {
+		// Non-fatal: card stays put so the user can retry.
+	}
+}
+
+function startConnect(provider: ConnectionProvider) {
+	reconnectConnectionId = null;
+	connectWizardProvider = provider;
+}
+
+function reconnectConnection(connectionId: string) {
+	const target = connections.find((conn) => conn.id === connectionId);
+	reconnectConnectionId = connectionId;
+	connectWizardProvider = (target?.provider as ConnectionProvider) ?? null;
+}
+
+function closeConnectWizard() {
+	connectWizardProvider = null;
+	reconnectConnectionId = null;
+}
+
+function handleConnectWizardConnected() {
+	void loadConnections();
 }
 
 function openPrivacyAction(action: PrivacyAction) {
@@ -542,12 +767,22 @@ async function handleTabChange(tab: Tab) {
 }
 
 function handlePageSwitcherChange(tab: string) {
-	if (tab === "profile" || tab === "administration") {
+	if (tab === "profile" || tab === "connections" || tab === "administration") {
 		void handleTabChange(tab);
 	}
 }
 
 $effect(() => {
+	if (
+		activeTab === "connections" &&
+		!connectionsLoaded &&
+		!connectionsLoading
+	) {
+		void loadConnections();
+	}
+	if (activeTab === "connections" && !localityLoaded && !localityLoading) {
+		void loadLocality();
+	}
 	if (activeTab === "profile" && personalityProfiles.length === 0) {
 		void fetchPublicPersonalityProfiles()
 			.then((profiles) => {
@@ -655,6 +890,44 @@ $effect(() => {
 				selectedPersonalMonth={analyticsMonth}
 				onPersonalMonthChange={handleMonthChange}
 				onPersonalTimelineChange={handleTimelineChange}
+			/>
+		{/if}
+
+		{#if activeTab === 'connections'}
+			{#if connectionsNotice}
+				<div
+					class="settings-card mb-4 connections-notice"
+					class:connections-notice-error={connectionsNotice.type === 'error'}
+					role="status"
+				>
+					{connectionsNotice.type === 'success'
+						? $t('connections.oauthReturn.success', { provider: getProviderCatalogEntry(connectionsNotice.provider ?? '').displayName })
+						: $t('connections.oauthReturn.error', { reason: $t(connectionsNotice.reasonKey ?? 'connections.oauthReturn.reason.generic') })}
+				</div>
+			{/if}
+			<SettingsConnectionsTab
+				{connections}
+				loading={connectionsLoading && !connectionsLoaded}
+				onToggleCapability={toggleConnectionCapability}
+				onToggleAllowWrites={toggleConnectionAllowWrites}
+				onToggleDefaultOn={toggleConnectionDefaultOn}
+				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
+				onDisconnect={disconnectConnectionById}
+				onStartConnect={startConnect}
+				onReconnect={reconnectConnection}
+				{localDistill}
+				localityLoading={localityLoading && !localityLoaded}
+				onToggleLocalDistill={toggleLocalDistill}
+			/>
+		{/if}
+
+		{#if connectWizardProvider}
+			<ConnectWizardModal
+				provider={connectWizardProvider}
+				{reconnectConnectionId}
+				reconnectConnection={reconnectConnectionRecord}
+				onClose={closeConnectWizard}
+				onConnected={handleConnectWizardConnected}
 			/>
 		{/if}
 
@@ -777,6 +1050,19 @@ $effect(() => {
 	:global(.settings-card-highlight) {
 		box-shadow: 0 0 0 2px var(--accent);
 		transition: box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	/* Issue 7.3 — OAuth-return banner (success/error) above the Connections
+	   tab; see connectionsNotice in the script above. */
+	.connections-notice {
+		font-size: 0.8125rem;
+		color: var(--success);
+		border-color: color-mix(in srgb, var(--success) 40%, transparent);
+	}
+
+	.connections-notice-error {
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
 
 	:global(.toggle-btn) {

@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { uiLanguage } from "$lib/stores/settings";
+import { selectedModel, uiLanguage } from "$lib/stores/settings";
 import type { PendingAttachment } from "$lib/types";
 import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
@@ -61,6 +61,7 @@ function spyOnScrollIntoView() {
 const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
+const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
@@ -74,10 +75,22 @@ vi.mock("$lib/client/api/conversations", () => ({
 	setConversationMemoryIncognito: setConversationMemoryIncognitoMock,
 }));
 
+// Issue 7.4 fix pass — MessageInput no longer imports checkCloudWarning/
+// ackCloudConnector/setLocalDistill itself (that gate now lives at the page
+// level, driven into this component via the `beforeSend` prop — see the
+// "MessageInput send gate (beforeSend contract)" describe block below and
+// src/routes/(app)/chat/[conversationId]/page-runtime.test.ts for the
+// full check+modal+ack/cancel scenarios). Only the capability *list* fetch
+// remains local to this component.
+vi.mock("$lib/client/api/connections", () => ({
+	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
+}));
+
 describe("MessageInput", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
+		selectedModel.set("model1");
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],
@@ -85,6 +98,11 @@ describe("MessageInput", () => {
 		});
 		discoverSkillsMock.mockResolvedValue([]);
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
 	});
 
 	it("renders correctly", () => {
@@ -2194,5 +2212,387 @@ describe("MessageInput incognito toggle", () => {
 			"true",
 		);
 		await findByText(/won't be saved to memory/i);
+	});
+});
+
+// ADR 0044 Decision 1 — the composer's per-capability toggle rows are
+// replaced by a single per-conversation "Connections" master toggle. It maps
+// to the existing `enabledConnectionCapabilities` payload field: on sends
+// the user's default-on capability set, off sends []. Only rendered at all
+// when the user has any served capabilities.
+describe("MessageInput Connections toggle", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+	});
+
+	it("renders the toggle disabled (greyed) with a connect-in-settings tooltip when the user has no connections", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		const { getByTestId } = render(MessageInput);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		const toggle = getByTestId("connections-toggle");
+		// Always shown now, but disabled + pointing the user to Settings.
+		expect(toggle).toBeInTheDocument();
+		expect(toggle).toHaveAttribute("aria-disabled", "true");
+		expect(toggle).toHaveClass("composer-connections-btn--disabled");
+		expect(toggle.getAttribute("title") ?? "").toMatch(/settings/i);
+	});
+
+	it("renders the toggle defaulting on, and sends the defaultOn set in the payload", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar", "files"],
+			defaultOn: ["files"],
+			accounts: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, getByTestId } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "What's on my calendar files today?" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: ["files"],
+			}),
+		);
+	});
+
+	it("turning the toggle off sends an empty capability array", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, getByTestId } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Check my schedule" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: [],
+			}),
+		);
+	});
+
+	it("resets to on when the bound conversation id changes", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const { getByTestId, rerender } = render(MessageInput, {
+			conversationId: "conv-1",
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		await rerender({ conversationId: "conv-2" });
+
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	it("localizes the toggle tooltip copy in Hungarian", async () => {
+		uiLanguage.set("hu");
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const { getByTestId } = render(MessageInput);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		expect(toggle).toHaveAttribute(
+			"aria-label",
+			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
+		);
+
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute(
+			"aria-label",
+			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
+		);
+	});
+});
+
+// Issue 7.4 fix pass — the cloud-warning check + modal (previously local to
+// this component) now live at the page level (see
+// src/routes/(app)/chat/[conversationId]/+page.svelte's
+// ensureCloudWarningAcked, and page-runtime.test.ts for the full
+// check/modal/ack/cancel/regenerate/edit/retry scenarios). What remains
+// local to MessageInput is the *contract* with its `beforeSend` prop: every
+// dispatch (a fresh send AND a send queued behind an in-flight attachment
+// upload) must await it before calling onSend, and must NOT clear the
+// composer unless it resolves true.
+describe("MessageInput send gate (beforeSend contract)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+	});
+
+	it("dispatches immediately when no beforeSend prop is provided (backward compatible default)", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "No gate wired up" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "No gate wired up" }),
+		);
+	});
+
+	it("awaits beforeSend before dispatching, and disables Send while it is pending", async () => {
+		let resolveGate: ((proceed: boolean) => void) | undefined;
+		const beforeSend = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveGate = resolve;
+				}),
+		);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			beforeSend,
+		});
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Gate me" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(beforeSend).toHaveBeenCalledTimes(1);
+		expect(sendSpy).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(
+				(getByRole("button", { name: "Send message" }) as HTMLButtonElement)
+					.disabled,
+			).toBe(true);
+		});
+
+		resolveGate?.(true);
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Gate me" }),
+			);
+		});
+	});
+
+	it("does not dispatch and preserves the composer text when beforeSend resolves false", async () => {
+		const beforeSend = vi.fn().mockResolvedValue(false);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			beforeSend,
+		});
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(textarea, {
+			target: { value: "Don't lose me" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(beforeSend).toHaveBeenCalledTimes(1);
+		});
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(textarea.value).toBe("Don't lose me");
+
+		// The gate is re-invoked from scratch on a fresh send — this composer
+		// instance's own reentrancy guard (`sendPending`) only spans a single
+		// beforeSend() call, not "forever after a cancel".
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(beforeSend).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("does not call beforeSend a second time while the first call is still in flight (double-send race)", async () => {
+		let resolveGate: ((proceed: boolean) => void) | undefined;
+		const beforeSend = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveGate = resolve;
+				}),
+		);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			beforeSend,
+		});
+
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "Race me" } });
+
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		expect(beforeSend).toHaveBeenCalledTimes(1);
+
+		// A second send via Enter (not blocked by the Send button's native
+		// `disabled` the way a click would be) while the first gate call is
+		// still unresolved must be a complete no-op.
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await tick();
+
+		expect(beforeSend).toHaveBeenCalledTimes(1);
+		expect(sendSpy).not.toHaveBeenCalled();
+
+		resolveGate?.(true);
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("routes a send queued behind an in-flight attachment upload through beforeSend instead of dispatching directly", async () => {
+		const beforeSend = vi.fn().mockResolvedValue(true);
+		const sendSpy = vi.fn();
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+
+		const { container, getByPlaceholderText, getByText } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onSend: sendSpy,
+				onUploadFiles: uploadFilesHandler,
+				beforeSend,
+			},
+		);
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await fireEvent.input(textarea, {
+			target: { value: "Queued while uploading" },
+		});
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByText("Uploading file...")).toBeDefined();
+		});
+
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+
+		await waitFor(() => {
+			expect(
+				getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined();
+		});
+		expect(beforeSend).not.toHaveBeenCalled();
+		expect(sendSpy).not.toHaveBeenCalled();
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-queued-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "OCR me",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-queued-1",
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(beforeSend).toHaveBeenCalledTimes(1);
+		});
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Queued while uploading" }),
+			);
+		});
 	});
 });

@@ -4,6 +4,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Download,
+	FileText,
 	Palette,
 	Trash2,
 	Upload,
@@ -561,6 +562,21 @@ onMount(() => {
 		<p class="mb-3 text-sm text-success">{privacyControlsMessage}</p>
 	{/if}
 	<ul class="privacy-action-list">
+		<!-- Redesign R6 (ADR 0044 Decision 5) — compact entry row that links
+		     straight to the public /privacy route (src/routes/privacy/+page.svelte),
+		     the single content source. No in-app modal (an early build added
+		     one; the product owner asked to remove it — see ADR 0044). -->
+		<li class="privacy-action-row">
+			<span class="privacy-action-label">{$t('settings_privacyPolicy')}</span>
+			<a
+				href="/privacy"
+				class="btn-icon-bare privacy-action-btn"
+				aria-label={$t('settings_privacyPolicy')}
+				title={$t('settings_privacyPolicy')}
+			>
+				<FileText size={16} strokeWidth={2} aria-hidden="true" />
+			</a>
+		</li>
 		<li class="privacy-action-row">
 			<span class="privacy-action-label">{$t('settings_downloadMyData')}</span>
 			<button

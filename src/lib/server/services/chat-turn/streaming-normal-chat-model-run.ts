@@ -27,6 +27,8 @@ import {
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
+import type { Capability } from "$lib/server/services/connections/registry";
+import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -74,6 +76,7 @@ export type StreamingNormalChatSendModelParams = {
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
 	forceWebSearch?: boolean;
+	enabledConnectionCapabilities?: string[];
 	createTurnId?: () => string;
 	signal?: AbortSignal;
 	depthClarificationClassifier?: DepthClarificationClassifier;
@@ -161,6 +164,17 @@ export async function runStreamingNormalChatSendModel(
 	const fileProductionToolsAvailable = shouldExposeFileProductionTools({
 		message: params.message,
 	});
+	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
+	// resolved later, right before createNormalChatTools, which meant
+	// prepareOutboundChatContext had no way to know the turn's active
+	// capabilities and the proactive_connector_context stage could never gate
+	// on them. Fail closed on error, same posture as the try/catch this
+	// replaced: a connections-lookup hiccup should never block the turn, just
+	// mean no connection-backed tools/context this turn.
+	const enabledConnectionCapabilities = await resolveActiveCapabilities(
+		params.userId,
+		params.enabledConnectionCapabilities,
+	).catch(() => new Set<Capability>());
 	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
@@ -178,6 +192,7 @@ export async function runStreamingNormalChatSendModel(
 		modelId,
 		contextLimits: activeDepthEffort?.contextLimits ?? baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		activeConnectionCapabilities: enabledConnectionCapabilities,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider streaming request",
@@ -188,6 +203,8 @@ export async function runStreamingNormalChatSendModel(
 		conversationId: params.conversationId,
 		turnId,
 		language: detectLanguage(params.message),
+		enabledConnectionCapabilities,
+		modelId,
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

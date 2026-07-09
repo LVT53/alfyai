@@ -1357,6 +1357,7 @@ function createDeliberationTools(
 		turnId: `${params.turnId}:deliberation`,
 		recorder: params.recorder,
 		language: params.language,
+		modelId: params.modelId,
 		...(params.depthEffort
 			? { webSourceBudget: params.depthEffort.webSourceBudget }
 			: {}),

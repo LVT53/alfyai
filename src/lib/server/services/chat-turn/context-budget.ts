@@ -107,6 +107,22 @@ export type BaselineMemoryProfileBudget = {
 	totalBudget: number;
 };
 
+// Issue 8.1 — proactive in-chat connector context (calendar/email). Mirrors
+// BaselineMemoryProfileBudgetInput/Budget's shape exactly, but with a
+// deliberately smaller ratio/floor/ceiling: this block is a live,
+// ephemeral "you have a 3pm meeting" nudge, not a durable memory
+// projection, so it should stay small and be the first thing trimmed under
+// pressure relative to core/session context.
+export type ProactiveConnectorContextBudgetInput = {
+	contextBudget: Pick<ModelContextBudget, "targetConstructedContext">;
+	minTotalBudget?: number;
+	maxTotalBudget?: number;
+};
+
+export type ProactiveConnectorContextBudget = {
+	totalBudget: number;
+};
+
 const RESERVED_CONTEXT_RATIO = 0.1;
 const CORE_CONTEXT_RATIO = 0.5;
 const SUPPORT_CONTEXT_RATIO = 0.35;
@@ -126,6 +142,12 @@ const SESSION_HISTORY_MAX_RECENT_TURNS = 32;
 const BASELINE_MEMORY_PROFILE_TARGET_CONTEXT_RATIO = 0.02;
 const BASELINE_MEMORY_PROFILE_MIN_TOTAL_BUDGET = 8_000;
 const BASELINE_MEMORY_PROFILE_MAX_TOTAL_BUDGET = 32_000;
+// Deliberately smaller than the baseline-memory-profile constants above — a
+// handful of event/unread lines needs far less room than a memory
+// projection.
+const PROACTIVE_CONNECTOR_CONTEXT_TARGET_CONTEXT_RATIO = 0.004;
+const PROACTIVE_CONNECTOR_CONTEXT_MIN_TOTAL_BUDGET = 300;
+const PROACTIVE_CONNECTOR_CONTEXT_MAX_TOTAL_BUDGET = 1_200;
 
 export function deriveModelContextBudget(
 	input: ModelContextBudgetInput,
@@ -384,6 +406,41 @@ export function deriveBaselineMemoryProfileBudget(
 		Math.floor(
 			input.contextBudget.targetConstructedContext *
 				BASELINE_MEMORY_PROFILE_TARGET_CONTEXT_RATIO,
+		),
+	);
+	return {
+		totalBudget: Math.min(modelScaledBudget, maxTotalBudget),
+	};
+}
+
+// Issue 8.1 — token budget for the proactive_connector_context stage's
+// injected "## Your calendar & mail (live)" block. Same shape/derivation
+// posture as deriveBaselineMemoryProfileBudget above (model-scaled, clamped
+// to a min/max floor/ceiling), just with a much smaller ceiling since this
+// is a few lines of live event/unread summary, not a memory projection.
+// truncateToTokenBudget applies this at the call site before the block is
+// spliced into the outbound prompt; the global applyOutboundPromptBudget
+// backstop still applies on top.
+export function deriveProactiveConnectorContextBudget(
+	input: ProactiveConnectorContextBudgetInput,
+): ProactiveConnectorContextBudget {
+	const minTotalBudget = Math.max(
+		0,
+		Math.floor(
+			input.minTotalBudget ?? PROACTIVE_CONNECTOR_CONTEXT_MIN_TOTAL_BUDGET,
+		),
+	);
+	const maxTotalBudget = Math.max(
+		minTotalBudget,
+		Math.floor(
+			input.maxTotalBudget ?? PROACTIVE_CONNECTOR_CONTEXT_MAX_TOTAL_BUDGET,
+		),
+	);
+	const modelScaledBudget = Math.max(
+		minTotalBudget,
+		Math.floor(
+			input.contextBudget.targetConstructedContext *
+				PROACTIVE_CONNECTOR_CONTEXT_TARGET_CONTEXT_RATIO,
 		),
 	);
 	return {

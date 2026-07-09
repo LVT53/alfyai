@@ -3,12 +3,14 @@ import type { I18nKey } from "$lib/i18n";
 import type {
 	ChatMessage,
 	FileProductionJob,
+	PendingWrite,
 	SkillDraftProposal,
 } from "$lib/types";
 import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
+	attachUnassignedPendingWritesToAssistant,
 	cloneSendPayload,
 	createAssistantPlaceholder,
 	finalizeStreamingMessageList,
@@ -50,6 +52,29 @@ function makeUnassignedJob(
 	return {
 		...makeJob(id, "succeeded"),
 		assistantMessageId: null,
+		...overrides,
+	};
+}
+
+function makeUnassignedWrite(
+	id: string,
+	overrides: Partial<PendingWrite> = {},
+): PendingWrite {
+	return {
+		id,
+		conversationId: "conv-1",
+		assistantMessageId: null,
+		status: "pending",
+		provider: "nextcloud",
+		createdAt: 1,
+		preview: {
+			title: id,
+			detail: "files.put — /AlfyAI/note.txt",
+			reversible: true,
+			destructive: false,
+			withinAllowlist: true,
+			warnings: [],
+		},
 		...overrides,
 	};
 }
@@ -160,6 +185,19 @@ describe("send payload helpers", () => {
 			}),
 		);
 		expect(cloned).not.toHaveProperty(removedDepthKey);
+	});
+
+	it("preserves enabledConnectionCapabilities on cloned queued turns (Issue 7.2)", () => {
+		const cloned = cloneSendPayload({
+			message: "What's on my calendar?",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			conversationId: "conv-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(cloned.enabledConnectionCapabilities).toEqual(["files", "calendar"]);
 	});
 });
 
@@ -304,6 +342,24 @@ describe("file production chat helpers", () => {
 		expect(
 			shouldHydrateFileProductionJobsOnToolCall("web_search", "done"),
 		).toBe(false);
+	});
+
+	it("also hydrates on a completed connection tool call (Issue 7.5 — picks up a mid-turn pending write)", () => {
+		expect(shouldHydrateFileProductionJobsOnToolCall("files", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateFileProductionJobsOnToolCall("calendar", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateFileProductionJobsOnToolCall("email", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateFileProductionJobsOnToolCall("photos", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateFileProductionJobsOnToolCall("files", "running")).toBe(
+			false,
+		);
 	});
 
 	it("keeps produce_file events out of visible thinking segments", () => {
@@ -659,6 +715,38 @@ describe("file production chat helpers", () => {
 			}),
 			expect.objectContaining({
 				id: "job-existing",
+				assistantMessageId: "assistant-1",
+			}),
+		]);
+	});
+
+	it("keeps a newly proposed pending write attached when the streaming placeholder becomes the server assistant message (Issue 7.5)", () => {
+		const writes = [
+			makeUnassignedWrite("pw-new"),
+			makeUnassignedWrite("pw-other-conversation", {
+				conversationId: "conv-2",
+			}),
+			makeUnassignedWrite("pw-already-assigned", {
+				assistantMessageId: "assistant-1",
+			}),
+		];
+
+		const attached = attachUnassignedPendingWritesToAssistant(writes, {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-server",
+		});
+
+		expect(attached).toEqual([
+			expect.objectContaining({
+				id: "pw-new",
+				assistantMessageId: "assistant-server",
+			}),
+			expect.objectContaining({
+				id: "pw-other-conversation",
+				assistantMessageId: null,
+			}),
+			expect.objectContaining({
+				id: "pw-already-assigned",
 				assistantMessageId: "assistant-1",
 			}),
 		]);

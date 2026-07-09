@@ -715,6 +715,141 @@ describe("finalizeChatTurn", () => {
 		]);
 	});
 
+	it("reconciles new pending writes during turn completion, stamping only the new ids", async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<ChatMessage> =>
+				makeChatMessage(
+					`${role}-message`,
+					role,
+					role === "user" ? "user message" : "assistant response",
+				),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const assignPendingWrites = vi.fn(async () => undefined);
+		const getPendingWrites = vi.fn(async () => [
+			{ id: "pw-existing" },
+			{ id: "pw-new" },
+		]);
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "Save this to Nextcloud",
+			persistUserMessage: true,
+			normalizedMessage: "Save this to Nextcloud",
+			upstreamMessage: "Save this to Nextcloud",
+			assistantResponse: "Done.",
+			assistantMetadata: { evidenceStatus: "pending" },
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: "model-1",
+				modelDisplayName: "Model One",
+				promptTokens: 8,
+				completionTokens: 2,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: "send",
+			assistantMirrorContent: "Done.",
+			maintenanceReason: "chat_send",
+			createMessage,
+			persistAssistantTurnState,
+			generatedOutputReconciliation: {
+				fileProductionJobIdsAtStart: new Set(),
+				getFileProductionJobs: vi.fn(async () => []),
+				getChatFilesForAssistantMessage: vi.fn(async () => []),
+				pendingWriteIdsAtStart: new Set(["pw-existing"]),
+				getPendingWrites,
+				assignPendingWritesToAssistantMessage: assignPendingWrites,
+			},
+		});
+
+		expect(assignPendingWrites).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+			"assistant-message",
+			["pw-new"],
+		);
+	});
+
+	it("skips pending-write reconciliation entirely when pendingWriteIdsAtStart is not provided (no-op, existing callers stay unaffected)", async () => {
+		const createMessage = vi.fn(
+			async (
+				_conversationId: string,
+				role: "user" | "assistant",
+			): Promise<ChatMessage> =>
+				makeChatMessage(
+					`${role}-message`,
+					role,
+					role === "user" ? "user message" : "assistant response",
+				),
+		);
+		const persistAssistantTurnState = vi.fn(async () => ({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {} as unknown as undefined,
+		}));
+		const getPendingWrites = vi.fn(async () => []);
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "hi",
+			persistUserMessage: true,
+			normalizedMessage: "hi",
+			upstreamMessage: "hi",
+			assistantResponse: "Done.",
+			assistantMetadata: { evidenceStatus: "pending" },
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: "model-1",
+				modelDisplayName: "Model One",
+				promptTokens: 8,
+				completionTokens: 2,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			continuitySource: "send",
+			assistantMirrorContent: "Done.",
+			maintenanceReason: "chat_send",
+			createMessage,
+			persistAssistantTurnState,
+			generatedOutputReconciliation: {
+				fileProductionJobIdsAtStart: new Set(),
+				getFileProductionJobs: vi.fn(async () => []),
+				getChatFilesForAssistantMessage: vi.fn(async () => []),
+				getPendingWrites,
+			},
+		});
+
+		expect(getPendingWrites).not.toHaveBeenCalled();
+	});
+
 	it("persists completed control-only turns with empty visible assistant text", async () => {
 		const createMessage = vi.fn(
 			async (

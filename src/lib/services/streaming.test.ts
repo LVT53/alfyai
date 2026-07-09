@@ -515,6 +515,31 @@ describe("streamChat", () => {
 		});
 	});
 
+	it("includes enabledConnectionCapabilities in the stream request body for the current turn", async () => {
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+			options: { enabledConnectionCapabilities: ["files", "calendar"] },
+		});
+		await done;
+
+		const requestBody = parseLastStreamRequestBody(mockFetch);
+		expect(requestBody).toMatchObject({
+			message: "test message",
+			conversationId: "conv-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+	});
+
+	it("omits enabledConnectionCapabilities from the request body when not provided", async () => {
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			responseChunks: [endEvent()],
+		});
+		await done;
+
+		const requestBody = parseLastStreamRequestBody(mockFetch);
+		expect(requestBody).not.toHaveProperty("enabledConnectionCapabilities");
+	});
+
 	it("calls onEnd with full concatenated text", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [tokenEvent("Hello"), tokenEvent(" world"), endEvent()],

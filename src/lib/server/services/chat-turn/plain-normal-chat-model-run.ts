@@ -29,6 +29,8 @@ import {
 	resolvePromptModelConfig,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
+import type { Capability } from "$lib/server/services/connections/registry";
+import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -75,6 +77,7 @@ export type PlainNormalChatSendModelParams = {
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
 	forceWebSearch?: boolean;
+	enabledConnectionCapabilities?: string[];
 	createTurnId?: () => string;
 	signal?: AbortSignal;
 	disableTools?: boolean;
@@ -173,13 +176,31 @@ export async function runPlainNormalChatSendModel(
 		runtime.depthEffort,
 		clarification,
 	);
+	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
+	// resolved later, inside createToolPack, which meant
+	// prepareOutboundChatContext had no way to know the turn's active
+	// capabilities and the proactive_connector_context stage could never gate
+	// on them. Fail closed on error, same posture as the try/catch this
+	// replaced: a connections-lookup hiccup should never block the turn, just
+	// mean no connection-backed tools/context this turn.
+	const enabledConnectionCapabilities = await resolveActiveCapabilities(
+		params.userId,
+		params.enabledConnectionCapabilities,
+	).catch(() => new Set<Capability>());
 	const prepared = await prepareOutboundContext(
 		params,
 		runtime,
 		activeDepthEffort,
+		enabledConnectionCapabilities,
 	);
 	const turnId = params.createTurnId?.() ?? randomUUID();
-	const toolPack = createToolPack(params, turnId, activeDepthEffort);
+	const toolPack = await createToolPack(
+		params,
+		turnId,
+		activeDepthEffort,
+		runtime.modelId,
+		enabledConnectionCapabilities,
+	);
 	const deliberation = await runDeliberationIfNeeded(
 		params,
 		runtime,
@@ -317,6 +338,7 @@ async function prepareOutboundContext(
 	params: PlainNormalChatSendModelParams,
 	runtime: ProviderRuntime,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
+	enabledConnectionCapabilities: Set<Capability>,
 ): Promise<PreparedModelContext> {
 	return prepareOutboundChatContext({
 		message: params.message,
@@ -344,22 +366,27 @@ async function prepareOutboundContext(
 		contextLimits:
 			activeDepthEffort?.contextLimits ?? runtime.baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		activeConnectionCapabilities: enabledConnectionCapabilities,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider request",
 	});
 }
 
-function createToolPack(
+async function createToolPack(
 	params: PlainNormalChatSendModelParams,
 	turnId: string,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
-): ToolPack {
+	modelId: ModelId,
+	enabledConnectionCapabilities: Set<Capability>,
+): Promise<ToolPack> {
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		turnId,
 		language: detectLanguage(params.message),
+		enabledConnectionCapabilities,
+		modelId,
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

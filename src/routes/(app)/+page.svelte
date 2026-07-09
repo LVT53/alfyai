@@ -87,6 +87,8 @@ type MessageInputSendPayload = {
 	modelId?: ModelId;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — composer connection capability selection for this turn.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
@@ -347,6 +349,7 @@ async function handleSend(payload: MessageInputSendPayload) {
 			personalityProfileId: selectedPersonalityId,
 			reasoningDepth: payload.reasoningDepth ?? $selectedReasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
+			enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 			atlasMode: payload.atlasMode === true,
 			atlasProfile: payload.atlasProfile ?? null,
 			atlasAction: payload.atlasAction ?? "create",

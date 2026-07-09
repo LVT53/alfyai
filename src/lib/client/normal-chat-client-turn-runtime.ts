@@ -39,6 +39,8 @@ export type NormalChatSendPayload = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — composer connection capability selection for this turn.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: AtlasAction;
@@ -132,6 +134,15 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	attachFileProductionJobsToAssistantMessage: (
 		assistantMessageId: string,
 	) => void;
+	// Issue 7.5 — called at the same "assistant message id is now known"
+	// moment as attachFileProductionJobsToAssistantMessage above, so any
+	// pending write proposed this turn picks up its server-backfilled
+	// assistantMessageId (see reconcilePendingWritesForAssistantMessage,
+	// chat-turn/finalize.ts) before the message transitions out of the
+	// "currently streaming" fallback match in MessageArea's
+	// getPendingWritesForMessage — without this, the write-confirm card
+	// would briefly disappear the instant the turn finishes streaming.
+	refreshPendingWrites?: () => void;
 	pollMessageEvidence: (assistantMessageId: string) => void;
 	refreshMessageCost: (assistantMessageId: string) => void;
 	hydrateConversationDetail: () => void;
@@ -395,6 +406,7 @@ export function createNormalChatClientTurnRuntime(
 		const serverAssistantId = metadata?.assistantMessageId;
 		if (serverAssistantId) {
 			adapters.attachFileProductionJobsToAssistantMessage(serverAssistantId);
+			adapters.refreshPendingWrites?.();
 		}
 		return serverAssistantId ?? null;
 	}
@@ -433,6 +445,17 @@ export function createNormalChatClientTurnRuntime(
 			const nextQueuedTurn = cloneSendPayload(queuedTurn);
 			queuedTurn = null;
 			emitState();
+			// Issue 7.4 — this dispatches a message that was queued (via
+			// `handleQueue`/`normalChatRuntime.queue()`) while a previous turn
+			// was still streaming, using this runtime's own internal `send()`.
+			// It intentionally bypasses the page's Option-C cloud-warning gate
+			// (`+page.svelte`'s `ensureCloudWarningAcked`) — this runtime is a
+			// plain client module with no access to that page-level UI state,
+			// and routing a mid-stream queue-drain through a blocking modal
+			// would be confusing UX (the warning appearing disconnected from
+			// any direct user action). Known, deliberate scope boundary — see
+			// the matching comment at the `handleQueue` call site in
+			// +page.svelte.
 			void send(nextQueuedTurn, {
 				skipUserMessage: false,
 				skipPersistUserMessage: false,
@@ -816,6 +839,7 @@ export function createNormalChatClientTurnRuntime(
 				pendingSkill: payload.pendingSkill ?? null,
 				reasoningDepth: reasoningDepthForTurn,
 				forceWebSearch: payload.forceWebSearch === true,
+				enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
 				personalityProfileId: personalityProfileIdForTurn,
 				retryAssistantMessageId: options.retryAssistantMessageId,
@@ -1097,6 +1121,9 @@ function cloneSendPayload(
 		personalityProfileId: payload.personalityProfileId ?? null,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
+		enabledConnectionCapabilities: payload.enabledConnectionCapabilities
+			? [...payload.enabledConnectionCapabilities]
+			: undefined,
 		atlasMode: payload.atlasMode === true,
 		atlasProfile: payload.atlasProfile ?? null,
 		atlasAction: payload.atlasAction ?? "create",

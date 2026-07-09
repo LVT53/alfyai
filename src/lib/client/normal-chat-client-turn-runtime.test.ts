@@ -178,6 +178,7 @@ function makeAdapters(
 		),
 		applyStreamMetadata: vi.fn(),
 		attachFileProductionJobsToAssistantMessage: vi.fn(),
+		refreshPendingWrites: vi.fn(),
 		pollMessageEvidence: vi.fn(),
 		refreshMessageCost: vi.fn(),
 		hydrateConversationDetail: vi.fn(),
@@ -350,6 +351,11 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(
 			adapters.attachFileProductionJobsToAssistantMessage,
 		).toHaveBeenCalledWith("assistant-1");
+		// Issue 7.5 — fires at the same "assistant message id known" moment so
+		// a pending write proposed this turn picks up its server-backfilled
+		// assistantMessageId before it drops out of the streaming-fallback
+		// match.
+		expect(adapters.refreshPendingWrites).toHaveBeenCalledTimes(1);
 	});
 
 	it("sends Atlas turns through the send route adapter and starts polling detail", async () => {
@@ -560,6 +566,23 @@ describe("Normal Chat Client Turn Runtime", () => {
 			forceWebSearch: true,
 			activeDocumentArtifactId: "active-doc-1",
 			personalityProfileId: null,
+		});
+	});
+
+	it("threads the composer's enabledConnectionCapabilities selection to streamChat (Issue 7.2)", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "What's on my calendar?",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(streamInvocations[0].options).toMatchObject({
+			enabledConnectionCapabilities: ["files", "calendar"],
 		});
 	});
 

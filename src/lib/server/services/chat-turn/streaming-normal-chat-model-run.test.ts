@@ -4,9 +4,14 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
+	resolveActiveCapabilities: vi.fn(),
 	prepareOutboundChatContext: vi.fn(),
 	resolveNormalChatModelRunProvider: vi.fn(),
 	runStreamingNormalChatModelRun: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/connections/resolve", () => ({
+	resolveActiveCapabilities: mocks.resolveActiveCapabilities,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", () => ({
@@ -72,9 +77,11 @@ async function* streamEvents() {
 describe("runStreamingNormalChatSendModel", () => {
 	beforeEach(() => {
 		mocks.createNormalChatTools.mockReset();
+		mocks.resolveActiveCapabilities.mockReset();
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runStreamingNormalChatModelRun.mockReset();
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __testTool: true },
@@ -355,6 +362,8 @@ describe("runStreamingNormalChatSendModel", () => {
 			conversationId: "conv-1",
 			turnId: "normal-chat-turn-1",
 			language: "hu",
+			enabledConnectionCapabilities: new Set(),
+			modelId: "model1",
 		});
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -363,6 +372,116 @@ describe("runStreamingNormalChatSendModel", () => {
 				maxToolSteps: 20,
 			}),
 		);
+	});
+
+	it("exposes the files tool when the connections resolver reports the files capability enabled", async () => {
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Hello",
+			conversationId: "conv-1",
+			modelId: "model1",
+			createTurnId: () => "normal-chat-turn-1",
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith(
+			"user-1",
+			undefined,
+		);
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(["files"]),
+			}),
+		);
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				tools: expect.objectContaining({
+					files: { __testTool: true },
+				}),
+			}),
+		);
+	});
+
+	it("hides the files tool when the connections resolver reports no enabled capabilities", async () => {
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Hello",
+			conversationId: "conv-1",
+			modelId: "model1",
+			createTurnId: () => "normal-chat-turn-1",
+		});
+
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(),
+			}),
+		);
+		const call = mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0];
+		expect(call.tools).not.toHaveProperty("files");
+	});
+
+	it("passes the request's enabledConnectionCapabilities through to resolveActiveCapabilities (fail-closed narrowing)", async () => {
+		// The resolver itself enforces fail-closed intersection; this test only
+		// asserts the model-run wires the request-parsed selection through to
+		// it verbatim rather than e.g. always requesting the full served set.
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+				...(ctx.enabledConnectionCapabilities?.has("calendar")
+					? { calendar: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Hello",
+			conversationId: "conv-1",
+			modelId: "model1",
+			createTurnId: () => "normal-chat-turn-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith("user-1", [
+			"files",
+			"calendar",
+		]);
+		// The resolver (mocked here) only returned "files" — simulating the
+		// server-side fail-closed narrowing that drops an unserved "calendar" —
+		// so the calendar tool must not be exposed even though it was requested.
+		const toolsArg =
+			mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0]?.tools;
+		expect(toolsArg).toHaveProperty("files");
+		expect(toolsArg).not.toHaveProperty("calendar");
 	});
 
 	it("hides file-production tools for ordinary prose streaming requests", async () => {
@@ -670,5 +789,35 @@ describe("runStreamingNormalChatSendModel", () => {
 			...prefetchedToolCalls,
 			normalChatToolCalls[0],
 		]);
+	});
+
+	// Issue 8.1 — resolveActiveCapabilities used to only be resolved right
+	// before createNormalChatTools, after prepareOutboundChatContext already
+	// ran, so the context-preparation pipeline's proactive_connector_context
+	// stage had no way to know the turn's active capabilities. It is now
+	// resolved once, ahead of context prep, and the SAME resolved Set is
+	// reused for both call sites.
+	it("resolves active capabilities once and passes the same set into both context prep and tool creation", async () => {
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["calendar"]));
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Do I have any meetings today?",
+			conversationId: "conv-1",
+			modelId: "model1",
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledTimes(1);
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				activeConnectionCapabilities: new Set(["calendar"]),
+			}),
+		);
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			}),
+		);
 	});
 });

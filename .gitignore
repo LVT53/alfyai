@@ -66,3 +66,6 @@ scripts/prices.json
 
 # Superpowers brainstorming visual companion artifacts
 .superpowers/
+
+# Live eval harness output (run pre-release on-box; not source)
+scripts/eval/results/

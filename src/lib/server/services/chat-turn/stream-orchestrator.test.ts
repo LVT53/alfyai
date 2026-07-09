@@ -117,6 +117,16 @@ vi.mock("$lib/server/services/file-production", () => ({
 	),
 }));
 
+// Issue 7.5 — startPendingWriteIdsAtStartFact's sibling snapshot to
+// startFileProductionJobIdsAtStartFact above. Mocked here (rather than left
+// pointed at the real $lib/server/db default) so the "does not block
+// startup" / "degrades on rejection" robustness tests below can control it
+// directly, mirroring the file-production pair immediately above.
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	listPendingWritesForConversation: vi.fn(() => Promise.resolve([])),
+	assignPendingWritesToAssistantMessage: vi.fn(),
+}));
+
 vi.mock("$lib/utils/tokens", () => ({
 	estimateTokenCount: vi.fn(() => 100),
 }));
@@ -400,6 +410,10 @@ async function resetCompletionMocks() {
 		listConversationFileProductionJobs,
 		submitFileProductionIntake,
 	} = await import("$lib/server/services/file-production");
+	const {
+		assignPendingWritesToAssistantMessage,
+		listPendingWritesForConversation,
+	} = await import("$lib/server/services/connections/pending-writes");
 	const { estimateTokenCount } = await import("$lib/utils/tokens");
 	const { buildSkillSystemPromptAppendix } = await import(
 		"$lib/server/services/skills/prompt-context"
@@ -436,6 +450,12 @@ async function resetCompletionMocks() {
 	).mockResolvedValue(undefined);
 	(
 		listConversationFileProductionJobs as ReturnType<typeof vi.fn>
+	).mockResolvedValue([]);
+	(
+		assignPendingWritesToAssistantMessage as ReturnType<typeof vi.fn>
+	).mockResolvedValue(undefined);
+	(
+		listPendingWritesForConversation as ReturnType<typeof vi.fn>
 	).mockResolvedValue([]);
 	(submitFileProductionIntake as ReturnType<typeof vi.fn>).mockResolvedValue({
 		ok: true,
@@ -864,6 +884,101 @@ describe("stream-orchestrator SSE contract", () => {
 
 		expect(chunks.join("\n\n")).toContain("Hi");
 		expect(assignFileProductionJobsToAssistantMessage).not.toHaveBeenCalled();
+	});
+
+	// Issue 7.5 — startPendingWriteIdsAtStartFact mirror of the two
+	// startFileProductionJobIdsAtStartFact robustness tests above: the
+	// snapshot is kicked off eagerly (ensurePendingWriteIdsAtStart, called
+	// unconditionally at turn start) and must neither block model startup nor
+	// crash/mis-stamp the turn if it rejects.
+	it("does not let a slow pending-write start snapshot block context/model startup", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { listPendingWritesForConversation } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		let resolveSnapshot!: (writes: Array<{ id: string }>) => void;
+		let snapshotResolved = false;
+		const slowSnapshot = new Promise<Array<{ id: string }>>((resolve) => {
+			resolveSnapshot = (writes) => {
+				snapshotResolved = true;
+				resolve(writes);
+			};
+		});
+		(
+			listPendingWritesForConversation as ReturnType<typeof vi.fn>
+		).mockReturnValueOnce(slowSnapshot);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "slow-pw-snapshot-conv",
+			streamId: "slow-pw-snapshot-stream",
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing response body");
+
+		try {
+			const initialChunks = [
+				await readNextSseChunk(reader),
+				await readNextSseChunk(reader),
+			].join("\n\n");
+
+			expect(initialChunks).toContain(":");
+			expect(initialChunks).toContain("context-preparing");
+			expect(listPendingWritesForConversation).toHaveBeenCalledWith(
+				"u1",
+				"slow-pw-snapshot-conv",
+			);
+			await vi.waitFor(
+				() => expect(runStreamingNormalChatSendModel).toHaveBeenCalled(),
+				{ timeout: 100 },
+			);
+		} finally {
+			if (!snapshotResolved) {
+				resolveSnapshot([]);
+			}
+			await reader.cancel().catch(() => undefined);
+		}
+	});
+
+	it("handles a rejected hot pending-write start snapshot when no connection tool runs", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const {
+			assignPendingWritesToAssistantMessage,
+			listPendingWritesForConversation,
+		} = await import("$lib/server/services/connections/pending-writes");
+		(
+			listPendingWritesForConversation as ReturnType<typeof vi.fn>
+		).mockReturnValueOnce(
+			Promise.reject(new Error("pending-write snapshot failed")),
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "rejected-pw-snapshot-conv",
+			streamId: "rejected-pw-snapshot-stream",
+		});
+		const chunks = await readSseResponse(response);
+
+		expect(chunks.join("\n\n")).toContain("Hi");
+		expect(assignPendingWritesToAssistantMessage).not.toHaveBeenCalled();
 	});
 
 	it("emits response activity milestones for depth, context preparation, and drafting", async () => {

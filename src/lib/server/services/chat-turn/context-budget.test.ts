@@ -5,6 +5,7 @@ import {
 	deriveDocumentContextDepthBudget,
 	deriveExplicitSourceSetBudget,
 	deriveModelContextBudget,
+	deriveProactiveConnectorContextBudget,
 	deriveSessionHistoryBudget,
 } from "./context-budget";
 
@@ -163,6 +164,37 @@ describe("deriveModelContextBudget", () => {
 				contextBudget: { targetConstructedContext: 1_000_000 },
 			}),
 		).toEqual({ totalBudget: 20_000 });
+	});
+
+	it("derives a proactive connector context budget with a much smaller floor/ceiling than the baseline memory profile", () => {
+		expect(
+			deriveProactiveConnectorContextBudget({
+				contextBudget: { targetConstructedContext: 40_000 },
+			}),
+		).toEqual({ totalBudget: 300 });
+
+		expect(
+			deriveProactiveConnectorContextBudget({
+				contextBudget: { targetConstructedContext: 250_000 },
+			}),
+		).toEqual({ totalBudget: 1_000 });
+
+		// Ceiling clamps even a very large model context.
+		expect(
+			deriveProactiveConnectorContextBudget({
+				contextBudget: { targetConstructedContext: 1_000_000 },
+			}),
+		).toEqual({ totalBudget: 1_200 });
+	});
+
+	it("honors custom min/max overrides for the proactive connector context budget", () => {
+		expect(
+			deriveProactiveConnectorContextBudget({
+				contextBudget: { targetConstructedContext: 1_000_000 },
+				minTotalBudget: 100,
+				maxTotalBudget: 500,
+			}),
+		).toEqual({ totalBudget: 500 });
 	});
 
 	it("scales document depth from intent and preserves breadth across model sizes", () => {

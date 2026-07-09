@@ -339,6 +339,10 @@ export type StreamChatOptions = {
 	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
 	reasoningDepth?: import("$lib/types").ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — composer connection capability selection for this turn.
+	// undefined/omitted means "no client selection" — the server falls back
+	// to the user's defaultOn set.
+	enabledConnectionCapabilities?: string[];
 	activeDocumentArtifactId?: string;
 	personalityProfileId?: string | null;
 	retryAssistantMessageId?: string;
@@ -363,6 +367,7 @@ export function streamChat(
 		pendingSkill,
 		reasoningDepth,
 		forceWebSearch,
+		enabledConnectionCapabilities,
 		activeDocumentArtifactId,
 		personalityProfileId,
 		retryAssistantMessageId,
@@ -580,6 +585,7 @@ export function streamChat(
 						pendingSkill,
 						reasoningDepth,
 						forceWebSearch: forceWebSearch === true ? true : undefined,
+						enabledConnectionCapabilities,
 						activeDocumentArtifactId,
 						personalityProfileId,
 						reconnectToStreamId,

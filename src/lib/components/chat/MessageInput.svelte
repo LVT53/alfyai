@@ -1,8 +1,17 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
+import {
+	Bell,
+	Plug,
+	Plus,
+	Send,
+	Square,
+	VenetianMask,
+	X,
+} from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
+import { fetchActiveCapabilities } from "$lib/client/api/connections";
 import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -63,6 +72,14 @@ type SendPayload = {
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch?: boolean;
+	// ADR 0044 Decision 1 — the composer's single per-conversation Connections
+	// master toggle maps to this field: on sends the user's default-on
+	// capability set, off sends []. Omitted (not just empty) when the user has
+	// no available capabilities at all, so older-client fallback semantics on
+	// the server (defaultOn) apply unchanged. The server's fail-closed
+	// resolveActiveCapabilities intersect (served ∩ requested) is unchanged —
+	// this client can only narrow to nothing, never grant something unowned.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
@@ -127,6 +144,10 @@ let {
 	atlasAvailability = null,
 	memoryIncognito = false,
 	onMemoryIncognitoChange = undefined,
+	activeCapabilities = $bindable(new Set<string>()),
+	beforeSend = undefined,
+	checkingCloudWarning = false,
+	onCapabilitiesReady = undefined,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -195,6 +216,34 @@ let {
 	memoryIncognito?: boolean;
 	/** Emitted after a successful incognito toggle so parents can reconcile. */
 	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	// Issue 7.4 fix pass — the composer's per-conversation active connection
+	// capability set is bindable so the page (the single cloud-warning
+	// chokepoint, see +page.svelte's ensureCloudWarningAcked) can read the
+	// same set the Connections master toggle produced, for regenerate/edit/
+	// retry gate checks that don't originate from a fresh composer send.
+	activeCapabilities?: Set<string>;
+	// Issue 7.4 fix pass — the page-owned gate check. When provided, every
+	// dispatch (a fresh send AND a send queued behind an in-flight attachment
+	// upload) awaits this before the composer clears itself, so the composer
+	// can no longer dispatch to the model without the page's cloud-warning
+	// check running first. Returning false aborts the send: the composer text
+	// and attachments are left exactly as the user had them.
+	beforeSend?: (() => Promise<boolean>) | undefined;
+	// Mirrors the page's "checking" phase (the network round-trip only, not
+	// the modal-open wait) purely so the composer can show the existing
+	// "Checking privacy…" hint under Send — cosmetic, not part of the gate.
+	checkingCloudWarning?: boolean;
+	// Issue 7.4 race-fix follow-up — called once on mount (mirrors the
+	// `onUploadReady` pattern below) with a stable `ensureCapabilitiesLoaded`
+	// function. The page's `ensureCloudWarningAcked` awaits this BEFORE
+	// reading `activeCapabilities` so a still-in-flight capability fetch can
+	// never be silently read as "zero capabilities, no warning needed" — see
+	// the matching comment on `ensureCloudWarningAcked` in +page.svelte for
+	// the full race this closes (maybeSendPendingInitialMessage firing before
+	// this component's own on-mount fetch resolves).
+	onCapabilitiesReady?:
+		| ((ensureLoaded: () => Promise<void>) => void)
+		| undefined;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -226,6 +275,28 @@ let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let forceWebSearch = $state(false);
+// ADR 0044 Decision 1 — the composer's Connections master toggle.
+// `availableCapabilities` (served) and `defaultOnCapabilities` come from a
+// single fetch on mount. `connectionsEnabled` is the per-conversation
+// on/off state the toggle button controls (default true, trust-the-
+// assistant); `activeCapabilities` (bindable, see props above) is derived
+// from it below: on -> defaultOnCapabilities, off -> empty set. This is the
+// exact `enabledConnectionCapabilities` payload mapping the server side
+// (resolveActiveCapabilities) expects — the server intersect stays
+// unchanged, this client-side set can only narrow it.
+let availableCapabilities = $state<string[]>([]);
+let defaultOnCapabilities = $state<Set<string>>(new Set());
+let connectionsEnabled = $state(true);
+let connectionsSyncedConversationId = $state<string | null>(null);
+// Issue 7.4 fix pass — the cloud-warning check/modal itself now lives at the
+// page level (+page.svelte's ensureCloudWarningAcked), reached through the
+// `beforeSend` prop, so that composer sends, queued-after-upload sends, AND
+// regenerate/edit/retry (none of which touch this component) all funnel
+// through the SAME single check. `sendPending` is purely local UI state: it
+// is true for the whole window between calling `beforeSend()` and it
+// resolving, so a double-Enter/double-click on THIS composer instance can't
+// invoke `beforeSend()` a second time while the first call is outstanding.
+let sendPending = $state(false);
 let selectedAtlasProfile = $state<AtlasProfile | null>(null);
 let clientAtlasTurnId = $state<string | null>(null);
 let atlasPushStatus = $state<
@@ -265,16 +336,24 @@ let attachmentReadinessErrors = $derived(
 	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
 );
 
-let canSend = $derived(canSubmitMessageText(message));
+// Issue 7.4 fix pass — C1's guarantee (re-entrant send() must not dispatch
+// while a gate check is outstanding) is now enforced via `sendPending`, which
+// spans the whole `beforeSend()` await (the page's network round-trip AND,
+// if it opens, the warning modal), so the Send button (and, via send()'s own
+// guard below, the Enter-key path) stays disabled the whole time.
+let canSend = $derived(canSubmitMessageText(message) && !sendPending);
 // Reason the send button is disabled despite non-empty, non-overlength text
-// (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText.
+// (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText,
+// plus the Issue 7.4 cloud-warning gate (see canSend above).
 let sendDisabledHint = $derived(
 	!canSend && message.trim().length > 0 && !isOverMaxLength
-		? isUploadingAttachment
-			? "uploading"
-			: hasUnreadyAttachment
-				? "preparing"
-				: null
+		? sendPending && checkingCloudWarning
+			? "checkingPrivacy"
+			: isUploadingAttachment
+				? "uploading"
+				: hasUnreadyAttachment
+					? "preparing"
+					: null
 		: null,
 );
 let canQueue = $derived(canSend && isGenerating && !hasQueuedMessage);
@@ -406,6 +485,78 @@ async function toggleIncognito() {
 	incognitoBusy = false;
 }
 
+// ADR 0044 Decision 1 — loads the user's served/defaultOn connection
+// capabilities once on mount. `served` (-> availableCapabilities) gates
+// whether the Connections master toggle renders at all; `defaultOn` is what
+// the toggle's ON payload sends. Fails closed to "no capabilities available"
+// (toggle hidden, payload omits the field) on any error. The assignment to
+// `activeCapabilities` here is synchronous (not left to the `$effect` below)
+// so the page's `ensureCloudWarningAcked` race-fix — which awaits this same
+// promise via `ensureCapabilitiesLoaded()` before reading
+// `activeCapabilities` — always sees the final value the instant the promise
+// resolves, with no microtask-ordering race against a reactive effect.
+async function loadActiveCapabilities() {
+	try {
+		const result = await fetchActiveCapabilities();
+		availableCapabilities = result.served;
+		defaultOnCapabilities = new Set(result.defaultOn);
+	} catch {
+		availableCapabilities = [];
+		defaultOnCapabilities = new Set();
+	} finally {
+		activeCapabilities = connectionsEnabled
+			? new Set(defaultOnCapabilities)
+			: new Set();
+	}
+}
+
+// Issue 7.4 race-fix follow-up — caches the (possibly still in-flight)
+// `loadActiveCapabilities()` promise and hands it to the page via
+// `onCapabilitiesReady` (see prop doc above). Calling this more than once
+// (e.g. the page awaiting it on every gated send) reuses the same
+// promise rather than firing a redundant fetch — resolved instantly once
+// the initial load has already completed.
+let capabilitiesLoadPromise: Promise<void> | null = null;
+function ensureCapabilitiesLoaded(): Promise<void> {
+	if (!capabilitiesLoadPromise) {
+		capabilitiesLoadPromise = loadActiveCapabilities();
+	}
+	return capabilitiesLoadPromise;
+}
+
+// Per-conversation Connections master toggle. Resets to the default (on)
+// whenever the conversation the composer is bound to changes, mirroring the
+// incognito sync above — this is local-only state (no server persistence),
+// giving the user a fresh per-turn "don't touch my accounts for this
+// conversation" escape hatch per ADR 0044 Decision 1.
+$effect(() => {
+	const boundId = conversationId ?? null;
+	if (connectionsSyncedConversationId === boundId) return;
+	connectionsSyncedConversationId = boundId;
+	connectionsEnabled = true;
+});
+
+// Derives the active capability set from the master toggle: on -> the
+// default-on set, off -> empty. Also covers the initial load via
+// `loadActiveCapabilities` above (redundant assignment there, kept for the
+// race-safety note on that function).
+$effect(() => {
+	activeCapabilities = connectionsEnabled
+		? new Set(defaultOnCapabilities)
+		: new Set();
+});
+
+// Whether the user has any connected service. The composer toggle is always
+// shown, but greyed/disabled (with a connect-in-settings tooltip) when false.
+const hasConnections = $derived(availableCapabilities.length > 0);
+
+function toggleConnections() {
+	// No-op when the user has no connections yet — the button is shown but
+	// disabled (greyed) with a tooltip pointing to settings.
+	if (!hasConnections) return;
+	connectionsEnabled = !connectionsEnabled;
+}
+
 $effect(() => {
 	if (commandTrayCanOpen) {
 		openCommandTray();
@@ -517,11 +668,17 @@ $effect(() => {
 	void emitDraftChange();
 });
 
+// Issue 7.4 fix pass — a send queued behind an in-flight attachment upload
+// (see send()'s queuedSendAfterProcessing branch above) must go through the
+// SAME gate (attemptDispatch → beforeSend) as a normal send once the
+// attachment finishes and canSend flips true. This previously called onSend
+// directly, bypassing the gate entirely — a second way (besides the
+// double-Enter race fixed as C1) to dispatch a connector-enabled message to
+// a cloud model with no warning.
 $effect(() => {
 	if (isGenerating || !queuedSendAfterProcessing || !canSend) return;
-	onSend?.(buildSendPayload());
 	queuedSendAfterProcessing = false;
-	clearComposerAfterSubmit();
+	void attemptDispatch(message);
 });
 
 function isMobile(): boolean {
@@ -788,6 +945,8 @@ function buildSendPayload(nextMessage = message): SendPayload {
 		personalityProfileId: selectedPersonalityId,
 		reasoningDepth,
 		forceWebSearch: selectedAtlasProfile ? false : forceWebSearch,
+		enabledConnectionCapabilities:
+			availableCapabilities.length > 0 ? [...activeCapabilities] : undefined,
 		atlasMode: Boolean(selectedAtlasProfile),
 		atlasProfile: selectedAtlasProfile,
 		atlasAction: "create",
@@ -822,9 +981,48 @@ function clearComposerAfterSubmit() {
 	}
 }
 
+function dispatchSend(nextMessage: string) {
+	message = nextMessage;
+	onSend?.(buildSendPayload(nextMessage));
+	queuedSendAfterProcessing = false;
+	clearComposerAfterSubmit();
+}
+
+// Issue 7.4 fix pass — the single gated entry point for actually handing a
+// message to onSend. Both send()'s normal path and the queued-send effect
+// (fired once an in-flight attachment upload finishes) go through this, and
+// both await the page-owned `beforeSend` gate (see the prop doc above) before
+// dispatching — so neither can hand a message to onSend without the page's
+// cloud-warning check running first. `sendPending` spans the whole await so
+// a double-Enter/double-click on this composer while the gate is pending is
+// a no-op (see send()'s own guard below), and the composer is NOT cleared
+// unless beforeSend resolves truthy — a `false` (cancelled) leaves the text
+// and attachments exactly as the user had them.
+async function attemptDispatch(nextMessage: string) {
+	if (!beforeSend) {
+		dispatchSend(nextMessage);
+		return;
+	}
+	sendPending = true;
+	try {
+		const proceed = await beforeSend();
+		if (!proceed) return;
+		dispatchSend(nextMessage);
+	} finally {
+		sendPending = false;
+	}
+}
+
 function send(nextMessage: string = message) {
 	if (isComposerDisabled) return;
 	if (isGenerating) return;
+	// Issue 7.4 fix pass — C1: while the page-owned gate is pending (either
+	// its network check or the warning modal awaiting the user's choice), a
+	// re-entrant send() (double Enter, double click) MUST be a no-op rather
+	// than falling through to attemptDispatch below — see `sendPending`'s
+	// doc above. This guard must run before the canSubmitMessageText early
+	// return too, since the pending message may differ from `message`.
+	if (sendPending) return;
 	if (!canSubmitMessageText(nextMessage)) {
 		if (
 			nextMessage.trim().length > 0 &&
@@ -835,10 +1033,8 @@ function send(nextMessage: string = message) {
 		}
 		return;
 	}
-	message = nextMessage;
-	onSend?.(buildSendPayload(nextMessage));
-	queuedSendAfterProcessing = false;
-	clearComposerAfterSubmit();
+
+	void attemptDispatch(nextMessage);
 }
 
 function queue(nextMessage: string = message) {
@@ -885,6 +1081,8 @@ onMount(() => {
 	syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
+	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
+	void ensureCapabilitiesLoaded();
 	return () => {
 		window.removeEventListener("resize", adjustHeight);
 		if (textareaValueSyncFrame !== null) {
@@ -2012,6 +2210,29 @@ async function emitDraftChange(force = false) {
 					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
 				</button>
 
+				<button
+					type="button"
+					data-testid="connections-toggle"
+					class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
+					class:composer-connections-btn--active={hasConnections && connectionsEnabled}
+					class:composer-connections-btn--disabled={!hasConnections}
+					onclick={toggleConnections}
+					aria-disabled={!hasConnections}
+					aria-pressed={hasConnections ? connectionsEnabled : undefined}
+					aria-label={!hasConnections
+						? $t('chat.connectionsToggleNoConnections')
+						: connectionsEnabled
+							? $t('chat.connectionsToggleOn')
+							: $t('chat.connectionsToggleOff')}
+					title={!hasConnections
+						? $t('chat.connectionsToggleNoConnections')
+						: connectionsEnabled
+							? $t('chat.connectionsToggleOn')
+							: $t('chat.connectionsToggleOff')}
+				>
+					<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
+
 				<ContextUsageRing
 					{contextStatus}
 					attachedArtifacts={composerArtifacts}
@@ -2071,6 +2292,8 @@ async function emitDraftChange(force = false) {
 			<span class="text-[12px] font-sans text-text-muted" data-testid="send-disabled-hint">
 				{#if sendDisabledHint === 'uploading'}
 					{$t('chat.uploadingFile')}
+				{:else if sendDisabledHint === 'checkingPrivacy'}
+					{$t('chat.checkingPrivacy')}
 				{:else}
 					{$t('chat.extractingDocument')}
 				{/if}
@@ -2130,6 +2353,7 @@ async function emitDraftChange(force = false) {
 			onAddDocument={() => openDocumentPicker()}
 		/>
 	{/if}
+
 </div>
 
 <style>
@@ -2434,6 +2658,37 @@ async function emitDraftChange(force = false) {
 		color: var(--accent-contrast);
 		background: var(--accent-hover);
 		opacity: 1;
+	}
+
+	/* Connections master toggle (ADR 0044 Decision 1): accent-filled while on
+	   (the default), muted once turned off for this conversation. */
+	.composer-connections-btn {
+		color: var(--icon-muted);
+	}
+
+	.composer-connections-btn--active {
+		color: var(--accent-contrast);
+		background: var(--accent);
+	}
+
+	.composer-connections-btn--active:hover {
+		color: var(--accent-contrast);
+		background: var(--accent-hover);
+		opacity: 1;
+	}
+
+	/* Shown but greyed for users with no connections yet — the tooltip points
+	   them to Settings. Still hoverable (aria-disabled, not native disabled)
+	   so the title tooltip surfaces. */
+	.composer-connections-btn--disabled {
+		color: var(--icon-muted);
+		opacity: 0.4;
+		cursor: default;
+	}
+
+	.composer-connections-btn--disabled:hover {
+		opacity: 0.4;
+		background: transparent;
 	}
 
 	/* One-line "incognito on" notice above the input box. */
