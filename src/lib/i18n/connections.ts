@@ -36,7 +36,7 @@ const connectionsDict = {
 		"connections.subtitle":
 			"Connect your accounts so AlfyAI can read and, if you allow it, write to them.",
 		"connections.title": "Connections",
-		"connections.writeAllowlist.add": "Add",
+		"connections.writeAllowlist.addA11y": "Add folder",
 		"connections.writeAllowlist.addPlaceholder": "/folder/path",
 		"connections.writeAllowlist.confirmNote":
 			"Writes to this connection are confirmed individually before they happen.",
@@ -220,7 +220,7 @@ const connectionsDict = {
 		"connections.subtitle":
 			"Csatlakoztasd a fiókjaidat, hogy az AlfyAI olvashassa őket, és ha engedélyezed, írhasson is beléjük.",
 		"connections.title": "Kapcsolatok",
-		"connections.writeAllowlist.add": "Hozzáadás",
+		"connections.writeAllowlist.addA11y": "Mappa hozzáadása",
 		"connections.writeAllowlist.addPlaceholder": "/mappa/elérési út",
 		"connections.writeAllowlist.confirmNote":
 			"Az ehhez a kapcsolathoz tartozó írásokat egyenként jóvá kell hagynod, mielőtt megtörténnek.",

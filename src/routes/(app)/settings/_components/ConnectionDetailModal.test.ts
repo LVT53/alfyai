@@ -53,7 +53,28 @@ describe("ConnectionDetailModal", () => {
 		const dialog = screen.getByRole("dialog");
 		expect(within(dialog).getByText("Google")).toBeInTheDocument();
 		expect(within(dialog).getByText("person@example.com")).toBeInTheDocument();
-		expect(within(dialog).getByText("Connected")).toBeInTheDocument();
+		// R3-fix #4 — "Connected" is a quiet accessible icon, not a text pill.
+		expect(
+			within(dialog).getByRole("img", { name: "Connected" }),
+		).toBeInTheDocument();
+		expect(dialog.querySelector(".status-chip")).toBeNull();
+	});
+
+	it.each([
+		"needs_reauth",
+		"error",
+		"disconnected",
+	] as const)("still renders a visible status pill for %s", (status) => {
+		render(
+			ConnectionDetailModal,
+			baseProps({ connection: makeConnection({ status }) }),
+		);
+
+		const dialog = screen.getByRole("dialog");
+		expect(dialog.querySelector(".status-chip")).not.toBeNull();
+		expect(
+			within(dialog).queryByRole("img", { name: "Connected" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("renders a Toggle per capability the provider supports", () => {
@@ -222,12 +243,33 @@ describe("ConnectionDetailModal", () => {
 
 		const input = screen.getByPlaceholderText("/folder/path");
 		await fireEvent.input(input, { target: { value: "/Documents" } });
-		await fireEvent.click(screen.getByRole("button", { name: "Add" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
 
 		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", [
 			"/AlfyAI",
 			"/Documents",
 		]);
+	});
+
+	// R3-fix #7 — the add-folder control is an icon-only Plus button (no
+	// visible "Add" text), with an accessible label instead.
+	it("renders the add-folder control as an icon-only Plus button", () => {
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({
+					id: "conn-nc",
+					provider: "nextcloud",
+					capabilities: ["files"],
+					allowWrites: true,
+					writeAllowlist: [],
+				}),
+			}),
+		);
+
+		const addBtn = screen.getByRole("button", { name: "Add folder" });
+		expect(addBtn).not.toHaveTextContent("Add");
+		expect(addBtn.querySelector("svg")).not.toBeNull();
 	});
 
 	it("removing a write-allowlist chip calls onUpdateWriteAllowlist without that path", async () => {
@@ -269,6 +311,67 @@ describe("ConnectionDetailModal", () => {
 		await fireEvent.click(screen.getByTestId("confirm-delete"));
 
 		expect(onDisconnect).toHaveBeenCalledWith("conn-1");
+	});
+
+	// R3-fix #5 — disconnect is an icon-only button in the header row (logo ·
+	// account · status · disconnect), not a bottom text button with visible
+	// "Disconnect" text and a `.connection-detail-footer` wrapper.
+	it("renders disconnect as an icon-only button inside the header row, not a bottom text button", () => {
+		render(ConnectionDetailModal, baseProps());
+
+		const dialog = screen.getByRole("dialog");
+		const header = dialog.querySelector(
+			".connection-detail-header",
+		) as HTMLElement;
+		const disconnectBtn = within(header).getByRole("button", {
+			name: "Disconnect Google",
+		});
+
+		expect(disconnectBtn).not.toHaveTextContent("Disconnect");
+		expect(disconnectBtn.querySelector("svg")).not.toBeNull();
+		expect(dialog.querySelector(".connection-detail-footer")).toBeNull();
+	});
+
+	// R3-fix #8 — the detail modal is the standard centered, content-sized
+	// DialogShell (no `fullScreen`), matching every other settings dialog.
+	it("renders as a centered, content-sized dialog (not fullScreen)", () => {
+		render(ConnectionDetailModal, baseProps());
+
+		const dialog = screen.getByRole("dialog");
+		expect(dialog.className).not.toContain("h-full");
+		expect(dialog.className).not.toContain("max-w-full");
+		expect(dialog.className).toContain("max-w-[480px]");
+		expect(dialog.getAttribute("style")).toContain("max-height: 85dvh");
+	});
+
+	// R3-fix #6 — the InfoTooltip trigger sits next to the default-on /
+	// allow-writes labels in a flex row (`.connection-toggle-text`, which is
+	// `align-items: center`), and the label itself drops the global
+	// `.settings-label` bottom margin (meant for labels stacked ABOVE an
+	// input, which otherwise shifts the label off-center relative to the
+	// icon) via the `.connection-toggle-label` modifier class.
+	it("vertically centers the InfoTooltip icon with its label", () => {
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({
+					provider: "nextcloud",
+					capabilities: ["files"],
+				}),
+			}),
+		);
+
+		const dialog = screen.getByRole("dialog");
+		const rows = dialog.querySelectorAll(".connection-toggle-text");
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(
+				row.querySelector("[aria-describedby], .info-tooltip-trigger"),
+			).not.toBeNull();
+			const label = row.querySelector(".settings-label") as HTMLElement;
+			expect(label).not.toBeNull();
+			expect(label.className).toContain("connection-toggle-label");
+		}
 	});
 
 	it("closes on Escape", async () => {

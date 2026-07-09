@@ -18,6 +18,7 @@
 // callback props.
 import {
 	Calendar,
+	Check,
 	Clapperboard,
 	Folder,
 	Image as ImageIcon,
@@ -28,7 +29,6 @@ import {
 	Users,
 } from "@lucide/svelte";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
-import GoogleSignInButton from "$lib/components/ui/GoogleSignInButton.svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import type { ConnectionPublic } from "$lib/client/api/connections";
@@ -124,6 +124,22 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 }
 </script>
 
+<!-- R3-fix #4 — "Connected" renders as a quiet check icon (not a text pill) in
+     both the row and the add-strip's already-connected hint. It keeps an
+     accessible label so it's never color/icon-only; the problem states
+     (needs_reauth/error/disconnected) keep their visible text pill since
+     those signal something the user needs to act on. -->
+{#snippet connectedIcon()}
+	<span
+		class="connection-connected-icon"
+		role="img"
+		aria-label={$t('connections.status.connected')}
+		title={$t('connections.status.connected')}
+	>
+		<Check size={14} strokeWidth={2.5} aria-hidden="true" />
+	</span>
+{/snippet}
+
 <p class="settings-group-label">{$t('connections.title')}</p>
 <p class="settings-help-text mb-3">{$t('connections.subtitle')}</p>
 
@@ -169,21 +185,24 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 								{/each}
 							</span>
 						{/if}
-						<span
-							class="status-chip"
-							class:status-connected={conn.status === 'connected'}
-							class:status-needs_reauth={conn.status === 'needs_reauth'}
-							class:status-error={conn.status === 'error'}
-							class:status-disconnected={conn.status === 'disconnected'}
-						>
-							{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
-						</span>
+						{#if conn.status === 'connected'}
+							{@render connectedIcon()}
+						{:else}
+							<span
+								class="status-chip"
+								class:status-needs_reauth={conn.status === 'needs_reauth'}
+								class:status-error={conn.status === 'error'}
+								class:status-disconnected={conn.status === 'disconnected'}
+							>
+								{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
+							</span>
+						{/if}
 					</button>
 					<div class="connection-row-actions">
 						{#if needsAttention}
 							<button
 								type="button"
-								class="btn-icon-sm"
+								class="btn-icon-bare btn-icon-sm"
 								aria-label={`${$t('connections.actions.reconnect')} ${entry.displayName}`}
 								title={$t('connections.actions.reconnect')}
 								onclick={() => onReconnect(conn.id)}
@@ -193,7 +212,7 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 						{/if}
 						<button
 							type="button"
-							class="btn-icon-sm"
+							class="btn-icon-bare btn-icon-sm"
 							aria-label={`${$t('connections.actions.viewDetails')} ${entry.displayName}`}
 							title={$t('connections.actions.viewDetails')}
 							onclick={() => (selectedConnectionId = conn.id)}
@@ -206,33 +225,28 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		</section>
 	{/if}
 
+	<!-- R3-fix #3 — Google is a plain BrandIcon brand button here, same shape
+	     as every other provider (no more branded GoogleSignInButton in the
+	     add strip). The connect action is unchanged: it still calls
+	     onStartConnect('google'), which opens the OAuth wizard. -->
 	<section class="settings-card mb-4" data-testid="connections-add">
 		<p class="settings-label mb-2">{$t('connections.addConnection.title')}</p>
 		<div class="connections-provider-grid">
 			{#each CONNECTABLE_PROVIDER_LIST as provider}
 				{@const entry = getProviderCatalogEntry(provider)}
 				{@const alreadyConnected = connectedProviders.has(provider)}
-				{#if provider === 'google'}
-					<div class="connections-provider-tile">
-						<GoogleSignInButton onClick={() => onStartConnect('google')} />
-						{#if alreadyConnected}
-							<span class="connections-provider-connected-hint">{$t('connections.status.connected')}</span>
-						{/if}
-					</div>
-				{:else}
-					<button
-						type="button"
-						class="pref-pill connections-provider-pill"
-						aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
-						onclick={() => onStartConnect(provider)}
-					>
-						<BrandIcon provider={provider} size={16} ariaHidden />
-						{entry.displayName}
-						{#if alreadyConnected}
-							<span class="connections-provider-connected-hint">{$t('connections.status.connected')}</span>
-						{/if}
-					</button>
-				{/if}
+				<button
+					type="button"
+					class="pref-pill connections-provider-pill"
+					aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
+					onclick={() => onStartConnect(provider)}
+				>
+					<BrandIcon provider={provider} size={16} ariaHidden />
+					{entry.displayName}
+					{#if alreadyConnected}
+						{@render connectedIcon()}
+					{/if}
+				</button>
 			{/each}
 		</div>
 	</section>
@@ -241,7 +255,7 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 	<section class="settings-card mb-4" data-testid="connections-locality">
 		<div class="connection-toggle-row">
 			<div class="connection-toggle-text">
-				<span class="settings-label">{$t('connections.locality.toggleLabel')}</span>
+				<span class="settings-label connection-toggle-label">{$t('connections.locality.toggleLabel')}</span>
 				<InfoTooltip text={$t('connections.locality.help')} />
 			</div>
 			<Toggle
@@ -382,10 +396,15 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		border: 1px solid transparent;
 	}
 
-	.status-chip.status-connected {
-		background-color: color-mix(in srgb, var(--success) 14%, transparent);
+	/* R3-fix #4 — the "connected" indicator itself (row + add-strip hint) is
+	   this quiet check icon, not a status-chip pill; the pill above is only
+	   used for the problem states (needs_reauth/error/disconnected). */
+	.connection-connected-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 		color: var(--success);
-		border-color: color-mix(in srgb, var(--success) 40%, transparent);
 	}
 
 	.status-chip.status-needs_reauth {
@@ -413,22 +432,10 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		gap: 0.5rem;
 	}
 
-	.connections-provider-tile {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
 	.connections-provider-pill {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.5rem;
-	}
-
-	.connections-provider-connected-hint {
-		font-size: 0.6875rem;
-		font-weight: 600;
-		color: var(--success);
 	}
 
 	.connection-toggle-row {
@@ -442,5 +449,13 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
+	}
+
+	/* R3-fix #6 — `.settings-label` (global) carries a `margin-bottom` meant
+	   for when it sits ABOVE an input; that bottom-only margin shifts its
+	   flex-centered position up relative to the InfoTooltip icon next to it,
+	   which has no margin. Zero it out here so the two line up. */
+	.connection-toggle-label {
+		margin-bottom: 0;
 	}
 </style>

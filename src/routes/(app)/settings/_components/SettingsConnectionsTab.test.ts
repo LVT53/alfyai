@@ -51,7 +51,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("SettingsConnectionsTab", () => {
-	it("renders one compact row per connection with account, capability mini-icons, and a text status chip", () => {
+	it("renders one compact row per connection with account and capability mini-icons", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
@@ -62,12 +62,47 @@ describe("SettingsConnectionsTab", () => {
 		const row = screen.getByTestId("connection-row-conn-1");
 		expect(within(row).getByText("Google")).toBeInTheDocument();
 		expect(within(row).getByText("person@example.com")).toBeInTheDocument();
-		expect(within(row).getByText("Connected")).toBeInTheDocument();
 		// Capability mini-icon group has an accessible label listing the
 		// connection's active capabilities (not color/icon-only).
 		expect(
 			within(row).getByRole("img", { name: /Calendar/ }),
 		).toBeInTheDocument();
+	});
+
+	// R3-fix #4 — "Connected" renders as a quiet icon with an accessible
+	// label, not a text pill; the problem states keep their pill.
+	it("renders the connected status as an accessible icon, not a text pill", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status: "connected" })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		expect(
+			within(row).getByRole("img", { name: "Connected" }),
+		).toBeInTheDocument();
+		expect(row.querySelector(".status-chip")).toBeNull();
+	});
+
+	it.each([
+		"needs_reauth",
+		"error",
+		"disconnected",
+	] as const)("still renders a visible status pill for %s", (status) => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		expect(row.querySelector(".status-chip")).not.toBeNull();
+		expect(
+			within(row).queryByRole("img", { name: "Connected" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("does not use the oversized section-title heading for the row name (name/account gap fix)", () => {
@@ -196,6 +231,30 @@ describe("SettingsConnectionsTab", () => {
 		).not.toBeInTheDocument();
 	});
 
+	// R3-fix #1 — row icon actions (view-details, reconnect) get the app's
+	// standard icon-button hover treatment (`btn-icon-bare`'s color/opacity
+	// transition on hover + focus-visible), not a bare unstyled button.
+	it("gives the row icon actions the standard icon-button hover class", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status: "error" })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		const actions = row.querySelector(".connection-row-actions") as HTMLElement;
+		const reconnectBtn = within(actions).getByRole("button", {
+			name: "Reconnect Google",
+		});
+		const detailBtn = within(actions).getByRole("button", {
+			name: "View details Google",
+		});
+
+		expect(reconnectBtn).toHaveClass("btn-icon-bare");
+		expect(detailBtn).toHaveClass("btn-icon-bare");
+	});
+
 	it("renders the empty state message when there are no connections", () => {
 		render(SettingsConnectionsTab, baseProps({ connections: [] }));
 
@@ -215,12 +274,12 @@ describe("SettingsConnectionsTab", () => {
 	});
 
 	describe("Add-a-connection strip", () => {
-		it("lists every connectable provider as a brand icon button, excluding contacts", () => {
+		it("lists every connectable provider as a brand icon button, including Google, excluding contacts", () => {
 			render(SettingsConnectionsTab, baseProps({ connections: [] }));
 
 			const addSection = screen.getByTestId("connections-add");
 			for (const provider of CONNECTABLE_PROVIDER_LIST) {
-				if (provider === "google") continue;
+				if (provider === "contacts") continue;
 				const displayName = getProviderCatalogEntry(provider).displayName;
 				expect(
 					within(addSection).getByRole("button", {
@@ -235,15 +294,26 @@ describe("SettingsConnectionsTab", () => {
 			).not.toBeInTheDocument();
 		});
 
-		it("uses the branded GoogleSignInButton for the Google entry", () => {
+		// R3-fix #3 — Google is a plain brand button like every other
+		// provider now, not the branded GoogleSignInButton.
+		it("renders Google as a plain brand-icon button, not GoogleSignInButton", () => {
 			render(SettingsConnectionsTab, baseProps({ connections: [] }));
 
 			const addSection = screen.getByTestId("connections-add");
 			expect(
-				within(addSection).getByRole("button", {
+				within(addSection).queryByRole("button", {
 					name: "Continue with Google",
 				}),
-			).toBeInTheDocument();
+			).not.toBeInTheDocument();
+			expect(
+				within(addSection).queryByText("Continue with Google"),
+			).not.toBeInTheDocument();
+
+			const googleBtn = within(addSection).getByRole("button", {
+				name: "Connect Google",
+			});
+			expect(googleBtn).toHaveClass("pref-pill");
+			expect(googleBtn.querySelector("svg")).not.toBeNull();
 		});
 
 		it("clicking a provider tile calls onStartConnect(provider)", async () => {
@@ -259,12 +329,12 @@ describe("SettingsConnectionsTab", () => {
 			expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
 
 			await fireEvent.click(
-				screen.getByRole("button", { name: "Continue with Google" }),
+				screen.getByRole("button", { name: "Connect Google" }),
 			);
 			expect(onStartConnect).toHaveBeenCalledWith("google");
 		});
 
-		it("hints at already-connected providers, including Google", () => {
+		it("hints at already-connected providers, including Google, with an accessible icon (not a text pill)", () => {
 			render(
 				SettingsConnectionsTab,
 				baseProps({
@@ -273,16 +343,18 @@ describe("SettingsConnectionsTab", () => {
 			);
 
 			const addSection = screen.getByTestId("connections-add");
-			const googleTile = within(addSection)
-				.getByRole("button", { name: "Continue with Google" })
-				.closest(".connections-provider-tile") as HTMLElement;
-			expect(within(googleTile).getByText("Connected")).toBeInTheDocument();
+			const googleBtn = within(addSection).getByRole("button", {
+				name: "Connect Google",
+			});
+			expect(
+				within(googleBtn).getByRole("img", { name: "Connected" }),
+			).toBeInTheDocument();
 
 			const nextcloudBtn = within(addSection).getByRole("button", {
 				name: "Connect Nextcloud",
 			});
 			expect(
-				within(nextcloudBtn).queryByText("Connected"),
+				within(nextcloudBtn).queryByRole("img", { name: "Connected" }),
 			).not.toBeInTheDocument();
 		});
 	});
@@ -343,6 +415,22 @@ describe("SettingsConnectionsTab", () => {
 					"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
 				),
 			).toBeInTheDocument();
+		});
+
+		// R3-fix #6 — the InfoTooltip trigger sits next to the toggle label in
+		// a flex row; the label drops the global `.settings-label` bottom
+		// margin (meant for labels stacked ABOVE an input) via the
+		// `.connection-toggle-label` modifier so it lines up with the icon.
+		it("vertically centers the InfoTooltip icon with its label", () => {
+			render(SettingsConnectionsTab, baseProps());
+
+			const section = screen.getByTestId("connections-locality");
+			const row = section.querySelector(".connection-toggle-text");
+			expect(row).not.toBeNull();
+			const label = row?.querySelector(".settings-label") as HTMLElement;
+			expect(label).not.toBeNull();
+			expect(label.className).toContain("connection-toggle-label");
+			expect(row?.querySelector(".info-tooltip-trigger")).not.toBeNull();
 		});
 	});
 });

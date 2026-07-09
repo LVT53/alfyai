@@ -1,18 +1,23 @@
 <script lang="ts">
-// ADR 0044 Decision 3 — the full-screen Connection Detail modal. Holds every
-// per-connection control that used to live inline in the always-expanded
-// SettingsConnectionsTab card: capabilities, default-on, allow-writes (its
-// reversible/allowlist warning now behind the shared InfoTooltip instead of
-// an always-visible amber paragraph), the nextcloud write-allowlist editor,
-// and disconnect. The compact list row (SettingsConnectionsTab) stays
-// glance-only; this overlay is where the rarely-touched controls live.
+// ADR 0044 Decision 3 (revised by R3-fix #8) — the Connection Detail modal,
+// a CENTERED, content-sized overlay (standard DialogShell — no `fullScreen`)
+// that holds every per-connection control that used to live inline in the
+// always-expanded SettingsConnectionsTab card: capabilities, default-on,
+// allow-writes (its reversible/allowlist warning now behind the shared
+// InfoTooltip instead of an always-visible amber paragraph), the nextcloud
+// write-allowlist editor, and disconnect (a quiet icon action in the header
+// row, not a bottom text button — R3-fix #5). The compact list row
+// (SettingsConnectionsTab) stays glance-only; this overlay is where the
+// rarely-touched controls live. DialogShell already caps height and scrolls
+// internally (`max-height: 85dvh; overflow-y: auto`), so a tall connection
+// (many capabilities + a long write-allowlist) still fits the viewport.
 //
 // `connection` is nullable on purpose (mirrors the "open when non-null"
 // contract) so the parent can mount this component unconditionally and just
 // flip the prop — DialogShell (and its focus trap / body-scroll-lock) is
 // only actually mounted while a connection is set, since the whole thing is
 // gated behind `{#if connection}` below.
-import { Unplug, X } from "@lucide/svelte";
+import { Check, Plus, Unplug, X } from "@lucide/svelte";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
@@ -85,7 +90,6 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 	<DialogShell
 		title={entry.displayName}
 		onClose={onClose}
-		fullScreen
 		zIndexClass="z-[100]"
 	>
 		<div class="connection-detail" data-testid={`connection-detail-${conn.id}`}>
@@ -94,15 +98,38 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 				{#if conn.accountIdentifier}
 					<span class="connection-detail-account">{conn.accountIdentifier}</span>
 				{/if}
-				<span
-					class="status-chip"
-					class:status-connected={conn.status === 'connected'}
-					class:status-needs_reauth={conn.status === 'needs_reauth'}
-					class:status-error={conn.status === 'error'}
-					class:status-disconnected={conn.status === 'disconnected'}
+				{#if conn.status === 'connected'}
+					<span
+						class="connection-connected-icon"
+						role="img"
+						aria-label={$t('connections.status.connected')}
+						title={$t('connections.status.connected')}
+					>
+						<Check size={15} strokeWidth={2.5} aria-hidden="true" />
+					</span>
+				{:else}
+					<span
+						class="status-chip"
+						class:status-needs_reauth={conn.status === 'needs_reauth'}
+						class:status-error={conn.status === 'error'}
+						class:status-disconnected={conn.status === 'disconnected'}
+					>
+						{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
+					</span>
+				{/if}
+				<!-- R3-fix #5 — disconnect is a quiet danger icon action pushed to
+				     the far right of the header row (logo · account · status ·
+				     disconnect), not a prominent bottom text button. Still opens
+				     the same ConfirmDialog before calling onDisconnect. -->
+				<button
+					type="button"
+					class="btn-icon-bare btn-icon-sm connection-detail-disconnect"
+					aria-label={`${$t('connections.actions.disconnect')} ${entry.displayName}`}
+					title={$t('connections.actions.disconnect')}
+					onclick={() => (disconnectConfirmOpen = true)}
 				>
-					{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
-				</span>
+					<Unplug size={16} strokeWidth={2} aria-hidden="true" />
+				</button>
 			</div>
 			{#if needsAttention}
 				<p class="connection-detail-status-note">
@@ -130,7 +157,7 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 
 			<section class="connection-detail-section connection-toggle-row">
 				<div class="connection-toggle-text">
-					<span class="settings-label">{$t('connections.defaultOn.label')}</span>
+					<span class="settings-label connection-toggle-label">{$t('connections.defaultOn.label')}</span>
 					<InfoTooltip text={$t('connections.defaultOn.help')} />
 				</div>
 				<Toggle
@@ -143,7 +170,7 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 			{#if entry.writable}
 				<section class="connection-detail-section connection-toggle-row">
 					<div class="connection-toggle-text">
-						<span class="settings-label">{$t('connections.allowWrites.label')}</span>
+						<span class="settings-label connection-toggle-label">{$t('connections.allowWrites.label')}</span>
 						<InfoTooltip text={$t('connections.allowWrites.warning')} />
 					</div>
 					<Toggle
@@ -195,10 +222,12 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 								/>
 								<button
 									type="button"
-									class="btn-secondary"
+									class="btn-icon-bare connection-allowlist-add-btn"
+									aria-label={$t('connections.writeAllowlist.addA11y')}
+									title={$t('connections.writeAllowlist.addA11y')}
 									onclick={() => addAllowlistEntry(conn)}
 								>
-									{$t('connections.writeAllowlist.add')}
+									<Plus size={16} strokeWidth={2} aria-hidden="true" />
 								</button>
 							</div>
 						</section>
@@ -207,18 +236,6 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 					{/if}
 				{/if}
 			{/if}
-
-			<section class="connection-detail-section connection-detail-footer">
-				<button
-					type="button"
-					class="btn-danger"
-					aria-label={`${$t('connections.actions.disconnect')} ${entry.displayName}`}
-					onclick={() => (disconnectConfirmOpen = true)}
-				>
-					<Unplug size={16} strokeWidth={2} aria-hidden="true" />
-					{$t('connections.actions.disconnect')}
-				</button>
-			</section>
 		</div>
 	</DialogShell>
 
@@ -296,6 +313,14 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		gap: 0.25rem;
 	}
 
+	/* R3-fix #6 — `.settings-label` (global) carries a `margin-bottom` meant
+	   for when it sits ABOVE an input; that bottom-only margin shifts its
+	   flex-centered position up relative to the InfoTooltip icon next to it,
+	   which has no margin. Zero it out here so the two line up. */
+	.connection-toggle-label {
+		margin-bottom: 0;
+	}
+
 	.connection-allowlist-chips {
 		list-style: none;
 		margin: 0.5rem 0 0 0;
@@ -333,9 +358,34 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		flex: 1;
 	}
 
-	.connection-detail-footer {
-		display: flex;
-		justify-content: flex-end;
+	/* R3-fix #7 — icon-only Plus button, sized to match the input's height. */
+	.connection-allowlist-add-btn {
+		flex-shrink: 0;
+		min-height: 2.25rem;
+		min-width: 2.25rem;
+	}
+
+	/* R3-fix #4 — the "connected" indicator itself (header) is this quiet
+	   check icon, not a status-chip pill; the pill below is only used for the
+	   problem states (needs_reauth/error/disconnected). */
+	.connection-connected-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		color: var(--success);
+	}
+
+	/* R3-fix #5 — a quiet danger icon action, pushed to the far right of the
+	   header row (logo · account · status · disconnect). */
+	.connection-detail-disconnect {
+		margin-left: auto;
+		color: var(--danger);
+	}
+
+	.connection-detail-disconnect:hover {
+		color: var(--danger);
+		opacity: 0.78;
 	}
 
 	.status-chip {
@@ -346,12 +396,6 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		font-size: 0.6875rem;
 		font-weight: 600;
 		border: 1px solid transparent;
-	}
-
-	.status-chip.status-connected {
-		background-color: color-mix(in srgb, var(--success) 14%, transparent);
-		color: var(--success);
-		border-color: color-mix(in srgb, var(--success) 40%, transparent);
 	}
 
 	.status-chip.status-needs_reauth {

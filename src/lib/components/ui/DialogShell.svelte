@@ -11,12 +11,14 @@ let {
 	children,
 	maxWidthClass = "max-w-[480px]",
 	zIndexClass = "z-50",
-	// ADR 0044 Decision 3 — Connection Detail modal wants a full-screen
-	// overlay rather than the usual small centered card: edge-to-edge on
-	// mobile, and still a near-viewport-filling sheet (not width-capped) on
-	// wider screens, so it reads as "full screen" rather than "a bigger
-	// dialog". Overrides maxWidthClass/height when set; everything else
-	// (focus trap, Esc, backdrop) is unchanged.
+	// Opt-in full-screen overlay mode: edge-to-edge on mobile, still a
+	// near-viewport-filling sheet (not width-capped) on wider screens, so it
+	// reads as "full screen" rather than "a bigger dialog". Overrides
+	// maxWidthClass/height when set; everything else (focus trap, Esc,
+	// backdrop) is unchanged. Not currently used by any Connections surface —
+	// the Connection Detail modal used this in an earlier iteration (ADR 0044
+	// Decision 3) but was revised to the standard centered mode (R3-fix #8);
+	// kept as a general DialogShell capability for future full-screen needs.
 	fullScreen = false,
 }: {
 	title: string;
