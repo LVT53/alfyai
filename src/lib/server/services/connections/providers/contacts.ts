@@ -176,39 +176,58 @@ export async function googleSearchContacts(
 		);
 	}
 
-	const url = new URL(PEOPLE_SEARCH_CONTACTS_URL);
-	url.searchParams.set("query", params.query);
-	url.searchParams.set("readMask", "names,emailAddresses,phoneNumbers");
-	url.searchParams.set("pageSize", String(limit));
+	const runPeopleQuery = async (
+		query: string,
+	): Promise<Omit<ContactMatch, "source" | "account">[]> => {
+		const url = new URL(PEOPLE_SEARCH_CONTACTS_URL);
+		url.searchParams.set("query", query);
+		url.searchParams.set("readMask", "names,emailAddresses,phoneNumbers");
+		url.searchParams.set("pageSize", String(limit));
 
-	const response = await fetchWithTimeout(fetchImpl, url.toString(), {
-		method: "GET",
-		headers: { Authorization: `Bearer ${accessToken}` },
-	});
-
-	if (response.status === 401) {
-		const detail = "Google rejected the access token for this Contacts request";
-		await updateConnection(userId, connectionId, {
-			status: "needs_reauth",
-			statusDetail: detail,
+		const response = await fetchWithTimeout(fetchImpl, url.toString(), {
+			method: "GET",
+			headers: { Authorization: `Bearer ${accessToken}` },
 		});
-		throw new ContactsError(detail, "needs_reauth");
-	}
-	if (!response.ok) {
-		throw new ContactsError(
-			`Google People request failed with status ${response.status}`,
-			"request_failed",
-		);
+
+		if (response.status === 401) {
+			const detail =
+				"Google rejected the access token for this Contacts request";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new ContactsError(detail, "needs_reauth");
+		}
+		if (!response.ok) {
+			throw new ContactsError(
+				`Google People request failed with status ${response.status}`,
+				"request_failed",
+			);
+		}
+
+		const body: unknown = await response.json().catch(() => null);
+		return parsePeopleSearchResults(body);
+	};
+
+	// The People API's `searchContacts` serves from a per-user cache that is
+	// COLD on the first call after a while and returns zero results until it's
+	// warmed — a documented gotcha that surfaced in live use as a spurious "no
+	// contacts found" on the first lookup. Google's prescribed remedy is a
+	// warmup request with an empty query; so if the first real search comes
+	// back empty, warm the cache and retry ONCE before concluding there are
+	// genuinely no matches. The warm path (cache already primed) stays a single
+	// request; only a cold miss pays for the warmup + retry.
+	let matches = await runPeopleQuery(params.query);
+	if (matches.length === 0) {
+		await runPeopleQuery("").catch(() => []);
+		matches = await runPeopleQuery(params.query);
 	}
 
-	const body: unknown = await response.json().catch(() => null);
-	return parsePeopleSearchResults(body)
-		.slice(0, limit)
-		.map((match) => ({
-			...match,
-			source: "google" as const,
-			account: conn.accountIdentifier,
-		}));
+	return matches.slice(0, limit).map((match) => ({
+		...match,
+		source: "google" as const,
+		account: conn.accountIdentifier,
+	}));
 }
 
 // ---------------------------------------------------------------------------

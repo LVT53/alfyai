@@ -131,14 +131,37 @@ function defaultRange(): { timeMin: string; timeMax: string } {
 	return { timeMin: now.toISOString(), timeMax: later.toISOString() };
 }
 
+// Google Calendar's events.list (and Apple CalDAV's time-range filter)
+// require a full date-TIME, not a bare "YYYY-MM-DD": Google returns HTTP 400
+// for a date-only bound, which surfaced in live use as a hard "I couldn't
+// reach your calendar" error. Models routinely emit date-only bounds for
+// ranges like "next two weeks", so normalize whatever the model supplies into
+// an RFC3339 UTC timestamp before it reaches a provider. A date-only value is
+// anchored to the start of its UTC day for `timeMin` and the end of its UTC
+// day for `timeMax`, so a date-only end bound still includes events on that
+// final day. An unparseable value returns null so the caller falls back to
+// the default range endpoint rather than forwarding garbage that would 400.
+function toRfc3339(value: string, bound: "start" | "end"): string | null {
+	const trimmed = value.trim();
+	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+		return bound === "end"
+			? `${trimmed}T23:59:59.999Z`
+			: `${trimmed}T00:00:00.000Z`;
+	}
+	const parsed = new Date(trimmed);
+	if (Number.isNaN(parsed.getTime())) return null;
+	return parsed.toISOString();
+}
+
 function resolveRange(input: CalendarToolInput): {
 	timeMin: string;
 	timeMax: string;
 } {
 	const fallback = defaultRange();
 	return {
-		timeMin: input.start ?? fallback.timeMin,
-		timeMax: input.end ?? fallback.timeMax,
+		timeMin:
+			(input.start && toRfc3339(input.start, "start")) || fallback.timeMin,
+		timeMax: (input.end && toRfc3339(input.end, "end")) || fallback.timeMax,
 	};
 }
 

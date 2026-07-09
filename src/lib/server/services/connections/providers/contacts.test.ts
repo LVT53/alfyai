@@ -168,6 +168,100 @@ describe("googleSearchContacts", () => {
 		expect(requestedUrl.searchParams.get("pageSize")).toBe("10");
 	});
 
+	it("warms the People cache and retries once when the first search returns empty (cold-cache gotcha)", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContacts } = await import("./contacts");
+
+		let peopleCallCount = 0;
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, _init?: RequestInit) => {
+				const url = String(input);
+				if (url === GOOGLE_TOKEN_URL) {
+					return jsonResponse(200, {
+						access_token: "new-token",
+						expires_in: 3600,
+					});
+				}
+				if (url.startsWith(PEOPLE_SEARCH_URL)) {
+					peopleCallCount += 1;
+					// 1st real query: cold cache -> empty. 2nd: warmup (empty
+					// query). 3rd: retry, now warm -> the real match.
+					if (peopleCallCount < 3) {
+						return jsonResponse(200, { results: [] });
+					}
+					return jsonResponse(200, {
+						results: [
+							{
+								person: {
+									names: [{ displayName: "Cara Example" }],
+									emailAddresses: [{ value: "cara@example.com" }],
+								},
+							},
+						],
+					});
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		const matches = await googleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "cara" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			{
+				name: "Cara Example",
+				emails: ["cara@example.com"],
+				phones: [],
+				source: "google",
+				account: "alice@example.com",
+			},
+		]);
+		const peopleCalls = fetchMock.mock.calls.filter(([u]) =>
+			String(u).startsWith(PEOPLE_SEARCH_URL),
+		);
+		expect(peopleCalls).toHaveLength(3);
+		// The middle call is the warmup — an empty query.
+		expect(new URL(String(peopleCalls[1]?.[0])).searchParams.get("query")).toBe(
+			"",
+		);
+	});
+
+	it("does NOT warm/retry when the first search already returns matches", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContacts } = await import("./contacts");
+
+		const fetchMock = googleTokenAndPeopleFetchMock(() =>
+			jsonResponse(200, {
+				results: [
+					{
+						person: {
+							names: [{ displayName: "Dan Example" }],
+							emailAddresses: [{ value: "dan@example.com" }],
+						},
+					},
+				],
+			}),
+		);
+
+		await googleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "dan" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		const peopleCalls = fetchMock.mock.calls.filter(([u]) =>
+			String(u).startsWith(PEOPLE_SEARCH_URL),
+		);
+		expect(peopleCalls).toHaveLength(1);
+	});
+
 	it("returns a typed scope_missing error and never calls the People API when contacts.readonly is absent", async () => {
 		seedUser("userA");
 		const conn = await seedGoogleConnection({

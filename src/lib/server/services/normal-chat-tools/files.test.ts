@@ -9,6 +9,7 @@ import { createPendingWrite } from "$lib/server/services/connections/pending-wri
 import {
 	executeNextcloudWrite,
 	NextcloudFilesError,
+	nextcloudListFolder,
 	nextcloudReadFile,
 	nextcloudSearch,
 	nextcloudStat,
@@ -41,6 +42,7 @@ vi.mock(
 		return {
 			...actual,
 			nextcloudSearch: vi.fn(),
+			nextcloudListFolder: vi.fn(),
 			nextcloudReadFile: vi.fn(),
 			nextcloudStat: vi.fn(),
 			executeNextcloudWrite: vi.fn(),
@@ -59,6 +61,7 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const getConnectionSecretMock = vi.mocked(getConnectionSecret);
 const nextcloudSearchMock = vi.mocked(nextcloudSearch);
+const nextcloudListFolderMock = vi.mocked(nextcloudListFolder);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
 const nextcloudStatMock = vi.mocked(nextcloudStat);
 const executeNextcloudWriteMock = vi.mocked(executeNextcloudWrite);
@@ -110,7 +113,9 @@ describe("runFilesTool", () => {
 		needsDisambiguationMock.mockReset();
 		getConnectionSecretMock.mockReset();
 		nextcloudSearchMock.mockReset();
+		nextcloudListFolderMock.mockReset();
 		nextcloudReadFileMock.mockReset();
+		nextcloudStatMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -230,6 +235,139 @@ describe("runFilesTool", () => {
 				sourceType: "document",
 			}),
 		]);
+	});
+
+	it("list enumerates a folder's children and reports file/folder counts", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudListFolderMock.mockResolvedValue([
+			{
+				name: "a.pdf",
+				path: "Documents/a.pdf",
+				isDir: false,
+				size: 10,
+				mtime: null,
+				contentType: "application/pdf",
+				etag: "e1",
+			},
+			{
+				name: "b.txt",
+				path: "Documents/b.txt",
+				isDir: false,
+				size: 20,
+				mtime: null,
+				contentType: "text/plain",
+				etag: "e2",
+			},
+			{
+				name: "Sub",
+				path: "Documents/Sub",
+				isDir: true,
+				size: 0,
+				mtime: null,
+				contentType: null,
+				etag: "e3",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "list", path: "Documents" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(nextcloudListFolderMock).toHaveBeenCalledWith(
+			conn,
+			"secret",
+			"Documents",
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.message).toBe(
+			"Documents contains 3 items (2 files, 1 folder).",
+		);
+		expect(outcome.modelPayload.results).toHaveLength(3);
+		// Only concrete files get citations; the subfolder does not.
+		expect(outcome.modelPayload.citations.map((c) => c.label)).toEqual([
+			"a.pdf",
+			"b.txt",
+		]);
+	});
+
+	it("list with no path lists the Files root", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudListFolderMock.mockResolvedValue([]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "list" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(nextcloudListFolderMock).toHaveBeenCalledWith(conn, "secret", "");
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.message).toBe("your Files root is empty.");
+	});
+
+	it("read on a folder path is refused and points at the list action (no fake success)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudStatMock.mockResolvedValue({
+			name: "Documents",
+			path: "Documents",
+			isDir: true,
+			size: 0,
+			mtime: null,
+			contentType: null,
+			etag: null,
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "Documents" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("is a folder, not a file");
+		expect(outcome.modelPayload.message).toContain('"list"');
+		expect(nextcloudReadFileMock).not.toHaveBeenCalled();
+	});
+
+	it("read still reads a regular file when stat says it is not a directory", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudStatMock.mockResolvedValue({
+			name: "note.txt",
+			path: "note.txt",
+			isDir: false,
+			size: 5,
+			mtime: null,
+			contentType: "text/plain",
+			etag: null,
+		});
+		nextcloudReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode("hello"),
+			etag: null,
+			contentType: "text/plain",
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "note.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(nextcloudReadFileMock).toHaveBeenCalledWith(
+			conn,
+			"secret",
+			"note.txt",
+		);
 	});
 
 	it("read returns inline text content for text-like files", async () => {

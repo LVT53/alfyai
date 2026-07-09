@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
+	nextcloudListFolder,
 	nextcloudReadFile,
 	nextcloudSearch,
 	nextcloudStat,
@@ -25,7 +26,7 @@ import { decideLocalDistill } from "./connector-distill";
 import { truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
-	action: z.enum(["search", "read", "save"]),
+	action: z.enum(["list", "search", "read", "save"]),
 	query: z.string().optional(),
 	path: z.string().optional(),
 	content: z.string().optional(),
@@ -235,6 +236,64 @@ function searchOutcome(
 		results,
 		citations,
 	});
+}
+
+function listOutcome(
+	conn: ConnectionPublic,
+	path: string | undefined,
+	files: Awaited<ReturnType<typeof nextcloudListFolder>>,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): FilesToolOutcome {
+	const results: FilesToolResultItem[] = files.map((file) => ({
+		name: file.name,
+		path: file.path,
+		isDir: file.isDir,
+		size: file.size,
+		contentType: file.contentType,
+	}));
+	// Only concrete files get a clickable citation — folders aren't documents.
+	const citations: FilesCitation[] = files
+		.filter((file) => !file.isDir)
+		.map((file) => ({
+			label: file.name,
+			path: file.path,
+			url: nextcloudWebUiUrl(conn, file.path),
+		}));
+	const folderLabel = path && path.trim() ? path.trim() : "your Files root";
+	const dirCount = files.filter((file) => file.isDir).length;
+	const fileCount = files.length - dirCount;
+	const baseMessage =
+		files.length === 0
+			? `${folderLabel} is empty.`
+			: `${folderLabel} contains ${files.length} ${files.length === 1 ? "item" : "items"} (${fileCount} ${fileCount === 1 ? "file" : "files"}, ${dirCount} ${dirCount === 1 ? "folder" : "folders"}).`;
+	return buildPayload({
+		success: true,
+		action: "list",
+		message: withAmbiguityPrefix(baseMessage, ambiguous, conn, connections),
+		results,
+		citations,
+	});
+}
+
+// Best-effort check for whether `path` is a folder. A WebDAV GET on a
+// collection returns a misleading 2xx (the read path would report a bogus
+// "Read X." success for a folder), so the read action uses this to redirect
+// the model to the `list` action instead. Never throws and never *blocks* a
+// read: an inconclusive stat (null / thrown) falls through to nextcloudReadFile,
+// which has its own not_found handling — only a POSITIVE "this is a directory"
+// short-circuits.
+async function isDirectory(
+	conn: ConnectionPublic,
+	secret: string,
+	path: string,
+): Promise<boolean> {
+	try {
+		const existing = await nextcloudStat(conn, secret, path);
+		return existing !== null && existing.isDir;
+	} catch {
+		return false;
+	}
 }
 
 function readOutcome(
@@ -522,11 +581,37 @@ export async function runFilesTool(
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
+		// "list" enumerates a folder's immediate children (files + subfolders) so
+		// the model can navigate the tree and count items — an omitted/empty path
+		// lists the Files root. This is what "how many files are in <folder>" and
+		// "what's in my <folder>" need; `search` only finds by name and can't
+		// enumerate a folder's contents.
+		if (input.action === "list") {
+			const files = await nextcloudListFolder(conn, secret, input.path ?? "");
+			const outcome = listOutcome(
+				conn,
+				input.path,
+				files,
+				ambiguous,
+				connections,
+			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+
 		if (!input.path) {
 			return buildPayload({
 				success: false,
 				action: "read",
 				message: "A file path is required to read a file.",
+			});
+		}
+		// A folder path can't be read as a file — a WebDAV GET on a collection
+		// otherwise returns a misleading success. Redirect the model to `list`.
+		if (await isDirectory(conn, secret, input.path)) {
+			return buildPayload({
+				success: false,
+				action: "read",
+				message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
 			});
 		}
 		const file = await nextcloudReadFile(conn, secret, input.path);

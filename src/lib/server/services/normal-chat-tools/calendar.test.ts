@@ -224,6 +224,74 @@ describe("runCalendarTool", () => {
 		);
 	});
 
+	it("normalizes a date-only start/end into RFC3339 date-times (Google 400s on bare dates)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([]);
+
+		await runCalendarTool(
+			"user-1",
+			{ action: "list_events", start: "2026-07-09", end: "2026-07-23" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListEventsMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-1",
+			expect.objectContaining({
+				timeMin: "2026-07-09T00:00:00.000Z",
+				timeMax: "2026-07-23T23:59:59.999Z",
+			}),
+		);
+	});
+
+	it("passes a full RFC3339 start/end through as a valid timestamp", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([]);
+
+		await runCalendarTool(
+			"user-1",
+			{
+				action: "list_events",
+				start: "2026-07-09T09:00:00Z",
+				end: "2026-07-09T17:00:00Z",
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		const call = googleListEventsMock.mock.calls[0]?.[2];
+		expect(new Date(call?.timeMin as string).toISOString()).toBe(
+			"2026-07-09T09:00:00.000Z",
+		);
+		expect(new Date(call?.timeMax as string).toISOString()).toBe(
+			"2026-07-09T17:00:00.000Z",
+		);
+	});
+
+	it("falls back to the default range when a bound is unparseable rather than forwarding garbage", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([]);
+
+		await runCalendarTool(
+			"user-1",
+			{ action: "list_events", start: "next monday", end: "sometime" },
+			LOCAL_MODEL_ID,
+		);
+
+		const call = googleListEventsMock.mock.calls[0]?.[2];
+		// Both bounds are valid ISO timestamps (the default now..now+7d range),
+		// never the raw unparseable strings.
+		expect(() => new Date(call?.timeMin as string).toISOString()).not.toThrow();
+		expect(Number.isNaN(new Date(call?.timeMin as string).getTime())).toBe(
+			false,
+		);
+		expect(Number.isNaN(new Date(call?.timeMax as string).getTime())).toBe(
+			false,
+		);
+	});
+
 	it("check_availability summarizes free/busy", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);

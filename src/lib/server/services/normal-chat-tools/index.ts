@@ -175,7 +175,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"Search and read the user's connected files (e.g. their Nextcloud). Use when the user asks to find, look up, or read a document/file. Can also save a file to the connected storage (requires the user to have enabled writes) — a save NEVER applies immediately: it only proposes a pending write that the user must explicitly confirm before anything is saved.",
+				"List, search, and read the user's connected files (e.g. their Nextcloud). Use action `list` to see and count the contents of a folder (pass the folder path, or omit it to list the root) — this is how you browse the tree or answer 'how many files are in <folder>'; action `search` to find files by name across the whole tree; and action `read` to open one specific file by its path. Use when the user asks to browse, find, count, look up, or read a document/file. Can also save a file to the connected storage (requires the user to have enabled writes) — a save NEVER applies immediately: it only proposes a pending write that the user must explicitly confirm before anything is saved.",
 			errorPrefix: "Files lookup failed",
 		},
 		calendar: {
@@ -236,7 +236,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) keresése és olvasása. Akkor használd, ha a felhasználó egy dokumentum/fájl megkeresését, megnyitását vagy elolvasását kéri. Fájl mentésére (írására) is képes a csatlakoztatott tárhelyre (ehhez az írásnak engedélyezve kell lennie) — ez SOHA nem lép életbe azonnal: csak egy függőben lévő mentést javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi elmentődne.",
+				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) listázása, keresése és olvasása. A `list` művelettel egy mappa tartalmát nézheted meg és számolhatod meg (add meg a mappa útvonalát, vagy hagyd el a gyökér listázásához) — így böngészheted a fát vagy válaszolhatsz arra, hogy 'hány fájl van a <mappában>'; a `search` művelettel név alapján kereshetsz fájlokat az egész fában; a `read` művelettel pedig egy konkrét fájlt nyithatsz meg az útvonala alapján. Akkor használd, ha a felhasználó fájlok böngészését, megkeresését, megszámolását, megnyitását vagy elolvasását kéri. Fájl mentésére (írására) is képes a csatlakoztatott tárhelyre (ehhez az írásnak engedélyezve kell lennie) — ez SOHA nem lép életbe azonnal: csak egy függőben lévő mentést javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi elmentődne.",
 			errorPrefix: "A fájlok elérése sikertelen",
 		},
 		calendar: {
