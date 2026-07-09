@@ -164,7 +164,8 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 		// a summary card that opens the full-screen manager).
 		expect(screen.getByRole("button", { name: /Skills/ })).toBeInTheDocument();
 
-		// Data & privacy: all 4 actions.
+		// Data & privacy: privacy policy entry row + all 4 destructive/export actions.
+		expect(screen.getByText("Privacy policy")).toBeInTheDocument();
 		expect(screen.getByText("Download my data")).toBeInTheDocument();
 		expect(screen.getByText("Clear memory and knowledge")).toBeInTheDocument();
 		expect(screen.getByText("Clear workspace data")).toBeInTheDocument();
@@ -262,6 +263,16 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 		expect(del).not.toHaveClass("btn-icon-bare");
 		// Lucide trash icon present.
 		expect(del.querySelector("svg")).toBeInTheDocument();
+	});
+
+	it("shows a Privacy policy entry row under Data & privacy that links straight to the public /privacy route (ADR 0044 Decision 5 — no in-app modal)", () => {
+		renderTab();
+
+		const row = screen.getByLabelText("Privacy policy");
+		expect(row.tagName).toBe("A");
+		expect(row).toHaveAttribute("href", "/privacy");
+		expect(row).toHaveClass("btn-icon-bare");
+		expect(row.querySelector("svg")).toBeInTheDocument();
 	});
 
 	it("removes the old standalone Preferences section title and standalone section cards", () => {

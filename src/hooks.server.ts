@@ -33,6 +33,11 @@ const PUBLIC_PATHS = [
 	"/api/auth/login",
 	"/api/chat/files/produce",
 	"/api/health",
+	// Redesign R6 (ADR 0044 Decision 5): the privacy policy's single surface
+	// is this public route (linked to from the Settings profile row), so it
+	// must be reachable unauthenticated to be submitted as the Google OAuth
+	// verification URL.
+	"/privacy",
 ];
 
 const sentryDsn = cleanSentryEnvValue(

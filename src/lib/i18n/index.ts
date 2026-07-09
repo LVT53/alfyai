@@ -4,6 +4,7 @@ import chatDict from "./chat";
 import commonDict from "./common";
 import connectionsDict from "./connections";
 import knowledgeDict from "./knowledge";
+import legalDict from "./legal";
 import settingsDict from "./settings";
 import skillsDict from "./skills";
 
@@ -32,6 +33,8 @@ import skillsDict from "./skills";
  *   - common (shared UI components like ConfirmDialog, ErrorMessage)
  *   - fileProduction (job-backed produced-file components)
  *   - pageTitle (HTML <title> tags)
+ *   - legal (privacy policy content — PrivacyPolicy.svelte, rendered at the
+ *     public /privacy route; the Settings entry row just links there)
  *
  * All keys must exist in BOTH en and hu dictionaries.
  */
@@ -42,6 +45,7 @@ const dictionary = {
 		...chatDict.en,
 		...connectionsDict.en,
 		...knowledgeDict.en,
+		...legalDict.en,
 		...settingsDict.en,
 		...skillsDict.en,
 	},
@@ -50,6 +54,7 @@ const dictionary = {
 		...chatDict.hu,
 		...connectionsDict.hu,
 		...knowledgeDict.hu,
+		...legalDict.hu,
 		...settingsDict.hu,
 		...skillsDict.hu,
 	},
