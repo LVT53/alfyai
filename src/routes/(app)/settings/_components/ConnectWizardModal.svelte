@@ -74,6 +74,15 @@ let {
 // that would otherwise assume a bug (mirrors the $state(untrack(() => ...))
 // seeding pattern in ModelForm.svelte).
 const initialProvider = untrack(() => provider);
+
+// The wizard is mounted fresh each open via a parent `{#if}`, so
+// `initialProvider` (and the derived `kind`) are truthy on the very first
+// render. DialogShell's transitions are LOCAL, so they only play when their
+// own containing `{#if}` toggles — a block that is already truthy on mount
+// skips the intro (the modal "pops in"). Flipping `visible` false→true after
+// mount toggles the block so the fade/scale intro actually plays, matching
+// the app's other popup modals.
+let visible = $state(false);
 const initialReconnectConnectionId = untrack(() => reconnectConnectionId);
 const initialReconnectConnection = untrack(() => reconnectConnection);
 
@@ -505,11 +514,12 @@ async function submitOwnTracks(event: Event) {
 }
 
 onMount(() => {
+	visible = true;
 	if (kind === "owntracks") void loadOwnTracksDevices();
 });
 </script>
 
-{#if initialProvider && providerEntry && kind}
+{#if visible && initialProvider && providerEntry && kind}
 	<DialogShell
 		title={isReconnect
 			? $t('connections.wizard.titleReconnect', { provider: providerEntry.displayName })
