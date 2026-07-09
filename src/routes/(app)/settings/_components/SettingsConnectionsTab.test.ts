@@ -69,9 +69,11 @@ describe("SettingsConnectionsTab", () => {
 		).toBeInTheDocument();
 	});
 
-	// R3-fix #4 — "Connected" renders as a quiet icon with an accessible
-	// label, not a text pill; the problem states keep their pill.
-	it("renders the connected status as an accessible icon, not a text pill", () => {
+	// R3-fix2 #2 — "connected" is the implied normal state: the row shows NO
+	// status indicator at all (no icon, no pill) once a connection is
+	// healthy. This replaces R3-fix #4's quiet check icon, which is now only
+	// used in the add-strip's already-connected hint (see below).
+	it("renders no status indicator at all for a healthy/connected row", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
@@ -81,28 +83,79 @@ describe("SettingsConnectionsTab", () => {
 
 		const row = screen.getByTestId("connection-row-conn-1");
 		expect(
-			within(row).getByRole("img", { name: "Connected" }),
-		).toBeInTheDocument();
+			within(row).queryByRole("img", { name: "Connected" }),
+		).not.toBeInTheDocument();
 		expect(row.querySelector(".status-chip")).toBeNull();
+		expect(row.querySelector(".status-icon")).toBeNull();
 	});
 
-	it.each([
-		"needs_reauth",
-		"error",
-		"disconnected",
-	] as const)("still renders a visible status pill for %s", (status) => {
+	// R3-fix2 #2 — needs_reauth/error now render a small accessible status
+	// icon (amber warning / red error) with a tooltip, instead of a text
+	// pill; the Reconnect action stays for both.
+	it("renders an amber warning icon with an accessible label and tooltip for needs_reauth", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
-				connections: [makeConnection({ id: "conn-1", status })],
+				connections: [makeConnection({ id: "conn-1", status: "needs_reauth" })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		const icon = within(row).getByRole("img", {
+			name: "Needs reauthorization",
+		});
+		expect(icon).toHaveClass("status-icon-warning");
+		expect(icon).toHaveAttribute("title", "Needs reauthorization");
+		expect(row.querySelector(".status-chip")).toBeNull();
+	});
+
+	it("renders a red error icon with an accessible label and the statusDetail tooltip for error", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [
+					makeConnection({
+						id: "conn-1",
+						status: "error",
+						statusDetail: "Token revoked by provider",
+					}),
+				],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		const icon = within(row).getByRole("img", { name: "Error" });
+		expect(icon).toHaveClass("status-icon-error");
+		expect(icon).toHaveAttribute("title", "Token revoked by provider");
+		expect(row.querySelector(".status-chip")).toBeNull();
+	});
+
+	it("falls back to the generic no-detail tooltip for error when statusDetail is null", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [
+					makeConnection({ id: "conn-1", status: "error", statusDetail: null }),
+				],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		const icon = within(row).getByRole("img", { name: "Error" });
+		expect(icon).toHaveAttribute("title", "No additional details available.");
+	});
+
+	it("still renders a visible status pill for disconnected", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status: "disconnected" })],
 			}),
 		);
 
 		const row = screen.getByTestId("connection-row-conn-1");
 		expect(row.querySelector(".status-chip")).not.toBeNull();
-		expect(
-			within(row).queryByRole("img", { name: "Connected" }),
-		).not.toBeInTheDocument();
+		expect(row.querySelector(".status-icon")).toBeNull();
 	});
 
 	it("does not use the oversized section-title heading for the row name (name/account gap fix)", () => {

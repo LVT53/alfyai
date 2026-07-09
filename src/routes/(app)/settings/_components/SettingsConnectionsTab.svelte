@@ -17,6 +17,8 @@
 // component only raises the intent (onStartConnect/onReconnect) via
 // callback props.
 import {
+	AlertCircle,
+	AlertTriangle,
 	Calendar,
 	Check,
 	Clapperboard,
@@ -124,11 +126,13 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 }
 </script>
 
-<!-- R3-fix #4 — "Connected" renders as a quiet check icon (not a text pill) in
-     both the row and the add-strip's already-connected hint. It keeps an
-     accessible label so it's never color/icon-only; the problem states
-     (needs_reauth/error/disconnected) keep their visible text pill since
-     those signal something the user needs to act on. -->
+<!-- R3-fix2 #3 — "Connected" as a quiet check icon is now ONLY used in the
+     "Add a connection" strip's already-connected hint below, to show which
+     providers the user already has linked. R3-fix2 #2 removed it from the
+     compact list ROW entirely: connected is the implied normal state there,
+     so a healthy row shows no status indicator at all — only needs_reauth
+     and error do (see the row markup below). It keeps an accessible label
+     so it's never color/icon-only. -->
 {#snippet connectedIcon()}
 	<span
 		class="connection-connected-icon"
@@ -185,16 +189,30 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 								{/each}
 							</span>
 						{/if}
-						{#if conn.status === 'connected'}
-							{@render connectedIcon()}
-						{:else}
+						{#if conn.status === 'needs_reauth'}
+							<!-- R3-fix2 #2 — problem states get a small status icon
+							     (aria-label + tooltip), not a text pill; healthy/
+							     connected rows show nothing here at all. -->
 							<span
-								class="status-chip"
-								class:status-needs_reauth={conn.status === 'needs_reauth'}
-								class:status-error={conn.status === 'error'}
-								class:status-disconnected={conn.status === 'disconnected'}
+								class="status-icon status-icon-warning"
+								role="img"
+								aria-label={$t('connections.status.needsReauth')}
+								title={$t('connections.status.needsReauth')}
 							>
-								{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
+								<AlertTriangle size={16} strokeWidth={2} aria-hidden="true" />
+							</span>
+						{:else if conn.status === 'error'}
+							<span
+								class="status-icon status-icon-error"
+								role="img"
+								aria-label={$t('connections.status.error')}
+								title={conn.statusDetail ?? $t('connections.status.noDetail')}
+							>
+								<AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
+							</span>
+						{:else if conn.status === 'disconnected'}
+							<span class="status-chip status-disconnected">
+								{$t(STATUS_KEY.disconnected as Parameters<typeof $t>[0])}
 							</span>
 						{/if}
 					</button>
@@ -396,9 +414,9 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		border: 1px solid transparent;
 	}
 
-	/* R3-fix #4 — the "connected" indicator itself (row + add-strip hint) is
-	   this quiet check icon, not a status-chip pill; the pill above is only
-	   used for the problem states (needs_reauth/error/disconnected). */
+	/* R3-fix2 #3 — the "connected" indicator itself is now this quiet check
+	   icon ONLY in the add-strip's already-connected hint (see below); the
+	   row no longer renders it at all (R3-fix2 #2). */
 	.connection-connected-icon {
 		display: inline-flex;
 		align-items: center;
@@ -407,16 +425,23 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		color: var(--success);
 	}
 
-	.status-chip.status-needs_reauth {
-		background-color: color-mix(in srgb, var(--warning) 16%, transparent);
-		color: var(--warning);
-		border-color: color-mix(in srgb, var(--warning) 42%, transparent);
+	/* R3-fix2 #2 — the row's problem-state indicator: a small icon (not a
+	   text pill) with an accessible label and a title tooltip, shown ONLY
+	   for needs_reauth/error. A healthy/connected row renders neither this
+	   nor the status-chip below — no status indicator at all. */
+	.status-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
-	.status-chip.status-error {
-		background-color: color-mix(in srgb, var(--danger) 14%, transparent);
+	.status-icon-warning {
+		color: var(--warning);
+	}
+
+	.status-icon-error {
 		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
 
 	.status-chip.status-disconnected {

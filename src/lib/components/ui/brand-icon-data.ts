@@ -43,8 +43,32 @@
  * as provenance and so BrandIcon.test.ts can assert the normalization
  * invariant (every provider's occupied fraction is the same) without
  * needing DOM bbox APIs itself.
+ *
+ * CLIPPING FIX (R3-fix2 #1): the geometric-mean optical size above is a good
+ * *perceived*-size proxy, but for very oblong glyphs (Nextcloud and Plex are
+ * both a short, wide band — width 24, height ~11) it can size the square
+ * viewBox smaller than the glyph's LONGEST raw dimension. A square viewBox
+ * centered on the bbox center only fully contains the bbox when
+ * `side >= max(bbox.width, bbox.height)`; Nextcloud/Plex's optical-size side
+ * (~20.2/20.5) was well under their 24-wide bbox, so ~1.9 units were cropped
+ * off each side. Every `viewBox` below is therefore sized as
+ * `max(opticalSide, containSide)`, where `containSide =
+ * max(bbox.width, bbox.height) / MIN_CONTAINMENT_FRACTION` guarantees the
+ * full path fits with a small margin regardless of aspect ratio. For
+ * near-square glyphs (Google, Gmail, Immich, Apple) `opticalSide` already
+ * exceeds `containSide`, so their viewBox is unchanged from R3-fix; only
+ * Nextcloud and Plex actually grow.
  */
 export const OPTICAL_TARGET_FRACTION = 0.8;
+
+/**
+ * The glyph's longest raw dimension (`max(bbox.width, bbox.height)`) may
+ * occupy at most this fraction of the final square viewBox side — the
+ * containment floor described above. Guarantees a small margin (~this
+ * fraction's complement) so the full path never touches, let alone clips,
+ * the rendered box edge, independent of the optical-size fraction.
+ */
+export const MIN_CONTAINMENT_FRACTION = 0.95;
 
 export type BrandGlyph = {
 	/** Optical-size-normalized square viewBox (see module doc above). */
@@ -82,8 +106,12 @@ const GMAIL: BrandGlyph = {
 };
 
 // Source: simple-icons siNextcloud
+// Containment-floor-sized (R3-fix2 #1) — see module doc above: this glyph's
+// 24-wide, 10.9-tall bbox is so oblong that the optical-size (geometric
+// mean) formula alone under-sized the box and clipped ~1.9 units off each
+// side. viewBox side = max(w,h) / MIN_CONTAINMENT_FRACTION = 24 / 0.95.
 const NEXTCLOUD: BrandGlyph = {
-	viewBox: "1.8792 1.8792 20.2417 20.2417",
+	viewBox: "-0.6316 -0.6316 25.2632 25.2632",
 	bbox: { x: 0, y: 6.537, width: 24, height: 10.926 },
 	path: "M12.018 6.537c-2.5 0-4.6 1.712-5.241 4.015-.56-1.232-1.793-2.105-3.225-2.105A3.569 3.569 0 0 0 0 12a3.569 3.569 0 0 0 3.552 3.553c1.432 0 2.664-.874 3.224-2.106.641 2.304 2.742 4.016 5.242 4.016 2.487 0 4.576-1.693 5.231-3.977.569 1.21 1.783 2.067 3.198 2.067A3.568 3.568 0 0 0 24 12a3.569 3.569 0 0 0-3.553-3.553c-1.416 0-2.63.858-3.199 2.067-.654-2.284-2.743-3.978-5.23-3.977zm0 2.085c1.878 0 3.378 1.5 3.378 3.378 0 1.878-1.5 3.378-3.378 3.378A3.362 3.362 0 0 1 8.641 12c0-1.878 1.5-3.378 3.377-3.378zm-8.466 1.91c.822 0 1.467.645 1.467 1.468s-.644 1.467-1.467 1.468A1.452 1.452 0 0 1 2.085 12c0-.823.644-1.467 1.467-1.467zm16.895 0c.823 0 1.468.645 1.468 1.468s-.645 1.468-1.468 1.468A1.452 1.452 0 0 1 18.98 12c0-.823.644-1.467 1.467-1.467z",
 };
@@ -103,8 +131,10 @@ const APPLE: BrandGlyph = {
 };
 
 // Source: simple-icons siPlex
+// Containment-floor-sized (R3-fix2 #1) — same oblong-bbox clipping as
+// Nextcloud above; viewBox side = max(w,h) / MIN_CONTAINMENT_FRACTION = 24 / 0.95.
 const PLEX: BrandGlyph = {
-	viewBox: "1.7613 1.7613 20.4775 20.4775",
+	viewBox: "-0.6316 -0.6315 25.2632 25.2632",
 	bbox: { x: 0, y: 6.409, width: 24, height: 11.1821 },
 	path: "M3.987 8.409c-.96 0-1.587.28-2.12.933v-.72H0v8.88s.038.018.127.037c.138.03.821.187 1.331-.249.441-.377.542-.814.542-1.318v-1.283c.533.573 1.147.813 2 .813 1.84 0 3.253-1.493 3.253-3.48 0-2.12-1.36-3.613-3.266-3.613Zm16.748 5.595.406.591c.391.614.894.906 1.492.908.621-.012 1.064-.562 1.226-.755 0 0-.307-.27-.686-.72-.517-.614-1.214-1.755-1.24-1.803l-1.198 1.779Zm-3.205-1.955c0-2.08-1.52-3.64-3.52-3.64s-3.467 1.587-3.467 3.573a3.48 3.48 0 0 0 3.507 3.52c1.413 0 2.626-.84 3.253-2.293h-2.04l-.093.093c-.427.4-.72.533-1.227.533-.787 0-1.373-.506-1.453-1.266h4.986c.04-.214.054-.307.054-.52Zm-7.671-.219c0 .769.11 1.701.868 2.722l.056.069c-.306.526-.742.88-1.248.88-.399 0-.814-.211-1.138-.579a2.177 2.177 0 0 1-.538-1.441V6.409H9.86l-.001 5.421Zm9.283 3.46h-2.39l2.247-3.332-2.247-3.335h2.39l2.248 3.335-2.248 3.332Zm1.593-1.286Zm-17.162-.342c-.933 0-1.68-.773-1.68-1.72s.76-1.666 1.68-1.666c.92 0 1.68.733 1.68 1.68 0 .946-.733 1.706-1.68 1.706Zm18.361-1.974L24 8.622h-2.391l-.87 1.293 1.195 1.773Zm-9.404-.466c.16-.706.72-1.133 1.493-1.133.773 0 1.373.467 1.507 1.133h-3Z",
 };
