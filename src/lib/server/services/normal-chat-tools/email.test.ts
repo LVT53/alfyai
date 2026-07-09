@@ -12,6 +12,7 @@ import {
 	imapReadMessage,
 	imapSearch,
 } from "$lib/server/services/connections/providers/imap";
+import { imapMessageIdForOp } from "$lib/server/services/connections/providers/imap-write";
 import {
 	needsDisambiguation,
 	resolveConnectionsForCapability,
@@ -659,6 +660,72 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			expect(JSON.parse(call?.content ?? "{}")).toMatchObject({
 				subject: "Following up",
 			});
+		});
+
+		it("payloadFingerprint: same subject+to but DIFFERENT bodies produce DIFFERENT idempotencyKeys (and Message-IDs), fixing the collision that would otherwise silently drop the second send", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					to: "bob@example.com",
+					subject: "Hi",
+					body: "First body",
+				},
+				LOCAL_MODEL_ID,
+			);
+			await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					to: "bob@example.com",
+					subject: "Hi",
+					body: "Second, totally different body",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(2);
+			const keyA = createPendingWriteMock.mock.calls[0]?.[1]?.idempotencyKey;
+			const keyB = createPendingWriteMock.mock.calls[1]?.[1]?.idempotencyKey;
+			expect(keyA).toBeDefined();
+			expect(keyB).toBeDefined();
+			expect(keyA).not.toBe(keyB);
+
+			const opA = createPendingWriteMock.mock.calls[0]?.[1]?.op;
+			const opB = createPendingWriteMock.mock.calls[1]?.[1]?.op;
+			expect(opA).toBeDefined();
+			expect(opB).toBeDefined();
+			// biome-ignore lint/style/noNonNullAssertion: asserted defined above
+			expect(imapMessageIdForOp(opA!)).not.toBe(imapMessageIdForOp(opB!));
+		});
+
+		it("payloadFingerprint: a byte-identical retry (same to/cc/subject/body/inReplyTo) produces the SAME idempotencyKey and Message-ID — a true retry stays dedupable", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			const sendInput = {
+				action: "send" as const,
+				to: "bob@example.com",
+				cc: "carol@example.com",
+				subject: "Hi",
+				body: "Identical body",
+			};
+
+			await runEmailTool("user-1", sendInput, LOCAL_MODEL_ID);
+			await runEmailTool("user-1", { ...sendInput }, LOCAL_MODEL_ID);
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(2);
+			const keyA = createPendingWriteMock.mock.calls[0]?.[1]?.idempotencyKey;
+			const keyB = createPendingWriteMock.mock.calls[1]?.[1]?.idempotencyKey;
+			expect(keyA).toBeDefined();
+			expect(keyA).toBe(keyB);
+
+			const opA = createPendingWriteMock.mock.calls[0]?.[1]?.op;
+			const opB = createPendingWriteMock.mock.calls[1]?.[1]?.op;
+			// biome-ignore lint/style/noNonNullAssertion: asserted defined above
+			expect(imapMessageIdForOp(opA!)).toBe(imapMessageIdForOp(opB!));
 		});
 	});
 

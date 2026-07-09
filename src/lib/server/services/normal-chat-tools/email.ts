@@ -401,6 +401,14 @@ async function proposeSend(
 		}
 	}
 
+	const content = {
+		to: input.to,
+		...(input.cc ? { cc: input.cc } : {}),
+		subject: input.subject,
+		body: input.body,
+		...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
+	};
+
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
@@ -409,16 +417,19 @@ async function proposeSend(
 		target: { label: `${input.subject} → ${input.to}` },
 		reversible: false, // A sent email cannot be unsent.
 		destructive: false,
+		// Folds the FULL send payload (to/cc/subject/body/inReplyTo) into the
+		// idempotency hash — same rationale as calendar.ts's create_event:
+		// target.label above only carries "subject → to", so two genuinely
+		// different emails with the same subject+recipient but different
+		// bodies would otherwise collide on the same idempotencyKey and
+		// therefore the same deterministic Message-ID (imap-write.ts's
+		// imapMessageIdForOp), causing a receiving server to treat the second
+		// as a duplicate and silently drop it. A true retry of the identical
+		// email still reuses `content` verbatim, so the fingerprint — and the
+		// Message-ID — stay stable for that case.
+		payloadFingerprint: JSON.stringify(content),
 	};
 	const preview = buildWritePreview(op);
-
-	const content = {
-		to: input.to,
-		...(input.cc ? { cc: input.cc } : {}),
-		subject: input.subject,
-		body: input.body,
-		...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
-	};
 
 	const { id: pendingWriteId } = await createPendingWrite(userId, {
 		connectionId: conn.id,
