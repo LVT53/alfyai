@@ -563,6 +563,23 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	it("threads the composer's enabledConnectionCapabilities selection to streamChat (Issue 7.2)", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "What's on my calendar?",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(streamInvocations[0].options).toMatchObject({
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+	});
+
 	it("merges generated files and context compression snapshots from stream metadata", () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

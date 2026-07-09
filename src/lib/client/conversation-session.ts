@@ -32,6 +32,10 @@ export type PendingConversationMessage = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — the composer's per-conversation connection capability
+	// selection, carried across the draft-persistence round trip the same
+	// way forceWebSearch is.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
@@ -231,6 +235,7 @@ export function storePendingConversationMessage(
 			personalityProfileId: payload.personalityProfileId,
 			reasoningDepth: payload.reasoningDepth,
 			forceWebSearch: payload.forceWebSearch === true,
+			enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 			atlasMode: payload.atlasMode === true,
 			atlasProfile: payload.atlasProfile ?? null,
 			atlasAction: payload.atlasAction ?? "create",
@@ -276,6 +281,9 @@ export function consumePendingConversationMessage(
 					: null,
 			reasoningDepth: parsePendingReasoningDepth(parsed),
 			forceWebSearch: parsed.forceWebSearch === true,
+			enabledConnectionCapabilities: parseEnabledConnectionCapabilities(
+				parsed.enabledConnectionCapabilities,
+			),
 			atlasMode: parsed.atlasMode === true,
 			atlasProfile: isAtlasProfile(parsed.atlasProfile)
 				? parsed.atlasProfile
@@ -295,6 +303,7 @@ export function consumePendingConversationMessage(
 			pendingSkill: null,
 			reasoningDepth: "auto",
 			forceWebSearch: false,
+			enabledConnectionCapabilities: undefined,
 			atlasMode: false,
 			atlasProfile: null,
 			atlasAction: "create",
@@ -315,6 +324,15 @@ function parsePendingReasoningDepth(
 		return thinkingModeToReasoningDepth(parsed.thinkingMode);
 	}
 	return "auto";
+}
+
+function parseEnabledConnectionCapabilities(
+	value: unknown,
+): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return value.filter(
+		(candidate): candidate is string => typeof candidate === "string",
+	);
 }
 
 export function hasMeaningfulDraft(

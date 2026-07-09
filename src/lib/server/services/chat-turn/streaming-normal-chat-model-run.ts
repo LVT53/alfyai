@@ -28,7 +28,7 @@ import {
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import type { Capability } from "$lib/server/services/connections/registry";
-import { getEnabledConnectionCapabilities } from "$lib/server/services/connections/resolve";
+import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
 import { detectLanguage } from "$lib/server/services/language";
 import {
 	type AuthenticatedPromptUser,
@@ -76,6 +76,7 @@ export type StreamingNormalChatSendModelParams = {
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
 	forceWebSearch?: boolean;
+	enabledConnectionCapabilities?: string[];
 	createTurnId?: () => string;
 	signal?: AbortSignal;
 	depthClarificationClassifier?: DepthClarificationClassifier;
@@ -187,8 +188,12 @@ export async function runStreamingNormalChatSendModel(
 	const turnId = params.createTurnId?.() ?? randomUUID();
 	// Fail closed on error — a connections-lookup hiccup should never block
 	// the turn, it should just mean no connection-backed tools this turn.
-	const enabledConnectionCapabilities = await getEnabledConnectionCapabilities(
+	// resolveActiveCapabilities itself fails closed on a client-supplied
+	// selection (Issue 7.2): it can only narrow the server's served set, it
+	// can never grant a capability the user doesn't have a connection for.
+	const enabledConnectionCapabilities = await resolveActiveCapabilities(
 		params.userId,
+		params.enabledConnectionCapabilities,
 	).catch(() => new Set<Capability>());
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,

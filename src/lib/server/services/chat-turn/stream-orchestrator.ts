@@ -1057,6 +1057,7 @@ export function runChatStreamOrchestrator(
 						thinkingMode,
 						depthMetadata: latestDepthMetadata,
 						forceWebSearch: turn.forceWebSearch,
+						enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
 					},
 					user,
 					attachContinuityToTaskState,
@@ -1192,6 +1193,7 @@ export function runChatStreamOrchestrator(
 					thinkingMode,
 					depthMetadata: latestDepthMetadata,
 					forceWebSearch: turn.forceWebSearch,
+					enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
 					signal: upstreamAbortController.signal,
 					onResponseActivity: emitResponseActivity,
 				};

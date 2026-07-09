@@ -61,6 +61,7 @@ function spyOnScrollIntoView() {
 const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
+const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
@@ -74,6 +75,10 @@ vi.mock("$lib/client/api/conversations", () => ({
 	setConversationMemoryIncognito: setConversationMemoryIncognitoMock,
 }));
 
+vi.mock("$lib/client/api/connections", () => ({
+	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
+}));
+
 describe("MessageInput", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -85,6 +90,11 @@ describe("MessageInput", () => {
 		});
 		discoverSkillsMock.mockResolvedValue([]);
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
 	});
 
 	it("renders correctly", () => {
@@ -2194,5 +2204,129 @@ describe("MessageInput incognito toggle", () => {
 			"true",
 		);
 		await findByText(/won't be saved to memory/i);
+	});
+});
+
+describe("MessageInput composer capability toggles", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+	});
+
+	it("renders no capabilities section when the user has no available capabilities", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		const { getByRole, queryByRole } = render(MessageInput);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+
+		expect(
+			queryByRole("menuitemcheckbox", { name: "Calendar" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("initializes the active set to defaultOn and includes it in the send payload", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar", "files"],
+			defaultOn: ["files"],
+			accounts: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+
+		const calendarToggle = getByRole("menuitemcheckbox", { name: "Calendar" });
+		const filesToggle = getByRole("menuitemcheckbox", { name: "Files" });
+		expect(calendarToggle).toHaveAttribute("aria-checked", "false");
+		expect(filesToggle).toHaveAttribute("aria-checked", "true");
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "What's on my calendar files today?" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: ["files"],
+			}),
+		);
+	});
+
+	it("toggling a capability updates the send payload", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: [],
+			accounts: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(getByRole("menuitemcheckbox", { name: "Calendar" }));
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Check my schedule" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: ["calendar"],
+			}),
+		);
+	});
+
+	it("resets the active set to defaultOn when the bound conversation id changes", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: [],
+			accounts: [],
+		});
+		const { getByRole, rerender } = render(MessageInput, {
+			conversationId: "conv-1",
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		await fireEvent.click(getByRole("menuitemcheckbox", { name: "Calendar" }));
+		// Toggling closes the menu (mirrors the Web search toggle); reopen it.
+		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
+		expect(getByRole("menuitemcheckbox", { name: "Calendar" })).toHaveAttribute(
+			"aria-checked",
+			"true",
+		);
+
+		await rerender({ conversationId: "conv-2" });
+
+		expect(getByRole("menuitemcheckbox", { name: "Calendar" })).toHaveAttribute(
+			"aria-checked",
+			"false",
+		);
 	});
 });

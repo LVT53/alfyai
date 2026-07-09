@@ -39,6 +39,8 @@ export type NormalChatSendPayload = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — composer connection capability selection for this turn.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: AtlasAction;
@@ -816,6 +818,7 @@ export function createNormalChatClientTurnRuntime(
 				pendingSkill: payload.pendingSkill ?? null,
 				reasoningDepth: reasoningDepthForTurn,
 				forceWebSearch: payload.forceWebSearch === true,
+				enabledConnectionCapabilities: payload.enabledConnectionCapabilities,
 				activeDocumentArtifactId: adapters.getActiveDocumentArtifactId(),
 				personalityProfileId: personalityProfileIdForTurn,
 				retryAssistantMessageId: options.retryAssistantMessageId,
@@ -1097,6 +1100,9 @@ function cloneSendPayload(
 		personalityProfileId: payload.personalityProfileId ?? null,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
+		enabledConnectionCapabilities: payload.enabledConnectionCapabilities
+			? [...payload.enabledConnectionCapabilities]
+			: undefined,
 		atlasMode: payload.atlasMode === true,
 		atlasProfile: payload.atlasProfile ?? null,
 		atlasAction: payload.atlasAction ?? "create",

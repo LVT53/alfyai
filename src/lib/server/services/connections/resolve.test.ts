@@ -249,3 +249,159 @@ describe("getEnabledConnectionCapabilities", () => {
 		expect(result).toEqual(new Set(["files", "calendar"]));
 	});
 });
+
+describe("getDefaultOnCapabilities", () => {
+	it("returns an empty set when the user has no connections", async () => {
+		const { getDefaultOnCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		const result = await getDefaultOnCapabilities("userA");
+		expect(result).toEqual(new Set());
+	});
+
+	it("includes a served capability whose connection has defaultOn=true", async () => {
+		const { createConnection } = await import("./store");
+		const { getDefaultOnCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: true,
+		});
+
+		const result = await getDefaultOnCapabilities("userA");
+		expect(result).toEqual(new Set(["files"]));
+	});
+
+	it("excludes a served-but-defaultOff capability", async () => {
+		const { createConnection } = await import("./store");
+		const { getDefaultOnCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: false,
+		});
+
+		const result = await getDefaultOnCapabilities("userA");
+		expect(result).toEqual(new Set());
+	});
+
+	it("only includes the defaultOn capability out of several served ones", async () => {
+		const { createConnection } = await import("./store");
+		const { getDefaultOnCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: true,
+		});
+		await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			capabilities: ["calendar"],
+			defaultOn: false,
+		});
+
+		const result = await getDefaultOnCapabilities("userA");
+		expect(result).toEqual(new Set(["files"]));
+	});
+});
+
+describe("resolveActiveCapabilities", () => {
+	it("fails closed: drops a requested capability the user does not serve", async () => {
+		const { createConnection } = await import("./store");
+		const { resolveActiveCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+		});
+
+		const result = await resolveActiveCapabilities("userA", [
+			"files",
+			"calendar",
+		]);
+		expect(result).toEqual(new Set(["files"]));
+	});
+
+	it("returns an empty set when the client explicitly requests nothing", async () => {
+		const { createConnection } = await import("./store");
+		const { resolveActiveCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: true,
+		});
+
+		const result = await resolveActiveCapabilities("userA", []);
+		expect(result).toEqual(new Set());
+	});
+
+	it("falls back to the defaultOn set (not the full served set) when requested is null", async () => {
+		const { createConnection } = await import("./store");
+		const { resolveActiveCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: true,
+		});
+		await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			capabilities: ["calendar"],
+			defaultOn: false,
+		});
+
+		const result = await resolveActiveCapabilities("userA", null);
+		expect(result).toEqual(new Set(["files"]));
+	});
+
+	it("falls back to the defaultOn set when requested is undefined (older clients)", async () => {
+		const { createConnection } = await import("./store");
+		const { resolveActiveCapabilities } = await import("./resolve");
+		seedUser("userA");
+
+		await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			status: "connected",
+			capabilities: ["files"],
+			defaultOn: true,
+		});
+
+		const result = await resolveActiveCapabilities("userA", undefined);
+		expect(result).toEqual(new Set(["files"]));
+	});
+});

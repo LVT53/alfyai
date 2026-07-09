@@ -10,14 +10,14 @@ import {
 
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
-	getEnabledConnectionCapabilities: vi.fn(),
+	resolveActiveCapabilities: vi.fn(),
 	prepareOutboundChatContext: vi.fn(),
 	resolveNormalChatModelRunProvider: vi.fn(),
 	runPlainNormalChatModelRun: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/connections/resolve", () => ({
-	getEnabledConnectionCapabilities: mocks.getEnabledConnectionCapabilities,
+	resolveActiveCapabilities: mocks.resolveActiveCapabilities,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", () => ({
@@ -64,11 +64,11 @@ function runSubject(
 describe("runPlainNormalChatSendModel", () => {
 	beforeEach(() => {
 		mocks.createNormalChatTools.mockReset();
-		mocks.getEnabledConnectionCapabilities.mockReset();
+		mocks.resolveActiveCapabilities.mockReset();
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runPlainNormalChatModelRun.mockReset();
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __testTool: true },
@@ -670,9 +670,7 @@ describe("runPlainNormalChatSendModel", () => {
 	});
 
 	it("exposes the files tool when the connections resolver reports the files capability enabled", async () => {
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(
-			new Set(["files"]),
-		);
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
 		mocks.createNormalChatTools.mockImplementation((ctx) => ({
 			tools: {
 				research_web: { __testTool: true },
@@ -687,8 +685,9 @@ describe("runPlainNormalChatSendModel", () => {
 			createTurnId: () => "normal-chat-turn-1",
 		});
 
-		expect(mocks.getEnabledConnectionCapabilities).toHaveBeenCalledWith(
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith(
 			"user-1",
+			undefined,
 		);
 		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -705,7 +704,7 @@ describe("runPlainNormalChatSendModel", () => {
 	});
 
 	it("hides the files tool when the connections resolver reports no enabled capabilities", async () => {
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockImplementation((ctx) => ({
 			tools: {
 				research_web: { __testTool: true },
@@ -727,6 +726,42 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 		const call = mocks.runPlainNormalChatModelRun.mock.calls[0]?.[0];
 		expect(call.tools).not.toHaveProperty("files");
+	});
+
+	it("passes the request's enabledConnectionCapabilities through to resolveActiveCapabilities (fail-closed narrowing)", async () => {
+		// The resolver itself enforces fail-closed intersection; this test only
+		// asserts the model-run wires the request-parsed selection through to
+		// it verbatim rather than e.g. always requesting the full served set.
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+				...(ctx.enabledConnectionCapabilities?.has("calendar")
+					? { calendar: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		const call = mocks.runPlainNormalChatModelRun;
+		await runSubject({
+			createTurnId: () => "normal-chat-turn-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith("user-1", [
+			"files",
+			"calendar",
+		]);
+		// The resolver (mocked here) only returned "files" — simulating the
+		// server-side fail-closed narrowing that drops an unserved "calendar" —
+		// so the calendar tool must not be exposed even though it was requested.
+		const toolsArg = call.mock.calls[0]?.[0]?.tools;
+		expect(toolsArg).toHaveProperty("files");
+		expect(toolsArg).not.toHaveProperty("calendar");
 	});
 
 	it("can disable tools for recovery-only plain model runs", async () => {

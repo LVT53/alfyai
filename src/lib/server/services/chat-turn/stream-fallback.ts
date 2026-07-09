@@ -24,6 +24,7 @@ export interface NonStreamFallbackSendParams {
 	thinkingMode: ThinkingMode;
 	depthMetadata?: DepthMetadata;
 	forceWebSearch: boolean;
+	enabledConnectionCapabilities?: string[];
 }
 
 export interface NonStreamFallbackResponse {
@@ -56,6 +57,7 @@ export interface NonStreamFallbackDeps {
 		thinkingMode?: ThinkingMode;
 		depthMetadata?: DepthMetadata;
 		forceWebSearch?: boolean;
+		enabledConnectionCapabilities?: string[];
 		signal?: AbortSignal;
 		disableTools?: boolean;
 		forceProduceFileTool?: boolean;
@@ -180,6 +182,7 @@ function buildFallbackAttemptParams(
 		thinkingMode: sendParams.thinkingMode,
 		depthMetadata: sendParams.depthMetadata,
 		forceWebSearch: sendParams.forceWebSearch,
+		enabledConnectionCapabilities: sendParams.enabledConnectionCapabilities,
 		signal: sendSignal,
 		disableTools: shouldDisableTools,
 		forceProduceFileTool: context.shouldAllowForcedFileTool,

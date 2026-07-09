@@ -482,6 +482,7 @@ async function runStandardSendTurn({
 		thinkingMode: turn.thinkingMode,
 		depthMetadata: turn.depthMetadata,
 		forceWebSearch: turn.forceWebSearch,
+		enabledConnectionCapabilities: turn.enabledConnectionCapabilities,
 	});
 
 	const modelRunArtifacts = normalizeModelRunOutput({

@@ -135,6 +135,36 @@ describe("conversation-session", () => {
 		);
 	});
 
+	it("preserves the enabledConnectionCapabilities selection on pending bootstrap messages", () => {
+		storePendingConversationMessage("conv-123", {
+			message: "Use my files",
+			attachmentIds: [],
+			attachments: [],
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(consumePendingConversationMessage("conv-123")).toEqual(
+			expect.objectContaining({
+				message: "Use my files",
+				enabledConnectionCapabilities: ["files", "calendar"],
+			}),
+		);
+	});
+
+	it("omits enabledConnectionCapabilities when the composer sent none", () => {
+		storePendingConversationMessage("conv-123", {
+			message: "Nothing special",
+			attachmentIds: [],
+			attachments: [],
+		});
+
+		expect(consumePendingConversationMessage("conv-123")).toEqual(
+			expect.objectContaining({
+				enabledConnectionCapabilities: undefined,
+			}),
+		);
+	});
+
 	it("preserves Reasoning depth on pending bootstrap messages", () => {
 		storePendingConversationMessage("conv-123", {
 			message: "Think about this",

@@ -49,3 +49,52 @@ export async function getEnabledConnectionCapabilities(
 	}
 	return enabled;
 }
+
+// The subset of served capabilities (see getEnabledConnectionCapabilities)
+// that also have at least one connected connection with defaultOn=true.
+// This is the set the composer initializes its per-conversation toggles to
+// when the user hasn't made an explicit selection this turn (Issue 7.2 —
+// makes the 7.1 defaultOn setting functional for the first time).
+export async function getDefaultOnCapabilities(
+	userId: string,
+): Promise<Set<Capability>> {
+	const connections = await listConnectionsForUser(userId);
+	const enabled = new Set<Capability>();
+	for (const capability of CAPABILITIES) {
+		const providers = CAPABILITY_META[capability].providers;
+		const isDefaultOn = connections.some(
+			(conn) =>
+				providers.includes(conn.provider) &&
+				conn.status === "connected" &&
+				conn.capabilities.includes(capability) &&
+				conn.defaultOn,
+		);
+		if (isDefaultOn) enabled.add(capability);
+	}
+	return enabled;
+}
+
+// The capability set that should actually be exposed to the model this turn.
+// SECURITY: fail-closed — a client-supplied `requested` list can only NARROW
+// the served set, never widen it. A capability the user does not have a
+// connected connection serving is never enabled here, regardless of what the
+// client sends.
+//   - requested != null (client sent an explicit selection, including []):
+//     return served ∩ requested.
+//   - requested == null (older client, or no selection made yet): return
+//     getDefaultOnCapabilities(userId), NOT the full served set.
+export async function resolveActiveCapabilities(
+	userId: string,
+	requested?: string[] | null,
+): Promise<Set<Capability>> {
+	const served = await getEnabledConnectionCapabilities(userId);
+	if (requested == null) {
+		return getDefaultOnCapabilities(userId);
+	}
+	const requestedSet = new Set(requested);
+	const active = new Set<Capability>();
+	for (const capability of served) {
+		if (requestedSet.has(capability)) active.add(capability);
+	}
+	return active;
+}

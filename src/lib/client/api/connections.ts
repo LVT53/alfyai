@@ -60,3 +60,31 @@ export async function disconnectConnection(id: string): Promise<void> {
 		"Failed to disconnect",
 	);
 }
+
+// Issue 7.2 — feeds the chat composer's per-conversation capability toggles.
+// `served` are the capabilities the user currently has a connected
+// connection serving; `defaultOn` (a subset of `served`) is what the
+// composer initializes its toggles to; `accounts` lists, per served
+// capability, the connections serving it (for the multi-account indicator).
+export type ActiveCapabilitiesAccount = {
+	id: string;
+	label: string;
+	provider: string;
+};
+
+export type ActiveCapabilitiesResponse = {
+	served: string[];
+	defaultOn: string[];
+	accounts: {
+		capability: string;
+		connections: ActiveCapabilitiesAccount[];
+	}[];
+};
+
+export async function fetchActiveCapabilities(): Promise<ActiveCapabilitiesResponse> {
+	return requestJson<ActiveCapabilitiesResponse>(
+		"/api/connections/active-capabilities",
+		undefined,
+		"Failed to load active capabilities",
+	);
+}

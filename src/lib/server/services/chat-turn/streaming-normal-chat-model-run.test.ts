@@ -4,14 +4,14 @@ import type { RuntimeConfig } from "$lib/server/config-store";
 
 const mocks = vi.hoisted(() => ({
 	createNormalChatTools: vi.fn(),
-	getEnabledConnectionCapabilities: vi.fn(),
+	resolveActiveCapabilities: vi.fn(),
 	prepareOutboundChatContext: vi.fn(),
 	resolveNormalChatModelRunProvider: vi.fn(),
 	runStreamingNormalChatModelRun: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/connections/resolve", () => ({
-	getEnabledConnectionCapabilities: mocks.getEnabledConnectionCapabilities,
+	resolveActiveCapabilities: mocks.resolveActiveCapabilities,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", () => ({
@@ -77,11 +77,11 @@ async function* streamEvents() {
 describe("runStreamingNormalChatSendModel", () => {
 	beforeEach(() => {
 		mocks.createNormalChatTools.mockReset();
-		mocks.getEnabledConnectionCapabilities.mockReset();
+		mocks.resolveActiveCapabilities.mockReset();
 		mocks.prepareOutboundChatContext.mockReset();
 		mocks.resolveNormalChatModelRunProvider.mockReset();
 		mocks.runStreamingNormalChatModelRun.mockReset();
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockReturnValue({
 			tools: {
 				research_web: { __testTool: true },
@@ -375,9 +375,7 @@ describe("runStreamingNormalChatSendModel", () => {
 	});
 
 	it("exposes the files tool when the connections resolver reports the files capability enabled", async () => {
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(
-			new Set(["files"]),
-		);
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
 		mocks.createNormalChatTools.mockImplementation((ctx) => ({
 			tools: {
 				research_web: { __testTool: true },
@@ -397,8 +395,9 @@ describe("runStreamingNormalChatSendModel", () => {
 			createTurnId: () => "normal-chat-turn-1",
 		});
 
-		expect(mocks.getEnabledConnectionCapabilities).toHaveBeenCalledWith(
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith(
 			"user-1",
+			undefined,
 		);
 		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -415,7 +414,7 @@ describe("runStreamingNormalChatSendModel", () => {
 	});
 
 	it("hides the files tool when the connections resolver reports no enabled capabilities", async () => {
-		mocks.getEnabledConnectionCapabilities.mockResolvedValue(new Set());
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set());
 		mocks.createNormalChatTools.mockImplementation((ctx) => ({
 			tools: {
 				research_web: { __testTool: true },
@@ -442,6 +441,47 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 		const call = mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0];
 		expect(call.tools).not.toHaveProperty("files");
+	});
+
+	it("passes the request's enabledConnectionCapabilities through to resolveActiveCapabilities (fail-closed narrowing)", async () => {
+		// The resolver itself enforces fail-closed intersection; this test only
+		// asserts the model-run wires the request-parsed selection through to
+		// it verbatim rather than e.g. always requesting the full served set.
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["files"]));
+		mocks.createNormalChatTools.mockImplementation((ctx) => ({
+			tools: {
+				research_web: { __testTool: true },
+				...(ctx.enabledConnectionCapabilities?.has("files")
+					? { files: { __testTool: true } }
+					: {}),
+				...(ctx.enabledConnectionCapabilities?.has("calendar")
+					? { calendar: { __testTool: true } }
+					: {}),
+			},
+			getToolCalls: () => [],
+		}));
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "Hello",
+			conversationId: "conv-1",
+			modelId: "model1",
+			createTurnId: () => "normal-chat-turn-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledWith("user-1", [
+			"files",
+			"calendar",
+		]);
+		// The resolver (mocked here) only returned "files" — simulating the
+		// server-side fail-closed narrowing that drops an unserved "calendar" —
+		// so the calendar tool must not be exposed even though it was requested.
+		const toolsArg =
+			mocks.runStreamingNormalChatModelRun.mock.calls[0]?.[0]?.tools;
+		expect(toolsArg).toHaveProperty("files");
+		expect(toolsArg).not.toHaveProperty("calendar");
 	});
 
 	it("hides file-production tools for ordinary prose streaming requests", async () => {

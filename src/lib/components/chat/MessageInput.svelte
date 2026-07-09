@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
+import { fetchActiveCapabilities } from "$lib/client/api/connections";
 import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -27,7 +28,9 @@ import {
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
 import ContextUsageRing from "./ContextUsageRing.svelte";
-import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
+import ComposerToolsMenu, {
+	type ComposerCapabilityAccounts,
+} from "./ComposerToolsMenu.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
@@ -63,6 +66,11 @@ type SendPayload = {
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — the composer's per-conversation connection capability
+	// selection for this turn. Omitted (not just empty) when the user has no
+	// available capabilities at all, so older-client fallback semantics on
+	// the server (defaultOn) apply unchanged.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: "create";
@@ -226,6 +234,16 @@ let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let forceWebSearch = $state(false);
+// Issue 7.2 — composer connection capability toggles. `availableCapabilities`
+// and `capabilityAccounts` come from a single fetch on mount; `activeCapabilities`
+// is per-conversation and reset to `defaultOnCapabilities` whenever the bound
+// conversation id changes (mirrors the incognito sync below).
+let availableCapabilities = $state<string[]>([]);
+let defaultOnCapabilities = $state<Set<string>>(new Set());
+let capabilityAccounts = $state<ComposerCapabilityAccounts>({});
+let activeCapabilities = $state<Set<string>>(new Set());
+let capabilitiesLoaded = $state(false);
+let capabilitiesSyncedConversationId = $state<string | null>(null);
 let selectedAtlasProfile = $state<AtlasProfile | null>(null);
 let clientAtlasTurnId = $state<string | null>(null);
 let atlasPushStatus = $state<
@@ -404,6 +422,51 @@ async function toggleIncognito() {
 	const ok = await persistIncognito(id, next);
 	if (!ok) incognitoOn = !next;
 	incognitoBusy = false;
+}
+
+// Issue 7.2 — loads the user's served/defaultOn connection capabilities once
+// on mount, then applies defaultOn as the initial active set for whichever
+// conversation is currently bound. Fails closed to "no capabilities
+// available" (renders no toggles, payload omits the field) on any error.
+async function loadActiveCapabilities() {
+	try {
+		const result = await fetchActiveCapabilities();
+		availableCapabilities = result.served;
+		defaultOnCapabilities = new Set(result.defaultOn);
+		capabilityAccounts = Object.fromEntries(
+			result.accounts.map((entry) => [entry.capability, entry.connections]),
+		);
+	} catch {
+		availableCapabilities = [];
+		defaultOnCapabilities = new Set();
+		capabilityAccounts = {};
+	} finally {
+		capabilitiesLoaded = true;
+		capabilitiesSyncedConversationId = conversationId ?? null;
+		activeCapabilities = new Set(defaultOnCapabilities);
+	}
+}
+
+// Per-conversation capability selection. Resets to the defaultOn set
+// whenever the conversation the composer is bound to changes, mirroring the
+// incognito sync above. Runs only after the initial load so it doesn't clobber
+// the just-applied defaultOn set with an empty pre-load one.
+$effect(() => {
+	const boundId = conversationId ?? null;
+	if (!capabilitiesLoaded) return;
+	if (capabilitiesSyncedConversationId === boundId) return;
+	capabilitiesSyncedConversationId = boundId;
+	activeCapabilities = new Set(defaultOnCapabilities);
+});
+
+function toggleCapability(capability: string, next: boolean) {
+	const updated = new Set(activeCapabilities);
+	if (next) {
+		updated.add(capability);
+	} else {
+		updated.delete(capability);
+	}
+	activeCapabilities = updated;
 }
 
 $effect(() => {
@@ -788,6 +851,8 @@ function buildSendPayload(nextMessage = message): SendPayload {
 		personalityProfileId: selectedPersonalityId,
 		reasoningDepth,
 		forceWebSearch: selectedAtlasProfile ? false : forceWebSearch,
+		enabledConnectionCapabilities:
+			availableCapabilities.length > 0 ? [...activeCapabilities] : undefined,
 		atlasMode: Boolean(selectedAtlasProfile),
 		atlasProfile: selectedAtlasProfile,
 		atlasAction: "create",
@@ -885,6 +950,7 @@ onMount(() => {
 	syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
+	void loadActiveCapabilities();
 	return () => {
 		window.removeEventListener("resize", adjustHeight);
 		if (textareaValueSyncFrame !== null) {
@@ -1994,6 +2060,10 @@ async function emitDraftChange(force = false) {
 							{atlasAvailability}
 							atlasProfile={selectedAtlasProfile}
 							onAtlasProfileChange={setAtlasProfile}
+							{availableCapabilities}
+							{activeCapabilities}
+							{capabilityAccounts}
+							onToggleCapability={toggleCapability}
 						/>
 					{/if}
 				</div>

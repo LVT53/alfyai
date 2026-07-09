@@ -49,6 +49,7 @@ type RequestBody = {
 	reasoningDepth?: unknown;
 	thinkingMode?: unknown;
 	forceWebSearch?: unknown;
+	enabledConnectionCapabilities?: unknown;
 	atlasMode?: unknown;
 	atlasProfile?: unknown;
 	clientAtlasTurnId?: unknown;
@@ -161,6 +162,11 @@ export async function parseChatTurnRequest(
 			forceWebSearch: atlasFields.atlasMode
 				? false
 				: body.forceWebSearch === true,
+			enabledConnectionCapabilities: atlasFields.atlasMode
+				? undefined
+				: parseEnabledConnectionCapabilities(
+						body.enabledConnectionCapabilities,
+					),
 			skipPersistUserMessage: body.skipPersistUserMessage === true,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0
@@ -354,6 +360,25 @@ function parseAttachmentIds(value: unknown): string[] {
 				(candidate): candidate is string => typeof candidate === "string",
 			)
 		: [];
+}
+
+// Issue 7.2 — the composer's per-turn connection capability selection. Only
+// an array of strings is accepted; anything else (missing field, non-array,
+// legacy client) becomes undefined so resolveActiveCapabilities falls back
+// to the user's defaultOn set. Deliberately NOT validated against the
+// Capability enum here — resolveActiveCapabilities intersects with the
+// user's served capabilities server-side, so an unknown/bogus string is
+// simply dropped there (fail-closed). Length is capped defensively; there
+// are only a handful of capabilities today.
+const MAX_ENABLED_CONNECTION_CAPABILITIES = 32;
+
+function parseEnabledConnectionCapabilities(
+	value: unknown,
+): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return value
+		.filter((candidate): candidate is string => typeof candidate === "string")
+		.slice(0, MAX_ENABLED_CONNECTION_CAPABILITIES);
 }
 
 function parsePendingSkill(value: unknown): PendingSkillSelection | null {

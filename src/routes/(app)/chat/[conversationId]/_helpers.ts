@@ -38,6 +38,8 @@ export type SendPayload = {
 	personalityProfileId?: string | null;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
+	// Issue 7.2 — composer connection capability selection for this turn.
+	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	atlasAction?: AtlasAction;
@@ -670,6 +672,9 @@ export function cloneSendPayload(payload: SendPayload): SendPayload {
 		modelId: payload.modelId,
 		reasoningDepth: payload.reasoningDepth,
 		forceWebSearch: payload.forceWebSearch === true,
+		enabledConnectionCapabilities: payload.enabledConnectionCapabilities
+			? [...payload.enabledConnectionCapabilities]
+			: undefined,
 	};
 }
 

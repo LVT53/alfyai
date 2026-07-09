@@ -161,6 +161,19 @@ describe("send payload helpers", () => {
 		);
 		expect(cloned).not.toHaveProperty(removedDepthKey);
 	});
+
+	it("preserves enabledConnectionCapabilities on cloned queued turns (Issue 7.2)", () => {
+		const cloned = cloneSendPayload({
+			message: "What's on my calendar?",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			conversationId: "conv-1",
+			enabledConnectionCapabilities: ["files", "calendar"],
+		});
+
+		expect(cloned.enabledConnectionCapabilities).toEqual(["files", "calendar"]);
+	});
 });
 
 describe("Skill Draft message helpers", () => {
