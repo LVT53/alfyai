@@ -41,6 +41,7 @@ import "./providers/google-calendar-write";
 import "./providers/apple-caldav-write";
 import "./providers/imap-write";
 import "./providers/immich-write";
+import { getConnection } from "./store";
 import { getWriteExecutor } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";
 
@@ -334,11 +335,29 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 409, reason: "in_progress" };
 	}
 
-	// record.status === "pending" here. Claim BEFORE doing anything that
-	// talks to the provider. This is the fix for the TOCTOU race:
-	// previously this function checked `record.status` (read above) and
-	// only updated the row AFTER awaiting the write, so two concurrent
-	// confirms could both pass the check and both issue a real write.
+	// record.status === "pending" here. Before claiming, re-check the
+	// connection's CURRENT allowWrites setting — this is the fix for the
+	// second TOCTOU gap (write-safety point 1): a write can be proposed
+	// while allowWrites=true, then the user flips writes off in the 7.1
+	// panel before confirming. Without this re-check, google/apple/imap/
+	// immich's write executors would still execute (only nextcloud's own
+	// executor re-checked allowWrites itself, as one-off defense-in-depth).
+	// Enforcing it HERE — in the single confirm chokepoint every provider's
+	// confirm goes through — makes the guarantee uniform across all
+	// providers, present and future, rather than requiring each new
+	// executor to remember to re-implement it. Deliberately BEFORE
+	// claimPendingWrite so a disabled write is never even flipped to
+	// "executing" (claimed-but-never-runs would leave the row stuck).
+	const conn = await getConnection(userId, record.connectionId);
+	if (conn?.allowWrites !== true) {
+		return { ok: false, status: 409, reason: "writes_disabled" };
+	}
+
+	// Claim BEFORE doing anything that talks to the provider. This is the
+	// fix for the original TOCTOU race: previously this function checked
+	// `record.status` (read above) and only updated the row AFTER awaiting
+	// the write, so two concurrent confirms could both pass the check and
+	// both issue a real write.
 	const claimed = await claimPendingWrite(userId, id);
 	if (!claimed) {
 		// Lost the race: something else (another confirm) claimed or

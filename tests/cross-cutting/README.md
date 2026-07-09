@@ -23,8 +23,10 @@ without the corresponding assertion.
   honored-but-flagged, conditional overwrite (If-Match/etag), reversible
   delete or confirm-gated hard-delete, idempotent retry. The file header
   carries the full adapter × point matrix with explicit N/A
-  justifications. One known, documented gap is pinned with `it.fails`
-  (see the file header) rather than silently fixed or hidden.
+  justifications. Point 1's "allowWrites flipped off after propose, before
+  confirm" gap (previously pinned with `it.fails`) is now fixed at the
+  `confirmPendingWrite` chokepoint itself (see "point 1b" in the file) and
+  asserted as a normal, passing check for every provider.
 
 - **`locality-raw-never-leaves.test.ts`** (Issue X.3) — under Option A +
   a cloud model, raw connector payloads are provably absent from

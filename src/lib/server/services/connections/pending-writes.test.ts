@@ -336,6 +336,86 @@ describe("confirmPendingWrite", () => {
 		if (!result.ok) expect(result.status).toBe(404);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	// Closes the write-safety corruption-firewall gap: allowWrites=false must
+	// mean NO write executes, even for an already-proposed pending write. The
+	// chokepoint (confirmPendingWrite) now re-checks the connection's CURRENT
+	// allowWrites setting — not just its value at propose time — BEFORE
+	// claiming the row, so a write proposed while writes were on but
+	// confirmed after the user turned them off never reaches the executor and
+	// is never even flipped to "executing".
+	it("refuses with writes_disabled when allowWrites is turned off after propose but before confirm; the executor is never called and the row stays pending", async () => {
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const { setAllowWrites } = await import("./store");
+		const connectionId = await seedConnection("user-1", { allowWrites: true });
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		// Simulate the user flipping "allow writes" off in the 7.1 panel
+		// after the write was proposed but before it was confirmed.
+		await setAllowWrites("user-1", connectionId, false);
+
+		const fetchMock = vi.fn();
+		const result = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		const stillPending = await getPendingWrite("user-1", created.id);
+		expect(stillPending?.status).toBe("pending");
+	});
+
+	it("an already-executed write still returns success even if allowWrites is now off (does not retroactively refuse a completed write)", async () => {
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const { setAllowWrites } = await import("./store");
+		const connectionId = await seedConnection("user-1", { allowWrites: true });
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(null, { status: 201, headers: { ETag: '"e1"' } }),
+		);
+		const first = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(first.ok).toBe(true);
+		expect((await getPendingWrite("user-1", created.id))?.status).toBe(
+			"executed",
+		);
+
+		// Writes are disabled AFTER the write already executed.
+		await setAllowWrites("user-1", connectionId, false);
+
+		const second = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(second.ok).toBe(true);
+		if (second.ok) expect(second.alreadyExecuted).toBe(true);
+		// Still exactly one real PUT — the already-executed short-circuit
+		// returns success without re-invoking the executor.
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });
 
 // 4.3 review fix — the confirm flow previously checked `status` in

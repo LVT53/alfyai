@@ -53,6 +53,28 @@ afterEach(() => {
 	}
 });
 
+// confirmPendingWrite now re-checks the connection's CURRENT allowWrites
+// setting at confirm time (the write-safety corruption-firewall fix) —
+// every dispatch test below needs a REAL, allowWrites:true connection row to
+// get past that gate before it can exercise the dispatch/claim behavior
+// these tests are actually about. The connection's own `provider` field is
+// unrelated to the pending write's dispatch `provider` (a free-text label
+// used purely to look up a registered executor), so a fixed "nextcloud"
+// connection works as the backing row for every fake/unregistered provider
+// below.
+async function seedConnection(): Promise<string> {
+	const { createConnection } = await import("./store");
+	const conn = await createConnection({
+		userId: "user-1",
+		provider: "nextcloud",
+		label: "Nextcloud",
+		accountIdentifier: "alice",
+		status: "connected",
+		allowWrites: true,
+	});
+	return conn.id;
+}
+
 function makeOp(provider: string, connectionId: string): WriteOperation {
 	return {
 		provider,
@@ -78,10 +100,11 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
 			await import("./pending-writes");
 
+		const connectionId = await seedConnection();
 		const created = await createPendingWrite("user-1", {
-			connectionId: "conn-does-not-matter",
+			connectionId,
 			provider: "totally-unregistered-provider",
-			op: makeOp("totally-unregistered-provider", "conn-does-not-matter"),
+			op: makeOp("totally-unregistered-provider", connectionId),
 			content: "hello",
 			idempotencyKey: "key-1",
 			preview: PREVIEW,
@@ -110,7 +133,7 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 		}));
 		registerWriteExecutor({ provider, execute: executeSpy });
 
-		const connectionId = "fake-connection-id";
+		const connectionId = await seedConnection();
 		const op = makeOp(provider, connectionId);
 		const created = await createPendingWrite("user-1", {
 			connectionId,
@@ -153,7 +176,7 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 			execute: vi.fn(async () => ({ ok: false as const, reason: "x" })),
 		});
 
-		const connectionId = "fake-connection-id";
+		const connectionId = await seedConnection();
 		const created = await createPendingWrite("user-1", {
 			connectionId,
 			provider,
@@ -188,7 +211,7 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 		const executeSpy = vi.fn(async () => ({ ok: true as const, etag: "e" }));
 		registerWriteExecutor({ provider, execute: executeSpy });
 
-		const connectionId = "fake-connection-id";
+		const connectionId = await seedConnection();
 		const created = await createPendingWrite("user-1", {
 			connectionId,
 			provider,
@@ -217,7 +240,7 @@ describe("confirmPendingWrite — provider dispatch (Issue 6.0)", () => {
 		const executeSpy = vi.fn(async () => ({ ok: true as const, etag: "e" }));
 		registerWriteExecutor({ provider, execute: executeSpy });
 
-		const connectionId = "fake-connection-id";
+		const connectionId = await seedConnection();
 		const created = await createPendingWrite("user-1", {
 			connectionId,
 			provider,

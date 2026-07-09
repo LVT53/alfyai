@@ -67,14 +67,15 @@
 //   assert this AS THE CURRENT (intentional) BEHAVIOR — an update PATCH is
 //   never conditioned on etag — with a prominent comment, not a silent gap.
 //
-// Also documented (non-blocking observation, not a point-5/point-1 failure —
-// see the file-level report for detail): only nextcloud's write EXECUTOR
-// re-checks `allowWrites` at execute time (defense-in-depth); google/apple/
-// imap/immich's executors trust the pending row unconditionally once
-// confirmed, so flipping allowWrites off AFTER a write was proposed but
-// BEFORE it is confirmed does not retroactively block those four providers'
-// confirm. Pinned below via `it.fails` so a future fix flips this test red
-// (in the good sense) rather than the gap silently persisting unnoticed.
+// FIXED (was a real gap, previously pinned via `it.fails`): allowWrites is
+// now re-checked at the confirmPendingWrite chokepoint itself (pending-
+// writes.ts), not just by each provider's own executor. So flipping
+// allowWrites off AFTER a write was proposed but BEFORE it is confirmed
+// uniformly refuses the confirm ("writes_disabled") for every provider —
+// nextcloud, google, apple, imap, and immich alike — even though only
+// nextcloud's executor additionally re-checks this itself (that check is now
+// redundant defense-in-depth, not the only line of defense). See the
+// "point 1b" describe block below.
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
@@ -193,6 +194,28 @@ async function seedConnection(params: {
 		await setConnectionWriteSecret(USER_ID, conn.id, params.writeSecret);
 	}
 	return conn.id;
+}
+
+// Shared by point 1's allowWrites-off-at-confirm assertions and point 2's
+// confirm-executes-exactly-once assertions below — both need to seed a
+// pending row via the real createPendingWrite before exercising confirm.
+async function createPendingRow(
+	provider: string,
+	connectionId: string,
+	op: WriteOperation,
+	content: string,
+) {
+	const { createPendingWrite } = await import(
+		"$lib/server/services/connections/pending-writes"
+	);
+	return createPendingWrite(USER_ID, {
+		connectionId,
+		provider,
+		op,
+		content,
+		idempotencyKey: idempotencyKey(op),
+		preview: buildWritePreview(op),
+	});
 }
 
 async function executorFor(provider: string) {
@@ -336,22 +359,75 @@ describe("write-safety point 1 — allow_writes=false refuses, no pending row", 
 		expect(result).toEqual({ ok: false, reason: "writes_disabled" });
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
+});
 
-	// STOP-and-report finding (documented, not silently fixed): google/apple/
-	// imap/immich's write EXECUTORS never re-check `allowWrites` at confirm/
-	// execute time the way nextcloud's does — see the file-header note. This
-	// is pinned as an EXPECTED-TO-FAIL assertion (`it.fails`) rather than
-	// silently omitted: it stays green today because the assertion inside
-	// correctly fails (proving the gap exists), and will flip to an
-	// unexpected pass — failing the suite, on purpose — the day someone adds
-	// the re-check, at which point this test should be promoted to a normal
-	// `it`.
-	it.fails("KNOWN GAP: google's write executor does NOT refuse when allowWrites was disabled after the pending write was proposed", async () => {
+// ---------------------------------------------------------------------------
+// Point 1b — the second half of point 1's invariant: allowWrites=false must
+// refuse a write EVEN IF it was already proposed (a PENDING row exists) while
+// allowWrites was still true. Table-driven across all five providers against
+// the REAL confirmPendingWrite chokepoint (pending-writes.ts) — not the
+// executor directly — because the fix lives in the chokepoint, uniform for
+// every provider present and future, not duplicated per executor.
+// ---------------------------------------------------------------------------
+describe("write-safety point 1b — allowWrites flipped off after propose, before confirm — confirmPendingWrite refuses uniformly for every provider", () => {
+	async function disableWritesAndConfirm(
+		userId: string,
+		connectionId: string,
+		pendingId: string,
+	) {
+		const { setAllowWrites } = await import(
+			"$lib/server/services/connections/store"
+		);
+		// Simulate the user flipping "allow writes" off AFTER propose but
+		// BEFORE confirm.
+		await setAllowWrites(userId, connectionId, false);
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		const result = await confirmPendingWrite(userId, pendingId);
+		const stillPending = await getPendingWrite(userId, pendingId);
+		return { result, stillPending };
+	}
+
+	it("nextcloud: writes_disabled, no fetch, row stays pending (never claimed)", async () => {
 		const connectionId = await seedConnection({
-			provider: "google",
-			allowWrites: true,
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
 		});
-		const executor = await executorFor("google");
+		const op: WriteOperation = {
+			provider: "nextcloud",
+			connectionId,
+			action: "files.put",
+			summary: "Save note.txt",
+			reversible: true,
+			destructive: false,
+			target: { path: "/AlfyAI/note.txt" },
+		};
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(null, { status: 201, headers: { ETag: '"e1"' } }),
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const created = await createPendingRow("nextcloud", connectionId, op, "hi");
+		const { result, stillPending } = await disableWritesAndConfirm(
+			USER_ID,
+			connectionId,
+			created.id,
+		);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(stillPending?.status).toBe("pending");
+	});
+
+	it("google: writes_disabled, no fetch, row stays pending (never claimed)", async () => {
+		const connectionId = await seedConnection({ provider: "google" });
 		const op: WriteOperation = {
 			provider: "google",
 			connectionId,
@@ -361,27 +437,191 @@ describe("write-safety point 1 — allow_writes=false refuses, no pending row", 
 			destructive: false,
 			target: { label: "Standup" },
 		};
-		// Simulate the user flipping "allow writes" off AFTER propose but
-		// BEFORE confirm.
+		const fetchSpy = vi.fn(async () => jsonResponse(200, { etag: '"e1"' }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const created = await createPendingRow(
+			"google",
+			connectionId,
+			op,
+			JSON.stringify({ calendarId: "primary", event: { summary: "Standup" } }),
+		);
+		const { result, stillPending } = await disableWritesAndConfirm(
+			USER_ID,
+			connectionId,
+			created.id,
+		);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(stillPending?.status).toBe("pending");
+	});
+
+	it("apple: writes_disabled, no fetch, row stays pending (never claimed)", async () => {
+		const connectionId = await seedConnection({
+			provider: "apple",
+			config: { calendarUrls: ["https://caldav.icloud.com/1/cal/"] },
+		});
+		const op: WriteOperation = {
+			provider: "apple",
+			connectionId,
+			action: "calendar.create_event",
+			summary: "Create Standup",
+			reversible: false,
+			destructive: false,
+			target: { label: "Standup" },
+		};
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(null, { status: 201, headers: { ETag: '"e1"' } }),
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const created = await createPendingRow(
+			"apple",
+			connectionId,
+			op,
+			JSON.stringify({
+				calendarUrl: "https://caldav.icloud.com/1/cal/",
+				event: { summary: "Standup" },
+			}),
+		);
+		const { result, stillPending } = await disableWritesAndConfirm(
+			USER_ID,
+			connectionId,
+			created.id,
+		);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(stillPending?.status).toBe("pending");
+	});
+
+	it("immich: writes_disabled, no fetch, row stays pending (never claimed)", async () => {
+		const connectionId = await seedConnection({
+			provider: "immich",
+			config: { origin: "https://photos.example.com" },
+			writeSecret: "write-key",
+		});
+		const op: WriteOperation = {
+			provider: "immich",
+			connectionId,
+			action: "immich.add_to_album",
+			summary: 'Add 1 photo to the "AlfyAI" album',
+			reversible: true,
+			destructive: false,
+			target: { label: "AlfyAI album" },
+		};
+		const fetchSpy = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url.endsWith("/api/albums") && init?.method === "GET") {
+					return jsonResponse(200, []);
+				}
+				if (url.endsWith("/api/albums") && init?.method === "POST") {
+					return jsonResponse(200, { id: "album-1" });
+				}
+				return jsonResponse(200, [{ id: "asset-1", success: true }]);
+			},
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const created = await createPendingRow(
+			"immich",
+			connectionId,
+			op,
+			JSON.stringify({ assetIds: ["asset-1"], albumName: "AlfyAI" }),
+		);
+		const { result, stillPending } = await disableWritesAndConfirm(
+			USER_ID,
+			connectionId,
+			created.id,
+		);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(stillPending?.status).toBe("pending");
+	});
+
+	it("imap: writes_disabled, executor's createClient never invoked, row stays pending (never claimed)", async () => {
+		const connectionId = await seedConnection({
+			provider: "imap",
+			config: {
+				email: "alice@example.com",
+				imapHost: "imap.example.com",
+				imapPort: 993,
+				imapSecure: true,
+			},
+		});
+		const op: WriteOperation = {
+			provider: "imap",
+			connectionId,
+			action: "email.trash",
+			summary: "Move message to Trash",
+			reversible: true,
+			destructive: true,
+			target: { id: "42" },
+		};
+		const connectSpy = vi.fn();
+		const createClient = () =>
+			({
+				connect: async () => {
+					connectSpy();
+				},
+				logout: async () => {},
+				close: async () => {},
+				mailboxOpen: async () => ({}),
+				list: async () => [
+					{ path: "Trash", name: "Trash", specialUse: "\\Trash" },
+				],
+				messageMove: async () => ({ path: "Trash" }),
+				messageFlagsAdd: async () => true,
+				messageFlagsRemove: async () => true,
+				usable: true,
+				authenticated: true,
+				// biome-ignore lint/suspicious/noExplicitAny: minimal fake client
+			}) as any;
+
+		const created = await createPendingRow(
+			"imap",
+			connectionId,
+			op,
+			JSON.stringify({ uid: 42 }),
+		);
+
 		const { setAllowWrites } = await import(
 			"$lib/server/services/connections/store"
 		);
 		await setAllowWrites(USER_ID, connectionId, false);
 
-		const fetchSpy = vi.fn(async () => jsonResponse(200, { etag: '"e1"' }));
-		const result = await executor.execute(
-			USER_ID,
-			connectionId,
-			op,
-			JSON.stringify({
-				calendarId: "primary",
-				event: { summary: "Standup" },
-			}),
-			{ fetch: fetchSpy as unknown as typeof fetch },
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
 		);
-		// The DESIRED behavior (what this assertion demands) is a refusal —
-		// today the executor still executes the write, so this fails.
-		expect(result.ok).toBe(false);
+		const result = await confirmPendingWrite(USER_ID, created.id, {
+			// @ts-expect-error — see point 2's imap test for why this widening
+			// is expected (confirmPendingWrite's declared opts type is the
+			// narrower shared WriteExecutor shape; imap's registered execute
+			// structurally accepts this wider ImapWriteOpt).
+			createClient,
+		});
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(connectSpy).not.toHaveBeenCalled();
+		expect((await getPendingWrite(USER_ID, created.id))?.status).toBe(
+			"pending",
+		);
 	});
 });
 
@@ -395,25 +635,6 @@ describe("write-safety point 1 — allow_writes=false refuses, no pending row", 
 // .test.ts.
 // ---------------------------------------------------------------------------
 describe("write-safety point 2 — pending row created, nothing executes until confirm", () => {
-	async function createPendingRow(
-		provider: string,
-		connectionId: string,
-		op: WriteOperation,
-		content: string,
-	) {
-		const { createPendingWrite } = await import(
-			"$lib/server/services/connections/pending-writes"
-		);
-		return createPendingWrite(USER_ID, {
-			connectionId,
-			provider,
-			op,
-			content,
-			idempotencyKey: idempotencyKey(op),
-			preview: buildWritePreview(op),
-		});
-	}
-
 	it("nextcloud: pending row stays pending until confirm; confirm executes exactly once", async () => {
 		const connectionId = await seedConnection({
 			provider: "nextcloud",
