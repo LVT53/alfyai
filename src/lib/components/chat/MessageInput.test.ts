@@ -2234,19 +2234,24 @@ describe("MessageInput Connections toggle", () => {
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
 	});
 
-	it("does not render the toggle when the user has no available capabilities", async () => {
+	it("renders the toggle disabled (greyed) with a connect-in-settings tooltip when the user has no connections", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: [],
 			defaultOn: [],
 			accounts: [],
 		});
-		const { queryByTestId } = render(MessageInput);
+		const { getByTestId } = render(MessageInput);
 
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 
-		expect(queryByTestId("connections-toggle")).not.toBeInTheDocument();
+		const toggle = getByTestId("connections-toggle");
+		// Always shown now, but disabled + pointing the user to Settings.
+		expect(toggle).toBeInTheDocument();
+		expect(toggle).toHaveAttribute("aria-disabled", "true");
+		expect(toggle).toHaveClass("composer-connections-btn--disabled");
+		expect(toggle.getAttribute("title") ?? "").toMatch(/settings/i);
 	});
 
 	it("renders the toggle defaulting on, and sends the defaultOn set in the payload", async () => {

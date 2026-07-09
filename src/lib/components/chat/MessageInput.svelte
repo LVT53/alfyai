@@ -546,7 +546,14 @@ $effect(() => {
 		: new Set();
 });
 
+// Whether the user has any connected service. The composer toggle is always
+// shown, but greyed/disabled (with a connect-in-settings tooltip) when false.
+const hasConnections = $derived(availableCapabilities.length > 0);
+
 function toggleConnections() {
+	// No-op when the user has no connections yet — the button is shown but
+	// disabled (greyed) with a tooltip pointing to settings.
+	if (!hasConnections) return;
 	connectionsEnabled = !connectionsEnabled;
 }
 
@@ -2203,20 +2210,28 @@ async function emitDraftChange(force = false) {
 					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
 				</button>
 
-				{#if availableCapabilities.length > 0}
-					<button
-						type="button"
-						data-testid="connections-toggle"
-						class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
-						class:composer-connections-btn--active={connectionsEnabled}
-						onclick={toggleConnections}
-						aria-pressed={connectionsEnabled}
-						aria-label={connectionsEnabled ? $t('chat.connectionsToggleOn') : $t('chat.connectionsToggleOff')}
-						title={connectionsEnabled ? $t('chat.connectionsToggleOn') : $t('chat.connectionsToggleOff')}
-					>
-						<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
-					</button>
-				{/if}
+				<button
+					type="button"
+					data-testid="connections-toggle"
+					class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
+					class:composer-connections-btn--active={hasConnections && connectionsEnabled}
+					class:composer-connections-btn--disabled={!hasConnections}
+					onclick={toggleConnections}
+					aria-disabled={!hasConnections}
+					aria-pressed={hasConnections ? connectionsEnabled : undefined}
+					aria-label={!hasConnections
+						? $t('chat.connectionsToggleNoConnections')
+						: connectionsEnabled
+							? $t('chat.connectionsToggleOn')
+							: $t('chat.connectionsToggleOff')}
+					title={!hasConnections
+						? $t('chat.connectionsToggleNoConnections')
+						: connectionsEnabled
+							? $t('chat.connectionsToggleOn')
+							: $t('chat.connectionsToggleOff')}
+				>
+					<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
+				</button>
 
 				<ContextUsageRing
 					{contextStatus}
@@ -2660,6 +2675,20 @@ async function emitDraftChange(force = false) {
 		color: var(--accent-contrast);
 		background: var(--accent-hover);
 		opacity: 1;
+	}
+
+	/* Shown but greyed for users with no connections yet — the tooltip points
+	   them to Settings. Still hoverable (aria-disabled, not native disabled)
+	   so the title tooltip surfaces. */
+	.composer-connections-btn--disabled {
+		color: var(--icon-muted);
+		opacity: 0.4;
+		cursor: default;
+	}
+
+	.composer-connections-btn--disabled:hover {
+		opacity: 0.4;
+		background: transparent;
 	}
 
 	/* One-line "incognito on" notice above the input box. */

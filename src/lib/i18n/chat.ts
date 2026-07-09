@@ -33,6 +33,8 @@ const chatDict = {
 			"Connections: on — AlfyAI may use your connected accounts this chat",
 		"chat.connectionsToggleOff":
 			"Connections: off — your connected accounts won't be used this chat",
+		"chat.connectionsToggleNoConnections":
+			"No connections yet — connect your first service in Settings",
 		"chat.incognitoNotice": "Incognito on — this chat won't be saved to memory",
 		"chat.incognitoToggle": "Incognito — don't remember this chat",
 		"chat.incognitoTurnOff": "Turn off",
@@ -715,6 +717,8 @@ const chatDict = {
 			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
 		"chat.connectionsToggleOff":
 			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
+		"chat.connectionsToggleNoConnections":
+			"Még nincs kapcsolat — csatlakoztasd az első szolgáltatásod a Beállításokban",
 		"chat.incognitoNotice":
 			"Inkognitó bekapcsolva — ez a beszélgetés nem kerül a memóriába",
 		"chat.incognitoToggle": "Inkognitó — ne jegyezze meg ezt a beszélgetést",
