@@ -1961,24 +1961,16 @@ describe("POST /api/chat/send", () => {
 			}
 		});
 
-		// Characterization test — documents a real behavior gap found while
-		// writing this coverage, NOT a guarantee of correctness (see the
-		// fix-me note below). snapshotConversationPendingWrites's catch block
-		// (routes/api/chat/send/+server.ts) falls back to `new Set()` on
-		// failure, which is truthy, so reconcilePendingWritesForAssistantMessage
-		// (chat-turn/finalize.ts)'s `if (!pendingWriteIdsAtStart) return;` guard
-		// does NOT skip — every pre-existing pending write in the conversation
-		// (including ones from unrelated earlier turns) gets diffed as "new"
-		// and stamped onto THIS turn's assistant message. The STREAM path's
-		// equivalent (resolvePendingWriteIdsAtStartFact in
-		// chat-turn/stream-completion.ts) instead falls back to `undefined` on
-		// failure, which correctly trips the guard and skips reconciliation
-		// entirely. This test pins the SEND path's current (divergent, mis-
-		// attributing) behavior so a future fix shows up as an intentional
-		// test change rather than a silent regression. FIX-ME: make
-		// snapshotConversationPendingWrites return `undefined` on failure to
-		// match the STREAM path's safer degrade.
-		it("(characterization, flagged as a gap) mis-attributes a pre-existing pending write when the start snapshot query fails", async () => {
+		// When the start-of-turn snapshot query fails,
+		// snapshotConversationPendingWrites (routes/api/chat/send/+server.ts)
+		// now returns `undefined` (not an empty Set), so
+		// reconcilePendingWritesForAssistantMessage (chat-turn/finalize.ts)'s
+		// `if (!pendingWriteIdsAtStart) return;` guard trips and reconciliation
+		// is SKIPPED — a pre-existing pending write from an unrelated earlier
+		// turn is NOT mis-stamped onto this turn's assistant message. This
+		// matches the STREAM path's undefined-on-unknown fallback
+		// (resolvePendingWriteIdsAtStartFact in chat-turn/stream-completion.ts).
+		it("does NOT mis-attribute a pre-existing pending write when the start snapshot query fails (fails safe)", async () => {
 			seedConversationTurn(mockGetConversation, mockCreateMessage, {
 				userMessage: { content: "Hello" },
 				assistantMessage: { content: "Hello from AI!" },
@@ -1995,12 +1987,8 @@ describe("POST /api/chat/send", () => {
 				const response = await POST(event);
 
 				expect(response.status).toBe(200);
-				expect(mockAssignPendingWrites).toHaveBeenCalledWith(
-					"user-1",
-					"conv-1",
-					"assistant-msg",
-					["pw-preexisting"],
-				);
+				// Fail-safe: no stamping happens at all when the snapshot is unknown.
+				expect(mockAssignPendingWrites).not.toHaveBeenCalled();
 			} finally {
 				warn.mockRestore();
 			}

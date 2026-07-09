@@ -602,7 +602,7 @@ async function snapshotConversationPendingWrites({
 }: {
 	userId: string;
 	conversationId: string;
-}): Promise<Set<string>> {
+}): Promise<Set<string> | undefined> {
 	try {
 		const writes = await listPendingWritesForConversation(
 			userId,
@@ -617,7 +617,12 @@ async function snapshotConversationPendingWrites({
 				error,
 			},
 		);
-		return new Set();
+		// Fail SAFE: return undefined (not an empty Set) so
+		// reconcilePendingWritesForAssistantMessage skips entirely. An empty
+		// Set would make every pre-existing pending write in the conversation
+		// look "new" and get mis-stamped onto this turn's assistant message.
+		// This matches the STREAM path's undefined-on-unknown fallback.
+		return undefined;
 	}
 }
 
