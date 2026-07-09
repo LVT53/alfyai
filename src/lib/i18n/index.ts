@@ -2,6 +2,7 @@ import { derived } from "svelte/store";
 import { uiLanguage } from "$lib/stores/settings";
 import chatDict from "./chat";
 import commonDict from "./common";
+import connectionsDict from "./connections";
 import knowledgeDict from "./knowledge";
 import settingsDict from "./settings";
 import skillsDict from "./skills";
@@ -39,6 +40,7 @@ const dictionary = {
 	en: {
 		...commonDict.en,
 		...chatDict.en,
+		...connectionsDict.en,
 		...knowledgeDict.en,
 		...settingsDict.en,
 		...skillsDict.en,
@@ -46,6 +48,7 @@ const dictionary = {
 	hu: {
 		...commonDict.hu,
 		...chatDict.hu,
+		...connectionsDict.hu,
 		...knowledgeDict.hu,
 		...settingsDict.hu,
 		...skillsDict.hu,
