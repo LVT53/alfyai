@@ -6,7 +6,9 @@ const connectionsDict = {
 		"connections.actions.connect": "Connect",
 		"connections.actions.disconnect": "Disconnect",
 		"connections.actions.reconnect": "Reconnect",
+		"connections.actions.viewDetails": "View details",
 		"connections.addConnection.title": "Add a connection",
+		"connections.row.capabilitiesA11y": "Capabilities: {list}",
 		"connections.googleSignIn.label": "Continue with Google",
 		"connections.allowWrites.label": "Allow writes",
 		"connections.allowWrites.warning":
@@ -164,7 +166,9 @@ const connectionsDict = {
 		"connections.actions.connect": "Csatlakoztatás",
 		"connections.actions.disconnect": "Leválasztás",
 		"connections.actions.reconnect": "Újracsatlakoztatás",
+		"connections.actions.viewDetails": "Részletek megtekintése",
 		"connections.addConnection.title": "Kapcsolat hozzáadása",
+		"connections.row.capabilitiesA11y": "Képességek: {list}",
 		"connections.googleSignIn.label": "Csatlakozás Google-fiókkal",
 		"connections.allowWrites.label": "Írás engedélyezése",
 		"connections.allowWrites.warning":

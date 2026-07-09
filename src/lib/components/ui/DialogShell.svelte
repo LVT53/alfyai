@@ -11,6 +11,13 @@ let {
 	children,
 	maxWidthClass = "max-w-[480px]",
 	zIndexClass = "z-50",
+	// ADR 0044 Decision 3 — Connection Detail modal wants a full-screen
+	// overlay rather than the usual small centered card: edge-to-edge on
+	// mobile, and still a near-viewport-filling sheet (not width-capped) on
+	// wider screens, so it reads as "full screen" rather than "a bigger
+	// dialog". Overrides maxWidthClass/height when set; everything else
+	// (focus trap, Esc, backdrop) is unchanged.
+	fullScreen = false,
 }: {
 	title: string;
 	description?: string;
@@ -18,10 +25,17 @@ let {
 	children: Snippet;
 	maxWidthClass?: string;
 	zIndexClass?: string;
+	fullScreen?: boolean;
 } = $props();
 
 let dialogRef: HTMLDivElement | null = $state(null);
 let previousFocus: HTMLElement | null = null;
+
+let dialogSizeClass = $derived(
+	fullScreen
+		? "h-full max-w-full rounded-none border-0 sm:max-w-3xl sm:rounded-lg sm:border"
+		: `${maxWidthClass} rounded-lg border`,
+);
 
 function handleKeydown(e: KeyboardEvent) {
 	if (e.key === "Escape") {
@@ -67,7 +81,7 @@ onDestroy(() => {
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class={`fixed inset-0 ${zIndexClass} flex items-center justify-center p-md`}
+  class={`fixed inset-0 ${zIndexClass} flex items-center justify-center ${fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
   transition:fade={{ duration: 150 }}
   style={`padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
 >
@@ -85,9 +99,9 @@ onDestroy(() => {
     aria-labelledby="dialog-shell-title"
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
-    class={`relative w-full ${maxWidthClass} rounded-lg border border-border bg-surface-page p-lg shadow-lg`}
+    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page p-lg shadow-lg`}
     transition:scale={{ duration: 150, start: 0.95 }}
-    style="max-height: 85dvh; overflow-y: auto;"
+    style={fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
     <h2 id="dialog-shell-title" class="mb-sm text-xl font-semibold text-text-primary">{title}</h2>
     {#if description}

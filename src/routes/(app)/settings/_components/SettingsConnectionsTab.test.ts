@@ -51,7 +51,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("SettingsConnectionsTab", () => {
-	it("renders a connection's status chip and account identifier", () => {
+	it("renders one compact row per connection with account, capability mini-icons, and a text status chip", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
@@ -59,36 +59,124 @@ describe("SettingsConnectionsTab", () => {
 			}),
 		);
 
-		// Scoped to the connection card: the provider's display name and
-		// "Connected" also appear in the persistent Add-a-connection section
-		// below (as the Connect button label / already-connected hint).
-		const card = screen.getByTestId("connection-card-conn-1");
-		expect(within(card).getByText("Google")).toBeInTheDocument();
-		expect(within(card).getByText("person@example.com")).toBeInTheDocument();
-		expect(within(card).getByText("Connected")).toBeInTheDocument();
+		const row = screen.getByTestId("connection-row-conn-1");
+		expect(within(row).getByText("Google")).toBeInTheDocument();
+		expect(within(row).getByText("person@example.com")).toBeInTheDocument();
+		expect(within(row).getByText("Connected")).toBeInTheDocument();
+		// Capability mini-icon group has an accessible label listing the
+		// connection's active capabilities (not color/icon-only).
+		expect(
+			within(row).getByRole("img", { name: /Calendar/ }),
+		).toBeInTheDocument();
 	});
 
-	it("shows a Reconnect button and status detail for needs_reauth connections", () => {
+	it("does not use the oversized section-title heading for the row name (name/account gap fix)", () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1" })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		// The old card reused `.settings-section-title` (a section-heading
+		// class with a large margin-bottom) directly above the account line,
+		// which produced a visible empty-line gap. The compact row must not
+		// use that class for the name.
+		expect(row.querySelector(".settings-section-title")).toBeNull();
+		expect(row.querySelector("h2")).toBeNull();
+	});
+
+	it("the row itself is calm: no toggles or warning prose inline", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({
 				connections: [
 					makeConnection({
+						id: "conn-nc",
+						provider: "nextcloud",
+						capabilities: ["files"],
+						allowWrites: true,
+					}),
+				],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-nc");
+		expect(within(row).queryAllByRole("switch")).toHaveLength(0);
+		expect(
+			within(row).queryByText(/Writing is off by default/),
+		).not.toBeInTheDocument();
+	});
+
+	it("clicking a row opens the Connection Detail modal", async () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1" })],
+			}),
+		);
+
+		expect(
+			screen.queryByTestId("connection-detail-conn-1"),
+		).not.toBeInTheDocument();
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		const mainRowButton = row.querySelector(
+			".connection-row-main",
+		) as HTMLElement;
+		await fireEvent.click(mainRowButton);
+
+		expect(screen.getByTestId("connection-detail-conn-1")).toBeInTheDocument();
+	});
+
+	it("clicking the detail icon action also opens the modal", async () => {
+		render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status: "error" })],
+			}),
+		);
+
+		const row = screen.getByTestId("connection-row-conn-1");
+		// With status "error" both Reconnect and the detail icon are present;
+		// scope to the actions container to grab the detail one specifically.
+		const detailBtn = within(row).getAllByRole("button", {
+			name: "View details Google",
+		})[1];
+		await fireEvent.click(detailBtn);
+
+		expect(screen.getByTestId("connection-detail-conn-1")).toBeInTheDocument();
+	});
+
+	it("shows a Reconnect icon button only for needs_reauth/error connections", async () => {
+		const { rerender } = render(
+			SettingsConnectionsTab,
+			baseProps({
+				connections: [makeConnection({ id: "conn-1", status: "connected" })],
+			}),
+		);
+		expect(
+			screen.queryByRole("button", { name: /Reconnect/ }),
+		).not.toBeInTheDocument();
+
+		await rerender(
+			baseProps({
+				connections: [
+					makeConnection({
+						id: "conn-1",
 						status: "needs_reauth",
 						statusDetail: "Token expired",
 					}),
 				],
 			}),
 		);
-
-		expect(screen.getByText("Needs reauthorization")).toBeInTheDocument();
-		expect(screen.getByText("Token expired")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "Reconnect Google" }),
 		).toBeInTheDocument();
 	});
 
-	it("calling the Reconnect button invokes onReconnect with the connection id", async () => {
+	it("calling the Reconnect button invokes onReconnect with the connection id, without opening the modal", async () => {
 		const onReconnect = vi.fn();
 		render(
 			SettingsConnectionsTab,
@@ -103,277 +191,19 @@ describe("SettingsConnectionsTab", () => {
 		);
 
 		expect(onReconnect).toHaveBeenCalledWith("conn-9");
-	});
-
-	it("toggling a capability calls onToggleCapability with (id, capability, next)", async () => {
-		const onToggleCapability = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({ id: "conn-1", capabilities: ["calendar"] }),
-				],
-				onToggleCapability,
-			}),
-		);
-
-		const calendarToggle = screen.getByRole("switch", {
-			name: "Calendar — Google",
-		});
-		await fireEvent.click(calendarToggle);
-
-		expect(onToggleCapability).toHaveBeenCalledWith(
-			"conn-1",
-			"calendar",
-			false,
-		);
-	});
-
-	it("shows the allow-writes warning copy when allowWrites is on", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-nc",
-						provider: "nextcloud",
-						capabilities: ["files"],
-						allowWrites: true,
-					}),
-				],
-			}),
-		);
-
-		expect(screen.getByText(/Writing is off by default/)).toBeInTheDocument();
-	});
-
-	it("hides the allow-writes toggle entirely for a read-only provider (plex)", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-plex",
-						provider: "plex",
-						capabilities: ["media"],
-					}),
-				],
-			}),
-		);
-
 		expect(
-			screen.queryByRole("switch", { name: /Allow writes/ }),
+			screen.queryByTestId("connection-detail-conn-9"),
 		).not.toBeInTheDocument();
 	});
 
-	it("shows the write-allowlist editor only for nextcloud (path-based writes) with allowWrites on", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-nc",
-						provider: "nextcloud",
-						capabilities: ["files"],
-						allowWrites: true,
-						writeAllowlist: ["/AlfyAI"],
-					}),
-				],
-			}),
-		);
-
-		expect(screen.getByText("Allowed folders")).toBeInTheDocument();
-		expect(screen.getByText("/AlfyAI")).toBeInTheDocument();
-	});
-
-	it("does not show the write-allowlist editor for a non-path writable provider (google), showing a confirm note instead", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-google",
-						provider: "google",
-						allowWrites: true,
-					}),
-				],
-			}),
-		);
-
-		expect(screen.queryByText("Allowed folders")).not.toBeInTheDocument();
-		expect(
-			screen.getByText(/confirmed individually before they happen/),
-		).toBeInTheDocument();
-	});
-
-	it("adding a write-allowlist entry calls onUpdateWriteAllowlist with the appended path", async () => {
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-nc",
-						provider: "nextcloud",
-						capabilities: ["files"],
-						allowWrites: true,
-						writeAllowlist: ["/AlfyAI"],
-					}),
-				],
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		const input = screen.getByPlaceholderText("/folder/path");
-		await fireEvent.input(input, { target: { value: "/Documents" } });
-		await fireEvent.click(screen.getByRole("button", { name: "Add" }));
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", [
-			"/AlfyAI",
-			"/Documents",
-		]);
-	});
-
-	it("removing a write-allowlist chip calls onUpdateWriteAllowlist without that path", async () => {
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-nc",
-						provider: "nextcloud",
-						capabilities: ["files"],
-						allowWrites: true,
-						writeAllowlist: ["/AlfyAI", "/Documents"],
-					}),
-				],
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Remove /Documents" }),
-		);
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", ["/AlfyAI"]);
-	});
-
-	it("disconnect opens a confirm dialog, then calls onDisconnect on confirm", async () => {
-		const onDisconnect = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1" })],
-				onDisconnect,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Disconnect Google" }),
-		);
-
-		expect(
-			screen.getByRole("heading", { name: "Disconnect Google?" }),
-		).toBeInTheDocument();
-		expect(onDisconnect).not.toHaveBeenCalled();
-
-		await fireEvent.click(screen.getByTestId("confirm-delete"));
-
-		expect(onDisconnect).toHaveBeenCalledWith("conn-1");
-	});
-
-	it("renders the empty state message plus an Add-a-connection section listing every connectable provider", () => {
-		const onStartConnect = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [],
-				onStartConnect,
-			}),
-		);
+	it("renders the empty state message when there are no connections", () => {
+		render(SettingsConnectionsTab, baseProps({ connections: [] }));
 
 		expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
 		expect(screen.getByText("No connections yet.")).toBeInTheDocument();
-
-		const addSection = screen.getByTestId("connections-add");
-		expect(addSection).toBeInTheDocument();
-		expect(
-			within(addSection).getByText("Add a connection"),
-		).toBeInTheDocument();
-		for (const provider of CONNECTABLE_PROVIDER_LIST) {
-			const displayName = getProviderCatalogEntry(provider).displayName;
-			expect(
-				within(addSection).getByRole("button", {
-					name: `Connect ${displayName}`,
-				}),
-			).toBeInTheDocument();
-		}
 	});
 
-	it("excludes resolver-only providers (contacts) from the Add-a-connection list", () => {
-		render(SettingsConnectionsTab, baseProps({ connections: [] }));
-
-		const addSection = screen.getByTestId("connections-add");
-		expect(
-			within(addSection).queryByRole("button", {
-				name: "Connect Contacts (CardDAV)",
-			}),
-		).not.toBeInTheDocument();
-	});
-
-	it("clicking a provider's Connect button in the Add-a-connection section calls onStartConnect(provider)", async () => {
-		const onStartConnect = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [],
-				onStartConnect,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Connect Nextcloud" }),
-		);
-
-		expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
-	});
-
-	it("keeps the Add-a-connection section visible when connections already exist, and hints at already-connected providers", async () => {
-		const onStartConnect = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", provider: "google" })],
-				onStartConnect,
-			}),
-		);
-
-		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
-		const addSection = screen.getByTestId("connections-add");
-		expect(addSection).toBeInTheDocument();
-
-		// Adding another account of an already-connected provider stays allowed —
-		// the button remains present and clickable, just with a hint.
-		const googleConnectBtn = within(addSection).getByRole("button", {
-			name: "Connect Google",
-		});
-		expect(googleConnectBtn).toBeInTheDocument();
-		expect(within(googleConnectBtn).getByText("Connected")).toBeInTheDocument();
-
-		await fireEvent.click(googleConnectBtn);
-		expect(onStartConnect).toHaveBeenCalledWith("google");
-
-		// A provider with no existing connection shows no hint.
-		const nextcloudConnectBtn = within(addSection).getByRole("button", {
-			name: "Connect Nextcloud",
-		});
-		expect(
-			within(nextcloudConnectBtn).queryByText("Connected"),
-		).not.toBeInTheDocument();
-	});
-
-	it("shows a loading indicator instead of the empty state / Add section while loading", () => {
+	it("shows a loading indicator instead of the list/empty state while loading", () => {
 		render(
 			SettingsConnectionsTab,
 			baseProps({ connections: [], loading: true }),
@@ -382,6 +212,79 @@ describe("SettingsConnectionsTab", () => {
 		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("connections-add")).not.toBeInTheDocument();
 		expect(screen.getByText("Loading…")).toBeInTheDocument();
+	});
+
+	describe("Add-a-connection strip", () => {
+		it("lists every connectable provider as a brand icon button, excluding contacts", () => {
+			render(SettingsConnectionsTab, baseProps({ connections: [] }));
+
+			const addSection = screen.getByTestId("connections-add");
+			for (const provider of CONNECTABLE_PROVIDER_LIST) {
+				if (provider === "google") continue;
+				const displayName = getProviderCatalogEntry(provider).displayName;
+				expect(
+					within(addSection).getByRole("button", {
+						name: `Connect ${displayName}`,
+					}),
+				).toBeInTheDocument();
+			}
+			expect(
+				within(addSection).queryByRole("button", {
+					name: "Connect Contacts (CardDAV)",
+				}),
+			).not.toBeInTheDocument();
+		});
+
+		it("uses the branded GoogleSignInButton for the Google entry", () => {
+			render(SettingsConnectionsTab, baseProps({ connections: [] }));
+
+			const addSection = screen.getByTestId("connections-add");
+			expect(
+				within(addSection).getByRole("button", {
+					name: "Continue with Google",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("clicking a provider tile calls onStartConnect(provider)", async () => {
+			const onStartConnect = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({ connections: [], onStartConnect }),
+			);
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Connect Nextcloud" }),
+			);
+			expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue with Google" }),
+			);
+			expect(onStartConnect).toHaveBeenCalledWith("google");
+		});
+
+		it("hints at already-connected providers, including Google", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [makeConnection({ id: "conn-1", provider: "google" })],
+				}),
+			);
+
+			const addSection = screen.getByTestId("connections-add");
+			const googleTile = within(addSection)
+				.getByRole("button", { name: "Continue with Google" })
+				.closest(".connections-provider-tile") as HTMLElement;
+			expect(within(googleTile).getByText("Connected")).toBeInTheDocument();
+
+			const nextcloudBtn = within(addSection).getByRole("button", {
+				name: "Connect Nextcloud",
+			});
+			expect(
+				within(nextcloudBtn).queryByText("Connected"),
+			).not.toBeInTheDocument();
+		});
 	});
 
 	describe("Privacy & locality (Option A)", () => {
