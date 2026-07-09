@@ -28,7 +28,10 @@ import {
 	updateConnection,
 	type ConnectionPublic,
 } from "$lib/client/api/connections";
-import type { ConnectionProvider } from "$lib/client/connections/provider-catalog";
+import {
+	getProviderCatalogEntry,
+	type ConnectionProvider,
+} from "$lib/client/connections/provider-catalog";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
 import {
 	avatarState,
@@ -46,14 +49,16 @@ import {
 } from "$lib/stores/settings";
 import { setThemeAndSync } from "$lib/stores/theme";
 import { currentConversationId } from "$lib/stores/ui";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import { AVATAR_COLORS, AVATAR_COUNT } from "$lib/utils/avatar";
+import ConnectWizardModal from "./_components/ConnectWizardModal.svelte";
 import PrivacyActionModal, {
 	type PrivacyAction,
 } from "./_components/PrivacyActionModal.svelte";
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
 import SettingsConnectionsTab from "./_components/SettingsConnectionsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
+import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/types";
 import type { PageProps } from "./$types";
 
@@ -234,10 +239,36 @@ let connections = $state<ConnectionPublic[]>([]);
 let connectionsLoaded = $state(false);
 let connectionsLoading = $state(false);
 // Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
-// props; consumed by the connect wizard modal built in Issue 7.3. 7.1 only
-// sets this intent state, it does not render a wizard.
+// props; consumed by the ConnectWizardModal below (Issue 7.3).
 let connectWizardProvider = $state<ConnectionProvider | null>(null);
 let reconnectConnectionId = $state<string | null>(null);
+// Non-null only while reconnectConnectionId is set — resolved from the
+// already-loaded connections list so the wizard can prefill non-secret
+// fields (server URL, email, ...) from the existing connection's config.
+// Named distinctly from the reconnectConnection() handler function below
+// (SettingsConnectionsTab's onReconnect callback prop).
+const reconnectConnectionRecord = $derived(
+	reconnectConnectionId
+		? (connections.find((conn) => conn.id === reconnectConnectionId) ?? null)
+		: null,
+);
+// Issue 7.3 — transient banner shown above the Connections tab after the
+// Google OAuth callback redirects back here (?connected=<provider> /
+// ?error=<code>; see the onMount handler below and
+// src/routes/api/oauth/google/callback/+server.ts).
+let connectionsNotice = $state<{
+	type: "success" | "error";
+	provider?: string;
+	reasonKey?: I18nKey;
+} | null>(null);
+
+function showConnectionsNotice(notice: NonNullable<typeof connectionsNotice>) {
+	connectionsNotice = notice;
+	const timer = setTimeout(() => {
+		connectionsNotice = null;
+	}, 6000);
+	messageTimers.push(timer);
+}
 
 function parseExcludedUserIds(): string[] {
 	const raw = initialCurrentConfigValues?.ANALYTICS_EXCLUDED_USER_IDS;
@@ -420,19 +451,45 @@ async function changeUiLanguage(lang: UiLanguage) {
 }
 
 // Deep-link from the Knowledge memory empty state (/settings?section=memory):
-// bring the Profile tab forward and scroll the Memory card into view.
+// bring the Profile tab forward and scroll the Memory card into view. Also
+// handles the Google OAuth callback's return to
+// /settings?section=connections&connected=<provider> (or &error=<code>) —
+// see src/routes/api/oauth/google/callback/+server.ts for the exact param
+// names/values this reads.
 onMount(() => {
 	if (typeof window === "undefined") return;
-	const section = new URLSearchParams(window.location.search).get("section");
-	if (section !== "memory") return;
-	activeTab = "profile";
-	requestAnimationFrame(() => {
-		const card = document.getElementById("settings-memory-card");
-		if (!card) return;
-		card.scrollIntoView({ behavior: "smooth", block: "center" });
-		card.classList.add("settings-card-highlight");
-		setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
-	});
+	const params = new URLSearchParams(window.location.search);
+	const section = params.get("section");
+
+	if (section === "memory") {
+		activeTab = "profile";
+		requestAnimationFrame(() => {
+			const card = document.getElementById("settings-memory-card");
+			if (!card) return;
+			card.scrollIntoView({ behavior: "smooth", block: "center" });
+			card.classList.add("settings-card-highlight");
+			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+		});
+		return;
+	}
+
+	if (section !== "connections") return;
+	activeTab = "connections";
+
+	const connectedProvider = params.get("connected");
+	const oauthErrorCode = params.get("error");
+	if (connectedProvider) {
+		void loadConnections();
+		showConnectionsNotice({ type: "success", provider: connectedProvider });
+	} else if (oauthErrorCode) {
+		showConnectionsNotice({
+			type: "error",
+			reasonKey: getOAuthErrorReasonKey(oauthErrorCode),
+		});
+	}
+	if (connectedProvider || oauthErrorCode) {
+		window.history.replaceState(null, "", window.location.pathname);
+	}
 });
 
 async function changeMemoryEnabled(enabled: boolean) {
@@ -533,13 +590,23 @@ async function disconnectConnectionById(id: string) {
 }
 
 function startConnect(provider: ConnectionProvider) {
-	// 7.3 reads this intent to open the connect wizard modal.
+	reconnectConnectionId = null;
 	connectWizardProvider = provider;
 }
 
 function reconnectConnection(connectionId: string) {
-	// 7.3 reads this intent to open the reconnect wizard modal.
+	const target = connections.find((conn) => conn.id === connectionId);
 	reconnectConnectionId = connectionId;
+	connectWizardProvider = (target?.provider as ConnectionProvider) ?? null;
+}
+
+function closeConnectWizard() {
+	connectWizardProvider = null;
+	reconnectConnectionId = null;
+}
+
+function handleConnectWizardConnected() {
+	void loadConnections();
 }
 
 function openPrivacyAction(action: PrivacyAction) {
@@ -780,6 +847,17 @@ $effect(() => {
 		{/if}
 
 		{#if activeTab === 'connections'}
+			{#if connectionsNotice}
+				<div
+					class="settings-card mb-4 connections-notice"
+					class:connections-notice-error={connectionsNotice.type === 'error'}
+					role="status"
+				>
+					{connectionsNotice.type === 'success'
+						? $t('connections.oauthReturn.success', { provider: getProviderCatalogEntry(connectionsNotice.provider ?? '').displayName })
+						: $t('connections.oauthReturn.error', { reason: $t(connectionsNotice.reasonKey ?? 'connections.oauthReturn.reason.generic') })}
+				</div>
+			{/if}
 			<SettingsConnectionsTab
 				{connections}
 				loading={connectionsLoading && !connectionsLoaded}
@@ -791,9 +869,16 @@ $effect(() => {
 				onStartConnect={startConnect}
 				onReconnect={reconnectConnection}
 			/>
-			<!-- 7.3: connect wizard modal reads connectWizardProvider /
-			     reconnectConnectionId (state above) and renders the add/
-			     reconnect forms. Not built here. -->
+		{/if}
+
+		{#if connectWizardProvider}
+			<ConnectWizardModal
+				provider={connectWizardProvider}
+				{reconnectConnectionId}
+				reconnectConnection={reconnectConnectionRecord}
+				onClose={closeConnectWizard}
+				onConnected={handleConnectWizardConnected}
+			/>
 		{/if}
 
 		{#if activeTab === 'administration' && isAdmin}
@@ -915,6 +1000,19 @@ $effect(() => {
 	:global(.settings-card-highlight) {
 		box-shadow: 0 0 0 2px var(--accent);
 		transition: box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	/* Issue 7.3 — OAuth-return banner (success/error) above the Connections
+	   tab; see connectionsNotice in the script above. */
+	.connections-notice {
+		font-size: 0.8125rem;
+		color: var(--success);
+		border-color: color-mix(in srgb, var(--success) 40%, transparent);
+	}
+
+	.connections-notice-error {
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
 
 	:global(.toggle-btn) {

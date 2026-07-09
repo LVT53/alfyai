@@ -5,9 +5,9 @@
 // revert, fetch-on-first-visit) live in +page.svelte.
 //
 // The CONNECT WIZARDS (the actual forms to add/reconnect a connection) are
-// Issue 7.3 — this component only raises the intent (onStartConnect /
-// onReconnect) via callback props. See the placeholder comment near the
-// bottom of this file for where 7.3 plugs in.
+// ConnectWizardModal.svelte (Issue 7.3), rendered by +page.svelte — this
+// component only raises the intent (onStartConnect/onReconnect) via
+// callback props.
 import {
 	Apple,
 	Calendar,
@@ -280,9 +280,6 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		</section>
 	{/each}
 {/if}
-
-<!-- 7.3: connect wizard modal reads connectWizardProvider / reconnectConnectionId
-     (state lifted to +page.svelte) and renders the add/reconnect forms here. -->
 
 {#if disconnectCandidate}
 	{@const target = disconnectCandidate}

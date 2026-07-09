@@ -41,6 +41,85 @@ const connectionsDict = {
 			"No folders added yet — writes default to /AlfyAI.",
 		"connections.writeAllowlist.label": "Allowed folders",
 		"connections.writeAllowlist.removeA11y": "Remove {path}",
+
+		// Issue 7.3 — connect wizard (ConnectWizardModal) + OAuth-return notice.
+		"connections.wizard.titleConnect": "Connect {provider}",
+		"connections.wizard.titleReconnect": "Reconnect {provider}",
+		"connections.wizard.connecting": "Connecting…",
+		"connections.wizard.genericError":
+			"Something went wrong. Please try again.",
+		"connections.wizard.selectAtLeastOne": "Select at least one capability.",
+
+		"connections.wizard.oauth.intro":
+			"Choose what AlfyAI can access, then continue to Google to grant permission.",
+		"connections.wizard.oauth.continue": "Continue to Google",
+		"connections.wizard.oauth.redirecting": "Redirecting to Google…",
+		"connections.wizard.oauth.notConfigured":
+			"Google connect isn't configured on this server yet. Ask your administrator to set it up.",
+
+		"connections.wizard.nextcloud.serverUrlLabel": "Server URL",
+		"connections.wizard.nextcloud.serverUrlPlaceholder":
+			"https://cloud.example.com",
+		"connections.wizard.nextcloud.help":
+			"We'll open a new tab where you can log in to Nextcloud and approve AlfyAI.",
+		"connections.wizard.nextcloud.waiting":
+			"Waiting for you to approve in Nextcloud…",
+		"connections.wizard.nextcloud.checkApproval": "I've approved",
+		"connections.wizard.nextcloud.timeout":
+			"This took too long — the login link may have expired. Please try again.",
+
+		"connections.wizard.immich.serverUrlLabel": "Server URL",
+		"connections.wizard.immich.emailLabel": "Email",
+		"connections.wizard.immich.passwordLabel": "Password",
+		"connections.wizard.immich.help":
+			"Use the same email and password you use to log in to your Immich server.",
+
+		"connections.wizard.plex.serverUrlLabel": "Server URL",
+		"connections.wizard.plex.tokenLabel": "Plex token",
+		"connections.wizard.plex.help":
+			"Find your token by signing in to Plex Web, opening any item's “Get Info” → “View XML”, and copying the X-Plex-Token value from the URL.",
+
+		"connections.wizard.apple.appleIdLabel": "Apple ID",
+		"connections.wizard.apple.appPasswordLabel": "App-specific password",
+		"connections.wizard.apple.help":
+			"Generate an app-specific password at appleid.apple.com and paste it here — your regular Apple ID password won't work.",
+		"connections.wizard.apple.generateLink":
+			"Generate one at appleid.apple.com",
+
+		"connections.wizard.email.emailLabel": "Email address",
+		"connections.wizard.email.imapHostLabel": "IMAP server",
+		"connections.wizard.email.imapPortLabel": "Port",
+		"connections.wizard.email.imapSecureLabel": "Use SSL/TLS",
+		"connections.wizard.email.passwordLabel": "App password",
+		"connections.wizard.email.smtpHostLabel": "SMTP server (optional)",
+		"connections.wizard.email.smtpPortLabel": "SMTP port (optional)",
+		"connections.wizard.email.help":
+			"For Gmail or iCloud, use an app password rather than your normal password.",
+
+		"connections.wizard.owntracks.help":
+			"Pick which device is yours. AlfyAI will only ever read this device's location.",
+		"connections.wizard.owntracks.notConfigured":
+			"OwnTracks isn't configured on this server yet. Ask your administrator to set it up.",
+		"connections.wizard.owntracks.empty":
+			"No devices found on the OwnTracks recorder yet.",
+		"connections.wizard.owntracks.deviceOption": "{otUser} / {otDevice}",
+
+		"connections.wizard.contacts.notAvailable":
+			"Connecting Contacts directly isn't available yet — connect Google, Apple, or Nextcloud instead to bring in contacts.",
+
+		"connections.oauthReturn.success": "Connected to {provider}.",
+		"connections.oauthReturn.error": "Couldn't connect: {reason}",
+		"connections.oauthReturn.reason.google_oauth_denied":
+			"You declined the Google permission request.",
+		"connections.oauthReturn.reason.google_oauth_invalid_request":
+			"Google's response was missing required information.",
+		"connections.oauthReturn.reason.google_oauth_invalid_state":
+			"Your session expired before Google could finish. Please try again.",
+		"connections.oauthReturn.reason.google_oauth_state_mismatch":
+			"This request didn't match your session. Please try again.",
+		"connections.oauthReturn.reason.google_oauth_failed":
+			"Google couldn't complete the connection. Please try again.",
+		"connections.oauthReturn.reason.generic": "Please try again.",
 	},
 	hu: {
 		"connections.actions.connect": "Csatlakoztatás",
@@ -81,6 +160,84 @@ const connectionsDict = {
 			"Még nincs hozzáadott mappa — az írások alapértelmezetten ide kerülnek: /AlfyAI.",
 		"connections.writeAllowlist.label": "Engedélyezett mappák",
 		"connections.writeAllowlist.removeA11y": "{path} eltávolítása",
+
+		// Issue 7.3 — connect wizard (ConnectWizardModal) + OAuth-return notice.
+		"connections.wizard.titleConnect": "{provider} csatlakoztatása",
+		"connections.wizard.titleReconnect": "{provider} újracsatlakoztatása",
+		"connections.wizard.connecting": "Csatlakozás…",
+		"connections.wizard.genericError": "Hiba történt. Kérjük, próbáld újra.",
+		"connections.wizard.selectAtLeastOne": "Válassz legalább egy képességet.",
+
+		"connections.wizard.oauth.intro":
+			"Válaszd ki, mihez férhet hozzá az AlfyAI, majd folytasd a Google-nél a hozzájárulás megadásához.",
+		"connections.wizard.oauth.continue": "Folytatás a Google-nél",
+		"connections.wizard.oauth.redirecting": "Átirányítás a Google-höz…",
+		"connections.wizard.oauth.notConfigured":
+			"A Google-csatlakozás még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
+
+		"connections.wizard.nextcloud.serverUrlLabel": "Szerver URL",
+		"connections.wizard.nextcloud.serverUrlPlaceholder":
+			"https://felho.pelda.hu",
+		"connections.wizard.nextcloud.help":
+			"Nyitunk egy új lapot, ahol bejelentkezhetsz a Nextcloudba, és jóváhagyhatod az AlfyAI-t.",
+		"connections.wizard.nextcloud.waiting":
+			"Várakozás a jóváhagyásodra a Nextcloudban…",
+		"connections.wizard.nextcloud.checkApproval": "Jóváhagytam",
+		"connections.wizard.nextcloud.timeout":
+			"Ez túl sokáig tartott — a bejelentkezési link lejárhatott. Kérjük, próbáld újra.",
+
+		"connections.wizard.immich.serverUrlLabel": "Szerver URL",
+		"connections.wizard.immich.emailLabel": "E-mail",
+		"connections.wizard.immich.passwordLabel": "Jelszó",
+		"connections.wizard.immich.help":
+			"Add meg ugyanazt az e-mail-címet és jelszót, amellyel az Immich szerveredre bejelentkezel.",
+
+		"connections.wizard.plex.serverUrlLabel": "Szerver URL",
+		"connections.wizard.plex.tokenLabel": "Plex token",
+		"connections.wizard.plex.help":
+			"A tokenedet a Plex Web-be bejelentkezve találod: nyiss meg egy elemet, válaszd a „Get Info” → „View XML” lehetőséget, majd másold ki az URL-ből az X-Plex-Token értékét.",
+
+		"connections.wizard.apple.appleIdLabel": "Apple ID",
+		"connections.wizard.apple.appPasswordLabel": "Alkalmazásspecifikus jelszó",
+		"connections.wizard.apple.help":
+			"Készíts egy alkalmazásspecifikus jelszót az appleid.apple.com oldalon, és illeszd be ide — a szokásos Apple ID jelszavad nem fog működni.",
+		"connections.wizard.apple.generateLink":
+			"Készíts egyet az appleid.apple.com oldalon",
+
+		"connections.wizard.email.emailLabel": "E-mail-cím",
+		"connections.wizard.email.imapHostLabel": "IMAP szerver",
+		"connections.wizard.email.imapPortLabel": "Port",
+		"connections.wizard.email.imapSecureLabel": "SSL/TLS használata",
+		"connections.wizard.email.passwordLabel": "Alkalmazásjelszó",
+		"connections.wizard.email.smtpHostLabel": "SMTP szerver (nem kötelező)",
+		"connections.wizard.email.smtpPortLabel": "SMTP port (nem kötelező)",
+		"connections.wizard.email.help":
+			"Gmailhez vagy iCloudhoz a szokásos jelszó helyett használj alkalmazásjelszót.",
+
+		"connections.wizard.owntracks.help":
+			"Válaszd ki, melyik eszköz a tiéd. Az AlfyAI kizárólag ennek az eszköznek a helyadatait fogja tudni olvasni.",
+		"connections.wizard.owntracks.notConfigured":
+			"Az OwnTracks még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
+		"connections.wizard.owntracks.empty":
+			"Még nem található eszköz az OwnTracks rekorderen.",
+		"connections.wizard.owntracks.deviceOption": "{otUser} / {otDevice}",
+
+		"connections.wizard.contacts.notAvailable":
+			"A Névjegyek közvetlen csatlakoztatása még nem elérhető — csatlakoztasd inkább a Google-t, az Apple-t vagy a Nextcloudot a névjegyek behozatalához.",
+
+		"connections.oauthReturn.success": "Csatlakoztatva: {provider}.",
+		"connections.oauthReturn.error": "Nem sikerült csatlakozni: {reason}",
+		"connections.oauthReturn.reason.google_oauth_denied":
+			"Elutasítottad a Google jogosultságkérését.",
+		"connections.oauthReturn.reason.google_oauth_invalid_request":
+			"A Google válaszából hiányoztak a szükséges adatok.",
+		"connections.oauthReturn.reason.google_oauth_invalid_state":
+			"A munkameneted lejárt, mielőtt a Google befejezhette volna. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.google_oauth_state_mismatch":
+			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.google_oauth_failed":
+			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.generic": "Kérjük, próbáld újra.",
 	},
 } as const;
 
