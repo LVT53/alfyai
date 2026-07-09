@@ -7,6 +7,7 @@ const connectionsDict = {
 		"connections.actions.disconnect": "Disconnect",
 		"connections.actions.reconnect": "Reconnect",
 		"connections.addConnection.title": "Add a connection",
+		"connections.googleSignIn.label": "Continue with Google",
 		"connections.allowWrites.label": "Allow writes",
 		"connections.allowWrites.warning":
 			"Writing is off by default. When on, AlfyAI can modify this account only after you confirm each change.",
@@ -164,6 +165,7 @@ const connectionsDict = {
 		"connections.actions.disconnect": "Leválasztás",
 		"connections.actions.reconnect": "Újracsatlakoztatás",
 		"connections.addConnection.title": "Kapcsolat hozzáadása",
+		"connections.googleSignIn.label": "Csatlakozás Google-fiókkal",
 		"connections.allowWrites.label": "Írás engedélyezése",
 		"connections.allowWrites.warning":
 			"Az írás alapértelmezetten ki van kapcsolva. Ha bekapcsolod, az AlfyAI csak a jóváhagyásod után módosíthatja ezt a fiókot, minden egyes változtatásnál.",
