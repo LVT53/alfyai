@@ -52,6 +52,17 @@ vi.mock("$lib/server/services/file-production", () => ({
 	listConversationFileProductionJobs: vi.fn(async () => []),
 }));
 
+// Issue 7.5 — snapshotConversationPendingWrites/finalizeChatTurn's pending
+// write reconciliation (chat-turn/finalize.ts) load/write real rows via
+// these two functions with no override param on the SEND path, mirroring
+// the file-production mock immediately above. Previously unmocked here,
+// which meant every send.test.ts run silently hit the real
+// $lib/server/db default (./data/chat.db) for these calls.
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	assignPendingWritesToAssistantMessage: vi.fn(async () => undefined),
+	listPendingWritesForConversation: vi.fn(async () => []),
+}));
+
 vi.mock("$lib/server/services/chat-files", () => ({
 	getChatFilesForAssistantMessage: vi.fn(async () => []),
 	syncGeneratedFilesToMemory: vi.fn(async () => undefined),
@@ -186,6 +197,10 @@ import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-strea
 import { resolveReasoningDepthSelection } from "$lib/server/services/chat-turn/depth-selection";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
+	assignPendingWritesToAssistantMessage,
+	listPendingWritesForConversation,
+} from "$lib/server/services/connections/pending-writes";
+import {
 	getConversation,
 	touchConversation,
 } from "$lib/server/services/conversations";
@@ -233,6 +248,11 @@ const mockListFileProductionJobs =
 	listConversationFileProductionJobs as ReturnType<typeof vi.fn>;
 const mockAssignFileProductionJobs =
 	assignFileProductionJobsToAssistantMessage as ReturnType<typeof vi.fn>;
+const mockListPendingWrites = listPendingWritesForConversation as ReturnType<
+	typeof vi.fn
+>;
+const mockAssignPendingWrites =
+	assignPendingWritesToAssistantMessage as ReturnType<typeof vi.fn>;
 const mockGetChatFilesForAssistantMessage =
 	getChatFilesForAssistantMessage as ReturnType<typeof vi.fn>;
 const mockSyncGeneratedFilesToMemory = syncGeneratedFilesToMemory as ReturnType<
@@ -309,6 +329,8 @@ describe("POST /api/chat/send", () => {
 		});
 		mockListFileProductionJobs.mockResolvedValue([]);
 		mockAssignFileProductionJobs.mockResolvedValue(undefined);
+		mockListPendingWrites.mockResolvedValue([]);
+		mockAssignPendingWrites.mockResolvedValue(undefined);
 		mockGetChatFilesForAssistantMessage.mockResolvedValue([]);
 		mockSyncGeneratedFilesToMemory.mockResolvedValue(undefined);
 		mockGetAvailableSkillSummary.mockResolvedValue(baseSkillSummary);
@@ -1860,5 +1882,128 @@ describe("POST /api/chat/send", () => {
 
 		expect(response.status).toBe(400);
 		expect(data.error).toMatch(/invalid json/i);
+	});
+
+	// Issue 7.5 — the SEND path's snapshotConversationPendingWrites +
+	// finalizeChatTurn's generatedOutputReconciliation.pendingWriteIdsAtStart
+	// wiring (routes/api/chat/send/+server.ts) had zero test coverage before
+	// this: it's the non-streaming sibling of the STREAM path's
+	// pendingWriteIdsAtStart fact (chat-turn/stream-completion.ts).
+	describe("pending-write reconciliation", () => {
+		it("stamps a new pending write onto the finalized assistant message id", async () => {
+			seedConversationTurn(mockGetConversation, mockCreateMessage, {
+				userMessage: { content: "Save this to Nextcloud" },
+				assistantMessage: { content: "Saved." },
+			});
+			mockRunPlainNormalChatSendModel.mockResolvedValue({
+				text: "Saved.",
+				contextStatus: undefined,
+			});
+			mockListPendingWrites
+				.mockResolvedValueOnce([{ id: "pw-existing" }])
+				.mockResolvedValueOnce([{ id: "pw-existing" }, { id: "pw-new" }]);
+
+			const event = makeEvent({
+				message: "Save this to Nextcloud",
+				conversationId: "conv-1",
+			});
+			const response = await POST(event);
+
+			expect(response.status).toBe(200);
+			expect(mockListPendingWrites).toHaveBeenCalledWith("user-1", "conv-1");
+			expect(mockAssignPendingWrites).toHaveBeenCalledWith(
+				"user-1",
+				"conv-1",
+				"assistant-msg",
+				["pw-new"],
+			);
+		});
+
+		it("does not stamp anything when the turn creates no new pending write", async () => {
+			seedConversationTurn(mockGetConversation, mockCreateMessage, {
+				userMessage: { content: "Hello" },
+				assistantMessage: { content: "Hello from AI!" },
+			});
+			mockListPendingWrites.mockResolvedValue([{ id: "pw-existing" }]);
+
+			const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
+			const response = await POST(event);
+
+			expect(response.status).toBe(200);
+			expect(mockAssignPendingWrites).not.toHaveBeenCalled();
+		});
+
+		it("never crashes the request when the pending-write start snapshot query fails", async () => {
+			seedConversationTurn(mockGetConversation, mockCreateMessage, {
+				userMessage: { content: "Hello" },
+				assistantMessage: { content: "Hello from AI!" },
+			});
+			mockListPendingWrites.mockRejectedValueOnce(
+				new Error("pending-write snapshot failed"),
+			);
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementation(() => undefined);
+
+			try {
+				const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
+				const response = await POST(event);
+				const data = await response.json();
+
+				expect(response.status).toBe(200);
+				expect(data.response.text).toBe("Hello from AI!");
+				expect(warn).toHaveBeenCalledWith(
+					"[CHAT_SEND] Failed to snapshot pending writes at send start",
+					expect.objectContaining({ conversationId: "conv-1" }),
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		});
+
+		// Characterization test — documents a real behavior gap found while
+		// writing this coverage, NOT a guarantee of correctness (see the
+		// fix-me note below). snapshotConversationPendingWrites's catch block
+		// (routes/api/chat/send/+server.ts) falls back to `new Set()` on
+		// failure, which is truthy, so reconcilePendingWritesForAssistantMessage
+		// (chat-turn/finalize.ts)'s `if (!pendingWriteIdsAtStart) return;` guard
+		// does NOT skip — every pre-existing pending write in the conversation
+		// (including ones from unrelated earlier turns) gets diffed as "new"
+		// and stamped onto THIS turn's assistant message. The STREAM path's
+		// equivalent (resolvePendingWriteIdsAtStartFact in
+		// chat-turn/stream-completion.ts) instead falls back to `undefined` on
+		// failure, which correctly trips the guard and skips reconciliation
+		// entirely. This test pins the SEND path's current (divergent, mis-
+		// attributing) behavior so a future fix shows up as an intentional
+		// test change rather than a silent regression. FIX-ME: make
+		// snapshotConversationPendingWrites return `undefined` on failure to
+		// match the STREAM path's safer degrade.
+		it("(characterization, flagged as a gap) mis-attributes a pre-existing pending write when the start snapshot query fails", async () => {
+			seedConversationTurn(mockGetConversation, mockCreateMessage, {
+				userMessage: { content: "Hello" },
+				assistantMessage: { content: "Hello from AI!" },
+			});
+			mockListPendingWrites
+				.mockRejectedValueOnce(new Error("pending-write snapshot failed"))
+				.mockResolvedValueOnce([{ id: "pw-preexisting" }]);
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementation(() => undefined);
+
+			try {
+				const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
+				const response = await POST(event);
+
+				expect(response.status).toBe(200);
+				expect(mockAssignPendingWrites).toHaveBeenCalledWith(
+					"user-1",
+					"conv-1",
+					"assistant-msg",
+					["pw-preexisting"],
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		});
 	});
 });
