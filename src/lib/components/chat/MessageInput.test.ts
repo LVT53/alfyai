@@ -62,9 +62,6 @@ const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
 const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
-const checkCloudWarningMock = vi.hoisted(() => vi.fn());
-const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
-const setLocalDistillMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
@@ -78,11 +75,15 @@ vi.mock("$lib/client/api/conversations", () => ({
 	setConversationMemoryIncognito: setConversationMemoryIncognitoMock,
 }));
 
+// Issue 7.4 fix pass — MessageInput no longer imports checkCloudWarning/
+// ackCloudConnector/setLocalDistill itself (that gate now lives at the page
+// level, driven into this component via the `beforeSend` prop — see the
+// "MessageInput send gate (beforeSend contract)" describe block below and
+// src/routes/(app)/chat/[conversationId]/page-runtime.test.ts for the
+// full check+modal+ack/cancel scenarios). Only the capability *list* fetch
+// remains local to this component.
 vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
-	checkCloudWarning: checkCloudWarningMock,
-	ackCloudConnector: ackCloudConnectorMock,
-	setLocalDistill: setLocalDistillMock,
 }));
 
 describe("MessageInput", () => {
@@ -2339,7 +2340,16 @@ describe("MessageInput composer capability toggles", () => {
 	});
 });
 
-describe("MessageInput cloud connector warning (Option C)", () => {
+// Issue 7.4 fix pass — the cloud-warning check + modal (previously local to
+// this component) now live at the page level (see
+// src/routes/(app)/chat/[conversationId]/+page.svelte's
+// ensureCloudWarningAcked, and page-runtime.test.ts for the full
+// check/modal/ack/cancel/regenerate/edit/retry scenarios). What remains
+// local to MessageInput is the *contract* with its `beforeSend` prop: every
+// dispatch (a fresh send AND a send queued behind an in-flight attachment
+// upload) must await it before calling onSend, and must NOT clear the
+// composer unless it resolves true.
+describe("MessageInput send gate (beforeSend contract)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
@@ -2352,261 +2362,49 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 		discoverSkillsMock.mockResolvedValue([]);
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
 		fetchActiveCapabilitiesMock.mockResolvedValue({
-			served: ["calendar"],
-			defaultOn: ["calendar"],
-			accounts: [],
-		});
-	});
-
-	async function typeAndSend(
-		getByPlaceholderText: (text: string) => HTMLElement,
-		getByRole: (role: string, options?: Record<string, unknown>) => HTMLElement,
-		text = "What's on my calendar?",
-	) {
-		await fireEvent.input(getByPlaceholderText("Type a message..."), {
-			target: { value: text },
-		});
-		await fireEvent.click(getByRole("button", { name: "Send message" }));
-	}
-
-	it("checks the cloud warning and blocks send when shouldWarn is true", async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByText } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole);
-
-		await waitFor(() => {
-			expect(checkCloudWarningMock).toHaveBeenCalledWith("provider:abc:def", [
-				"calendar",
-			]);
-		});
-		expect(
-			await findByText("Sending data to a cloud model"),
-		).toBeInTheDocument();
-		expect(sendSpy).not.toHaveBeenCalled();
-	});
-
-	it("does not call the warning check for a local (non-provider) model", async () => {
-		selectedModel.set("model1");
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole } = render(MessageInput, {
-			onSend: sendSpy,
-		});
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole);
-
-		expect(checkCloudWarningMock).not.toHaveBeenCalled();
-		expect(sendSpy).toHaveBeenCalled();
-	});
-
-	it("does not call the warning check when there are no active capabilities", async () => {
-		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: [],
 			defaultOn: [],
 			accounts: [],
 		});
-		selectedModel.set("provider:abc:def");
+	});
+
+	it("dispatches immediately when no beforeSend prop is provided (backward compatible default)", async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			onSend: sendSpy,
 		});
 
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "No gate wired up" },
 		});
-		await typeAndSend(getByPlaceholderText, getByRole);
-
-		expect(checkCloudWarningMock).not.toHaveBeenCalled();
-		expect(sendSpy).toHaveBeenCalled();
-	});
-
-	it("sends immediately without a modal when the server reports shouldWarn:false", async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, queryByText } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole);
-
-		await waitFor(() => {
-			expect(sendSpy).toHaveBeenCalled();
-		});
-		expect(
-			queryByText("Sending data to a cloud model"),
-		).not.toBeInTheDocument();
-	});
-
-	it('"Continue" acknowledges then sends the original message', async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		ackCloudConnectorMock.mockResolvedValue(undefined);
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByRole } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole, "Cloud send please");
-
-		const continueBtn = await findByRole("button", { name: "Continue" });
-		await fireEvent.click(continueBtn);
-
-		await waitFor(() => {
-			expect(ackCloudConnectorMock).toHaveBeenCalled();
-		});
-		await waitFor(() => {
-			expect(sendSpy).toHaveBeenCalledWith(
-				expect.objectContaining({ message: "Cloud send please" }),
-			);
-		});
-	});
-
-	it('"Cancel" aborts the send and preserves the composer text', async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByRole } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole, "Don't lose me");
-
-		const cancelBtn = await findByRole("button", { name: "Cancel" });
-		await fireEvent.click(cancelBtn);
-
-		// The send is aborted (never dispatched) and the composer text is
-		// preserved exactly as typed — the DOM-removal timing of the modal's
-		// own outro transition isn't asserted here (Svelte transitions don't
-		// resolve reliably under jsdom); the cancel handler flipping
-		// cloudWarningOpen synchronously is covered by it no longer accepting
-		// further "Continue"/"Turn on local mode" interactions below.
-		expect(sendSpy).not.toHaveBeenCalled();
-		expect(
-			(getByPlaceholderText("Type a message...") as HTMLTextAreaElement).value,
-		).toBe("Don't lose me");
-
-		// A fresh send re-triggers the check from scratch (the earlier one was
-		// aborted, not acknowledged).
-		checkCloudWarningMock.mockClear();
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
-		await waitFor(() => {
-			expect(checkCloudWarningMock).toHaveBeenCalled();
-		});
-	});
 
-	it('"Turn on local mode" enables local distill then sends', async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		setLocalDistillMock.mockResolvedValue({ localDistill: true });
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByRole } = render(
-			MessageInput,
-			{ onSend: sendSpy },
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "No gate wired up" }),
 		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole);
-
-		const localModeBtn = await findByRole("button", {
-			name: "Turn on local mode",
-		});
-		await fireEvent.click(localModeBtn);
-
-		await waitFor(() => {
-			expect(setLocalDistillMock).toHaveBeenCalledWith(true);
-		});
-		await waitFor(() => {
-			expect(sendSpy).toHaveBeenCalled();
-		});
 	});
 
-	it("does not re-check the warning for a later send in the same session once acknowledged via Continue", async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		ackCloudConnectorMock.mockResolvedValue(undefined);
-		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByRole } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-		await typeAndSend(getByPlaceholderText, getByRole, "first");
-		const continueBtn = await findByRole("button", { name: "Continue" });
-		await fireEvent.click(continueBtn);
-		await waitFor(() => {
-			expect(sendSpy).toHaveBeenCalledTimes(1);
-		});
-
-		checkCloudWarningMock.mockClear();
-		await typeAndSend(getByPlaceholderText, getByRole, "second");
-
-		await waitFor(() => {
-			expect(sendSpy).toHaveBeenCalledTimes(2);
-		});
-		expect(checkCloudWarningMock).not.toHaveBeenCalled();
-	});
-
-	it("does not bypass the warning on a double-send while the check is still in flight (7.4 review C1)", async () => {
-		selectedModel.set("provider:abc:def");
-		let resolveCheck: ((value: { shouldWarn: boolean }) => void) | undefined;
-		checkCloudWarningMock.mockImplementation(
+	it("awaits beforeSend before dispatching, and disables Send while it is pending", async () => {
+		let resolveGate: ((proceed: boolean) => void) | undefined;
+		const beforeSend = vi.fn(
 			() =>
-				new Promise((resolve) => {
-					resolveCheck = resolve;
+				new Promise<boolean>((resolve) => {
+					resolveGate = resolve;
 				}),
 		);
 		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, findByText } = render(
-			MessageInput,
-			{ onSend: sendSpy },
-		);
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			beforeSend,
 		});
 
-		const input = getByPlaceholderText(
-			"Type a message...",
-		) as HTMLTextAreaElement;
-		await fireEvent.input(input, { target: { value: "Race me" } });
-
-		// First send() starts the async check.
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Gate me" },
+		});
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
-		await waitFor(() => {
-			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
-		});
 
-		// The composer reflects the pending check: Send is disabled while it's
-		// in flight, not left looking idle/clickable.
+		expect(beforeSend).toHaveBeenCalledTimes(1);
+		expect(sendSpy).not.toHaveBeenCalled();
 		await waitFor(() => {
 			expect(
 				(getByRole("button", { name: "Send message" }) as HTMLButtonElement)
@@ -2614,156 +2412,98 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 			).toBe(true);
 		});
 
-		// A second send — via the Enter key, which isn't blocked by the Send
-		// button's native `disabled` attribute the way a click would be —
-		// while the first check's promise is still unresolved. Before the
-		// fix, shouldCheckCloudWarning() would fail its !cloudWarningChecking
-		// guard here and send() would fall straight through to dispatchSend,
-		// sending unwarned. It must instead be a complete no-op.
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
-		await tick();
-
-		expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
-		expect(sendSpy).not.toHaveBeenCalled();
-
-		// Resolve the single in-flight check: the warning modal appears
-		// exactly once, and still nothing has been dispatched — the user
-		// hasn't acted on the modal yet.
-		resolveCheck?.({ shouldWarn: true });
-
-		expect(
-			await findByText("Sending data to a cloud model"),
-		).toBeInTheDocument();
-		expect(sendSpy).not.toHaveBeenCalled();
+		resolveGate?.(true);
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Gate me" }),
+			);
+		});
 	});
 
-	// Regression test: a send queued behind an in-flight attachment upload
-	// (queuedSendAfterProcessing) previously called onSend directly once the
-	// upload finished, bypassing shouldCheckCloudWarning() entirely — a
-	// second way (besides the double-Enter race, C1) to dispatch a
-	// connector-enabled message to a cloud model with no warning.
-	it("routes a queued send (behind an in-flight attachment upload) through the cloud warning gate instead of dispatching directly", async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
-		ackCloudConnectorMock.mockResolvedValue(undefined);
+	it("does not dispatch and preserves the composer text when beforeSend resolves false", async () => {
+		const beforeSend = vi.fn().mockResolvedValue(false);
 		const sendSpy = vi.fn();
-		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
-		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
-			doneCallback = payload.done;
-		});
-
-		const {
-			container,
-			getByPlaceholderText,
-			getByText,
-			findByRole,
-			findByText,
-		} = render(MessageInput, {
-			conversationId: "conv-1",
-			attachmentsEnabled: true,
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			onSend: sendSpy,
-			onUploadFiles: uploadFilesHandler,
+			beforeSend,
 		});
 
 		const textarea = getByPlaceholderText(
 			"Type a message...",
 		) as HTMLTextAreaElement;
-		const fileInput = container.querySelector(
-			'input[type="file"]',
-		) as HTMLInputElement;
-
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-
 		await fireEvent.input(textarea, {
-			target: { value: "Cloud data while uploading" },
+			target: { value: "Don't lose me" },
 		});
-		await fireEvent.change(fileInput, {
-			target: {
-				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
-			},
-		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
 
 		await waitFor(() => {
-			expect(getByText("Uploading file...")).toBeDefined();
+			expect(beforeSend).toHaveBeenCalledTimes(1);
 		});
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(textarea.value).toBe("Don't lose me");
 
-		// Send while the attachment is still uploading — this queues the send
-		// rather than dispatching or checking the warning yet.
-		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
-
+		// The gate is re-invoked from scratch on a fresh send — this composer
+		// instance's own reentrancy guard (`sendPending`) only spans a single
+		// beforeSend() call, not "forever after a cancel".
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
 		await waitFor(() => {
-			expect(
-				getByText(
-					"Message will send automatically when file processing finishes.",
-				),
-			).toBeDefined();
+			expect(beforeSend).toHaveBeenCalledTimes(2);
 		});
-		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+	});
+
+	it("does not call beforeSend a second time while the first call is still in flight (double-send race)", async () => {
+		let resolveGate: ((proceed: boolean) => void) | undefined;
+		const beforeSend = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveGate = resolve;
+				}),
+		);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+			beforeSend,
+		});
+
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "Race me" } });
+
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		expect(beforeSend).toHaveBeenCalledTimes(1);
+
+		// A second send via Enter (not blocked by the Send button's native
+		// `disabled` the way a click would be) while the first gate call is
+		// still unresolved must be a complete no-op.
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await tick();
+
+		expect(beforeSend).toHaveBeenCalledTimes(1);
 		expect(sendSpy).not.toHaveBeenCalled();
 
-		// The upload finishes: the queued send becomes ready. It must run the
-		// cloud-warning check and hold on the modal, NOT dispatch straight away.
-		completeUpload(doneCallback, {
-			success: true,
-			attachment: {
-				artifact: {
-					id: "artifact-queued-cloud-1",
-					type: "source_document",
-					retrievalClass: "durable",
-					name: "notes.pdf",
-					mimeType: "application/pdf",
-					sizeBytes: 12,
-					conversationId: "conv-1",
-					summary: "OCR me",
-					createdAt: Date.now(),
-					updatedAt: Date.now(),
-				},
-				promptReady: true,
-				promptArtifactId: "normalized-queued-cloud-1",
-				readinessError: null,
-			},
-		});
-
-		await waitFor(() => {
-			expect(checkCloudWarningMock).toHaveBeenCalledWith("provider:abc:def", [
-				"calendar",
-			]);
-		});
-		expect(
-			await findByText("Sending data to a cloud model"),
-		).toBeInTheDocument();
-		expect(sendSpy).not.toHaveBeenCalled();
-
-		// Acknowledging dispatches exactly once, with the originally queued text.
-		const continueBtn = await findByRole("button", { name: "Continue" });
-		await fireEvent.click(continueBtn);
-
+		resolveGate?.(true);
 		await waitFor(() => {
 			expect(sendSpy).toHaveBeenCalledTimes(1);
 		});
-		expect(sendSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ message: "Cloud data while uploading" }),
-		);
 	});
 
-	it("does not dispatch a queued send if the cloud warning modal is cancelled", async () => {
-		selectedModel.set("provider:abc:def");
-		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+	it("routes a send queued behind an in-flight attachment upload through beforeSend instead of dispatching directly", async () => {
+		const beforeSend = vi.fn().mockResolvedValue(true);
 		const sendSpy = vi.fn();
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
 			doneCallback = payload.done;
 		});
 
-		const { container, getByPlaceholderText, getByText, findByRole } = render(
+		const { container, getByPlaceholderText, getByText } = render(
 			MessageInput,
 			{
 				conversationId: "conv-1",
 				attachmentsEnabled: true,
 				onSend: sendSpy,
 				onUploadFiles: uploadFilesHandler,
+				beforeSend,
 			},
 		);
 
@@ -2774,12 +2514,8 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 			'input[type="file"]',
 		) as HTMLInputElement;
 
-		await waitFor(() => {
-			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
-		});
-
 		await fireEvent.input(textarea, {
-			target: { value: "Don't leak this on cancel" },
+			target: { value: "Queued while uploading" },
 		});
 		await fireEvent.change(fileInput, {
 			target: {
@@ -2800,12 +2536,14 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 				),
 			).toBeDefined();
 		});
+		expect(beforeSend).not.toHaveBeenCalled();
+		expect(sendSpy).not.toHaveBeenCalled();
 
 		completeUpload(doneCallback, {
 			success: true,
 			attachment: {
 				artifact: {
-					id: "artifact-queued-cloud-2",
+					id: "artifact-queued-1",
 					type: "source_document",
 					retrievalClass: "durable",
 					name: "notes.pdf",
@@ -2817,21 +2555,18 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 					updatedAt: Date.now(),
 				},
 				promptReady: true,
-				promptArtifactId: "normalized-queued-cloud-2",
+				promptArtifactId: "normalized-queued-1",
 				readinessError: null,
 			},
 		});
 
 		await waitFor(() => {
-			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+			expect(beforeSend).toHaveBeenCalledTimes(1);
 		});
-
-		const cancelBtn = await findByRole("button", { name: "Cancel" });
-		await fireEvent.click(cancelBtn);
-
-		expect(sendSpy).not.toHaveBeenCalled();
-		// The composer text is preserved — cancel aborts the dispatch, it
-		// doesn't discard what the user typed.
-		expect(textarea.value).toBe("Don't leak this on cancel");
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Queued while uploading" }),
+			);
+		});
 	});
 });

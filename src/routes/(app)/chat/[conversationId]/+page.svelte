@@ -49,6 +49,11 @@ import {
 	uploadKnowledgeAttachment,
 } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
+import {
+	ackCloudConnector,
+	checkCloudWarning,
+	setLocalDistill,
+} from "$lib/client/api/connections";
 import { currentConversationId } from "$lib/stores/ui";
 import { projects } from "$lib/stores/projects";
 import {
@@ -58,6 +63,8 @@ import {
 	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
+import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
+import { isProviderModelId } from "$lib/types";
 import type {
 	ArtifactSummary,
 	AtlasAction,
@@ -298,6 +305,107 @@ let normalChatRuntimeCanStop = $derived(
 let queuedTurn = $state<SendPayload | null>(null);
 let titleGenerationTriggered = false;
 let prevConversationId: string | null = null;
+
+// Issue 7.4 fix pass — single chokepoint for the cloud-connector privacy
+// warning. Previously this check/modal lived inside MessageInput.svelte's
+// local send() path, so any caller that reached normalChatRuntime.send()
+// (or the runtime's separate retry() path) WITHOUT going through that one
+// component's send() — regenerate, edit-then-resend, retry, and (found while
+// doing this pass) the Atlas lifecycle-action send — could dispatch a
+// message to a cloud model with active connector capabilities without ever
+// showing the warning. The check + modal now live here, at the page, and
+// EVERY fresh-send-to-model path (handleSend/handleRegenerate/handleEdit/
+// handleRetry/handleAtlasLifecycleAction, plus the composer's own send and
+// its queued-after-upload send via the `beforeSend` prop MessageInput now
+// awaits) funnels through `ensureCloudWarningAcked()` before it may proceed.
+// `composerActiveCapabilities` is bound two-way from MessageInput (which
+// still owns loading/toggling the per-conversation capability set — that's
+// composer UI state, not part of the gate) so every gated path checks the
+// SAME "does the user currently have connector capabilities active" signal
+// the composer itself would use.
+let composerActiveCapabilities = $state<Set<string>>(new Set());
+let cloudWarningOpen = $state(false);
+let cloudWarningChecking = $state(false);
+let cloudWarningAcked = $state(false);
+let cloudWarningResolve: ((proceed: boolean) => void) | null = null;
+
+function shouldCheckCloudWarning(): boolean {
+	return (
+		!cloudWarningAcked &&
+		composerActiveCapabilities.size > 0 &&
+		isProviderModelId($selectedModel)
+	);
+}
+
+// Returns true once it's safe to dispatch (no warning needed, or the user
+// acknowledged/enabled local mode), false if a warning is already in
+// progress for a different caller (reentrancy — treat as a no-op, matching
+// the pre-existing double-Enter-must-be-a-no-op guarantee) or the user
+// cancelled.
+async function ensureCloudWarningAcked(): Promise<boolean> {
+	if (cloudWarningChecking || cloudWarningOpen) return false;
+	if (!shouldCheckCloudWarning()) return true;
+
+	cloudWarningChecking = true;
+	let shouldWarn = false;
+	try {
+		const result = await checkCloudWarning($selectedModel, [
+			...composerActiveCapabilities,
+		]);
+		shouldWarn = result.shouldWarn;
+	} catch {
+		// Fail open: this is a UI nudge, not a data boundary (the actual
+		// on-device-vs-cloud handling is enforced server-side). Don't block
+		// sending a message over a network hiccup on the warning check itself.
+		shouldWarn = false;
+	} finally {
+		cloudWarningChecking = false;
+	}
+
+	if (!shouldWarn) return true;
+
+	cloudWarningOpen = true;
+	return new Promise<boolean>((resolve) => {
+		cloudWarningResolve = resolve;
+	});
+}
+
+async function handleCloudWarningContinue() {
+	try {
+		await ackCloudConnector();
+	} catch {
+		// Non-fatal: the ack didn't persist, so the warning may simply
+		// reappear on a future send — not a reason to block this one.
+	}
+	cloudWarningAcked = true;
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(true);
+}
+
+async function handleCloudWarningEnableLocalMode() {
+	try {
+		await setLocalDistill(true);
+	} catch {
+		// Non-fatal: local mode can be turned on later from Settings.
+	}
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(true);
+}
+
+function handleCloudWarningCancel() {
+	// Aborts the pending send; whatever state the caller preserved (composer
+	// text/attachments for a fresh send, the not-yet-mutated message list for
+	// regenerate/edit) is untouched, since every gated caller awaits this
+	// resolution before doing anything destructive.
+	cloudWarningOpen = false;
+	const resolve = cloudWarningResolve;
+	cloudWarningResolve = null;
+	resolve?.(false);
+}
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
 	initialContextStatus,
@@ -854,7 +962,20 @@ function maybeSendPendingInitialMessage() {
 		setSelectedConversationModelId(pendingDraft.modelId);
 	}
 	setSelectedPersonalityId(pendingDraft.personalityProfileId ?? null);
-	handleSend({ ...pendingDraft, pendingAttachments: [] });
+	// Issue 7.4 fix pass — the landing-page-to-conversation bootstrap send
+	// calls handleSend() directly, never through MessageInput's UI at all, so
+	// it never went through any cloud-warning check even before this pass
+	// (it predates 7.4). Gated here for the same reason as the other direct
+	// normalChatRuntime.send() callers. Note: `composerActiveCapabilities` is
+	// populated by MessageInput's own onMount fetch, which races this
+	// bootstrap send — if the capability fetch hasn't resolved yet, this can
+	// under-warn for a brand-new conversation's very first message. Flagged
+	// as a residual gap in the fix report rather than papered over.
+	void (async () => {
+		const proceed = await ensureCloudWarningAcked();
+		if (!proceed) return;
+		handleSend({ ...pendingDraft, pendingAttachments: [] });
+	})();
 }
 
 function resetState() {
@@ -1331,13 +1452,18 @@ async function handleCancelAtlasJob(jobId: string) {
 	}
 }
 
-function handleAtlasLifecycleAction(payload: {
+async function handleAtlasLifecycleAction(payload: {
 	jobId: string;
 	action: AtlasAction;
 	message: string;
 	profile: AtlasProfile;
 }) {
 	if (isConversationReadOnlyForChat) return;
+	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
+	// that bypassed MessageInput's send() entirely (found while centralizing
+	// the cloud-warning gate; not one of the three previously-known leaks).
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	void normalChatRuntime.send({
 		message: payload.message,
 		attachmentIds: [],
@@ -1808,15 +1934,32 @@ async function handleSend(
 	});
 }
 
-function handleRetry() {
+async function handleRetry() {
+	// Issue 7.4 fix pass — retry() is a runtime path entirely separate from
+	// handleSend/normalChatRuntime.send() (it replays the last user message
+	// via its own startStream call), so it never went through MessageInput's
+	// send() and, before this pass, never went through any cloud-warning
+	// check at all.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	normalChatRuntime.retry();
 }
 
-function handleRegenerate(
+async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	// Issue 7.4 fix pass — gate BEFORE any optimistic mutation (removing the
+	// assistant message from $messages below), so a cancelled regenerate
+	// leaves the timeline untouched rather than showing a response already
+	// removed while the user is still deciding. handleSend() itself is NOT
+	// gated a second time below — it's already covered by this check, and
+	// re-running it would risk a second round-trip re-showing the modal
+	// (e.g. after "Turn on local mode", which doesn't ack — see
+	// shouldWarnCloudConnector) for a single regenerate action.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	const { messageId } = payload;
 	const msgs = $messages;
 	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
@@ -1885,6 +2028,12 @@ async function handleEdit(
 	confirmForkedSourceHistoryMutation = false,
 ) {
 	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	// Issue 7.4 fix pass — gate BEFORE deleting the edited-and-onward messages
+	// below, so a cancelled edit leaves the conversation untouched. handleSend()
+	// at the end of this function is intentionally NOT gated again — see the
+	// matching note in handleRegenerate.
+	const proceed = await ensureCloudWarningAcked();
+	if (!proceed) return;
 	const { messageId, newText } = payload;
 	const msgs = $messages;
 	const editIdx = msgs.findIndex((m) => m.id === messageId);
@@ -2317,6 +2466,9 @@ function handleDrop(event: DragEvent) {
 				draftVersion={conversationDraft?.updatedAt ?? 0}
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
+				bind:activeCapabilities={composerActiveCapabilities}
+				beforeSend={ensureCloudWarningAcked}
+				checkingCloudWarning={cloudWarningChecking}
 			>
 				{#if activeSkillSession}
 					<SkillSessionPanel
@@ -2356,6 +2508,14 @@ function handleDrop(event: DragEvent) {
 		onClose={closeEvidenceManager}
 		onSteer={handleSteering}
 	/>
+
+	{#if cloudWarningOpen}
+		<CloudConnectorWarningModal
+			onCancel={handleCloudWarningCancel}
+			onContinue={handleCloudWarningContinue}
+			onEnableLocalMode={handleCloudWarningEnableLocalMode}
+		/>
+	{/if}
 </div>
 
 <style>

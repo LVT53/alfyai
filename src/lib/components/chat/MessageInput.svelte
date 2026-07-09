@@ -3,12 +3,7 @@ import { onMount } from "svelte";
 import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
-import {
-	ackCloudConnector,
-	checkCloudWarning,
-	fetchActiveCapabilities,
-	setLocalDistill,
-} from "$lib/client/api/connections";
+import { fetchActiveCapabilities } from "$lib/client/api/connections";
 import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -26,14 +21,12 @@ import {
 } from "$lib/composer-commands";
 import { t, type I18nKey } from "$lib/i18n";
 import { tokenizeTextLinks } from "$lib/services/linkify";
-import { selectedModel } from "$lib/stores/settings";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	isTouchDevice,
 	initViewportTracking,
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
-import CloudConnectorWarningModal from "./CloudConnectorWarningModal.svelte";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu, {
 	type ComposerCapabilityAccounts,
@@ -47,7 +40,6 @@ import {
 	type ComposerCommandToken,
 } from "./composer-command-parser";
 import { browser } from "$app/environment";
-import { isProviderModelId } from "$lib/types";
 import type {
 	ArtifactSummary,
 	AtlasAvailability,
@@ -143,6 +135,9 @@ let {
 	atlasAvailability = null,
 	memoryIncognito = false,
 	onMemoryIncognitoChange = undefined,
+	activeCapabilities = $bindable(new Set<string>()),
+	beforeSend = undefined,
+	checkingCloudWarning = false,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -211,6 +206,23 @@ let {
 	memoryIncognito?: boolean;
 	/** Emitted after a successful incognito toggle so parents can reconcile. */
 	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	// Issue 7.4 fix pass — the composer's per-conversation connection capability
+	// selection is bindable so the page (the single cloud-warning chokepoint,
+	// see +page.svelte's ensureCloudWarningAcked) can read the same set that
+	// this composer's toggles produced, for regenerate/edit/retry gate checks
+	// that don't originate from a fresh composer send.
+	activeCapabilities?: Set<string>;
+	// Issue 7.4 fix pass — the page-owned gate check. When provided, every
+	// dispatch (a fresh send AND a send queued behind an in-flight attachment
+	// upload) awaits this before the composer clears itself, so the composer
+	// can no longer dispatch to the model without the page's cloud-warning
+	// check running first. Returning false aborts the send: the composer text
+	// and attachments are left exactly as the user had them.
+	beforeSend?: (() => Promise<boolean>) | undefined;
+	// Mirrors the page's "checking" phase (the network round-trip only, not
+	// the modal-open wait) purely so the composer can show the existing
+	// "Checking privacy…" hint under Send — cosmetic, not part of the gate.
+	checkingCloudWarning?: boolean;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -244,28 +256,23 @@ let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let forceWebSearch = $state(false);
 // Issue 7.2 — composer connection capability toggles. `availableCapabilities`
 // and `capabilityAccounts` come from a single fetch on mount; `activeCapabilities`
-// is per-conversation and reset to `defaultOnCapabilities` whenever the bound
-// conversation id changes (mirrors the incognito sync below).
+// (bindable, see props above) is per-conversation and reset to
+// `defaultOnCapabilities` whenever the bound conversation id changes (mirrors
+// the incognito sync below).
 let availableCapabilities = $state<string[]>([]);
 let defaultOnCapabilities = $state<Set<string>>(new Set());
 let capabilityAccounts = $state<ComposerCapabilityAccounts>({});
-let activeCapabilities = $state<Set<string>>(new Set());
 let capabilitiesLoaded = $state(false);
 let capabilitiesSyncedConversationId = $state<string | null>(null);
-// Issue 7.4 (Option C) — the composer intercepts SEND when the selected
-// model is plausibly a cloud model AND there are active connector
-// capabilities: it asks the server (the authority — see
-// checkCloudWarning/shouldWarnCloudConnector) whether to show the one-time
-// "connector data may reach a cloud model" warning before dispatching.
-// `cloudWarningAcked` is a per-session short-circuit so an acknowledged
-// warning never round-trips again for the rest of this composer's lifetime,
-// even before the server round-trip could confirm it; the ack itself is
-// still persisted server-side (recordCloudConnectorAck) so it also never
-// warns again in future sessions.
-let cloudWarningOpen = $state(false);
-let cloudWarningPendingMessage = $state<string | null>(null);
-let cloudWarningAcked = $state(false);
-let cloudWarningChecking = $state(false);
+// Issue 7.4 fix pass — the cloud-warning check/modal itself now lives at the
+// page level (+page.svelte's ensureCloudWarningAcked), reached through the
+// `beforeSend` prop, so that composer sends, queued-after-upload sends, AND
+// regenerate/edit/retry (none of which touch this component) all funnel
+// through the SAME single check. `sendPending` is purely local UI state: it
+// is true for the whole window between calling `beforeSend()` and it
+// resolving, so a double-Enter/double-click on THIS composer instance can't
+// invoke `beforeSend()` a second time while the first call is outstanding.
+let sendPending = $state(false);
 let selectedAtlasProfile = $state<AtlasProfile | null>(null);
 let clientAtlasTurnId = $state<string | null>(null);
 let atlasPushStatus = $state<
@@ -305,19 +312,18 @@ let attachmentReadinessErrors = $derived(
 	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
 );
 
-// Issue 7.4 (Option C) fix — C1: canSend also gates on the cloud-warning
-// check being in flight and on the warning modal being open, so the Send
-// button (and, via send()'s own guard below, the Enter-key path) is disabled
-// for the whole window during which a re-entrant send() must not dispatch.
-let canSend = $derived(
-	canSubmitMessageText(message) && !cloudWarningChecking && !cloudWarningOpen,
-);
+// Issue 7.4 fix pass — C1's guarantee (re-entrant send() must not dispatch
+// while a gate check is outstanding) is now enforced via `sendPending`, which
+// spans the whole `beforeSend()` await (the page's network round-trip AND,
+// if it opens, the warning modal), so the Send button (and, via send()'s own
+// guard below, the Enter-key path) stays disabled the whole time.
+let canSend = $derived(canSubmitMessageText(message) && !sendPending);
 // Reason the send button is disabled despite non-empty, non-overlength text
 // (ADR-0043 Slice 10, Fix B). The blocking flags come from canSubmitMessageText,
-// plus the Issue 7.4 cloud-warning check (see canSend above).
+// plus the Issue 7.4 cloud-warning gate (see canSend above).
 let sendDisabledHint = $derived(
 	!canSend && message.trim().length > 0 && !isOverMaxLength
-		? cloudWarningChecking
+		? sendPending && checkingCloudWarning
 			? "checkingPrivacy"
 			: isUploadingAttachment
 				? "uploading"
@@ -611,20 +617,17 @@ $effect(() => {
 	void emitDraftChange();
 });
 
-// Issue 7.4 (Option C) fix — a send queued behind an in-flight attachment
-// upload (see send()'s queuedSendAfterProcessing branch below) must go
-// through the SAME cloud-warning gate as a normal send once the attachment
-// finishes and canSend flips true. This previously called onSend directly,
-// bypassing shouldCheckCloudWarning()/resolveCloudWarningThenSend entirely —
-// a second way (besides the double-Enter race fixed as C1) to dispatch a
-// connector-enabled message to a cloud model with no warning. Routing
-// through attemptDispatch() means: no warning needed → dispatches exactly
-// as before; warning needed → the modal opens and holds the send until the
-// user acknowledges or cancels, exactly like the normal send() path.
+// Issue 7.4 fix pass — a send queued behind an in-flight attachment upload
+// (see send()'s queuedSendAfterProcessing branch above) must go through the
+// SAME gate (attemptDispatch → beforeSend) as a normal send once the
+// attachment finishes and canSend flips true. This previously called onSend
+// directly, bypassing the gate entirely — a second way (besides the
+// double-Enter race fixed as C1) to dispatch a connector-enabled message to
+// a cloud model with no warning.
 $effect(() => {
 	if (isGenerating || !queuedSendAfterProcessing || !canSend) return;
 	queuedSendAfterProcessing = false;
-	attemptDispatch(message);
+	void attemptDispatch(message);
 });
 
 function isMobile(): boolean {
@@ -927,22 +930,6 @@ function clearComposerAfterSubmit() {
 	}
 }
 
-// Issue 7.4 (Option C) — cheap, client-only heuristic for "plausibly a cloud
-// model": model1/model2 are the on-box builtin models, so only a
-// `provider:`-prefixed (admin-added third-party) model id is worth a
-// round-trip to ask the server. The server's isCloudModel (used inside
-// shouldWarnCloudConnector) is the actual authority — this heuristic only
-// exists to avoid a network call on every send.
-function shouldCheckCloudWarning(): boolean {
-	return (
-		!cloudWarningAcked &&
-		!cloudWarningOpen &&
-		!cloudWarningChecking &&
-		activeCapabilities.size > 0 &&
-		isProviderModelId($selectedModel)
-	);
-}
-
 function dispatchSend(nextMessage: string) {
 	message = nextMessage;
 	onSend?.(buildSendPayload(nextMessage));
@@ -950,98 +937,41 @@ function dispatchSend(nextMessage: string) {
 	clearComposerAfterSubmit();
 }
 
-// Issue 7.4 (Option C) — the single gated entry point for actually handing a
+// Issue 7.4 fix pass — the single gated entry point for actually handing a
 // message to onSend. Both send()'s normal path and the queued-send effect
-// (fired once an in-flight attachment upload finishes) must go through this,
-// so neither can dispatch to a cloud model with active connector
-// capabilities without the warning check running first.
-function attemptDispatch(nextMessage: string) {
-	if (shouldCheckCloudWarning()) {
-		cloudWarningPendingMessage = nextMessage;
-		void resolveCloudWarningThenSend(nextMessage);
-		return;
-	}
-	dispatchSend(nextMessage);
-}
-
-async function resolveCloudWarningThenSend(nextMessage: string) {
-	cloudWarningChecking = true;
-	const modelId = $selectedModel;
-	let shouldWarn = false;
-	try {
-		const result = await checkCloudWarning(modelId, [...activeCapabilities]);
-		shouldWarn = result.shouldWarn;
-	} catch {
-		// Fail open: this is a UI nudge, not a data boundary (the actual
-		// on-device-vs-cloud handling is enforced server-side). Don't block
-		// sending a message over a network hiccup on the warning check itself.
-		shouldWarn = false;
-	} finally {
-		cloudWarningChecking = false;
-	}
-
-	// The pending message changed (or was cancelled) while the check was in
-	// flight — nothing to do, a fresh send() call already handled it.
-	if (cloudWarningPendingMessage !== nextMessage) return;
-
-	if (!shouldWarn) {
-		cloudWarningPendingMessage = null;
+// (fired once an in-flight attachment upload finishes) go through this, and
+// both await the page-owned `beforeSend` gate (see the prop doc above) before
+// dispatching — so neither can hand a message to onSend without the page's
+// cloud-warning check running first. `sendPending` spans the whole await so
+// a double-Enter/double-click on this composer while the gate is pending is
+// a no-op (see send()'s own guard below), and the composer is NOT cleared
+// unless beforeSend resolves truthy — a `false` (cancelled) leaves the text
+// and attachments exactly as the user had them.
+async function attemptDispatch(nextMessage: string) {
+	if (!beforeSend) {
 		dispatchSend(nextMessage);
 		return;
 	}
-
-	cloudWarningOpen = true;
-}
-
-async function handleCloudWarningContinue() {
-	const pending = cloudWarningPendingMessage;
+	sendPending = true;
 	try {
-		await ackCloudConnector();
-	} catch {
-		// Non-fatal: the ack didn't persist, so the warning may simply
-		// reappear on a future send — not a reason to block this one.
+		const proceed = await beforeSend();
+		if (!proceed) return;
+		dispatchSend(nextMessage);
+	} finally {
+		sendPending = false;
 	}
-	cloudWarningAcked = true;
-	cloudWarningOpen = false;
-	cloudWarningPendingMessage = null;
-	if (pending !== null) dispatchSend(pending);
-}
-
-async function handleCloudWarningEnableLocalMode() {
-	const pending = cloudWarningPendingMessage;
-	try {
-		await setLocalDistill(true);
-	} catch {
-		// Non-fatal: local mode can be turned on later from Settings.
-	}
-	cloudWarningOpen = false;
-	cloudWarningPendingMessage = null;
-	if (pending !== null) dispatchSend(pending);
-}
-
-function handleCloudWarningCancel() {
-	// Aborts the send; the composer text is untouched (message already holds
-	// nextMessage — see syncTextareaValue — and clearComposerAfterSubmit was
-	// never called), so the draft is preserved exactly as the user left it.
-	cloudWarningOpen = false;
-	cloudWarningPendingMessage = null;
 }
 
 function send(nextMessage: string = message) {
 	if (isComposerDisabled) return;
 	if (isGenerating) return;
-	// Issue 7.4 (Option C) fix — C1: while a cloud-warning check is in
-	// flight, or while the warning modal is open awaiting the user's choice,
-	// a re-entrant send() (double Enter, double click) MUST be a no-op
-	// rather than falling through to dispatchSend below. Previously,
-	// shouldCheckCloudWarning() returning false for either of these reasons
-	// caused send() to fall straight through and dispatch unwarned — a
-	// double-send race that bypassed the warning entirely (see the 7.4
-	// review, finding C1). Only resolveCloudWarningThenSend's own resolution,
-	// or the modal's Continue/Enable-local-mode handlers, may dispatch from
-	// here on; this guard must run before the canSubmitMessageText early
+	// Issue 7.4 fix pass — C1: while the page-owned gate is pending (either
+	// its network check or the warning modal awaiting the user's choice), a
+	// re-entrant send() (double Enter, double click) MUST be a no-op rather
+	// than falling through to attemptDispatch below — see `sendPending`'s
+	// doc above. This guard must run before the canSubmitMessageText early
 	// return too, since the pending message may differ from `message`.
-	if (cloudWarningChecking || cloudWarningOpen) return;
+	if (sendPending) return;
 	if (!canSubmitMessageText(nextMessage)) {
 		if (
 			nextMessage.trim().length > 0 &&
@@ -1053,7 +983,7 @@ function send(nextMessage: string = message) {
 		return;
 	}
 
-	attemptDispatch(nextMessage);
+	void attemptDispatch(nextMessage);
 }
 
 function queue(nextMessage: string = message) {
@@ -2353,13 +2283,6 @@ async function emitDraftChange(force = false) {
 		/>
 	{/if}
 
-	{#if cloudWarningOpen}
-		<CloudConnectorWarningModal
-			onCancel={handleCloudWarningCancel}
-			onContinue={handleCloudWarningContinue}
-			onEnableLocalMode={handleCloudWarningEnableLocalMode}
-		/>
-	{/if}
 </div>
 
 <style>

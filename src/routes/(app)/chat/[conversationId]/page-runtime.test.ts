@@ -31,6 +31,16 @@ const runtimeHarness = vi.hoisted(() => ({
 	}>,
 }));
 
+// Issue 7.4 fix pass — the cloud-warning gate (check + modal) now lives at
+// the page level (+page.svelte's ensureCloudWarningAcked), so the full
+// check/modal/ack/cancel scenarios — including regenerate/edit/retry, which
+// never touched MessageInput's now-removed local gate at all — are exercised
+// here against the real page rather than in MessageInput.test.ts.
+const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
+const checkCloudWarningMock = vi.hoisted(() => vi.fn());
+const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
+const setLocalDistillMock = vi.hoisted(() => vi.fn());
+
 function conversationFixture(
 	id: string,
 	overrides: Partial<Conversation> = {},
@@ -275,6 +285,13 @@ vi.mock("$lib/client/api/skills", () => ({
 	saveSkillDraft: vi.fn(),
 }));
 
+vi.mock("$lib/client/api/connections", () => ({
+	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
+	checkCloudWarning: checkCloudWarningMock,
+	ackCloudConnector: ackCloudConnectorMock,
+	setLocalDistill: setLocalDistillMock,
+}));
+
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
 	prepareCodeHighlighting: async () => undefined,
@@ -426,6 +443,14 @@ describe("chat page runtime integration", () => {
 			conversationDetailFixture(),
 		);
 		vi.mocked(fetchMessageEvidence).mockReset();
+		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		checkCloudWarningMock.mockReset();
+		ackCloudConnectorMock.mockReset();
+		setLocalDistillMock.mockReset();
 		window.sessionStorage.clear();
 		Object.defineProperty(window, "matchMedia", {
 			writable: true,
@@ -1416,5 +1441,436 @@ describe("chat page runtime integration", () => {
 				screen.getByText("Finished while mobile was away"),
 			).toBeInTheDocument();
 		});
+	});
+});
+
+// Issue 7.4 fix pass — the cloud-warning check + modal previously lived
+// entirely inside MessageInput.svelte's local send() path, so regenerate,
+// edit-then-resend, and retry (none of which touch that component) could
+// dispatch to a cloud model with active connector capabilities without ever
+// showing the warning. The gate now lives here, at the page
+// (ensureCloudWarningAcked), and every fresh-send-to-model path is routed
+// through it. These tests exercise that end to end against the real page.
+describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
+	afterEach(() => {
+		clearAnimationFrameMockTimers();
+		vi.restoreAllMocks();
+	});
+
+	beforeEach(() => {
+		runtimeHarness.streamInvocations.length = 0;
+		runtimeHarness.atlasSubmissions.length = 0;
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture(),
+		);
+		vi.mocked(fetchMessageEvidence).mockReset();
+		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		checkCloudWarningMock.mockReset();
+		ackCloudConnectorMock.mockReset();
+		setLocalDistillMock.mockReset();
+		window.sessionStorage.clear();
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: false,
+				media: query,
+				onchange: null,
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+		installAnimationFrameMock();
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+	});
+
+	const CLOUD_MODEL_ID = "provider:abc:def" as ModelId;
+
+	function cloudModelPageData(overrides: Record<string, unknown> = {}) {
+		return pageData({
+			userModel: CLOUD_MODEL_ID,
+			availableModels: [
+				{
+					id: CLOUD_MODEL_ID,
+					displayName: "Cloud Model",
+					isThirdParty: true,
+					iconAssetId: null,
+					iconUrl: null,
+				},
+			],
+			...overrides,
+		});
+	}
+
+	function conversationTurnFixture() {
+		return [
+			{
+				id: "user-1",
+				role: "user" as const,
+				content: "What's on my calendar?",
+				timestamp: 1,
+			},
+			{
+				id: "assistant-1",
+				role: "assistant" as const,
+				content: "You have a 2pm meeting.",
+				timestamp: 2,
+			},
+		];
+	}
+
+	it("blocks a composer send behind the warning modal; Continue dispatches exactly once", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "What's on my calendar?" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith(CLOUD_MODEL_ID, [
+				"calendar",
+			]);
+		});
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(ackCloudConnectorMock).toHaveBeenCalled();
+		});
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"What's on my calendar?",
+		);
+	});
+
+	it("does not bypass the warning on a double-send while the check is in flight", async () => {
+		let resolveCheck: ((value: { shouldWarn: boolean }) => void) | undefined;
+		checkCloudWarningMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveCheck = resolve;
+				}),
+		);
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		const input = screen.getByTestId("message-input") as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "Race me" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		});
+
+		// A second send via Enter while the first check is still unresolved
+		// must be a no-op, not a second dispatch.
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		resolveCheck?.({ shouldWarn: false });
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+	});
+
+	it("routes a send queued behind an in-flight attachment upload through the warning gate", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const { uploadKnowledgeAttachment } = await import(
+			"$lib/client/api/knowledge"
+		);
+		type KnowledgeUploadResponse = Awaited<
+			ReturnType<typeof uploadKnowledgeAttachment>
+		>;
+		let resolveUpload: ((value: KnowledgeUploadResponse) => void) | undefined;
+		vi.mocked(uploadKnowledgeAttachment).mockReturnValue(
+			new Promise((resolve) => {
+				resolveUpload = resolve;
+			}),
+		);
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		const input = screen.getByTestId("message-input") as HTMLTextAreaElement;
+		await fireEvent.input(input, {
+			target: { value: "Cloud data while uploading" },
+		});
+		const fileInput = document.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("Uploading file...")).toBeInTheDocument();
+		});
+
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+		await waitFor(() => {
+			expect(
+				screen.getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeInTheDocument();
+		});
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+
+		resolveUpload?.({
+			artifact: {
+				id: "artifact-queued-1",
+				type: "source_document",
+				retrievalClass: "durable",
+				name: "notes.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 12,
+				conversationId: "conv-1",
+				summary: "OCR me",
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+			},
+			normalizedArtifact: null,
+			reusedExistingArtifact: false,
+			promptReady: true,
+			promptArtifactId: "normalized-queued-1",
+			readinessError: null,
+		});
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		});
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"Cloud data while uploading",
+		);
+	});
+
+	it("gates Regenerate: shows the warning, leaves the transcript untouched until acknowledged, then dispatches once", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Regenerate response" }),
+		);
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith(CLOUD_MODEL_ID, [
+				"calendar",
+			]);
+		});
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		// Not yet acknowledged — the original assistant response must still be
+		// on screen (regenerate must not have mutated the transcript yet).
+		expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"What's on my calendar?",
+		);
+	});
+
+	it("Regenerate: Cancel aborts and leaves the transcript untouched", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Regenerate response" }),
+		);
+		await screen.findByText("Sending data to a cloud model");
+
+		await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+		expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
+	});
+
+	it("gates Edit-then-resend: shows the warning, deletes/resends only after acknowledgement", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const { deleteConversationMessages } = await import(
+			"$lib/client/api/conversations"
+		);
+		vi.mocked(deleteConversationMessages).mockResolvedValue(2);
+		renderPage(cloudModelPageData({ messages: conversationTurnFixture() }));
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		const userMessage = screen.getByTestId("user-message");
+		// The hover action row (Edit/timestamp) is a DOM sibling of the
+		// data-testid="user-message" node, not a child of it — scope to their
+		// shared ".group" wrapper for those two queries. The edit textarea
+		// itself IS inside the data-testid node once editing starts.
+		const userMessageGroup = userMessage.parentElement as HTMLElement;
+		await fireEvent.click(
+			within(userMessageGroup).getByRole("button", { name: "Edit message" }),
+		);
+		const editTextarea = within(userMessage).getByRole("textbox");
+		await fireEvent.input(editTextarea, {
+			target: { value: "What's on my calendar tomorrow?" },
+		});
+		await fireEvent.click(
+			within(userMessageGroup).getByRole("button", { name: "Send message" }),
+		);
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith(CLOUD_MODEL_ID, [
+				"calendar",
+			]);
+		});
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		// Not yet acknowledged — the edit must not have deleted anything yet.
+		expect(deleteConversationMessages).not.toHaveBeenCalled();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(deleteConversationMessages).toHaveBeenCalledWith(
+				"conv-1",
+				["user-1", "assistant-1"],
+				expect.objectContaining({ confirmForkedSourceHistoryMutation: false }),
+			);
+		});
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"What's on my calendar tomorrow?",
+		);
+	});
+
+	it("gates Retry: shows the warning, replays the last user message only after acknowledgement", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Trigger a failure" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		// First send needs its own ack before it even reaches the runtime.
+		await screen.findByText("Sending data to a cloud model");
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
+		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+
+		const retryButton = await screen.findByRole("button", { name: "Retry" });
+
+		// A later send is already acknowledged for the rest of the session, so
+		// Retry dispatches without a second modal.
+		await fireEvent.click(retryButton);
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		});
+		expect(runtimeHarness.streamInvocations[1].message).toBe(
+			"Trigger a failure",
+		);
+	});
+
+	it("gates Retry with a fresh warning when not yet acknowledged, and Cancel aborts the retry", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Trigger a failure" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+
+		runtimeHarness.streamInvocations[0].callbacks.onError(new Error("boom"));
+		const retryButton = await screen.findByRole("button", { name: "Retry" });
+
+		// Not acknowledged yet (the first send's check happened to report
+		// shouldWarn:false, so no modal was shown and no ack was recorded) —
+		// Retry must run its own check and hold until the user decides.
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		await fireEvent.click(retryButton);
+
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
 	});
 });
