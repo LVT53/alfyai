@@ -22,6 +22,39 @@ const CONNECTION_WRITE_TOOL_IDENTIFIERS = [
 	"photos",
 ];
 
+// The seven connection tools (normal-chat-tools/index.ts) mapped to a clean,
+// user-facing capability label key. Deliberately capability-level (not the
+// brand): a single tool can serve more than one provider (e.g. "calendar" is
+// Google OR Apple), and the resolved provider isn't known at the point the
+// activity label is rendered mid-generation. Turns the previously vague
+// "list_events" line into e.g. "Calendar: list events".
+const CONNECTION_TOOL_LABEL_KEYS: Record<string, I18nKey> = {
+	calendar: "toolCalls.calendar",
+	contacts: "toolCalls.contacts",
+	email: "toolCalls.email",
+	files: "toolCalls.files",
+	location: "toolCalls.location",
+	media: "toolCalls.media",
+	photos: "toolCalls.photos",
+};
+
+export function getConnectionToolLabelKey(name: string): I18nKey | null {
+	return (
+		CONNECTION_TOOL_LABEL_KEYS[normalizeToolNameForComparison(name)] ?? null
+	);
+}
+
+export function isConnectionToolName(name: string): boolean {
+	return getConnectionToolLabelKey(name) !== null;
+}
+
+// Renders a connection tool's `action` input (e.g. "list_events",
+// "check_availability") as a human phrase ("list events", "check
+// availability") for the mid-generation activity line.
+export function formatConnectionToolAction(action: string): string {
+	return action.trim().toLowerCase().replace(/_+/g, " ");
+}
+
 function normalizeToolNameForComparison(name: string): string {
 	return name
 		.trim()
@@ -121,5 +154,7 @@ export function getHumanReadableToolNameKey(name: string): I18nKey {
 		return "toolCalls.fetchPage";
 	}
 	if (isFileProductionToolName(name)) return "toolCalls.createFile";
+	const connectionKey = CONNECTION_TOOL_LABEL_KEYS[normalized];
+	if (connectionKey) return connectionKey;
 	return "toolCalls.generic";
 }

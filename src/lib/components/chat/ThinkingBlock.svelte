@@ -13,7 +13,9 @@ import {
 	ShieldAlert,
 } from "@lucide/svelte";
 import {
+	formatConnectionToolAction,
 	getHumanReadableToolNameKey,
+	isConnectionToolName,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
@@ -324,6 +326,16 @@ function formatToolCall(name: string, input: Record<string, unknown>): string {
 	if (isFetchTool(name)) {
 		const raw = String(Object.values(input)[0] ?? "");
 		return `${toolLabel}: ${extractHostname(raw)}`;
+	}
+	// Connection tools ("calendar", "files", ...) label by their capability +
+	// the human-formatted action ("Calendar: list events"), never the raw
+	// "list_events" first-value that read vague to end users.
+	if (isConnectionToolName(name)) {
+		const action =
+			typeof input.action === "string"
+				? formatConnectionToolAction(input.action)
+				: "";
+		return action ? `${toolLabel}: ${action}` : toolLabel;
 	}
 	return firstVal() ? `${toolLabel}: ${firstVal()}` : toolLabel;
 }

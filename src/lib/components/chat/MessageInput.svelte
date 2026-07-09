@@ -2644,36 +2644,34 @@ async function emitDraftChange(force = false) {
 		align-self: center;
 	}
 
-	/* Incognito toggle: quiet by default, accent-filled when active. */
+	/* Incognito toggle: quiet by default; when active only the ICON takes the
+	   accent colour (no box fill) so it reads as a state without distracting. */
 	.composer-incognito-btn {
 		color: var(--icon-muted);
 	}
 
 	.composer-incognito-btn--active {
-		color: var(--accent-contrast);
-		background: var(--accent);
+		color: var(--accent);
 	}
 
 	.composer-incognito-btn--active:hover {
-		color: var(--accent-contrast);
-		background: var(--accent-hover);
+		color: var(--accent-hover);
 		opacity: 1;
 	}
 
-	/* Connections master toggle (ADR 0044 Decision 1): accent-filled while on
-	   (the default), muted once turned off for this conversation. */
+	/* Connections master toggle (ADR 0044 Decision 1): icon takes the accent
+	   colour while on (the default), muted once turned off for this
+	   conversation. Icon-only colouring — the box is never filled. */
 	.composer-connections-btn {
 		color: var(--icon-muted);
 	}
 
 	.composer-connections-btn--active {
-		color: var(--accent-contrast);
-		background: var(--accent);
+		color: var(--accent);
 	}
 
 	.composer-connections-btn--active:hover {
-		color: var(--accent-contrast);
-		background: var(--accent-hover);
+		color: var(--accent-hover);
 		opacity: 1;
 	}
 

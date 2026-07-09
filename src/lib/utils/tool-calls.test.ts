@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ThinkingSegment } from "$lib/types";
 import {
+	formatConnectionToolAction,
 	getHumanReadableToolNameKey,
+	isConnectionToolName,
 	isConnectionWriteToolName,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
@@ -42,6 +44,30 @@ describe("tool-calls utils", () => {
 		expect(getHumanReadableToolNameKey("produce_file")).toBe(
 			"toolCalls.createFile",
 		);
+	});
+
+	it("maps each connection tool to its capability label key (no more vague 'generic')", () => {
+		expect(getHumanReadableToolNameKey("calendar")).toBe("toolCalls.calendar");
+		expect(getHumanReadableToolNameKey("Files")).toBe("toolCalls.files");
+		expect(getHumanReadableToolNameKey("EMAIL")).toBe("toolCalls.email");
+		expect(getHumanReadableToolNameKey("photos")).toBe("toolCalls.photos");
+		expect(getHumanReadableToolNameKey("media")).toBe("toolCalls.media");
+		expect(getHumanReadableToolNameKey("location")).toBe("toolCalls.location");
+		expect(getHumanReadableToolNameKey("contacts")).toBe("toolCalls.contacts");
+		// A genuinely unknown tool still falls back to generic.
+		expect(getHumanReadableToolNameKey("something_else")).toBe(
+			"toolCalls.generic",
+		);
+	});
+
+	it("identifies connection tool names and humanizes their action verbs", () => {
+		expect(isConnectionToolName("calendar")).toBe(true);
+		expect(isConnectionToolName("research_web")).toBe(false);
+		expect(formatConnectionToolAction("list_events")).toBe("list events");
+		expect(formatConnectionToolAction("check_availability")).toBe(
+			"check availability",
+		);
+		expect(formatConnectionToolAction("SEARCH")).toBe("search");
 	});
 
 	it("creates deterministic keys for equivalent object inputs", () => {
