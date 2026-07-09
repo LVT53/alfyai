@@ -23,4 +23,22 @@ describe("connections i18n dictionary", () => {
 			expect(key.startsWith("connections.")).toBe(true);
 		}
 	});
+
+	it("the locality section title no longer uses the rejected confusing HU string", () => {
+		expect(connectionsDict.hu["connections.locality.title"]).not.toBe(
+			"Adatvédelem és adatkezelés helye",
+		);
+	});
+
+	it("no locality string uses internal-only terms (Option A/Option C/locality guard)", () => {
+		const forbidden = /option a|option c|locality guard/i;
+		for (const [key, value] of Object.entries(connectionsDict.en)) {
+			if (!key.startsWith("connections.locality.")) continue;
+			expect(value, `en.${key}`).not.toMatch(forbidden);
+		}
+		for (const [key, value] of Object.entries(connectionsDict.hu)) {
+			if (!key.startsWith("connections.locality.")) continue;
+			expect(value, `hu.${key}`).not.toMatch(forbidden);
+		}
+	});
 });

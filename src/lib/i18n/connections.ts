@@ -149,14 +149,14 @@ const connectionsDict = {
 		"connections.oauthReturn.reason.generic": "Please try again.",
 
 		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +
-		// Option A (settings "Privacy & locality" local-distill toggle).
+		// Option A (settings "Private, on-device processing" local-distill toggle).
 		"connections.cloudWarning.title": "Sending data to a cloud model",
 		"connections.cloudWarning.description":
 			"This chat model is a third-party cloud model. Data from your connected accounts (like calendar, email, or files) may be sent to it to answer your message. You can continue, or keep this data on this device with local mode.",
 		"connections.cloudWarning.continue": "Continue",
 		"connections.cloudWarning.enableLocalMode": "Turn on local mode",
 
-		"connections.locality.title": "Privacy & locality",
+		"connections.locality.title": "Private, on-device processing",
 		"connections.locality.toggleLabel": "Keep connector data on this device",
 		"connections.locality.help":
 			"When on, a local model summarizes your connected-account data before any third-party cloud model sees it. This keeps raw data on-device but may reduce answer detail.",
@@ -332,14 +332,14 @@ const connectionsDict = {
 		"connections.oauthReturn.reason.generic": "Kérjük, próbáld újra.",
 
 		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +
-		// Option A (settings "Privacy & locality" local-distill toggle).
+		// Option A (settings "Private, on-device processing" local-distill toggle).
 		"connections.cloudWarning.title": "Adatküldés egy felhőmodellnek",
 		"connections.cloudWarning.description":
 			"Ez a csevegőmodell egy harmadik féltől származó felhőalapú modell. A csatlakoztatott fiókjaid adatai (például naptár, e-mail vagy fájlok) elküldődhetnek neki az üzeneted megválaszolásához. Folytathatod, vagy a helyi móddal ezeket az adatokat az eszközödön tarthatod.",
 		"connections.cloudWarning.continue": "Folytatás",
 		"connections.cloudWarning.enableLocalMode": "Helyi mód bekapcsolása",
 
-		"connections.locality.title": "Adatvédelem és adatkezelés helye",
+		"connections.locality.title": "Privát, helyi feldolgozás",
 		"connections.locality.toggleLabel":
 			"Csatlakoztatott fiókjaid adatainak tartása ezen az eszközön",
 		"connections.locality.help":
