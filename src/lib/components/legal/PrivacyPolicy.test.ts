@@ -49,8 +49,16 @@ describe("PrivacyPolicy", () => {
 		// Export + erasure.
 		expect(body).toMatch(/Account Data Archive/i);
 		expect(body).toMatch(/erasure/i);
+		// Use limits: no sale, no ads, no training on conversations.
+		expect(body).toMatch(/do not sell your data/i);
+		// Sharing, retention, children.
+		expect(body).toMatch(/error-monitoring/i);
+		expect(body).toMatch(/for as long as your account exists/i);
+		expect(body).toMatch(/not directed to children/i);
 		// Entity + contact.
 		expect(body).toMatch(/AlfyAI/);
 		expect(body).toMatch(/levente@alfydesign\.com/);
+		// No leftover placeholders anywhere in the rendered policy.
+		expect(body).not.toMatch(/placeholder/i);
 	});
 });

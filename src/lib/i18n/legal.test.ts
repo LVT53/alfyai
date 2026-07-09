@@ -89,13 +89,31 @@ describe("legal i18n dictionary", () => {
 			expect(allEnText).toMatch(/anonymous aggregate/i);
 		});
 
+		it("covers how data is used, with the no-sale / no-ads / no-training promise", () => {
+			expect(allEnText).toMatch(/do not sell your data/i);
+			expect(allEnText).toMatch(/train AI models/i);
+		});
+
+		it("covers sharing, retention, and children", () => {
+			expect(allEnText).toMatch(/error-monitoring/i);
+			expect(allEnText).toMatch(/search services/i);
+			expect(allEnText).toMatch(/for as long as your account exists/i);
+			expect(allEnText).toMatch(/not directed to children/i);
+		});
+
 		it("names the entity AlfyAI and the contact address", () => {
 			expect(allEnText).toMatch(/AlfyAI/);
 			expect(allEnText).toMatch(/levente@alfydesign\.com/);
 		});
 
-		it("flags unresolved legal specifics as placeholders instead of inventing them", () => {
-			expect(allEnText).toMatch(/placeholder/i);
+		it("has no leftover placeholders in either language", () => {
+			const allText = [
+				...Object.values(legalDict.en),
+				...Object.values(legalDict.hu),
+			].join(" \n ");
+			expect(allText).not.toMatch(/placeholder/i);
+			expect(allText).not.toMatch(/helykitöltő/i);
+			expect(allText).not.toMatch(/\[|\bTODO\b/i);
 		});
 	});
 });
