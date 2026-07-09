@@ -2636,4 +2636,202 @@ describe("MessageInput cloud connector warning (Option C)", () => {
 		).toBeInTheDocument();
 		expect(sendSpy).not.toHaveBeenCalled();
 	});
+
+	// Regression test: a send queued behind an in-flight attachment upload
+	// (queuedSendAfterProcessing) previously called onSend directly once the
+	// upload finished, bypassing shouldCheckCloudWarning() entirely — a
+	// second way (besides the double-Enter race, C1) to dispatch a
+	// connector-enabled message to a cloud model with no warning.
+	it("routes a queued send (behind an in-flight attachment upload) through the cloud warning gate instead of dispatching directly", async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const sendSpy = vi.fn();
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+
+		const {
+			container,
+			getByPlaceholderText,
+			getByText,
+			findByRole,
+			findByText,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onSend: sendSpy,
+			onUploadFiles: uploadFilesHandler,
+		});
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.input(textarea, {
+			target: { value: "Cloud data while uploading" },
+		});
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByText("Uploading file...")).toBeDefined();
+		});
+
+		// Send while the attachment is still uploading — this queues the send
+		// rather than dispatching or checking the warning yet.
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+
+		await waitFor(() => {
+			expect(
+				getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined();
+		});
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+		expect(sendSpy).not.toHaveBeenCalled();
+
+		// The upload finishes: the queued send becomes ready. It must run the
+		// cloud-warning check and hold on the modal, NOT dispatch straight away.
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-queued-cloud-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "OCR me",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-queued-cloud-1",
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith("provider:abc:def", [
+				"calendar",
+			]);
+		});
+		expect(
+			await findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(sendSpy).not.toHaveBeenCalled();
+
+		// Acknowledging dispatches exactly once, with the originally queued text.
+		const continueBtn = await findByRole("button", { name: "Continue" });
+		await fireEvent.click(continueBtn);
+
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledTimes(1);
+		});
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ message: "Cloud data while uploading" }),
+		);
+	});
+
+	it("does not dispatch a queued send if the cloud warning modal is cancelled", async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		const sendSpy = vi.fn();
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+
+		const { container, getByPlaceholderText, getByText, findByRole } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onSend: sendSpy,
+				onUploadFiles: uploadFilesHandler,
+			},
+		);
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.input(textarea, {
+			target: { value: "Don't leak this on cancel" },
+		});
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "notes.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByText("Uploading file...")).toBeDefined();
+		});
+
+		await fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+
+		await waitFor(() => {
+			expect(
+				getByText(
+					"Message will send automatically when file processing finishes.",
+				),
+			).toBeDefined();
+		});
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-queued-cloud-2",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "notes.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "OCR me",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-queued-cloud-2",
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
+		});
+
+		const cancelBtn = await findByRole("button", { name: "Cancel" });
+		await fireEvent.click(cancelBtn);
+
+		expect(sendSpy).not.toHaveBeenCalled();
+		// The composer text is preserved — cancel aborts the dispatch, it
+		// doesn't discard what the user typed.
+		expect(textarea.value).toBe("Don't leak this on cancel");
+	});
 });

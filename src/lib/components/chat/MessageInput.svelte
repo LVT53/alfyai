@@ -611,11 +611,20 @@ $effect(() => {
 	void emitDraftChange();
 });
 
+// Issue 7.4 (Option C) fix — a send queued behind an in-flight attachment
+// upload (see send()'s queuedSendAfterProcessing branch below) must go
+// through the SAME cloud-warning gate as a normal send once the attachment
+// finishes and canSend flips true. This previously called onSend directly,
+// bypassing shouldCheckCloudWarning()/resolveCloudWarningThenSend entirely —
+// a second way (besides the double-Enter race fixed as C1) to dispatch a
+// connector-enabled message to a cloud model with no warning. Routing
+// through attemptDispatch() means: no warning needed → dispatches exactly
+// as before; warning needed → the modal opens and holds the send until the
+// user acknowledges or cancels, exactly like the normal send() path.
 $effect(() => {
 	if (isGenerating || !queuedSendAfterProcessing || !canSend) return;
-	onSend?.(buildSendPayload());
 	queuedSendAfterProcessing = false;
-	clearComposerAfterSubmit();
+	attemptDispatch(message);
 });
 
 function isMobile(): boolean {
@@ -941,6 +950,20 @@ function dispatchSend(nextMessage: string) {
 	clearComposerAfterSubmit();
 }
 
+// Issue 7.4 (Option C) — the single gated entry point for actually handing a
+// message to onSend. Both send()'s normal path and the queued-send effect
+// (fired once an in-flight attachment upload finishes) must go through this,
+// so neither can dispatch to a cloud model with active connector
+// capabilities without the warning check running first.
+function attemptDispatch(nextMessage: string) {
+	if (shouldCheckCloudWarning()) {
+		cloudWarningPendingMessage = nextMessage;
+		void resolveCloudWarningThenSend(nextMessage);
+		return;
+	}
+	dispatchSend(nextMessage);
+}
+
 async function resolveCloudWarningThenSend(nextMessage: string) {
 	cloudWarningChecking = true;
 	const modelId = $selectedModel;
@@ -1030,13 +1053,7 @@ function send(nextMessage: string = message) {
 		return;
 	}
 
-	if (shouldCheckCloudWarning()) {
-		cloudWarningPendingMessage = nextMessage;
-		void resolveCloudWarningThenSend(nextMessage);
-		return;
-	}
-
-	dispatchSend(nextMessage);
+	attemptDispatch(nextMessage);
 }
 
 function queue(nextMessage: string = message) {
