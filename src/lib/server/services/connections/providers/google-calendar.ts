@@ -67,8 +67,21 @@ export type CalendarEvent = {
 	// Google-only: present (non-empty) on a recurring MASTER event itself
 	// (RRULE/EXDATE/etc. strings). Combined with `recurringEventId` above,
 	// `isRecurring` (normal-chat-tools/calendar.ts) treats either signal as
-	// "this event is part of a series".
+	// "this event is part of a series". Apple CalDAV (6.2) also populates this
+	// — with a single-element array holding the raw RRULE value — since a
+	// CalDAV calendar-query never expands a recurring series into per-instance
+	// results the way Google's `singleEvents=true` does; every match for a
+	// recurring series comes back as the same master VEVENT, so Apple has no
+	// master/instance distinction to make (see isRecurring's use in the
+	// calendar tool's Apple update/delete guardrail).
 	recurrence?: string[];
+	// Apple CalDAV only (6.2) — the VEVENT's DESCRIPTION, captured so an
+	// update can regenerate the full VEVENT resource (a CalDAV PUT REPLACES
+	// the whole resource; unlike Google's PATCH, an omitted field here would
+	// be silently deleted) without losing an existing description the update
+	// didn't intend to touch. Google's own mapping never sets this because
+	// its PATCH endpoint doesn't require resending unchanged fields.
+	description?: string;
 };
 
 export type CalendarFreeBusy = {

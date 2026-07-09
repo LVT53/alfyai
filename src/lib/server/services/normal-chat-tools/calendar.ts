@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	AppleCalDavError,
+	appleGetEventByUid,
 	appleListEvents,
 } from "$lib/server/services/connections/providers/apple-caldav";
 import {
@@ -465,6 +466,17 @@ function isCalendarWriteAction(
 	);
 }
 
+// ---------------------------------------------------------------------------
+// Google write actions (Issue 6.1). Kept separate from the Apple ones below
+// (Issue 6.2) rather than unified behind a single provider-branching
+// function: the two providers' write semantics genuinely differ (Google's
+// PATCH is a true partial update with server-side recurring-instance ids;
+// CalDAV's PUT replaces the whole resource and has no instance/master
+// distinction at all), so sharing one code path would mean threading
+// provider-specific branches through nearly every line rather than two
+// smaller, independently readable functions.
+// ---------------------------------------------------------------------------
+
 async function proposeCreateEvent(
 	userId: string,
 	conn: ConnectionPublic,
@@ -708,6 +720,291 @@ async function proposeUpdateOrDeleteEvent(
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Apple write actions (Issue 6.2). CalDAV has no partial-update primitive
+// (a PUT replaces the whole resource) and no server-side notion of a
+// recurring instance distinct from its master — so this tool's Apple
+// guardrails are deliberately simpler and MORE conservative than Google's:
+//   - update_event on ANY recurring event is refused outright, before a
+//     pending write is ever created (never a recurringScope prompt — CalDAV
+//     genuinely has nothing safe to scope a partial update to).
+//   - delete_event on a recurring event is allowed (CalDAV only has one
+//     resource per series to delete), but the preview must say so plainly.
+// ---------------------------------------------------------------------------
+
+function appleWriteCalendarUrl(conn: ConnectionPublic): string | null {
+	const urls = conn.config.calendarUrls;
+	if (!Array.isArray(urls)) return null;
+	const first = urls.find(
+		(value): value is string => typeof value === "string",
+	);
+	return first ?? null;
+}
+
+const APPLE_MISSING_CONFIG_MESSAGE =
+	"Your Apple iCloud Calendar connection is missing its calendar configuration — try reconnecting it in Settings.";
+
+async function proposeAppleCreateEvent(
+	userId: string,
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<CalendarToolOutcome> {
+	// title/start/end are the user's own words from this turn, not connector-
+	// read data — no locality distillation gate applies here (contrast with
+	// update/delete below, which read an EXISTING event off the connector).
+	if (!input.title || !input.start || !input.end) {
+		return buildPayload({
+			success: false,
+			action: "create_event",
+			message:
+				"A title, start time, and end time are required to create an event.",
+		});
+	}
+
+	const calendarUrl = appleWriteCalendarUrl(conn);
+	if (!calendarUrl) {
+		return buildPayload({
+			success: false,
+			action: "create_event",
+			message: APPLE_MISSING_CONFIG_MESSAGE,
+		});
+	}
+
+	const eventFields = {
+		summary: input.title,
+		start: input.start,
+		end: input.end,
+		...(input.location ? { location: input.location } : {}),
+		...(input.description ? { description: input.description } : {}),
+	};
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "calendar.create_event",
+		summary: `Create "${input.title}" on your Apple iCloud Calendar`,
+		// Unlike Google (which keeps history/trash for created events), Apple
+		// CalDAV has no platform-level undo exposed through this connection —
+		// deleting it back out is the only way to reverse a create.
+		reversible: false,
+		destructive: false,
+		target: { label: input.title },
+		// Ties the deterministic client-derived UID (6.2 write executor) to
+		// this exact payload — see appleEventUidForOp's doc comment.
+		payloadFingerprint: JSON.stringify({ calendarUrl, ...eventFields }),
+	};
+	const preview = buildWritePreview(op);
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({ calendarUrl, event: eventFields }),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared "${input.title}" to be added to your Apple iCloud Calendar, but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "create_event",
+		message,
+		pendingWriteId,
+		preview,
+	});
+}
+
+async function proposeAppleUpdateOrDeleteEvent(
+	userId: string,
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+	action: "update_event" | "delete_event",
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<CalendarToolOutcome> {
+	if (!input.eventId) {
+		return buildPayload({
+			success: false,
+			action,
+			message: "An event id is required to update or delete an event.",
+		});
+	}
+
+	let existing: CalendarEvent | null;
+	try {
+		existing = await appleGetEventByUid(userId, conn.id, input.eventId);
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action,
+			message: mapAdapterError(err),
+		});
+	}
+	if (!existing) {
+		return buildPayload({
+			success: false,
+			action,
+			message: "I couldn't find that event on your calendar.",
+		});
+	}
+	if (!existing.htmlLink || !existing.etag) {
+		// Every event parseReportMultistatus produces carries an absolute href;
+		// a missing etag means the server omitted getetag for this resource —
+		// either way, there's nothing safe to condition a PUT/DELETE on.
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				"I couldn't safely identify that event's underlying Apple iCloud resource, so I can't make this change. Please try again.",
+		});
+	}
+
+	const isUpdate = action === "update_event";
+	const recurring = isRecurring(existing);
+
+	// Recurring guardrail — CalDAV has no "this occurrence only" primitive
+	// and no separate master/instance ids the way Google exposes, so there is
+	// nothing safe to scope a partial update to. Refused here, BEFORE any
+	// pending write exists — this never reaches the write executor. Deleting
+	// a recurring event is still allowed (see below): CalDAV keeps a whole
+	// series as ONE resource, so deleting it is unambiguous, just more
+	// consequential — the preview below states that plainly.
+	if (isUpdate && recurring) {
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				"That event is part of a recurring series, and I can't safely update recurring events on your Apple iCloud Calendar yet — try a Google Calendar connection instead, or delete and recreate this event.",
+		});
+	}
+
+	const label = input.title ?? existing.summary ?? "(untitled event)";
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: isUpdate ? "calendar.update_event" : "calendar.delete_event",
+		summary: isUpdate
+			? `Update "${label}" on your Apple iCloud Calendar`
+			: `Delete "${label}" from your Apple iCloud Calendar${recurring ? " — this deletes the ENTIRE recurring series" : ""}`,
+		// Apple CalDAV has no platform trash/version history exposed through
+		// this connection, unlike Google's — an overwrite or delete here
+		// cannot be recovered through AlfyAI.
+		reversible: false,
+		destructive: true,
+		target: { id: input.eventId, label },
+	};
+	const rawPreview = buildWritePreview(op);
+	if (!isUpdate && recurring) {
+		rawPreview.warnings = [
+			...rawPreview.warnings,
+			"This deletes the ENTIRE recurring series, not a single occurrence.",
+		];
+	}
+
+	const content = {
+		resourceHref: existing.htmlLink,
+		etag: existing.etag,
+		uid: input.eventId,
+		...(isUpdate
+			? {
+					// CalDAV's PUT REPLACES the whole resource — unlike Google's
+					// PATCH, an omitted field would be silently deleted rather than
+					// left unchanged. Every field is therefore always sent, falling
+					// back to the EXISTING value for anything the user didn't ask to
+					// change (Option A's redaction below only affects the
+					// MODEL-facing copy, never this raw content the executor uses).
+					event: {
+						summary: input.title ?? existing.summary,
+						start: input.start ?? existing.start,
+						end: input.end ?? existing.end,
+						...(input.location !== undefined
+							? { location: input.location }
+							: existing.location !== undefined
+								? { location: existing.location }
+								: {}),
+						...(input.description !== undefined
+							? { description: input.description }
+							: existing.description !== undefined
+								? { description: existing.description }
+								: {}),
+					},
+					recurring: false, // update never reaches this point when recurring
+				}
+			: { recurring }),
+	};
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify(content),
+		idempotencyKey: idempotencyKey(op),
+		// The DB row keeps the RAW preview (real title/location) — see the
+		// matching comment in proposeUpdateOrDeleteEvent (Google) above; the
+		// same posture applies here.
+		preview: rawPreview,
+	});
+
+	// Option A (locality): `existing.summary`/`existing.location` are
+	// connector-READ data, exactly the kind of raw content the read paths
+	// already gate — same rule as the Google branch above.
+	const rawTextParts = [existing.summary, existing.location].filter(
+		(value): value is string => Boolean(value),
+	);
+	const decision =
+		rawTextParts.length > 0
+			? await decideLocalDistill({
+					userId,
+					modelId,
+					capability: "calendar",
+					userQuestion: input.title ?? "",
+					rawText: rawTextParts.join(" @ "),
+				})
+			: ({ shouldDistill: false } as const);
+
+	let modelPreview = rawPreview;
+	let redactedNote = "";
+	if (decision.shouldDistill) {
+		modelPreview = {
+			...rawPreview,
+			title: isUpdate ? "Update a calendar event" : "Delete a calendar event",
+			detail: `${op.action} — calendar event`,
+		};
+		redactedNote =
+			"distilled" in decision
+				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
+				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.";
+	}
+
+	const actionVerb = isUpdate ? "changes to" : "the deletion of";
+	const notYetVerb = isUpdate ? "applied" : "deleted";
+	const baseMessage = `I've prepared ${actionVerb} a calendar event, but it has NOT been ${notYetVerb} yet — it is PENDING and awaiting your explicit confirmation. ${modelPreview.detail}${redactedNote}${modelPreview.warnings.length > 0 && !decision.shouldDistill ? ` Warnings: ${modelPreview.warnings.join("; ")}.` : ""}`;
+
+	const message = withAmbiguityPrefix(
+		baseMessage,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action,
+		message,
+		pendingWriteId,
+		preview: modelPreview,
+	});
+}
+
 async function calendarWriteOutcome(
 	userId: string,
 	conn: ConnectionPublic,
@@ -717,13 +1014,14 @@ async function calendarWriteOutcome(
 	connections: ConnectionPublic[],
 	modelId: string,
 ): Promise<CalendarToolOutcome> {
-	// Google-only for v1 (6.2 handles Apple). No pending write for a
-	// connection this tool can't act on.
-	if (conn.provider !== "google") {
+	// Google and Apple only for v1. No pending write for a connection this
+	// tool can't act on.
+	if (conn.provider !== "google" && conn.provider !== "apple") {
 		return buildPayload({
 			success: false,
 			action,
-			message: "Calendar writes to Apple are handled separately.",
+			message:
+				"Calendar writes are only supported for Google and Apple iCloud connections right now.",
 		});
 	}
 
@@ -738,13 +1036,30 @@ async function calendarWriteOutcome(
 		});
 	}
 
-	if (!hasCalendarWriteScope(conn)) {
+	// The write OAuth scope check is Google-only — Apple has no OAuth scope
+	// concept, its app-specific password already grants full CalDAV access,
+	// gated purely by allowWrites above.
+	if (conn.provider === "google" && !hasCalendarWriteScope(conn)) {
 		return buildPayload({
 			success: false,
 			action,
 			message:
 				"I don't have permission to make changes to your Google Calendar yet — please reconnect Google and grant calendar write access, then try again.",
 		});
+	}
+
+	if (conn.provider === "apple") {
+		return action === "create_event"
+			? proposeAppleCreateEvent(userId, conn, input, ambiguous, connections)
+			: proposeAppleUpdateOrDeleteEvent(
+					userId,
+					conn,
+					input,
+					action,
+					ambiguous,
+					connections,
+					modelId,
+				);
 	}
 
 	if (action === "create_event") {

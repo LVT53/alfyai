@@ -429,6 +429,58 @@ describe("appleListEvents", () => {
 		]);
 	});
 
+	it("surfaces DESCRIPTION and a recurring event's RRULE (Issue 6.2) as description/recurrence on the mapped CalendarEvent", async () => {
+		seedUser("userA");
+		const conn = await seedConnection();
+		const { appleListEvents } = await import("./apple-caldav");
+
+		const RECURRING_ICS = [
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"BEGIN:VEVENT",
+			"UID:evt-recur@icloud.com",
+			"SUMMARY:Weekly sync",
+			"DESCRIPTION:Bring your notes",
+			"RRULE:FREQ=WEEKLY",
+			"DTSTART:20260709T130000Z",
+			"DTEND:20260709T133000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const fetchMock = vi.fn(async () =>
+			xmlResponse(
+				207,
+				multistatusReport([
+					{
+						href: "/12345678/calendars/home/evt-recur.ics",
+						etag: '"etag-recur"',
+						ics: RECURRING_ICS,
+					},
+				]),
+			),
+		);
+
+		const events = await appleListEvents(
+			"userA",
+			conn.id,
+			{
+				timeMin: "2026-07-08T00:00:00.000Z",
+				timeMax: "2026-07-15T00:00:00.000Z",
+			},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(events).toEqual([
+			expect.objectContaining({
+				id: "evt-recur@icloud.com",
+				description: "Bring your notes",
+				recurrence: ["FREQ=WEEKLY"],
+			}),
+		]);
+	});
+
 	it("a 401 on REPORT throws a typed needs_reauth error and flags the connection", async () => {
 		seedUser("userA");
 		const conn = await seedConnection();
@@ -448,6 +500,214 @@ describe("appleListEvents", () => {
 			},
 			{ fetch: fetchMock as unknown as typeof fetch },
 		);
+
+		await expect(promise).rejects.toBeInstanceOf(AppleCalDavError);
+		await expect(promise).rejects.toMatchObject({ code: "needs_reauth" });
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
+});
+
+describe("appleGetEventByUid (Issue 6.2)", () => {
+	async function seedConnection(calendarUrls: string[]) {
+		const { createConnection } = await import("../store");
+		return createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+			capabilities: ["calendar"],
+			status: "connected",
+			secret: "app-specific-pw",
+			config: {
+				appleId: "alice@icloud.com",
+				principalUrl: `${PARTITION}/12345678/principal/`,
+				calendarHomeUrl: `${PARTITION}/12345678/calendars/`,
+				calendarUrls,
+			},
+		});
+	}
+
+	const TARGET_ICS = [
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"BEGIN:VEVENT",
+		"UID:target-uid@icloud.com",
+		"SUMMARY:Standup",
+		"DTSTART:20260709T130000Z",
+		"DTEND:20260709T133000Z",
+		"END:VEVENT",
+		"END:VCALENDAR",
+		"",
+	].join("\r\n");
+
+	function multistatusReport(
+		entries: { href: string; etag: string; ics: string }[],
+	) {
+		const responses = entries
+			.map(
+				(entry) => `
+	<d:response>
+		<d:href>${entry.href}</d:href>
+		<d:propstat>
+			<d:prop>
+				<d:getetag>${entry.etag}</d:getetag>
+				<c:calendar-data>${entry.ics
+					.replace(/&/g, "&amp;")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;")}</c:calendar-data>
+			</d:prop>
+			<d:status>HTTP/1.1 200 OK</d:status>
+		</d:propstat>
+	</d:response>`,
+			)
+			.join("");
+		return `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">${responses}
+</d:multistatus>`;
+	}
+
+	function emptyMultistatus() {
+		return `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+</d:multistatus>`;
+	}
+
+	it("issues a UID prop-filter REPORT (no time-range) and returns the matching event's href+etag", async () => {
+		seedUser("userA");
+		const calendarUrl = `${PARTITION}/12345678/calendars/home/`;
+		const conn = await seedConnection([calendarUrl]);
+		const { appleGetEventByUid } = await import("./apple-caldav");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(calendarUrl);
+				expect(init?.method).toBe("REPORT");
+				const body = String(init?.body);
+				expect(body).toContain("prop-filter");
+				expect(body).toContain("target-uid@icloud.com");
+				expect(body).not.toContain("time-range");
+				return xmlResponse(
+					207,
+					multistatusReport([
+						{
+							href: "/12345678/calendars/home/target.ics",
+							etag: '"target-etag"',
+							ics: TARGET_ICS,
+						},
+					]),
+				);
+			},
+		);
+
+		const event = await appleGetEventByUid(
+			"userA",
+			conn.id,
+			"target-uid@icloud.com",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(event).toMatchObject({
+			id: "target-uid@icloud.com",
+			htmlLink: `${PARTITION}/12345678/calendars/home/target.ics`,
+			etag: '"target-etag"',
+		});
+	});
+
+	it("searches every configured calendar collection in order and returns null when no calendar has a match", async () => {
+		seedUser("userA");
+		const calendarA = `${PARTITION}/12345678/calendars/a/`;
+		const calendarB = `${PARTITION}/12345678/calendars/b/`;
+		const conn = await seedConnection([calendarA, calendarB]);
+		const { appleGetEventByUid } = await import("./apple-caldav");
+
+		const calledUrls: string[] = [];
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			calledUrls.push(String(input));
+			return xmlResponse(207, emptyMultistatus());
+		});
+
+		const event = await appleGetEventByUid(
+			"userA",
+			conn.id,
+			"missing-uid@icloud.com",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(event).toBeNull();
+		expect(calledUrls).toEqual([calendarA, calendarB]);
+	});
+
+	it("stops searching once a match is found in an earlier calendar collection", async () => {
+		seedUser("userA");
+		const calendarA = `${PARTITION}/12345678/calendars/a/`;
+		const calendarB = `${PARTITION}/12345678/calendars/b/`;
+		const conn = await seedConnection([calendarA, calendarB]);
+		const { appleGetEventByUid } = await import("./apple-caldav");
+
+		const calledUrls: string[] = [];
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			calledUrls.push(String(input));
+			return xmlResponse(
+				207,
+				multistatusReport([
+					{
+						href: "/12345678/calendars/a/target.ics",
+						etag: '"target-etag"',
+						ics: TARGET_ICS,
+					},
+				]),
+			);
+		});
+
+		const event = await appleGetEventByUid(
+			"userA",
+			conn.id,
+			"target-uid@icloud.com",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(event).not.toBeNull();
+		expect(calledUrls).toEqual([calendarA]);
+	});
+
+	it("XML-escapes a UID containing special characters before interpolating it into the REPORT body", async () => {
+		seedUser("userA");
+		const calendarUrl = `${PARTITION}/12345678/calendars/home/`;
+		const conn = await seedConnection([calendarUrl]);
+		const { appleGetEventByUid } = await import("./apple-caldav");
+
+		const maliciousUid = `x"]]></c:text-match><c:comp-filter name="VTODO">&`;
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const body = String(init?.body);
+			expect(body).not.toContain('"]]>');
+			expect(body).toContain("&quot;");
+			expect(body).toContain("&amp;");
+			return xmlResponse(207, emptyMultistatus());
+		});
+
+		const event = await appleGetEventByUid("userA", conn.id, maliciousUid, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		expect(event).toBeNull();
+	});
+
+	it("a 401 throws a typed needs_reauth error and flags the connection", async () => {
+		seedUser("userA");
+		const conn = await seedConnection([
+			`${PARTITION}/12345678/calendars/home/`,
+		]);
+		const { appleGetEventByUid, AppleCalDavError } = await import(
+			"./apple-caldav"
+		);
+		const { getConnection } = await import("../store");
+
+		const fetchMock = vi.fn(async () => new Response("", { status: 401 }));
+
+		const promise = appleGetEventByUid("userA", conn.id, "any-uid", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
 
 		await expect(promise).rejects.toBeInstanceOf(AppleCalDavError);
 		await expect(promise).rejects.toMatchObject({ code: "needs_reauth" });
@@ -887,5 +1147,63 @@ describe("iCal VEVENT parsing", () => {
 		]);
 		expect(events[0]?.summary).toBeUndefined();
 		expect(events[0]?.location).toBeUndefined();
+	});
+
+	it("captures DESCRIPTION, unescaping RFC 5545 TEXT escapes (Issue 6.2 update round-tripping)", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:desc@icloud.com",
+			"SUMMARY:Standup",
+			"DESCRIPTION:Line one\\nLine two\\, with a comma\\; and a semicolon",
+			"DTSTART:20260709T090000Z",
+			"DTEND:20260709T093000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events[0]?.description).toBe(
+			"Line one\nLine two, with a comma; and a semicolon",
+		);
+	});
+
+	it("captures a bare RRULE presence as recurrenceRule (Issue 6.2 recurring-write guardrail)", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:recur@icloud.com",
+			"SUMMARY:Standup",
+			"RRULE:FREQ=WEEKLY;BYDAY=MO",
+			"DTSTART:20260709T090000Z",
+			"DTEND:20260709T093000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events[0]?.recurrenceRule).toBe("FREQ=WEEKLY;BYDAY=MO");
+	});
+
+	it("a VEVENT with no RRULE leaves recurrenceRule undefined", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:non-recur@icloud.com",
+			"SUMMARY:Standup",
+			"DTSTART:20260709T090000Z",
+			"DTEND:20260709T093000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events[0]?.recurrenceRule).toBeUndefined();
 	});
 });

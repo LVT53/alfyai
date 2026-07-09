@@ -83,7 +83,10 @@ export class AppleCalDavError extends Error {
 	}
 }
 
-function basicAuthHeader(appleId: string, appPassword: string): string {
+// Exported for the write executor (6.2, providers/apple-caldav-write.ts) —
+// every mutating CalDAV request needs the exact same Basic-auth header this
+// module's own reads use.
+export function basicAuthHeader(appleId: string, appPassword: string): string {
 	return `Basic ${Buffer.from(`${appleId}:${appPassword}`).toString("base64")}`;
 }
 
@@ -685,8 +688,14 @@ export type ParsedICalEvent = {
 	uid: string;
 	summary?: string;
 	location?: string;
+	description?: string;
 	dtstart: string;
 	dtend: string;
+	// Raw RRULE value (e.g. "FREQ=WEEKLY;..."), present iff this VEVENT block
+	// carries one. Not parsed further — the calendar write tool (6.2) only
+	// ever needs "is this event recurring at all", never the rule's actual
+	// frequency/interval.
+	recurrenceRule?: string;
 };
 
 // Scans unfolded lines for BEGIN:VEVENT..END:VEVENT blocks and extracts the
@@ -700,8 +709,10 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 	let uid: string | undefined;
 	let summary: string | undefined;
 	let location: string | undefined;
+	let description: string | undefined;
 	let dtstart: string | undefined;
 	let dtend: string | undefined;
+	let recurrenceRule: string | undefined;
 
 	for (const line of lines) {
 		if (line === "BEGIN:VEVENT") {
@@ -709,8 +720,10 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 			uid = undefined;
 			summary = undefined;
 			location = undefined;
+			description = undefined;
 			dtstart = undefined;
 			dtend = undefined;
+			recurrenceRule = undefined;
 			continue;
 		}
 		if (line === "END:VEVENT") {
@@ -721,6 +734,8 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 					dtend,
 					...(summary !== undefined ? { summary } : {}),
 					...(location !== undefined ? { location } : {}),
+					...(description !== undefined ? { description } : {}),
+					...(recurrenceRule !== undefined ? { recurrenceRule } : {}),
 				});
 			}
 			inEvent = false;
@@ -739,6 +754,12 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 				break;
 			case "LOCATION":
 				location = unescapeICalText(prop.value);
+				break;
+			case "DESCRIPTION":
+				description = unescapeICalText(prop.value);
+				break;
+			case "RRULE":
+				recurrenceRule = prop.value;
 				break;
 			case "DTSTART": {
 				const parsed = parseICalTimestamp(prop);
@@ -828,8 +849,16 @@ function parseReportMultistatus(
 				start: parsed.dtstart,
 				end: parsed.dtend,
 				...(parsed.location ? { location: parsed.location } : {}),
+				...(parsed.description ? { description: parsed.description } : {}),
 				htmlLink: absoluteHref,
 				...(etag ? { etag } : {}),
+				// See CalendarEvent.recurrence's doc comment (google-calendar.ts):
+				// Apple never distinguishes a recurring master from an expanded
+				// instance the way Google does, so a bare non-empty array is enough
+				// signal for isRecurring — the rule's actual content is unused.
+				...(parsed.recurrenceRule
+					? { recurrence: [parsed.recurrenceRule] }
+					: {}),
 			});
 		}
 	}
@@ -911,6 +940,109 @@ export async function appleListEvents(
 	}
 
 	return events.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+// ---------------------------------------------------------------------------
+// Fetch a single event by UID (Issue 6.2 write path) — a calendar-query
+// REPORT filtered by a UID prop-filter, deliberately NOT reusing
+// appleListEvents's time-range filter: update/delete need to resolve a
+// target event's resourceHref+etag regardless of how far in the past or
+// future it falls, which a bounded time-range lookup could simply miss.
+// Searches every configured calendar collection and returns the first match.
+// ---------------------------------------------------------------------------
+
+// Minimal XML-text escaping for interpolating a caller-supplied value (the
+// calendar tool's `eventId`, ultimately model-controlled) into a REPORT
+// request body — this is the one CalDAV request body in this module built
+// from untrusted input, so escaping here is required to keep it from
+// breaking out of the <c:text-match> element (or injecting sibling filter
+// elements) rather than merely failing to match.
+function escapeXmlText(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&apos;");
+}
+
+function uidQueryBody(uid: string): string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+	<d:prop>
+		<d:getetag/>
+		<c:calendar-data/>
+	</d:prop>
+	<c:filter>
+		<c:comp-filter name="VCALENDAR">
+			<c:comp-filter name="VEVENT">
+				<c:prop-filter name="UID">
+					<c:text-match collation="i;octet" match-type="equals">${escapeXmlText(uid)}</c:text-match>
+				</c:prop-filter>
+			</c:comp-filter>
+		</c:comp-filter>
+	</c:filter>
+</c:calendar-query>`;
+}
+
+export async function appleGetEventByUid(
+	userId: string,
+	connectionId: string,
+	uid: string,
+	opts?: FetchOpt,
+): Promise<CalendarEvent | null> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new AppleCalDavError(
+			"Apple connection not found",
+			"connection_not_found",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new AppleCalDavError(
+			"No app-specific password stored for this Apple connection",
+			"needs_reauth",
+		);
+	}
+
+	const { appleId, calendarUrls } = appleConfig(conn);
+	const auth = basicAuthHeader(appleId, appPassword);
+	const body = uidQueryBody(uid);
+
+	try {
+		for (const calendarUrl of calendarUrls) {
+			const { xml, finalUrl } = await caldavRequest(
+				fetchImpl,
+				calendarUrl,
+				auth,
+				"REPORT",
+				"1",
+				body,
+			);
+			// Defense in depth beyond the server-side UID filter — a server that
+			// ignores match-type="equals" and falls back to "contains" semantics
+			// must never hand back a different event than the one asked for.
+			const match = parseReportMultistatus(xml, finalUrl).find(
+				(event) => event.id === uid,
+			);
+			if (match) return match;
+		}
+	} catch (err) {
+		if (err instanceof AppleCalDavError && err.code === "invalid_credentials") {
+			const detail = "Apple rejected the stored app-specific password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new AppleCalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
+
+	return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -23,20 +23,21 @@ import { connectionPendingWrites } from "$lib/server/db/schema";
 // — a classic TOCTOU race (flagged in 4.3 review).
 // ---------------------------------------------------------------------------
 
-// Side-effect imports ONLY — load providers/nextcloud-files.ts and
-// providers/google-calendar-write.ts so their top-level
-// registerWriteExecutor(...) calls (Issue 6.0, 6.1) have run before
-// confirmPendingWrite below ever dispatches to getWriteExecutor. This
-// mirrors how, before 6.0, this module's own direct import of
+// Side-effect imports ONLY — load providers/nextcloud-files.ts,
+// providers/google-calendar-write.ts, and providers/apple-caldav-write.ts so
+// their top-level registerWriteExecutor(...) calls (Issue 6.0, 6.1, 6.2) have
+// run before confirmPendingWrite below ever dispatches to getWriteExecutor.
+// This mirrors how, before 6.0, this module's own direct import of
 // executeNextcloudWrite from the same file caused the same module evaluation
 // (and its registerConnectionAdapter side effect) to happen as a byproduct.
-// Nothing in this module calls into either provider module directly anymore —
+// Nothing in this module calls into any provider module directly anymore —
 // dispatch happens purely through the write-executors registry — but each
 // registration still needs to run somewhere in every path that reaches
 // confirmPendingWrite (prod request handling AND every *.test.ts here that
 // exercises confirm without importing the provider module itself).
 import "./providers/nextcloud-files";
 import "./providers/google-calendar-write";
+import "./providers/apple-caldav-write";
 import { getWriteExecutor } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";
 

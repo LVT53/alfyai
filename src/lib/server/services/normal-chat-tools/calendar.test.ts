@@ -6,7 +6,11 @@ import {
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
-import { appleListEvents } from "$lib/server/services/connections/providers/apple-caldav";
+import {
+	AppleCalDavError,
+	appleGetEventByUid,
+	appleListEvents,
+} from "$lib/server/services/connections/providers/apple-caldav";
 import {
 	GoogleCalendarError,
 	googleFreeBusy,
@@ -46,6 +50,7 @@ vi.mock("$lib/server/services/connections/providers/apple-caldav", async () => {
 	return {
 		...actual,
 		appleListEvents: vi.fn(),
+		appleGetEventByUid: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -65,6 +70,7 @@ const googleListEventsMock = vi.mocked(googleListEvents);
 const googleFreeBusyMock = vi.mocked(googleFreeBusy);
 const googleGetEventMock = vi.mocked(googleGetEvent);
 const appleListEventsMock = vi.mocked(appleListEvents);
+const appleGetEventByUidMock = vi.mocked(appleGetEventByUid);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -117,6 +123,7 @@ describe("runCalendarTool", () => {
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
 		appleListEventsMock.mockReset();
+		appleGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -288,6 +295,7 @@ describe("runCalendarTool — locality Option A distillation gate", () => {
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
 		appleListEventsMock.mockReset();
+		appleGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -414,6 +422,7 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
 		appleListEventsMock.mockReset();
+		appleGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -591,6 +600,7 @@ describe("runCalendarTool — locality Option A distillation with an apple event
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
 		appleListEventsMock.mockReset();
+		appleGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -667,6 +677,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 		googleFreeBusyMock.mockReset();
 		googleGetEventMock.mockReset();
 		appleListEventsMock.mockReset();
+		appleGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -776,8 +787,8 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 		});
 
-		it("an apple calendar connection is refused with a note pointing at 6.2, no pending row", async () => {
-			const conn = makeWritableGoogleConn({ provider: "apple" });
+		it("an apple calendar connection missing its calendarUrls config is refused with a note, no pending row (6.2 now supports Apple writes, but only once discovery has actually populated the connection's config)", async () => {
+			const conn = makeWritableGoogleConn({ provider: "apple", config: {} });
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 
 			const outcome = await runCalendarTool(
@@ -793,6 +804,26 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 
 			expect(outcome.modelPayload.success).toBe(false);
 			expect(outcome.modelPayload.message).toContain("Apple");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("an unsupported provider (neither google nor apple) is refused, no pending row", async () => {
+			const conn = makeWritableGoogleConn({ provider: "imap" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runCalendarTool(
+				"user-1",
+				{
+					action: "create_event",
+					title: "Standup",
+					start: "2026-07-10T09:00:00Z",
+					end: "2026-07-10T09:30:00Z",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("Google and Apple iCloud");
 			expect(createPendingWriteMock).not.toHaveBeenCalled();
 		});
 
@@ -1110,6 +1141,367 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 
 			expect(outcome.modelPayload.message).toContain("Therapy session");
 			expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("Apple write actions (Issue 6.2)", () => {
+		function makeWritableAppleConn(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return makeConn({
+				provider: "apple",
+				allowWrites: true,
+				config: {
+					appleId: "alice@icloud.com",
+					calendarUrls: ["https://p12-caldav.icloud.com/12345/calendars/home/"],
+				},
+				...overrides,
+			});
+		}
+
+		function existingAppleEvent(
+			overrides: Partial<
+				import("$lib/server/services/connections/providers/google-calendar").CalendarEvent
+			> = {},
+		) {
+			return {
+				id: "evt-apple-1@icloud.com",
+				summary: "Therapy session — anxiety follow-up",
+				start: "2026-07-09T09:00:00-04:00",
+				end: "2026-07-09T09:30:00-04:00",
+				location: "123 Clinic Rd",
+				htmlLink:
+					"https://p12-caldav.icloud.com/12345/calendars/home/evt-apple-1.ics",
+				etag: '"etag-1"',
+				...overrides,
+			};
+		}
+
+		beforeEach(() => {
+			resolveConnectionsForCapabilityMock.mockReset();
+			needsDisambiguationMock.mockReset();
+			appleGetEventByUidMock.mockReset();
+			hasLocalDistillEnabledMock.mockReset();
+			isCloudModelMock.mockReset();
+			distillConnectorPayloadMock.mockReset();
+			createPendingWriteMock.mockReset();
+			needsDisambiguationMock.mockReturnValue(false);
+			hasLocalDistillEnabledMock.mockResolvedValue(false);
+			isCloudModelMock.mockResolvedValue(false);
+			createPendingWriteMock.mockImplementation(async (_userId, params) => ({
+				id: "pending-1",
+				preview: params.preview,
+			}));
+		});
+
+		describe("create_event", () => {
+			it("allowWrites=true + valid calendarUrls config: returns a PENDING result and creates a pending row with provider 'apple'", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "create_event",
+						title: "Standup",
+						start: "2026-07-10T09:00:00Z",
+						end: "2026-07-10T09:30:00Z",
+						location: "Zoom",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(true);
+				expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+				expect(outcome.modelPayload.message).toContain("Apple iCloud Calendar");
+				expect(outcome.modelPayload.message).toContain(
+					"has NOT been created yet",
+				);
+
+				expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+				const call = createPendingWriteMock.mock.calls[0]?.[1];
+				expect(call).toMatchObject({
+					connectionId: "conn-1",
+					provider: "apple",
+				});
+				expect(call?.op).toMatchObject({
+					provider: "apple",
+					action: "calendar.create_event",
+					destructive: false,
+				});
+				const content = JSON.parse(call?.content ?? "{}");
+				expect(content).toEqual({
+					calendarUrl: "https://p12-caldav.icloud.com/12345/calendars/home/",
+					event: {
+						summary: "Standup",
+						start: "2026-07-10T09:00:00Z",
+						end: "2026-07-10T09:30:00Z",
+						location: "Zoom",
+					},
+				});
+			});
+
+			it("allowWrites=false: returns a note and creates NO pending row", async () => {
+				const conn = makeWritableAppleConn({ allowWrites: false });
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "create_event",
+						title: "Standup",
+						start: "2026-07-10T09:00:00Z",
+						end: "2026-07-10T09:30:00Z",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(outcome.modelPayload.message).toContain("turned off");
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("missing calendarUrls in config: returns a note and creates NO pending row", async () => {
+				const conn = makeWritableAppleConn({ config: { appleId: "a@b.com" } });
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "create_event",
+						title: "Standup",
+						start: "2026-07-10T09:00:00Z",
+						end: "2026-07-10T09:30:00Z",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(outcome.modelPayload.message).toContain("Apple");
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+		});
+
+		describe("update_event / delete_event", () => {
+			it("requires an eventId — missing it returns a note with no pending row and no appleGetEventByUid call", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{ action: "update_event", title: "New title" },
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(appleGetEventByUidMock).not.toHaveBeenCalled();
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("non-recurring event: update_event fetches by uid and creates a pending row carrying resourceHref/etag/uid and the FULL merged event (CalDAV PUT replaces the whole resource)", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(existingAppleEvent());
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(appleGetEventByUidMock).toHaveBeenCalledWith(
+					"user-1",
+					"conn-1",
+					"evt-apple-1@icloud.com",
+				);
+				expect(outcome.modelPayload.success).toBe(true);
+				expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+				expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+				const call = createPendingWriteMock.mock.calls[0]?.[1];
+				expect(call).toMatchObject({ provider: "apple" });
+				expect(call?.op).toMatchObject({
+					provider: "apple",
+					action: "calendar.update_event",
+					destructive: true,
+					reversible: false,
+				});
+				const content = JSON.parse(call?.content ?? "{}");
+				expect(content).toEqual({
+					resourceHref:
+						"https://p12-caldav.icloud.com/12345/calendars/home/evt-apple-1.ics",
+					etag: '"etag-1"',
+					uid: "evt-apple-1@icloud.com",
+					event: {
+						summary: "Therapy session — anxiety follow-up",
+						start: "2026-07-09T09:00:00-04:00",
+						end: "2026-07-09T09:30:00-04:00",
+						location: "New Room",
+					},
+					recurring: false,
+				});
+			});
+
+			it("recurring event: update_event is refused BEFORE any pending write is created, even though the event was already fetched", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(
+					existingAppleEvent({ recurrence: ["FREQ=WEEKLY"] }),
+				);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(appleGetEventByUidMock).toHaveBeenCalledTimes(1);
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(outcome.modelPayload.message.toLowerCase()).toContain(
+					"recurring",
+				);
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("recurring event: delete_event IS allowed, and the preview clearly states it deletes the whole series", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(
+					existingAppleEvent({ recurrence: ["FREQ=WEEKLY"] }),
+				);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{ action: "delete_event", eventId: "evt-apple-1@icloud.com" },
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(true);
+				expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+				const call = createPendingWriteMock.mock.calls[0]?.[1];
+				expect(call?.preview.warnings.join(" ")).toContain(
+					"ENTIRE recurring series",
+				);
+				const content = JSON.parse(call?.content ?? "{}");
+				expect(content).toMatchObject({ recurring: true });
+			});
+
+			it("delete_event on a not-found event returns a note, no pending row", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(null);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{ action: "delete_event", eventId: "evt-missing" },
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(outcome.modelPayload.message).toContain(
+					"couldn't find that event",
+				);
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("a needs_reauth error fetching the target event maps to a graceful note, no pending row", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockRejectedValue(
+					new AppleCalDavError("nope", "needs_reauth"),
+				);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(outcome.modelPayload.message).toContain("reconnected");
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("an event missing an etag is refused rather than proposing an unconditional write, no pending row", async () => {
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(
+					existingAppleEvent({ etag: undefined }),
+				);
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{ action: "delete_event", eventId: "evt-apple-1@icloud.com" },
+					LOCAL_MODEL_ID,
+				);
+
+				expect(outcome.modelPayload.success).toBe(false);
+				expect(createPendingWriteMock).not.toHaveBeenCalled();
+			});
+
+			it("Option A on + cloud model: the update preview reads an existing event, but its raw summary/location are absent from the WHOLE model-facing payload", async () => {
+				hasLocalDistillEnabledMock.mockResolvedValue(true);
+				isCloudModelMock.mockResolvedValue(true);
+				distillConnectorPayloadMock.mockResolvedValue({
+					distilled: "A therapy appointment.",
+				});
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(existingAppleEvent());
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					"whichever-cloud-model",
+				);
+
+				expect(outcome.modelPayload.success).toBe(true);
+				const serializedPayload = JSON.stringify(outcome.modelPayload);
+				expect(serializedPayload).not.toContain("Therapy session");
+				expect(serializedPayload).not.toContain("Clinic Rd");
+				expect(outcome.modelPayload.message).toContain(
+					"A therapy appointment.",
+				);
+
+				const call = createPendingWriteMock.mock.calls[0]?.[1];
+				expect(call?.preview.title).toContain("Therapy session");
+			});
+
+			it("Option A off: the update preview/message keep the real event title (no distill call)", async () => {
+				hasLocalDistillEnabledMock.mockResolvedValue(false);
+				isCloudModelMock.mockResolvedValue(true);
+				const conn = makeWritableAppleConn();
+				resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+				appleGetEventByUidMock.mockResolvedValue(existingAppleEvent());
+
+				const outcome = await runCalendarTool(
+					"user-1",
+					{
+						action: "update_event",
+						eventId: "evt-apple-1@icloud.com",
+						location: "New Room",
+					},
+					"whichever-cloud-model",
+				);
+
+				expect(outcome.modelPayload.message).toContain("Therapy session");
+				expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+			});
 		});
 	});
 });
