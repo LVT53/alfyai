@@ -21,6 +21,7 @@ import {
 	getConnection,
 	getConnectionSecret,
 	setConnectionSecret,
+	setConnectionWriteSecret,
 	updateConnection,
 } from "../store";
 import { assertPublicHttpsUrl } from "./nextcloud-files";
@@ -337,6 +338,142 @@ export async function immichConnect(
 		config: { origin, immichUserId: login.userId },
 	});
 	return { connection };
+}
+
+// ---------------------------------------------------------------------------
+// Write-scoped key (Issue 6.4) — a SEPARATE key from the read-only one
+// minted above. The 5.5 read key is structurally read-only and must stay
+// that way (see READ_ONLY_IMMICH_PERMISSIONS/assertReadOnlyPermissions
+// above, which forbids `.create` too — appropriate for a key that must
+// never write anything at all). Album organization needs `album.create` +
+// `albumAsset.create`, so those two CANNOT go through
+// assertReadOnlyPermissions unchanged; instead this write key is asserted
+// against a narrower, explicit danger-list: it must never carry
+// delete/update/upload/`all` — the operations that could destroy or mutate
+// an existing asset. `album.create`/`albumAsset.create`/`album.read` all
+// pass this guard; nothing that deletes or overwrites a photo ever will.
+// ---------------------------------------------------------------------------
+
+export const WRITE_IMMICH_PERMISSIONS = [
+	"album.create",
+	"albumAsset.create",
+	"album.read",
+] as const;
+
+const FORBIDDEN_WRITE_EXACT_PERMISSIONS = new Set(["all"]);
+const FORBIDDEN_WRITE_PERMISSION_SUFFIXES = [".delete", ".update", ".upload"];
+
+// Throws if `permissions` contains anything that could delete, overwrite, or
+// upload/replace asset bytes. Deliberately narrower than
+// assertReadOnlyPermissions (which also forbids `.create`) — this guard is
+// for the write-scoped album key, which legitimately needs `album.create`/
+// `albumAsset.create`. Called on every mint, not just in tests, so a future
+// edit that widens WRITE_IMMICH_PERMISSIONS toward `asset.delete`,
+// `asset.update`, `asset.upload`, or `all` fails loudly at mint time.
+export function assertNoDangerousImmichWritePermissions(
+	permissions: readonly string[],
+): void {
+	for (const permission of permissions) {
+		const isForbidden =
+			FORBIDDEN_WRITE_EXACT_PERMISSIONS.has(permission) ||
+			FORBIDDEN_WRITE_PERMISSION_SUFFIXES.some((suffix) =>
+				permission.endsWith(suffix),
+			);
+		if (isForbidden) {
+			throw new Error(
+				`Refusing to request a dangerous Immich write permission: ${permission}`,
+			);
+		}
+	}
+}
+
+const WRITE_API_KEY_NAME = "AlfyAI (album write)";
+
+async function mintWriteApiKey(
+	fetchImpl: typeof fetch,
+	origin: string,
+	accessToken: string,
+): Promise<string> {
+	// Structural safety: assert before every request, not just at module
+	// load — this is the one call site that actually mints this key.
+	assertNoDangerousImmichWritePermissions(WRITE_IMMICH_PERMISSIONS);
+
+	let response: Response;
+	try {
+		response = await fetchImpl(`${origin}/api/api-keys`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${accessToken}`,
+			},
+			body: JSON.stringify({
+				name: WRITE_API_KEY_NAME,
+				permissions: WRITE_IMMICH_PERMISSIONS,
+			}),
+		});
+	} catch {
+		throw new ImmichError(
+			"Could not reach the Immich server to create an API key",
+			"request_failed",
+		);
+	}
+	if (!response.ok) {
+		throw new ImmichError(
+			"Failed to create a write-scoped Immich API key",
+			"request_failed",
+		);
+	}
+	const body: unknown = await response.json().catch(() => null);
+	if (!isValidApiKeyResponse(body)) {
+		throw new ImmichError(
+			"Immich API key creation returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return body.secret;
+}
+
+// Provisions the write-scoped key for an EXISTING Immich connection (created
+// earlier via immichConnect/5.5's read-only flow). Re-runs immichLogin with
+// the password (used only in memory, never stored — same posture as
+// immichConnect) to obtain a fresh access token, mints the write-scoped key,
+// and stores it via setConnectionWriteSecret — entirely separate storage
+// from the read-only key's columns. This does NOT touch `allowWrites`: that
+// remains the user's own separate toggle (write-guard.ts's posture is that a
+// key existing is not the same as writes being turned on).
+export async function immichEnableWrites(
+	params: {
+		userId: string;
+		connectionId: string;
+		password: string;
+	} & FetchOpt,
+): Promise<{ connection: ConnectionPublic }> {
+	if (!params.password) {
+		throw new ImmichError("A password is required", "invalid_config");
+	}
+	const conn = await getConnection(params.userId, params.connectionId);
+	if (!conn || conn.provider !== "immich") {
+		throw new ImmichError(
+			"Immich connection not found",
+			"connection_not_found",
+		);
+	}
+	const { origin } = immichConfig(conn);
+	const email = conn.accountIdentifier;
+	const fetchImpl = params.fetch ?? fetch;
+
+	const login = await immichLogin(fetchImpl, origin, email, params.password);
+	const secret = await mintWriteApiKey(fetchImpl, origin, login.accessToken);
+	await setConnectionWriteSecret(params.userId, params.connectionId, secret);
+
+	const updated = await getConnection(params.userId, params.connectionId);
+	if (!updated) {
+		throw new ImmichError(
+			"Immich connection not found",
+			"connection_not_found",
+		);
+	}
+	return { connection: updated };
 }
 
 // ---------------------------------------------------------------------------

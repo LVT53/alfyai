@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	ImmichError,
 	immichSmartSearch,
@@ -9,14 +10,23 @@ import {
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import {
+	buildWritePreview,
+	idempotencyKey,
+	type WriteOperation,
+	type WritePreview,
+} from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
 
 export const photosToolInputSchema = z.object({
-	action: z.enum(["search"]),
-	query: z.string(),
+	action: z.enum(["search", "add_to_album"]),
+	query: z.string().optional(),
 	limit: z.number().optional(),
+	// Write-action field (6.4) — ids the user is referring to from a prior
+	// search this turn/session (opaque Immich asset ids, never filenames).
+	assetIds: z.array(z.string()).optional(),
 });
 
 export type PhotosToolInput = z.infer<typeof photosToolInputSchema>;
@@ -26,8 +36,11 @@ export function sanitizePhotosToolInput(
 ): PhotosToolInput {
 	return {
 		action: input.action,
-		query: input.query.trim(),
+		...(input.query !== undefined ? { query: input.query.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
+		...(input.assetIds !== undefined
+			? { assetIds: input.assetIds.map((id) => id.trim()).filter(Boolean) }
+			: {}),
 	};
 }
 
@@ -58,6 +71,11 @@ export type PhotosToolModelPayload = {
 	message: string;
 	results: PhotoToolResultItem[];
 	citations: PhotoCitation[];
+	// Only set for a successful add_to_album action (6.4) — the write has NOT
+	// executed, this is the id the user's confirm/cancel decision applies to
+	// (mirrors calendar.ts's create_event/update_event/delete_event).
+	pendingWriteId?: string;
+	preview?: WritePreview;
 };
 
 export type PhotosToolOutcome = {
@@ -109,6 +127,8 @@ function buildPayload(params: {
 	results?: PhotoToolResultItem[];
 	citations?: PhotoCitation[];
 	candidates?: ToolEvidenceCandidate[];
+	pendingWriteId?: string;
+	preview?: WritePreview;
 }): PhotosToolOutcome {
 	const citations = params.citations ?? [];
 	return {
@@ -120,6 +140,10 @@ function buildPayload(params: {
 			message: params.message,
 			results: params.results ?? [],
 			citations,
+			...(params.pendingWriteId
+				? { pendingWriteId: params.pendingWriteId }
+				: {}),
+			...(params.preview ? { preview: params.preview } : {}),
 		},
 		candidates: params.candidates ?? [],
 	};
@@ -247,7 +271,7 @@ async function applyLocalDistillGate(params: {
 		userId,
 		modelId,
 		capability: "photos",
-		userQuestion: input.query,
+		userQuestion: input.query ?? "",
 		rawText: rawTextParts.join("\n"),
 	});
 	if (!decision.shouldDistill) return outcome;
@@ -294,13 +318,118 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
-// Resolves the user's Photos (Immich) connection(s) and executes a smart
-// search, degrading gracefully (never throwing) so a connection problem
-// never aborts the chat turn: no connection, ambiguity, and adapter failures
-// all resolve to a `{ success: false, message }`-shaped payload instead.
-// Read-only — writes are out of scope (Phase 6.4). Raw photo bytes are never
-// part of this payload: only textual metadata reaches the model, and
-// thumbnails are a Sources-UI concern surfaced via `candidates[].metadata`.
+// ---------------------------------------------------------------------------
+// Write action (Issue 6.4) — add_to_album. Like calendar.ts's create/update/
+// delete_event, this NEVER executes a mutation inline: it builds a
+// WriteOperation, runs it through buildWritePreview (4.1), and hands it to
+// createPendingWrite (4.3), which persists a PENDING row and nothing more.
+// The only path from here to an actual Immich album mutation is the user
+// explicitly confirming via the confirm API, dispatched by the "immich"
+// write-executor (providers/immich-write.ts, Issue 6.4).
+//
+// `input.assetIds` are OPAQUE Immich asset ids the model is referring to from
+// a prior search this turn/session — this action never looks up or embeds a
+// filename for them, so (unlike calendar.ts's update/delete_event, which
+// reads an existing event's summary/location off the connector) there is no
+// raw connector text in this preview/message for the locality Option-A gate
+// to strip: the target label is always the static "AlfyAI album", and the
+// summary only ever states a COUNT of photos, never a name. This is a
+// structural guarantee, not a runtime distill decision — verified in
+// photos.test.ts by asserting no filename from a prior search ever appears
+// anywhere in the resulting payload.
+const ALBUM_NAME = "AlfyAI";
+
+async function proposeAddToAlbum(
+	userId: string,
+	conn: ConnectionPublic,
+	input: PhotosToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<PhotosToolOutcome> {
+	if (!input.assetIds || input.assetIds.length === 0) {
+		return buildPayload({
+			success: false,
+			action: "add_to_album",
+			message:
+				"At least one photo (from a prior search) is required to add to an album.",
+		});
+	}
+
+	// Hard gate, checked BEFORE any secret decrypt — same posture as
+	// calendarWriteOutcome/saveOutcome: nothing below this line runs, and no
+	// pending row is created, when writes are disabled.
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "add_to_album",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+	// A write-scoped key (Issue 6.4's enable-writes flow) is a SEPARATE
+	// provisioning step from allowWrites — a connection that only ever
+	// completed the read-only 5.5 connect flow has nothing to write with.
+	if (!conn.hasWriteSecret) {
+		return buildPayload({
+			success: false,
+			action: "add_to_album",
+			message:
+				"Enable Immich writes (re-enter your password) in settings first.",
+		});
+	}
+
+	const count = input.assetIds.length;
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "immich.add_to_album",
+		summary: `Add ${count} ${count === 1 ? "photo" : "photos"} to the "${ALBUM_NAME}" album`,
+		reversible: true, // Removing a photo from an album never touches the asset.
+		destructive: false,
+		target: { label: `${ALBUM_NAME} album` },
+		payloadFingerprint: JSON.stringify({
+			assetIds: [...input.assetIds].sort(),
+			albumName: ALBUM_NAME,
+		}),
+	};
+	const preview = buildWritePreview(op);
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({
+			assetIds: input.assetIds,
+			albumName: ALBUM_NAME,
+		}),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared ${count} ${count === 1 ? "photo" : "photos"} to be added to your "${ALBUM_NAME}" album, but it has NOT been applied yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+	return buildPayload({
+		success: true,
+		action: "add_to_album",
+		message,
+		pendingWriteId,
+		preview,
+	});
+}
+
+// Resolves the user's Photos (Immich) connection(s) and either executes a
+// smart search or (6.4) proposes an add_to_album write, degrading
+// gracefully (never throwing) so a connection problem never aborts the chat
+// turn: no connection, ambiguity, and adapter failures all resolve to a
+// `{ success: false, message }`-shaped payload instead. Reads are read-only;
+// add_to_album is the only write action, and — like every connection write
+// in this codebase — is proposal-only (see proposeAddToAlbum above). Raw
+// photo bytes are never part of this payload: only textual metadata reaches
+// the model, and thumbnails are a Sources-UI concern surfaced via
+// `candidates[].metadata`.
 export async function runPhotosTool(
 	userId: string,
 	input: PhotosToolInput,
@@ -325,6 +454,13 @@ export async function runPhotosTool(
 			message:
 				"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.",
 		});
+	}
+
+	// Write action (6.4) branches here — before the read-side query
+	// validation below — same posture as calendar.ts's write branching ahead
+	// of its shared read flow.
+	if (input.action === "add_to_album") {
+		return proposeAddToAlbum(userId, conn, input, ambiguous, connections);
 	}
 
 	if (!input.query) {

@@ -27,6 +27,11 @@ export type ConnectionPublic = {
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
 	hasSecret: boolean;
+	// Issue 6.4 — true iff a SEPARATE write-scoped secret has been provisioned
+	// (e.g. Immich's "enable writes" flow minted+stored a write-scoped API
+	// key). Deliberately a boolean derived from presence, never the secret
+	// itself — same posture as hasSecret above.
+	hasWriteSecret: boolean;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -76,6 +81,7 @@ function toPublic(row: ConnectionRow): ConnectionPublic {
 			? toEpochSeconds(row.tokenExpiresAt)
 			: null,
 		hasSecret: row.secretCiphertext !== null,
+		hasWriteSecret: row.writeSecretCiphertext !== null,
 		createdAt: toEpochSeconds(row.createdAt),
 		updatedAt: toEpochSeconds(row.updatedAt),
 	};
@@ -273,6 +279,58 @@ export async function getConnectionSecret(
 		ciphertext: row.secretCiphertext,
 		iv: row.secretIv,
 		authTag: row.secretAuthTag,
+	});
+}
+
+// Issue 6.4 — sets the SEPARATE write-scoped secret (distinct columns from
+// setConnectionSecret's primary secret; see schema.ts's doc comment on
+// writeSecretCiphertext). Encrypted via the same vault/key derivation as the
+// primary secret — there is no separate encryption key per secret kind, only
+// separate storage columns so both can coexist.
+export async function setConnectionWriteSecret(
+	userId: string,
+	id: string,
+	secret: string,
+): Promise<boolean> {
+	const encrypted = encryptConnectionSecret(secret);
+	const result = await db
+		.update(userConnections)
+		.set({
+			writeSecretCiphertext: encrypted.ciphertext,
+			writeSecretIv: encrypted.iv,
+			writeSecretAuthTag: encrypted.authTag,
+			updatedAt: new Date(),
+		})
+		.where(scoped(userId, id));
+	return result.changes > 0;
+}
+
+// The ONLY read path for the plaintext write-scoped secret. Never part of
+// ConnectionPublic (only the derived `hasWriteSecret` boolean is) — same
+// posture as getConnectionSecret for the primary secret.
+export async function getConnectionWriteSecret(
+	userId: string,
+	id: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({
+			writeSecretCiphertext: userConnections.writeSecretCiphertext,
+			writeSecretIv: userConnections.writeSecretIv,
+			writeSecretAuthTag: userConnections.writeSecretAuthTag,
+		})
+		.from(userConnections)
+		.where(scoped(userId, id));
+	if (
+		!row?.writeSecretCiphertext ||
+		!row.writeSecretIv ||
+		!row.writeSecretAuthTag
+	) {
+		return null;
+	}
+	return decryptConnectionSecret({
+		ciphertext: row.writeSecretCiphertext,
+		iv: row.writeSecretIv,
+		authTag: row.writeSecretAuthTag,
 	});
 }
 

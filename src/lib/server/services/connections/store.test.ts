@@ -46,6 +46,11 @@ afterEach(() => {
 });
 
 const SECRET_KEYS = ["secretCiphertext", "secretIv", "secretAuthTag"] as const;
+const WRITE_SECRET_KEYS = [
+	"writeSecretCiphertext",
+	"writeSecretIv",
+	"writeSecretAuthTag",
+] as const;
 
 describe("connections store", () => {
 	it("createConnection then getConnection returns the public DTO with no secret fields", async () => {
@@ -96,6 +101,22 @@ describe("connections store", () => {
 		expect(withSecret.hasSecret).toBe(true);
 		for (const key of SECRET_KEYS) {
 			expect(key in withSecret).toBe(false);
+		}
+	});
+
+	it("hasWriteSecret is false at creation and never exposes the write-secret columns", async () => {
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "immich",
+			label: "Immich",
+			secret: "read-only-key",
+		});
+		expect(conn.hasWriteSecret).toBe(false);
+		for (const key of WRITE_SECRET_KEYS) {
+			expect(key in conn).toBe(false);
 		}
 	});
 
@@ -204,6 +225,84 @@ describe("connections store", () => {
 		expect(row?.secretCiphertext).not.toBe(plaintext);
 		expect(row?.secretIv).toBeTruthy();
 		expect(row?.secretAuthTag).toBeTruthy();
+	});
+
+	it("setConnectionWriteSecret then getConnectionWriteSecret round-trips the plaintext, stored columns are ciphertext, and it never touches the primary secret", async () => {
+		const {
+			createConnection,
+			setConnectionSecret,
+			setConnectionWriteSecret,
+			getConnectionSecret,
+			getConnectionWriteSecret,
+			getConnection,
+		} = await import("./store");
+		const { db } = await import("$lib/server/db");
+		const { userConnections } = await import("$lib/server/db/schema");
+		const { eq } = await import("drizzle-orm");
+		seedUser("userA");
+
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "immich",
+			label: "Immich",
+		});
+		await setConnectionSecret("userA", conn.id, "read-only-key");
+
+		const writePlaintext = "write-scoped-key";
+		const ok = await setConnectionWriteSecret("userA", conn.id, writePlaintext);
+		expect(ok).toBe(true);
+
+		const decrypted = await getConnectionWriteSecret("userA", conn.id);
+		expect(decrypted).toBe(writePlaintext);
+		// The primary (read) secret is untouched by setting the write secret.
+		expect(await getConnectionSecret("userA", conn.id)).toBe("read-only-key");
+
+		const [row] = await db
+			.select()
+			.from(userConnections)
+			.where(eq(userConnections.id, conn.id));
+		expect(row?.writeSecretCiphertext).toBeTruthy();
+		expect(row?.writeSecretCiphertext).not.toBe(writePlaintext);
+		expect(row?.writeSecretIv).toBeTruthy();
+		expect(row?.writeSecretAuthTag).toBeTruthy();
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.hasWriteSecret).toBe(true);
+		expect(updated?.hasSecret).toBe(true);
+	});
+
+	it("setConnectionWriteSecret returns false and getConnectionWriteSecret returns null for another user's connection", async () => {
+		const {
+			createConnection,
+			setConnectionWriteSecret,
+			getConnectionWriteSecret,
+		} = await import("./store");
+		seedUser("userA");
+		seedUser("userB");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "immich",
+			label: "Immich",
+		});
+
+		expect(await setConnectionWriteSecret("userB", conn.id, "nope")).toBe(
+			false,
+		);
+		expect(await getConnectionWriteSecret("userB", conn.id)).toBeNull();
+	});
+
+	it("getConnectionWriteSecret returns null when no write secret has been set", async () => {
+		const { createConnection, getConnectionWriteSecret } = await import(
+			"./store"
+		);
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "immich",
+			label: "Immich",
+		});
+
+		expect(await getConnectionWriteSecret("userA", conn.id)).toBeNull();
 	});
 
 	it("setConnectionSecret returns false and getConnectionSecret returns null for another user's connection", async () => {

@@ -2256,6 +2256,16 @@ export const userConnections = sqliteTable(
 		secretCiphertext: text("secret_ciphertext"),
 		secretIv: text("secret_iv"),
 		secretAuthTag: text("secret_auth_tag"),
+		// A SEPARATE, write-scoped secret (Issue 6.4) — distinct columns (never
+		// reusing secretCiphertext/secretIv/secretAuthTag above) so a provider
+		// that mints two differently-scoped keys (Immich: a read-only key from
+		// 5.5's connect flow, plus an optional write-scoped key from 6.4's
+		// enable-writes flow) can hold both at once. Nullable: most connections
+		// never populate this. Never exposed on ConnectionPublic — only a
+		// derived `hasWriteSecret` boolean is (see store.ts's toPublic).
+		writeSecretCiphertext: text("write_secret_ciphertext"),
+		writeSecretIv: text("write_secret_iv"),
+		writeSecretAuthTag: text("write_secret_auth_tag"),
 		oauthScopesJson: text("oauth_scopes_json").notNull().default("[]"),
 		tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
 		createdAt: integer("created_at", { mode: "timestamp" })

@@ -71,6 +71,7 @@ function makeConn(overrides: Partial<ConnectionPublic> = {}): ConnectionPublic {
 		oauthScopes: [],
 		tokenExpiresAt: null,
 		hasSecret: false,
+		hasWriteSecret: false,
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
 		...overrides,

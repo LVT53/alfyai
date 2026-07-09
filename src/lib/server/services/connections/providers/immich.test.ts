@@ -101,6 +101,49 @@ describe("assertReadOnlyPermissions", () => {
 });
 
 // ---------------------------------------------------------------------------
+// assertNoDangerousImmichWritePermissions (Issue 6.4)
+// ---------------------------------------------------------------------------
+
+describe("assertNoDangerousImmichWritePermissions", () => {
+	it("does not throw for the write permission set (album.create/albumAsset.create/album.read)", async () => {
+		const {
+			assertNoDangerousImmichWritePermissions,
+			WRITE_IMMICH_PERMISSIONS,
+		} = await import("./immich");
+		expect(() =>
+			assertNoDangerousImmichWritePermissions(WRITE_IMMICH_PERMISSIONS),
+		).not.toThrow();
+	});
+
+	it.each([
+		"all",
+		"asset.delete",
+		"asset.update",
+		"asset.upload",
+		"album.delete",
+	])("throws for %s", async (permission) => {
+		const { assertNoDangerousImmichWritePermissions } = await import(
+			"./immich"
+		);
+		expect(() =>
+			assertNoDangerousImmichWritePermissions([permission]),
+		).toThrow();
+	});
+
+	it("does NOT throw for album.create/albumAsset.create (unlike the read-only guard's .create suffix rule)", async () => {
+		const { assertNoDangerousImmichWritePermissions } = await import(
+			"./immich"
+		);
+		expect(() =>
+			assertNoDangerousImmichWritePermissions([
+				"album.create",
+				"albumAsset.create",
+			]),
+		).not.toThrow();
+	});
+});
+
+// ---------------------------------------------------------------------------
 // immichConnect
 // ---------------------------------------------------------------------------
 
@@ -373,6 +416,141 @@ describe("immichConnect", () => {
 		expect(rows).toHaveLength(1);
 		const decrypted = await getConnectionSecret(USER_ID, second.connection.id);
 		expect(decrypted).toBe("second-key");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// immichEnableWrites (Issue 6.4)
+// ---------------------------------------------------------------------------
+
+describe("immichEnableWrites", () => {
+	it("re-logs in, mints a write-scoped key whose permissions contain none of delete/update/upload/all, and stores it (never the password) in the SEPARATE write-secret columns", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichEnableWrites } = await import("./immich");
+		const { getConnectionSecret, getConnectionWriteSecret } = await import(
+			"../store"
+		);
+
+		let capturedApiKeyBody: unknown;
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === "https://photos.example.com/api/auth/login") {
+					const body = JSON.parse(String(init?.body));
+					expect(body).toEqual({
+						email: "alice@example.com",
+						password: "hunter2",
+					});
+					return jsonResponse(200, {
+						accessToken: "access-token-write",
+						userId: "user-1",
+						userEmail: "alice@example.com",
+					});
+				}
+				if (url === "https://photos.example.com/api/api-keys") {
+					const headers = new Headers(init?.headers);
+					expect(headers.get("Authorization")).toBe(
+						"Bearer access-token-write",
+					);
+					capturedApiKeyBody = JSON.parse(String(init?.body));
+					return jsonResponse(201, {
+						secret: "write-scoped-key",
+						apiKey: { id: "key-2", name: "AlfyAI (album write)" },
+					});
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		const { connection } = await immichEnableWrites({
+			userId: USER_ID,
+			connectionId: conn.id,
+			password: "hunter2",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.hasWriteSecret).toBe(true);
+		expect(connection.hasSecret).toBe(true);
+		expect("secret" in connection).toBe(false);
+		expect(JSON.stringify(connection)).not.toContain("hunter2");
+		expect(JSON.stringify(connection)).not.toContain("write-scoped-key");
+
+		// The read-only key from connect-time is untouched.
+		const readSecret = await getConnectionSecret(USER_ID, conn.id);
+		expect(readSecret).toBe("immich-secret-key");
+
+		const writeSecret = await getConnectionWriteSecret(USER_ID, conn.id);
+		expect(writeSecret).toBe("write-scoped-key");
+
+		expect(capturedApiKeyBody).toMatchObject({ name: "AlfyAI (album write)" });
+		const permissions = (capturedApiKeyBody as { permissions: string[] })
+			.permissions;
+		expect(permissions).toEqual(
+			expect.arrayContaining([
+				"album.create",
+				"albumAsset.create",
+				"album.read",
+			]),
+		);
+		for (const forbidden of [
+			"all",
+			"asset.delete",
+			"asset.update",
+			"asset.upload",
+		]) {
+			expect(permissions).not.toContain(forbidden);
+		}
+	});
+
+	it("a 401 on re-login surfaces invalid_credentials with no password in the message, and stores nothing", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichEnableWrites, ImmichError } = await import("./immich");
+		const { getConnectionWriteSecret } = await import("../store");
+
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(401, { message: "Invalid credentials" }),
+		);
+
+		try {
+			await immichEnableWrites({
+				userId: USER_ID,
+				connectionId: conn.id,
+				password: "wrong-pw",
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+			throw new Error("expected immichEnableWrites to throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(ImmichError);
+			expect((err as InstanceType<typeof ImmichError>).code).toBe(
+				"invalid_credentials",
+			);
+			expect((err as Error).message).not.toContain("wrong-pw");
+		}
+		expect(await getConnectionWriteSecret(USER_ID, conn.id)).toBeNull();
+	});
+
+	it("throws connection_not_found for an unknown connection id, without calling fetch", async () => {
+		seedUser(USER_ID);
+		const { immichEnableWrites, ImmichError } = await import("./immich");
+		const fetchMock = vi.fn();
+
+		try {
+			await immichEnableWrites({
+				userId: USER_ID,
+				connectionId: "does-not-exist",
+				password: "hunter2",
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+			throw new Error("expected immichEnableWrites to throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(ImmichError);
+			expect((err as InstanceType<typeof ImmichError>).code).toBe(
+				"connection_not_found",
+			);
+		}
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 

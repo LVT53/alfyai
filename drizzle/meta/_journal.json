@@ -645,6 +645,13 @@
       "when": 1777140000078,
       "tag": "1777140000078_connection_pending_writes_etag",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1777140000079,
+      "tag": "1777140000079_user_connections_write_secret",
+      "breakpoints": true
     }
   ]
 }

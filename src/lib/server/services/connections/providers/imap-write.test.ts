@@ -92,6 +92,7 @@ function makeConnection(
 		oauthScopes: [],
 		tokenExpiresAt: null,
 		hasSecret: true,
+		hasWriteSecret: false,
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
 		...overrides,

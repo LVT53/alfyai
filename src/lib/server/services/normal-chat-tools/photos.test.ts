@@ -5,6 +5,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	ImmichError,
 	immichSmartSearch,
@@ -35,6 +36,9 @@ vi.mock("$lib/server/services/connections/locality", () => ({
 	isCloudModel: vi.fn(),
 	distillConnectorPayload: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	createPendingWrite: vi.fn(),
+}));
 
 const resolveConnectionsForCapabilityMock = vi.mocked(
 	resolveConnectionsForCapability,
@@ -44,6 +48,7 @@ const immichSmartSearchMock = vi.mocked(immichSmartSearch);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
+const createPendingWriteMock = vi.mocked(createPendingWrite);
 
 const LOCAL_MODEL_ID = "model1";
 
@@ -64,6 +69,7 @@ function makeConn(overrides: Partial<ConnectionPublic> = {}): ConnectionPublic {
 		oauthScopes: [],
 		tokenExpiresAt: null,
 		hasSecret: true,
+		hasWriteSecret: false,
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
 		...overrides,
@@ -77,9 +83,14 @@ function resetAllMocks() {
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
+	createPendingWriteMock.mockReset();
 	needsDisambiguationMock.mockReturnValue(false);
 	hasLocalDistillEnabledMock.mockResolvedValue(false);
 	isCloudModelMock.mockResolvedValue(false);
+	createPendingWriteMock.mockImplementation(async (_userId, params) => ({
+		id: "pending-1",
+		preview: params.preview,
+	}));
 }
 
 describe("sanitizePhotosToolInput", () => {
@@ -365,5 +376,147 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "hospital-visit.jpg" }),
 		]);
+	});
+});
+
+describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
+	beforeEach(resetAllMocks);
+
+	function makeWritableConn(overrides: Partial<ConnectionPublic> = {}) {
+		return makeConn({
+			allowWrites: true,
+			hasWriteSecret: true,
+			...overrides,
+		});
+	}
+
+	it("allowWrites=true + hasWriteSecret=true: returns a PENDING result (preview + id) and creates a pending row — the write-executor is never called", async () => {
+		const conn = makeWritableConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "add_to_album", assetIds: ["asset-1", "asset-2"] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("add_to_album");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+		expect(outcome.modelPayload.preview).toBeDefined();
+		expect(outcome.modelPayload.message).toContain("has NOT been applied yet");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call).toMatchObject({ connectionId: "conn-1", provider: "immich" });
+		expect(call?.op).toMatchObject({
+			provider: "immich",
+			connectionId: "conn-1",
+			action: "immich.add_to_album",
+			destructive: false,
+			reversible: true,
+		});
+		const content = JSON.parse(call?.content ?? "{}");
+		expect(content).toEqual({
+			assetIds: ["asset-1", "asset-2"],
+			albumName: "AlfyAI",
+		});
+		// Immich smart search / the write-executor are never invoked directly
+		// from the tool — only a pending row is created.
+		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: returns a note and creates NO pending row", async () => {
+		const conn = makeWritableConn({ allowWrites: false });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "add_to_album", assetIds: ["asset-1"] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(outcome.modelPayload.message).toContain("settings");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("hasWriteSecret=false: returns a note asking to enable Immich writes, and creates NO pending row", async () => {
+		const conn = makeWritableConn({ hasWriteSecret: false });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "add_to_album", assetIds: ["asset-1"] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Enable Immich writes");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("no assetIds: returns a note and creates NO pending row", async () => {
+		const conn = makeWritableConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "add_to_album", assetIds: [] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("At least one photo");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("no Photos connection: returns a note and creates NO pending row", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "add_to_album", assetIds: ["asset-1"] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	// Option A (locality) — whole-payload test. add_to_album's assetIds are
+	// OPAQUE ids, never filenames; the tool never looks up a filename for
+	// them in this action, so the raw filename from an earlier search (e.g.
+	// "hospital-visit.jpg", the same sensitive name used in the search-side
+	// Option A tests above) must never appear anywhere in the resulting
+	// add_to_album payload, on a cloud model, regardless of the local-distill
+	// toggle — there is nothing connector-read to redact because nothing
+	// connector-read was ever included in the first place.
+	it("Option A + cloud model: the add_to_album payload never contains a filename from a prior search — nothing raw to redact by construction", async () => {
+		const conn = makeWritableConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			// A model naively passing a filename-shaped string as an "asset id"
+			// must still never have that string echoed back to the model as a
+			// human-readable label — this action does not use it as one.
+			{ action: "add_to_album", assetIds: ["hospital-visit.jpg"] },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		const serializedMessage = outcome.modelPayload.message;
+		expect(serializedMessage).not.toContain("hospital-visit.jpg");
+		expect(JSON.stringify(outcome.modelPayload.preview)).not.toContain(
+			"hospital-visit.jpg",
+		);
+		// The local-distill decision path is never invoked for this action —
+		// there is no connector-read rawText to gate.
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
 	});
 });

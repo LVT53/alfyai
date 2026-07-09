@@ -24,10 +24,10 @@ import { connectionPendingWrites } from "$lib/server/db/schema";
 // ---------------------------------------------------------------------------
 
 // Side-effect imports ONLY — load providers/nextcloud-files.ts,
-// providers/google-calendar-write.ts, providers/apple-caldav-write.ts, and
-// providers/imap-write.ts so their top-level registerWriteExecutor(...) calls
-// (Issue 6.0, 6.1, 6.2, 6.3) have run before confirmPendingWrite below ever
-// dispatches to getWriteExecutor.
+// providers/google-calendar-write.ts, providers/apple-caldav-write.ts,
+// providers/imap-write.ts, and providers/immich-write.ts so their top-level
+// registerWriteExecutor(...) calls (Issue 6.0, 6.1, 6.2, 6.3, 6.4) have run
+// before confirmPendingWrite below ever dispatches to getWriteExecutor.
 // This mirrors how, before 6.0, this module's own direct import of
 // executeNextcloudWrite from the same file caused the same module evaluation
 // (and its registerConnectionAdapter side effect) to happen as a byproduct.
@@ -40,6 +40,7 @@ import "./providers/nextcloud-files";
 import "./providers/google-calendar-write";
 import "./providers/apple-caldav-write";
 import "./providers/imap-write";
+import "./providers/immich-write";
 import { getWriteExecutor } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";
 
