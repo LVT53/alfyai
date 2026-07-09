@@ -90,6 +90,31 @@ function makeUpdateOp(overrides: Partial<WriteOperation> = {}): WriteOperation {
 	};
 }
 
+// A representative "original" resource text for the update tests below —
+// mirrors what appleGetEventByUid/parseReportMultistatus's raw calendar-data
+// would hand back for a pre-existing, non-recurring event. `extraLines` lets
+// individual tests append properties/sub-components (ATTENDEE, VALARM,
+// RRULE, X-*) to prove they survive an update untouched (the corruption-
+// safety fix's whole point — see patchVevent's doc comment).
+const ORIGINAL_UID = "evt-1@icloud.com";
+function makeOriginalIcs(extraLines: string[] = []): string {
+	return `${[
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"PRODID:-//Apple Inc.//Mac OS X 10.15//EN",
+		"BEGIN:VEVENT",
+		`UID:${ORIGINAL_UID}`,
+		"DTSTAMP:20260701T120000Z",
+		"SUMMARY:Standup",
+		"DTSTART:20260710T090000Z",
+		"DTEND:20260710T093000Z",
+		"LOCATION:Room A",
+		...extraLines,
+		"END:VEVENT",
+		"END:VCALENDAR",
+	].join("\r\n")}\r\n`;
+}
+
 function makeDeleteOp(overrides: Partial<WriteOperation> = {}): WriteOperation {
 	return {
 		provider: "apple",
@@ -487,12 +512,13 @@ describe("apple write-executor — calendar.create_event", () => {
 });
 
 describe("apple write-executor — calendar.update_event", () => {
-	it("PUTs the regenerated ICS to resourceHref with If-Match: {etag}, and returns the new etag", async () => {
+	it("PATCHES the original ICS's LOCATION line in place at resourceHref with If-Match: {etag}, and returns the new etag", async () => {
 		const op = makeUpdateOp();
 		const content = JSON.stringify({
 			resourceHref: `${CALENDAR_URL}evt-1.ics`,
 			etag: '"etag-1"',
-			uid: "evt-1@icloud.com",
+			uid: ORIGINAL_UID,
+			originalIcs: makeOriginalIcs(),
 			event: {
 				summary: "Standup",
 				start: "2026-07-10T09:00:00Z",
@@ -510,8 +536,13 @@ describe("apple write-executor — calendar.update_event", () => {
 				expect(headers.get("If-Match")).toBe('"etag-1"');
 				expect(headers.get("If-None-Match")).toBeNull();
 				const body = String(init?.body);
-				expect(body).toContain("UID:evt-1@icloud.com");
+				// The original UID/DTSTAMP lines are preserved VERBATIM — never
+				// regenerated — proving this is a patch of the original resource,
+				// not a freshly serialized VEVENT.
+				expect(body).toContain(`UID:${ORIGINAL_UID}`);
+				expect(body).toContain("DTSTAMP:20260701T120000Z");
 				expect(body).toContain("LOCATION:New Room");
+				expect(body).not.toContain("LOCATION:Room A");
 				return new Response(null, {
 					status: 200,
 					headers: { ETag: '"etag-2"' },
@@ -536,12 +567,126 @@ describe("apple write-executor — calendar.update_event", () => {
 		});
 	});
 
+	it("anti-corruption proof: ATTENDEE, an intact VALARM block, RRULE, and an X-CUSTOM property all survive an update that only changes the start time", async () => {
+		const op = makeUpdateOp();
+		const originalIcs = makeOriginalIcs([
+			"ATTENDEE:mailto:alice@example.com",
+			"RRULE:FREQ=WEEKLY;COUNT=5",
+			"X-CUSTOM:keep-me",
+			"BEGIN:VALARM",
+			"ACTION:DISPLAY",
+			"DESCRIPTION:Reminder",
+			"TRIGGER:-PT15M",
+			"END:VALARM",
+		]);
+		const content = JSON.stringify({
+			resourceHref: `${CALENDAR_URL}evt-1.ics`,
+			etag: '"etag-1"',
+			uid: ORIGINAL_UID,
+			originalIcs,
+			// Only `start` supplied — summary/end/location/description are NOT
+			// in this payload at all, proving the patch leaves every property it
+			// wasn't told to touch completely alone (not just the ones this
+			// module doesn't model).
+			event: { start: "2026-07-10T10:00:00Z" },
+			recurring: false,
+		});
+
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const body = String(init?.body);
+			expect(body).toContain("ATTENDEE:mailto:alice@example.com");
+			expect(body).toContain("RRULE:FREQ=WEEKLY;COUNT=5");
+			expect(body).toContain("X-CUSTOM:keep-me");
+			expect(body).toContain("BEGIN:VALARM");
+			expect(body).toContain("ACTION:DISPLAY");
+			expect(body).toContain("DESCRIPTION:Reminder");
+			expect(body).toContain("TRIGGER:-PT15M");
+			expect(body).toContain("END:VALARM");
+			// The one field actually supplied DID change.
+			expect(body).toContain("DTSTART:20260710T100000Z");
+			// Everything not supplied is untouched.
+			expect(body).toContain("SUMMARY:Standup");
+			expect(body).toContain("DTEND:20260710T093000Z");
+			expect(body).toContain("LOCATION:Room A");
+			return new Response(null, { status: 200, headers: { ETag: '"e2"' } });
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("anti-injection: a description containing an embedded CR/LF cannot inject a second property line, and a line-breaking uid is refused rather than written", async () => {
+		const originalIcs = makeOriginalIcs();
+
+		// (a) A field value with an embedded CRLF is escaped into a single
+		// SUMMARY/DESCRIPTION content line, never split into a real second
+		// line the way an unescaped "\r\nSUMMARY:injected" would be.
+		const injectedDescription = "Notes\r\nSUMMARY:injected";
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const body = String(init?.body);
+			const unfolded = body.replace(/\r\n /g, "");
+			expect(unfolded).toContain("DESCRIPTION:Notes\\nSUMMARY:injected");
+			// The only two real SUMMARY/DESCRIPTION content lines are the
+			// original SUMMARY and the escaped DESCRIPTION — no bare injected
+			// "SUMMARY:injected" line exists on its own.
+			const lines = body.split("\r\n");
+			const summaryLines = lines.filter((line) => /^SUMMARY:/.test(line));
+			expect(summaryLines).toEqual(["SUMMARY:Standup"]);
+			return new Response(null, { status: 200, headers: { ETag: '"e"' } });
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			makeUpdateOp(),
+			JSON.stringify({
+				resourceHref: `${CALENDAR_URL}evt-1.ics`,
+				etag: '"etag-1"',
+				uid: ORIGINAL_UID,
+				originalIcs,
+				event: { description: injectedDescription },
+				recurring: false,
+			}),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		// (b) A `uid` that itself carries an embedded line break is rejected
+		// outright — never used to build/match a content line — rather than
+		// risking a malformed or injected PUT body.
+		const injectingFetchMock = vi.fn();
+		const rejected = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			makeUpdateOp(),
+			JSON.stringify({
+				resourceHref: `${CALENDAR_URL}evt-1.ics`,
+				etag: '"etag-1"',
+				uid: `${ORIGINAL_UID}\r\nSUMMARY:injected`,
+				originalIcs,
+				event: { summary: "x" },
+				recurring: false,
+			}),
+			{ fetch: injectingFetchMock as unknown as typeof fetch },
+		);
+		expect(rejected).toEqual({ ok: false, reason: "invalid_ical_value" });
+		expect(injectingFetchMock).not.toHaveBeenCalled();
+	});
+
 	it("a 412 (changed since read) is refused as conflict_changed — NEVER retried/overwritten unconditionally", async () => {
 		const op = makeUpdateOp();
 		const content = JSON.stringify({
 			resourceHref: `${CALENDAR_URL}evt-1.ics`,
 			etag: '"stale-etag"',
-			uid: "evt-1@icloud.com",
+			uid: ORIGINAL_UID,
+			originalIcs: makeOriginalIcs(),
 			event: { summary: "Standup" },
 		});
 		const fetchMock = vi.fn(async () => new Response(null, { status: 412 }));
@@ -602,12 +747,32 @@ describe("apple write-executor — calendar.update_event", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it("missing originalIcs is refused as missing_target without calling fetch — regenerating from scratch would corrupt unmodeled properties", async () => {
+		const op = makeUpdateOp();
+		const fetchMock = vi.fn();
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			JSON.stringify({
+				resourceHref: `${CALENDAR_URL}evt-1.ics`,
+				etag: '"etag-1"',
+				uid: ORIGINAL_UID,
+				event: { summary: "x" },
+			}),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result).toEqual({ ok: false, reason: "missing_target" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it("a 401 on the PUT flags needs_reauth", async () => {
 		const op = makeUpdateOp();
 		const content = JSON.stringify({
 			resourceHref: `${CALENDAR_URL}evt-1.ics`,
 			etag: '"etag-1"',
-			uid: "evt-1@icloud.com",
+			uid: ORIGINAL_UID,
+			originalIcs: makeOriginalIcs(),
 			event: { summary: "x" },
 		});
 		const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
@@ -798,7 +963,8 @@ describe("apple write-executor — conditional-header invariant", () => {
 			JSON.stringify({
 				resourceHref: `${CALENDAR_URL}evt-1.ics`,
 				etag: '"etag-1"',
-				uid: "evt-1@icloud.com",
+				uid: ORIGINAL_UID,
+				originalIcs: makeOriginalIcs(),
 				event: { summary: "x" },
 			}),
 			{ fetch: fetchMock as unknown as typeof fetch },

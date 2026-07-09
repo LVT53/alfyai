@@ -612,7 +612,11 @@ export async function appleConnect(
 // is a continuation of the previous line (with that one leading whitespace
 // character removed, and NOT replaced with anything — i.e. simple
 // concatenation). Lines are terminated by CRLF, but a bare LF is tolerated.
-function unfoldICalLines(text: string): string[] {
+// Exported for reuse by providers/apple-caldav-write.ts (6.2's
+// preserve-and-patch update) — patching the original resource's exact
+// property lines needs the SAME unfolding this read-side parser uses, not a
+// second hand-rolled copy of it.
+export function unfoldICalLines(text: string): string[] {
 	const rawLines = text.split(/\r\n|\r|\n/);
 	const lines: string[] = [];
 	for (const raw of rawLines) {
@@ -635,7 +639,7 @@ function unescapeICalText(value: string): string {
 	});
 }
 
-type ICalProperty = {
+export type ICalProperty = {
 	name: string;
 	params: Record<string, string>;
 	value: string;
@@ -644,8 +648,11 @@ type ICalProperty = {
 // Splits a single unfolded content line ("NAME;PARAM=VALUE;...:value") into
 // its property name, parameter map, and raw value. The split point is the
 // FIRST unparametrized colon; everything before it (split on `;`) is the
-// name followed by `PARAM=VALUE` pairs.
-function parseICalProperty(line: string): ICalProperty | null {
+// name followed by `PARAM=VALUE` pairs. Exported for reuse by
+// providers/apple-caldav-write.ts (6.2's preserve-and-patch update) — it
+// needs to locate the exact original UID/SUMMARY/DTSTART/... lines within a
+// fetched VEVENT block the same way this read-side parser does.
+export function parseICalProperty(line: string): ICalProperty | null {
 	const colonIndex = line.indexOf(":");
 	if (colonIndex === -1) return null;
 	const head = line.slice(0, colonIndex);
@@ -852,6 +859,11 @@ function parseReportMultistatus(
 				...(parsed.description ? { description: parsed.description } : {}),
 				htmlLink: absoluteHref,
 				...(etag ? { etag } : {}),
+				// Captured verbatim for the 6.2 write path's preserve-and-patch
+				// update (see CalendarEvent.rawIcs's doc comment) — this is the
+				// exact `calendar-data` text this event was parsed out of, not a
+				// re-serialization of the parsed fields above.
+				rawIcs: calendarData,
 				// See CalendarEvent.recurrence's doc comment (google-calendar.ts):
 				// Apple never distinguishes a recurring master from an expanded
 				// instance the way Google does, so a bare non-empty array is enough

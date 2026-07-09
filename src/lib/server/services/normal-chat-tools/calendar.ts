@@ -886,6 +886,20 @@ async function proposeAppleUpdateOrDeleteEvent(
 				"That event is part of a recurring series, and I can't safely update recurring events on your Apple iCloud Calendar yet — try a Google Calendar connection instead, or delete and recreate this event.",
 		});
 	}
+	// Corruption-safety gate: an update PATCHES the original resource's exact
+	// text in place (see AppleCalendarWriteContent.originalIcs's doc comment
+	// on the executor side) rather than regenerating a brand-new VEVENT from
+	// only this tool's fields — without the original text there is nothing
+	// safe to patch, so refuse here rather than let a pending write reach the
+	// executor with no way to honor that guarantee.
+	if (isUpdate && !existing.rawIcs) {
+		return buildPayload({
+			success: false,
+			action,
+			message:
+				"I couldn't safely read that event's full details from your Apple iCloud Calendar, so I can't make this change. Please try again.",
+		});
+	}
 
 	const label = input.title ?? existing.summary ?? "(untitled event)";
 	const op: WriteOperation = {
@@ -916,6 +930,14 @@ async function proposeAppleUpdateOrDeleteEvent(
 		uid: input.eventId,
 		...(isUpdate
 			? {
+					// The executor PATCHES this original text in place rather than
+					// regenerating a fresh VEVENT — see AppleCalendarWriteContent
+					// .originalIcs's doc comment for why (corruption-safety fix:
+					// preserves ATTENDEE/ORGANIZER/VALARM/RRULE/CATEGORIES/X-*/...
+					// that this tool's minimal event fields don't model). Guarded
+					// non-null above (`isUpdate && !existing.rawIcs` bails out
+					// first).
+					originalIcs: existing.rawIcs,
 					// CalDAV's PUT REPLACES the whole resource — unlike Google's
 					// PATCH, an omitted field would be silently deleted rather than
 					// left unchanged. Every field is therefore always sent, falling

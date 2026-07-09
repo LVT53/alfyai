@@ -82,6 +82,19 @@ export type CalendarEvent = {
 	// didn't intend to touch. Google's own mapping never sets this because
 	// its PATCH endpoint doesn't require resending unchanged fields.
 	description?: string;
+	// Apple CalDAV only (6.2, corruption-safety fix) — the RAW `calendar-data`
+	// text (the whole VCALENDAR document, exactly as iCloud returned it) this
+	// event was parsed out of. A CalDAV PUT replaces the whole resource, and
+	// this tool only ever models a handful of VEVENT properties
+	// (SUMMARY/DTSTART/DTEND/LOCATION/DESCRIPTION) — regenerating a brand-new
+	// VEVENT from just those fields would silently drop everything else a
+	// pre-existing event carries (ATTENDEE/ORGANIZER/VALARM/RRULE/CATEGORIES/
+	// X-*/...). The write executor instead PATCHES this original text in
+	// place (see apple-caldav-write.ts's patchVevent), touching only the
+	// specific properties the caller actually supplied. Never surfaced to the
+	// calendar chat tool's model-facing payload (see toToolEventItem)  —
+	// internal to the write path only, same posture as `etag`.
+	rawIcs?: string;
 };
 
 export type CalendarFreeBusy = {

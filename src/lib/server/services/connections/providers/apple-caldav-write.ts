@@ -27,7 +27,11 @@ import {
 	type WriteExecutionResult,
 } from "../write-executors";
 import { idempotencyKey, type WriteOperation } from "../write-guard";
-import { basicAuthHeader } from "./apple-caldav";
+import {
+	basicAuthHeader,
+	parseICalProperty,
+	unfoldICalLines,
+} from "./apple-caldav";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -58,12 +62,24 @@ export type AppleCalendarWriteContent = {
 	// by the tool's propose-time fetch (appleGetEventByUid).
 	resourceHref?: string;
 	etag?: string;
-	// Required for update_event — carried through so the regenerated VEVENT
-	// keeps the SAME UID rather than the executor having to guess it back out
-	// of resourceHref (which may not follow this module's own `{uid}.ics`
-	// naming convention for an event that pre-dates this connection, e.g. one
-	// created from a Mac/iPhone).
+	// Required for update_event — identifies which VEVENT block within
+	// `originalIcs` (below) to patch, rather than the executor having to
+	// guess it back out of resourceHref (which may not follow this module's
+	// own `{uid}.ics` naming convention for an event that pre-dates this
+	// connection, e.g. one created from a Mac/iPhone).
 	uid?: string;
+	// Required for update_event (corruption-safety fix) — the ORIGINAL
+	// `calendar-data` VCALENDAR document text for the target resource,
+	// exactly as iCloud returned it (the event is already fetched at propose
+	// time to resolve resourceHref/etag, so this costs no extra round trip).
+	// A CalDAV PUT replaces the whole resource, and this tool only ever
+	// models a handful of VEVENT properties — so update PATCHES this text in
+	// place (see patchVevent below) rather than regenerating a brand-new
+	// VEVENT from just those fields, which would silently destroy any
+	// property this schema doesn't know about (ATTENDEE/ORGANIZER/VALARM/
+	// RRULE/CATEGORIES/X-*/...). Without this, executeUpdate refuses the
+	// write rather than risk that.
+	originalIcs?: string;
 	event?: AppleCalendarWriteEventFields;
 	// Set by the tool at propose time (via appleGetEventByUid's `recurrence`)
 	// when the target event carries an RRULE. update_event refuses outright
@@ -89,6 +105,9 @@ function parseContent(content: string): AppleCalendarWriteContent | null {
 				: {}),
 			...(typeof parsed.etag === "string" ? { etag: parsed.etag } : {}),
 			...(typeof parsed.uid === "string" ? { uid: parsed.uid } : {}),
+			...(typeof parsed.originalIcs === "string"
+				? { originalIcs: parsed.originalIcs }
+				: {}),
 			...(parsed.event && typeof parsed.event === "object"
 				? { event: parsed.event as AppleCalendarWriteEventFields }
 				: {}),
@@ -118,25 +137,69 @@ export function appleEventUidForOp(op: WriteOperation): string {
 
 // ---------------------------------------------------------------------------
 // Minimal iCalendar (RFC 5545) VEVENT serializer — hand-rolled, no
-// dependency, mirroring apple-caldav.ts's parseICalEvents in reverse. Only
-// emits the handful of fields the calendar tool writes
-// (UID/DTSTAMP/DTSTART/DTEND/SUMMARY/LOCATION/DESCRIPTION); anything else a
-// pre-existing event might carry (ATTENDEE/ORGANIZER/VALARM/CATEGORIES/...)
-// is NOT round-tripped by an update — a known v1 limitation of "regenerate
-// the VEVENT" rather than "patch it in place" (CalDAV's PUT replaces the
-// whole resource; there is no partial-update primitive).
+// dependency, mirroring apple-caldav.ts's parseICalEvents in reverse. Used
+// ONLY by create_event, which always generates a brand-new resource (there
+// is no pre-existing content to preserve). update_event does NOT use this —
+// see patchVevent below for why "regenerate the whole VEVENT from just this
+// tool's minimal fields" was a corruption bug (it silently dropped ATTENDEE/
+// ORGANIZER/VALARM/RRULE/CATEGORIES/X-*/... on every update) and how the fix
+// instead patches the original resource's exact text in place.
 // ---------------------------------------------------------------------------
 
 const ALL_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LINE_OCTETS = 75;
 
+// Raised whenever this module refuses to write ICS content rather than risk
+// emitting something malformed or corrupting/dropping data — see
+// assertNoLineBreak and patchVevent below. Caught at the single dispatch
+// point in registerWriteExecutor's execute() and turned into a typed
+// WriteExecutionResult, never left to leak as an unhandled exception.
+class IcalWriteError extends Error {
+	constructor(
+		message: string,
+		public readonly reason: "invalid_ical_value" | "missing_target",
+	) {
+		super(message);
+		this.name = "IcalWriteError";
+	}
+}
+
+// Defense-in-depth guard against ICS line-injection: any value THIS module
+// interpolates directly into a NEW content line (as opposed to copying an
+// existing line byte-for-byte out of an already-parsed original resource)
+// must not carry a raw CR/LF — those bytes are the wire format's own line
+// terminator, so an unescaped one would end the current content line and
+// start a brand-new, value-controlled one (i.e. inject an extra ICS
+// property/component) rather than staying inside this property's value.
+// TEXT properties (SUMMARY/LOCATION/DESCRIPTION) never hit this — they
+// already escape real line breaks via escapeICalText's \r/\n handling below.
+// This exists for values that do NOT go through TEXT escaping, e.g. UID —
+// there is no way to *safely* represent a raw line break in a non-TEXT
+// property, so this rejects the write outright instead of ever emitting
+// malformed/injectable ICS.
+function assertNoLineBreak(value: string, field: string): string {
+	if (/[\r\n]/.test(value)) {
+		throw new IcalWriteError(
+			`${field} contains an embedded line break and cannot be safely written to a CalDAV resource`,
+			"invalid_ical_value",
+		);
+	}
+	return value;
+}
+
 // Reverses apple-caldav.ts's unescapeICalText — RFC 5545 §3.3.11 TEXT
-// escaping. Backslash MUST be escaped first, before the other three
-// replacements introduce new backslashes of their own; escaping it again
-// afterwards would double-escape them.
+// escaping. Backslash MUST be escaped first, before the other replacements
+// introduce new backslashes of their own; escaping it again afterwards would
+// double-escape them. CRLF/bare-CR/bare-LF are all normalized to the same
+// `\n` escape (a real embedded line break has only one valid representation
+// in iCalendar TEXT) — this also closes the one gap that let a raw `\r`
+// (without a paired `\n`) survive escaping and land as a literal control
+// byte inside a folded content line.
 function escapeICalText(value: string): string {
 	return value
 		.replace(/\\/g, "\\\\")
+		.replace(/\r\n/g, "\\n")
+		.replace(/\r/g, "\\n")
 		.replace(/\n/g, "\\n")
 		.replace(/,/g, "\\,")
 		.replace(/;/g, "\\;");
@@ -198,7 +261,12 @@ function serializeVevent(
 		"VERSION:2.0",
 		"PRODID:-//AlfyAI//Calendar Write 1.0//EN",
 		"BEGIN:VEVENT",
-		`UID:${uid}`,
+		// uid is always the deterministic sha256-hex-derived value from
+		// appleEventUidForOp in practice — never user/model-controlled — but
+		// this is still run through the same line-break guard every other
+		// interpolated value gets, on principle (see assertNoLineBreak's doc
+		// comment).
+		`UID:${assertNoLineBreak(uid, "uid")}`,
 		`DTSTAMP:${icalUtcTimestamp(new Date().toISOString())}`,
 	];
 	if (event.start !== undefined)
@@ -214,6 +282,187 @@ function serializeVevent(
 		lines.push(`DESCRIPTION:${escapeICalText(event.description)}`);
 	}
 	lines.push("END:VEVENT", "END:VCALENDAR");
+	return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Preserve-and-patch VEVENT update (corruption-safety fix) — CalDAV's PUT
+// replaces the WHOLE resource, so an update built by regenerating a fresh
+// VEVENT from only this tool's modeled fields (SUMMARY/DTSTART/DTEND/
+// LOCATION/DESCRIPTION) silently destroyed every OTHER property a
+// pre-existing event carried: ATTENDEE, ORGANIZER, VALARM (reminders),
+// RRULE, CATEGORIES, X-* extensions, etc. — on ANY update, including a bare
+// location tweak. patchVevent instead starts from the ORIGINAL fetched ICS
+// text (AppleCalendarWriteContent.originalIcs, captured by the calendar tool
+// at propose time — the event is already fetched there for its etag) and
+// replaces ONLY the specific top-level property lines the caller actually
+// supplied, leaving every other line — including nested sub-components like
+// BEGIN:VALARM..END:VALARM blocks, VTIMEZONE, and anything outside the
+// target VEVENT entirely — untouched and in its original position.
+// ---------------------------------------------------------------------------
+
+// Locates the [start, end] unfolded-line indices of the BEGIN:VEVENT..
+// END:VEVENT block whose UID property matches `uid` exactly (a calendar-data
+// document can in principle hold more than one VEVENT, e.g. a recurring
+// master plus RECURRENCE-ID overrides sharing a UID — recurring events never
+// reach this function, see executeUpdate's guardrail, so matching the first
+// occurrence is unambiguous for anything that does).
+function findVeventBlock(
+	lines: string[],
+	uid: string,
+): { start: number; end: number } | null {
+	let blockStart = -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i] === "BEGIN:VEVENT") {
+			blockStart = i;
+			continue;
+		}
+		if (lines[i] === "END:VEVENT" && blockStart !== -1) {
+			const hasMatchingUid = lines.slice(blockStart + 1, i).some((line) => {
+				const prop = parseICalProperty(line);
+				return prop?.name === "UID" && prop.value === uid;
+			});
+			if (hasMatchingUid) return { start: blockStart, end: i };
+			blockStart = -1;
+		}
+	}
+	return null;
+}
+
+// The RFC 5545 ABNF for a VEVENT (`eventprop *alarmc`) puts every top-level
+// property BEFORE any nested sub-component — so a newly-inserted property
+// (one the original resource didn't have) must land before the first
+// BEGIN:... line in the block, not merely before END:VEVENT, or it would
+// come after e.g. a BEGIN:VALARM..END:VALARM block and violate that
+// ordering. Falls back to just before END:VEVENT when there's no
+// sub-component to avoid.
+function findInsertionIndex(
+	lines: string[],
+	start: number,
+	end: number,
+): number {
+	for (let i = start + 1; i < end; i++) {
+		if (lines[i]?.startsWith("BEGIN:")) return i;
+	}
+	return end;
+}
+
+// Finds the first line index in [start, end) matching `pattern`, WITHOUT
+// ever looking inside a nested sub-component (BEGIN:...END:... — e.g.
+// VALARM). This is what keeps replaceOrInsert below from mistaking, say, a
+// VALARM's own DESCRIPTION line for the VEVENT's top-level DESCRIPTION
+// property and overwriting content inside a supposedly-untouched alarm.
+function findTopLevelLineIndex(
+	lines: string[],
+	start: number,
+	end: number,
+	pattern: RegExp,
+): number {
+	let i = start;
+	while (i < end) {
+		const line = lines[i] as string;
+		if (line.startsWith("BEGIN:")) {
+			// Skip the entire nested sub-component (which may itself nest
+			// further, hence tracking depth) before resuming the top-level scan.
+			let depth = 1;
+			i++;
+			while (i < end && depth > 0) {
+				const inner = lines[i] as string;
+				if (inner.startsWith("BEGIN:")) depth++;
+				else if (inner.startsWith("END:")) depth--;
+				i++;
+			}
+			continue;
+		}
+		if (pattern.test(line)) return i;
+		i++;
+	}
+	return -1;
+}
+
+function patchVevent(
+	originalIcs: string,
+	uid: string,
+	event: AppleCalendarWriteEventFields,
+): string {
+	assertNoLineBreak(uid, "uid");
+	const lines = unfoldICalLines(originalIcs);
+	const block = findVeventBlock(lines, uid);
+	if (!block) {
+		throw new IcalWriteError(
+			"Original ICS does not contain a VEVENT matching the expected UID",
+			"missing_target",
+		);
+	}
+
+	let end = block.end;
+	let insertAt = findInsertionIndex(lines, block.start, block.end);
+
+	// Replaces the first TOP-LEVEL line in the block matching `pattern` with
+	// `newLine`; if none matches, inserts `newLine` at the ordering-safe
+	// insertion point above. A `newLine` of `undefined` means the caller
+	// didn't supply this field — leave the block completely untouched for it
+	// (the whole point of patching rather than regenerating).
+	const replaceOrInsert = (pattern: RegExp, newLine: string | undefined) => {
+		if (newLine === undefined) return;
+		const idx = findTopLevelLineIndex(lines, block.start + 1, end, pattern);
+		if (idx !== -1) {
+			lines[idx] = newLine;
+			return;
+		}
+		lines.splice(insertAt, 0, newLine);
+		insertAt += 1;
+		end += 1;
+	};
+
+	replaceOrInsert(
+		/^SUMMARY(;|:)/i,
+		event.summary !== undefined
+			? `SUMMARY:${escapeICalText(event.summary)}`
+			: undefined,
+	);
+	replaceOrInsert(
+		/^DTSTART(;|:)/i,
+		event.start !== undefined
+			? toICalDtProperty("DTSTART", event.start)
+			: undefined,
+	);
+	replaceOrInsert(
+		/^DTEND(;|:)/i,
+		event.end !== undefined ? toICalDtProperty("DTEND", event.end) : undefined,
+	);
+	replaceOrInsert(
+		/^LOCATION(;|:)/i,
+		event.location !== undefined
+			? `LOCATION:${escapeICalText(event.location)}`
+			: undefined,
+	);
+	replaceOrInsert(
+		/^DESCRIPTION(;|:)/i,
+		event.description !== undefined
+			? `DESCRIPTION:${escapeICalText(event.description)}`
+			: undefined,
+	);
+
+	// Best-effort SEQUENCE bump — correct CalDAV/iCalendar etiquette on a
+	// modification, but only when it's trivially safe: a TOP-LEVEL SEQUENCE
+	// must already be present and parse cleanly as a plain integer. Never
+	// inserted if absent (an absent SEQUENCE is a perfectly valid VEVENT —
+	// RFC 5545 defaults it to 0) — skipping is always safe, guessing is not.
+	const sequencePattern = /^SEQUENCE:(-?\d+)\s*$/i;
+	const seqIdx = findTopLevelLineIndex(
+		lines,
+		block.start + 1,
+		end,
+		sequencePattern,
+	);
+	if (seqIdx !== -1) {
+		const match = sequencePattern.exec(lines[seqIdx] as string);
+		if (match) {
+			lines[seqIdx] = `SEQUENCE:${Number.parseInt(match[1] as string, 10) + 1}`;
+		}
+	}
+
 	return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
 }
 
@@ -390,8 +639,23 @@ async function executeUpdate(
 	if (content.recurring) {
 		return { ok: false, reason: "recurring_update_unsupported" };
 	}
+	if (!content.originalIcs) {
+		// Without the original resource text there is nothing safe to patch —
+		// regenerating a brand-new VEVENT from only this tool's minimal event
+		// fields would silently destroy any property (ATTENDEE/ORGANIZER/
+		// VALARM/RRULE/CATEGORIES/X-*/...) the pre-existing event carries that
+		// this schema doesn't model. Refuse rather than risk that corruption;
+		// the calendar tool always supplies this (see
+		// AppleCalendarWriteContent.originalIcs's doc comment) so this only
+		// fires for a malformed/legacy pending write.
+		return { ok: false, reason: "missing_target" };
+	}
 
-	const ics = serializeVevent(content.uid, content.event ?? {});
+	const ics = patchVevent(
+		content.originalIcs,
+		content.uid,
+		content.event ?? {},
+	);
 	const response = await caldavWriteRequest(
 		fetchImpl,
 		content.resourceHref,
@@ -480,7 +744,14 @@ registerWriteExecutor({
 
 			switch (op.action) {
 				case "calendar.create_event":
-					return executeCreate(
+					// Every branch is explicitly `await`ed (rather than returned as a
+					// bare promise) so a SYNCHRONOUS throw inside these functions
+					// (icalUtcTimestamp on an invalid date, patchVevent's
+					// IcalWriteError, etc.) becomes a rejection of THIS async
+					// function's own execution — which the surrounding try/catch can
+					// actually intercept. Returning the promise unawaited would let
+					// its eventual rejection propagate past this catch entirely.
+					return await executeCreate(
 						userId,
 						connectionId,
 						authResult.auth,
@@ -489,7 +760,7 @@ registerWriteExecutor({
 						opts,
 					);
 				case "calendar.update_event":
-					return executeUpdate(
+					return await executeUpdate(
 						userId,
 						connectionId,
 						authResult.auth,
@@ -497,7 +768,7 @@ registerWriteExecutor({
 						opts,
 					);
 				case "calendar.delete_event":
-					return executeDelete(
+					return await executeDelete(
 						userId,
 						connectionId,
 						authResult.auth,
@@ -507,12 +778,20 @@ registerWriteExecutor({
 				default:
 					return { ok: false, reason: "unsupported_operation" };
 			}
-		} catch {
-			// caldavWriteRequest throws on a timeout/redirect-loop/missing
-			// Location header — none of those are the user's fault, and none of
-			// them should ever leak internals (or the app-specific password,
-			// which never appears in these error messages to begin with) back
-			// through the confirm response.
+		} catch (err) {
+			// IcalWriteError is a deliberate refusal (an unsafe-to-write value, or
+			// an original resource patchVevent couldn't locate the target VEVENT
+			// in) — surface its specific typed reason rather than the generic
+			// fallback below.
+			if (err instanceof IcalWriteError) {
+				return { ok: false, reason: err.reason };
+			}
+			// Anything else — caldavWriteRequest throws on a timeout/redirect-loop
+			// /missing Location header, icalUtcTimestamp throws on an invalid
+			// date — none of those are the user's fault, and none of them should
+			// ever leak internals (or the app-specific password, which never
+			// appears in these error messages to begin with) back through the
+			// confirm response.
 			return { ok: false, reason: "request_failed" };
 		}
 	},

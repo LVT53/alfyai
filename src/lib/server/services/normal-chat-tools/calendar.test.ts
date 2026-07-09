@@ -1173,6 +1173,25 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				htmlLink:
 					"https://p12-caldav.icloud.com/12345/calendars/home/evt-apple-1.ics",
 				etag: '"etag-1"',
+				// The original resource text the corruption-safety fix's
+				// preserve-and-patch update PATCHES in place (see
+				// AppleCalendarWriteContent.originalIcs's doc comment) — a
+				// realistic fixture so update tests exercise the real
+				// isUpdate-requires-rawIcs gate rather than tripping it by
+				// accident.
+				rawIcs: [
+					"BEGIN:VCALENDAR",
+					"VERSION:2.0",
+					"BEGIN:VEVENT",
+					"UID:evt-apple-1@icloud.com",
+					"DTSTAMP:20260701T120000Z",
+					"SUMMARY:Therapy session — anxiety follow-up",
+					"DTSTART:20260709T130000Z",
+					"DTEND:20260709T133000Z",
+					"LOCATION:123 Clinic Rd",
+					"END:VEVENT",
+					"END:VCALENDAR",
+				].join("\r\n"),
 				...overrides,
 			};
 		}
@@ -1335,6 +1354,10 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 						"https://p12-caldav.icloud.com/12345/calendars/home/evt-apple-1.ics",
 					etag: '"etag-1"',
 					uid: "evt-apple-1@icloud.com",
+					// Corruption-safety fix: the executor PATCHES this original text
+					// in place rather than regenerating a fresh VEVENT — see
+					// AppleCalendarWriteContent.originalIcs's doc comment.
+					originalIcs: existingAppleEvent().rawIcs,
 					event: {
 						summary: "Therapy session — anxiety follow-up",
 						start: "2026-07-09T09:00:00-04:00",
