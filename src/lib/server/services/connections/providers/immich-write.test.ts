@@ -116,8 +116,8 @@ describe("immich write-executor — immich.add_to_album", () => {
 					const headers = new Headers(init?.headers);
 					expect(headers.get("x-api-key")).toBe("write-scoped-key");
 					return jsonResponse(200, [
-						{ id: "album-1", albumName: "AlfyAI" },
-						{ id: "album-2", albumName: "Other" },
+						{ id: "album-1", albumName: "AlfyAI", ownerId: "user-1" },
+						{ id: "album-2", albumName: "Other", ownerId: "user-1" },
 					]);
 				}
 				if (
@@ -175,7 +175,9 @@ describe("immich write-executor — immich.add_to_album", () => {
 					url === "https://photos.example.com/api/albums" &&
 					method === "GET"
 				) {
-					return jsonResponse(200, [{ id: "album-2", albumName: "Other" }]);
+					return jsonResponse(200, [
+						{ id: "album-2", albumName: "Other", ownerId: "user-1" },
+					]);
 				}
 				if (
 					url === "https://photos.example.com/api/albums" &&
@@ -207,6 +209,73 @@ describe("immich write-executor — immich.add_to_album", () => {
 		expect(createBody).toEqual({ albumName: "AlfyAI" });
 	});
 
+	// Regression test: GET /api/albums (with no `shared` filter) returns both
+	// the connection's own albums AND albums shared with them by other users.
+	// Matching purely on albumName let this executor put photos into a
+	// SHARED album named "AlfyAI" owned by someone else, instead of the
+	// user's own album — the ownerId must be checked against the
+	// connection's own immichUserId before treating a listed album as "the"
+	// AlfyAI album.
+	it("ignores a same-named album owned by someone else (a shared album) and creates the user's own instead", async () => {
+		const connectionId = await seedImmichConnection();
+		const { getWriteExecutor } = await import("../write-executors");
+		await import("./immich-write");
+
+		let createBody: unknown;
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (
+					url === "https://photos.example.com/api/albums" &&
+					method === "GET"
+				) {
+					// "AlfyAI" here belongs to a DIFFERENT Immich user — e.g. an
+					// album someone else shared with this account — and must not
+					// be matched even though the name is identical.
+					return jsonResponse(200, [
+						{
+							id: "someone-elses-album",
+							albumName: "AlfyAI",
+							ownerId: "some-other-user",
+						},
+					]);
+				}
+				if (
+					url === "https://photos.example.com/api/albums" &&
+					method === "POST"
+				) {
+					createBody = JSON.parse(String(init?.body));
+					return jsonResponse(201, {
+						id: "my-own-album",
+						albumName: "AlfyAI",
+					});
+				}
+				if (
+					url === "https://photos.example.com/api/albums/my-own-album/assets" &&
+					method === "PUT"
+				) {
+					return jsonResponse(200, [{ id: "asset-1", success: true }]);
+				}
+				throw new Error(`Unexpected fetch: ${method} ${url}`);
+			},
+		);
+
+		const executor = getWriteExecutor("immich");
+		const result = await executor?.execute(
+			USER_ID,
+			connectionId,
+			makeOp(connectionId) as never,
+			JSON.stringify({ assetIds: ["asset-1"], albumName: "AlfyAI" }),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: true, detail: 'added to "AlfyAI" album' });
+		// A new, user-owned album was created rather than reusing the
+		// foreign-owned shared album with the same name.
+		expect(createBody).toEqual({ albumName: "AlfyAI" });
+	});
+
 	it("treats a duplicate-asset response as success, not an error", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
@@ -220,7 +289,9 @@ describe("immich write-executor — immich.add_to_album", () => {
 					url === "https://photos.example.com/api/albums" &&
 					method === "GET"
 				) {
-					return jsonResponse(200, [{ id: "album-1", albumName: "AlfyAI" }]);
+					return jsonResponse(200, [
+						{ id: "album-1", albumName: "AlfyAI", ownerId: "user-1" },
+					]);
 				}
 				if (
 					url === "https://photos.example.com/api/albums/album-1/assets" &&
@@ -266,7 +337,9 @@ describe("immich write-executor — immich.add_to_album", () => {
 					url === "https://photos.example.com/api/albums" &&
 					method === "GET"
 				) {
-					return jsonResponse(200, [{ id: "album-1", albumName: "AlfyAI" }]);
+					return jsonResponse(200, [
+						{ id: "album-1", albumName: "AlfyAI", ownerId: "user-1" },
+					]);
 				}
 				if (
 					url === "https://photos.example.com/api/albums/album-1/assets" &&
@@ -327,11 +400,96 @@ describe("immich write-executor — immich.add_to_album", () => {
 					url === "https://photos.example.com/api/albums" &&
 					method === "GET"
 				) {
-					return jsonResponse(200, [{ id: "album-1", albumName: "AlfyAI" }]);
+					return jsonResponse(200, [
+						{ id: "album-1", albumName: "AlfyAI", ownerId: "user-1" },
+					]);
 				}
 				if (
 					url === "https://photos.example.com/api/albums/album-1/assets" &&
 					method === "PUT"
+				) {
+					return jsonResponse(401, { message: "unauthorized" });
+				}
+				throw new Error(`Unexpected fetch: ${method} ${url}`);
+			},
+		);
+
+		const executor = getWriteExecutor("immich");
+		const result = await executor?.execute(
+			USER_ID,
+			connectionId,
+			makeOp(connectionId) as never,
+			JSON.stringify({ assetIds: ["asset-1"], albumName: "AlfyAI" }),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: false, reason: "needs_reauth" });
+		const conn = await getConnection(USER_ID, connectionId);
+		expect(conn?.status).toBe("needs_reauth");
+	});
+
+	// Regression test: a 401 from the write key on GET /api/albums (listing,
+	// to find an existing "AlfyAI" album) was previously mapped to a generic
+	// request_failed instead of needs_reauth like the assets PUT above — the
+	// user got a vague failure instead of being told to reconnect.
+	it("a 401 on the albums GET (listing) maps to needs_reauth and marks the connection", async () => {
+		const connectionId = await seedImmichConnection();
+		const { getWriteExecutor } = await import("../write-executors");
+		const { getConnection } = await import("../store");
+		await import("./immich-write");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (
+					url === "https://photos.example.com/api/albums" &&
+					method === "GET"
+				) {
+					return jsonResponse(401, { message: "unauthorized" });
+				}
+				throw new Error(`Unexpected fetch: ${method} ${url}`);
+			},
+		);
+
+		const executor = getWriteExecutor("immich");
+		const result = await executor?.execute(
+			USER_ID,
+			connectionId,
+			makeOp(connectionId) as never,
+			JSON.stringify({ assetIds: ["asset-1"], albumName: "AlfyAI" }),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: false, reason: "needs_reauth" });
+		const conn = await getConnection(USER_ID, connectionId);
+		expect(conn?.status).toBe("needs_reauth");
+	});
+
+	// Regression test: same generic-request_failed bug, but on the POST
+	// /api/albums (create) call that runs when no existing "AlfyAI" album was
+	// found.
+	it("a 401 on the albums POST (create) maps to needs_reauth and marks the connection", async () => {
+		const connectionId = await seedImmichConnection();
+		const { getWriteExecutor } = await import("../write-executors");
+		const { getConnection } = await import("../store");
+		await import("./immich-write");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const method = init?.method ?? "GET";
+				if (
+					url === "https://photos.example.com/api/albums" &&
+					method === "GET"
+				) {
+					return jsonResponse(200, [
+						{ id: "album-2", albumName: "Other", ownerId: "user-1" },
+					]);
+				}
+				if (
+					url === "https://photos.example.com/api/albums" &&
+					method === "POST"
 				) {
 					return jsonResponse(401, { message: "unauthorized" });
 				}

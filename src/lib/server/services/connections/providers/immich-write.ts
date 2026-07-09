@@ -73,7 +73,7 @@ function immichWriteConfig(conn: {
 	return { origin, immichUserId };
 }
 
-type ImmichAlbumSummary = { id: string; albumName: string };
+type ImmichAlbumSummary = { id: string; albumName: string; ownerId: string };
 
 function isValidAlbumListResponse(
 	value: unknown,
@@ -85,7 +85,8 @@ function isValidAlbumListResponse(
 				entry &&
 				typeof entry === "object" &&
 				typeof (entry as Record<string, unknown>).id === "string" &&
-				typeof (entry as Record<string, unknown>).albumName === "string",
+				typeof (entry as Record<string, unknown>).albumName === "string" &&
+				typeof (entry as Record<string, unknown>).ownerId === "string",
 		)
 	);
 }
@@ -107,8 +108,10 @@ async function findOrCreateAlbum(
 	origin: string,
 	apiKey: string,
 	albumName: string,
+	immichUserId: string,
 ): Promise<
-	{ ok: true; albumId: string } | { ok: false; reason: "request_failed" }
+	| { ok: true; albumId: string }
+	| { ok: false; reason: "request_failed" | "needs_reauth" }
 > {
 	let listResponse: Response;
 	try {
@@ -119,6 +122,12 @@ async function findOrCreateAlbum(
 	} catch {
 		return { ok: false, reason: "request_failed" };
 	}
+	// A 401 here means the write-scoped key itself was rejected — same
+	// contract as the assets PUT below, so it must be surfaced the same way
+	// (needs_reauth), not the generic request_failed.
+	if (listResponse.status === 401) {
+		return { ok: false, reason: "needs_reauth" };
+	}
 	if (!listResponse.ok) {
 		return { ok: false, reason: "request_failed" };
 	}
@@ -126,7 +135,15 @@ async function findOrCreateAlbum(
 	if (!isValidAlbumListResponse(listBody)) {
 		return { ok: false, reason: "request_failed" };
 	}
-	const existing = listBody.find((album) => album.albumName === albumName);
+	// GET /api/albums (with no `shared` filter) returns both the user's own
+	// albums AND albums shared with them by other Immich users — matching on
+	// name alone could pick a SHARED album someone else owns and happens to
+	// have named "AlfyAI" too. Only an album this connection's own Immich
+	// user owns counts as "the" AlfyAI album; anything else falls through to
+	// creating a new, user-owned one below.
+	const existing = listBody.find(
+		(album) => album.albumName === albumName && album.ownerId === immichUserId,
+	);
 	if (existing) {
 		return { ok: true, albumId: existing.id };
 	}
@@ -143,6 +160,9 @@ async function findOrCreateAlbum(
 		});
 	} catch {
 		return { ok: false, reason: "request_failed" };
+	}
+	if (createResponse.status === 401) {
+		return { ok: false, reason: "needs_reauth" };
 	}
 	if (!createResponse.ok) {
 		return { ok: false, reason: "request_failed" };
@@ -194,6 +214,22 @@ async function addAssetsToAlbum(
 	return { ok: true, detail: `added to "${ALBUM_NAME}" album` };
 }
 
+// Marks the connection needs_reauth whenever ANY step of the write
+// (album lookup/create, or the assets PUT) reports its write-scoped key was
+// rejected — the same 401-handling contract regardless of which of the two
+// Immich endpoints this executor calls returned it.
+async function markNeedsReauthIfApplicable(
+	userId: string,
+	connectionId: string,
+	result: { ok: false; reason: string } | { ok: true },
+): Promise<void> {
+	if (result.ok || result.reason !== "needs_reauth") return;
+	await updateConnection(userId, connectionId, {
+		status: "needs_reauth",
+		statusDetail: "Immich rejected the stored write-scoped API key",
+	});
+}
+
 async function executeAddToAlbum(
 	userId: string,
 	connectionId: string,
@@ -223,8 +259,12 @@ async function executeAddToAlbum(
 		config.origin,
 		apiKey,
 		parsed.albumName,
+		config.immichUserId,
 	);
-	if (!albumResult.ok) return albumResult;
+	if (!albumResult.ok) {
+		await markNeedsReauthIfApplicable(userId, connectionId, albumResult);
+		return albumResult;
+	}
 
 	const result = await addAssetsToAlbum(
 		fetchImpl,
@@ -233,12 +273,7 @@ async function executeAddToAlbum(
 		albumResult.albumId,
 		parsed.assetIds,
 	);
-	if (!result.ok && result.reason === "needs_reauth") {
-		await updateConnection(userId, connectionId, {
-			status: "needs_reauth",
-			statusDetail: "Immich rejected the stored write-scoped API key",
-		});
-	}
+	await markNeedsReauthIfApplicable(userId, connectionId, result);
 	return result;
 }
 

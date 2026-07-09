@@ -46,20 +46,21 @@ export function sanitizePhotosToolInput(
 
 export type PhotoCitation = { label: string; url: string };
 
-// One photo as surfaced to the model. `place`/`people`/`description` are the
-// "raw photo details" the locality Option-A distill gate (below) strips when
+// One photo as surfaced to the model. `place`/`description` are the "raw
+// photo details" the locality Option-A distill gate (below) strips when
 // active — mirrors calendar.ts keeping id/start/end while stripping summary/
 // location. `id`/`takenAt`/`type` are structural metadata, never stripped.
 // `fileName` is also treated as raw (unlike, say, the files tool's filename)
 // because an Immich original filename routinely embeds a date/location/event
 // name (e.g. "hospital-visit.jpg") — see the issue's Option-A test.
+// No `people` field: PhotoResult never carries one — Immich's smart-search
+// endpoint has no withPeople parameter and never joins faces (see immich.ts).
 export type PhotoToolResultItem = {
 	id: string;
 	fileName?: string;
 	takenAt: string;
 	type: "IMAGE" | "VIDEO";
 	place?: string;
-	people?: string[];
 	description?: string;
 };
 
@@ -90,9 +91,6 @@ function toToolResultItem(photo: PhotoResult): PhotoToolResultItem {
 		takenAt: photo.takenAt,
 		type: photo.type,
 		...(photo.place ? { place: photo.place } : {}),
-		...(photo.people && photo.people.length > 0
-			? { people: photo.people }
-			: {}),
 		...(photo.description ? { description: photo.description } : {}),
 	};
 }
@@ -230,13 +228,13 @@ function redactCitationsForModel(
 	});
 }
 
-// Locality Option A: photo metadata (filenames, places, people names,
-// descriptions) is sensitive personal data — when the user has opted in to
-// local distillation and the selected chat model is cloud, replace it with a
-// summary produced by a local model before it reaches the (cloud) model.
-// This strips `fileName`/`place`/`people`/`description` from every result,
-// and redacts `citations[].label` (see redactCitationsForModel) — i.e. the
-// WHOLE model-facing payload, not just one field. `outcome.candidates` (the
+// Locality Option A: photo metadata (filenames, places, descriptions) is
+// sensitive personal data — when the user has opted in to local distillation
+// and the selected chat model is cloud, replace it with a summary produced
+// by a local model before it reaches the (cloud) model. This strips
+// `fileName`/`place`/`description` from every result, and redacts
+// `citations[].label` (see redactCitationsForModel) — i.e. the WHOLE
+// model-facing payload, not just one field. `outcome.candidates` (the
 // Sources-tab list) is untouched: it feeds the user's own screen, a
 // different channel from what the model sees, and keeps the real data so
 // thumbnails can still render.
@@ -254,17 +252,12 @@ async function applyLocalDistillGate(params: {
 			const descriptors = [item.fileName, item.place, item.description].filter(
 				(value): value is string => Boolean(value),
 			);
-			const people =
-				item.people && item.people.length > 0
-					? item.people.join(", ")
-					: undefined;
-			const allDescriptors = people ? [...descriptors, people] : descriptors;
-			if (allDescriptors.length === 0) return null;
-			return `${allDescriptors.join(" — ")} (${item.takenAt})`;
+			if (descriptors.length === 0) return null;
+			return `${descriptors.join(" — ")} (${item.takenAt})`;
 		})
 		.filter((value): value is string => Boolean(value));
 	// Nothing raw to protect (e.g. every result is bare metadata with no
-	// filename/place/people/description) — the gate is a no-op.
+	// filename/place/description) — the gate is a no-op.
 	if (rawTextParts.length === 0) return outcome;
 
 	const decision = await decideLocalDistill({
@@ -280,7 +273,6 @@ async function applyLocalDistillGate(params: {
 		const {
 			fileName: _fileName,
 			place: _place,
-			people: _people,
 			description: _description,
 			...rest
 		} = item;

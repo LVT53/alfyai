@@ -515,6 +515,42 @@ describe("imapSearch", () => {
 		expect(headers.map((h) => h.uid)).toEqual([11, 10]);
 	});
 
+	it("BUG 3 regression: a multi-word query AND's one TEXT term per word and returns the intersection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		// IMAP `SEARCH TEXT <string>` is a single contiguous-substring match, so
+		// the pre-fix `{ text: "invoice acme" }` matches only that exact run and
+		// almost always returns nothing. Post-fix, each word is its own TEXT term
+		// and the results are AND'd (intersected): only messages containing ALL
+		// words survive.
+		const perWord: Record<string, number[]> = {
+			invoice: [10, 11, 12],
+			acme: [11, 12, 13],
+		};
+		const client = new FakeImapClient({
+			search: (query) => perWord[query.text as string] ?? [],
+			fetch: () =>
+				asyncIterableOf([
+					envelopeMessage({ uid: 11, subject: "Invoice from Acme" }),
+					envelopeMessage({ uid: 12, subject: "Acme invoice #2" }),
+				]),
+		});
+
+		const headers = await imapSearch(
+			USER_ID,
+			conn.id,
+			{ query: "invoice acme" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		// One TEXT search per word — the fake received AND'd per-word terms.
+		expect(client.searchCalls).toEqual([{ text: "invoice" }, { text: "acme" }]);
+		// Only UIDs present in BOTH per-word result sets (11, 12) come back.
+		expect(headers.map((h) => h.uid).sort((a, b) => a - b)).toEqual([11, 12]);
+	});
+
 	it("returns an empty list without opening a connection when the query is blank", async () => {
 		seedUser(USER_ID);
 		const conn = await seedImapConnection();
@@ -594,6 +630,102 @@ describe("imapReadMessage", () => {
 		expect(client.logoutCalls).toBe(1);
 	});
 
+	it("BUG 1 regression: reads a single-part (non-multipart) text/plain body stored under imapflow's LOWERCASED 'text' key", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapReadMessage } = await import("./imap");
+
+		const client = new FakeImapClient({
+			fetchOne: (_seq, query) => {
+				if (query.bodyStructure) {
+					return Promise.resolve({
+						uid: 55,
+						envelope: { subject: "Newsletter" },
+						flags: new Set(),
+						bodyStructure: {
+							type: "text/plain",
+							encoding: "7bit",
+							parameters: { charset: "utf-8" },
+						},
+					});
+				}
+				if (query.bodyParts) {
+					// Real imapflow LOWERCASES every FETCH response part key (see
+					// tools.js formatMessageResponse), so a single-part body
+					// requested as "TEXT" comes back keyed "text". The fake mirrors
+					// that here — the case the earlier uppercase-keyed fakes missed.
+					return Promise.resolve({
+						uid: 55,
+						bodyParts: new Map([
+							["text", Buffer.from("Hello from a plain email", "utf8")],
+						]),
+					});
+				}
+				return Promise.resolve(false);
+			},
+		});
+
+		const result = await imapReadMessage(
+			USER_ID,
+			conn.id,
+			{ uid: 55 },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(result.text).toBe("Hello from a plain email");
+	});
+
+	it("BUG 2 regression: decodes a quoted-printable body in a non-UTF-8 charset (iso-8859-1) without mojibake", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapReadMessage } = await import("./imap");
+
+		// Multipart with a NUMERIC part id ("1") so this test isolates the
+		// quoted-printable/charset bug from the single-part lookup bug (BUG 1):
+		// numeric ids are case-invariant, so the part is always found.
+		const client = new FakeImapClient({
+			fetchOne: (_seq, query) => {
+				if (query.bodyStructure) {
+					return Promise.resolve({
+						uid: 88,
+						envelope: { subject: "Accented" },
+						flags: new Set(),
+						bodyStructure: {
+							type: "multipart/mixed",
+							childNodes: [
+								{
+									part: "1",
+									type: "text/plain",
+									encoding: "quoted-printable",
+									parameters: { charset: "iso-8859-1" },
+								},
+							],
+						},
+					});
+				}
+				if (query.bodyParts) {
+					// In iso-8859-1, é is the single byte 0xE9 ("=E9") and ï is 0xEF
+					// ("=EF"). Decoding these bytes as utf-8 (the pre-fix behavior)
+					// yields U+FFFD replacement chars, not the intended letters.
+					return Promise.resolve({
+						uid: 88,
+						bodyParts: new Map([["1", Buffer.from("caf=E9 na=EFve", "ascii")]]),
+					});
+				}
+				return Promise.resolve(false);
+			},
+		});
+
+		const result = await imapReadMessage(
+			USER_ID,
+			conn.id,
+			{ uid: 88 },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(result.text).toBe("café naïve");
+	});
+
 	it("falls back to text/html and strips tags when no text/plain part exists", async () => {
 		seedUser(USER_ID);
 		const conn = await seedImapConnection();
@@ -617,7 +749,8 @@ describe("imapReadMessage", () => {
 					return Promise.resolve({
 						uid: 7,
 						bodyParts: new Map([
-							["TEXT", Buffer.from("<p>Hi <b>there</b></p>", "utf8")],
+							// imapflow returns single-part bodies under a LOWERCASED key.
+							["text", Buffer.from("<p>Hi <b>there</b></p>", "utf8")],
 						]),
 					});
 				}
@@ -658,7 +791,7 @@ describe("imapReadMessage", () => {
 				if (query.bodyParts) {
 					return Promise.resolve({
 						uid: 1,
-						bodyParts: new Map([["TEXT", Buffer.from(longText, "utf8")]]),
+						bodyParts: new Map([["text", Buffer.from(longText, "utf8")]]),
 					});
 				}
 				return Promise.resolve(false);

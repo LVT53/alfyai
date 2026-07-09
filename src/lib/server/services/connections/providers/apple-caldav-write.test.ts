@@ -220,6 +220,35 @@ describe("apple write-executor — calendar.create_event", () => {
 		});
 	});
 
+	it("MINOR: a write request carries a User-Agent: AlfyAI header, matching the read side", async () => {
+		const op = makeCreateOp();
+		const content = JSON.stringify({
+			calendarUrl: CALENDAR_URL,
+			event: {
+				summary: "Standup",
+				start: "2026-07-10T09:00:00Z",
+				end: "2026-07-10T09:30:00Z",
+			},
+		});
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const headers = new Headers(init?.headers);
+			expect(headers.get("User-Agent")).toBe("AlfyAI");
+			return new Response(null, {
+				status: 201,
+				headers: { ETag: '"e"' },
+			});
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
+	});
+
 	it("an all-day event's YYYY-MM-DD start/end become DTSTART/DTEND;VALUE=DATE, not a UTC timestamp", async () => {
 		const op = makeCreateOp();
 		const content = JSON.stringify({
@@ -566,6 +595,151 @@ describe("apple write-executor — calendar.update_event", () => {
 			etag: '"etag-2"',
 			detail: "event updated",
 		});
+	});
+
+	// A TZID-anchored original event, mirroring what iCloud returns for a timed
+	// event created in a named zone (the read side discards the zone into a
+	// bare "2026-07-09T10:00:00", which calendar.ts then resends on any edit).
+	function makeTzidOriginalIcs(): string {
+		return `${[
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"PRODID:-//Apple Inc.//Mac OS X 10.15//EN",
+			"BEGIN:VEVENT",
+			`UID:${ORIGINAL_UID}`,
+			"DTSTAMP:20260701T120000Z",
+			"SUMMARY:Standup",
+			"DTSTART;TZID=America/New_York:20260709T100000",
+			"DTEND;TZID=America/New_York:20260709T103000",
+			"LOCATION:Room A",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		].join("\r\n")}\r\n`;
+	}
+
+	it("BUG 1(i): renaming a TZID-based timed event leaves DTSTART/DTEND byte-identical — TZID preserved, never coerced to UTC", async () => {
+		const op = makeUpdateOp();
+		// calendar.ts resends the EXISTING (zone-less) parsed start/end even on a
+		// title-only rename: `start: input.start ?? existing.start`.
+		const content = JSON.stringify({
+			resourceHref: `${CALENDAR_URL}evt-1.ics`,
+			etag: '"etag-1"',
+			uid: ORIGINAL_UID,
+			originalIcs: makeTzidOriginalIcs(),
+			event: {
+				summary: "Renamed standup",
+				start: "2026-07-09T10:00:00",
+				end: "2026-07-09T10:30:00",
+				location: "Room A",
+			},
+			recurring: false,
+		});
+
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const body = String(init?.body);
+			// The original DTSTART/DTEND lines survive verbatim, TZID and all.
+			expect(body).toContain("DTSTART;TZID=America/New_York:20260709T100000");
+			expect(body).toContain("DTEND;TZID=America/New_York:20260709T103000");
+			// No timestamp was coerced to a trailing-Z UTC form.
+			expect(body).not.toMatch(/DTSTART:\d{8}T\d{6}Z/);
+			expect(body).not.toMatch(/DTEND:\d{8}T\d{6}Z/);
+			// The only field that actually changed did change.
+			expect(body).toContain("SUMMARY:Renamed standup");
+			return new Response(null, { status: 200, headers: { ETag: '"e2"' } });
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("BUG 1(ii): changing only the title never alters the stored start instant (a floating DTSTART stays floating, no Z appended)", async () => {
+		const op = makeUpdateOp();
+		const originalIcs = `${[
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"BEGIN:VEVENT",
+			`UID:${ORIGINAL_UID}`,
+			"DTSTAMP:20260701T120000Z",
+			"SUMMARY:Standup",
+			// Floating local time — no Z, no TZID.
+			"DTSTART:20260709T100000",
+			"DTEND:20260709T103000",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		].join("\r\n")}\r\n`;
+		const content = JSON.stringify({
+			resourceHref: `${CALENDAR_URL}evt-1.ics`,
+			etag: '"etag-1"',
+			uid: ORIGINAL_UID,
+			originalIcs,
+			event: {
+				summary: "New title",
+				start: "2026-07-09T10:00:00",
+				end: "2026-07-09T10:30:00",
+			},
+			recurring: false,
+		});
+
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const lines = String(init?.body)
+				.split("\r\n")
+				.map((line) => line.replace(/\r/g, ""));
+			// Before the fix, new Date("...T10:00:00").toISOString() appended a Z
+			// (and shifted off a non-UTC server) — the exact floating line proves
+			// the instant is untouched regardless of the runner's timezone.
+			expect(lines).toContain("DTSTART:20260709T100000");
+			expect(lines).toContain("DTEND:20260709T103000");
+			expect(lines).toContain("SUMMARY:New title");
+			return new Response(null, { status: 200, headers: { ETag: '"e2"' } });
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("BUG 1(b): genuinely moving a TZID event's start keeps it in the original zone (TZID preserved), not silently converted to UTC", async () => {
+		const op = makeUpdateOp();
+		const content = JSON.stringify({
+			resourceHref: `${CALENDAR_URL}evt-1.ics`,
+			etag: '"etag-1"',
+			uid: ORIGINAL_UID,
+			originalIcs: makeTzidOriginalIcs(),
+			// User moves the meeting two hours later (still a zone-less wall time).
+			event: {
+				start: "2026-07-09T12:00:00",
+				end: "2026-07-09T12:30:00",
+			},
+			recurring: false,
+		});
+
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			const body = String(init?.body);
+			expect(body).toContain("DTSTART;TZID=America/New_York:20260709T120000");
+			expect(body).toContain("DTEND;TZID=America/New_York:20260709T123000");
+			expect(body).not.toMatch(/DTSTART:\d{8}T\d{6}Z/);
+			return new Response(null, { status: 200, headers: { ETag: '"e2"' } });
+		});
+
+		const result = await executor().execute(
+			USER_ID,
+			CONNECTION_ID,
+			op,
+			content,
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(result.ok).toBe(true);
 	});
 
 	it("anti-corruption proof: ATTENDEE, an intact VALARM block, RRULE, and an X-CUSTOM property all survive an update that only changes the start time", async () => {

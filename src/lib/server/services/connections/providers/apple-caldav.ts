@@ -657,7 +657,17 @@ export function parseICalProperty(line: string): ICalProperty | null {
 	if (colonIndex === -1) return null;
 	const head = line.slice(0, colonIndex);
 	const value = line.slice(colonIndex + 1);
-	const [name, ...paramParts] = head.split(";");
+	const [rawName, ...paramParts] = head.split(";");
+	if (!rawName) return null;
+	// RFC 6350 §3.3 (contentline = [group "."] name ...) lets a property carry
+	// a leading group prefix — Apple Contacts labels grouped properties this
+	// way, e.g. "item1.EMAIL;type=INTERNET:...". Strip that "group." prefix
+	// before anything downstream compares the property name, or a labeled
+	// EMAIL/TEL never matches its case arm (name would be "ITEM1.EMAIL", not
+	// "EMAIL"). An iCalendar property name never contains a '.', so this is a
+	// no-op for calendar data — only vCard grouping is affected.
+	const dotIndex = rawName.indexOf(".");
+	const name = dotIndex === -1 ? rawName : rawName.slice(dotIndex + 1);
 	if (!name) return null;
 	const params: Record<string, string> = {};
 	for (const part of paramParts) {
@@ -674,8 +684,12 @@ export function parseICalProperty(line: string): ICalProperty | null {
 // `YYYY-MM-DDTHH:MM:SS` plus a trailing `Z` iff the raw value itself ended in
 // Z. A TZID param's offset is deliberately NOT resolved — "ISO-ish is fine"
 // for what the calendar tool needs; over-engineering timezone math here isn't
-// worth it for a read-only MVP.
-function parseICalTimestamp(prop: ICalProperty): string | null {
+// worth it for a read-only MVP. Exported so the write executor
+// (providers/apple-caldav-write.ts) can detect a "no genuine change" update by
+// comparing a caller's resent start/end against exactly this parse of the
+// original DTSTART/DTEND line — the read and write sides must agree on what a
+// stored timestamp "is", rather than each guessing independently.
+export function parseICalTimestamp(prop: ICalProperty): string | null {
 	const value = prop.value.trim();
 	const isDateOnly = prop.params.VALUE === "DATE" || /^\d{8}$/.test(value);
 	if (isDateOnly) {
@@ -689,6 +703,76 @@ function parseICalTimestamp(prop: ICalProperty): string | null {
 	if (!match) return null;
 	const [, year, month, day, hour, minute, second, zone] = match;
 	return `${year}-${month}-${day}T${hour}:${minute}:${second}${zone ?? ""}`;
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// Parses an RFC 5545 §3.3.6 DURATION value (e.g. "PT1H", "P1D", "P1DT2H30M",
+// "PT45M", "P2W", optionally sign-prefixed) into signed milliseconds. Returns
+// null for anything it can't parse or a bare "P" with no components — the
+// caller then falls back to the RFC default end rather than a bogus zero.
+function parseICalDuration(value: string): number | null {
+	const m = value
+		.trim()
+		.match(
+			/^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/,
+		);
+	if (!m) return null;
+	const [, sign, w, d, h, mi, s] = m;
+	if (
+		w === undefined &&
+		d === undefined &&
+		h === undefined &&
+		mi === undefined &&
+		s === undefined
+	) {
+		return null;
+	}
+	const total =
+		((((Number(w ?? 0) * 7 + Number(d ?? 0)) * 24 + Number(h ?? 0)) * 60 +
+			Number(mi ?? 0)) *
+			60 +
+			Number(s ?? 0)) *
+		1000;
+	return (sign === "-" ? -1 : 1) * total;
+}
+
+// Shifts an already-parsed ISO-ish DTSTART string (from parseICalTimestamp) by
+// `ms` milliseconds, preserving its shape: a date-only "YYYY-MM-DD" stays
+// date-only; a timed value keeps its trailing "Z" iff the original had one.
+// Arithmetic runs through Date.UTC purely so day/month/year rollover is correct
+// and server-timezone-independent — this is NOT a timezone conversion, just
+// wall-clock addition of the requested offset.
+function shiftICalTimestamp(parsed: string, ms: number): string | null {
+	const p2 = (n: number) => String(n).padStart(2, "0");
+	const dateOnly = parsed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (dateOnly) {
+		const at = new Date(
+			Date.UTC(
+				Number(dateOnly[1]),
+				Number(dateOnly[2]) - 1,
+				Number(dateOnly[3]),
+			) + ms,
+		);
+		return `${at.getUTCFullYear()}-${p2(at.getUTCMonth() + 1)}-${p2(at.getUTCDate())}`;
+	}
+	const timed = parsed.match(
+		/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z)?$/,
+	);
+	if (timed) {
+		const at = new Date(
+			Date.UTC(
+				Number(timed[1]),
+				Number(timed[2]) - 1,
+				Number(timed[3]),
+				Number(timed[4]),
+				Number(timed[5]),
+				Number(timed[6]),
+			) + ms,
+		);
+		return `${at.getUTCFullYear()}-${p2(at.getUTCMonth() + 1)}-${p2(at.getUTCDate())}T${p2(at.getUTCHours())}:${p2(at.getUTCMinutes())}:${p2(at.getUTCSeconds())}${timed[7] ?? ""}`;
+	}
+	return null;
 }
 
 export type ParsedICalEvent = {
@@ -706,8 +790,13 @@ export type ParsedICalEvent = {
 };
 
 // Scans unfolded lines for BEGIN:VEVENT..END:VEVENT blocks and extracts the
-// fields the calendar tool needs. A block missing UID, DTSTART, or DTEND is
-// dropped rather than surfaced half-populated.
+// fields the calendar tool needs. A block missing UID or DTSTART is dropped
+// rather than surfaced half-populated — but a block with DTSTART and no DTEND
+// is NOT dropped: per RFC 5545 §3.6.1 an event's end is derived from DURATION
+// when present, and otherwise defaults (VALUE=DATE start -> start + 1 day; a
+// timed start -> zero duration, i.e. end == start). Imported/subscribed ICS
+// routinely uses DTSTART+DURATION or DTSTART alone, and silently dropping those
+// events was a real data-loss bug.
 export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 	const lines = unfoldICalLines(icsText);
 	const events: ParsedICalEvent[] = [];
@@ -719,6 +808,7 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 	let description: string | undefined;
 	let dtstart: string | undefined;
 	let dtend: string | undefined;
+	let duration: string | undefined;
 	let recurrenceRule: string | undefined;
 
 	for (const line of lines) {
@@ -730,15 +820,29 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 			description = undefined;
 			dtstart = undefined;
 			dtend = undefined;
+			duration = undefined;
 			recurrenceRule = undefined;
 			continue;
 		}
 		if (line === "END:VEVENT") {
-			if (inEvent && uid && dtstart && dtend) {
+			if (inEvent && uid && dtstart) {
+				let end = dtend;
+				if (end === undefined && duration !== undefined) {
+					const ms = parseICalDuration(duration);
+					if (ms !== null) end = shiftICalTimestamp(dtstart, ms) ?? undefined;
+				}
+				if (end === undefined) {
+					// RFC 5545 §3.6.1 defaults: an all-day (VALUE=DATE, so no "T")
+					// event lasts one day; a timed event has zero duration.
+					const dtstartDateOnly = !dtstart.includes("T");
+					end = dtstartDateOnly
+						? (shiftICalTimestamp(dtstart, ONE_DAY_MS) ?? dtstart)
+						: dtstart;
+				}
 				events.push({
 					uid,
 					dtstart,
-					dtend,
+					dtend: end,
 					...(summary !== undefined ? { summary } : {}),
 					...(location !== undefined ? { location } : {}),
 					...(description !== undefined ? { description } : {}),
@@ -767,6 +871,9 @@ export function parseICalEvents(icsText: string): ParsedICalEvent[] {
 				break;
 			case "RRULE":
 				recurrenceRule = prop.value;
+				break;
+			case "DURATION":
+				duration = prop.value.trim();
 				break;
 			case "DTSTART": {
 				const parsed = parseICalTimestamp(prop);
@@ -806,11 +913,23 @@ function toICalUtcTimestamp(iso: string): string {
 function calendarQueryBody(timeMin: string, timeMax: string): string {
 	const start = toICalUtcTimestamp(timeMin);
 	const end = toICalUtcTimestamp(timeMax);
+	// The CALDAV:expand (RFC 4791 §9.6.5) inside calendar-data asks the server
+	// to MATERIALIZE each recurrence instance that overlaps [start, end) as its
+	// own single-occurrence VEVENT, instead of returning the recurring master
+	// verbatim. Without it, a weekly series with a long-past DTSTART came back
+	// as one VEVENT carrying that original (out-of-window) start, so the whole
+	// in-window series collapsed to a single wrongly-dated entry. The expand
+	// window MUST match the time-range filter below so every occurrence the
+	// filter selects is also expanded. This is read-side only — the write
+	// path's UID lookup (uidQueryBody) deliberately does NOT expand, since it
+	// needs the real master resource text to patch/delete.
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
 	<d:prop>
 		<d:getetag/>
-		<c:calendar-data/>
+		<c:calendar-data>
+			<c:expand start="${start}" end="${end}"/>
+		</c:calendar-data>
 	</d:prop>
 	<c:filter>
 		<c:comp-filter name="VCALENDAR">
@@ -1122,12 +1241,29 @@ export function parseVCards(vcardText: string): ParsedVCard[] {
 	return cards;
 }
 
+// RFC 6352 §10.3 defines addressbook-query as
+// `((allprop|propname|prop)?, filter, limit?)` — the CARDDAV:filter element is
+// MANDATORY (no `?` quantifier), unlike CalDAV's calendar-query where the
+// filter is likewise required but iCloud is laxer about. Omitting it made a
+// strict iCloud endpoint 400 the REPORT, which surfaced upstream as "no
+// contacts". We still match/rank client-side (CardDAV has no reliable
+// cross-server free-text primitive — see appleSearchContacts), so this filter
+// must select EVERY card: with the default `test="anyof"` (logical OR), a
+// bare `prop-filter name="UID"` matches any card that HAS a UID and the
+// `is-not-defined` arm matches any card that does NOT — together a tautology,
+// i.e. all cards, expressed in the RFC's own grammar.
 const ADDRESSBOOK_QUERY_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <card:addressbook-query xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
 	<d:prop>
 		<d:getetag/>
 		<card:address-data/>
 	</d:prop>
+	<card:filter test="anyof">
+		<card:prop-filter name="UID"/>
+		<card:prop-filter name="UID">
+			<card:is-not-defined/>
+		</card:prop-filter>
+	</card:filter>
 </card:addressbook-query>`;
 
 function parseAddressbookReportMultistatus(xml: string): ParsedVCard[] {

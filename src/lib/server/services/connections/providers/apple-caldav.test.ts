@@ -481,6 +481,74 @@ describe("appleListEvents", () => {
 		]);
 	});
 
+	it("BUG 2: sends a C:expand (matching the time-range) so a recurring series is materialized as distinct dated occurrences, not one collapsed master", async () => {
+		seedUser("userA");
+		const conn = await seedConnection();
+		const { appleListEvents } = await import("./apple-caldav");
+
+		// Given C:expand, iCloud returns each in-window occurrence as its own
+		// single-instance VEVENT (RECURRENCE-ID + the occurrence's real DTSTART),
+		// rather than the master VEVENT carrying its original (possibly long-past)
+		// DTSTART with the RRULE attached.
+		const EXPANDED_ICS = [
+			"BEGIN:VCALENDAR",
+			"VERSION:2.0",
+			"BEGIN:VEVENT",
+			"UID:weekly@icloud.com",
+			"SUMMARY:Weekly sync",
+			"RECURRENCE-ID:20260709T130000Z",
+			"DTSTART:20260709T130000Z",
+			"DTEND:20260709T133000Z",
+			"END:VEVENT",
+			"BEGIN:VEVENT",
+			"UID:weekly@icloud.com",
+			"SUMMARY:Weekly sync",
+			"RECURRENCE-ID:20260716T130000Z",
+			"DTSTART:20260716T130000Z",
+			"DTEND:20260716T133000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		let sentBody = "";
+		const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+			sentBody = String(init?.body);
+			return xmlResponse(
+				207,
+				multistatusReport([
+					{
+						href: "/12345678/calendars/home/weekly.ics",
+						etag: '"etag-weekly"',
+						ics: EXPANDED_ICS,
+					},
+				]),
+			);
+		});
+
+		const events = await appleListEvents(
+			"userA",
+			conn.id,
+			{
+				timeMin: "2026-07-08T00:00:00.000Z",
+				timeMax: "2026-07-20T00:00:00.000Z",
+			},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		// The REPORT asked the server to expand within the SAME window as the
+		// time-range filter.
+		expect(sentBody).toContain("expand");
+		expect(sentBody).toContain('start="20260708T000000Z"');
+		expect(sentBody).toContain('end="20260720T000000Z"');
+
+		// Both occurrences surface as distinct dated events.
+		expect(events.map((e) => e.start)).toEqual([
+			"2026-07-09T13:00:00Z",
+			"2026-07-16T13:00:00Z",
+		]);
+	});
+
 	it("a 401 on REPORT throws a typed needs_reauth error and flags the connection", async () => {
 		seedUser("userA");
 		const conn = await seedConnection();
@@ -930,6 +998,55 @@ describe("appleSearchContacts", () => {
 		]);
 	});
 
+	it("BUG 5: the addressbook-query REPORT body carries a card:filter (RFC 6352 §10.3 requires it)", async () => {
+		seedUser("userA");
+		const conn = await seedContactsConnection();
+		const { appleSearchContacts } = await import("./apple-caldav");
+
+		let reportBody = "";
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === CARD_WELL_KNOWN) {
+					return redirectResponse(301, `${CARD_PARTITION}/.well-known/carddav`);
+				}
+				if (url === `${CARD_PARTITION}/.well-known/carddav`) {
+					return xmlResponse(207, CARD_PRINCIPAL_XML);
+				}
+				if (url === `${CARD_PARTITION}/12345678/principal2/`) {
+					return xmlResponse(207, CARD_HOME_XML);
+				}
+				if (url === `${CARD_PARTITION}/12345678/carddavhome/`) {
+					return xmlResponse(207, CARD_COLLECTIONS_XML);
+				}
+				if (url === `${CARD_PARTITION}/12345678/carddavhome/card/`) {
+					reportBody = String(init?.body);
+					return xmlResponse(
+						207,
+						addressbookMultistatus([
+							{
+								href: "/12345678/carddavhome/card/ann.vcf",
+								etag: '"etag-ann"',
+								vcard: VCARD_ANN,
+							},
+						]),
+					);
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		await appleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "ann" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(reportBody).toContain("addressbook-query");
+		expect(reportBody).toContain("filter");
+	});
+
 	it("reuses cached addressbookUrls on a second call instead of re-running discovery", async () => {
 		seedUser("userA");
 		const conn = await seedContactsConnection();
@@ -1055,6 +1172,33 @@ describe("parseVCards", () => {
 		]);
 	});
 
+	it("BUG 3: strips an RFC 6350 group prefix so grouped item1.EMAIL / item2.TEL are collected, not dropped", async () => {
+		const { parseVCards } = await import("./apple-caldav");
+		// Apple Contacts labels grouped properties as "<group>.<NAME>". Before the
+		// fix, the property name compared as "ITEM1.EMAIL"/"ITEM2.TEL" and never
+		// matched the EMAIL/TEL case arms, so a contact whose only email/phone was
+		// labeled returned emails:[]/phones:[] and could not be matched.
+		const vcard = [
+			"BEGIN:VCARD",
+			"VERSION:3.0",
+			"FN:Jane Work",
+			"item1.EMAIL;type=INTERNET:jane@work.com",
+			"item1.X-ABLabel:Work",
+			"item2.TEL:+1-555-9000",
+			"item2.X-ABLabel:Mobile",
+			"END:VCARD",
+			"",
+		].join("\r\n");
+
+		expect(parseVCards(vcard)).toEqual([
+			{
+				fn: "Jane Work",
+				emails: ["jane@work.com"],
+				phones: ["+1-555-9000"],
+			},
+		]);
+	});
+
 	it("parses multiple VCARDs in one address-data blob", async () => {
 		const { parseVCards } = await import("./apple-caldav");
 		const vcard = [
@@ -1168,6 +1312,75 @@ describe("iCal VEVENT parsing", () => {
 		expect(events[0]?.description).toBe(
 			"Line one\nLine two, with a comma; and a semicolon",
 		);
+	});
+
+	it("BUG 4: computes DTEND from DURATION when DTEND is absent, instead of dropping the event", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:dur@icloud.com",
+			"SUMMARY:Imported",
+			"DTSTART:20260709T090000Z",
+			"DURATION:PT1H30M",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events).toEqual([
+			expect.objectContaining({
+				uid: "dur@icloud.com",
+				dtstart: "2026-07-09T09:00:00Z",
+				dtend: "2026-07-09T10:30:00Z",
+			}),
+		]);
+	});
+
+	it("BUG 4: a timed DTSTART with neither DTEND nor DURATION defaults to zero duration (DTEND == DTSTART), not dropped", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:nodtend@icloud.com",
+			"DTSTART:20260709T090000Z",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events).toEqual([
+			expect.objectContaining({
+				uid: "nodtend@icloud.com",
+				dtstart: "2026-07-09T09:00:00Z",
+				dtend: "2026-07-09T09:00:00Z",
+			}),
+		]);
+	});
+
+	it("BUG 4: an all-day DTSTART with neither DTEND nor DURATION defaults to a one-day event (DTSTART + 1 day)", async () => {
+		const { parseICalEvents } = await import("./apple-caldav");
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:allday-nodtend@icloud.com",
+			"DTSTART;VALUE=DATE:20260731",
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+		const events = parseICalEvents(ics);
+		expect(events).toEqual([
+			expect.objectContaining({
+				uid: "allday-nodtend@icloud.com",
+				dtstart: "2026-07-31",
+				// Month rollover proves the default uses real date arithmetic.
+				dtend: "2026-08-01",
+			}),
+		]);
 	});
 
 	it("captures a bare RRULE presence as recurrenceRule (Issue 6.2 recurring-write guardrail)", async () => {

@@ -559,7 +559,7 @@ describe("immichEnableWrites", () => {
 // ---------------------------------------------------------------------------
 
 describe("immichSmartSearch", () => {
-	it("parses smart search results into PhotoResult[], mapping exif place/people and defaulting the rest", async () => {
+	it("parses smart search results into PhotoResult[], mapping exif place and defaulting the rest", async () => {
 		seedUser(USER_ID);
 		const conn = await seedImmichConnection();
 		const { immichSmartSearch } = await import("./immich");
@@ -572,7 +572,11 @@ describe("immichSmartSearch", () => {
 				const headers = new Headers(init?.headers);
 				expect(headers.get("x-api-key")).toBe("immich-secret-key");
 				const body = JSON.parse(String(init?.body));
-				expect(body).toEqual({ query: "beach", size: 20 });
+				// withExif:true is required — SmartSearchDto only joins the exif
+				// relation (city/state/country/description/dateTimeOriginal) when
+				// this is set; without it, place/description are always empty and
+				// takenAt always falls back to fileCreatedAt (upload time).
+				expect(body).toEqual({ query: "beach", size: 20, withExif: true });
 				return jsonResponse(200, {
 					assets: {
 						items: [
@@ -588,6 +592,10 @@ describe("immichSmartSearch", () => {
 									description: "Sunset at the beach",
 									dateTimeOriginal: "2026-06-01T09:55:00.000Z",
 								},
+								// Immich's smart-search endpoint has no withPeople param and
+								// never joins faces — but if a future/rogue response ever
+								// included one, it must not leak into PhotoResult (see the
+								// dedicated "never surfaces a people field" test below).
 								people: [{ name: "Alice" }, { name: "Bob" }],
 							},
 							{
@@ -617,7 +625,6 @@ describe("immichSmartSearch", () => {
 				takenAt: "2026-06-01T09:55:00.000Z",
 				type: "IMAGE",
 				place: "Malibu, California, USA",
-				people: ["Alice", "Bob"],
 				description: "Sunset at the beach",
 				thumbnailPath: "/api/assets/asset-1/thumbnail",
 			},
@@ -631,6 +638,69 @@ describe("immichSmartSearch", () => {
 		]);
 	});
 
+	// Regression test for the confirmed bug: the smart-search POST body never
+	// requested withExif, so real Immich never joined the exif relation and
+	// place/description were always undefined while takenAt always fell back
+	// to fileCreatedAt (upload time, not capture time).
+	it("requests EXIF data from Immich (withExif:true) on every smart search", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichSmartSearch } = await import("./immich");
+
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body));
+				expect(body.withExif).toBe(true);
+				return jsonResponse(200, { assets: { items: [] } });
+			},
+		);
+
+		await immichSmartSearch(
+			USER_ID,
+			conn.id,
+			{ query: "beach" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
+	// Regression test for the confirmed bug: SmartSearchDto has no withPeople
+	// parameter and the smart-search repo path never joins faces, so `people`
+	// must never appear on a mapped PhotoResult — even if some response
+	// includes a `people` array (the old, misleading test fixture asserted
+	// this array WOULD be mapped through, which the real endpoint never
+	// sends).
+	it("never surfaces a 'people' field on smart-search results", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichSmartSearch } = await import("./immich");
+
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(200, {
+				assets: {
+					items: [
+						{
+							id: "asset-1",
+							originalFileName: "beach.jpg",
+							fileCreatedAt: "2026-06-01T10:00:00.000Z",
+							type: "IMAGE",
+							people: [{ name: "Alice" }],
+						},
+					],
+				},
+			}),
+		);
+
+		const results = await immichSmartSearch(
+			USER_ID,
+			conn.id,
+			{ query: "beach" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(results).toHaveLength(1);
+		expect(results[0]).not.toHaveProperty("people");
+	});
+
 	it("respects a custom limit and forwards it as `size`", async () => {
 		seedUser(USER_ID);
 		const conn = await seedImmichConnection();
@@ -640,6 +710,7 @@ describe("immichSmartSearch", () => {
 			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				const body = JSON.parse(String(init?.body));
 				expect(body.size).toBe(3);
+				expect(body.withExif).toBe(true);
 				return jsonResponse(200, { assets: { items: [] } });
 			},
 		);
@@ -741,12 +812,16 @@ describe("immichAdapter.checkHealth", () => {
 		const conn = await seedImmichConnection();
 		const { immichAdapter } = await import("./immich");
 
+		// The probe must be an endpoint the read-only key's permission set
+		// (READ_ONLY_IMMICH_PERMISSIONS: asset.read/asset.view/asset.download/
+		// album.read — no user.read) can actually reach. GET /api/albums only
+		// needs album.read, which the key has.
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
-				expect(String(input)).toBe("https://photos.example.com/api/users/me");
+				expect(String(input)).toBe("https://photos.example.com/api/albums");
 				const headers = new Headers(init?.headers);
 				expect(headers.get("x-api-key")).toBe("immich-secret-key");
-				return jsonResponse(200, { id: "user-1", email: "alice@example.com" });
+				return jsonResponse(200, []);
 			},
 		);
 
@@ -755,6 +830,44 @@ describe("immichAdapter.checkHealth", () => {
 		});
 
 		expect(health.status).toBe("connected");
+	});
+
+	// Regression test for the confirmed bug: GET /api/users/me requires the
+	// `user.read` permission, which READ_ONLY_IMMICH_PERMISSIONS deliberately
+	// omits. A real read-only key gets a 403 from /users/me, which checkHealth
+	// (pre-fix) only special-cased 401 for, so it fell through to "error" —
+	// and health.ts persisting "error" made resolveConnectionsForCapability
+	// drop the connection entirely, even though searches worked fine with the
+	// same key. The probe must never touch /users/me at all.
+	it("never calls GET /api/users/me (which 403s for the read-only key) -> probes /api/albums instead and reports connected", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichAdapter } = await import("./immich");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === "https://photos.example.com/api/albums") {
+					const headers = new Headers(init?.headers);
+					expect(headers.get("x-api-key")).toBe("immich-secret-key");
+					return jsonResponse(200, []);
+				}
+				if (url === "https://photos.example.com/api/users/me") {
+					// A real Immich server 403s this for a key that lacks
+					// user.read — proves the probe endpoint was changed, not
+					// just that this mock happens to 200 it.
+					return jsonResponse(403, { message: "Forbidden" });
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		const health = await immichAdapter.checkHealth("immich-secret-key", conn, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(health.status).toBe("connected");
+		expect(health.detail).toBeNull();
 	});
 
 	it("a 401 -> needs_reauth, with no key in the detail", async () => {

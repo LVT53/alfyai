@@ -30,11 +30,15 @@ import { idempotencyKey, type WriteOperation } from "../write-guard";
 import {
 	basicAuthHeader,
 	parseICalProperty,
+	parseICalTimestamp,
 	unfoldICalLines,
 } from "./apple-caldav";
 
 type FetchOpt = { fetch?: typeof fetch };
 
+// Matches the read side's User-Agent (apple-caldav.ts) so every request this
+// connection makes — read or write — presents the same identity to iCloud.
+const USER_AGENT = "AlfyAI";
 const REQUEST_TIMEOUT_MS = 15_000;
 // Bounds how many 3xx hops a single write request will follow — mirrors
 // apple-caldav.ts's own MAX_REDIRECTS for reads (iCloud's undocumented
@@ -380,6 +384,53 @@ function findTopLevelLineIndex(
 	return -1;
 }
 
+// Builds the replacement DTSTART/DTEND line for an update patch — the
+// two-part corruption fix for timed events:
+//
+//   (a) Returns undefined ("leave the original line byte-identical") when
+//       `newValue` is not a GENUINE change from the original property.
+//       calendar.ts always resends the existing start/end even on a
+//       metadata-only edit (`start: input.start ?? existing.start`), and
+//       `existing.start` is exactly parseICalTimestamp(originalLine). So a
+//       rename would otherwise rewrite an unchanged DTSTART — dropping its
+//       TZID and, via new Date() below, shifting the instant by the server's
+//       UTC offset. Comparing against the same parse the read side produced
+//       detects that no-op precisely.
+//
+//   (b) When the value IS a genuine change, a zone-less ("floating" or
+//       TZID-local) datetime keeps its literal wall-clock digits and the
+//       ORIGINAL TZID param, rather than being fed through new Date()/
+//       toISOString (which reinterprets a zone-less string in the server's
+//       local timezone and silently moves the event). A value carrying an
+//       explicit Z (or offset) is safe to normalize to UTC; a bare date
+//       becomes VALUE=DATE.
+function buildDtLine(
+	name: "DTSTART" | "DTEND",
+	originalLine: string | undefined,
+	newValue: string,
+): string | undefined {
+	const originalProp = originalLine ? parseICalProperty(originalLine) : null;
+	if (originalProp) {
+		const originalParsed = parseICalTimestamp(originalProp);
+		if (originalParsed !== null && originalParsed === newValue)
+			return undefined;
+	}
+	if (ALL_DAY_PATTERN.test(newValue)) {
+		return `${name};VALUE=DATE:${icalDateOnly(newValue)}`;
+	}
+	// A zone-less local datetime: no trailing Z and no explicit ±HH:MM offset.
+	const localMatch = newValue.match(
+		/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
+	);
+	if (localMatch) {
+		const [, y, mo, d, h, mi, s] = localMatch;
+		const basic = `${y}${mo}${d}T${h}${mi}${s ?? "00"}`;
+		const tzid = originalProp?.params.TZID;
+		return tzid ? `${name};TZID=${tzid}:${basic}` : `${name}:${basic}`;
+	}
+	return `${name}:${icalUtcTimestamp(newValue)}`;
+}
+
 function patchVevent(
 	originalIcs: string,
 	uid: string,
@@ -415,22 +466,38 @@ function patchVevent(
 		end += 1;
 	};
 
+	// DTSTART/DTEND go through buildDtLine rather than replaceOrInsert: the
+	// caller always resends the existing start/end, so a straight replace would
+	// rewrite an unchanged line and lose its TZID / shift its instant. buildDtLine
+	// returns undefined for a no-op change, which replaceDt honors by leaving the
+	// original line byte-identical.
+	const replaceDt = (
+		name: "DTSTART" | "DTEND",
+		pattern: RegExp,
+		newValue: string | undefined,
+	) => {
+		if (newValue === undefined) return;
+		const idx = findTopLevelLineIndex(lines, block.start + 1, end, pattern);
+		const originalLine = idx !== -1 ? (lines[idx] as string) : undefined;
+		const newLine = buildDtLine(name, originalLine, newValue);
+		if (newLine === undefined) return;
+		if (idx !== -1) {
+			lines[idx] = newLine;
+			return;
+		}
+		lines.splice(insertAt, 0, newLine);
+		insertAt += 1;
+		end += 1;
+	};
+
 	replaceOrInsert(
 		/^SUMMARY(;|:)/i,
 		event.summary !== undefined
 			? `SUMMARY:${escapeICalText(event.summary)}`
 			: undefined,
 	);
-	replaceOrInsert(
-		/^DTSTART(;|:)/i,
-		event.start !== undefined
-			? toICalDtProperty("DTSTART", event.start)
-			: undefined,
-	);
-	replaceOrInsert(
-		/^DTEND(;|:)/i,
-		event.end !== undefined ? toICalDtProperty("DTEND", event.end) : undefined,
-	);
+	replaceDt("DTSTART", /^DTSTART(;|:)/i, event.start);
+	replaceDt("DTEND", /^DTEND(;|:)/i, event.end);
 	replaceOrInsert(
 		/^LOCATION(;|:)/i,
 		event.location !== undefined
@@ -516,6 +583,7 @@ async function caldavWriteRequest(
 			redirect: "manual",
 			headers: {
 				Authorization: auth,
+				"User-Agent": USER_AGENT,
 				[conditional.name]: conditional.value,
 				...(body !== undefined
 					? { "Content-Type": "text/calendar; charset=utf-8" }

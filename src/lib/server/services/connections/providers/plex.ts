@@ -86,9 +86,19 @@ function normalizeOrigin(serverUrl: string): string {
 
 // Plex defaults to XML; `Accept: application/json` gets JSON instead. The
 // token is sent as a header (never a query string) so it never ends up in
-// server access logs.
+// server access logs. X-Plex-Client-Identifier/X-Plex-Product are static
+// (no per-request state, unlike X-Plex-Container-Size/-Start pagination
+// headers, which Plex is also nudging clients toward — those would need
+// request-specific wiring through plexAuthorizedRequest and are left out of
+// this pass) — Plex has warned unauthenticated-client requests will stop
+// being served, so every call identifies itself.
 function plexHeaders(token: string): HeadersInit {
-	return { "X-Plex-Token": token, Accept: "application/json" };
+	return {
+		"X-Plex-Token": token,
+		Accept: "application/json",
+		"X-Plex-Client-Identifier": "alfyai-plex-connector",
+		"X-Plex-Product": "AlfyAI",
+	};
 }
 
 type IdentityResponse = {
@@ -140,12 +150,78 @@ async function plexIdentity(
 }
 
 // ---------------------------------------------------------------------------
+// Owner account resolution (privacy) — `/status/sessions/history/all`
+// returns EVERY household user's playback for an owner/admin token (the kind
+// almost always pasted here), not just the pasting user's own. Resolving and
+// storing the token owner's local Plex accountID at connect time lets every
+// later history read scope itself with `&accountID=<id>` (see
+// plexWatchHistory below), matching Plex's own account-scoped history filter.
+// ---------------------------------------------------------------------------
+
+type AccountsResponse = {
+	MediaContainer: { Account?: { id?: number; name?: string }[] };
+};
+
+function isValidAccountsResponse(value: unknown): value is AccountsResponse {
+	if (!value || typeof value !== "object") return false;
+	const mediaContainer = (value as Record<string, unknown>).MediaContainer;
+	if (!mediaContainer || typeof mediaContainer !== "object") return false;
+	const account = (mediaContainer as Record<string, unknown>).Account;
+	return account === undefined || Array.isArray(account);
+}
+
+// Best-effort: resolves the pasted token's own Plex account id from
+// `GET {origin}/accounts` so watch-history reads can be scoped to it. Never
+// throws — a server that can't be reached, returns something unexpected, or
+// simply has no usable accounts data still connects successfully; the
+// history read just can't be scoped to a single account in that (rare) case.
+//
+// `/accounts` lists every local account on the server (id, name), keyed the
+// same way `HistoryMetadataEntry.accountID` is: a token that can only see its
+// own account (a shared/managed-user token) gets exactly one entry back —
+// unambiguous. An owner/admin token sees every household account, and the
+// account actually linked/claimed to the server — the owner — is
+// conventionally accountID 1 (id 0 is a synthetic "local network,
+// unauthenticated" pseudo-account, never a real person; see Plex's own
+// documented /accounts example, and every mainstream self-hosted-Plex tool —
+// Tautulli, Varken, etc. — that infers "the owner" the same way).
+async function resolvePlexOwnerAccountId(
+	fetchImpl: typeof fetch,
+	origin: string,
+	token: string,
+): Promise<number | undefined> {
+	let response: Response;
+	try {
+		response = await fetchImpl(`${origin}/accounts`, {
+			headers: plexHeaders(token),
+		});
+	} catch {
+		return undefined;
+	}
+	if (!response.ok) return undefined;
+	const body: unknown = await response.json().catch(() => null);
+	if (!isValidAccountsResponse(body)) return undefined;
+	const accounts = (body.MediaContainer.Account ?? []).filter(
+		(account): account is { id: number; name?: string } =>
+			typeof account.id === "number",
+	);
+	if (accounts.length === 1) return accounts[0]?.id;
+	return accounts.find((account) => account.id === 1)?.id;
+}
+
+// ---------------------------------------------------------------------------
 // Connect
 // ---------------------------------------------------------------------------
 
 export type PlexConnectionConfig = {
 	origin: string;
 	machineIdentifier: string;
+	// The token owner's local Plex account id (from `GET /accounts`),
+	// resolved best-effort at connect time — see resolvePlexOwnerAccountId.
+	// Optional: older connections (or a server whose /accounts call failed at
+	// connect time) simply don't have it, and history reads fall back to the
+	// unscoped query in that case.
+	accountId?: number;
 };
 
 function isUniqueConstraintError(err: unknown): boolean {
@@ -222,12 +298,17 @@ export async function plexConnect(
 
 	const identity = await plexIdentity(fetchImpl, origin, token);
 	const machineIdentifier = identity.MediaContainer.machineIdentifier;
+	const accountId = await resolvePlexOwnerAccountId(fetchImpl, origin, token);
 
 	const connection = await upsertPlexConnection({
 		userId: params.userId,
 		machineIdentifier,
 		secret: token,
-		config: { origin, machineIdentifier },
+		config: {
+			origin,
+			machineIdentifier,
+			...(accountId !== undefined ? { accountId } : {}),
+		},
 	});
 	return { connection };
 }
@@ -293,23 +374,35 @@ function plexConfig(conn: ConnectionPublic): PlexConnectionConfig {
 		typeof conn.config.machineIdentifier === "string"
 			? conn.config.machineIdentifier
 			: "";
+	const accountId =
+		typeof conn.config.accountId === "number"
+			? conn.config.accountId
+			: undefined;
 	if (!origin) {
 		throw new PlexError(
 			"Connection is missing origin in its config",
 			"invalid_config",
 		);
 	}
-	return { origin, machineIdentifier };
+	return {
+		origin,
+		machineIdentifier,
+		...(accountId !== undefined ? { accountId } : {}),
+	};
 }
 
 // Loads the connection + decrypted token, marking the connection
 // needs_reauth on a 401 before rethrowing — the one chokepoint every
 // authorized Plex call routes through. Never logs or throws the token:
 // thrown PlexError messages are always static strings.
+//
+// `buildPath` (rather than a plain string) gives the caller access to the
+// connection's resolved config — e.g. plexWatchHistory needs `accountId` to
+// build its query string — without a second, duplicate connection load.
 async function plexAuthorizedRequest(
 	userId: string,
 	connectionId: string,
-	path: string,
+	buildPath: (config: PlexConnectionConfig) => string,
 	opts?: FetchOpt,
 ): Promise<Response> {
 	const conn = await getConnection(userId, connectionId);
@@ -323,12 +416,13 @@ async function plexAuthorizedRequest(
 			"needs_reauth",
 		);
 	}
-	const { origin } = plexConfig(conn);
+	const config = plexConfig(conn);
 	const fetchImpl = opts?.fetch ?? fetch;
+	const path = buildPath(config);
 
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}${path}`, {
+		response = await fetchImpl(`${config.origin}${path}`, {
 			headers: plexHeaders(token),
 		});
 	} catch {
@@ -381,7 +475,10 @@ function matchesQuery(entry: WatchEntry, query: string): boolean {
 // `GET {origin}/status/sessions/history/all` — the query string is built by
 // hand (not URLSearchParams) so the `viewedAt>=<unix>` filter matches the
 // Plex API's exact key literally, since URLSearchParams would percent-encode
-// the `>=` in the key.
+// the `>=` in the key. Also carries `accountID=<owner>` whenever the
+// connection has one resolved (see resolvePlexOwnerAccountId) — without it,
+// an owner/admin token gets every household user's history back, not just
+// the token owner's (BUG1).
 export async function plexWatchHistory(
 	userId: string,
 	connectionId: string,
@@ -389,18 +486,23 @@ export async function plexWatchHistory(
 	opts?: FetchOpt,
 ): Promise<WatchEntry[]> {
 	const limit = clampLimit(params.limit);
-	let queryString = `sort=viewedAt:desc&limit=${limit}`;
-	if (params.since) {
-		const sinceDate = new Date(params.since);
-		if (!Number.isNaN(sinceDate.getTime())) {
-			queryString += `&viewedAt>=${Math.floor(sinceDate.getTime() / 1000)}`;
-		}
-	}
 
 	const response = await plexAuthorizedRequest(
 		userId,
 		connectionId,
-		`/status/sessions/history/all?${queryString}`,
+		(config) => {
+			let queryString = `sort=viewedAt:desc&limit=${limit}`;
+			if (config.accountId !== undefined) {
+				queryString += `&accountID=${config.accountId}`;
+			}
+			if (params.since) {
+				const sinceDate = new Date(params.since);
+				if (!Number.isNaN(sinceDate.getTime())) {
+					queryString += `&viewedAt>=${Math.floor(sinceDate.getTime() / 1000)}`;
+				}
+			}
+			return `/status/sessions/history/all?${queryString}`;
+		},
 		opts,
 	);
 	if (!response.ok) {
@@ -430,7 +532,7 @@ export async function plexLibrarySections(
 	const response = await plexAuthorizedRequest(
 		userId,
 		connectionId,
-		"/library/sections",
+		() => "/library/sections",
 		opts,
 	);
 	if (!response.ok) {

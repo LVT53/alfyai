@@ -1116,14 +1116,19 @@ describe("write-safety point 5 — conditional overwrite refuses on mismatch", (
 	it("immich (N/A): add-to-album is purely additive, never an overwrite — a duplicate-asset entry in the response is still ok:true", async () => {
 		const connectionId = await seedConnection({
 			provider: "immich",
-			config: { origin: "https://photos.example.com" },
+			config: { origin: "https://photos.example.com", immichUserId: "owner-1" },
 			writeSecret: "write-key",
 		});
 		const fetchSpy = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input);
 				if (url.endsWith("/api/albums") && init?.method === "GET") {
-					return jsonResponse(200, [{ id: "album-1", albumName: "AlfyAI" }]);
+					// Album must be owned by the connection's own Immich user — the
+					// add-to-album path now refuses to write into a same-named album
+					// owned by someone else (a shared album).
+					return jsonResponse(200, [
+						{ id: "album-1", albumName: "AlfyAI", ownerId: "owner-1" },
+					]);
 				}
 				// Immich reports a per-asset {success:false, error:"duplicate"} for
 				// an asset already in the album — the module treats a non-2xx status

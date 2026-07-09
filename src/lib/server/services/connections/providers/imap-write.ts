@@ -122,6 +122,7 @@ export type NodemailerSendMailOptions = {
 	subject: string;
 	text: string;
 	inReplyTo?: string;
+	references?: string;
 	messageId: string;
 };
 
@@ -434,7 +435,14 @@ async function executeSend(
 			...(parsed.cc ? { cc: parsed.cc } : {}),
 			subject: parsed.subject,
 			text: parsed.body,
-			...(parsed.inReplyTo ? { inReplyTo: parsed.inReplyTo } : {}),
+			// A reply must set BOTH In-Reply-To and References (RFC 5322 §3.6.4)
+			// so receiving clients thread it under the original; setting only
+			// In-Reply-To leaves many clients unable to place the message in its
+			// conversation. We only have the parent's Message-ID, so References
+			// carries that same id (the minimal correct chain).
+			...(parsed.inReplyTo
+				? { inReplyTo: parsed.inReplyTo, references: parsed.inReplyTo }
+				: {}),
 			messageId: imapMessageIdForOp(op),
 		});
 		return { ok: true, detail: "sent" };

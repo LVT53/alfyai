@@ -176,7 +176,6 @@ describe("runPhotosTool", () => {
 				takenAt: "2026-06-01T09:55:00.000Z",
 				type: "IMAGE",
 				place: "Malibu, California",
-				people: ["Alice"],
 				description: "Sunset at the beach",
 				thumbnailPath: "/api/assets/asset-1/thumbnail",
 			},
@@ -199,7 +198,6 @@ describe("runPhotosTool", () => {
 				takenAt: "2026-06-01T09:55:00.000Z",
 				type: "IMAGE",
 				place: "Malibu, California",
-				people: ["Alice"],
 				description: "Sunset at the beach",
 			},
 		]);
@@ -270,7 +268,6 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 				takenAt: "2026-06-01T09:55:00.000Z",
 				type: "IMAGE",
 				place: "St. Mary's Hospital, Springfield",
-				people: ["Alice Smith"],
 				description: "Alice recovering after surgery",
 				thumbnailPath: "/api/assets/asset-1/thumbnail",
 			},
@@ -309,7 +306,7 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
 	});
 
-	it("Option A on + cloud model: the ENTIRE model-bound payload carries only the distilled summary — raw fileName/place/people/description absent, candidates keep the real data", async () => {
+	it("Option A on + cloud model: the ENTIRE model-bound payload carries only the distilled summary — raw fileName/place/description absent, candidates keep the real data", async () => {
 		seedSearch();
 		hasLocalDistillEnabledMock.mockResolvedValue(true);
 		isCloudModelMock.mockResolvedValue(true);
@@ -319,17 +316,15 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 
 		const outcome = await searchOnce();
 
-		// The single most important assertion: raw filename/place/people/
-		// description must not appear ANYWHERE in the whole model-facing
-		// payload — not just `results`, but also `citations`.
+		// The single most important assertion: raw filename/place/description
+		// must not appear ANYWHERE in the whole model-facing payload — not just
+		// `results`, but also `citations`.
 		const serializedPayload = JSON.stringify(outcome.modelPayload);
 		expect(serializedPayload).not.toContain("hospital-visit.jpg");
 		expect(serializedPayload).not.toContain("St. Mary's Hospital");
-		expect(serializedPayload).not.toContain("Alice Smith");
 		expect(serializedPayload).not.toContain("recovering after surgery");
 		expect(outcome.modelPayload.results[0]?.fileName).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.place).toBeUndefined();
-		expect(outcome.modelPayload.results[0]?.people).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.description).toBeUndefined();
 		expect(outcome.modelPayload.message).toContain(
 			"One photo of a person recovering after a medical procedure.",
@@ -371,7 +366,7 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 
 		const serializedPayload = JSON.stringify(outcome.modelPayload);
 		expect(serializedPayload).not.toContain("hospital-visit.jpg");
-		expect(serializedPayload).not.toContain("Alice Smith");
+		expect(serializedPayload).not.toContain("recovering after surgery");
 		expect(outcome.modelPayload.message).toContain("withheld");
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "hospital-visit.jpg" }),

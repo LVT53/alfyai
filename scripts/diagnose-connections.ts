@@ -23,7 +23,7 @@ if (!process.env.DATABASE_PATH) {
 }
 
 import { db } from "$lib/server/db";
-import { userConnections, users } from "$lib/server/db/schema";
+import { users } from "$lib/server/db/schema";
 import { hasLocalDistillEnabled } from "$lib/server/services/connections/locality";
 import { googleSearchContacts } from "$lib/server/services/connections/providers/contacts";
 import { googleRefreshAccessToken } from "$lib/server/services/connections/providers/google";
@@ -154,7 +154,7 @@ async function diagnoseToolLayer(userId: string) {
 			MODEL_ID,
 		),
 	);
-	// Files search + a "list a folder" attempt (there is no list action today)
+	// Files search + the NEW list action + a read-on-folder (should now refuse)
 	await reportTool(
 		`files search query="${folder.replace(/^\//, "") || "doc"}"`,
 		() =>
@@ -164,8 +164,15 @@ async function diagnoseToolLayer(userId: string) {
 				MODEL_ID,
 			),
 	);
+	await reportTool(`files list path="${folder}" (NEW list action)`, () =>
+		runFilesTool(
+			userId,
+			{ action: "list", path: folder === "/" ? undefined : folder },
+			MODEL_ID,
+		),
+	);
 	await reportTool(
-		`files read path="${folder}" (folder path -> should fail)`,
+		`files read path="${folder}" (folder path -> should now refuse)`,
 		() => runFilesTool(userId, { action: "read", path: folder }, MODEL_ID),
 	);
 }

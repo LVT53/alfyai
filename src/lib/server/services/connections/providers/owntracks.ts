@@ -401,6 +401,21 @@ function formatDateOnly(date: Date): string {
 	return date.toISOString().slice(0, 10);
 }
 
+const BARE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// BUG2 fix: the Recorder's make_times (storage.c) parses a bare `YYYY-MM-DD`
+// as 00:00:00 (the START) of that day. Used as the upper (`to`) bound, that
+// silently excludes every fix from that entire day — including "today", the
+// most common case ("where was I today?" returns nothing). Bump a bare date
+// to the last second of that day; `%Y-%m-%dT%H:%M:%S` is one of the
+// Recorder's own documented accepted formats, so this is always parsed
+// correctly. Anything that already carries a time component (or any other
+// caller-supplied shape) is passed through untouched — only a bare date is
+// ambiguous about which end of the day it means.
+function toInclusiveDateBound(value: string): string {
+	return BARE_DATE_RE.test(value) ? `${value}T23:59:59` : value;
+}
+
 type LocationsResponse = { count?: unknown; data: unknown[] };
 
 function isValidLocationsResponse(value: unknown): value is LocationsResponse {
@@ -420,7 +435,7 @@ export async function owntracksLocationHistory(
 	if (!deviceConfig) return [];
 
 	const now = new Date();
-	const to = params.to?.trim() || formatDateOnly(now);
+	const to = toInclusiveDateBound(params.to?.trim() || formatDateOnly(now));
 	const from =
 		params.from?.trim() ||
 		formatDateOnly(
@@ -428,7 +443,16 @@ export async function owntracksLocationHistory(
 		);
 	const limit = clampHistoryLimit(params.limit);
 
-	const qs = `user=${encodeURIComponent(deviceConfig.otUser)}&device=${encodeURIComponent(deviceConfig.otDevice)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&format=json`;
+	// BUG3 fix, belt and suspenders: `limit` is sent to the Recorder itself —
+	// it "reverse searches" the .rec files for it (see API.md), returning the
+	// most recent N positions and shrinking the payload — *and* the response
+	// is independently sorted newest-first and re-sliced below. The second
+	// step is the one that actually guarantees correctness: the Recorder's
+	// lsscan (storage.c) returns rows oldest-first, so a plain
+	// `.slice(0, limit)` on the raw response — the original bug — silently
+	// kept the OLDEST fixes over any range longer than `limit`, not the most
+	// recent ones a "recent locations" query wants.
+	const qs = `user=${encodeURIComponent(deviceConfig.otUser)}&device=${encodeURIComponent(deviceConfig.otDevice)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&format=json&limit=${limit}`;
 	const response = await recorderGetForConnection(
 		userId,
 		connectionId,
@@ -442,7 +466,16 @@ export async function owntracksLocationHistory(
 			"request_failed",
 		);
 	}
-	return body.data.filter(isValidPosition).map(toLocationFix).slice(0, limit);
+	const positions = body.data.filter(isValidPosition);
+	// Select the newest `limit` fixes, then restore chronological
+	// (oldest→newest) order for the returned shape — a "history" listing
+	// reads naturally in time order, and this round-trip is a no-op whenever
+	// everything already fits under `limit`.
+	const newestFirst = [...positions].sort((a, b) => b.tst - a.tst);
+	return newestFirst
+		.slice(0, limit)
+		.sort((a, b) => a.tst - b.tst)
+		.map(toLocationFix);
 }
 
 // ---------------------------------------------------------------------------

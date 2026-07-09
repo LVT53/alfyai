@@ -480,13 +480,16 @@ export async function immichEnableWrites(
 // Read
 // ---------------------------------------------------------------------------
 
+// No `people` field: Immich's smart-search endpoint (SmartSearchDto) has no
+// withPeople parameter and its repo path never joins faces, so a people list
+// can never be honestly populated here — see peopleFromAsset's removal and
+// the "never surfaces a 'people' field" regression test in immich.test.ts.
 export type PhotoResult = {
 	id: string;
 	fileName: string;
 	takenAt: string;
 	type: "IMAGE" | "VIDEO";
 	place?: string;
-	people?: string[];
 	description?: string;
 	// A relative reference for the Sources-tab UI to render a thumbnail from
 	// — never sent to the model (see the `photos` chat tool).
@@ -501,15 +504,12 @@ type ImmichAssetExif = {
 	dateTimeOriginal?: string;
 };
 
-type ImmichPerson = { name?: string };
-
 type ImmichAsset = {
 	id: string;
 	originalFileName: string;
 	fileCreatedAt: string;
 	type: "IMAGE" | "VIDEO";
 	exifInfo?: ImmichAssetExif;
-	people?: ImmichPerson[];
 };
 
 type SmartSearchResponse = { assets: { items: ImmichAsset[] } };
@@ -557,16 +557,8 @@ function placeFromExif(exif: ImmichAssetExif | undefined): string | undefined {
 	return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
-function peopleFromAsset(asset: ImmichAsset): string[] | undefined {
-	const names = (asset.people ?? [])
-		.map((person) => person.name)
-		.filter((name): name is string => Boolean(name?.trim()));
-	return names.length > 0 ? names : undefined;
-}
-
 function toPhotoResult(asset: ImmichAsset): PhotoResult {
 	const place = placeFromExif(asset.exifInfo);
-	const people = peopleFromAsset(asset);
 	const description = asset.exifInfo?.description?.trim();
 	return {
 		id: asset.id,
@@ -574,7 +566,6 @@ function toPhotoResult(asset: ImmichAsset): PhotoResult {
 		takenAt: asset.exifInfo?.dateTimeOriginal ?? asset.fileCreatedAt,
 		type: asset.type,
 		...(place ? { place } : {}),
-		...(people ? { people } : {}),
 		...(description ? { description } : {}),
 		thumbnailPath: `/api/assets/${asset.id}/thumbnail`,
 	};
@@ -645,7 +636,15 @@ export async function immichSmartSearch(
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ query: params.query, size: limit }),
+			// withExif is required: SmartSearchDto only joins the exif relation
+			// (city/state/country/description/dateTimeOriginal) when this is set
+			// — without it, place/description are always empty and takenAt always
+			// falls back to fileCreatedAt (upload time, not capture time).
+			body: JSON.stringify({
+				query: params.query,
+				size: limit,
+				withExif: true,
+			}),
 		},
 		opts,
 	);
@@ -691,8 +690,15 @@ export async function immichThumbnail(
 }
 
 // ---------------------------------------------------------------------------
-// Adapter — a cheap authorized call (GET /api/users/me) confirms the stored
-// read-only key still works, without touching any photo data.
+// Adapter — a cheap authorized call confirms the stored read-only key still
+// works, without touching any photo data. Deliberately probes GET
+// /api/albums rather than GET /api/users/me: /users/me requires the
+// `user.read` permission, which READ_ONLY_IMMICH_PERMISSIONS deliberately
+// omits, so a real read-only key gets a 403 from /users/me (not a 401) —
+// this function only special-cases 401, so a 403 would fall through to
+// "error" and health.ts would persist that, which drops the connection from
+// resolveConnectionsForCapability even though the key works fine for
+// searches. /api/albums only needs `album.read`, which the key has.
 // ---------------------------------------------------------------------------
 
 async function checkHealth(
@@ -715,7 +721,7 @@ async function checkHealth(
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchImpl(`${config.origin}/api/users/me`, {
+		const response = await fetchImpl(`${config.origin}/api/albums`, {
 			headers: { "x-api-key": secret },
 		});
 		if (response.status === 401) {

@@ -55,7 +55,9 @@ function jsonResponse(status: number, body: unknown): Response {
 const USER_ID = "userA";
 const SERVER_URL = "https://plex.example.com";
 
-async function seedPlexConnection(overrides: { token?: string } = {}) {
+async function seedPlexConnection(
+	overrides: { token?: string; accountId?: number } = {},
+) {
 	const { createConnection } = await import("../store");
 	return createConnection({
 		userId: USER_ID,
@@ -65,7 +67,13 @@ async function seedPlexConnection(overrides: { token?: string } = {}) {
 		capabilities: ["media"],
 		status: "connected",
 		secret: overrides.token ?? "plex-secret-token",
-		config: { origin: SERVER_URL, machineIdentifier: "machine-abc" },
+		config: {
+			origin: SERVER_URL,
+			machineIdentifier: "machine-abc",
+			...(overrides.accountId !== undefined
+				? { accountId: overrides.accountId }
+				: {}),
+		},
 	});
 }
 
@@ -82,16 +90,26 @@ describe("plexConnect", () => {
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input);
-				expect(url).toBe("https://plex.example.com/identity");
 				const headers = new Headers(init?.headers);
 				expect(headers.get("X-Plex-Token")).toBe("token-abc");
 				expect(headers.get("Accept")).toBe("application/json");
-				return jsonResponse(200, {
-					MediaContainer: {
-						machineIdentifier: "machine-abc",
-						version: "1.32.0",
-					},
-				});
+				if (url === "https://plex.example.com/identity") {
+					return jsonResponse(200, {
+						MediaContainer: {
+							machineIdentifier: "machine-abc",
+							version: "1.32.0",
+						},
+					});
+				}
+				if (url === "https://plex.example.com/accounts") {
+					return jsonResponse(200, {
+						MediaContainer: {
+							size: 1,
+							Account: [{ id: 1, name: "token-owner" }],
+						},
+					});
+				}
+				throw new Error(`unexpected url ${url}`);
 			},
 		);
 
@@ -111,6 +129,7 @@ describe("plexConnect", () => {
 		expect(connection.config).toEqual({
 			origin: "https://plex.example.com",
 			machineIdentifier: "machine-abc",
+			accountId: 1,
 		});
 
 		// The raw token must never appear anywhere in the stored/serialized DTO.
@@ -216,6 +235,112 @@ describe("plexConnect", () => {
 			);
 		}
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	// -------------------------------------------------------------------------
+	// BUG 1 (privacy) — the token owner's Plex accountID must be resolved and
+	// stored at connect time so watch-history reads can be scoped to it (see
+	// the `plexWatchHistory` "BUG1" test below for the read-side half).
+	// -------------------------------------------------------------------------
+
+	it("BUG1: resolves and stores the token's accountID from /accounts when it's the only account visible", async () => {
+		seedUser(USER_ID);
+		const { plexConnect } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/identity") {
+				return jsonResponse(200, {
+					MediaContainer: { machineIdentifier: "machine-abc" },
+				});
+			}
+			if (url === "https://plex.example.com/accounts") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 1,
+						Account: [{ id: 5, name: "solo-user" }],
+					},
+				});
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const { connection } = await plexConnect({
+			userId: USER_ID,
+			serverUrl: SERVER_URL,
+			token: "token-abc",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.config).toEqual({
+			origin: "https://plex.example.com",
+			machineIdentifier: "machine-abc",
+			accountId: 5,
+		});
+	});
+
+	it("BUG1: resolves the owner (accountID 1) from /accounts when the token can see every household account", async () => {
+		seedUser(USER_ID);
+		const { plexConnect } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/identity") {
+				return jsonResponse(200, {
+					MediaContainer: { machineIdentifier: "machine-abc" },
+				});
+			}
+			if (url === "https://plex.example.com/accounts") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 3,
+						Account: [
+							{ id: 0, name: "" },
+							{ id: 1, name: "owner" },
+							{ id: 9, name: "kid" },
+						],
+					},
+				});
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const { connection } = await plexConnect({
+			userId: USER_ID,
+			serverUrl: SERVER_URL,
+			token: "token-abc",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.config.accountId).toBe(1);
+	});
+
+	it("BUG1: still connects (without an accountID) when /accounts can't be resolved", async () => {
+		seedUser(USER_ID);
+		const { plexConnect } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/identity") {
+				return jsonResponse(200, {
+					MediaContainer: { machineIdentifier: "machine-abc" },
+				});
+			}
+			if (url === "https://plex.example.com/accounts") {
+				return jsonResponse(500, { error: "boom" });
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const { connection } = await plexConnect({
+			userId: USER_ID,
+			serverUrl: SERVER_URL,
+			token: "token-abc",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.status).toBe("connected");
+		expect(connection.config.accountId).toBeUndefined();
 	});
 
 	it("re-connecting the same server (same machineIdentifier) updates (not duplicates) the connection and refreshes the stored token", async () => {
@@ -326,6 +451,44 @@ describe("plexWatchHistory", () => {
 				library: "Movies",
 			},
 		]);
+	});
+
+	it("BUG1 (privacy): scopes the history request to the connection's stored owner accountID so a household admin token doesn't ship every user's history", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection({ accountId: 7 });
+		const { plexWatchHistory } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			expect(url).toContain("accountID=7");
+			return jsonResponse(200, {
+				MediaContainer: {
+					size: 2,
+					Metadata: [
+						{
+							title: "Owner's Movie",
+							type: "movie",
+							viewedAt: 1750000000,
+							accountID: 7,
+						},
+						{
+							title: "Kid's Show",
+							type: "episode",
+							viewedAt: 1750000100,
+							accountID: 9,
+						},
+					],
+				},
+			});
+		});
+
+		await plexWatchHistory(
+			USER_ID,
+			conn.id,
+			{},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("applies `since` and `limit` to the request", async () => {

@@ -567,6 +567,8 @@ describe("imap write-executor — email.send (SMTP submission)", () => {
 		expect(transport.sendMailCalls[0]).toMatchObject({
 			cc: "carol@example.com",
 			inReplyTo: "<original@example.com>",
+			// A reply must also carry References so clients thread it correctly.
+			references: "<original@example.com>",
 		});
 	});
 

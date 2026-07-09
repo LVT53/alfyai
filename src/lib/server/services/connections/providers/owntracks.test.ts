@@ -482,7 +482,7 @@ describe("owntracksLocationHistory", () => {
 		]);
 	});
 
-	it("defaults to the last 7 days when from/to are omitted", async () => {
+	it("defaults to the last 7 days when from/to are omitted, with an inclusive (end-of-day) `to`", async () => {
 		seedUser(USER_A);
 		const conn = await seedConn();
 		const { owntracksLocationHistory } = await import("./owntracks");
@@ -490,7 +490,13 @@ describe("owntracksLocationHistory", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = new URL(String(input));
 			expect(url.searchParams.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-			expect(url.searchParams.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			// BUG2: a bare `to=YYYY-MM-DD` is parsed by the Recorder as
+			// 00:00:00 of that day (start of day), which would silently
+			// exclude every fix from "today" — the default upper bound must
+			// carry an explicit end-of-day time component.
+			expect(url.searchParams.get("to")).toMatch(
+				/^\d{4}-\d{2}-\d{2}T23:59:59$/,
+			);
 			return jsonResponse(200, { count: 0, data: [] });
 		});
 
@@ -501,6 +507,44 @@ describe("owntracksLocationHistory", () => {
 			{ fetch: fetchMock as unknown as typeof fetch },
 		);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("BUG2: a caller-supplied bare-date `to` (e.g. today) is widened to end-of-day so today's fixes aren't excluded", async () => {
+		seedUser(USER_A);
+		const conn = await seedConn();
+		const { owntracksLocationHistory } = await import("./owntracks");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			expect(url.searchParams.get("to")).toBe("2026-01-31T23:59:59");
+			return jsonResponse(200, { count: 0, data: [] });
+		});
+
+		await owntracksLocationHistory(
+			USER_A,
+			conn.id,
+			{ from: "2026-01-01", to: "2026-01-31" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
+	it("BUG2: a caller-supplied `to` that already carries a time component is left untouched", async () => {
+		seedUser(USER_A);
+		const conn = await seedConn();
+		const { owntracksLocationHistory } = await import("./owntracks");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			expect(url.searchParams.get("to")).toBe("2026-01-31T12:00:00");
+			return jsonResponse(200, { count: 0, data: [] });
+		});
+
+		await owntracksLocationHistory(
+			USER_A,
+			conn.id,
+			{ from: "2026-01-01", to: "2026-01-31T12:00:00" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
 	});
 
 	it("applies a limit, capping the returned fixes", async () => {
@@ -526,6 +570,60 @@ describe("owntracksLocationHistory", () => {
 			{ fetch: fetchMock as unknown as typeof fetch },
 		);
 		expect(fixes).toHaveLength(2);
+	});
+
+	it("BUG3: passes the Recorder's native `limit` query param (reverse-search — see API.md) so it can shrink the payload server-side", async () => {
+		seedUser(USER_A);
+		const conn = await seedConn();
+		const { owntracksLocationHistory } = await import("./owntracks");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			expect(url.searchParams.get("limit")).toBe("2");
+			return jsonResponse(200, { count: 0, data: [] });
+		});
+
+		await owntracksLocationHistory(
+			USER_A,
+			conn.id,
+			{ limit: 2 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
+	it("BUG3: returns the NEWEST N fixes (by tst), not the oldest, when the Recorder hands back more oldest-first rows than `limit`", async () => {
+		seedUser(USER_A);
+		const conn = await seedConn();
+		const { owntracksLocationHistory } = await import("./owntracks");
+
+		// The Recorder's lsscan (storage.c) returns rows oldest-first — this
+		// fixture is deliberately oldest-first and deliberately longer than
+		// the requested limit, simulating a Recorder that hands back (or
+		// doesn't itself truncate to) more than `limit` rows.
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(200, {
+				count: 5,
+				data: [
+					{ lat: 1, lon: 1, tst: 1000 }, // oldest
+					{ lat: 2, lon: 2, tst: 2000 },
+					{ lat: 3, lon: 3, tst: 3000 },
+					{ lat: 4, lon: 4, tst: 4000 },
+					{ lat: 5, lon: 5, tst: 5000 }, // newest
+				],
+			}),
+		);
+
+		const fixes = await owntracksLocationHistory(
+			USER_A,
+			conn.id,
+			{ limit: 2 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		// Must be the two NEWEST fixes (tst 4000, 5000), not the two oldest
+		// (tst 1000, 2000) that a naive `.slice(0, limit)` on an
+		// ascending/oldest-first array would keep.
+		expect(fixes.map((f) => f.lat)).toEqual([4, 5]);
 	});
 
 	it("an empty data[] maps to an empty array", async () => {

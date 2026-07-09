@@ -547,12 +547,33 @@ export async function imapSearch(
 	const limit = clampLimit(params.limit);
 	const query = params.query.trim();
 	if (!query) return [];
+	// IMAP `SEARCH TEXT <string>` matches only a single contiguous substring, so
+	// a multi-word query issued as one TEXT term ("invoice from acme") almost
+	// never matches. Instead, emit one TEXT term per whitespace-separated word
+	// and AND the results: a message must contain EVERY word (imapflow can't
+	// express two TEXT keys in a single query object — {text:[...]} compiles to
+	// the malformed `TEXT a b` — so the AND is done by intersecting the per-word
+	// UID sets here, which is semantically identical to `TEXT a TEXT b`). A
+	// single-word query issues exactly one search, preserving prior behavior.
+	const words = query.split(/\s+/).filter(Boolean);
 	return withImapConnection(userId, connectionId, opts, async (client) => {
-		const searchQuery: Record<string, unknown> = { text: query };
-		if (params.since) searchQuery.since = params.since;
-		const uids = await client.search(searchQuery, { uid: true });
-		if (!uids || uids.length === 0) return [];
-		return fetchHeadersForUids(client, uids, limit);
+		let matched: number[] | null = null;
+		for (const word of words) {
+			const searchQuery: Record<string, unknown> = { text: word };
+			if (params.since) searchQuery.since = params.since;
+			const uids = await client.search(searchQuery, { uid: true });
+			// A word with no matches means the AND can never be satisfied.
+			if (!uids || uids.length === 0) return [];
+			if (matched === null) {
+				matched = uids;
+			} else {
+				const keep = new Set(uids);
+				matched = matched.filter((uid) => keep.has(uid));
+				if (matched.length === 0) return [];
+			}
+		}
+		if (!matched || matched.length === 0) return [];
+		return fetchHeadersForUids(client, matched, limit);
 	});
 }
 
@@ -612,7 +633,10 @@ function findTextPart(
 	return htmlFallback;
 }
 
-function decodeQuotedPrintable(input: string): string {
+function decodeQuotedPrintable(
+	input: string,
+	bufferEncoding: BufferEncoding,
+): string {
 	// Soft line breaks ("=\r\n" or "=\n") are removed entirely; "=XX" is a
 	// hex-escaped byte.
 	const withoutSoftBreaks = input.replace(/=\r?\n/g, "");
@@ -629,7 +653,11 @@ function decodeQuotedPrintable(input: string): string {
 			bytes.push(ch.charCodeAt(0));
 		}
 	}
-	return Buffer.from(bytes).toString("utf8");
+	// Decode the reconstructed bytes with the message's resolved charset (the
+	// same charset-aware BufferEncoding the base64/plaintext branches use) —
+	// a quoted-printable body in iso-8859-1 (e.g. "caf=E9") must be read as
+	// latin1, not hardcoded utf-8, or non-ASCII bytes become mojibake.
+	return Buffer.from(bytes).toString(bufferEncoding);
 }
 
 function decodeBodyBuffer(
@@ -655,7 +683,7 @@ function decodeBodyBuffer(
 		);
 	}
 	if (normalizedEncoding === "quoted-printable") {
-		return decodeQuotedPrintable(buffer.toString("ascii"));
+		return decodeQuotedPrintable(buffer.toString("ascii"), bufferEncoding);
 	}
 	return buffer.toString(bufferEncoding);
 }
@@ -709,7 +737,14 @@ export async function imapReadMessage(
 			},
 			{ uid: true },
 		);
-		const raw = bodyMsg ? bodyMsg.bodyParts?.get(textPart.part) : undefined;
+		// imapflow LOWERCASES every FETCH response part key when building the
+		// returned bodyParts Map (tools.js formatMessageResponse). A single-part
+		// body is requested as "TEXT" but comes back keyed "text", so the lookup
+		// must be case-insensitive; numeric multipart ids ("1", "1.2") are
+		// unaffected since toLowerCase() leaves them unchanged.
+		const raw = bodyMsg
+			? bodyMsg.bodyParts?.get(textPart.part.toLowerCase())
+			: undefined;
 		if (!raw) {
 			return { header, text: "" };
 		}
@@ -737,10 +772,12 @@ async function checkHealth(
 	let config: ImapConnectionConfig;
 	try {
 		config = imapConfig(conn);
-	} catch (err) {
+	} catch {
+		// Generic, controlled detail — never forward a raw error message into
+		// statusDetail (mirrors imapConnect's non-auth path).
 		return {
 			status: "error",
-			detail: err instanceof Error ? err.message : String(err),
+			detail: "This email connection is missing required configuration.",
 		};
 	}
 
@@ -765,9 +802,13 @@ async function checkHealth(
 				detail: "The mailbox rejected the stored password",
 			};
 		}
+		// Generic, controlled detail — a server's raw NO/BYE text (or any
+		// imapflow error message) must never be forwarded verbatim into
+		// statusDetail, same posture as imapConnect's non-auth path.
 		return {
 			status: "error",
-			detail: err instanceof Error ? err.message : String(err),
+			detail:
+				"Could not connect to the mailbox. Check the host, port, and TLS setting.",
 		};
 	} finally {
 		await closeClient(client);
