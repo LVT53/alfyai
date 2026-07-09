@@ -490,6 +490,42 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("current legacy external search flows");
 	});
 
+	describe("Connections framing (Redesign R8)", () => {
+		it("omits the connections framing when hasActiveConnections is not set", () => {
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "What's on my schedule today?",
+			});
+
+			expect(prompt).not.toContain("Connected Accounts:");
+		});
+
+		it("omits the connections framing when hasActiveConnections is false", () => {
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "What's on my schedule today?",
+				hasActiveConnections: false,
+			});
+
+			expect(prompt).not.toContain("Connected Accounts:");
+		});
+
+		it("includes a concise confirm-before-write connections framing when hasActiveConnections is true", () => {
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "What's on my schedule today?",
+				hasActiveConnections: true,
+			});
+
+			expect(prompt).toContain("Connected Accounts:");
+			expect(prompt).toContain(
+				"You never modify a connected account immediately or autonomously",
+			);
+			expect(prompt).toContain("must explicitly confirm");
+			expect(prompt).toContain("ask the user which one to use");
+		});
+	});
+
 	describe("planNormalChatGuidancePacks", () => {
 		it("keeps simple direct prompts compact and estimates savings versus full guidance", () => {
 			const compactPlan = planNormalChatGuidancePacks({
@@ -1773,6 +1809,61 @@ describe("prepareOutboundChatContext", () => {
 			expect(
 				prepared.inputValue.indexOf("## Your calendar & mail (live)"),
 			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
+		});
+	});
+
+	describe("Connections framing gating (Redesign R8)", () => {
+		it("includes the connections framing in the system prompt when the user has an active connection capability", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Save this file to my Nextcloud."),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "Save this file to my Nextcloud.",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["files"]),
+				logLabel: "provider request",
+			});
+
+			expect(prepared.systemPrompt).toContain("Connected Accounts:");
+		});
+
+		it("omits the connections framing when no connection capabilities are active", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("What's the weather like today?"),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "What's the weather like today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				logLabel: "provider request",
+			});
+
+			expect(prepared.systemPrompt).not.toContain("Connected Accounts:");
+		});
+
+		it("omits the connections framing when the active capability set is empty", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("What's the weather like today?"),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "What's the weather like today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(),
+				logLabel: "provider request",
+			});
+
+			expect(prepared.systemPrompt).not.toContain("Connected Accounts:");
 		});
 	});
 });

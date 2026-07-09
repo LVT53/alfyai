@@ -2305,6 +2305,127 @@ describe("createNormalChatTools", () => {
 			);
 		});
 	});
+
+	describe("connection write guidance in tool descriptions (Redesign R8)", () => {
+		it.each([
+			{
+				lang: "en" as const,
+				tool: "files",
+				writeSubstring: "save",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "en" as const,
+				tool: "email",
+				writeSubstring: "send",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "en" as const,
+				tool: "photos",
+				writeSubstring: "add photos to",
+				confirmSubstring: "propos",
+				enableSubstring: "enabled writes",
+			},
+			{
+				lang: "hu" as const,
+				tool: "files",
+				writeSubstring: "mentés",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+			{
+				lang: "hu" as const,
+				tool: "email",
+				writeSubstring: "küldés",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+			{
+				lang: "hu" as const,
+				tool: "photos",
+				writeSubstring: "album",
+				confirmSubstring: "javasol",
+				enableSubstring: "engedélyezve kell lennie",
+			},
+		])("$lang $tool description mentions its write action, confirm-required proposal, and enable-writes gating", ({
+			lang,
+			tool,
+			writeSubstring,
+			confirmSubstring,
+			enableSubstring,
+		}) => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: lang,
+				enabledConnectionCapabilities: new Set(["files", "email", "photos"]),
+			});
+
+			const description = (
+				tools as unknown as Record<string, { description: string }>
+			)[tool].description;
+
+			expect(description.toLowerCase()).toContain(writeSubstring.toLowerCase());
+			expect(description.toLowerCase()).toContain(
+				confirmSubstring.toLowerCase(),
+			);
+			expect(description.toLowerCase()).toContain(
+				enableSubstring.toLowerCase(),
+			);
+		});
+
+		it("email description warns a sent email cannot be unsent (en)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["email"]),
+			});
+
+			expect(tools.email?.description).toContain("cannot be unsent");
+		});
+
+		it("email description warns a sent email cannot be unsent (hu)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "hu",
+				enabledConnectionCapabilities: new Set(["email"]),
+			});
+
+			expect(tools.email?.description).toContain("nem lehet visszavonni");
+		});
+
+		it("photos description says originals are never deleted or modified (en)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools.photos?.description).toContain("never deletes or modifies");
+		});
+
+		it("photos description says originals are never deleted or modified (hu)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "hu",
+				enabledConnectionCapabilities: new Set(["photos"]),
+			});
+
+			expect(tools.photos?.description).toContain(
+				"soha nem törli és nem módosítja",
+			);
+		});
+	});
 });
 
 describe("shouldForceProduceFileTool", () => {

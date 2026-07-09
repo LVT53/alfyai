@@ -779,6 +779,21 @@ const TOOL_TERMINATION_GUARD = [
 	"- If you are uncertain whether more tool calls are needed, err on the side of calling another tool rather than calling `done` prematurely.",
 ].join("\n");
 
+// Redesign R8 — concise holistic framing for the connection tools
+// (calendar/files/email/photos/media/location/contacts). Only spliced into
+// the outbound system prompt when the caller reports the user has at least
+// one active connection capability (buildOutboundSystemPrompt's
+// `hasActiveConnections`), so turns with no connections don't pay the token
+// cost. Deliberately English-only, matching every other guard constant in
+// this file — the model is instructed in English regardless of
+// responseLanguage, which only governs the user-facing reply language.
+const CONNECTIONS_FRAMING_GUARD = [
+	"Connected Accounts:",
+	"- The user may have connected personal accounts (calendar, files, email, photos, media, location, contacts). Use the relevant connection tool when the user's request calls for it. Do not announce tool use mechanically, and only surface connected-account data when it is relevant to the request.",
+	"- Every write to a connected account — creating/updating/deleting a calendar event, saving a file, sending/trashing/flagging an email, adding photos to an album — is only a proposal. You never modify a connected account immediately or autonomously; the user must explicitly confirm before anything is written.",
+	"- If more than one connected account could serve a request (e.g. two calendars), ask the user which one to use, unless the conversation or memory already makes it clear.",
+].join("\n");
+
 const FORCE_WEB_SEARCH_GUARD = [
 	"Current-turn forced web retrieval:",
 	"- The user explicitly requested web grounding for this turn; use available web retrieval for this answer when a web retrieval tool is listed in the runtime tool schema.",
@@ -933,6 +948,13 @@ export function buildOutboundSystemPrompt(params: {
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	guidancePackSelection?: NormalChatGuidancePackSelection;
+	// Redesign R8 — true when the caller resolved at least one active
+	// connection capability for this turn (see activeConnectionCapabilities
+	// on PrepareOutboundChatContextParams). Splices CONNECTIONS_FRAMING_GUARD
+	// into the prompt so a connections-enabled turn always carries the
+	// confirm-before-write framing, even before any connection tool is
+	// actually called.
+	hasActiveConnections?: boolean;
 }): string {
 	const guidancePlan = params.guidancePackSelection
 		? params.guidancePackSelection
@@ -1008,6 +1030,10 @@ export function buildOutboundSystemPrompt(params: {
 		guidanceAdditions.push(
 			buildReasoningDepthEffortGuard(params.reasoningDepthEffort),
 		);
+	}
+
+	if (params.hasActiveConnections) {
+		guidanceAdditions.push(CONNECTIONS_FRAMING_GUARD);
 	}
 
 	if (
@@ -1863,6 +1889,10 @@ function buildPreparationSystemPromptFromInput(input: {
 			fileProductionToolsAvailable: input.params.fileProductionToolsAvailable,
 			reasoningDepthEffort: input.params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: input.params.skipDefaultRuntimeGuidance,
+			hasActiveConnections: Boolean(
+				input.params.activeConnectionCapabilities &&
+					input.params.activeConnectionCapabilities.size > 0,
+			),
 		}),
 		promptPackPlan: input.promptPackPlan,
 	};

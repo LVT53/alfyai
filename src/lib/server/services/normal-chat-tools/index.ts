@@ -175,7 +175,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"Search and read the user's connected files (e.g. their Nextcloud). Use when the user asks to find, look up, or read a document/file.",
+				"Search and read the user's connected files (e.g. their Nextcloud). Use when the user asks to find, look up, or read a document/file. Can also save a file to the connected storage (requires the user to have enabled writes) — a save NEVER applies immediately: it only proposes a pending write that the user must explicitly confirm before anything is saved.",
 			errorPrefix: "Files lookup failed",
 		},
 		calendar: {
@@ -185,12 +185,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		email: {
 			description:
-				"Read the user's connected email (IMAP): list recent messages, search, or read a specific message by uid. Use when the user asks about their inbox, a specific email, or wants you to look something up in their email.",
+				"Read the user's connected email (IMAP): list recent messages, search, or read a specific message by uid. Use when the user asks about their inbox, a specific email, or wants you to look something up in their email. Can also send a new email, move a message to Trash, or flag/mark a message (requires the user to have enabled writes) — these NEVER apply immediately: each one only proposes a pending change that the user must explicitly confirm before anything is sent, moved, or flagged. A sent email cannot be unsent, so double-check the recipient, subject, and body before proposing a send.",
 			errorPrefix: "Email lookup failed",
 		},
 		photos: {
 			description:
-				"Search the user's connected photo library (Immich) with a natural-language smart search. Use when the user asks you to find, look up, or recall specific photos or videos.",
+				'Search the user\'s connected photo library (Immich) with a natural-language smart search. Use when the user asks you to find, look up, or recall specific photos or videos. Can also add photos to an "AlfyAI" album (requires the user to have enabled writes) — this NEVER applies immediately: it only proposes a pending change that the user must explicitly confirm before anything is added. It never deletes or modifies the original photos.',
 			errorPrefix: "Photos lookup failed",
 		},
 		media: {
@@ -236,7 +236,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) keresése és olvasása. Akkor használd, ha a felhasználó egy dokumentum/fájl megkeresését, megnyitását vagy elolvasását kéri.",
+				"A felhasználó csatlakoztatott fájljainak (pl. Nextcloud) keresése és olvasása. Akkor használd, ha a felhasználó egy dokumentum/fájl megkeresését, megnyitását vagy elolvasását kéri. Fájl mentésére (írására) is képes a csatlakoztatott tárhelyre (ehhez az írásnak engedélyezve kell lennie) — ez SOHA nem lép életbe azonnal: csak egy függőben lévő mentést javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi elmentődne.",
 			errorPrefix: "A fájlok elérése sikertelen",
 		},
 		calendar: {
@@ -246,12 +246,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		email: {
 			description:
-				"A felhasználó csatlakoztatott e-mail fiókjának (IMAP) olvasása: legutóbbi üzenetek listázása, keresés, vagy egy adott üzenet elolvasása uid alapján. Akkor használd, ha a felhasználó a postafiókjára vagy egy konkrét e-mailre kérdez rá, vagy szeretnéd, hogy megnézz valamit az e-mailjei között.",
+				"A felhasználó csatlakoztatott e-mail fiókjának (IMAP) olvasása: legutóbbi üzenetek listázása, keresés, vagy egy adott üzenet elolvasása uid alapján. Akkor használd, ha a felhasználó a postafiókjára vagy egy konkrét e-mailre kérdez rá, vagy szeretnéd, hogy megnézz valamit az e-mailjei között. Új e-mail küldésére, egy üzenet Törölt elemek közé helyezésére, vagy egy üzenet megjelölésére/jelzésére is képes (ehhez az írásnak engedélyezve kell lennie) — ezek SOHA nem lépnek életbe azonnal: mindegyik csak egy függőben lévő módosítást javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi elküldődne, áthelyeződne vagy megjelölődne. Egy elküldött e-mailt nem lehet visszavonni, ezért a küldés javaslata előtt mindig ellenőrizd a címzettet, a tárgyat és a szöveget.",
 			errorPrefix: "Az e-mail elérése sikertelen",
 		},
 		photos: {
 			description:
-				"A felhasználó csatlakoztatott fényképtárának (Immich) keresése természetes nyelvű intelligens kereséssel. Akkor használd, ha a felhasználó konkrét fényképeket vagy videókat keres, vagy szeretné felidézni azokat.",
+				'A felhasználó csatlakoztatott fényképtárának (Immich) keresése természetes nyelvű intelligens kereséssel. Akkor használd, ha a felhasználó konkrét fényképeket vagy videókat keres, vagy szeretné felidézni azokat. Fényképek egy "AlfyAI" albumhoz adására is képes (ehhez az írásnak engedélyezve kell lennie) — ez SOHA nem lép életbe azonnal: csak egy függőben lévő módosítást javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia, mielőtt bármi hozzáadódna. Az eredeti fényképeket soha nem törli és nem módosítja.',
 			errorPrefix: "A fényképek elérése sikertelen",
 		},
 		media: {
