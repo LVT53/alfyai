@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { connectionPendingWrites } from "$lib/server/db/schema";
 
@@ -64,6 +64,14 @@ export type PendingWriteRecord = {
 	status: PendingWriteStatus;
 	preview: WritePreview;
 	etag: string | null;
+	// Issue 7.5 — nullable association to the conversation/assistant message
+	// that proposed this write. conversationId is set at creation time (the
+	// write tool already has it via ctx); assistantMessageId is unknown
+	// until the turn finalizes and is backfilled by
+	// assignPendingWritesToAssistantMessage below (mirrors
+	// file-production's assignFileProductionJobsToAssistantMessage).
+	conversationId: string | null;
+	assistantMessageId: string | null;
 	createdAt: number;
 };
 
@@ -85,6 +93,8 @@ function toRecord(row: PendingWriteRow): PendingWriteRecord {
 		status: row.status as PendingWriteStatus,
 		preview: JSON.parse(row.previewJson) as WritePreview,
 		etag: row.etag ?? null,
+		conversationId: row.conversationId ?? null,
+		assistantMessageId: row.assistantMessageId ?? null,
 		createdAt: Math.floor(row.createdAt.getTime() / 1000),
 	};
 }
@@ -109,6 +119,10 @@ export async function createPendingWrite(
 		content: string;
 		idempotencyKey: string;
 		preview: WritePreview;
+		// Issue 7.5 — threaded in from the tool call's ctx.conversationId.
+		// Optional/undefined for callers (and existing tests) that don't
+		// carry a conversation — the column is nullable.
+		conversationId?: string | null;
 	},
 ): Promise<{ id: string; preview: WritePreview }> {
 	const id = randomUUID();
@@ -122,9 +136,64 @@ export async function createPendingWrite(
 		idempotencyKey: params.idempotencyKey,
 		status: "pending",
 		previewJson: JSON.stringify(params.preview),
+		conversationId: params.conversationId ?? null,
 		createdAt: new Date(),
 	});
 	return { id, preview: params.preview };
+}
+
+// User+conversation-scoped listing for the GET pending-writes endpoint
+// (Issue 7.5) — mirrors listConversationFileProductionJobs. Only rows that
+// belong to BOTH the caller and the given conversation are ever returned,
+// newest first.
+export async function listPendingWritesForConversation(
+	userId: string,
+	conversationId: string,
+): Promise<PendingWriteRecord[]> {
+	const rows = await db
+		.select()
+		.from(connectionPendingWrites)
+		.where(
+			and(
+				eq(connectionPendingWrites.userId, userId),
+				eq(connectionPendingWrites.conversationId, conversationId),
+			),
+		)
+		.orderBy(desc(connectionPendingWrites.createdAt));
+	return rows.map(toRecord);
+}
+
+// Backfills assistantMessageId onto pending writes created during a turn,
+// once the turn's assistant message has been persisted and its id is known.
+// Mirrors assignFileProductionJobsToAssistantMessage (file-production/
+// job-ledger.ts) exactly: a conditional UPDATE that only touches rows that
+// are (a) this user's, (b) in this conversation, (c) one of the ids created
+// this turn, and (d) not already stamped — so it can never clobber an
+// earlier turn's already-assigned row.
+export async function assignPendingWritesToAssistantMessage(
+	userId: string,
+	conversationId: string,
+	assistantMessageId: string,
+	pendingWriteIds: string[],
+): Promise<void> {
+	const uniqueIds = Array.from(
+		new Set(pendingWriteIds.filter((id) => id.trim().length > 0)),
+	);
+	if (uniqueIds.length === 0) {
+		return;
+	}
+
+	await db
+		.update(connectionPendingWrites)
+		.set({ assistantMessageId })
+		.where(
+			and(
+				eq(connectionPendingWrites.userId, userId),
+				eq(connectionPendingWrites.conversationId, conversationId),
+				inArray(connectionPendingWrites.id, uniqueIds),
+				isNull(connectionPendingWrites.assistantMessageId),
+			),
+		);
 }
 
 // User-scoped lookup — returns null (never throws, never leaks another

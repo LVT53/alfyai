@@ -370,6 +370,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		bootstrap: false,
 		generatedFiles: [],
 		fileProductionJobs: [],
+		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		activeSkillSession: null,
 		atlasJobs: [],

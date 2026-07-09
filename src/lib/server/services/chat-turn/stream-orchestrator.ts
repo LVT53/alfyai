@@ -54,6 +54,7 @@ import type {
 	ChatTurnPreparationResult,
 	ChatTurnRequestError,
 } from "$lib/server/services/chat-turn/types";
+import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
 import {
 	assignFileProductionJobsToAssistantMessage,
@@ -228,6 +229,32 @@ function startFileProductionJobIdsAtStartFact(params: {
 			jobIds: new Set(jobs.map((job) => job.id)),
 			snapshotStartedAt,
 		}));
+	} catch (error) {
+		snapshot = Promise.reject(error);
+	}
+	void snapshot.catch(() => undefined);
+	return snapshot;
+}
+
+// Issue 7.5 — same "kick off the snapshot query as soon as turn prep is
+// done, in parallel with the (long) model stream, then resolve it once at
+// finalize" pattern as startFileProductionJobIdsAtStartFact above. Simpler
+// than that one: a pending write is created SYNCHRONOUSLY by a write tool's
+// execute() (createPendingWrite is awaited before the tool call ever
+// returns to the model) — unlike file-production jobs, there is no
+// background worker that could still be racing to create one after this
+// snapshot, so a plain Set (no snapshotStartedAt tracking, no
+// toolCallRecords cross-referencing) is enough.
+function startPendingWriteIdsAtStartFact(params: {
+	userId: string;
+	conversationId: string;
+}): StreamCompletionFact<Set<string>> {
+	let snapshot: Promise<Set<string>>;
+	try {
+		snapshot = listPendingWritesForConversation(
+			params.userId,
+			params.conversationId,
+		).then((writes) => new Set(writes.map((write) => write.id)));
 	} catch (error) {
 		snapshot = Promise.reject(error);
 	}
@@ -838,6 +865,15 @@ export function runChatStreamOrchestrator(
 				});
 				return fileProductionJobIdsAtStart;
 			};
+			let pendingWriteIdsAtStart: StreamCompletionFact<Set<string>> | null =
+				null;
+			const ensurePendingWriteIdsAtStart = () => {
+				pendingWriteIdsAtStart ??= startPendingWriteIdsAtStartFact({
+					userId: user.id,
+					conversationId,
+				});
+				return pendingWriteIdsAtStart;
+			};
 			const completeSuccess = async (
 				wasStopped = false,
 				options: { streamClosedWithoutFinish?: boolean } = {},
@@ -883,6 +919,7 @@ export function runChatStreamOrchestrator(
 					activeDocumentArtifactId: activeDocumentArtifactId ?? null,
 					requestStartTime,
 					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),
+					pendingWriteIdsAtStart: ensurePendingWriteIdsAtStart(),
 					latestContextStatus,
 					latestActiveWorkingSet,
 					latestTaskState,
@@ -1163,6 +1200,7 @@ export function runChatStreamOrchestrator(
 					detail: latestDepthMetadata.appliedProfile,
 				});
 				ensureFileProductionJobIdsAtStart();
+				ensurePendingWriteIdsAtStart();
 
 				if (personalityProfileId) {
 					const profile = await getPersonalityProfile(

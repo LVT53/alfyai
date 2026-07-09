@@ -516,6 +516,7 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 			"user-1",
 			{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
 			LOCAL_MODEL_ID,
+			"conv-1",
 		);
 
 		expect(outcome.modelPayload.success).toBe(true);
@@ -533,6 +534,10 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 			connectionId: "conn-1",
 			provider: "nextcloud",
 			content: "hello world",
+			// 7.5 — the caller's conversationId (threaded from ctx.conversationId
+			// in normal-chat-tools/index.ts) reaches createPendingWrite so the
+			// write-confirm card can be associated with this conversation.
+			conversationId: "conv-1",
 		});
 		expect(call?.op).toMatchObject({
 			action: "files.put",

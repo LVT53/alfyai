@@ -21,6 +21,7 @@ import {
 } from "$lib/server/services/chat-turn/preflight";
 import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
 import type { ParsedChatTurnRequest } from "$lib/server/services/chat-turn/types";
+import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
 import {
@@ -462,6 +463,10 @@ async function runStandardSendTurn({
 		userId: user.id,
 		conversationId: turn.conversationId,
 	});
+	const pendingWriteIdsAtStart = await snapshotConversationPendingWrites({
+		userId: user.id,
+		conversationId: turn.conversationId,
+	});
 	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
 	const personalityPrompt = await resolvePersonalityPrompt(
 		turn.personalityProfileId,
@@ -542,6 +547,7 @@ async function runStandardSendTurn({
 		webCitationAudit: modelRunArtifacts.citationGate.audit,
 		generatedOutputReconciliation: {
 			fileProductionJobIdsAtStart,
+			pendingWriteIdsAtStart,
 		},
 	});
 	await touchConversation(user.id, turn.conversationId).catch(() => undefined);
@@ -576,6 +582,36 @@ async function snapshotConversationFileJobs({
 	} catch (error) {
 		console.warn(
 			"[CHAT_SEND] Failed to snapshot file-production jobs at send start",
+			{
+				conversationId,
+				error,
+			},
+		);
+		return new Set();
+	}
+}
+
+// Issue 7.5 — same "snapshot at turn start" pattern as
+// snapshotConversationFileJobs above, applied to connection_pending_writes
+// so finalizeChatTurn can diff-and-stamp new pending writes with this turn's
+// assistant message id (see reconcilePendingWritesForAssistantMessage in
+// chat-turn/finalize.ts).
+async function snapshotConversationPendingWrites({
+	userId,
+	conversationId,
+}: {
+	userId: string;
+	conversationId: string;
+}): Promise<Set<string>> {
+	try {
+		const writes = await listPendingWritesForConversation(
+			userId,
+			conversationId,
+		);
+		return new Set(writes.map((write) => write.id));
+	} catch (error) {
+		console.warn(
+			"[CHAT_SEND] Failed to snapshot pending writes at send start",
 			{
 				conversationId,
 				error,

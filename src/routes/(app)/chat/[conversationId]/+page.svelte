@@ -54,6 +54,11 @@ import {
 	checkCloudWarning,
 	setLocalDistill,
 } from "$lib/client/api/connections";
+import {
+	cancelWrite as cancelWriteRequest,
+	confirmWrite as confirmWriteRequest,
+	fetchConversationPendingWrites,
+} from "$lib/client/api/connection-writes";
 import { currentConversationId } from "$lib/stores/ui";
 import { projects } from "$lib/stores/projects";
 import {
@@ -82,6 +87,7 @@ import type {
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	NormalChatRuntimePhase,
+	PendingWrite,
 	SkillSession,
 	ModelId,
 	TaskState,
@@ -131,6 +137,7 @@ import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
+	attachUnassignedPendingWritesToAssistant,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
@@ -208,6 +215,7 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
+const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
 const initialActiveSkillSession = getData().activeSkillSession ?? null;
@@ -472,6 +480,7 @@ let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
+let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
@@ -479,6 +488,9 @@ let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
 let skillSessionBusy = $state(false);
 let skillSessionError = $state<string | null>(null);
 let skillDraftActionState = $state<
+	Record<string, { busy?: boolean; error?: string | null }>
+>({});
+let writeActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
 let forkingMessageId = $state<string | null>(null);
@@ -701,6 +713,9 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		totalTokens = metadata?.totalTokens ?? totalTokens;
 	},
 	attachFileProductionJobsToAssistantMessage,
+	refreshPendingWrites: () => {
+		void refreshPendingWrites();
+	},
 	pollMessageEvidence: (assistantMessageId) => {
 		void pollMessageEvidence(assistantMessageId);
 	},
@@ -1053,6 +1068,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	atlasJobs = data.atlasJobs ?? [];
+	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
 	conversationStatus = data.conversation.status ?? "open";
 	totalCostUsdMicros = data.totalCostUsdMicros ?? 0;
@@ -1150,6 +1166,21 @@ function applyConversationDetailMetadata(
 	if (detail.totalCostUsdMicros != null) {
 		totalCostUsdMicros = detail.totalCostUsdMicros;
 		totalTokens = detail.totalTokens ?? 0;
+	}
+	// Issue 7.5 — pending writes aren't part of ConversationDetail (dedicated
+	// endpoint, see +page.ts), so both callers of this function (the
+	// non-streaming polling fallback and the post-timeout persisted-data
+	// reload) get their pending-write cards refreshed here too.
+	void refreshPendingWrites();
+}
+
+async function refreshPendingWrites() {
+	try {
+		pendingWrites = await fetchConversationPendingWrites(data.conversation.id);
+	} catch {
+		// Best-effort — the page still functions with a stale/empty list; the
+		// next successful refresh (turn completion, tool-call hydrate, or a
+		// full page reload) will bring it back in sync.
 	}
 }
 
@@ -1405,6 +1436,12 @@ async function hydrateConversationDetail(conversationId: string) {
 	} finally {
 		hydratingConversation = false;
 	}
+	// Issue 7.5 — this is the SAME trigger a completed connection tool call
+	// (files/calendar/email/photos) uses to hydrate mid-turn (see
+	// shouldHydrateFileProductionJobsOnToolCall in ./_helpers), so a
+	// "save"/"send"/etc. write proposal's pending-write card can appear
+	// without a dedicated, parallel hydration path.
+	void refreshPendingWrites();
 }
 
 async function endCurrentSkillSession(reason: "ended" | "dismissed") {
@@ -1434,6 +1471,15 @@ function attachFileProductionJobsToAssistantMessage(
 			assistantMessageId,
 		},
 	);
+	// Issue 7.5 — same zero-latency optimistic stamp as above, applied to
+	// pending writes; see attachUnassignedPendingWritesToAssistant's doc
+	// comment in ./_helpers for why this runs alongside (not instead of)
+	// the durable refreshPendingWrites() refetch (ctx.refreshPendingWrites,
+	// called by the runtime right after this function).
+	pendingWrites = attachUnassignedPendingWritesToAssistant(pendingWrites, {
+		conversationId: data.conversation.id,
+		assistantMessageId,
+	});
 }
 
 async function handleRetryFileProductionJob(jobId: string) {
@@ -1584,6 +1630,20 @@ $effect(() => {
 	if (data.atlasJobs !== prevAtlasJobsData) {
 		prevAtlasJobsData = data.atlasJobs;
 		atlasJobs = [...(data.atlasJobs ?? [])];
+	}
+});
+
+let initializedPendingWritesData = false;
+let prevPendingWritesData: typeof data.pendingWrites;
+$effect(() => {
+	if (!initializedPendingWritesData) {
+		prevPendingWritesData = data.pendingWrites;
+		initializedPendingWritesData = true;
+		return;
+	}
+	if (data.pendingWrites !== prevPendingWritesData) {
+		prevPendingWritesData = data.pendingWrites;
+		pendingWrites = [...(data.pendingWrites ?? [])];
 	}
 });
 
@@ -1909,6 +1969,52 @@ async function handlePublishSkillDraft(payload: {
 			busy: false,
 			error: localizedSkillDraftActionError(error, "skillDrafts.publishError"),
 		});
+	}
+}
+
+// Issue 7.5 — write-confirm card actions. Mirrors the skill-draft handlers
+// above: {busy,error} is owned here (keyed by write id — write ids are
+// globally unique, so no message-id compound key is needed the way skill
+// drafts need `${messageId}:${draftId}`), and the source of truth for the
+// card's rendered status is always `pendingWrites` (refreshed from the
+// server after every confirm/cancel — including on failure, since a 409
+// "already_executed"/"cancelled" means the row's true state moved even
+// though THIS call didn't do it, and the card must reflect that rather
+// than get stuck showing a stale "still pending" view under an error).
+function setWriteActionState(
+	writeId: string,
+	state: { busy?: boolean; error?: string | null },
+) {
+	writeActionState = { ...writeActionState, [writeId]: state };
+}
+
+async function handleConfirmWrite(writeId: string) {
+	setWriteActionState(writeId, { busy: true, error: null });
+	try {
+		await confirmWriteRequest(writeId);
+		setWriteActionState(writeId, { busy: false, error: null });
+	} catch {
+		setWriteActionState(writeId, {
+			busy: false,
+			error: get(t)("connections.writeConfirm.confirmError"),
+		});
+	} finally {
+		await refreshPendingWrites();
+	}
+}
+
+async function handleCancelWrite(writeId: string) {
+	setWriteActionState(writeId, { busy: true, error: null });
+	try {
+		await cancelWriteRequest(writeId);
+		setWriteActionState(writeId, { busy: false, error: null });
+	} catch {
+		setWriteActionState(writeId, {
+			busy: false,
+			error: get(t)("connections.writeConfirm.cancelError"),
+		});
+	} finally {
+		await refreshPendingWrites();
 	}
 }
 
@@ -2449,6 +2555,7 @@ function handleDrop(event: DragEvent) {
 						{modelIcons}
 						{fileProductionJobs}
 						{atlasJobs}
+						{pendingWrites}
 						contextCompressionMarkers={contextCompressionMarkers}
 						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
@@ -2470,6 +2577,9 @@ function handleDrop(event: DragEvent) {
 						onDismissFileProductionJob={handleDismissFileProductionJob}
 						onCancelAtlasJob={handleCancelAtlasJob}
 						onAtlasLifecycleAction={handleAtlasLifecycleAction}
+						{writeActionState}
+						onConfirmWrite={handleConfirmWrite}
+						onCancelWrite={handleCancelWrite}
 					/>
 				{/if}
 			</div>

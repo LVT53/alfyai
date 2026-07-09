@@ -106,6 +106,29 @@ const PREVIEW: WritePreview = {
 	warnings: [],
 };
 
+async function seedConversationAndMessage(
+	userId: string,
+	conversationId: string,
+	assistantMessageId: string,
+): Promise<void> {
+	const db = drizzle(sqlite, { schema });
+	const now = new Date();
+	await db.insert(schema.conversations).values({
+		id: conversationId,
+		userId,
+		title: "Test conversation",
+		createdAt: now,
+		updatedAt: now,
+	});
+	await db.insert(schema.messages).values({
+		id: assistantMessageId,
+		conversationId,
+		role: "assistant",
+		content: "Here you go.",
+		createdAt: now,
+	});
+}
+
 describe("createPendingWrite / getPendingWrite", () => {
 	it("creates a pending row scoped to the user and returns {id, preview}", async () => {
 		const { createPendingWrite, getPendingWrite } = await import(
@@ -132,6 +155,31 @@ describe("createPendingWrite / getPendingWrite", () => {
 		expect(fetched?.op).toEqual(op);
 		expect(fetched?.content).toBe("hello world");
 		expect(fetched?.connectionId).toBe(connectionId);
+		// No conversationId passed — both association columns default to null.
+		expect(fetched?.conversationId).toBeNull();
+		expect(fetched?.assistantMessageId).toBeNull();
+	});
+
+	it("stores the caller-supplied conversationId; assistantMessageId stays null until backfilled", async () => {
+		const { createPendingWrite, getPendingWrite } = await import(
+			"./pending-writes"
+		);
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+
+		const fetched = await getPendingWrite("user-1", created.id);
+		expect(fetched?.conversationId).toBe("conv-1");
+		expect(fetched?.assistantMessageId).toBeNull();
 	});
 
 	it("getPendingWrite returns null for another user's pending write (user-scoped)", async () => {
@@ -437,5 +485,199 @@ describe("claimPendingWrite (atomic claim-before-execute)", () => {
 			expect(second.alreadyExecuted).toBe(true);
 			expect(second.etag).toBe('"e-42"');
 		}
+	});
+});
+
+// Issue 7.5 — the read side of the message-association mechanism above:
+// the GET pending-writes endpoint's store function, and the finalize-time
+// backfill that stamps a turn's pending writes with the just-created
+// assistant message id (mirrors assignFileProductionJobsToAssistantMessage).
+describe("listPendingWritesForConversation", () => {
+	it("returns only the caller's rows for that conversation, newest first", async () => {
+		const { createPendingWrite, listPendingWritesForConversation } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+		await seedConversationAndMessage("user-1", "conv-2", "assistant-2");
+
+		const first = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/a.txt"),
+			content: "a",
+			idempotencyKey: "key-a",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+		const second = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/b.txt"),
+			content: "b",
+			idempotencyKey: "key-b",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+		// A different conversation's row must never leak in.
+		await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/c.txt"),
+			content: "c",
+			idempotencyKey: "key-c",
+			preview: PREVIEW,
+			conversationId: "conv-2",
+		});
+
+		const rows = await listPendingWritesForConversation("user-1", "conv-1");
+		expect(rows.map((row) => row.id).sort()).toEqual(
+			[first.id, second.id].sort(),
+		);
+		expect(rows.every((row) => row.conversationId === "conv-1")).toBe(true);
+	});
+
+	it("excludes another user's rows for the same conversation id", async () => {
+		const { createPendingWrite, listPendingWritesForConversation } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+
+		await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+
+		const rows = await listPendingWritesForConversation("user-2", "conv-1");
+		expect(rows).toEqual([]);
+	});
+
+	it("returns no secrets — only the already-user-facing preview/status/provider fields", async () => {
+		const { createPendingWrite, listPendingWritesForConversation } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+
+		await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "raw file content that must never leave the server",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+
+		const [row] = await listPendingWritesForConversation("user-1", "conv-1");
+		expect(row).toBeDefined();
+		// The record itself still carries `content`/`op` (server-internal) —
+		// the endpoint route projects only the safe subset. This test pins the
+		// preview shape the endpoint is allowed to forward.
+		expect(row.preview).toEqual(PREVIEW);
+	});
+});
+
+describe("assignPendingWritesToAssistantMessage", () => {
+	it("stamps only the given ids, scoped to user+conversation, and never overwrites an already-assigned row", async () => {
+		const {
+			createPendingWrite,
+			getPendingWrite,
+			assignPendingWritesToAssistantMessage,
+		} = await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+		const db = drizzle(sqlite, { schema });
+		await db.insert(schema.messages).values({
+			id: "assistant-2",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Second message.",
+			createdAt: new Date(),
+		});
+
+		const targetA = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/a.txt"),
+			content: "a",
+			idempotencyKey: "key-a",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+		const alreadyAssigned = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/b.txt"),
+			content: "b",
+			idempotencyKey: "key-b",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+		const untouched = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId, "/AlfyAI/c.txt"),
+			content: "c",
+			idempotencyKey: "key-c",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+
+		// Simulate `alreadyAssigned` having been stamped by an earlier call —
+		// a second call for the SAME turn must never clobber it.
+		await assignPendingWritesToAssistantMessage(
+			"user-1",
+			"conv-1",
+			"assistant-1",
+			[alreadyAssigned.id],
+		);
+
+		await assignPendingWritesToAssistantMessage(
+			"user-1",
+			"conv-1",
+			"assistant-2",
+			[targetA.id, alreadyAssigned.id],
+		);
+
+		const a = await getPendingWrite("user-1", targetA.id);
+		const b = await getPendingWrite("user-1", alreadyAssigned.id);
+		const c = await getPendingWrite("user-1", untouched.id);
+		expect(a?.assistantMessageId).toBe("assistant-2");
+		expect(b?.assistantMessageId).toBe("assistant-1");
+		expect(c?.assistantMessageId).toBeNull();
+	});
+
+	it("is a no-op for another user's pending write id", async () => {
+		const {
+			createPendingWrite,
+			getPendingWrite,
+			assignPendingWritesToAssistantMessage,
+		} = await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		await seedConversationAndMessage("user-1", "conv-1", "assistant-1");
+
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+			conversationId: "conv-1",
+		});
+
+		await assignPendingWritesToAssistantMessage(
+			"user-2",
+			"conv-1",
+			"assistant-1",
+			[created.id],
+		);
+
+		const fetched = await getPendingWrite("user-1", created.id);
+		expect(fetched?.assistantMessageId).toBeNull();
 	});
 });

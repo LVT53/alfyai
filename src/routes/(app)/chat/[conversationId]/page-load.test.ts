@@ -230,7 +230,89 @@ describe("chat conversation page load", () => {
 			activeSkillSession: null,
 			totalCostUsdMicros: 0,
 			totalTokens: 0,
+			// Issue 7.5 — defaults to [] when the endpoint has nothing to say
+			// (e.g. the mocked conversation-detail response reused here has no
+			// `pendingWrites` field at all).
+			pendingWrites: [],
 		});
+	});
+
+	it("loads pending writes in parallel with conversation detail (Issue 7.5)", async () => {
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/pending-writes")) {
+				return new Response(
+					JSON.stringify({
+						pendingWrites: [
+							{
+								id: "pw-1",
+								assistantMessageId: null,
+								conversationId: "conv-1",
+								status: "pending",
+								provider: "nextcloud",
+								createdAt: 1700000000000,
+								preview: {
+									title: "Save note.txt to /AlfyAI",
+									detail: "files.put — /AlfyAI/note.txt",
+									reversible: true,
+									destructive: false,
+									withinAllowlist: true,
+									warnings: [],
+								},
+							},
+						],
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					conversation: conversationFixture("conv-1", { title: "Chat" }),
+					messages: [],
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const event = makeLoadEvent(
+			fetch as unknown as typeof globalThis.fetch,
+			vi.fn(async () => appShellDataFixture()),
+			"http://localhost/chat/conv-1",
+		);
+		const data = (await load(event)) as LoadedPageData;
+
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/pending-writes",
+		);
+		expect(data.pendingWrites).toEqual([
+			expect.objectContaining({ id: "pw-1", status: "pending" }),
+		]);
+	});
+
+	it("degrades to an empty pendingWrites list (never redirects/errors the page) when the pending-writes fetch fails", async () => {
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/pending-writes")) {
+				return new Response(null, { status: 500 });
+			}
+			return new Response(
+				JSON.stringify({
+					conversation: conversationFixture("conv-1", { title: "Chat" }),
+					messages: [],
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const event = makeLoadEvent(
+			fetch as unknown as typeof globalThis.fetch,
+			vi.fn(async () => appShellDataFixture()),
+			"http://localhost/chat/conv-1",
+		);
+		const data = (await load(event)) as LoadedPageData;
+
+		expect(data.pendingWrites).toEqual([]);
+		expect(data.conversation.title).toBe("Chat");
 	});
 
 	it("preserves parent layout runtime flags for the chat page", async () => {

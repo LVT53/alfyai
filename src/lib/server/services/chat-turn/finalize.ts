@@ -3,6 +3,10 @@ import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import {
+	assignPendingWritesToAssistantMessage,
+	listPendingWritesForConversation,
+} from "$lib/server/services/connections/pending-writes";
 import { clearConversationDraft } from "$lib/server/services/conversation-drafts";
 import { refreshConversationSummary } from "$lib/server/services/conversation-summaries";
 import {
@@ -111,6 +115,8 @@ type FileProductionJobSummary = {
 	files?: Array<{ id: string }>;
 };
 
+type PendingWriteSummary = { id: string };
+
 export type GeneratedOutputReconciliationParams = {
 	fileProductionJobIdsAtStart: Set<string>;
 	getFileProductionJobs?: (
@@ -125,6 +131,26 @@ export type GeneratedOutputReconciliationParams = {
 	) => Promise<void>;
 	syncGeneratedFilesToMemory?: typeof syncGeneratedFilesToMemory;
 	getChatFilesForAssistantMessage?: typeof getChatFilesForAssistantMessage;
+	// Issue 7.5 — same "snapshot at turn start, diff at finalize" mechanism
+	// as fileProductionJobIdsAtStart above, applied to
+	// connection_pending_writes: a pending write is created synchronously
+	// by a write tool mid-turn (createPendingWrite already has
+	// conversationId via ctx — see normal-chat-tools/*.ts), but its
+	// assistantMessageId is only knowable once THIS turn's assistant
+	// message has been persisted, right here. Optional/undefined is a
+	// no-op (existing callers that don't pass it skip pending-write
+	// reconciliation entirely — no new required param on any caller).
+	pendingWriteIdsAtStart?: Set<string>;
+	getPendingWrites?: (
+		userId: string,
+		conversationId: string,
+	) => Promise<PendingWriteSummary[]>;
+	assignPendingWritesToAssistantMessage?: (
+		userId: string,
+		conversationId: string,
+		assistantMessageId: string,
+		pendingWriteIds: string[],
+	) => Promise<void>;
 };
 
 export type FinalizeChatTurnParams = {
@@ -368,12 +394,16 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 			});
 		}
 
-		return (
+		const generatedFiles = (
 			await getChatFilesForAssistantMessageImpl(
 				params.conversationId,
 				params.assistantMessageId,
 			)
 		).map(toPublicGeneratedFile);
+
+		await reconcilePendingWritesForAssistantMessage(params);
+
+		return generatedFiles;
 	} catch (error) {
 		console.error(`${params.logPrefix} Failed to reconcile generated outputs`, {
 			conversationId: params.conversationId,
@@ -381,6 +411,56 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 			error,
 		});
 		return [];
+	}
+}
+
+// Issue 7.5 — sibling reconciliation to the file-production one above,
+// applied to connection_pending_writes. Deliberately its own try/catch so a
+// failure here (or above) never suppresses the other's result — this is a
+// best-effort backfill for card UI, not a correctness-critical write path
+// (the write itself, and its confirm/cancel state, lives entirely in
+// connection_pending_writes independent of whether this stamp ever lands).
+async function reconcilePendingWritesForAssistantMessage(params: {
+	logPrefix: "[SEND]" | "[STREAM]";
+	userId: string;
+	conversationId: string;
+	assistantMessageId: string;
+	reconciliation: GeneratedOutputReconciliationParams;
+}): Promise<void> {
+	const pendingWriteIdsAtStart = params.reconciliation.pendingWriteIdsAtStart;
+	if (!pendingWriteIdsAtStart) {
+		return;
+	}
+
+	const getPendingWritesImpl =
+		params.reconciliation.getPendingWrites ?? listPendingWritesForConversation;
+	const assignPendingWritesImpl =
+		params.reconciliation.assignPendingWritesToAssistantMessage ??
+		assignPendingWritesToAssistantMessage;
+
+	try {
+		const pendingWrites = await getPendingWritesImpl(
+			params.userId,
+			params.conversationId,
+		);
+		const newPendingWriteIds = pendingWrites
+			.filter((write) => !pendingWriteIdsAtStart.has(write.id))
+			.map((write) => write.id);
+
+		if (newPendingWriteIds.length > 0) {
+			await assignPendingWritesImpl(
+				params.userId,
+				params.conversationId,
+				params.assistantMessageId,
+				newPendingWriteIds,
+			);
+		}
+	} catch (error) {
+		console.error(`${params.logPrefix} Failed to reconcile pending writes`, {
+			conversationId: params.conversationId,
+			assistantMessageId: params.assistantMessageId,
+			error,
+		});
 	}
 }
 

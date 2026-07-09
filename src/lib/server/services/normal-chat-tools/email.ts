@@ -374,6 +374,7 @@ function isEmailWriteAction(
 // Option-A gate as calendar.ts's update/delete preview redaction.
 async function proposeSend(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: EmailToolInput,
 	ambiguous: boolean,
@@ -438,6 +439,7 @@ async function proposeSend(
 		content: JSON.stringify(content),
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	// Option A: only the fetched original-message subject is connector-read
@@ -485,6 +487,7 @@ async function proposeSend(
 // returned in this outcome is ever redacted.
 async function proposeTrash(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: EmailToolInput,
 	ambiguous: boolean,
@@ -533,6 +536,7 @@ async function proposeTrash(
 		// The DB row keeps the RAW preview (real subject) — never sent back
 		// through the model; only the copy below is.
 		preview: rawPreview,
+		conversationId,
 	});
 
 	const decision = await decideLocalDistill({
@@ -578,6 +582,7 @@ async function proposeTrash(
 // preview/message, so no Option-A gate applies here.
 async function proposeFlag(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: EmailToolInput,
 	ambiguous: boolean,
@@ -614,6 +619,7 @@ async function proposeFlag(
 		}),
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	const message = withAmbiguityPrefix(
@@ -634,6 +640,7 @@ async function proposeFlag(
 
 async function emailWriteOutcome(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: EmailToolInput,
 	action: EmailWriteAction,
@@ -653,12 +660,35 @@ async function emailWriteOutcome(
 	}
 
 	if (action === "send") {
-		return proposeSend(userId, conn, input, ambiguous, connections, modelId);
+		return proposeSend(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+			modelId,
+		);
 	}
 	if (action === "trash") {
-		return proposeTrash(userId, conn, input, ambiguous, connections, modelId);
+		return proposeTrash(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+			modelId,
+		);
 	}
-	return proposeFlag(userId, conn, input, ambiguous, connections);
+	return proposeFlag(
+		userId,
+		conversationId,
+		conn,
+		input,
+		ambiguous,
+		connections,
+	);
 }
 
 // Resolves the user's Email (IMAP) connection(s) and executes a
@@ -670,6 +700,7 @@ export async function runEmailTool(
 	userId: string,
 	input: EmailToolInput,
 	modelId: string,
+	conversationId?: string,
 ): Promise<EmailToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "email");
 	if (connections.length === 0) {
@@ -698,6 +729,7 @@ export async function runEmailTool(
 	if (isEmailWriteAction(input.action)) {
 		return emailWriteOutcome(
 			userId,
+			conversationId,
 			conn,
 			input,
 			input.action,

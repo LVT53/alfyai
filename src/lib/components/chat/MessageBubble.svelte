@@ -19,6 +19,7 @@ import type {
 	DocumentWorkspaceItem,
 	FileProductionJob,
 	NormalChatContextPreparationActivityClass,
+	PendingWrite,
 	ResponseActivityEntry,
 	ThinkingSegment,
 } from "$lib/types";
@@ -31,6 +32,7 @@ import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import FileProductionCard from "./FileProductionCard.svelte";
 import AtlasCard from "./AtlasCard.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
+import WriteConfirmCard from "./WriteConfirmCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
 	Bot,
@@ -57,6 +59,7 @@ let {
 	excludedArtifactIds = [],
 	fileProductionJobs = [],
 	atlasJobs = [],
+	pendingWrites = [],
 	conversationId = null,
 	modelIcons = {},
 	readOnly = false,
@@ -76,6 +79,9 @@ let {
 	onSaveSkillDraft = undefined,
 	onDismissSkillDraft = undefined,
 	onPublishSkillDraft = undefined,
+	writeActionState = {},
+	onConfirmWrite = undefined,
+	onCancelWrite = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -83,6 +89,7 @@ let {
 	excludedArtifactIds?: string[];
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
+	pendingWrites?: PendingWrite[];
 	conversationId?: string | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	readOnly?: boolean;
@@ -139,6 +146,9 @@ let {
 				draftId: string;
 		  }) => void | Promise<void>)
 		| undefined;
+	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
+	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 } = $props();
 
 let copied = $state(false);
@@ -173,6 +183,18 @@ let dedupedAtlasJobs = $derived(
 			return acc;
 		},
 		{ seen: new Set<string>(), list: [] as AtlasJobCard[] },
+	).list,
+);
+let dedupedPendingWrites = $derived(
+	pendingWrites.reduce(
+		(acc, write) => {
+			if (!acc.seen.has(write.id)) {
+				acc.seen.add(write.id);
+				acc.list.push(write);
+			}
+			return acc;
+		},
+		{ seen: new Set<string>(), list: [] as PendingWrite[] },
 	).list,
 );
 let atlasJobCostUsdMicros = $derived(
@@ -671,6 +693,10 @@ function skillDraftState(draftId: string) {
 	return skillDraftActionState[`${message.id}:${draftId}`] ?? {};
 }
 
+function writeState(writeId: string) {
+	return writeActionState[writeId] ?? {};
+}
+
 function forkLinkLabel(title: string): string {
 	return $t("fork.openFork", { title });
 }
@@ -863,6 +889,20 @@ function toggleForkDetails() {
 							onSave={(draftId) => onSaveSkillDraft?.(skillDraftPayload(draftId))}
 							onDismiss={(draftId) => onDismissSkillDraft?.(skillDraftPayload(draftId))}
 							onPublish={(draftId) => onPublishSkillDraft?.(skillDraftPayload(draftId))}
+						/>
+					{/each}
+				</div>
+			{/if}
+			{#if dedupedPendingWrites.length > 0}
+				<div class="write-confirm-list" data-testid="message-pending-writes">
+					{#each dedupedPendingWrites as write (write.id)}
+						{@const actionState = writeState(write.id)}
+						<WriteConfirmCard
+							{write}
+							busy={Boolean(actionState.busy)}
+							error={actionState.error ?? null}
+							onConfirm={onConfirmWrite}
+							onCancel={onCancelWrite}
 						/>
 					{/each}
 				</div>
@@ -1346,6 +1386,12 @@ function toggleForkDetails() {
 		flex-direction: column;
 		gap: var(--space-xs);
 		margin-top: var(--space-md);
+	}
+
+	.write-confirm-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
 	}
 
 	.preparing-status {

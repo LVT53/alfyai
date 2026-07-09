@@ -549,6 +549,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					body: "Hi Bob!",
 				},
 				LOCAL_MODEL_ID,
+				"conv-1",
 			);
 
 			expect(outcome.modelPayload.success).toBe(true);
@@ -560,7 +561,12 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 
 			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
 			const call = createPendingWriteMock.mock.calls[0]?.[1];
-			expect(call).toMatchObject({ connectionId: "conn-1", provider: "imap" });
+			expect(call).toMatchObject({
+				connectionId: "conn-1",
+				provider: "imap",
+				// 7.5 — threaded from ctx.conversationId.
+				conversationId: "conv-1",
+			});
 			expect(call?.op).toMatchObject({
 				provider: "imap",
 				connectionId: "conn-1",

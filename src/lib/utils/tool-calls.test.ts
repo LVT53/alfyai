@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ThinkingSegment } from "$lib/types";
 import {
 	getHumanReadableToolNameKey,
+	isConnectionWriteToolName,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
@@ -16,6 +17,15 @@ describe("tool-calls utils", () => {
 		expect(isFileProductionToolName("produce-file")).toBe(true);
 		expect(isFileProductionToolName("generate_file_production")).toBe(true);
 		expect(isFileProductionToolName("image_search")).toBe(false);
+	});
+
+	it("recognizes the four connection tool names (7.5 — used to trigger a pending-writes hydrate)", () => {
+		expect(isConnectionWriteToolName("files")).toBe(true);
+		expect(isConnectionWriteToolName("Calendar")).toBe(true);
+		expect(isConnectionWriteToolName("EMAIL")).toBe(true);
+		expect(isConnectionWriteToolName("photos")).toBe(true);
+		expect(isConnectionWriteToolName("produce_file")).toBe(false);
+		expect(isConnectionWriteToolName("research_web")).toBe(false);
 	});
 
 	it("maps common names to localized tool keys", () => {

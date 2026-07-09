@@ -16,7 +16,10 @@ import type {
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/types";
-import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import {
+	isConnectionWriteToolName,
+	isFileProductionToolName,
+} from "$lib/utils/tool-calls";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import {
 	buildBaselineDepthMetadata,
@@ -58,6 +61,12 @@ type NormalizedFileProductionStartSnapshot = {
 export interface StreamCompletionFacts {
 	startedResetGeneration?: StreamCompletionFact<number>;
 	fileProductionJobIdsAtStart: StreamCompletionFact<FileProductionStartSnapshot>;
+	// Issue 7.5 — sibling fact to fileProductionJobIdsAtStart, resolved
+	// (not deferred) at completion time: see startPendingWriteIdsAtStartFact
+	// in stream-orchestrator.ts for why pending writes don't need the
+	// deferred-until-ready dance file production's background worker
+	// requires.
+	pendingWriteIdsAtStart?: StreamCompletionFact<Set<string>>;
 }
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
@@ -182,6 +191,7 @@ export async function completeStreamTurn(
 		activeDocumentArtifactId,
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
+		pendingWriteIdsAtStart: pendingWriteIdsAtStartFact,
 		latestContextStatus,
 		latestContextTraceSections,
 		latestProviderUsage,
@@ -272,6 +282,13 @@ export async function completeStreamTurn(
 	}));
 	const hadFileProductionToolCall = toolCallSummary.some((record) =>
 		isFileProductionToolName(record.name),
+	);
+	// Issue 7.5 — widens the generatedOutputReconciliation gate below so a
+	// turn that only called a connection tool (files/calendar/email/photos,
+	// e.g. proposing a write) still gets its pending writes reconciled, even
+	// when no file-production tool call happened this turn.
+	const hadConnectionWriteToolCall = toolCallSummary.some((record) =>
+		isConnectionWriteToolName(record.name),
 	);
 	let deferredStartedResetGeneration: number | undefined;
 	const deferredFileProductionJobIdsAtStart = new Set<string>();
@@ -397,6 +414,21 @@ export async function completeStreamTurn(
 			wasStopped && finalResponse.trim().length === 0
 				? "Stopped"
 				: finalResponse;
+		// Issue 7.5 — resolved (not deferred) here: by the time the stream has
+		// fully finished, every pending write this turn's tool calls created
+		// already exists in the DB (createPendingWrite is awaited inside the
+		// tool's own execute(), long before this point) — unlike file
+		// production's background-worker jobs there is no "might still be
+		// racing to appear" window to wait out.
+		const pendingWriteIdsAtStart =
+			(hadFileProductionToolCall || hadConnectionWriteToolCall) &&
+			pendingWriteIdsAtStartFact !== undefined
+				? await resolvePendingWriteIdsAtStartFact({
+						conversationId,
+						streamId,
+						fact: pendingWriteIdsAtStartFact,
+					})
+				: undefined;
 		const completion = await finalizeChatTurn({
 			logPrefix: "[STREAM]",
 			streamId,
@@ -461,15 +493,17 @@ export async function completeStreamTurn(
 			runPostTurnTasks: runPostTurnTasksWithDeferredFacts,
 			deferPostTurnProjection: true,
 			persistUserAttachmentsBeforeAssistantMessage: false,
-			generatedOutputReconciliation: hadFileProductionToolCall
-				? {
-						fileProductionJobIdsAtStart: deferredFileProductionJobIdsAtStart,
-						getFileProductionJobs: getDeferredFileProductionJobs,
-						assignFileProductionJobsToAssistantMessage,
-						syncGeneratedFilesToMemory,
-						getChatFilesForAssistantMessage,
-					}
-				: undefined,
+			generatedOutputReconciliation:
+				hadFileProductionToolCall || hadConnectionWriteToolCall
+					? {
+							fileProductionJobIdsAtStart: deferredFileProductionJobIdsAtStart,
+							getFileProductionJobs: getDeferredFileProductionJobs,
+							assignFileProductionJobsToAssistantMessage,
+							syncGeneratedFilesToMemory,
+							getChatFilesForAssistantMessage,
+							pendingWriteIdsAtStart,
+						}
+					: undefined,
 		});
 		if (
 			!completion.assistantMessage?.id ||
@@ -566,6 +600,32 @@ async function resolveStartedResetGenerationFact(params: {
 	} catch (error) {
 		console.warn(
 			"[CHAT_STREAM] Failed to resolve stream reset generation fact",
+			{
+				conversationId: params.conversationId,
+				streamId: params.streamId,
+				error,
+			},
+		);
+		return undefined;
+	}
+}
+
+// Issue 7.5 — resolves startPendingWriteIdsAtStartFact's snapshot. Unlike
+// resolveFileProductionJobIdsAtStart below, there is no "deferred, wait for
+// ready" dance: this is awaited directly at stream-completion time (see the
+// call site above), so a failure here just means pending-write
+// reconciliation is skipped for this turn (best-effort, never blocks or
+// fails the turn itself).
+async function resolvePendingWriteIdsAtStartFact(params: {
+	conversationId: string;
+	streamId: string | null;
+	fact: StreamCompletionFact<Set<string>>;
+}): Promise<Set<string> | undefined> {
+	try {
+		return await resolveCompletionFact(params.fact);
+	} catch (error) {
+		console.warn(
+			"[CHAT_STREAM] Failed to snapshot pending writes at stream start",
 			{
 				conversationId: params.conversationId,
 				streamId: params.streamId,

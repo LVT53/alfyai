@@ -341,6 +341,7 @@ const ALBUM_NAME = "AlfyAI";
 
 async function proposeAddToAlbum(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: PhotosToolInput,
 	ambiguous: boolean,
@@ -403,6 +404,7 @@ async function proposeAddToAlbum(
 		}),
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	const message = withAmbiguityPrefix(
@@ -434,6 +436,7 @@ export async function runPhotosTool(
 	userId: string,
 	input: PhotosToolInput,
 	modelId: string,
+	conversationId?: string,
 ): Promise<PhotosToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "photos");
 	if (connections.length === 0) {
@@ -460,7 +463,14 @@ export async function runPhotosTool(
 	// validation below — same posture as calendar.ts's write branching ahead
 	// of its shared read flow.
 	if (input.action === "add_to_album") {
-		return proposeAddToAlbum(userId, conn, input, ambiguous, connections);
+		return proposeAddToAlbum(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
 	}
 
 	if (!input.query) {

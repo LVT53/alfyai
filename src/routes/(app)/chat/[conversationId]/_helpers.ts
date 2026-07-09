@@ -12,6 +12,7 @@ import type {
 	ModelId,
 	PendingAttachment,
 	PendingSkillSelection,
+	PendingWrite,
 	ReasoningDepth,
 	ResponseActivityEntry,
 	SkillDraftProposal,
@@ -20,6 +21,7 @@ import type {
 } from "$lib/types";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
 import {
+	isConnectionWriteToolName,
 	isFileProductionToolName,
 	toolCallInputKey,
 } from "$lib/utils/tool-calls";
@@ -196,7 +198,17 @@ export function shouldHydrateFileProductionJobsOnToolCall(
 	name: string,
 	status: "running" | "done",
 ): boolean {
-	return isFileProductionToolName(name) && status === "done";
+	// Issue 7.5 — also fires for a completed connection tool call (files/
+	// calendar/email/photos), not just produce_file: the runtime's only
+	// consumer of this predicate calls adapters.hydrateConversationDetail(),
+	// which +page.svelte's hydrateConversationDetail() also uses to refresh
+	// pending writes — reusing this exact same trigger point means a
+	// "save"/"send"/etc. write proposal's pending-write card can appear
+	// mid-turn without a second, parallel hydration mechanism.
+	return (
+		status === "done" &&
+		(isFileProductionToolName(name) || isConnectionWriteToolName(name))
+	);
 }
 
 export function mergeFileProductionJob(
@@ -224,6 +236,27 @@ export function attachUnassignedFileProductionJobsToAssistant(
 		job.assistantMessageId === null
 			? { ...job, assistantMessageId: params.assistantMessageId }
 			: job,
+	);
+}
+
+// Issue 7.5 — sibling to attachUnassignedFileProductionJobsToAssistant
+// above, applied to pending writes. This is a purely client-side
+// optimistic stamp: it runs synchronously the instant the turn's
+// assistantMessageId is known, so a pending write proposed mid-turn never
+// has a flicker window between "the message stops streaming" (which drops
+// it out of MessageArea's currentStreamingAssistantMessageId fallback
+// match) and refreshPendingWrites()'s async refetch landing. The refetch
+// still happens right alongside this (see +page.svelte) for durability —
+// this is only the zero-latency local update, not the source of truth.
+export function attachUnassignedPendingWritesToAssistant(
+	currentWrites: PendingWrite[],
+	params: { conversationId: string; assistantMessageId: string },
+): PendingWrite[] {
+	return currentWrites.map((write) =>
+		write.conversationId === params.conversationId &&
+		write.assistantMessageId === null
+			? { ...write, assistantMessageId: params.assistantMessageId }
+			: write,
 	);
 }
 

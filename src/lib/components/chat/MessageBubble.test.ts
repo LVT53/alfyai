@@ -1030,6 +1030,147 @@ describe("MessageBubble", () => {
 		).toBeDisabled();
 	});
 
+	it("renders a pending write attached to this message as an inline WriteConfirmCard and wires Confirm/Cancel by id", async () => {
+		// MessageBubble renders whatever `pendingWrites` it's handed — the
+		// assistantMessageId match against the surrounding message list
+		// happens one level up, in MessageArea's getPendingWritesForMessage
+		// (mirrors getFileProductionJobsForMessage; see MessageArea.test.ts).
+		const onConfirmWrite = vi.fn();
+		const onCancelWrite = vi.fn();
+		const message: ChatMessage = {
+			id: "assistant-1",
+			renderKey: "assistant-1",
+			role: "assistant",
+			content: "I've prepared the file.",
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, {
+			message,
+			pendingWrites: [
+				{
+					id: "pw-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					status: "pending",
+					provider: "nextcloud",
+					createdAt: 1,
+					preview: {
+						title: "Save note.txt to /AlfyAI",
+						detail: "files.put — /AlfyAI/note.txt",
+						reversible: true,
+						destructive: false,
+						withinAllowlist: true,
+						warnings: [],
+					},
+				},
+			],
+			onConfirmWrite,
+			onCancelWrite,
+		});
+
+		expect(
+			screen.getByRole("article", {
+				name: "Pending write: Save note.txt to /AlfyAI",
+			}),
+		).toBeInTheDocument();
+
+		await fireEvent.click(
+			screen.getByRole("button", {
+				name: "Confirm: Save note.txt to /AlfyAI",
+			}),
+		);
+		await fireEvent.click(
+			screen.getByRole("button", {
+				name: "Cancel: Save note.txt to /AlfyAI",
+			}),
+		);
+		expect(onConfirmWrite).toHaveBeenCalledWith("pw-1");
+		expect(onCancelWrite).toHaveBeenCalledWith("pw-1");
+	});
+
+	it("renders a pending write's busy/error action state keyed by write id", () => {
+		const message: ChatMessage = {
+			id: "assistant-1",
+			renderKey: "assistant-1",
+			role: "assistant",
+			content: "I've prepared the file.",
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, {
+			message,
+			pendingWrites: [
+				{
+					id: "pw-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					status: "pending",
+					provider: "nextcloud",
+					createdAt: 1,
+					preview: {
+						title: "Save note.txt to /AlfyAI",
+						detail: "files.put — /AlfyAI/note.txt",
+						reversible: true,
+						destructive: false,
+						withinAllowlist: true,
+						warnings: [],
+					},
+				},
+			],
+			writeActionState: {
+				"pw-1": { busy: true, error: "Failed to confirm the write." },
+			},
+		});
+
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"Failed to confirm the write.",
+		);
+		expect(
+			screen.getByRole("button", {
+				name: "Confirm: Save note.txt to /AlfyAI",
+			}),
+		).toBeDisabled();
+	});
+
+	it("renders a pending write already fetched as executed/cancelled in its terminal state (reload-durable)", () => {
+		const message: ChatMessage = {
+			id: "assistant-1",
+			renderKey: "assistant-1",
+			role: "assistant",
+			content: "I've prepared the file.",
+			timestamp: Date.now(),
+		};
+
+		render(MessageBubble, {
+			message,
+			pendingWrites: [
+				{
+					id: "pw-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					status: "executed",
+					provider: "nextcloud",
+					createdAt: 1,
+					etag: '"e1"',
+					preview: {
+						title: "Save note.txt to /AlfyAI",
+						detail: "files.put — /AlfyAI/note.txt",
+						reversible: true,
+						destructive: false,
+						withinAllowlist: true,
+						warnings: [],
+					},
+				},
+			],
+		});
+
+		expect(screen.getByText("Done — this was saved.")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Confirm|Cancel/ }),
+		).not.toBeInTheDocument();
+	});
+
 	it("asks the markdown renderer for compact source-link chips on assistant messages", async () => {
 		const message: ChatMessage = {
 			id: "assistant-link-1",

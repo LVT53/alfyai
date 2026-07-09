@@ -178,6 +178,7 @@ function makeAdapters(
 		),
 		applyStreamMetadata: vi.fn(),
 		attachFileProductionJobsToAssistantMessage: vi.fn(),
+		refreshPendingWrites: vi.fn(),
 		pollMessageEvidence: vi.fn(),
 		refreshMessageCost: vi.fn(),
 		hydrateConversationDetail: vi.fn(),
@@ -350,6 +351,11 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(
 			adapters.attachFileProductionJobsToAssistantMessage,
 		).toHaveBeenCalledWith("assistant-1");
+		// Issue 7.5 — fires at the same "assistant message id known" moment so
+		// a pending write proposed this turn picks up its server-backfilled
+		// assistantMessageId before it drops out of the streaming-fallback
+		// match.
+		expect(adapters.refreshPendingWrites).toHaveBeenCalledTimes(1);
 	});
 
 	it("sends Atlas turns through the send route adapter and starts polling detail", async () => {

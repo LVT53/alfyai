@@ -9,6 +9,7 @@ import type {
 	AtlasProfile,
 	DocumentWorkspaceItem,
 	FileProductionJob,
+	PendingWrite,
 	ConversationForkOrigin,
 	TaskSteeringPayload,
 } from "$lib/types";
@@ -22,6 +23,7 @@ let {
 	modelIcons = {},
 	fileProductionJobs = [],
 	atlasJobs = [],
+	pendingWrites = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	forkOrigin = null,
@@ -43,6 +45,9 @@ let {
 	onDismissFileProductionJob,
 	onCancelAtlasJob,
 	onAtlasLifecycleAction,
+	writeActionState = {},
+	onConfirmWrite = undefined,
+	onCancelWrite = undefined,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -51,6 +56,7 @@ let {
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
+	pendingWrites?: PendingWrite[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	forkOrigin?: ConversationForkOrigin | null;
@@ -89,6 +95,9 @@ let {
 		message: string;
 		profile: AtlasProfile;
 	}) => void | Promise<void>;
+	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	onConfirmWrite?: (writeId: string) => void | Promise<void>;
+	onCancelWrite?: (writeId: string) => void | Promise<void>;
 } = $props();
 </script>
 
@@ -106,6 +115,7 @@ let {
 		{modelIcons}
 		{fileProductionJobs}
 		{atlasJobs}
+		{pendingWrites}
 		{contextCompressionMarkers}
 		{hasActiveSkillSession}
 		{forkOrigin}
@@ -126,6 +136,9 @@ let {
 		{onDismissFileProductionJob}
 		{onCancelAtlasJob}
 		{onAtlasLifecycleAction}
+		{writeActionState}
+		{onConfirmWrite}
+		{onCancelWrite}
 	/>
 </div>
 

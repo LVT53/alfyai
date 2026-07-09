@@ -707,6 +707,7 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 					location: "Zoom",
 				},
 				LOCAL_MODEL_ID,
+				"conv-1",
 			);
 
 			expect(outcome.modelPayload.success).toBe(true);
@@ -723,6 +724,8 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			expect(call).toMatchObject({
 				connectionId: "conn-1",
 				provider: "google",
+				// 7.5 — threaded from ctx.conversationId.
+				conversationId: "conv-1",
 			});
 			expect(call?.op).toMatchObject({
 				provider: "google",

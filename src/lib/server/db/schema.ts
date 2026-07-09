@@ -2313,6 +2313,22 @@ export const connectionPendingWrites = sqliteTable(
 		// only the confirm call that ran the write ever seeing it (4.3
 		// review Minor #1).
 		etag: text("etag"),
+		// Issue 7.5 — nullable, indexed association to the conversation/
+		// assistant message that proposed this write, so the client can
+		// render an inline write-confirm card on reload without any
+		// server-side session state. Mirrors file_production_jobs'
+		// conversationId/assistantMessageId columns (schema.ts ~1628/1631)
+		// exactly: conversationId is threaded in at creation time (the
+		// write tool already has it via ctx), while assistantMessageId is
+		// unknown until the turn finalizes and is backfilled then (see
+		// assignPendingWritesToAssistantMessage in pending-writes.ts).
+		conversationId: text("conversation_id").references(() => conversations.id, {
+			onDelete: "cascade",
+		}),
+		assistantMessageId: text("assistant_message_id").references(
+			() => messages.id,
+			{ onDelete: "set null" },
+		),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -2322,5 +2338,12 @@ export const connectionPendingWrites = sqliteTable(
 			table.userId,
 			table.status,
 		),
+		conversationIdx: index("connection_pending_writes_conversation_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+		assistantMessageIdx: index(
+			"connection_pending_writes_assistant_message_idx",
+		).on(table.assistantMessageId, table.createdAt),
 	}),
 );

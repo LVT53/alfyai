@@ -135,6 +135,29 @@ const connectionsDict = {
 			"When on, a local model summarizes your connected-account data before any third-party cloud model sees it. This keeps raw data on-device but may reduce answer detail.",
 		"connections.locality.fidelityNote":
 			"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
+
+		// Issue 7.5 — inline write-confirm card (WriteConfirmCard.svelte). The
+		// write's title/detail/warnings text itself comes straight from the
+		// server (write-guard.ts's buildWritePreview) and is not localized
+		// here — only this card's static chrome is.
+		"connections.writeConfirm.eyebrow": "Pending write",
+		"connections.writeConfirm.cardLabel": "Pending write: {title}",
+		"connections.writeConfirm.confirm": "Confirm",
+		"connections.writeConfirm.confirmA11y": "Confirm: {title}",
+		"connections.writeConfirm.cancel": "Cancel",
+		"connections.writeConfirm.cancelA11y": "Cancel: {title}",
+		"connections.writeConfirm.busy": "Working…",
+		"connections.writeConfirm.destructiveBadge": "Destructive",
+		"connections.writeConfirm.notReversibleBadge": "Not reversible",
+		"connections.writeConfirm.etag": "Confirmation ref: {etag}",
+		"connections.writeConfirm.status.executing": "This write is being applied…",
+		"connections.writeConfirm.status.executed": "Done — this was saved.",
+		"connections.writeConfirm.status.cancelled":
+			"Cancelled — this was not saved.",
+		"connections.writeConfirm.status.failed":
+			"This write failed and was not applied.",
+		"connections.writeConfirm.confirmError": "Failed to confirm the write.",
+		"connections.writeConfirm.cancelError": "Failed to cancel the write.",
 	},
 	hu: {
 		"connections.actions.connect": "Csatlakoztatás",
@@ -269,6 +292,29 @@ const connectionsDict = {
 			"Ha bekapcsolod, egy helyi modell összegzi a csatlakoztatott fiókjaid adatait, mielőtt bármelyik harmadik féltől származó felhőalapú modell látná őket. Ez az eszközön tartja a nyers adatokat, de csökkentheti a válasz részletességét.",
 		"connections.locality.fidelityNote":
 			"A helyi összegzés a kérdésed szempontjából releváns részleteket próbálja megőrizni, bár a nyers adatküldéshez képest némi árnyaltság elveszhet.",
+
+		// Issue 7.5 — inline write-confirm card (WriteConfirmCard.svelte).
+		"connections.writeConfirm.eyebrow": "Függőben lévő írás",
+		"connections.writeConfirm.cardLabel": "Függőben lévő írás: {title}",
+		"connections.writeConfirm.confirm": "Jóváhagyás",
+		"connections.writeConfirm.confirmA11y": "Jóváhagyás: {title}",
+		"connections.writeConfirm.cancel": "Mégse",
+		"connections.writeConfirm.cancelA11y": "Mégse: {title}",
+		"connections.writeConfirm.busy": "Feldolgozás…",
+		"connections.writeConfirm.destructiveBadge": "Visszavonhatatlan hatású",
+		"connections.writeConfirm.notReversibleBadge": "Nem vonható vissza",
+		"connections.writeConfirm.etag": "Visszaigazolási azonosító: {etag}",
+		"connections.writeConfirm.status.executing":
+			"Ez az írás most kerül végrehajtásra…",
+		"connections.writeConfirm.status.executed": "Kész — ez elmentve.",
+		"connections.writeConfirm.status.cancelled":
+			"Megszakítva — ez nem lett elmentve.",
+		"connections.writeConfirm.status.failed":
+			"Ez az írás nem sikerült, és nem lett alkalmazva.",
+		"connections.writeConfirm.confirmError":
+			"Nem sikerült jóváhagyni az írást.",
+		"connections.writeConfirm.cancelError":
+			"Nem sikerült megszakítani az írást.",
 	},
 } as const;
 

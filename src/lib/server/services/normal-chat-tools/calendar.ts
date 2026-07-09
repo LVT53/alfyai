@@ -479,6 +479,7 @@ function isCalendarWriteAction(
 
 async function proposeCreateEvent(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 	ambiguous: boolean,
@@ -530,6 +531,7 @@ async function proposeCreateEvent(
 		content: JSON.stringify({ calendarId, event: eventFields }),
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	const message = withAmbiguityPrefix(
@@ -550,6 +552,7 @@ async function proposeCreateEvent(
 
 async function proposeUpdateOrDeleteEvent(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 	action: "update_event" | "delete_event",
@@ -663,6 +666,7 @@ async function proposeUpdateOrDeleteEvent(
 		// screen, a channel entirely separate from the model-facing payload
 		// built below. It is never sent back through the model.
 		preview: rawPreview,
+		conversationId,
 	});
 
 	// Option A (locality): `existing.summary`/`existing.location` are
@@ -746,6 +750,7 @@ const APPLE_MISSING_CONFIG_MESSAGE =
 
 async function proposeAppleCreateEvent(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 	ambiguous: boolean,
@@ -804,6 +809,7 @@ async function proposeAppleCreateEvent(
 		content: JSON.stringify({ calendarUrl, event: eventFields }),
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	const message = withAmbiguityPrefix(
@@ -824,6 +830,7 @@ async function proposeAppleCreateEvent(
 
 async function proposeAppleUpdateOrDeleteEvent(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 	action: "update_event" | "delete_event",
@@ -974,6 +981,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 		// matching comment in proposeUpdateOrDeleteEvent (Google) above; the
 		// same posture applies here.
 		preview: rawPreview,
+		conversationId,
 	});
 
 	// Option A (locality): `existing.summary`/`existing.location` are
@@ -1029,6 +1037,7 @@ async function proposeAppleUpdateOrDeleteEvent(
 
 async function calendarWriteOutcome(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 	action: CalendarWriteAction,
@@ -1072,9 +1081,17 @@ async function calendarWriteOutcome(
 
 	if (conn.provider === "apple") {
 		return action === "create_event"
-			? proposeAppleCreateEvent(userId, conn, input, ambiguous, connections)
+			? proposeAppleCreateEvent(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				)
 			: proposeAppleUpdateOrDeleteEvent(
 					userId,
+					conversationId,
 					conn,
 					input,
 					action,
@@ -1085,10 +1102,18 @@ async function calendarWriteOutcome(
 	}
 
 	if (action === "create_event") {
-		return proposeCreateEvent(userId, conn, input, ambiguous, connections);
+		return proposeCreateEvent(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
 	}
 	return proposeUpdateOrDeleteEvent(
 		userId,
+		conversationId,
 		conn,
 		input,
 		action,
@@ -1108,6 +1133,7 @@ export async function runCalendarTool(
 	userId: string,
 	input: CalendarToolInput,
 	modelId: string,
+	conversationId?: string,
 ): Promise<CalendarToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "calendar");
 	if (connections.length === 0) {
@@ -1136,6 +1162,7 @@ export async function runCalendarTool(
 	if (isCalendarWriteAction(input.action)) {
 		return calendarWriteOutcome(
 			userId,
+			conversationId,
 			conn,
 			input,
 			input.action,

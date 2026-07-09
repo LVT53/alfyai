@@ -24,6 +24,7 @@ import type {
 	ConversationForkOrigin,
 	DocumentWorkspaceItem,
 	FileProductionJob,
+	PendingWrite,
 	TaskSteeringPayload,
 } from "$lib/types";
 import MessageBubble from "./MessageBubble.svelte";
@@ -39,6 +40,7 @@ let {
 	modelIcons = {},
 	fileProductionJobs = [],
 	atlasJobs = [],
+	pendingWrites = [],
 	contextCompressionMarkers = [],
 	hasActiveSkillSession = false,
 	activeSkillSessionHeight = 0,
@@ -61,6 +63,9 @@ let {
 	onCancelAtlasJob = undefined,
 	onAtlasLifecycleAction = undefined,
 	onRetryContextCompression = undefined,
+	writeActionState = {},
+	onConfirmWrite = undefined,
+	onCancelWrite = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -69,6 +74,7 @@ let {
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
+	pendingWrites?: PendingWrite[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	hasActiveSkillSession?: boolean;
 	activeSkillSessionHeight?: number;
@@ -130,6 +136,9 @@ let {
 	onRetryContextCompression?:
 		| ((payload: { markerId: string }) => void | Promise<void>)
 		| undefined;
+	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
+	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
+	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -452,6 +461,30 @@ function getFileProductionJobsForMessage(
 	});
 }
 
+// Issue 7.5 — same matching rule as getFileProductionJobsForMessage above,
+// applied to connection_pending_writes: a write already stamped with its
+// assistantMessageId (the common case — reload, or after finalize's
+// server-side backfill lands) matches that message directly; a write still
+// unstamped (assistantMessageId === null, e.g. a write proposed moments ago
+// mid-stream, before this turn's assistant message id is known) falls back
+// to matching the CURRENTLY STREAMING assistant message by
+// conversationId + a recency window against the message's timestamp —
+// exactly like a file-production job created mid-turn shows up on the
+// in-progress assistant bubble before its own backfill has run.
+function getPendingWritesForMessage(message: ChatMessage): PendingWrite[] {
+	return pendingWrites.filter((write) => {
+		if (write.assistantMessageId === message.id) return true;
+		if (write.assistantMessageId != null) return false;
+		if (
+			message.role !== "assistant" ||
+			message.id !== currentStreamingAssistantMessageId
+		)
+			return false;
+		if (conversationId && write.conversationId !== conversationId) return false;
+		return write.createdAt >= message.timestamp - 1000;
+	});
+}
+
 function getAtlasJobsForMessage(message: ChatMessage): AtlasJobCard[] {
 	return atlasJobs.filter((job) => {
 		if (job.assistantMessageId === message.id) return true;
@@ -671,6 +704,7 @@ async function scrollToMessage(messageId: string) {
 					{modelIcons}
 					fileProductionJobs={getFileProductionJobsForMessage(message)}
 					atlasJobs={getAtlasJobsForMessage(message)}
+					pendingWrites={getPendingWritesForMessage(message)}
 					{conversationId}
 					{readOnly}
 					{onRegenerate}
@@ -689,6 +723,9 @@ async function scrollToMessage(messageId: string) {
 				{onDismissFileProductionJob}
 					{onCancelAtlasJob}
 					{onAtlasLifecycleAction}
+					{writeActionState}
+					{onConfirmWrite}
+					{onCancelWrite}
 				/>
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div

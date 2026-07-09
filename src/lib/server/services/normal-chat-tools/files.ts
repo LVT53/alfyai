@@ -314,6 +314,7 @@ async function wouldOverwrite(
 // separate request entirely.
 async function saveOutcome(
 	userId: string,
+	conversationId: string | undefined,
 	conn: ConnectionPublic,
 	input: FilesToolInput,
 	ambiguous: boolean,
@@ -374,6 +375,7 @@ async function saveOutcome(
 		content: input.content,
 		idempotencyKey: idempotencyKey(op),
 		preview,
+		conversationId,
 	});
 
 	const message = withAmbiguityPrefix(
@@ -458,6 +460,7 @@ export async function runFilesTool(
 	userId: string,
 	input: FilesToolInput,
 	modelId: string,
+	conversationId?: string,
 ): Promise<FilesToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "files");
 	if (connections.length === 0) {
@@ -485,7 +488,14 @@ export async function runFilesTool(
 	// before the shared getConnectionSecret call below — and manages its own
 	// secret fetch internally once the gate has passed.
 	if (input.action === "save") {
-		return saveOutcome(userId, conn, input, ambiguous, connections);
+		return saveOutcome(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
 	}
 
 	const secret = await getConnectionSecret(userId, conn.id);

@@ -398,6 +398,7 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 			"user-1",
 			{ action: "add_to_album", assetIds: ["asset-1", "asset-2"] },
 			LOCAL_MODEL_ID,
+			"conv-1",
 		);
 
 		expect(outcome.modelPayload.success).toBe(true);
@@ -409,7 +410,12 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 
 		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
 		const call = createPendingWriteMock.mock.calls[0]?.[1];
-		expect(call).toMatchObject({ connectionId: "conn-1", provider: "immich" });
+		expect(call).toMatchObject({
+			connectionId: "conn-1",
+			provider: "immich",
+			// 7.5 — threaded from ctx.conversationId.
+			conversationId: "conv-1",
+		});
 		expect(call?.op).toMatchObject({
 			provider: "immich",
 			connectionId: "conn-1",

@@ -134,6 +134,15 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	attachFileProductionJobsToAssistantMessage: (
 		assistantMessageId: string,
 	) => void;
+	// Issue 7.5 — called at the same "assistant message id is now known"
+	// moment as attachFileProductionJobsToAssistantMessage above, so any
+	// pending write proposed this turn picks up its server-backfilled
+	// assistantMessageId (see reconcilePendingWritesForAssistantMessage,
+	// chat-turn/finalize.ts) before the message transitions out of the
+	// "currently streaming" fallback match in MessageArea's
+	// getPendingWritesForMessage — without this, the write-confirm card
+	// would briefly disappear the instant the turn finishes streaming.
+	refreshPendingWrites?: () => void;
 	pollMessageEvidence: (assistantMessageId: string) => void;
 	refreshMessageCost: (assistantMessageId: string) => void;
 	hydrateConversationDetail: () => void;
@@ -397,6 +406,7 @@ export function createNormalChatClientTurnRuntime(
 		const serverAssistantId = metadata?.assistantMessageId;
 		if (serverAssistantId) {
 			adapters.attachFileProductionJobsToAssistantMessage(serverAssistantId);
+			adapters.refreshPendingWrites?.();
 		}
 		return serverAssistantId ?? null;
 	}

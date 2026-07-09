@@ -825,6 +825,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											ctx.userId,
 											safeInput,
 											ctx.modelId ?? "model1",
+											ctx.conversationId,
 										);
 										return {
 											modelPayload,
@@ -905,6 +906,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											ctx.userId,
 											safeInput,
 											ctx.modelId ?? "model1",
+											ctx.conversationId,
 										);
 										return {
 											modelPayload,
@@ -986,6 +988,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											ctx.userId,
 											safeInput,
 											ctx.modelId ?? "model1",
+											ctx.conversationId,
 										);
 										return {
 											modelPayload,
@@ -1066,6 +1069,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											ctx.userId,
 											safeInput,
 											ctx.modelId ?? "model1",
+											ctx.conversationId,
 										);
 										return {
 											modelPayload,
