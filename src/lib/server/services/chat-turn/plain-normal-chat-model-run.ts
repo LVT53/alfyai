@@ -176,10 +176,22 @@ export async function runPlainNormalChatSendModel(
 		runtime.depthEffort,
 		clarification,
 	);
+	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
+	// resolved later, inside createToolPack, which meant
+	// prepareOutboundChatContext had no way to know the turn's active
+	// capabilities and the proactive_connector_context stage could never gate
+	// on them. Fail closed on error, same posture as the try/catch this
+	// replaced: a connections-lookup hiccup should never block the turn, just
+	// mean no connection-backed tools/context this turn.
+	const enabledConnectionCapabilities = await resolveActiveCapabilities(
+		params.userId,
+		params.enabledConnectionCapabilities,
+	).catch(() => new Set<Capability>());
 	const prepared = await prepareOutboundContext(
 		params,
 		runtime,
 		activeDepthEffort,
+		enabledConnectionCapabilities,
 	);
 	const turnId = params.createTurnId?.() ?? randomUUID();
 	const toolPack = await createToolPack(
@@ -187,6 +199,7 @@ export async function runPlainNormalChatSendModel(
 		turnId,
 		activeDepthEffort,
 		runtime.modelId,
+		enabledConnectionCapabilities,
 	);
 	const deliberation = await runDeliberationIfNeeded(
 		params,
@@ -325,6 +338,7 @@ async function prepareOutboundContext(
 	params: PlainNormalChatSendModelParams,
 	runtime: ProviderRuntime,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
+	enabledConnectionCapabilities: Set<Capability>,
 ): Promise<PreparedModelContext> {
 	return prepareOutboundChatContext({
 		message: params.message,
@@ -352,6 +366,7 @@ async function prepareOutboundContext(
 		contextLimits:
 			activeDepthEffort?.contextLimits ?? runtime.baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		activeConnectionCapabilities: enabledConnectionCapabilities,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider request",
@@ -363,16 +378,8 @@ async function createToolPack(
 	turnId: string,
 	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
 	modelId: ModelId,
+	enabledConnectionCapabilities: Set<Capability>,
 ): Promise<ToolPack> {
-	// Fail closed on error — a connections-lookup hiccup should never block
-	// the turn, it should just mean no connection-backed tools this turn.
-	// resolveActiveCapabilities itself fails closed on a client-supplied
-	// selection (Issue 7.2): it can only narrow the server's served set, it
-	// can never grant a capability the user doesn't have a connection for.
-	const enabledConnectionCapabilities = await resolveActiveCapabilities(
-		params.userId,
-		params.enabledConnectionCapabilities,
-	).catch(() => new Set<Capability>());
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,

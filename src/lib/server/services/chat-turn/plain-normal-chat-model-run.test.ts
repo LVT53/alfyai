@@ -778,4 +778,30 @@ describe("runPlainNormalChatSendModel", () => {
 			}),
 		);
 	});
+
+	// Issue 8.1 — resolveActiveCapabilities used to only be resolved inside
+	// createToolPack, after prepareOutboundChatContext already ran, so the
+	// context-preparation pipeline's proactive_connector_context stage had no
+	// way to know the turn's active capabilities. It is now resolved once,
+	// ahead of context prep, and the SAME resolved Set is reused for both
+	// call sites.
+	it("resolves active capabilities once and passes the same set into both context prep and tool creation", async () => {
+		mocks.resolveActiveCapabilities.mockResolvedValue(new Set(["calendar"]));
+
+		await runSubject({
+			createTurnId: () => "normal-chat-turn-1",
+		});
+
+		expect(mocks.resolveActiveCapabilities).toHaveBeenCalledTimes(1);
+		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				activeConnectionCapabilities: new Set(["calendar"]),
+			}),
+		);
+		expect(mocks.createNormalChatTools).toHaveBeenCalledWith(
+			expect.objectContaining({
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			}),
+		);
+	});
 });

@@ -24,7 +24,9 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
+import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-context";
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
+import type { Capability } from "./connections/registry";
 import type { ContextCompressionControlSender } from "./context-compression";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
@@ -1782,6 +1784,13 @@ type PrepareOutboundChatContextParams = {
 	compressionControlMessageSender?: ContextCompressionControlSender;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	onContextPreparationActivity?: NormalChatContextPreparationActivityCallback;
+	// Issue 8.1 — the turn's resolved active capability set (calendar/email/
+	// etc.), resolved by the caller (resolveActiveCapabilities) BEFORE calling
+	// prepareOutboundChatContext rather than after, specifically so the
+	// proactive_connector_context stage can gate its fetch on it. Undefined
+	// (older/partial call sites) is treated the same as an empty set — the
+	// stage simply injects nothing, never fails the turn.
+	activeConnectionCapabilities?: ReadonlySet<Capability>;
 	logLabel: string;
 };
 
@@ -1977,6 +1986,81 @@ async function runForcedWebPrefetchStage(input: {
 	};
 }
 
+// Issue 8.1 — proactive_connector_context stage. Mirrors
+// runForcedWebPrefetchStage above exactly: build the (locality-gated,
+// budget-bounded) block in a separate module, splice it in with the SAME
+// insertContextBeforeCurrentMessage helper the web-prefetch stage uses, and
+// only rebuild the system prompt when something was actually injected.
+// Never throws: buildProactiveConnectorContext already fails safe (silently
+// skips a broken connector, withholds on distill-unavailable), and the
+// `.catch` below is a second backstop so a bug in that module can never
+// abort the chat turn — same posture as maybePrefetchWebResearch's own
+// try/catch.
+async function runProactiveConnectorContextStage(input: {
+	params: PrepareOutboundChatContextParams;
+	state: OutboundChatContextPreparationState;
+}): Promise<
+	Pick<OutboundChatContextPreparationState, "inputValue"> &
+		Partial<
+			Pick<
+				OutboundChatContextPreparationState,
+				"systemPrompt" | "promptPackPlan"
+			>
+		>
+> {
+	const { params, state } = input;
+	const userId = params.user?.id;
+	const activeCapabilities = params.activeConnectionCapabilities;
+	if (
+		!userId ||
+		!activeCapabilities ||
+		(!activeCapabilities.has("calendar") && !activeCapabilities.has("email"))
+	) {
+		return { inputValue: state.inputValue };
+	}
+
+	const built = await buildProactiveConnectorContext({
+		userId,
+		conversationId: params.sessionId,
+		modelId: params.modelId ?? "model1",
+		message: params.message,
+		activeCapabilities,
+		targetConstructedContextTokens: requirePreparationValue(
+			state.contextLimits,
+			"contextLimits",
+		).targetConstructedContext,
+	}).catch((error) => {
+		console.warn(
+			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Proactive connector context skipped`,
+			{
+				sessionId: params.sessionId,
+				modelId: params.modelId ?? "model1",
+				error: error instanceof Error ? error.message : String(error),
+			},
+		);
+		return null;
+	});
+
+	if (!built) {
+		return { inputValue: state.inputValue };
+	}
+
+	const nextState = {
+		...state,
+		inputValue: insertContextBeforeCurrentMessage(
+			state.inputValue,
+			params.message,
+			built.block,
+		),
+	};
+	const builtPrompt = buildPreparationSystemPrompt(params, nextState);
+	return {
+		inputValue: nextState.inputValue,
+		systemPrompt: builtPrompt.systemPrompt,
+		promptPackPlan: builtPrompt.promptPackPlan,
+	};
+}
+
 function runPromptBudgetStage(input: {
 	params: PrepareOutboundChatContextParams;
 	state: OutboundChatContextPreparationState;
@@ -2150,6 +2234,12 @@ export async function prepareOutboundChatContext(
 					},
 					forced_web_prefetch: async (currentState) => {
 						return runForcedWebPrefetchStage({
+							params,
+							state: currentState,
+						});
+					},
+					proactive_connector_context: async (currentState) => {
+						return runProactiveConnectorContextStage({
 							params,
 							state: currentState,
 						});

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
+	buildProactiveConnectorContext: vi.fn(),
 	getLatestValidContextCompressionSnapshot: vi.fn(),
 	getConfig: vi.fn(),
 	getSystemPrompt: vi.fn(),
@@ -43,6 +44,10 @@ vi.mock("./context-compression", () => ({
 
 vi.mock("./web-research", () => ({
 	researchWeb: mocks.researchWeb,
+}));
+
+vi.mock("./chat-turn/proactive-connector-context", () => ({
+	buildProactiveConnectorContext: mocks.buildProactiveConnectorContext,
 }));
 
 import {
@@ -157,6 +162,7 @@ describe("normal chat context preparation stages", () => {
 			"system_prompt",
 			"automatic_compression",
 			"forced_web_prefetch",
+			"proactive_connector_context",
 			"prompt_budget",
 		];
 
@@ -172,6 +178,7 @@ describe("normal chat context preparation stages", () => {
 			["system_prompt"],
 			["automatic_compression"],
 			["forced_web_prefetch"],
+			["proactive_connector_context"],
 		]);
 	});
 
@@ -372,6 +379,7 @@ describe("prepareOutboundChatContext", () => {
 			id: "snapshot-1",
 			status: "valid",
 		});
+		mocks.buildProactiveConnectorContext.mockResolvedValue(null);
 		mocks.summarizeAttachmentSectionInInput.mockReturnValue({
 			hasMarker: false,
 			preview: "",
@@ -890,6 +898,8 @@ describe("prepareOutboundChatContext", () => {
 				"automatic_compression:done",
 				"forced_web_prefetch:started",
 				"forced_web_prefetch:done",
+				"proactive_connector_context:started",
+				"proactive_connector_context:done",
 				"prompt_budget:started",
 				"prompt_budget:done",
 			]),
@@ -903,10 +913,13 @@ describe("prepareOutboundChatContext", () => {
 		expect(eventIndex("system_prompt:started")).toBeGreaterThan(
 			eventIndex("base_prompt:done"),
 		);
-		expect(eventIndex("prompt_budget:started")).toBeGreaterThan(
+		expect(eventIndex("proactive_connector_context:started")).toBeGreaterThan(
 			eventIndex("forced_web_prefetch:done"),
 		);
-		expect(prepared.contextPreparationTimings).toHaveLength(8);
+		expect(eventIndex("prompt_budget:started")).toBeGreaterThan(
+			eventIndex("proactive_connector_context:done"),
+		);
+		expect(prepared.contextPreparationTimings).toHaveLength(9);
 		expect(
 			prepared.contextPreparationTimings?.map((timing) => ({
 				stageId: timing.stageId,
@@ -954,6 +967,12 @@ describe("prepareOutboundChatContext", () => {
 			{
 				stageId: "forced_web_prefetch",
 				activityClass: "web-grounding",
+				status: "done",
+				durationMs: expect.any(Number),
+			},
+			{
+				stageId: "proactive_connector_context",
+				activityClass: "context-retrieval",
 				status: "done",
 				durationMs: expect.any(Number),
 			},
@@ -1540,5 +1559,220 @@ describe("prepareOutboundChatContext", () => {
 		} finally {
 			warn.mockRestore();
 		}
+	});
+
+	describe("proactive_connector_context stage (Issue 8.1)", () => {
+		const stageContextLimits = {
+			maxModelContext: 262_144,
+			compactionUiThreshold: 209_715,
+			targetConstructedContext: 157_286,
+		};
+
+		it("injects the block returned by buildProactiveConnectorContext before the current user message", async () => {
+			mocks.buildProactiveConnectorContext.mockResolvedValue({
+				block:
+					"## Your calendar & mail (live)\n\nCalendar (next 48h):\n- 2026-07-09 15:00–15:30 — Team sync",
+			});
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Do I have any meetings today?"),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "Do I have any meetings today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["calendar"]),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.buildProactiveConnectorContext).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "user-1",
+					conversationId: "conv-1",
+					modelId: "model1",
+					message: "Do I have any meetings today?",
+					activeCapabilities: new Set(["calendar"]),
+				}),
+			);
+			expect(
+				prepared.inputValue.indexOf("## Your calendar & mail (live)"),
+			).toBeGreaterThanOrEqual(0);
+			expect(
+				prepared.inputValue.indexOf("## Your calendar & mail (live)"),
+			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
+			expect(prepared.inputValue).toContain("Team sync");
+		});
+
+		it("does not call buildProactiveConnectorContext when no capability set is provided", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Do I have any meetings today?"),
+			);
+			await prepareOutboundChatContext({
+				message: "Do I have any meetings today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.buildProactiveConnectorContext).not.toHaveBeenCalled();
+		});
+
+		it("does not call buildProactiveConnectorContext when the active set has neither calendar nor email", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Do I have any meetings today?"),
+			);
+			await prepareOutboundChatContext({
+				message: "Do I have any meetings today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["files"] as never),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.buildProactiveConnectorContext).not.toHaveBeenCalled();
+		});
+
+		it("does not call buildProactiveConnectorContext without an authenticated user", async () => {
+			const prepared = await prepareOutboundChatContext({
+				message: "Do I have any meetings today?",
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["calendar"]),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.buildProactiveConnectorContext).not.toHaveBeenCalled();
+			expect(prepared.inputValue).not.toContain(
+				"## Your calendar & mail (live)",
+			);
+		});
+
+		it("injects nothing when buildProactiveConnectorContext resolves null (capability active but message not relevant, or nothing to show)", async () => {
+			mocks.buildProactiveConnectorContext.mockResolvedValue(null);
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Write me a poem about the ocean"),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "Write me a poem about the ocean",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["calendar", "email"]),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(prepared.inputValue).not.toContain(
+				"## Your calendar & mail (live)",
+			);
+		});
+
+		it("rebuilds the system prompt after the proactive connector context injects a block", async () => {
+			mocks.buildProactiveConnectorContext.mockResolvedValue({
+				block:
+					"## Your calendar & mail (live)\n\nCalendar (next 48h):\n- 2026-07-09 15:00–15:30 — Team sync",
+			});
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Do I have any meetings today?"),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "Do I have any meetings today?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["calendar"]),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(prepared.systemPrompt).toContain("Base system prompt");
+		});
+
+		it("silently continues (never throws, never breaks the turn) when buildProactiveConnectorContext rejects", async () => {
+			mocks.buildProactiveConnectorContext.mockRejectedValue(
+				new Error("connector fetch exploded"),
+			);
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("Do I have any meetings today?"),
+			);
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementation(() => undefined);
+
+			try {
+				const prepared = await prepareOutboundChatContext({
+					message: "Do I have any meetings today?",
+					sessionId: "conv-1",
+					modelConfig,
+					user: { id: "user-1" },
+					modelId: "model1",
+					activeConnectionCapabilities: new Set(["calendar"]),
+					contextLimits: stageContextLimits,
+					logLabel: "provider request",
+				});
+
+				expect(prepared.inputValue).not.toContain(
+					"## Your calendar & mail (live)",
+				);
+				expect(warn).toHaveBeenCalledWith(
+					"[NORMAL_CHAT_CONTEXT] Proactive connector context skipped",
+					expect.objectContaining({
+						sessionId: "conv-1",
+						modelId: "model1",
+						error: "connector fetch exploded",
+					}),
+				);
+			} finally {
+				warn.mockRestore();
+			}
+		});
+
+		it("combines with a forced web prefetch in the same turn without either clobbering the other", async () => {
+			mocks.buildProactiveConnectorContext.mockResolvedValue({
+				block:
+					"## Your calendar & mail (live)\n\nCalendar (next 48h):\n- 2026-07-09 15:00–15:30 — Team sync",
+			});
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"What changed today, and do I have any meetings?",
+				),
+			);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "What changed today, and do I have any meetings?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				forceWebSearch: true,
+				modelId: "model1",
+				activeConnectionCapabilities: new Set(["calendar"]),
+				contextLimits: stageContextLimits,
+				logLabel: "provider request",
+			});
+
+			expect(prepared.inputValue).toContain("## Current Web Research");
+			expect(prepared.inputValue).toContain("## Your calendar & mail (live)");
+			expect(
+				prepared.inputValue.indexOf("## Current Web Research"),
+			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
+			expect(
+				prepared.inputValue.indexOf("## Your calendar & mail (live)"),
+			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
+		});
 	});
 });

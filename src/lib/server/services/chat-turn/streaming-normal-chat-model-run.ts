@@ -164,6 +164,17 @@ export async function runStreamingNormalChatSendModel(
 	const fileProductionToolsAvailable = shouldExposeFileProductionTools({
 		message: params.message,
 	});
+	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
+	// resolved later, right before createNormalChatTools, which meant
+	// prepareOutboundChatContext had no way to know the turn's active
+	// capabilities and the proactive_connector_context stage could never gate
+	// on them. Fail closed on error, same posture as the try/catch this
+	// replaced: a connections-lookup hiccup should never block the turn, just
+	// mean no connection-backed tools/context this turn.
+	const enabledConnectionCapabilities = await resolveActiveCapabilities(
+		params.userId,
+		params.enabledConnectionCapabilities,
+	).catch(() => new Set<Capability>());
 	const prepared = await prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
@@ -181,20 +192,12 @@ export async function runStreamingNormalChatSendModel(
 		modelId,
 		contextLimits: activeDepthEffort?.contextLimits ?? baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
+		activeConnectionCapabilities: enabledConnectionCapabilities,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel: "provider streaming request",
 	});
 	const turnId = params.createTurnId?.() ?? randomUUID();
-	// Fail closed on error — a connections-lookup hiccup should never block
-	// the turn, it should just mean no connection-backed tools this turn.
-	// resolveActiveCapabilities itself fails closed on a client-supplied
-	// selection (Issue 7.2): it can only narrow the server's served set, it
-	// can never grant a capability the user doesn't have a connection for.
-	const enabledConnectionCapabilities = await resolveActiveCapabilities(
-		params.userId,
-		params.enabledConnectionCapabilities,
-	).catch(() => new Set<Capability>());
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
