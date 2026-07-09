@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { uiLanguage } from "$lib/stores/settings";
+import { selectedModel, uiLanguage } from "$lib/stores/settings";
 import type { PendingAttachment } from "$lib/types";
 import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
@@ -62,6 +62,9 @@ const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
 const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
+const checkCloudWarningMock = vi.hoisted(() => vi.fn());
+const ackCloudConnectorMock = vi.hoisted(() => vi.fn());
+const setLocalDistillMock = vi.hoisted(() => vi.fn());
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
@@ -77,12 +80,16 @@ vi.mock("$lib/client/api/conversations", () => ({
 
 vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
+	checkCloudWarning: checkCloudWarningMock,
+	ackCloudConnector: ackCloudConnectorMock,
+	setLocalDistill: setLocalDistillMock,
 }));
 
 describe("MessageInput", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
+		selectedModel.set("model1");
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],
@@ -2211,6 +2218,7 @@ describe("MessageInput composer capability toggles", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
+		selectedModel.set("model1");
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],
@@ -2328,5 +2336,242 @@ describe("MessageInput composer capability toggles", () => {
 			"aria-checked",
 			"false",
 		);
+	});
+});
+
+describe("MessageInput cloud connector warning (Option C)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+	});
+
+	async function typeAndSend(
+		getByPlaceholderText: (text: string) => HTMLElement,
+		getByRole: (role: string, options?: Record<string, unknown>) => HTMLElement,
+		text = "What's on my calendar?",
+	) {
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: text },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+	}
+
+	it("checks the cloud warning and blocks send when shouldWarn is true", async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByText } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole);
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith("provider:abc:def", [
+				"calendar",
+			]);
+		});
+		expect(
+			await findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(sendSpy).not.toHaveBeenCalled();
+	});
+
+	it("does not call the warning check for a local (non-provider) model", async () => {
+		selectedModel.set("model1");
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole);
+
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+		expect(sendSpy).toHaveBeenCalled();
+	});
+
+	it("does not call the warning check when there are no active capabilities", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		selectedModel.set("provider:abc:def");
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			onSend: sendSpy,
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole);
+
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+		expect(sendSpy).toHaveBeenCalled();
+	});
+
+	it("sends immediately without a modal when the server reports shouldWarn:false", async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: false });
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByText } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole);
+
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalled();
+		});
+		expect(
+			queryByText("Sending data to a cloud model"),
+		).not.toBeInTheDocument();
+	});
+
+	it('"Continue" acknowledges then sends the original message', async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByRole } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole, "Cloud send please");
+
+		const continueBtn = await findByRole("button", { name: "Continue" });
+		await fireEvent.click(continueBtn);
+
+		await waitFor(() => {
+			expect(ackCloudConnectorMock).toHaveBeenCalled();
+		});
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ message: "Cloud send please" }),
+			);
+		});
+	});
+
+	it('"Cancel" aborts the send and preserves the composer text', async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByRole } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole, "Don't lose me");
+
+		const cancelBtn = await findByRole("button", { name: "Cancel" });
+		await fireEvent.click(cancelBtn);
+
+		// The send is aborted (never dispatched) and the composer text is
+		// preserved exactly as typed — the DOM-removal timing of the modal's
+		// own outro transition isn't asserted here (Svelte transitions don't
+		// resolve reliably under jsdom); the cancel handler flipping
+		// cloudWarningOpen synchronously is covered by it no longer accepting
+		// further "Continue"/"Turn on local mode" interactions below.
+		expect(sendSpy).not.toHaveBeenCalled();
+		expect(
+			(getByPlaceholderText("Type a message...") as HTMLTextAreaElement).value,
+		).toBe("Don't lose me");
+
+		// A fresh send re-triggers the check from scratch (the earlier one was
+		// aborted, not acknowledged).
+		checkCloudWarningMock.mockClear();
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalled();
+		});
+	});
+
+	it('"Turn on local mode" enables local distill then sends', async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		setLocalDistillMock.mockResolvedValue({ localDistill: true });
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByRole } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole);
+
+		const localModeBtn = await findByRole("button", {
+			name: "Turn on local mode",
+		});
+		await fireEvent.click(localModeBtn);
+
+		await waitFor(() => {
+			expect(setLocalDistillMock).toHaveBeenCalledWith(true);
+		});
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalled();
+		});
+	});
+
+	it("does not re-check the warning for a later send in the same session once acknowledged via Continue", async () => {
+		selectedModel.set("provider:abc:def");
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, findByRole } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		await typeAndSend(getByPlaceholderText, getByRole, "first");
+		const continueBtn = await findByRole("button", { name: "Continue" });
+		await fireEvent.click(continueBtn);
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledTimes(1);
+		});
+
+		checkCloudWarningMock.mockClear();
+		await typeAndSend(getByPlaceholderText, getByRole, "second");
+
+		await waitFor(() => {
+			expect(sendSpy).toHaveBeenCalledTimes(2);
+		});
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
 	});
 });

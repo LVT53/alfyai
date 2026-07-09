@@ -3,7 +3,12 @@ import { onMount } from "svelte";
 import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
-import { fetchActiveCapabilities } from "$lib/client/api/connections";
+import {
+	ackCloudConnector,
+	checkCloudWarning,
+	fetchActiveCapabilities,
+	setLocalDistill,
+} from "$lib/client/api/connections";
 import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
@@ -21,12 +26,14 @@ import {
 } from "$lib/composer-commands";
 import { t, type I18nKey } from "$lib/i18n";
 import { tokenizeTextLinks } from "$lib/services/linkify";
+import { selectedModel } from "$lib/stores/settings";
 import { currentConversationId } from "$lib/stores/ui";
 import {
 	isTouchDevice,
 	initViewportTracking,
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
+import CloudConnectorWarningModal from "./CloudConnectorWarningModal.svelte";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import ComposerToolsMenu, {
 	type ComposerCapabilityAccounts,
@@ -40,6 +47,7 @@ import {
 	type ComposerCommandToken,
 } from "./composer-command-parser";
 import { browser } from "$app/environment";
+import { isProviderModelId } from "$lib/types";
 import type {
 	ArtifactSummary,
 	AtlasAvailability,
@@ -244,6 +252,20 @@ let capabilityAccounts = $state<ComposerCapabilityAccounts>({});
 let activeCapabilities = $state<Set<string>>(new Set());
 let capabilitiesLoaded = $state(false);
 let capabilitiesSyncedConversationId = $state<string | null>(null);
+// Issue 7.4 (Option C) — the composer intercepts SEND when the selected
+// model is plausibly a cloud model AND there are active connector
+// capabilities: it asks the server (the authority — see
+// checkCloudWarning/shouldWarnCloudConnector) whether to show the one-time
+// "connector data may reach a cloud model" warning before dispatching.
+// `cloudWarningAcked` is a per-session short-circuit so an acknowledged
+// warning never round-trips again for the rest of this composer's lifetime,
+// even before the server round-trip could confirm it; the ack itself is
+// still persisted server-side (recordCloudConnectorAck) so it also never
+// warns again in future sessions.
+let cloudWarningOpen = $state(false);
+let cloudWarningPendingMessage = $state<string | null>(null);
+let cloudWarningAcked = $state(false);
+let cloudWarningChecking = $state(false);
 let selectedAtlasProfile = $state<AtlasProfile | null>(null);
 let clientAtlasTurnId = $state<string | null>(null);
 let atlasPushStatus = $state<
@@ -887,6 +909,92 @@ function clearComposerAfterSubmit() {
 	}
 }
 
+// Issue 7.4 (Option C) — cheap, client-only heuristic for "plausibly a cloud
+// model": model1/model2 are the on-box builtin models, so only a
+// `provider:`-prefixed (admin-added third-party) model id is worth a
+// round-trip to ask the server. The server's isCloudModel (used inside
+// shouldWarnCloudConnector) is the actual authority — this heuristic only
+// exists to avoid a network call on every send.
+function shouldCheckCloudWarning(): boolean {
+	return (
+		!cloudWarningAcked &&
+		!cloudWarningOpen &&
+		!cloudWarningChecking &&
+		activeCapabilities.size > 0 &&
+		isProviderModelId($selectedModel)
+	);
+}
+
+function dispatchSend(nextMessage: string) {
+	message = nextMessage;
+	onSend?.(buildSendPayload(nextMessage));
+	queuedSendAfterProcessing = false;
+	clearComposerAfterSubmit();
+}
+
+async function resolveCloudWarningThenSend(nextMessage: string) {
+	cloudWarningChecking = true;
+	const modelId = $selectedModel;
+	let shouldWarn = false;
+	try {
+		const result = await checkCloudWarning(modelId, [...activeCapabilities]);
+		shouldWarn = result.shouldWarn;
+	} catch {
+		// Fail open: this is a UI nudge, not a data boundary (the actual
+		// on-device-vs-cloud handling is enforced server-side). Don't block
+		// sending a message over a network hiccup on the warning check itself.
+		shouldWarn = false;
+	} finally {
+		cloudWarningChecking = false;
+	}
+
+	// The pending message changed (or was cancelled) while the check was in
+	// flight — nothing to do, a fresh send() call already handled it.
+	if (cloudWarningPendingMessage !== nextMessage) return;
+
+	if (!shouldWarn) {
+		cloudWarningPendingMessage = null;
+		dispatchSend(nextMessage);
+		return;
+	}
+
+	cloudWarningOpen = true;
+}
+
+async function handleCloudWarningContinue() {
+	const pending = cloudWarningPendingMessage;
+	try {
+		await ackCloudConnector();
+	} catch {
+		// Non-fatal: the ack didn't persist, so the warning may simply
+		// reappear on a future send — not a reason to block this one.
+	}
+	cloudWarningAcked = true;
+	cloudWarningOpen = false;
+	cloudWarningPendingMessage = null;
+	if (pending !== null) dispatchSend(pending);
+}
+
+async function handleCloudWarningEnableLocalMode() {
+	const pending = cloudWarningPendingMessage;
+	try {
+		await setLocalDistill(true);
+	} catch {
+		// Non-fatal: local mode can be turned on later from Settings.
+	}
+	cloudWarningOpen = false;
+	cloudWarningPendingMessage = null;
+	if (pending !== null) dispatchSend(pending);
+}
+
+function handleCloudWarningCancel() {
+	// Aborts the send; the composer text is untouched (message already holds
+	// nextMessage — see syncTextareaValue — and clearComposerAfterSubmit was
+	// never called), so the draft is preserved exactly as the user left it.
+	cloudWarningOpen = false;
+	cloudWarningPendingMessage = null;
+}
+
 function send(nextMessage: string = message) {
 	if (isComposerDisabled) return;
 	if (isGenerating) return;
@@ -900,10 +1008,14 @@ function send(nextMessage: string = message) {
 		}
 		return;
 	}
-	message = nextMessage;
-	onSend?.(buildSendPayload(nextMessage));
-	queuedSendAfterProcessing = false;
-	clearComposerAfterSubmit();
+
+	if (shouldCheckCloudWarning()) {
+		cloudWarningPendingMessage = nextMessage;
+		void resolveCloudWarningThenSend(nextMessage);
+		return;
+	}
+
+	dispatchSend(nextMessage);
 }
 
 function queue(nextMessage: string = message) {
@@ -2198,6 +2310,14 @@ async function emitDraftChange(force = false) {
 			onRemove={removeLinkedSource}
 			onClear={clearLinkedSources}
 			onAddDocument={() => openDocumentPicker()}
+		/>
+	{/if}
+
+	{#if cloudWarningOpen}
+		<CloudConnectorWarningModal
+			onCancel={handleCloudWarningCancel}
+			onContinue={handleCloudWarningContinue}
+			onEnableLocalMode={handleCloudWarningEnableLocalMode}
 		/>
 	{/if}
 </div>

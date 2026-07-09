@@ -25,6 +25,8 @@ import {
 import {
 	disconnectConnection,
 	fetchConnections,
+	fetchLocality,
+	setLocalDistill,
 	updateConnection,
 	type ConnectionPublic,
 } from "$lib/client/api/connections";
@@ -238,6 +240,12 @@ let removingPhoto = $state(false);
 let connections = $state<ConnectionPublic[]>([]);
 let connectionsLoaded = $state(false);
 let connectionsLoading = $state(false);
+// Issue 7.4 — Option A (local-distill) privacy toggle. Loaded alongside
+// connections in the same lazy-load effect below, but tracked independently
+// since it isn't part of the connections list.
+let localDistill = $state(false);
+let localityLoaded = $state(false);
+let localityLoading = $state(false);
 // Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
 // props; consumed by the ConnectWizardModal below (Issue 7.3).
 let connectWizardProvider = $state<ConnectionProvider | null>(null);
@@ -532,6 +540,33 @@ async function loadConnections() {
 	}
 }
 
+// Issue 7.4 — Option A. Loaded alongside connections (see the $effect
+// below); toggled optimistically with revert-on-failure (mirrors the
+// connection toggle handlers below).
+async function loadLocality() {
+	localityLoading = true;
+	try {
+		const result = await fetchLocality();
+		localDistill = result.localDistill;
+	} catch {
+		// Non-fatal: toggle shows its default (off); user can retry by
+		// revisiting the tab.
+	} finally {
+		localityLoading = false;
+		localityLoaded = true;
+	}
+}
+
+async function toggleLocalDistill(next: boolean) {
+	const previous = localDistill;
+	localDistill = next;
+	try {
+		await setLocalDistill(next);
+	} catch {
+		localDistill = previous;
+	}
+}
+
 function patchConnectionLocal(id: string, patch: Partial<ConnectionPublic>) {
 	connections = connections.map((conn) =>
 		conn.id === id ? { ...conn, ...patch } : conn,
@@ -745,6 +780,9 @@ $effect(() => {
 	) {
 		void loadConnections();
 	}
+	if (activeTab === "connections" && !localityLoaded && !localityLoading) {
+		void loadLocality();
+	}
 	if (activeTab === "profile" && personalityProfiles.length === 0) {
 		void fetchPublicPersonalityProfiles()
 			.then((profiles) => {
@@ -877,6 +915,9 @@ $effect(() => {
 				onDisconnect={disconnectConnectionById}
 				onStartConnect={startConnect}
 				onReconnect={reconnectConnection}
+				{localDistill}
+				localityLoading={localityLoading && !localityLoaded}
+				onToggleLocalDistill={toggleLocalDistill}
 			/>
 		{/if}
 

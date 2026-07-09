@@ -231,3 +231,57 @@ export async function startOwnTracksConnect(params: {
 		"Failed to connect to OwnTracks",
 	);
 }
+
+// Issue 7.4 — locality privacy controls. Option C (warn-once before sending
+// connector data to a cloud model) and Option A (per-user local-distill
+// toggle). See src/lib/server/services/connections/locality.ts for the
+// underlying logic these thin endpoints expose.
+
+export type CloudWarningResponse = { shouldWarn: boolean };
+
+// POST /api/connections/cloud-warning — src/routes/api/connections/cloud-warning/+server.ts
+export async function checkCloudWarning(
+	modelId: string,
+	capabilities: string[],
+): Promise<CloudWarningResponse> {
+	return postJson<CloudWarningResponse>(
+		"/api/connections/cloud-warning",
+		{ modelId, capabilities },
+		"Failed to check the cloud connector warning",
+	);
+}
+
+// POST /api/connections/cloud-ack — src/routes/api/connections/cloud-ack/+server.ts
+export async function ackCloudConnector(): Promise<void> {
+	await requestVoid(
+		"/api/connections/cloud-ack",
+		{ method: "POST" },
+		"Failed to acknowledge the cloud connector warning",
+	);
+}
+
+export type LocalityResponse = { localDistill: boolean };
+
+// GET /api/connections/locality — src/routes/api/connections/locality/+server.ts
+export async function fetchLocality(): Promise<LocalityResponse> {
+	return requestJson<LocalityResponse>(
+		"/api/connections/locality",
+		undefined,
+		"Failed to load the locality preference",
+	);
+}
+
+// PATCH /api/connections/locality — src/routes/api/connections/locality/+server.ts
+export async function setLocalDistill(
+	enabled: boolean,
+): Promise<LocalityResponse> {
+	return requestJson<LocalityResponse>(
+		"/api/connections/locality",
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ localDistill: enabled }),
+		},
+		"Failed to update the locality preference",
+	);
+}

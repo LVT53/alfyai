@@ -43,6 +43,9 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onDisconnect: vi.fn(),
 		onStartConnect: vi.fn(),
 		onReconnect: vi.fn(),
+		localDistill: false,
+		localityLoading: false,
+		onToggleLocalDistill: vi.fn(),
 		...overrides,
 	};
 }
@@ -379,5 +382,64 @@ describe("SettingsConnectionsTab", () => {
 		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("connections-add")).not.toBeInTheDocument();
 		expect(screen.getByText("Loading…")).toBeInTheDocument();
+	});
+
+	describe("Privacy & locality (Option A)", () => {
+		it("renders the local-distill toggle reflecting the fetched value", () => {
+			render(SettingsConnectionsTab, baseProps({ localDistill: true }));
+
+			const section = screen.getByTestId("connections-locality");
+			const toggle = within(section).getByRole("switch", {
+				name: "Keep connector data on this device",
+			});
+			expect(toggle).toHaveAttribute("aria-checked", "true");
+		});
+
+		it("defaults to off when localDistill is not yet loaded", () => {
+			render(SettingsConnectionsTab, baseProps({ localDistill: false }));
+
+			const section = screen.getByTestId("connections-locality");
+			const toggle = within(section).getByRole("switch", {
+				name: "Keep connector data on this device",
+			});
+			expect(toggle).toHaveAttribute("aria-checked", "false");
+		});
+
+		it("calls onToggleLocalDistill with the new value when toggled", async () => {
+			const onToggleLocalDistill = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({ localDistill: false, onToggleLocalDistill }),
+			);
+
+			const section = screen.getByTestId("connections-locality");
+			const toggle = within(section).getByRole("switch", {
+				name: "Keep connector data on this device",
+			});
+			await fireEvent.click(toggle);
+
+			expect(onToggleLocalDistill).toHaveBeenCalledWith(true);
+		});
+
+		it("disables the toggle while the locality preference is loading", () => {
+			render(SettingsConnectionsTab, baseProps({ localityLoading: true }));
+
+			const section = screen.getByTestId("connections-locality");
+			const toggle = within(section).getByRole("switch", {
+				name: "Keep connector data on this device",
+			});
+			expect(toggle).toBeDisabled();
+		});
+
+		it("shows help text and the fidelity note", () => {
+			render(SettingsConnectionsTab, baseProps());
+
+			const section = screen.getByTestId("connections-locality");
+			expect(
+				within(section).getByText(
+					"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
+				),
+			).toBeInTheDocument();
+		});
 	});
 });

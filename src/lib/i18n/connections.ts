@@ -120,6 +120,21 @@ const connectionsDict = {
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
 		"connections.oauthReturn.reason.generic": "Please try again.",
+
+		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +
+		// Option A (settings "Privacy & locality" local-distill toggle).
+		"connections.cloudWarning.title": "Sending data to a cloud model",
+		"connections.cloudWarning.description":
+			"This chat model is a third-party cloud model. Data from your connected accounts (like calendar, email, or files) may be sent to it to answer your message. You can continue, or keep this data on this device with local mode.",
+		"connections.cloudWarning.continue": "Continue",
+		"connections.cloudWarning.enableLocalMode": "Turn on local mode",
+
+		"connections.locality.title": "Privacy & locality",
+		"connections.locality.toggleLabel": "Keep connector data on this device",
+		"connections.locality.help":
+			"When on, a local model summarizes your connected-account data before any third-party cloud model sees it. This keeps raw data on-device but may reduce answer detail.",
+		"connections.locality.fidelityNote":
+			"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
 	},
 	hu: {
 		"connections.actions.connect": "Csatlakoztatás",
@@ -238,6 +253,22 @@ const connectionsDict = {
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.generic": "Kérjük, próbáld újra.",
+
+		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +
+		// Option A (settings "Privacy & locality" local-distill toggle).
+		"connections.cloudWarning.title": "Adatküldés egy felhőmodellnek",
+		"connections.cloudWarning.description":
+			"Ez a csevegőmodell egy külső fél felhőmodellje. A csatlakoztatott fiókjaid adatai (például naptár, e-mail vagy fájlok) elküldődhetnek neki az üzeneted megválaszolásához. Folytathatod, vagy a helyi móddal ezeket az adatokat az eszközödön tarthatod.",
+		"connections.cloudWarning.continue": "Folytatás",
+		"connections.cloudWarning.enableLocalMode": "Helyi mód bekapcsolása",
+
+		"connections.locality.title": "Adatvédelem és helyiség",
+		"connections.locality.toggleLabel":
+			"Kapcsolati adatok tartása ezen az eszközön",
+		"connections.locality.help":
+			"Ha bekapcsolod, egy helyi modell összegzi a csatlakoztatott fiókjaid adatait, mielőtt bármelyik külső fél felhőmodell látná őket. Ez az eszközön tartja a nyers adatokat, de csökkentheti a válasz részletességét.",
+		"connections.locality.fidelityNote":
+			"A helyi összegzés a kérdésed szempontjából releváns részleteket próbálja megőrizni, bár a nyers adatküldéshez képest némi árnyaltság elveszhet.",
 	},
 } as const;
 

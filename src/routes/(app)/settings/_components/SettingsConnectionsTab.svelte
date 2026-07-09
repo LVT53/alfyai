@@ -62,6 +62,9 @@ let {
 	onDisconnect,
 	onStartConnect,
 	onReconnect,
+	localDistill = false,
+	localityLoading = false,
+	onToggleLocalDistill,
 }: {
 	connections: ConnectionPublic[];
 	loading?: boolean;
@@ -76,6 +79,11 @@ let {
 	onDisconnect: (id: string) => void | Promise<void>;
 	onStartConnect: (provider: ConnectionProvider) => void;
 	onReconnect: (connectionId: string) => void;
+	// Issue 7.4 — Option A: per-user "keep connector data on this device"
+	// toggle. Independent of the connections list load/loading state above.
+	localDistill?: boolean;
+	localityLoading?: boolean;
+	onToggleLocalDistill: (next: boolean) => void | Promise<void>;
 } = $props();
 
 // Per-card "new folder" input text, keyed by connection id.
@@ -107,6 +115,23 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 
 <p class="settings-group-label">{$t('connections.title')}</p>
 <p class="settings-help-text mb-3">{$t('connections.subtitle')}</p>
+
+<section class="settings-card mb-4" data-testid="connections-locality">
+	<p class="settings-section-title mb-2">{$t('connections.locality.title')}</p>
+	<div class="connection-toggle-row">
+		<div class="connection-toggle-text">
+			<span class="settings-label">{$t('connections.locality.toggleLabel')}</span>
+			<InfoTooltip text={$t('connections.locality.help')} />
+		</div>
+		<Toggle
+			checked={localDistill}
+			disabled={localityLoading}
+			ariaLabel={$t('connections.locality.toggleLabel')}
+			onChange={(next) => onToggleLocalDistill(next)}
+		/>
+	</div>
+	<p class="settings-help-text mt-2">{$t('connections.locality.fidelityNote')}</p>
+</section>
 
 {#if loading}
 	<section class="settings-card mb-4">
