@@ -36,6 +36,10 @@ export async function updateConnection(
 		allowWrites?: boolean;
 		defaultOn?: boolean;
 		capabilities?: string[];
+		// Issue 7.1 — root paths a path-based write provider (e.g. nextcloud)
+		// is allowed to write under. Server-side validated/normalized; see
+		// src/routes/api/connections/[id]/+server.ts.
+		writeAllowlist?: string[];
 	},
 ): Promise<ConnectionPublic> {
 	return requestJson<ConnectionPublic>(

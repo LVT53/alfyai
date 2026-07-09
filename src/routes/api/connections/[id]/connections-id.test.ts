@@ -9,6 +9,7 @@ vi.mock("$lib/server/services/connections/store", () => ({
 	setAllowWrites: vi.fn(),
 	setDefaultOn: vi.fn(),
 	setEnabledCapabilities: vi.fn(),
+	setWriteAllowlist: vi.fn(),
 	deleteConnection: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ import {
 	setAllowWrites,
 	setDefaultOn,
 	setEnabledCapabilities,
+	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
 import { DELETE, PATCH } from "./+server";
 
@@ -29,6 +31,7 @@ const mockSetDefaultOn = setDefaultOn as ReturnType<typeof vi.fn>;
 const mockSetEnabledCapabilities = setEnabledCapabilities as ReturnType<
 	typeof vi.fn
 >;
+const mockSetWriteAllowlist = setWriteAllowlist as ReturnType<typeof vi.fn>;
 const mockDeleteConnection = deleteConnection as ReturnType<typeof vi.fn>;
 
 const googleConnection = {
@@ -50,6 +53,15 @@ const googleConnection = {
 	hasWriteSecret: false,
 	createdAt: 1,
 	updatedAt: 1,
+};
+
+const nextcloudConnection = {
+	...googleConnection,
+	id: "conn-2",
+	provider: "nextcloud" as const,
+	label: "Nextcloud",
+	capabilities: ["files"],
+	oauthScopes: [],
 };
 
 function makeEvent(body: unknown, id = "conn-1", userId = "owner-user") {
@@ -75,6 +87,7 @@ describe("/api/connections/[id]", () => {
 		mockSetAllowWrites.mockResolvedValue(googleConnection);
 		mockSetDefaultOn.mockResolvedValue(googleConnection);
 		mockSetEnabledCapabilities.mockResolvedValue(googleConnection);
+		mockSetWriteAllowlist.mockResolvedValue(googleConnection);
 		mockDeleteConnection.mockResolvedValue(true);
 	});
 
@@ -155,6 +168,81 @@ describe("/api/connections/[id]", () => {
 
 			expect(text).not.toContain("secretCiphertext");
 			expect(text).not.toContain("writeSecretCiphertext");
+		});
+
+		describe("writeAllowlist (Issue 7.1)", () => {
+			beforeEach(() => {
+				mockGetConnection.mockResolvedValue(nextcloudConnection);
+			});
+
+			it("normalizes and persists a valid list", async () => {
+				const response = await PATCH(
+					makeEvent(
+						{ writeAllowlist: ["/AlfyAI", "Documents//Notes/"] },
+						"conn-2",
+					),
+				);
+
+				expect(response.status).toBe(200);
+				expect(mockSetWriteAllowlist).toHaveBeenCalledWith(
+					"owner-user",
+					"conn-2",
+					["/AlfyAI", "/Documents/Notes"],
+				);
+			});
+
+			it("rejects a non-array writeAllowlist with 400", async () => {
+				const response = await PATCH(
+					makeEvent(
+						{ writeAllowlist: "/AlfyAI" as unknown as string[] },
+						"conn-2",
+					),
+				);
+
+				expect(response.status).toBe(400);
+				expect(mockSetWriteAllowlist).not.toHaveBeenCalled();
+			});
+
+			it("rejects an entry that escapes the allowed root (path traversal) with 400", async () => {
+				const response = await PATCH(
+					makeEvent({ writeAllowlist: ["/AlfyAI/../../etc"] }, "conn-2"),
+				);
+				const data = await response.json();
+
+				expect(response.status).toBe(400);
+				expect(data.error).toBeTruthy();
+				expect(mockSetWriteAllowlist).not.toHaveBeenCalled();
+			});
+
+			it("rejects an empty-string entry with 400", async () => {
+				const response = await PATCH(
+					makeEvent({ writeAllowlist: ["/AlfyAI", "   "] }, "conn-2"),
+				);
+
+				expect(response.status).toBe(400);
+				expect(mockSetWriteAllowlist).not.toHaveBeenCalled();
+			});
+
+			it("rejects more than 20 entries with 400", async () => {
+				const tooMany = Array.from({ length: 21 }, (_, i) => `/folder-${i}`);
+				const response = await PATCH(
+					makeEvent({ writeAllowlist: tooMany }, "conn-2"),
+				);
+
+				expect(response.status).toBe(400);
+				expect(mockSetWriteAllowlist).not.toHaveBeenCalled();
+			});
+
+			it("returns 404 for another user's connection id (no cross-user mutation)", async () => {
+				mockGetConnection.mockResolvedValue(null);
+
+				const response = await PATCH(
+					makeEvent({ writeAllowlist: ["/AlfyAI"] }, "conn-2"),
+				);
+
+				expect(response.status).toBe(404);
+				expect(mockSetWriteAllowlist).not.toHaveBeenCalled();
+			});
 		});
 	});
 

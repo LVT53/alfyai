@@ -380,3 +380,20 @@ export async function setEnabledCapabilities(
 		.returning();
 	return row ? toPublic(row) : null;
 }
+
+// Issue 7.1 — persists the (already-validated/normalized by the caller)
+// write-allowlist root paths for a path-based writable provider (e.g.
+// nextcloud). Mirrors setAllowWrites/setDefaultOn/setEnabledCapabilities:
+// user-scoped via `scoped`, returns null (no-op) for another user's id.
+export async function setWriteAllowlist(
+	userId: string,
+	id: string,
+	paths: string[],
+): Promise<ConnectionPublic | null> {
+	const [row] = await db
+		.update(userConnections)
+		.set({ writeAllowlistJson: JSON.stringify(paths), updatedAt: new Date() })
+		.where(scoped(userId, id))
+		.returning();
+	return row ? toPublic(row) : null;
+}

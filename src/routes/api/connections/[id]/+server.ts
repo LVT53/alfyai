@@ -11,18 +11,25 @@ import {
 	setAllowWrites,
 	setDefaultOn,
 	setEnabledCapabilities,
+	setWriteAllowlist,
 } from "$lib/server/services/connections/store";
+import { normalizeAllowlistPath } from "$lib/server/services/connections/write-guard";
 import type { RequestHandler } from "./$types";
 
 interface PatchBody {
 	allowWrites?: unknown;
 	defaultOn?: unknown;
 	capabilities?: unknown;
+	writeAllowlist?: unknown;
 }
 
 function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((v) => typeof v === "string");
 }
+
+// Issue 7.1 — the write-allowlist a caller can submit is capped so a
+// misbehaving client can't grow the JSON column unboundedly.
+const MAX_WRITE_ALLOWLIST_ENTRIES = 20;
 
 // PATCH /api/connections/[id] — updates allowWrites/defaultOn/capabilities
 // for one of the caller's connections. Every field is optional; only the
@@ -71,6 +78,44 @@ export const PATCH: RequestHandler = async (event) => {
 		}
 	}
 
+	// Issue 7.1 — writeAllowlist: root paths the user allows path-based write
+	// providers (currently nextcloud) to write under without a per-write
+	// warning. Every entry is run through the SAME traversal-rejecting
+	// normalization the write-guard uses when resolving an actual write
+	// target (normalizeAllowlistPath), so a `..`-bearing entry can never be
+	// persisted here either.
+	let normalizedWriteAllowlist: string[] | undefined;
+	if (body.writeAllowlist !== undefined) {
+		if (!isStringArray(body.writeAllowlist)) {
+			return createJsonErrorResponse(
+				"writeAllowlist must be an array of strings",
+				400,
+			);
+		}
+		if (body.writeAllowlist.length > MAX_WRITE_ALLOWLIST_ENTRIES) {
+			return createJsonErrorResponse(
+				`writeAllowlist supports at most ${MAX_WRITE_ALLOWLIST_ENTRIES} entries`,
+				400,
+			);
+		}
+		if (body.writeAllowlist.some((entry) => entry.trim() === "")) {
+			return createJsonErrorResponse(
+				"writeAllowlist entries must be non-empty",
+				400,
+			);
+		}
+		try {
+			normalizedWriteAllowlist = body.writeAllowlist.map(
+				normalizeAllowlistPath,
+			);
+		} catch {
+			return createJsonErrorResponse(
+				"writeAllowlist entries must not escape the allowed root",
+				400,
+			);
+		}
+	}
+
 	if (body.allowWrites !== undefined) {
 		await setAllowWrites(userId, id, body.allowWrites as boolean);
 	}
@@ -79,6 +124,9 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 	if (body.capabilities !== undefined) {
 		await setEnabledCapabilities(userId, id, body.capabilities as Capability[]);
+	}
+	if (normalizedWriteAllowlist !== undefined) {
+		await setWriteAllowlist(userId, id, normalizedWriteAllowlist);
 	}
 
 	const updated = await getConnection(userId, id);

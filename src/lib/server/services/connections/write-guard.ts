@@ -54,7 +54,12 @@ const DEFAULT_AREA = "/AlfyAI";
 // the Nextcloud read adapter's normalizeNextcloudPath (2.2) but is kept
 // local and provider-agnostic — this module must not import anything
 // WebDAV/provider-specific.
-function normalizeAllowlistPath(path: string): string {
+//
+// Exported so callers outside this module (e.g. the PATCH
+// /api/connections/[id] route validating a user-submitted writeAllowlist,
+// Issue 7.1) can reuse the exact same traversal-rejecting normalization
+// instead of re-implementing it.
+export function normalizeAllowlistPath(path: string): string {
 	// Percent-decode before splitting into segments so an encoded escape
 	// (`%2e%2e`, or an encoded separator like `..%2f..`) can't disguise a
 	// `..` segment from the traversal check below. Malformed sequences are

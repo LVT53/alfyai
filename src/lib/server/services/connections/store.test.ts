@@ -176,11 +176,12 @@ describe("connections store", () => {
 			expect(listB[0]?.label).toBe("B's Plex");
 		});
 
-		it("setAllowWrites/setDefaultOn/setEnabledCapabilities only affect the target user's row", async () => {
+		it("setAllowWrites/setDefaultOn/setEnabledCapabilities/setWriteAllowlist only affect the target user's row", async () => {
 			const {
 				setAllowWrites,
 				setDefaultOn,
 				setEnabledCapabilities,
+				setWriteAllowlist,
 				getConnection,
 			} = await import("./store");
 			const conn = await seedTwoUsersWithAConnection();
@@ -188,11 +189,13 @@ describe("connections store", () => {
 			expect(await setAllowWrites("userB", conn.id, true)).toBeNull();
 			expect(await setDefaultOn("userB", conn.id, true)).toBeNull();
 			expect(await setEnabledCapabilities("userB", conn.id, ["x"])).toBeNull();
+			expect(await setWriteAllowlist("userB", conn.id, ["/AlfyAI"])).toBeNull();
 
 			const stillA = await getConnection("userA", conn.id);
 			expect(stillA?.allowWrites).toBe(false);
 			expect(stillA?.defaultOn).toBe(false);
 			expect(stillA?.capabilities).toEqual([]);
+			expect(stillA?.writeAllowlist).toEqual([]);
 		});
 	});
 
@@ -382,12 +385,13 @@ describe("connections store", () => {
 		expect(updated?.updatedAt).toBeGreaterThan(conn.updatedAt);
 	});
 
-	it("setAllowWrites/setDefaultOn/setEnabledCapabilities mutate the target row and bump updatedAt", async () => {
+	it("setAllowWrites/setDefaultOn/setEnabledCapabilities/setWriteAllowlist mutate the target row and bump updatedAt", async () => {
 		const {
 			createConnection,
 			setAllowWrites,
 			setDefaultOn,
 			setEnabledCapabilities,
+			setWriteAllowlist,
 		} = await import("./store");
 		seedUser("userA");
 		const conn = await createConnection({
@@ -410,6 +414,12 @@ describe("connections store", () => {
 			"calendar",
 		]);
 		expect(afterCaps?.capabilities).toEqual(["email", "calendar"]);
+
+		const afterAllowlist = await setWriteAllowlist("userA", conn.id, [
+			"/AlfyAI",
+			"/Documents",
+		]);
+		expect(afterAllowlist?.writeAllowlist).toEqual(["/AlfyAI", "/Documents"]);
 	});
 
 	it("createConnection stores and returns a parsed config object; defaults to {} when omitted", async () => {

@@ -22,6 +22,13 @@ import {
 	fetchAdminUsers,
 	fetchPublicPersonalityProfiles,
 } from "$lib/client/api/admin";
+import {
+	disconnectConnection,
+	fetchConnections,
+	updateConnection,
+	type ConnectionPublic,
+} from "$lib/client/api/connections";
+import type { ConnectionProvider } from "$lib/client/connections/provider-catalog";
 import { reconcileConversationSnapshot } from "$lib/stores/conversations";
 import {
 	avatarState,
@@ -45,6 +52,7 @@ import PrivacyActionModal, {
 	type PrivacyAction,
 } from "./_components/PrivacyActionModal.svelte";
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
+import SettingsConnectionsTab from "./_components/SettingsConnectionsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
 import type { ModelId, UserModelPreference } from "$lib/types";
 import type { PageProps } from "./$types";
@@ -83,7 +91,7 @@ interface SettingsPageData {
 let { data }: PageProps = $props();
 const getData = () => data;
 
-type Tab = "profile" | "administration";
+type Tab = "profile" | "connections" | "administration";
 
 const initialUserSettings = getData().userSettings;
 const initialPreferences = initialUserSettings.preferences;
@@ -96,6 +104,8 @@ const isAdmin = initialUserSettings.role === "admin";
 const settingsTabs = $derived.by(() => {
 	const tabs: Array<{ id: Tab; label: string }> = [
 		{ id: "profile", label: $t("settingsProfile") },
+		// Issue 7.1: visible to ALL users, not admin-gated (unlike Administration).
+		{ id: "connections", label: $t("settingsConnections") },
 	];
 	if (isAdmin) {
 		tabs.push({
@@ -217,6 +227,17 @@ let excludedUsersLoading = $state(false);
 let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
+
+// Issue 7.1 — Connections tab. Loaded lazily on first visit (see the
+// $effect below), then mutated optimistically (mirrors changeMemoryEnabled).
+let connections = $state<ConnectionPublic[]>([]);
+let connectionsLoaded = $state(false);
+let connectionsLoading = $state(false);
+// Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
+// props; consumed by the connect wizard modal built in Issue 7.3. 7.1 only
+// sets this intent state, it does not render a wizard.
+let connectWizardProvider = $state<ConnectionProvider | null>(null);
+let reconnectConnectionId = $state<string | null>(null);
 
 function parseExcludedUserIds(): string[] {
 	const raw = initialCurrentConfigValues?.ANALYTICS_EXCLUDED_USER_IDS;
@@ -428,6 +449,99 @@ async function changeMemoryEnabled(enabled: boolean) {
 	}
 }
 
+// Issue 7.1 — Connections tab handlers. Each toggle flips local state
+// optimistically then persists via updateConnection, reverting on failure
+// (mirrors changeMemoryEnabled above). onDisconnect removes the row from
+// local state only after the DELETE succeeds (no optimistic removal —
+// there's nothing sensible to "revert" a vanished card back to).
+async function loadConnections() {
+	connectionsLoading = true;
+	try {
+		connections = await fetchConnections();
+	} catch {
+		// Non-fatal: panel shows an empty list; user can retry by revisiting.
+	} finally {
+		connectionsLoading = false;
+		connectionsLoaded = true;
+	}
+}
+
+function patchConnectionLocal(id: string, patch: Partial<ConnectionPublic>) {
+	connections = connections.map((conn) =>
+		conn.id === id ? { ...conn, ...patch } : conn,
+	);
+}
+
+async function toggleConnectionCapability(
+	id: string,
+	capability: string,
+	next: boolean,
+) {
+	const previous = connections.find((conn) => conn.id === id)?.capabilities;
+	if (!previous) return;
+	const nextCapabilities = next
+		? [...previous, capability]
+		: previous.filter((cap) => cap !== capability);
+	patchConnectionLocal(id, { capabilities: nextCapabilities });
+	try {
+		await updateConnection(id, { capabilities: nextCapabilities });
+	} catch {
+		patchConnectionLocal(id, { capabilities: previous });
+	}
+}
+
+async function toggleConnectionAllowWrites(id: string, next: boolean) {
+	const previous = connections.find((conn) => conn.id === id)?.allowWrites;
+	if (previous === undefined) return;
+	patchConnectionLocal(id, { allowWrites: next });
+	try {
+		await updateConnection(id, { allowWrites: next });
+	} catch {
+		patchConnectionLocal(id, { allowWrites: previous });
+	}
+}
+
+async function toggleConnectionDefaultOn(id: string, next: boolean) {
+	const previous = connections.find((conn) => conn.id === id)?.defaultOn;
+	if (previous === undefined) return;
+	patchConnectionLocal(id, { defaultOn: next });
+	try {
+		await updateConnection(id, { defaultOn: next });
+	} catch {
+		patchConnectionLocal(id, { defaultOn: previous });
+	}
+}
+
+async function updateConnectionWriteAllowlist(id: string, next: string[]) {
+	const previous = connections.find((conn) => conn.id === id)?.writeAllowlist;
+	if (!previous) return;
+	patchConnectionLocal(id, { writeAllowlist: next });
+	try {
+		await updateConnection(id, { writeAllowlist: next });
+	} catch {
+		patchConnectionLocal(id, { writeAllowlist: previous });
+	}
+}
+
+async function disconnectConnectionById(id: string) {
+	try {
+		await disconnectConnection(id);
+		connections = connections.filter((conn) => conn.id !== id);
+	} catch {
+		// Non-fatal: card stays put so the user can retry.
+	}
+}
+
+function startConnect(provider: ConnectionProvider) {
+	// 7.3 reads this intent to open the connect wizard modal.
+	connectWizardProvider = provider;
+}
+
+function reconnectConnection(connectionId: string) {
+	// 7.3 reads this intent to open the reconnect wizard modal.
+	reconnectConnectionId = connectionId;
+}
+
 function openPrivacyAction(action: PrivacyAction) {
 	privacyAction = action;
 	privacyPassword = "";
@@ -542,12 +656,19 @@ async function handleTabChange(tab: Tab) {
 }
 
 function handlePageSwitcherChange(tab: string) {
-	if (tab === "profile" || tab === "administration") {
+	if (tab === "profile" || tab === "connections" || tab === "administration") {
 		void handleTabChange(tab);
 	}
 }
 
 $effect(() => {
+	if (
+		activeTab === "connections" &&
+		!connectionsLoaded &&
+		!connectionsLoading
+	) {
+		void loadConnections();
+	}
 	if (activeTab === "profile" && personalityProfiles.length === 0) {
 		void fetchPublicPersonalityProfiles()
 			.then((profiles) => {
@@ -656,6 +777,23 @@ $effect(() => {
 				onPersonalMonthChange={handleMonthChange}
 				onPersonalTimelineChange={handleTimelineChange}
 			/>
+		{/if}
+
+		{#if activeTab === 'connections'}
+			<SettingsConnectionsTab
+				{connections}
+				loading={connectionsLoading && !connectionsLoaded}
+				onToggleCapability={toggleConnectionCapability}
+				onToggleAllowWrites={toggleConnectionAllowWrites}
+				onToggleDefaultOn={toggleConnectionDefaultOn}
+				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
+				onDisconnect={disconnectConnectionById}
+				onStartConnect={startConnect}
+				onReconnect={reconnectConnection}
+			/>
+			<!-- 7.3: connect wizard modal reads connectWizardProvider /
+			     reconnectConnectionId (state above) and renders the add/
+			     reconnect forms. Not built here. -->
 		{/if}
 
 		{#if activeTab === 'administration' && isAdmin}
