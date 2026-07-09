@@ -28,6 +28,8 @@ import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 
+const REQUEST_TIMEOUT_MS = 15_000;
+
 export type ImmichErrorCode =
 	| "invalid_credentials"
 	| "invalid_config"
@@ -132,6 +134,44 @@ function normalizeOrigin(serverUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Shared request plumbing
+// ---------------------------------------------------------------------------
+
+// Bounds every Immich HTTP call to ~15s via AbortController so a
+// reachable-but-hung Immich server can't stall a chat turn indefinitely —
+// mirrors the same pattern in providers/nextcloud-files.ts and
+// providers/google-calendar.ts. The injectable `fetchImpl` is passed straight
+// through (with `signal` added), so every call site below — and every test
+// that supplies its own mocked fetch — keeps working unchanged. Every call
+// site already wraps its `fetchWithTimeout` call in its own try/catch that
+// maps ANY thrown error (network failure or this timeout) to that call
+// site's contextual ImmichError message, so a timeout surfaces through the
+// exact same "couldn't reach the server" / request_failed path an ordinary
+// network failure would.
+async function fetchWithTimeout(
+	fetchImpl: typeof fetch,
+	url: string,
+	init: RequestInit,
+	timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetchImpl(url, { ...init, signal: controller.signal });
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") {
+			throw new ImmichError(
+				`Immich request timed out after ${timeoutMs}ms`,
+				"request_failed",
+			);
+		}
+		throw err;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Login + key mint
 // ---------------------------------------------------------------------------
 
@@ -158,7 +198,7 @@ async function immichLogin(
 ): Promise<LoginResponse> {
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}/api/auth/login`, {
+		response = await fetchWithTimeout(fetchImpl, `${origin}/api/auth/login`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email, password }),
@@ -209,7 +249,7 @@ async function mintReadOnlyApiKey(
 
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}/api/api-keys`, {
+		response = await fetchWithTimeout(fetchImpl, `${origin}/api/api-keys`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -400,7 +440,7 @@ async function mintWriteApiKey(
 
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}/api/api-keys`, {
+		response = await fetchWithTimeout(fetchImpl, `${origin}/api/api-keys`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -601,7 +641,7 @@ async function immichAuthorizedRequest(
 
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}${path}`, {
+		response = await fetchWithTimeout(fetchImpl, `${origin}${path}`, {
 			...init,
 			headers: { ...(init.headers ?? {}), "x-api-key": apiKey },
 		});
@@ -721,9 +761,11 @@ async function checkHealth(
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchImpl(`${config.origin}/api/albums`, {
-			headers: { "x-api-key": secret },
-		});
+		const response = await fetchWithTimeout(
+			fetchImpl,
+			`${config.origin}/api/albums`,
+			{ headers: { "x-api-key": secret } },
+		);
 		if (response.status === 401) {
 			return {
 				status: "needs_reauth",

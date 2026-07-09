@@ -10,6 +10,7 @@ import {
 	GoogleCalendarError,
 	googleFreeBusy,
 	googleGetEvent,
+	googleListCalendars,
 	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
@@ -30,6 +31,7 @@ import { decideLocalDistill } from "./connector-distill";
 export const calendarToolInputSchema = z.object({
 	action: z.enum([
 		"list_events",
+		"list_calendars",
 		"check_availability",
 		"create_event",
 		"update_event",
@@ -94,6 +96,19 @@ export type CalendarToolBusyItem = {
 	busy: { start: string; end: string }[];
 };
 
+// One calendar as surfaced to the model by the `list_calendars` action (Gap
+// A5). `id` is the value the model then passes back as `calendarId` to scope a
+// subsequent read/write; `summary` is its human-readable name; `primary` marks
+// the account's default calendar. These are structural identifiers (like a
+// file's name/path in the files tool), NOT the raw event body Option A
+// protects — so, deliberately, the distill gate does not apply to them: the
+// model needs the id verbatim to be able to scope anything at all.
+export type CalendarToolCalendarItem = {
+	id: string;
+	summary: string;
+	primary?: boolean;
+};
+
 export type CalendarToolModelPayload = {
 	success: boolean;
 	name: "calendar";
@@ -102,6 +117,7 @@ export type CalendarToolModelPayload = {
 	message: string;
 	events: CalendarToolEventItem[];
 	busy: CalendarToolBusyItem[];
+	calendars: CalendarToolCalendarItem[];
 	citations: CalendarCitation[];
 	// Only set for a successful create_event/update_event/delete_event action
 	// (6.1) — the write has NOT executed, this is the id the user's
@@ -181,6 +197,7 @@ function buildPayload(params: {
 	message: string;
 	events?: CalendarToolEventItem[];
 	busy?: CalendarToolBusyItem[];
+	calendars?: CalendarToolCalendarItem[];
 	citations?: CalendarCitation[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
@@ -195,6 +212,7 @@ function buildPayload(params: {
 			message: params.message,
 			events: params.events ?? [],
 			busy: params.busy ?? [],
+			calendars: params.calendars ?? [],
 			citations,
 			...(params.pendingWriteId
 				? { pendingWriteId: params.pendingWriteId }
@@ -269,22 +287,53 @@ function toToolEventItem(event: CalendarEvent): CalendarToolEventItem {
 async function listEventsForConnection(
 	userId: string,
 	conn: ConnectionPublic,
-	params: { timeMin: string; timeMax: string; query?: string },
+	params: {
+		timeMin: string;
+		timeMax: string;
+		query?: string;
+		calendarId?: string;
+	},
 ): Promise<CalendarToolEventItem[]> {
 	if (conn.provider === "apple") {
+		// appleListEvents (CalDAV) has no per-calendar scoping parameter — it
+		// always REPORTs across every calendar collection in the connection's
+		// config. `calendarId` is therefore intentionally NOT forwarded here;
+		// runCalendarTool surfaces a "using your default calendar(s)" note in the
+		// message (see appleCalendarIdIgnored) rather than silently pretending a
+		// non-primary Apple calendarId was honored (Trap C1).
 		const events = await appleListEvents(userId, conn.id, {
 			timeMin: params.timeMin,
 			timeMax: params.timeMax,
 		});
 		return events.slice(0, MAX_EVENTS).map(toToolEventItem);
 	}
+	// Trap C1 fix: `calendarId` now flows into googleListEvents so a scoped read
+	// actually hits the requested calendar. Omitted -> undefined -> the adapter
+	// falls back to "primary" (google-calendar.ts), preserving the prior
+	// default-primary behavior exactly.
 	const events = await googleListEvents(userId, conn.id, {
 		timeMin: params.timeMin,
 		timeMax: params.timeMax,
 		q: params.query,
 		maxResults: MAX_EVENTS,
+		...(params.calendarId ? { calendarId: params.calendarId } : {}),
 	});
 	return events.map(toToolEventItem);
+}
+
+// True when a non-primary `calendarId` was requested against an Apple
+// connection, which appleListEvents can't scope to — the caller surfaces a
+// plain "using your default calendar" note rather than silently returning
+// all-calendar results as if they were scoped (Trap C1).
+function appleCalendarIdIgnored(
+	conn: ConnectionPublic,
+	input: CalendarToolInput,
+): boolean {
+	return (
+		conn.provider === "apple" &&
+		Boolean(input.calendarId) &&
+		input.calendarId !== "primary"
+	);
 }
 
 function listEventsOutcome(
@@ -292,6 +341,7 @@ function listEventsOutcome(
 	events: CalendarToolEventItem[],
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
+	ignoredCalendarId = false,
 ): CalendarToolOutcome {
 	const citations: CalendarCitation[] = events.map((event) => ({
 		label:
@@ -300,10 +350,15 @@ function listEventsOutcome(
 				: "(untitled event)",
 		url: event.htmlLink,
 	}));
-	const message =
+	const base =
 		events.length === 0
 			? "No events found in that range."
 			: `Found ${events.length} ${events.length === 1 ? "event" : "events"}.`;
+	// Trap C1: never let a non-primary Apple calendarId look honored — say
+	// plainly that the read spanned the connection's default calendar(s).
+	const message = ignoredCalendarId
+		? `I'm using your default Apple iCloud calendar(s) — I can't scope a read to a specific calendar on an Apple connection yet. ${base}`
+		: base;
 	return buildPayload({
 		success: true,
 		action: "list_events",
@@ -332,6 +387,114 @@ function freeBusyOutcome(
 		action: "check_availability",
 		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
 		busy,
+	});
+}
+
+// ---------------------------------------------------------------------------
+// list_calendars (Gap A5) — surfaces the user's calendars so the model can
+// discover the ids it then passes back as `calendarId` to scope a read/write.
+// Backed by the EXISTING googleListCalendars adapter. Apple has no equivalent
+// enumeration wired up here (that would mean touching the CalDAV provider,
+// out of scope), so an Apple-only connection falls back to the calendar
+// collection URLs already discovered into its config — labeled plainly, with
+// a note that those ids can't be used to scope a read (Trap C1).
+// ---------------------------------------------------------------------------
+
+function googleCalendarsOutcome(
+	conn: ConnectionPublic,
+	calendars: CalendarToolCalendarItem[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): CalendarToolOutcome {
+	const message =
+		calendars.length === 0
+			? "No calendars found on your Google account."
+			: `Found ${calendars.length} ${calendars.length === 1 ? "calendar" : "calendars"}. Pass a calendar's id as calendarId to scope a read or write to it.`;
+	return buildPayload({
+		success: true,
+		action: "list_calendars",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		calendars,
+	});
+}
+
+// Derives a human-readable name from a CalDAV calendar collection URL — its
+// last non-empty path segment (e.g. ".../calendars/home/" -> "home"). Falls
+// back to the raw URL for anything unparseable.
+function appleCalendarName(url: string): string {
+	try {
+		const path = new URL(url).pathname.replace(/\/+$/, "");
+		const segment = path.slice(path.lastIndexOf("/") + 1);
+		return segment ? decodeURIComponent(segment) : url;
+	} catch {
+		return url;
+	}
+}
+
+function appleCalendarsOutcome(conn: ConnectionPublic): CalendarToolOutcome {
+	const urls = Array.isArray(conn.config.calendarUrls)
+		? conn.config.calendarUrls.filter(
+				(value): value is string => typeof value === "string",
+			)
+		: [];
+	const calendars: CalendarToolCalendarItem[] = urls.map((url) => ({
+		id: url,
+		summary: appleCalendarName(url),
+	}));
+	if (calendars.length === 0) {
+		return buildPayload({
+			success: false,
+			action: "list_calendars",
+			message:
+				"I couldn't enumerate your Apple iCloud calendars — try reconnecting it in Settings.",
+		});
+	}
+	return buildPayload({
+		success: true,
+		action: "list_calendars",
+		// Honesty (Trap C1): Apple reads can't be scoped to one of these yet, so
+		// don't imply the model can use these ids as a read scope.
+		message: `Found ${calendars.length} Apple iCloud ${calendars.length === 1 ? "calendar" : "calendars"}. Note: I can't yet scope a read to a single Apple calendar — an Apple read always spans all of them.`,
+		calendars,
+	});
+}
+
+async function listCalendarsOutcome(
+	userId: string,
+	conn: ConnectionPublic,
+	connections: ConnectionPublic[],
+): Promise<CalendarToolOutcome> {
+	// googleListCalendars is the only real calendar enumerator wired up — prefer
+	// any Google connection among the user's Calendar connections, mirroring how
+	// check_availability falls back to Google for free/busy.
+	const googleConnections = connections.filter((c) => c.provider === "google");
+	const googleConn = googleConnections[0];
+	if (googleConn) {
+		const entries = await googleListCalendars(userId, googleConn.id);
+		const calendars: CalendarToolCalendarItem[] = entries.map((entry) => ({
+			id: entry.id,
+			summary: entry.summary,
+			...(entry.primary ? { primary: true } : {}),
+		}));
+		return googleCalendarsOutcome(
+			googleConn,
+			calendars,
+			needsDisambiguation(googleConnections),
+			googleConnections,
+		);
+	}
+
+	// No Google connection — the resolved connection is Apple (or another
+	// provider). Surface the CalDAV collections from config for an Apple one.
+	if (conn.provider === "apple") {
+		return appleCalendarsOutcome(conn);
+	}
+
+	return buildPayload({
+		success: false,
+		action: "list_calendars",
+		message:
+			"Listing your calendars needs a Google Calendar connection right now.",
 	});
 }
 
@@ -1195,16 +1358,30 @@ export async function runCalendarTool(
 		);
 	}
 
-	const { timeMin, timeMax } = resolveRange(input);
-
 	try {
+		// list_calendars (Gap A5) needs no time range — discovery only. Kept
+		// inside the try so an adapter failure degrades to a graceful note like
+		// every other read.
+		if (input.action === "list_calendars") {
+			return await listCalendarsOutcome(userId, conn, connections);
+		}
+
+		const { timeMin, timeMax } = resolveRange(input);
+
 		if (input.action === "list_events") {
 			const events = await listEventsForConnection(userId, conn, {
 				timeMin,
 				timeMax,
 				query: input.query,
+				calendarId: input.calendarId,
 			});
-			const outcome = listEventsOutcome(conn, events, ambiguous, connections);
+			const outcome = listEventsOutcome(
+				conn,
+				events,
+				ambiguous,
+				connections,
+				appleCalendarIdIgnored(conn, input),
+			);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
@@ -1225,9 +1402,13 @@ export async function runCalendarTool(
 			});
 		}
 		const googleAmbiguous = needsDisambiguation(googleConnections);
+		// Trap C1 fix: scope free/busy to a requested calendarId when given;
+		// omitted -> undefined -> googleFreeBusy defaults to ["primary"],
+		// preserving the prior default-primary behavior exactly.
 		const busy = await googleFreeBusy(userId, googleConn.id, {
 			timeMin,
 			timeMax,
+			...(input.calendarId ? { calendarIds: [input.calendarId] } : {}),
 		});
 		return freeBusyOutcome(
 			googleConn,

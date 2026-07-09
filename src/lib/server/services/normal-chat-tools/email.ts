@@ -3,6 +3,7 @@ import { createPendingWrite } from "$lib/server/services/connections/pending-wri
 import {
 	type EmailHeader,
 	ImapError,
+	imapCount,
 	imapListRecent,
 	imapReadMessage,
 	imapSearch,
@@ -23,10 +24,26 @@ import type { ToolEvidenceCandidate } from "$lib/types";
 import { decideLocalDistill } from "./connector-distill";
 
 export const emailToolInputSchema = z.object({
-	action: z.enum(["recent", "search", "read", "send", "trash", "flag"]),
+	action: z.enum([
+		"recent",
+		"search",
+		"count",
+		"read",
+		"send",
+		"trash",
+		"flag",
+	]),
 	query: z.string().optional(),
 	unseenOnly: z.boolean().optional(),
 	uid: z.number().optional(),
+	// Structured search/count filters (A2). All optional and AND together with
+	// each other and with `query`: `from`/`subject` are sender/subject
+	// substrings; `since`/`before` are date bounds ("YYYY-MM-DD" or ISO). Used
+	// by the "search" and "count" actions. (`subject` is shared with the "send"
+	// action below, where it is the composed subject instead.)
+	from: z.string().optional(),
+	since: z.string().optional(),
+	before: z.string().optional(),
 	// Write-action fields (6.3). `to`/`cc`/`subject`/`body`/`inReplyTo` are
 	// "send"-only; `uid` doubles as "the message being replied to" for send
 	// (optional) and "the target message" for trash/flag (required).
@@ -48,6 +65,9 @@ export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.unseenOnly !== undefined ? { unseenOnly: input.unseenOnly } : {}),
 		...(input.uid !== undefined ? { uid: input.uid } : {}),
+		...(input.from ? { from: input.from.trim() } : {}),
+		...(input.since ? { since: input.since.trim() } : {}),
+		...(input.before ? { before: input.before.trim() } : {}),
 		...(input.to ? { to: input.to.trim() } : {}),
 		...(input.cc ? { cc: input.cc.trim() } : {}),
 		...(input.subject ? { subject: input.subject.trim() } : {}),
@@ -84,6 +104,10 @@ export type EmailToolModelPayload = {
 	messages: EmailToolHeaderItem[];
 	// Only present for a successful "read" — the full (capped) message body.
 	text?: string;
+	// Only present for a successful "count" (A4) — the number of matching
+	// messages (unread by default). Aggregate metadata, not raw message
+	// content, so it is never subject to the Option-A distill gate.
+	count?: number;
 	citations: EmailCitation[];
 	// Only set for a successful send/trash/flag action (6.3) — the write has
 	// NOT executed, this is the id the user's confirm/cancel decision applies
@@ -136,6 +160,7 @@ function buildPayload(params: {
 	message: string;
 	messages?: EmailToolHeaderItem[];
 	text?: string;
+	count?: number;
 	citations?: EmailCitation[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
@@ -151,6 +176,7 @@ function buildPayload(params: {
 			message: params.message,
 			messages,
 			...(params.text !== undefined ? { text: params.text } : {}),
+			...(params.count !== undefined ? { count: params.count } : {}),
 			citations,
 			...(params.pendingWriteId
 				? { pendingWriteId: params.pendingWriteId }
@@ -218,6 +244,31 @@ function listOutcome(
 		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
 		messages: items,
 		citations,
+	});
+}
+
+// A count (A4) surfaces only an aggregate number — no per-message rows,
+// citations, or body text — so nothing here is raw message content and the
+// Option-A distill gate never needs to run (it would be a no-op anyway with no
+// from/subject/text present).
+function countOutcome(
+	conn: ConnectionPublic,
+	count: number,
+	kind: { unread: boolean; filtered: boolean },
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): EmailToolOutcome {
+	const noun = count === 1 ? "message" : "messages";
+	const message = kind.filtered
+		? `${count} ${noun} match your search.`
+		: kind.unread
+			? `You have ${count} unread ${noun}.`
+			: `You have ${count} ${noun}.`;
+	return buildPayload({
+		success: true,
+		action: "count",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		count,
 	});
 }
 
@@ -691,6 +742,26 @@ async function emailWriteOutcome(
 	);
 }
 
+// Collects the structured search/count criteria (A2) actually present on the
+// input into a single object — only non-empty keys are included so the call
+// matches imapSearch/imapCount's "no criteria -> no-op" contract, and callers
+// can test presence with `Object.keys(...).length`.
+function searchCriteria(input: EmailToolInput): {
+	query?: string;
+	from?: string;
+	subject?: string;
+	since?: string;
+	before?: string;
+} {
+	return {
+		...(input.query ? { query: input.query } : {}),
+		...(input.from ? { from: input.from } : {}),
+		...(input.subject ? { subject: input.subject } : {}),
+		...(input.since ? { since: input.since } : {}),
+		...(input.before ? { before: input.before } : {}),
+	};
+}
+
 // Resolves the user's Email (IMAP) connection(s) and executes a
 // recent/search/read lookup, or (6.3) proposes a send/trash/flag write,
 // degrading gracefully (never throwing) so a connection problem never aborts
@@ -755,14 +826,18 @@ export async function runEmailTool(
 		}
 
 		if (input.action === "search") {
-			if (!input.query) {
+			// A2: a search is valid with free text OR any structured filter
+			// (sender/subject/date) — "emails from Anna" needs no `query`.
+			const criteria = searchCriteria(input);
+			if (Object.keys(criteria).length === 0) {
 				return buildPayload({
 					success: false,
 					action: "search",
-					message: "A search query is required to search your email.",
+					message:
+						"A search query is required (or a sender, subject, or date filter) to search your email.",
 				});
 			}
-			const headers = await imapSearch(userId, conn.id, { query: input.query });
+			const headers = await imapSearch(userId, conn.id, criteria);
 			const outcome = listOutcome(
 				conn,
 				"search",
@@ -771,6 +846,28 @@ export async function runEmailTool(
 				connections,
 			);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+
+		if (input.action === "count") {
+			// A4: an accurate count of matching UIDs (never bounded by the list
+			// cap). Defaults to counting UNREAD ("how many unread emails do I
+			// have?") when no explicit unseenOnly and no search filter is given;
+			// an explicit `unseenOnly: false` counts the whole mailbox, and any
+			// filter switches to counting the matching search.
+			const criteria = searchCriteria(input);
+			const filtered = Object.keys(criteria).length > 0;
+			const unseenOnly = input.unseenOnly ?? (filtered ? undefined : true);
+			const count = await imapCount(userId, conn.id, {
+				...criteria,
+				...(unseenOnly !== undefined ? { unseenOnly } : {}),
+			});
+			return countOutcome(
+				conn,
+				count,
+				{ unread: unseenOnly === true, filtered },
+				ambiguous,
+				connections,
+			);
 		}
 
 		if (input.uid === undefined) {

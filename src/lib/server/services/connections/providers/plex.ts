@@ -86,18 +86,33 @@ function normalizeOrigin(serverUrl: string): string {
 
 // Plex defaults to XML; `Accept: application/json` gets JSON instead. The
 // token is sent as a header (never a query string) so it never ends up in
-// server access logs. X-Plex-Client-Identifier/X-Plex-Product are static
-// (no per-request state, unlike X-Plex-Container-Size/-Start pagination
-// headers, which Plex is also nudging clients toward — those would need
-// request-specific wiring through plexAuthorizedRequest and are left out of
-// this pass) — Plex has warned unauthenticated-client requests will stop
-// being served, so every call identifies itself.
-function plexHeaders(token: string): HeadersInit {
+// server access logs. X-Plex-Client-Identifier/X-Plex-Product are static (no
+// per-request state) — Plex has warned unauthenticated-client requests will
+// stop being served, so every call identifies itself.
+//
+// `container`, when supplied, adds X-Plex-Container-Size/-Start: Plex is
+// moving toward REQUIRING these on every container (paginated MediaContainer)
+// response — currently a deprecation warning, but documented to start
+// rejecting container requests without them with a 400. Only the two calls
+// that actually return a MediaContainer callers page through (watch history,
+// library sections — wired via plexAuthorizedRequest) pass this; the
+// one-off /identity and /accounts calls don't take a `container` arg at all,
+// since neither is a paginated listing a caller would ever page through.
+function plexHeaders(
+	token: string,
+	container?: { size: number; start: number },
+): HeadersInit {
 	return {
 		"X-Plex-Token": token,
 		Accept: "application/json",
 		"X-Plex-Client-Identifier": "alfyai-plex-connector",
 		"X-Plex-Product": "AlfyAI",
+		...(container
+			? {
+					"X-Plex-Container-Size": String(container.size),
+					"X-Plex-Container-Start": String(container.start),
+				}
+			: {}),
 	};
 }
 
@@ -399,11 +414,18 @@ function plexConfig(conn: ConnectionPublic): PlexConnectionConfig {
 // `buildPath` (rather than a plain string) gives the caller access to the
 // connection's resolved config — e.g. plexWatchHistory needs `accountId` to
 // build its query string — without a second, duplicate connection load.
+//
+// `container`, when supplied, is forwarded to plexHeaders as the
+// X-Plex-Container-Size/-Start pair — callers pass the exact same
+// size/start their own `buildPath` query string already encodes (limit=/no
+// offset support yet), so the header and the query string can never drift
+// apart.
 async function plexAuthorizedRequest(
 	userId: string,
 	connectionId: string,
 	buildPath: (config: PlexConnectionConfig) => string,
 	opts?: FetchOpt,
+	container?: { size: number; start: number },
 ): Promise<Response> {
 	const conn = await getConnection(userId, connectionId);
 	if (!conn) {
@@ -423,7 +445,7 @@ async function plexAuthorizedRequest(
 	let response: Response;
 	try {
 		response = await fetchImpl(`${config.origin}${path}`, {
-			headers: plexHeaders(token),
+			headers: plexHeaders(token, container),
 		});
 	} catch {
 		throw new PlexError("Failed to reach the Plex server", "request_failed");
@@ -504,6 +526,9 @@ export async function plexWatchHistory(
 			return `/status/sessions/history/all?${queryString}`;
 		},
 		opts,
+		// -Start is always 0: this call has no offset/pagination parameter of
+		// its own (only `limit=`), so it only ever asks for the first page.
+		{ size: limit, start: 0 },
 	);
 	if (!response.ok) {
 		throw new PlexError("Plex watch history request failed", "request_failed");
@@ -524,6 +549,15 @@ export async function plexWatchHistory(
 	return filtered.slice(0, limit);
 }
 
+// GET /library/sections has no limit/offset parameter of its own — a user's
+// Plex library section count is always small (a handful, in practice) and
+// this call has never paginated it. Plex's container-pagination headers are
+// still required on every container request regardless, so this is a
+// generous fixed ceiling (well above any real deployment) rather than a
+// value derived from a query param this call doesn't have; -Start is always
+// 0 for the same reason plexWatchHistory's is when it has no `since`/offset.
+const LIBRARY_SECTIONS_CONTAINER_SIZE = 200;
+
 export async function plexLibrarySections(
 	userId: string,
 	connectionId: string,
@@ -534,6 +568,7 @@ export async function plexLibrarySections(
 		connectionId,
 		() => "/library/sections",
 		opts,
+		{ size: LIBRARY_SECTIONS_CONTAINER_SIZE, start: 0 },
 	);
 	if (!response.ok) {
 		throw new PlexError(

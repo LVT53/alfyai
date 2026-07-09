@@ -6,6 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import type { ConnectionPublic } from "../store";
+import type { WriteOperation } from "../write-guard";
 
 // executeNextcloudWrite (below) loads the connection + decrypts its secret
 // via the real store layer, so this whole file runs against a throwaway
@@ -495,5 +496,120 @@ describe("executeNextcloudWrite", () => {
 			{ fetch: fetchMock as unknown as typeof fetch },
 		);
 		expect(deleteResult).toEqual({ ok: true });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Registered write-executor mapping (toNextcloudWriteRequest) — GAP A1. The
+// mapping used to hard-refuse anything that wasn't "files.put"
+// (`if (op.action !== "files.put") return null`), so a proposed move/delete
+// could never execute even after confirm. These prove the mapping now routes
+// "files.move" and "files.delete" onto the existing NextcloudWriteRequest
+// variants and actually issues the MOVE/DELETE on confirm.
+// ---------------------------------------------------------------------------
+describe("nextcloud registered write executor — move/delete mapping (GAP A1)", () => {
+	async function seedConnection(): Promise<string> {
+		const { createConnection } = await import("../store");
+		const conn = await createConnection({
+			userId: "user-1",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			accountIdentifier: "alice",
+			capabilities: ["files"],
+			status: "connected",
+			secret: "app-password-xyz",
+			allowWrites: true,
+			writeAllowlist: ["/AlfyAI"],
+			config: CONN_CONFIG,
+		});
+		return conn.id;
+	}
+
+	async function nextcloudExecutor() {
+		// Importing the module runs its top-level registerWriteExecutor side
+		// effect.
+		await import("./nextcloud-files");
+		const { getWriteExecutor } = await import("../write-executors");
+		const executor = getWriteExecutor("nextcloud");
+		if (!executor) throw new Error("nextcloud write executor not registered");
+		return executor;
+	}
+
+	it("maps a files.move op (content = {fromPath,toPath}) onto a WebDAV MOVE", async () => {
+		const connectionId = await seedConnection();
+		const executor = await nextcloudExecutor();
+
+		let sawMethod = "";
+		let sawUrl = "";
+		let sawDestination: string | null = null;
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				sawMethod = init?.method ?? "";
+				sawUrl = String(input);
+				sawDestination = new Headers(init?.headers).get("Destination");
+				return new Response(null, { status: 201 });
+			},
+		);
+
+		const op: WriteOperation = {
+			provider: "nextcloud",
+			connectionId,
+			action: "files.move",
+			summary: "Move a.txt to /AlfyAI/b.txt",
+			reversible: true,
+			destructive: false,
+			target: { path: "/AlfyAI/b.txt", withinAllowlist: true },
+		};
+		const result = await executor.execute(
+			"user-1",
+			connectionId,
+			op,
+			JSON.stringify({ fromPath: "/AlfyAI/a.txt", toPath: "/AlfyAI/b.txt" }),
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: true });
+		expect(sawMethod).toBe("MOVE");
+		expect(sawUrl).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/a.txt",
+		);
+		expect(sawDestination).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/b.txt",
+		);
+	});
+
+	it("maps a files.delete op onto a WebDAV DELETE at op.target.path", async () => {
+		const connectionId = await seedConnection();
+		const executor = await nextcloudExecutor();
+
+		let sawMethod = "";
+		let sawUrl = "";
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				sawMethod = init?.method ?? "";
+				sawUrl = String(input);
+				return new Response(null, { status: 204 });
+			},
+		);
+
+		const op: WriteOperation = {
+			provider: "nextcloud",
+			connectionId,
+			action: "files.delete",
+			summary: "Move old.txt to trash",
+			reversible: true,
+			destructive: true,
+			target: { path: "/AlfyAI/old.txt", withinAllowlist: true },
+		};
+		const result = await executor.execute("user-1", connectionId, op, "", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result).toEqual({ ok: true });
+		expect(sawMethod).toBe("DELETE");
+		expect(sawUrl).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/old.txt",
+		);
+		expect(sawUrl).not.toContain("permanent");
 	});
 });

@@ -39,6 +39,40 @@ import { ImmichError } from "./immich";
 export type ImmichWriteOpt = { fetch?: typeof fetch };
 
 const ALBUM_NAME = "AlfyAI";
+const REQUEST_TIMEOUT_MS = 15_000;
+
+// ---------------------------------------------------------------------------
+// fetch plumbing — bounds every write-path Immich call to ~15s via
+// AbortController so a reachable-but-hung Immich server can't stall a
+// pending-write confirmation indefinitely. Mirrors the read side's
+// fetchWithTimeout (immich.ts) as well as the same private-per-module helper
+// in providers/apple-caldav-write.ts / providers/google-calendar-write.ts —
+// this module keeps its own copy (rather than importing immich.ts's) to match
+// that established write-module convention. Throws a plain Error (not
+// ImmichError) on abort because every call site below already wraps its
+// fetchWithTimeout call in its own try/catch that maps ANY thrown error to a
+// `{ ok: false, reason: "request_failed" }` WriteExecutionResult, exactly the
+// same way it already does for an ordinary network failure.
+async function fetchWithTimeout(
+	fetchImpl: typeof fetch,
+	url: string,
+	init: RequestInit,
+): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	try {
+		return await fetchImpl(url, { ...init, signal: controller.signal });
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") {
+			throw new Error(
+				`Immich write request timed out after ${REQUEST_TIMEOUT_MS}ms`,
+			);
+		}
+		throw err;
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 type AddToAlbumContent = { assetIds: string[]; albumName: string };
 
@@ -115,7 +149,7 @@ async function findOrCreateAlbum(
 > {
 	let listResponse: Response;
 	try {
-		listResponse = await fetchImpl(`${origin}/api/albums`, {
+		listResponse = await fetchWithTimeout(fetchImpl, `${origin}/api/albums`, {
 			method: "GET",
 			headers: { "x-api-key": apiKey },
 		});
@@ -150,7 +184,7 @@ async function findOrCreateAlbum(
 
 	let createResponse: Response;
 	try {
-		createResponse = await fetchImpl(`${origin}/api/albums`, {
+		createResponse = await fetchWithTimeout(fetchImpl, `${origin}/api/albums`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -189,14 +223,18 @@ async function addAssetsToAlbum(
 ): Promise<WriteExecutionResult> {
 	let response: Response;
 	try {
-		response = await fetchImpl(`${origin}/api/albums/${albumId}/assets`, {
-			method: "PUT",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": apiKey,
+		response = await fetchWithTimeout(
+			fetchImpl,
+			`${origin}/api/albums/${albumId}/assets`,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": apiKey,
+				},
+				body: JSON.stringify({ ids: assetIds }),
 			},
-			body: JSON.stringify({ ids: assetIds }),
-		});
+		);
 	} catch {
 		return { ok: false, reason: "request_failed" };
 	}

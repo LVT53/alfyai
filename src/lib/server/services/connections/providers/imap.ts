@@ -538,42 +538,144 @@ export async function imapListRecent(
 	});
 }
 
+// The structured criteria a search/count can be built from (A2). `query` is the
+// free-text portion (whole-message TEXT, word-AND'd — see imapSearch);
+// from/subject are native IMAP header-text keys; since/before are date bounds.
+export type ImapSearchCriteria = {
+	query?: string;
+	from?: string;
+	subject?: string;
+	since?: string;
+	before?: string;
+};
+
+// imapflow's search-compiler treats SINCE/BEFORE specially ONLY when the value
+// is a real Date (its WITHIN-extension path and BEFORE next-day adjustment both
+// gate on `isDate(value)`). A bare "YYYY-MM-DD"/ISO string would bypass that and
+// rely on a looser fallback, so normalize any user-supplied date string into a
+// Date here; imapflow then emits the canonical "DD-Mon-YYYY" SEARCH term.
+// Returns undefined for an unparseable value so one bad date is ignored rather
+// than poisoning the whole query.
+function normalizeSearchDate(value: string | undefined): Date | undefined {
+	if (!value) return undefined;
+	const trimmed = value.trim();
+	if (!trimmed) return undefined;
+	const date = new Date(trimmed);
+	return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+// Builds the NON-text portion of an imapflow search object (from/subject/since/
+// before) from the structured criteria. This object is spread into each
+// per-word TEXT search so every criterion AND's together — IMAP search terms
+// are implicitly AND'd. Text (`query`) is handled separately by the callers.
+function buildSearchBase(params: ImapSearchCriteria): Record<string, unknown> {
+	const base: Record<string, unknown> = {};
+	const from = params.from?.trim();
+	const subject = params.subject?.trim();
+	if (from) base.from = from;
+	if (subject) base.subject = subject;
+	const since = normalizeSearchDate(params.since);
+	const before = normalizeSearchDate(params.before);
+	if (since) base.since = since;
+	if (before) base.before = before;
+	return base;
+}
+
+// Splits the free-text `query` into its whitespace-separated words. IMAP
+// `SEARCH TEXT <string>` matches only a single contiguous substring, so a
+// multi-word query issued as one TEXT term ("invoice from acme") almost never
+// matches — instead each word becomes its own TEXT term and the per-word UID
+// sets are intersected by the callers (semantically identical to `TEXT a TEXT
+// b`, which imapflow cannot express as one query object).
+function queryWords(query: string | undefined): string[] {
+	return (query ?? "").trim().split(/\s+/).filter(Boolean);
+}
+
+// Runs one `{ ...base, text: word }` SEARCH per word and returns the
+// intersection of the per-word UID sets, or null when there are no words (the
+// caller then does a single structured-only search). Any word with zero matches
+// short-circuits to an empty intersection since the AND can never be satisfied.
+async function searchWordIntersection(
+	client: ImapFlowLike,
+	base: Record<string, unknown>,
+	words: string[],
+): Promise<number[] | null> {
+	if (words.length === 0) return null;
+	let matched: number[] | null = null;
+	for (const word of words) {
+		const uids = await client.search({ ...base, text: word }, { uid: true });
+		if (!uids || uids.length === 0) return [];
+		if (matched === null) {
+			matched = uids;
+		} else {
+			const keep = new Set(uids);
+			matched = matched.filter((uid) => keep.has(uid));
+			if (matched.length === 0) return [];
+		}
+	}
+	return matched;
+}
+
 export async function imapSearch(
 	userId: string,
 	connectionId: string,
-	params: { query: string; since?: string; limit?: number },
+	params: ImapSearchCriteria & { limit?: number },
 	opts?: ImapOpt,
 ): Promise<EmailHeader[]> {
 	const limit = clampLimit(params.limit);
-	const query = params.query.trim();
-	if (!query) return [];
-	// IMAP `SEARCH TEXT <string>` matches only a single contiguous substring, so
-	// a multi-word query issued as one TEXT term ("invoice from acme") almost
-	// never matches. Instead, emit one TEXT term per whitespace-separated word
-	// and AND the results: a message must contain EVERY word (imapflow can't
-	// express two TEXT keys in a single query object — {text:[...]} compiles to
-	// the malformed `TEXT a b` — so the AND is done by intersecting the per-word
-	// UID sets here, which is semantically identical to `TEXT a TEXT b`). A
-	// single-word query issues exactly one search, preserving prior behavior.
-	const words = query.split(/\s+/).filter(Boolean);
+	const base = buildSearchBase(params);
+	const words = queryWords(params.query);
+	// Nothing to search on at all — no free-text words AND no structured filter.
+	// Preserves the prior "blank query -> [] without opening a connection".
+	if (words.length === 0 && Object.keys(base).length === 0) return [];
+
 	return withImapConnection(userId, connectionId, opts, async (client) => {
-		let matched: number[] | null = null;
-		for (const word of words) {
-			const searchQuery: Record<string, unknown> = { text: word };
-			if (params.since) searchQuery.since = params.since;
-			const uids = await client.search(searchQuery, { uid: true });
-			// A word with no matches means the AND can never be satisfied.
+		// No free-text words: a single SEARCH built purely from the structured
+		// keys (e.g. "emails from Anna since Monday", no free text).
+		if (words.length === 0) {
+			const uids = await client.search(base, { uid: true });
 			if (!uids || uids.length === 0) return [];
-			if (matched === null) {
-				matched = uids;
-			} else {
-				const keep = new Set(uids);
-				matched = matched.filter((uid) => keep.has(uid));
-				if (matched.length === 0) return [];
-			}
+			return fetchHeadersForUids(client, uids, limit);
 		}
+
+		const matched = await searchWordIntersection(client, base, words);
 		if (!matched || matched.length === 0) return [];
 		return fetchHeadersForUids(client, matched, limit);
+	});
+}
+
+// Returns the NUMBER of messages matching a search WITHOUT fetching any
+// headers/bodies (A4). An IMAP SEARCH already returns every matching UID, so
+// `uids.length` is a free, exact count that is never bounded by the
+// recent/search list caps (DEFAULT_LIST_LIMIT/MAX_LIST_LIMIT) — those only
+// bound how many headers a list FETCHes, which a count never does. Answers
+// "how many unread emails do I have?" (`{ unseenOnly: true }`) accurately even
+// when there are hundreds. `unseenOnly` AND's `SEEN false` onto any structured
+// criteria; with no criteria and no unseenOnly it counts everything (SEARCH
+// ALL).
+export async function imapCount(
+	userId: string,
+	connectionId: string,
+	params: ImapSearchCriteria & { unseenOnly?: boolean } = {},
+	opts?: ImapOpt,
+): Promise<number> {
+	const base = buildSearchBase(params);
+	if (params.unseenOnly) base.seen = false;
+	const words = queryWords(params.query);
+
+	return withImapConnection(userId, connectionId, opts, async (client) => {
+		// No free-text words: a single SEARCH whose UID count is the answer. An
+		// empty base means "count everything" -> SEARCH ALL.
+		if (words.length === 0) {
+			const searchQuery = Object.keys(base).length > 0 ? base : { all: true };
+			const uids = await client.search(searchQuery, { uid: true });
+			return uids ? uids.length : 0;
+		}
+
+		// Free-text words AND together exactly as in imapSearch, but only the
+		// SIZE of the final UID set is needed — no header fetch ever happens.
+		const matched = await searchWordIntersection(client, base, words);
+		return matched ? matched.length : 0;
 	});
 }
 

@@ -8,6 +8,7 @@ import {
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	ImapError,
+	imapCount,
 	imapListRecent,
 	imapReadMessage,
 	imapSearch,
@@ -37,6 +38,7 @@ vi.mock("$lib/server/services/connections/providers/imap", async () => {
 		imapListRecent: vi.fn(),
 		imapSearch: vi.fn(),
 		imapReadMessage: vi.fn(),
+		imapCount: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -52,6 +54,7 @@ const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const imapListRecentMock = vi.mocked(imapListRecent);
 const imapSearchMock = vi.mocked(imapSearch);
 const imapReadMessageMock = vi.mocked(imapReadMessage);
+const imapCountMock = vi.mocked(imapCount);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -89,6 +92,7 @@ function resetAllMocks() {
 	imapListRecentMock.mockReset();
 	imapSearchMock.mockReset();
 	imapReadMessageMock.mockReset();
+	imapCountMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -250,6 +254,152 @@ describe("runEmailTool", () => {
 		});
 		expect(outcome.modelPayload.action).toBe("search");
 		expect(outcome.modelPayload.message).toContain("1 message");
+	});
+
+	it("A2 search: threads from/subject/since/before through to imapSearch", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapSearchMock.mockResolvedValue([]);
+
+		await runEmailTool(
+			"user-1",
+			{
+				action: "search",
+				query: "report",
+				from: "anna@example.com",
+				subject: "invoice",
+				since: "2026-07-01",
+				before: "2026-07-31",
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		// The tool forwards the raw strings; imap.ts normalizes the dates.
+		expect(imapSearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			query: "report",
+			from: "anna@example.com",
+			subject: "invoice",
+			since: "2026-07-01",
+			before: "2026-07-31",
+		});
+	});
+
+	it("A2 search: works with only a sender filter (no free-text query)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapSearchMock.mockResolvedValue([
+			{
+				uid: 9,
+				from: "anna@example.com",
+				subject: "Re: report",
+				date: "2026-07-02T00:00:00.000Z",
+				seen: false,
+			},
+		]);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "search", from: "anna@example.com" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapSearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			from: "anna@example.com",
+		});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.message).toContain("1 message");
+	});
+
+	it("A2 search: still fails with no query AND no filter", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "search" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("search query is required");
+		expect(imapSearchMock).not.toHaveBeenCalled();
+	});
+
+	it("A4 count: counts unread by default and reports the FULL number (not the list cap)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapCountMock.mockResolvedValue(200);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "count" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapCountMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			unseenOnly: true,
+		});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("count");
+		expect(outcome.modelPayload.count).toBe(200);
+		expect(outcome.modelPayload.message).toContain("200");
+		expect(outcome.modelPayload.message).toContain("unread");
+		// A count returns no per-message rows/citations to fetch or leak.
+		expect(outcome.modelPayload.messages).toEqual([]);
+		expect(imapListRecentMock).not.toHaveBeenCalled();
+	});
+
+	it("A4 count: unseenOnly=false counts the whole mailbox", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapCountMock.mockResolvedValue(4210);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "count", unseenOnly: false },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapCountMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			unseenOnly: false,
+		});
+		expect(outcome.modelPayload.count).toBe(4210);
+		expect(outcome.modelPayload.message).not.toContain("unread");
+	});
+
+	it("A4 count: counts a search when filters are supplied", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapCountMock.mockResolvedValue(7);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "count", from: "anna@example.com", since: "2026-07-01" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapCountMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			from: "anna@example.com",
+			since: "2026-07-01",
+		});
+		expect(outcome.modelPayload.count).toBe(7);
+	});
+
+	it("A4 count: maps adapter errors to a graceful note without throwing", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapCountMock.mockRejectedValue(
+			new ImapError("The mailbox rejected the stored password", "needs_reauth"),
+		);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "count" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("reconnected");
 	});
 
 	it("read: requires a uid", async () => {

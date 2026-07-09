@@ -373,6 +373,61 @@ describe("immichConnect", () => {
 		}
 	});
 
+	// Item 1 (hardening): a reachable-but-hung Immich server (TCP connects,
+	// then never responds) must not stall the whole chat turn — every Immich
+	// fetch is bounded by fetchWithTimeout's ~15s AbortController. This
+	// injected fetch NEVER resolves on its own (proving the abort signal is
+	// actually wired through to fetchImpl); it only rejects with an
+	// AbortError-named error once its `signal` fires. Advancing fake timers
+	// past REQUEST_TIMEOUT_MS is what fires that abort. The surfaced error is
+	// the SAME typed request_failed/"couldn't reach the server" error an
+	// ordinary network failure would produce — login's existing catch-all
+	// already maps any thrown error (timeout or not) to that one message.
+	it("aborts a hung login request after the timeout and surfaces the normal request_failed path", async () => {
+		seedUser(USER_ID);
+		const { immichConnect, ImmichError } = await import("./immich");
+
+		vi.useFakeTimers();
+		try {
+			const hangingFetch = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => {
+							const abortErr = new Error("The operation was aborted");
+							abortErr.name = "AbortError";
+							reject(abortErr);
+						});
+					}),
+			);
+
+			const promise = immichConnect({
+				userId: USER_ID,
+				serverUrl: "https://photos.example.com",
+				email: "alice@example.com",
+				password: "hunter2",
+				fetch: hangingFetch as unknown as typeof fetch,
+			});
+			const assertion = expect(promise).rejects.toMatchObject({
+				code: "request_failed",
+			});
+
+			await vi.advanceTimersByTimeAsync(15_000);
+			await assertion;
+
+			expect(hangingFetch).toHaveBeenCalledTimes(1);
+			try {
+				await promise;
+			} catch (err) {
+				expect(err).toBeInstanceOf(ImmichError);
+				expect((err as Error).message.toLowerCase()).toContain(
+					"could not reach",
+				);
+			}
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("re-connecting the same email updates (not duplicates) the connection and refreshes the stored key", async () => {
 		seedUser(USER_ID);
 		const { immichConnect } = await import("./immich");
@@ -761,6 +816,53 @@ describe("immichSmartSearch", () => {
 			throw new Error("expected immichSmartSearch to throw");
 		} catch (err) {
 			expect((err as Error).message).not.toContain("top-secret-key");
+		}
+	});
+
+	// Item 1 (hardening): immichSmartSearch routes through
+	// immichAuthorizedRequest, the shared chokepoint every authorized Immich
+	// call (search, thumbnail, ...) uses — proving the timeout fires here
+	// covers all of them. Same never-resolving-until-aborted fetch technique
+	// as the immichConnect login timeout test above.
+	it("aborts a hung smart-search request after the timeout and surfaces the normal request_failed path", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichSmartSearch, ImmichError } = await import("./immich");
+
+		vi.useFakeTimers();
+		try {
+			const hangingFetch = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => {
+							const abortErr = new Error("The operation was aborted");
+							abortErr.name = "AbortError";
+							reject(abortErr);
+						});
+					}),
+			);
+
+			const promise = immichSmartSearch(
+				USER_ID,
+				conn.id,
+				{ query: "beach" },
+				{ fetch: hangingFetch as unknown as typeof fetch },
+			);
+			const assertion = expect(promise).rejects.toMatchObject({
+				code: "request_failed",
+			});
+
+			await vi.advanceTimersByTimeAsync(15_000);
+			await assertion;
+
+			expect(hangingFetch).toHaveBeenCalledTimes(1);
+			try {
+				await promise;
+			} catch (err) {
+				expect(err).toBeInstanceOf(ImmichError);
+			}
+		} finally {
+			vi.useRealTimers();
 		}
 	});
 });

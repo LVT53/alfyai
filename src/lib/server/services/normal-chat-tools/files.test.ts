@@ -212,6 +212,7 @@ describe("runFilesTool", () => {
 				isDir: false,
 				size: 4096,
 				contentType: "application/pdf",
+				mtime: null,
 			},
 			{
 				name: "Documents",
@@ -219,6 +220,7 @@ describe("runFilesTool", () => {
 				isDir: true,
 				size: 0,
 				contentType: null,
+				mtime: null,
 			},
 		]);
 		expect(outcome.modelPayload.citations).toEqual([
@@ -354,6 +356,7 @@ describe("runFilesTool", () => {
 			bytes: new TextEncoder().encode("hello"),
 			etag: null,
 			contentType: "text/plain",
+			mtime: null,
 		});
 
 		const outcome = await runFilesTool(
@@ -378,6 +381,7 @@ describe("runFilesTool", () => {
 			bytes: new TextEncoder().encode("hello world"),
 			etag: "etag-1",
 			contentType: "text/plain",
+			mtime: null,
 		});
 
 		const outcome = await runFilesTool(
@@ -398,6 +402,7 @@ describe("runFilesTool", () => {
 				size: 11,
 				contentType: "text/plain",
 				content: "hello world",
+				mtime: null,
 			},
 		]);
 		expect(outcome.modelPayload.citations).toEqual([
@@ -417,6 +422,7 @@ describe("runFilesTool", () => {
 			bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
 			etag: "etag-1",
 			contentType: "image/png",
+			mtime: null,
 		});
 
 		const outcome = await runFilesTool(
@@ -545,6 +551,7 @@ describe("runFilesTool — locality Option A distillation gate", () => {
 			bytes: new TextEncoder().encode(RAW_CONTENT),
 			etag: "etag-1",
 			contentType: "text/plain",
+			mtime: null,
 		});
 	});
 
@@ -721,6 +728,321 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 		);
 
 		expect(outcome.modelPayload.success).toBe(false);
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});
+
+// GAP A3 — file modification time must be surfaced so "find my most recent /
+// newest file" is answerable. NcFile.mtime is parsed by the adapter but was
+// previously dropped by the tool result mapping.
+describe("runFilesTool — mtime surfacing (GAP A3)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudListFolderMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+	});
+
+	it("search results carry the file's mtime", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([
+			{
+				name: "budget.xlsx",
+				path: "Documents/budget.xlsx",
+				isDir: false,
+				size: 1024,
+				mtime: "Wed, 03 Jan 2024 00:00:00 GMT",
+				contentType: "application/vnd.openxmlformats",
+				etag: "e1",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "budget" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.mtime).toBe(
+			"Wed, 03 Jan 2024 00:00:00 GMT",
+		);
+	});
+
+	it("list results carry each child's mtime", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudListFolderMock.mockResolvedValue([
+			{
+				name: "a.pdf",
+				path: "Documents/a.pdf",
+				isDir: false,
+				size: 10,
+				mtime: "Mon, 01 Jan 2024 00:00:00 GMT",
+				contentType: "application/pdf",
+				etag: "e1",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "list", path: "Documents" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.mtime).toBe(
+			"Mon, 01 Jan 2024 00:00:00 GMT",
+		);
+	});
+
+	it("read result carries the file's mtime", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode("hello"),
+			etag: "etag-1",
+			contentType: "text/plain",
+			mtime: "Tue, 02 Jan 2024 00:00:00 GMT",
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "notes/todo.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.results[0]?.mtime).toBe(
+			"Tue, 02 Jan 2024 00:00:00 GMT",
+		);
+	});
+});
+
+// GAP A1 — move (also serves rename) and delete write actions. Same
+// confirm-gated pending-write pattern as "save": allowWrites is checked
+// BEFORE the secret is decrypted, a WriteOperation + preview is built via the
+// write-guard, a PENDING row is created, and executeNextcloudWrite is NEVER
+// called at proposal time.
+describe("runFilesTool — move action (explicit-confirm write flow, GAP A1)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudStatMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		createPendingWriteMock.mockResolvedValue({
+			id: "pending-move-1",
+			preview: {
+				title: "Move a.txt to /AlfyAI/b.txt",
+				detail: "files.move — /AlfyAI/b.txt",
+				reversible: true,
+				destructive: false,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		});
+	});
+
+	it("allowWrites=true: returns a PENDING result, creates a files.move pending row with from/to paths, and never executes inline", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/AlfyAI/b.txt",
+			},
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("move");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-move-1");
+		expect(outcome.modelPayload.preview).toBeDefined();
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+		expect(outcome.modelPayload.message).toContain("NOT been moved yet");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call?.op).toMatchObject({
+			action: "files.move",
+			provider: "nextcloud",
+			connectionId: "conn-1",
+		});
+		// The source + destination both survive to the pending row so the
+		// executor can MOVE from -> to on confirm.
+		expect(JSON.parse(call?.content ?? "{}")).toEqual({
+			fromPath: "/AlfyAI/a.txt",
+			toPath: "/AlfyAI/b.txt",
+		});
+		expect(call?.conversationId).toBe("conv-1");
+
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: refused, no pending row, secret never decrypted", async () => {
+		const conn = makeConn({ allowWrites: false, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/AlfyAI/b.txt",
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+
+	it("a destination outside the allowlist is HONORED but flagged in the preview", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		await runFilesTool(
+			"user-1",
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/Documents/b.txt",
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call?.op.target).toMatchObject({
+			path: "/Documents/b.txt",
+			withinAllowlist: false,
+		});
+		expect(call?.preview.warnings).toContain("Outside your allowed area");
+	});
+
+	it("requires both a source path and a destination path", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const noDest = await runFilesTool(
+			"user-1",
+			{ action: "move", path: "/AlfyAI/a.txt" },
+			LOCAL_MODEL_ID,
+		);
+		expect(noDest.modelPayload.success).toBe(false);
+		expect(noDest.modelPayload.message).toContain("destination");
+
+		const noSource = await runFilesTool(
+			"user-1",
+			{ action: "move", destinationPath: "/AlfyAI/b.txt" },
+			LOCAL_MODEL_ID,
+		);
+		expect(noSource.modelPayload.success).toBe(false);
+
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("runFilesTool — delete action (explicit-confirm write flow, GAP A1)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudStatMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		createPendingWriteMock.mockResolvedValue({
+			id: "pending-delete-1",
+			preview: {
+				title: "Move old.txt to trash",
+				detail: "files.delete — /AlfyAI/old.txt",
+				reversible: true,
+				destructive: true,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		});
+	});
+
+	it("allowWrites=true: returns a PENDING result, creates a reversible files.delete pending row, and never executes inline", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "delete", path: "/AlfyAI/old.txt" },
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("delete");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-delete-1");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+		expect(outcome.modelPayload.message).toContain("NOT been deleted yet");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call?.op).toMatchObject({
+			action: "files.delete",
+			provider: "nextcloud",
+			connectionId: "conn-1",
+			// delete-to-trash: reversible via Nextcloud's own trashbin.
+			reversible: true,
+		});
+		expect(call?.op.target).toMatchObject({ path: "/AlfyAI/old.txt" });
+		expect(call?.conversationId).toBe("conv-1");
+
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: refused, no pending row, secret never decrypted", async () => {
+		const conn = makeConn({ allowWrites: false, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "delete", path: "/AlfyAI/old.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+
+	it("requires a path", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "delete" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("path is required");
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 	});
 });

@@ -532,4 +532,52 @@ describe("immich write-executor — immich.add_to_album", () => {
 		expect(result).toEqual({ ok: false, reason: "unsupported_operation" });
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	// Item 1 (hardening): a reachable-but-hung Immich server must not stall a
+	// pending-write confirmation — the album-lookup GET is bounded by this
+	// module's own fetchWithTimeout (~15s). This injected fetch NEVER
+	// resolves on its own (proving the abort signal is actually threaded
+	// through to fetchImpl); it only rejects, with an AbortError-named error,
+	// once its `signal` fires — which fake-timers advancing past the timeout
+	// triggers. The result is the module's ordinary request_failed outcome,
+	// the same one an immediate network failure on that GET would produce.
+	it("aborts a hung album-lookup request after the timeout and surfaces request_failed", async () => {
+		const connectionId = await seedImmichConnection();
+		const { getWriteExecutor } = await import("../write-executors");
+		await import("./immich-write");
+
+		vi.useFakeTimers();
+		try {
+			const hangingFetch = vi.fn(
+				(_input: RequestInfo | URL, init?: RequestInit) =>
+					new Promise<Response>((_resolve, reject) => {
+						init?.signal?.addEventListener("abort", () => {
+							const abortErr = new Error("The operation was aborted");
+							abortErr.name = "AbortError";
+							reject(abortErr);
+						});
+					}),
+			);
+
+			const executor = getWriteExecutor("immich");
+			const resultPromise = executor?.execute(
+				USER_ID,
+				connectionId,
+				makeOp(connectionId) as never,
+				JSON.stringify({ assetIds: ["asset-1"], albumName: "AlfyAI" }),
+				{ fetch: hangingFetch as unknown as typeof fetch },
+			);
+			const assertion = expect(resultPromise).resolves.toEqual({
+				ok: false,
+				reason: "request_failed",
+			});
+
+			await vi.advanceTimersByTimeAsync(15_000);
+			await assertion;
+
+			expect(hangingFetch).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

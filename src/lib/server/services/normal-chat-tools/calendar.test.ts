@@ -15,6 +15,7 @@ import {
 	GoogleCalendarError,
 	googleFreeBusy,
 	googleGetEvent,
+	googleListCalendars,
 	googleListEvents,
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
@@ -40,6 +41,7 @@ vi.mock(
 			googleListEvents: vi.fn(),
 			googleFreeBusy: vi.fn(),
 			googleGetEvent: vi.fn(),
+			googleListCalendars: vi.fn(),
 		};
 	},
 );
@@ -69,6 +71,7 @@ const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const googleListEventsMock = vi.mocked(googleListEvents);
 const googleFreeBusyMock = vi.mocked(googleFreeBusy);
 const googleGetEventMock = vi.mocked(googleGetEvent);
+const googleListCalendarsMock = vi.mocked(googleListCalendars);
 const appleListEventsMock = vi.mocked(appleListEvents);
 const appleGetEventByUidMock = vi.mocked(appleGetEventByUid);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
@@ -1598,5 +1601,187 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 				expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
 			});
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Multi-calendar reads (Gap A5 + Trap C1). Before this, the schema exposed
+// `calendarId` and honored it for writes, but every list_events/
+// check_availability read silently hit `primary` regardless — a scoped read
+// looked like it worked but returned the wrong calendar with no error. These
+// tests pin that `calendarId` now threads through to googleListEvents /
+// googleFreeBusy, that omitting it preserves the primary default, that the
+// new list_calendars action surfaces discoverable ids, and that an Apple
+// connection (which can't scope a CalDAV read) surfaces the limitation
+// instead of silently misleading.
+// ---------------------------------------------------------------------------
+describe("runCalendarTool — multi-calendar reads (Gap A5 + Trap C1)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		googleListCalendarsMock.mockReset();
+		appleListEventsMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+	});
+
+	it("list_events threads a non-primary calendarId through to googleListEvents (Trap C1: reads used to silently hit primary)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([]);
+
+		await runCalendarTool(
+			"user-1",
+			{ action: "list_events", calendarId: "work@group.calendar.google.com" },
+			LOCAL_MODEL_ID,
+		);
+
+		const call = googleListEventsMock.mock.calls[0]?.[2];
+		expect(call?.calendarId).toBe("work@group.calendar.google.com");
+	});
+
+	it("list_events without a calendarId does not pin one, preserving the primary default", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([]);
+
+		await runCalendarTool("user-1", { action: "list_events" }, LOCAL_MODEL_ID);
+
+		const call = googleListEventsMock.mock.calls[0]?.[2];
+		expect(call?.calendarId).toBeUndefined();
+	});
+
+	it("check_availability scopes googleFreeBusy to a supplied calendarId", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleFreeBusyMock.mockResolvedValue([
+			{ calendarId: "work@group.calendar.google.com", busy: [] },
+		]);
+
+		await runCalendarTool(
+			"user-1",
+			{
+				action: "check_availability",
+				calendarId: "work@group.calendar.google.com",
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		const call = googleFreeBusyMock.mock.calls[0]?.[2];
+		expect(call?.calendarIds).toEqual(["work@group.calendar.google.com"]);
+	});
+
+	it("check_availability without a calendarId leaves freeBusy on its primary default", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleFreeBusyMock.mockResolvedValue([{ calendarId: "primary", busy: [] }]);
+
+		await runCalendarTool(
+			"user-1",
+			{ action: "check_availability" },
+			LOCAL_MODEL_ID,
+		);
+
+		const call = googleFreeBusyMock.mock.calls[0]?.[2];
+		expect(call?.calendarIds).toBeUndefined();
+	});
+
+	it("list_calendars returns the calendars from googleListCalendars so the model can discover ids", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListCalendarsMock.mockResolvedValue([
+			{ id: "primary", summary: "Alice", primary: true },
+			{ id: "work@group.calendar.google.com", summary: "Work" },
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListCalendarsMock).toHaveBeenCalledWith("user-1", "conn-1");
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("list_calendars");
+		expect(outcome.modelPayload.calendars).toEqual([
+			{ id: "primary", summary: "Alice", primary: true },
+			{ id: "work@group.calendar.google.com", summary: "Work" },
+		]);
+	});
+
+	it("list_calendars surfaces ambiguity but still enumerates the first Google connection", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Google" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Google" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		googleListCalendarsMock.mockResolvedValue([
+			{ id: "primary", summary: "Alice", primary: true },
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListCalendarsMock).toHaveBeenCalledWith("user-1", "conn-a");
+		expect(outcome.modelPayload.message).toContain("2 Calendar connections");
+	});
+
+	it("list_events on an Apple connection ignores a non-primary calendarId (appleListEvents has no such param) and says it's using the default", async () => {
+		const conn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		appleListEventsMock.mockResolvedValue([]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events", calendarId: "work@group.calendar.google.com" },
+			LOCAL_MODEL_ID,
+		);
+
+		const call = appleListEventsMock.mock.calls[0]?.[2];
+		expect(call).not.toHaveProperty("calendarId");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("default");
+	});
+
+	it("list_calendars on an Apple-only connection surfaces the CalDAV calendar collections and notes reads can't be scoped", async () => {
+		const conn = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+			config: {
+				calendarUrls: [
+					"https://p12-caldav.icloud.com/12345/calendars/home/",
+					"https://p12-caldav.icloud.com/12345/calendars/work/",
+				],
+			},
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListCalendarsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.calendars.map((c) => c.summary)).toEqual([
+			"home",
+			"work",
+		]);
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("scope");
 	});
 });

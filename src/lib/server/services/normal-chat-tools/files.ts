@@ -26,9 +26,12 @@ import { decideLocalDistill } from "./connector-distill";
 import { truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
-	action: z.enum(["list", "search", "read", "save"]),
+	action: z.enum(["list", "search", "read", "save", "move", "delete"]),
 	query: z.string().optional(),
 	path: z.string().optional(),
+	// Destination for "move" (also serves rename — a move where only the final
+	// path segment changes). Ignored by every other action.
+	destinationPath: z.string().optional(),
 	content: z.string().optional(),
 });
 
@@ -39,6 +42,9 @@ export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 		action: input.action,
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.path ? { path: input.path.trim() } : {}),
+		...(input.destinationPath
+			? { destinationPath: input.destinationPath.trim() }
+			: {}),
 		...(input.content !== undefined ? { content: input.content } : {}),
 	};
 }
@@ -51,6 +57,10 @@ export type FilesToolResultItem = {
 	isDir: boolean;
 	size: number;
 	contentType: string | null;
+	// Last-modified time (RFC 1123 date string as Nextcloud returns it), or
+	// null when the server didn't report one. Surfaced so the model can answer
+	// "my most recent invoice" / "the newest file" — impossible without it.
+	mtime: string | null;
 	content?: string;
 	truncated?: boolean;
 	binary?: boolean;
@@ -100,6 +110,15 @@ function isTextLike(contentType: string | null): boolean {
 function fileLabel(path: string): string {
 	const segments = path.split("/").filter(Boolean);
 	return segments[segments.length - 1] ?? path;
+}
+
+// True when two paths share the same parent directory (so a move between them
+// is really a rename). Compares the path minus its final segment; leading
+// slashes and repeated separators are ignored via the filter(Boolean) split.
+function sameParent(a: string, b: string): boolean {
+	const parent = (p: string) =>
+		p.split("/").filter(Boolean).slice(0, -1).join("/");
+	return parent(a) === parent(b);
 }
 
 // Best-effort deep link into the Nextcloud Files web UI so citations are
@@ -213,6 +232,7 @@ function searchOutcome(
 		isDir: file.isDir,
 		size: file.size,
 		contentType: file.contentType,
+		mtime: file.mtime,
 	}));
 	const citations: FilesCitation[] = limited
 		.filter((file) => !file.isDir)
@@ -251,6 +271,7 @@ function listOutcome(
 		isDir: file.isDir,
 		size: file.size,
 		contentType: file.contentType,
+		mtime: file.mtime,
 	}));
 	// Only concrete files get a clickable citation — folders aren't documents.
 	const citations: FilesCitation[] = files
@@ -321,6 +342,7 @@ function readOutcome(
 			isDir: false,
 			size: file.bytes.byteLength,
 			contentType: file.contentType,
+			mtime: file.mtime ?? null,
 			content: truncateText(text, MAX_INLINE_TEXT_CHARS),
 			...(truncated ? { truncated: true } : {}),
 		};
@@ -332,6 +354,7 @@ function readOutcome(
 			isDir: false,
 			size: file.bytes.byteLength,
 			contentType: file.contentType,
+			mtime: file.mtime ?? null,
 			binary: true,
 		};
 		message = `${label} is a binary file (${file.contentType ?? "unknown type"}); its contents can't be shown as text.`;
@@ -453,6 +476,204 @@ async function saveOutcome(
 	});
 }
 
+// GAP A1 — the tool's move action (also serves rename: a move where only the
+// final path segment changes). Same explicit-confirm posture as saveOutcome:
+// the allowWrites gate is checked BEFORE the secret is decrypted, a
+// WriteOperation + preview is built via the write-guard, and a PENDING row is
+// created. This function NEVER calls executeNextcloudWrite — the only path to
+// an actual MOVE is a later explicit user confirm. The source + destination
+// are stored in the pending row's `content` as JSON so the executor can MOVE
+// from -> to on confirm; the DESTINATION is the write target that
+// resolveWriteTarget checks against the allowlist (where the file lands),
+// exactly like a save.
+async function moveOutcome(
+	userId: string,
+	conversationId: string | undefined,
+	conn: ConnectionPublic,
+	input: FilesToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<FilesToolOutcome> {
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "move",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!input.path) {
+		return buildPayload({
+			success: false,
+			action: "move",
+			message: "A source path is required to move or rename a file.",
+		});
+	}
+	if (!input.destinationPath) {
+		return buildPayload({
+			success: false,
+			action: "move",
+			message: "A destination path is required to move or rename a file.",
+		});
+	}
+
+	const secret = await getConnectionSecret(userId, conn.id);
+	if (!secret) {
+		return buildPayload({
+			success: false,
+			action: "move",
+			message:
+				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+		});
+	}
+
+	const target = resolveWriteTarget({
+		allowlist: conn.writeAllowlist,
+		requestedPath: input.destinationPath,
+		defaultArea: conn.writeAllowlist[0],
+	});
+	const fromLabel = fileLabel(input.path);
+	const toLabel = fileLabel(target.path);
+	// A rename keeps the same parent directory and only changes the final
+	// segment; a move relocates the file. Purely cosmetic (for the summary) —
+	// both are the same MOVE under the hood.
+	const isRename =
+		fileLabel(input.path) !== toLabel && sameParent(input.path, target.path);
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "files.move",
+		summary: isRename
+			? `Rename ${fromLabel} to ${toLabel}`
+			: `Move ${fromLabel} to ${target.path}`,
+		// A MOVE here always uses Overwrite:F (nextcloudMoveFile default), so it
+		// can never clobber an existing destination — it's non-destructive, and
+		// reversible via Nextcloud's own trash/versions if undone.
+		reversible: true,
+		destructive: false,
+		target: { path: target.path, withinAllowlist: target.withinAllowlist },
+		// Disambiguate the idempotency key per (source, destination) pair — the
+		// destination alone lives in target.path.
+		payloadFingerprint: input.path,
+	};
+	const preview = buildWritePreview(op);
+
+	const { id } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({ fromPath: input.path, toPath: target.path }),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+		conversationId,
+	});
+
+	const verb = isRename ? "rename" : "move";
+	const message = withAmbiguityPrefix(
+		`I've prepared a ${verb} of "${fromLabel}" to ${target.path}, but it has NOT been moved yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "move",
+		message,
+		pendingWriteId: id,
+		preview,
+	});
+}
+
+// GAP A1 — the tool's delete action. Delete-to-trash: the underlying adapter
+// issues a plain WebDAV DELETE (Nextcloud moves the item to the user's
+// trashbin), so the op is destructive but reversible. Same explicit-confirm
+// posture as saveOutcome/moveOutcome: allowWrites is checked BEFORE the secret
+// is decrypted, a PENDING row is created, and executeNextcloudWrite is NEVER
+// called here. A path is REQUIRED — unlike save/move there is no sensible
+// default target for a delete, so an unspecified path is refused rather than
+// falling back to the allowlist root.
+async function deleteOutcome(
+	userId: string,
+	conversationId: string | undefined,
+	conn: ConnectionPublic,
+	input: FilesToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<FilesToolOutcome> {
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "delete",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!input.path) {
+		return buildPayload({
+			success: false,
+			action: "delete",
+			message: "A file path is required to delete a file.",
+		});
+	}
+
+	const secret = await getConnectionSecret(userId, conn.id);
+	if (!secret) {
+		return buildPayload({
+			success: false,
+			action: "delete",
+			message:
+				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+		});
+	}
+
+	const target = resolveWriteTarget({
+		allowlist: conn.writeAllowlist,
+		requestedPath: input.path,
+		defaultArea: conn.writeAllowlist[0],
+	});
+	const label = fileLabel(target.path);
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "files.delete",
+		summary: `Move ${label} to trash (${target.path})`,
+		// Nextcloud's server-side trashbin keeps the deleted item, so this is
+		// recoverable from the Nextcloud UI — reversible, but still destructive.
+		reversible: true,
+		destructive: true,
+		target: { path: target.path, withinAllowlist: target.withinAllowlist },
+	};
+	const preview = buildWritePreview(op);
+
+	const { id } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: "",
+		idempotencyKey: idempotencyKey(op),
+		preview,
+		conversationId,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared a delete of "${label}" (${target.path}), but it has NOT been deleted yet — it is PENDING and awaiting your explicit confirmation. It will go to your Nextcloud trash (recoverable), not be permanently removed. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "delete",
+		message,
+		pendingWriteId: id,
+		preview,
+	});
+}
+
 // Locality Option A: when the user has opted in to local distillation and the
 // selected chat model is cloud, replace raw connector content with a summary
 // produced by a local model before it reaches the (cloud) model — raw file
@@ -542,12 +763,36 @@ export async function runFilesTool(
 		});
 	}
 
-	// "save" (4.3) is a write proposal, not a read: it must check the
-	// allowWrites gate BEFORE any secret is decrypted, so it branches here —
-	// before the shared getConnectionSecret call below — and manages its own
-	// secret fetch internally once the gate has passed.
+	// The write actions ("save", "move", "delete") are write proposals, not
+	// reads: each must check the allowWrites gate BEFORE any secret is
+	// decrypted, so they branch here — before the shared getConnectionSecret
+	// call below — and manage their own secret fetch internally once the gate
+	// has passed. None of them ever executes inline; each only ever creates a
+	// PENDING row awaiting explicit confirmation.
 	if (input.action === "save") {
 		return saveOutcome(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
+	}
+
+	if (input.action === "move") {
+		return moveOutcome(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
+	}
+
+	if (input.action === "delete") {
+		return deleteOutcome(
 			userId,
 			conversationId,
 			conn,

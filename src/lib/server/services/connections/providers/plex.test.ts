@@ -512,6 +512,35 @@ describe("plexWatchHistory", () => {
 		);
 	});
 
+	// Plex is moving toward REQUIRING X-Plex-Container-Size on every container
+	// (paginated MediaContainer) request — currently just a deprecation
+	// warning, but documented to eventually 400 without it. The header must
+	// match the `limit=` query param exactly so the two can never drift apart;
+	// -Start is always "0" since this call has no offset/pagination param.
+	it("sends X-Plex-Container-Size/-Start matching the `limit` query param", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexWatchHistory } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				expect(url).toContain("limit=17");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Container-Size")).toBe("17");
+				expect(headers.get("X-Plex-Container-Start")).toBe("0");
+				return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
+			},
+		);
+
+		await plexWatchHistory(
+			USER_ID,
+			conn.id,
+			{ limit: 17 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
 	it("filters client-side on `query` against title/show (case-insensitive)", async () => {
 		seedUser(USER_ID);
 		const conn = await seedPlexConnection();
@@ -625,6 +654,28 @@ describe("plexLibrarySections", () => {
 			{ title: "Movies", type: "movie" },
 			{ title: "TV Shows", type: "show" },
 		]);
+	});
+
+	// Same deprecation-heading-toward-400 requirement as plexWatchHistory —
+	// this call has no limit/offset param of its own, so the header carries a
+	// fixed generous ceiling rather than one derived from a query param.
+	it("sends X-Plex-Container-Size/-Start on the request", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySections } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Container-Size")).toBeTruthy();
+				expect(headers.get("X-Plex-Container-Start")).toBe("0");
+				return jsonResponse(200, { MediaContainer: { Directory: [] } });
+			},
+		);
+
+		await plexLibrarySections(USER_ID, conn.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
 	});
 
 	it("a 401 response maps to needs_reauth", async () => {

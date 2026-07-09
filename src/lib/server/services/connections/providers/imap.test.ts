@@ -509,10 +509,126 @@ describe("imapSearch", () => {
 			{ createClient: createClientFactory(client) },
 		);
 
+		// A2: a date-only `since` string is normalized to a Date so imapflow's
+		// search-compiler emits a proper "DD-Mon-YYYY" SINCE term (a bare string
+		// would skip the WITHIN/BEFORE date handling in the compiler).
 		expect(client.searchCalls).toEqual([
-			{ text: "invoice", since: "2026-01-01" },
+			{ text: "invoice", since: new Date("2026-01-01") },
 		]);
 		expect(headers.map((h) => h.uid)).toEqual([11, 10]);
+	});
+
+	it("A2: a from+since search emits native FROM + SINCE keys AND'd with each text word", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		const client = new FakeImapClient({
+			search: () => [10],
+			fetch: () =>
+				asyncIterableOf([envelopeMessage({ uid: 10, subject: "Report" })]),
+		});
+
+		await imapSearch(
+			USER_ID,
+			conn.id,
+			{ query: "report", from: "anna@example.com", since: "2026-07-01" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		// The structured keys (FROM/SINCE) ride along with the per-word TEXT term
+		// so every criterion AND's together (IMAP search terms are implicitly AND'd).
+		expect(client.searchCalls).toEqual([
+			{
+				from: "anna@example.com",
+				since: new Date("2026-07-01"),
+				text: "report",
+			},
+		]);
+	});
+
+	it("A2: a date-only `since` normalizes to a Date (structured-only search, no free text)", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		const client = new FakeImapClient({
+			search: () => [5],
+			fetch: () =>
+				asyncIterableOf([envelopeMessage({ uid: 5, subject: "Hi" })]),
+		});
+
+		await imapSearch(
+			USER_ID,
+			conn.id,
+			{ since: "2026-07-01", before: "2026-07-31" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		// No free-text words -> exactly one SEARCH built purely from the
+		// structured keys, with the date strings normalized to Date objects.
+		expect(client.searchCalls).toHaveLength(1);
+		const call = client.searchCalls[0];
+		expect(call?.since).toBeInstanceOf(Date);
+		expect((call?.since as Date).toISOString()).toBe(
+			"2026-07-01T00:00:00.000Z",
+		);
+		expect(call?.before).toBeInstanceOf(Date);
+		expect((call?.before as Date).toISOString()).toBe(
+			"2026-07-31T00:00:00.000Z",
+		);
+		expect(call?.text).toBeUndefined();
+	});
+
+	it("A2: combined structured keys AND across the per-word text intersection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		const perWord: Record<string, number[]> = {
+			invoice: [10, 11, 12],
+			acme: [11, 12, 13],
+		};
+		const client = new FakeImapClient({
+			search: (query) => perWord[query.text as string] ?? [],
+			fetch: () =>
+				asyncIterableOf([
+					envelopeMessage({ uid: 11, subject: "Invoice from Acme" }),
+					envelopeMessage({ uid: 12, subject: "Acme invoice #2" }),
+				]),
+		});
+
+		const headers = await imapSearch(
+			USER_ID,
+			conn.id,
+			{ query: "invoice acme", from: "anna@example.com" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		// One SEARCH per word, each carrying the shared FROM key.
+		expect(client.searchCalls).toEqual([
+			{ from: "anna@example.com", text: "invoice" },
+			{ from: "anna@example.com", text: "acme" },
+		]);
+		// Only UIDs present in BOTH per-word result sets survive.
+		expect(headers.map((h) => h.uid).sort((a, b) => a - b)).toEqual([11, 12]);
+	});
+
+	it("returns an empty list without opening a connection when there is no query or filter", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		const client = new FakeImapClient();
+		const headers = await imapSearch(
+			USER_ID,
+			conn.id,
+			{ query: "   " },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(headers).toEqual([]);
+		expect(client.connectCalls).toBe(0);
 	});
 
 	it("BUG 3 regression: a multi-word query AND's one TEXT term per word and returns the intersection", async () => {
@@ -550,22 +666,87 @@ describe("imapSearch", () => {
 		// Only UIDs present in BOTH per-word result sets (11, 12) come back.
 		expect(headers.map((h) => h.uid).sort((a, b) => a - b)).toEqual([11, 12]);
 	});
+});
 
-	it("returns an empty list without opening a connection when the query is blank", async () => {
+// ---------------------------------------------------------------------------
+// imapCount (A4) — unread/search count via a header-free IMAP SEARCH
+// ---------------------------------------------------------------------------
+
+describe("imapCount", () => {
+	it("A4: returns the full number of matching UIDs (never the fetch cap) and never fetches headers", async () => {
 		seedUser(USER_ID);
 		const conn = await seedImapConnection();
-		const { imapSearch } = await import("./imap");
+		const { imapCount } = await import("./imap");
 
-		const client = new FakeImapClient();
-		const headers = await imapSearch(
+		// Far more than DEFAULT_LIST_LIMIT (20) / MAX_LIST_LIMIT (50): the count
+		// must reflect ALL matching UIDs, proving the list cap does not apply.
+		const uids = Array.from({ length: 200 }, (_, i) => i + 1);
+		const client = new FakeImapClient({
+			search: () => uids,
+		});
+
+		const count = await imapCount(
 			USER_ID,
 			conn.id,
-			{ query: "   " },
+			{ unseenOnly: true },
 			{ createClient: createClientFactory(client) },
 		);
 
-		expect(headers).toEqual([]);
-		expect(client.connectCalls).toBe(0);
+		expect(count).toBe(200);
+		// Unread count is a pure SEARCH {seen:false} ...
+		expect(client.searchCalls).toEqual([{ seen: false }]);
+		// ... with NO header/body fetch at all (uids.length is the free, accurate
+		// count), so no message can ever be mislabeled read.
+		expect(client.fetchCalls).toEqual([]);
+		expect(client.mailboxOpenCalls[0]?.options).toEqual({ readOnly: true });
+		expect(client.logoutCalls).toBe(1);
+	});
+
+	it("A4: counts everything (SEARCH ALL) when neither unseenOnly nor a filter is given", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapCount } = await import("./imap");
+
+		const client = new FakeImapClient({ search: () => [1, 2, 3, 4] });
+
+		const count = await imapCount(
+			USER_ID,
+			conn.id,
+			{},
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(count).toBe(4);
+		expect(client.searchCalls).toEqual([{ all: true }]);
+		expect(client.fetchCalls).toEqual([]);
+	});
+
+	it("A4: counts a structured search (AND'd) without fetching headers", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapCount } = await import("./imap");
+
+		const perWord: Record<string, number[]> = {
+			invoice: [10, 11, 12],
+			acme: [11, 12, 13],
+		};
+		const client = new FakeImapClient({
+			search: (query) => perWord[query.text as string] ?? [],
+		});
+
+		const count = await imapCount(
+			USER_ID,
+			conn.id,
+			{ query: "invoice acme", from: "anna@example.com" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(count).toBe(2); // intersection of [10,11,12] and [11,12,13]
+		expect(client.searchCalls).toEqual([
+			{ from: "anna@example.com", text: "invoice" },
+			{ from: "anna@example.com", text: "acme" },
+		]);
+		expect(client.fetchCalls).toEqual([]);
 	});
 });
 

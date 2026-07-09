@@ -1496,3 +1496,202 @@ describe("write-safety point 7 — idempotent under retry", () => {
 		expect(results.every((r) => r.ok || r.status === 409)).toBe(true);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// GAP A1 — nextcloud files.move / files.delete are now reachable from the
+// chat tool. They must obey the SAME two write invariants the "save" (files.
+// put) action already does: (1) allow_writes=false refuses with NO pending
+// row created, and (2) nothing executes at proposal time — the tool only ever
+// creates a PENDING row, and the real MOVE/DELETE happens exclusively through
+// confirmPendingWrite. Exercised end-to-end against the real store + real
+// pending-writes table + the real registered nextcloud executor.
+// ---------------------------------------------------------------------------
+describe("write-safety GAP A1 — files.move / files.delete honor allowWrites + confirm-gating", () => {
+	it("move: allow_writes=false refuses, no pending row created", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			allowWrites: false,
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/AlfyAI/b.txt",
+			},
+			"model1",
+			"conv-1",
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toMatch(/turned off/i);
+
+		const { listPendingWritesForConversation } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect(await listPendingWritesForConversation(USER_ID, "conv-1")).toEqual(
+			[],
+		);
+	});
+
+	it("delete: allow_writes=false refuses, no pending row created", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			allowWrites: false,
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "delete", path: "/AlfyAI/old.txt" },
+			"model1",
+			"conv-1",
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toMatch(/turned off/i);
+
+		const { listPendingWritesForConversation } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect(await listPendingWritesForConversation(USER_ID, "conv-1")).toEqual(
+			[],
+		);
+	});
+
+	it("move: proposal creates a PENDING row and touches no network; confirm issues exactly one MOVE", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 201 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/AlfyAI/b.txt",
+			},
+			"model1",
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		const pendingId = outcome.modelPayload.pendingWriteId;
+		expect(pendingId).toBeDefined();
+		// Nothing executed at proposal time.
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"pending",
+		);
+
+		const result = await confirmPendingWrite(USER_ID, pendingId as string);
+		expect(result.ok).toBe(true);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(init.method).toBe("MOVE");
+		expect(String(url)).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/a.txt",
+		);
+		expect(new Headers(init.headers).get("Destination")).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/b.txt",
+		);
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"executed",
+		);
+	});
+
+	it("delete: proposal creates a PENDING row and touches no network; confirm issues exactly one DELETE (to trash, no permanent param)", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 204 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "delete", path: "/AlfyAI/old.txt" },
+			"model1",
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		const pendingId = outcome.modelPayload.pendingWriteId;
+		expect(pendingId).toBeDefined();
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		const result = await confirmPendingWrite(USER_ID, pendingId as string);
+		expect(result.ok).toBe(true);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(init.method).toBe("DELETE");
+		expect(String(url)).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/old.txt",
+		);
+		expect(String(url)).not.toContain("permanent");
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"executed",
+		);
+	});
+
+	it("move: allowWrites flipped off AFTER propose, BEFORE confirm — confirm refuses, row stays pending, no network", async () => {
+		const connectionId = await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 201 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{
+				action: "move",
+				path: "/AlfyAI/a.txt",
+				destinationPath: "/AlfyAI/b.txt",
+			},
+			"model1",
+		);
+		const pendingId = outcome.modelPayload.pendingWriteId as string;
+
+		const { setAllowWrites } = await import(
+			"$lib/server/services/connections/store"
+		);
+		await setAllowWrites(USER_ID, connectionId, false);
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		const result = await confirmPendingWrite(USER_ID, pendingId);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect((await getPendingWrite(USER_ID, pendingId))?.status).toBe("pending");
+	});
+});

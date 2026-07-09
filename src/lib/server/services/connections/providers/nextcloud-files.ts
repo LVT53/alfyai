@@ -708,6 +708,11 @@ export async function nextcloudReadFile(
 	bytes: Uint8Array;
 	etag: string | null;
 	contentType: string | null;
+	// Last-Modified from the GET response headers (RFC 1123 date string), so a
+	// single-file read can surface the same modification time list/search
+	// expose from PROPFIND — needed for "is this the newest version" style
+	// follow-ups. Null when the server omits the header.
+	mtime: string | null;
 }> {
 	const fetchImpl = opts?.fetch ?? fetch;
 	const { serverUrl, loginName } = nextcloudConfig(conn);
@@ -766,6 +771,7 @@ export async function nextcloudReadFile(
 		bytes: new Uint8Array(buffer),
 		etag: response.headers.get("ETag"),
 		contentType: response.headers.get("Content-Type"),
+		mtime: response.headers.get("Last-Modified"),
 	};
 }
 
@@ -1332,32 +1338,65 @@ export const nextcloudFilesAdapter = {
 registerConnectionAdapter(nextcloudFilesAdapter satisfies ConnectionAdapter);
 
 // ---------------------------------------------------------------------------
-// Write-executor registration (Issue 6.0) — only "files.put" is supported by
-// the confirm executor today (the only write action a tool can currently
-// propose, files.ts "save"). Any other action is refused rather than
-// silently mis-executed. This mapping (WriteOperation -> the shape
-// executeNextcloudWrite needs) previously lived inline in pending-writes.ts's
-// confirmPendingWrite; it moved here, unchanged, so it sits behind the
-// write-executor registry instead of being hardwired into the generic
-// confirm flow (see write-executors.ts).
+// Write-executor registration (Issue 6.0, GAP A1) — maps a confirmed
+// WriteOperation onto the shape executeNextcloudWrite needs. Three tool write
+// actions are supported: "files.put" (files.ts "save"), "files.move" (move +
+// rename), and "files.delete" (delete-to-trash). Any other action returns
+// null and is refused as unsupported_operation rather than silently
+// mis-executed. This mapping previously lived inline in pending-writes.ts's
+// confirmPendingWrite; it moved here so it sits behind the write-executor
+// registry instead of being hardwired into the generic confirm flow (see
+// write-executors.ts).
+//
+// For "files.move" the source + destination are carried in `content` as JSON
+// (`{ fromPath, toPath }`) — the same "structured payload in content" pattern
+// the calendar/immich/imap executors use — since a WriteTarget has only one
+// path slot (used here for the destination, so the write-guard preview and
+// allowlist check apply to where the file LANDS). For "files.delete" the
+// single target path is `op.target.path`; content is unused.
 // ---------------------------------------------------------------------------
 
 function toNextcloudWriteRequest(
 	op: WriteOperation,
 	content: string,
 ): NextcloudWriteRequest | null {
-	if (op.action !== "files.put") return null;
-	const MAX_SUMMARY_CHARS = 200;
-	const contentSummary =
-		content.length > MAX_SUMMARY_CHARS
-			? `${content.slice(0, MAX_SUMMARY_CHARS)}…`
-			: content;
-	return {
-		kind: "put",
-		requestedPath: op.target?.path,
-		bytes: new TextEncoder().encode(content),
-		contentSummary,
-	};
+	if (op.action === "files.put") {
+		const MAX_SUMMARY_CHARS = 200;
+		const contentSummary =
+			content.length > MAX_SUMMARY_CHARS
+				? `${content.slice(0, MAX_SUMMARY_CHARS)}…`
+				: content;
+		return {
+			kind: "put",
+			requestedPath: op.target?.path,
+			bytes: new TextEncoder().encode(content),
+			contentSummary,
+		};
+	}
+
+	if (op.action === "files.move") {
+		let parsed: { fromPath?: unknown; toPath?: unknown };
+		try {
+			parsed = JSON.parse(content) as { fromPath?: unknown; toPath?: unknown };
+		} catch {
+			return null;
+		}
+		if (
+			typeof parsed.fromPath !== "string" ||
+			typeof parsed.toPath !== "string"
+		) {
+			return null;
+		}
+		return { kind: "move", fromPath: parsed.fromPath, toPath: parsed.toPath };
+	}
+
+	if (op.action === "files.delete") {
+		const path = op.target?.path;
+		if (!path) return null;
+		return { kind: "delete", path };
+	}
+
+	return null;
 }
 
 registerWriteExecutor({
