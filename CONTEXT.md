@@ -2537,6 +2537,42 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 > **Dev:** "What if the query-derived job title is truncated?"
 > **Domain expert:** "Use the model-generated Atlas title as the canonical title. Query-derived titles are fallback labels, not the final report title."
 
+## Connections
+
+### Language
+
+**Connection**:
+A single external account a user has linked to AlfyAI (one login), such as a Google account, a Nextcloud server, or a mailbox. A **Connection** belongs to exactly one user and is the unit shown as one row in the Connections settings list. One provider may have several **Connections** (multiple accounts).
+_Avoid_: integration, account link, provider (a provider is the service type, not the user's linked account), data source
+
+**Capability**:
+A kind of data or action a **Connection** can serve — calendar, files, email, photos, media, location, or contacts. Capabilities are per-connection and toggleable. One **Connection** (e.g. a Google login) can serve several capabilities.
+_Avoid_: scope, permission, feature, tool (a tool is the chat-facing surface a capability powers)
+
+**Account**:
+The external identity (email address or username) a **Connection** authenticates as, used to disambiguate when a user has more than one **Connection** for the same provider. Disambiguation between accounts is resolved by the assistant in chat and learned into memory — it is never a composer control.
+_Avoid_: profile, user (the AlfyAI user is distinct), identity
+
+**Connections Toggle**:
+The single per-conversation on/off control in the composer that permits the assistant to use the user's default-on **Connections** for that turn. When on, the assistant decides *which* connections and capabilities to use; when off, none are used. It is a trust-the-assistant switch, not per-capability control, and lives as one icon in the composer row beside the incognito toggle — never as per-capability rows in the plus menu. Defaults on.
+_Avoid_: capability toggles, per-tool switches, connection picker, plus-menu connection rows
+
+**Default-on Capability**:
+A **Capability** marked to be available by default when the **Connections Toggle** is on. Which capabilities are default-on is set per-connection in Settings, not in the composer — the composer only carries the single master **Connections Toggle**.
+_Avoid_: enabled tool, active capability (active = default-on AND the toggle is on for this turn)
+
+**Alfy Email**:
+The on-box mailbox connect path for accounts hosted on AlfyAI's own mail server (Virtualmin-managed, one machine, many domains). Because the server host/port/TLS are predictable, connecting an **Alfy Email** account is near-zero-config: the user supplies only their email address and password. Distinct from the Gmail & Other (IMAP) path, which needs manual or provider-specific setup.
+_Avoid_: AlfyWS Email, local mail client, on-box IMAP form
+
+**Connection Detail**:
+The full-screen modal overlay for one **Connection**'s settings — capabilities, default-on, allow-writes (with the reversible/allowlist explainer behind the shared info tooltip), folder allowlist, and disconnect. It overlays the Connections list on top; it does not replace the row or expand it inline. The list row itself stays glance-only (brand icon, account, capability mini-icons, status) with quick icon actions.
+_Avoid_: settings accordion, inline expander, connection card (the fat always-expanded card is the rejected prototype)
+
+**Data Locality**:
+Keeping a user's connected-account data on AlfyAI's own infrastructure — processing it with a local model before any third-party cloud model can see it (Option A), or warning the user the first time connected data would reach a third-party cloud model (Option C). The settings surface for this must plainly say it keeps connected-account data private/on-device; the prototype title "Adatvédelem és adatkezelés helye" is rejected as unclear.
+_Avoid_: locality guard (internal term), Option A/Option C (internal labels — not user-facing copy), data residency
+
 ## Flagged ambiguities
 
 - "canonical" was a term from the deleted Deep Research subsystem. It is historical and should not be used for Atlas or any current feature.
