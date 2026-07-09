@@ -100,7 +100,15 @@ export type ImapClientOptions = {
 
 export type ImapClientFactory = (options: ImapClientOptions) => ImapFlowLike;
 
-function createDefaultImapClient(options: ImapClientOptions): ImapFlowLike {
+// Exported so providers/imap-write.ts (Issue 6.3) can adapt the SAME real
+// ImapFlow class to its own, wider write-side client contract
+// (ImapWriteFlowLike, which additionally needs list/messageMove/
+// messageFlagsAdd/messageFlagsRemove — methods this read module deliberately
+// never calls, see the \Seen safety doc comment above) without duplicating
+// the "new ImapFlow(options) as unknown as ..." adaptation shim.
+export function createDefaultImapClient(
+	options: ImapClientOptions,
+): ImapFlowLike {
 	// The real ImapFlow class exposes far more than ImapFlowLike — it
 	// structurally satisfies the narrow interface this module actually uses,
 	// so this cast just adapts imapflow's broad public surface to that
@@ -146,7 +154,10 @@ const DEFAULT_IMAP_PORT = 993;
 const DEFAULT_IMAP_SECURE = true;
 const CONNECT_TIMEOUT_MS = 15_000;
 const SOCKET_TIMEOUT_MS = 20_000;
-const INBOX = "INBOX";
+// Exported: providers/imap-write.ts (6.3) opens the same default mailbox for
+// its flag action (and as the starting point before resolving the Trash
+// folder for its trash action) — same INBOX constant, not a re-declared copy.
+export const INBOX = "INBOX";
 
 // Bounds how many recent/search results a single call returns — mirrors the
 // calendar tool's MAX_EVENTS posture (a caller-supplied `limit` narrows this,
@@ -173,7 +184,10 @@ function clampLimit(limit: number | undefined): number {
 // server's raw NO-response text is out of this module's control and must
 // never be forwarded verbatim into a thrown error (no password, no server
 // internals leak to the user or a log call site further up).
-function isAuthFailure(err: unknown): boolean {
+// Exported for providers/imap-write.ts (6.3) — the write executor's own
+// auth-failure detection for connect/mailboxOpen/messageMove/messageFlags*
+// errors is the identical imapflow signal, not a re-implementation.
+export function isAuthFailure(err: unknown): boolean {
 	if (!err || typeof err !== "object") return false;
 	return (
 		(err as { authenticationFailed?: unknown }).authenticationFailed === true
@@ -184,7 +198,12 @@ function isAuthFailure(err: unknown): boolean {
 // a hard close if LOGOUT itself fails (e.g. the connection already dropped).
 // Called from every connect/read code path's `finally` block — the
 // connection is never left open.
-async function closeClient(client: ImapFlowLike): Promise<void> {
+// Exported for providers/imap-write.ts (6.3): its ImapWriteFlowLike extends
+// this module's ImapFlowLike (see that file), so the exact same
+// close-in-`finally` chokepoint applies to write connections too — no
+// separate copy of this "always close, LOGOUT preferred, hard close as
+// fallback" logic.
+export async function closeClient(client: ImapFlowLike): Promise<void> {
 	try {
 		await client.logout();
 	} catch {
@@ -196,7 +215,11 @@ async function closeClient(client: ImapFlowLike): Promise<void> {
 	}
 }
 
-function buildClientOptions(
+// Exported for providers/imap-write.ts (6.3) — write connections are opened
+// with the exact same host/port/secure/auth/timeout shape as read
+// connections, just with `readOnly: false` passed to mailboxOpen at the call
+// site instead of a different client-options shape.
+export function buildClientOptions(
 	host: string,
 	port: number,
 	secure: boolean,
@@ -366,7 +389,10 @@ export type EmailHeader = {
 	snippet?: string;
 };
 
-function imapConfig(conn: ConnectionPublic): ImapConnectionConfig {
+// Exported for providers/imap-write.ts (6.3) — the write executor reads the
+// SAME stored config shape (including smtpHost/smtpPort, used only by the
+// send action) rather than re-parsing conn.config itself.
+export function imapConfig(conn: ConnectionPublic): ImapConnectionConfig {
 	const email = typeof conn.config.email === "string" ? conn.config.email : "";
 	const imapHost =
 		typeof conn.config.imapHost === "string" ? conn.config.imapHost : "";

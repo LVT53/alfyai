@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	type EmailHeader,
 	ImapError,
@@ -11,15 +12,32 @@ import {
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import {
+	buildWritePreview,
+	idempotencyKey,
+	type WriteOperation,
+	type WritePreview,
+} from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
 
 export const emailToolInputSchema = z.object({
-	action: z.enum(["recent", "search", "read"]),
+	action: z.enum(["recent", "search", "read", "send", "trash", "flag"]),
 	query: z.string().optional(),
 	unseenOnly: z.boolean().optional(),
 	uid: z.number().optional(),
+	// Write-action fields (6.3). `to`/`cc`/`subject`/`body`/`inReplyTo` are
+	// "send"-only; `uid` doubles as "the message being replied to" for send
+	// (optional) and "the target message" for trash/flag (required).
+	// `flag`/`value` are "flag"-only.
+	to: z.string().optional(),
+	cc: z.string().optional(),
+	subject: z.string().optional(),
+	body: z.string().optional(),
+	inReplyTo: z.string().optional(),
+	flag: z.enum(["seen", "flagged"]).optional(),
+	value: z.boolean().optional(),
 });
 
 export type EmailToolInput = z.infer<typeof emailToolInputSchema>;
@@ -30,6 +48,13 @@ export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.unseenOnly !== undefined ? { unseenOnly: input.unseenOnly } : {}),
 		...(input.uid !== undefined ? { uid: input.uid } : {}),
+		...(input.to ? { to: input.to.trim() } : {}),
+		...(input.cc ? { cc: input.cc.trim() } : {}),
+		...(input.subject ? { subject: input.subject.trim() } : {}),
+		...(input.body ? { body: input.body.trim() } : {}),
+		...(input.inReplyTo ? { inReplyTo: input.inReplyTo.trim() } : {}),
+		...(input.flag ? { flag: input.flag } : {}),
+		...(input.value !== undefined ? { value: input.value } : {}),
 	};
 }
 
@@ -60,6 +85,11 @@ export type EmailToolModelPayload = {
 	// Only present for a successful "read" — the full (capped) message body.
 	text?: string;
 	citations: EmailCitation[];
+	// Only set for a successful send/trash/flag action (6.3) — the write has
+	// NOT executed, this is the id the user's confirm/cancel decision applies
+	// to (mirrors calendar.ts/files.ts's own pendingWriteId).
+	pendingWriteId?: string;
+	preview?: WritePreview;
 };
 
 export type EmailToolOutcome = {
@@ -107,6 +137,8 @@ function buildPayload(params: {
 	messages?: EmailToolHeaderItem[];
 	text?: string;
 	citations?: EmailCitation[];
+	pendingWriteId?: string;
+	preview?: WritePreview;
 }): EmailToolOutcome {
 	const messages = params.messages ?? [];
 	const citations = params.citations ?? [];
@@ -120,6 +152,10 @@ function buildPayload(params: {
 			messages,
 			...(params.text !== undefined ? { text: params.text } : {}),
 			citations,
+			...(params.pendingWriteId
+				? { pendingWriteId: params.pendingWriteId }
+				: {}),
+			...(params.preview ? { preview: params.preview } : {}),
 		},
 		candidates: citations.map((citation, index) =>
 			toCandidate(messages[index]?.uid, citation),
@@ -311,11 +347,314 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Write actions (Issue 6.3) — send/trash/flag. These NEVER execute a
+// mutation: like calendar.ts's create/update/delete_event and files.ts's
+// "save", each one builds a WriteOperation, runs it through buildWritePreview
+// (4.1), and hands it to createPendingWrite (4.3), which persists a PENDING
+// row and nothing more. The only path from here to an actual send/mailbox
+// mutation is the user explicitly confirming via the confirm API — a
+// separate request entirely, dispatched by the "imap" write-executor
+// (providers/imap-write.ts) registered in Issue 6.3.
+// ---------------------------------------------------------------------------
+
+type EmailWriteAction = "send" | "trash" | "flag";
+
+function isEmailWriteAction(
+	action: EmailToolInput["action"],
+): action is EmailWriteAction {
+	return action === "send" || action === "trash" || action === "flag";
+}
+
+// title/to/subject/body are the user's own compose input this turn, not
+// connector-read data — no locality distillation gate applies to them
+// (Option A). If `uid` is given (composing a reply), the ORIGINAL message's
+// subject is fetched purely to surface a human "Replying to ..." sentence —
+// THAT fetched subject IS connector-read data, so it goes through the same
+// Option-A gate as calendar.ts's update/delete preview redaction.
+async function proposeSend(
+	userId: string,
+	conn: ConnectionPublic,
+	input: EmailToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<EmailToolOutcome> {
+	if (!input.to || !input.subject || !input.body) {
+		return buildPayload({
+			success: false,
+			action: "send",
+			message: "A recipient, subject, and body are required to send an email.",
+		});
+	}
+
+	let rawReplySubject: string | undefined;
+	if (input.uid !== undefined) {
+		try {
+			const { header } = await imapReadMessage(userId, conn.id, {
+				uid: input.uid,
+			});
+			rawReplySubject = header.subject;
+		} catch {
+			// Best-effort only — a missing/unreadable original message never
+			// blocks sending the reply itself.
+		}
+	}
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "email.send",
+		summary: `Send "${input.subject}" to ${input.to}`,
+		target: { label: `${input.subject} → ${input.to}` },
+		reversible: false, // A sent email cannot be unsent.
+		destructive: false,
+	};
+	const preview = buildWritePreview(op);
+
+	const content = {
+		to: input.to,
+		...(input.cc ? { cc: input.cc } : {}),
+		subject: input.subject,
+		body: input.body,
+		...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
+	};
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify(content),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	// Option A: only the fetched original-message subject is connector-read
+	// data — `preview`/the base message below never contain it, so nothing
+	// needs redacting there; only this optional "replying to" sentence does.
+	let replySegment = "";
+	if (rawReplySubject) {
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "email",
+			userQuestion: input.subject,
+			rawText: rawReplySubject,
+		});
+		if (decision.shouldDistill) {
+			replySegment =
+				"distilled" in decision
+					? ` Replying to a message privately summarized for a cloud model. Summary: ${decision.distilled}`
+					: " This is a reply to an existing message whose details couldn't be privately summarized for a cloud model, so they were withheld.";
+		} else {
+			replySegment = ` Replying to "${rawReplySubject}".`;
+		}
+	}
+
+	const message = withAmbiguityPrefix(
+		`I've prepared an email to ${input.to} with subject "${input.subject}", but it has NOT been sent yet — it is PENDING and awaiting your explicit confirmation. Sending cannot be undone once confirmed.${replySegment}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "send",
+		message,
+		pendingWriteId,
+		preview,
+	});
+}
+
+// The subject of the uid being trashed is connector-read data (fetched from
+// the mailbox), so it is redacted from the MODEL-facing preview/message under
+// Option A + cloud — same posture as calendar.ts's update/delete preview. The
+// pending write's stored (DB) preview keeps the real subject; only the copy
+// returned in this outcome is ever redacted.
+async function proposeTrash(
+	userId: string,
+	conn: ConnectionPublic,
+	input: EmailToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<EmailToolOutcome> {
+	if (input.uid === undefined) {
+		return buildPayload({
+			success: false,
+			action: "trash",
+			message: "A message uid is required to move a message to Trash.",
+		});
+	}
+
+	let subject: string;
+	try {
+		const { header } = await imapReadMessage(userId, conn.id, {
+			uid: input.uid,
+		});
+		subject = header.subject || "(no subject)";
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action: "trash",
+			message: mapAdapterError(err),
+		});
+	}
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "email.trash",
+		summary: `Move "${subject}" to Trash`,
+		target: { id: String(input.uid), label: subject },
+		reversible: true, // Goes to Trash, recoverable — not a permanent delete.
+		destructive: true,
+	};
+	const rawPreview = buildWritePreview(op);
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({ uid: input.uid }),
+		idempotencyKey: idempotencyKey(op),
+		// The DB row keeps the RAW preview (real subject) — never sent back
+		// through the model; only the copy below is.
+		preview: rawPreview,
+	});
+
+	const decision = await decideLocalDistill({
+		userId,
+		modelId,
+		capability: "email",
+		userQuestion: "",
+		rawText: subject,
+	});
+
+	let modelPreview = rawPreview;
+	let redactedNote = "";
+	if (decision.shouldDistill) {
+		modelPreview = {
+			...rawPreview,
+			title: "Move a message to Trash",
+			detail: `${op.action} — email message`,
+		};
+		redactedNote =
+			"distilled" in decision
+				? ` Privately summarized for a cloud model. Summary: ${decision.distilled}`
+				: " Its details couldn't be privately summarized for a cloud model, so they were withheld.";
+	}
+
+	const message = withAmbiguityPrefix(
+		`I've prepared to move a message to Trash, but it has NOT been moved yet — it is PENDING and awaiting your explicit confirmation. ${modelPreview.detail}${redactedNote}${modelPreview.warnings.length > 0 && !decision.shouldDistill ? ` Warnings: ${modelPreview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "trash",
+		message,
+		pendingWriteId,
+		preview: modelPreview,
+	});
+}
+
+// No connector read is needed to propose a flag change — the target is
+// identified purely by uid, with no raw message content surfaced in the
+// preview/message, so no Option-A gate applies here.
+async function proposeFlag(
+	userId: string,
+	conn: ConnectionPublic,
+	input: EmailToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<EmailToolOutcome> {
+	if (input.uid === undefined || !input.flag || input.value === undefined) {
+		return buildPayload({
+			success: false,
+			action: "flag",
+			message:
+				"A message uid, flag name, and value are required to change a flag.",
+		});
+	}
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "email.flag",
+		summary: `${input.value ? "Set" : "Clear"} ${input.flag} on a message`,
+		target: { id: String(input.uid) },
+		reversible: true,
+		destructive: false,
+	};
+	const preview = buildWritePreview(op);
+
+	const { id: pendingWriteId } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: JSON.stringify({
+			uid: input.uid,
+			flag: input.flag,
+			value: input.value,
+		}),
+		idempotencyKey: idempotencyKey(op),
+		preview,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared to ${input.value ? "set" : "clear"} the ${input.flag} flag on a message, but it has NOT been applied yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "flag",
+		message,
+		pendingWriteId,
+		preview,
+	});
+}
+
+async function emailWriteOutcome(
+	userId: string,
+	conn: ConnectionPublic,
+	input: EmailToolInput,
+	action: EmailWriteAction,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+	modelId: string,
+): Promise<EmailToolOutcome> {
+	// Hard gate, checked BEFORE any secret is ever decrypted — same posture as
+	// files.ts's saveOutcome / calendar.ts's calendarWriteOutcome. No pending
+	// row is created when writes are disabled.
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action,
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (action === "send") {
+		return proposeSend(userId, conn, input, ambiguous, connections, modelId);
+	}
+	if (action === "trash") {
+		return proposeTrash(userId, conn, input, ambiguous, connections, modelId);
+	}
+	return proposeFlag(userId, conn, input, ambiguous, connections);
+}
+
 // Resolves the user's Email (IMAP) connection(s) and executes a
-// recent/search/read lookup, degrading gracefully (never throwing) so a
-// connection problem never aborts the chat turn: no connection, ambiguity,
-// and adapter failures all resolve to a `{ success: false, message }`-shaped
-// payload instead. Read-only — SMTP send/write ops are Phase 6.3.
+// recent/search/read lookup, or (6.3) proposes a send/trash/flag write,
+// degrading gracefully (never throwing) so a connection problem never aborts
+// the chat turn: no connection, ambiguity, and adapter failures all resolve
+// to a `{ success: false, message }`-shaped payload instead.
 export async function runEmailTool(
 	userId: string,
 	input: EmailToolInput,
@@ -340,6 +679,21 @@ export async function runEmailTool(
 			message:
 				"You don't have an Email connection set up yet. Connect your mailbox in Settings to check your email.",
 		});
+	}
+
+	// Write actions (6.3) are proposal-only and branch here — before the
+	// read-side try/catch below — same posture as calendar.ts's write branch
+	// ahead of its shared range-resolution flow.
+	if (isEmailWriteAction(input.action)) {
+		return emailWriteOutcome(
+			userId,
+			conn,
+			input,
+			input.action,
+			ambiguous,
+			connections,
+			modelId,
+		);
 	}
 
 	try {

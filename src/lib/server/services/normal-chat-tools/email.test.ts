@@ -5,6 +5,7 @@ import {
 	hasLocalDistillEnabled,
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
+import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	ImapError,
 	imapListRecent,
@@ -22,6 +23,9 @@ import { runEmailTool, sanitizeEmailToolInput } from "./email";
 vi.mock("$lib/server/services/connections/resolve", () => ({
 	resolveConnectionsForCapability: vi.fn(),
 	needsDisambiguation: vi.fn(),
+}));
+vi.mock("$lib/server/services/connections/pending-writes", () => ({
+	createPendingWrite: vi.fn(),
 }));
 vi.mock("$lib/server/services/connections/providers/imap", async () => {
 	const actual = await vi.importActual<
@@ -50,6 +54,7 @@ const imapReadMessageMock = vi.mocked(imapReadMessage);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
+const createPendingWriteMock = vi.mocked(createPendingWrite);
 
 const LOCAL_MODEL_ID = "model1";
 
@@ -85,9 +90,14 @@ function resetAllMocks() {
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
+	createPendingWriteMock.mockReset();
 	needsDisambiguationMock.mockReturnValue(false);
 	hasLocalDistillEnabledMock.mockResolvedValue(false);
 	isCloudModelMock.mockResolvedValue(false);
+	createPendingWriteMock.mockImplementation(async (_userId, params) => ({
+		id: "pending-1",
+		preview: params.preview,
+	}));
 }
 
 describe("sanitizeEmailToolInput", () => {
@@ -476,5 +486,375 @@ describe("runEmailTool — locality Option A distillation gate", () => {
 		expect(outcome.candidates).toEqual([
 			expect.objectContaining({ title: "Session recap" }),
 		]);
+	});
+});
+
+describe("runEmailTool — write actions (Issue 6.3)", () => {
+	function makeWritableConn(
+		overrides: Partial<ConnectionPublic> = {},
+	): ConnectionPublic {
+		return makeConn({ allowWrites: true, ...overrides });
+	}
+
+	beforeEach(resetAllMocks);
+
+	describe("send", () => {
+		it("allowWrites=false: returns a note and creates NO pending row, no secret decrypted, no read", async () => {
+			const conn = makeWritableConn({ allowWrites: false, label: "Work Mail" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "send", to: "bob@example.com", subject: "Hi", body: "Hello" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("Work Mail");
+			expect(outcome.modelPayload.message).toContain("turned off");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(imapReadMessageMock).not.toHaveBeenCalled();
+		});
+
+		it("requires to/subject/body", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "send", to: "bob@example.com" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain(
+				"recipient, subject, and body",
+			);
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("allowWrites=true: creates a PENDING row (never sends inline) and returns pendingWriteId + preview; the message states sending cannot be undone", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					to: "bob@example.com",
+					cc: "carol@example.com",
+					subject: "Hello",
+					body: "Hi Bob!",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+			expect(outcome.modelPayload.preview).toBeDefined();
+			expect(outcome.modelPayload.preview?.reversible).toBe(false);
+			expect(outcome.modelPayload.message).toContain("has NOT been sent yet");
+			expect(outcome.modelPayload.message).toContain("cannot be undone");
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call).toMatchObject({ connectionId: "conn-1", provider: "imap" });
+			expect(call?.op).toMatchObject({
+				provider: "imap",
+				connectionId: "conn-1",
+				action: "email.send",
+				destructive: false,
+				reversible: false,
+			});
+			expect(JSON.parse(call?.content ?? "{}")).toEqual({
+				to: "bob@example.com",
+				cc: "carol@example.com",
+				subject: "Hello",
+				body: "Hi Bob!",
+			});
+			// No uid given -> no read of an existing message.
+			expect(imapReadMessageMock).not.toHaveBeenCalled();
+		});
+
+		it("reply (uid given), Option A off: the base message names the original subject in plain text", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 7,
+					from: "alice@example.com",
+					subject: "Original topic",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: true,
+				},
+				text: "irrelevant",
+			});
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					uid: 7,
+					to: "alice@example.com",
+					subject: "Re: Original topic",
+					body: "Sounds good.",
+				},
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.message).toContain(
+				'Replying to "Original topic"',
+			);
+		});
+
+		it("reply (uid given), Option A on + cloud: the raw ORIGINAL (connector-read) subject never appears anywhere in the model payload, even though the user's own composed subject/body legitimately do", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			// Deliberately a DIFFERENT string than the composed subject below, so
+			// the test can distinguish "connector-read data that must be
+			// redacted" from "the user's own compose input this turn, which
+			// Option A never touches" (see the module doc comment on proposeSend).
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 7,
+					from: "therapist@clinic.example",
+					subject: "Your therapy session recap — anxiety treatment plan",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: true,
+				},
+				text: "irrelevant",
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "A reply to a prior appointment message.",
+			});
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					uid: 7,
+					to: "therapist@clinic.example",
+					subject: "Following up",
+					body: "Thanks, see you then.",
+				},
+				"whichever-model",
+			);
+
+			const serializedPayload = JSON.stringify(outcome.modelPayload);
+			expect(serializedPayload).not.toContain("anxiety treatment plan");
+			expect(serializedPayload).not.toContain(
+				"Your therapy session recap — anxiety treatment plan",
+			);
+			expect(outcome.modelPayload.message).toContain(
+				"A reply to a prior appointment message.",
+			);
+			// The user's own compose input this turn (to/subject/body) legitimately
+			// appears — Option A only ever gates connector-READ data.
+			expect(outcome.modelPayload.message).toContain("Following up");
+			// The pending write itself still carries the real to/subject/body —
+			// those are the user's own compose input this turn, not redacted.
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(JSON.parse(call?.content ?? "{}")).toMatchObject({
+				subject: "Following up",
+			});
+		});
+	});
+
+	describe("trash", () => {
+		it("allowWrites=false: returns a note, creates NO pending row, and never reads the message", async () => {
+			const conn = makeWritableConn({ allowWrites: false, label: "Work Mail" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash", uid: 42 },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("turned off");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+			expect(imapReadMessageMock).not.toHaveBeenCalled();
+		});
+
+		it("requires a uid", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash" },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("uid is required");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("allowWrites=true: reads the message header for the preview, creates a PENDING row (never moves the message inline)", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 42,
+					from: "billing@vendor.com",
+					subject: "Invoice #123",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: true,
+				},
+				text: "irrelevant",
+			});
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash", uid: 42 },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+			expect(outcome.modelPayload.message).toContain("has NOT been moved yet");
+			expect(imapReadMessageMock).toHaveBeenCalledWith("user-1", "conn-1", {
+				uid: 42,
+			});
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({
+				provider: "imap",
+				connectionId: "conn-1",
+				action: "email.trash",
+				destructive: true,
+				reversible: true,
+			});
+			expect(call?.op.target).toEqual({ id: "42", label: "Invoice #123" });
+			expect(JSON.parse(call?.content ?? "{}")).toEqual({ uid: 42 });
+			// The DB-persisted preview keeps the real subject — never redacted.
+			expect(call?.preview.title).toContain("Invoice #123");
+		});
+
+		it("maps a message-not-found/adapter error to a graceful note and creates no pending row", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockRejectedValue(
+				new ImapError("Message not found", "message_not_found"),
+			);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash", uid: 999 },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("couldn't be found");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("Option A on + cloud: the whole model-facing payload (message + preview) never contains the raw subject read off the connector; the DB row still does", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			imapReadMessageMock.mockResolvedValue({
+				header: {
+					uid: 5,
+					from: "clinic@example.com",
+					subject: "Your lab results are ready",
+					date: "2026-07-01T00:00:00.000Z",
+					seen: false,
+				},
+				text: "irrelevant",
+			});
+			hasLocalDistillEnabledMock.mockResolvedValue(true);
+			isCloudModelMock.mockResolvedValue(true);
+			distillConnectorPayloadMock.mockResolvedValue({
+				distilled: "A message about medical results.",
+			});
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "trash", uid: 5 },
+				"whichever-model",
+			);
+
+			const serializedModelPayload = JSON.stringify(outcome.modelPayload);
+			expect(serializedModelPayload).not.toContain("lab results");
+			expect(outcome.modelPayload.preview?.title).not.toContain("lab results");
+			expect(outcome.modelPayload.message).toContain(
+				"A message about medical results.",
+			);
+
+			// The row persisted to the DB keeps the REAL subject — a separate
+			// channel from what the model sees.
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.preview.title).toContain("lab results");
+			expect(call?.op.target?.label).toContain("lab results");
+		});
+	});
+
+	describe("flag", () => {
+		it("allowWrites=false: returns a note and creates NO pending row", async () => {
+			const conn = makeWritableConn({ allowWrites: false, label: "Work Mail" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 42, flag: "seen", value: true },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(outcome.modelPayload.message).toContain("turned off");
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("requires uid, flag, and value", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 42 },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(false);
+			expect(createPendingWriteMock).not.toHaveBeenCalled();
+		});
+
+		it("allowWrites=true: creates a PENDING row for the flag change (never applies it inline), no message read needed", async () => {
+			const conn = makeWritableConn();
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{ action: "flag", uid: 42, flag: "flagged", value: false },
+				LOCAL_MODEL_ID,
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			expect(outcome.modelPayload.pendingWriteId).toBe("pending-1");
+			expect(outcome.modelPayload.message).toContain(
+				"has NOT been applied yet",
+			);
+
+			expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({
+				provider: "imap",
+				connectionId: "conn-1",
+				action: "email.flag",
+				destructive: false,
+				reversible: true,
+			});
+			expect(JSON.parse(call?.content ?? "{}")).toEqual({
+				uid: 42,
+				flag: "flagged",
+				value: false,
+			});
+			expect(imapReadMessageMock).not.toHaveBeenCalled();
+		});
 	});
 });
