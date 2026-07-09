@@ -1,6 +1,14 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { Bell, Plus, Send, Square, VenetianMask, X } from "@lucide/svelte";
+import {
+	Bell,
+	Plug,
+	Plus,
+	Send,
+	Square,
+	VenetianMask,
+	X,
+} from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
 import { fetchActiveCapabilities } from "$lib/client/api/connections";
@@ -28,9 +36,7 @@ import {
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
 import ContextUsageRing from "./ContextUsageRing.svelte";
-import ComposerToolsMenu, {
-	type ComposerCapabilityAccounts,
-} from "./ComposerToolsMenu.svelte";
+import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
@@ -66,10 +72,13 @@ type SendPayload = {
 	linkedSources: LinkedContextSource[];
 	pendingSkill: PendingSkillSelection | null;
 	forceWebSearch?: boolean;
-	// Issue 7.2 — the composer's per-conversation connection capability
-	// selection for this turn. Omitted (not just empty) when the user has no
-	// available capabilities at all, so older-client fallback semantics on
-	// the server (defaultOn) apply unchanged.
+	// ADR 0044 Decision 1 — the composer's single per-conversation Connections
+	// master toggle maps to this field: on sends the user's default-on
+	// capability set, off sends []. Omitted (not just empty) when the user has
+	// no available capabilities at all, so older-client fallback semantics on
+	// the server (defaultOn) apply unchanged. The server's fail-closed
+	// resolveActiveCapabilities intersect (served ∩ requested) is unchanged —
+	// this client can only narrow to nothing, never grant something unowned.
 	enabledConnectionCapabilities?: string[];
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
@@ -207,11 +216,11 @@ let {
 	memoryIncognito?: boolean;
 	/** Emitted after a successful incognito toggle so parents can reconcile. */
 	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
-	// Issue 7.4 fix pass — the composer's per-conversation connection capability
-	// selection is bindable so the page (the single cloud-warning chokepoint,
-	// see +page.svelte's ensureCloudWarningAcked) can read the same set that
-	// this composer's toggles produced, for regenerate/edit/retry gate checks
-	// that don't originate from a fresh composer send.
+	// Issue 7.4 fix pass — the composer's per-conversation active connection
+	// capability set is bindable so the page (the single cloud-warning
+	// chokepoint, see +page.svelte's ensureCloudWarningAcked) can read the
+	// same set the Connections master toggle produced, for regenerate/edit/
+	// retry gate checks that don't originate from a fresh composer send.
 	activeCapabilities?: Set<string>;
 	// Issue 7.4 fix pass — the page-owned gate check. When provided, every
 	// dispatch (a fresh send AND a send queued behind an in-flight attachment
@@ -266,16 +275,19 @@ let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
 let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
 let forceWebSearch = $state(false);
-// Issue 7.2 — composer connection capability toggles. `availableCapabilities`
-// and `capabilityAccounts` come from a single fetch on mount; `activeCapabilities`
-// (bindable, see props above) is per-conversation and reset to
-// `defaultOnCapabilities` whenever the bound conversation id changes (mirrors
-// the incognito sync below).
+// ADR 0044 Decision 1 — the composer's Connections master toggle.
+// `availableCapabilities` (served) and `defaultOnCapabilities` come from a
+// single fetch on mount. `connectionsEnabled` is the per-conversation
+// on/off state the toggle button controls (default true, trust-the-
+// assistant); `activeCapabilities` (bindable, see props above) is derived
+// from it below: on -> defaultOnCapabilities, off -> empty set. This is the
+// exact `enabledConnectionCapabilities` payload mapping the server side
+// (resolveActiveCapabilities) expects — the server intersect stays
+// unchanged, this client-side set can only narrow it.
 let availableCapabilities = $state<string[]>([]);
 let defaultOnCapabilities = $state<Set<string>>(new Set());
-let capabilityAccounts = $state<ComposerCapabilityAccounts>({});
-let capabilitiesLoaded = $state(false);
-let capabilitiesSyncedConversationId = $state<string | null>(null);
+let connectionsEnabled = $state(true);
+let connectionsSyncedConversationId = $state<string | null>(null);
 // Issue 7.4 fix pass — the cloud-warning check/modal itself now lives at the
 // page level (+page.svelte's ensureCloudWarningAcked), reached through the
 // `beforeSend` prop, so that composer sends, queued-after-upload sends, AND
@@ -473,26 +485,28 @@ async function toggleIncognito() {
 	incognitoBusy = false;
 }
 
-// Issue 7.2 — loads the user's served/defaultOn connection capabilities once
-// on mount, then applies defaultOn as the initial active set for whichever
-// conversation is currently bound. Fails closed to "no capabilities
-// available" (renders no toggles, payload omits the field) on any error.
+// ADR 0044 Decision 1 — loads the user's served/defaultOn connection
+// capabilities once on mount. `served` (-> availableCapabilities) gates
+// whether the Connections master toggle renders at all; `defaultOn` is what
+// the toggle's ON payload sends. Fails closed to "no capabilities available"
+// (toggle hidden, payload omits the field) on any error. The assignment to
+// `activeCapabilities` here is synchronous (not left to the `$effect` below)
+// so the page's `ensureCloudWarningAcked` race-fix — which awaits this same
+// promise via `ensureCapabilitiesLoaded()` before reading
+// `activeCapabilities` — always sees the final value the instant the promise
+// resolves, with no microtask-ordering race against a reactive effect.
 async function loadActiveCapabilities() {
 	try {
 		const result = await fetchActiveCapabilities();
 		availableCapabilities = result.served;
 		defaultOnCapabilities = new Set(result.defaultOn);
-		capabilityAccounts = Object.fromEntries(
-			result.accounts.map((entry) => [entry.capability, entry.connections]),
-		);
 	} catch {
 		availableCapabilities = [];
 		defaultOnCapabilities = new Set();
-		capabilityAccounts = {};
 	} finally {
-		capabilitiesLoaded = true;
-		capabilitiesSyncedConversationId = conversationId ?? null;
-		activeCapabilities = new Set(defaultOnCapabilities);
+		activeCapabilities = connectionsEnabled
+			? new Set(defaultOnCapabilities)
+			: new Set();
 	}
 }
 
@@ -510,26 +524,30 @@ function ensureCapabilitiesLoaded(): Promise<void> {
 	return capabilitiesLoadPromise;
 }
 
-// Per-conversation capability selection. Resets to the defaultOn set
+// Per-conversation Connections master toggle. Resets to the default (on)
 // whenever the conversation the composer is bound to changes, mirroring the
-// incognito sync above. Runs only after the initial load so it doesn't clobber
-// the just-applied defaultOn set with an empty pre-load one.
+// incognito sync above — this is local-only state (no server persistence),
+// giving the user a fresh per-turn "don't touch my accounts for this
+// conversation" escape hatch per ADR 0044 Decision 1.
 $effect(() => {
 	const boundId = conversationId ?? null;
-	if (!capabilitiesLoaded) return;
-	if (capabilitiesSyncedConversationId === boundId) return;
-	capabilitiesSyncedConversationId = boundId;
-	activeCapabilities = new Set(defaultOnCapabilities);
+	if (connectionsSyncedConversationId === boundId) return;
+	connectionsSyncedConversationId = boundId;
+	connectionsEnabled = true;
 });
 
-function toggleCapability(capability: string, next: boolean) {
-	const updated = new Set(activeCapabilities);
-	if (next) {
-		updated.add(capability);
-	} else {
-		updated.delete(capability);
-	}
-	activeCapabilities = updated;
+// Derives the active capability set from the master toggle: on -> the
+// default-on set, off -> empty. Also covers the initial load via
+// `loadActiveCapabilities` above (redundant assignment there, kept for the
+// race-safety note on that function).
+$effect(() => {
+	activeCapabilities = connectionsEnabled
+		? new Set(defaultOnCapabilities)
+		: new Set();
+});
+
+function toggleConnections() {
+	connectionsEnabled = !connectionsEnabled;
 }
 
 $effect(() => {
@@ -2167,10 +2185,6 @@ async function emitDraftChange(force = false) {
 							{atlasAvailability}
 							atlasProfile={selectedAtlasProfile}
 							onAtlasProfileChange={setAtlasProfile}
-							{availableCapabilities}
-							{activeCapabilities}
-							{capabilityAccounts}
-							onToggleCapability={toggleCapability}
 						/>
 					{/if}
 				</div>
@@ -2188,6 +2202,21 @@ async function emitDraftChange(force = false) {
 				>
 					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
 				</button>
+
+				{#if availableCapabilities.length > 0}
+					<button
+						type="button"
+						data-testid="connections-toggle"
+						class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
+						class:composer-connections-btn--active={connectionsEnabled}
+						onclick={toggleConnections}
+						aria-pressed={connectionsEnabled}
+						aria-label={connectionsEnabled ? $t('chat.connectionsToggleOn') : $t('chat.connectionsToggleOff')}
+						title={connectionsEnabled ? $t('chat.connectionsToggleOn') : $t('chat.connectionsToggleOff')}
+					>
+						<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
+					</button>
+				{/if}
 
 				<ContextUsageRing
 					{contextStatus}
@@ -2611,6 +2640,23 @@ async function emitDraftChange(force = false) {
 	}
 
 	.composer-incognito-btn--active:hover {
+		color: var(--accent-contrast);
+		background: var(--accent-hover);
+		opacity: 1;
+	}
+
+	/* Connections master toggle (ADR 0044 Decision 1): accent-filled while on
+	   (the default), muted once turned off for this conversation. */
+	.composer-connections-btn {
+		color: var(--icon-muted);
+	}
+
+	.composer-connections-btn--active {
+		color: var(--accent-contrast);
+		background: var(--accent);
+	}
+
+	.composer-connections-btn--active:hover {
 		color: var(--accent-contrast);
 		background: var(--accent-hover);
 		opacity: 1;

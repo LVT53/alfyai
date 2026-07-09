@@ -1951,4 +1951,33 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			"First message ever",
 		);
 	});
+
+	// ADR 0044 Decision 1 — the composer's single Connections master toggle
+	// maps to the same `enabledConnectionCapabilities` payload the old
+	// per-capability toggles fed: off sends [], which the gate reads as "no
+	// active capabilities" and skips the warning entirely, without ever
+	// calling checkCloudWarning.
+	it("master-off Connections toggle sends no capabilities and skips the warning", async () => {
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		renderPage(cloudModelPageData());
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		await fireEvent.click(screen.getByTestId("connections-toggle"));
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "What's on my calendar?" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"What's on my calendar?",
+		);
+	});
 });

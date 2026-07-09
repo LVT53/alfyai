@@ -2215,7 +2215,12 @@ describe("MessageInput incognito toggle", () => {
 	});
 });
 
-describe("MessageInput composer capability toggles", () => {
+// ADR 0044 Decision 1 — the composer's per-capability toggle rows are
+// replaced by a single per-conversation "Connections" master toggle. It maps
+// to the existing `enabledConnectionCapabilities` payload field: on sends
+// the user's default-on capability set, off sends []. Only rendered at all
+// when the user has any served capabilities.
+describe("MessageInput Connections toggle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
@@ -2229,44 +2234,38 @@ describe("MessageInput composer capability toggles", () => {
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
 	});
 
-	it("renders no capabilities section when the user has no available capabilities", async () => {
+	it("does not render the toggle when the user has no available capabilities", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: [],
 			defaultOn: [],
 			accounts: [],
 		});
-		const { getByRole, queryByRole } = render(MessageInput);
+		const { queryByTestId } = render(MessageInput);
 
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
 
-		expect(
-			queryByRole("menuitemcheckbox", { name: "Calendar" }),
-		).not.toBeInTheDocument();
+		expect(queryByTestId("connections-toggle")).not.toBeInTheDocument();
 	});
 
-	it("initializes the active set to defaultOn and includes it in the send payload", async () => {
+	it("renders the toggle defaulting on, and sends the defaultOn set in the payload", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: ["calendar", "files"],
 			defaultOn: ["files"],
 			accounts: [],
 		});
 		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole } = render(MessageInput, {
-			onSend: sendSpy,
-		});
+		const { getByPlaceholderText, getByRole, getByTestId } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
 
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-
-		const calendarToggle = getByRole("menuitemcheckbox", { name: "Calendar" });
-		const filesToggle = getByRole("menuitemcheckbox", { name: "Files" });
-		expect(calendarToggle).toHaveAttribute("aria-checked", "false");
-		expect(filesToggle).toHaveAttribute("aria-checked", "true");
+		const toggle = getByTestId("connections-toggle");
+		expect(toggle).toHaveAttribute("aria-pressed", "true");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "What's on my calendar files today?" },
@@ -2280,22 +2279,24 @@ describe("MessageInput composer capability toggles", () => {
 		);
 	});
 
-	it("toggling a capability updates the send payload", async () => {
+	it("turning the toggle off sends an empty capability array", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: ["calendar"],
-			defaultOn: [],
+			defaultOn: ["calendar"],
 			accounts: [],
 		});
 		const sendSpy = vi.fn();
-		const { getByPlaceholderText, getByRole } = render(MessageInput, {
-			onSend: sendSpy,
-		});
+		const { getByPlaceholderText, getByRole, getByTestId } = render(
+			MessageInput,
+			{ onSend: sendSpy },
+		);
 
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(getByRole("menuitemcheckbox", { name: "Calendar" }));
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Check my schedule" },
@@ -2304,38 +2305,58 @@ describe("MessageInput composer capability toggles", () => {
 
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
-				enabledConnectionCapabilities: ["calendar"],
+				enabledConnectionCapabilities: [],
 			}),
 		);
 	});
 
-	it("resets the active set to defaultOn when the bound conversation id changes", async () => {
+	it("resets to on when the bound conversation id changes", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: ["calendar"],
-			defaultOn: [],
+			defaultOn: ["calendar"],
 			accounts: [],
 		});
-		const { getByRole, rerender } = render(MessageInput, {
+		const { getByTestId, rerender } = render(MessageInput, {
 			conversationId: "conv-1",
 		});
 
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(getByRole("menuitemcheckbox", { name: "Calendar" }));
-		// Toggling closes the menu (mirrors the Web search toggle); reopen it.
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		expect(getByRole("menuitemcheckbox", { name: "Calendar" })).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
 
 		await rerender({ conversationId: "conv-2" });
 
-		expect(getByRole("menuitemcheckbox", { name: "Calendar" })).toHaveAttribute(
-			"aria-checked",
-			"false",
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+	});
+
+	it("localizes the toggle tooltip copy in Hungarian", async () => {
+		uiLanguage.set("hu");
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const { getByTestId } = render(MessageInput);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		expect(toggle).toHaveAttribute(
+			"aria-label",
+			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
+		);
+
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute(
+			"aria-label",
+			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
 		);
 	});
 });

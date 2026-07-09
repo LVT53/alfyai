@@ -1,31 +1,6 @@
-<script module lang="ts">
-export type ComposerCapabilityAccount = {
-	id: string;
-	label: string;
-	provider: string;
-};
-
-export type ComposerCapabilityAccounts = Record<
-	string,
-	ComposerCapabilityAccount[]
->;
-</script>
-
 <script lang="ts">
 import { onMount } from "svelte";
-import {
-	Calendar,
-	ChevronDown,
-	Clapperboard,
-	Folder,
-	Globe,
-	Mail,
-	MapPin,
-	Orbit,
-	Paperclip,
-	Users,
-	Image as ImageIcon,
-} from "@lucide/svelte";
+import { ChevronDown, Globe, Orbit, Paperclip } from "@lucide/svelte";
 import ModelSelector from "./ModelSelector.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import {
@@ -56,10 +31,6 @@ let {
 	atlasAvailability = null,
 	atlasProfile = null,
 	onAtlasProfileChange = undefined,
-	availableCapabilities = [],
-	activeCapabilities = new Set(),
-	capabilityAccounts = {},
-	onToggleCapability = undefined,
 }: {
 	canAttach?: boolean;
 	attachmentsEnabled?: boolean;
@@ -81,43 +52,7 @@ let {
 	atlasAvailability?: AtlasAvailability | null;
 	atlasProfile?: AtlasProfile | null;
 	onAtlasProfileChange?: ((profile: AtlasProfile) => void) | undefined;
-	/** Issue 7.2 — capabilities the user currently has a connection serving. */
-	availableCapabilities?: string[];
-	/** Issue 7.2 — the subset of availableCapabilities active this turn. */
-	activeCapabilities?: Set<string>;
-	/** Issue 7.2 — per-capability serving connections (multi-account indicator). */
-	capabilityAccounts?: ComposerCapabilityAccounts;
-	onToggleCapability?: ((capability: string, next: boolean) => void) | undefined;
 } = $props();
-
-const CAPABILITY_ICONS: Record<string, typeof Calendar> = {
-	calendar: Calendar,
-	files: Folder,
-	photos: ImageIcon,
-	email: Mail,
-	location: MapPin,
-	media: Clapperboard,
-	contacts: Users,
-};
-
-function capabilityIcon(capability: string): typeof Calendar {
-	return CAPABILITY_ICONS[capability] ?? Folder;
-}
-
-function capabilityLabelKey(capability: string): I18nKey {
-	return `composerTools.capabilities.${capability}` as I18nKey;
-}
-
-function capabilityAccountsFor(
-	capability: string,
-): ComposerCapabilityAccount[] {
-	return capabilityAccounts[capability] ?? [];
-}
-
-function toggleCapability(capability: string) {
-	onToggleCapability?.(capability, !activeCapabilities.has(capability));
-	onClose?.();
-}
 
 let root = $state<HTMLDivElement | undefined>(undefined);
 let activeDropdown = $state<"model" | "style" | "depth" | "atlas" | null>(null);
@@ -434,40 +369,6 @@ onMount(() => {
 			</span>
 		</button>
 	</div>
-
-	{#if availableCapabilities.length > 0}
-		<div role="group" aria-label={$t('connections.capabilities.label')}>
-			{#each availableCapabilities as capability (capability)}
-				{@const Icon = capabilityIcon(capability)}
-				{@const accounts = capabilityAccountsFor(capability)}
-				{@const isActive = activeCapabilities.has(capability)}
-				<div class="menu-row">
-					<button
-						type="button"
-						class="menu-row menu-row--button"
-						class:menu-row--selected={isActive}
-						onclick={() => toggleCapability(capability)}
-						aria-label={$t(capabilityLabelKey(capability))}
-						aria-checked={isActive}
-						role="menuitemcheckbox"
-					>
-						<span class="menu-label">{$t(capabilityLabelKey(capability))}</span>
-						<span class="menu-icon" aria-hidden="true">
-							<Icon size={16} strokeWidth={2} aria-hidden="true" />
-						</span>
-					</button>
-					{#if accounts.length > 1}
-						<p class="menu-row__hint">
-							{$t('composerTools.capabilitiesMultiAccount', {
-								count: accounts.length,
-								accounts: accounts.map((account) => account.label).join(', '),
-							})}
-						</p>
-					{/if}
-				</div>
-			{/each}
-		</div>
-	{/if}
 
 	<div class="menu-row">
 		<button
