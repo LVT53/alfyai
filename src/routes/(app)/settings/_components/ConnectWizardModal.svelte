@@ -14,6 +14,7 @@
 import { onDestroy, onMount, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
+import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import PasswordField from "./PasswordField.svelte";
 import {
 	type ConnectionPublic,
@@ -322,7 +323,105 @@ async function submitApple(event: Event) {
 	}
 }
 
-// --- app-password (Email / IMAP) ------------------------------------------
+// --- app-password (Email / IMAP) — multi-step wizard (ADR 0044 Decision 4)
+// -------------------------------------------------------------------------
+// Step 1 offers three paths so the user never has to configure a raw IMAP
+// client by hand: "alfy" (near-zero-config, host/port derived from the
+// email's domain), "gmail" (branded, app-password help + derived Google
+// hosts), and "other" (the original manual IMAP form, kept verbatim as the
+// fallback for every mailbox that isn't one of the first two). Reconnect
+// always jumps straight to "other" — the saved config already has whatever
+// host/port/secure values worked last time, so re-deriving from the email's
+// domain would be a regression for a mailbox that turned out to need a
+// custom host.
+type EmailPath = "alfy" | "gmail" | "other";
+let emailStep = $state<"choose" | EmailPath>(isReconnect ? "other" : "choose");
+
+function chooseEmailPath(path: EmailPath) {
+	emailStep = path;
+	errorText = "";
+}
+
+function backToEmailChoice() {
+	emailStep = "choose";
+	errorText = "";
+}
+
+// Everything after the LAST "@" — good enough for the mailbox domains this
+// derives host names from (and empty for a not-yet-valid address, which
+// disables submit rather than POSTing a garbage host).
+function domainFromEmail(email: string): string {
+	const at = email.lastIndexOf("@");
+	return at === -1 ? "" : email.slice(at + 1).trim();
+}
+
+// --- Alfy Email path ---
+let alfyEmail = $state(
+	isReconnect ? (initialReconnectConnection?.accountIdentifier ?? "") : "",
+);
+let alfyPassword = $state("");
+let alfyShowPassword = $state(false);
+let alfyDomain = $derived(domainFromEmail(alfyEmail));
+
+async function submitAlfyEmail(event: Event) {
+	event.preventDefault();
+	if (submitting) return;
+	const email = alfyEmail.trim();
+	const domain = domainFromEmail(email);
+	if (!email || !domain || !alfyPassword) return;
+	submitting = true;
+	errorText = "";
+	try {
+		await startEmailConnect({
+			email,
+			imapHost: `mail.${domain}`,
+			imapPort: 993,
+			imapSecure: true,
+			password: alfyPassword,
+			smtpHost: `mail.${domain}`,
+			smtpPort: 587,
+		});
+		onConnected();
+		onClose();
+	} catch (err) {
+		errorText = errMessage(err);
+	} finally {
+		submitting = false;
+	}
+}
+
+// --- Gmail path ---
+let gmailAddress = $state("");
+let gmailAppPassword = $state("");
+let gmailShowPassword = $state(false);
+
+async function submitGmailEmail(event: Event) {
+	event.preventDefault();
+	if (submitting) return;
+	const email = gmailAddress.trim();
+	if (!email || !gmailAppPassword) return;
+	submitting = true;
+	errorText = "";
+	try {
+		await startEmailConnect({
+			email,
+			imapHost: "imap.gmail.com",
+			imapPort: 993,
+			imapSecure: true,
+			password: gmailAppPassword,
+			smtpHost: "smtp.gmail.com",
+			smtpPort: 587,
+		});
+		onConnected();
+		onClose();
+	} catch (err) {
+		errorText = errMessage(err);
+	} finally {
+		submitting = false;
+	}
+}
+
+// --- Other (IMAP) path — the original manual form, unchanged ---
 let emailAddress = $state(initialReconnectConnection?.accountIdentifier ?? "");
 let imapHost = $state(reconnectConfigString("imapHost"));
 let imapPort = $state<number | "">(reconnectConfigNumber("imapPort") ?? 993);
@@ -637,76 +736,209 @@ onMount(() => {
 					</div>
 				</form>
 			{:else if initialProvider === 'imap'}
-				<form onsubmit={submitEmail}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.help')}</p>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-email-address">{$t('connections.wizard.email.emailLabel')}</label>
-						<input id="wizard-email-address" type="email" class="settings-input" bind:value={emailAddress} />
-					</div>
-					<div class="mb-3 grid grid-cols-[1fr_auto] gap-2">
-						<div>
-							<label class="settings-label" for="wizard-email-imap-host">{$t('connections.wizard.email.imapHostLabel')}</label>
-							<input id="wizard-email-imap-host" type="text" class="settings-input" bind:value={imapHost} />
-						</div>
-						<div>
-							<label class="settings-label" for="wizard-email-imap-port">{$t('connections.wizard.email.imapPortLabel')}</label>
-							<input
-								id="wizard-email-imap-port"
-								type="number"
-								class="settings-input w-20"
-								value={imapPort}
-								oninput={(e) => {
-									const raw = (e.currentTarget as HTMLInputElement).value;
-									imapPort = raw === '' ? '' : Number(raw);
-								}}
-							/>
-						</div>
-					</div>
-					<label class="mb-3 flex items-center gap-2 text-sm text-text-primary">
-						<input type="checkbox" bind:checked={imapSecure} />
-						{$t('connections.wizard.email.imapSecureLabel')}
-					</label>
-					<PasswordField
-						id="wizard-email-password"
-						label={$t('connections.wizard.email.passwordLabel')}
-						bind:value={emailPassword}
-						bind:shown={emailShowPassword}
-						autocomplete="current-password"
-					/>
-					<div class="mt-3 grid grid-cols-[1fr_auto] gap-2">
-						<div>
-							<label class="settings-label" for="wizard-email-smtp-host">{$t('connections.wizard.email.smtpHostLabel')}</label>
-							<input id="wizard-email-smtp-host" type="text" class="settings-input" bind:value={smtpHost} />
-						</div>
-						<div>
-							<label class="settings-label" for="wizard-email-smtp-port">{$t('connections.wizard.email.smtpPortLabel')}</label>
-							<input
-								id="wizard-email-smtp-port"
-								type="number"
-								class="settings-input w-20"
-								value={smtpPort}
-								oninput={(e) => {
-									const raw = (e.currentTarget as HTMLInputElement).value;
-									smtpPort = raw === '' ? '' : Number(raw);
-								}}
-							/>
-						</div>
-					</div>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !emailAddress.trim() || !imapHost.trim() || !emailPassword}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+				{#if emailStep === 'choose'}
+					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.choosePath')}</p>
+					<div class="flex flex-col gap-2">
+						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('alfy')}>
+							<BrandIcon provider="email" size={22} ariaHidden />
+							<span class="email-path-option-text">
+								<span class="email-path-option-name">{$t('connections.wizard.email.path.alfy.name')}</span>
+								<span class="email-path-option-description">{$t('connections.wizard.email.path.alfy.description')}</span>
+							</span>
+						</button>
+						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('gmail')}>
+							<BrandIcon provider="gmail" size={22} ariaHidden />
+							<span class="email-path-option-text">
+								<span class="email-path-option-name">{$t('connections.wizard.email.path.gmail.name')}</span>
+								<span class="email-path-option-description">{$t('connections.wizard.email.path.gmail.description')}</span>
+							</span>
+						</button>
+						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('other')}>
+							<BrandIcon provider="imap" size={22} ariaHidden />
+							<span class="email-path-option-text">
+								<span class="email-path-option-name">{$t('connections.wizard.email.path.other.name')}</span>
+								<span class="email-path-option-description">{$t('connections.wizard.email.path.other.description')}</span>
+							</span>
 						</button>
 					</div>
-				</form>
+					<div class="mt-6 flex justify-end">
+						<button type="button" class="btn-secondary" onclick={onClose}>{$t('common.cancel')}</button>
+					</div>
+				{:else if emailStep === 'alfy'}
+					<form onsubmit={submitAlfyEmail}>
+						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.alfy.help')}</p>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-alfy-email">{$t('connections.wizard.email.emailLabel')}</label>
+							<input id="wizard-alfy-email" type="email" class="settings-input" bind:value={alfyEmail} />
+						</div>
+						<PasswordField
+							id="wizard-alfy-password"
+							label={$t('connections.wizard.email.alfy.passwordLabel')}
+							bind:value={alfyPassword}
+							bind:shown={alfyShowPassword}
+							autocomplete="current-password"
+						/>
+						{#if errorText}
+							<p class="mt-3 text-sm text-danger">{errorText}</p>
+							<p class="mt-1 text-xs text-text-muted">{$t('connections.wizard.email.alfy.errorHint')}</p>
+						{/if}
+						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={submitting || !alfyEmail.trim() || !alfyDomain || !alfyPassword}
+							>
+								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{:else if emailStep === 'gmail'}
+					<form onsubmit={submitGmailEmail}>
+						<p class="mb-2 text-sm text-text-secondary">{$t('connections.wizard.email.gmail.help1')}</p>
+						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.gmail.help2')}</p>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-gmail-address">{$t('connections.wizard.email.gmail.emailLabel')}</label>
+							<input id="wizard-gmail-address" type="email" class="settings-input" bind:value={gmailAddress} />
+						</div>
+						<PasswordField
+							id="wizard-gmail-app-password"
+							label={$t('connections.wizard.email.passwordLabel')}
+							bind:value={gmailAppPassword}
+							bind:shown={gmailShowPassword}
+							autocomplete="off"
+						/>
+						{#if errorText}
+							<p class="mt-3 text-sm text-danger">{errorText}</p>
+						{/if}
+						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={submitting || !gmailAddress.trim() || !gmailAppPassword}
+							>
+								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{:else}
+					<form onsubmit={submitEmail}>
+						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.help')}</p>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-email-address">{$t('connections.wizard.email.emailLabel')}</label>
+							<input id="wizard-email-address" type="email" class="settings-input" bind:value={emailAddress} />
+						</div>
+						<div class="mb-3 grid grid-cols-[1fr_auto] gap-2">
+							<div>
+								<label class="settings-label" for="wizard-email-imap-host">{$t('connections.wizard.email.imapHostLabel')}</label>
+								<input id="wizard-email-imap-host" type="text" class="settings-input" bind:value={imapHost} />
+							</div>
+							<div>
+								<label class="settings-label" for="wizard-email-imap-port">{$t('connections.wizard.email.imapPortLabel')}</label>
+								<input
+									id="wizard-email-imap-port"
+									type="number"
+									class="settings-input w-20"
+									value={imapPort}
+									oninput={(e) => {
+										const raw = (e.currentTarget as HTMLInputElement).value;
+										imapPort = raw === '' ? '' : Number(raw);
+									}}
+								/>
+							</div>
+						</div>
+						<label class="mb-3 flex items-center gap-2 text-sm text-text-primary">
+							<input type="checkbox" bind:checked={imapSecure} />
+							{$t('connections.wizard.email.imapSecureLabel')}
+						</label>
+						<PasswordField
+							id="wizard-email-password"
+							label={$t('connections.wizard.email.passwordLabel')}
+							bind:value={emailPassword}
+							bind:shown={emailShowPassword}
+							autocomplete="current-password"
+						/>
+						<div class="mt-3 grid grid-cols-[1fr_auto] gap-2">
+							<div>
+								<label class="settings-label" for="wizard-email-smtp-host">{$t('connections.wizard.email.smtpHostLabel')}</label>
+								<input id="wizard-email-smtp-host" type="text" class="settings-input" bind:value={smtpHost} />
+							</div>
+							<div>
+								<label class="settings-label" for="wizard-email-smtp-port">{$t('connections.wizard.email.smtpPortLabel')}</label>
+								<input
+									id="wizard-email-smtp-port"
+									type="number"
+									class="settings-input w-20"
+									value={smtpPort}
+									oninput={(e) => {
+										const raw = (e.currentTarget as HTMLInputElement).value;
+										smtpPort = raw === '' ? '' : Number(raw);
+									}}
+								/>
+							</div>
+						</div>
+						{#if errorText}
+							<p class="mt-3 text-sm text-danger">{errorText}</p>
+						{/if}
+						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+							{#if !isReconnect}
+								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+							{:else}
+								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
+							{/if}
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={submitting || !emailAddress.trim() || !imapHost.trim() || !emailPassword}
+							>
+								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
 			{/if}
 		</div>
 	</DialogShell>
 {/if}
+
+<style>
+	/* Issue R4 (ADR 0044 Decision 4) — the Email wizard's step-1 path choice
+	   tiles (Alfy Email / Gmail / Other IMAP). Mirrors .settings-card's
+	   surface/border language but as a clickable row rather than a static
+	   panel. */
+	.email-path-option {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		text-align: left;
+		cursor: pointer;
+		transition: border-color var(--duration-standard);
+	}
+
+	.email-path-option:hover,
+	.email-path-option:focus-visible {
+		border-color: var(--accent);
+	}
+
+	.email-path-option-text {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.email-path-option-name {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.email-path-option-description {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+</style>

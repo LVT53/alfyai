@@ -52,6 +52,7 @@ const connectionsDict = {
 		"connections.wizard.genericError":
 			"Something went wrong. Please try again.",
 		"connections.wizard.selectAtLeastOne": "Select at least one capability.",
+		"connections.wizard.back": "Back",
 
 		"connections.wizard.oauth.intro":
 			"Choose what AlfyAI can access, then continue to Google to grant permission.",
@@ -98,6 +99,29 @@ const connectionsDict = {
 		"connections.wizard.email.smtpPortLabel": "SMTP port (optional)",
 		"connections.wizard.email.help":
 			"For Gmail or iCloud, use an app password rather than your normal password.",
+
+		// Issue R4 (ADR 0044 Decision 4) — step 1 of the Email wizard: choose
+		// Alfy Email / Gmail / Other (IMAP) before showing a form.
+		"connections.wizard.email.choosePath": "How is your mailbox hosted?",
+		"connections.wizard.email.path.alfy.name": "Alfy Email",
+		"connections.wizard.email.path.alfy.description":
+			"Email hosted on AlfyAI's own server.",
+		"connections.wizard.email.path.gmail.name": "Gmail",
+		"connections.wizard.email.path.gmail.description": "Your Gmail account.",
+		"connections.wizard.email.path.other.name": "Other (IMAP)",
+		"connections.wizard.email.path.other.description": "Any other mailbox.",
+
+		"connections.wizard.email.alfy.help":
+			"For mailboxes hosted on AlfyAI's own server — just enter your email address and password.",
+		"connections.wizard.email.alfy.passwordLabel": "Password",
+		"connections.wizard.email.alfy.errorHint":
+			"If this doesn't work, your domain's mail server may use a different address — try \"Other (IMAP)\" to enter it manually.",
+
+		"connections.wizard.email.gmail.emailLabel": "Gmail address",
+		"connections.wizard.email.gmail.help1":
+			"Gmail needs IMAP turned on: in Gmail, go to Settings → Forwarding and POP/IMAP, and enable IMAP.",
+		"connections.wizard.email.gmail.help2":
+			"You'll also need an app password: go to myaccount.google.com → Security → App passwords (requires 2-Step Verification).",
 
 		"connections.wizard.owntracks.help":
 			"Pick which device is yours. AlfyAI will only ever read this device's location.",
@@ -211,6 +235,7 @@ const connectionsDict = {
 		"connections.wizard.connecting": "Csatlakozás…",
 		"connections.wizard.genericError": "Hiba történt. Kérjük, próbáld újra.",
 		"connections.wizard.selectAtLeastOne": "Válassz legalább egy képességet.",
+		"connections.wizard.back": "Vissza",
 
 		"connections.wizard.oauth.intro":
 			"Válaszd ki, mihez férhet hozzá az AlfyAI, majd folytasd a Google-nél a hozzájárulás megadásához.",
@@ -257,6 +282,29 @@ const connectionsDict = {
 		"connections.wizard.email.smtpPortLabel": "SMTP port (nem kötelező)",
 		"connections.wizard.email.help":
 			"Gmailhez vagy iCloudhoz a szokásos jelszó helyett használj alkalmazásjelszót.",
+
+		// Issue R4 (ADR 0044 Decision 4) — az e-mail varázsló 1. lépése: Alfy
+		// Email / Gmail / Egyéb (IMAP) kiválasztása az űrlap megjelenítése előtt.
+		"connections.wizard.email.choosePath": "Hol üzemel a postafiókod?",
+		"connections.wizard.email.path.alfy.name": "Alfy Email",
+		"connections.wizard.email.path.alfy.description":
+			"Az AlfyAI saját szerverén tárolt e-mail.",
+		"connections.wizard.email.path.gmail.name": "Gmail",
+		"connections.wizard.email.path.gmail.description": "A Gmail-fiókod.",
+		"connections.wizard.email.path.other.name": "Egyéb (IMAP)",
+		"connections.wizard.email.path.other.description": "Bármely más postafiók.",
+
+		"connections.wizard.email.alfy.help":
+			"Az AlfyAI saját szerverén tárolt postafiókokhoz — csak add meg az e-mail-címedet és a jelszavadat.",
+		"connections.wizard.email.alfy.passwordLabel": "Jelszó",
+		"connections.wizard.email.alfy.errorHint":
+			"Ha ez nem működik, előfordulhat, hogy a domainod levelezőszervere másik címet használ — próbáld az „Egyéb (IMAP)” lehetőséget, és add meg kézzel.",
+
+		"connections.wizard.email.gmail.emailLabel": "Gmail-cím",
+		"connections.wizard.email.gmail.help1":
+			"A Gmailhez be kell kapcsolnod az IMAP-ot: a Gmailben nyisd meg a Beállítások → Továbbítás és POP/IMAP menüt, és engedélyezd az IMAP-ot.",
+		"connections.wizard.email.gmail.help2":
+			"Emellett alkalmazásjelszóra is szükséged lesz: a myaccount.google.com oldalon a Biztonság → Alkalmazásjelszavak menüben hozhatsz létre egyet (ehhez kétlépcsős azonosítás szükséges).",
 
 		"connections.wizard.owntracks.help":
 			"Válaszd ki, melyik eszköz a tiéd. Az AlfyAI kizárólag ennek az eszköznek a helyadatait fogja tudni olvasni.",

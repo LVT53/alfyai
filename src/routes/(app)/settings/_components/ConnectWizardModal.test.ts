@@ -443,39 +443,211 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
-	describe("app-password (Email / IMAP)", () => {
-		it("submits the IMAP fields (with sane defaults) and calls onConnected on success", async () => {
-			mockStartEmailConnect.mockResolvedValue({
-				connection: { id: "conn-imap", provider: "imap" },
-			});
-			const onConnected = vi.fn();
+	describe("email (multi-step wizard: Alfy Email / Gmail / Other IMAP — ADR 0044 Decision 4)", () => {
+		it("step 1 shows the three paths; picking one advances, and back returns to step 1", async () => {
+			render(ConnectWizardModal, baseProps({ provider: "imap" }));
 
-			render(ConnectWizardModal, baseProps({ provider: "imap", onConnected }));
+			expect(screen.getByText("Alfy Email")).toBeInTheDocument();
+			expect(screen.getByText("Gmail")).toBeInTheDocument();
+			expect(screen.getByText("Other (IMAP)")).toBeInTheDocument();
 
-			expect(screen.getByLabelText("Port")).toHaveValue(993);
-			expect(screen.getByLabelText("Use SSL/TLS")).toBeChecked();
+			await fireEvent.click(screen.getByText("Alfy Email"));
+			expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+			expect(screen.getByLabelText("Password")).toBeInTheDocument();
 
-			await fireEvent.input(screen.getByLabelText("Email address"), {
-				target: { value: "me@example.com" },
-			});
-			await fireEvent.input(screen.getByLabelText("IMAP server"), {
-				target: { value: "imap.example.com" },
-			});
-			await fireEvent.input(screen.getByLabelText("App password"), {
-				target: { value: "app-pw" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+			await fireEvent.click(screen.getByRole("button", { name: "Back" }));
+			expect(screen.getByText("Alfy Email")).toBeInTheDocument();
+			expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+		});
 
-			await waitFor(() => {
-				expect(mockStartEmailConnect).toHaveBeenCalledWith({
-					email: "me@example.com",
-					imapHost: "imap.example.com",
-					imapPort: 993,
-					imapSecure: true,
-					password: "app-pw",
+		describe("Alfy Email path", () => {
+			it("derives mail.<domain> IMAP/SMTP config from the email and submits it", async () => {
+				mockStartEmailConnect.mockResolvedValue({
+					connection: { id: "conn-alfy", provider: "imap" },
 				});
+				const onConnected = vi.fn();
+				const onClose = vi.fn();
+
+				render(
+					ConnectWizardModal,
+					baseProps({ provider: "imap", onConnected, onClose }),
+				);
+
+				await fireEvent.click(screen.getByText("Alfy Email"));
+				await fireEvent.input(screen.getByLabelText("Email address"), {
+					target: { value: "levente@alfydesign.com" },
+				});
+				await fireEvent.input(screen.getByLabelText("Password"), {
+					target: { value: "hunter2" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+				await waitFor(() => {
+					expect(mockStartEmailConnect).toHaveBeenCalledWith({
+						email: "levente@alfydesign.com",
+						imapHost: "mail.alfydesign.com",
+						imapPort: 993,
+						imapSecure: true,
+						password: "hunter2",
+						smtpHost: "mail.alfydesign.com",
+						smtpPort: 587,
+					});
+				});
+				expect(onConnected).toHaveBeenCalledOnce();
+				expect(onClose).toHaveBeenCalledOnce();
 			});
-			expect(onConnected).toHaveBeenCalledOnce();
+
+			it("shows the server's error inline with an Other-IMAP hint, and never renders the password", async () => {
+				mockStartEmailConnect.mockRejectedValue(
+					new ApiError("Could not reach mail.alfydesign.com", {
+						status: 502,
+					}),
+				);
+
+				render(ConnectWizardModal, baseProps({ provider: "imap" }));
+
+				await fireEvent.click(screen.getByText("Alfy Email"));
+				await fireEvent.input(screen.getByLabelText("Email address"), {
+					target: { value: "levente@alfydesign.com" },
+				});
+				await fireEvent.input(screen.getByLabelText("Password"), {
+					target: { value: "hunter2" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+				await waitFor(() => {
+					expect(
+						screen.getByText("Could not reach mail.alfydesign.com"),
+					).toBeInTheDocument();
+				});
+				expect(screen.getByText(/Other \(IMAP\)/)).toBeInTheDocument();
+				expect(screen.queryByText("hunter2")).not.toBeInTheDocument();
+			});
+		});
+
+		describe("Gmail path", () => {
+			it("shows the app-password help and derives imap.gmail.com/smtp.gmail.com", async () => {
+				mockStartEmailConnect.mockResolvedValue({
+					connection: { id: "conn-gmail", provider: "imap" },
+				});
+				const onConnected = vi.fn();
+
+				render(
+					ConnectWizardModal,
+					baseProps({ provider: "imap", onConnected }),
+				);
+
+				await fireEvent.click(screen.getByText("Gmail"));
+				expect(
+					screen.getByText(/Settings → Forwarding and POP\/IMAP/),
+				).toBeInTheDocument();
+				expect(screen.getByText(/myaccount\.google\.com/)).toBeInTheDocument();
+
+				await fireEvent.input(screen.getByLabelText("Gmail address"), {
+					target: { value: "me@gmail.com" },
+				});
+				await fireEvent.input(screen.getByLabelText("App password"), {
+					target: { value: "abcd efgh ijkl mnop" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+				await waitFor(() => {
+					expect(mockStartEmailConnect).toHaveBeenCalledWith({
+						email: "me@gmail.com",
+						imapHost: "imap.gmail.com",
+						imapPort: 993,
+						imapSecure: true,
+						password: "abcd efgh ijkl mnop",
+						smtpHost: "smtp.gmail.com",
+						smtpPort: 587,
+					});
+				});
+				expect(onConnected).toHaveBeenCalledOnce();
+			});
+		});
+
+		describe("Other (IMAP) path", () => {
+			it("submits the manually-entered IMAP fields (with sane defaults) and calls onConnected on success", async () => {
+				mockStartEmailConnect.mockResolvedValue({
+					connection: { id: "conn-imap", provider: "imap" },
+				});
+				const onConnected = vi.fn();
+
+				render(
+					ConnectWizardModal,
+					baseProps({ provider: "imap", onConnected }),
+				);
+
+				await fireEvent.click(screen.getByText("Other (IMAP)"));
+
+				expect(screen.getByLabelText("Port")).toHaveValue(993);
+				expect(screen.getByLabelText("Use SSL/TLS")).toBeChecked();
+
+				await fireEvent.input(screen.getByLabelText("Email address"), {
+					target: { value: "me@example.com" },
+				});
+				await fireEvent.input(screen.getByLabelText("IMAP server"), {
+					target: { value: "imap.example.com" },
+				});
+				await fireEvent.input(screen.getByLabelText("App password"), {
+					target: { value: "app-pw" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+				await waitFor(() => {
+					expect(mockStartEmailConnect).toHaveBeenCalledWith({
+						email: "me@example.com",
+						imapHost: "imap.example.com",
+						imapPort: 993,
+						imapSecure: true,
+						password: "app-pw",
+					});
+				});
+				expect(onConnected).toHaveBeenCalledOnce();
+			});
+		});
+
+		describe("reconnect", () => {
+			it("skips step 1 and goes straight to the Other-IMAP form with saved config prefilled", () => {
+				render(
+					ConnectWizardModal,
+					baseProps({
+						provider: "imap",
+						reconnectConnectionId: "conn-1",
+						reconnectConnection: {
+							id: "conn-1",
+							provider: "imap",
+							label: "Email",
+							accountIdentifier: "me@example.com",
+							status: "connected",
+							statusDetail: null,
+							defaultOn: true,
+							allowWrites: false,
+							writeAllowlist: [],
+							capabilities: ["email"],
+							config: {
+								imapHost: "mail.example.com",
+								imapPort: 993,
+								imapSecure: true,
+							},
+							oauthScopes: [],
+							tokenExpiresAt: null,
+							hasSecret: true,
+							hasWriteSecret: false,
+							createdAt: 0,
+							updatedAt: 0,
+						},
+					}),
+				);
+
+				expect(screen.queryByText("Alfy Email")).not.toBeInTheDocument();
+				expect(screen.getByLabelText("Email address")).toHaveValue(
+					"me@example.com",
+				);
+				expect(screen.getByLabelText("IMAP server")).toHaveValue(
+					"mail.example.com",
+				);
+			});
 		});
 	});
 
