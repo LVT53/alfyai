@@ -435,6 +435,17 @@ export function createNormalChatClientTurnRuntime(
 			const nextQueuedTurn = cloneSendPayload(queuedTurn);
 			queuedTurn = null;
 			emitState();
+			// Issue 7.4 — this dispatches a message that was queued (via
+			// `handleQueue`/`normalChatRuntime.queue()`) while a previous turn
+			// was still streaming, using this runtime's own internal `send()`.
+			// It intentionally bypasses the page's Option-C cloud-warning gate
+			// (`+page.svelte`'s `ensureCloudWarningAcked`) — this runtime is a
+			// plain client module with no access to that page-level UI state,
+			// and routing a mid-stream queue-drain through a blocking modal
+			// would be confusing UX (the warning appearing disconnected from
+			// any direct user action). Known, deliberate scope boundary — see
+			// the matching comment at the `handleQueue` call site in
+			// +page.svelte.
 			void send(nextQueuedTurn, {
 				skipUserMessage: false,
 				skipPersistUserMessage: false,

@@ -138,6 +138,7 @@ let {
 	activeCapabilities = $bindable(new Set<string>()),
 	beforeSend = undefined,
 	checkingCloudWarning = false,
+	onCapabilitiesReady = undefined,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -223,6 +224,17 @@ let {
 	// the modal-open wait) purely so the composer can show the existing
 	// "Checking privacy…" hint under Send — cosmetic, not part of the gate.
 	checkingCloudWarning?: boolean;
+	// Issue 7.4 race-fix follow-up — called once on mount (mirrors the
+	// `onUploadReady` pattern below) with a stable `ensureCapabilitiesLoaded`
+	// function. The page's `ensureCloudWarningAcked` awaits this BEFORE
+	// reading `activeCapabilities` so a still-in-flight capability fetch can
+	// never be silently read as "zero capabilities, no warning needed" — see
+	// the matching comment on `ensureCloudWarningAcked` in +page.svelte for
+	// the full race this closes (maybeSendPendingInitialMessage firing before
+	// this component's own on-mount fetch resolves).
+	onCapabilitiesReady?:
+		| ((ensureLoaded: () => Promise<void>) => void)
+		| undefined;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -482,6 +494,20 @@ async function loadActiveCapabilities() {
 		capabilitiesSyncedConversationId = conversationId ?? null;
 		activeCapabilities = new Set(defaultOnCapabilities);
 	}
+}
+
+// Issue 7.4 race-fix follow-up — caches the (possibly still in-flight)
+// `loadActiveCapabilities()` promise and hands it to the page via
+// `onCapabilitiesReady` (see prop doc above). Calling this more than once
+// (e.g. the page awaiting it on every gated send) reuses the same
+// promise rather than firing a redundant fetch — resolved instantly once
+// the initial load has already completed.
+let capabilitiesLoadPromise: Promise<void> | null = null;
+function ensureCapabilitiesLoaded(): Promise<void> {
+	if (!capabilitiesLoadPromise) {
+		capabilitiesLoadPromise = loadActiveCapabilities();
+	}
+	return capabilitiesLoadPromise;
 }
 
 // Per-conversation capability selection. Resets to the defaultOn set
@@ -1030,7 +1056,8 @@ onMount(() => {
 	syncTextareaValueFromDom();
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
-	void loadActiveCapabilities();
+	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
+	void ensureCapabilitiesLoaded();
 	return () => {
 		window.removeEventListener("resize", adjustHeight);
 		if (textareaValueSyncFrame !== null) {

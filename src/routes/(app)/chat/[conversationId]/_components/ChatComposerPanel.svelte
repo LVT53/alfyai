@@ -66,6 +66,7 @@ let {
 	activeCapabilities = $bindable(new Set<string>()),
 	beforeSend = undefined,
 	checkingCloudWarning = false,
+	onCapabilitiesReady = undefined,
 	children,
 }: {
 	sendError: string | null;
@@ -138,6 +139,11 @@ let {
 	activeCapabilities?: Set<string>;
 	beforeSend?: (() => Promise<boolean>) | undefined;
 	checkingCloudWarning?: boolean;
+	// Issue 7.4 race-fix follow-up — pass-through to MessageInput; see its
+	// prop doc for the full race this closes.
+	onCapabilitiesReady?:
+		| ((ensureLoaded: () => Promise<void>) => void)
+		| undefined;
 	children?: Snippet;
 } = $props();
 
@@ -203,6 +209,7 @@ let {
 			bind:activeCapabilities
 			{beforeSend}
 			{checkingCloudWarning}
+			{onCapabilitiesReady}
 		/>
 	</div>
 </div>

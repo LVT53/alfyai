@@ -328,6 +328,18 @@ let cloudWarningOpen = $state(false);
 let cloudWarningChecking = $state(false);
 let cloudWarningAcked = $state(false);
 let cloudWarningResolve: ((proceed: boolean) => void) | null = null;
+// Issue 7.4 race-fix follow-up — MessageInput hands this up once on mount
+// (see its `onCapabilitiesReady` prop). Calling it returns the SAME
+// in-flight-or-settled promise as its own on-mount `fetchActiveCapabilities()`
+// call, so `ensureCloudWarningAcked` can await the real capability set
+// instead of racing it. Left null if the composer hasn't mounted yet (should
+// never happen in practice — ChatComposerPanel is always rendered on this
+// page — but `ensureCloudWarningAcked` degrades gracefully if so, by simply
+// reading whatever `composerActiveCapabilities` currently holds).
+let ensureComposerCapabilitiesLoaded: (() => Promise<void>) | null = null;
+function handleCapabilitiesReady(ensureLoaded: () => Promise<void>) {
+	ensureComposerCapabilitiesLoaded = ensureLoaded;
+}
 
 function shouldCheckCloudWarning(): boolean {
 	return (
@@ -344,6 +356,31 @@ function shouldCheckCloudWarning(): boolean {
 // cancelled.
 async function ensureCloudWarningAcked(): Promise<boolean> {
 	if (cloudWarningChecking || cloudWarningOpen) return false;
+	if (cloudWarningAcked) return true;
+
+	// Cheap, synchronous pre-check: an on-box/local model never needs the
+	// warning regardless of connector capabilities, so we can return
+	// immediately without ever touching the (possibly still-loading)
+	// capability fetch below. Keeps the overwhelmingly common local-model
+	// send path latency-free.
+	if (!isProviderModelId($selectedModel)) return true;
+
+	// `composerActiveCapabilities` is populated asynchronously by
+	// MessageInput's on-mount `fetchActiveCapabilities()` call. If that
+	// fetch hasn't resolved yet, the set is still its empty initial value —
+	// reading it right now would silently conclude "no connectors, no
+	// warning" purely because the fetch hasn't finished, not because the
+	// user actually has no active connectors. This is exactly the race that
+	// let `maybeSendPendingInitialMessage` (a brand-new conversation's very
+	// first message, sent moments after mount) under-warn. Await the SAME
+	// promise MessageInput itself is awaiting before deciding: if it's
+	// already resolved this costs a single microtask (no perceptible
+	// delay); if it's still in flight, wait for the real answer instead of
+	// guessing "empty".
+	if (ensureComposerCapabilitiesLoaded) {
+		await ensureComposerCapabilitiesLoaded();
+	}
+
 	if (!shouldCheckCloudWarning()) return true;
 
 	cloudWarningChecking = true;
@@ -966,11 +1003,14 @@ function maybeSendPendingInitialMessage() {
 	// calls handleSend() directly, never through MessageInput's UI at all, so
 	// it never went through any cloud-warning check even before this pass
 	// (it predates 7.4). Gated here for the same reason as the other direct
-	// normalChatRuntime.send() callers. Note: `composerActiveCapabilities` is
-	// populated by MessageInput's own onMount fetch, which races this
-	// bootstrap send — if the capability fetch hasn't resolved yet, this can
-	// under-warn for a brand-new conversation's very first message. Flagged
-	// as a residual gap in the fix report rather than papered over.
+	// normalChatRuntime.send() callers. This send fires moments after mount
+	// (via a requestAnimationFrame in resetState), which used to race
+	// MessageInput's own on-mount capability fetch: `composerActiveCapabilities`
+	// could still be its empty initial value here, making the gate under-warn
+	// on a brand-new conversation's very first message — the canonical moment
+	// Option-C exists for. `ensureCloudWarningAcked` now closes that race by
+	// awaiting the capability fetch itself before deciding (see its own
+	// comment above), so this call site no longer needs special handling.
 	void (async () => {
 		const proceed = await ensureCloudWarningAcked();
 		if (!proceed) return;
@@ -2188,6 +2228,19 @@ function handleCompact() {
 	normalChatRuntime.compact();
 }
 
+// Issue 7.4 — this queues `payload` while a previous turn is still
+// streaming; it is drained later by `normalChatRuntime.drainPostTurnQueue()`
+// (see normal-chat-client-turn-runtime.ts), which calls the runtime's own
+// internal `send()` directly once the active turn finishes — NOT through
+// this page's `handleSend`/`ensureCloudWarningAcked`. This is an
+// INTENTIONAL, currently-unfixed gap in the Option-C cloud-warning gate:
+// routing a mid-stream queue-drain through a blocking modal would be
+// confusing UX (the warning would pop up mid-generation, disconnected from
+// any user action), so it was explicitly left out of scope rather than
+// papered over. It is the only remaining un-gated send path — every other
+// send-to-model path (composer send, queued-after-attachment-upload,
+// regenerate, edit, retry, Atlas lifecycle actions, and the landing-page
+// bootstrap send) funnels through `ensureCloudWarningAcked()`.
 function handleQueue(payload: SendPayload) {
 	normalChatRuntime.queue(payload);
 }
@@ -2469,6 +2522,7 @@ function handleDrop(event: DragEvent) {
 				bind:activeCapabilities={composerActiveCapabilities}
 				beforeSend={ensureCloudWarningAcked}
 				checkingCloudWarning={cloudWarningChecking}
+				onCapabilitiesReady={handleCapabilitiesReady}
 			>
 				{#if activeSkillSession}
 					<SkillSessionPanel

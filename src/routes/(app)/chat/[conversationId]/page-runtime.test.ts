@@ -1873,4 +1873,81 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 
 		expect(runtimeHarness.streamInvocations).toHaveLength(1);
 	});
+
+	it("awaits the in-flight capability fetch before gating a brand-new conversation's first message (race fix)", async () => {
+		// Simulate the exact race the fix report flagged: the landing-page
+		// bootstrap send (`maybeSendPendingInitialMessage`) fires moments after
+		// mount, while MessageInput's own on-mount `fetchActiveCapabilities()`
+		// call is still unresolved. `ensureCloudWarningAcked` must await it
+		// rather than reading the still-empty `composerActiveCapabilities` and
+		// concluding "no connectors, no warning".
+		let resolveCapabilities:
+			| ((value: {
+					served: string[];
+					defaultOn: string[];
+					accounts: never[];
+			  }) => void)
+			| undefined;
+		fetchActiveCapabilitiesMock.mockReset().mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveCapabilities = resolve;
+				}),
+		);
+		checkCloudWarningMock.mockResolvedValue({ shouldWarn: true });
+		ackCloudConnectorMock.mockResolvedValue(undefined);
+
+		const { storePendingConversationMessage } = await import(
+			"$lib/client/conversation-session"
+		);
+		storePendingConversationMessage("conv-1", {
+			message: "First message ever",
+			attachmentIds: [],
+			attachments: [],
+		});
+
+		renderPage(cloudModelPageData());
+
+		// The composer has mounted and kicked off its capability fetch, but we
+		// deliberately haven't resolved it yet.
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+
+		// Let the bootstrap send's requestAnimationFrame fire (real 16ms mock
+		// timer, see installAnimationFrameMock) and its async gate call start
+		// running. It should now be blocked awaiting the still-pending
+		// capability fetch — NOT reading an empty capability set and
+		// dispatching unwarned.
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		expect(checkCloudWarningMock).not.toHaveBeenCalled();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		// Now let the capability fetch resolve with active connector
+		// capabilities — only now can the gate decide.
+		resolveCapabilities?.({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+
+		await waitFor(() => {
+			expect(checkCloudWarningMock).toHaveBeenCalledWith(CLOUD_MODEL_ID, [
+				"calendar",
+			]);
+		});
+		expect(
+			await screen.findByText("Sending data to a cloud model"),
+		).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe(
+			"First message ever",
+		);
+	});
 });
