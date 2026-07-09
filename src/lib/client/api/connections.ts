@@ -219,6 +219,28 @@ export async function fetchOwnTracksDevices(): Promise<OwnTracksDevice[]> {
 	return devices;
 }
 
+export type NextcloudFolderSuggestion = { path: string; name: string };
+
+// GET /api/connections/[id]/nextcloud-folders — src/routes/api/connections/[id]/nextcloud-folders/+server.ts
+// Backs the write-allowlist folder editor's suggestion dropdown (Redesign
+// R9, nextcloud only). Callers are expected to catch a rejection (offline /
+// needs_reauth / not a nextcloud connection) and fall back to plain manual
+// entry — this wrapper never swallows the error itself.
+export async function fetchNextcloudFolders(
+	connectionId: string,
+	path?: string,
+): Promise<NextcloudFolderSuggestion[]> {
+	const query = path ? `?path=${encodeURIComponent(path)}` : "";
+	const { folders } = await requestJson<{
+		folders: NextcloudFolderSuggestion[];
+	}>(
+		`/api/connections/${connectionId}/nextcloud-folders${query}`,
+		undefined,
+		"Failed to list Nextcloud folders",
+	);
+	return folders;
+}
+
 // POST /api/connections/owntracks/start — src/routes/api/connections/owntracks/start/+server.ts
 export async function startOwnTracksConnect(params: {
 	otUser: string;

@@ -44,6 +44,8 @@ const connectionsDict = {
 			"No folders added yet — writes default to /AlfyAI.",
 		"connections.writeAllowlist.label": "Allowed folders",
 		"connections.writeAllowlist.removeA11y": "Remove {path}",
+		"connections.writeAllowlist.suggestionsA11y": "Folder suggestions",
+		"connections.writeAllowlist.suggestionsLoading": "Loading folders…",
 
 		// Issue 7.3 — connect wizard (ConnectWizardModal) + OAuth-return notice.
 		"connections.wizard.titleConnect": "Connect {provider}",
@@ -228,6 +230,8 @@ const connectionsDict = {
 			"Még nincs hozzáadott mappa — az írások alapértelmezetten ide kerülnek: /AlfyAI.",
 		"connections.writeAllowlist.label": "Engedélyezett mappák",
 		"connections.writeAllowlist.removeA11y": "{path} eltávolítása",
+		"connections.writeAllowlist.suggestionsA11y": "Mappajavaslatok",
+		"connections.writeAllowlist.suggestionsLoading": "Mappák betöltése…",
 
 		// Issue 7.3 — connect wizard (ConnectWizardModal) + OAuth-return notice.
 		"connections.wizard.titleConnect": "{provider} csatlakoztatása",

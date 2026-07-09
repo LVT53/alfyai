@@ -860,6 +860,62 @@ export async function nextcloudSearch(
 	return parseMultistatus(xml, loginName);
 }
 
+// Suggestions returned by nextcloudListFolders default to top-level (or the
+// single requested level) and are capped well below the multistatus size
+// guard — a folder with thousands of children shouldn't inflate the
+// dropdown the settings UI renders from.
+const MAX_LIST_FOLDERS = 200;
+
+export type NextcloudFolderSuggestion = { path: string; name: string };
+
+// User-scoped folder listing (Redesign R9) — the write-allowlist folder
+// editor's suggestion feature needs child FOLDERS ONLY, without the caller
+// (a SvelteKit route) ever touching the connection row or the decrypted
+// secret directly. Mirrors the load-connection -> decrypt-secret -> typed-
+// error shape of executeNextcloudWrite below, but for a read instead of a
+// write, and returns normalized absolute paths (e.g. "/Documents") rather
+// than the root-relative NcFile[] nextcloudListFolder (above) returns.
+export async function nextcloudListFolders(
+	userId: string,
+	connectionId: string,
+	params?: { path?: string },
+	opts?: FetchOpt,
+): Promise<NextcloudFolderSuggestion[]> {
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new NextcloudFilesError(
+			"Connection not found",
+			"connection_not_found",
+		);
+	}
+	if (conn.provider !== "nextcloud" || !conn.capabilities.includes("files")) {
+		throw new NextcloudFilesError(
+			"Connection does not support Nextcloud folder listing",
+			"invalid_config",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new NextcloudFilesError(
+			"Nextcloud connection needs re-authorization",
+			"needs_reauth",
+		);
+	}
+
+	const entries = await nextcloudListFolder(
+		conn,
+		appPassword,
+		params?.path ?? "",
+		opts,
+	);
+
+	return entries
+		.filter((entry) => entry.isDir)
+		.slice(0, MAX_LIST_FOLDERS)
+		.map((entry) => ({ path: `/${entry.path}`, name: entry.name }));
+}
+
 // ---------------------------------------------------------------------------
 // WRITE methods (4.2) — put / move / delete over Nextcloud WebDAV, guarded by
 // the write-guard (4.1) at the executeNextcloudWrite chokepoint below. Every

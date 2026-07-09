@@ -1,7 +1,22 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
+
+// Redesign R9 — the modal fetches Nextcloud folder suggestions itself (same
+// pattern as ConnectWizardModal calling fetchOwnTracksDevices directly), so
+// every test in this file runs against a mocked client wrapper rather than a
+// real network call. Individual tests override the resolved/rejected value.
+const mockFetchNextcloudFolders = vi.fn();
+vi.mock("$lib/client/api/connections", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/client/api/connections")>();
+	return {
+		...actual,
+		fetchNextcloudFolders: (...args: unknown[]) =>
+			mockFetchNextcloudFolders(...args),
+	};
+});
 
 function makeConnection(
 	overrides: Partial<ConnectionPublic> = {},
@@ -42,6 +57,11 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ConnectionDetailModal", () => {
+	beforeEach(() => {
+		mockFetchNextcloudFolders.mockReset();
+		mockFetchNextcloudFolders.mockResolvedValue([]);
+	});
+
 	it("renders nothing when connection is null", () => {
 		render(ConnectionDetailModal, baseProps({ connection: null }));
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -270,6 +290,101 @@ describe("ConnectionDetailModal", () => {
 		const addBtn = screen.getByRole("button", { name: "Add folder" });
 		expect(addBtn).not.toHaveTextContent("Add");
 		expect(addBtn.querySelector("svg")).not.toBeNull();
+	});
+
+	// Redesign R9 — folder suggestions.
+	it("fetches folder suggestions for a nextcloud connection with writes on, and offers them on focus", async () => {
+		mockFetchNextcloudFolders.mockResolvedValue([
+			{ path: "/Documents", name: "Documents" },
+			{ path: "/Photos", name: "Photos" },
+		]);
+		const onUpdateWriteAllowlist = vi.fn();
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({
+					id: "conn-nc",
+					provider: "nextcloud",
+					capabilities: ["files"],
+					allowWrites: true,
+					writeAllowlist: [],
+				}),
+				onUpdateWriteAllowlist,
+			}),
+		);
+
+		expect(mockFetchNextcloudFolders).toHaveBeenCalledWith("conn-nc");
+
+		const input = screen.getByPlaceholderText("/folder/path");
+		await fireEvent.focus(input);
+
+		const option = await screen.findByRole("option", { name: "/Documents" });
+		expect(screen.getByRole("option", { name: "/Photos" })).toBeInTheDocument();
+
+		await fireEvent.click(option);
+
+		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", [
+			"/Documents",
+		]);
+	});
+
+	it("falls back to plain manual entry when the folder fetch fails (never blocks adding a path)", async () => {
+		mockFetchNextcloudFolders.mockRejectedValue(new Error("offline"));
+		const onUpdateWriteAllowlist = vi.fn();
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({
+					id: "conn-nc",
+					provider: "nextcloud",
+					capabilities: ["files"],
+					allowWrites: true,
+					writeAllowlist: [],
+				}),
+				onUpdateWriteAllowlist,
+			}),
+		);
+
+		const input = screen.getByPlaceholderText("/folder/path");
+		await fireEvent.focus(input);
+
+		// Give the rejected fetch a turn to settle before asserting nothing
+		// crashed and no dropdown ever appeared.
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+		await fireEvent.input(input, { target: { value: "/Manual" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+
+		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", ["/Manual"]);
+	});
+
+	it("does not fetch folder suggestions for a non-nextcloud provider", () => {
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({ provider: "google", allowWrites: true }),
+			}),
+		);
+
+		expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
+	});
+
+	it("does not fetch folder suggestions while allow-writes is off", () => {
+		render(
+			ConnectionDetailModal,
+			baseProps({
+				connection: makeConnection({
+					provider: "nextcloud",
+					capabilities: ["files"],
+					allowWrites: false,
+				}),
+			}),
+		);
+
+		expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
 	});
 
 	it("removing a write-allowlist chip calls onUpdateWriteAllowlist without that path", async () => {

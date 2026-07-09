@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	fetchActiveCapabilities,
+	fetchNextcloudFolders,
 	fetchOwnTracksDevices,
 	pollNextcloudConnect,
 	startAppleConnect,
@@ -261,6 +262,49 @@ describe("startEmailConnect", () => {
 			}),
 		);
 		expect(result).toEqual({ connection });
+	});
+});
+
+describe("fetchNextcloudFolders", () => {
+	it("requests the connection's nextcloud-folders endpoint and returns folders", async () => {
+		const folders = [
+			{ path: "/Documents", name: "Documents" },
+			{ path: "/Photos", name: "Photos" },
+		];
+		const fetchMock = vi.fn(async () => jsonResponse({ folders }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await fetchNextcloudFolders("conn-nc");
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/conn-nc/nextcloud-folders",
+		);
+		expect(result).toEqual(folders);
+	});
+
+	it("appends an encoded ?path query param when given a subpath", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ folders: [] }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await fetchNextcloudFolders("conn-nc", "/Documents/Notes & Ideas");
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/conn-nc/nextcloud-folders?path=%2FDocuments%2FNotes%20%26%20Ideas",
+		);
+	});
+
+	it("throws on failure so the caller can fall back to manual entry", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(
+				{ error: "Nextcloud connection needs re-authorization" },
+				409,
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(fetchNextcloudFolders("conn-nc")).rejects.toMatchObject({
+			status: 409,
+		});
 	});
 });
 

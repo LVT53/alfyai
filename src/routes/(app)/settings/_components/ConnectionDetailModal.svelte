@@ -23,7 +23,11 @@ import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
-import type { ConnectionPublic } from "$lib/client/api/connections";
+import {
+	fetchNextcloudFolders,
+	type ConnectionPublic,
+	type NextcloudFolderSuggestion,
+} from "$lib/client/api/connections";
 import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
 
@@ -59,6 +63,19 @@ let {
 let newAllowlistEntry = $state("");
 let disconnectConfirmOpen = $state(false);
 
+// Redesign R9 — folder suggestions for the write-allowlist editor, fetched
+// from the connection's actual Nextcloud folder structure. `ncSuggestionsFailed`
+// is the graceful-fallback flag: on a fetch error (offline / needs_reauth /
+// anything else) the dropdown simply never opens and the existing manual
+// text input keeps working exactly as before — this never blocks adding a
+// path. `ncFolderSuggestions` only ever holds top-level (root) folders for
+// v1; drilling into subfolders is a nice-to-have left for a later pass.
+let ncFolderSuggestions = $state<NextcloudFolderSuggestion[]>([]);
+let ncSuggestionsLoading = $state(false);
+let ncSuggestionsFailed = $state(false);
+let ncSuggestionsOpen = $state(false);
+let ncActiveIndex = $state(-1);
+
 // Reset transient UI state whenever the open connection changes (including
 // closing back to null) so a stale confirm dialog / draft folder path never
 // leaks into the next connection's detail view.
@@ -66,13 +83,110 @@ $effect(() => {
 	void connection;
 	disconnectConfirmOpen = false;
 	newAllowlistEntry = "";
+	ncFolderSuggestions = [];
+	ncSuggestionsLoading = false;
+	ncSuggestionsFailed = false;
+	ncSuggestionsOpen = false;
+	ncActiveIndex = -1;
 });
+
+// Fetches the connection's top-level Nextcloud folders as suggestions —
+// only for a nextcloud connection with path-based writes and allow-writes
+// on (the only case the allowlist editor below is even shown). Re-runs only
+// when those tracked reads change, not on every unrelated field update
+// (e.g. toggling a capability) that produces a new `connection` object.
+$effect(() => {
+	const id = connection?.id;
+	const provider = connection?.provider;
+	const allowWrites = connection?.allowWrites;
+	if (!id || provider !== "nextcloud" || !allowWrites) return;
+	if (!getProviderCatalogEntry(provider).pathBasedWrites) return;
+
+	let cancelled = false;
+	ncSuggestionsLoading = true;
+	ncSuggestionsFailed = false;
+	fetchNextcloudFolders(id)
+		.then((folders) => {
+			if (cancelled) return;
+			ncFolderSuggestions = folders;
+		})
+		.catch(() => {
+			if (cancelled) return;
+			ncSuggestionsFailed = true;
+			ncFolderSuggestions = [];
+		})
+		.finally(() => {
+			if (!cancelled) ncSuggestionsLoading = false;
+		});
+	return () => {
+		cancelled = true;
+	};
+});
+
+const filteredSuggestions = $derived.by(() => {
+	const query = newAllowlistEntry.trim().toLowerCase();
+	const list = query
+		? ncFolderSuggestions.filter(
+				(f) =>
+					f.path.toLowerCase().includes(query) ||
+					f.name.toLowerCase().includes(query),
+			)
+		: ncFolderSuggestions;
+	return list.slice(0, 8);
+});
+
+const showSuggestions = $derived(
+	ncSuggestionsOpen &&
+		!ncSuggestionsFailed &&
+		(ncSuggestionsLoading || filteredSuggestions.length > 0),
+);
 
 function addAllowlistEntry(conn: ConnectionPublic) {
 	const raw = newAllowlistEntry.trim();
 	if (!raw) return;
 	onUpdateWriteAllowlist(conn.id, [...conn.writeAllowlist, raw]);
 	newAllowlistEntry = "";
+	ncSuggestionsOpen = false;
+	ncActiveIndex = -1;
+}
+
+function pickSuggestion(
+	conn: ConnectionPublic,
+	suggestion: NextcloudFolderSuggestion,
+) {
+	if (!conn.writeAllowlist.includes(suggestion.path)) {
+		onUpdateWriteAllowlist(conn.id, [...conn.writeAllowlist, suggestion.path]);
+	}
+	newAllowlistEntry = "";
+	ncSuggestionsOpen = false;
+	ncActiveIndex = -1;
+}
+
+function onAllowlistInputKeydown(e: KeyboardEvent, conn: ConnectionPublic) {
+	if (showSuggestions && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+		const count = filteredSuggestions.length;
+		if (count === 0) return;
+		e.preventDefault();
+		const dir = e.key === "ArrowDown" ? 1 : -1;
+		ncActiveIndex = (ncActiveIndex + dir + count) % count;
+		return;
+	}
+	if (e.key === "Enter") {
+		e.preventDefault();
+		const picked =
+			showSuggestions && ncActiveIndex >= 0
+				? filteredSuggestions[ncActiveIndex]
+				: undefined;
+		if (picked) {
+			pickSuggestion(conn, picked);
+		} else {
+			addAllowlistEntry(conn);
+		}
+		return;
+	}
+	if (e.key === "Escape" && showSuggestions) {
+		ncSuggestionsOpen = false;
+	}
 }
 
 function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
@@ -204,22 +318,79 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 								</ul>
 							{/if}
 							<div class="connection-allowlist-add">
-								<input
-									type="text"
-									class="settings-input"
-									placeholder={$t('connections.writeAllowlist.addPlaceholder')}
-									aria-label={$t('connections.writeAllowlist.label')}
-									value={newAllowlistEntry}
-									oninput={(e) => {
-										newAllowlistEntry = (e.currentTarget as HTMLInputElement).value;
-									}}
-									onkeydown={(e) => {
-										if (e.key === 'Enter') {
-											e.preventDefault();
-											addAllowlistEntry(conn);
-										}
-									}}
-								/>
+								<!-- Redesign R9 — a keyboard-navigable combobox: the plain
+								     text input still works exactly as before (typing +
+								     Enter/Add), and picking a suggestion is equivalent to
+								     typing it + Add. Suggestions are best-effort: a fetch
+								     failure (offline / needs_reauth) just never opens the
+								     dropdown (`showSuggestions` stays false), so manual entry
+								     is never blocked. -->
+								<div class="connection-allowlist-combobox">
+									<input
+										type="text"
+										class="settings-input"
+										placeholder={$t('connections.writeAllowlist.addPlaceholder')}
+										aria-label={$t('connections.writeAllowlist.label')}
+										role="combobox"
+										aria-expanded={showSuggestions}
+										aria-controls="nc-folder-suggestions"
+										aria-autocomplete="list"
+										aria-activedescendant={showSuggestions && ncActiveIndex >= 0
+											? `nc-folder-suggestion-${ncActiveIndex}`
+											: undefined}
+										value={newAllowlistEntry}
+										oninput={(e) => {
+											newAllowlistEntry = (e.currentTarget as HTMLInputElement).value;
+											ncActiveIndex = -1;
+											ncSuggestionsOpen = true;
+										}}
+										onfocus={() => {
+											ncSuggestionsOpen = true;
+										}}
+										onblur={() => {
+											// Deferred so a suggestion's onclick (which blurs the
+											// input first) still fires before the listbox unmounts.
+											setTimeout(() => {
+												ncSuggestionsOpen = false;
+											}, 150);
+										}}
+										onkeydown={(e) => onAllowlistInputKeydown(e, conn)}
+									/>
+									{#if showSuggestions}
+										<ul
+											class="connection-allowlist-suggestions"
+											id="nc-folder-suggestions"
+											role="listbox"
+											aria-label={$t('connections.writeAllowlist.suggestionsA11y')}
+										>
+											{#each filteredSuggestions as suggestion, i (suggestion.path)}
+												<!-- Per the ARIA combobox/listbox pattern, the option itself
+												     is the interactive target (no nested focusable button) —
+												     selection happens via a direct click here, or via the
+												     input's keyboard nav (aria-activedescendant + Enter)
+												     above, which is why this option is deliberately NOT its
+												     own keydown/tab target. -->
+												<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+												<li
+													role="option"
+													id={`nc-folder-suggestion-${i}`}
+													aria-selected={i === ncActiveIndex}
+													class="connection-allowlist-suggestion"
+													class:active={i === ncActiveIndex}
+													onmousedown={(e) => e.preventDefault()}
+													onclick={() => pickSuggestion(conn, suggestion)}
+												>
+													{suggestion.path}
+												</li>
+											{/each}
+											{#if ncSuggestionsLoading && filteredSuggestions.length === 0}
+												<li class="connection-allowlist-suggestions-status">
+													{$t('connections.writeAllowlist.suggestionsLoading')}
+												</li>
+											{/if}
+										</ul>
+									{/if}
+								</div>
 								<button
 									type="button"
 									class="btn-icon-bare connection-allowlist-add-btn"
@@ -363,6 +534,56 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		flex-shrink: 0;
 		min-height: 2.25rem;
 		min-width: 2.25rem;
+	}
+
+	/* Redesign R9 — the combobox wrapper is the positioning context for the
+	   suggestions dropdown, which floats below the input rather than pushing
+	   the rest of the modal's layout down. */
+	.connection-allowlist-combobox {
+		position: relative;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.connection-allowlist-suggestions {
+		position: absolute;
+		top: calc(100% + 0.25rem);
+		left: 0;
+		right: 0;
+		z-index: 1;
+		margin: 0;
+		padding: 0.25rem;
+		list-style: none;
+		max-height: 12rem;
+		overflow-y: auto;
+		background: var(--surface-elevated, var(--surface-overlay));
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md, 0.375rem);
+		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+	}
+
+	.connection-allowlist-suggestion {
+		display: block;
+		width: 100%;
+		padding: 0.375rem 0.5rem;
+		border: none;
+		border-radius: var(--radius-sm, 0.25rem);
+		background: transparent;
+		color: var(--text-primary);
+		font-size: 0.8125rem;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.connection-allowlist-suggestion:hover,
+	.connection-allowlist-suggestion.active {
+		background: color-mix(in srgb, var(--surface-overlay) 80%, transparent);
+	}
+
+	.connection-allowlist-suggestions-status {
+		padding: 0.375rem 0.5rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
 	}
 
 	/* R3-fix #4 — the "connected" indicator itself (header) is this quiet
