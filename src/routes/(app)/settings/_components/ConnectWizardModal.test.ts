@@ -667,9 +667,12 @@ describe("ConnectWizardModal", () => {
 				baseProps({ provider: "caldav", onConnected }),
 			);
 
-			await fireEvent.input(screen.getByLabelText("CalDAV server URL"), {
-				target: { value: "cloud.example.com/remote.php/dav" },
-			});
+			await fireEvent.input(
+				screen.getByLabelText("CalDAV/CardDAV server URL"),
+				{
+					target: { value: "cloud.example.com/remote.php/dav" },
+				},
+			);
 			await fireEvent.input(screen.getByLabelText("Username"), {
 				target: { value: "alice" },
 			});
@@ -693,9 +696,12 @@ describe("ConnectWizardModal", () => {
 
 			expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
 
-			await fireEvent.input(screen.getByLabelText("CalDAV server URL"), {
-				target: { value: "cloud.example.com/remote.php/dav" },
-			});
+			await fireEvent.input(
+				screen.getByLabelText("CalDAV/CardDAV server URL"),
+				{
+					target: { value: "cloud.example.com/remote.php/dav" },
+				},
+			);
 			await fireEvent.input(screen.getByLabelText("Username"), {
 				target: { value: "alice" },
 			});

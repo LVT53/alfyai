@@ -105,10 +105,34 @@ describe("connections registry", () => {
 			connectMethod: "app-password",
 			displayName: "Todoist",
 		});
+	});
+
+	// Task 9b — generalizes the "caldav" provider from tasks-only (9a) to also
+	// serve calendar (VEVENT) and contacts (CardDAV vCard), so it works for any
+	// standards-compliant CalDAV/CardDAV server, not just Apple iCloud.
+	it("widens the caldav provider to tasks + calendar + contacts, and lists it under all three capabilities", () => {
 		expect(PROVIDER_META.caldav).toEqual({
-			capabilities: ["tasks"],
+			capabilities: ["tasks", "calendar", "contacts"],
 			connectMethod: "app-password",
 			displayName: "CalDAV",
 		});
+		expect(CAPABILITY_META.calendar.providers).toContain("caldav");
+		expect(CAPABILITY_META.contacts.providers).toContain("caldav");
+		expect(CAPABILITY_META.tasks.providers).toContain("caldav");
+		// Apple's own providers stay exactly as they were — this is additive,
+		// not a replacement of the existing google/apple calendar+contacts
+		// providers.
+		expect(CAPABILITY_META.calendar.providers).toEqual([
+			"google",
+			"apple",
+			"caldav",
+		]);
+		expect(CAPABILITY_META.contacts.providers).toEqual([
+			"google",
+			"apple",
+			"nextcloud",
+			"contacts",
+			"caldav",
+		]);
 	});
 });

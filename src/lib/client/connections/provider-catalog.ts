@@ -174,9 +174,14 @@ export const PROVIDER_CATALOG: Record<
 		icon: "ListTodo",
 		connectable: true,
 	},
+	// Task 9b: widened from tasks-only (9a) — a caldav connection now discovers
+	// and can serve calendar/contacts/tasks (see registry.ts's PROVIDER_META
+	// .caldav for the same widening server-side); which of the three a given
+	// connection actually has enabled reflects what its server supports (see
+	// capabilitiesFromConfig in providers/caldav-tasks.ts).
 	caldav: {
 		displayName: "CalDAV",
-		capabilities: ["tasks"],
+		capabilities: ["tasks", "calendar", "contacts"],
 		connectMethod: "app-password",
 		// Read-only in v1 (see providers/caldav-tasks.ts) — no allow-writes toggle.
 		writable: false,

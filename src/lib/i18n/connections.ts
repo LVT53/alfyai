@@ -113,13 +113,13 @@ const connectionsDict = {
 		"connections.wizard.todoist.generateLink":
 			"Find it at todoist.com/app/settings/integrations/developer",
 
-		"connections.wizard.caldav.serverUrlLabel": "CalDAV server URL",
+		"connections.wizard.caldav.serverUrlLabel": "CalDAV/CardDAV server URL",
 		"connections.wizard.caldav.serverUrlPlaceholder":
 			"cloud.example.com/remote.php/dav",
 		"connections.wizard.caldav.usernameLabel": "Username",
 		"connections.wizard.caldav.appPasswordLabel": "App password",
 		"connections.wizard.caldav.help":
-			"Works with any standards-compliant CalDAV server (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …). Use an app-specific password if your server supports one, rather than your normal account password.",
+			"Works with any standards-compliant CalDAV/CardDAV server (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …), for your calendar, contacts, and tasks — whichever of those your server supports. Use an app-specific password if your server supports one, rather than your normal account password.",
 
 		"connections.wizard.email.emailLabel": "Email address",
 		"connections.wizard.email.imapHostLabel": "IMAP server",
@@ -338,13 +338,13 @@ const connectionsDict = {
 		"connections.wizard.todoist.generateLink":
 			"Itt találod: todoist.com/app/settings/integrations/developer",
 
-		"connections.wizard.caldav.serverUrlLabel": "CalDAV szerver URL",
+		"connections.wizard.caldav.serverUrlLabel": "CalDAV/CardDAV szerver URL",
 		"connections.wizard.caldav.serverUrlPlaceholder":
 			"felho.pelda.hu/remote.php/dav",
 		"connections.wizard.caldav.usernameLabel": "Felhasználónév",
 		"connections.wizard.caldav.appPasswordLabel": "Alkalmazásjelszó",
 		"connections.wizard.caldav.help":
-			"Bármely szabványos CalDAV szerverrel működik (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …). Ha a szervered támogatja, használj alkalmazásspecifikus jelszót a szokásos fiókjelszavad helyett.",
+			"Bármely szabványos CalDAV/CardDAV szerverrel működik (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …), a naptáradhoz, névjegyeidhez és feladataidhoz — attól függően, hogy a szervered melyiket támogatja. Ha a szervered támogatja, használj alkalmazásspecifikus jelszót a szokásos fiókjelszavad helyett.",
 
 		"connections.wizard.email.emailLabel": "E-mail-cím",
 		"connections.wizard.email.imapHostLabel": "IMAP szerver",

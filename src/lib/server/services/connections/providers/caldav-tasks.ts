@@ -1,27 +1,51 @@
-// Generic CalDAV VTODO read connector (Task 9a — "tasks" capability,
-// provider 2 of 2). Unlike providers/apple-caldav.ts (which is hard-wired to
-// iCloud's specific well-known/redirect dance), this connector takes a
-// user-supplied CalDAV base URL + username + app-specific password, so it
-// works against any standards-compliant server (Nextcloud, Fastmail,
-// mailbox.org, Baïkal, Radicale, ...) — the same "bring your own server"
-// posture as providers/nextcloud-files.ts's serverUrl. Every URL is
-// validated with the shared `assertPublicHttpsUrl` SSRF guard before it is
-// ever fetched.
+// Generic CalDAV/CardDAV connector — "caldav" provider, serving tasks
+// (VTODO, Task 9a), calendar (VEVENT, Task 9b), and contacts (CardDAV vCard,
+// Task 9b). Unlike providers/apple-caldav.ts (which is hard-wired to
+// iCloud's specific well-known/redirect dance, and discovers calendar and
+// addressbook resources through two entirely separate well-known entry
+// points), this connector takes a user-supplied CalDAV base URL + username +
+// app-specific password, so it works against any standards-compliant server
+// (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, ...) — the same
+// "bring your own server" posture as providers/nextcloud-files.ts's
+// serverUrl. Every URL is validated with the shared `assertPublicHttpsUrl`
+// SSRF guard before it is ever fetched.
 //
-// Low-level CalDAV plumbing (redirect-following PROPFIND/REPORT requests,
-// the WebDAV multistatus XML parser, and the RFC 5545 line-unfolding/
-// property-parsing primitives) is REUSED from providers/apple-caldav.ts
-// rather than duplicated — see that module's doc comment on `DAV_NS` for why
-// those exports exist and what's still owed to Task 9b (a real
-// `caldav-client.ts` extraction). Only the VTODO-specific pieces (discovery
-// filtered to VTODO-supporting collections, the VTODO REPORT query, and the
-// VTODO field parser) are new here.
+// Discovery (Task 9b) runs once, at connect time: the caller-supplied
+// serverUrl -> current-user-principal -> ONE PROPFIND against the principal
+// asking for BOTH calendar-home-set (CalDAV) and addressbook-home-set
+// (CardDAV) -> collection enumeration under each home set that was found.
+// A standards server exposes both DAV properties on the same principal
+// resource, so — unlike Apple's two independent well-known chains — a
+// single combined PROPFIND covers both. Either home-set (or both) may be
+// absent (e.g. a CalDAV-only server with no CardDAV support): that narrows
+// which of tasks/calendar/contacts this connection ends up serving, and only
+// finding literally nothing under either home set is treated as a connect
+// failure. The connection's `capabilities` are derived directly from what
+// discovery found (see capabilitiesFromConfig below) — the same "capability
+// reflects what was actually granted/discovered" posture as
+// providers/google.ts's capabilitiesFromScope.
+//
+// Low-level CalDAV/CardDAV plumbing (redirect-following PROPFIND/REPORT
+// requests, the WebDAV multistatus XML parser, the RFC 5545 line-unfolding/
+// property-parsing primitives, the VEVENT/vCard readers and their REPORT
+// query bodies, and the collection-type filters) is REUSED from
+// providers/apple-caldav.ts rather than duplicated — every export this
+// module pulls from there was already used by Apple's own CalDAV/CardDAV
+// reads, widened (Task 9b) with `export` keywords and, where a caller needs
+// to vary error-message branding, an optional labels argument — with zero
+// behavior change to any existing apple-caldav.ts call site (see
+// fetchWithTimeout/caldavRequest's doc comments there). Only the pieces
+// genuinely specific to a generic (non-iCloud) connection — the
+// serverUrl-rooted discovery chain, the combined home-set PROPFIND, the
+// VTODO-specific parser, and this module's own CalDavError type — are new
+// here.
 //
 // Read-only by construction for v1: only ever issues PROPFIND/REPORT
 // (read-only WebDAV methods). Every network call accepts an injectable
-// `fetch` so this module is fully testable against mocked CalDAV endpoints.
+// `fetch` so this module is fully testable against mocked CalDAV/CardDAV
+// endpoints.
 import { registerConnectionAdapter } from "../adapters";
-import type { ConnectionAdapter } from "../registry";
+import type { Capability, ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
 	createConnection,
@@ -32,18 +56,37 @@ import {
 	updateConnection,
 } from "../store";
 import {
+	ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY,
+	ADDRESSBOOK_QUERY_BODY,
 	AppleCalDavError,
 	basicAuthHeader,
 	CALDAV_NS,
+	CARDDAV_NS,
 	caldavRequest,
+	calendarQueryBody,
 	DAV_NS,
 	firstNs,
+	isAddressbookCollection,
+	isCalendarCollection,
+	okPropOf,
+	type ParsedVCard,
 	parseICalProperty,
 	parseICalTimestamp,
+	parseReportMultistatus,
+	parseVCards,
 	parseXml,
+	supportsCalendarComponent,
 	textOf,
+	uidQueryBody,
 	unfoldICalLines,
 } from "./apple-caldav";
+// Type-only, same rationale as apple-caldav.ts's own import of this type
+// (see that module's doc comment on the ContactMatch import above
+// appleSearchContacts): erased at compile time, so it creates no runtime
+// circular dependency with providers/contacts.ts importing
+// caldavSearchContacts from this module.
+import type { ContactMatch } from "./contacts";
+import type { CalendarEvent } from "./google-calendar";
 import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
@@ -81,6 +124,15 @@ function toCalDavError(err: unknown): CalDavError {
 	);
 }
 
+// Wraps apple-caldav.ts's shared caldavRequest with GENERIC error-message
+// branding (Task 9b, folded-in review minor 5a): without the `labels`
+// argument, caldavRequest's 401/timeout/redirect/status-failed messages read
+// "Apple CalDAV ..." / "Apple rejected the Apple ID or app-specific
+// password" — wording that leaked verbatim into a Nextcloud/Fastmail/Baïkal
+// user's connect-wizard and health-check error text (these routes return
+// `err.message` directly, see routes/api/connections/caldav/start/+server
+// .ts). Every call site in this module goes through this ONE wrapper, so the
+// generic branding is applied exactly once rather than at every call site.
 async function request(
 	fetchImpl: typeof fetch,
 	url: string,
@@ -90,19 +142,26 @@ async function request(
 	body: string,
 ): Promise<{ xml: string; finalUrl: string }> {
 	try {
-		return await caldavRequest(fetchImpl, url, auth, method, depth, body);
+		return await caldavRequest(fetchImpl, url, auth, method, depth, body, {
+			requestLabel: "CalDAV",
+			credentialsRejectedMessage:
+				"The server rejected the username or app password",
+		});
 	} catch (err) {
 		throw toCalDavError(err);
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Discovery: the user-supplied serverUrl -> current-user-principal ->
-// calendar-home-set -> calendar collections that support VTODO. Unlike
-// apple-caldav.ts's discoverAppleCalendars, there is no `.well-known` hop —
+// Discovery: the user-supplied serverUrl -> current-user-principal -> (ONE
+// combined PROPFIND for) calendar-home-set + addressbook-home-set ->
+// collection enumeration under each home set found. Unlike
+// apple-caldav.ts's discoverAppleCalendars/discoverAppleAddressbooks (two
+// entirely independent well-known chains), there is no `.well-known` hop —
 // the caller-supplied `serverUrl` IS the starting PROPFIND target (the same
-// "paste your server's CalDAV URL" convention DAVx5/Thunderbird use), which
-// also sidesteps needing a per-vendor well-known path.
+// "paste your server's CalDAV URL" convention DAVx5/Thunderbird use), and a
+// single principal resource on a standards server exposes both DAV
+// properties, so one home-set PROPFIND covers both CalDAV and CardDAV.
 // ---------------------------------------------------------------------------
 
 const PRINCIPAL_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
@@ -112,10 +171,14 @@ const PRINCIPAL_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 	</d:prop>
 </d:propfind>`;
 
-const HOME_SET_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
-<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+// Requests calendar-home-set AND addressbook-home-set in a single PROPFIND —
+// see this module's doc comment for why one request covers both here, unlike
+// apple-caldav.ts's two separate discovery chains.
+const HOME_SETS_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav">
 	<d:prop>
 		<c:calendar-home-set/>
+		<card:addressbook-home-set/>
 	</d:prop>
 </d:propfind>`;
 
@@ -158,69 +221,65 @@ async function discoverPrincipalUrl(
 	return new URL(principalHref, finalUrl).toString();
 }
 
-async function discoverCalendarHomeUrl(
+// Either home-set (or both) may be genuinely absent — e.g. a CalDAV-only
+// server with no CardDAV support at all returns no addressbook-home-set
+// property, which is NOT an error here (contrast with Apple's
+// discoverCalendarHomeUrl, which treats a missing calendar-home-set as
+// fatal): the caller (discoverCalDavResources below) only fails the whole
+// connect if NEITHER home set — and therefore nothing at all — was found.
+async function discoverHomeSets(
 	fetchImpl: typeof fetch,
 	auth: string,
 	principalUrl: string,
-): Promise<string> {
+): Promise<{
+	calendarHomeUrl: string | null;
+	addressbookHomeUrl: string | null;
+}> {
 	const { xml, finalUrl } = await request(
 		fetchImpl,
 		principalUrl,
 		auth,
 		"PROPFIND",
 		"0",
-		HOME_SET_PROPFIND_BODY,
+		HOME_SETS_PROPFIND_BODY,
 	);
 	const doc = parseXml(xml);
-	const homeHref = textOf(
+	const calendarHomeHref = textOf(
 		firstNs(
 			firstNs(doc, CALDAV_NS, "calendar-home-set") ?? doc,
 			DAV_NS,
 			"href",
 		),
 	);
-	if (!homeHref) {
-		throw new CalDavError(
-			"CalDAV discovery did not return a calendar-home-set",
-			"request_failed",
-		);
-	}
-	return new URL(homeHref, finalUrl).toString();
-}
-
-// A response entry is a VTODO-capable calendar collection when its
-// resourcetype includes CALDAV:calendar AND its
-// supported-calendar-component-set includes a <c:comp name="VTODO"/> — the
-// VTODO analogue of apple-caldav.ts's isVeventCalendarCollection.
-function isVtodoCalendarCollection(responseEl: Element): boolean {
-	const propstats = Array.from(
-		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
+	const addressbookHomeHref = textOf(
+		firstNs(
+			firstNs(doc, CARDDAV_NS, "addressbook-home-set") ?? doc,
+			DAV_NS,
+			"href",
+		),
 	);
-	const okPropstat =
-		propstats.find((ps) => {
-			const status = textOf(firstNs(ps, DAV_NS, "status"));
-			return status ? / 200 /.test(` ${status} `) : false;
-		}) ?? propstats[0];
-	const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
-	if (!prop) return false;
-
-	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
-	const isCalendar = resourcetype
-		? resourcetype.getElementsByTagNameNS(CALDAV_NS, "calendar").length > 0
-		: false;
-	if (!isCalendar) return false;
-
-	const compSet = firstNs(prop, CALDAV_NS, "supported-calendar-component-set");
-	if (!compSet) return false;
-	const comps = Array.from(compSet.getElementsByTagNameNS(CALDAV_NS, "comp"));
-	return comps.some((comp) => comp.getAttribute("name") === "VTODO");
+	return {
+		calendarHomeUrl: calendarHomeHref
+			? new URL(calendarHomeHref, finalUrl).toString()
+			: null,
+		addressbookHomeUrl: addressbookHomeHref
+			? new URL(addressbookHomeHref, finalUrl).toString()
+			: null,
+	};
 }
 
-async function discoverTaskListUrls(
+// A single PROPFIND under calendarHomeUrl enumerates every collection once,
+// then classifies each by its supported-calendar-component-set: a
+// collection supporting VTODO goes into taskListUrls, one supporting VEVENT
+// goes into calendarUrls — a collection supporting BOTH (some servers put
+// events and to-dos in one calendar) correctly lands in both lists, rather
+// than needing two separate PROPFINDs the way discovering VTODO-only (9a)
+// and VEVENT-only used to be treated as unrelated concerns.
+async function discoverCalendarCollections(
 	fetchImpl: typeof fetch,
 	auth: string,
 	calendarHomeUrl: string,
-): Promise<string[]> {
+): Promise<{ taskListUrls: string[]; calendarUrls: string[] }> {
 	const { xml, finalUrl } = await request(
 		fetchImpl,
 		calendarHomeUrl,
@@ -232,9 +291,39 @@ async function discoverTaskListUrls(
 	const doc = parseXml(xml);
 	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
 
+	const taskListUrls: string[] = [];
+	const calendarUrls: string[] = [];
+	for (const responseEl of responses) {
+		const prop = okPropOf(responseEl);
+		if (!prop || !isCalendarCollection(prop)) continue;
+		const href = textOf(firstNs(responseEl, DAV_NS, "href"));
+		if (!href) continue;
+		const url = new URL(href, finalUrl).toString();
+		if (supportsCalendarComponent(prop, "VTODO")) taskListUrls.push(url);
+		if (supportsCalendarComponent(prop, "VEVENT")) calendarUrls.push(url);
+	}
+	return { taskListUrls, calendarUrls };
+}
+
+async function discoverAddressbookUrls(
+	fetchImpl: typeof fetch,
+	auth: string,
+	addressbookHomeUrl: string,
+): Promise<string[]> {
+	const { xml, finalUrl } = await request(
+		fetchImpl,
+		addressbookHomeUrl,
+		auth,
+		"PROPFIND",
+		"1",
+		ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY,
+	);
+	const doc = parseXml(xml);
+	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
+
 	const urls: string[] = [];
 	for (const responseEl of responses) {
-		if (!isVtodoCalendarCollection(responseEl)) continue;
+		if (!isAddressbookCollection(responseEl)) continue;
 		const href = textOf(firstNs(responseEl, DAV_NS, "href"));
 		if (!href) continue;
 		urls.push(new URL(href, finalUrl).toString());
@@ -247,9 +336,16 @@ export type CalDavConfig = {
 	username: string;
 	principalUrl: string;
 	taskListUrls: string[];
+	// calendarUrls/addressbookUrls (Task 9b) — VEVENT-supporting calendar
+	// collections and CardDAV addressbook collections, respectively. Either
+	// (or both) may be an empty array when the server doesn't expose that
+	// kind of resource; capabilitiesFromConfig below reflects that directly
+	// in what the connection is enabled for.
+	calendarUrls: string[];
+	addressbookUrls: string[];
 };
 
-async function discoverCalDavTaskLists(
+async function discoverCalDavResources(
 	fetchImpl: typeof fetch,
 	serverUrl: string,
 	username: string,
@@ -257,17 +353,64 @@ async function discoverCalDavTaskLists(
 ): Promise<CalDavConfig> {
 	const auth = basicAuthHeader(username, appPassword);
 	const principalUrl = await discoverPrincipalUrl(fetchImpl, serverUrl, auth);
-	const calendarHomeUrl = await discoverCalendarHomeUrl(
+	const { calendarHomeUrl, addressbookHomeUrl } = await discoverHomeSets(
 		fetchImpl,
 		auth,
 		principalUrl,
 	);
-	const taskListUrls = await discoverTaskListUrls(
-		fetchImpl,
-		auth,
-		calendarHomeUrl,
-	);
-	return { serverUrl, username, principalUrl, taskListUrls };
+
+	let taskListUrls: string[] = [];
+	let calendarUrls: string[] = [];
+	if (calendarHomeUrl) {
+		({ taskListUrls, calendarUrls } = await discoverCalendarCollections(
+			fetchImpl,
+			auth,
+			calendarHomeUrl,
+		));
+	}
+
+	let addressbookUrls: string[] = [];
+	if (addressbookHomeUrl) {
+		addressbookUrls = await discoverAddressbookUrls(
+			fetchImpl,
+			auth,
+			addressbookHomeUrl,
+		);
+	}
+
+	if (
+		taskListUrls.length === 0 &&
+		calendarUrls.length === 0 &&
+		addressbookUrls.length === 0
+	) {
+		throw new CalDavError(
+			"CalDAV discovery did not find any calendars, task lists, or addressbooks on this server",
+			"request_failed",
+		);
+	}
+
+	return {
+		serverUrl,
+		username,
+		principalUrl,
+		taskListUrls,
+		calendarUrls,
+		addressbookUrls,
+	};
+}
+
+// Derives the connection's capabilities directly from what discovery found —
+// the same "capability reflects what was actually granted/discovered"
+// posture as providers/google.ts's capabilitiesFromScope (there, reversed
+// against the OAuth scope string; here, against non-empty discovered URL
+// lists). A caldav connection therefore only ever ends up enabled for the
+// capabilities its specific server actually supports.
+function capabilitiesFromConfig(config: CalDavConfig): Capability[] {
+	const capabilities: Capability[] = [];
+	if (config.taskListUrls.length > 0) capabilities.push("tasks");
+	if (config.calendarUrls.length > 0) capabilities.push("calendar");
+	if (config.addressbookUrls.length > 0) capabilities.push("contacts");
+	return capabilities;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,17 +427,27 @@ async function upsertCalDavConnection(params: {
 	appPassword: string;
 	config: CalDavConfig;
 }): Promise<ConnectionPublic> {
+	const discoveredCapabilities = capabilitiesFromConfig(params.config);
 	const existing = await findConnectionByAccount(
 		params.userId,
 		"caldav",
 		params.username,
 	);
 	if (existing) {
+		// Union with whatever was already enabled (mirrors
+		// providers/google.ts's upsertGoogleConnection merge posture) — a
+		// re-connect that happens to hit a moment when a collection is
+		// temporarily unreachable never SILENTLY narrows what the connection
+		// is enabled for.
+		const mergedCapabilities = [
+			...new Set([...existing.capabilities, ...discoveredCapabilities]),
+		];
 		await setConnectionSecret(params.userId, existing.id, params.appPassword);
 		const updated = await updateConnection(params.userId, existing.id, {
 			status: "connected",
 			statusDetail: null,
 			config: params.config,
+			capabilities: mergedCapabilities,
 		});
 		if (!updated)
 			throw new Error("Failed to update existing CalDAV connection");
@@ -307,7 +460,7 @@ async function upsertCalDavConnection(params: {
 			provider: "caldav",
 			label: "CalDAV",
 			accountIdentifier: params.username,
-			capabilities: ["tasks"],
+			capabilities: discoveredCapabilities,
 			status: "connected",
 			secret: params.appPassword,
 			config: params.config,
@@ -322,11 +475,15 @@ async function upsertCalDavConnection(params: {
 			params.username,
 		);
 		if (!raced) throw err;
+		const mergedCapabilities = [
+			...new Set([...raced.capabilities, ...discoveredCapabilities]),
+		];
 		await setConnectionSecret(params.userId, raced.id, params.appPassword);
 		const updated = await updateConnection(params.userId, raced.id, {
 			status: "connected",
 			statusDetail: null,
 			config: params.config,
+			capabilities: mergedCapabilities,
 		});
 		if (!updated) throw err;
 		return updated;
@@ -360,7 +517,7 @@ export async function caldavConnect(
 	}
 	const fetchImpl = params.fetch ?? fetch;
 
-	const config = await discoverCalDavTaskLists(
+	const config = await discoverCalDavResources(
 		fetchImpl,
 		serverUrl,
 		username,
@@ -511,15 +668,7 @@ function parseTodoReportMultistatus(
 	for (const responseEl of responses) {
 		const href = textOf(firstNs(responseEl, DAV_NS, "href"));
 		if (!href) continue;
-		const propstats = Array.from(
-			responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-		);
-		const okPropstat =
-			propstats.find((ps) => {
-				const status = textOf(firstNs(ps, DAV_NS, "status"));
-				return status ? / 200 /.test(` ${status} `) : false;
-			}) ?? propstats[0];
-		const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+		const prop = okPropOf(responseEl);
 		if (!prop) continue;
 
 		const calendarData = textOf(firstNs(prop, CALDAV_NS, "calendar-data"));
@@ -541,7 +690,7 @@ function parseTodoReportMultistatus(
 	return tasks;
 }
 
-function caldavConfig(conn: ConnectionPublic): {
+function caldavTaskConfig(conn: ConnectionPublic): {
 	username: string;
 	taskListUrls: string[];
 } {
@@ -585,7 +734,7 @@ export async function caldavListTasks(
 		);
 	}
 
-	const { username, taskListUrls } = caldavConfig(conn);
+	const { username, taskListUrls } = caldavTaskConfig(conn);
 	const auth = basicAuthHeader(username, appPassword);
 
 	const tasks: CalDavTask[] = [];
@@ -617,8 +766,281 @@ export async function caldavListTasks(
 }
 
 // ---------------------------------------------------------------------------
+// Calendar read (Task 9b) — REPORT (calendar-query) across every discovered
+// VEVENT-supporting calendar collection, and a UID-scoped lookup for a
+// single event. Both reuse apple-caldav.ts's exported calendarQueryBody/
+// uidQueryBody/parseReportMultistatus — the exact same REPORT bodies and
+// multistatus parsing Apple's own appleListEvents/appleGetEventByUid use
+// (see that module's doc comments on `expand` and on the UID prop-filter);
+// the XML shape and CalDAV semantics here are standard, not Apple-specific.
+// ---------------------------------------------------------------------------
+
+function caldavCalendarConfig(conn: ConnectionPublic): {
+	username: string;
+	calendarUrls: string[];
+} {
+	const username =
+		typeof conn.config.username === "string"
+			? conn.config.username
+			: conn.accountIdentifier;
+	const calendarUrls = Array.isArray(conn.config.calendarUrls)
+		? conn.config.calendarUrls.filter(
+				(value): value is string => typeof value === "string",
+			)
+		: [];
+	if (!username || calendarUrls.length === 0) {
+		throw new CalDavError(
+			"Connection is missing username or calendarUrls in its config",
+			"invalid_config",
+		);
+	}
+	return { username, calendarUrls };
+}
+
+export async function caldavListEvents(
+	userId: string,
+	connectionId: string,
+	params: { timeMin: string; timeMax: string },
+	opts?: FetchOpt,
+): Promise<CalendarEvent[]> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new CalDavError(
+			"CalDAV connection not found",
+			"connection_not_found",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new CalDavError(
+			"No app password stored for this CalDAV connection",
+			"needs_reauth",
+		);
+	}
+
+	const { username, calendarUrls } = caldavCalendarConfig(conn);
+	const auth = basicAuthHeader(username, appPassword);
+	let body: string;
+	try {
+		body = calendarQueryBody(params.timeMin, params.timeMax);
+	} catch (err) {
+		throw toCalDavError(err);
+	}
+
+	const events: CalendarEvent[] = [];
+	try {
+		for (const calendarUrl of calendarUrls) {
+			const { xml, finalUrl } = await request(
+				fetchImpl,
+				calendarUrl,
+				auth,
+				"REPORT",
+				"1",
+				body,
+			);
+			events.push(...parseReportMultistatus(xml, finalUrl));
+		}
+	} catch (err) {
+		if (err instanceof CalDavError && err.code === "invalid_credentials") {
+			const detail = "The server rejected the stored app password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new CalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
+
+	return events.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+export async function caldavGetEventByUid(
+	userId: string,
+	connectionId: string,
+	uid: string,
+	opts?: FetchOpt,
+): Promise<CalendarEvent | null> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new CalDavError(
+			"CalDAV connection not found",
+			"connection_not_found",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new CalDavError(
+			"No app password stored for this CalDAV connection",
+			"needs_reauth",
+		);
+	}
+
+	const { username, calendarUrls } = caldavCalendarConfig(conn);
+	const auth = basicAuthHeader(username, appPassword);
+	const body = uidQueryBody(uid);
+
+	try {
+		for (const calendarUrl of calendarUrls) {
+			const { xml, finalUrl } = await request(
+				fetchImpl,
+				calendarUrl,
+				auth,
+				"REPORT",
+				"1",
+				body,
+			);
+			// Defense in depth beyond the server-side UID filter — same
+			// rationale as appleGetEventByUid's identical check.
+			const match = parseReportMultistatus(xml, finalUrl).find(
+				(event) => event.id === uid,
+			);
+			if (match) return match;
+		}
+	} catch (err) {
+		if (err instanceof CalDavError && err.code === "invalid_credentials") {
+			const detail = "The server rejected the stored app password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new CalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
+
+	return null;
+}
+
+// ---------------------------------------------------------------------------
+// Contacts read (Task 9b) — CardDAV addressbook-query REPORT across every
+// discovered addressbook collection, matched client-side (same rationale as
+// appleSearchContacts: CardDAV has no reliable cross-server free-text search
+// primitive). Reuses apple-caldav.ts's exported ADDRESSBOOK_QUERY_BODY/
+// parseVCards — the vCard shape and CardDAV semantics here are standard, not
+// Apple-specific.
+// ---------------------------------------------------------------------------
+
+function caldavContactsConfig(conn: ConnectionPublic): {
+	username: string;
+	addressbookUrls: string[];
+} {
+	const username =
+		typeof conn.config.username === "string"
+			? conn.config.username
+			: conn.accountIdentifier;
+	const addressbookUrls = Array.isArray(conn.config.addressbookUrls)
+		? conn.config.addressbookUrls.filter(
+				(value): value is string => typeof value === "string",
+			)
+		: [];
+	if (!username || addressbookUrls.length === 0) {
+		throw new CalDavError(
+			"Connection is missing username or addressbookUrls in its config",
+			"invalid_config",
+		);
+	}
+	return { username, addressbookUrls };
+}
+
+function parseAddressbookReport(xml: string): ParsedVCard[] {
+	const doc = parseXml(xml);
+	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
+
+	const cards: ParsedVCard[] = [];
+	for (const responseEl of responses) {
+		const prop = okPropOf(responseEl);
+		if (!prop) continue;
+
+		const addressData = textOf(firstNs(prop, CARDDAV_NS, "address-data"));
+		if (!addressData) continue;
+		cards.push(...parseVCards(addressData));
+	}
+	return cards;
+}
+
+// Resolves contacts across the connection's CardDAV addressbooks for the
+// contacts chat tool / resolveContacts (providers/contacts.ts) — matching is
+// client-side (FN or any EMAIL contains `query`, case-insensitive), same
+// posture and rationale as appleSearchContacts.
+export async function caldavSearchContacts(
+	userId: string,
+	connectionId: string,
+	params: { query: string; limit?: number },
+	opts?: FetchOpt,
+): Promise<ContactMatch[]> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		throw new CalDavError(
+			"CalDAV connection not found",
+			"connection_not_found",
+		);
+	}
+
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		throw new CalDavError(
+			"No app password stored for this CalDAV connection",
+			"needs_reauth",
+		);
+	}
+
+	const { username, addressbookUrls } = caldavContactsConfig(conn);
+	const auth = basicAuthHeader(username, appPassword);
+	const limit = params.limit ?? 10;
+	const query = params.query.trim().toLowerCase();
+
+	try {
+		const matches: ContactMatch[] = [];
+		for (const addressbookUrl of addressbookUrls) {
+			const { xml } = await request(
+				fetchImpl,
+				addressbookUrl,
+				auth,
+				"REPORT",
+				"1",
+				ADDRESSBOOK_QUERY_BODY,
+			);
+			for (const card of parseAddressbookReport(xml)) {
+				const fn = card.fn ?? "";
+				const isMatch =
+					query.length === 0 ||
+					fn.toLowerCase().includes(query) ||
+					card.emails.some((email) => email.toLowerCase().includes(query));
+				if (!isMatch) continue;
+				matches.push({
+					name: fn,
+					emails: card.emails,
+					phones: card.phones,
+					source: "caldav",
+					account: conn.accountIdentifier,
+				});
+				if (matches.length >= limit) return matches;
+			}
+		}
+		return matches;
+	} catch (err) {
+		if (err instanceof CalDavError && err.code === "invalid_credentials") {
+			const detail = "The server rejected the stored app password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new CalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Adapter — a cheap PROPFIND on the stored principal URL confirms the
-// username/app-password still work, without touching any task data.
+// username/app-password still work, without touching any task/event/contact
+// data.
 // ---------------------------------------------------------------------------
 
 async function checkHealth(

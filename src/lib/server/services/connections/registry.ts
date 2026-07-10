@@ -91,18 +91,21 @@ export const PROVIDER_META: Record<
 		connectMethod: "oauth",
 		displayName: "OneDrive",
 	},
-	// Task 9a. NOTE for Task 9b (generic CalDAV/CardDAV): this provider id is
-	// intentionally shared with the calendar/contacts generalization — widen
-	// `capabilities` here to `["tasks", "calendar", "contacts"]` (and extend
-	// `CAPABILITY_META.calendar`/`.contacts` to include "caldav") rather than
-	// introducing a second provider id.
 	todoist: {
 		capabilities: ["tasks"],
 		connectMethod: "app-password",
 		displayName: "Todoist",
 	},
+	// Task 9b: widened from Task 9a's ["tasks"] — a generic caldav connection
+	// (Nextcloud, Fastmail, mailbox.org, Baïkal, ...) now discovers and can
+	// serve calendar (VEVENT) and contacts (CardDAV vCard) alongside tasks
+	// (VTODO); which of the three a given connection actually ends up with is
+	// per-connection (conn.capabilities, derived from what discovery found —
+	// see caldavConnect in providers/caldav-tasks.ts), not every caldav
+	// connection necessarily has all three. This entry is the ceiling of what
+	// a caldav connection can be enabled for.
 	caldav: {
-		capabilities: ["tasks"],
+		capabilities: ["tasks", "calendar", "contacts"],
 		connectMethod: "app-password",
 		displayName: "CalDAV",
 	},
@@ -119,7 +122,7 @@ export const CAPABILITY_META: Record<
 > = {
 	calendar: {
 		tier: "proactive",
-		providers: ["google", "apple"],
+		providers: ["google", "apple", "caldav"],
 		displayName: "Calendar",
 	},
 	email: {
@@ -149,7 +152,7 @@ export const CAPABILITY_META: Record<
 	},
 	contacts: {
 		tier: "explicit",
-		providers: ["google", "apple", "nextcloud", "contacts"],
+		providers: ["google", "apple", "nextcloud", "contacts", "caldav"],
 		displayName: "Contacts",
 	},
 	repos: {
