@@ -677,6 +677,7 @@ const chatDict = {
 		"toolCalls.fetchedSite": "site",
 		"toolCalls.fetchedSites": "sites",
 		"toolCalls.actionsCount": "{count} action{count, plural, one {} other {s}}",
+		"toolCalls.agendaUpcoming": "Upcoming",
 		"personalityProfile.concise.description":
 			"Terse, answer-first, minimal exposition. Engineer-to-engineer.",
 		"personalityProfile.concise.name": "Concise",
@@ -1387,6 +1388,7 @@ const chatDict = {
 		"toolCalls.fetchedSite": "oldal",
 		"toolCalls.fetchedSites": "oldal",
 		"toolCalls.actionsCount": "{count} művelet",
+		"toolCalls.agendaUpcoming": "Következő",
 		"personalityProfile.concise.description":
 			"Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
 		"personalityProfile.concise.name": "Tömör",

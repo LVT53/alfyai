@@ -547,4 +547,227 @@ describe("ThinkingBlock", () => {
 			screen.queryByText('Searching: "latest pricing"'),
 		).not.toBeInTheDocument();
 	});
+
+	// Task 11b — the agenda peek + photo strip. Both render from the SAME
+	// candidates channel every other tool_call segment already streams
+	// (segment.candidates), never modelPayload — this is a display-only
+	// widget on the user's own screen.
+	describe("agenda peek + photo strip (Task 11b)", () => {
+		it("renders an agenda peek with time, title, and location for calendar candidates", () => {
+			const start1 = "2026-07-10T09:00:00.000Z";
+			const start2 = "2026-07-10T13:30:00.000Z";
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "done",
+					input: { action: "list_events" },
+					candidates: [
+						{
+							id: "calendar:evt-1",
+							title: "Team standup",
+							url: "https://calendar.example/evt-1",
+							sourceType: "tool",
+							metadata: {
+								start: start1,
+								end: "2026-07-10T09:30:00.000Z",
+								location: "Room 204",
+							},
+						},
+						{
+							id: "calendar:evt-2",
+							title: "Dentist",
+							url: "https://calendar.example/evt-2",
+							sourceType: "tool",
+							metadata: { start: start2, end: "2026-07-10T14:00:00.000Z" },
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: false, segments },
+			});
+
+			const expectedTime1 = new Intl.DateTimeFormat(undefined, {
+				hour: "2-digit",
+				minute: "2-digit",
+			}).format(new Date(start1));
+			const expectedTime2 = new Intl.DateTimeFormat(undefined, {
+				hour: "2-digit",
+				minute: "2-digit",
+			}).format(new Date(start2));
+
+			expect(screen.getByText("Upcoming")).toBeInTheDocument();
+			const rows = document.querySelectorAll(".agenda-row");
+			expect(rows).toHaveLength(2);
+			expect(screen.getByText("Team standup")).toBeInTheDocument();
+			expect(screen.getByText("Dentist")).toBeInTheDocument();
+			expect(screen.getByText("Room 204")).toBeInTheDocument();
+			expect(rows[0]?.textContent).toContain(expectedTime1);
+			expect(rows[1]?.textContent).toContain(expectedTime2);
+		});
+
+		it("caps the agenda peek to a handful of rows even with more candidates", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "done",
+					input: { action: "list_events" },
+					candidates: Array.from({ length: 8 }, (_, i) => ({
+						id: `calendar:evt-${i}`,
+						title: `Event ${i}`,
+						url: `https://calendar.example/evt-${i}`,
+						sourceType: "tool" as const,
+						metadata: { start: `2026-07-1${i}T09:00:00.000Z` },
+					})),
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: false, segments },
+			});
+
+			const rows = document.querySelectorAll(".agenda-row");
+			expect(rows.length).toBeGreaterThan(0);
+			expect(rows.length).toBeLessThanOrEqual(5);
+		});
+
+		it("renders a photo strip whose thumbnails route through the 11a Immich proxy", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "photos",
+					status: "done",
+					input: { action: "search", query: "beach" },
+					candidates: [
+						{
+							id: "photos:asset-1",
+							title: "beach.jpg",
+							url: "",
+							sourceType: "tool",
+							metadata: { thumbnailPath: "/api/assets/asset-1/thumbnail" },
+						},
+						{
+							id: "photos:asset-2",
+							title: "sunset.jpg",
+							url: "",
+							sourceType: "tool",
+							metadata: { thumbnailPath: "/api/assets/asset-2/thumbnail" },
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: false, segments },
+			});
+
+			expect(screen.getByText("Photos")).toBeInTheDocument();
+			const thumbs =
+				document.querySelectorAll<HTMLImageElement>(".photo-strip-thumb");
+			expect(thumbs).toHaveLength(2);
+			expect(thumbs[0]?.getAttribute("src")).toBe(
+				"/api/connections/immich/thumbnail/asset-1",
+			);
+			expect(thumbs[1]?.getAttribute("src")).toBe(
+				"/api/connections/immich/thumbnail/asset-2",
+			);
+			expect(thumbs[0]?.getAttribute("loading")).toBe("lazy");
+		});
+
+		it("caps the photo strip to a handful of thumbnails even with more candidates", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "photos",
+					status: "done",
+					input: { action: "search", query: "beach" },
+					candidates: Array.from({ length: 12 }, (_, i) => ({
+						id: `photos:asset-${i}`,
+						title: `photo-${i}.jpg`,
+						url: "",
+						sourceType: "tool" as const,
+						metadata: { thumbnailPath: `/api/assets/asset-${i}/thumbnail` },
+					})),
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: false, segments },
+			});
+
+			const thumbs = document.querySelectorAll(".photo-strip-thumb");
+			expect(thumbs.length).toBeGreaterThan(0);
+			expect(thumbs.length).toBeLessThanOrEqual(8);
+		});
+
+		it("hides a broken photo thumbnail on error without breaking the surrounding layout", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "photos",
+					status: "done",
+					input: { action: "search", query: "beach" },
+					candidates: [
+						{
+							id: "photos:asset-1",
+							title: "beach.jpg",
+							url: "",
+							sourceType: "tool",
+							metadata: { thumbnailPath: "/api/assets/asset-1/thumbnail" },
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: false, segments },
+			});
+
+			const img =
+				document.querySelector<HTMLImageElement>(".photo-strip-thumb");
+			expect(img).not.toBeNull();
+			if (!img) throw new Error("Missing thumbnail img");
+
+			await fireEvent.error(img);
+
+			expect(img.style.display).toBe("none");
+			// The rest of the thinking block is unaffected by the broken image.
+			expect(document.querySelector(".thinking-block")).not.toBeNull();
+		});
+
+		it("does not render web or non-calendar/photos candidates as an agenda peek or photo strip", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "trip planning" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "source-1",
+							title: "Best beaches 2026",
+							url: "https://example.com/beaches",
+							sourceType: "web",
+							metadata: {
+								start: "2026-07-10T09:00:00.000Z",
+								thumbnailPath: "/api/assets/not-a-photo/thumbnail",
+							},
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			expect(document.querySelectorAll(".agenda-row")).toHaveLength(0);
+			expect(document.querySelectorAll(".photo-strip-thumb")).toHaveLength(0);
+			expect(screen.queryByText("Upcoming")).not.toBeInTheDocument();
+		});
+	});
 });

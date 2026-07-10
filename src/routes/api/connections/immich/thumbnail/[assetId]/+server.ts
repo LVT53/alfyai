@@ -82,6 +82,10 @@ export const GET: RequestHandler = async (event) => {
 				// Per-user data — never a shared/public cache.
 				"cache-control": "private, max-age=300",
 				"content-length": String(bytes.byteLength),
+				// Task 11b hardening: the upstream contentType is Immich-reported,
+				// not verified — nosniff stops a browser from MIME-sniffing these
+				// bytes into something other than the declared image type.
+				"x-content-type-options": "nosniff",
 			},
 		});
 	} catch (err) {

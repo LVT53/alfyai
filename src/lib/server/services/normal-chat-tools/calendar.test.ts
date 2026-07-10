@@ -244,6 +244,60 @@ describe("runCalendarTool", () => {
 		);
 	});
 
+	// Task 11b — the agenda peek (ThinkingBlock's display-only calendar
+	// widget) needs start/end/location on the candidate, not just the label/
+	// url a Sources-tab link needs. These are the user's own event fields,
+	// display-only (candidates never reach modelPayload), so no locality gate
+	// applies to this metadata the way it applies to events[]/citations[].
+	it("carries start/end/location on the candidate metadata for the agenda peek, leaving modelPayload untouched", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		googleListEventsMock.mockResolvedValue([
+			{
+				id: "evt-1",
+				summary: "Standup",
+				start: "2026-07-09T09:00:00-04:00",
+				end: "2026-07-09T09:30:00-04:00",
+				location: "Room 204",
+				htmlLink: "https://calendar.google.com/event?eid=evt-1",
+			},
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({
+				id: "calendar:https://calendar.google.com/event?eid=evt-1",
+				title: "Standup",
+				metadata: expect.objectContaining({
+					start: "2026-07-09T09:00:00-04:00",
+					end: "2026-07-09T09:30:00-04:00",
+					location: "Room 204",
+				}),
+			}),
+		]);
+
+		// modelPayload is completely unaffected by this candidate-only
+		// addition — events[]/citations[] are exactly what they were before.
+		expect(outcome.modelPayload.events).toEqual([
+			{
+				id: "evt-1",
+				summary: "Standup",
+				start: "2026-07-09T09:00:00-04:00",
+				end: "2026-07-09T09:30:00-04:00",
+				location: "Room 204",
+				htmlLink: "https://calendar.google.com/event?eid=evt-1",
+			},
+		]);
+		expect(outcome.modelPayload.citations).toEqual([
+			{ label: "Standup", url: "https://calendar.google.com/event?eid=evt-1" },
+		]);
+	});
+
 	it("normalizes a date-only start/end into RFC3339 date-times (Google 400s on bare dates)", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);

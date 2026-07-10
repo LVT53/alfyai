@@ -191,13 +191,34 @@ function resolveRange(input: CalendarToolInput): {
 	};
 }
 
-function toCandidate(citation: CalendarCitation): ToolEvidenceCandidate {
+// `event` (when given) is the SAME event `citation` was derived from in
+// listEventsOutcome, zipped back together here by buildPayload below purely
+// for the Sources-tab candidate — never for the model-facing citation.
+// start/end/location land in `metadata` so the client's agenda-peek widget
+// (Task 11b, ThinkingBlock.svelte) can render a time + place without any new
+// server event: candidates already stream to the client on every tool_call
+// segment, and — like the rest of this candidate — this is the user's own
+// event data on their own screen, not `modelPayload`, so it is unaffected by
+// the locality Option-A distill gate below.
+function toCandidate(
+	citation: CalendarCitation,
+	event?: CalendarToolEventItem,
+): ToolEvidenceCandidate {
 	return {
 		id: `calendar:${citation.url}`,
 		title: citation.label,
 		url: citation.url,
 		snippet: citation.label,
 		sourceType: "tool",
+		...(event
+			? {
+					metadata: {
+						start: event.start,
+						end: event.end,
+						...(event.location ? { location: event.location } : {}),
+					},
+				}
+			: {}),
 	};
 }
 
@@ -213,6 +234,7 @@ function buildPayload(params: {
 	preview?: WritePreview;
 }): CalendarToolOutcome {
 	const citations = params.citations ?? [];
+	const events = params.events ?? [];
 	return {
 		modelPayload: {
 			success: params.success,
@@ -220,7 +242,7 @@ function buildPayload(params: {
 			sourceType: "tool",
 			action: params.action,
 			message: params.message,
-			events: params.events ?? [],
+			events,
 			busy: params.busy ?? [],
 			calendars: params.calendars ?? [],
 			citations,
@@ -229,7 +251,13 @@ function buildPayload(params: {
 				: {}),
 			...(params.preview ? { preview: params.preview } : {}),
 		},
-		candidates: citations.map(toCandidate),
+		// citations[i] and events[i] are always built 1:1 from the same events
+		// array in the same order (see listEventsOutcome, the only caller that
+		// passes both) — safe to zip by index. Callers that pass citations
+		// without events (there are none today) simply get no metadata.
+		candidates: citations.map((citation, i) =>
+			toCandidate(citation, events[i]),
+		),
 	};
 }
 

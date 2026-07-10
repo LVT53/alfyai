@@ -120,6 +120,9 @@ describe("GET /api/connections/immich/thumbnail/[assetId]", () => {
 		expect(response.headers.get("content-length")).toBe(
 			String(new TextEncoder().encode("fake-jpeg-bytes").byteLength),
 		);
+		// Task 11b hardening: stop a browser from MIME-sniffing the Immich-
+		// reported content-type into something else.
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 		const body = new Uint8Array(await response.arrayBuffer());
 		expect(new TextDecoder().decode(body)).toBe("fake-jpeg-bytes");
 		expect(mockImmichThumbnail).toHaveBeenCalledWith(

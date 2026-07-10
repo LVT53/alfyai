@@ -1,6 +1,6 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { ThinkingSegment } from "$lib/types";
+import type { ThinkingSegment, ToolEvidenceCandidate } from "$lib/types";
 import { untrack } from "svelte";
 import {
 	Check,
@@ -426,6 +426,69 @@ function fetchedSourceSummary(sources: FetchedSource[]): string {
 	return `${$t("toolCalls.fetched")}: ${count} ${label}`;
 }
 
+// Task 11b — agenda peek + photo strip. Both read exclusively from
+// segment.candidates (never modelPayload): candidates are the user's own
+// tool-evidence data, already streamed to the client on every tool_call
+// segment for the Sources tab, so this is a display-only peek reusing that
+// same channel rather than a new server event. Gated on the connector
+// tool's NAME first (calendar/photos always group into a connector-group
+// entry, even for a single call — see toolStackEntries above), so a web or
+// document candidate can never be mistaken for an agenda/photo item even if
+// it happened to carry a similarly-named metadata key.
+const AGENDA_PEEK_MAX = 5;
+const PHOTO_STRIP_MAX = 8;
+
+function isCalendarToolName(name: string): boolean {
+	return name.toLowerCase() === "calendar";
+}
+
+function isPhotosToolName(name: string): boolean {
+	return name.toLowerCase() === "photos";
+}
+
+function getAgendaCandidates(
+	tools: ToolCallSegment[],
+): ToolEvidenceCandidate[] {
+	return tools
+		.flatMap((tool) => tool.candidates ?? [])
+		.filter((candidate) => typeof candidate.metadata?.start === "string")
+		.slice(0, AGENDA_PEEK_MAX);
+}
+
+function getPhotoCandidates(tools: ToolCallSegment[]): ToolEvidenceCandidate[] {
+	return tools
+		.flatMap((tool) => tool.candidates ?? [])
+		.filter(
+			(candidate) => typeof candidate.metadata?.thumbnailPath === "string",
+		)
+		.slice(0, PHOTO_STRIP_MAX);
+}
+
+function formatEventTime(iso: string): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	return new Intl.DateTimeFormat(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(date);
+}
+
+// Maps a photo candidate's server-internal thumbnailPath
+// ("/api/assets/{assetId}/thumbnail" — see photos.ts's toCandidate) to the
+// Task 11a authed per-user proxy route that actually serves the bytes
+// ("/api/connections/immich/thumbnail/{assetId}"). The Immich API key never
+// reaches the client either way — this is purely a URL rewrite.
+function immichThumbnailUrl(thumbnailPath: unknown): string | null {
+	if (typeof thumbnailPath !== "string") return null;
+	const match = thumbnailPath.match(/^\/api\/assets\/([^/]+)\/thumbnail$/);
+	return match ? `/api/connections/immich/thumbnail/${match[1]}` : null;
+}
+
+function hideBrokenThumbnail(event: Event): void {
+	const img = event.currentTarget;
+	if (img instanceof HTMLImageElement) img.style.display = "none";
+}
+
 function formatToolCall(name: string, input: Record<string, unknown>): string {
 	const n = name.toLowerCase();
 	const firstVal = () => String(Object.values(input)[0] ?? "").slice(0, 200);
@@ -561,6 +624,62 @@ async function toggle() {
 	</details>
 {/snippet}
 
+{#snippet agendaPeek(items: ToolEvidenceCandidate[])}
+	<div class="agenda-peek">
+		<span class="peek-label">{$t('toolCalls.agendaUpcoming')}</span>
+		<ul class="agenda-list">
+			{#each items as item (item.id)}
+				<li class="agenda-row">
+					<span class="agenda-time">{formatEventTime(String(item.metadata?.start ?? ''))}</span>
+					<span class="agenda-title">{item.title}</span>
+					{#if item.metadata?.location}
+						<span class="agenda-location">{item.metadata.location}</span>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	</div>
+{/snippet}
+
+{#snippet photoStrip(items: ToolEvidenceCandidate[])}
+	<div class="photo-strip">
+		<span class="peek-label">{$t('toolCalls.photos')}</span>
+		<div class="photo-strip-row">
+			{#each items as item (item.id)}
+				{@const thumbUrl = immichThumbnailUrl(item.metadata?.thumbnailPath)}
+				{#if thumbUrl}
+					{#if item.url}
+						<a
+							class="photo-strip-link"
+							href={item.url}
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							<img
+								class="photo-strip-thumb"
+								src={thumbUrl}
+								alt={item.title}
+								loading="lazy"
+								decoding="async"
+								onerror={hideBrokenThumbnail}
+							/>
+						</a>
+					{:else}
+						<img
+							class="photo-strip-thumb"
+							src={thumbUrl}
+							alt={item.title}
+							loading="lazy"
+							decoding="async"
+							onerror={hideBrokenThumbnail}
+						/>
+					{/if}
+				{/if}
+			{/each}
+		</div>
+	</div>
+{/snippet}
+
 {#snippet singleToolStackRow(tool: ToolCallSegment)}
 	{@const fetchedSources = getFetchedSources(tool)}
 	{#if fetchedSources.length > 0}
@@ -604,6 +723,17 @@ async function toggle() {
 		{/if}
 		{@render connectorGroupDetails(tools, 'tool-label-text')}
 	</div>
+	{#if isCalendarToolName(tools[0].name)}
+		{@const agendaItems = getAgendaCandidates(tools)}
+		{#if agendaItems.length > 0}
+			{@render agendaPeek(agendaItems)}
+		{/if}
+	{:else if isPhotosToolName(tools[0].name)}
+		{@const photoItems = getPhotoCandidates(tools)}
+		{#if photoItems.length > 0}
+			{@render photoStrip(photoItems)}
+		{/if}
+	{/if}
 {/snippet}
 
 {#snippet singleToolItem(seg: ToolCallSegment)}
@@ -1023,6 +1153,90 @@ async function toggle() {
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;
+	}
+
+	/* Agenda peek + photo strip (Task 11b) — subtle, tasteful peeks rendered
+	   alongside the connector group's stack row, visible without expanding. */
+	.agenda-peek,
+	.photo-strip {
+		margin: 4px 0 2px;
+		padding-left: 16px;
+	}
+
+	.peek-label {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs, 0.75rem);
+		font-weight: 500;
+		color: var(--text-muted);
+		margin-bottom: 4px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.agenda-list {
+		display: grid;
+		gap: 3px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.agenda-row {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 6px;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		min-width: 0;
+	}
+
+	.agenda-time {
+		flex: 0 0 auto;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-muted);
+	}
+
+	.agenda-title {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.agenda-location {
+		flex: 0 1 auto;
+		min-width: 0;
+		color: var(--text-muted);
+		overflow-wrap: anywhere;
+	}
+
+	.agenda-location::before {
+		content: "· ";
+	}
+
+	.photo-strip-row {
+		display: flex;
+		gap: 6px;
+		overflow-x: auto;
+		padding-bottom: 2px;
+	}
+
+	.photo-strip-link {
+		flex: 0 0 auto;
+		display: block;
+		line-height: 0;
+	}
+
+	.photo-strip-thumb {
+		width: 48px;
+		height: 48px;
+		flex: 0 0 auto;
+		border-radius: 6px;
+		object-fit: cover;
+		border: 1px solid var(--border-default);
+		background: var(--surface-elevated);
 	}
 
 	.thinking-content {
