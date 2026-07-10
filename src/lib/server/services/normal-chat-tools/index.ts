@@ -96,7 +96,6 @@ import {
 	researchWebInputSchema,
 	sanitizeResearchWebInput,
 } from "./research-web";
-
 import {
 	createToolCallRecorder,
 	executeToolWithEnvelope,
@@ -104,6 +103,11 @@ import {
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
+import {
+	runTasksTool,
+	sanitizeTasksToolInput,
+	tasksToolInputSchema,
+} from "./tasks";
 
 type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
 	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
@@ -218,6 +222,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the user's connected code repositories (GitHub, or a Gitea/GHE-compatible server): `list_repos` to see the user's repositories (most recently pushed first); `list_issues`, `list_prs` (pull requests), and `list_commits` (all scoped to a repo via `owner`+`repo`, optionally filtered by `state` for issues/PRs); `read_file` to open one file by `path` in a repo (optionally at a specific `ref`); `ci_status` to see recent CI/Actions runs for a repo; and `search_code` to search code across the user's accessible repositories with `query`. Use when the user asks about their code, a repo's issues/PRs/commits, build/CI status, or to find something in their code. Read-only — this connector never creates, comments on, merges, or pushes anything.",
 			errorPrefix: "Repositories lookup failed",
 		},
+		tasks: {
+			description:
+				"Read the user's connected to-do/task lists (Todoist, and/or a CalDAV account's task lists): `list_tasks` to see open tasks (optionally scoped to a `projectId`, and/or filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); `list_projects` to discover the user's projects/task lists and their ids (find a `projectId` here before scoping a `list_tasks`/`search_tasks` call); and `search_tasks` to free-text search task titles/notes with `query`, optionally combined with `projectId`/`due`. Results are combined across every connected task source. Use when the user asks about their to-dos, what's due, or a specific task. Read-only.",
+			errorPrefix: "Tasks lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -284,6 +293,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"A felhasználó csatlakoztatott kódtárolóinak (GitHub, vagy egy Gitea/GHE-kompatibilis szerver) olvasása: `list_repos` a felhasználó repóinak listázásához (legutóbb pusholt elöl); `list_issues`, `list_prs` (pull requestek) és `list_commits` (mindegyik egy repóra szűkítve az `owner`+`repo` paraméterrel, az issue-k/PR-ek opcionálisan `state` szerint szűrhetők); `read_file` egy fájl megnyitásához `path` alapján egy repóban (opcionálisan adott `ref`-en); `ci_status` egy repó legutóbbi CI/Actions futásainak megtekintéséhez; és `search_code` kódkereséshez a felhasználó elérhető repóiban a `query` alapján. Akkor használd, ha a felhasználó a kódjára, egy repó issue-jaira/PR-jeire/commitjaira, build/CI állapotára kérdez rá, vagy valamit keres a kódjában. Csak olvasható — ez a kapcsolat soha nem hoz létre, nem kommentál, nem egyesít és nem pushol semmit.",
 			errorPrefix: "A kódtárolók elérése sikertelen",
 		},
+		tasks: {
+			description:
+				"A felhasználó csatlakoztatott teendő-/feladatlistáinak (Todoist, és/vagy egy CalDAV-fiók feladatlistái) olvasása: `list_tasks` a nyitott feladatok megtekintéséhez (opcionálisan egy `projectId`-ra szűkítve, és/vagy `due` szerint szűrve — egy 'ÉÉÉÉ-HH-NN' dátum vagy a szó szerinti 'overdue'); `list_projects` a felhasználó projektjeinek/feladatlistáinak és azonosítóiknak felfedezéséhez (itt találhatod meg a `projectId`-t egy `list_tasks`/`search_tasks` szűkítése előtt); és `search_tasks` a feladatcímek/jegyzetek szabad szöveges kereséséhez a `query` alapján, opcionálisan `projectId`/`due`-val kombinálva. Az eredmények minden csatlakoztatott feladatforrásból összesítve jelennek meg. Akkor használd, ha a felhasználó a teendőire, a határidőkre vagy egy konkrét feladatra kérdez rá. Csak olvasható.",
+			errorPrefix: "A feladatok elérése sikertelen",
+		},
 	},
 };
 
@@ -320,6 +334,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includeReposTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("repos"),
+	);
+	const includeTasksTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("tasks"),
 	);
 
 	const tools = {
@@ -1454,6 +1471,87 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "repos",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeTasksTool
+			? {
+					tasks: asExecutableTool(
+						tool({
+							description: i18n.tasks.description,
+							inputSchema: tasksToolInputSchema,
+							execute: async (
+								input: z.infer<typeof tasksToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeTasksToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "tasks",
+									timeoutMs: TOOL_TIMEOUTS_MS.tasks,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runTasksTool(
+											ctx.userId,
+											safeInput,
+											ctx.modelId ?? "model1",
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "tasks",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													taskCount: modelPayload.tasks.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.tasks.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "tasks" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											tasks: [] as never[],
+											projects: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "tasks",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

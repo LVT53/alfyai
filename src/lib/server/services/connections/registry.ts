@@ -9,7 +9,8 @@ export type Capability =
 	| "location"
 	| "media"
 	| "contacts"
-	| "repos";
+	| "repos"
+	| "tasks";
 
 export type ConnectionTier = "proactive" | "explicit";
 
@@ -28,6 +29,7 @@ export const CAPABILITIES: readonly Capability[] = [
 	"media",
 	"contacts",
 	"repos",
+	"tasks",
 ];
 
 // Per-provider metadata. ConnectionProvider comes from 1.1 (schema/types).
@@ -89,6 +91,21 @@ export const PROVIDER_META: Record<
 		connectMethod: "oauth",
 		displayName: "OneDrive",
 	},
+	// Task 9a. NOTE for Task 9b (generic CalDAV/CardDAV): this provider id is
+	// intentionally shared with the calendar/contacts generalization — widen
+	// `capabilities` here to `["tasks", "calendar", "contacts"]` (and extend
+	// `CAPABILITY_META.calendar`/`.contacts` to include "caldav") rather than
+	// introducing a second provider id.
+	todoist: {
+		capabilities: ["tasks"],
+		connectMethod: "app-password",
+		displayName: "Todoist",
+	},
+	caldav: {
+		capabilities: ["tasks"],
+		connectMethod: "app-password",
+		displayName: "CalDAV",
+	},
 };
 
 // Per-capability metadata.
@@ -139,6 +156,11 @@ export const CAPABILITY_META: Record<
 		tier: "explicit",
 		providers: ["github"],
 		displayName: "Repositories",
+	},
+	tasks: {
+		tier: "explicit",
+		providers: ["todoist", "caldav"],
+		displayName: "Tasks",
 	},
 };
 

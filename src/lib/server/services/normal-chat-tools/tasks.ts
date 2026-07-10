@@ -1,0 +1,404 @@
+import { z } from "zod";
+import {
+	TodoistError,
+	todoistListProjects,
+	todoistListTasks,
+} from "$lib/server/services/connections/providers/todoist";
+import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
+import type { ConnectionPublic } from "$lib/server/services/connections/store";
+import type { ToolEvidenceCandidate } from "$lib/types";
+
+import { decideLocalDistill } from "./connector-distill";
+
+// Read-only by construction for v1: the action enum only ever lists read
+// actions, across both providers this tool aggregates (Todoist + generic
+// CalDAV VTODO, Task 9a) — same posture as repos.ts's GitHub-only read set.
+export const tasksToolInputSchema = z.object({
+	action: z.enum(["list_tasks", "list_projects", "search_tasks"]),
+	// Free-text search for "search_tasks" — matched against a task's title
+	// and notes, client-side (neither provider offers a reliable
+	// cross-server free-text search primitive, same rationale as
+	// apple-caldav.ts's appleSearchContacts).
+	query: z.string().optional(),
+	projectId: z.string().optional(),
+	// A due-date filter as "YYYY-MM-DD" (exact match against a task's due
+	// date) — case-insensitively also accepts the literal "overdue", meaning
+	// "due date is before today".
+	due: z.string().optional(),
+});
+
+export type TasksToolInput = z.infer<typeof tasksToolInputSchema>;
+
+export function sanitizeTasksToolInput(input: TasksToolInput): TasksToolInput {
+	return {
+		action: input.action,
+		...(input.query ? { query: input.query.trim() } : {}),
+		...(input.projectId ? { projectId: input.projectId.trim() } : {}),
+		...(input.due ? { due: input.due.trim() } : {}),
+	};
+}
+
+export type TasksCitation = { label: string; url: string };
+
+// One task as surfaced to the model, normalized across providers (Todoist's
+// content/description, CalDAV's SUMMARY/DESCRIPTION — Task 9b's generic
+// CalDAV work reuses this same shape). `title`/`notes` are the sensitive
+// free-text fields the Option-A gate below strips; `source`/`connectionId`
+// are structural (which connection this task came from), not sensitive.
+export type TaskItem = {
+	id: string;
+	title: string;
+	notes?: string;
+	due?: string;
+	status?: string;
+	priority?: number;
+	url?: string;
+	projectId?: string;
+	projectName?: string;
+	source: string;
+	connectionId: string;
+};
+
+export type TaskProjectItem = {
+	id: string;
+	name: string;
+	source: string;
+	connectionId: string;
+};
+
+export type TasksToolModelPayload = {
+	success: boolean;
+	name: "tasks";
+	sourceType: "tool";
+	action: TasksToolInput["action"];
+	message: string;
+	tasks: TaskItem[];
+	projects: TaskProjectItem[];
+	citations: TasksCitation[];
+};
+
+export type TasksToolOutcome = {
+	modelPayload: TasksToolModelPayload;
+	candidates: ToolEvidenceCandidate[];
+};
+
+function taskCitation(task: TaskItem): TasksCitation {
+	return { label: task.title, url: task.url ?? "" };
+}
+
+function toCandidate(task: TaskItem, index: number): ToolEvidenceCandidate {
+	return {
+		id: `tasks:${task.connectionId}:${task.id}:${index}`,
+		title: task.title,
+		url: task.url ?? "",
+		snippet: [task.notes, task.due, task.projectName]
+			.filter((value): value is string => Boolean(value))
+			.join(" · "),
+		sourceType: "tool",
+	};
+}
+
+function buildPayload(params: {
+	success: boolean;
+	action: TasksToolInput["action"];
+	message: string;
+	tasks?: TaskItem[];
+	projects?: TaskProjectItem[];
+}): TasksToolOutcome {
+	const tasks = params.tasks ?? [];
+	const citations = tasks.map(taskCitation);
+	return {
+		modelPayload: {
+			success: params.success,
+			name: "tasks",
+			sourceType: "tool",
+			action: params.action,
+			message: params.message,
+			tasks,
+			projects: params.projects ?? [],
+			citations,
+		},
+		candidates: tasks.map(toCandidate),
+	};
+}
+
+function mapAdapterError(err: unknown): string {
+	if (err instanceof TodoistError) {
+		switch (err.code) {
+			case "needs_reauth":
+				return "Your Todoist connection needs to be reconnected before I can access your tasks. Please reconnect it in Settings.";
+			case "connection_not_found":
+				return "Your Todoist connection couldn't be found. Please reconnect it in Settings.";
+			case "not_found":
+				return "That project or task couldn't be found.";
+			default:
+				return "I couldn't reach Todoist right now. Please try again in a moment.";
+		}
+	}
+	return "I couldn't look up your tasks right now. Please try again in a moment.";
+}
+
+// Per-connection task listing, dispatched by provider. Only "todoist" is
+// wired for read in 9a — a "caldav" branch is added once the VTODO read path
+// lands (see caldav-tasks.ts's module doc / Task 9a report for the current
+// status), so an unrecognized/not-yet-wired provider degrades to an empty
+// list rather than throwing, keeping a mixed todoist+caldav connection set
+// from failing the whole tool call.
+async function listTasksForConnection(
+	userId: string,
+	conn: ConnectionPublic,
+	params: { projectId?: string },
+): Promise<TaskItem[]> {
+	if (conn.provider === "todoist") {
+		const tasks = await todoistListTasks(userId, conn.id, {
+			...(params.projectId ? { projectId: params.projectId } : {}),
+		});
+		return tasks.map((task) => ({
+			id: task.id,
+			title: task.content,
+			...(task.description ? { notes: task.description } : {}),
+			...(task.due ? { due: task.due } : {}),
+			priority: task.priority,
+			url: task.url,
+			projectId: task.projectId,
+			source: conn.label,
+			connectionId: conn.id,
+		}));
+	}
+	return [];
+}
+
+async function listProjectsForConnection(
+	userId: string,
+	conn: ConnectionPublic,
+): Promise<TaskProjectItem[]> {
+	if (conn.provider === "todoist") {
+		const projects = await todoistListProjects(userId, conn.id);
+		return projects.map((project) => ({
+			id: project.id,
+			name: project.name,
+			source: conn.label,
+			connectionId: conn.id,
+		}));
+	}
+	return [];
+}
+
+function isOverdue(due: string | undefined, today: string): boolean {
+	if (!due) return false;
+	return due < today;
+}
+
+function matchesDueFilter(task: TaskItem, due: string): boolean {
+	if (due.toLowerCase() === "overdue") {
+		const today = new Date().toISOString().slice(0, 10);
+		return isOverdue(task.due, today);
+	}
+	return task.due === due;
+}
+
+function matchesQuery(task: TaskItem, query: string): boolean {
+	const q = query.toLowerCase();
+	return (
+		task.title.toLowerCase().includes(q) ||
+		(task.notes ?? "").toLowerCase().includes(q)
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Locality Option A — task titles/notes are sensitive free text (same
+// posture as calendar.ts's summary/location and contacts.ts's whole-payload
+// gate). Every action that can carry raw task/project text is gated on its
+// own most-sensitive field(s) before a cloud model ever sees it:
+//   - list_tasks/search_tasks: task title + notes.
+//   - list_projects: project name (also arbitrary user-authored free text —
+//     e.g. "Job search Q3" is as sensitive as a task title).
+// `outcome.candidates` (the user's own Sources-tab list, built from the
+// original unredacted data before this gate ever runs) is left untouched —
+// it's the user's own data on their own screen, a different channel from
+// what reaches the (cloud) model. Citation labels ARE redacted (they embed
+// the same title text being stripped).
+// ---------------------------------------------------------------------------
+
+const WITHHELD_TASKS_MESSAGE =
+	"These tasks couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.";
+const WITHHELD_PROJECTS_MESSAGE =
+	"These project names couldn't be privately summarized for a cloud model, so they were withheld. Switch to a local model to view them, or try again.";
+
+async function applyLocalDistillGate(params: {
+	userId: string;
+	modelId: string;
+	input: TasksToolInput;
+	outcome: TasksToolOutcome;
+}): Promise<TasksToolOutcome> {
+	const { userId, modelId, input, outcome } = params;
+	if (!outcome.modelPayload.success) return outcome;
+	const payload = outcome.modelPayload;
+
+	if (payload.action === "list_projects") {
+		if (payload.projects.length === 0) return outcome;
+		const rawText = payload.projects.map((project) => project.name).join("\n");
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "tasks",
+			userQuestion: input.query ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		const message =
+			"distilled" in decision
+				? `${payload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
+				: WITHHELD_PROJECTS_MESSAGE;
+		return {
+			...outcome,
+			modelPayload: { ...payload, message, projects: [] },
+		};
+	}
+
+	// list_tasks / search_tasks
+	if (payload.tasks.length === 0) return outcome;
+	const rawText = payload.tasks
+		.map((task) => [task.title, task.notes].filter(Boolean).join(" — "))
+		.join("\n");
+	const decision = await decideLocalDistill({
+		userId,
+		modelId,
+		capability: "tasks",
+		userQuestion: input.query ?? "",
+		rawText,
+	});
+	if (!decision.shouldDistill) return outcome;
+	const message =
+		"distilled" in decision
+			? `${payload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
+			: WITHHELD_TASKS_MESSAGE;
+	const redactedCitations: TasksCitation[] = payload.citations.map(
+		(_citation, index) => ({ label: `Task ${index + 1}`, url: "" }),
+	);
+	return {
+		...outcome,
+		modelPayload: {
+			...payload,
+			message,
+			tasks: [],
+			citations: redactedCitations,
+		},
+	};
+}
+
+async function runListTasks(
+	userId: string,
+	connections: ConnectionPublic[],
+	input: TasksToolInput,
+): Promise<TasksToolOutcome> {
+	const allTasks: TaskItem[] = [];
+	for (const conn of connections) {
+		allTasks.push(
+			...(await listTasksForConnection(userId, conn, {
+				...(input.projectId ? { projectId: input.projectId } : {}),
+			})),
+		);
+	}
+	const tasks = input.due
+		? allTasks.filter((task) => matchesDueFilter(task, input.due as string))
+		: allTasks;
+	const message =
+		tasks.length === 0
+			? "No tasks found."
+			: `Found ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}.`;
+	return buildPayload({ success: true, action: "list_tasks", message, tasks });
+}
+
+async function runListProjects(
+	userId: string,
+	connections: ConnectionPublic[],
+): Promise<TasksToolOutcome> {
+	const projects: TaskProjectItem[] = [];
+	for (const conn of connections) {
+		projects.push(...(await listProjectsForConnection(userId, conn)));
+	}
+	const message =
+		projects.length === 0
+			? "No projects found."
+			: `Found ${projects.length} ${projects.length === 1 ? "project" : "projects"}.`;
+	return buildPayload({
+		success: true,
+		action: "list_projects",
+		message,
+		projects,
+	});
+}
+
+async function runSearchTasks(
+	userId: string,
+	connections: ConnectionPublic[],
+	input: TasksToolInput,
+): Promise<TasksToolOutcome> {
+	const allTasks: TaskItem[] = [];
+	for (const conn of connections) {
+		allTasks.push(
+			...(await listTasksForConnection(userId, conn, {
+				...(input.projectId ? { projectId: input.projectId } : {}),
+			})),
+		);
+	}
+	let tasks = allTasks;
+	if (input.query)
+		tasks = tasks.filter((task) => matchesQuery(task, input.query as string));
+	if (input.due)
+		tasks = tasks.filter((task) => matchesDueFilter(task, input.due as string));
+	const message =
+		tasks.length === 0
+			? `No tasks found matching your search.`
+			: `Found ${tasks.length} matching ${tasks.length === 1 ? "task" : "tasks"}.`;
+	return buildPayload({
+		success: true,
+		action: "search_tasks",
+		message,
+		tasks,
+	});
+}
+
+// Dispatches to list_tasks/list_projects/search_tasks across every
+// tasks-capable connection (Todoist + CalDAV, aggregated — same "combine,
+// don't disambiguate" posture as contacts.ts, since a user may reasonably
+// want a single "what's on my plate" view across more than one task
+// source), degrading gracefully (never throwing) so a connection or lookup
+// problem never aborts the chat turn, and applying the same Option-A
+// local-distillation posture as contacts.ts/calendar.ts before any raw task
+// text reaches a cloud model.
+export async function runTasksTool(
+	userId: string,
+	input: TasksToolInput,
+	modelId: string,
+): Promise<TasksToolOutcome> {
+	const connections = await resolveConnectionsForCapability(userId, "tasks");
+	if (connections.length === 0) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message:
+				"You don't have a Tasks connection set up yet. Connect Todoist or a CalDAV account in Settings to view your tasks.",
+		});
+	}
+
+	try {
+		if (input.action === "list_projects") {
+			const outcome = await runListProjects(userId, connections);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+		if (input.action === "search_tasks") {
+			const outcome = await runSearchTasks(userId, connections, input);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+		const outcome = await runListTasks(userId, connections, input);
+		return applyLocalDistillGate({ userId, modelId, input, outcome });
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: mapAdapterError(err),
+		});
+	}
+}

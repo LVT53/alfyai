@@ -62,7 +62,15 @@ describe("connections registry", () => {
 			(c) => CAPABILITY_META[c].tier === "explicit",
 		).sort();
 		expect(explicit).toEqual(
-			["contacts", "files", "location", "media", "photos", "repos"].sort(),
+			[
+				"contacts",
+				"files",
+				"location",
+				"media",
+				"photos",
+				"repos",
+				"tasks",
+			].sort(),
 		);
 	});
 
@@ -82,5 +90,25 @@ describe("connections registry", () => {
 		});
 		expect(CAPABILITY_META.files.providers).toContain("onedrive");
 		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
+	});
+
+	// Task 9a — a new "tasks" capability served by two new providers:
+	// Todoist (REST, API token) and generic CalDAV (VTODO, app-password).
+	it("registers the tasks capability with todoist and caldav providers", () => {
+		expect(CAPABILITY_META.tasks).toEqual({
+			tier: "explicit",
+			providers: ["todoist", "caldav"],
+			displayName: "Tasks",
+		});
+		expect(PROVIDER_META.todoist).toEqual({
+			capabilities: ["tasks"],
+			connectMethod: "app-password",
+			displayName: "Todoist",
+		});
+		expect(PROVIDER_META.caldav).toEqual({
+			capabilities: ["tasks"],
+			connectMethod: "app-password",
+			displayName: "CalDAV",
+		});
 	});
 });

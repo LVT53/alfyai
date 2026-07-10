@@ -2230,6 +2230,8 @@ export const CONNECTION_PROVIDERS = [
 	"contacts",
 	"github",
 	"onedrive",
+	"todoist",
+	"caldav",
 ] as const;
 
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
