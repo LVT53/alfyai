@@ -37,7 +37,12 @@ import { t } from "$lib/i18n";
 	.privacy-page {
 		display: flex;
 		flex-direction: column;
-		min-height: 100svh;
+		/* The global app shell locks `body { overflow: hidden }` (app.css) and
+		   scrolls its own inner container, so this public route — which lives on
+		   that same locked body — must be its OWN scroll container, or the policy
+		   is unscrollable below the fold. Fixed viewport height + overflow-y auto. */
+		height: 100svh;
+		overflow-y: auto;
 		background: var(--surface-page);
 	}
 
