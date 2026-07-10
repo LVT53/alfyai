@@ -12,6 +12,11 @@ import {
 	appleListEvents,
 } from "$lib/server/services/connections/providers/apple-caldav";
 import {
+	CalDavError,
+	caldavGetEventByUid,
+	caldavListEvents,
+} from "$lib/server/services/connections/providers/caldav-tasks";
+import {
 	GoogleCalendarError,
 	googleFreeBusy,
 	googleGetEvent,
@@ -55,6 +60,16 @@ vi.mock("$lib/server/services/connections/providers/apple-caldav", async () => {
 		appleGetEventByUid: vi.fn(),
 	};
 });
+vi.mock("$lib/server/services/connections/providers/caldav-tasks", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/caldav-tasks")
+	>("$lib/server/services/connections/providers/caldav-tasks");
+	return {
+		...actual,
+		caldavListEvents: vi.fn(),
+		caldavGetEventByUid: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	isCloudModel: vi.fn(),
@@ -74,6 +89,8 @@ const googleGetEventMock = vi.mocked(googleGetEvent);
 const googleListCalendarsMock = vi.mocked(googleListCalendars);
 const appleListEventsMock = vi.mocked(appleListEvents);
 const appleGetEventByUidMock = vi.mocked(appleGetEventByUid);
+const caldavListEventsMock = vi.mocked(caldavListEvents);
+const caldavGetEventByUidMock = vi.mocked(caldavGetEventByUid);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -495,12 +512,112 @@ describe("runCalendarTool — provider dispatch (5.3)", () => {
 		googleFreeBusyMock.mockReset();
 		appleListEventsMock.mockReset();
 		appleGetEventByUidMock.mockReset();
+		caldavListEventsMock.mockReset();
+		caldavGetEventByUidMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
 		hasLocalDistillEnabledMock.mockResolvedValue(false);
 		isCloudModelMock.mockResolvedValue(false);
+	});
+
+	it("list_events dispatches to caldavListEvents for a caldav connection, never touching appleListEvents/googleListEvents (Task 9b)", async () => {
+		const conn = makeConn({
+			id: "conn-caldav",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			capabilities: ["calendar"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		caldavListEventsMock.mockResolvedValue([
+			{
+				id: "evt-caldav-1",
+				summary: "Standup",
+				start: "2026-07-09T09:00:00Z",
+				end: "2026-07-09T09:15:00Z",
+				htmlLink: "https://dav.example.com/cal/evt-caldav-1.ics",
+				etag: '"etag-1"',
+			},
+		]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(caldavListEventsMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-caldav",
+			expect.objectContaining({ timeMin: expect.any(String) }),
+		);
+		expect(appleListEventsMock).not.toHaveBeenCalled();
+		expect(googleListEventsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.events).toEqual([
+			{
+				id: "evt-caldav-1",
+				summary: "Standup",
+				start: "2026-07-09T09:00:00Z",
+				end: "2026-07-09T09:15:00Z",
+				htmlLink: "https://dav.example.com/cal/evt-caldav-1.ics",
+			},
+		]);
+		expect(JSON.stringify(outcome.modelPayload)).not.toContain("etag-1");
+	});
+
+	it("maps a CalDAV needs_reauth adapter error to a graceful, generic (non-Apple) note", async () => {
+		const conn = makeConn({
+			id: "conn-caldav",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			capabilities: ["calendar"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		caldavListEventsMock.mockRejectedValue(
+			new CalDavError(
+				"The server rejected the stored app password",
+				"needs_reauth",
+			),
+		);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("CalDAV Calendar");
+		expect(outcome.modelPayload.message).not.toContain("Apple");
+		expect(outcome.modelPayload.message).toContain("reconnected");
+	});
+
+	it("check_availability with only a caldav connection returns a graceful note instead of calling any adapter", async () => {
+		const conn = makeConn({
+			id: "conn-caldav",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			capabilities: ["calendar"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "check_availability" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"Google Calendar connection",
+		);
+		expect(googleFreeBusyMock).not.toHaveBeenCalled();
+		expect(caldavListEventsMock).not.toHaveBeenCalled();
 	});
 
 	it("list_events dispatches to appleListEvents for an apple connection, never touching googleListEvents", async () => {
@@ -729,6 +846,74 @@ describe("runCalendarTool — locality Option A distillation with an apple event
 	});
 });
 
+// Task 9b — confirms the generic caldav connector's list_events results flow
+// through the SAME Option-A distill gate as apple's, above (the gate reads
+// generically off outcome.modelPayload.events, so no provider-specific gate
+// code is needed — this test documents/locks in that it actually applies).
+describe("runCalendarTool — locality Option A distillation with a caldav event (Task 9b)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		googleListEventsMock.mockReset();
+		googleFreeBusyMock.mockReset();
+		caldavListEventsMock.mockReset();
+		caldavGetEventByUidMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+
+		const conn = makeConn({
+			id: "conn-caldav",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			capabilities: ["calendar"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		caldavListEventsMock.mockResolvedValue([
+			{
+				id: "evt-caldav-1",
+				summary: "Therapy session — anxiety follow-up",
+				start: "2026-07-09T09:00:00Z",
+				end: "2026-07-09T09:30:00Z",
+				location: "123 Clinic Rd",
+				htmlLink: "https://dav.example.com/cal/evt-caldav-1.ics",
+				etag: '"etag-1"',
+			},
+		]);
+	});
+
+	it("Option A on + cloud model: the raw caldav event summary/location are absent from the WHOLE model-facing payload, citations preserved on the user's Sources tab", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One appointment in the morning.",
+		});
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			"whichever-model",
+		);
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Therapy session");
+		expect(serializedPayload).not.toContain("Clinic Rd");
+		expect(serializedPayload).not.toContain("etag-1");
+		expect(outcome.modelPayload.events[0]?.summary).toBeUndefined();
+		expect(outcome.modelPayload.events[0]?.location).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain(
+			"One appointment in the morning.",
+		);
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({
+				title: "Therapy session — anxiety follow-up",
+			}),
+		]);
+	});
+});
+
 describe("runCalendarTool — write actions (Issue 6.1)", () => {
 	const WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
@@ -761,6 +946,38 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			id: "pending-1",
 			preview: params.preview,
 		}));
+	});
+
+	// Task 9b: caldav writes are explicitly out of scope for this task (only
+	// reads were generalized) — a caldav connection must keep degrading
+	// gracefully through the existing "Google and Apple only for v1" gate
+	// rather than creating a pending write.
+	it("create_event on a caldav connection returns a graceful not-supported note and creates no pending write", async () => {
+		const conn = makeConn({
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			allowWrites: true,
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{
+				action: "create_event",
+				title: "Standup",
+				start: "2026-07-10T09:00:00-04:00",
+				end: "2026-07-10T09:30:00-04:00",
+			},
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"only supported for Google and Apple",
+		);
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
 	});
 
 	describe("create_event", () => {
@@ -1782,6 +1999,39 @@ describe("runCalendarTool — multi-calendar reads (Gap A5 + Trap C1)", () => {
 			"home",
 			"work",
 		]);
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("scope");
+	});
+
+	// Task 9b
+	it("list_calendars on a caldav-only connection surfaces the discovered calendar collections and notes reads can't be scoped", async () => {
+		const conn = makeConn({
+			id: "conn-caldav",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier: "alice",
+			capabilities: ["calendar"],
+			config: {
+				calendarUrls: [
+					"https://dav.example.com/dav/calendars/alice/personal/",
+					"https://dav.example.com/dav/calendars/alice/work/",
+				],
+			},
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_calendars" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(googleListCalendarsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.calendars.map((c) => c.summary)).toEqual([
+			"personal",
+			"work",
+		]);
+		expect(outcome.modelPayload.message).not.toContain("Apple");
 		expect(outcome.modelPayload.message.toLowerCase()).toContain("scope");
 	});
 });

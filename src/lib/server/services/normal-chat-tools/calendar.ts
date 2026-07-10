@@ -6,6 +6,16 @@ import {
 	appleListEvents,
 } from "$lib/server/services/connections/providers/apple-caldav";
 import {
+	// caldavGetEventByUid is NOT wired up here — caldav writes (update/delete
+	// a single event by uid) are out of scope for Task 9b, which generalizes
+	// reads only; calendarWriteOutcome's "Google and Apple only for v1" gate
+	// already degrades a caldav write gracefully. caldavGetEventByUid still
+	// exists and is exported from caldav-tasks.ts (with its own test
+	// coverage there) for a future write task to wire up.
+	CalDavError,
+	caldavListEvents,
+} from "$lib/server/services/connections/providers/caldav-tasks";
+import {
 	type CalendarEvent,
 	GoogleCalendarError,
 	googleFreeBusy,
@@ -261,6 +271,20 @@ function mapAdapterError(err: unknown): string {
 				return "I couldn't reach your calendar right now. Please try again in a moment.";
 		}
 	}
+	// Task 9b — the generic CalDAV connector (any standards-compliant server:
+	// Nextcloud, Fastmail, mailbox.org, Baïkal, ...), kept as its own branch
+	// (not folded into the AppleCalDavError one above) since it's a distinct
+	// error type with its own generic ("CalDAV", not "Apple iCloud") wording.
+	if (err instanceof CalDavError) {
+		switch (err.code) {
+			case "needs_reauth":
+				return "Your CalDAV Calendar connection needs to be reconnected before I can access your calendar. Please reconnect it in Settings.";
+			case "connection_not_found":
+				return "Your CalDAV Calendar connection couldn't be found. Please reconnect it in Settings.";
+			default:
+				return "I couldn't reach your calendar right now. Please try again in a moment.";
+		}
+	}
 	return "I couldn't reach your calendar right now. Please try again in a moment.";
 }
 
@@ -281,9 +305,11 @@ function toToolEventItem(event: CalendarEvent): CalendarToolEventItem {
 
 // Dispatches list_events to the right provider adapter based on
 // `conn.provider` — google -> googleListEvents (server-side `q` search +
-// `maxResults`), apple -> appleListEvents (CalDAV REPORT has no equivalent
-// free-text search, so `query` is not applied server-side for Apple; results
-// are still capped at MAX_EVENTS client-side to match Google's bound).
+// `maxResults`), apple -> appleListEvents, caldav (Task 9b, the generic
+// CalDAV connector) -> caldavListEvents. Neither CalDAV path has an
+// equivalent free-text search, so `query` is not applied server-side for
+// either; results are still capped at MAX_EVENTS client-side to match
+// Google's bound.
 async function listEventsForConnection(
 	userId: string,
 	conn: ConnectionPublic,
@@ -294,14 +320,16 @@ async function listEventsForConnection(
 		calendarId?: string;
 	},
 ): Promise<CalendarToolEventItem[]> {
-	if (conn.provider === "apple") {
-		// appleListEvents (CalDAV) has no per-calendar scoping parameter — it
-		// always REPORTs across every calendar collection in the connection's
-		// config. `calendarId` is therefore intentionally NOT forwarded here;
-		// runCalendarTool surfaces a "using your default calendar(s)" note in the
-		// message (see appleCalendarIdIgnored) rather than silently pretending a
-		// non-primary Apple calendarId was honored (Trap C1).
-		const events = await appleListEvents(userId, conn.id, {
+	if (conn.provider === "apple" || conn.provider === "caldav") {
+		// Neither appleListEvents nor caldavListEvents has a per-calendar
+		// scoping parameter — both always REPORT across every calendar
+		// collection in the connection's config. `calendarId` is therefore
+		// intentionally NOT forwarded here; runCalendarTool surfaces a "using
+		// your default calendar(s)" note in the message (see
+		// providerCalendarIdIgnored) rather than silently pretending a
+		// non-primary calendarId was honored (Trap C1).
+		const read = conn.provider === "apple" ? appleListEvents : caldavListEvents;
+		const events = await read(userId, conn.id, {
 			timeMin: params.timeMin,
 			timeMax: params.timeMax,
 		});
@@ -321,16 +349,18 @@ async function listEventsForConnection(
 	return events.map(toToolEventItem);
 }
 
-// True when a non-primary `calendarId` was requested against an Apple
-// connection, which appleListEvents can't scope to — the caller surfaces a
-// plain "using your default calendar" note rather than silently returning
-// all-calendar results as if they were scoped (Trap C1).
-function appleCalendarIdIgnored(
+// True when a non-primary `calendarId` was requested against an Apple or
+// generic CalDAV (Task 9b) connection, neither of which appleListEvents/
+// caldavListEvents can scope to — the caller surfaces a plain "using your
+// default calendar" note rather than silently returning all-calendar results
+// as if they were scoped (Trap C1). Named after "provider", not "apple",
+// since Task 9b widened this same guardrail to caldav connections too.
+function providerCalendarIdIgnored(
 	conn: ConnectionPublic,
 	input: CalendarToolInput,
 ): boolean {
 	return (
-		conn.provider === "apple" &&
+		(conn.provider === "apple" || conn.provider === "caldav") &&
 		Boolean(input.calendarId) &&
 		input.calendarId !== "primary"
 	);
@@ -354,10 +384,14 @@ function listEventsOutcome(
 		events.length === 0
 			? "No events found in that range."
 			: `Found ${events.length} ${events.length === 1 ? "event" : "events"}.`;
-	// Trap C1: never let a non-primary Apple calendarId look honored — say
-	// plainly that the read spanned the connection's default calendar(s).
+	// Trap C1: never let a non-primary calendarId look honored on a connection
+	// that can't scope to it — say plainly that the read spanned the
+	// connection's default calendar(s). `conn.label` carries the right
+	// branding for either connection type ("Apple iCloud" or "CalDAV" — see
+	// upsertAppleConnection/upsertCalDavConnection), so this reads correctly
+	// for both without a provider-specific string here (Task 9b).
 	const message = ignoredCalendarId
-		? `I'm using your default Apple iCloud calendar(s) — I can't scope a read to a specific calendar on an Apple connection yet. ${base}`
+		? `I'm using your default ${conn.label} calendar(s) — I can't scope a read to a specific calendar on this connection yet. ${base}`
 		: base;
 	return buildPayload({
 		success: true,
@@ -431,7 +465,13 @@ function appleCalendarName(url: string): string {
 	}
 }
 
-function appleCalendarsOutcome(conn: ConnectionPublic): CalendarToolOutcome {
+// Shared by both Apple and generic CalDAV (Task 9b) — the same
+// conn.config.calendarUrls shape, just a different display label ("Apple
+// iCloud" vs "CalDAV") in the resulting message.
+function caldavStyleCalendarsOutcome(
+	conn: ConnectionPublic,
+	label: string,
+): CalendarToolOutcome {
 	const urls = Array.isArray(conn.config.calendarUrls)
 		? conn.config.calendarUrls.filter(
 				(value): value is string => typeof value === "string",
@@ -445,16 +485,18 @@ function appleCalendarsOutcome(conn: ConnectionPublic): CalendarToolOutcome {
 		return buildPayload({
 			success: false,
 			action: "list_calendars",
-			message:
-				"I couldn't enumerate your Apple iCloud calendars — try reconnecting it in Settings.",
+			message: `I couldn't enumerate your ${label} calendars — try reconnecting it in Settings.`,
 		});
 	}
 	return buildPayload({
 		success: true,
 		action: "list_calendars",
-		// Honesty (Trap C1): Apple reads can't be scoped to one of these yet, so
-		// don't imply the model can use these ids as a read scope.
-		message: `Found ${calendars.length} Apple iCloud ${calendars.length === 1 ? "calendar" : "calendars"}. Note: I can't yet scope a read to a single Apple calendar — an Apple read always spans all of them.`,
+		// Honesty (Trap C1): neither Apple nor generic CalDAV reads can be
+		// scoped to one of these yet, so don't imply the model can use these
+		// ids as a read scope. Phrased without an article before `label` so
+		// this reads correctly for both "Apple iCloud" and "CalDAV" without an
+		// a/an mismatch.
+		message: `Found ${calendars.length} ${label} ${calendars.length === 1 ? "calendar" : "calendars"}. Note: I can't yet scope a read to a single ${label} calendar — reads on this connection always span all of them.`,
 		calendars,
 	});
 }
@@ -484,10 +526,14 @@ async function listCalendarsOutcome(
 		);
 	}
 
-	// No Google connection — the resolved connection is Apple (or another
-	// provider). Surface the CalDAV collections from config for an Apple one.
+	// No Google connection — the resolved connection is Apple, generic CalDAV
+	// (Task 9b), or another provider. Surface the CalDAV collections from
+	// config for either of the first two.
 	if (conn.provider === "apple") {
-		return appleCalendarsOutcome(conn);
+		return caldavStyleCalendarsOutcome(conn, "Apple iCloud");
+	}
+	if (conn.provider === "caldav") {
+		return caldavStyleCalendarsOutcome(conn, "CalDAV");
 	}
 
 	return buildPayload({
@@ -1327,7 +1373,7 @@ export async function runCalendarTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Calendar connection set up yet. Connect your Google or Apple iCloud account in Settings to check your calendar.",
+				"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
 		});
 	}
 
@@ -1338,7 +1384,7 @@ export async function runCalendarTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Calendar connection set up yet. Connect your Google or Apple iCloud account in Settings to check your calendar.",
+				"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
 		});
 	}
 
@@ -1380,7 +1426,7 @@ export async function runCalendarTool(
 				events,
 				ambiguous,
 				connections,
-				appleCalendarIdIgnored(conn, input),
+				providerCalendarIdIgnored(conn, input),
 			);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
