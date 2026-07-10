@@ -6,6 +6,7 @@ import {
 	pollNextcloudConnect,
 	startAppleConnect,
 	startEmailConnect,
+	startGitHubConnect,
 	startGoogleConnect,
 	startImmichConnect,
 	startNextcloudConnect,
@@ -206,6 +207,46 @@ describe("startPlexConnect", () => {
 			}),
 		);
 		expect(result).toEqual({ connection });
+	});
+});
+
+describe("startGitHubConnect", () => {
+	it("posts token/baseUrl and returns the connection", async () => {
+		const connection = { id: "conn-3", provider: "github" };
+		const fetchMock = vi.fn(async () => jsonResponse({ connection }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await startGitHubConnect({
+			token: "ghp_abc123",
+			baseUrl: "git.example.com/api/v1",
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/github/start",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					token: "ghp_abc123",
+					baseUrl: "git.example.com/api/v1",
+				}),
+			}),
+		);
+		expect(result).toEqual({ connection });
+	});
+
+	it("omits baseUrl when not provided", async () => {
+		const connection = { id: "conn-4", provider: "github" };
+		const fetchMock = vi.fn(async () => jsonResponse({ connection }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await startGitHubConnect({ token: "ghp_abc123" });
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/github/start",
+			expect.objectContaining({
+				body: JSON.stringify({ token: "ghp_abc123" }),
+			}),
+		);
 	});
 });
 

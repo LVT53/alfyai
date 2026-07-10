@@ -21,6 +21,7 @@ const connectionsDict = {
 		"connections.capability.location": "Location",
 		"connections.capability.media": "Media",
 		"connections.capability.photos": "Photos",
+		"connections.capability.repos": "Repositories",
 		"connections.defaultOn.help":
 			"When on, AlfyAI can use this connection automatically without asking each time.",
 		"connections.defaultOn.label": "Default on",
@@ -85,6 +86,18 @@ const connectionsDict = {
 		"connections.wizard.plex.tokenLabel": "Plex token",
 		"connections.wizard.plex.help":
 			"Find your token by signing in to Plex Web, opening any item's “Get Info” → “View XML”, and copying the X-Plex-Token value from the URL.",
+
+		"connections.wizard.github.tokenLabel": "Personal access token",
+		"connections.wizard.github.tokenPlaceholder": "ghp_... or github_pat_...",
+		"connections.wizard.github.help":
+			'Create a token at github.com → Settings → Developer settings → Personal access tokens. A fine-grained token with read-only "Contents", "Issues", and "Pull requests" repository permissions is enough, or a classic token with the "repo" scope (read access only is used).',
+		"connections.wizard.github.generateLink":
+			"Create one at github.com/settings/tokens",
+		"connections.wizard.github.advanced": "Advanced: custom server (Gitea/GHE)",
+		"connections.wizard.github.baseUrlLabel": "API base URL (optional)",
+		"connections.wizard.github.baseUrlPlaceholder": "git.example.com/api/v1",
+		"connections.wizard.github.baseUrlHelp":
+			"Leave blank for github.com. Set this only to connect a self-hosted Gitea or GitHub Enterprise Server instead.",
 
 		"connections.wizard.apple.appleIdLabel": "Apple ID",
 		"connections.wizard.apple.appPasswordLabel": "App-specific password",
@@ -208,6 +221,7 @@ const connectionsDict = {
 		"connections.capability.location": "Helymeghatározás",
 		"connections.capability.media": "Média",
 		"connections.capability.photos": "Fényképek",
+		"connections.capability.repos": "Tárolók",
 		"connections.defaultOn.help":
 			"Ha bekapcsolod, az AlfyAI automatikusan használhatja ezt a kapcsolatot, anélkül hogy minden alkalommal rákérdezne.",
 		"connections.defaultOn.label": "Alapértelmezetten bekapcsolva",
@@ -271,6 +285,19 @@ const connectionsDict = {
 		"connections.wizard.plex.tokenLabel": "Plex token",
 		"connections.wizard.plex.help":
 			"A tokenedet a Plex Web-be bejelentkezve találod: nyiss meg egy elemet, válaszd a „Get Info” → „View XML” lehetőséget, majd másold ki az URL-ből az X-Plex-Token értékét.",
+
+		"connections.wizard.github.tokenLabel": "Személyes hozzáférési token",
+		"connections.wizard.github.tokenPlaceholder": "ghp_... vagy github_pat_...",
+		"connections.wizard.github.help":
+			"Hozz létre egy tokent itt: github.com → Settings → Developer settings → Personal access tokens. Egy finomszemcsés (fine-grained) token, csak olvasási „Contents”, „Issues” és „Pull requests” repó-jogosultságokkal elég, vagy egy klasszikus token a „repo” hatókörrel (csak az olvasási hozzáférést használjuk).",
+		"connections.wizard.github.generateLink":
+			"Hozz létre egyet a github.com/settings/tokens oldalon",
+		"connections.wizard.github.advanced":
+			"Speciális: egyéni szerver (Gitea/GHE)",
+		"connections.wizard.github.baseUrlLabel": "API alap URL (nem kötelező)",
+		"connections.wizard.github.baseUrlPlaceholder": "git.pelda.hu/api/v1",
+		"connections.wizard.github.baseUrlHelp":
+			"Hagyd üresen a github.com-hoz. Csak akkor add meg, ha egy önhosztolt Gitea vagy GitHub Enterprise Server példányhoz szeretnél csatlakozni.",
 
 		"connections.wizard.apple.appleIdLabel": "Apple ID",
 		"connections.wizard.apple.appPasswordLabel": "Alkalmazásspecifikus jelszó",

@@ -13,7 +13,8 @@ export type Capability =
 	| "email"
 	| "location"
 	| "media"
-	| "contacts";
+	| "contacts"
+	| "repos";
 
 export type ConnectMethod =
 	| "oauth"
@@ -29,7 +30,8 @@ export type ConnectionProvider =
 	| "apple"
 	| "plex"
 	| "owntracks"
-	| "contacts";
+	| "contacts"
+	| "github";
 
 export type ProviderCatalogEntry = {
 	displayName: string;
@@ -137,6 +139,16 @@ export const PROVIDER_CATALOG: Record<
 		// and have no standalone connect route (see registry.ts on the
 		// server side). Excluded from the "Add a connection" list.
 		connectable: false,
+	},
+	github: {
+		displayName: "GitHub",
+		capabilities: ["repos"],
+		connectMethod: "app-password",
+		// Read-only in v1 (see providers/github.ts) — no allow-writes toggle.
+		writable: false,
+		pathBasedWrites: false,
+		icon: "Github",
+		connectable: true,
 	},
 };
 

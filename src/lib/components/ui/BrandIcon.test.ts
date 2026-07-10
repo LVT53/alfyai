@@ -32,6 +32,7 @@ describe("BrandIcon", () => {
 		["immich", "Immich"],
 		["apple", "Apple"],
 		["plex", "Plex"],
+		["github", "GitHub"],
 	])("renders the vendored glyph for %s", (provider, name) => {
 		renderIcon({ provider });
 
@@ -113,6 +114,7 @@ describe("BrandIcon", () => {
 				"gmail",
 				"immich",
 				"apple",
+				"github",
 			];
 
 			for (const provider of nearSquareProviders) {

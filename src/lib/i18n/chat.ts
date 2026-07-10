@@ -1380,7 +1380,7 @@ const chatDict = {
 		"toolCalls.location": "Helyzet",
 		"toolCalls.media": "Média",
 		"toolCalls.photos": "Fényképek",
-		"toolCalls.repos": "Adattárak",
+		"toolCalls.repos": "Tárolók",
 		"toolCalls.fetched": "Lekérve",
 		"toolCalls.fetchedSite": "oldal",
 		"toolCalls.fetchedSites": "oldal",

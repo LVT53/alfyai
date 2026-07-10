@@ -23,6 +23,7 @@ import {
 	Check,
 	Clapperboard,
 	Folder,
+	GitBranch,
 	Image as ImageIcon,
 	Mail,
 	MapPin,
@@ -56,6 +57,7 @@ const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
 	media: Clapperboard,
 	location: MapPin,
 	contacts: Users,
+	repos: GitBranch,
 };
 
 const STATUS_KEY: Record<ConnectionPublic["status"], string> = {

@@ -24,6 +24,7 @@ import {
 	startAppleConnect,
 	startEmailConnect,
 	startGoogleConnect,
+	startGitHubConnect,
 	startImmichConnect,
 	startNextcloudConnect,
 	startOwnTracksConnect,
@@ -295,6 +296,39 @@ async function submitPlex(event: Event) {
 		await startPlexConnect({
 			serverUrl: plexServerUrl.trim(),
 			token: plexToken.trim(),
+		});
+		onConnected();
+		onClose();
+	} catch (err) {
+		errorText = errMessage(err);
+	} finally {
+		submitting = false;
+	}
+}
+
+// --- app-password (GitHub) -------------------------------------------------
+// The PAT itself is never persisted in plaintext, so it can't be prefilled
+// on reconnect; the optional Gitea/GHE base URL lives under config.baseUrl
+// (see githubConnect in src/lib/server/services/connections/providers/github.ts).
+let githubToken = $state("");
+let githubShowToken = $state(false);
+let githubBaseUrl = $state(reconnectConfigString("baseUrl"));
+// One-time snapshot of the initial value (see the `untrack()` doc comment
+// above initialProvider) — this only decides whether the Advanced section
+// starts expanded; it must not stay reactively tied to githubBaseUrl or
+// toggling it closed while a base URL is still typed would immediately
+// re-open it.
+let githubShowAdvanced = $state(untrack(() => !!githubBaseUrl));
+
+async function submitGitHub(event: Event) {
+	event.preventDefault();
+	if (submitting) return;
+	submitting = true;
+	errorText = "";
+	try {
+		await startGitHubConnect({
+			token: githubToken.trim(),
+			...(githubBaseUrl.trim() ? { baseUrl: githubBaseUrl.trim() } : {}),
 		});
 		onConnected();
 		onClose();
@@ -725,6 +759,58 @@ onMount(() => {
 							type="submit"
 							class="btn-primary w-full whitespace-nowrap sm:w-auto"
 							disabled={submitting || !plexServerUrl.trim() || !plexToken.trim()}
+						>
+							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+						</button>
+					</div>
+				</form>
+			{:else if initialProvider === 'github'}
+				<form onsubmit={submitGitHub}>
+					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.github.help')}</p>
+					<PasswordField
+						id="wizard-github-token"
+						label={$t('connections.wizard.github.tokenLabel')}
+						bind:value={githubToken}
+						bind:shown={githubShowToken}
+						autocomplete="off"
+						placeholder={$t('connections.wizard.github.tokenPlaceholder')}
+					/>
+					<p class="mt-1 text-xs text-text-muted">
+						<a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" class="underline">
+							{$t('connections.wizard.github.generateLink')}
+						</a>
+					</p>
+					<button
+						type="button"
+						class="mt-4 text-xs font-medium text-text-secondary underline"
+						onclick={() => (githubShowAdvanced = !githubShowAdvanced)}
+					>
+						{$t('connections.wizard.github.advanced')}
+					</button>
+					{#if githubShowAdvanced}
+						<div class="mt-2">
+							<label class="settings-label" for="wizard-github-base-url">{$t('connections.wizard.github.baseUrlLabel')}</label>
+							<input
+								id="wizard-github-base-url"
+								type="text"
+								inputmode="url"
+								autocomplete="url"
+								class="settings-input"
+								bind:value={githubBaseUrl}
+								placeholder={$t('connections.wizard.github.baseUrlPlaceholder')}
+							/>
+							<p class="mt-1 text-xs text-text-muted">{$t('connections.wizard.github.baseUrlHelp')}</p>
+						</div>
+					{/if}
+					{#if errorText}
+						<p class="mt-3 text-sm text-danger">{errorText}</p>
+					{/if}
+					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
+						<button
+							type="submit"
+							class="btn-primary w-full whitespace-nowrap sm:w-auto"
+							disabled={submitting || !githubToken.trim()}
 						>
 							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
 						</button>

@@ -35,6 +35,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 	imap: "Email",
 	email: "Email",
 	contacts: "Contacts",
+	github: "GitHub",
 };
 
 const FALLBACK_ICONS: Record<string, typeof Mail> = {

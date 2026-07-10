@@ -178,6 +178,18 @@ export async function startPlexConnect(params: {
 	);
 }
 
+// POST /api/connections/github/start — src/routes/api/connections/github/start/+server.ts
+export async function startGitHubConnect(params: {
+	token: string;
+	baseUrl?: string;
+}): Promise<{ connection: ConnectionPublic }> {
+	return postJson<{ connection: ConnectionPublic }>(
+		"/api/connections/github/start",
+		params,
+		"Failed to connect to GitHub",
+	);
+}
+
 // POST /api/connections/apple/start — src/routes/api/connections/apple/start/+server.ts
 export async function startAppleConnect(params: {
 	appleId: string;

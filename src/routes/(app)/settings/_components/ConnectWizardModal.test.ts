@@ -8,6 +8,7 @@ vi.mock("$lib/client/api/connections", () => ({
 	pollNextcloudConnect: vi.fn(),
 	startAppleConnect: vi.fn(),
 	startEmailConnect: vi.fn(),
+	startGitHubConnect: vi.fn(),
 	startGoogleConnect: vi.fn(),
 	startImmichConnect: vi.fn(),
 	startNextcloudConnect: vi.fn(),
@@ -20,6 +21,7 @@ import {
 	pollNextcloudConnect,
 	startAppleConnect,
 	startEmailConnect,
+	startGitHubConnect,
 	startGoogleConnect,
 	startImmichConnect,
 	startNextcloudConnect,
@@ -44,6 +46,7 @@ const mockStartOwnTracksConnect = startOwnTracksConnect as ReturnType<
 	typeof vi.fn
 >;
 const mockStartPlexConnect = startPlexConnect as ReturnType<typeof vi.fn>;
+const mockStartGitHubConnect = startGitHubConnect as ReturnType<typeof vi.fn>;
 
 function baseProps(overrides: Record<string, unknown> = {}) {
 	return {
@@ -413,6 +416,79 @@ describe("ConnectWizardModal", () => {
 				});
 			});
 			expect(onConnected).toHaveBeenCalledOnce();
+		});
+	});
+
+	describe("app-password (GitHub)", () => {
+		it("submits the token (no base URL) and calls onConnected on success", async () => {
+			mockStartGitHubConnect.mockResolvedValue({
+				connection: { id: "conn-github", provider: "github" },
+			});
+			const onConnected = vi.fn();
+
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "github", onConnected }),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Personal access token"), {
+				target: { value: "ghp_abc123" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+			await waitFor(() => {
+				expect(mockStartGitHubConnect).toHaveBeenCalledWith({
+					token: "ghp_abc123",
+				});
+			});
+			expect(onConnected).toHaveBeenCalledOnce();
+		});
+
+		it("the advanced base URL field starts collapsed and includes baseUrl when expanded and filled", async () => {
+			mockStartGitHubConnect.mockResolvedValue({
+				connection: { id: "conn-github", provider: "github" },
+			});
+
+			render(ConnectWizardModal, baseProps({ provider: "github" }));
+
+			expect(
+				screen.queryByLabelText("API base URL (optional)"),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", {
+					name: "Advanced: custom server (Gitea/GHE)",
+				}),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Personal access token"), {
+				target: { value: "ghp_abc123" },
+			});
+			await fireEvent.input(screen.getByLabelText("API base URL (optional)"), {
+				target: { value: "git.example.com/api/v1" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+			await waitFor(() => {
+				expect(mockStartGitHubConnect).toHaveBeenCalledWith({
+					token: "ghp_abc123",
+					baseUrl: "git.example.com/api/v1",
+				});
+			});
+		});
+
+		it("disables Connect until a token is entered", async () => {
+			render(ConnectWizardModal, baseProps({ provider: "github" }));
+
+			expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+
+			await fireEvent.input(screen.getByLabelText("Personal access token"), {
+				target: { value: "ghp_abc123" },
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Connect" }),
+			).not.toBeDisabled();
 		});
 	});
 
