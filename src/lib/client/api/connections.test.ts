@@ -10,6 +10,7 @@ import {
 	startGoogleConnect,
 	startImmichConnect,
 	startNextcloudConnect,
+	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
 } from "./connections";
@@ -107,6 +108,43 @@ describe("startGoogleConnect", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(startGoogleConnect(["calendar"])).rejects.toMatchObject({
+			status: 501,
+		});
+	});
+});
+
+describe("startOneDriveConnect", () => {
+	it("posts capabilities and returns the authUrl", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				authUrl:
+					"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x",
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await startOneDriveConnect(["files"]);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/connections/onedrive/start",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ capabilities: ["files"] }),
+			}),
+		);
+		expect(result).toEqual({
+			authUrl:
+				"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x",
+		});
+	});
+
+	it("throws with the not-configured status on a 501", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ error: "OneDrive is not configured" }, 501),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(startOneDriveConnect(["files"])).rejects.toMatchObject({
 			status: 501,
 		});
 	});

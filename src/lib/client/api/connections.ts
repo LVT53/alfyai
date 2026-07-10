@@ -106,16 +106,33 @@ function postJson<T>(path: string, body: unknown, errorMessage: string) {
 	);
 }
 
-export type GoogleConnectStartResponse = { authUrl: string };
+// Shared response shape for every OAuth-connectMethod provider's start route
+// (currently google + onedrive) — each just returns the provider's consent-
+// screen URL to redirect the browser to.
+export type OAuthConnectStartResponse = { authUrl: string };
+// Back-compat alias — kept so any existing import of the old Google-specific
+// name keeps working.
+export type GoogleConnectStartResponse = OAuthConnectStartResponse;
 
 // POST /api/connections/google/start — src/routes/api/connections/google/start/+server.ts
 export async function startGoogleConnect(
 	capabilities: string[],
-): Promise<GoogleConnectStartResponse> {
-	return postJson<GoogleConnectStartResponse>(
+): Promise<OAuthConnectStartResponse> {
+	return postJson<OAuthConnectStartResponse>(
 		"/api/connections/google/start",
 		{ capabilities },
 		"Failed to start Google connect",
+	);
+}
+
+// POST /api/connections/onedrive/start — src/routes/api/connections/onedrive/start/+server.ts
+export async function startOneDriveConnect(
+	capabilities: string[],
+): Promise<OAuthConnectStartResponse> {
+	return postJson<OAuthConnectStartResponse>(
+		"/api/connections/onedrive/start",
+		{ capabilities },
+		"Failed to start OneDrive connect",
 	);
 }
 

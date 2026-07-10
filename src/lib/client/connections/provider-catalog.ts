@@ -31,7 +31,8 @@ export type ConnectionProvider =
 	| "plex"
 	| "owntracks"
 	| "contacts"
-	| "github";
+	| "github"
+	| "onedrive";
 
 export type ProviderCatalogEntry = {
 	displayName: string;
@@ -148,6 +149,16 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "Github",
+		connectable: true,
+	},
+	onedrive: {
+		displayName: "OneDrive",
+		capabilities: ["files"],
+		connectMethod: "oauth",
+		// Read-only in v1 (see providers/onedrive.ts) — no allow-writes toggle.
+		writable: false,
+		pathBasedWrites: false,
+		icon: "Cloud",
 		connectable: true,
 	},
 };

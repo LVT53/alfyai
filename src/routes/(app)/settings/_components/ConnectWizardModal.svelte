@@ -23,10 +23,11 @@ import {
 	pollNextcloudConnect,
 	startAppleConnect,
 	startEmailConnect,
-	startGoogleConnect,
 	startGitHubConnect,
+	startGoogleConnect,
 	startImmichConnect,
 	startNextcloudConnect,
+	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
 } from "$lib/client/api/connections";
@@ -130,11 +131,14 @@ function errMessage(err: unknown): string {
 let submitting = $state(false);
 let errorText = $state("");
 
-// --- oauth (Google) ---------------------------------------------------
+// --- oauth (Google, OneDrive) -------------------------------------------
+// Task 8 — OneDrive is a second oauth-connectMethod provider alongside
+// Google, so this branch (and its start-call dispatch below) now serves
+// both rather than being Google-only.
 let selectedCapabilities = $state<Set<Capability>>(
 	new Set(providerEntry?.capabilities ?? []),
 );
-let googleNotConfigured = $state(false);
+let oauthNotConfigured = $state(false);
 
 function toggleCapability(capability: Capability) {
 	const next = new Set(selectedCapabilities);
@@ -143,17 +147,20 @@ function toggleCapability(capability: Capability) {
 	selectedCapabilities = next;
 }
 
-async function submitGoogle() {
+async function submitOAuth() {
 	if (submitting || selectedCapabilities.size === 0) return;
 	submitting = true;
 	errorText = "";
-	googleNotConfigured = false;
+	oauthNotConfigured = false;
 	try {
-		const { authUrl } = await startGoogleConnect([...selectedCapabilities]);
+		const { authUrl } =
+			initialProvider === "onedrive"
+				? await startOneDriveConnect([...selectedCapabilities])
+				: await startGoogleConnect([...selectedCapabilities]);
 		redirectTo(authUrl);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 501) {
-			googleNotConfigured = true;
+			oauthNotConfigured = true;
 		} else {
 			errorText = errMessage(err);
 		}
@@ -569,9 +576,9 @@ onMount(() => {
 					<button type="button" class="btn-secondary" onclick={onClose}>{$t('common.close')}</button>
 				</div>
 			{:else if kind === 'oauth'}
-				<p class="mb-4 text-sm text-text-secondary">{$t('connections.wizard.oauth.intro')}</p>
-				{#if googleNotConfigured}
-					<p class="mb-4 text-sm text-danger">{$t('connections.wizard.oauth.notConfigured')}</p>
+				<p class="mb-4 text-sm text-text-secondary">{$t('connections.wizard.oauth.intro', { provider: providerEntry.displayName })}</p>
+				{#if oauthNotConfigured}
+					<p class="mb-4 text-sm text-danger">{$t('connections.wizard.oauth.notConfigured', { provider: providerEntry.displayName })}</p>
 				{:else}
 					<fieldset class="flex flex-col gap-2">
 						<legend class="settings-label mb-1">{$t('connections.capabilities.label')}</legend>
@@ -595,14 +602,14 @@ onMount(() => {
 				{/if}
 				<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 					<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-					{#if !googleNotConfigured}
+					{#if !oauthNotConfigured}
 						<button
 							type="button"
 							class="btn-primary w-full whitespace-nowrap sm:w-auto"
 							disabled={submitting || selectedCapabilities.size === 0}
-							onclick={submitGoogle}
+							onclick={submitOAuth}
 						>
-							{submitting ? $t('connections.wizard.oauth.redirecting') : $t('connections.wizard.oauth.continue')}
+							{submitting ? $t('connections.wizard.oauth.redirecting', { provider: providerEntry.displayName }) : $t('connections.wizard.oauth.continue', { provider: providerEntry.displayName })}
 						</button>
 					{/if}
 				</div>

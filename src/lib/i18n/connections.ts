@@ -58,11 +58,11 @@ const connectionsDict = {
 		"connections.wizard.back": "Back",
 
 		"connections.wizard.oauth.intro":
-			"Choose what AlfyAI can access, then continue to Google to grant permission.",
-		"connections.wizard.oauth.continue": "Continue to Google",
-		"connections.wizard.oauth.redirecting": "Redirecting to Google…",
+			"Choose what AlfyAI can access, then continue to {provider} to grant permission.",
+		"connections.wizard.oauth.continue": "Continue to {provider}",
+		"connections.wizard.oauth.redirecting": "Redirecting to {provider}…",
 		"connections.wizard.oauth.notConfigured":
-			"Google connect isn't configured on this server yet. Ask your administrator to set it up.",
+			"{provider} connect isn't configured on this server yet. Ask your administrator to set it up.",
 
 		"connections.wizard.nextcloud.serverUrlLabel": "Server URL",
 		"connections.wizard.nextcloud.serverUrlPlaceholder": "cloud.example.com",
@@ -162,6 +162,16 @@ const connectionsDict = {
 			"This request didn't match your session. Please try again.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"Google couldn't complete the connection. Please try again.",
+		"connections.oauthReturn.reason.onedrive_oauth_denied":
+			"You declined the Microsoft permission request.",
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_request":
+			"Microsoft's response was missing required information.",
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_state":
+			"Your session expired before Microsoft could finish. Please try again.",
+		"connections.oauthReturn.reason.onedrive_oauth_state_mismatch":
+			"This request didn't match your session. Please try again.",
+		"connections.oauthReturn.reason.onedrive_oauth_failed":
+			"Microsoft couldn't complete the connection. Please try again.",
 		"connections.oauthReturn.reason.generic": "Please try again.",
 
 		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +
@@ -257,11 +267,11 @@ const connectionsDict = {
 		"connections.wizard.back": "Vissza",
 
 		"connections.wizard.oauth.intro":
-			"Válaszd ki, mihez férhet hozzá az AlfyAI, majd folytasd a Google-nél a hozzájárulás megadásához.",
-		"connections.wizard.oauth.continue": "Folytatás a Google-nél",
-		"connections.wizard.oauth.redirecting": "Átirányítás a Google-höz…",
+			"Válaszd ki, mihez férhet hozzá az AlfyAI, majd folytasd a(z) {provider} szolgáltatásnál a hozzájárulás megadásához.",
+		"connections.wizard.oauth.continue": "Folytatás itt: {provider}",
+		"connections.wizard.oauth.redirecting": "Átirányítás ide: {provider}…",
 		"connections.wizard.oauth.notConfigured":
-			"A Google-csatlakozás még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
+			"A(z) {provider} csatlakozás még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
 
 		"connections.wizard.nextcloud.serverUrlLabel": "Szerver URL",
 		"connections.wizard.nextcloud.serverUrlPlaceholder": "felho.pelda.hu",
@@ -362,6 +372,16 @@ const connectionsDict = {
 			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.google_oauth_failed":
 			"A Google nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.onedrive_oauth_denied":
+			"Elutasítottad a Microsoft jogosultságkérését.",
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_request":
+			"A Microsoft válaszából hiányoztak a szükséges adatok.",
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_state":
+			"A munkameneted lejárt, mielőtt a Microsoft befejezhette volna. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.onedrive_oauth_state_mismatch":
+			"Ez a kérés nem egyezett a munkameneteddel. Kérjük, próbáld újra.",
+		"connections.oauthReturn.reason.onedrive_oauth_failed":
+			"A Microsoft nem tudta befejezni a csatlakozást. Kérjük, próbáld újra.",
 		"connections.oauthReturn.reason.generic": "Kérjük, próbáld újra.",
 
 		// Issue 7.4 — Option C (composer cloud-connector warn-once modal) +

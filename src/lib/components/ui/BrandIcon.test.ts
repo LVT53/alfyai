@@ -62,6 +62,18 @@ describe("BrandIcon", () => {
 		);
 	});
 
+	// Task 8 — Simple Icons has no Microsoft OneDrive glyph in the pinned
+	// package version, so onedrive uses the Lucide fallback instead of a
+	// vendored brand mark (see BrandIcon.svelte's doc comment).
+	it("falls back to the Lucide Cloud glyph for onedrive", () => {
+		renderIcon({ provider: "onedrive" });
+
+		const icon = screen.getByRole("img", { name: "OneDrive" });
+		expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
+			"lucide-cloud",
+		);
+	});
+
 	it("falls back to a generic glyph for an unknown provider", () => {
 		renderIcon({ provider: "some-unknown-thing" });
 

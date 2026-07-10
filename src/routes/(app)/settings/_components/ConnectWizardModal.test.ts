@@ -12,6 +12,7 @@ vi.mock("$lib/client/api/connections", () => ({
 	startGoogleConnect: vi.fn(),
 	startImmichConnect: vi.fn(),
 	startNextcloudConnect: vi.fn(),
+	startOneDriveConnect: vi.fn(),
 	startOwnTracksConnect: vi.fn(),
 	startPlexConnect: vi.fn(),
 }));
@@ -25,6 +26,7 @@ import {
 	startGoogleConnect,
 	startImmichConnect,
 	startNextcloudConnect,
+	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
 } from "$lib/client/api/connections";
@@ -40,6 +42,9 @@ const mockStartEmailConnect = startEmailConnect as ReturnType<typeof vi.fn>;
 const mockStartGoogleConnect = startGoogleConnect as ReturnType<typeof vi.fn>;
 const mockStartImmichConnect = startImmichConnect as ReturnType<typeof vi.fn>;
 const mockStartNextcloudConnect = startNextcloudConnect as ReturnType<
+	typeof vi.fn
+>;
+const mockStartOneDriveConnect = startOneDriveConnect as ReturnType<
 	typeof vi.fn
 >;
 const mockStartOwnTracksConnect = startOwnTracksConnect as ReturnType<
@@ -147,6 +152,91 @@ describe("ConnectWizardModal", () => {
 			);
 			expect(
 				screen.getByRole("heading", { name: "Reconnect Google" }),
+			).toBeInTheDocument();
+		});
+	});
+
+	// Task 8 — OneDrive is a second oauth-connectMethod provider; the branch
+	// under test (kind === 'oauth') is shared with Google, so this mirrors
+	// the Google describe block above but asserts the OneDrive-specific
+	// wiring: startOneDriveConnect is called (not startGoogleConnect), and
+	// every provider-interpolated string says "OneDrive".
+	describe("oauth (OneDrive)", () => {
+		it("starts OneDrive connect with the checked capabilities and redirects", async () => {
+			mockStartOneDriveConnect.mockResolvedValue({
+				authUrl:
+					"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x",
+			});
+			const redirectTo = vi.fn();
+			const onClose = vi.fn();
+			const onConnected = vi.fn();
+
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "onedrive", onClose, onConnected, redirectTo }),
+			);
+
+			expect(
+				screen.getByRole("heading", { name: "Connect OneDrive" }),
+			).toBeInTheDocument();
+			expect(screen.getByLabelText("Files")).toBeChecked();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue to OneDrive" }),
+			);
+
+			await waitFor(() => {
+				expect(mockStartOneDriveConnect).toHaveBeenCalledWith(["files"]);
+			});
+			expect(mockStartGoogleConnect).not.toHaveBeenCalled();
+			expect(redirectTo).toHaveBeenCalledWith(
+				"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x",
+			);
+			expect(onClose).not.toHaveBeenCalled();
+			expect(onConnected).not.toHaveBeenCalled();
+		});
+
+		it("unchecking the only capability disables Continue", async () => {
+			render(ConnectWizardModal, baseProps({ provider: "onedrive" }));
+
+			await fireEvent.click(screen.getByLabelText("Files"));
+
+			expect(
+				screen.getByRole("button", { name: "Continue to OneDrive" }),
+			).toBeDisabled();
+		});
+
+		it("shows a not-configured message on a 501 without exposing details", async () => {
+			mockStartOneDriveConnect.mockRejectedValue(
+				new ApiError("OneDrive is not configured", { status: 501 }),
+			);
+			const redirectTo = vi.fn();
+
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "onedrive", redirectTo }),
+			);
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Continue to OneDrive" }),
+			);
+
+			await waitFor(() => {
+				expect(
+					screen.getByText(
+						"OneDrive connect isn't configured on this server yet. Ask your administrator to set it up.",
+					),
+				).toBeInTheDocument();
+			});
+			expect(redirectTo).not.toHaveBeenCalled();
+		});
+
+		it("shows a Reconnect title when reconnecting", () => {
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "onedrive", reconnectConnectionId: "conn-1" }),
+			);
+			expect(
+				screen.getByRole("heading", { name: "Reconnect OneDrive" }),
 			).toBeInTheDocument();
 		});
 	});

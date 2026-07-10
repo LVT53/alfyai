@@ -15,6 +15,17 @@ const OAUTH_ERROR_REASON_KEYS: Record<string, I18nKey> = {
 	google_oauth_state_mismatch:
 		"connections.oauthReturn.reason.google_oauth_state_mismatch",
 	google_oauth_failed: "connections.oauthReturn.reason.google_oauth_failed",
+	// Task 8 — mirrors the google_oauth_* codes above; see
+	// src/routes/api/oauth/onedrive/callback/+server.ts's errorRedirectPath
+	// calls for where these codes come from.
+	onedrive_oauth_denied: "connections.oauthReturn.reason.onedrive_oauth_denied",
+	onedrive_oauth_invalid_request:
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_request",
+	onedrive_oauth_invalid_state:
+		"connections.oauthReturn.reason.onedrive_oauth_invalid_state",
+	onedrive_oauth_state_mismatch:
+		"connections.oauthReturn.reason.onedrive_oauth_state_mismatch",
+	onedrive_oauth_failed: "connections.oauthReturn.reason.onedrive_oauth_failed",
 };
 
 export function getOAuthErrorReasonKey(code: string): I18nKey {

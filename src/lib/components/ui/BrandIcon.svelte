@@ -21,7 +21,7 @@
  * <BrandIcon provider="apple" ariaHidden />
  * ```
  */
-import { Mail, MapPin, Plug } from "@lucide/svelte";
+import { Cloud, Mail, MapPin, Plug } from "@lucide/svelte";
 import { BRAND_GLYPHS, isBrandIconProvider } from "./brand-icon-data";
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -36,12 +36,18 @@ const DISPLAY_NAMES: Record<string, string> = {
 	email: "Email",
 	contacts: "Contacts",
 	github: "GitHub",
+	onedrive: "OneDrive",
 };
 
+// Simple Icons (the source of BRAND_GLYPHS, see ./brand-icon-data) has no
+// Microsoft OneDrive glyph in the pinned package version — "onedrive" falls
+// back to a neutral Lucide cloud icon here rather than a vendored brand
+// mark, per the task brief's explicit "Lucide fallback if needed".
 const FALLBACK_ICONS: Record<string, typeof Mail> = {
 	owntracks: MapPin,
 	imap: Mail,
 	email: Mail,
+	onedrive: Cloud,
 };
 
 function humanize(provider: string): string {
