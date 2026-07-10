@@ -33,6 +33,7 @@ describe("BrandIcon", () => {
 		["apple", "Apple"],
 		["plex", "Plex"],
 		["github", "GitHub"],
+		["todoist", "Todoist"],
 	])("renders the vendored glyph for %s", (provider, name) => {
 		renderIcon({ provider });
 
@@ -71,6 +72,17 @@ describe("BrandIcon", () => {
 		const icon = screen.getByRole("img", { name: "OneDrive" });
 		expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
 			"lucide-cloud",
+		);
+	});
+
+	// Task 9a — the generic CalDAV provider has no single brand to vendor (it's
+	// a protocol, not a product), so it always uses a neutral Lucide glyph.
+	it("falls back to the Lucide ListTodo glyph for caldav", () => {
+		renderIcon({ provider: "caldav" });
+
+		const icon = screen.getByRole("img", { name: "CalDAV" });
+		expect(icon.querySelector("svg")?.getAttribute("class")).toContain(
+			"lucide-list-todo",
 		);
 	});
 
@@ -127,6 +139,7 @@ describe("BrandIcon", () => {
 				"immich",
 				"apple",
 				"github",
+				"todoist",
 			];
 
 			for (const provider of nearSquareProviders) {

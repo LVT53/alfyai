@@ -25,6 +25,7 @@ import {
 	Folder,
 	GitBranch,
 	Image as ImageIcon,
+	ListTodo,
 	Mail,
 	MapPin,
 	RefreshCw,
@@ -58,6 +59,7 @@ const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
 	location: MapPin,
 	contacts: Users,
 	repos: GitBranch,
+	tasks: ListTodo,
 };
 
 const STATUS_KEY: Record<ConnectionPublic["status"], string> = {

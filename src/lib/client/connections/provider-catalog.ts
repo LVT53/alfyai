@@ -14,7 +14,8 @@ export type Capability =
 	| "location"
 	| "media"
 	| "contacts"
-	| "repos";
+	| "repos"
+	| "tasks";
 
 export type ConnectMethod =
 	| "oauth"
@@ -32,7 +33,9 @@ export type ConnectionProvider =
 	| "owntracks"
 	| "contacts"
 	| "github"
-	| "onedrive";
+	| "onedrive"
+	| "todoist"
+	| "caldav";
 
 export type ProviderCatalogEntry = {
 	displayName: string;
@@ -159,6 +162,26 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "Cloud",
+		connectable: true,
+	},
+	todoist: {
+		displayName: "Todoist",
+		capabilities: ["tasks"],
+		connectMethod: "app-password",
+		// Read-only in v1 (see providers/todoist.ts) — no allow-writes toggle.
+		writable: false,
+		pathBasedWrites: false,
+		icon: "ListTodo",
+		connectable: true,
+	},
+	caldav: {
+		displayName: "CalDAV",
+		capabilities: ["tasks"],
+		connectMethod: "app-password",
+		// Read-only in v1 (see providers/caldav-tasks.ts) — no allow-writes toggle.
+		writable: false,
+		pathBasedWrites: false,
+		icon: "ListTodo",
 		connectable: true,
 	},
 };

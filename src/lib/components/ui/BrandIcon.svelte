@@ -12,7 +12,7 @@
  *
  * Providers without a Simple Icons glyph (or better served by a neutral
  * glyph) fall back to a Lucide icon: owntracks -> MapPin, imap/email ->
- * Mail, anything else unknown -> Plug.
+ * Mail, caldav -> ListTodo, anything else unknown -> Plug.
  *
  * Usage:
  * ```svelte
@@ -21,7 +21,7 @@
  * <BrandIcon provider="apple" ariaHidden />
  * ```
  */
-import { Cloud, Mail, MapPin, Plug } from "@lucide/svelte";
+import { Cloud, ListTodo, Mail, MapPin, Plug } from "@lucide/svelte";
 import { BRAND_GLYPHS, isBrandIconProvider } from "./brand-icon-data";
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -37,17 +37,23 @@ const DISPLAY_NAMES: Record<string, string> = {
 	contacts: "Contacts",
 	github: "GitHub",
 	onedrive: "OneDrive",
+	todoist: "Todoist",
+	caldav: "CalDAV",
 };
 
 // Simple Icons (the source of BRAND_GLYPHS, see ./brand-icon-data) has no
 // Microsoft OneDrive glyph in the pinned package version — "onedrive" falls
 // back to a neutral Lucide cloud icon here rather than a vendored brand
-// mark, per the task brief's explicit "Lucide fallback if needed".
+// mark, per the task brief's explicit "Lucide fallback if needed". "caldav"
+// (Task 9a's generic CalDAV provider) has no single brand to vendor at all —
+// it's a protocol, not a product — so it always uses the neutral ListTodo
+// glyph rather than a brand mark.
 const FALLBACK_ICONS: Record<string, typeof Mail> = {
 	owntracks: MapPin,
 	imap: Mail,
 	email: Mail,
 	onedrive: Cloud,
+	caldav: ListTodo,
 };
 
 function humanize(provider: string): string {

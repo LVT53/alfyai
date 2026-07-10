@@ -219,6 +219,30 @@ export async function startAppleConnect(params: {
 	);
 }
 
+// POST /api/connections/todoist/start — src/routes/api/connections/todoist/start/+server.ts
+export async function startTodoistConnect(params: {
+	token: string;
+}): Promise<{ connection: ConnectionPublic }> {
+	return postJson<{ connection: ConnectionPublic }>(
+		"/api/connections/todoist/start",
+		params,
+		"Failed to connect to Todoist",
+	);
+}
+
+// POST /api/connections/caldav/start — src/routes/api/connections/caldav/start/+server.ts
+export async function startCalDavConnect(params: {
+	serverUrl: string;
+	username: string;
+	appPassword: string;
+}): Promise<{ connection: ConnectionPublic }> {
+	return postJson<{ connection: ConnectionPublic }>(
+		"/api/connections/caldav/start",
+		params,
+		"Failed to connect to the CalDAV server",
+	);
+}
+
 // POST /api/connections/email/start — src/routes/api/connections/email/start/+server.ts
 export async function startEmailConnect(params: {
 	email: string;

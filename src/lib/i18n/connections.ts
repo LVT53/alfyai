@@ -22,6 +22,7 @@ const connectionsDict = {
 		"connections.capability.media": "Media",
 		"connections.capability.photos": "Photos",
 		"connections.capability.repos": "Repositories",
+		"connections.capability.tasks": "Tasks",
 		"connections.defaultOn.help":
 			"When on, AlfyAI can use this connection automatically without asking each time.",
 		"connections.defaultOn.label": "Default on",
@@ -105,6 +106,20 @@ const connectionsDict = {
 			"Generate an app-specific password at appleid.apple.com and paste it here — your regular Apple ID password won't work.",
 		"connections.wizard.apple.generateLink":
 			"Generate one at appleid.apple.com",
+
+		"connections.wizard.todoist.tokenLabel": "API token",
+		"connections.wizard.todoist.help":
+			"Find your token at todoist.com → Settings → Integrations → Developer.",
+		"connections.wizard.todoist.generateLink":
+			"Find it at todoist.com/app/settings/integrations/developer",
+
+		"connections.wizard.caldav.serverUrlLabel": "CalDAV server URL",
+		"connections.wizard.caldav.serverUrlPlaceholder":
+			"cloud.example.com/remote.php/dav",
+		"connections.wizard.caldav.usernameLabel": "Username",
+		"connections.wizard.caldav.appPasswordLabel": "App password",
+		"connections.wizard.caldav.help":
+			"Works with any standards-compliant CalDAV server (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …). Use an app-specific password if your server supports one, rather than your normal account password.",
 
 		"connections.wizard.email.emailLabel": "Email address",
 		"connections.wizard.email.imapHostLabel": "IMAP server",
@@ -232,6 +247,7 @@ const connectionsDict = {
 		"connections.capability.media": "Média",
 		"connections.capability.photos": "Fényképek",
 		"connections.capability.repos": "Tárolók",
+		"connections.capability.tasks": "Feladatok",
 		"connections.defaultOn.help":
 			"Ha bekapcsolod, az AlfyAI automatikusan használhatja ezt a kapcsolatot, anélkül hogy minden alkalommal rákérdezne.",
 		"connections.defaultOn.label": "Alapértelmezetten bekapcsolva",
@@ -315,6 +331,20 @@ const connectionsDict = {
 			"Készíts egy alkalmazásspecifikus jelszót az appleid.apple.com oldalon, és illeszd be ide — a szokásos Apple ID jelszavad nem fog működni.",
 		"connections.wizard.apple.generateLink":
 			"Készíts egyet az appleid.apple.com oldalon",
+
+		"connections.wizard.todoist.tokenLabel": "API token",
+		"connections.wizard.todoist.help":
+			"A tokened itt találod: todoist.com → Settings → Integrations → Developer.",
+		"connections.wizard.todoist.generateLink":
+			"Itt találod: todoist.com/app/settings/integrations/developer",
+
+		"connections.wizard.caldav.serverUrlLabel": "CalDAV szerver URL",
+		"connections.wizard.caldav.serverUrlPlaceholder":
+			"felho.pelda.hu/remote.php/dav",
+		"connections.wizard.caldav.usernameLabel": "Felhasználónév",
+		"connections.wizard.caldav.appPasswordLabel": "Alkalmazásjelszó",
+		"connections.wizard.caldav.help":
+			"Bármely szabványos CalDAV szerverrel működik (Nextcloud, Fastmail, mailbox.org, Baïkal, Radicale, …). Ha a szervered támogatja, használj alkalmazásspecifikus jelszót a szokásos fiókjelszavad helyett.",
 
 		"connections.wizard.email.emailLabel": "E-mail-cím",
 		"connections.wizard.email.imapHostLabel": "IMAP szerver",
