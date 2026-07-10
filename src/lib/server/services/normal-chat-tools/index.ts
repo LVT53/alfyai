@@ -88,6 +88,11 @@ import {
 	summarizeReadGeneratedFileResult,
 } from "./read-generated-file";
 import {
+	reposToolInputSchema,
+	runReposTool,
+	sanitizeReposToolInput,
+} from "./repos";
+import {
 	researchWebInputSchema,
 	sanitizeResearchWebInput,
 } from "./research-web";
@@ -208,6 +213,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Look up a contact's identity (email/phone/organization) by name with the `lookup` action, or list everyone in a named contact group (e.g. 'Family', 'Work') with the `group` action — across the user's connected contacts sources (Google, Apple iCloud; groups are Google-only for now). Use when the user asks for someone's email/phone/company, or who's in a contact group. Read-only.",
 			errorPrefix: "Contacts lookup failed",
 		},
+		repos: {
+			description:
+				"Read the user's connected code repositories (GitHub, or a Gitea/GHE-compatible server): `list_repos` to see the user's repositories (most recently pushed first); `list_issues`, `list_prs` (pull requests), and `list_commits` (all scoped to a repo via `owner`+`repo`, optionally filtered by `state` for issues/PRs); `read_file` to open one file by `path` in a repo (optionally at a specific `ref`); `ci_status` to see recent CI/Actions runs for a repo; and `search_code` to search code across the user's accessible repositories with `query`. Use when the user asks about their code, a repo's issues/PRs/commits, build/CI status, or to find something in their code. Read-only — this connector never creates, comments on, merges, or pushes anything.",
+			errorPrefix: "Repositories lookup failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -269,6 +279,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Egy kapcsolattartó adatainak (e-mail/telefonszám/cég) keresése név alapján a `lookup` művelettel, vagy egy megnevezett kapcsolattartó-csoport (pl. 'Család', 'Munka') tagjainak listázása a `group` művelettel — a felhasználó csatlakoztatott forrásaiban (Google, Apple iCloud; a csoportok egyelőre csak Google esetén). Akkor használd, ha valakinek az e-mail címét/telefonszámát/cégét kérik, vagy hogy ki tartozik egy csoportba. Csak olvasható.",
 			errorPrefix: "A kapcsolattartók elérése sikertelen",
 		},
+		repos: {
+			description:
+				"A felhasználó csatlakoztatott kódtárolóinak (GitHub, vagy egy Gitea/GHE-kompatibilis szerver) olvasása: `list_repos` a felhasználó repóinak listázásához (legutóbb pusholt elöl); `list_issues`, `list_prs` (pull requestek) és `list_commits` (mindegyik egy repóra szűkítve az `owner`+`repo` paraméterrel, az issue-k/PR-ek opcionálisan `state` szerint szűrhetők); `read_file` egy fájl megnyitásához `path` alapján egy repóban (opcionálisan adott `ref`-en); `ci_status` egy repó legutóbbi CI/Actions futásainak megtekintéséhez; és `search_code` kódkereséshez a felhasználó elérhető repóiban a `query` alapján. Akkor használd, ha a felhasználó a kódjára, egy repó issue-jaira/PR-jeire/commitjaira, build/CI állapotára kérdez rá, vagy valamit keres a kódjában. Csak olvasható — ez a kapcsolat soha nem hoz létre, nem kommentál, nem egyesít és nem pushol semmit.",
+			errorPrefix: "A kódtárolók elérése sikertelen",
+		},
 	},
 };
 
@@ -302,6 +317,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 	const includeContactsTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("contacts"),
+	);
+	const includeReposTool = Boolean(
+		ctx.enabledConnectionCapabilities?.has("repos"),
 	);
 
 	const tools = {
@@ -1351,6 +1369,90 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "contacts",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		...(includeReposTool
+			? {
+					repos: asExecutableTool(
+						tool({
+							description: i18n.repos.description,
+							inputSchema: reposToolInputSchema,
+							execute: async (
+								input: z.infer<typeof reposToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeReposToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "repos",
+									timeoutMs: TOOL_TIMEOUTS_MS.repos,
+									options,
+									recorder,
+									run: async () => {
+										const { modelPayload, candidates } = await runReposTool(
+											ctx.userId,
+											safeInput,
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "repos",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													repoCount: modelPayload.repos.length,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.repos.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "repos" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											repos: [] as never[],
+											issues: [] as never[],
+											prs: [] as never[],
+											commits: [] as never[],
+											ciRuns: [] as never[],
+											codeResults: [] as never[],
+											citations: [] as never[],
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "repos",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

@@ -5,6 +5,7 @@ import {
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
 import { resolveContacts } from "$lib/server/services/connections/providers/contacts";
+import { githubListRepos } from "$lib/server/services/connections/providers/github";
 import {
 	googleFreeBusy,
 	googleListEvents,
@@ -71,6 +72,15 @@ vi.mock("$lib/server/services/connections/locality", () => ({
 vi.mock("$lib/server/services/connections/providers/contacts", () => ({
 	resolveContacts: vi.fn(),
 }));
+vi.mock("$lib/server/services/connections/providers/github", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/github")
+	>("$lib/server/services/connections/providers/github");
+	return {
+		...actual,
+		githubListRepos: vi.fn(),
+	};
+});
 vi.mock(
 	"$lib/server/services/connections/providers/nextcloud-files",
 	async () => {
@@ -124,6 +134,7 @@ const immichSmartSearchMock = vi.mocked(immichSmartSearch);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const resolveContactsMock = vi.mocked(resolveContacts);
+const githubListReposMock = vi.mocked(githubListRepos);
 
 function makeNextcloudConnection(
 	overrides: Partial<ConnectionPublic> = {},
@@ -203,6 +214,7 @@ describe("createNormalChatTools", () => {
 		googleListEventsMock.mockReset();
 		googleFreeBusyMock.mockReset();
 		immichSmartSearchMock.mockReset();
+		githubListReposMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
@@ -2302,6 +2314,157 @@ describe("createNormalChatTools", () => {
 
 			expect((result as { message: string }).message).toContain(
 				"2 matching contacts",
+			);
+		});
+	});
+
+	describe("repos tool gating", () => {
+		it("does not include the repos tool when enabledConnectionCapabilities is omitted", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).not.toHaveProperty("repos");
+		});
+
+		it("does not include the repos tool when enabledConnectionCapabilities lacks 'repos'", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["calendar"]),
+			});
+
+			expect(tools).not.toHaveProperty("repos");
+		});
+
+		it("includes the repos tool only when there is a connected github connection with 'repos' enabled", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["repos"]),
+			});
+
+			expect(tools).toHaveProperty("repos");
+		});
+	});
+
+	describe("repos tool execute", () => {
+		function makeGitHubConnection(
+			overrides: Partial<ConnectionPublic> = {},
+		): ConnectionPublic {
+			return {
+				id: "conn-1",
+				userId: "user-1",
+				provider: "github",
+				label: "GitHub",
+				accountIdentifier: "octocat",
+				status: "connected",
+				statusDetail: null,
+				defaultOn: false,
+				allowWrites: false,
+				writeAllowlist: [],
+				capabilities: ["repos"],
+				config: { baseUrl: "https://api.github.com" },
+				oauthScopes: [],
+				tokenExpiresAt: null,
+				hasSecret: true,
+				hasWriteSecret: false,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				...overrides,
+			};
+		}
+
+		function createToolsWithRepos() {
+			return createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				enabledConnectionCapabilities: new Set(["repos"]),
+			});
+		}
+
+		it("list_repos returns repos and citations", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([
+				makeGitHubConnection(),
+			]);
+			githubListReposMock.mockResolvedValue([
+				{
+					name: "alfyai",
+					fullName: "octocat/alfyai",
+					private: true,
+					url: "https://github.com/octocat/alfyai",
+					defaultBranch: "main",
+					fork: false,
+				},
+			]);
+
+			const { tools, getToolCalls } = createToolsWithRepos();
+			const result = await tools.repos?.execute?.(
+				{ action: "list_repos" },
+				{ toolCallId: "call-repos-list", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				repos: [expect.objectContaining({ fullName: "octocat/alfyai" })],
+			});
+			expect(getToolCalls()).toEqual([
+				expect.objectContaining({
+					callId: "call-repos-list",
+					name: "repos",
+					sourceType: "tool",
+					candidates: [
+						expect.objectContaining({
+							url: "https://github.com/octocat/alfyai",
+						}),
+					],
+				}),
+			]);
+		});
+
+		it("degrades gracefully with a note when there is no Repositories connection, without throwing", async () => {
+			resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+			const { tools, getToolCalls } = createToolsWithRepos();
+			const result = await tools.repos?.execute?.(
+				{ action: "list_repos" },
+				{ toolCallId: "call-repos-none", messages: [] },
+			);
+
+			expect(result).toMatchObject({ success: false });
+			expect((result as { message: string }).message).toContain(
+				"don't have a Repositories connection",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-repos-none",
+				name: "repos",
+				metadata: expect.objectContaining({ ok: false }),
+			});
+		});
+
+		it("surfaces ambiguity when more than one Repositories connection is available", async () => {
+			const connA = makeGitHubConnection({
+				id: "conn-a",
+				label: "Alice GitHub",
+			});
+			const connB = makeGitHubConnection({ id: "conn-b", label: "Bob GitHub" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+			needsDisambiguationMock.mockReturnValue(true);
+			githubListReposMock.mockResolvedValue([]);
+
+			const { tools } = createToolsWithRepos();
+			const result = await tools.repos?.execute?.(
+				{ action: "list_repos" },
+				{ toolCallId: "call-repos-ambiguous", messages: [] },
+			);
+
+			expect((result as { message: string }).message).toContain(
+				"2 Repositories connections",
 			);
 		});
 	});

@@ -2228,6 +2228,7 @@ export const CONNECTION_PROVIDERS = [
 	"plex",
 	"owntracks",
 	"contacts",
+	"github",
 ] as const;
 
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];

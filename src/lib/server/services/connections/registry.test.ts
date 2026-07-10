@@ -62,7 +62,7 @@ describe("connections registry", () => {
 			(c) => CAPABILITY_META[c].tier === "explicit",
 		).sort();
 		expect(explicit).toEqual(
-			["contacts", "files", "location", "media", "photos"].sort(),
+			["contacts", "files", "location", "media", "photos", "repos"].sort(),
 		);
 	});
 

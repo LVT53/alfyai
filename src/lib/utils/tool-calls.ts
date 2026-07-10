@@ -22,7 +22,7 @@ const CONNECTION_WRITE_TOOL_IDENTIFIERS = [
 	"photos",
 ];
 
-// The seven connection tools (normal-chat-tools/index.ts) mapped to a clean,
+// The eight connection tools (normal-chat-tools/index.ts) mapped to a clean,
 // user-facing capability label key. Deliberately capability-level (not the
 // brand): a single tool can serve more than one provider (e.g. "calendar" is
 // Google OR Apple), and the resolved provider isn't known at the point the
@@ -36,6 +36,7 @@ const CONNECTION_TOOL_LABEL_KEYS: Record<string, I18nKey> = {
 	location: "toolCalls.location",
 	media: "toolCalls.media",
 	photos: "toolCalls.photos",
+	repos: "toolCalls.repos",
 };
 
 export function getConnectionToolLabelKey(name: string): I18nKey | null {

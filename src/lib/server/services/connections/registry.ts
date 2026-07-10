@@ -8,7 +8,8 @@ export type Capability =
 	| "email"
 	| "location"
 	| "media"
-	| "contacts";
+	| "contacts"
+	| "repos";
 
 export type ConnectionTier = "proactive" | "explicit";
 
@@ -26,6 +27,7 @@ export const CAPABILITIES: readonly Capability[] = [
 	"location",
 	"media",
 	"contacts",
+	"repos",
 ];
 
 // Per-provider metadata. ConnectionProvider comes from 1.1 (schema/types).
@@ -77,6 +79,11 @@ export const PROVIDER_META: Record<
 		connectMethod: "app-password",
 		displayName: "Contacts (CardDAV)",
 	},
+	github: {
+		capabilities: ["repos"],
+		connectMethod: "app-password",
+		displayName: "GitHub",
+	},
 };
 
 // Per-capability metadata.
@@ -122,6 +129,11 @@ export const CAPABILITY_META: Record<
 		tier: "explicit",
 		providers: ["google", "apple", "nextcloud", "contacts"],
 		displayName: "Contacts",
+	},
+	repos: {
+		tier: "explicit",
+		providers: ["github"],
+		displayName: "Repositories",
 	},
 };
 
