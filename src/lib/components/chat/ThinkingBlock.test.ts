@@ -443,6 +443,57 @@ describe("ThinkingBlock", () => {
 		expect(doneGroupRow?.querySelector(".check-icon-header")).not.toBeNull();
 	});
 
+	it("breaks the stack-view connector group when a non-connector call interrupts the run", async () => {
+		const segments: ThinkingSegment[] = [
+			{
+				type: "tool_call",
+				name: "calendar",
+				status: "done",
+				input: { action: "list_events" },
+			},
+			{
+				type: "tool_call",
+				name: "research_web",
+				status: "done",
+				input: { query: "weather forecast" },
+			},
+			{
+				type: "tool_call",
+				name: "calendar",
+				status: "running",
+				input: { action: "create_event" },
+			},
+		];
+
+		const { container } = render(ThinkingBlock, {
+			props: {
+				content: "",
+				thinkingIsDone: false,
+				segments,
+			},
+		});
+
+		// Three separate stack rows in chronological order: calendar group,
+		// then the web search, then a SEPARATE calendar group — not one merged
+		// calendar group followed by the web row.
+		const stackRows = container.querySelectorAll(
+			".tool-call-stack > .tool-call-row",
+		);
+		expect(stackRows).toHaveLength(3);
+		expect(stackRows[0]?.textContent).toContain("Calendar");
+		expect(stackRows[0]?.textContent).toContain("1 action");
+		expect(stackRows[1]?.textContent).toContain(
+			'Web search: "weather forecast"',
+		);
+		expect(stackRows[2]?.textContent).toContain("Calendar");
+		expect(stackRows[2]?.textContent).toContain("1 action");
+
+		// The second calendar group is the one still running (must not have
+		// merged into the earlier, already-done calendar group).
+		expect(stackRows[2]?.classList.contains("is-running")).toBe(true);
+		expect(stackRows[0]?.classList.contains("is-running")).toBe(false);
+	});
+
 	it("shows fetched web source titles from research tool candidates", async () => {
 		const segments: ThinkingSegment[] = [
 			{

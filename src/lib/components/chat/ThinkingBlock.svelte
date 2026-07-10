@@ -182,9 +182,10 @@ type ToolStackEntry =
 
 const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 	const entries: ToolStackEntry[] = [];
-	const groupIndexByName = new Map<string, number>();
+	let groupIndexByName: Map<string, number> | null = null;
 	visibleTools.forEach((tool, i) => {
 		if (isConnectionToolName(tool.name)) {
+			if (!groupIndexByName) groupIndexByName = new Map();
 			const existingIndex = groupIndexByName.get(tool.name);
 			if (existingIndex !== undefined) {
 				const entry = entries[existingIndex];
@@ -196,10 +197,11 @@ const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 				kind: "connector-group",
 				name: tool.name,
 				tools: [tool],
-				key: `group-${tool.name}`,
+				key: `group-${tool.name}-${i}`,
 			});
 			return;
 		}
+		groupIndexByName = null;
 		entries.push({
 			kind: "tool",
 			tool,
