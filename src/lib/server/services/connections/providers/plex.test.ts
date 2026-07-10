@@ -139,6 +139,55 @@ describe("plexConnect", () => {
 		expect(decrypted).toBe("token-abc");
 	});
 
+	it("accepts a bare host (no scheme) and connects as https:// (Task 6)", async () => {
+		seedUser(USER_ID);
+		const { plexConnect } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Token")).toBe("token-abc");
+				if (url === "https://plex.example.com/identity") {
+					return jsonResponse(200, {
+						MediaContainer: {
+							machineIdentifier: "machine-abc",
+							version: "1.32.0",
+						},
+					});
+				}
+				if (url === "https://plex.example.com/accounts") {
+					return jsonResponse(200, {
+						MediaContainer: {
+							size: 1,
+							Account: [{ id: 1, name: "token-owner" }],
+						},
+					});
+				}
+				throw new Error(`unexpected url ${url}`);
+			},
+		);
+
+		const { connection } = await plexConnect({
+			userId: USER_ID,
+			// No "https://" prefix — the shared SSRF guard normalizes it.
+			serverUrl: "plex.example.com",
+			token: "token-abc",
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(connection.config).toEqual({
+			origin: "https://plex.example.com",
+			machineIdentifier: "machine-abc",
+			accountId: 1,
+		});
+		// Confirms the bare host really was fetched over https, not skipped.
+		expect(fetchMock).toHaveBeenCalledWith(
+			"https://plex.example.com/identity",
+			expect.anything(),
+		);
+	});
+
 	it("rejects a non-http(s) server URL as invalid_config without ever calling fetch", async () => {
 		seedUser(USER_ID);
 		const { plexConnect, PlexError } = await import("./plex");

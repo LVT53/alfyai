@@ -63,6 +63,14 @@ function isLoopbackOrLinkLocalIpv6(hostname: string): boolean {
 	return false;
 }
 
+// Matches a leading URL scheme ("https://", "http://", "ftp://", ...) per
+// RFC 3986 (`scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )` followed by
+// ":"). Used only to decide whether `assertPublicHttpsUrl` needs to prepend
+// `https://` to a bare host/origin — every other check below still runs
+// unchanged afterwards, so this never widens what the guard accepts beyond
+// "a scheme-less value is treated as if the user had typed https:// first".
+const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
 // SSRF guard shared by both the start and poll routes/helpers: the
 // serverUrl a user supplies is fetched server-side with the request's own
 // secrets attached (or used to derive a URL that is), so it must be a
@@ -71,10 +79,24 @@ function isLoopbackOrLinkLocalIpv6(hostname: string): boolean {
 // IP behind a public hostname); real-world Nextcloud instances used by this
 // app are public (e.g. https://alfycloud.hu), so self-hosted/private-network
 // Nextcloud is out of scope for now.
+//
+// Bare-host convenience: a value with no scheme at all (e.g.
+// `cloud.example.com`, optionally with a port/path like
+// `cloud.example.com:8443/dav`) is normalized to `https://<value>` before
+// anything else runs — https is the only scheme this guard ever accepts, so
+// assuming it for scheme-less input just saves the user typing it. A value
+// that already names an explicit scheme (including `http://`, which still
+// fails the https check below exactly as before) is left byte-for-byte
+// untouched.
 export function assertPublicHttpsUrl(value: string): string {
+	const trimmed = value.trim();
+	const withScheme = URL_SCHEME_RE.test(trimmed)
+		? trimmed
+		: `https://${trimmed}`;
+
 	let parsed: URL;
 	try {
-		parsed = new URL(value);
+		parsed = new URL(withScheme);
 	} catch {
 		throw new Error("serverUrl must be a valid absolute URL");
 	}
@@ -94,7 +116,7 @@ export function assertPublicHttpsUrl(value: string): string {
 		throw new Error("serverUrl must not point to a private or loopback host");
 	}
 
-	return value.replace(/\/+$/, "");
+	return withScheme.replace(/\/+$/, "");
 }
 
 function isUniqueConstraintError(err: unknown): boolean {

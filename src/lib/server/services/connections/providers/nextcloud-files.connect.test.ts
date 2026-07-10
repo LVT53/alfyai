@@ -123,7 +123,87 @@ describe("assertPublicHttpsUrl", () => {
 
 	it("rejects a non-URL string", async () => {
 		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
-		expect(() => assertPublicHttpsUrl("not-a-url")).toThrow();
+		// "not-a-url" is no longer a good example here: once a scheme-less
+		// value is treated as a bare host (see the "accepts a bare host"
+		// tests below), a plain label like that is a legitimate single-label
+		// hostname. Use input that is still unparseable as a URL even after
+		// https:// is prepended (embedded whitespace).
+		expect(() => assertPublicHttpsUrl("not a url")).toThrow();
+	});
+
+	it("rejects an empty string", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("")).toThrow();
+	});
+
+	it("rejects a whitespace-only string", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("   ")).toThrow();
+	});
+
+	// --- Bare-host convenience (Task 6) ---------------------------------
+
+	it("prepends https:// to a bare host with no scheme", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(assertPublicHttpsUrl("cloud.example.com")).toBe(
+			"https://cloud.example.com",
+		);
+	});
+
+	it("prepends https:// to a bare host and preserves port/path", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(assertPublicHttpsUrl("cloud.example.com:8443/dav")).toBe(
+			"https://cloud.example.com:8443/dav",
+		);
+	});
+
+	it("trims surrounding whitespace before checking for a scheme", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(assertPublicHttpsUrl("  cloud.example.com  ")).toBe(
+			"https://cloud.example.com",
+		);
+	});
+
+	it("leaves an explicit https:// URL byte-for-byte unchanged", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(assertPublicHttpsUrl("https://cloud.example.com:8443/dav")).toBe(
+			"https://cloud.example.com:8443/dav",
+		);
+	});
+
+	it("still rejects an explicit http:// URL rather than upgrading it", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("http://cloud.example.com")).toThrow();
+	});
+
+	it("rejects a bare localhost host", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("localhost")).toThrow();
+	});
+
+	it("rejects a bare loopback IPv4 host", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("127.0.0.1")).toThrow();
+	});
+
+	it("rejects a bare 10.0.0.0/8 host", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("10.0.0.1")).toThrow();
+	});
+
+	it("rejects a bare 192.168.0.0/16 host", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("192.168.1.5")).toThrow();
+	});
+
+	it("rejects a bracketed bare IPv6 loopback host", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("[::1]")).toThrow();
+	});
+
+	it("rejects an https IPv6 loopback host (scheme present, unchanged behavior)", async () => {
+		const { assertPublicHttpsUrl } = await import("./nextcloud-files");
+		expect(() => assertPublicHttpsUrl("https://[::1]")).toThrow();
 	});
 });
 

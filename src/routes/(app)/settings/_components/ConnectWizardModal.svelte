@@ -579,7 +579,9 @@ onMount(() => {
 						<label class="settings-label" for="wizard-nextcloud-server-url">{$t('connections.wizard.nextcloud.serverUrlLabel')}</label>
 						<input
 							id="wizard-nextcloud-server-url"
-							type="url"
+							type="text"
+							inputmode="url"
+							autocomplete="url"
 							class="settings-input"
 							bind:value={ncServerUrl}
 							placeholder={$t('connections.wizard.nextcloud.serverUrlPlaceholder')}
@@ -657,7 +659,15 @@ onMount(() => {
 					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.immich.help')}</p>
 					<div class="mb-3">
 						<label class="settings-label" for="wizard-immich-server-url">{$t('connections.wizard.immich.serverUrlLabel')}</label>
-						<input id="wizard-immich-server-url" type="url" class="settings-input" bind:value={immichServerUrl} />
+						<input
+							id="wizard-immich-server-url"
+							type="text"
+							inputmode="url"
+							autocomplete="url"
+							class="settings-input"
+							bind:value={immichServerUrl}
+							placeholder={$t('connections.wizard.immich.serverUrlPlaceholder')}
+						/>
 					</div>
 					<div class="mb-3">
 						<label class="settings-label" for="wizard-immich-email">{$t('connections.wizard.immich.emailLabel')}</label>
@@ -689,7 +699,15 @@ onMount(() => {
 					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.plex.help')}</p>
 					<div class="mb-3">
 						<label class="settings-label" for="wizard-plex-server-url">{$t('connections.wizard.plex.serverUrlLabel')}</label>
-						<input id="wizard-plex-server-url" type="url" class="settings-input" bind:value={plexServerUrl} />
+						<input
+							id="wizard-plex-server-url"
+							type="text"
+							inputmode="url"
+							autocomplete="url"
+							class="settings-input"
+							bind:value={plexServerUrl}
+							placeholder={$t('connections.wizard.plex.serverUrlPlaceholder')}
+						/>
 					</div>
 					<PasswordField
 						id="wizard-plex-token"

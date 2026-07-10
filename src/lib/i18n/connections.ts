@@ -64,8 +64,7 @@ const connectionsDict = {
 			"Google connect isn't configured on this server yet. Ask your administrator to set it up.",
 
 		"connections.wizard.nextcloud.serverUrlLabel": "Server URL",
-		"connections.wizard.nextcloud.serverUrlPlaceholder":
-			"https://cloud.example.com",
+		"connections.wizard.nextcloud.serverUrlPlaceholder": "cloud.example.com",
 		"connections.wizard.nextcloud.help":
 			"We'll open a new tab where you can log in to Nextcloud and approve AlfyAI.",
 		"connections.wizard.nextcloud.waiting":
@@ -75,12 +74,14 @@ const connectionsDict = {
 			"This took too long — the login link may have expired. Please try again.",
 
 		"connections.wizard.immich.serverUrlLabel": "Server URL",
+		"connections.wizard.immich.serverUrlPlaceholder": "cloud.example.com",
 		"connections.wizard.immich.emailLabel": "Email",
 		"connections.wizard.immich.passwordLabel": "Password",
 		"connections.wizard.immich.help":
 			"Use the same email and password you use to log in to your Immich server.",
 
 		"connections.wizard.plex.serverUrlLabel": "Server URL",
+		"connections.wizard.plex.serverUrlPlaceholder": "plex.example.com",
 		"connections.wizard.plex.tokenLabel": "Plex token",
 		"connections.wizard.plex.help":
 			"Find your token by signing in to Plex Web, opening any item's “Get Info” → “View XML”, and copying the X-Plex-Token value from the URL.",
@@ -249,8 +250,7 @@ const connectionsDict = {
 			"A Google-csatlakozás még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
 
 		"connections.wizard.nextcloud.serverUrlLabel": "Szerver URL",
-		"connections.wizard.nextcloud.serverUrlPlaceholder":
-			"https://felho.pelda.hu",
+		"connections.wizard.nextcloud.serverUrlPlaceholder": "felho.pelda.hu",
 		"connections.wizard.nextcloud.help":
 			"Nyitunk egy új lapot, ahol bejelentkezhetsz a Nextcloudba, és jóváhagyhatod az AlfyAI-t.",
 		"connections.wizard.nextcloud.waiting":
@@ -260,12 +260,14 @@ const connectionsDict = {
 			"Ez túl sokáig tartott — a bejelentkezési link lejárhatott. Kérjük, próbáld újra.",
 
 		"connections.wizard.immich.serverUrlLabel": "Szerver URL",
+		"connections.wizard.immich.serverUrlPlaceholder": "felho.pelda.hu",
 		"connections.wizard.immich.emailLabel": "E-mail",
 		"connections.wizard.immich.passwordLabel": "Jelszó",
 		"connections.wizard.immich.help":
 			"Add meg ugyanazt az e-mail-címet és jelszót, amellyel az Immich szerveredre bejelentkezel.",
 
 		"connections.wizard.plex.serverUrlLabel": "Szerver URL",
+		"connections.wizard.plex.serverUrlPlaceholder": "plex.pelda.hu",
 		"connections.wizard.plex.tokenLabel": "Plex token",
 		"connections.wizard.plex.help":
 			"A tokenedet a Plex Web-be bejelentkezve találod: nyiss meg egy elemet, válaszd a „Get Info” → „View XML” lehetőséget, majd másold ki az URL-ből az X-Plex-Token értékét.",
