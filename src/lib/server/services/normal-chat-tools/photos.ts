@@ -1,8 +1,15 @@
 import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
+	type ImmichAlbumSummary,
 	ImmichError,
+	type ImmichPersonSummary,
+	immichAlbumAssets,
+	immichListAlbums,
+	immichListPeople,
+	immichMetadataSearch,
 	immichSmartSearch,
+	type MetadataSearchParams,
 	type PhotoResult,
 } from "$lib/server/services/connections/providers/immich";
 import {
@@ -21,9 +28,29 @@ import type { ToolEvidenceCandidate } from "$lib/types";
 import { decideLocalDistill } from "./connector-distill";
 
 export const photosToolInputSchema = z.object({
-	action: z.enum(["search", "add_to_album"]),
+	action: z.enum([
+		"search",
+		"search_by_date",
+		"list_albums",
+		"album",
+		"list_people",
+		"add_to_album",
+	]),
 	query: z.string().optional(),
 	limit: z.number().optional(),
+	// B1 metadata-search filters. `from`/`to` bound the capture date and accept
+	// either a full ISO datetime or a bare "YYYY-MM-DD" (normalized adapter-side).
+	from: z.string().optional(),
+	to: z.string().optional(),
+	city: z.string().optional(),
+	country: z.string().optional(),
+	type: z.enum(["IMAGE", "VIDEO"]).optional(),
+	favorites: z.boolean().optional(),
+	// B6 — a person's name; the tool resolves it to personIds via list_people
+	// before filtering the metadata search.
+	personName: z.string().optional(),
+	// B1 album browse — the id from list_albums whose assets to fetch.
+	albumId: z.string().optional(),
 	// Write-action field (6.4) — ids the user is referring to from a prior
 	// search this turn/session (opaque Immich asset ids, never filenames).
 	assetIds: z.array(z.string()).optional(),
@@ -38,6 +65,16 @@ export function sanitizePhotosToolInput(
 		action: input.action,
 		...(input.query !== undefined ? { query: input.query.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
+		...(input.from !== undefined ? { from: input.from.trim() } : {}),
+		...(input.to !== undefined ? { to: input.to.trim() } : {}),
+		...(input.city !== undefined ? { city: input.city.trim() } : {}),
+		...(input.country !== undefined ? { country: input.country.trim() } : {}),
+		...(input.type !== undefined ? { type: input.type } : {}),
+		...(input.favorites !== undefined ? { favorites: input.favorites } : {}),
+		...(input.personName !== undefined
+			? { personName: input.personName.trim() }
+			: {}),
+		...(input.albumId !== undefined ? { albumId: input.albumId.trim() } : {}),
 		...(input.assetIds !== undefined
 			? { assetIds: input.assetIds.map((id) => id.trim()).filter(Boolean) }
 			: {}),
@@ -64,6 +101,14 @@ export type PhotoToolResultItem = {
 	description?: string;
 };
 
+// Album/person discovery items (B1 list_albums / B6 list_people). Like
+// calendar.ts's list_calendars, these surface names the model needs to drill
+// in (an albumId for `album`, a personName for `search_by_date`). They are
+// discovery metadata, not photo-content reads, so — matching list_calendars —
+// they are NOT run through the Option-A distill gate.
+export type PhotoAlbumItem = { id: string; name: string; assetCount: number };
+export type PhotoPersonItem = { id: string; name: string };
+
 export type PhotosToolModelPayload = {
 	success: boolean;
 	name: "photos";
@@ -72,6 +117,9 @@ export type PhotosToolModelPayload = {
 	message: string;
 	results: PhotoToolResultItem[];
 	citations: PhotoCitation[];
+	// Only set by list_albums / list_people respectively.
+	albums?: PhotoAlbumItem[];
+	people?: PhotoPersonItem[];
 	// Only set for a successful add_to_album action (6.4) — the write has NOT
 	// executed, this is the id the user's confirm/cancel decision applies to
 	// (mirrors calendar.ts's create_event/update_event/delete_event).
@@ -125,6 +173,8 @@ function buildPayload(params: {
 	results?: PhotoToolResultItem[];
 	citations?: PhotoCitation[];
 	candidates?: ToolEvidenceCandidate[];
+	albums?: PhotoAlbumItem[];
+	people?: PhotoPersonItem[];
 	pendingWriteId?: string;
 	preview?: WritePreview;
 }): PhotosToolOutcome {
@@ -138,6 +188,8 @@ function buildPayload(params: {
 			message: params.message,
 			results: params.results ?? [],
 			citations,
+			...(params.albums ? { albums: params.albums } : {}),
+			...(params.people ? { people: params.people } : {}),
 			...(params.pendingWriteId
 				? { pendingWriteId: params.pendingWriteId }
 				: {}),
@@ -178,9 +230,13 @@ function mapAdapterError(err: unknown): string {
 	return "I couldn't reach your photos right now. Please try again in a moment.";
 }
 
+// Shared by every action that returns PhotoResult[] (search / search_by_date /
+// album). `action` is threaded through so the payload reports which read
+// produced the results.
 function searchOutcome(
 	conn: ConnectionPublic,
 	photos: PhotoResult[],
+	action: "search" | "search_by_date" | "album",
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): PhotosToolOutcome {
@@ -199,12 +255,71 @@ function searchOutcome(
 			: `Found ${items.length} ${items.length === 1 ? "photo" : "photos"}.`;
 	return buildPayload({
 		success: true,
-		action: "search",
+		action,
 		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
 		results: items,
 		citations,
 		candidates,
 	});
+}
+
+function listAlbumsOutcome(
+	conn: ConnectionPublic,
+	albums: ImmichAlbumSummary[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): PhotosToolOutcome {
+	const items: PhotoAlbumItem[] = albums.map((album) => ({
+		id: album.id,
+		name: album.albumName,
+		assetCount: album.assetCount,
+	}));
+	const message =
+		items.length === 0
+			? "You don't have any albums yet."
+			: `Found ${items.length} ${items.length === 1 ? "album" : "albums"}. Pass an album's id as albumId to the "album" action to see its photos.`;
+	return buildPayload({
+		success: true,
+		action: "list_albums",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		albums: items,
+	});
+}
+
+function listPeopleOutcome(
+	conn: ConnectionPublic,
+	people: ImmichPersonSummary[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): PhotosToolOutcome {
+	const items: PhotoPersonItem[] = people.map((person) => ({
+		id: person.id,
+		name: person.name,
+	}));
+	const message =
+		items.length === 0
+			? "I couldn't find any named people in your photos."
+			: `Found ${items.length} named ${items.length === 1 ? "person" : "people"}. Pass a name as personName to search_by_date to find their photos.`;
+	return buildPayload({
+		success: true,
+		action: "list_people",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		people: items,
+	});
+}
+
+// Case-insensitive name match used to resolve a personName filter to
+// personIds. Matches exact names first; if none, falls back to substring
+// matches so a first name ("alice") still finds "Alice Smith".
+function matchPeopleByName(
+	people: ImmichPersonSummary[],
+	name: string,
+): ImmichPersonSummary[] {
+	const needle = name.trim().toLowerCase();
+	if (!needle) return [];
+	const exact = people.filter((p) => p.name.toLowerCase() === needle);
+	if (exact.length > 0) return exact;
+	return people.filter((p) => p.name.toLowerCase().includes(needle));
 }
 
 // Redacts the MODEL-FACING citation labels once Option A distillation has
@@ -465,6 +580,122 @@ export async function runPhotosTool(
 		);
 	}
 
+	// Discovery browse actions (B1 list_albums / B6 list_people). Like
+	// calendar.ts's list_calendars, these are inside their own try so an
+	// adapter failure degrades to a graceful note, and — being discovery
+	// metadata, not photo-content reads — they never run through the
+	// Option-A distill gate.
+	if (input.action === "list_albums") {
+		try {
+			const albums = await immichListAlbums(userId, conn.id);
+			return listAlbumsOutcome(conn, albums, ambiguous, connections);
+		} catch (err) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: mapAdapterError(err),
+			});
+		}
+	}
+
+	if (input.action === "list_people") {
+		try {
+			const people = await immichListPeople(userId, conn.id);
+			return listPeopleOutcome(conn, people, ambiguous, connections);
+		} catch (err) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: mapAdapterError(err),
+			});
+		}
+	}
+
+	// Album assets (B1) — a photo-content read, so it goes through the
+	// Option-A distill gate like search does.
+	if (input.action === "album") {
+		if (!input.albumId) {
+			return buildPayload({
+				success: false,
+				action: "album",
+				message: "An albumId is required — call list_albums first to find it.",
+			});
+		}
+		try {
+			const photos = await immichAlbumAssets(userId, conn.id, {
+				albumId: input.albumId,
+				...(input.limit !== undefined ? { limit: input.limit } : {}),
+			});
+			const outcome = searchOutcome(
+				conn,
+				photos,
+				"album",
+				ambiguous,
+				connections,
+			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		} catch (err) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: mapAdapterError(err),
+			});
+		}
+	}
+
+	// Metadata / date-range / person search (B1 + B6). A photo-content read,
+	// so it goes through the Option-A distill gate.
+	if (input.action === "search_by_date") {
+		try {
+			let personIds: string[] | undefined;
+			if (input.personName) {
+				const people = await immichListPeople(userId, conn.id);
+				const matches = matchPeopleByName(people, input.personName);
+				if (matches.length === 0) {
+					return buildPayload({
+						success: false,
+						action: "search_by_date",
+						message: withAmbiguityPrefix(
+							`I couldn't find anyone named "${input.personName}" in your photos. Use list_people to see the names Immich has.`,
+							ambiguous,
+							conn,
+							connections,
+						),
+					});
+				}
+				personIds = matches.map((p) => p.id);
+			}
+
+			const searchParams: MetadataSearchParams = {
+				...(input.from ? { takenAfter: input.from } : {}),
+				...(input.to ? { takenBefore: input.to } : {}),
+				...(input.city ? { city: input.city } : {}),
+				...(input.country ? { country: input.country } : {}),
+				...(input.type ? { type: input.type } : {}),
+				...(input.favorites !== undefined
+					? { isFavorite: input.favorites }
+					: {}),
+				...(personIds ? { personIds } : {}),
+				...(input.limit !== undefined ? { limit: input.limit } : {}),
+			};
+			const photos = await immichMetadataSearch(userId, conn.id, searchParams);
+			const outcome = searchOutcome(
+				conn,
+				photos,
+				"search_by_date",
+				ambiguous,
+				connections,
+			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		} catch (err) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: mapAdapterError(err),
+			});
+		}
+	}
+
 	if (!input.query) {
 		return buildPayload({
 			success: false,
@@ -478,7 +709,13 @@ export async function runPhotosTool(
 			query: input.query,
 			...(input.limit !== undefined ? { limit: input.limit } : {}),
 		});
-		const outcome = searchOutcome(conn, photos, ambiguous, connections);
+		const outcome = searchOutcome(
+			conn,
+			photos,
+			"search",
+			ambiguous,
+			connections,
+		);
 		return applyLocalDistillGate({ userId, modelId, input, outcome });
 	} catch (err) {
 		return buildPayload({

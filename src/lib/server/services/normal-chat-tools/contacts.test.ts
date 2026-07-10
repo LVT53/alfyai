@@ -6,7 +6,10 @@ import {
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
 import type { ContactMatch } from "$lib/server/services/connections/providers/contacts";
-import { resolveContacts } from "$lib/server/services/connections/providers/contacts";
+import {
+	resolveContacts,
+	resolveContactsByGroup,
+} from "$lib/server/services/connections/providers/contacts";
 import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
@@ -17,6 +20,7 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 }));
 vi.mock("$lib/server/services/connections/providers/contacts", () => ({
 	resolveContacts: vi.fn(),
+	resolveContactsByGroup: vi.fn(),
 }));
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
@@ -28,6 +32,7 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 	resolveConnectionsForCapability,
 );
 const resolveContactsMock = vi.mocked(resolveContacts);
+const resolveContactsByGroupMock = vi.mocked(resolveContactsByGroup);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -72,6 +77,7 @@ function makeMatch(overrides: Partial<ContactMatch> = {}): ContactMatch {
 beforeEach(() => {
 	resolveConnectionsForCapabilityMock.mockReset();
 	resolveContactsMock.mockReset();
+	resolveContactsByGroupMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -84,6 +90,12 @@ describe("sanitizeContactsToolInput", () => {
 		expect(
 			sanitizeContactsToolInput({ action: "lookup", query: "  Zsombor  " }),
 		).toEqual({ action: "lookup", query: "Zsombor" });
+	});
+
+	it("also trims the query for the group action", () => {
+		expect(
+			sanitizeContactsToolInput({ action: "group", query: "  Family  " }),
+		).toEqual({ action: "group", query: "Family" });
 	});
 });
 
@@ -179,6 +191,126 @@ describe("runContactsTool", () => {
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(outcome.modelPayload.message).not.toContain("boom");
 		expect(outcome.modelPayload.contacts).toEqual([]);
+	});
+
+	it("surfaces the organization (company + title) on a match untouched, and includes it in the Sources-tab snippet", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		const match = makeMatch({
+			organization: { company: "Acme Corp", title: "Engineer" },
+		});
+		resolveContactsMock.mockResolvedValue([match]);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "lookup", query: "Zsombor" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.contacts).toEqual([match]);
+		expect(outcome.candidates[0]?.snippet).toContain("Acme Corp");
+	});
+});
+
+describe("runContactsTool — group action (GAP B8)", () => {
+	it("dispatches to resolveContactsByGroup (not resolveContacts) and never disambiguates multiple members", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		const matches = [
+			makeMatch({ name: "Zsombor Kovács" }),
+			makeMatch({ name: "Anna Kovács", emails: ["anna@example.com"] }),
+		];
+		resolveContactsByGroupMock.mockResolvedValue(matches);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "group", query: "Family" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(resolveContactsByGroupMock).toHaveBeenCalledWith(
+			"user-1",
+			expect.objectContaining({ groupName: "Family" }),
+		);
+		expect(resolveContactsMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("group");
+		expect(outcome.modelPayload.message).toContain("2 contacts");
+		expect(outcome.modelPayload.message.toLowerCase()).not.toContain(
+			"ask the user",
+		);
+		expect(outcome.modelPayload.contacts).toEqual(matches);
+	});
+
+	it("returns a graceful 'no contacts in group' note when resolveContactsByGroup finds nothing", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		resolveContactsByGroupMock.mockResolvedValue([]);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "group", query: "Nonexistent" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("group");
+		expect(outcome.modelPayload.message).toContain(
+			'No contacts found in a group matching "Nonexistent"',
+		);
+		expect(outcome.modelPayload.contacts).toEqual([]);
+	});
+
+	it("degrades gracefully (no throw) when resolveContactsByGroup itself rejects", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		resolveContactsByGroupMock.mockRejectedValue(new Error("boom"));
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "group", query: "Family" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.action).toBe("group");
+		expect(outcome.modelPayload.message).not.toContain("boom");
+		expect(outcome.modelPayload.contacts).toEqual([]);
+	});
+
+	it("returns the same graceful no-connection note (action-tagged) when there is no Contacts connection", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([]);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "group", query: "Family" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.action).toBe("group");
+		expect(outcome.modelPayload.message).toContain(
+			"don't have a Contacts-capable connection",
+		);
+		expect(resolveContactsByGroupMock).not.toHaveBeenCalled();
+	});
+
+	it("applies the same Option-A whole-payload distillation gate as lookup", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+		const match = makeMatch({ name: "Zsombor Kovács" });
+		resolveContactsByGroupMock.mockResolvedValue([match]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One family member.",
+		});
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "group", query: "Family" },
+			"whichever-model",
+		);
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Zsombor Kovács");
+		expect(outcome.modelPayload.contacts).toEqual([]);
+		expect(outcome.modelPayload.message).toContain("One family member.");
 	});
 });
 

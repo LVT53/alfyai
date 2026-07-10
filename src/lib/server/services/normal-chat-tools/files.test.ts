@@ -1046,3 +1046,188 @@ describe("runFilesTool — delete action (explicit-confirm write flow, GAP A1)",
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
 	});
 });
+
+// GAP B9a — create_folder write action. Same confirm-gated pending-write
+// pattern as save/move/delete: allowWrites checked BEFORE the secret is
+// decrypted, a WriteOperation + preview built via the write-guard, a PENDING
+// row created, and executeNextcloudWrite NEVER called at proposal time.
+describe("runFilesTool — create_folder action (explicit-confirm write flow, GAP B9a)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		createPendingWriteMock.mockResolvedValue({
+			id: "pending-mkcol-1",
+			preview: {
+				title: "Create folder Reports",
+				detail: "files.create_folder — /AlfyAI/Reports",
+				reversible: true,
+				destructive: false,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		});
+	});
+
+	it("allowWrites=true: returns a PENDING result, creates a non-destructive files.create_folder pending row, and never executes inline", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "create_folder", path: "/AlfyAI/Reports" },
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("create_folder");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-mkcol-1");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call?.op).toMatchObject({
+			action: "files.create_folder",
+			provider: "nextcloud",
+			connectionId: "conn-1",
+			reversible: true,
+			destructive: false,
+		});
+		expect(call?.op.target).toMatchObject({ path: "/AlfyAI/Reports" });
+		expect(call?.conversationId).toBe("conv-1");
+
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: refused, no pending row, secret never decrypted", async () => {
+		const conn = makeConn({ allowWrites: false, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "create_folder", path: "/AlfyAI/Reports" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+
+	it("requires a path", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "create_folder" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("path is required");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});
+
+// GAP B9b — share_link write action. SENSITIVE: creates PUBLIC exposure of a
+// file. Same confirm-gated pending-write pattern, but the preview MUST carry a
+// prominent public-exposure warning, and nothing executes at proposal time.
+describe("runFilesTool — share_link action (explicit-confirm write flow, GAP B9b)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		createPendingWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		createPendingWriteMock.mockResolvedValue({
+			id: "pending-share-1",
+			preview: {
+				title: "Create a public link for report.pdf",
+				detail: "files.share_link — /AlfyAI/report.pdf",
+				reversible: true,
+				destructive: false,
+				withinAllowlist: true,
+				warnings: [],
+			},
+		});
+	});
+
+	it("allowWrites=true: returns a PENDING result, the preview carries a public-exposure warning, and never executes inline", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "share_link", path: "/AlfyAI/report.pdf" },
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("share_link");
+		expect(outcome.modelPayload.pendingWriteId).toBe("pending-share-1");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("confirm");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("public");
+
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call?.op).toMatchObject({
+			action: "files.share_link",
+			provider: "nextcloud",
+			connectionId: "conn-1",
+		});
+		expect(call?.op.target).toMatchObject({ path: "/AlfyAI/report.pdf" });
+		// The public-exposure warning is the load-bearing invariant for this
+		// sensitive write — it MUST be present in the confirm preview.
+		expect(
+			call?.preview.warnings.some((w: string) =>
+				w.toLowerCase().includes("public"),
+			),
+		).toBe(true);
+		expect(call?.conversationId).toBe("conv-1");
+
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+	});
+
+	it("allowWrites=false: refused, no pending row, secret never decrypted", async () => {
+		const conn = makeConn({ allowWrites: false, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "share_link", path: "/AlfyAI/report.pdf" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("turned off");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+
+	it("requires a path", async () => {
+		const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "share_link" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("path is required");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+});

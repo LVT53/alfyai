@@ -9,6 +9,7 @@ import { createPendingWrite } from "$lib/server/services/connections/pending-wri
 import {
 	ImapError,
 	imapCount,
+	imapListFolders,
 	imapListRecent,
 	imapReadMessage,
 	imapSearch,
@@ -39,6 +40,7 @@ vi.mock("$lib/server/services/connections/providers/imap", async () => {
 		imapSearch: vi.fn(),
 		imapReadMessage: vi.fn(),
 		imapCount: vi.fn(),
+		imapListFolders: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -55,6 +57,7 @@ const imapListRecentMock = vi.mocked(imapListRecent);
 const imapSearchMock = vi.mocked(imapSearch);
 const imapReadMessageMock = vi.mocked(imapReadMessage);
 const imapCountMock = vi.mocked(imapCount);
+const imapListFoldersMock = vi.mocked(imapListFolders);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -93,6 +96,7 @@ function resetAllMocks() {
 	imapSearchMock.mockReset();
 	imapReadMessageMock.mockReset();
 	imapCountMock.mockReset();
+	imapListFoldersMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -429,6 +433,7 @@ describe("runEmailTool", () => {
 				seen: true,
 			},
 			text: "Want to grab lunch on Saturday?",
+			attachments: [],
 		});
 
 		const outcome = await runEmailTool(
@@ -611,6 +616,7 @@ describe("runEmailTool — locality Option A distillation gate", () => {
 				seen: true,
 			},
 			text: "Notes from today's anxiety therapy session: ...",
+			attachments: [],
 		});
 		hasLocalDistillEnabledMock.mockResolvedValue(true);
 		isCloudModelMock.mockResolvedValue(true);
@@ -746,6 +752,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					seen: true,
 				},
 				text: "irrelevant",
+				attachments: [],
 			});
 
 			const outcome = await runEmailTool(
@@ -781,6 +788,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					seen: true,
 				},
 				text: "irrelevant",
+				attachments: [],
 			});
 			hasLocalDistillEnabledMock.mockResolvedValue(true);
 			isCloudModelMock.mockResolvedValue(true);
@@ -930,6 +938,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					seen: true,
 				},
 				text: "irrelevant",
+				attachments: [],
 			});
 
 			const outcome = await runEmailTool(
@@ -990,6 +999,7 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 					seen: false,
 				},
 				text: "irrelevant",
+				attachments: [],
 			});
 			hasLocalDistillEnabledMock.mockResolvedValue(true);
 			isCloudModelMock.mockResolvedValue(true);
@@ -1080,5 +1090,103 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 			});
 			expect(imapReadMessageMock).not.toHaveBeenCalled();
 		});
+	});
+});
+
+describe("runEmailTool — folder scoping + attachments (B4/B5)", () => {
+	beforeEach(resetAllMocks);
+
+	it("read: surfaces attachment metadata on the payload", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapReadMessageMock.mockResolvedValue({
+			header: {
+				uid: 70,
+				from: "billing@vendor.com",
+				subject: "Invoice",
+				date: "2026-07-05T00:00:00.000Z",
+				seen: true,
+			},
+			text: "See attached",
+			attachments: [
+				{ filename: "invoice.pdf", contentType: "application/pdf", size: 12345 },
+			],
+		});
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "read", uid: 70 },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.attachments).toEqual([
+			{ filename: "invoice.pdf", contentType: "application/pdf", size: 12345 },
+		]);
+	});
+
+	it("read: threads the folder param through to imapReadMessage", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapReadMessageMock.mockResolvedValue({
+			header: {
+				uid: 9,
+				from: "a@b.com",
+				subject: "Hi",
+				date: "2026-07-05T00:00:00.000Z",
+				seen: true,
+			},
+			text: "hi",
+			attachments: [],
+		});
+
+		await runEmailTool(
+			"user-1",
+			{ action: "read", uid: 9, folder: "Archive" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapReadMessageMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			uid: 9,
+			folder: "Archive",
+		});
+	});
+
+	it("recent: threads the folder param through to imapListRecent", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapListRecentMock.mockResolvedValue([]);
+
+		await runEmailTool(
+			"user-1",
+			{ action: "recent", folder: "Sent" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapListRecentMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			folder: "Sent",
+		});
+	});
+
+	it("list_folders: returns the account's mailboxes", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		imapListFoldersMock.mockResolvedValue([
+			{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+			{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
+		]);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "list_folders" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(imapListFoldersMock).toHaveBeenCalledWith("user-1", "conn-1");
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.folders).toEqual([
+			{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+			{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
+		]);
 	});
 });

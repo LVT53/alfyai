@@ -1,10 +1,11 @@
-// Plex (self-hosted media server) connect + read (5.6). Watch-history and
-// library-metadata ONLY — this module is, and must always remain,
-// **strictly read-only**: Plex never gets a write path, not in this issue
-// and not in a later phase. There is deliberately no function here that
-// mutates anything on the user's Plex server (no scrobble/markWatched/
-// markPlayed/etc) — a dedicated test in plex.test.ts asserts the module's
-// exported surface never grows one.
+// Plex (self-hosted media server) connect + read (5.6). Watch-history,
+// library-metadata, on-deck/continue-watching, and library search/catalog
+// lookups ONLY — this module is, and must always remain, **strictly
+// read-only**: Plex never gets a write path, not in this issue and not in a
+// later phase. There is deliberately no function here that mutates anything
+// on the user's Plex server (no scrobble/markWatched/markPlayed/etc) — a
+// dedicated test in plex.test.ts asserts the module's exported surface never
+// grows one.
 //
 // Auth is a user-pasted `X-Plex-Token` + their own server's base URL (e.g.
 // `https://plex.example.com`, or a plex.direct URL) — there is no OAuth/login
@@ -93,11 +94,12 @@ function normalizeOrigin(serverUrl: string): string {
 // `container`, when supplied, adds X-Plex-Container-Size/-Start: Plex is
 // moving toward REQUIRING these on every container (paginated MediaContainer)
 // response — currently a deprecation warning, but documented to start
-// rejecting container requests without them with a 400. Only the two calls
-// that actually return a MediaContainer callers page through (watch history,
-// library sections — wired via plexAuthorizedRequest) pass this; the
-// one-off /identity and /accounts calls don't take a `container` arg at all,
-// since neither is a paginated listing a caller would ever page through.
+// rejecting container requests without them with a 400. Only the calls that
+// actually return a MediaContainer callers page through (watch history,
+// library sections, on-deck, library search — all wired via
+// plexAuthorizedRequest) pass this; the one-off /identity and /accounts calls
+// don't take a `container` arg at all, since neither is a paginated listing a
+// caller would ever page through.
 function plexHeaders(
 	token: string,
 	container?: { size: number; start: number },
@@ -558,11 +560,15 @@ export async function plexWatchHistory(
 // 0 for the same reason plexWatchHistory's is when it has no `since`/offset.
 const LIBRARY_SECTIONS_CONTAINER_SIZE = 200;
 
-export async function plexLibrarySections(
+// Shared by plexLibrarySections (public, key-stripped) and plexLibrarySearch
+// (needs each section's `key` to query `/library/sections/{key}/all`) so the
+// `GET /library/sections` call + response parsing lives in exactly one
+// place.
+async function fetchLibrarySectionsWithKeys(
 	userId: string,
 	connectionId: string,
 	opts?: FetchOpt,
-): Promise<LibrarySection[]> {
+): Promise<{ key: string; title: string; type: string }[]> {
 	const response = await plexAuthorizedRequest(
 		userId,
 		connectionId,
@@ -583,13 +589,269 @@ export async function plexLibrarySections(
 			"request_failed",
 		);
 	}
-	return (body.MediaContainer.Directory ?? [])
-		.filter(
-			(directory): directory is { title: string; type: string } =>
-				typeof directory.title === "string" &&
-				typeof directory.type === "string",
-		)
-		.map((directory) => ({ title: directory.title, type: directory.type }));
+	return (body.MediaContainer.Directory ?? []).filter(
+		(directory): directory is { key: string; title: string; type: string } =>
+			typeof directory.key === "string" &&
+			typeof directory.title === "string" &&
+			typeof directory.type === "string",
+	);
+}
+
+export async function plexLibrarySections(
+	userId: string,
+	connectionId: string,
+	opts?: FetchOpt,
+): Promise<LibrarySection[]> {
+	const sections = await fetchLibrarySectionsWithKeys(
+		userId,
+		connectionId,
+		opts,
+	);
+	return sections.map(({ title, type }) => ({ title, type }));
+}
+
+// ---------------------------------------------------------------------------
+// GAP B2 — on-deck / continue-watching: `GET /library/onDeck`. Unlike
+// `/status/sessions/history/all` (BUG1), on-deck is inherently computed from
+// the requesting token's own account viewstate — Plex has no separate
+// per-account "on deck" filter param because there is nothing to disambiguate
+// (each managed/household user's watch progress is already tracked
+// separately server-side, and the token identifies which one is asking) — so
+// this call intentionally does NOT append `accountID=`.
+// ---------------------------------------------------------------------------
+
+export type ContinueWatchingItem = {
+	title: string;
+	show?: string;
+	season?: number;
+	episode?: number;
+	type: string;
+	// Milliseconds — Plex's own units for viewOffset/duration. `progress` is
+	// derived (viewOffsetMs / durationMs, clamped to 1) only when both are
+	// present and duration is positive, so callers don't have to redo that
+	// arithmetic (and can't divide by a missing/zero duration).
+	viewOffsetMs?: number;
+	durationMs?: number;
+	progress?: number;
+	library?: string;
+};
+
+type OnDeckMetadataEntry = {
+	title?: string;
+	type?: string;
+	grandparentTitle?: string;
+	parentIndex?: number;
+	index?: number;
+	viewOffset?: number;
+	duration?: number;
+	librarySectionTitle?: string;
+};
+
+type OnDeckResponse = {
+	MediaContainer: { size?: number; Metadata?: OnDeckMetadataEntry[] };
+};
+
+function isValidOnDeckResponse(value: unknown): value is OnDeckResponse {
+	if (!value || typeof value !== "object") return false;
+	const mediaContainer = (value as Record<string, unknown>).MediaContainer;
+	if (!mediaContainer || typeof mediaContainer !== "object") return false;
+	const metadata = (mediaContainer as Record<string, unknown>).Metadata;
+	return metadata === undefined || Array.isArray(metadata);
+}
+
+const DEFAULT_ON_DECK_LIMIT = 20;
+const MAX_ON_DECK_LIMIT = 100;
+
+function clampOnDeckLimit(limit: number | undefined): number {
+	const requested = limit ?? DEFAULT_ON_DECK_LIMIT;
+	if (!Number.isFinite(requested) || requested <= 0) {
+		return DEFAULT_ON_DECK_LIMIT;
+	}
+	return Math.min(Math.floor(requested), MAX_ON_DECK_LIMIT);
+}
+
+function toContinueWatchingItem(
+	entry: OnDeckMetadataEntry,
+): ContinueWatchingItem | null {
+	if (!entry.title || !entry.type) return null;
+	const viewOffsetMs = entry.viewOffset;
+	const durationMs = entry.duration;
+	const progress =
+		viewOffsetMs !== undefined && durationMs !== undefined && durationMs > 0
+			? Math.min(viewOffsetMs / durationMs, 1)
+			: undefined;
+	return {
+		title: entry.title,
+		...(entry.grandparentTitle ? { show: entry.grandparentTitle } : {}),
+		...(entry.parentIndex !== undefined ? { season: entry.parentIndex } : {}),
+		...(entry.index !== undefined ? { episode: entry.index } : {}),
+		type: entry.type,
+		...(viewOffsetMs !== undefined ? { viewOffsetMs } : {}),
+		...(durationMs !== undefined ? { durationMs } : {}),
+		...(progress !== undefined ? { progress } : {}),
+		...(entry.librarySectionTitle ? { library: entry.librarySectionTitle } : {}),
+	};
+}
+
+// `GET {origin}/library/onDeck` — "continue watching"/"up next" across every
+// library section, most-recently-updated first (Plex's own default sort for
+// this endpoint). `limit=` is a documented generic Plex query param (same
+// family as the container-size header); the header and query param are kept
+// in lockstep exactly like plexWatchHistory's.
+export async function plexOnDeck(
+	userId: string,
+	connectionId: string,
+	params: { limit?: number } = {},
+	opts?: FetchOpt,
+): Promise<ContinueWatchingItem[]> {
+	const limit = clampOnDeckLimit(params.limit);
+
+	const response = await plexAuthorizedRequest(
+		userId,
+		connectionId,
+		() => `/library/onDeck?limit=${limit}`,
+		opts,
+		{ size: limit, start: 0 },
+	);
+	if (!response.ok) {
+		throw new PlexError("Plex on-deck request failed", "request_failed");
+	}
+	const body: unknown = await response.json().catch(() => null);
+	if (!isValidOnDeckResponse(body)) {
+		throw new PlexError(
+			"Plex returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return (body.MediaContainer.Metadata ?? [])
+		.map(toContinueWatchingItem)
+		.filter((item): item is ContinueWatchingItem => item !== null)
+		.slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// GAP B3 — library search: the user's OWNED catalog, not their watch
+// history. `GET /library/sections/{key}/all?title=<query>` is queried once
+// per library section (bounded by MAX_SEARCH_SECTIONS below) rather than the
+// hub-grouped `/hubs/search`, which mixes in actors/genres/related-but-
+// unowned suggestions — the wrong shape for "do I have The Matrix?"/"how
+// many movies do I own?". Omitting `query` entirely (Plex's own `title=`
+// filter is optional) lists/counts a section's whole contents, which is what
+// powers the "how many X do I own" case without requiring a text query.
+// ---------------------------------------------------------------------------
+
+export type LibrarySearchItem = {
+	title: string;
+	year?: number;
+	type: string;
+	section: string;
+};
+
+export type LibrarySearchResult = {
+	items: LibrarySearchItem[];
+	// The true match count across all searched sections (from each section's
+	// MediaContainer size/totalSize), NOT capped by `limit` — `items` is
+	// capped for readability, `totalCount` answers "how many do I own" even
+	// when there are more matches than were returned.
+	totalCount: number;
+};
+
+type LibrarySearchMetadataEntry = {
+	title?: string;
+	type?: string;
+	year?: number;
+};
+
+type LibrarySearchResponse = {
+	MediaContainer: {
+		size?: number;
+		totalSize?: number;
+		Metadata?: LibrarySearchMetadataEntry[];
+	};
+};
+
+function isValidLibrarySearchResponse(
+	value: unknown,
+): value is LibrarySearchResponse {
+	if (!value || typeof value !== "object") return false;
+	const mediaContainer = (value as Record<string, unknown>).MediaContainer;
+	if (!mediaContainer || typeof mediaContainer !== "object") return false;
+	const metadata = (mediaContainer as Record<string, unknown>).Metadata;
+	return metadata === undefined || Array.isArray(metadata);
+}
+
+const DEFAULT_LIBRARY_SEARCH_LIMIT = 25;
+const MAX_LIBRARY_SEARCH_LIMIT = 100;
+// Request-bounds guard: a search fans out to one request per library
+// section, in addition to the one `/library/sections` lookup — cap the
+// number of sections walked so a server with an unusually large number of
+// sections can't turn one tool call into an unbounded number of requests.
+const MAX_SEARCH_SECTIONS = 25;
+
+function clampLibrarySearchLimit(limit: number | undefined): number {
+	const requested = limit ?? DEFAULT_LIBRARY_SEARCH_LIMIT;
+	if (!Number.isFinite(requested) || requested <= 0) {
+		return DEFAULT_LIBRARY_SEARCH_LIMIT;
+	}
+	return Math.min(Math.floor(requested), MAX_LIBRARY_SEARCH_LIMIT);
+}
+
+export async function plexLibrarySearch(
+	userId: string,
+	connectionId: string,
+	params: { query?: string; limit?: number },
+	opts?: FetchOpt,
+): Promise<LibrarySearchResult> {
+	const limit = clampLibrarySearchLimit(params.limit);
+	const query = params.query?.trim();
+
+	const sections = (
+		await fetchLibrarySectionsWithKeys(userId, connectionId, opts)
+	).slice(0, MAX_SEARCH_SECTIONS);
+
+	const items: LibrarySearchItem[] = [];
+	let totalCount = 0;
+
+	for (const section of sections) {
+		const response = await plexAuthorizedRequest(
+			userId,
+			connectionId,
+			() =>
+				query
+					? `/library/sections/${encodeURIComponent(section.key)}/all?title=${encodeURIComponent(query)}`
+					: `/library/sections/${encodeURIComponent(section.key)}/all`,
+			opts,
+			{ size: MAX_LIBRARY_SEARCH_LIMIT, start: 0 },
+		);
+		// Best-effort per section: a section whose type doesn't support this
+		// query shape shouldn't fail the whole cross-library search — skip it
+		// and keep going. A 401 still propagates (plexAuthorizedRequest throws
+		// before returning a response in that case), so an invalid/expired
+		// token still surfaces as needs_reauth.
+		if (!response.ok) continue;
+		const body: unknown = await response.json().catch(() => null);
+		if (!isValidLibrarySearchResponse(body)) continue;
+
+		const entries = body.MediaContainer.Metadata ?? [];
+		totalCount +=
+			body.MediaContainer.totalSize ??
+			body.MediaContainer.size ??
+			entries.length;
+
+		for (const entry of entries) {
+			if (!entry.title || !entry.type) continue;
+			if (items.length < limit) {
+				items.push({
+					title: entry.title,
+					...(entry.year !== undefined ? { year: entry.year } : {}),
+					type: entry.type,
+					section: section.title,
+				});
+			}
+		}
+	}
+
+	return { items, totalCount };
 }
 
 // ---------------------------------------------------------------------------

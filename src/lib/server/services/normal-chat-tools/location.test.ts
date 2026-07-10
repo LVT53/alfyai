@@ -96,21 +96,23 @@ function resetAllMocks() {
 // ---------------------------------------------------------------------------
 
 describe("locationToolInputSchema", () => {
-	it("only accepts read actions (last, history) — no write action exists", () => {
+	it("only accepts read actions (last, history, places, distance) — no write action exists", () => {
 		const actionSchema = locationToolInputSchema.shape.action;
 		const values = actionSchema.options as readonly string[];
-		expect(values).toEqual(expect.arrayContaining(["last", "history"]));
+		expect(values).toEqual(
+			expect.arrayContaining(["last", "history", "places", "distance"]),
+		);
 		for (const value of values) {
 			expect(value).not.toMatch(/write|create|update|delete|set|share/i);
 		}
-		expect(values).toHaveLength(2);
+		expect(values).toHaveLength(4);
 	});
 
 	it("has NO otUser/otDevice/connection override field — isolation is enforced entirely server-side", () => {
 		const shape = locationToolInputSchema.shape;
 		const keys = Object.keys(shape);
 		expect(keys).toEqual(
-			expect.arrayContaining(["action", "from", "to", "limit"]),
+			expect.arrayContaining(["action", "from", "to", "limit", "lat", "lon"]),
 		);
 		for (const key of keys) {
 			expect(key.toLowerCase()).not.toMatch(
@@ -138,6 +140,15 @@ describe("sanitizeLocationToolInput", () => {
 		expect(sanitizeLocationToolInput({ action: "history", limit: 10 })).toEqual(
 			{ action: "history", limit: 10 },
 		);
+	});
+
+	it("keeps lat/lon when supplied for 'distance' and drops them when omitted", () => {
+		expect(
+			sanitizeLocationToolInput({ action: "distance", lat: 47.5, lon: 19.05 }),
+		).toEqual({ action: "distance", lat: 47.5, lon: 19.05 });
+		expect(sanitizeLocationToolInput({ action: "distance" })).toEqual({
+			action: "distance",
+		});
 	});
 });
 
@@ -301,6 +312,189 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.message).toContain("No location history");
 	});
 
+	// -------------------------------------------------------------------
+	// B7 — "places": groups history into a compact places-visited summary
+	// -------------------------------------------------------------------
+
+	it("places: groups the underlying history into consecutive place visits", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLocationHistoryMock.mockResolvedValue([
+			{ lat: 1, lon: 1, at: "2026-01-01T08:00:00.000Z", place: "Home" },
+			{ lat: 1, lon: 1, at: "2026-01-01T09:00:00.000Z", place: "Home" },
+			{ lat: 2, lon: 2, at: "2026-01-01T12:00:00.000Z", place: "Office" },
+		]);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "places", from: "2026-01-01", to: "2026-01-01" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(owntracksLocationHistoryMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-1",
+			{
+				from: "2026-01-01",
+				to: "2026-01-01",
+			},
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.places).toEqual([
+			{
+				place: "Home",
+				from: "2026-01-01T08:00:00.000Z",
+				to: "2026-01-01T09:00:00.000Z",
+				fixCount: 2,
+			},
+			{
+				place: "Office",
+				from: "2026-01-01T12:00:00.000Z",
+				to: "2026-01-01T12:00:00.000Z",
+				fixCount: 1,
+			},
+		]);
+		expect(outcome.modelPayload.message).toContain("2 distinct places");
+	});
+
+	it("places: an empty range yields an empty places list and a clear message", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLocationHistoryMock.mockResolvedValue([]);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "places" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.places).toEqual([]);
+		expect(outcome.modelPayload.message).toContain("No location history");
+	});
+
+	// -------------------------------------------------------------------
+	// B7 — "distance": reference point / range / home modes
+	// -------------------------------------------------------------------
+
+	it("distance: with a caller-supplied lat/lon, computes distance from the current fix", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLastLocationMock.mockResolvedValue({
+			lat: 47.4979,
+			lon: 19.0402,
+			at: "2026-01-01T08:00:00.000Z",
+			place: "Budapest",
+		});
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "distance", lat: 47.4979, lon: 19.0402 },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(owntracksLastLocationMock).toHaveBeenCalledWith("user-1", "conn-1");
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.distance).toEqual(
+			expect.objectContaining({
+				meters: 0,
+				kilometers: 0,
+				mode: "reference_point",
+			}),
+		);
+	});
+
+	it("distance: with no lat/lon and no from/to, uses the connection's home reference when set", async () => {
+		const conn = makeConn({
+			config: {
+				otUser: "alice_ot",
+				otDevice: "phone",
+				homeLat: 47.4979,
+				homeLon: 19.0402,
+			},
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLastLocationMock.mockResolvedValue({
+			lat: 47.4979,
+			lon: 19.0402,
+			at: "2026-01-01T08:00:00.000Z",
+		});
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "distance" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.distance).toEqual(
+			expect.objectContaining({ meters: 0, mode: "home" }),
+		);
+	});
+
+	it("distance: with no lat/lon, no from/to, and no home set -> a clear note without ever calling the recorder", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "distance" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(owntracksLastLocationMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.distance).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain("home location");
+	});
+
+	it("distance: with from/to (no lat/lon), computes distance between the first and last fix of the range", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLocationHistoryMock.mockResolvedValue([
+			{ lat: 0, lon: 0, at: "2026-01-01T08:00:00.000Z" },
+			{ lat: 0, lon: 1, at: "2026-01-01T18:00:00.000Z" },
+		]);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "distance", from: "2026-01-01", to: "2026-01-01" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(owntracksLocationHistoryMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-1",
+			{
+				from: "2026-01-01",
+				to: "2026-01-01",
+			},
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.distance?.mode).toBe("range");
+		expect(outcome.modelPayload.distance?.meters).toBeGreaterThan(100000);
+	});
+
+	it("distance: fewer than 2 fixes in range mode -> a clear note, no throw", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLocationHistoryMock.mockResolvedValue([
+			{ lat: 0, lon: 0, at: "2026-01-01T08:00:00.000Z" },
+		]);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "distance", from: "2026-01-01", to: "2026-01-01" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.distance).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain(
+			"Not enough location history",
+		);
+	});
+
 	it("maps a not_configured adapter error to a graceful note without throwing", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -448,6 +642,42 @@ describe("runLocationTool — locality Option A distillation gate", () => {
 				metadata: { lat: 47.497913, lon: 19.040236 },
 			}),
 		]);
+	});
+
+	it("places: Option A on + cloud model redacts place labels, replacing them with the distilled summary", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		owntracksLocationHistoryMock.mockResolvedValue([
+			{
+				lat: 1,
+				lon: 1,
+				at: "2026-01-01T08:00:00.000Z",
+				place: "Deák Ferenc tér",
+			},
+		]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "The user spent the day in central Budapest.",
+		});
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "places" },
+			"cloud-model",
+		);
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Deák Ferenc tér");
+		expect(outcome.modelPayload.places).toEqual([]);
+		expect(outcome.modelPayload.message).toContain(
+			"The user spent the day in central Budapest.",
+		);
+		expect(distillConnectorPayloadMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				rawText: expect.stringContaining("Deák Ferenc tér"),
+			}),
+		);
 	});
 
 	it("a 'no fix available' result never triggers distillation (nothing raw to protect)", async () => {

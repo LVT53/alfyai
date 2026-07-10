@@ -1695,3 +1695,207 @@ describe("write-safety GAP A1 — files.move / files.delete honor allowWrites + 
 		expect((await getPendingWrite(USER_ID, pendingId))?.status).toBe("pending");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// GAP B9 — nextcloud files.create_folder (B9a) and files.share_link (B9b) are
+// now reachable from the chat tool. They must obey the SAME two write
+// invariants save/move/delete already do: (1) allow_writes=false refuses with
+// NO pending row created, and (2) nothing executes at proposal time — the tool
+// only ever creates a PENDING row, and the real MKCOL / OCS-share POST happens
+// exclusively through confirmPendingWrite. share_link additionally CREATES
+// PUBLIC EXPOSURE, so its confirm preview MUST carry a public-link warning.
+// Exercised end-to-end against the real store + real pending-writes table +
+// the real registered nextcloud executor.
+// ---------------------------------------------------------------------------
+describe("write-safety GAP B9 — files.create_folder / files.share_link honor allowWrites + confirm-gating", () => {
+	it("create_folder: allow_writes=false refuses, no pending row created", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			allowWrites: false,
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "create_folder", path: "/AlfyAI/Reports" },
+			"model1",
+			"conv-1",
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toMatch(/turned off/i);
+
+		const { listPendingWritesForConversation } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect(await listPendingWritesForConversation(USER_ID, "conv-1")).toEqual(
+			[],
+		);
+	});
+
+	it("share_link: allow_writes=false refuses, no pending row created", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			allowWrites: false,
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "share_link", path: "/AlfyAI/report.pdf" },
+			"model1",
+			"conv-1",
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toMatch(/turned off/i);
+
+		const { listPendingWritesForConversation } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect(await listPendingWritesForConversation(USER_ID, "conv-1")).toEqual(
+			[],
+		);
+	});
+
+	it("create_folder: proposal creates a PENDING row and touches no network; confirm issues exactly one MKCOL", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 201 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "create_folder", path: "/AlfyAI/Reports" },
+			"model1",
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		const pendingId = outcome.modelPayload.pendingWriteId;
+		expect(pendingId).toBeDefined();
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"pending",
+		);
+
+		const result = await confirmPendingWrite(USER_ID, pendingId as string);
+		expect(result.ok).toBe(true);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(init.method).toBe("MKCOL");
+		expect(String(url)).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/Reports",
+		);
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"executed",
+		);
+	});
+
+	it("share_link: proposal creates a PENDING row (with a public-link warning in the preview) and touches no network; confirm issues exactly one OCS share POST", async () => {
+		await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ocs: {
+							meta: { status: "ok", statuscode: 200 },
+							data: { id: "1", url: "https://cloud.example.com/s/pub123" },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		);
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "share_link", path: "/AlfyAI/report.pdf" },
+			"model1",
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		const pendingId = outcome.modelPayload.pendingWriteId;
+		expect(pendingId).toBeDefined();
+		// The public-exposure warning is the load-bearing invariant for this
+		// sensitive write — it MUST reach the confirm preview.
+		expect(
+			outcome.modelPayload.preview?.warnings.some((w) =>
+				w.toLowerCase().includes("public"),
+			),
+		).toBe(true);
+		expect(fetchSpy).not.toHaveBeenCalled();
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		const result = await confirmPendingWrite(USER_ID, pendingId as string);
+		expect(result.ok).toBe(true);
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(init.method).toBe("POST");
+		expect(String(url)).toContain(
+			"/ocs/v2.php/apps/files_sharing/api/v1/shares",
+		);
+		expect(new Headers(init.headers).get("OCS-APIRequest")).toBe("true");
+		expect(new URLSearchParams(String(init.body)).get("shareType")).toBe("3");
+		expect((await getPendingWrite(USER_ID, pendingId as string))?.status).toBe(
+			"executed",
+		);
+	});
+
+	it("create_folder: allowWrites flipped off AFTER propose, BEFORE confirm — confirm refuses, row stays pending, no network", async () => {
+		const connectionId = await seedConnection({
+			provider: "nextcloud",
+			config: { serverUrl: "https://cloud.example.com", loginName: "alice" },
+			writeAllowlist: ["/AlfyAI"],
+		});
+		const fetchSpy = vi.fn(async () => new Response(null, { status: 201 }));
+		globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+		const { runFilesTool } = await import(
+			"$lib/server/services/normal-chat-tools/files"
+		);
+		const outcome = await runFilesTool(
+			USER_ID,
+			{ action: "create_folder", path: "/AlfyAI/Reports" },
+			"model1",
+		);
+		const pendingId = outcome.modelPayload.pendingWriteId as string;
+
+		const { setAllowWrites } = await import(
+			"$lib/server/services/connections/store"
+		);
+		await setAllowWrites(USER_ID, connectionId, false);
+
+		const { confirmPendingWrite, getPendingWrite } = await import(
+			"$lib/server/services/connections/pending-writes"
+		);
+		const result = await confirmPendingWrite(USER_ID, pendingId);
+		expect(result).toEqual({
+			ok: false,
+			status: 409,
+			reason: "writes_disabled",
+		});
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect((await getPendingWrite(USER_ID, pendingId))?.status).toBe("pending");
+	});
+});

@@ -56,6 +56,10 @@ export const READ_ONLY_IMMICH_PERMISSIONS = [
 	"asset.view",
 	"asset.download",
 	"album.read",
+	// B6 person search: GET /api/people requires person.read. It's a read
+	// scope (no delete/update/upload/create/write), so it passes
+	// assertReadOnlyPermissions unchanged and keeps the key strictly read-only.
+	"person.read",
 ] as const;
 
 const FORBIDDEN_EXACT_PERMISSIONS = new Set([
@@ -552,11 +556,14 @@ type ImmichAsset = {
 	exifInfo?: ImmichAssetExif;
 };
 
-type SmartSearchResponse = { assets: { items: ImmichAsset[] } };
+// Both POST /api/search/smart and POST /api/search/metadata return the same
+// SearchResponseDto shape (`{ assets: { items: [...] } }`), so one validator
+// covers both search functions below.
+type AssetSearchResponse = { assets: { items: ImmichAsset[] } };
 
-function isValidSmartSearchResponse(
+function isValidAssetSearchResponse(
 	value: unknown,
-): value is SmartSearchResponse {
+): value is AssetSearchResponse {
 	if (!value || typeof value !== "object") return false;
 	const assets = (value as Record<string, unknown>).assets;
 	if (!assets || typeof assets !== "object") return false;
@@ -695,13 +702,248 @@ export async function immichSmartSearch(
 		);
 	}
 	const body: unknown = await response.json().catch(() => null);
-	if (!isValidSmartSearchResponse(body)) {
+	if (!isValidAssetSearchResponse(body)) {
 		throw new ImmichError(
 			"Immich smart search returned an unexpected response",
 			"request_failed",
 		);
 	}
 	return body.assets.items.slice(0, limit).map(toPhotoResult);
+}
+
+// ---------------------------------------------------------------------------
+// Metadata search (B1) — POST /api/search/metadata. Unlike smart search (CLIP
+// visual/semantic content match), metadata search filters on structured
+// fields: a captured date range, place, media type, favorite flag, and — when
+// the caller has resolved names to ids — personIds. This answers "photos from
+// last June", "photos from 2019", "my favourite photos", and (via personIds)
+// "photos of Alice". Reuses toPhotoResult, so a `people` array on any asset is
+// NEVER surfaced on a PhotoResult — personIds is an input filter only, keeping
+// the same no-people-field invariant smart search has.
+// ---------------------------------------------------------------------------
+
+export type MetadataSearchParams = {
+	// Accept either a full ISO datetime or a bare "YYYY-MM-DD" (normalized
+	// below). takenAfter/takenBefore bound the capture date.
+	takenAfter?: string;
+	takenBefore?: string;
+	city?: string;
+	country?: string;
+	type?: "IMAGE" | "VIDEO";
+	isFavorite?: boolean;
+	personIds?: string[];
+	limit?: number;
+};
+
+// Normalizes a date-only "YYYY-MM-DD" to the ISO datetime Immich's SearchDto
+// expects. A bare date is widened to the start (00:00:00.000Z) or end
+// (23:59:59.999Z) of that UTC day, so a `takenBefore` given as a plain date is
+// inclusive of the whole day. Anything already carrying a time component
+// (contains "T") is trimmed and passed through unchanged.
+function normalizeSearchDate(value: string, boundary: "start" | "end"): string {
+	const trimmed = value.trim();
+	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+		return boundary === "start"
+			? `${trimmed}T00:00:00.000Z`
+			: `${trimmed}T23:59:59.999Z`;
+	}
+	return trimmed;
+}
+
+export async function immichMetadataSearch(
+	userId: string,
+	connectionId: string,
+	params: MetadataSearchParams,
+	opts?: FetchOpt,
+): Promise<PhotoResult[]> {
+	const limit = clampLimit(params.limit);
+	// withExif is required for the same reason as smart search — without it the
+	// exif relation (city/state/country/description/dateTimeOriginal) is never
+	// joined, so place/description are empty and takenAt falls back to upload
+	// time. Only defined filters are sent (Immich whitelists the DTO).
+	const body: Record<string, unknown> = { size: limit, withExif: true };
+	if (params.takenAfter) {
+		body.takenAfter = normalizeSearchDate(params.takenAfter, "start");
+	}
+	if (params.takenBefore) {
+		body.takenBefore = normalizeSearchDate(params.takenBefore, "end");
+	}
+	if (params.city) body.city = params.city;
+	if (params.country) body.country = params.country;
+	if (params.type) body.type = params.type;
+	if (params.isFavorite !== undefined) body.isFavorite = params.isFavorite;
+	if (params.personIds && params.personIds.length > 0) {
+		body.personIds = params.personIds;
+	}
+
+	const response = await immichAuthorizedRequest(
+		userId,
+		connectionId,
+		"/api/search/metadata",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		},
+		opts,
+	);
+	if (!response.ok) {
+		throw new ImmichError(
+			"Immich metadata search request failed",
+			"request_failed",
+		);
+	}
+	const parsed: unknown = await response.json().catch(() => null);
+	if (!isValidAssetSearchResponse(parsed)) {
+		throw new ImmichError(
+			"Immich metadata search returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return parsed.assets.items.slice(0, limit).map(toPhotoResult);
+}
+
+// ---------------------------------------------------------------------------
+// Album browse (B1) — GET /api/albums (list) + GET /api/albums/{id} (assets).
+// album.read is already in READ_ONLY_IMMICH_PERMISSIONS.
+// ---------------------------------------------------------------------------
+
+export type ImmichAlbumSummary = {
+	id: string;
+	albumName: string;
+	assetCount: number;
+};
+
+type ImmichAlbumListEntry = {
+	id: string;
+	albumName: string;
+	assetCount?: number;
+};
+
+function isImmichAlbumArray(value: unknown): value is ImmichAlbumListEntry[] {
+	return (
+		Array.isArray(value) &&
+		value.every(
+			(entry) =>
+				!!entry &&
+				typeof entry === "object" &&
+				typeof (entry as Record<string, unknown>).id === "string" &&
+				typeof (entry as Record<string, unknown>).albumName === "string",
+		)
+	);
+}
+
+export async function immichListAlbums(
+	userId: string,
+	connectionId: string,
+	opts?: FetchOpt,
+): Promise<ImmichAlbumSummary[]> {
+	const response = await immichAuthorizedRequest(
+		userId,
+		connectionId,
+		"/api/albums",
+		{ method: "GET" },
+		opts,
+	);
+	if (!response.ok) {
+		throw new ImmichError("Immich album list request failed", "request_failed");
+	}
+	const parsed: unknown = await response.json().catch(() => null);
+	if (!isImmichAlbumArray(parsed)) {
+		throw new ImmichError(
+			"Immich album list returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return parsed.map((entry) => ({
+		id: entry.id,
+		albumName: entry.albumName,
+		assetCount: typeof entry.assetCount === "number" ? entry.assetCount : 0,
+	}));
+}
+
+export async function immichAlbumAssets(
+	userId: string,
+	connectionId: string,
+	params: { albumId: string; limit?: number },
+	opts?: FetchOpt,
+): Promise<PhotoResult[]> {
+	const limit = clampLimit(params.limit);
+	const response = await immichAuthorizedRequest(
+		userId,
+		connectionId,
+		`/api/albums/${encodeURIComponent(params.albumId)}`,
+		{ method: "GET" },
+		opts,
+	);
+	if (!response.ok) {
+		throw new ImmichError("Immich album request failed", "request_failed");
+	}
+	const parsed: unknown = await response.json().catch(() => null);
+	if (
+		!parsed ||
+		typeof parsed !== "object" ||
+		!Array.isArray((parsed as Record<string, unknown>).assets)
+	) {
+		throw new ImmichError(
+			"Immich album returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return (parsed as { assets: ImmichAsset[] }).assets
+		.slice(0, limit)
+		.map(toPhotoResult);
+}
+
+// ---------------------------------------------------------------------------
+// People (B6) — GET /api/people. Requires person.read (added above). Returns
+// only NAMED people (id + name) — unnamed faces can't be searched by name and
+// are dropped. Names are never joined onto photo results; this list is used
+// for discovery and to resolve a name to personIds for immichMetadataSearch.
+// ---------------------------------------------------------------------------
+
+export type ImmichPersonSummary = { id: string; name: string };
+
+type PeopleResponse = { people: { id?: unknown; name?: unknown }[] };
+
+function isValidPeopleResponse(value: unknown): value is PeopleResponse {
+	if (!value || typeof value !== "object") return false;
+	return Array.isArray((value as Record<string, unknown>).people);
+}
+
+export async function immichListPeople(
+	userId: string,
+	connectionId: string,
+	opts?: FetchOpt,
+): Promise<ImmichPersonSummary[]> {
+	const response = await immichAuthorizedRequest(
+		userId,
+		connectionId,
+		"/api/people",
+		{ method: "GET" },
+		opts,
+	);
+	if (!response.ok) {
+		throw new ImmichError(
+			"Immich people list request failed",
+			"request_failed",
+		);
+	}
+	const parsed: unknown = await response.json().catch(() => null);
+	if (!isValidPeopleResponse(parsed)) {
+		throw new ImmichError(
+			"Immich people list returned an unexpected response",
+			"request_failed",
+		);
+	}
+	return parsed.people
+		.filter(
+			(person): person is { id: string; name: string } =>
+				typeof person?.id === "string" &&
+				typeof person?.name === "string" &&
+				person.name.trim().length > 0,
+		)
+		.map((person) => ({ id: person.id, name: person.name }));
 }
 
 export async function immichThumbnail(

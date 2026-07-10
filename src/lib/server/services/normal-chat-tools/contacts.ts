@@ -2,14 +2,19 @@ import { z } from "zod";
 import {
 	type ContactMatch,
 	resolveContacts,
+	resolveContactsByGroup,
 } from "$lib/server/services/connections/providers/contacts";
 import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
 
+// `query` is overloaded by `action` (kept as one field rather than two
+// action-specific ones, matching the existing single-field shape): for
+// "lookup" it's the name/email search text; for "group" (GAP B8) it's the
+// contact-group's name, e.g. "Family" or "Work".
 export const contactsToolInputSchema = z.object({
-	action: z.enum(["lookup"]),
+	action: z.enum(["lookup", "group"]),
 	query: z.string(),
 });
 
@@ -38,7 +43,7 @@ export type ContactsToolModelPayload = {
 	success: boolean;
 	name: "contacts";
 	sourceType: "tool";
-	action: "lookup";
+	action: "lookup" | "group";
 	message: string;
 	contacts: ContactsToolContactItem[];
 	citations: ContactsCitation[];
@@ -60,13 +65,16 @@ function toCandidate(
 		id: `contacts:${index}:${label}`,
 		title: label,
 		url: "",
-		snippet: [contact.name, ...contact.emails].filter(Boolean).join(" · "),
+		snippet: [contact.name, contact.organization?.company, ...contact.emails]
+			.filter(Boolean)
+			.join(" · "),
 		sourceType: "tool",
 	};
 }
 
 function buildPayload(params: {
 	success: boolean;
+	action: ContactsToolInput["action"];
 	message: string;
 	contacts?: ContactsToolContactItem[];
 }): ContactsToolOutcome {
@@ -80,7 +88,7 @@ function buildPayload(params: {
 			success: params.success,
 			name: "contacts",
 			sourceType: "tool",
-			action: "lookup",
+			action: params.action,
 			message: params.message,
 			contacts,
 			citations,
@@ -95,6 +103,14 @@ function noMatchesMessage(query: string): string {
 
 function ambiguousMessage(count: number): string {
 	return `Found ${count} matching contacts — ask the user which one they mean before using an email or phone number.`;
+}
+
+function noGroupMatchesMessage(groupName: string): string {
+	return `No contacts found in a group matching "${groupName}".`;
+}
+
+function groupFoundMessage(count: number, groupName: string): string {
+	return `Found ${count} contact${count === 1 ? "" : "s"} in the group matching "${groupName}".`;
 }
 
 // Redacts the MODEL-facing citation labels once Option A distillation has
@@ -132,8 +148,14 @@ async function applyLocalDistillGate(params: {
 
 	const rawTextParts = outcome.modelPayload.contacts
 		.map((contact) =>
-			[contact.name, ...contact.emails, ...contact.phones]
-				.filter((value) => Boolean(value))
+			[
+				contact.name,
+				...contact.emails,
+				...contact.phones,
+				contact.organization?.title,
+				contact.organization?.company,
+			]
+				.filter((value): value is string => Boolean(value))
 				.join(" / "),
 		)
 		.filter((value) => value.length > 0);
@@ -177,26 +199,58 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
-// Resolves the user's name -> identity lookup across ALL of their
-// contacts-capable connections (google + apple, via resolveContacts),
-// degrading gracefully (never throwing) so a connection or lookup problem
-// never aborts the chat turn. Disambiguates when more than one distinct
-// person matches, and applies the same Option-A local-distillation posture
-// as calendar.ts/email.ts before any raw PII reaches a cloud model.
-export async function runContactsTool(
+// "group" action (GAP B8): resolves a named contact group ("Family",
+// "Work", ...) across the user's contacts-capable connections (Google
+// only, v1 — see resolveContactsByGroup's doc comment) instead of a
+// name/email lookup. Every member is returned together — unlike "lookup",
+// more than one result is NOT ambiguity to disambiguate, so this never uses
+// ambiguousMessage.
+async function runGroupLookup(
 	userId: string,
 	input: ContactsToolInput,
 	modelId: string,
 ): Promise<ContactsToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "contacts");
-	if (connections.length === 0) {
+	let matches: ContactMatch[];
+	try {
+		matches = await resolveContactsByGroup(userId, {
+			groupName: input.query,
+			limit: MAX_MATCHES,
+		});
+	} catch {
 		return buildPayload({
 			success: false,
+			action: "group",
 			message:
-				"You don't have a Contacts-capable connection set up yet. Connect your Google or Apple iCloud account in Settings to look up contacts.",
+				"I couldn't look up that contact group right now. Please try again in a moment.",
 		});
 	}
 
+	if (matches.length === 0) {
+		return buildPayload({
+			success: true,
+			action: "group",
+			message: noGroupMatchesMessage(input.query),
+		});
+	}
+
+	const outcome = buildPayload({
+		success: true,
+		action: "group",
+		message: groupFoundMessage(matches.length, input.query),
+		contacts: matches,
+	});
+	return applyLocalDistillGate({ userId, modelId, input, outcome });
+}
+
+// "lookup" action: resolves the user's name -> identity lookup across ALL
+// of their contacts-capable connections (google + apple, via
+// resolveContacts). Disambiguates when more than one distinct person
+// matches.
+async function runNameLookup(
+	userId: string,
+	input: ContactsToolInput,
+	modelId: string,
+): Promise<ContactsToolOutcome> {
 	let matches: ContactMatch[];
 	try {
 		matches = await resolveContacts(userId, {
@@ -206,6 +260,7 @@ export async function runContactsTool(
 	} catch {
 		return buildPayload({
 			success: false,
+			action: "lookup",
 			message:
 				"I couldn't look up your contacts right now. Please try again in a moment.",
 		});
@@ -214,6 +269,7 @@ export async function runContactsTool(
 	if (matches.length === 0) {
 		return buildPayload({
 			success: true,
+			action: "lookup",
 			message: noMatchesMessage(input.query),
 		});
 	}
@@ -222,14 +278,42 @@ export async function runContactsTool(
 		matches.length === 1
 			? buildPayload({
 					success: true,
+					action: "lookup",
 					message: "Found 1 matching contact.",
 					contacts: matches,
 				})
 			: buildPayload({
 					success: true,
+					action: "lookup",
 					message: ambiguousMessage(matches.length),
 					contacts: matches,
 				});
 
 	return applyLocalDistillGate({ userId, modelId, input, outcome });
+}
+
+// Dispatches to the "lookup" (name/email) or "group" (GAP B8) resolver,
+// degrading gracefully (never throwing) so a connection or lookup problem
+// never aborts the chat turn, and applying the same Option-A
+// local-distillation posture as calendar.ts/email.ts before any raw PII
+// reaches a cloud model.
+export async function runContactsTool(
+	userId: string,
+	input: ContactsToolInput,
+	modelId: string,
+): Promise<ContactsToolOutcome> {
+	const connections = await resolveConnectionsForCapability(userId, "contacts");
+	if (connections.length === 0) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message:
+				"You don't have a Contacts-capable connection set up yet. Connect your Google or Apple iCloud account in Settings to look up contacts.",
+		});
+	}
+
+	if (input.action === "group") {
+		return runGroupLookup(userId, input, modelId);
+	}
+	return runNameLookup(userId, input, modelId);
 }

@@ -86,6 +86,20 @@ describe("assertReadOnlyPermissions", () => {
 		expect(() => assertReadOnlyPermissions(["asset.read", "all"])).toThrow();
 	});
 
+	// B6: person search needs GET /api/people, which requires the person.read
+	// scope. It is a read scope, so it must be in the key AND must pass the
+	// structural read-only guard unchanged (no delete/update/upload/create/write
+	// suffix, not in the forbidden exact set).
+	it("includes person.read and treats it as read-only", async () => {
+		const { assertReadOnlyPermissions, READ_ONLY_IMMICH_PERMISSIONS } =
+			await import("./immich");
+		expect(READ_ONLY_IMMICH_PERMISSIONS).toContain("person.read");
+		expect(() =>
+			assertReadOnlyPermissions(READ_ONLY_IMMICH_PERMISSIONS),
+		).not.toThrow();
+		expect(() => assertReadOnlyPermissions(["person.read"])).not.toThrow();
+	});
+
 	it("throws for asset.delete", async () => {
 		const { assertReadOnlyPermissions } = await import("./immich");
 		expect(() =>
@@ -1001,5 +1015,293 @@ describe("immichAdapter.checkHealth", () => {
 		});
 
 		expect(health.status).toBe("error");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// immichMetadataSearch (B1) — POST /api/search/metadata
+// ---------------------------------------------------------------------------
+
+describe("immichMetadataSearch", () => {
+	it("posts date/place/type/favorite/person filters (dates normalized), withExif, and size; parses into PhotoResult[]", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichMetadataSearch } = await import("./immich");
+
+		let capturedBody: Record<string, unknown> = {};
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://photos.example.com/api/search/metadata",
+				);
+				const headers = new Headers(init?.headers);
+				expect(headers.get("x-api-key")).toBe("immich-secret-key");
+				capturedBody = JSON.parse(String(init?.body));
+				return jsonResponse(200, {
+					assets: {
+						items: [
+							{
+								id: "asset-1",
+								originalFileName: "june.jpg",
+								fileCreatedAt: "2019-06-15T10:00:00.000Z",
+								type: "IMAGE",
+								exifInfo: {
+									city: "Paris",
+									country: "France",
+									dateTimeOriginal: "2019-06-15T09:55:00.000Z",
+								},
+							},
+						],
+					},
+					albums: { items: [] },
+				});
+			},
+		);
+
+		const results = await immichMetadataSearch(
+			USER_ID,
+			conn.id,
+			{
+				takenAfter: "2019-06-01",
+				takenBefore: "2019-06-30",
+				city: "Paris",
+				type: "IMAGE",
+				isFavorite: true,
+				personIds: ["person-1"],
+				limit: 10,
+			},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		// Date-only inputs are widened to the start/end of the UTC day so a
+		// takenBefore date includes the whole day.
+		expect(capturedBody.takenAfter).toBe("2019-06-01T00:00:00.000Z");
+		expect(capturedBody.takenBefore).toBe("2019-06-30T23:59:59.999Z");
+		expect(capturedBody.city).toBe("Paris");
+		expect(capturedBody.type).toBe("IMAGE");
+		expect(capturedBody.isFavorite).toBe(true);
+		expect(capturedBody.personIds).toEqual(["person-1"]);
+		expect(capturedBody.withExif).toBe(true);
+		expect(capturedBody.size).toBe(10);
+
+		expect(results).toEqual([
+			{
+				id: "asset-1",
+				fileName: "june.jpg",
+				takenAt: "2019-06-15T09:55:00.000Z",
+				type: "IMAGE",
+				place: "Paris, France",
+				thumbnailPath: "/api/assets/asset-1/thumbnail",
+			},
+		]);
+	});
+
+	it("passes an already-ISO datetime through unchanged and omits absent filters", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichMetadataSearch } = await import("./immich");
+
+		let capturedBody: Record<string, unknown> = {};
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedBody = JSON.parse(String(init?.body));
+				return jsonResponse(200, { assets: { items: [] } });
+			},
+		);
+
+		await immichMetadataSearch(
+			USER_ID,
+			conn.id,
+			{ takenAfter: "2019-06-01T08:30:00.000Z", isFavorite: true },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(capturedBody.takenAfter).toBe("2019-06-01T08:30:00.000Z");
+		expect(capturedBody).not.toHaveProperty("takenBefore");
+		expect(capturedBody).not.toHaveProperty("city");
+		expect(capturedBody).not.toHaveProperty("personIds");
+		expect(capturedBody.isFavorite).toBe(true);
+		expect(capturedBody.withExif).toBe(true);
+	});
+
+	// Same invariant as smart search: metadata search must never surface a
+	// `people` field on a mapped PhotoResult, even though the response can
+	// carry face data — personIds is an input FILTER only.
+	it("never surfaces a 'people' field even when the response includes faces", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichMetadataSearch } = await import("./immich");
+
+		const fetchMock = vi.fn(async () =>
+			jsonResponse(200, {
+				assets: {
+					items: [
+						{
+							id: "asset-1",
+							originalFileName: "a.jpg",
+							fileCreatedAt: "2019-06-15T10:00:00.000Z",
+							type: "IMAGE",
+							people: [{ id: "p1", name: "Alice" }],
+						},
+					],
+				},
+			}),
+		);
+
+		const results = await immichMetadataSearch(
+			USER_ID,
+			conn.id,
+			{ personIds: ["p1"] },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(results).toHaveLength(1);
+		expect(results[0]).not.toHaveProperty("people");
+	});
+
+	it("a 401 is mapped to a typed needs_reauth error and marks the connection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichMetadataSearch } = await import("./immich");
+		const { getConnection } = await import("../store");
+
+		const fetchMock = vi.fn(async () => jsonResponse(401, { message: "no" }));
+
+		await expect(
+			immichMetadataSearch(
+				USER_ID,
+				conn.id,
+				{ isFavorite: true },
+				{ fetch: fetchMock as unknown as typeof fetch },
+			),
+		).rejects.toMatchObject({ code: "needs_reauth" });
+
+		const updated = await getConnection(USER_ID, conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// immichListAlbums / immichAlbumAssets (B1)
+// ---------------------------------------------------------------------------
+
+describe("immichListAlbums", () => {
+	it("GETs /api/albums and maps to id/albumName/assetCount", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichListAlbums } = await import("./immich");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("https://photos.example.com/api/albums");
+				expect(init?.method ?? "GET").toBe("GET");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("x-api-key")).toBe("immich-secret-key");
+				return jsonResponse(200, [
+					{ id: "album-1", albumName: "Vacation", assetCount: 42, assets: [] },
+					{ id: "album-2", albumName: "Family", assetCount: 7, assets: [] },
+				]);
+			},
+		);
+
+		const albums = await immichListAlbums(USER_ID, conn.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(albums).toEqual([
+			{ id: "album-1", albumName: "Vacation", assetCount: 42 },
+			{ id: "album-2", albumName: "Family", assetCount: 7 },
+		]);
+	});
+});
+
+describe("immichAlbumAssets", () => {
+	it("GETs /api/albums/{id} and maps its assets into PhotoResult[], respecting the limit", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichAlbumAssets } = await import("./immich");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			expect(String(input)).toBe(
+				"https://photos.example.com/api/albums/album-1",
+			);
+			return jsonResponse(200, {
+				id: "album-1",
+				albumName: "Vacation",
+				assets: [
+					{
+						id: "asset-1",
+						originalFileName: "beach.jpg",
+						fileCreatedAt: "2026-06-01T10:00:00.000Z",
+						type: "IMAGE",
+						exifInfo: { city: "Malibu" },
+					},
+					{
+						id: "asset-2",
+						originalFileName: "hike.jpg",
+						fileCreatedAt: "2026-06-02T10:00:00.000Z",
+						type: "IMAGE",
+					},
+				],
+			});
+		});
+
+		const results = await immichAlbumAssets(
+			USER_ID,
+			conn.id,
+			{ albumId: "album-1", limit: 1 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(results).toEqual([
+			{
+				id: "asset-1",
+				fileName: "beach.jpg",
+				takenAt: "2026-06-01T10:00:00.000Z",
+				type: "IMAGE",
+				place: "Malibu",
+				thumbnailPath: "/api/assets/asset-1/thumbnail",
+			},
+		]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// immichListPeople (B6)
+// ---------------------------------------------------------------------------
+
+describe("immichListPeople", () => {
+	it("GETs /api/people and returns only named people as id/name", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImmichConnection();
+		const { immichListPeople } = await import("./immich");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe("https://photos.example.com/api/people");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("x-api-key")).toBe("immich-secret-key");
+				return jsonResponse(200, {
+					total: 3,
+					hidden: 0,
+					hasNextPage: false,
+					people: [
+						{ id: "p1", name: "Alice" },
+						{ id: "p2", name: "Bob" },
+						// Unnamed faces must be dropped — they can't be searched by name.
+						{ id: "p3", name: "" },
+					],
+				});
+			},
+		);
+
+		const people = await immichListPeople(USER_ID, conn.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(people).toEqual([
+			{ id: "p1", name: "Alice" },
+			{ id: "p2", name: "Bob" },
+		]);
 	});
 });

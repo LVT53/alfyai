@@ -1232,6 +1232,131 @@ export async function nextcloudDeleteFile(
 	}
 }
 
+// Creates an empty folder via a WebDAV MKCOL (GAP B9a). Non-destructive: MKCOL
+// on an already-existing collection comes back 405 (Method Not Allowed) and a
+// missing intermediate parent comes back 409 (Conflict) — both are surfaced as
+// a typed `conflict` rather than silently succeeding or clobbering anything.
+// Deleting the created folder fully undoes this, so the op is reversible. The
+// path routes through normalizeNextcloudPath first like every other write.
+export async function nextcloudCreateFolder(
+	conn: ConnectionPublic,
+	appPassword: string,
+	path: string,
+	opts?: FetchOpt,
+): Promise<void> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const normalizedPath = normalizeNextcloudPath(path);
+	if (!normalizedPath) {
+		throw new NextcloudFilesError(
+			"Cannot create the files root itself",
+			"invalid_path",
+		);
+	}
+	const url = filesUrl(serverUrl, loginName, normalizedPath);
+
+	const response = await fetchWithTimeout(fetchImpl, url, {
+		method: "MKCOL",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			"User-Agent": USER_AGENT,
+		},
+	});
+
+	assertNotAuthFailure(response);
+	if (response.status === 405) {
+		throw new NextcloudFilesError(
+			`A folder already exists at ${normalizedPath}`,
+			"conflict",
+		);
+	}
+	if (response.status === 409) {
+		throw new NextcloudFilesError(
+			`Cannot create ${normalizedPath}: an intermediate parent folder does not exist`,
+			"conflict",
+		);
+	}
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud MKCOL failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+}
+
+// Creates a PUBLIC share link for a file via the OCS Shares API (GAP B9b).
+// shareType=3 is a public link — this deliberately creates public exposure of
+// the file, so the caller MUST have surfaced a public-link warning in the
+// confirm preview before this ever runs. Returns the public URL parsed from
+// the OCS response. `?format=json` makes the OCS envelope parseable without an
+// XML round-trip. Optional password/expiry the OCS API supports are future
+// work (see the tool layer's share_link action doc comment). The path is the
+// file's path relative to the user's files root, sent to OCS with a leading
+// slash (its expected form).
+export async function nextcloudCreateShareLink(
+	conn: ConnectionPublic,
+	appPassword: string,
+	path: string,
+	opts?: FetchOpt,
+): Promise<string> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	const { serverUrl, loginName } = nextcloudConfig(conn);
+	const normalizedPath = normalizeNextcloudPath(path);
+	if (!normalizedPath) {
+		throw new NextcloudFilesError(
+			"Cannot share the files root itself as a public link",
+			"invalid_path",
+		);
+	}
+	const ocsPath = `/${normalizedPath}`;
+	const url = `${serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json`;
+
+	const response = await fetchWithTimeout(fetchImpl, url, {
+		method: "POST",
+		headers: {
+			Authorization: basicAuthHeader(loginName, appPassword),
+			"Content-Type": "application/x-www-form-urlencoded",
+			"OCS-APIRequest": "true",
+			"User-Agent": USER_AGENT,
+		},
+		// shareType=3 => public link.
+		body: new URLSearchParams({ path: ocsPath, shareType: "3" }).toString(),
+	});
+
+	assertNotAuthFailure(response);
+	if (response.status === 404) {
+		throw new NextcloudFilesError(
+			`File not found: ${normalizedPath}`,
+			"not_found",
+		);
+	}
+	if (!response.ok) {
+		throw new NextcloudFilesError(
+			`Nextcloud share-create failed with status ${response.status}`,
+			"request_failed",
+		);
+	}
+
+	let body: unknown;
+	try {
+		body = await response.json();
+	} catch {
+		throw new NextcloudFilesError(
+			"Nextcloud returned a malformed share response",
+			"request_failed",
+		);
+	}
+	const shareUrl = (body as { ocs?: { data?: { url?: unknown } } })?.ocs?.data
+		?.url;
+	if (typeof shareUrl !== "string" || shareUrl.length === 0) {
+		throw new NextcloudFilesError(
+			"Nextcloud share response did not include a public URL",
+			"request_failed",
+		);
+	}
+	return shareUrl;
+}
+
 // ---------------------------------------------------------------------------
 // Guarded execute service (4.2) — the single chokepoint a chat-tool write
 // action (4.3) is expected to call through. Confirmation is assumed to have
@@ -1252,14 +1377,19 @@ export type NextcloudWriteRequest =
 			contentSummary: string;
 	  }
 	| { kind: "move"; fromPath: string; toPath: string }
-	| { kind: "delete"; path: string };
+	| { kind: "delete"; path: string }
+	| { kind: "create_folder"; requestedPath?: string }
+	| { kind: "share_link"; path: string };
 
 export async function executeNextcloudWrite(
 	userId: string,
 	connectionId: string,
 	req: NextcloudWriteRequest,
 	opts?: FetchOpt,
-): Promise<{ ok: true; etag?: string | null } | { ok: false; reason: string }> {
+): Promise<
+	| { ok: true; etag?: string | null; url?: string }
+	| { ok: false; reason: string }
+> {
 	const conn = await getConnection(userId, connectionId);
 	if (!conn) {
 		return { ok: false, reason: "connection_not_found" };
@@ -1305,6 +1435,26 @@ export async function executeNextcloudWrite(
 				});
 				return { ok: true };
 			}
+			case "create_folder": {
+				const target = resolveWriteTarget({
+					allowlist: conn.writeAllowlist,
+					requestedPath: req.requestedPath,
+					defaultArea: conn.writeAllowlist[0],
+				});
+				await nextcloudCreateFolder(conn, appPassword, target.path, {
+					fetch: opts?.fetch,
+				});
+				return { ok: true };
+			}
+			case "share_link": {
+				const url = await nextcloudCreateShareLink(
+					conn,
+					appPassword,
+					req.path,
+					{ fetch: opts?.fetch },
+				);
+				return { ok: true, url };
+			}
 			default: {
 				const exhaustive: never = req;
 				throw new Error(
@@ -1338,10 +1488,11 @@ export const nextcloudFilesAdapter = {
 registerConnectionAdapter(nextcloudFilesAdapter satisfies ConnectionAdapter);
 
 // ---------------------------------------------------------------------------
-// Write-executor registration (Issue 6.0, GAP A1) — maps a confirmed
-// WriteOperation onto the shape executeNextcloudWrite needs. Three tool write
-// actions are supported: "files.put" (files.ts "save"), "files.move" (move +
-// rename), and "files.delete" (delete-to-trash). Any other action returns
+// Write-executor registration (Issue 6.0, GAP A1/B9) — maps a confirmed
+// WriteOperation onto the shape executeNextcloudWrite needs. Supported tool
+// write actions: "files.put" (files.ts "save"), "files.move" (move + rename),
+// "files.delete" (delete-to-trash), "files.create_folder" (MKCOL, GAP B9a),
+// and "files.share_link" (OCS public link, GAP B9b). Any other action returns
 // null and is refused as unsupported_operation rather than silently
 // mis-executed. This mapping previously lived inline in pending-writes.ts's
 // confirmPendingWrite; it moved here so it sits behind the write-executor
@@ -1396,6 +1547,22 @@ function toNextcloudWriteRequest(
 		return { kind: "delete", path };
 	}
 
+	// GAP B9a — MKCOL. Mirrors "files.put": the (already resolveWriteTarget-
+	// resolved) target path is passed as requestedPath and re-resolved against
+	// the allowlist inside executeNextcloudWrite, so an unspecified target lands
+	// in the safe default area. `content` is unused.
+	if (op.action === "files.create_folder") {
+		return { kind: "create_folder", requestedPath: op.target?.path };
+	}
+
+	// GAP B9b — OCS public share link. The single target path is op.target.path
+	// (like files.delete); content is unused.
+	if (op.action === "files.share_link") {
+		const path = op.target?.path;
+		if (!path) return null;
+		return { kind: "share_link", path };
+	}
+
 	return null;
 }
 
@@ -1404,6 +1571,18 @@ registerWriteExecutor({
 	async execute(userId, connectionId, op, content, opts) {
 		const request = toNextcloudWriteRequest(op, content);
 		if (!request) return { ok: false, reason: "unsupported_operation" };
-		return executeNextcloudWrite(userId, connectionId, request, opts);
+		const result = await executeNextcloudWrite(
+			userId,
+			connectionId,
+			request,
+			opts,
+		);
+		// share_link returns a public URL — surface it through the standard
+		// WriteExecutionResult `detail` field (the shared registry shape has no
+		// `url` slot) so the confirm flow can relay it to the user.
+		if (result.ok && result.url !== undefined) {
+			return { ok: true, etag: result.etag ?? null, detail: result.url };
+		}
+		return result;
 	},
 });

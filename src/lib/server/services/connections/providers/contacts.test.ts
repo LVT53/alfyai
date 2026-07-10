@@ -163,9 +163,67 @@ describe("googleSearchContacts", () => {
 		const requestedUrl = new URL(String(peopleCall?.[0]));
 		expect(requestedUrl.searchParams.get("query")).toBe("example");
 		expect(requestedUrl.searchParams.get("readMask")).toBe(
-			"names,emailAddresses,phoneNumbers",
+			"names,emailAddresses,phoneNumbers,organizations",
 		);
 		expect(requestedUrl.searchParams.get("pageSize")).toBe("10");
+	});
+
+	it("surfaces the current organization (company + title) on a match, and omits the field when there is none (GAP B8 org)", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContacts } = await import("./contacts");
+
+		const fetchMock = googleTokenAndPeopleFetchMock(() =>
+			jsonResponse(200, {
+				results: [
+					{
+						person: {
+							names: [{ displayName: "Erin Acme" }],
+							emailAddresses: [{ value: "erin@acme.example" }],
+							organizations: [
+								// A past org that should lose to the `current: true` one.
+								{ name: "Old Co", title: "Intern", current: false },
+								{ name: "Acme Corp", title: "Engineer", current: true },
+							],
+						},
+					},
+					{
+						person: {
+							names: [{ displayName: "Frank Noorg" }],
+							emailAddresses: [{ value: "frank@example.com" }],
+						},
+					},
+				],
+			}),
+		);
+
+		const matches = await googleSearchContacts(
+			"userA",
+			conn.id,
+			{ query: "acme" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			{
+				name: "Erin Acme",
+				emails: ["erin@acme.example"],
+				phones: [],
+				source: "google",
+				account: "alice@example.com",
+				organization: { company: "Acme Corp", title: "Engineer" },
+			},
+			{
+				name: "Frank Noorg",
+				emails: ["frank@example.com"],
+				phones: [],
+				source: "google",
+				account: "alice@example.com",
+			},
+		]);
+		// No `organization` key at all when there's no org data — not an
+		// `organization: undefined` that would still show up in a JSON payload.
+		expect(Object.hasOwn(matches[1], "organization")).toBe(false);
 	});
 
 	it("warms the People cache and retries once when the first search returns empty (cold-cache gotcha)", async () => {
@@ -318,6 +376,430 @@ describe("googleSearchContacts", () => {
 
 		const updated = await getConnection("userA", conn.id);
 		expect(updated?.status).toBe("needs_reauth");
+	});
+});
+
+// Routes a Google People API URL to which of the three group-resolution
+// calls it is: contactGroups.list (exactly `/v1/contactGroups`),
+// contactGroups.get (`/v1/contactGroups/{id}`), or people:batchGet.
+function classifyGoogleContactsUrl(
+	urlStr: string,
+): "list" | "get" | "batchGet" | null {
+	const url = new URL(urlStr);
+	if (url.pathname === "/v1/contactGroups") return "list";
+	if (url.pathname.startsWith("/v1/contactGroups/")) return "get";
+	if (url.pathname === "/v1/people:batchGet") return "batchGet";
+	return null;
+}
+
+describe("googleSearchContactsByGroup", () => {
+	function groupsListFetchMock(params: {
+		groups: Array<{ resourceName: string; formattedName: string }>;
+		members: string[];
+		batchGetResponses: unknown[];
+	}) {
+		return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+			}
+			const kind = classifyGoogleContactsUrl(url);
+			if (kind) {
+				const headers = new Headers(init?.headers);
+				expect(headers.get("Authorization")).toBe("Bearer new-token");
+			}
+			if (kind === "list") {
+				return jsonResponse(200, {
+					contactGroups: params.groups.map((g) => ({
+						resourceName: g.resourceName,
+						formattedName: g.formattedName,
+						groupType: "USER_CONTACT_GROUP",
+						memberCount: params.members.length,
+					})),
+				});
+			}
+			if (kind === "get") {
+				return jsonResponse(200, { memberResourceNames: params.members });
+			}
+			if (kind === "batchGet") {
+				return jsonResponse(200, { responses: params.batchGetResponses });
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+	}
+
+	it("resolves a group by name via contactGroups.list -> contactGroups.get -> people:batchGet, surfacing organization", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContactsByGroup } = await import("./contacts");
+
+		const fetchMock = groupsListFetchMock({
+			groups: [{ resourceName: "contactGroups/123", formattedName: "Family" }],
+			members: ["people/1", "people/2"],
+			batchGetResponses: [
+				{
+					person: {
+						names: [{ displayName: "Ann Family" }],
+						emailAddresses: [{ value: "ann@family.example" }],
+					},
+				},
+				{
+					person: {
+						names: [{ displayName: "Bob Family" }],
+						emailAddresses: [{ value: "bob@family.example" }],
+						organizations: [{ name: "Acme Corp", title: "CEO", current: true }],
+					},
+				},
+			],
+		});
+
+		const matches = await googleSearchContactsByGroup(
+			"userA",
+			conn.id,
+			{ groupName: "Family" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			{
+				name: "Ann Family",
+				emails: ["ann@family.example"],
+				phones: [],
+				source: "google",
+				account: "alice@example.com",
+			},
+			{
+				name: "Bob Family",
+				emails: ["bob@family.example"],
+				phones: [],
+				source: "google",
+				account: "alice@example.com",
+				organization: { company: "Acme Corp", title: "CEO" },
+			},
+		]);
+
+		const getCall = fetchMock.mock.calls.find(
+			([u]) => classifyGoogleContactsUrl(String(u)) === "get",
+		);
+		const getUrl = new URL(String(getCall?.[0]));
+		expect(getUrl.pathname).toBe("/v1/contactGroups/123");
+		expect(getUrl.searchParams.get("maxMembers")).toBe("200");
+
+		const batchCall = fetchMock.mock.calls.find(
+			([u]) => classifyGoogleContactsUrl(String(u)) === "batchGet",
+		);
+		const batchUrl = new URL(String(batchCall?.[0]));
+		expect(batchUrl.searchParams.getAll("resourceNames")).toEqual([
+			"people/1",
+			"people/2",
+		]);
+		expect(batchUrl.searchParams.get("personFields")).toBe(
+			"names,emailAddresses,phoneNumbers,organizations",
+		);
+	});
+
+	it("matches group names case-insensitively, preferring an exact match over a substring match", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContactsByGroup } = await import("./contacts");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+			}
+			const kind = classifyGoogleContactsUrl(url);
+			if (kind === "list") {
+				return jsonResponse(200, {
+					contactGroups: [
+						{
+							resourceName: "contactGroups/extended",
+							formattedName: "My Family Extended",
+							groupType: "USER_CONTACT_GROUP",
+						},
+						{
+							resourceName: "contactGroups/exact",
+							formattedName: "Family",
+							groupType: "USER_CONTACT_GROUP",
+						},
+					],
+				});
+			}
+			if (kind === "get") {
+				return jsonResponse(200, { memberResourceNames: [] });
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		await googleSearchContactsByGroup(
+			"userA",
+			conn.id,
+			{ groupName: "family" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		const getCall = fetchMock.mock.calls.find(
+			([u]) => classifyGoogleContactsUrl(String(u)) === "get",
+		);
+		expect(String(getCall?.[0])).toContain("contactGroups/exact");
+	});
+
+	it("returns an empty array (not an error) when no group matches the name", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContactsByGroup } = await import("./contacts");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+			}
+			if (classifyGoogleContactsUrl(url) === "list") {
+				return jsonResponse(200, {
+					contactGroups: [
+						{ resourceName: "contactGroups/1", formattedName: "Work" },
+					],
+				});
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		const matches = await googleSearchContactsByGroup(
+			"userA",
+			conn.id,
+			{ groupName: "Family" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(matches).toEqual([]);
+	});
+
+	it("returns an empty array when the matched group has no members", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContactsByGroup } = await import("./contacts");
+
+		const fetchMock = groupsListFetchMock({
+			groups: [{ resourceName: "contactGroups/empty", formattedName: "Empty" }],
+			members: [],
+			batchGetResponses: [],
+		});
+
+		const matches = await googleSearchContactsByGroup(
+			"userA",
+			conn.id,
+			{ groupName: "Empty" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(matches).toEqual([]);
+		expect(
+			fetchMock.mock.calls.some(
+				([u]) => classifyGoogleContactsUrl(String(u)) === "batchGet",
+			),
+		).toBe(false);
+	});
+
+	it("a post-refresh 401 from contactGroups.list throws a typed needs_reauth error and flags the connection", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection();
+		const { googleSearchContactsByGroup, ContactsError } = await import(
+			"./contacts"
+		);
+		const { getConnection } = await import("../store");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+			}
+			if (classifyGoogleContactsUrl(url) === "list") {
+				return new Response("", { status: 401 });
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		const promise = googleSearchContactsByGroup(
+			"userA",
+			conn.id,
+			{ groupName: "Family" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		await expect(promise).rejects.toBeInstanceOf(ContactsError);
+		await expect(promise).rejects.toMatchObject({ code: "needs_reauth" });
+
+		const updated = await getConnection("userA", conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
+
+	it("returns a typed scope_missing error and never calls the People API when contacts.readonly is absent", async () => {
+		seedUser("userA");
+		const conn = await seedGoogleConnection({
+			oauthScopes: [
+				"openid",
+				"https://www.googleapis.com/auth/userinfo.email",
+				"https://www.googleapis.com/auth/calendar.readonly",
+			],
+		});
+		const { googleSearchContactsByGroup, ContactsError } = await import(
+			"./contacts"
+		);
+
+		const fetchMock = vi.fn(async () => {
+			throw new Error("fetch should never be called when scope is missing");
+		});
+
+		await expect(
+			googleSearchContactsByGroup(
+				"userA",
+				conn.id,
+				{ groupName: "Family" },
+				{ fetch: fetchMock as unknown as typeof fetch },
+			),
+		).rejects.toMatchObject({ code: "scope_missing" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("resolveContactsByGroup", () => {
+	async function seedAppleConnection(
+		accountIdentifier: string,
+		addressbookUrl: string,
+	) {
+		const { createConnection } = await import("../store");
+		return createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: `Apple ${accountIdentifier}`,
+			accountIdentifier,
+			capabilities: ["contacts"],
+			status: "connected",
+			secret: "app-specific-pw",
+			config: {
+				appleId: accountIdentifier,
+				addressbookUrls: [addressbookUrl],
+			},
+		});
+	}
+
+	it("resolves a Google group's members and never dispatches an Apple connection (groups are Google-only in v1)", async () => {
+		seedUser("userA");
+		await seedGoogleConnection();
+		await seedAppleConnection(
+			"bob@icloud.com",
+			"https://p1-contacts.icloud.com/card/",
+		);
+		const { resolveContactsByGroup } = await import("./contacts");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+			}
+			const kind = classifyGoogleContactsUrl(url);
+			if (kind === "list") {
+				return jsonResponse(200, {
+					contactGroups: [
+						{ resourceName: "contactGroups/1", formattedName: "Family" },
+					],
+				});
+			}
+			if (kind === "get") {
+				return jsonResponse(200, { memberResourceNames: ["people/1"] });
+			}
+			if (kind === "batchGet") {
+				return jsonResponse(200, {
+					responses: [
+						{
+							person: {
+								names: [{ displayName: "Ann Family" }],
+								emailAddresses: [{ value: "ann@family.example" }],
+							},
+						},
+					],
+				});
+			}
+			// If this resolves an Apple CardDAV URL, that's a bug — Apple groups
+			// aren't supported in v1 and should never be dispatched to.
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		const matches = await resolveContactsByGroup(
+			"userA",
+			{ groupName: "Family" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			expect.objectContaining({ name: "Ann Family", source: "google" }),
+		]);
+	});
+
+	it("one Google connection erroring (e.g. scope_missing) does not throw — resolves to an empty array", async () => {
+		seedUser("userA");
+		await seedGoogleConnection({
+			oauthScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email"],
+		});
+		const { resolveContactsByGroup } = await import("./contacts");
+
+		const matches = await resolveContactsByGroup("userA", {
+			groupName: "Family",
+		});
+		expect(matches).toEqual([]);
+	});
+
+	it("caps merged results to the requested limit", async () => {
+		seedUser("userA");
+		await seedGoogleConnection();
+		const { resolveContactsByGroup } = await import("./contacts");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === GOOGLE_TOKEN_URL) {
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
+			}
+			const kind = classifyGoogleContactsUrl(url);
+			if (kind === "list") {
+				return jsonResponse(200, {
+					contactGroups: [
+						{ resourceName: "contactGroups/1", formattedName: "Family" },
+					],
+				});
+			}
+			if (kind === "get") {
+				return jsonResponse(200, {
+					memberResourceNames: ["people/1", "people/2"],
+				});
+			}
+			if (kind === "batchGet") {
+				return jsonResponse(200, {
+					responses: [
+						{
+							person: {
+								names: [{ displayName: "Ann" }],
+								emailAddresses: [{ value: "ann@example.com" }],
+							},
+						},
+						{
+							person: {
+								names: [{ displayName: "Bob" }],
+								emailAddresses: [{ value: "bob@example.com" }],
+							},
+						},
+					],
+				});
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+
+		const matches = await resolveContactsByGroup(
+			"userA",
+			{ groupName: "Family", limit: 1 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(matches).toHaveLength(1);
 	});
 });
 

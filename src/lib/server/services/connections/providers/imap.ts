@@ -51,8 +51,34 @@ export type ImapBodyStructureNode = {
 	part?: string;
 	type: string;
 	encoding?: string;
+	size?: number;
 	parameters?: Record<string, string>;
+	disposition?: string;
+	dispositionParameters?: Record<string, string>;
 	childNodes?: ImapBodyStructureNode[];
+};
+
+// One mailbox as returned by imapflow's `list()` — narrowed to the three
+// fields the read side actually uses (path to open, name to match, specialUse
+// to resolve Sent/Archive/… by RFC 6154 flag). imapflow's real ListResponse
+// carries far more (delimiter/flags/subscribed/…); this is the same
+// narrow-interface posture as ImapFlowLike itself. Mirrors imap-write.ts's
+// ImapMailboxListEntry, kept separate so the read/write client contracts stay
+// independent.
+export type ImapMailbox = {
+	path: string;
+	name: string;
+	specialUse?: string;
+};
+
+// Attachment metadata surfaced on a read (GAP B5) — filename, MIME type, and
+// server-reported size. Listing only: NO bytes are ever downloaded here (a
+// larger follow-up), so callers learn an email HAS an attachment and what it
+// is without this module fetching its content.
+export type ImapAttachment = {
+	filename: string;
+	contentType: string;
+	size?: number;
 };
 
 export type ImapFetchedMessage = {
@@ -86,6 +112,11 @@ export type ImapFlowLike = {
 		query: Record<string, unknown>,
 		options?: { uid?: boolean },
 	): Promise<ImapFetchedMessage | false>;
+	// LIST — read-only mailbox discovery (GAP B4). Used to enumerate folders
+	// for `list_folders` and to resolve a named folder (Sent/Archive/…) to its
+	// actual server path before opening it. imapflow's real `list()` returns a
+	// wider ListResponse[]; this narrows to the fields this module reads.
+	list(): Promise<ImapMailbox[]>;
 };
 
 export type ImapClientOptions = {
@@ -138,7 +169,8 @@ export type ImapErrorCode =
 	| "request_failed"
 	| "connection_not_found"
 	| "connection_failed"
-	| "message_not_found";
+	| "message_not_found"
+	| "folder_not_found";
 
 export class ImapError extends Error {
 	constructor(
@@ -424,14 +456,77 @@ export function imapConfig(conn: ConnectionPublic): ImapConnectionConfig {
 	};
 }
 
+// Maps a folder NAME the model might use to its RFC 6154 SPECIAL-USE flag, so
+// "Sent"/"Archive"/"Junk"/… resolve to the server's actual mailbox path even
+// when it's literally called something else ("Sent Items", "[Gmail]/All
+// Mail", …). Resolution tries this flag first, then a name/path match —
+// mirroring the SPECIAL-USE-first-then-name order imap-write.ts already uses
+// for the Trash mailbox (resolveTrashMailbox).
+const FOLDER_SPECIAL_USE: Record<string, string> = {
+	sent: "\\Sent",
+	"sent mail": "\\Sent",
+	"sent items": "\\Sent",
+	archive: "\\Archive",
+	archived: "\\Archive",
+	drafts: "\\Drafts",
+	draft: "\\Drafts",
+	junk: "\\Junk",
+	spam: "\\Junk",
+	trash: "\\Trash",
+	bin: "\\Trash",
+	deleted: "\\Trash",
+	"deleted messages": "\\Trash",
+	"deleted items": "\\Trash",
+	all: "\\All",
+	"all mail": "\\All",
+	flagged: "\\Flagged",
+	starred: "\\Flagged",
+};
+
+function isInboxName(folder: string): boolean {
+	return folder.trim().toLowerCase() === "inbox";
+}
+
+// Resolves the folder a read should open. Empty/INBOX short-circuits WITHOUT a
+// LIST round-trip (the common case, and what every default read still does).
+// Otherwise LISTs the account's mailboxes and resolves SPECIAL-USE-first, then
+// by an exact case-insensitive name or path match. A folder that matches
+// nothing is a clear folder_not_found rather than silently opening an
+// unintended mailbox — the model can call list_folders to discover valid names.
+async function resolveFolderPath(
+	client: ImapFlowLike,
+	folder: string | undefined,
+): Promise<string> {
+	const wanted = folder?.trim();
+	if (!wanted || isInboxName(wanted)) return INBOX;
+
+	const lower = wanted.toLowerCase();
+	const mailboxes = await client.list();
+
+	const specialUse = FOLDER_SPECIAL_USE[lower];
+	if (specialUse) {
+		const bySpecial = mailboxes.find((mbx) => mbx.specialUse === specialUse);
+		if (bySpecial) return bySpecial.path;
+	}
+	const byName = mailboxes.find(
+		(mbx) =>
+			mbx.name.toLowerCase() === lower || mbx.path.toLowerCase() === lower,
+	);
+	if (byName) return byName.path;
+
+	throw new ImapError("Mailbox folder not found", "folder_not_found");
+}
+
 // Opens a fresh connection scoped to one call, runs `run`, and always closes
 // the connection afterwards (success or failure) — the one chokepoint every
-// read function below routes through. An auth failure mid-op marks the
-// connection needs_reauth (mirrors google.ts/apple-caldav.ts) before
-// rethrowing.
+// read function below routes through. `folder` (GAP B4) selects which mailbox
+// to open, defaulting to INBOX; it is resolved SPECIAL-USE-first then by name.
+// An auth failure mid-op marks the connection needs_reauth (mirrors
+// google.ts/apple-caldav.ts) before rethrowing.
 async function withImapConnection<T>(
 	userId: string,
 	connectionId: string,
+	folder: string | undefined,
 	opts: ImapOpt | undefined,
 	run: (client: ImapFlowLike) => Promise<T>,
 ): Promise<T> {
@@ -455,7 +550,8 @@ async function withImapConnection<T>(
 
 	try {
 		await client.connect();
-		await client.mailboxOpen(INBOX, { readOnly: true });
+		const mailboxPath = await resolveFolderPath(client, folder);
+		await client.mailboxOpen(mailboxPath, { readOnly: true });
 		return await run(client);
 	} catch (err) {
 		if (err instanceof ImapError) throw err;
@@ -524,18 +620,24 @@ async function fetchHeadersForUids(
 export async function imapListRecent(
 	userId: string,
 	connectionId: string,
-	params: { limit?: number; unseenOnly?: boolean } = {},
+	params: { limit?: number; unseenOnly?: boolean; folder?: string } = {},
 	opts?: ImapOpt,
 ): Promise<EmailHeader[]> {
 	const limit = clampLimit(params.limit);
-	return withImapConnection(userId, connectionId, opts, async (client) => {
-		const searchQuery: Record<string, unknown> = params.unseenOnly
-			? { seen: false }
-			: { all: true };
-		const uids = await client.search(searchQuery, { uid: true });
-		if (!uids || uids.length === 0) return [];
-		return fetchHeadersForUids(client, uids, limit);
-	});
+	return withImapConnection(
+		userId,
+		connectionId,
+		params.folder,
+		opts,
+		async (client) => {
+			const searchQuery: Record<string, unknown> = params.unseenOnly
+				? { seen: false }
+				: { all: true };
+			const uids = await client.search(searchQuery, { uid: true });
+			if (!uids || uids.length === 0) return [];
+			return fetchHeadersForUids(client, uids, limit);
+		},
+	);
 }
 
 // The structured criteria a search/count can be built from (A2). `query` is the
@@ -619,7 +721,7 @@ async function searchWordIntersection(
 export async function imapSearch(
 	userId: string,
 	connectionId: string,
-	params: ImapSearchCriteria & { limit?: number },
+	params: ImapSearchCriteria & { limit?: number; folder?: string },
 	opts?: ImapOpt,
 ): Promise<EmailHeader[]> {
 	const limit = clampLimit(params.limit);
@@ -629,19 +731,25 @@ export async function imapSearch(
 	// Preserves the prior "blank query -> [] without opening a connection".
 	if (words.length === 0 && Object.keys(base).length === 0) return [];
 
-	return withImapConnection(userId, connectionId, opts, async (client) => {
-		// No free-text words: a single SEARCH built purely from the structured
-		// keys (e.g. "emails from Anna since Monday", no free text).
-		if (words.length === 0) {
-			const uids = await client.search(base, { uid: true });
-			if (!uids || uids.length === 0) return [];
-			return fetchHeadersForUids(client, uids, limit);
-		}
+	return withImapConnection(
+		userId,
+		connectionId,
+		params.folder,
+		opts,
+		async (client) => {
+			// No free-text words: a single SEARCH built purely from the structured
+			// keys (e.g. "emails from Anna since Monday", no free text).
+			if (words.length === 0) {
+				const uids = await client.search(base, { uid: true });
+				if (!uids || uids.length === 0) return [];
+				return fetchHeadersForUids(client, uids, limit);
+			}
 
-		const matched = await searchWordIntersection(client, base, words);
-		if (!matched || matched.length === 0) return [];
-		return fetchHeadersForUids(client, matched, limit);
-	});
+			const matched = await searchWordIntersection(client, base, words);
+			if (!matched || matched.length === 0) return [];
+			return fetchHeadersForUids(client, matched, limit);
+		},
+	);
 }
 
 // Returns the NUMBER of messages matching a search WITHOUT fetching any
@@ -656,27 +764,34 @@ export async function imapSearch(
 export async function imapCount(
 	userId: string,
 	connectionId: string,
-	params: ImapSearchCriteria & { unseenOnly?: boolean } = {},
+	params: ImapSearchCriteria & { unseenOnly?: boolean; folder?: string } = {},
 	opts?: ImapOpt,
 ): Promise<number> {
 	const base = buildSearchBase(params);
 	if (params.unseenOnly) base.seen = false;
 	const words = queryWords(params.query);
 
-	return withImapConnection(userId, connectionId, opts, async (client) => {
-		// No free-text words: a single SEARCH whose UID count is the answer. An
-		// empty base means "count everything" -> SEARCH ALL.
-		if (words.length === 0) {
-			const searchQuery = Object.keys(base).length > 0 ? base : { all: true };
-			const uids = await client.search(searchQuery, { uid: true });
-			return uids ? uids.length : 0;
-		}
+	return withImapConnection(
+		userId,
+		connectionId,
+		params.folder,
+		opts,
+		async (client) => {
+			// No free-text words: a single SEARCH whose UID count is the answer. An
+			// empty base means "count everything" -> SEARCH ALL.
+			if (words.length === 0) {
+				const searchQuery =
+					Object.keys(base).length > 0 ? base : { all: true };
+				const uids = await client.search(searchQuery, { uid: true });
+				return uids ? uids.length : 0;
+			}
 
-		// Free-text words AND together exactly as in imapSearch, but only the
-		// SIZE of the final UID set is needed — no header fetch ever happens.
-		const matched = await searchWordIntersection(client, base, words);
-		return matched ? matched.length : 0;
-	});
+			// Free-text words AND together exactly as in imapSearch, but only the
+			// SIZE of the final UID set is needed — no header fetch ever happens.
+			const matched = await searchWordIntersection(client, base, words);
+			return matched ? matched.length : 0;
+		},
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -810,51 +925,133 @@ function truncate(text: string, maxChars: number): string {
 	return `${text.slice(0, maxChars).trimEnd()}...`;
 }
 
+// Walks the (already-fetched) bodyStructure and LISTS attachment parts — their
+// filename, MIME type, and server-reported size (GAP B5). NO bytes are ever
+// downloaded (that is a deliberately larger follow-up); this answers "does this
+// email have an attachment?" / "what's attached?" from structure alone. A leaf
+// part counts as an attachment when it is explicitly `Content-Disposition:
+// attachment` OR carries a filename/name parameter (covers inline parts a mail
+// client still shows as attachments); the multipart containers and the
+// disposition-less text/html body parts are skipped.
+function collectAttachments(
+	node: ImapBodyStructureNode | undefined,
+): ImapAttachment[] {
+	if (!node) return [];
+	const out: ImapAttachment[] = [];
+	const walk = (n: ImapBodyStructureNode): void => {
+		if (n.childNodes && n.childNodes.length > 0) {
+			for (const child of n.childNodes) walk(child);
+			return;
+		}
+		const disposition = n.disposition?.toLowerCase();
+		const filename = n.dispositionParameters?.filename ?? n.parameters?.name;
+		const isAttachment = disposition === "attachment" || Boolean(filename);
+		if (!isAttachment) return;
+		out.push({
+			filename: filename ?? "(unnamed)",
+			contentType: n.type.toLowerCase(),
+			...(typeof n.size === "number" ? { size: n.size } : {}),
+		});
+	};
+	walk(node);
+	return out;
+}
+
 export async function imapReadMessage(
 	userId: string,
 	connectionId: string,
-	params: { uid: number },
+	params: { uid: number; folder?: string },
 	opts?: ImapOpt,
-): Promise<{ header: EmailHeader; text: string }> {
-	return withImapConnection(userId, connectionId, opts, async (client) => {
-		const metaMsg = await client.fetchOne(
-			params.uid,
-			{ envelope: true, flags: true, uid: true, bodyStructure: true },
-			{ uid: true },
-		);
-		if (!metaMsg) {
-			throw new ImapError("Message not found", "message_not_found");
-		}
+): Promise<{ header: EmailHeader; text: string; attachments: ImapAttachment[] }> {
+	return withImapConnection(
+		userId,
+		connectionId,
+		params.folder,
+		opts,
+		async (client) => {
+			const metaMsg = await client.fetchOne(
+				params.uid,
+				{ envelope: true, flags: true, uid: true, bodyStructure: true },
+				{ uid: true },
+			);
+			if (!metaMsg) {
+				throw new ImapError("Message not found", "message_not_found");
+			}
 
-		const header = toEmailHeader(metaMsg);
-		const textPart = findTextPart(metaMsg.bodyStructure);
-		if (!textPart) {
-			return { header, text: "" };
-		}
+			const header = toEmailHeader(metaMsg);
+			const attachments = collectAttachments(metaMsg.bodyStructure);
+			const textPart = findTextPart(metaMsg.bodyStructure);
+			if (!textPart) {
+				return { header, text: "", attachments };
+			}
 
-		const bodyMsg = await client.fetchOne(
-			params.uid,
-			{
-				bodyParts: [{ key: textPart.part, maxLength: MAX_BODY_RAW_BYTES }],
-			},
-			{ uid: true },
-		);
-		// imapflow LOWERCASES every FETCH response part key when building the
-		// returned bodyParts Map (tools.js formatMessageResponse). A single-part
-		// body is requested as "TEXT" but comes back keyed "text", so the lookup
-		// must be case-insensitive; numeric multipart ids ("1", "1.2") are
-		// unaffected since toLowerCase() leaves them unchanged.
-		const raw = bodyMsg
-			? bodyMsg.bodyParts?.get(textPart.part.toLowerCase())
-			: undefined;
-		if (!raw) {
-			return { header, text: "" };
-		}
+			const bodyMsg = await client.fetchOne(
+				params.uid,
+				{
+					bodyParts: [{ key: textPart.part, maxLength: MAX_BODY_RAW_BYTES }],
+				},
+				{ uid: true },
+			);
+			// imapflow LOWERCASES every FETCH response part key when building the
+			// returned bodyParts Map (tools.js formatMessageResponse). A single-part
+			// body is requested as "TEXT" but comes back keyed "text", so the lookup
+			// must be case-insensitive; numeric multipart ids ("1", "1.2") are
+			// unaffected since toLowerCase() leaves them unchanged.
+			const raw = bodyMsg
+				? bodyMsg.bodyParts?.get(textPart.part.toLowerCase())
+				: undefined;
+			if (!raw) {
+				return { header, text: "", attachments };
+			}
 
-		const decoded = decodeBodyBuffer(raw, textPart.encoding, textPart.charset);
-		const plainText = textPart.html ? stripHtml(decoded) : decoded;
-		return { header, text: truncate(plainText, MAX_BODY_TEXT_CHARS) };
-	});
+			const decoded = decodeBodyBuffer(
+				raw,
+				textPart.encoding,
+				textPart.charset,
+			);
+			const plainText = textPart.html ? stripHtml(decoded) : decoded;
+			return {
+				header,
+				text: truncate(plainText, MAX_BODY_TEXT_CHARS),
+				attachments,
+			};
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Folder discovery (GAP B4) — lists the account's mailboxes with their
+// SPECIAL-USE flags so the model can discover folder names ("what folders do I
+// have?") and map "Sent"/"Archive"/… to the server's real path. Read-only:
+// the LIST command mutates nothing; the connection still opens INBOX read-only
+// via withImapConnection as a structural guard (no mailbox content is read).
+// ---------------------------------------------------------------------------
+
+export type ImapFolder = {
+	path: string;
+	name: string;
+	specialUse?: string;
+};
+
+export async function imapListFolders(
+	userId: string,
+	connectionId: string,
+	opts?: ImapOpt,
+): Promise<ImapFolder[]> {
+	return withImapConnection(
+		userId,
+		connectionId,
+		undefined,
+		opts,
+		async (client) => {
+			const mailboxes = await client.list();
+			return mailboxes.map((mbx) => ({
+				path: mbx.path,
+				name: mbx.name,
+				...(mbx.specialUse ? { specialUse: mbx.specialUse } : {}),
+			}));
+		},
+	);
 }
 
 // ---------------------------------------------------------------------------

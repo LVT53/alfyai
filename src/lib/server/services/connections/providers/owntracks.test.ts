@@ -725,6 +725,181 @@ describe("owntracksAdapter.checkHealth", () => {
 });
 
 // ---------------------------------------------------------------------------
+// B7 — haversineDistanceMeters (pure helper, no recorder involved)
+// ---------------------------------------------------------------------------
+
+describe("haversineDistanceMeters", () => {
+	it("returns 0 for identical points", async () => {
+		const { haversineDistanceMeters } = await import("./owntracks");
+		expect(
+			haversineDistanceMeters(
+				{ lat: 47.4979, lon: 19.0402 },
+				{ lat: 47.4979, lon: 19.0402 },
+			),
+		).toBe(0);
+	});
+
+	it("is symmetric", async () => {
+		const { haversineDistanceMeters } = await import("./owntracks");
+		const a = { lat: 47.4979, lon: 19.0402 };
+		const b = { lat: 48.2082, lon: 16.3738 };
+		expect(haversineDistanceMeters(a, b)).toBeCloseTo(
+			haversineDistanceMeters(b, a),
+			6,
+		);
+	});
+
+	it("computes a realistic great-circle distance (London-Paris, ~343-345km)", async () => {
+		const { haversineDistanceMeters } = await import("./owntracks");
+		const london = { lat: 51.5074, lon: -0.1278 };
+		const paris = { lat: 48.8566, lon: 2.3522 };
+		const meters = haversineDistanceMeters(london, paris);
+		expect(meters).toBeGreaterThan(340000);
+		expect(meters).toBeLessThan(346000);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// B7 — groupFixesByPlace (pure helper, no recorder involved)
+// ---------------------------------------------------------------------------
+
+describe("groupFixesByPlace", () => {
+	it("merges consecutive fixes sharing the same place into one visit with from/to/fixCount", async () => {
+		const { groupFixesByPlace } = await import("./owntracks");
+		const visits = groupFixesByPlace([
+			{ lat: 1, lon: 1, at: "2026-01-01T08:00:00.000Z", place: "Office" },
+			{ lat: 1, lon: 1, at: "2026-01-01T09:00:00.000Z", place: "Office" },
+			{ lat: 1, lon: 1, at: "2026-01-01T10:00:00.000Z", place: "Office" },
+		]);
+		expect(visits).toEqual([
+			{
+				place: "Office",
+				from: "2026-01-01T08:00:00.000Z",
+				to: "2026-01-01T10:00:00.000Z",
+				fixCount: 3,
+			},
+		]);
+	});
+
+	it("keeps a non-consecutive re-visit to the same place as a separate visit entry", async () => {
+		const { groupFixesByPlace } = await import("./owntracks");
+		const visits = groupFixesByPlace([
+			{ lat: 1, lon: 1, at: "2026-01-01T08:00:00.000Z", place: "Office" },
+			{ lat: 2, lon: 2, at: "2026-01-01T12:00:00.000Z", place: "Cafe" },
+			{ lat: 1, lon: 1, at: "2026-01-01T18:00:00.000Z", place: "Office" },
+		]);
+		expect(visits).toEqual([
+			{
+				place: "Office",
+				from: "2026-01-01T08:00:00.000Z",
+				to: "2026-01-01T08:00:00.000Z",
+				fixCount: 1,
+			},
+			{
+				place: "Cafe",
+				from: "2026-01-01T12:00:00.000Z",
+				to: "2026-01-01T12:00:00.000Z",
+				fixCount: 1,
+			},
+			{
+				place: "Office",
+				from: "2026-01-01T18:00:00.000Z",
+				to: "2026-01-01T18:00:00.000Z",
+				fixCount: 1,
+			},
+		]);
+	});
+
+	it("groups fixes with no place label under a single 'Unknown location' bucket", async () => {
+		const { groupFixesByPlace } = await import("./owntracks");
+		const visits = groupFixesByPlace([
+			{ lat: 1, lon: 1, at: "2026-01-01T08:00:00.000Z" },
+			{ lat: 1, lon: 1, at: "2026-01-01T09:00:00.000Z" },
+		]);
+		expect(visits).toEqual([
+			{
+				place: "Unknown location",
+				from: "2026-01-01T08:00:00.000Z",
+				to: "2026-01-01T09:00:00.000Z",
+				fixCount: 2,
+			},
+		]);
+	});
+
+	it("an empty fixes array returns an empty visits array", async () => {
+		const { groupFixesByPlace } = await import("./owntracks");
+		expect(groupFixesByPlace([])).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// B7 — ownTracksHomeReference: opportunistic read of an already-stored
+// home/reference coordinate off the connection's own config. No new
+// persistence layer is added — if the field isn't there, this returns null.
+// ---------------------------------------------------------------------------
+
+describe("ownTracksHomeReference", () => {
+	it("returns null when the connection config carries no homeLat/homeLon", async () => {
+		seedUser(USER_A);
+		const conn = await (async () => {
+			setConfiguredEnv();
+			const { owntracksConnect } = await import("./owntracks");
+			const { connection } = await owntracksConnect({
+				userId: USER_A,
+				otUser: "alice_ot",
+				otDevice: "devA",
+			});
+			return connection;
+		})();
+		const { ownTracksHomeReference } = await import("./owntracks");
+		expect(ownTracksHomeReference(conn)).toBeNull();
+	});
+
+	it("returns {lat, lon} when the connection config carries numeric homeLat/homeLon", async () => {
+		seedUser(USER_A);
+		setConfiguredEnv();
+		const { owntracksConnect, ownTracksHomeReference } = await import(
+			"./owntracks"
+		);
+		const { connection } = await owntracksConnect({
+			userId: USER_A,
+			otUser: "alice_ot",
+			otDevice: "devA",
+		});
+		const withHome = {
+			...connection,
+			config: { ...connection.config, homeLat: 47.5, homeLon: 19.05 },
+		};
+		expect(ownTracksHomeReference(withHome)).toEqual({ lat: 47.5, lon: 19.05 });
+	});
+
+	it("returns null when only one of homeLat/homeLon is present or either is non-numeric", async () => {
+		seedUser(USER_A);
+		setConfiguredEnv();
+		const { owntracksConnect, ownTracksHomeReference } = await import(
+			"./owntracks"
+		);
+		const { connection } = await owntracksConnect({
+			userId: USER_A,
+			otUser: "alice_ot",
+			otDevice: "devA",
+		});
+		expect(
+			ownTracksHomeReference({
+				...connection,
+				config: { ...connection.config, homeLat: 47.5 },
+			}),
+		).toBeNull();
+		expect(
+			ownTracksHomeReference({
+				...connection,
+				config: { ...connection.config, homeLat: "47.5", homeLon: 19.05 },
+			}),
+		).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------
 // No write path exists
 // ---------------------------------------------------------------------------
 

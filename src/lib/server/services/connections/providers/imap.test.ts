@@ -9,6 +9,7 @@ import type {
 	ImapClientOptions,
 	ImapFetchedMessage,
 	ImapFlowLike,
+	ImapMailbox,
 } from "./imap";
 
 let dbPath: string;
@@ -73,6 +74,7 @@ type FakeBehavior = {
 		seq: number | string,
 		query: Record<string, unknown>,
 	) => Promise<ImapFetchedMessage | false>;
+	list?: () => ImapMailbox[] | Promise<ImapMailbox[]>;
 };
 
 class FakeImapClient implements ImapFlowLike {
@@ -87,6 +89,7 @@ class FakeImapClient implements ImapFlowLike {
 	searchCalls: Record<string, unknown>[] = [];
 	fetchCalls: { range: unknown; query: Record<string, unknown> }[] = [];
 	fetchOneCalls: { seq: unknown; query: Record<string, unknown> }[] = [];
+	listCalls = 0;
 
 	constructor(private behavior: FakeBehavior = {}) {}
 
@@ -133,6 +136,11 @@ class FakeImapClient implements ImapFlowLike {
 	): Promise<ImapFetchedMessage | false> {
 		this.fetchOneCalls.push({ seq, query });
 		return this.behavior.fetchOne ? this.behavior.fetchOne(seq, query) : false;
+	}
+
+	async list(): Promise<ImapMailbox[]> {
+		this.listCalls++;
+		return this.behavior.list ? await this.behavior.list() : [];
 	}
 }
 
@@ -1069,5 +1077,243 @@ describe("imapAdapter.checkHealth", () => {
 		});
 
 		expect(health.status).toBe("error");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Folder scoping (GAP B4) — reads can open a named folder (Sent/Archive/…),
+// resolved SPECIAL-USE-first then by name, defaulting to INBOX.
+// ---------------------------------------------------------------------------
+
+describe("folder scoping (B4)", () => {
+	it("resolves a named folder to its SPECIAL-USE mailbox path and opens THAT (not INBOX), read-only", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapListRecent } = await import("./imap");
+
+		const client = new FakeImapClient({
+			list: () => [
+				{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+				{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
+			],
+			search: () => [1],
+			fetch: () =>
+				asyncIterableOf([envelopeMessage({ uid: 1, subject: "To Bob" })]),
+		});
+
+		await imapListRecent(
+			USER_ID,
+			conn.id,
+			{ folder: "Sent" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(client.mailboxOpenCalls).toEqual([
+			{ path: "Sent Items", options: { readOnly: true } },
+		]);
+	});
+
+	it("falls back to a case-insensitive name/path match when no special-use flag applies", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapSearch } = await import("./imap");
+
+		const client = new FakeImapClient({
+			list: () => [
+				{ path: "INBOX", name: "INBOX" },
+				{ path: "Projects", name: "Projects" },
+			],
+			search: () => [3],
+			fetch: () =>
+				asyncIterableOf([envelopeMessage({ uid: 3, subject: "Spec" })]),
+		});
+
+		await imapSearch(
+			USER_ID,
+			conn.id,
+			{ query: "spec", folder: "projects" },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(client.mailboxOpenCalls).toEqual([
+			{ path: "Projects", options: { readOnly: true } },
+		]);
+	});
+
+	it("throws folder_not_found for an unknown folder, and still closes the connection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapReadMessage } = await import("./imap");
+
+		const client = new FakeImapClient({
+			list: () => [{ path: "INBOX", name: "INBOX" }],
+		});
+
+		await expect(
+			imapReadMessage(
+				USER_ID,
+				conn.id,
+				{ uid: 1, folder: "Nonexistent" },
+				{ createClient: createClientFactory(client) },
+			),
+		).rejects.toMatchObject({ code: "folder_not_found" });
+		expect(client.logoutCalls).toBe(1);
+	});
+
+	it("default (no folder) still opens INBOX and never calls list()", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapListRecent } = await import("./imap");
+
+		const client = new FakeImapClient({
+			search: () => [],
+			fetch: () => asyncIterableOf([]),
+		});
+
+		await imapListRecent(
+			USER_ID,
+			conn.id,
+			{},
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(client.mailboxOpenCalls).toEqual([
+			{ path: "INBOX", options: { readOnly: true } },
+		]);
+		expect(client.listCalls).toBe(0);
+	});
+
+	it("imapListFolders returns path/name/specialUse for every mailbox", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapListFolders } = await import("./imap");
+
+		const client = new FakeImapClient({
+			list: () => [
+				{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+				{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
+				{ path: "Archive", name: "Archive", specialUse: "\\Archive" },
+				{ path: "Work/Clients", name: "Clients" },
+			],
+		});
+
+		const folders = await imapListFolders(USER_ID, conn.id, {
+			createClient: createClientFactory(client),
+		});
+
+		expect(folders).toEqual([
+			{ path: "INBOX", name: "INBOX", specialUse: "\\Inbox" },
+			{ path: "Sent Items", name: "Sent Items", specialUse: "\\Sent" },
+			{ path: "Archive", name: "Archive", specialUse: "\\Archive" },
+			{ path: "Work/Clients", name: "Clients" },
+		]);
+		expect(client.mailboxOpenCalls[0]?.options).toEqual({ readOnly: true });
+		expect(client.logoutCalls).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Attachments (GAP B5) — imapReadMessage lists attachment metadata parsed from
+// the already-fetched bodyStructure, without downloading any bytes.
+// ---------------------------------------------------------------------------
+
+describe("attachments (B5)", () => {
+	it("lists attachment filename/contentType/size from bodyStructure, keeping the text body, without a bytes download", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapReadMessage } = await import("./imap");
+
+		const client = new FakeImapClient({
+			fetchOne: (_seq, query) => {
+				if (query.bodyStructure) {
+					return Promise.resolve({
+						uid: 70,
+						envelope: { subject: "Here is the invoice" },
+						flags: new Set(),
+						bodyStructure: {
+							type: "multipart/mixed",
+							childNodes: [
+								{
+									part: "1",
+									type: "text/plain",
+									encoding: "7bit",
+									parameters: { charset: "utf-8" },
+								},
+								{
+									part: "2",
+									type: "application/pdf",
+									encoding: "base64",
+									size: 12345,
+									disposition: "attachment",
+									dispositionParameters: { filename: "invoice.pdf" },
+								},
+							],
+						},
+					} satisfies ImapFetchedMessage);
+				}
+				if (query.bodyParts) {
+					return Promise.resolve({
+						uid: 70,
+						bodyParts: new Map([["1", Buffer.from("See attached", "utf8")]]),
+					} satisfies ImapFetchedMessage);
+				}
+				return Promise.resolve(false);
+			},
+		});
+
+		const result = await imapReadMessage(
+			USER_ID,
+			conn.id,
+			{ uid: 70 },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(result.text).toBe("See attached");
+		expect(result.attachments).toEqual([
+			{ filename: "invoice.pdf", contentType: "application/pdf", size: 12345 },
+		]);
+		const bodyPartFetches = client.fetchOneCalls.filter(
+			(c) => (c.query as { bodyParts?: unknown }).bodyParts,
+		);
+		expect(bodyPartFetches).toHaveLength(1);
+	});
+
+	it("returns an empty attachments list for a plain single-part message", async () => {
+		seedUser(USER_ID);
+		const conn = await seedImapConnection();
+		const { imapReadMessage } = await import("./imap");
+
+		const client = new FakeImapClient({
+			fetchOne: (_seq, query) => {
+				if (query.bodyStructure) {
+					return Promise.resolve({
+						uid: 71,
+						envelope: { subject: "Plain" },
+						flags: new Set(),
+						bodyStructure: {
+							type: "text/plain",
+							encoding: "7bit",
+							parameters: { charset: "utf-8" },
+						},
+					});
+				}
+				if (query.bodyParts) {
+					return Promise.resolve({
+						uid: 71,
+						bodyParts: new Map([["text", Buffer.from("Hi", "utf8")]]),
+					});
+				}
+				return Promise.resolve(false);
+			},
+		});
+
+		const result = await imapReadMessage(
+			USER_ID,
+			conn.id,
+			{ uid: 71 },
+			{ createClient: createClientFactory(client) },
+		);
+
+		expect(result.attachments).toEqual([]);
 	});
 });

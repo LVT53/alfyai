@@ -26,7 +26,16 @@ import { decideLocalDistill } from "./connector-distill";
 import { truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
-	action: z.enum(["list", "search", "read", "save", "move", "delete"]),
+	action: z.enum([
+		"list",
+		"search",
+		"read",
+		"save",
+		"move",
+		"delete",
+		"create_folder",
+		"share_link",
+	]),
 	query: z.string().optional(),
 	path: z.string().optional(),
 	// Destination for "move" (also serves rename — a move where only the final
@@ -674,6 +683,196 @@ async function deleteOutcome(
 	});
 }
 
+// GAP B9a — the tool's create_folder action (WebDAV MKCOL). Same explicit-
+// confirm posture as save/move/delete: the allowWrites gate is checked BEFORE
+// the secret is decrypted, a WriteOperation + preview is built via the write-
+// guard, and a PENDING row is created. This function NEVER calls
+// executeNextcloudWrite — the only path to an actual MKCOL is a later explicit
+// user confirm. Non-destructive (a folder that already exists is refused as a
+// conflict at execute time, never a clobber) and reversible (deleting the
+// created folder undoes it). A path is REQUIRED — like delete there is no
+// sensible default target for "create a folder".
+async function createFolderOutcome(
+	userId: string,
+	conversationId: string | undefined,
+	conn: ConnectionPublic,
+	input: FilesToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<FilesToolOutcome> {
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "create_folder",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!input.path) {
+		return buildPayload({
+			success: false,
+			action: "create_folder",
+			message: "A folder path is required to create a folder.",
+		});
+	}
+
+	const secret = await getConnectionSecret(userId, conn.id);
+	if (!secret) {
+		return buildPayload({
+			success: false,
+			action: "create_folder",
+			message:
+				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+		});
+	}
+
+	const target = resolveWriteTarget({
+		allowlist: conn.writeAllowlist,
+		requestedPath: input.path,
+		defaultArea: conn.writeAllowlist[0],
+	});
+	const label = fileLabel(target.path);
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "files.create_folder",
+		summary: `Create folder ${label} at ${target.path}`,
+		// Reversible (deleting the folder undoes it) and non-destructive (MKCOL
+		// never overwrites — an existing folder is refused as a conflict).
+		reversible: true,
+		destructive: false,
+		target: { path: target.path, withinAllowlist: target.withinAllowlist },
+	};
+	const preview = buildWritePreview(op);
+
+	const { id } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: "",
+		idempotencyKey: idempotencyKey(op),
+		preview,
+		conversationId,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared creating a new folder "${label}" at ${target.path}, but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "create_folder",
+		message,
+		pendingWriteId: id,
+		preview,
+	});
+}
+
+// The public-exposure warning surfaced in a share_link confirm preview. This
+// is the load-bearing invariant for this SENSITIVE write: it must be the FIRST
+// warning the user sees, so a public link is never created without an explicit,
+// prominent heads-up.
+const PUBLIC_SHARE_WARNING =
+	"This creates a PUBLIC link that anyone with the URL can open — no Nextcloud login required.";
+
+// GAP B9b — the tool's share_link action (OCS Shares API, public link). This
+// is a SENSITIVE write: it creates PUBLIC exposure of a file, so the confirm
+// preview prominently carries PUBLIC_SHARE_WARNING. Same explicit-confirm
+// posture as the other writes: the allowWrites gate is checked BEFORE the
+// secret is decrypted, a PENDING row is created, and executeNextcloudWrite is
+// NEVER called here — the only path to an actual share is a later explicit user
+// confirm, on which the public URL is returned. Treated as reversible (the
+// share can be removed) and non-destructive (the file itself is untouched), but
+// high-sensitivity. Optional password/expiry the OCS API supports are future
+// work. A path is REQUIRED.
+async function shareLinkOutcome(
+	userId: string,
+	conversationId: string | undefined,
+	conn: ConnectionPublic,
+	input: FilesToolInput,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): Promise<FilesToolOutcome> {
+	if (conn.allowWrites !== true) {
+		return buildPayload({
+			success: false,
+			action: "share_link",
+			message: `Writing to ${conn.label} is turned off; enable it in settings.`,
+		});
+	}
+
+	if (!input.path) {
+		return buildPayload({
+			success: false,
+			action: "share_link",
+			message: "A file path is required to create a public share link.",
+		});
+	}
+
+	const secret = await getConnectionSecret(userId, conn.id);
+	if (!secret) {
+		return buildPayload({
+			success: false,
+			action: "share_link",
+			message:
+				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+		});
+	}
+
+	const target = resolveWriteTarget({
+		allowlist: conn.writeAllowlist,
+		requestedPath: input.path,
+		defaultArea: conn.writeAllowlist[0],
+	});
+	const label = fileLabel(target.path);
+
+	const op: WriteOperation = {
+		provider: conn.provider,
+		connectionId: conn.id,
+		action: "files.share_link",
+		summary: `Create a public link for ${label}`,
+		// The share can be revoked from the Nextcloud UI (reversible) and the
+		// file itself is not modified (non-destructive) — but see
+		// PUBLIC_SHARE_WARNING for why this is still a high-sensitivity write.
+		reversible: true,
+		destructive: false,
+		target: { path: target.path, withinAllowlist: target.withinAllowlist },
+	};
+	const preview = buildWritePreview(op);
+	// Prepend the public-exposure warning so it is the FIRST warning shown —
+	// buildWritePreview has no notion of "public exposure", so it is added here.
+	preview.warnings = [PUBLIC_SHARE_WARNING, ...preview.warnings];
+
+	const { id } = await createPendingWrite(userId, {
+		connectionId: conn.id,
+		provider: conn.provider,
+		op,
+		content: "",
+		idempotencyKey: idempotencyKey(op),
+		preview,
+		conversationId,
+	});
+
+	const message = withAmbiguityPrefix(
+		`I've prepared a PUBLIC share link for "${label}" (${target.path}), but it has NOT been created yet — it is PENDING and awaiting your explicit confirmation. WARNING: ${PUBLIC_SHARE_WARNING} ${preview.detail}${preview.warnings.length > 0 ? ` Warnings: ${preview.warnings.join("; ")}.` : ""}`,
+		ambiguous,
+		conn,
+		connections,
+	);
+
+	return buildPayload({
+		success: true,
+		action: "share_link",
+		message,
+		pendingWriteId: id,
+		preview,
+	});
+}
+
 // Locality Option A: when the user has opted in to local distillation and the
 // selected chat model is cloud, replace raw connector content with a summary
 // produced by a local model before it reaches the (cloud) model — raw file
@@ -763,7 +962,8 @@ export async function runFilesTool(
 		});
 	}
 
-	// The write actions ("save", "move", "delete") are write proposals, not
+	// The write actions ("save", "move", "delete", "create_folder",
+	// "share_link") are write proposals, not
 	// reads: each must check the allowWrites gate BEFORE any secret is
 	// decrypted, so they branch here — before the shared getConnectionSecret
 	// call below — and manage their own secret fetch internally once the gate
@@ -793,6 +993,28 @@ export async function runFilesTool(
 
 	if (input.action === "delete") {
 		return deleteOutcome(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
+	}
+
+	if (input.action === "create_folder") {
+		return createFolderOutcome(
+			userId,
+			conversationId,
+			conn,
+			input,
+			ambiguous,
+			connections,
+		);
+	}
+
+	if (input.action === "share_link") {
+		return shareLinkOutcome(
 			userId,
 			conversationId,
 			conn,

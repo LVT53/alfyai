@@ -7,7 +7,9 @@ import {
 } from "$lib/server/services/connections/locality";
 import {
 	PlexError,
+	plexLibrarySearch,
 	plexLibrarySections,
+	plexOnDeck,
 	plexWatchHistory,
 } from "$lib/server/services/connections/providers/plex";
 import {
@@ -34,6 +36,8 @@ vi.mock("$lib/server/services/connections/providers/plex", async () => {
 		...actual,
 		plexWatchHistory: vi.fn(),
 		plexLibrarySections: vi.fn(),
+		plexOnDeck: vi.fn(),
+		plexLibrarySearch: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -48,6 +52,8 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const plexWatchHistoryMock = vi.mocked(plexWatchHistory);
 const plexLibrarySectionsMock = vi.mocked(plexLibrarySections);
+const plexOnDeckMock = vi.mocked(plexOnDeck);
+const plexLibrarySearchMock = vi.mocked(plexLibrarySearch);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -86,6 +92,8 @@ function resetAllMocks() {
 	needsDisambiguationMock.mockReset();
 	plexWatchHistoryMock.mockReset();
 	plexLibrarySectionsMock.mockReset();
+	plexOnDeckMock.mockReset();
+	plexLibrarySearchMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -99,18 +107,23 @@ function resetAllMocks() {
 // ---------------------------------------------------------------------------
 
 describe("mediaToolInputSchema", () => {
-	it("only accepts read actions (watch_history, libraries) — no write action exists", () => {
+	it("only accepts read actions (watch_history, libraries, continue_watching, library_search) — no write action exists", () => {
 		const actionSchema = mediaToolInputSchema.shape.action;
 		const values = actionSchema.options as readonly string[];
 		expect(values).toEqual(
-			expect.arrayContaining(["watch_history", "libraries"]),
+			expect.arrayContaining([
+				"watch_history",
+				"libraries",
+				"continue_watching",
+				"library_search",
+			]),
 		);
 		for (const value of values) {
 			expect(value).not.toMatch(
 				/write|create|update|delete|mark|scrobble|rate|play/i,
 			);
 		}
-		expect(values).toHaveLength(2);
+		expect(values).toHaveLength(4);
 	});
 });
 
@@ -290,6 +303,226 @@ describe("runMediaTool", () => {
 		]);
 	});
 
+	// -------------------------------------------------------------------------
+	// GAP B2 — continue_watching
+	// -------------------------------------------------------------------------
+
+	it("continue_watching: returns onDeck items, citations, and Sources-tab candidates", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexOnDeckMock.mockResolvedValue([
+			{
+				title: "Ozymandias",
+				show: "Breaking Bad",
+				season: 5,
+				episode: 14,
+				type: "episode",
+				viewOffsetMs: 300000,
+				durationMs: 1200000,
+				progress: 0.25,
+				library: "TV Shows",
+			},
+		]);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "continue_watching" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(plexOnDeckMock).toHaveBeenCalledWith("user-1", "conn-1", {});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.onDeck).toEqual([
+			{
+				title: "Ozymandias",
+				show: "Breaking Bad",
+				season: 5,
+				episode: 14,
+				type: "episode",
+				viewOffsetMs: 300000,
+				durationMs: 1200000,
+				progress: 0.25,
+				library: "TV Shows",
+			},
+		]);
+		expect(outcome.modelPayload.message).toContain(
+			"1 item to continue watching",
+		);
+		expect(outcome.modelPayload.citations).toEqual([
+			{ label: "Breaking Bad — Ozymandias", url: "" },
+		]);
+		expect(outcome.candidates).toHaveLength(1);
+	});
+
+	it("continue_watching: forwards limit to plexOnDeck", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexOnDeckMock.mockResolvedValue([]);
+
+		await runMediaTool(
+			"user-1",
+			{ action: "continue_watching", limit: 5 },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(plexOnDeckMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			limit: 5,
+		});
+	});
+
+	it("continue_watching: empty on-deck list produces a graceful message", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexOnDeckMock.mockResolvedValue([]);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "continue_watching" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.onDeck).toEqual([]);
+		expect(outcome.modelPayload.message).toContain(
+			"Nothing is currently in progress",
+		);
+	});
+
+	it("continue_watching: maps adapter errors to a graceful note", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexOnDeckMock.mockRejectedValue(
+			new PlexError("Plex rejected the stored token", "needs_reauth"),
+		);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "continue_watching" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("reconnected");
+	});
+
+	// -------------------------------------------------------------------------
+	// GAP B3 — library_search
+	// -------------------------------------------------------------------------
+
+	it("library_search: returns matched items and the true match count in the message", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockResolvedValue({
+			items: [
+				{ title: "The Matrix", year: 1999, type: "movie", section: "Movies" },
+			],
+			totalCount: 1,
+		});
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search", query: "matrix" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(plexLibrarySearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			query: "matrix",
+		});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.librarySearch).toEqual([
+			{ title: "The Matrix", year: 1999, type: "movie", section: "Movies" },
+		]);
+		expect(outcome.modelPayload.libraryMatchCount).toBe(1);
+		expect(outcome.modelPayload.message).toContain("Found 1 matching title");
+	});
+
+	it("library_search: message surfaces the true count even when items are capped below it", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockResolvedValue({
+			items: [{ title: "A", type: "movie", section: "Movies" }],
+			totalCount: 142,
+		});
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.message).toContain("142");
+		expect(outcome.modelPayload.message).toContain("showing 1");
+	});
+
+	it("library_search: no matches produces a graceful message", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockResolvedValue({ items: [], totalCount: 0 });
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search", query: "nonexistent" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.message).toContain(
+			"No matching titles found",
+		);
+	});
+
+	it("library_search: never calls plexWatchHistory (distinct from history search)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockResolvedValue({
+			items: [{ title: "Unwatched Gem", type: "movie", section: "Movies" }],
+			totalCount: 1,
+		});
+
+		await runMediaTool(
+			"user-1",
+			{ action: "library_search", query: "unwatched gem" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(plexWatchHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("library_search: is never gated by Option A distillation (owned catalog, not watch behavior)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockResolvedValue({
+			items: [{ title: "The Matrix", type: "movie", section: "Movies" }],
+			totalCount: 1,
+		});
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search", query: "matrix" },
+			"cloud-model",
+		);
+
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.librarySearch[0]?.title).toBe("The Matrix");
+	});
+
+	it("library_search: maps adapter errors to a graceful note", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexLibrarySearchMock.mockRejectedValue(new Error("network exploded"));
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "library_search", query: "matrix" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("couldn't reach your media");
+	});
+
 	it("maps needs_reauth adapter errors to a graceful note without leaking the token", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -324,8 +557,8 @@ describe("runMediaTool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Locality Option A distillation gate — watch history is sensitive personal
-// data (what someone watches).
+// Locality Option A distillation gate — watch history and continue_watching
+// are sensitive personal data (what someone watches).
 // ---------------------------------------------------------------------------
 
 describe("runMediaTool — locality Option A distillation gate", () => {
@@ -451,5 +684,93 @@ describe("runMediaTool — locality Option A distillation gate", () => {
 		await runMediaTool("user-1", { action: "libraries" }, "cloud-model");
 
 		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	// -------------------------------------------------------------------------
+	// GAP B2 — continue_watching is gated the same way watch_history is: it
+	// reveals the same kind of sensitive "what someone watches" data (in this
+	// case, what they're mid-way through right now).
+	// -------------------------------------------------------------------------
+
+	function seedOnDeck() {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		plexOnDeckMock.mockResolvedValue([
+			{
+				title: "Intervention",
+				show: "Celebrity Rehab",
+				season: 2,
+				episode: 4,
+				type: "episode",
+				viewOffsetMs: 100000,
+				durationMs: 1000000,
+				progress: 0.1,
+				library: "TV Shows",
+			},
+		]);
+	}
+
+	async function onDeckOnce() {
+		return runMediaTool(
+			"user-1",
+			{ action: "continue_watching" },
+			"whichever-model",
+		);
+	}
+
+	it("Option A off: raw on-deck data is returned unchanged and distill is not called", async () => {
+		seedOnDeck();
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const outcome = await onDeckOnce();
+
+		expect(outcome.modelPayload.onDeck[0]?.title).toBe("Intervention");
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("Option A on + cloud model: the ENTIRE model-bound payload carries only the distilled summary for continue_watching too", async () => {
+		seedOnDeck();
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One in-progress episode of a reality TV show.",
+		});
+
+		const outcome = await onDeckOnce();
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Intervention");
+		expect(serializedPayload).not.toContain("Celebrity Rehab");
+		expect(outcome.modelPayload.onDeck[0]?.title).toBeUndefined();
+		expect(outcome.modelPayload.onDeck[0]?.show).toBeUndefined();
+		// Structural fields (progress/season/episode/type) survive the strip.
+		expect(outcome.modelPayload.onDeck[0]?.progress).toBe(0.1);
+		expect(outcome.modelPayload.message).toContain(
+			"One in-progress episode of a reality TV show.",
+		);
+		expect(outcome.modelPayload.citations[0]?.label).not.toContain(
+			"Intervention",
+		);
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({ title: "Celebrity Rehab — Intervention" }),
+		]);
+	});
+
+	it("Option A on + cloud model + distill unavailable: on-deck details are withheld, not leaked", async () => {
+		seedOnDeck();
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+		const outcome = await onDeckOnce();
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Intervention");
+		expect(serializedPayload).not.toContain("Celebrity Rehab");
+		expect(outcome.modelPayload.message).toContain("withheld");
+		expect(outcome.candidates).toEqual([
+			expect.objectContaining({ title: "Celebrity Rehab — Intervention" }),
+		]);
 	});
 });

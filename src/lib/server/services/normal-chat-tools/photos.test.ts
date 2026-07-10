@@ -8,6 +8,10 @@ import {
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	ImmichError,
+	immichAlbumAssets,
+	immichListAlbums,
+	immichListPeople,
+	immichMetadataSearch,
 	immichSmartSearch,
 } from "$lib/server/services/connections/providers/immich";
 import {
@@ -29,6 +33,10 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	return {
 		...actual,
 		immichSmartSearch: vi.fn(),
+		immichMetadataSearch: vi.fn(),
+		immichListAlbums: vi.fn(),
+		immichAlbumAssets: vi.fn(),
+		immichListPeople: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -45,6 +53,10 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 );
 const needsDisambiguationMock = vi.mocked(needsDisambiguation);
 const immichSmartSearchMock = vi.mocked(immichSmartSearch);
+const immichMetadataSearchMock = vi.mocked(immichMetadataSearch);
+const immichListAlbumsMock = vi.mocked(immichListAlbums);
+const immichAlbumAssetsMock = vi.mocked(immichAlbumAssets);
+const immichListPeopleMock = vi.mocked(immichListPeople);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -80,6 +92,10 @@ function resetAllMocks() {
 	resolveConnectionsForCapabilityMock.mockReset();
 	needsDisambiguationMock.mockReset();
 	immichSmartSearchMock.mockReset();
+	immichMetadataSearchMock.mockReset();
+	immichListAlbumsMock.mockReset();
+	immichAlbumAssetsMock.mockReset();
+	immichListPeopleMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -519,5 +535,236 @@ describe("runPhotosTool — add_to_album (Issue 6.4)", () => {
 		// The local-distill decision path is never invoked for this action —
 		// there is no connector-read rawText to gate.
 		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("runPhotosTool — search_by_date (B1 metadata search)", () => {
+	beforeEach(resetAllMocks);
+
+	it("forwards date/place/type/favorite filters to immichMetadataSearch and returns results + candidates", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		immichMetadataSearchMock.mockResolvedValue([
+			{
+				id: "asset-1",
+				fileName: "june.jpg",
+				takenAt: "2019-06-15T09:55:00.000Z",
+				type: "IMAGE",
+				place: "Paris, France",
+				thumbnailPath: "/api/assets/asset-1/thumbnail",
+			},
+		]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{
+				action: "search_by_date",
+				from: "2019-06-01",
+				to: "2019-06-30",
+				city: "Paris",
+				type: "IMAGE",
+				favorites: true,
+			},
+			LOCAL_MODEL_ID,
+		);
+
+		expect(immichMetadataSearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			takenAfter: "2019-06-01",
+			takenBefore: "2019-06-30",
+			city: "Paris",
+			type: "IMAGE",
+			isFavorite: true,
+		});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("search_by_date");
+		expect(outcome.modelPayload.results[0]?.fileName).toBe("june.jpg");
+		expect(outcome.candidates[0]).toEqual(
+			expect.objectContaining({ id: "photos:asset-1" }),
+		);
+		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+	});
+
+	it("resolves personName -> personIds via immichListPeople, then filters the metadata search", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		immichListPeopleMock.mockResolvedValue([
+			{ id: "p1", name: "Alice" },
+			{ id: "p2", name: "Bob" },
+		]);
+		immichMetadataSearchMock.mockResolvedValue([]);
+
+		await runPhotosTool(
+			"user-1",
+			{ action: "search_by_date", personName: "alice" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(immichListPeopleMock).toHaveBeenCalledWith("user-1", "conn-1");
+		expect(immichMetadataSearchMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			personIds: ["p1"],
+		});
+	});
+
+	it("returns a graceful note (no metadata search) when personName matches nobody", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		immichListPeopleMock.mockResolvedValue([{ id: "p1", name: "Alice" }]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search_by_date", personName: "Zebediah" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Zebediah");
+		expect(immichMetadataSearchMock).not.toHaveBeenCalled();
+	});
+
+	// Option A applies to metadata-search results exactly like smart search:
+	// they carry the same sensitive fileName/place/description.
+	it("Option A + cloud model: metadata-search results are distilled out of the model payload", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({ distilled: "One photo." });
+		immichMetadataSearchMock.mockResolvedValue([
+			{
+				id: "asset-1",
+				fileName: "hospital-visit.jpg",
+				takenAt: "2019-06-15T09:55:00.000Z",
+				type: "IMAGE",
+				place: "St. Mary's Hospital",
+				thumbnailPath: "/api/assets/asset-1/thumbnail",
+			},
+		]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search_by_date", from: "2019-06-01" },
+			"cloud-model",
+		);
+
+		const serialized = JSON.stringify(outcome.modelPayload);
+		expect(serialized).not.toContain("hospital-visit.jpg");
+		expect(serialized).not.toContain("St. Mary's Hospital");
+		expect(outcome.modelPayload.message).toContain("One photo.");
+		// Candidates keep the real data for the user's own Sources tab.
+		expect(outcome.candidates[0]).toEqual(
+			expect.objectContaining({ title: "hospital-visit.jpg" }),
+		);
+	});
+});
+
+describe("runPhotosTool — list_albums / album / list_people (B1/B6 browse)", () => {
+	beforeEach(resetAllMocks);
+
+	it("list_albums: surfaces album summaries (discovery, no distill gate)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		immichListAlbumsMock.mockResolvedValue([
+			{ id: "album-1", albumName: "Vacation", assetCount: 42 },
+		]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "list_albums" },
+			"cloud-model",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("list_albums");
+		expect(outcome.modelPayload.albums).toEqual([
+			{ id: "album-1", name: "Vacation", assetCount: 42 },
+		]);
+		// Discovery metadata, mirrors calendar list_calendars — not distilled.
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("album: requires an albumId", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "album" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("albumId");
+		expect(immichAlbumAssetsMock).not.toHaveBeenCalled();
+	});
+
+	it("album: fetches the album's assets and returns them as photo results", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		immichAlbumAssetsMock.mockResolvedValue([
+			{
+				id: "asset-1",
+				fileName: "beach.jpg",
+				takenAt: "2026-06-01T10:00:00.000Z",
+				type: "IMAGE",
+				thumbnailPath: "/api/assets/asset-1/thumbnail",
+			},
+		]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "album", albumId: "album-1" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(immichAlbumAssetsMock).toHaveBeenCalledWith("user-1", "conn-1", {
+			albumId: "album-1",
+		});
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("album");
+		expect(outcome.modelPayload.results[0]?.fileName).toBe("beach.jpg");
+	});
+
+	it("list_people: surfaces named people (discovery, no distill gate)", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		immichListPeopleMock.mockResolvedValue([
+			{ id: "p1", name: "Alice" },
+			{ id: "p2", name: "Bob" },
+		]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "list_people" },
+			"cloud-model",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.action).toBe("list_people");
+		expect(outcome.modelPayload.people).toEqual([
+			{ id: "p1", name: "Alice" },
+			{ id: "p2", name: "Bob" },
+		]);
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("list_albums: maps a needs_reauth error to a graceful note", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		immichListAlbumsMock.mockRejectedValue(
+			new ImmichError("Immich rejected the stored API key", "needs_reauth"),
+		);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "list_albums" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("reconnected");
 	});
 });

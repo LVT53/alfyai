@@ -2,8 +2,11 @@ import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	type EmailHeader,
+	type ImapAttachment,
 	ImapError,
+	type ImapFolder,
 	imapCount,
+	imapListFolders,
 	imapListRecent,
 	imapReadMessage,
 	imapSearch,
@@ -29,6 +32,7 @@ export const emailToolInputSchema = z.object({
 		"search",
 		"count",
 		"read",
+		"list_folders",
 		"send",
 		"trash",
 		"flag",
@@ -36,6 +40,11 @@ export const emailToolInputSchema = z.object({
 	query: z.string().optional(),
 	unseenOnly: z.boolean().optional(),
 	uid: z.number().optional(),
+	// Folder scoping (B4): which mailbox the read actions (recent/search/read/
+	// count) operate on. Optional — defaults to INBOX. Resolved SPECIAL-USE-first
+	// then by name, so "Sent"/"Archive"/a custom folder name all work; call the
+	// "list_folders" action to discover the exact names the server exposes.
+	folder: z.string().optional(),
 	// Structured search/count filters (A2). All optional and AND together with
 	// each other and with `query`: `from`/`subject` are sender/subject
 	// substrings; `since`/`before` are date bounds ("YYYY-MM-DD" or ISO). Used
@@ -65,6 +74,7 @@ export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.unseenOnly !== undefined ? { unseenOnly: input.unseenOnly } : {}),
 		...(input.uid !== undefined ? { uid: input.uid } : {}),
+		...(input.folder ? { folder: input.folder.trim() } : {}),
 		...(input.from ? { from: input.from.trim() } : {}),
 		...(input.since ? { since: input.since.trim() } : {}),
 		...(input.before ? { before: input.before.trim() } : {}),
@@ -95,6 +105,24 @@ export type EmailToolHeaderItem = {
 	snippet?: string;
 };
 
+// One attachment's metadata as surfaced to the model (B5). Filename is
+// message-derived content (it can reveal what an email is about), so it is
+// treated as raw detail by the Option-A distill gate — dropped when active.
+export type EmailToolAttachmentItem = {
+	filename: string;
+	contentType: string;
+	size?: number;
+};
+
+// One mailbox folder as surfaced to the model (B4 list_folders). Folder
+// names/paths are mailbox STRUCTURE, not message content (like counts), so
+// they are never subject to the Option-A distill gate.
+export type EmailToolFolderItem = {
+	name: string;
+	path: string;
+	specialUse?: string;
+};
+
 export type EmailToolModelPayload = {
 	success: boolean;
 	name: "email";
@@ -104,6 +132,11 @@ export type EmailToolModelPayload = {
 	messages: EmailToolHeaderItem[];
 	// Only present for a successful "read" — the full (capped) message body.
 	text?: string;
+	// Only present for a successful "read" (B5) — attachment metadata (filename/
+	// contentType/size). Listing only; no bytes are downloaded.
+	attachments?: EmailToolAttachmentItem[];
+	// Only present for a successful "list_folders" (B4) — the account's mailboxes.
+	folders?: EmailToolFolderItem[];
 	// Only present for a successful "count" (A4) — the number of matching
 	// messages (unread by default). Aggregate metadata, not raw message
 	// content, so it is never subject to the Option-A distill gate.
@@ -160,6 +193,8 @@ function buildPayload(params: {
 	message: string;
 	messages?: EmailToolHeaderItem[];
 	text?: string;
+	attachments?: EmailToolAttachmentItem[];
+	folders?: EmailToolFolderItem[];
 	count?: number;
 	citations?: EmailCitation[];
 	pendingWriteId?: string;
@@ -176,6 +211,10 @@ function buildPayload(params: {
 			message: params.message,
 			messages,
 			...(params.text !== undefined ? { text: params.text } : {}),
+			...(params.attachments !== undefined
+				? { attachments: params.attachments }
+				: {}),
+			...(params.folders !== undefined ? { folders: params.folders } : {}),
 			...(params.count !== undefined ? { count: params.count } : {}),
 			citations,
 			...(params.pendingWriteId
@@ -272,10 +311,19 @@ function countOutcome(
 	});
 }
 
+function toAttachmentItem(att: ImapAttachment): EmailToolAttachmentItem {
+	return {
+		filename: att.filename,
+		contentType: att.contentType,
+		...(att.size !== undefined ? { size: att.size } : {}),
+	};
+}
+
 function readOutcome(
 	conn: ConnectionPublic,
 	header: EmailHeader,
 	text: string,
+	attachments: ImapAttachment[],
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): EmailToolOutcome {
@@ -298,7 +346,34 @@ function readOutcome(
 		message,
 		messages: [item],
 		text,
+		attachments: attachments.map(toAttachmentItem),
 		citations: [citation],
+	});
+}
+
+// A folder listing (B4) surfaces only mailbox structure — names, paths, and
+// SPECIAL-USE flags — not message content, so like a count it carries no
+// per-message rows/citations and never needs the Option-A distill gate.
+function foldersOutcome(
+	conn: ConnectionPublic,
+	folders: ImapFolder[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): EmailToolOutcome {
+	const items: EmailToolFolderItem[] = folders.map((f) => ({
+		name: f.name,
+		path: f.path,
+		...(f.specialUse ? { specialUse: f.specialUse } : {}),
+	}));
+	const message =
+		items.length === 0
+			? "No folders found."
+			: `Found ${items.length} ${items.length === 1 ? "folder" : "folders"}.`;
+	return buildPayload({
+		success: true,
+		action: "list_folders",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		folders: items,
 	});
 }
 
@@ -350,6 +425,12 @@ async function applyLocalDistillGate(params: {
 		}
 	}
 	if (outcome.modelPayload.text) rawTextParts.push(outcome.modelPayload.text);
+	// Attachment filenames (B5) are message-derived content too ("Q3-layoffs.pdf"
+	// reveals what an email is about), so they count as raw detail that both
+	// triggers the gate and is stripped below.
+	for (const att of outcome.modelPayload.attachments ?? []) {
+		rawTextParts.push(att.filename);
+	}
 	// Nothing raw to protect (e.g. every message has an empty from/subject and
 	// there's no body) — the gate is a no-op.
 	if (rawTextParts.length === 0) return outcome;
@@ -381,6 +462,7 @@ async function applyLocalDistillGate(params: {
 				messages: strippedMessages,
 				citations: redactedCitations,
 				text: undefined,
+				attachments: undefined,
 			},
 		};
 	}
@@ -394,6 +476,7 @@ async function applyLocalDistillGate(params: {
 			messages: strippedMessages,
 			citations: redactedCitations,
 			text: undefined,
+			attachments: undefined,
 		},
 	};
 }
@@ -811,9 +894,17 @@ export async function runEmailTool(
 	}
 
 	try {
+		// B4: enumerate the account's mailboxes so the model can discover folder
+		// names and resolve "Sent"/"Archive"/… — pure structure, no message read.
+		if (input.action === "list_folders") {
+			const folders = await imapListFolders(userId, conn.id);
+			return foldersOutcome(conn, folders, ambiguous, connections);
+		}
+
 		if (input.action === "recent") {
 			const headers = await imapListRecent(userId, conn.id, {
 				unseenOnly: input.unseenOnly,
+				...(input.folder ? { folder: input.folder } : {}),
 			});
 			const outcome = listOutcome(
 				conn,
@@ -837,7 +928,10 @@ export async function runEmailTool(
 						"A search query is required (or a sender, subject, or date filter) to search your email.",
 				});
 			}
-			const headers = await imapSearch(userId, conn.id, criteria);
+			const headers = await imapSearch(userId, conn.id, {
+				...criteria,
+				...(input.folder ? { folder: input.folder } : {}),
+			});
 			const outcome = listOutcome(
 				conn,
 				"search",
@@ -860,6 +954,7 @@ export async function runEmailTool(
 			const count = await imapCount(userId, conn.id, {
 				...criteria,
 				...(unseenOnly !== undefined ? { unseenOnly } : {}),
+				...(input.folder ? { folder: input.folder } : {}),
 			});
 			return countOutcome(
 				conn,
@@ -877,10 +972,22 @@ export async function runEmailTool(
 				message: "A message uid is required to read an email.",
 			});
 		}
-		const { header, text } = await imapReadMessage(userId, conn.id, {
-			uid: input.uid,
-		});
-		const outcome = readOutcome(conn, header, text, ambiguous, connections);
+		const { header, text, attachments } = await imapReadMessage(
+			userId,
+			conn.id,
+			{
+				uid: input.uid,
+				...(input.folder ? { folder: input.folder } : {}),
+			},
+		);
+		const outcome = readOutcome(
+			conn,
+			header,
+			text,
+			attachments,
+			ambiguous,
+			connections,
+		);
 		return applyLocalDistillGate({ userId, modelId, input, outcome });
 	} catch (err) {
 		return buildPayload({

@@ -364,6 +364,179 @@ describe("nextcloudMoveFile", () => {
 });
 
 // ---------------------------------------------------------------------------
+// GAP B9a — nextcloudCreateFolder (WebDAV MKCOL). Non-destructive: a folder
+// that already exists comes back as a typed `conflict`, never a silent no-op
+// or a clobber. Every path still routes through normalizeNextcloudPath first.
+// ---------------------------------------------------------------------------
+describe("nextcloudCreateFolder", () => {
+	it("issues a WebDAV MKCOL to the folder URL and resolves on 201", async () => {
+		const { nextcloudCreateFolder } = await import("./nextcloud-files");
+		const conn = makeConn();
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/Reports",
+				);
+				expect(init?.method).toBe("MKCOL");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("Authorization")).toBe(
+					`Basic ${Buffer.from("alice:app-password-xyz").toString("base64")}`,
+				);
+				return new Response(null, { status: 201 });
+			},
+		);
+
+		await nextcloudCreateFolder(conn, "app-password-xyz", "AlfyAI/Reports", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("a 405 (folder already exists) throws a typed conflict error", async () => {
+		const { nextcloudCreateFolder, NextcloudFilesError } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(async () => new Response(null, { status: 405 }));
+
+		let caught: unknown;
+		try {
+			await nextcloudCreateFolder(conn, "app-password-xyz", "AlfyAI/Reports", {
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(NextcloudFilesError);
+		expect((caught as InstanceType<typeof NextcloudFilesError>).code).toBe(
+			"conflict",
+		);
+	});
+
+	it("a 409 (missing intermediate parent) throws a typed conflict error", async () => {
+		const { nextcloudCreateFolder, NextcloudFilesError } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(async () => new Response(null, { status: 409 }));
+
+		let caught: unknown;
+		try {
+			await nextcloudCreateFolder(conn, "app-password-xyz", "AlfyAI/a/b", {
+				fetch: fetchMock as unknown as typeof fetch,
+			});
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(NextcloudFilesError);
+		expect((caught as InstanceType<typeof NextcloudFilesError>).code).toBe(
+			"conflict",
+		);
+	});
+
+	it("rejects a traversal path before any fetch is made", async () => {
+		const { nextcloudCreateFolder } = await import("./nextcloud-files");
+		const conn = makeConn();
+		const fetchMock = vi.fn();
+
+		await expect(
+			nextcloudCreateFolder(conn, "app-password-xyz", "../evil", {
+				fetch: fetchMock as unknown as typeof fetch,
+			}),
+		).rejects.toThrow();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// GAP B9b — nextcloudCreateShareLink (OCS Shares API). Creates a PUBLIC link
+// (shareType=3). Returns the public URL parsed from the OCS response.
+// ---------------------------------------------------------------------------
+describe("nextcloudCreateShareLink", () => {
+	it("POSTs to the OCS shares endpoint with shareType=3 + OCS-APIRequest, returns the public url", async () => {
+		const { nextcloudCreateShareLink } = await import("./nextcloud-files");
+		const conn = makeConn();
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toContain(
+					"/ocs/v2.php/apps/files_sharing/api/v1/shares",
+				);
+				expect(init?.method).toBe("POST");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("OCS-APIRequest")).toBe("true");
+				expect(headers.get("Authorization")).toBe(
+					`Basic ${Buffer.from("alice:app-password-xyz").toString("base64")}`,
+				);
+				const body = new URLSearchParams(String(init?.body));
+				expect(body.get("shareType")).toBe("3");
+				expect(body.get("path")).toBe("/AlfyAI/report.pdf");
+				return new Response(
+					JSON.stringify({
+						ocs: {
+							meta: { status: "ok", statuscode: 200 },
+							data: { id: "42", url: "https://cloud.example.com/s/abc123" },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			},
+		);
+
+		const url = await nextcloudCreateShareLink(
+			conn,
+			"app-password-xyz",
+			"/AlfyAI/report.pdf",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(url).toBe("https://cloud.example.com/s/abc123");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("maps a 401 to needs_reauth", async () => {
+		const { nextcloudCreateShareLink, NextcloudFilesError } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+
+		let caught: unknown;
+		try {
+			await nextcloudCreateShareLink(
+				conn,
+				"app-password-xyz",
+				"/AlfyAI/report.pdf",
+				{ fetch: fetchMock as unknown as typeof fetch },
+			);
+		} catch (err) {
+			caught = err;
+		}
+		expect(caught).toBeInstanceOf(NextcloudFilesError);
+		expect((caught as InstanceType<typeof NextcloudFilesError>).code).toBe(
+			"needs_reauth",
+		);
+	});
+
+	it("rejects a traversal path before any fetch is made", async () => {
+		const { nextcloudCreateShareLink } = await import("./nextcloud-files");
+		const conn = makeConn();
+		const fetchMock = vi.fn();
+
+		await expect(
+			nextcloudCreateShareLink(conn, "app-password-xyz", "../secret.txt", {
+				fetch: fetchMock as unknown as typeof fetch,
+			}),
+		).rejects.toThrow();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------------------
 // executeNextcloudWrite — guarded service tests. These need a real (sqlite)
 // store since the function loads the connection + decrypts the secret via
 // the store layer, same harness as store.test.ts.
@@ -497,7 +670,102 @@ describe("executeNextcloudWrite", () => {
 		);
 		expect(deleteResult).toEqual({ ok: true });
 	});
+
+	it("create_folder refuses when allowWrites is not true, and never calls the adapter fetch", async () => {
+		const { executeNextcloudWrite } = await import("./nextcloud-files");
+		const connectionId = await seedConnection({ allowWrites: false });
+		const fetchMock = vi.fn();
+
+		const result = await executeNextcloudWrite(
+			"user-1",
+			connectionId,
+			{ kind: "create_folder", requestedPath: "/AlfyAI/Reports" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: false, reason: "writes_disabled" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("create_folder with no requestedPath lands under the allowlist default area", async () => {
+		const { executeNextcloudWrite } = await import("./nextcloud-files");
+		const connectionId = await seedConnection({
+			allowWrites: true,
+			writeAllowlist: ["/AlfyAI"],
+		});
+
+		let mkcolUrl = "";
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				mkcolUrl = String(input);
+				expect(init?.method).toBe("MKCOL");
+				return new Response(null, { status: 201 });
+			},
+		);
+
+		const result = await executeNextcloudWrite(
+			"user-1",
+			connectionId,
+			{ kind: "create_folder" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: true });
+		expect(mkcolUrl).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI",
+		);
+	});
+
+	it("share_link refuses when allowWrites is not true, and never calls the adapter fetch", async () => {
+		const { executeNextcloudWrite } = await import("./nextcloud-files");
+		const connectionId = await seedConnection({ allowWrites: false });
+		const fetchMock = vi.fn();
+
+		const result = await executeNextcloudWrite(
+			"user-1",
+			connectionId,
+			{ kind: "share_link", path: "/AlfyAI/report.pdf" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({ ok: false, reason: "writes_disabled" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("share_link returns the public url on success (in result.url) without leaking the password", async () => {
+		const { executeNextcloudWrite } = await import("./nextcloud-files");
+		const connectionId = await seedConnection();
+
+		const fetchMock = vi.fn(async () =>
+			jsonOcsShareResponse("https://cloud.example.com/s/abc123"),
+		);
+
+		const result = await executeNextcloudWrite(
+			"user-1",
+			connectionId,
+			{ kind: "share_link", path: "/AlfyAI/report.pdf" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({
+			ok: true,
+			url: "https://cloud.example.com/s/abc123",
+		});
+		expect(JSON.stringify(result)).not.toContain("app-password-xyz");
+	});
 });
+
+function jsonOcsShareResponse(url: string): Response {
+	return new Response(
+		JSON.stringify({
+			ocs: {
+				meta: { status: "ok", statuscode: 200 },
+				data: { id: "42", url },
+			},
+		}),
+		{ status: 200, headers: { "Content-Type": "application/json" } },
+	);
+}
 
 // ---------------------------------------------------------------------------
 // Registered write-executor mapping (toNextcloudWriteRequest) — GAP A1. The
@@ -611,5 +879,75 @@ describe("nextcloud registered write executor — move/delete mapping (GAP A1)",
 			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/old.txt",
 		);
 		expect(sawUrl).not.toContain("permanent");
+	});
+
+	it("maps a files.create_folder op onto a WebDAV MKCOL at op.target.path (GAP B9a)", async () => {
+		const connectionId = await seedConnection();
+		const executor = await nextcloudExecutor();
+
+		let sawMethod = "";
+		let sawUrl = "";
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				sawMethod = init?.method ?? "";
+				sawUrl = String(input);
+				return new Response(null, { status: 201 });
+			},
+		);
+
+		const op: WriteOperation = {
+			provider: "nextcloud",
+			connectionId,
+			action: "files.create_folder",
+			summary: "Create folder Reports",
+			reversible: true,
+			destructive: false,
+			target: { path: "/AlfyAI/Reports", withinAllowlist: true },
+		};
+		const result = await executor.execute("user-1", connectionId, op, "", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result).toEqual({ ok: true });
+		expect(sawMethod).toBe("MKCOL");
+		expect(sawUrl).toBe(
+			"https://cloud.example.com/remote.php/dav/files/alice/AlfyAI/Reports",
+		);
+	});
+
+	it("maps a files.share_link op onto an OCS POST and surfaces the public url in detail (GAP B9b)", async () => {
+		const connectionId = await seedConnection();
+		const executor = await nextcloudExecutor();
+
+		let sawUrl = "";
+		let sawShareType: string | null = null;
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				sawUrl = String(input);
+				sawShareType = new URLSearchParams(String(init?.body)).get("shareType");
+				return jsonOcsShareResponse("https://cloud.example.com/s/xyz789");
+			},
+		);
+
+		const op: WriteOperation = {
+			provider: "nextcloud",
+			connectionId,
+			action: "files.share_link",
+			summary: "Create a public link for report.pdf",
+			reversible: true,
+			destructive: false,
+			target: { path: "/AlfyAI/report.pdf", withinAllowlist: true },
+		};
+		const result = await executor.execute("user-1", connectionId, op, "", {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			etag: null,
+			detail: "https://cloud.example.com/s/xyz789",
+		});
+		expect(sawUrl).toContain("/ocs/v2.php/apps/files_sharing/api/v1/shares");
+		expect(sawShareType).toBe("3");
 	});
 });

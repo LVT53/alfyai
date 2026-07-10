@@ -694,6 +694,478 @@ describe("plexLibrarySections", () => {
 });
 
 // ---------------------------------------------------------------------------
+// GAP B2 — plexOnDeck (continue watching / up next)
+// ---------------------------------------------------------------------------
+
+describe("plexOnDeck", () => {
+	it("parses onDeck Metadata into ContinueWatchingItem[], including derived progress", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexOnDeck } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				expect(url).toBe("https://plex.example.com/library/onDeck?limit=20");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Token")).toBe("plex-secret-token");
+				expect(headers.get("Accept")).toBe("application/json");
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 2,
+						Metadata: [
+							{
+								title: "Ozymandias",
+								type: "episode",
+								grandparentTitle: "Breaking Bad",
+								parentIndex: 5,
+								index: 14,
+								viewOffset: 300000,
+								duration: 1200000,
+								librarySectionTitle: "TV Shows",
+							},
+							{
+								title: "Inception",
+								type: "movie",
+								librarySectionTitle: "Movies",
+							},
+						],
+					},
+				});
+			},
+		);
+
+		const results = await plexOnDeck(
+			USER_ID,
+			conn.id,
+			{},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(results).toEqual([
+			{
+				title: "Ozymandias",
+				show: "Breaking Bad",
+				season: 5,
+				episode: 14,
+				type: "episode",
+				viewOffsetMs: 300000,
+				durationMs: 1200000,
+				progress: 0.25,
+				library: "TV Shows",
+			},
+			{
+				title: "Inception",
+				type: "movie",
+				library: "Movies",
+			},
+		]);
+	});
+
+	// Unlike watch history (BUG1), on-deck reflects the requesting token's own
+	// account viewstate already — there is no `accountID=` param to add.
+	it("does not append accountID to the request even when the connection has one stored", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection({ accountId: 7 });
+		const { plexOnDeck } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			expect(url).not.toContain("accountID");
+			return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
+		});
+
+		await plexOnDeck(
+			USER_ID,
+			conn.id,
+			{},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("clamps `limit` and sends matching X-Plex-Container-Size/-Start", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexOnDeck } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				expect(url).toContain("limit=100");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Container-Size")).toBe("100");
+				expect(headers.get("X-Plex-Container-Start")).toBe("0");
+				return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
+			},
+		);
+
+		await plexOnDeck(
+			USER_ID,
+			conn.id,
+			{ limit: 999 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
+	it("a 401 response maps to needs_reauth and marks the connection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexOnDeck } = await import("./plex");
+
+		const fetchMock = vi.fn(async () => jsonResponse(401, { error: "no" }));
+
+		await expect(
+			plexOnDeck(
+				USER_ID,
+				conn.id,
+				{},
+				{ fetch: fetchMock as unknown as typeof fetch },
+			),
+		).rejects.toMatchObject({ code: "needs_reauth" });
+	});
+
+	it("no token ever appears in a thrown error's message", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection({ token: "top-secret-token" });
+		const { plexOnDeck } = await import("./plex");
+
+		const fetchMock = vi.fn(async () => jsonResponse(500, { error: "boom" }));
+
+		try {
+			await plexOnDeck(
+				USER_ID,
+				conn.id,
+				{},
+				{ fetch: fetchMock as unknown as typeof fetch },
+			);
+			throw new Error("expected plexOnDeck to throw");
+		} catch (err) {
+			expect((err as Error).message).not.toContain("top-secret-token");
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// GAP B3 — plexLibrarySearch (owned catalog, distinct from watch history)
+// ---------------------------------------------------------------------------
+
+describe("plexLibrarySearch", () => {
+	it("queries each library section's /all with title=<query> and aggregates matches + totalCount", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [
+							{ key: "1", title: "Movies", type: "movie" },
+							{ key: "2", title: "TV Shows", type: "show" },
+						],
+					},
+				});
+			}
+			if (
+				url ===
+				"https://plex.example.com/library/sections/1/all?title=matrix"
+			) {
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 1,
+						totalSize: 1,
+						Metadata: [{ title: "The Matrix", type: "movie", year: 1999 }],
+					},
+				});
+			}
+			if (
+				url ===
+				"https://plex.example.com/library/sections/2/all?title=matrix"
+			) {
+				return jsonResponse(200, {
+					MediaContainer: { size: 0, totalSize: 0, Metadata: [] },
+				});
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const result = await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{ query: "matrix" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toEqual({
+			items: [
+				{ title: "The Matrix", year: 1999, type: "movie", section: "Movies" },
+			],
+			totalCount: 1,
+		});
+	});
+
+	it("does NOT match watch history — a title the user owns but never watched is still found via library_search", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch, plexWatchHistory } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [{ key: "1", title: "Movies", type: "movie" }],
+					},
+				});
+			}
+			if (
+				url ===
+				"https://plex.example.com/library/sections/1/all?title=unwatched%20gem"
+			) {
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 1,
+						totalSize: 1,
+						Metadata: [
+							{ title: "Unwatched Gem", type: "movie", year: 2020 },
+						],
+					},
+				});
+			}
+			// Watch history never saw this title.
+			if (url.startsWith("https://plex.example.com/status/sessions/history/all")) {
+				return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const historyResults = await plexWatchHistory(
+			USER_ID,
+			conn.id,
+			{ query: "unwatched gem" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(historyResults).toEqual([]);
+
+		const librarySearchResult = await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{ query: "unwatched gem" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		expect(librarySearchResult.items).toEqual([
+			{ title: "Unwatched Gem", year: 2020, type: "movie", section: "Movies" },
+		]);
+		expect(librarySearchResult.totalCount).toBe(1);
+	});
+
+	it("an empty/omitted query lists (and counts) a section's whole contents, for 'how many X do I own'", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [{ key: "1", title: "Movies", type: "movie" }],
+					},
+				});
+			}
+			if (url === "https://plex.example.com/library/sections/1/all") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						size: 2,
+						totalSize: 142,
+						Metadata: [
+							{ title: "Alpha", type: "movie", year: 2001 },
+							{ title: "Beta", type: "movie", year: 2002 },
+						],
+					},
+				});
+			}
+			throw new Error(`unexpected url ${url}`);
+		});
+
+		const result = await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{},
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result.totalCount).toBe(142);
+		expect(result.items).toHaveLength(2);
+	});
+
+	it("caps returned items at `limit` while totalCount still reflects the true match count", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [{ key: "1", title: "Movies", type: "movie" }],
+					},
+				});
+			}
+			return jsonResponse(200, {
+				MediaContainer: {
+					size: 5,
+					totalSize: 5,
+					Metadata: [
+						{ title: "A", type: "movie" },
+						{ title: "B", type: "movie" },
+						{ title: "C", type: "movie" },
+						{ title: "D", type: "movie" },
+						{ title: "E", type: "movie" },
+					],
+				},
+			});
+		});
+
+		const result = await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{ limit: 2 },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result.items).toHaveLength(2);
+		expect(result.totalCount).toBe(5);
+	});
+
+	it("sends X-Plex-Container-Size on each per-section request", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === "https://plex.example.com/library/sections") {
+					return jsonResponse(200, {
+						MediaContainer: {
+							Directory: [{ key: "1", title: "Movies", type: "movie" }],
+						},
+					});
+				}
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Plex-Container-Size")).toBeTruthy();
+				expect(headers.get("X-Plex-Container-Start")).toBe("0");
+				return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
+			},
+		);
+
+		await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{ query: "x" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+	});
+
+	it("skips a section whose /all request fails (non-401) without aborting the whole search", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [
+							{ key: "1", title: "Photos", type: "photo" },
+							{ key: "2", title: "Movies", type: "movie" },
+						],
+					},
+				});
+			}
+			if (url.startsWith("https://plex.example.com/library/sections/1/all")) {
+				return jsonResponse(400, { error: "unsupported filter" });
+			}
+			return jsonResponse(200, {
+				MediaContainer: {
+					size: 1,
+					totalSize: 1,
+					Metadata: [{ title: "The Matrix", type: "movie", year: 1999 }],
+				},
+			});
+		});
+
+		const result = await plexLibrarySearch(
+			USER_ID,
+			conn.id,
+			{ query: "matrix" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result.items).toEqual([
+			{ title: "The Matrix", year: 1999, type: "movie", section: "Movies" },
+		]);
+		expect(result.totalCount).toBe(1);
+	});
+
+	it("a 401 on a section request maps to needs_reauth and marks the connection", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection();
+		const { plexLibrarySearch } = await import("./plex");
+		const { getConnection } = await import("../store");
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === "https://plex.example.com/library/sections") {
+				return jsonResponse(200, {
+					MediaContainer: {
+						Directory: [{ key: "1", title: "Movies", type: "movie" }],
+					},
+				});
+			}
+			return jsonResponse(401, { error: "no" });
+		});
+
+		await expect(
+			plexLibrarySearch(
+				USER_ID,
+				conn.id,
+				{ query: "matrix" },
+				{ fetch: fetchMock as unknown as typeof fetch },
+			),
+		).rejects.toMatchObject({ code: "needs_reauth" });
+
+		const updated = await getConnection(USER_ID, conn.id);
+		expect(updated?.status).toBe("needs_reauth");
+	});
+
+	it("no token ever appears in a thrown error's message", async () => {
+		seedUser(USER_ID);
+		const conn = await seedPlexConnection({ token: "top-secret-token" });
+		const { plexLibrarySearch } = await import("./plex");
+
+		const fetchMock = vi.fn(async () => jsonResponse(500, { error: "boom" }));
+
+		try {
+			await plexLibrarySearch(
+				USER_ID,
+				conn.id,
+				{ query: "x" },
+				{ fetch: fetchMock as unknown as typeof fetch },
+			);
+			throw new Error("expected plexLibrarySearch to throw");
+		} catch (err) {
+			expect((err as Error).message).not.toContain("top-secret-token");
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
 // plexAdapter.checkHealth
 // ---------------------------------------------------------------------------
 

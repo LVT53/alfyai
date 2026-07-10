@@ -310,6 +310,91 @@ function toLocationFix(
 	};
 }
 
+// ---------------------------------------------------------------------------
+// B7 — place-based history & distance helpers. Pure functions: no recorder
+// calls, no new persistence. They operate only on data already returned by
+// owntracksLastLocation/owntracksLocationHistory (LocationFix[]) or already
+// stored on the connection's own config (ConnectionPublic).
+// ---------------------------------------------------------------------------
+
+const EARTH_RADIUS_METERS = 6371000;
+
+function toRadians(degrees: number): number {
+	return (degrees * Math.PI) / 180;
+}
+
+// Great-circle distance between two lat/lon points, in meters. Used to
+// answer "how far did I travel" / "how far is X from Y" once two points are
+// known — it never itself resolves *which* two points to compare, that's the
+// caller's job (see runLocationTool's "distance" action in location.ts).
+export function haversineDistanceMeters(
+	a: { lat: number; lon: number },
+	b: { lat: number; lon: number },
+): number {
+	const dLat = toRadians(b.lat - a.lat);
+	const dLon = toRadians(b.lon - a.lon);
+	const lat1 = toRadians(a.lat);
+	const lat2 = toRadians(b.lat);
+	const sinDLat = Math.sin(dLat / 2);
+	const sinDLon = Math.sin(dLon / 2);
+	const h =
+		sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+	const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+	return EARTH_RADIUS_METERS * c;
+}
+
+export type PlaceVisit = {
+	place: string;
+	from: string;
+	to: string;
+	fixCount: number;
+};
+
+const UNKNOWN_PLACE_LABEL = "Unknown location";
+
+// Collapses a chronological (oldest->newest) LocationFix[] — e.g. the output
+// of owntracksLocationHistory — into a compact "places visited" summary: a
+// run of CONSECUTIVE fixes sharing the same place label becomes one visit
+// with a from/to time span and a fix count, instead of the model having to
+// wade through hundreds of raw points to answer "was I at the office
+// yesterday". Deliberately consecutive-only (not a global group-by-place):
+// re-visiting the same place later in the range is a second, distinct visit,
+// which preserves the order/story of the day rather than merging separate
+// trips into one bucket. Fixes with no reverse-geocoded place fall under a
+// single "Unknown location" label, same consecutive-run rule.
+export function groupFixesByPlace(fixes: LocationFix[]): PlaceVisit[] {
+	const visits: PlaceVisit[] = [];
+	for (const fix of fixes) {
+		const label = fix.place?.trim() || UNKNOWN_PLACE_LABEL;
+		const last = visits[visits.length - 1];
+		if (last && last.place === label) {
+			last.to = fix.at;
+			last.fixCount += 1;
+		} else {
+			visits.push({ place: label, from: fix.at, to: fix.at, fixCount: 1 });
+		}
+	}
+	return visits;
+}
+
+// Opportunistic read of a home/reference coordinate the connection's own
+// config *already* carries (e.g. { otUser, otDevice, homeLat, homeLon}) —
+// deliberately NOT a new persistence layer: none of the OwnTracks connect/
+// read endpoints used by this module ever populate homeLat/homeLon, so in
+// practice this returns null today. It exists so that if such a field is
+// ever added to a connection's config (by an admin, a future settings UI,
+// etc.) the "how far am I from home" distance action picks it up for free,
+// without this module needing to change. See location.ts's "distance"
+// action for the graceful "home isn't set" fallback when this returns null.
+export function ownTracksHomeReference(
+	conn: ConnectionPublic,
+): { lat: number; lon: number } | null {
+	const lat = conn.config.homeLat;
+	const lon = conn.config.homeLon;
+	if (typeof lat === "number" && typeof lon === "number") return { lat, lon };
+	return null;
+}
+
 // Loads (userId, connectionId) as an OwnTracks connection the caller owns.
 // Returns null (never throws, never fetches) when the connection doesn't
 // exist, belongs to someone else, or isn't an owntracks connection at all —

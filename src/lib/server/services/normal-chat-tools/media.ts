@@ -1,8 +1,13 @@
 import { z } from "zod";
 import {
+	type ContinueWatchingItem,
+	type LibrarySearchItem,
+	type LibrarySearchResult,
 	type LibrarySection,
 	PlexError,
+	plexLibrarySearch,
 	plexLibrarySections,
+	plexOnDeck,
 	plexWatchHistory,
 	type WatchEntry,
 } from "$lib/server/services/connections/providers/plex";
@@ -16,11 +21,17 @@ import type { ToolEvidenceCandidate } from "$lib/types";
 import { decideLocalDistill } from "./connector-distill";
 
 // Read-only by construction: this schema's `action` enum only ever lists
-// read actions (watch_history, libraries). Plex NEVER gets a write path —
-// there is no scrobble/markWatched/markPlayed/rate action here, not now and
-// not in a later phase. A dedicated test in media.test.ts pins this enum.
+// read actions (watch_history, libraries, continue_watching, library_search).
+// Plex NEVER gets a write path — there is no scrobble/markWatched/
+// markPlayed/rate action here, not now and not in a later phase. A dedicated
+// test in media.test.ts pins this enum.
 export const mediaToolInputSchema = z.object({
-	action: z.enum(["watch_history", "libraries"]),
+	action: z.enum([
+		"watch_history",
+		"libraries",
+		"continue_watching",
+		"library_search",
+	]),
 	query: z.string().optional(),
 	since: z.string().optional(),
 	limit: z.number().optional(),
@@ -57,6 +68,32 @@ export type MediaToolWatchItem = {
 
 export type MediaToolLibraryItem = LibrarySection;
 
+// GAP B2 (continue watching / on-deck) — same "raw watch details vs
+// structural metadata" split as MediaToolWatchItem: title/show are the
+// sensitive fields the Option A distill gate strips when active (see
+// applyLocalDistillGate); season/episode/type/viewOffsetMs/durationMs/
+// progress/library are structural. NOT a direct alias of
+// ContinueWatchingItem (plex.ts's domain type, where `title` is always
+// present) — here title/show must be optional so the stripped shape still
+// type-checks after the gate removes them.
+export type MediaToolOnDeckItem = {
+	title?: string;
+	show?: string;
+	season?: number;
+	episode?: number;
+	type: string;
+	viewOffsetMs?: number;
+	durationMs?: number;
+	progress?: number;
+	library?: string;
+};
+
+// GAP B3 (library search) — the user's OWNED catalog, not a personal
+// "what did I watch" signal, so this is NOT gated by Option A (same
+// rationale as `libraries`/bare section names below: it carries the shape
+// of the user's library, not their viewing behavior).
+export type MediaToolLibrarySearchItem = LibrarySearchItem;
+
 export type MediaToolModelPayload = {
 	success: boolean;
 	name: "media";
@@ -65,6 +102,11 @@ export type MediaToolModelPayload = {
 	message: string;
 	results: MediaToolWatchItem[];
 	libraries: MediaToolLibraryItem[];
+	onDeck: MediaToolOnDeckItem[];
+	librarySearch: MediaToolLibrarySearchItem[];
+	// The true match count for library_search (see LibrarySearchResult.
+	// totalCount) — not capped by `librarySearch.length`.
+	libraryMatchCount: number;
 	citations: MediaCitation[];
 };
 
@@ -85,7 +127,25 @@ function toToolWatchItem(entry: WatchEntry): MediaToolWatchItem {
 	};
 }
 
-function citationLabel(item: MediaToolWatchItem): string {
+function toToolOnDeckItem(entry: ContinueWatchingItem): MediaToolOnDeckItem {
+	return {
+		title: entry.title,
+		...(entry.show ? { show: entry.show } : {}),
+		...(entry.season !== undefined ? { season: entry.season } : {}),
+		...(entry.episode !== undefined ? { episode: entry.episode } : {}),
+		type: entry.type,
+		...(entry.viewOffsetMs !== undefined
+			? { viewOffsetMs: entry.viewOffsetMs }
+			: {}),
+		...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
+		...(entry.progress !== undefined ? { progress: entry.progress } : {}),
+		...(entry.library ? { library: entry.library } : {}),
+	};
+}
+
+// Shared by watch_history and continue_watching citations — both item shapes
+// carry the same optional title/show pair.
+function citationLabel(item: { title?: string; show?: string }): string {
 	if (item.show && item.title) return `${item.show} — ${item.title}`;
 	if (item.title) return item.title;
 	return "(watched item)";
@@ -107,6 +167,9 @@ function buildPayload(params: {
 	message: string;
 	results?: MediaToolWatchItem[];
 	libraries?: MediaToolLibraryItem[];
+	onDeck?: MediaToolOnDeckItem[];
+	librarySearch?: MediaToolLibrarySearchItem[];
+	libraryMatchCount?: number;
 	citations?: MediaCitation[];
 	candidates?: ToolEvidenceCandidate[];
 }): MediaToolOutcome {
@@ -120,6 +183,9 @@ function buildPayload(params: {
 			message: params.message,
 			results: params.results ?? [],
 			libraries: params.libraries ?? [],
+			onDeck: params.onDeck ?? [],
+			librarySearch: params.librarySearch ?? [],
+			libraryMatchCount: params.libraryMatchCount ?? 0,
 			citations,
 		},
 		candidates: params.candidates ?? citations.map(toCandidate),
@@ -201,40 +267,96 @@ function librariesOutcome(
 	});
 }
 
+// GAP B2 — continue watching / on-deck. Builds citations/candidates the same
+// way watchHistoryOutcome does (Sources tab keeps the real title/show; the
+// Option A gate below may redact the model-facing copy).
+function onDeckOutcome(
+	conn: ConnectionPublic,
+	entries: ContinueWatchingItem[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): MediaToolOutcome {
+	const items = entries.map(toToolOnDeckItem);
+	const citations: MediaCitation[] = items.map((item) => ({
+		label: citationLabel(item),
+		url: "",
+	}));
+	const candidates = citations.map(toCandidate);
+	const message =
+		items.length === 0
+			? "Nothing is currently in progress or up next."
+			: `Found ${items.length} ${items.length === 1 ? "item" : "items"} to continue watching.`;
+	return buildPayload({
+		success: true,
+		action: "continue_watching",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		onDeck: items,
+		citations,
+		candidates,
+	});
+}
+
+// GAP B3 — library search. Not gated by Option A (see MediaToolLibrarySearchItem).
+function librarySearchOutcome(
+	conn: ConnectionPublic,
+	result: LibrarySearchResult,
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): MediaToolOutcome {
+	const { items, totalCount } = result;
+	const shown =
+		items.length < totalCount ? ` (showing ${items.length})` : "";
+	const message =
+		totalCount === 0
+			? "No matching titles found in your library."
+			: `Found ${totalCount} matching ${totalCount === 1 ? "title" : "titles"} in your library${shown}.`;
+	return buildPayload({
+		success: true,
+		action: "library_search",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		librarySearch: items,
+		libraryMatchCount: totalCount,
+	});
+}
+
 // Redacts the MODEL-FACING citation labels once Option A distillation has
 // applied — same rationale as photos.ts's/email.ts's redactCitationsForModel:
 // citations[].label here is populated with the exact raw title/show name that
-// Option A strips from `results[]`, so leaving it untouched would let the raw
-// name reach the cloud model through `citations` even though
-// `results[].title`/`show` were stripped two fields earlier in the same
-// payload. `outcome.candidates` (the user's own Sources-tab list, built from
-// the *original* unredacted entries before this gate ever runs) is left
-// alone.
+// Option A strips from `results[]`/`onDeck[]`, so leaving it untouched would
+// let the raw name reach the cloud model through `citations` even though the
+// title/show fields were stripped two fields earlier in the same payload.
+// `outcome.candidates` (the user's own Sources-tab list, built from the
+// *original* unredacted entries before this gate ever runs) is left alone.
+// `fallbackLabel` differs by action: watch_history items are things already
+// watched, continue_watching items may not be ("up next" episodes with no
+// progress yet), so the generic label shouldn't claim otherwise.
 function redactCitationsForModel(
-	results: MediaToolWatchItem[],
+	items: { viewedAt?: string }[],
 	citations: MediaCitation[],
+	fallbackLabel: string,
 ): MediaCitation[] {
 	return citations.map((citation, index) => {
-		const viewedAt = results[index]?.viewedAt;
+		const viewedAt = items[index]?.viewedAt;
 		return {
 			...citation,
-			label: viewedAt ? `Watched item at ${viewedAt}` : "Watched item",
+			label: viewedAt ? `Watched item at ${viewedAt}` : fallbackLabel,
 		};
 	});
 }
 
-// Locality Option A: watch history (what someone watches — show/movie
-// titles) is sensitive personal data — when the user has opted in to local
-// distillation and the selected chat model is cloud, replace it with a
-// summary produced by a local model before it reaches the (cloud) model.
-// This strips `title`/`show` from every result, and redacts
-// `citations[].label` (see redactCitationsForModel) — i.e. the WHOLE
-// model-facing payload, not just one field. `outcome.candidates` (the
-// Sources-tab list) is untouched: it feeds the user's own screen, a
-// different channel from what the model sees, and keeps the real titles.
-// `libraries` (bare section names like "Movies"/"TV Shows") is not gated —
-// it carries no personal watch data, only the shape of the user's own
-// library.
+// Locality Option A: watch history AND continue-watching/on-deck data (both
+// reveal what someone watches — show/movie titles, the latter arguably more
+// sensitive since it's what they're watching *right now*) are sensitive
+// personal data — when the user has opted in to local distillation and the
+// selected chat model is cloud, replace it with a summary produced by a
+// local model before it reaches the (cloud) model. This strips `title`/
+// `show` from every result, and redacts `citations[].label` (see
+// redactCitationsForModel) — i.e. the WHOLE model-facing payload, not just
+// one field. `outcome.candidates` (the Sources-tab list) is untouched: it
+// feeds the user's own screen, a different channel from what the model sees,
+// and keeps the real titles. `libraries` (bare section names) and
+// `library_search` (owned catalog, not viewing behavior) are not gated — see
+// MediaToolLibrarySearchItem's doc comment.
 async function applyLocalDistillGate(params: {
 	userId: string;
 	modelId: string;
@@ -243,15 +365,26 @@ async function applyLocalDistillGate(params: {
 }): Promise<MediaToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
 	if (!outcome.modelPayload.success) return outcome;
-	if (outcome.modelPayload.action !== "watch_history") return outcome;
+	const action = outcome.modelPayload.action;
+	if (action !== "watch_history" && action !== "continue_watching") {
+		return outcome;
+	}
+	const isHistory = action === "watch_history";
 
-	const rawTextParts = outcome.modelPayload.results
+	// Loosely typed to the fields this gate actually needs — both
+	// MediaToolWatchItem (viewedAt required) and MediaToolOnDeckItem (no
+	// viewedAt at all) satisfy it structurally.
+	const items: { title?: string; show?: string; viewedAt?: string }[] =
+		isHistory ? outcome.modelPayload.results : outcome.modelPayload.onDeck;
+
+	const rawTextParts = items
 		.map((item) => {
 			const descriptors = [item.show, item.title].filter(
 				(value): value is string => Boolean(value),
 			);
 			if (descriptors.length === 0) return null;
-			return `${descriptors.join(" — ")} (${item.viewedAt})`;
+			const label = descriptors.join(" — ");
+			return isHistory ? `${label} (${item.viewedAt})` : label;
 		})
 		.filter((value): value is string => Boolean(value));
 	// Nothing raw to protect (e.g. every result is bare metadata with no
@@ -267,49 +400,61 @@ async function applyLocalDistillGate(params: {
 	});
 	if (!decision.shouldDistill) return outcome;
 
-	const strippedResults = outcome.modelPayload.results.map((item) => {
-		const { title: _title, show: _show, ...rest } = item;
-		return rest;
-	});
 	// Redact only the MODEL-facing copy — `outcome.candidates` (the
 	// user-facing Sources-tab list) was already built from the original,
-	// unredacted entries in `watchHistoryOutcome` and is untouched by this
-	// gate.
+	// unredacted entries in watchHistoryOutcome/onDeckOutcome and is
+	// untouched by this gate.
 	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.results,
+		items,
 		outcome.modelPayload.citations,
+		isHistory ? "Watched item" : "Continue-watching item",
 	);
+	const withheldMessage = `This ${isHistory ? "watch history" : "continue-watching list"} couldn't be privately summarized for a cloud model, so its details were withheld. Switch to a local model to view them, or try again.`;
 
-	if ("distilled" in decision) {
+	if (isHistory) {
+		const strippedResults = outcome.modelPayload.results.map((item) => {
+			const { title: _title, show: _show, ...rest } = item;
+			return rest;
+		});
 		return {
 			...outcome,
 			modelPayload: {
 				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
+				message:
+					"distilled" in decision
+						? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
+						: withheldMessage,
 				results: strippedResults,
 				citations: redactedCitations,
 			},
 		};
 	}
 
+	const strippedOnDeck = outcome.modelPayload.onDeck.map((item) => {
+		const { title: _title, show: _show, ...rest } = item;
+		return rest;
+	});
 	return {
 		...outcome,
 		modelPayload: {
 			...outcome.modelPayload,
 			message:
-				"This watch history couldn't be privately summarized for a cloud model, so its details were withheld. Switch to a local model to view them, or try again.",
-			results: strippedResults,
+				"distilled" in decision
+					? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
+					: withheldMessage,
+			onDeck: strippedOnDeck,
 			citations: redactedCitations,
 		},
 	};
 }
 
 // Resolves the user's Media (Plex) connection(s) and executes a
-// watch_history/libraries lookup, degrading gracefully (never throwing) so a
-// connection problem never aborts the chat turn: no connection, ambiguity,
-// and adapter failures all resolve to a `{ success: false, message }`-shaped
-// payload instead. Read-only, and permanently so — Plex is analytics-only:
-// there is no write action in mediaToolInputSchema and never will be.
+// watch_history/libraries/continue_watching/library_search lookup,
+// degrading gracefully (never throwing) so a connection problem never aborts
+// the chat turn: no connection, ambiguity, and adapter failures all resolve
+// to a `{ success: false, message }`-shaped payload instead. Read-only, and
+// permanently so — Plex is analytics-only: there is no write action in
+// mediaToolInputSchema and never will be.
 export async function runMediaTool(
 	userId: string,
 	input: MediaToolInput,
@@ -340,6 +485,22 @@ export async function runMediaTool(
 		if (input.action === "libraries") {
 			const sections = await plexLibrarySections(userId, conn.id);
 			return librariesOutcome(conn, sections, ambiguous, connections);
+		}
+
+		if (input.action === "continue_watching") {
+			const items = await plexOnDeck(userId, conn.id, {
+				...(input.limit !== undefined ? { limit: input.limit } : {}),
+			});
+			const outcome = onDeckOutcome(conn, items, ambiguous, connections);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+
+		if (input.action === "library_search") {
+			const result = await plexLibrarySearch(userId, conn.id, {
+				...(input.query !== undefined ? { query: input.query } : {}),
+				...(input.limit !== undefined ? { limit: input.limit } : {}),
+			});
+			return librarySearchOutcome(conn, result, ambiguous, connections);
 		}
 
 		const entries = await plexWatchHistory(userId, conn.id, {

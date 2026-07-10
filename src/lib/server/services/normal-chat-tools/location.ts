@@ -1,8 +1,12 @@
 import { z } from "zod";
 import {
+	groupFixesByPlace,
+	haversineDistanceMeters,
 	OwnTracksError,
+	ownTracksHomeReference,
 	owntracksLastLocation,
 	owntracksLocationHistory,
+	type PlaceVisit,
 } from "$lib/server/services/connections/providers/owntracks";
 import {
 	needsDisambiguation,
@@ -14,19 +18,25 @@ import type { ToolEvidenceCandidate } from "$lib/types";
 import { decideLocalDistill } from "./connector-distill";
 
 // Read-only by construction, and NO device/user override: this schema's
-// `action` enum only ever lists read actions (last, history), and there is
-// deliberately no otUser/otDevice/connectionId field anywhere in this input
-// — the model can only ever ask "give me MY last/history location", never
-// "give me user X's device Y". The actual device binding is resolved
-// entirely server-side from the caller's own connection (see
-// owntracks.ts's `owntracksLastLocation`/`owntracksLocationHistory`, which
-// take only `(userId, connectionId)`). A dedicated test in location.test.ts
-// pins both the enum and the absence of any override field.
+// `action` enum only ever lists read actions (last, history, places,
+// distance), and there is deliberately no otUser/otDevice/connectionId field
+// anywhere in this input — the model can only ever ask "give me MY
+// last/history/places/distance location", never "give me user X's device
+// Y". The actual device binding is resolved entirely server-side from the
+// caller's own connection (see owntracks.ts's
+// `owntracksLastLocation`/`owntracksLocationHistory`, which take only
+// `(userId, connectionId)`). A dedicated test in location.test.ts pins both
+// the enum and the absence of any override field. `lat`/`lon` on this schema
+// are a caller-supplied REFERENCE point for the `distance` action (e.g. "how
+// far am I from this address") — not a device selector, and not itself a
+// location read: it never widens which device/user's data can be reached.
 export const locationToolInputSchema = z.object({
-	action: z.enum(["last", "history"]),
+	action: z.enum(["last", "history", "places", "distance"]),
 	from: z.string().optional(),
 	to: z.string().optional(),
 	limit: z.number().optional(),
+	lat: z.number().optional(),
+	lon: z.number().optional(),
 });
 
 export type LocationToolInput = z.infer<typeof locationToolInputSchema>;
@@ -39,6 +49,8 @@ export function sanitizeLocationToolInput(
 		...(input.from ? { from: input.from.trim() } : {}),
 		...(input.to ? { to: input.to.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
+		...(input.lat !== undefined ? { lat: input.lat } : {}),
+		...(input.lon !== undefined ? { lon: input.lon } : {}),
 	};
 }
 
@@ -58,6 +70,23 @@ export type LocationToolResultItem = {
 	battery?: number;
 };
 
+// B7 — how the "distance" action reports a computed great-circle distance.
+// `mode` records which two points were compared: `reference_point` (current
+// fix vs a caller-supplied lat/lon), `home` (current fix vs the connection's
+// stored home reference, when one is set), or `range` (first vs last fix of
+// a from/to range — "how far did I travel"). Deliberately carries only a
+// number and timestamps, never lat/lon or place text, so — unlike
+// `results`/`places` — it needs no Option-A redaction: the underlying raw
+// fix(es) it was computed from are still surfaced via `results[]`, which the
+// existing distill gate already covers.
+export type LocationDistanceResult = {
+	meters: number;
+	kilometers: number;
+	fromAt: string;
+	toAt?: string;
+	mode: "reference_point" | "home" | "range";
+};
+
 export type LocationToolModelPayload = {
 	success: boolean;
 	name: "location";
@@ -66,6 +95,11 @@ export type LocationToolModelPayload = {
 	message: string;
 	results: LocationToolResultItem[];
 	citations: LocationCitation[];
+	// B7 — populated only for the "places" action: a compact places-visited
+	// summary (see groupFixesByPlace in owntracks.ts) instead of raw fixes.
+	places?: PlaceVisit[];
+	// B7 — populated only for the "distance" action.
+	distance?: LocationDistanceResult;
 };
 
 export type LocationToolOutcome = {
@@ -122,6 +156,8 @@ function buildPayload(params: {
 	results?: LocationToolResultItem[];
 	citations?: LocationCitation[];
 	candidates?: ToolEvidenceCandidate[];
+	places?: PlaceVisit[];
+	distance?: LocationDistanceResult;
 }): LocationToolOutcome {
 	const citations = params.citations ?? [];
 	return {
@@ -133,6 +169,8 @@ function buildPayload(params: {
 			message: params.message,
 			results: params.results ?? [],
 			citations,
+			...(params.places !== undefined ? { places: params.places } : {}),
+			...(params.distance !== undefined ? { distance: params.distance } : {}),
 		},
 		candidates: params.candidates ?? [],
 	};
@@ -231,6 +269,92 @@ function historyOutcome(
 	});
 }
 
+// B7 — "places": compact "places visited" view over a history range, built
+// from groupFixesByPlace (owntracks.ts). This is what actually answers "was
+// I at the office yesterday" without the model wading through raw fixes.
+function placesOutcome(
+	conn: ConnectionPublic,
+	visits: PlaceVisit[],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): LocationToolOutcome {
+	const message =
+		visits.length === 0
+			? "No location history found for that range."
+			: `Visited ${visits.length} distinct place${visits.length === 1 ? "" : "s"}.`;
+	return buildPayload({
+		success: true,
+		action: "places",
+		message: withAmbiguityPrefix(message, ambiguous, conn, connections),
+		places: visits,
+	});
+}
+
+function roundKilometers(meters: number): number {
+	return Math.round((meters / 1000) * 100) / 100;
+}
+
+function distanceMessage(
+	mode: LocationDistanceResult["mode"],
+	km: number,
+): string {
+	switch (mode) {
+		case "reference_point":
+			return `You are approximately ${km} km from the given location.`;
+		case "home":
+			return `You are approximately ${km} km from home.`;
+		case "range":
+			return `You traveled approximately ${km} km (straight-line) across that range.`;
+	}
+}
+
+// B7 — "distance": surfaces the underlying fix(es) via `results[]` (so the
+// existing Option-A gate, which scans `results[]` for raw lat/lon, still
+// applies) alongside a `distance` summary that itself carries only a number
+// and timestamps (see LocationDistanceResult's doc comment).
+function distanceOutcome(
+	conn: ConnectionPublic,
+	fixes: LocationFixLike[],
+	meters: number,
+	mode: LocationDistanceResult["mode"],
+	ambiguous: boolean,
+	connections: ConnectionPublic[],
+): LocationToolOutcome {
+	const items = fixes.map(toToolResultItem);
+	const citations: LocationCitation[] = items.map((item) => ({
+		label: citationLabel(item),
+		url: "",
+	}));
+	const candidates = fixes.map((fix, index) => {
+		const citation = citations[index] as LocationCitation;
+		return toCandidate(fix, citation);
+	});
+	const kilometers = roundKilometers(meters);
+	const first = fixes[0];
+	const last = fixes[fixes.length - 1];
+	const distance: LocationDistanceResult = {
+		meters: Math.round(meters),
+		kilometers,
+		fromAt: first?.at ?? "",
+		...(mode === "range" && last ? { toAt: last.at } : {}),
+		mode,
+	};
+	return buildPayload({
+		success: true,
+		action: "distance",
+		message: withAmbiguityPrefix(
+			distanceMessage(mode, kilometers),
+			ambiguous,
+			conn,
+			connections,
+		),
+		results: items,
+		citations,
+		candidates,
+		distance,
+	});
+}
+
 // Redacts the MODEL-FACING citation labels once Option A distillation has
 // applied — same rationale as photos.ts's/media.ts's redactCitationsForModel:
 // citations[].label here may carry the real `place` name, which Option A
@@ -272,15 +396,23 @@ async function applyLocalDistillGate(params: {
 	const { userId, modelId, input, outcome } = params;
 	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = outcome.modelPayload.results
-		.map((item) => {
-			if (item.lat === undefined || item.lon === undefined) return null;
-			const place = item.place ? ` (${item.place})` : "";
-			return `${item.lat}, ${item.lon}${place} at ${item.at}`;
-		})
-		.filter((value): value is string => Boolean(value));
+	const rawTextParts = [
+		...outcome.modelPayload.results
+			.map((item) => {
+				if (item.lat === undefined || item.lon === undefined) return null;
+				const place = item.place ? ` (${item.place})` : "";
+				return `${item.lat}, ${item.lon}${place} at ${item.at}`;
+			})
+			.filter((value): value is string => Boolean(value)),
+		// B7 — the "places" action's `places[]` carries place-name text too
+		// (no lat/lon, but the label itself is exactly the sensitive detail
+		// Option A exists to protect), so it must feed the same gate.
+		...(outcome.modelPayload.places ?? []).map(
+			(visit) => `${visit.place} from ${visit.from} to ${visit.to}`,
+		),
+	];
 	// Nothing raw to protect (e.g. a "no fix available" result with no
-	// lat/lon at all) — the gate is a no-op.
+	// lat/lon at all, and no places[]) — the gate is a no-op.
 	if (rawTextParts.length === 0) return outcome;
 
 	const decision = await decideLocalDistill({
@@ -303,6 +435,12 @@ async function applyLocalDistillGate(params: {
 		outcome.modelPayload.results,
 		outcome.modelPayload.citations,
 	);
+	// B7 — `places[].place` is raw place-name text, exactly what this gate
+	// exists to protect; the distilled summary (in `message`) replaces it, so
+	// the structured list is fully cleared rather than partially redacted
+	// (there's nothing non-sensitive left worth keeping per visit once the
+	// place name is gone).
+	const strippedPlaces = outcome.modelPayload.places ? [] : undefined;
 
 	if ("distilled" in decision) {
 		return {
@@ -312,6 +450,7 @@ async function applyLocalDistillGate(params: {
 				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
 				results: strippedResults,
 				citations: redactedCitations,
+				...(strippedPlaces !== undefined ? { places: strippedPlaces } : {}),
 			},
 		};
 	}
@@ -324,6 +463,7 @@ async function applyLocalDistillGate(params: {
 				"This location couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
 			results: strippedResults,
 			citations: redactedCitations,
+			...(strippedPlaces !== undefined ? { places: strippedPlaces } : {}),
 		},
 	};
 }
@@ -373,6 +513,129 @@ export async function runLocationTool(
 				...(input.limit !== undefined ? { limit: input.limit } : {}),
 			});
 			const outcome = historyOutcome(conn, fixes, ambiguous, connections);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+
+		// B7 — "places": same underlying history fetch as "history", but
+		// collapsed into a compact places-visited summary (see
+		// groupFixesByPlace's doc comment in owntracks.ts).
+		if (input.action === "places") {
+			const fixes = await owntracksLocationHistory(userId, conn.id, {
+				...(input.from !== undefined ? { from: input.from } : {}),
+				...(input.to !== undefined ? { to: input.to } : {}),
+				...(input.limit !== undefined ? { limit: input.limit } : {}),
+			});
+			const visits = groupFixesByPlace(fixes);
+			const outcome = placesOutcome(conn, visits, ambiguous, connections);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
+		}
+
+		// B7 — "distance": three mutually exclusive modes, checked in this
+		// order — (1) a caller-supplied reference point ("how far is X from
+		// Y" given coords), (2) a from/to range ("how far did I travel"),
+		// (3) falling back to the connection's stored home reference ("how
+		// far am I from home"). The home-reference check happens BEFORE any
+		// recorder call so a device with no home set never needlessly hits
+		// the recorder for a question this module can't answer anyway.
+		if (input.action === "distance") {
+			if (input.lat !== undefined && input.lon !== undefined) {
+				const fix = await owntracksLastLocation(userId, conn.id);
+				if (!fix) {
+					return buildPayload({
+						success: true,
+						action: "distance",
+						message: withAmbiguityPrefix(
+							"No location fix is available yet.",
+							ambiguous,
+							conn,
+							connections,
+						),
+					});
+				}
+				const meters = haversineDistanceMeters(fix, {
+					lat: input.lat,
+					lon: input.lon,
+				});
+				const outcome = distanceOutcome(
+					conn,
+					[fix],
+					meters,
+					"reference_point",
+					ambiguous,
+					connections,
+				);
+				return applyLocalDistillGate({ userId, modelId, input, outcome });
+			}
+
+			if (input.from !== undefined || input.to !== undefined) {
+				const fixes = await owntracksLocationHistory(userId, conn.id, {
+					...(input.from !== undefined ? { from: input.from } : {}),
+					...(input.to !== undefined ? { to: input.to } : {}),
+					...(input.limit !== undefined ? { limit: input.limit } : {}),
+				});
+				if (fixes.length < 2) {
+					const outcome = buildPayload({
+						success: true,
+						action: "distance",
+						message: withAmbiguityPrefix(
+							"Not enough location history in that range to calculate distance.",
+							ambiguous,
+							conn,
+							connections,
+						),
+						results: fixes.map(toToolResultItem),
+					});
+					return applyLocalDistillGate({ userId, modelId, input, outcome });
+				}
+				const first = fixes[0] as LocationFixLike;
+				const last = fixes[fixes.length - 1] as LocationFixLike;
+				const meters = haversineDistanceMeters(first, last);
+				const outcome = distanceOutcome(
+					conn,
+					[first, last],
+					meters,
+					"range",
+					ambiguous,
+					connections,
+				);
+				return applyLocalDistillGate({ userId, modelId, input, outcome });
+			}
+
+			const home = ownTracksHomeReference(conn);
+			if (!home) {
+				return buildPayload({
+					success: true,
+					action: "distance",
+					message: withAmbiguityPrefix(
+						"You don't have a home location saved for this device, so I can't calculate the distance to home.",
+						ambiguous,
+						conn,
+						connections,
+					),
+				});
+			}
+			const fix = await owntracksLastLocation(userId, conn.id);
+			if (!fix) {
+				return buildPayload({
+					success: true,
+					action: "distance",
+					message: withAmbiguityPrefix(
+						"No location fix is available yet.",
+						ambiguous,
+						conn,
+						connections,
+					),
+				});
+			}
+			const meters = haversineDistanceMeters(fix, home);
+			const outcome = distanceOutcome(
+				conn,
+				[fix],
+				meters,
+				"home",
+				ambiguous,
+				connections,
+			);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
