@@ -1,11 +1,13 @@
 <script lang="ts">
 import type {
+	MemoryDirtyReason,
 	MemoryProfileActionPayload,
 	MemoryProfileCategory,
 	MemoryProfilePublicItem,
 	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
 	MemoryProfileReviewItem,
+	MemoryProfileScope,
 	MemoryTimelineReport,
 } from "$lib/types";
 import { t, type I18nKey } from "$lib/i18n";
@@ -86,7 +88,15 @@ let {
 		updatedAt: string;
 	} | null;
 	summaryBusy?: boolean;
-	processing?: { active: boolean; pendingCount: number } | null;
+	processing?: {
+		active: boolean;
+		pendingCount: number;
+		operations?: Array<{
+			reason: MemoryDirtyReason;
+			scope: MemoryProfileScope;
+			count: number;
+		}>;
+	} | null;
 	onEditSummary?:
 		| ((text: string) => boolean | undefined | Promise<boolean | undefined>)
 		| undefined;
@@ -196,6 +206,35 @@ function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
 	if (scope.type === "conversation")
 		return $t("memoryProfile.conversationScope");
 	return $t("memoryProfile.documentScope");
+}
+
+// Privacy-safe friendly copy for the "updating your memory" notice: derived
+// only from the operation's reason (never raw fact text — the server never
+// sends any). Reasons without a mapped key here fall back to a generic line
+// rather than rendering blank/unknown text.
+const processingReasonI18nKeys: Partial<Record<MemoryDirtyReason, I18nKey>> = {
+	deferred_intake: "memoryProfile.processingReasonDeferredIntake",
+	possible_conflict: "memoryProfile.processingReasonPossibleConflict",
+	possible_duplicate: "memoryProfile.processingReasonPossibleDuplicate",
+	review_generation: "memoryProfile.processingReasonReviewGeneration",
+	projection_reconciliation:
+		"memoryProfile.processingReasonProjectionReconciliation",
+	profile_action_reconciliation:
+		"memoryProfile.processingReasonProfileActionReconciliation",
+};
+
+function processingReasonLabel(reason: MemoryDirtyReason): string {
+	const key = processingReasonI18nKeys[reason];
+	return $t(key ?? "memoryProfile.processingReasonFallback");
+}
+
+function processingOperationKey(operation: {
+	reason: MemoryDirtyReason;
+	scope: MemoryProfileScope;
+}): string {
+	const scopeId =
+		operation.scope.type === "global" ? "global" : operation.scope.id;
+	return `${operation.reason}:${operation.scope.type}:${scopeId}`;
 }
 
 function actionKey(
@@ -445,18 +484,39 @@ $effect(() => {
 
 		{#if processing?.active}
 			<div
-				class="memory-processing-notice flex items-center gap-2 rounded-[0.75rem] border px-3 py-2"
+				class="memory-processing-notice flex flex-col gap-1.5 rounded-[0.75rem] border px-3 py-2"
 				role="status"
 				aria-live="polite"
 			>
-				<Loader size={15} strokeWidth={2.1} class="shrink-0 animate-spin" aria-hidden="true" />
-				<span class="text-xs font-sans leading-[1.4]">
-					{processing.pendingCount > 1
-						? $t("memoryProfile.processingNoticeCount", {
-								count: processing.pendingCount,
-							})
-						: $t("memoryProfile.processingNotice")}
-				</span>
+				<div class="flex items-center gap-2">
+					<Loader size={15} strokeWidth={2.1} class="shrink-0 animate-spin" aria-hidden="true" />
+					<span class="text-xs font-sans leading-[1.4]">
+						{processing.pendingCount > 1
+							? $t("memoryProfile.processingNoticeCount", {
+									count: processing.pendingCount,
+								})
+							: $t("memoryProfile.processingNotice")}
+					</span>
+				</div>
+				{#if processing.operations && processing.operations.length > 0}
+					<ul class="ml-[1.4rem] list-disc space-y-0.5 text-xs font-sans leading-[1.4] text-text-muted">
+						{#each processing.operations as operation (processingOperationKey(operation))}
+							<li>
+								{processingReasonLabel(operation.reason)}
+								{#if operation.scope.type === "project"}
+									<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
+								{/if}
+								{#if operation.count > 1}
+									<span>
+										· {$t("memoryProfile.processingReasonCount", {
+											count: operation.count,
+										})}
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</div>
 		{/if}
 

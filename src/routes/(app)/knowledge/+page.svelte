@@ -25,6 +25,7 @@ import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorks
 import type {
 	DocumentWorkspaceItem,
 	KnowledgeDocumentItem,
+	KnowledgeMemoryOverviewPayload,
 	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicPayload,
@@ -58,9 +59,9 @@ let pendingMemoryActionKey = $state<string | null>(null);
 let memorySummary = $state<MemoryPersonaSummaryPayload["summary"]>(null);
 let memorySummaryBusy = $state(false);
 let memoryTimelineReports = $state<MemoryTimelineReport[]>([]);
-let memoryProcessing = $state<{ active: boolean; pendingCount: number } | null>(
-	null,
-);
+let memoryProcessing = $state<
+	KnowledgeMemoryOverviewPayload["processing"] | null
+>(null);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
 // True while a server-side documents search/sort/page round-trip is in flight.

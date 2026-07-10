@@ -1567,6 +1567,20 @@ export type MemoryProfileScope =
 	| { type: "conversation"; id: string }
 	| { type: "document"; id: string };
 
+// Mirrors MEMORY_DIRTY_REASONS in
+// src/lib/server/services/memory-profile/types.ts. Duplicated here (rather
+// than imported) because this file is reachable from client code and must
+// not import from $lib/server.
+export type MemoryDirtyReason =
+	| "stale_projection"
+	| "deferred_intake"
+	| "profile_action_reconciliation"
+	| "projection_reconciliation"
+	| "possible_conflict"
+	| "possible_duplicate"
+	| "legacy_migration"
+	| "review_generation";
+
 export interface MemoryProfilePublicItem {
 	id: string;
 	itemKey: string;
@@ -1742,7 +1756,19 @@ export interface KnowledgeMemoryOverviewPayload {
 	memoryEnabled: boolean;
 	// Whether the memory pipeline currently has queued/in-flight work for this
 	// user, so the UI can show a compact "memory is processing" notice.
-	processing: { active: boolean; pendingCount: number };
+	processing: {
+		active: boolean;
+		pendingCount: number;
+		// Privacy-safe per-reason breakdown of the in-flight work (grouped by
+		// reason + scope), so the UI can render a friendly human-readable list
+		// instead of just a generic spinner. Never carries raw fact text —
+		// only the operation reason, its scope, and a count.
+		operations: Array<{
+			reason: MemoryDirtyReason;
+			scope: MemoryProfileScope;
+			count: number;
+		}>;
+	};
 }
 
 export type TaskSteeringAction =

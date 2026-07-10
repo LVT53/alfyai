@@ -1135,4 +1135,67 @@ describe("KnowledgeMemoryView", () => {
 		});
 		expect(screen.getByText(/3 updates in progress/i)).toBeInTheDocument();
 	});
+
+	it("falls back to the single-line notice when operations is an empty array", () => {
+		renderMemoryView({
+			processing: { active: true, pendingCount: 2, operations: [] },
+		});
+		expect(screen.getByText(/2 updates in progress/i)).toBeInTheDocument();
+		expect(screen.queryByRole("list")).not.toBeInTheDocument();
+	});
+
+	it("renders a friendly per-reason line with a count for each processing operation", () => {
+		renderMemoryView({
+			processing: {
+				active: true,
+				pendingCount: 2,
+				operations: [
+					{
+						reason: "deferred_intake",
+						scope: { type: "conversation", id: "c1" },
+						count: 3,
+					},
+					{
+						reason: "possible_conflict",
+						scope: { type: "project", id: "p1" },
+						count: 1,
+					},
+				],
+			},
+		});
+
+		const notice = screen.getByRole("status");
+		expect(
+			within(notice).getByText(
+				/Reviewing new details from your recent conversations/i,
+			),
+		).toBeInTheDocument();
+		expect(within(notice).getByText(/3 items/i)).toBeInTheDocument();
+		expect(
+			within(notice).getByText(/Resolving a possible conflict/i),
+		).toBeInTheDocument();
+		// Project-scoped operation gets a scope hint; a count of 1 shouldn't
+		// render a redundant "1 items" suffix.
+		expect(within(notice).getByText(/for this project/i)).toBeInTheDocument();
+		expect(within(notice).queryByText(/1 items/i)).not.toBeInTheDocument();
+		expect(within(notice).getByRole("list")).toBeInTheDocument();
+	});
+
+	it("does not render raw fact text for processing operations — only reason/scope/count-derived copy", () => {
+		renderMemoryView({
+			processing: {
+				active: true,
+				pendingCount: 1,
+				operations: [
+					{
+						reason: "deferred_intake",
+						scope: { type: "conversation", id: "c1" },
+						count: 1,
+					},
+				],
+			},
+		});
+		const notice = screen.getByRole("status");
+		expect(notice.textContent).not.toContain("c1");
+	});
 });

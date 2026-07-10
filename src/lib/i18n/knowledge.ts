@@ -222,6 +222,21 @@ const knowledgeDict = {
 		"memoryProfile.processingNotice": "Updating your memory…",
 		"memoryProfile.processingNoticeCount":
 			"Updating your memory… {count} updates in progress",
+		"memoryProfile.processingReasonDeferredIntake":
+			"Reviewing new details from your recent conversations",
+		"memoryProfile.processingReasonPossibleConflict":
+			"Resolving a possible conflict",
+		"memoryProfile.processingReasonPossibleDuplicate":
+			"Merging a possible duplicate",
+		"memoryProfile.processingReasonReviewGeneration":
+			"Preparing your memory review",
+		"memoryProfile.processingReasonProjectionReconciliation":
+			"Refreshing your memory summary",
+		"memoryProfile.processingReasonProfileActionReconciliation":
+			"Applying a recent change",
+		"memoryProfile.processingReasonFallback": "Tidying up your memory",
+		"memoryProfile.processingReasonCount": "{count} items",
+		"memoryProfile.processingReasonProjectHint": "for this project",
 		"memoryProfile.projectScope": "Project",
 		"memoryProfile.remember": "Remember",
 		"memoryProfile.rememberThisItem": "Remember this item",
@@ -490,6 +505,21 @@ const knowledgeDict = {
 		"memoryProfile.processingNotice": "A memóriád frissítése…",
 		"memoryProfile.processingNoticeCount":
 			"A memóriád frissítése… {count} frissítés folyamatban",
+		"memoryProfile.processingReasonDeferredIntake":
+			"Új részletek áttekintése a legutóbbi beszélgetésekből",
+		"memoryProfile.processingReasonPossibleConflict":
+			"Egy lehetséges ellentmondás feloldása",
+		"memoryProfile.processingReasonPossibleDuplicate":
+			"Egy lehetséges duplikátum összevonása",
+		"memoryProfile.processingReasonReviewGeneration":
+			"A memória-áttekintésed előkészítése",
+		"memoryProfile.processingReasonProjectionReconciliation":
+			"A memória-összefoglalód frissítése",
+		"memoryProfile.processingReasonProfileActionReconciliation":
+			"Egy nemrég végrehajtott módosítás alkalmazása",
+		"memoryProfile.processingReasonFallback": "A memóriád rendbetétele",
+		"memoryProfile.processingReasonCount": "{count} elem",
+		"memoryProfile.processingReasonProjectHint": "ehhez a projekthez",
 		"memoryProfile.projectScope": "Projekt",
 		"memoryProfile.remember": "Megjegyzés",
 		"memoryProfile.rememberThisItem": "Elem megjegyzése",

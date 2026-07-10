@@ -717,7 +717,11 @@ describe("memory v2 actions service", () => {
 			scope: { type: "global" },
 		});
 		let overview = await getKnowledgeMemoryOverview(userId, "Tester");
-		expect(overview.processing).toEqual({ active: false, pendingCount: 0 });
+		expect(overview.processing).toEqual({
+			active: false,
+			pendingCount: 0,
+			operations: [],
+		});
 
 		// A real pending chat-intake entry turns the notice ON.
 		await markMemoryDirty({
@@ -728,6 +732,89 @@ describe("memory v2 actions service", () => {
 		overview = await getKnowledgeMemoryOverview(userId, "Tester");
 		expect(overview.processing.active).toBe(true);
 		expect(overview.processing.pendingCount).toBe(1);
+	});
+
+	it("overview processing operations: groups pending ledger entries by reason+scope, sums repeated marks, and excludes bookkeeping-only reasons", async () => {
+		const now = new Date();
+		const userId = "u1";
+		const { db } = openSeedDatabase();
+		seedUser(db, userId, now);
+		seedProjectionState(db, userId, now);
+
+		const { markMemoryDirty } = await import("./memory-profile");
+		const { getKnowledgeMemoryOverview } = await import("./memory");
+
+		// Marked twice for the same reason+scope: the ledger row's internal
+		// count increments rather than creating a second row, so the grouped
+		// operation count must reflect the accumulated total (2).
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "c1" },
+		});
+		await markMemoryDirty({
+			userId,
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "c1" },
+		});
+		await markMemoryDirty({
+			userId,
+			reason: "possible_conflict",
+			scope: { type: "global" },
+		});
+		await markMemoryDirty({
+			userId,
+			reason: "review_generation",
+			scope: { type: "project", id: "p1" },
+		});
+		await markMemoryDirty({
+			userId,
+			reason: "profile_action_reconciliation",
+			scope: { type: "global" },
+		});
+		// Bookkeeping/internal reasons — must never be surfaced as friendly
+		// operations, even though they sit in the same pending ledger.
+		await markMemoryDirty({
+			userId,
+			reason: "legacy_migration",
+			scope: { type: "global" },
+		});
+
+		const overview = await getKnowledgeMemoryOverview(userId, "Tester");
+
+		// getKnowledgeMemoryOverview itself marks a fresh stale_projection entry
+		// on every read (see markStaleProjectionRead) — it must never appear in
+		// the friendly operations list, or opening the page would falsely
+		// announce a "refreshing your memory summary" operation every time.
+		const reasons = overview.processing.operations.map((op) => op.reason);
+		expect(reasons).not.toContain("stale_projection");
+		expect(reasons).not.toContain("legacy_migration");
+
+		expect(overview.processing.operations).toEqual(
+			expect.arrayContaining([
+				{
+					reason: "deferred_intake",
+					scope: { type: "conversation", id: "c1" },
+					count: 2,
+				},
+				{
+					reason: "possible_conflict",
+					scope: { type: "global" },
+					count: 1,
+				},
+				{
+					reason: "review_generation",
+					scope: { type: "project", id: "p1" },
+					count: 1,
+				},
+				{
+					reason: "profile_action_reconciliation",
+					scope: { type: "global" },
+					count: 1,
+				},
+			]),
+		);
+		expect(overview.processing.operations).toHaveLength(4);
 	});
 
 	it("undo: restores prevExpiresAt for a renewed action, parsing the serialized ISO string back to a Date", async () => {

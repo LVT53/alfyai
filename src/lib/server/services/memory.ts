@@ -38,7 +38,10 @@ import {
 	recordMemoryReworkTelemetry,
 	updateMemoryProfileItemWithRevision,
 } from "./memory-profile";
-import type { MemoryDirtyReason } from "./memory-profile/types";
+import type {
+	MemoryDirtyReason,
+	MemoryProfileScope,
+} from "./memory-profile/types";
 
 export class MemoryProfileActionError extends Error {
 	readonly code:
@@ -524,8 +527,65 @@ export async function getKnowledgeMemoryOverview(
 		processing: {
 			active: activeWork.length > 0,
 			pendingCount: activeWork.length,
+			operations: summarizeMemoryDirtyOperations(pending),
 		},
 	};
+}
+
+// Reasons that represent genuine, user-relevant memory work worth naming in
+// the friendly "updating your memory" list. Deliberately excludes:
+//  - `stale_projection`, which markStaleProjectionRead marks on every read of
+//    this very function — surfacing it would make simply opening the page
+//    announce a fake in-progress operation.
+//  - `legacy_migration`, which is internal one-time bookkeeping, not
+//    user-facing content work.
+const OPERATION_REASONS = new Set<MemoryDirtyReason>([
+	"deferred_intake",
+	"possible_conflict",
+	"possible_duplicate",
+	"projection_reconciliation",
+	"review_generation",
+	"profile_action_reconciliation",
+]);
+
+function memoryDirtyScopeKey(scope: MemoryProfileScope): string {
+	return scope.type === "global" ? "global" : `${scope.type}:${scope.id}`;
+}
+
+// Groups privacy-safe dirty-ledger metadata (reason + scope + count) for the
+// "updating your memory" notice. Never touches `entry.metadata` or any raw
+// fact/subject text — only the reason, scope, and count are privacy-safe to
+// expose to the client (per assertPrivacySafeMetadata's design).
+function summarizeMemoryDirtyOperations(
+	pending: Array<{
+		reason: MemoryDirtyReason;
+		count: number;
+		scope: MemoryProfileScope;
+	}>,
+): Array<{
+	reason: MemoryDirtyReason;
+	scope: MemoryProfileScope;
+	count: number;
+}> {
+	const grouped = new Map<
+		string,
+		{ reason: MemoryDirtyReason; scope: MemoryProfileScope; count: number }
+	>();
+	for (const entry of pending) {
+		if (!OPERATION_REASONS.has(entry.reason)) continue;
+		const key = `${entry.reason}:${memoryDirtyScopeKey(entry.scope)}`;
+		const existing = grouped.get(key);
+		if (existing) {
+			existing.count += entry.count;
+		} else {
+			grouped.set(key, {
+				reason: entry.reason,
+				scope: entry.scope,
+				count: entry.count,
+			});
+		}
+	}
+	return Array.from(grouped.values());
 }
 
 export type KnowledgeMemorySummaryPayload = {
