@@ -21,6 +21,7 @@ const {
 	mockScheduleConversationJudge,
 	mockMarkMemoryDirty,
 	mockCountUnjudgedMessages,
+	mockGetMaxJudgedMessageSequence,
 	mockRunMemoryJudgeOnSegment,
 	mockIsCurrentMemoryResetGeneration,
 	mockListMessages,
@@ -39,7 +40,15 @@ const {
 		count: 1,
 	})),
 	mockCountUnjudgedMessages: vi.fn(async () => 0),
-	mockRunMemoryJudgeOnSegment: vi.fn(async () => ({ status: "ran" as const })),
+	mockGetMaxJudgedMessageSequence: vi.fn(async () => 2),
+	mockRunMemoryJudgeOnSegment: vi.fn(
+		async (): Promise<{
+			status: "ran" | "empty" | "failed";
+			reason?: string;
+		}> => ({
+			status: "ran",
+		}),
+	),
 	mockIsCurrentMemoryResetGeneration: vi.fn(async () => true),
 	mockListMessages: vi.fn(async () => [] as ChatMessage[]),
 	mockRefreshConversationSummary: vi.fn(async () => undefined),
@@ -118,6 +127,7 @@ vi.mock("$lib/server/services/memory-judge", () => ({
 
 vi.mock("$lib/server/services/memory-judge/segment", () => ({
 	countUnjudgedMessages: mockCountUnjudgedMessages,
+	getMaxJudgedMessageSequence: mockGetMaxJudgedMessageSequence,
 }));
 
 vi.mock("$lib/server/services/memory-profile/dirty-ledger", () => ({
@@ -242,6 +252,7 @@ describe("runPostTurnTasks", () => {
 		mockListMessages.mockResolvedValue([]);
 		mockDetectExplicitMemoryRequest.mockReturnValue(false);
 		mockCountUnjudgedMessages.mockResolvedValue(0);
+		mockGetMaxJudgedMessageSequence.mockResolvedValue(2);
 		mockMarkMemoryDirty.mockResolvedValue({
 			id: "dirty-1",
 			reason: "deferred_intake",
@@ -395,9 +406,23 @@ describe("runPostTurnTasks", () => {
 				},
 				{ role: "assistant", content: "assistant mirror text" },
 			],
+			// The newest sequence of this exchange, so the explicit judge advances
+			// the watermark and these messages are never re-judged (D2).
+			overrideHighestSequence: 2,
 		});
-		// Explicit path short-circuits before the dirty-ledger / debounce logic.
-		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
+		expect(mockGetMaxJudgedMessageSequence).toHaveBeenCalledWith({
+			conversationId: "conv-1",
+			messageIds: ["user-message-1", "assistant-message-1"],
+		});
+		// Crash-safety: the explicit path leaves a dirty-ledger trail BEFORE the
+		// synchronous judge (mirroring the marathon branch) so a failed/crashed
+		// judge is retried by a later sweep. It still does not debounce an idle
+		// pass — it runs the judge synchronously.
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "conv-1" },
+		});
 		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -408,6 +433,37 @@ describe("runPostTurnTasks", () => {
 			"user-1",
 			"chat_send",
 		);
+	});
+
+	it("leaves a dirty-ledger safety net when an explicit judge call fails", async () => {
+		mockDetectExplicitMemoryRequest.mockReturnValue(true);
+		// The explicit judge's model call fails — the crash-safety trail must
+		// already exist so a later sweep/idle pass retries the exchange.
+		mockRunMemoryJudgeOnSegment.mockResolvedValue({
+			status: "failed",
+			reason: "judge_call_failed",
+		});
+		const { runPostTurnTasks } = await import("./finalize");
+
+		await runPostTurnTasks({
+			logPrefix: "[SEND]",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "upstream prompt payload",
+			userMessage: "Please remember that I prefer concise answers.",
+			userMessageId: "user-message-1",
+			assistantResponse: "I will keep that in mind.",
+			assistantMirrorContent: "assistant mirror text",
+			assistantMessageId: "assistant-message-1",
+			maintenanceReason: "chat_send",
+		});
+
+		// A dirty-ledger row exists despite the failed judge → not lost.
+		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
+			userId: "user-1",
+			reason: "deferred_intake",
+			scope: { type: "conversation", id: "conv-1" },
+		});
 	});
 
 	it("does not block post-turn completion on memory maintenance", async () => {

@@ -1200,10 +1200,31 @@ export async function runPostTurnTasks(
 				const { markMemoryDirty } = await import(
 					"../memory-profile/dirty-ledger"
 				);
-				const { countUnjudgedMessages } = await import(
-					"../memory-judge/segment"
-				);
+				const { countUnjudgedMessages, getMaxJudgedMessageSequence } =
+					await import("../memory-judge/segment");
 				if (detectExplicitMemoryRequest(params.userMessage)) {
+					// Crash-safety: leave a dirty-ledger trail BEFORE the synchronous
+					// explicit judge (mirroring the marathon branch below). If the judge
+					// call throws/fails or the process dies mid-run, a later sweep/idle
+					// pass retries this conversation. On success the explicit judge
+					// advances the watermark, so that later pass finds nothing unjudged
+					// and simply completes this row.
+					await markMemoryDirty({
+						userId: params.userId,
+						reason: "deferred_intake",
+						scope: { type: "conversation", id: params.conversationId },
+					});
+					// Advance the watermark to the newest message of THIS exchange so the
+					// explicitly-judged messages are marked judged and never re-counted by
+					// a later marathon/idle/sweep pass. The persisted turn's message ids
+					// carry the real sequences the synthesised segmentOverride lacks.
+					const overrideHighestSequence = await getMaxJudgedMessageSequence({
+						conversationId: params.conversationId,
+						messageIds: [
+							params.userMessageId,
+							params.assistantMessageId,
+						].filter((id): id is string => Boolean(id)),
+					});
 					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
 					await runMemoryJudgeOnSegment({
 						userId: params.userId,
@@ -1217,6 +1238,7 @@ export async function runPostTurnTasks(
 									params.assistantMirrorContent ?? params.assistantResponse,
 							},
 						],
+						overrideHighestSequence,
 					});
 					return;
 				}

@@ -66,6 +66,14 @@ export async function runMemoryJudgeOnSegment(params: {
 	conversationId: string;
 	trigger: JudgeTrigger;
 	segmentOverride?: JudgeSegmentMessage[];
+	/**
+	 * When `segmentOverride` is supplied (the explicit "remember that…" path),
+	 * the highest `messageSequence` of the exchange being judged. The watermark is
+	 * advanced to this value under the same `> 0` guard as the segment-loader
+	 * path, so the explicitly-judged messages are marked judged and never
+	 * re-counted by a later marathon/idle/sweep pass. Omitted/zero is a no-op.
+	 */
+	overrideHighestSequence?: number;
 }): Promise<JudgeRunResult> {
 	// Single chokepoint for BOTH memory controls: every judge path (explicit,
 	// idle-scheduled, marathon, sweep, re-curation, and the opportunistic flush
@@ -89,6 +97,11 @@ export async function runMemoryJudgeOnSegment(params: {
 	let backlogRemaining = false;
 	if (params.segmentOverride) {
 		segmentMessages = params.segmentOverride;
+		// Explicit path: advance the watermark to the newest message of the judged
+		// exchange (threaded from the caller). Guarded by the same `> 0` check as
+		// the segment-loader path below, so an unspecified override is a no-op and
+		// never marks unseen messages judged.
+		highestSequence = params.overrideHighestSequence ?? 0;
 	} else {
 		const segment = await getUnjudgedConversationSegment(params);
 		if (segment.count === 0) return { status: "empty" };

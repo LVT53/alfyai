@@ -93,6 +93,35 @@ export async function getUnjudgedConversationSegment(params: {
 	};
 }
 
+/**
+ * Highest `messageSequence` among the given judgeable (user/assistant) message
+ * ids in a conversation. Used by the explicit "remember that…" path, which
+ * judges a synthesised exchange (not a loaded segment) and therefore has no
+ * segment `highestSequence` to advance the watermark with. Threading the real
+ * sequence of the just-persisted turn lets that path mark those messages judged
+ * so they are never re-counted by a later marathon/idle/sweep pass. Unknown or
+ * empty id sets return 0 (a safe no-op under the caller's `> 0` guard).
+ */
+export async function getMaxJudgedMessageSequence(params: {
+	conversationId: string;
+	messageIds: string[];
+}): Promise<number> {
+	if (params.messageIds.length === 0) return 0;
+	const [row] = await db
+		.select({
+			maxSeq: sql<number | null>`max(${messages.messageSequence})`,
+		})
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, params.conversationId),
+				inArray(messages.id, params.messageIds),
+				inArray(messages.role, JUDGED_ROLES),
+			),
+		);
+	return row?.maxSeq ?? 0;
+}
+
 export async function advanceConversationMemoryWatermark(params: {
 	userId: string;
 	conversationId: string;

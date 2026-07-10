@@ -702,7 +702,50 @@ describe("Memory judge service", () => {
 		expect(callOptions?.maxTokens).toBe(8000);
 	});
 
-	it("does not advance the watermark on the explicit segmentOverride path", async () => {
+	it("advances the watermark to the exchange's max sequence on the explicit override path, so those messages are never re-judged (D2)", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "Remember that I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		mockControlModel(ADMIT_REVIEW_DECISIONS);
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "explicit",
+			segmentOverride: [
+				{ role: "user", content: "Remember that I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+			// The newest message of the judged exchange, threaded from finalize.ts.
+			overrideHighestSequence: 2,
+		});
+		expect(result).toMatchObject({ status: "ran" });
+
+		// Watermark advanced to seq 2 → both judged messages are marked judged and
+		// a later marathon/idle/sweep count does NOT re-include them.
+		const { countUnjudgedMessages } = await import("./segment");
+		expect(
+			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
+		).toBe(0);
+
+		const watermark =
+			db
+				.select()
+				.from(schema.conversationMemoryWatermarks)
+				.where(eq(schema.conversationMemoryWatermarks.conversationId, "c1"))
+				.all()[0]?.lastJudgedSequence ?? 0;
+		expect(watermark).toBe(2);
+	});
+
+	it("does not advance the watermark on the explicit path when no override sequence is supplied", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });
 		seedMessages({
@@ -724,7 +767,7 @@ describe("Memory judge service", () => {
 		});
 		expect(result).toMatchObject({ status: "ran" });
 
-		// watermark not advanced → the two seeded messages are still unjudged
+		// No override sequence → the `> 0` guard keeps the watermark untouched.
 		const { countUnjudgedMessages } = await import("./segment");
 		expect(
 			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),

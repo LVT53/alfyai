@@ -270,4 +270,36 @@ describe("memory-judge segment loader + watermark store", () => {
 		expect(result.count).toBe(2);
 		expect(result.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 	});
+
+	it("getMaxJudgedMessageSequence returns the highest sequence across the given message ids", async () => {
+		seedUserAndConversation({ userId: "u1", conversationId: "c1" });
+		seedMessages({
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "m1", sequence: 5 },
+				{ role: "assistant", content: "m2", sequence: 6 },
+			],
+		});
+
+		const seg = await import("./segment");
+		const max = await seg.getMaxJudgedMessageSequence({
+			conversationId: "c1",
+			messageIds: ["msg-c1-0", "msg-c1-1"],
+		});
+		expect(max).toBe(6);
+
+		// Unknown / empty id sets are a safe no-op (0), never a throw.
+		expect(
+			await seg.getMaxJudgedMessageSequence({
+				conversationId: "c1",
+				messageIds: [],
+			}),
+		).toBe(0);
+		expect(
+			await seg.getMaxJudgedMessageSequence({
+				conversationId: "c1",
+				messageIds: ["does-not-exist"],
+			}),
+		).toBe(0);
+	});
 });
