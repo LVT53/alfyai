@@ -1,5 +1,7 @@
 # Memory Rework Update keeps Honcho-led memory usable long-term
 
+> **Amended by [ADR-0045](0045-memory-v2-judge-gated-local-memory.md) (2026-07-10).** Honcho was removed; every clause below that treats Honcho as a background substrate or authority is historical. The intake-gate philosophy, confidence bands, Guided Memory Review, reset generations, and user-authored precedence described here **still hold** and are implemented by the local Memory Judge and Consolidation pipeline.
+
 AlfyAI memory will remain Honcho-led and background by default, but it will no longer be treated as fully autonomous in every case. When memory maintenance can confidently deduplicate, expire active use, or recognize a clear supersession, it should act without asking the user. When remembered facts are ambiguous, contradictory, stale in a user-impacting way, sensitive, or otherwise require user authority, AlfyAI should create a Guided Memory Review item in the Memory Profile.
 
 This is a complete Memory Rework Update, not a provisional v1, draft, or temporary cleanup pass. The end state should be coherent enough to run unattended while AlfyAI accrues real Memory Rework Telemetry about intake quality, maintenance behavior, review burden, and prompt-use outcomes. Implementation may still land in safe changesets, but the product design should be end-to-end before the rework is considered complete.

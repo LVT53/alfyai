@@ -1,5 +1,7 @@
 # Deferred Memory Extraction restores Honcho as substrate with LLM-assisted Tier 2 intake
 
+> **Superseded by [ADR-0045](0045-memory-v2-judge-gated-local-memory.md) (2026-07-10).** The Honcho substrate this ADR set out to restore was subsequently deleted. Memory is now local-only and judge-gated; there is no substrate behind the projection and no reconcile-later path. This ADR is retained as history.
+
 AlfyAI memory has two intake layers: Immediate Memory Admission (Tier 1, regex-based, fast) and Deferred Memory Extraction (Tier 2, LLM-assisted, bounded). The refactor in commit 6936d067d intentionally removed `mirrorMessage` to fix bloat, but the replacement was only Tier 1 regex. Tier 2 LLM extraction was designed in ADR 0033 but never built. Without Tier 2, the Memory Profile Projection became the primary store for admitted memories, and Honcho received no new conclusions. This accidentally violated ADR 0011's rule against a parallel local persona-memory system.
 
 This decision restores the full two-tier intake design without reviving the code patterns that were intentionally removed. Honcho returns as the Memory Authority Substrate. The Memory Profile Projection remains the active read model.

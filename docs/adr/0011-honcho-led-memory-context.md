@@ -1,5 +1,7 @@
 # Honcho-led Memory Context replaces project-only retrieval
 
+> **Superseded by [ADR-0045](0045-memory-v2-judge-gated-local-memory.md) (2026-07-10).** Honcho was removed from the codebase entirely; the app-owned Memory Profile Projection is now the sole memory authority, gated by an LLM Memory Judge. The "no parallel local persona-memory system" rule below no longer applies. This ADR is retained as history.
+
 AlfyAI will make Context Access a first-class Normal Chat capability, starting with Honcho-led baseline personalization plus one consolidated model-facing `memory_context` retrieval tool. Honcho remains the authority for persona and relationship memory; AlfyAI extends that memory with app-owned project and conversation-history retrieval without rebuilding a parallel local persona-memory system.
 
 **Implementation Status, 2026-05-29:** Honcho-led memory remains intact, but prompt selection no longer lives in Honcho. Honcho now supplies session/persona candidates to `chat-turn/context-selection.ts`; the chat-turn boundary decides whether the Baseline Memory Profile, Honcho session context, task state, attachments, linked sources, and retrieved evidence enter Prompt Context and how much budget they receive.

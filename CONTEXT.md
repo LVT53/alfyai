@@ -210,6 +210,10 @@ _Avoid_: privacy consent toggle, local-only claim, legal fine print
 The user-requested deletion of an AlfyAI account and the personal workspace data that can identify or belong to that user, including app-controlled external memory state. Non-identifying aggregate usage and cost totals may remain, but retained records should not preserve the erased user's email, name, user identity, conversation titles, message identity, or other person-linked traces.
 _Avoid_: account cleanup, soft delete, analytics-preserving delete
 
+**Analytics User Exclusion**:
+An admin setting (`ANALYTICS_EXCLUDED_USER_IDS`) that filters named users — typically staff or test accounts — out of admin **System Analytics** figures at query time (see [ADR-0049](docs/adr/0049-analytics-excluded-users.md)). The exclusion picker enumerates every user present in usage events, **including deleted-but-not-erased users** who still own historical rows, so their prior activity can be excluded too. It is a reversible presentation filter that deletes nothing — distinct from **Account Erasure**, which removes person-linked rows entirely. Analytics totals are therefore operator-relative and only meaningful alongside the active exclusion list.
+_Avoid_: deleting staff rows, erasure, per-user opt-out, billing change
+
 **Account Data Archive**:
 A user-requested downloadable ZIP archive that helps a person review the personal data AlfyAI stores about them, including chat messages, app-controlled memory, original uploaded files, generated files, analytics, and related workspace records. It is meant to be comprehensive, human-readable, and easy to navigate by a person, using stable English folder and file names beginning with `Open AlfyAI Data Archive.html` while preserving stored user content in its original language, not a machine-importable backup, restore format, diagnostic trace, or raw structured-data dump for AlfyAI.
 _Avoid_: app backup, restore export, importable snapshot, raw database dump, developer export
@@ -223,7 +227,7 @@ The profile settings section where every signed-in user manages personal data li
 _Avoid_: danger zone, account reset area, GDPR menu, data tools
 
 **Clear Memory and Knowledge**:
-The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**. The **Memory Rework Update** should preserve this as the account-level memory and knowledge reset path rather than adding a second reset button, and it must clear any new Memory Profile projection, review, conflict, intake, maintenance, telemetry, and Honcho identity state that could otherwise rehydrate memory.
+The user action that removes remembered context, Knowledge Base content, document-derived context, continuity state, and stored evidence traces while keeping the user's chat conversations and account. It is narrower than **Clear Workspace Data** and is not **Account Erasure**. The **Memory Rework Update** should preserve this as the account-level memory and knowledge reset path rather than adding a second reset button, and it must clear any new Memory Profile projection, review, conflict, intake, maintenance, and telemetry state that could otherwise rehydrate memory.
 _Avoid_: reset memory, forget everything, knowledge reset, account reset, duplicate memory reset button
 
 **Memory Reset Generation**:
@@ -291,8 +295,8 @@ The server read-model boundary at `src/lib/server/services/conversation-detail/r
 _Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, AI SDK UI stream terminal payload, page-owned payload assembly
 
 **Memory Access**:
-AlfyAI's ability to use durable user, conversation, project, document, and research context through Honcho-led memory and app-supplied historical context retrieval.
-_Avoid_: local persona engine, memory replacement, transcript dump
+AlfyAI's ability to use durable user, conversation, project, document, and research context through app-owned durable memory and historical context retrieval. (Memory is local-only since 2026-07-10; the former Honcho substrate was removed — see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md).)
+_Avoid_: external memory substrate, memory replacement, transcript dump
 
 **Context Access**:
 The production capability that lets AlfyAI discover, select, and use relevant memory, history, project, document, and research context without requiring low-level manual setup from the user.
@@ -331,7 +335,7 @@ A compact default slice of **Active Memory Profile Context** available to an ord
 _Avoid_: newest memories, raw conclusion list, local persona summary, stale deleted memory, second profile store
 
 **Projection-Gated Memory Access**:
-The rule that Honcho-led and historical memory may support chat only through active profile projection or policy-aware retrieval, not as unfiltered ordinary personalization. It is not a separate tool or store; it preserves relevance by allowing query-time memory retrieval while enforcing deleted, suppressed, expired, conflict-blocked, review-needed, and preserved-legacy memory state.
+The rule that durable and historical memory may support chat only through active profile projection or policy-aware retrieval, not as unfiltered ordinary personalization. It is not a separate tool or store; it preserves relevance by allowing query-time memory retrieval while enforcing deleted, suppressed, expired, conflict-blocked, review-needed, and preserved-legacy memory state.
 _Avoid_: raw Honcho bypass, blanket Honcho ban, hidden personalization path, direct persona injection, second access layer
 
 **Adaptive Active Memory Budget**:
@@ -343,8 +347,8 @@ The legacy compatibility surface for older Knowledge Memory callers. New user-fa
 _Avoid_: memory markdown, Honcho dump, conversation results list, generated report, project continuity dashboard, task memory table, active profile authority
 
 **Memory Profile Projection**:
-The durable, app-owned, user-facing active memory authority that turns admitted profile memory, legacy evidence, and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It should keep stable item identity and active-use state across refreshes and chat turns so user corrections, deletions, suppressions, expiries, conflict blocks, and review decisions remain next-turn-effective. Honcho may support migration, enrichment, historical evidence, and reconciliation, but active profile memory exists when it is active in the current projection generation.
-_Avoid_: live Honcho prose as active truth, local persona engine outside the projection, task continuity surface, focus continuity section, rebuild-only profile
+The durable, app-owned, user-facing active memory authority that turns admitted profile memory, legacy evidence, and app-owned profile state into an easy-to-review **Memory Profile** made of curated **Memory Profile Items**. It should keep stable item identity and active-use state across refreshes and chat turns so user corrections, deletions, suppressions, expiries, conflict blocks, and review decisions remain next-turn-effective. It is the **sole** memory authority: there is no external substrate behind it (the former Honcho substrate was removed — see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md)). Active profile memory exists when it is active in the current projection generation.
+_Avoid_: external substrate as canonical truth, live memory prose outside the projection, task continuity surface, focus continuity section, rebuild-only profile
 
 **Memory Profile Item Identity**:
 The app-owned stable identity of a **Memory Profile Item**, derived from the normalized remembered statement, category, scope, and provenance relationship rather than from a single Honcho conclusion ID. Honcho IDs may be provenance pointers, but they should not be the user-facing item identity because edits, merges, splits, and Honcho rewording must not break next-turn-effective profile state.
@@ -403,8 +407,8 @@ The path where the **Memory Intake Gate** admits a remembered fact during post-t
 _Avoid_: soft instruction as durable rule, assistant inference, document-derived self-truth, every preference-like phrase, uncertain immediate write
 
 **Deferred Memory Extraction**:
-The LLM-assisted intake path that processes conversation material the **Immediate Memory Admission** parser could not confidently admit or reject. It runs during **Expensive Memory Reconciliation** as a bounded maintenance slice, inspects a bounded window of recent conversation turns, and produces structured candidate memories with category, scope, and **Memory Decision Confidence Band**. High-confidence candidates are auto-admitted; ambiguous candidates become **Guided Memory Review** items; low-confidence candidates are rejected with telemetry. It does not mirror raw transcript, extracting only durable candidate facts, preferences, constraints, goals, and self-statements. The app owns this extraction using its configured model; Honcho is not the extraction engine.
-_Avoid_: real-time extraction, chat-path LLM call, raw transcript mirror, Honcho deriver as extraction engine, unbounded extraction sweep
+The LLM-assisted intake path that decides what conversation material becomes durable memory. Since 2026-07-10 (see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md)) it is the **Memory Judge**, not a maintenance slice: the judge runs on the **three-tier triggers** (explicit "remember" request → immediate; ~25-unjudged-message marathon cap → immediate; ~idle-timer debounce → deferred), plus a nightly consolidation sweep for anything missed. It reads the conversation's **Conversation Memory Watermark**-bounded unjudged segment and produces structured candidates (category, scope, confidence band). High-confidence candidates are auto-admitted; ambiguous candidates become **Guided Memory Review** items (capped ~10/user, auto-expiring); low-confidence candidates are logged to diagnostics, never injected. It does not mirror raw transcript. The app owns this entirely; there is no external extraction engine.
+_Avoid_: real-time on-turn extraction, raw transcript mirror, external deriver as extraction engine, unbounded extraction sweep, regex-only intake
 
 **Assistant Prose Memory Exclusion**:
 The rule that ordinary assistant-generated answer text is not a source for **Immediate Memory Admission**. Assistant prose may remain chat history, evidence, or conversation context, but it should not become durable memory authority. App-owned structured outputs may become memory only through typed, scoped, provenance-aware paths.
@@ -487,15 +491,43 @@ A durable version marker for **Memory Profile Projection** state that lets newer
 _Avoid_: last-writer-wins, full memory event log, stale maintenance overwrite, hidden prompt override revision, Honcho revision
 
 **Memory Authority Fallback**:
-The fallback behavior when Honcho-backed memory authority cannot refresh, delete, or reconcile backing memory. The durable **Memory Profile Projection** remains the user-facing active truth, while failed authority work becomes retryable maintenance and telemetry.
-_Avoid_: empty profile fallback, raw Honcho fallback, blocking local profile action, background-error banner, authority-first UI
+The fallback behavior when background memory maintenance — the nightly **Consolidation** pass — cannot refresh, expire, merge, or reconcile memory for a user. The durable **Memory Profile Projection** remains the user-facing active truth, while failed maintenance work becomes retryable and surfaces in the consolidation report; a failed run leaves that user's memory untouched.
+_Avoid_: empty profile fallback, blocking profile action on maintenance, background-error banner, authority-first UI
 
-**Memory Authority Substrate**:
-The durable backing store that holds the canonical copy of remembered facts for cross-session, cross-conversation recall. In AlfyAI, Honcho serves as the **Memory Authority Substrate** while the app-owned **Memory Profile Projection** is the active read model used at prompt time. Writes to the substrate happen asynchronously after admission so the chat path never blocks on external memory service latency. Raw transcript is not stored in the substrate; only curated conclusions from admitted memories are written.
-_Avoid_: local persona-memory system, projection-as-canonical-store, parallel memory store, chat-blocking memory write, raw transcript in substrate
+**Memory Authority Substrate** _(retired 2026-07-10 — see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md))_:
+AlfyAI no longer has a memory authority substrate. The **Memory Profile Projection** is itself the canonical, durable store for cross-session, cross-conversation recall — there is nothing behind it. Honcho, which formerly served as the substrate with the projection as its read model, was removed entirely (a guard test, `no-honcho.test.ts`, enforces that no Honcho code returns). Retained so references to the old term resolve.
+_Avoid_: reintroducing an external substrate, projection-as-mere-read-model, parallel memory store, async substrate write path
+
+**Memory Judge**:
+The LLM write gate that decides what conversation material becomes durable memory (`src/lib/server/services/memory-judge/`; see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md)). It replaces the old regex intake parser. A candidate must pass five gates — stability, ownership (about the user, in their voice), usefulness, confidence (`stated`/`inferred`; hedged statements are dropped), and non-redundancy (`new`/`strengthens`/`updates`/`nothing` against nearest existing facts). Admission is confidence-banded: high → active; uncertain → **Guided Memory Review**; low → diagnostics only. It never blocks a chat turn and uses a small configurable control model with chain-of-thought off.
+_Avoid_: regex intake, on-turn blocking extraction, hedged fact admitted, sibling instead of revision
+
+**Memory Judge Triggers**:
+The three ways the **Memory Judge** is invoked, wired at the chat-turn finalize boundary: **explicit** (a "remember that…"/"jegyezd meg…" request judges that exchange immediately), **marathon** (a hard cap forces a run every ~25 unjudged messages), and **idle** (a debounced inactivity timer judges the unjudged segment). A nightly consolidation **sweep** catches any dirty conversation the idle trigger missed, and opening another conversation opportunistically flushes a dirty one.
+_Avoid_: judge on every turn, fixed per-message extraction, lost marathon conversations
+
+**Conversation Memory Watermark**:
+The per-conversation marker (`conversationMemoryWatermarks.lastJudgedSequence`) that records which messages the **Memory Judge** has already seen, advanced monotonically. It bounds each judge pass to the unjudged segment so triggers are idempotent and cheap.
+_Avoid_: re-judging the whole conversation, non-monotonic rewind, per-message judge state
+
+**Memory Consolidation**:
+The nightly per-user "night shift" (`src/lib/server/services/memory-consolidation/`) that maintains the fact store when something changed since the last run: **expire** (retire past-expiry facts; renew still-supported time-bound ones) → **reconcile** (supersede contradictions with a link) → **merge** (collapse near-duplicates, union provenance) → **summarize** (regenerate the **Persona Summary**). Every run appends a human-readable report rendered as the Memory-page night-shift timeline; a failed step leaves that user's memory untouched.
+_Avoid_: scheduled manual pruning, destructive merge, silent maintenance, per-turn consolidation
+
+**Persona Summary**:
+A short synthesis of the user's active facts into fact-linked sentences (`{ sentences: [{ text, factIds }] }`), regenerated by **Memory Consolidation** and stored per user on the memory projection state. It renders as the persona summary card at the top of the Memory page; tapping a sentence reveals its supporting facts, and edits are captured as user-authored facts.
+_Avoid_: free-form personality essay, unsourced summary sentences, summary as separate store
+
+**Memory Master Toggle & Memory Incognito**:
+The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, checked on both the read side (context injection) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
+_Avoid_: read-only gate, write-only gate, per-turn silent memory when off, incognito that still writes
+
+**Memory Cost Tracking**:
+Per-call token and cost telemetry for every memory model call (`memory-cost.ts`), priced with the provider's cache hit/miss breakdown (**Prompt Cache Accounting**) rather than the flat input rate, and rolled up per feature (`judge`/`consolidation`/`summary`/`recuration`) for the admin cost view.
+_Avoid_: flat-rate memory cost, untracked judge spend, per-turn memory cost surprise
 
 **Expensive Memory Reconciliation**:
-The bounded background maintenance work that deduplicates, expires active use, revisits preserved legacy material, generates review items, reconciles Honcho deletes or replacements, and triggers Honcho Dreaming when needed. It should run from dirty state, cooldowns, and account work budgets rather than from every chat turn or Knowledge Base open.
+The bounded background maintenance work that deduplicates, expires active use, revisits preserved legacy material, generates review items, and reconciles contradictions. In the v2 memory system this is the nightly **Consolidation** pass (expire/renew → reconcile → merge → summarize), which runs per user only when something changed — from dirty state, cooldowns, and account work budgets rather than from every chat turn or Knowledge Base open.
 _Avoid_: cheap profile refresh, synchronous KB load, every-message cleanup, unbounded account sweep
 
 **Bounded Memory Reconciliation Slice**:
@@ -507,7 +539,7 @@ A per-slice safety limit on how many memory candidates, projection changes, auth
 _Avoid_: full candidate sweep, unlimited mutation batch, authority-call flood, time-budget-only maintenance
 
 **Memory Dirty State Ledger**:
-The durable, typed account-level signal that tells maintenance what memory work may be needed without storing raw candidate text. It coalesces repeated triggers such as stale projection, deferred intake, profile-action reconciliation, projection reconciliation, possible conflict, possible duplicate, legacy migration, optional Honcho export, and review generation so expensive maintenance can choose bounded work after restarts.
+The durable, typed account-level signal that tells maintenance what memory work may be needed without storing raw candidate text. It coalesces repeated triggers such as stale projection, deferred intake, profile-action reconciliation, projection reconciliation, possible conflict, possible duplicate, legacy migration, and review generation so expensive maintenance can choose bounded work after restarts.
 _Avoid_: raw pending memory queue, transcript backlog, in-memory-only dirty flag, full account scan trigger, per-message cleanup job
 
 **Memory Maintenance Scheduler**:
@@ -698,13 +730,11 @@ _Avoid_: hidden assumption, gate explanation, verbose preamble, weak guess
 The one-follow-up preservation of the high-cost **Depth Profile** that caused a **Depth Clarification**, so the clarified next turn can still receive the intended effort. It is not a paused turn, a durable preference, or a guarantee that the same effort applies after the user changes the visible composer depth.
 _Avoid_: paused turn resume, sticky depth preference, hidden Max mode
 
-**Depth Classifier Model**:
-The model used for **Automatic Depth Selection**. By default it is the user's selected **Provider Model** for the turn, but an administrator may configure a specific available **Provider Model** for system use to make depth classification faster, cheaper, or more consistent.
-_Avoid_: hidden assistant model, second chat model, hardcoded classifier
+**Depth Classifier Model** _(retired 2026-07-10 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md))_:
+Formerly the model used for **Automatic Depth Selection**, optionally an admin-configured one. Automatic Depth Selection no longer makes any model call — it resolves `standard`/`extended`/`maximum` with a deterministic keyword/regex rules classifier — so there is no configurable depth classifier model. Retained only so references to the old term resolve.
 
-**Depth Classifier Resilience**:
-The property that **Automatic Depth Selection** degrades through progressively cheaper fallbacks rather than collapsing every Auto turn to standard when the classifier model fails. A resilient classifier retries on token exhaustion, uses schema-in-prompt with lenient parsing for provider compatibility, and falls back to a deterministic keyword heuristic before defaulting to standard. A single classifier failure should not silently make every hard prompt look simple.
-_Avoid_: silent standard fallback, single-point-of-failure classifier, invisible classification error
+**Depth Classifier Resilience** _(retired 2026-07-10 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md))_:
+Formerly the property that **Automatic Depth Selection** degraded through progressively cheaper fallbacks when the classifier model failed (retry on token exhaustion, schema-in-prompt lenient parsing, keyword fallback). The deterministic rules classifier makes no model call, so there is no classifier failure to degrade from; this resilience ladder no longer exists.
 
 **Explicit Depth Selection**:
 A user-selected non-Auto **Reasoning Depth**, such as Off or Max, that applies directly to the next Normal Chat turn without running **Automatic Depth Selection**.
@@ -715,8 +745,8 @@ The user-selected **Reasoning Depth** that asks AlfyAI to avoid extra reasoning 
 _Avoid_: no-tools mode, no-search mode, unsafe shortcut
 
 **Depth Classification Context**:
-The small, capped preflight context used only for **Automatic Depth Selection**. It may include the current user request, compact recent exchange context with bounded assistant summaries or excerpts, and bounded metadata about selected sources, attachments, active documents, model capability, and user-visible composer state, but it is separate from full **Prompt Context** and should not include raw large document bodies or trigger heavy retrieval by itself.
-_Avoid_: full prompt context, retrieval result set, hidden document dump
+The small, capped set of inputs used only for **Automatic Depth Selection**: the current user request plus bounded metadata about selected sources, attachments, active documents, model capability, and user-visible composer state. Since 2026-07-10 (see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md)) these inputs are scored by a deterministic keyword/regex rules classifier rather than fed to a model preflight. It is separate from full **Prompt Context**, does not include raw large document bodies, and does not trigger retrieval or a model call by itself.
+_Avoid_: full prompt context, retrieval result set, hidden document dump, model preflight call
 
 **Depth Profile**:
 The resolved effort profile applied to a Normal Chat turn after **Reasoning Depth** and **Automatic Depth Selection** are evaluated. Some profiles may be internal, such as a middle extended profile, and should appear only in post-response metadata or diagnostics rather than as additional composer choices. Higher profiles should mainly give the model more room to reason through edge cases, implicit user needs, difficult constraints, and key details; broader grounding is added when the task benefits from external or current evidence.
@@ -1352,7 +1382,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Compression** should use the user's selected response model in v1; a separate admin-configured compressor model would weaken the user's model preference without enough product value.
 - **Context Compression Snapshots** change prompt assembly defaults only; they must not rewrite, delete, or replace raw chat messages, files, tool outputs, Message Evidence, or source records.
 - In v1, **Context Compression Snapshots** may be consumed only by Normal Chat prompt assembly, Context Sources status/markers, and operational metadata that records compression occurred.
-- In v1, **Context Compression Snapshots** must not feed Honcho mirroring, durable memory extraction, Message Evidence, source audit, file-production source material, tool-call replay, exact retry/regenerate reconstruction, search indexing, or conversation export.
+- In v1, **Context Compression Snapshots** must not feed durable memory extraction, Message Evidence, source audit, file-production source material, tool-call replay, exact retry/regenerate reconstruction, search indexing, or conversation export.
 - **Context Compression Snapshots** are conversation-owned records and must be linked to the raw messages, source ranges, and source groups they summarize.
 - Deleting a conversation must delete its **Context Compression Snapshots**.
 - Editing or deleting a message that predates or participates in a **Context Compression Snapshot** must delete that snapshot through the same mutation boundary that handles normal chat-turn storage cleanup.
@@ -1381,11 +1411,12 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Selection** is the source of truth for promoting **Available Context** into **Prompt Context**.
 - **Context Selection** considers conversation, memory, attachment, workspace, task, generated-file, generated-document, and retrieval signals together.
 - `src/lib/server/services/chat-turn/context-selection.ts` is the **Normal Chat Context Selection Boundary** for constructed Prompt Context.
-- `src/lib/server/services/honcho.ts` supplies Honcho session/persona candidates through a narrow adapter seam and must not own prompt budget policy, Knowledge retrieval, Task-State selection, linked-source assembly, or Working Document Selection.
+- _(Historical — Honcho removed 2026-07-10, see [ADR-0045](docs/adr/0045-memory-v2-judge-gated-local-memory.md). Persona/memory candidates for prompt context now come from the app-owned memory-context service reading the **Memory Profile Projection**; there is no `honcho.ts` adapter. Bullets below that prescribe Honcho behavior are historical — the local **Memory Judge** and **Memory Consolidation** implement their intent.)_
+- The memory-context service supplies persona summary + query-relevant active facts as candidates through a narrow seam and must not own prompt budget policy, Knowledge retrieval, Task-State selection, linked-source assembly, or Working Document Selection.
 - `src/lib/server/services/normal-chat-context.ts` may request constructed Prompt Context from the chat-turn boundary and may add model-facing runtime guidance, but it should not rebuild candidate promotion or inclusion policy.
 - Individual subsystems may supply **Available Context** and **Context Signals**, but should not independently force large text into **Prompt Context**.
-- **Memory Access** should extend Honcho-led memory rather than replace it with a parallel local persona-memory system.
-- Honcho should not be treated as a raw transcript mirror; ordinary chat history belongs to conversation history unless the **Memory Intake Gate** admits durable remembered context.
+- **Memory Access** is served entirely by app-owned local memory (the **Memory Profile Projection** gated by the **Memory Judge**); there is no external persona-memory substrate to extend.
+- Raw transcript is not mirrored anywhere; ordinary chat history belongs to conversation history unless the **Memory Judge** admits durable remembered context.
 - **Memory Access** may make historic chat details available for retrieval, but historic chats become **Prompt Context** only through **Context Selection** or an explicit model-facing retrieval result.
 - A **Memory Context Tool** should consolidate project, persona, and history retrieval so model-facing memory access does not fragment into overlapping tools.
 - Replacing a project-only memory retrieval tool with the **Memory Context Tool** should remove the old model-facing tool rather than keep overlapping compatibility surfaces.
@@ -1393,7 +1424,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - A **Memory Context Tool** should preserve breadth with lightweight summaries before spending large budget on deep conversation or memory detail.
 - A **Memory Context Tool** may retrieve historical chats and documents that are not active **Memory Profile Items** when answering source, history, document, or evidence questions.
 - A **Memory Context Tool** should not use historical retrieval to bypass deleted, suppressed, expired, blocked, or review-needed **Memory Profile** state for ordinary personalization.
-- **Projection-Gated Memory Access** should block raw Honcho memory from entering ordinary personalization directly while still allowing relevant Honcho-backed query-time retrieval.
+- **Projection-Gated Memory Access** should block non-active memory (deleted/suppressed/expired/review-needed) from entering ordinary personalization directly while still allowing relevant query-time retrieval of active facts.
 - **Projection-Gated Memory Access** should distinguish active personalization from historical or source recall so useful memory retrieval is preserved without treating every retrieved fact as current user truth.
 - Ordinary personalization should use **Pre-Filtered Prompt Memory** so the model receives active usable memory rather than inactive memory plus instructions to ignore it.
 - Deleted, suppressed, expired, conflict-blocked, review-needed, **Preserved Legacy Memory**, and ambiguous-scope material should not appear in ordinary **Active Memory Profile Context** at all.
@@ -1406,7 +1437,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Historical Memory Evidence** should not expose full inactive profile tables, confidence/debug scores, raw Honcho conclusion dumps, or deletion/suppression internals.
 - When **Memory Access** omits matching memories or historical context because of a limit, the result should disclose the applied limit and omitted count.
 - Historic chat recall through a **Memory Context Tool** should start from existing conversation summaries and bounded message search before adding new persistent memory structures.
-- A **Baseline Memory Profile** should come from Honcho-led synthesis rather than a newest-N raw conclusion list.
+- A **Baseline Memory Profile** should come from the **Persona Summary** plus query-relevant active facts rather than a newest-N raw conclusion list.
 - A **Baseline Memory Profile** should apply the active **Memory Profile Projection** so user-visible edits, deletions, suppressions, expiries, and review blocks are respected in the next chat turn.
 - Deeper persona recall belongs in the **Memory Context Tool**, while the **Baseline Memory Profile** gives every normal chat turn enough personalization to start well.
 - The Knowledge Base should render a **Memory Profile Projection** instead of raw Honcho prose.
@@ -1427,8 +1458,8 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Clear Memory and Knowledge** should advance the account's **Memory Reset Generation** so old memory maintenance and retry work cannot write pre-reset state after the reset.
 - **Memory Profile Projection**, **Memory Dirty State Ledger**, **Memory Review Items**, conflict blocks, and maintenance slices should be scoped to the current **Memory Reset Generation**.
 - **Clear Memory and Knowledge** may leave non-identifying aggregate **Memory Rework Telemetry** counters only when they cannot identify the user or reconstruct remembered content.
-- **Clear Memory and Knowledge** should continue to reset Honcho-backed memory in a way that prevents old Honcho state from reappearing after the reset.
-- Active, inactive, corrected, suppressed, expired, and review status in the **Memory Profile Projection** may come from app-owned profile metadata layered over Honcho-led memory.
+- **Clear Memory and Knowledge** should reset the local memory store (projection, review, dirty, maintenance, telemetry) so no pre-reset state reappears; advancing the **Memory Reset Generation** is the mechanism.
+- Active, inactive, corrected, suppressed, expired, and review status in the **Memory Profile Projection** is app-owned profile metadata; it is the authority, not a layer over an external substrate.
 - **Memory Profile Categories** should be limited to a small set of meaningfully distinct groups so users can understand the profile at a glance.
 - The primary **Memory Profile Categories** are **About You Memory Category**, **Preferences Memory Category**, **Goals & Ongoing Work Memory Category**, and **Constraints & Boundaries Memory Category**.
 - Review state, freshness, correction state, and recent activity should not become primary **Memory Profile Categories**.
@@ -1480,7 +1511,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Internal operational safety caps may exist, but they should not become the user-facing product definition of how much AlfyAI can remember.
 - **Adaptive Active Memory Budget** pressure should remain internal maintenance and telemetry state; the default **Memory Profile** should not show a profile-pressure warning, memory quota, or other technical capacity indicator.
 - Ordinary chat personalization should not use hidden profile facts that are absent from the active default **Memory Profile** because they are deferred, blocked, expired, suppressed, deleted, or review-needed.
-- Chat should not use raw Honcho context in a way that contradicts the next-turn-effective **Memory Profile Projection**.
+- Chat should not use non-active or historical memory in a way that contradicts the next-turn-effective **Memory Profile Projection**.
 - Ordinary chat personalization should use **Projection-Gated Memory Access** rather than receiving unfiltered Honcho peer or session context as current profile truth.
 - If memory retrieval finds relevant but inactive historical, preserved, deleted, suppressed, expired, conflict-blocked, or review-needed material, AlfyAI should either use it only as explicit source/history evidence or route it to maintenance/review; it should not silently personalize from it.
 - **Memory Profile Correction** and **Memory Profile Suppression** should take immediate precedence in the **Memory Profile Projection**.
@@ -1522,7 +1553,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Document-Sourced Context** should not become user-truth or Memory Profile material merely because the user uploaded, attached, opened, or worked with a document.
 - **Document-Scoped Memory** should be reserved for facts about a specific document or document family, such as how to edit, interpret, revise, or reuse it.
 - Arbitrary document contents, including tax papers, receipts, third-party PDFs, sample documents, and unrelated reference files, should remain document evidence unless explicit user-authored intent promotes a fact into memory.
-- Uploaded document contents should not sync directly into Honcho persona or session memory by default.
+- Uploaded document contents should not sync directly into durable profile memory by default.
 - Document-related memory should enter durable memory only when the **Memory Intake Gate** explicitly admits it.
 - **Document Memory Admission** should immediately admit document-related memory only from explicit user-authored intent.
 - Immediate **Document Memory Admission** should require clear durable language such as "remember," "always," "from now on," or "for this document family."
@@ -1559,9 +1590,9 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Expensive Memory Reconciliation** should apply projection changes only when the **Memory Projection Revision** still matches the state it read.
 - Stale maintenance output should be discarded or retried against the current **Memory Projection Revision**, not applied over newer user-facing memory state.
 - If maintenance crashes partway through a **Bounded Memory Reconciliation Slice**, uncommitted or unfinished dirty work should remain pending rather than be treated as complete.
-- **Expensive Memory Reconciliation** should apply dirty work, projection writes, review-item writes, and Honcho reconciliation only for the current **Memory Reset Generation**.
-- Maintenance work from an older **Memory Reset Generation** should discard its output and must not recreate profile, review, dirty, telemetry, or Honcho-derived memory state after **Clear Memory and Knowledge**.
-- Background Honcho cleanup or reconciliation failures should be logged as retryable maintenance failures, not surfaced as user-facing action errors unless the visible projection save failed.
+- **Expensive Memory Reconciliation** (the **Memory Consolidation** pass) should apply dirty work, projection writes, and review-item writes only for the current **Memory Reset Generation**.
+- Maintenance work from an older **Memory Reset Generation** should discard its output and must not recreate profile, review, dirty, or telemetry memory state after **Clear Memory and Knowledge**.
+- Background memory maintenance or consolidation failures should be logged as retryable maintenance failures, not surfaced as user-facing action errors unless the visible projection save failed.
 - Memory maintenance cooldowns should gate expensive cleanup, expiry, deduplication, review generation, and reconciliation; they should not delay active continuity writes or active continuity reads needed for project and folder work.
 - **Memory Rework Telemetry** should be a required part of the memory design rather than a later observability add-on.
 - **Memory Rework Telemetry** should cover intake accepts and rejects, maintenance actions, review-item creation and resolution, user corrections and deletions, and whether active memory was included or blocked from prompt context.
@@ -1940,8 +1971,16 @@ An optional admin-provided link to the privacy or data-processing policy for a *
 _Avoid_: provider documentation dump, legal summary, model guide essay
 
 **Provider Model**:
-A specific model name available under a **Model Provider** that an admin has chosen to make available for Normal Chat. It carries its own display name, context limits, capability flags, reasoning configuration, and pricing rules. Users select from available **Provider Models** in the chat model selector.
+A specific model name available under a **Model Provider** that an admin has chosen to make available for Normal Chat. It carries its own display name, context limits, capability flags, reasoning configuration, and pricing rules (flat per-1M input/cached-input/cache-hit/cache-miss/output rates, optionally overridden by **Price Windows**). Users select from available **Provider Models** in the chat model selector.
 _Avoid_: available model, configured model, endpoint, model
+
+**Price Window**:
+An admin-managed recurring override of a **Provider Model**'s rates for a day-of-week + time-of-day slot (`provider_model_price_windows`; see [ADR-0047](docs/adr/0047-provider-cost-price-windows-and-cache-accounting.md)). A window carries a UTC day mask, a `[startMinute, endMinute)` range (midnight wraparound allowed), and optional per-rate overrides; a null override falls back to the flat rate. The resolver picks the active window at a call's timestamp (disabled ignored; ties break by start minute then id; none matching → flat rates) and applies it uniformly to message, Atlas, and memory cost. Costs are computed at write time and never recomputed.
+_Avoid_: separate price-rules table, per-call ad hoc pricing, retroactive cost recompute, local-time window
+
+**Prompt Cache Accounting**:
+The runtime capture of provider prompt-cache behavior for cost (see [ADR-0047](docs/adr/0047-provider-cost-price-windows-and-cache-accounting.md)). A **Normal Chat Model Run** emits a stable per-turn prompt cache key to raise cache hit rates, then reads cached-token usage back from provider metadata across OpenAI, Fireworks, and generic AI-SDK shapes into `cachedInput`/`cacheHit`/`cacheMiss` token counts, so a turn is priced against its real cache behavior instead of the flat input rate. The same accounting fixed memory-pipeline mispricing.
+_Avoid_: flat input pricing for cache hits, cache key omitted, unrecognized cache field silently billed as full input
 
 **Model Selection Guide**:
 A contextual, reopenable informational comparison modal launched from Provider Model selection. It supplements the existing model selector with compact structured model facts and short admin-authored guidance for all currently enabled **Provider Models**, without replacing the selector, allowing model selection, or becoming an **Announcement Campaign**.
@@ -2007,9 +2046,14 @@ _Avoid_: provider fallback, failover provider, backup endpoint
 The admin-triggered process of calling the provider's `/v1/models` endpoint to list available model IDs. The result is used to pre-populate **Provider Models** for admin selection.
 _Avoid_: model fetch, auto-detect, model scan
 
+**Provider Family Compatibility**:
+The single seam where OpenAI-compatible provider quirks live (`normal-chat-model/provider-compatibility.ts`; see [ADR-0048](docs/adr/0048-openai-compatible-provider-family-compatibility.md)). Each **Provider Model** is classified into a family (openai, deepseek, mimo, kimi, glm, qwen, mistral, nvidia_nemotron) whose profile supplies request-body transforms, thinking options (including chain-of-thought off), tool-choice policy, and stream normalization. Adding a provider means extending a family profile and its stream fixtures, not branching in model-run or route code.
+_Avoid_: per-call-site provider branching, per-model switch, quirks in the route, undocumented adapter
+
 ### Relationships
 
 - A **Model Provider** has many **Provider Models**.
+- OpenAI-compatible provider quirks are owned by **Provider Family Compatibility**, not by callers.
 - A **Provider Model** belongs to exactly one **Model Provider**.
 - A **Model Selection Guide** explains all currently enabled **Provider Models** without replacing the chat model selector.
 - A **Model Selection Guide** preserves **Model Provider** grouping, **Provider Processing Region**, and **Provider Privacy Policy Link** cues because providers may carry user-facing privacy or jurisdiction meaning.
@@ -2195,7 +2239,7 @@ _Avoid_: source message button, primary document action, source viewer
 - **Generated Document Source Persistence** is the source authority for source-first **Generated Documents**; it is not route-local behavior, a detached helper, or a binary-extraction fallback.
 - The rendered binary file is the downloadable **Generated File** and a projection of the persisted **Generated Document Source**.
 - Rendered PDF, DOCX, and HTML **Generated Files** from the same source-first job link back to one source artifact through `generatedDocumentRenderedChatFileIds` plus `originalChatFileId` and `sourceChatFileId` read-model metadata.
-- Source-first rendered document files sync to memory and Honcho through the canonical **Generated Document Source** artifact instead of creating duplicate binary-extraction `generated_output` artifacts.
+- Source-first rendered document files sync to memory through the canonical **Generated Document Source** artifact instead of creating duplicate binary-extraction `generated_output` artifacts.
 - Program-mode and legacy **Generated Files** keep the existing extraction and generated-output versioning path when no canonical **Generated Document Source** exists.
 - A **Generated Document Template** renders a **Generated Document Source** into one or more downloadable formats.
 - A **File Production Request** may name a **Generated Document Template**.

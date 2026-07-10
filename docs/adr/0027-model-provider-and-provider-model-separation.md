@@ -1,5 +1,7 @@
 # Model Provider and Provider Model separation
 
+> **Extended by [ADR-0047](0047-provider-cost-price-windows-and-cache-accounting.md) (time-slot price windows + prompt-cache token accounting) and [ADR-0048](0048-openai-compatible-provider-family-compatibility.md) (provider-family compatibility profiles).**
+
 The `inference_providers` table currently bundles a base URL, API key, and model name into one row — every "provider" is exactly one model. We are splitting this into **Model Provider** (base URL + API key) and **Provider Model** (model name + context limits + capabilities + pricing), so one provider can serve multiple models.
 
 ## Decision
