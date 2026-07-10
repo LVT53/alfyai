@@ -45,6 +45,7 @@ let {
 	onToggleAllowWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
+	onUpdateOwnTracksHome,
 	onDisconnect,
 }: {
 	connection: ConnectionPublic | null;
@@ -57,11 +58,24 @@ let {
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
+	// Task 10 — sets/clears the OwnTracks connection's home lat/lon (null,
+	// null clears). Config, not a secret/write — see owntracks-home/+server.ts.
+	onUpdateOwnTracksHome: (
+		id: string,
+		next: { homeLat: number | null; homeLon: number | null },
+	) => void | Promise<void>;
 	onDisconnect: (id: string) => void | Promise<void>;
 } = $props();
 
 let newAllowlistEntry = $state("");
 let disconnectConfirmOpen = $state(false);
+
+// Task 10 — OwnTracks home-location editor local state. Kept as strings so
+// the inputs can hold an in-progress/invalid value (e.g. "-") without
+// coercing to NaN on every keystroke; parsed/validated only on save.
+let homeLatInput = $state("");
+let homeLonInput = $state("");
+let homeError = $state<string | null>(null);
 
 // Redesign R9 — folder suggestions for the write-allowlist editor, fetched
 // from the connection's actual Nextcloud folder structure. `ncSuggestionsFailed`
@@ -88,6 +102,11 @@ $effect(() => {
 	ncSuggestionsFailed = false;
 	ncSuggestionsOpen = false;
 	ncActiveIndex = -1;
+	const lat = connection?.config?.homeLat;
+	const lon = connection?.config?.homeLon;
+	homeLatInput = typeof lat === "number" ? String(lat) : "";
+	homeLonInput = typeof lon === "number" ? String(lon) : "";
+	homeError = null;
 });
 
 // Fetches the connection's top-level Nextcloud folders as suggestions —
@@ -194,6 +213,55 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		conn.id,
 		conn.writeAllowlist.filter((entry) => entry !== path),
 	);
+}
+
+// Task 10 — validates and persists the home-location editor's current input.
+// Both inputs blank => unset (homeLat/homeLon: null). A single blank input
+// (only one of the pair filled) is treated the same as an invalid number —
+// a lone coordinate is meaningless — so it falls through to the NaN check
+// below rather than needing its own branch.
+async function saveOwnTracksHome(conn: ConnectionPublic) {
+	const latRaw = homeLatInput.trim();
+	const lonRaw = homeLonInput.trim();
+
+	if (latRaw === "" && lonRaw === "") {
+		homeError = null;
+		try {
+			await onUpdateOwnTracksHome(conn.id, { homeLat: null, homeLon: null });
+		} catch {
+			homeError = $t("connections.ownTracksHome.saveError");
+		}
+		return;
+	}
+
+	const lat = Number(latRaw);
+	const lon = Number(lonRaw);
+	if (latRaw === "" || Number.isNaN(lat) || lat < -90 || lat > 90) {
+		homeError = $t("connections.ownTracksHome.invalidLat");
+		return;
+	}
+	if (lonRaw === "" || Number.isNaN(lon) || lon < -180 || lon > 180) {
+		homeError = $t("connections.ownTracksHome.invalidLon");
+		return;
+	}
+
+	homeError = null;
+	try {
+		await onUpdateOwnTracksHome(conn.id, { homeLat: lat, homeLon: lon });
+	} catch {
+		homeError = $t("connections.ownTracksHome.saveError");
+	}
+}
+
+async function clearOwnTracksHome(conn: ConnectionPublic) {
+	homeLatInput = "";
+	homeLonInput = "";
+	homeError = null;
+	try {
+		await onUpdateOwnTracksHome(conn.id, { homeLat: null, homeLon: null });
+	} catch {
+		homeError = $t("connections.ownTracksHome.saveError");
+	}
 }
 </script>
 
@@ -406,6 +474,70 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 						<p class="settings-help-text">{$t('connections.writeAllowlist.confirmNote')}</p>
 					{/if}
 				{/if}
+			{/if}
+
+			<!-- Task 10 — owntracks-only home-location editor: sets the
+			     homeLat/homeLon that ownTracksHomeReference (providers/owntracks.ts)
+			     reads for the "distance to home" tool action. Config, not a
+			     secret/write, so it never goes through the write-confirm firewall
+			     above — mirrors the nextcloud write-allowlist editor's
+			     provider gate, just for a different provider. -->
+			{#if conn.provider === 'owntracks'}
+				<section class="connection-detail-section">
+					<div class="connection-toggle-text">
+						<span class="settings-label connection-toggle-label">{$t('connections.ownTracksHome.label')}</span>
+						<InfoTooltip text={$t('connections.ownTracksHome.help')} />
+					</div>
+					<div class="owntracks-home-fields">
+						<label class="owntracks-home-field">
+							<span class="settings-label">{$t('connections.ownTracksHome.latLabel')}</span>
+							<input
+								type="number"
+								class="settings-input"
+								step="any"
+								min="-90"
+								max="90"
+								value={homeLatInput}
+								oninput={(e) => {
+									homeLatInput = (e.currentTarget as HTMLInputElement).value;
+								}}
+							/>
+						</label>
+						<label class="owntracks-home-field">
+							<span class="settings-label">{$t('connections.ownTracksHome.lonLabel')}</span>
+							<input
+								type="number"
+								class="settings-input"
+								step="any"
+								min="-180"
+								max="180"
+								value={homeLonInput}
+								oninput={(e) => {
+									homeLonInput = (e.currentTarget as HTMLInputElement).value;
+								}}
+							/>
+						</label>
+					</div>
+					{#if homeError}
+						<p class="owntracks-home-error">{homeError}</p>
+					{/if}
+					<div class="owntracks-home-actions">
+						<button
+							type="button"
+							class="btn-secondary text-xs"
+							onclick={() => clearOwnTracksHome(conn)}
+						>
+							{$t('connections.ownTracksHome.clear')}
+						</button>
+						<button
+							type="button"
+							class="btn-primary text-xs"
+							onclick={() => saveOwnTracksHome(conn)}
+						>
+							{$t('connections.ownTracksHome.save')}
+						</button>
+					</div>
+				</section>
 			{/if}
 		</div>
 	</DialogShell>
@@ -635,5 +767,37 @@ function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
 		background-color: color-mix(in srgb, var(--text-muted) 16%, transparent);
 		color: var(--text-muted);
 		border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+	}
+
+	/* Task 10 — OwnTracks home-location editor. */
+	.owntracks-home-fields {
+		display: flex;
+		gap: 0.625rem;
+		margin-top: 0.5rem;
+	}
+
+	.owntracks-home-field {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.owntracks-home-field .settings-label {
+		margin-bottom: 0;
+	}
+
+	.owntracks-home-error {
+		margin: 0.5rem 0 0 0;
+		font-size: 0.75rem;
+		color: var(--danger);
+	}
+
+	.owntracks-home-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		margin-top: 0.625rem;
 	}
 </style>

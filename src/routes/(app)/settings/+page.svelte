@@ -28,6 +28,7 @@ import {
 	fetchLocality,
 	setLocalDistill,
 	updateConnection,
+	updateOwnTracksHome,
 	type ConnectionPublic,
 } from "$lib/client/api/connections";
 import {
@@ -615,6 +616,33 @@ async function updateConnectionWriteAllowlist(id: string, next: string[]) {
 	}
 }
 
+// Task 10 — sets/clears the OwnTracks connection's saved home lat/lon.
+// Mirrors the optimistic-update/revert-on-failure pattern above, but patches
+// the nested `config` object (merging in/deleting homeLat/homeLon) rather
+// than a top-level field, since that's where the server stores it.
+async function updateConnectionOwnTracksHome(
+	id: string,
+	next: { homeLat: number | null; homeLon: number | null },
+) {
+	const target = connections.find((conn) => conn.id === id);
+	if (!target) return;
+	const previousConfig = target.config;
+	const nextConfig: Record<string, unknown> = { ...previousConfig };
+	if (next.homeLat === null || next.homeLon === null) {
+		delete nextConfig.homeLat;
+		delete nextConfig.homeLon;
+	} else {
+		nextConfig.homeLat = next.homeLat;
+		nextConfig.homeLon = next.homeLon;
+	}
+	patchConnectionLocal(id, { config: nextConfig });
+	try {
+		await updateOwnTracksHome(id, next);
+	} catch {
+		patchConnectionLocal(id, { config: previousConfig });
+	}
+}
+
 async function disconnectConnectionById(id: string) {
 	try {
 		await disconnectConnection(id);
@@ -898,6 +926,7 @@ $effect(() => {
 				onToggleAllowWrites={toggleConnectionAllowWrites}
 				onToggleDefaultOn={toggleConnectionDefaultOn}
 				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
+				onUpdateOwnTracksHome={updateConnectionOwnTracksHome}
 				onDisconnect={disconnectConnectionById}
 				onStartConnect={startConnect}
 				onReconnect={reconnectConnection}

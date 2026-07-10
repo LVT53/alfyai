@@ -51,6 +51,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onToggleAllowWrites: vi.fn(),
 		onToggleDefaultOn: vi.fn(),
 		onUpdateWriteAllowlist: vi.fn(),
+		onUpdateOwnTracksHome: vi.fn(),
 		onDisconnect: vi.fn(),
 		...overrides,
 	};
@@ -496,5 +497,184 @@ describe("ConnectionDetailModal", () => {
 		await fireEvent.keyDown(window, { key: "Escape" });
 
 		expect(onClose).toHaveBeenCalled();
+	});
+
+	// Task 10 — the home-location editor is owntracks-only (mirrors the
+	// nextcloud write-allowlist editor's provider gate).
+	describe("OwnTracks home location editor", () => {
+		function ownTracksConnection(overrides: Partial<ConnectionPublic> = {}) {
+			return makeConnection({
+				id: "conn-ot",
+				provider: "owntracks",
+				label: "OwnTracks",
+				accountIdentifier: "alice_ot/phone",
+				capabilities: ["location"],
+				config: { otUser: "alice_ot", otDevice: "phone" },
+				...overrides,
+			});
+		}
+
+		it("does not render the home-location editor for a non-owntracks provider", () => {
+			render(ConnectionDetailModal, baseProps());
+			expect(screen.queryByText("Home location")).not.toBeInTheDocument();
+		});
+
+		it("renders the home-location editor for an owntracks connection", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({ connection: ownTracksConnection() }),
+			);
+			expect(screen.getByText("Home location")).toBeInTheDocument();
+			expect(screen.getByLabelText("Latitude")).toBeInTheDocument();
+			expect(screen.getByLabelText("Longitude")).toBeInTheDocument();
+		});
+
+		it("pre-fills the inputs from the connection's stored homeLat/homeLon", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection({
+						config: {
+							otUser: "alice_ot",
+							otDevice: "phone",
+							homeLat: 47.5,
+							homeLon: 19.05,
+						},
+					}),
+				}),
+			);
+			expect(screen.getByLabelText("Latitude")).toHaveValue(47.5);
+			expect(screen.getByLabelText("Longitude")).toHaveValue(19.05);
+		});
+
+		it("saving valid coordinates calls onUpdateOwnTracksHome with numeric homeLat/homeLon", async () => {
+			const onUpdateOwnTracksHome = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection(),
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Latitude"), {
+				target: { value: "47.5" },
+			});
+			await fireEvent.input(screen.getByLabelText("Longitude"), {
+				target: { value: "19.05" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
+				homeLat: 47.5,
+				homeLon: 19.05,
+			});
+		});
+
+		it("rejects an out-of-range latitude without calling onUpdateOwnTracksHome", async () => {
+			const onUpdateOwnTracksHome = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection(),
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Latitude"), {
+				target: { value: "91" },
+			});
+			await fireEvent.input(screen.getByLabelText("Longitude"), {
+				target: { value: "19.05" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+			expect(onUpdateOwnTracksHome).not.toHaveBeenCalled();
+			expect(
+				screen.getByText("Latitude must be between -90 and 90."),
+			).toBeInTheDocument();
+		});
+
+		it("rejects an out-of-range longitude without calling onUpdateOwnTracksHome", async () => {
+			const onUpdateOwnTracksHome = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection(),
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Latitude"), {
+				target: { value: "47.5" },
+			});
+			await fireEvent.input(screen.getByLabelText("Longitude"), {
+				target: { value: "181" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+			expect(onUpdateOwnTracksHome).not.toHaveBeenCalled();
+			expect(
+				screen.getByText("Longitude must be between -180 and 180."),
+			).toBeInTheDocument();
+		});
+
+		it("clearing both inputs and saving calls onUpdateOwnTracksHome with nulls (unset)", async () => {
+			const onUpdateOwnTracksHome = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection({
+						config: {
+							otUser: "alice_ot",
+							otDevice: "phone",
+							homeLat: 47.5,
+							homeLon: 19.05,
+						},
+					}),
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.input(screen.getByLabelText("Latitude"), {
+				target: { value: "" },
+			});
+			await fireEvent.input(screen.getByLabelText("Longitude"), {
+				target: { value: "" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
+				homeLat: null,
+				homeLon: null,
+			});
+		});
+
+		it("the Clear button resets both inputs and calls onUpdateOwnTracksHome with nulls", async () => {
+			const onUpdateOwnTracksHome = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: ownTracksConnection({
+						config: {
+							otUser: "alice_ot",
+							otDevice: "phone",
+							homeLat: 47.5,
+							homeLon: 19.05,
+						},
+					}),
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
+				homeLat: null,
+				homeLon: null,
+			});
+			expect(screen.getByLabelText("Latitude")).toHaveValue(null);
+			expect(screen.getByLabelText("Longitude")).toHaveValue(null);
+		});
 	});
 });

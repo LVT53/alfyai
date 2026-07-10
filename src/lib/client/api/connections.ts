@@ -307,6 +307,26 @@ export async function startOwnTracksConnect(params: {
 	);
 }
 
+// PATCH /api/connections/[id]/owntracks-home —
+// src/routes/api/connections/[id]/owntracks-home/+server.ts
+// Task 10 — sets or clears (pass both as null) the home lat/lon the
+// "distance" location-tool action reads via ownTracksHomeReference. Config,
+// not a secret — never touches the vault or the write-confirm firewall.
+export async function updateOwnTracksHome(
+	id: string,
+	patch: { homeLat: number | null; homeLon: number | null },
+): Promise<ConnectionPublic> {
+	return requestJson<ConnectionPublic>(
+		`/api/connections/${id}/owntracks-home`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(patch),
+		},
+		"Failed to update the home location",
+	);
+}
+
 // Issue 7.4 — locality privacy controls. Option C (warn-once before sending
 // connector data to a cloud model) and Option A (per-user local-distill
 // toggle). See src/lib/server/services/connections/locality.ts for the

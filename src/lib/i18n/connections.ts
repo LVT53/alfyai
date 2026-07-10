@@ -165,6 +165,22 @@ const connectionsDict = {
 		"connections.wizard.contacts.notAvailable":
 			"Connecting Contacts directly isn't available yet — connect Google, Apple, or Nextcloud instead to bring in contacts.",
 
+		// Task 10 — OwnTracks home location editor (ConnectionDetailModal),
+		// owntracks-only. Setting this enables the "distance" tool action's
+		// "how far am I from home" branch (ownTracksHomeReference).
+		"connections.ownTracksHome.label": "Home location",
+		"connections.ownTracksHome.help":
+			"Saving your home coordinates lets AlfyAI answer “how far am I from home”.",
+		"connections.ownTracksHome.latLabel": "Latitude",
+		"connections.ownTracksHome.lonLabel": "Longitude",
+		"connections.ownTracksHome.save": "Save",
+		"connections.ownTracksHome.clear": "Clear",
+		"connections.ownTracksHome.invalidLat":
+			"Latitude must be between -90 and 90.",
+		"connections.ownTracksHome.invalidLon":
+			"Longitude must be between -180 and 180.",
+		"connections.ownTracksHome.saveError": "Failed to save home location.",
+
 		"connections.oauthReturn.success": "Connected to {provider}.",
 		"connections.oauthReturn.error": "Couldn't connect: {reason}",
 		"connections.oauthReturn.reason.google_oauth_denied":
@@ -389,6 +405,24 @@ const connectionsDict = {
 
 		"connections.wizard.contacts.notAvailable":
 			"A Névjegyek közvetlen csatlakoztatása még nem elérhető — csatlakoztasd inkább a Google-t, az Apple-t vagy a Nextcloudot a névjegyek behozatalához.",
+
+		// Task 10 — OwnTracks otthon-hely szerkesztő (ConnectionDetailModal),
+		// csak owntracks esetén. A beállítása lehetővé teszi a „distance”
+		// eszközművelet „milyen messze vagyok otthontól” ágát
+		// (ownTracksHomeReference).
+		"connections.ownTracksHome.label": "Otthoni helyzet",
+		"connections.ownTracksHome.help":
+			"Az otthoni koordináták mentésével az AlfyAI meg tudja válaszolni, hogy „milyen messze vagyok otthontól”.",
+		"connections.ownTracksHome.latLabel": "Szélesség",
+		"connections.ownTracksHome.lonLabel": "Hosszúság",
+		"connections.ownTracksHome.save": "Mentés",
+		"connections.ownTracksHome.clear": "Törlés",
+		"connections.ownTracksHome.invalidLat":
+			"A szélességnek -90 és 90 között kell lennie.",
+		"connections.ownTracksHome.invalidLon":
+			"A hosszúságnak -180 és 180 között kell lennie.",
+		"connections.ownTracksHome.saveError":
+			"Nem sikerült menteni az otthoni helyzetet.",
 
 		"connections.oauthReturn.success": "Csatlakoztatva: {provider}.",
 		"connections.oauthReturn.error": "Nem sikerült csatlakozni: {reason}",

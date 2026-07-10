@@ -40,6 +40,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onToggleAllowWrites: vi.fn(),
 		onToggleDefaultOn: vi.fn(),
 		onUpdateWriteAllowlist: vi.fn(),
+		onUpdateOwnTracksHome: vi.fn(),
 		onDisconnect: vi.fn(),
 		onStartConnect: vi.fn(),
 		onReconnect: vi.fn(),

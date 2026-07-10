@@ -76,6 +76,7 @@ let {
 	onToggleAllowWrites,
 	onToggleDefaultOn,
 	onUpdateWriteAllowlist,
+	onUpdateOwnTracksHome,
 	onDisconnect,
 	onStartConnect,
 	onReconnect,
@@ -93,6 +94,11 @@ let {
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
+	// Task 10 — see ConnectionDetailModal.svelte's onUpdateOwnTracksHome doc.
+	onUpdateOwnTracksHome: (
+		id: string,
+		next: { homeLat: number | null; homeLon: number | null },
+	) => void | Promise<void>;
 	onDisconnect: (id: string) => void | Promise<void>;
 	onStartConnect: (provider: ConnectionProvider) => void;
 	onReconnect: (connectionId: string) => void;
@@ -298,6 +304,7 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 	{onToggleAllowWrites}
 	{onToggleDefaultOn}
 	{onUpdateWriteAllowlist}
+	{onUpdateOwnTracksHome}
 	onDisconnect={async (id) => {
 		await onDisconnect(id);
 		selectedConnectionId = null;
