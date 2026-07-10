@@ -65,7 +65,7 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - `src/lib/client/api/` owns reusable browser `fetch` logic. Stores should not become ad hoc HTTP clients.
 - `src/lib/services/stream-protocol.ts` owns shared stream-tag parsing helpers and completed-response control-tag cleanup. `src/lib/services/ai-sdk-ui-stream-contract.ts` owns AI SDK UI stream frame encoding, complete-block decoding, terminal detection, and metadata extraction for Normal Chat stream/reconnect/browser responses. `src/lib/server/services/chat-turn/stream.ts` owns runtime emission helpers for text, reasoning, tool/data, replay, metadata, finish, and `[DONE]` parts through that shared contract. Do not duplicate inline thinking-tag parsing, final visible-text extraction, UI stream frame builders, terminal checks, or event line-prefix parsers across `streaming.ts`, `chat-turn/normalizer.ts`, `chat-turn/stream*.ts`, and the chat stream route.
 - `src/lib/services/streaming.ts` owns the browser stream transport contract, including the distinction between a user-requested stop and a local detach during navigation/unmount. Do not collapse those paths back into one generic abort that marks background disconnects as explicit stops.
-- `src/lib/server/services/messages.ts` owns persisted assistant-message metadata such as evidence summaries and Honcho diagnostics/snapshots. Do not invent route-local shadow storage for those fields.
+- `src/lib/server/services/messages.ts` owns persisted assistant-message metadata such as evidence summaries. Do not invent route-local shadow storage for those fields.
 - `src/lib/server/services/normal-chat-context.ts` owns Normal Chat prompt assembly, including always-on date-before-search guidance and file-production guidance. Do not reintroduce route-local prompt guards for freshness-sensitive search behavior.
 - `src/lib/server/services/web-grounding.ts` owns Normal Chat web grounding payloads: model-safe `research_web` source/evidence shaping, grounded web candidates/metadata, citation URL extraction, and citation-audit source extraction. Do not duplicate web source canonicalization or research evidence payload shaping inside tools, routes, or citation audit code.
 - `src/lib/model-context-defaults.ts` owns shared context-window derived defaults, and `src/lib/server/services/provider-model-runtime-defaults.ts` owns provider-model runtime/persistence projection for context limits, max output tokens, reasoning, and thinking. Env parsing, config-store overrides, provider-model seeding, context budgeting, prompt-limit resolution, and Normal Chat Model Run must consume those defaults instead of duplicating ratio math.
@@ -73,7 +73,6 @@ This file is the canonical engineering map for AlfyAI. Read it before changing c
 - `src/lib/server/services/normal-chat-model/` owns Vercel AI SDK/OpenAI-compatible model execution for Normal Chat, including plain/streaming provider-attempt policy, timeout failover, provider rate-limit fallback, unsupported-tool fallback, provider usage mapping, and neutral model-run events; `src/lib/server/services/normal-chat-tools/` owns app-backed AI SDK tools and their shared execution envelope. Do not reintroduce provider retry policy in chat-turn routes/orchestrators, hand-roll per-tool timeout/abort/recording shells, or add a hidden external orchestration runtime for these paths.
 - `src/lib/server/services/title-generator.ts` owns language-aware title prompt selection and code-specific title prompt appendices, while the prompt text itself flows through `src/lib/server/config-store.ts` and admin settings.
 - `src/lib/server/services/task-state.ts` is the continuity boundary. Do not reintroduce a parallel `project-memory` architecture.
-- `src/lib/server/services/honcho.ts` is for Honcho-specific behavior only. Do not let it become a second generic prompt/memory engine.
 - `src/lib/server/services/task-state/control-model.ts` is still for structured control-model work such as routing, verification, and semantic JSON tasks. Do not route TEI reranking back through that chat-completions path.
 - `src/lib/server/services/semantic-embeddings.ts` owns durable embedding persistence for artifacts, legacy persona-cluster rows, and task states. Do not hide embedding upserts or source-text hashing in route files or domain-specific side helpers.
 
@@ -198,12 +197,12 @@ Do not:
   - Chat page refreshes conversation detail after file-producing turns and while queued/running production jobs exist
   - [`src/routes/api/chat/files/produce/+server.ts`](./src/routes/api/chat/files/produce/+server.ts) stays an auth/HTTP adapter; `src/lib/server/services/file-production/` owns intake parsing, validation, durable job creation/reuse, failed-job persistence, and worker wakeup
   - File-production state and execution rules stay in the deep modules behind the facade. Do not put job ledger transitions, worker drain loops, persisted request parsing, renderer dispatch, or generated-file storage/linking back into `index.ts`, routes, renderers, or chat-file services.
-  - The Conversation Detail Read Model may import `file-production/read-model.ts` directly. General callers may use the public facade, but must not make read paths eagerly load worker-runner, renderer, sandbox, Honcho, or generated-file storage modules.
+  - The Conversation Detail Read Model may import `file-production/read-model.ts` directly. General callers may use the public facade, but must not make read paths eagerly load worker-runner, renderer, sandbox, or generated-file storage modules.
   - Source-first generated-document source artifacts start as pending and non-durable, promote to durable only after rendered files attach successfully, and stay non-prompt-eligible if rendering/storage fails before attachment.
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) now ensures the sandbox runtime images exist before container creation, warms them in the background at app startup, and supports both the Python runtime (`python:3.11-slim`) and the JavaScript runtime (`node:22-bookworm-slim`)
   - [`src/lib/server/sandbox/config.ts`](./src/lib/server/sandbox/config.ts) must wait for exec inspection to report `Running === false` before the archive reader inspects `/output`; do not treat an early stream close as proof that the sandbox command has finished
   - [`src/lib/server/services/sandbox-execution.ts`](./src/lib/server/services/sandbox-execution.ts) must surface output-archive read failures as explicit execution errors instead of collapsing them into the same empty-file 422 path used for real zero-output runs
-  - File-production/server tracing now mainly uses `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]`, `[NORMAL_CHAT_CONTEXT]`, `[HONCHO]`, and `[MEMORY_MAINTENANCE]`; preserve those prefixes when extending the debugging path so node logs stay grep-friendly
+  - File-production/server tracing now mainly uses `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]`, `[NORMAL_CHAT_CONTEXT]`, and `[MEMORY_MAINTENANCE]`; preserve those prefixes when extending the debugging path so node logs stay grep-friendly
 
 Do:
 
@@ -227,7 +226,7 @@ Do:
 - keep the model-facing output-list input named `requestedOutputs`, not `outputs`, so generated-document guidance and tool schemas stay aligned
 - keep `produce_file` runtime guidance accurate: use `sourceMode: "document_source"` for PDF/DOCX/HTML reports from structured document source and `sourceMode: "program"` for code-generated data/office artifacts
 - generated files may offer an authenticated rich preview via `/api/chat/files/[id]/preview`; reuse the shared file viewer component instead of maintaining a second chat-only preview UI
-- working-document continuity should continue to build on generated-output artifacts plus Honcho sync.
+- working-document continuity should continue to build on generated-output artifacts.
 - working-document continuity should prefer the shared resolver’s “current generated document” signal over generic latest-output heuristics. If a generated document is selected because of active focus or a query match, do not layer a second recency-only boost on top.
 - keep document-selection observability compact and authority-scoped. Extend the `[CONTEXT] Working document selection` summary in `knowledge/context.ts` instead of reintroducing noisy per-artifact debug logs across routes.
 
@@ -289,7 +288,7 @@ Responsibility split:
   - shared knowledge upload limits
   - optional conversation validation
   - uploaded source persistence through the store
-  - normalized artifact creation, Honcho sync/fallback, prompt readiness, and upload trace output
+  - normalized artifact creation, prompt readiness, and upload trace output
 - `context.ts`
   - relevant-artifact lookup
   - working-set and context status operations
@@ -386,7 +385,7 @@ Do not:
 - create a new top-level continuity service when `task-state.ts` can own the behavior
 - add a second intake path, regex persona pipeline, or temporal-truth/salience/supersession subsystem outside `memory-judge`/`memory-consolidation`/`memory-profile`
 - copy the `user_authored`/metadata parse helpers, `clip`, token estimation, or prompt-compaction helpers into another service
-- create or restore `project-memory.ts`, `persona-memory.ts`, or any `honcho.ts`-style external memory adapter
+- create or restore `project-memory.ts`, `persona-memory.ts`, or any external memory adapter (e.g. the removed Honcho dual-brain — memory is local-only, see ADR-0045)
 
 ### Config And Environment
 
@@ -539,7 +538,7 @@ These services are actively imported but not documented in the feature sections 
   - [`src/lib/server/services/attachment-trace.ts`](./src/lib/server/services/attachment-trace.ts) — logging helper for chat/file-production tracing. Adds `[FILE_PRODUCTION]`, `[CHAT_STREAM]`, `[CHAT_FILES]` correlation context. Consumed by stream-orchestrator and file-production services.
   - [`src/lib/server/services/language.ts`](./src/lib/server/services/language.ts) — language detection utilities. Consumed by chat-turn request handling and title prompt selection.
   - [`src/lib/server/services/conversation-drafts.ts`](./src/lib/server/services/conversation-drafts.ts) — draft management for conversations. Used by conversation routes for draft save/load.
-  - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly and Honcho.
+  - [`src/lib/server/prompts.ts`](./src/lib/server/prompts.ts) — shared prompt configuration helpers. Consumed by Normal Chat context assembly.
   - [`src/lib/server/api/responses.ts`](./src/lib/server/api/responses.ts) — shared JSON response helpers (`createJsonErrorResponse`, `createJsonResponse`) for API routes. Used across route files for consistent error/success formatting.
   - [`src/lib/server/services/analytics.ts`](./src/lib/server/services/analytics.ts) — analytics event ingestion plus the Analytics Dashboard Read Model. Event ingestion is consumed by chat-turn finalization; `getAnalyticsDashboardReadModel(...)` owns `/api/analytics` payload assembly for personal, admin system, per-user, timeline, and mock analytics. `src/routes/api/analytics/+server.ts` stays a route adapter for auth, query parameters, and JSON response mapping.
   - [`src/lib/server/services/file-production/`](./src/lib/server/services/file-production/) — durable file-production jobs, source validation, renderers, sandbox execution, retry/cancel, and legacy generated-file backfill.
@@ -620,7 +619,7 @@ Do not:
   - browser stream consumer
   - related tests
 - Admin settings can override env-backed defaults. A change that looks correct in `.env` may still be superseded at runtime.
-- Auxiliary services such as title generation, context summarization, and Honcho should degrade gracefully. Do not make them hard dependencies of the core chat path unless that behavior change is intentional.
+- Auxiliary services such as title generation and context summarization should degrade gracefully. Do not make them hard dependencies of the core chat path unless that behavior change is intentional.
 - Do not restore deleted `project-memory.ts`-style architecture or add duplicate DB wrapper files. New persistence should stay in the owning service unless a narrow compatibility shim belongs in `db/compat.ts`.
 
 ## Change Placement Guide
@@ -642,8 +641,8 @@ Do not:
   - `src/lib/server/services/sandbox-execution.ts`
 - New continuity or evidence-context logic:
   - `src/lib/server/services/task-state.ts`
-- New Honcho-specific behavior:
-  - `src/lib/server/services/honcho.ts`
+- New profile-memory behavior:
+  - `src/lib/server/services/memory-judge/` (intake), `memory-consolidation/` (maintenance), `memory-profile/` (projection)
 - New reusable browser API call:
   - `src/lib/client/api/`
 - New client state transition:
@@ -707,7 +706,7 @@ Run these too when relevant:
 ## What Not To Reintroduce
 
 - No new top-level `src/lib/server/services/*.ts` public boundary just because one file is getting large.
-- No parallel memory subsystem beside `task-state.ts` and `honcho.ts`.
+- No parallel memory subsystem beside `task-state.ts` (continuity) and the Memory Profile / Memory Judge / Consolidation stack (profile memory).
 - No duplicated route-specific chat execution logic.
 - No new raw `sessionStorage` protocol outside `conversation-session.ts`.
 - No direct env reads in override-aware runtime services.
