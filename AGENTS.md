@@ -407,7 +407,7 @@ Notes:
 
 - `env.ts` also owns `getDatabasePath()` for bootstrap-only DB path access.
 - Title-generator prompt variants flow through `env.ts`, `config-store.ts`, and the admin system settings UI. Keep English/Hungarian base prompts and code-only appendices aligned across those layers.
-- TEI endpoint/model tuning also flows through `env.ts` plus `config-store.ts`. Keep API keys env-only, keep runtime overrides on the non-secret fields, and keep the rollout plan in [docs/tei-retrieval-roadmap.md](./docs/tei-retrieval-roadmap.md) aligned with the live config surface.
+- TEI endpoint/model tuning also flows through `env.ts` plus `config-store.ts`. Keep API keys env-only, and keep runtime overrides on the non-secret fields.
 - `config-store.ts` remains the override-aware runtime config boundary. `getDatabasePath()` is for early DB/bootstrap code, not for general runtime settings reads.
 - Context token limits are admin-configurable via `config-store.ts`:
   - `MAX_MODEL_CONTEXT` (default: 262144) - Maximum tokens the model context window supports
@@ -725,6 +725,5 @@ Run these too when relevant:
   - canonical engineering boundaries and placement rules
 - Supplemental references
   - [deploy/README.md](./deploy/README.md)
-  - [docs/external-deployment.md](./docs/external-deployment.md)
 
 If a supplemental doc conflicts with this file or the README, update the supplemental doc rather than copying the stale pattern back into the codebase.

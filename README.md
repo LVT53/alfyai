@@ -145,7 +145,7 @@ At a high level, AlfyAI runs as a single SvelteKit application with server route
 - The same app shell supports desktop, tablet, and mobile layouts, with the conversation view remaining the primary surface across breakpoints.
 - Sidebar conversations can be organized into project folders through the existing move flow and desktop drag/drop.
 - Persistent conversations, AI-generated titles, file-backed knowledge attachments, and optional memory features are designed as additive layers around the core chat flow rather than separate products.
-- Working-document planning and rollout details live in [docs/working-documents-architecture.md](./docs/working-documents-architecture.md) and [docs/working-documents-implementation-plan.md](./docs/working-documents-implementation-plan.md). The direction is to consolidate generated files and attachments onto one document system built on the existing artifact backbone rather than creating overlapping product concepts.
+- Working-document boundaries are recorded in the working-document ADRs ([identity](./docs/adr/0017-working-document-identity-boundary.md), [selection](./docs/adr/0018-working-document-selection-boundary.md)). The direction is to consolidate generated files and attachments onto one document system built on the existing artifact backbone rather than creating overlapping product concepts.
 
 ## Configuration Reference
 
@@ -349,5 +349,4 @@ These routes power the application itself. They are not presented as a stable pu
 ## Further Documentation
 
 - Advanced deployment notes: [deploy/README.md](./deploy/README.md)
-- External runtime caveats for knowledge uploads and Honcho: [docs/external-deployment.md](./docs/external-deployment.md)
 - Agent-facing codebase guide: [AGENTS.md](./AGENTS.md)
