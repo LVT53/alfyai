@@ -99,6 +99,32 @@ function systemWithPerUserFixture(): AnalyticsResponse {
 	};
 }
 
+function systemWithByModelFixture(): AnalyticsResponse {
+	const base = systemFixture();
+	const system = base.system;
+	if (!system) throw new Error("systemFixture() must include system");
+	return {
+		...base,
+		system: {
+			...system,
+			byModel: [
+				{
+					model: "model-a",
+					displayName: "Model A",
+					providerDisplayName: "OpenAI",
+					msgCount: 7,
+					promptTokens: 321,
+					cachedInputTokens: 54,
+					outputTokens: 187,
+					reasoningTokens: 29,
+					totalTokens: 591,
+					totalCostUsd: 1.2345,
+				},
+			],
+		},
+	};
+}
+
 describe("SettingsSystemAnalytics (ADR-0043 slice 18c)", () => {
 	it("renders the System Overview stats (system-level analytics, admin-only home)", () => {
 		const { getByText } = render(SettingsSystemAnalytics, {
@@ -194,6 +220,44 @@ describe("SettingsSystemAnalytics (ADR-0043 slice 18c)", () => {
 
 		expect(getByText("Excluded Users")).toBeInTheDocument();
 		expect(getByText("User Two")).toBeInTheDocument();
+	});
+
+	it("renders the per-model usage table with token columns and cost", () => {
+		const { getByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithByModelFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		expect(getByText("Usage by model")).toBeInTheDocument();
+		expect(getByText("Model A")).toBeInTheDocument();
+		expect(getByText("7")).toBeInTheDocument();
+		expect(getByText("321")).toBeInTheDocument();
+		expect(getByText("54")).toBeInTheDocument();
+		expect(getByText("187")).toBeInTheDocument();
+		expect(getByText("29")).toBeInTheDocument();
+		expect(getByText("591")).toBeInTheDocument();
+		expect(getByText("$1.2345")).toBeInTheDocument();
+	});
+
+	it("hides the per-model usage table when byModel is empty", () => {
+		const { queryByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		expect(queryByText("Usage by model")).not.toBeInTheDocument();
 	});
 
 	it("disables Chart.js animation under prefers-reduced-motion (ADR-0043 Wave 9)", async () => {

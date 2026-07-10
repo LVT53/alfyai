@@ -571,6 +571,7 @@ const settingsDict = {
 		"analytics.totalUsers": "Total users",
 		"analytics.user": "User",
 		"analytics.userActivity": "User Activity",
+		"analytics.usageByModel": "Usage by model",
 		"analytics.yourActivity": "Your Activity",
 		"analytics.excludedUsers": "Excluded Users",
 		"analytics.excludedUsersDescription":
@@ -1295,6 +1296,7 @@ const settingsDict = {
 		"analytics.totalUsers": "Összes felhasználó",
 		"analytics.user": "Felhasználó",
 		"analytics.userActivity": "Felhasználói aktivitás",
+		"analytics.usageByModel": "Használat modellenként",
 		"analytics.yourActivity": "A tevékenységed",
 		"analytics.excludedUsers": "Kizárt felhasználók",
 		"analytics.excludedUsersDescription":

@@ -20,7 +20,13 @@ export {
 interface AnalyticsByModelRow {
 	model: string;
 	displayName?: string;
+	providerDisplayName?: string | null;
 	msgCount: number;
+	promptTokens?: number;
+	cachedInputTokens?: number;
+	outputTokens?: number;
+	reasoningTokens?: number;
+	totalTokens?: number;
 	totalCostUsd: number;
 }
 

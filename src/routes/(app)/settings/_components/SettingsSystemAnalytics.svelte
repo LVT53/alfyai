@@ -311,19 +311,41 @@ onDestroy(() => {
 			</div>
 		</div>
 		{#if analyticsData.system.byModel?.length > 0}
-			<div class="mt-5">
-				<p class="settings-label mb-3">{$t('analytics.costByModel')}</p>
-				<div class="grid gap-2 sm:grid-cols-2">
-					{#each analyticsData.system.byModel as row}
-						<div class="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-surface-overlay px-3 py-2 text-sm">
-							<div class="flex min-w-0 items-center gap-2">
-								<ModelIcon iconUrl={modelIconUrl(row.model)} displayName={row.displayName ?? modelDisplayName(row.model)} size={22} />
-								<span class="truncate text-text-primary">{row.displayName ?? modelDisplayName(row.model)}</span>
-							</div>
-							<span class="shrink-0 text-xs text-text-muted">{formatUsd(row.totalCostUsd)}</span>
-						</div>
-					{/each}
-				</div>
+			<div class="mt-5 overflow-x-auto">
+				<p class="settings-label mb-3">{$t('analytics.usageByModel')}</p>
+				<table class="analytics-table w-full text-sm">
+					<thead>
+						<tr class="border-b border-border text-left text-xs text-text-muted">
+							<th class="pb-2 pr-3 font-medium">{$t('analytics.model')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('analytics.msgs')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('promptTokens')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('cachedInput')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('outputTokens')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('analytics.reasoning')}</th>
+							<th class="pb-2 pr-3 font-medium">{$t('analytics.totalTokens')}</th>
+							<th class="pb-2 font-medium">{$t('analytics.cost')}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each analyticsData.system.byModel as row}
+							<tr class="border-b border-border last:border-0">
+								<td class="py-2 pr-3">
+									<span class="inline-flex min-w-0 items-center gap-2">
+										<ModelIcon iconUrl={modelIconUrl(row.model)} displayName={row.displayName ?? modelDisplayName(row.model)} size={20} />
+										<span class="truncate text-text-primary">{row.displayName ?? modelDisplayName(row.model)}</span>
+									</span>
+								</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.msgCount)}</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.promptTokens ?? 0)}</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.cachedInputTokens ?? 0)}</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.outputTokens ?? 0)}</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.reasoningTokens ?? 0)}</td>
+								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.totalTokens ?? 0)}</td>
+								<td class="py-2 text-text-secondary">{formatUsd(row.totalCostUsd)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			</div>
 		{/if}
 	</section>
