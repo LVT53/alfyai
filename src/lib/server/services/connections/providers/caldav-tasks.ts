@@ -152,6 +152,35 @@ async function request(
 	}
 }
 
+// Shared needs_reauth mapping (Task 9b DRY pass) for every read (tasks,
+// events, event-by-uid, contacts): each of those reads a live app password
+// out of the store and then issues one or more `request()` calls against the
+// caller's server, so an `invalid_credentials` response can surface at any
+// point in that read. Rather than duplicating the "mark the connection
+// needs_reauth, then rethrow a needs_reauth CalDavError with the same
+// user-facing detail" logic at every call site, every read routes its body
+// through this one wrapper — any other error (including any other
+// CalDavError code) passes through unchanged.
+async function withReauthMapping<T>(
+	userId: string,
+	connectionId: string,
+	fn: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		if (err instanceof CalDavError && err.code === "invalid_credentials") {
+			const detail = "The server rejected the stored app password";
+			await updateConnection(userId, connectionId, {
+				status: "needs_reauth",
+				statusDetail: detail,
+			});
+			throw new CalDavError(detail, "needs_reauth");
+		}
+		throw err;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Discovery: the user-supplied serverUrl -> current-user-principal -> (ONE
 // combined PROPFIND for) calendar-home-set + addressbook-home-set ->
@@ -690,26 +719,34 @@ function parseTodoReportMultistatus(
 	return tasks;
 }
 
-function caldavTaskConfig(conn: ConnectionPublic): {
-	username: string;
-	taskListUrls: string[];
-} {
+// Shared read-config extraction (Task 9b DRY pass) for every per-resource
+// read function below: each derives `username` (falling back to the
+// connection's accountIdentifier, same as checkHealth does) and a filtered
+// array of URL-config strings for one config field, then throws
+// `invalid_config` with a field-specific detail if either turns out empty.
+// The only per-resource-type variation was WHICH config field to read and
+// WHAT noun to name in the error string — both now passed in by the caller
+// instead of being copy-pasted three times.
+function caldavResourceConfig(
+	conn: ConnectionPublic,
+	field: "taskListUrls" | "calendarUrls" | "addressbookUrls",
+	noun: string,
+): { username: string; urls: string[] } {
 	const username =
 		typeof conn.config.username === "string"
 			? conn.config.username
 			: conn.accountIdentifier;
-	const taskListUrls = Array.isArray(conn.config.taskListUrls)
-		? conn.config.taskListUrls.filter(
-				(value): value is string => typeof value === "string",
-			)
+	const rawUrls = conn.config[field];
+	const urls = Array.isArray(rawUrls)
+		? rawUrls.filter((value): value is string => typeof value === "string")
 		: [];
-	if (!username || taskListUrls.length === 0) {
+	if (!username || urls.length === 0) {
 		throw new CalDavError(
-			"Connection is missing username or taskListUrls in its config",
+			`Connection is missing username or ${noun} in its config`,
 			"invalid_config",
 		);
 	}
-	return { username, taskListUrls };
+	return { username, urls };
 }
 
 export async function caldavListTasks(
@@ -734,11 +771,15 @@ export async function caldavListTasks(
 		);
 	}
 
-	const { username, taskListUrls } = caldavTaskConfig(conn);
+	const { username, urls: taskListUrls } = caldavResourceConfig(
+		conn,
+		"taskListUrls",
+		"taskListUrls",
+	);
 	const auth = basicAuthHeader(username, appPassword);
 
-	const tasks: CalDavTask[] = [];
-	try {
+	return await withReauthMapping(userId, connectionId, async () => {
+		const tasks: CalDavTask[] = [];
 		for (const taskListUrl of taskListUrls) {
 			const { xml, finalUrl } = await request(
 				fetchImpl,
@@ -750,19 +791,8 @@ export async function caldavListTasks(
 			);
 			tasks.push(...parseTodoReportMultistatus(xml, finalUrl));
 		}
-	} catch (err) {
-		if (err instanceof CalDavError && err.code === "invalid_credentials") {
-			const detail = "The server rejected the stored app password";
-			await updateConnection(userId, connectionId, {
-				status: "needs_reauth",
-				statusDetail: detail,
-			});
-			throw new CalDavError(detail, "needs_reauth");
-		}
-		throw err;
-	}
-
-	return tasks;
+		return tasks;
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -774,28 +804,6 @@ export async function caldavListTasks(
 // (see that module's doc comments on `expand` and on the UID prop-filter);
 // the XML shape and CalDAV semantics here are standard, not Apple-specific.
 // ---------------------------------------------------------------------------
-
-function caldavCalendarConfig(conn: ConnectionPublic): {
-	username: string;
-	calendarUrls: string[];
-} {
-	const username =
-		typeof conn.config.username === "string"
-			? conn.config.username
-			: conn.accountIdentifier;
-	const calendarUrls = Array.isArray(conn.config.calendarUrls)
-		? conn.config.calendarUrls.filter(
-				(value): value is string => typeof value === "string",
-			)
-		: [];
-	if (!username || calendarUrls.length === 0) {
-		throw new CalDavError(
-			"Connection is missing username or calendarUrls in its config",
-			"invalid_config",
-		);
-	}
-	return { username, calendarUrls };
-}
 
 export async function caldavListEvents(
 	userId: string,
@@ -820,7 +828,11 @@ export async function caldavListEvents(
 		);
 	}
 
-	const { username, calendarUrls } = caldavCalendarConfig(conn);
+	const { username, urls: calendarUrls } = caldavResourceConfig(
+		conn,
+		"calendarUrls",
+		"calendarUrls",
+	);
 	const auth = basicAuthHeader(username, appPassword);
 	let body: string;
 	try {
@@ -829,8 +841,8 @@ export async function caldavListEvents(
 		throw toCalDavError(err);
 	}
 
-	const events: CalendarEvent[] = [];
-	try {
+	return await withReauthMapping(userId, connectionId, async () => {
+		const events: CalendarEvent[] = [];
 		for (const calendarUrl of calendarUrls) {
 			const { xml, finalUrl } = await request(
 				fetchImpl,
@@ -842,19 +854,8 @@ export async function caldavListEvents(
 			);
 			events.push(...parseReportMultistatus(xml, finalUrl));
 		}
-	} catch (err) {
-		if (err instanceof CalDavError && err.code === "invalid_credentials") {
-			const detail = "The server rejected the stored app password";
-			await updateConnection(userId, connectionId, {
-				status: "needs_reauth",
-				statusDetail: detail,
-			});
-			throw new CalDavError(detail, "needs_reauth");
-		}
-		throw err;
-	}
-
-	return events.sort((a, b) => a.start.localeCompare(b.start));
+		return events.sort((a, b) => a.start.localeCompare(b.start));
+	});
 }
 
 export async function caldavGetEventByUid(
@@ -880,11 +881,15 @@ export async function caldavGetEventByUid(
 		);
 	}
 
-	const { username, calendarUrls } = caldavCalendarConfig(conn);
+	const { username, urls: calendarUrls } = caldavResourceConfig(
+		conn,
+		"calendarUrls",
+		"calendarUrls",
+	);
 	const auth = basicAuthHeader(username, appPassword);
 	const body = uidQueryBody(uid);
 
-	try {
+	return await withReauthMapping(userId, connectionId, async () => {
 		for (const calendarUrl of calendarUrls) {
 			const { xml, finalUrl } = await request(
 				fetchImpl,
@@ -901,19 +906,8 @@ export async function caldavGetEventByUid(
 			);
 			if (match) return match;
 		}
-	} catch (err) {
-		if (err instanceof CalDavError && err.code === "invalid_credentials") {
-			const detail = "The server rejected the stored app password";
-			await updateConnection(userId, connectionId, {
-				status: "needs_reauth",
-				statusDetail: detail,
-			});
-			throw new CalDavError(detail, "needs_reauth");
-		}
-		throw err;
-	}
-
-	return null;
+		return null;
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -924,28 +918,6 @@ export async function caldavGetEventByUid(
 // parseVCards — the vCard shape and CardDAV semantics here are standard, not
 // Apple-specific.
 // ---------------------------------------------------------------------------
-
-function caldavContactsConfig(conn: ConnectionPublic): {
-	username: string;
-	addressbookUrls: string[];
-} {
-	const username =
-		typeof conn.config.username === "string"
-			? conn.config.username
-			: conn.accountIdentifier;
-	const addressbookUrls = Array.isArray(conn.config.addressbookUrls)
-		? conn.config.addressbookUrls.filter(
-				(value): value is string => typeof value === "string",
-			)
-		: [];
-	if (!username || addressbookUrls.length === 0) {
-		throw new CalDavError(
-			"Connection is missing username or addressbookUrls in its config",
-			"invalid_config",
-		);
-	}
-	return { username, addressbookUrls };
-}
 
 function parseAddressbookReport(xml: string): ParsedVCard[] {
 	const doc = parseXml(xml);
@@ -990,12 +962,16 @@ export async function caldavSearchContacts(
 		);
 	}
 
-	const { username, addressbookUrls } = caldavContactsConfig(conn);
+	const { username, urls: addressbookUrls } = caldavResourceConfig(
+		conn,
+		"addressbookUrls",
+		"addressbookUrls",
+	);
 	const auth = basicAuthHeader(username, appPassword);
 	const limit = params.limit ?? 10;
 	const query = params.query.trim().toLowerCase();
 
-	try {
+	return await withReauthMapping(userId, connectionId, async () => {
 		const matches: ContactMatch[] = [];
 		for (const addressbookUrl of addressbookUrls) {
 			const { xml } = await request(
@@ -1024,17 +1000,7 @@ export async function caldavSearchContacts(
 			}
 		}
 		return matches;
-	} catch (err) {
-		if (err instanceof CalDavError && err.code === "invalid_credentials") {
-			const detail = "The server rejected the stored app password";
-			await updateConnection(userId, connectionId, {
-				status: "needs_reauth",
-				statusDetail: detail,
-			});
-			throw new CalDavError(detail, "needs_reauth");
-		}
-		throw err;
-	}
+	});
 }
 
 // ---------------------------------------------------------------------------
