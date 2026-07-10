@@ -401,7 +401,10 @@ async function findGoogleContactGroup(
 	groupName: string,
 ): Promise<GoogleContactGroupSummary | null> {
 	const url = new URL(GOOGLE_CONTACT_GROUPS_LIST_URL);
-	url.searchParams.set("groupFields", "name,formattedName,groupType,memberCount");
+	// `groupFields` is a FieldMask — valid values are ONLY clientData, groupType,
+	// memberCount, metadata, name. `formattedName` is NOT maskable and makes the
+	// People API reject the whole request with HTTP 400 (found in live testing).
+	url.searchParams.set("groupFields", "name,groupType,memberCount");
 	url.searchParams.set("pageSize", String(GROUP_LIST_PAGE_SIZE));
 
 	const response = await fetchWithTimeout(fetchImpl, url.toString(), {
@@ -419,7 +422,9 @@ async function findGoogleContactGroup(
 	const groups = parseContactGroupsList(body);
 
 	const needle = groupName.trim().toLowerCase();
-	const exact = groups.find((group) => group.name.trim().toLowerCase() === needle);
+	const exact = groups.find(
+		(group) => group.name.trim().toLowerCase() === needle,
+	);
 	if (exact) return exact;
 	return (
 		groups.find((group) => group.name.trim().toLowerCase().includes(needle)) ??
@@ -628,7 +633,9 @@ export async function resolveContactsByGroup(
 	const connections = await resolveConnectionsForCapability(userId, "contacts");
 
 	const perSourceResults = await Promise.all(
-		connections.map((conn) => searchConnectionByGroup(userId, conn, params, opts)),
+		connections.map((conn) =>
+			searchConnectionByGroup(userId, conn, params, opts),
+		),
 	);
 
 	const merged: ContactMatch[] = [];

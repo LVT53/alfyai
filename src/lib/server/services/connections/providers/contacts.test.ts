@@ -401,7 +401,10 @@ describe("googleSearchContactsByGroup", () => {
 		return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = String(input);
 			if (url === GOOGLE_TOKEN_URL) {
-				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
 			}
 			const kind = classifyGoogleContactsUrl(url);
 			if (kind) {
@@ -412,7 +415,10 @@ describe("googleSearchContactsByGroup", () => {
 				return jsonResponse(200, {
 					contactGroups: params.groups.map((g) => ({
 						resourceName: g.resourceName,
-						formattedName: g.formattedName,
+						// The real API returns `name` (not `formattedName`) because the
+						// request's groupFields mask can't include formattedName — the
+						// parse falls back to `name`. Mock reflects that reality.
+						name: g.formattedName,
 						groupType: "USER_CONTACT_GROUP",
 						memberCount: params.members.length,
 					})),
@@ -506,7 +512,10 @@ describe("googleSearchContactsByGroup", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url === GOOGLE_TOKEN_URL) {
-				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
 			}
 			const kind = classifyGoogleContactsUrl(url);
 			if (kind === "list") {
@@ -552,7 +561,10 @@ describe("googleSearchContactsByGroup", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url === GOOGLE_TOKEN_URL) {
-				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
 			}
 			if (classifyGoogleContactsUrl(url) === "list") {
 				return jsonResponse(200, {
@@ -609,7 +621,10 @@ describe("googleSearchContactsByGroup", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url === GOOGLE_TOKEN_URL) {
-				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
 			}
 			if (classifyGoogleContactsUrl(url) === "list") {
 				return new Response("", { status: 401 });
@@ -693,7 +708,10 @@ describe("resolveContactsByGroup", () => {
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = String(input);
 			if (url === GOOGLE_TOKEN_URL) {
-				return jsonResponse(200, { access_token: "new-token", expires_in: 3600 });
+				return jsonResponse(200, {
+					access_token: "new-token",
+					expires_in: 3600,
+				});
 			}
 			const kind = classifyGoogleContactsUrl(url);
 			if (kind === "list") {
