@@ -23,6 +23,8 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
+import { decideLocalDistill } from "./connector-distill";
+
 // Read-only by construction: this schema's `action` enum only ever lists
 // read actions. GitHub NEVER gets a write path in this connector — there is
 // no create_issue/comment/merge/push action here, not now and not in a
@@ -316,6 +318,46 @@ function codeSearchOutcome(
 	});
 }
 
+const GITHUB_COM_API_ROOT = "https://api.github.com";
+
+// The read_file citation needs a *web* URL (a blob view a human can open),
+// but a connection only ever stores the *API* root (`conn.config.baseUrl` —
+// see github.ts's doc comment: defaults to api.github.com, or a caller-
+// supplied Gitea/GHE-compatible API root). For the default GitHub.com case
+// that's simply the `api.` subdomain stripped. For self-hosted GitHub
+// Enterprise Server and Gitea, the documented convention is that the API
+// root lives at `<web origin>/api/v3` (GHE) or `<web origin>/api/v1` (Gitea)
+// — same host as the web UI, so stripping that path suffix recovers the web
+// origin in both cases. Anything else falls back to the API root's own
+// origin as a best-effort web base rather than omitting the citation link
+// entirely.
+function reposWebBaseUrl(conn: ConnectionPublic): string {
+	const raw =
+		typeof conn.config.baseUrl === "string" ? conn.config.baseUrl.trim() : "";
+	if (!raw || raw === GITHUB_COM_API_ROOT) return "https://github.com";
+
+	let origin: URL;
+	try {
+		origin = new URL(raw);
+	} catch {
+		return "https://github.com";
+	}
+
+	const pathWithoutApiSuffix = origin.pathname.replace(/\/api\/v\d+\/?$/, "");
+	if (pathWithoutApiSuffix !== origin.pathname) {
+		const dir = pathWithoutApiSuffix === "/" ? "" : pathWithoutApiSuffix;
+		return `${origin.protocol}//${origin.host}${dir}`;
+	}
+
+	if (origin.hostname.startsWith("api.")) {
+		return `${origin.protocol}//${origin.hostname.slice(4)}${
+			origin.port ? `:${origin.port}` : ""
+		}`;
+	}
+
+	return `${origin.protocol}//${origin.host}`;
+}
+
 function fileOutcome(
 	conn: ConnectionPublic,
 	owner: string,
@@ -334,7 +376,7 @@ function fileOutcome(
 			file,
 		});
 	}
-	const url = `https://github.com/${owner}/${repo}/blob/HEAD/${path}`;
+	const url = `${reposWebBaseUrl(conn)}/${owner}/${repo}/blob/HEAD/${path}`;
 	const message = `Read ${path} from ${owner}/${repo}.`;
 	return buildPayload({
 		success: true,
@@ -343,6 +385,215 @@ function fileOutcome(
 		file,
 		citations: [{ label: path, url }],
 	});
+}
+
+const REDACTED = "(redacted for privacy)";
+const WITHHELD_SUFFIX =
+	"couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.";
+
+function withDistillOutcome(
+	outcome: ReposToolOutcome,
+	decision: Awaited<ReturnType<typeof decideLocalDistill>>,
+	withheldMessage: string,
+	redacted: Partial<ReposToolModelPayload>,
+): ReposToolOutcome {
+	const message =
+		"distilled" in decision
+			? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
+			: withheldMessage;
+	return {
+		...outcome,
+		modelPayload: {
+			...outcome.modelPayload,
+			...redacted,
+			message,
+		},
+	};
+}
+
+// Locality Option A: repos is the last connector tool (Task 7 review finding
+// 1) to wire the shared decideLocalDistill gate — every other connector tool
+// (contacts/media/files/photos/email/location/calendar) already refuses to
+// let raw connector content reach a cloud model when the user has opted in
+// to local distillation. Each read-only action that can carry raw GitHub
+// content is gated on its own most-sensitive field(s):
+//   - read_file: `file.content` — raw source, the most sensitive of all.
+//   - list_issues/list_prs: issue/PR titles.
+//   - list_commits: commit messages.
+//   - search_code: repository/path text (may itself name a private repo).
+// `list_repos` (bare repo names) and `ci_status` (workflow run status) are
+// NOT gated — same rationale as media.ts's `libraries` (bare section names):
+// structural metadata, not raw content a connector produced. As with every
+// other tool's gate, `outcome.candidates` (the user's own Sources-tab list,
+// built from the original unredacted data before this gate ever runs) is
+// left untouched — it's the user's own data on their own screen, a
+// different channel from what reaches the (cloud) model. Citation labels
+// ARE redacted here (unlike files.ts, which never embeds file content in a
+// citation label) because issue/PR/commit/code-search citation labels are
+// built directly from the same title/message/path text being stripped —
+// leaving them alone would leak the raw text back through a side channel.
+async function applyLocalDistillGate(params: {
+	userId: string;
+	modelId: string;
+	input: ReposToolInput;
+	outcome: ReposToolOutcome;
+}): Promise<ReposToolOutcome> {
+	const { userId, modelId, input, outcome } = params;
+	if (!outcome.modelPayload.success) return outcome;
+	const payload = outcome.modelPayload;
+
+	if (payload.action === "read_file") {
+		if (
+			!payload.file ||
+			payload.file.type !== "file" ||
+			!payload.file.content
+		) {
+			return outcome;
+		}
+		const rawText = payload.file.content;
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.path ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		return withDistillOutcome(
+			outcome,
+			decision,
+			`This file's content ${WITHHELD_SUFFIX}`,
+			{ file: { ...payload.file, content: "" } },
+		);
+	}
+
+	if (payload.action === "list_issues") {
+		if (payload.issues.length === 0) return outcome;
+		const rawText = payload.issues
+			.map((issue) => `#${issue.number} ${issue.title}`)
+			.join("\n");
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		const redactedIssues = payload.issues.map((issue) => ({
+			...issue,
+			title: REDACTED,
+		}));
+		return withDistillOutcome(
+			outcome,
+			decision,
+			`These issue titles ${WITHHELD_SUFFIX}`,
+			{
+				issues: redactedIssues,
+				citations: redactedIssues.map((issue) => ({
+					label: `#${issue.number} ${issue.title}`,
+					url: issue.url,
+				})),
+			},
+		);
+	}
+
+	if (payload.action === "list_prs") {
+		if (payload.prs.length === 0) return outcome;
+		const rawText = payload.prs
+			.map((pr) => `#${pr.number} ${pr.title}`)
+			.join("\n");
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		const redactedPrs = payload.prs.map((pr) => ({ ...pr, title: REDACTED }));
+		return withDistillOutcome(
+			outcome,
+			decision,
+			`These pull request titles ${WITHHELD_SUFFIX}`,
+			{
+				prs: redactedPrs,
+				citations: redactedPrs.map((pr) => ({
+					label: `#${pr.number} ${pr.title}`,
+					url: pr.url,
+				})),
+			},
+		);
+	}
+
+	if (payload.action === "list_commits") {
+		if (payload.commits.length === 0) return outcome;
+		const rawText = payload.commits.map((commit) => commit.message).join("\n");
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		const redactedCommits = payload.commits.map((commit) => ({
+			...commit,
+			message: REDACTED,
+		}));
+		return withDistillOutcome(
+			outcome,
+			decision,
+			`These commit messages ${WITHHELD_SUFFIX}`,
+			{
+				commits: redactedCommits,
+				citations: redactedCommits.map((commit) => ({
+					label: commit.message.split("\n")[0] || commit.sha.slice(0, 7),
+					url: commit.url,
+				})),
+			},
+		);
+	}
+
+	if (payload.action === "search_code") {
+		if (payload.codeResults.length === 0) return outcome;
+		const rawText = payload.codeResults
+			.map((item) => `${item.repository} — ${item.path}`)
+			.join("\n");
+		const decision = await decideLocalDistill({
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText,
+		});
+		if (!decision.shouldDistill) return outcome;
+		// `url` embeds the same repository/path text being redacted (a GitHub
+		// blob URL is literally `.../<repo>/blob/<ref>/<path>`), so it must be
+		// blanked too — otherwise it's a side channel that leaks the very text
+		// `repository`/`path` just stripped.
+		const redactedCode = payload.codeResults.map((item) => ({
+			...item,
+			repository: REDACTED,
+			path: REDACTED,
+			url: "",
+		}));
+		return withDistillOutcome(
+			outcome,
+			decision,
+			`These code search results ${WITHHELD_SUFFIX}`,
+			{
+				codeResults: redactedCode,
+				citations: redactedCode.map((item) => ({
+					label: `${item.repository} — ${item.path}`,
+					url: item.url,
+				})),
+			},
+		);
+	}
+
+	// list_repos, ci_status — not gated, see the doc comment above.
+	return outcome;
 }
 
 // Resolves the user's Repositories (GitHub) connection(s) and executes the
@@ -354,6 +605,7 @@ function fileOutcome(
 export async function runReposTool(
 	userId: string,
 	input: ReposToolInput,
+	modelId: string,
 ): Promise<ReposToolOutcome> {
 	const connections = await resolveConnectionsForCapability(userId, "repos");
 	if (connections.length === 0) {
@@ -395,13 +647,14 @@ export async function runReposTool(
 				query: input.query,
 				...(input.limit !== undefined ? { limit: input.limit } : {}),
 			});
-			return codeSearchOutcome(
+			const outcome = codeSearchOutcome(
 				conn,
 				input.query,
 				items,
 				ambiguous,
 				connections,
 			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		// Every remaining action is scoped to one repository.
@@ -425,7 +678,7 @@ export async function runReposTool(
 				path: input.path,
 				...(input.ref ? { ref: input.ref } : {}),
 			});
-			return fileOutcome(
+			const outcome = fileOutcome(
 				conn,
 				input.owner,
 				input.repo,
@@ -434,6 +687,7 @@ export async function runReposTool(
 				ambiguous,
 				connections,
 			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		if (input.action === "list_issues") {
@@ -443,7 +697,7 @@ export async function runReposTool(
 				...(input.state ? { state: input.state } : {}),
 				...(input.limit !== undefined ? { limit: input.limit } : {}),
 			});
-			return issuesOutcome(
+			const outcome = issuesOutcome(
 				conn,
 				input.owner,
 				input.repo,
@@ -451,6 +705,7 @@ export async function runReposTool(
 				ambiguous,
 				connections,
 			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		if (input.action === "list_prs") {
@@ -460,7 +715,7 @@ export async function runReposTool(
 				...(input.state ? { state: input.state } : {}),
 				...(input.limit !== undefined ? { limit: input.limit } : {}),
 			});
-			return prsOutcome(
+			const outcome = prsOutcome(
 				conn,
 				input.owner,
 				input.repo,
@@ -468,6 +723,7 @@ export async function runReposTool(
 				ambiguous,
 				connections,
 			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		if (input.action === "list_commits") {
@@ -477,7 +733,7 @@ export async function runReposTool(
 				...(input.path ? { path: input.path } : {}),
 				...(input.limit !== undefined ? { limit: input.limit } : {}),
 			});
-			return commitsOutcome(
+			const outcome = commitsOutcome(
 				conn,
 				input.owner,
 				input.repo,
@@ -485,6 +741,7 @@ export async function runReposTool(
 				ambiguous,
 				connections,
 			);
+			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
 
 		// ci_status

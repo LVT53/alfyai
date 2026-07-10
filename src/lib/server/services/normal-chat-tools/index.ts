@@ -1408,6 +1408,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										const { modelPayload, candidates } = await runReposTool(
 											ctx.userId,
 											safeInput,
+											ctx.modelId ?? "model1",
 										);
 										return {
 											modelPayload,
