@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+	CalDavError,
+	caldavListTasks,
+} from "$lib/server/services/connections/providers/caldav-tasks";
+import {
 	TodoistError,
 	todoistListProjects,
 	todoistListTasks,
@@ -135,15 +139,26 @@ function mapAdapterError(err: unknown): string {
 				return "I couldn't reach Todoist right now. Please try again in a moment.";
 		}
 	}
+	if (err instanceof CalDavError) {
+		switch (err.code) {
+			case "needs_reauth":
+				return "Your CalDAV connection needs to be reconnected before I can access your tasks. Please reconnect it in Settings.";
+			case "connection_not_found":
+				return "Your CalDAV connection couldn't be found. Please reconnect it in Settings.";
+			default:
+				return "I couldn't reach your CalDAV server right now. Please try again in a moment.";
+		}
+	}
 	return "I couldn't look up your tasks right now. Please try again in a moment.";
 }
 
-// Per-connection task listing, dispatched by provider. Only "todoist" is
-// wired for read in 9a — a "caldav" branch is added once the VTODO read path
-// lands (see caldav-tasks.ts's module doc / Task 9a report for the current
-// status), so an unrecognized/not-yet-wired provider degrades to an empty
-// list rather than throwing, keeping a mixed todoist+caldav connection set
-// from failing the whole tool call.
+// Per-connection task listing, dispatched by provider — Todoist (REST) and
+// CalDAV (VTODO, providers/caldav-tasks.ts). CalDAV has no separate
+// "project" concept exposed by this connector (each task list IS a
+// collection of VTODOs with no further grouping — see caldavListTasks's doc
+// comment), so a CalDAV task's `projectId` is simply omitted; `projectId`
+// scoping (the `params.projectId` filter) therefore only narrows Todoist
+// results, never CalDAV ones.
 async function listTasksForConnection(
 	userId: string,
 	conn: ConnectionPublic,
@@ -165,9 +180,26 @@ async function listTasksForConnection(
 			connectionId: conn.id,
 		}));
 	}
+	if (conn.provider === "caldav") {
+		const tasks = await caldavListTasks(userId, conn.id);
+		return tasks.map((task) => ({
+			id: task.id,
+			title: task.summary,
+			...(task.description ? { notes: task.description } : {}),
+			...(task.due ? { due: task.due } : {}),
+			...(task.status ? { status: task.status } : {}),
+			...(task.priority !== undefined ? { priority: task.priority } : {}),
+			url: task.url,
+			source: conn.label,
+			connectionId: conn.id,
+		}));
+	}
 	return [];
 }
 
+// CalDAV has no distinct "project" resource for this connector (see
+// listTasksForConnection's doc comment) — list_projects only ever surfaces
+// Todoist projects.
 async function listProjectsForConnection(
 	userId: string,
 	conn: ConnectionPublic,

@@ -6,6 +6,10 @@ import {
 	isCloudModel,
 } from "$lib/server/services/connections/locality";
 import {
+	CalDavError,
+	caldavListTasks,
+} from "$lib/server/services/connections/providers/caldav-tasks";
+import {
 	TodoistError,
 	todoistListProjects,
 	todoistListTasks,
@@ -28,6 +32,15 @@ vi.mock("$lib/server/services/connections/providers/todoist", async () => {
 		todoistListProjects: vi.fn(),
 	};
 });
+vi.mock("$lib/server/services/connections/providers/caldav-tasks", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/caldav-tasks")
+	>("$lib/server/services/connections/providers/caldav-tasks");
+	return {
+		...actual,
+		caldavListTasks: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	isCloudModel: vi.fn(),
@@ -39,6 +52,7 @@ const resolveConnectionsForCapabilityMock = vi.mocked(
 );
 const todoistListTasksMock = vi.mocked(todoistListTasks);
 const todoistListProjectsMock = vi.mocked(todoistListProjects);
+const caldavListTasksMock = vi.mocked(caldavListTasks);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const distillConnectorPayloadMock = vi.mocked(distillConnectorPayload);
@@ -74,6 +88,7 @@ beforeEach(() => {
 	resolveConnectionsForCapabilityMock.mockReset();
 	todoistListTasksMock.mockReset();
 	todoistListProjectsMock.mockReset();
+	caldavListTasksMock.mockReset();
 	hasLocalDistillEnabledMock.mockReset();
 	isCloudModelMock.mockReset();
 	distillConnectorPayloadMock.mockReset();
@@ -294,6 +309,100 @@ describe("runTasksTool", () => {
 		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
 		todoistListTasksMock.mockRejectedValue(
 			new TodoistError("Todoist rejected the stored token", "needs_reauth"),
+		);
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("reconnect");
+	});
+
+	it("list_tasks maps CalDAV VTODOs into the normalized TaskItem shape", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-cd", provider: "caldav", label: "CalDAV" }),
+		]);
+		caldavListTasksMock.mockResolvedValue([
+			{
+				id: "todo-1",
+				summary: "Renew passport",
+				description: "Bring old one",
+				due: "2026-07-15",
+				status: "NEEDS-ACTION",
+				priority: 1,
+				url: "https://dav.example.com/tasks/todo-1.ics",
+			},
+		]);
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.tasks).toEqual([
+			{
+				id: "todo-1",
+				title: "Renew passport",
+				notes: "Bring old one",
+				due: "2026-07-15",
+				status: "NEEDS-ACTION",
+				priority: 1,
+				url: "https://dav.example.com/tasks/todo-1.ics",
+				source: "CalDAV",
+				connectionId: "conn-cd",
+			},
+		]);
+	});
+
+	it("aggregates tasks across a Todoist AND a CalDAV connection together", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-td", provider: "todoist", label: "Todoist" }),
+			makeConn({ id: "conn-cd", provider: "caldav", label: "CalDAV" }),
+		]);
+		todoistListTasksMock.mockResolvedValue([
+			{
+				id: "10",
+				content: "Todoist task",
+				description: "",
+				projectId: "2",
+				priority: 1,
+				url: "https://todoist.com/task/10",
+				labels: [],
+			},
+		]);
+		caldavListTasksMock.mockResolvedValue([
+			{
+				id: "todo-1",
+				summary: "CalDAV task",
+				url: "https://dav.example.com/tasks/todo-1.ics",
+			},
+		]);
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.tasks.map((t) => t.id).sort()).toEqual([
+			"10",
+			"todo-1",
+		]);
+	});
+
+	it("maps a CalDAV needs_reauth error to a graceful failure message", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-cd", provider: "caldav", label: "CalDAV" }),
+		]);
+		caldavListTasksMock.mockRejectedValue(
+			new CalDavError(
+				"The server rejected the stored app password",
+				"needs_reauth",
+			),
 		);
 
 		const outcome = await runTasksTool(

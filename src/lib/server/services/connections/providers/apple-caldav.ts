@@ -62,8 +62,21 @@ const REQUEST_TIMEOUT_MS = 15_000;
 // host), this just guards against a misbehaving/looping server.
 const MAX_REDIRECTS = 5;
 
-const DAV_NS = "DAV:";
-const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
+// Exported (Task 9a) so providers/caldav-tasks.ts (the generic CalDAV VTODO
+// connector) can reuse the same namespace constants when parsing PROPFIND/
+// REPORT multistatus XML, instead of re-declaring them. NOTE for Task 9b
+// (generic CalDAV/CardDAV generalization): these low-level exports
+// (DAV_NS/CALDAV_NS/CARDDAV_NS, fetchWithTimeout, caldavRequest, textOf,
+// firstNs, parseXml below) are a minimal, additive-only "make the existing
+// helpers reusable" step — they change no existing behavior (every
+// export here was already `function`, just gained the keyword) and every
+// apple-caldav.test.ts case stayed green. A real `caldav-client.ts`
+// extraction (moving this plumbing to its own module both apple-caldav.ts
+// and caldav-tasks.ts import from) is still worth doing but was judged too
+// risky to the calendar/contacts read paths to do in the same change as a
+// brand-new VTODO connector — a good first task for 9b.
+export const DAV_NS = "DAV:";
+export const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
 const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
 
 export type AppleCalDavErrorCode =
@@ -94,7 +107,7 @@ export function basicAuthHeader(appleId: string, appPassword: string): string {
 // iCloud endpoint can't hang a chat turn (or the connect flow) indefinitely —
 // mirrors the same pattern in providers/nextcloud-files.ts /
 // providers/google-calendar.ts.
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
 	fetchImpl: typeof fetch,
 	url: string,
 	init: RequestInit,
@@ -126,7 +139,7 @@ async function fetchWithTimeout(
 // every discovery step and every calendar REPORT routes through it.
 // ---------------------------------------------------------------------------
 
-async function caldavRequest(
+export async function caldavRequest(
 	fetchImpl: typeof fetch,
 	url: string,
 	auth: string,
@@ -180,7 +193,7 @@ async function caldavRequest(
 	);
 }
 
-function textOf(el: Element | null | undefined): string | null {
+export function textOf(el: Element | null | undefined): string | null {
 	if (!el) return null;
 	const text = el.textContent;
 	if (text === null) return null;
@@ -188,7 +201,7 @@ function textOf(el: Element | null | undefined): string | null {
 	return trimmed.length > 0 ? trimmed : null;
 }
 
-function firstNs(
+export function firstNs(
 	el: Element | Document,
 	ns: string,
 	localName: string,
@@ -197,7 +210,7 @@ function firstNs(
 	return found.length > 0 ? (found[0] as Element) : null;
 }
 
-function parseXml(xml: string): Document {
+export function parseXml(xml: string): Document {
 	const dom = new JSDOM(xml, { contentType: "application/xml" });
 	return dom.window.document;
 }
