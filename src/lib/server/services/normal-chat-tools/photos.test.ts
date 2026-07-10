@@ -215,8 +215,15 @@ describe("runPhotosTool", () => {
 				type: "IMAGE",
 				place: "Malibu, California",
 				description: "Sunset at the beach",
+				imageUrl: "/api/connections/immich/thumbnail/asset-1",
 			},
 		]);
+		// The imageUrl is the AUTHED per-user app proxy (Task 11a), never the
+		// raw Immich path (thumbnailPath, which stays candidates-only below) —
+		// the model gets a URL it can embed, not a route requiring the vault key.
+		expect(outcome.modelPayload.results[0]?.imageUrl).not.toContain(
+			"/api/assets/",
+		);
 		expect(outcome.modelPayload.citations).toEqual([
 			{ label: "beach.jpg", url: "" },
 		]);
@@ -342,6 +349,17 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 		expect(outcome.modelPayload.results[0]?.fileName).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.place).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.description).toBeUndefined();
+		// id/takenAt/imageUrl are structural (derived from the asset id the
+		// gate already preserves) and survive the distill gate — imageUrl
+		// reveals nothing beyond the id: the model never sees photo bytes, only
+		// a URL to the authed per-user proxy the client fetches through.
+		expect(outcome.modelPayload.results[0]?.id).toBe("asset-1");
+		expect(outcome.modelPayload.results[0]?.takenAt).toBe(
+			"2026-06-01T09:55:00.000Z",
+		);
+		expect(outcome.modelPayload.results[0]?.imageUrl).toBe(
+			"/api/connections/immich/thumbnail/asset-1",
+		);
 		expect(outcome.modelPayload.message).toContain(
 			"One photo of a person recovering after a medical procedure.",
 		);

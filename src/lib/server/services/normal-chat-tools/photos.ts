@@ -99,6 +99,16 @@ export type PhotoToolResultItem = {
 	type: "IMAGE" | "VIDEO";
 	place?: string;
 	description?: string;
+	// A renderable image URL the model can embed directly as markdown
+	// (`![caption](imageUrl)`) to SHOW the photo, not just describe it. Points
+	// at the AUTHED per-user app proxy (Task 11a,
+	// /api/connections/immich/thumbnail/[assetId]) — never the raw Immich
+	// path (that's `PhotoResult.thumbnailPath`, candidates-only, see
+	// toCandidate below). Structural, like `id`/`takenAt`: it's derived from
+	// `id` alone and carries no photo bytes, so it is intentionally NOT
+	// stripped by the locality Option-A distill gate below — see that gate's
+	// comment for the full reasoning.
+	imageUrl: string;
 };
 
 // Album/person discovery items (B1 list_albums / B6 list_people). Like
@@ -132,6 +142,16 @@ export type PhotosToolOutcome = {
 	candidates: ToolEvidenceCandidate[];
 };
 
+// The AUTHED per-user app proxy path (Task 11a) — NOT the raw Immich path
+// (`photo.thumbnailPath`, e.g. "/api/assets/{id}/thumbnail"). The proxy
+// resolves the caller's own connection/vault key server-side, so this is
+// safe to hand to the model as a plain relative URL string: only the id is
+// disclosed, never a credential, and the client (not the model) is what
+// actually fetches the bytes when it renders the markdown image.
+function thumbnailProxyUrl(assetId: string): string {
+	return `/api/connections/immich/thumbnail/${assetId}`;
+}
+
 function toToolResultItem(photo: PhotoResult): PhotoToolResultItem {
 	return {
 		id: photo.id,
@@ -140,6 +160,7 @@ function toToolResultItem(photo: PhotoResult): PhotoToolResultItem {
 		type: photo.type,
 		...(photo.place ? { place: photo.place } : {}),
 		...(photo.description ? { description: photo.description } : {}),
+		imageUrl: thumbnailProxyUrl(photo.id),
 	};
 }
 
@@ -384,6 +405,17 @@ async function applyLocalDistillGate(params: {
 	});
 	if (!decision.shouldDistill) return outcome;
 
+	// `imageUrl` is deliberately NOT destructured out here, unlike
+	// fileName/place/description — it survives the gate alongside `id`/
+	// `takenAt`/`type`. Rationale: imageUrl is derived purely from
+	// `results[].id` (see thumbnailProxyUrl above), a value this gate already
+	// treats as structural and preserves; it adds no new information beyond
+	// that id. It also carries no photo BYTES — it's a same-origin URL to the
+	// authed per-user proxy (`/api/connections/immich/thumbnail/{id}`), which
+	// the *client* fetches when it renders the model's markdown image, using
+	// the caller's own session, never the model. So keeping imageUrl lets the
+	// model still SHOW a distilled photo (with a generic/takenAt caption)
+	// even when fileName/place/description have been withheld from it.
 	const strippedResults = outcome.modelPayload.results.map((item) => {
 		const {
 			fileName: _fileName,
