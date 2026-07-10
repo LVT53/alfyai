@@ -1185,85 +1185,19 @@ export async function runPostTurnTasks(
 	if (!params.skipAssistantProseMemoryIntake) {
 		postTurnTasks.push(
 			(async () => {
-				// Respect the user's master memory toggle and per-conversation
-				// incognito mode: neither should ever contribute to memory.
-				const { isMemoryActiveForConversation } = await import(
-					"../memory-controls"
-				);
-				const memoryActive = await isMemoryActiveForConversation({
+				// The Memory Judge owns the entire post-turn intake decision — the
+				// master-gate check, the explicit/marathon/idle tier policy, the
+				// dirty-ledger safety net, and the D1/D2 watermark invariants. This
+				// finalizer just hands it the finished turn.
+				const { judgeFinishedTurn } = await import("../memory-judge/dispatch");
+				await judgeFinishedTurn({
 					userId: params.userId,
 					conversationId: params.conversationId,
-				}).catch(() => true);
-				if (!memoryActive) return;
-				const { detectExplicitMemoryRequest, scheduleConversationJudge } =
-					await import("../memory-judge/runner");
-				const { markMemoryDirty } = await import(
-					"../memory-profile/dirty-ledger"
-				);
-				const { countUnjudgedMessages, getMaxJudgedMessageSequence } =
-					await import("../memory-judge/segment");
-				if (detectExplicitMemoryRequest(params.userMessage)) {
-					// Crash-safety: leave a dirty-ledger trail BEFORE the synchronous
-					// explicit judge (mirroring the marathon branch below). If the judge
-					// call throws/fails or the process dies mid-run, a later sweep/idle
-					// pass retries this conversation. On success the explicit judge
-					// advances the watermark, so that later pass finds nothing unjudged
-					// and simply completes this row.
-					await markMemoryDirty({
-						userId: params.userId,
-						reason: "deferred_intake",
-						scope: { type: "conversation", id: params.conversationId },
-					});
-					// Advance the watermark to the newest message of THIS exchange so the
-					// explicitly-judged messages are marked judged and never re-counted by
-					// a later marathon/idle/sweep pass. The persisted turn's message ids
-					// carry the real sequences the synthesised segmentOverride lacks.
-					const overrideHighestSequence = await getMaxJudgedMessageSequence({
-						conversationId: params.conversationId,
-						messageIds: [
-							params.userMessageId,
-							params.assistantMessageId,
-						].filter((id): id is string => Boolean(id)),
-					});
-					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
-					await runMemoryJudgeOnSegment({
-						userId: params.userId,
-						conversationId: params.conversationId,
-						trigger: "explicit",
-						segmentOverride: [
-							{ role: "user", content: params.userMessage },
-							{
-								role: "assistant",
-								content:
-									params.assistantMirrorContent ?? params.assistantResponse,
-							},
-						],
-						overrideHighestSequence,
-					});
-					return;
-				}
-				await markMemoryDirty({
-					userId: params.userId,
-					reason: "deferred_intake",
-					scope: { type: "conversation", id: params.conversationId },
-				});
-				if (
-					(await countUnjudgedMessages({
-						userId: params.userId,
-						conversationId: params.conversationId,
-					})) >= 25
-				) {
-					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
-					await runMemoryJudgeOnSegment({
-						userId: params.userId,
-						conversationId: params.conversationId,
-						trigger: "marathon",
-					});
-					return;
-				}
-				scheduleConversationJudge({
-					userId: params.userId,
-					conversationId: params.conversationId,
+					userMessage: params.userMessage,
+					userMessageId: params.userMessageId ?? null,
+					assistantMessageId: params.assistantMessageId ?? null,
+					assistantResponse: params.assistantResponse,
+					assistantMirrorContent: params.assistantMirrorContent,
 				});
 			})().catch((err) =>
 				console.error("[MEMORY_JUDGE] Post-turn trigger failed:", err),

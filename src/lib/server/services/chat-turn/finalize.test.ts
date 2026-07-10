@@ -17,12 +17,7 @@ import { resolveWorkingDocumentSelection } from "$lib/server/services/working-do
 import type { ChatMessage } from "$lib/types";
 
 const {
-	mockDetectExplicitMemoryRequest,
-	mockScheduleConversationJudge,
-	mockMarkMemoryDirty,
-	mockCountUnjudgedMessages,
-	mockGetMaxJudgedMessageSequence,
-	mockRunMemoryJudgeOnSegment,
+	mockJudgeFinishedTurn,
 	mockIsCurrentMemoryResetGeneration,
 	mockListMessages,
 	mockRefreshConversationSummary,
@@ -32,22 +27,10 @@ const {
 	mockShouldTrackTaskContinuityFromTurn,
 	mockIsConversationIncognito,
 } = vi.hoisted(() => ({
-	mockDetectExplicitMemoryRequest: vi.fn(() => false),
-	mockScheduleConversationJudge: vi.fn(() => undefined),
-	mockMarkMemoryDirty: vi.fn(async () => ({
-		id: "dirty-1",
-		reason: "deferred_intake" as const,
-		count: 1,
-	})),
-	mockCountUnjudgedMessages: vi.fn(async () => 0),
-	mockGetMaxJudgedMessageSequence: vi.fn(async () => 2),
-	mockRunMemoryJudgeOnSegment: vi.fn(
+	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
-			status: "ran" | "empty" | "failed";
-			reason?: string;
-		}> => ({
-			status: "ran",
-		}),
+			status: "skipped" | "explicit" | "marathon" | "idle";
+		}> => ({ status: "idle" }),
 	),
 	mockIsCurrentMemoryResetGeneration: vi.fn(async () => true),
 	mockListMessages: vi.fn(async () => [] as ChatMessage[]),
@@ -116,22 +99,8 @@ vi.mock("$lib/server/services/conversation-summaries", () => ({
 	refreshConversationSummary: mockRefreshConversationSummary,
 }));
 
-vi.mock("$lib/server/services/memory-judge/runner", () => ({
-	detectExplicitMemoryRequest: mockDetectExplicitMemoryRequest,
-	scheduleConversationJudge: mockScheduleConversationJudge,
-}));
-
-vi.mock("$lib/server/services/memory-judge", () => ({
-	runMemoryJudgeOnSegment: mockRunMemoryJudgeOnSegment,
-}));
-
-vi.mock("$lib/server/services/memory-judge/segment", () => ({
-	countUnjudgedMessages: mockCountUnjudgedMessages,
-	getMaxJudgedMessageSequence: mockGetMaxJudgedMessageSequence,
-}));
-
-vi.mock("$lib/server/services/memory-profile/dirty-ledger", () => ({
-	markMemoryDirty: mockMarkMemoryDirty,
+vi.mock("$lib/server/services/memory-judge/dispatch", () => ({
+	judgeFinishedTurn: mockJudgeFinishedTurn,
 }));
 
 vi.mock("$lib/server/services/knowledge", () => ({
@@ -250,15 +219,7 @@ describe("runPostTurnTasks", () => {
 		vi.clearAllMocks();
 		mockIsCurrentMemoryResetGeneration.mockResolvedValue(true);
 		mockListMessages.mockResolvedValue([]);
-		mockDetectExplicitMemoryRequest.mockReturnValue(false);
-		mockCountUnjudgedMessages.mockResolvedValue(0);
-		mockGetMaxJudgedMessageSequence.mockResolvedValue(2);
-		mockMarkMemoryDirty.mockResolvedValue({
-			id: "dirty-1",
-			reason: "deferred_intake",
-			count: 1,
-		});
-		mockRunMemoryJudgeOnSegment.mockResolvedValue({ status: "ran" });
+		mockJudgeFinishedTurn.mockResolvedValue({ status: "idle" });
 	});
 
 	it("logs summary refresh failures without rejecting post-turn tasks", async () => {
@@ -301,9 +262,12 @@ describe("runPostTurnTasks", () => {
 		errorSpy.mockRestore();
 	});
 
-	it("marks the conversation dirty and debounces an idle judge run for ordinary user turns", async () => {
-		mockDetectExplicitMemoryRequest.mockReturnValue(false);
-		mockCountUnjudgedMessages.mockResolvedValue(3);
+	it("dispatches post-turn memory intake to judgeFinishedTurn with the finished turn", async () => {
+		// The tier decision (explicit / marathon / idle), the gate check, the
+		// dirty-ledger safety net and the D1/D2 watermark rules all live inside
+		// judgeFinishedTurn now — those behaviours are asserted against real logic
+		// in memory-judge/dispatch.test.ts. Here we only assert finalize hands the
+		// judge the right turn and does not otherwise gate it.
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -324,16 +288,17 @@ describe("runPostTurnTasks", () => {
 			maintenanceReason: "chat_send",
 		});
 
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "deferred_intake",
-			scope: { type: "conversation", id: "conv-1" },
-		});
-		expect(mockScheduleConversationJudge).toHaveBeenCalledWith({
+		expect(mockJudgeFinishedTurn).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
+			userMessage: "My company is Acme Studio.",
+			userMessageId: "user-message-1",
+			assistantMessageId: "assistant-message-1",
+			assistantResponse: "I will keep that in mind.",
+			assistantMirrorContent: "assistant mirror text",
 		});
-		expect(mockRunMemoryJudgeOnSegment).not.toHaveBeenCalled();
+		// The judge dispatch runs alongside — not instead of — the rest of the
+		// post-turn work.
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -346,39 +311,7 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
-	it("runs an immediate marathon judge when the unjudged segment reaches the threshold", async () => {
-		mockDetectExplicitMemoryRequest.mockReturnValue(false);
-		mockCountUnjudgedMessages.mockResolvedValue(25);
-		const { runPostTurnTasks } = await import("./finalize");
-
-		await runPostTurnTasks({
-			logPrefix: "[SEND]",
-			userId: "user-1",
-			conversationId: "conv-1",
-			upstreamMessage: "upstream prompt payload",
-			userMessage: "Another ordinary message.",
-			userMessageId: "user-message-1",
-			assistantResponse: "Understood.",
-			assistantMirrorContent: "assistant mirror text",
-			assistantMessageId: "assistant-message-1",
-			maintenanceReason: "chat_send",
-		});
-
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "deferred_intake",
-			scope: { type: "conversation", id: "conv-1" },
-		});
-		expect(mockRunMemoryJudgeOnSegment).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			trigger: "marathon",
-		});
-		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
-	});
-
-	it("runs an immediate explicit judge over the current turn when the user asks to remember", async () => {
-		mockDetectExplicitMemoryRequest.mockReturnValue(true);
+	it("threads null message ids and defers to the dispatch's mirror-content fallback", async () => {
 		const { runPostTurnTasks } = await import("./finalize");
 
 		await runPostTurnTasks({
@@ -387,43 +320,23 @@ describe("runPostTurnTasks", () => {
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
 			userMessage: "Please remember that I prefer concise answers.",
-			userMessageId: "user-message-1",
 			assistantResponse: "I will keep that in mind.",
 			assistantMirrorContent: "assistant mirror text",
-			assistantMessageId: "assistant-message-1",
 			maintenanceReason: "chat_send",
 			startedResetGeneration: 7,
 		});
 
-		expect(mockRunMemoryJudgeOnSegment).toHaveBeenCalledWith({
+		// Missing user/assistant message ids are normalized to null before the
+		// judge sees them (it derives the override sequence from real ids only).
+		expect(mockJudgeFinishedTurn).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			trigger: "explicit",
-			segmentOverride: [
-				{
-					role: "user",
-					content: "Please remember that I prefer concise answers.",
-				},
-				{ role: "assistant", content: "assistant mirror text" },
-			],
-			// The newest sequence of this exchange, so the explicit judge advances
-			// the watermark and these messages are never re-judged (D2).
-			overrideHighestSequence: 2,
+			userMessage: "Please remember that I prefer concise answers.",
+			userMessageId: null,
+			assistantMessageId: null,
+			assistantResponse: "I will keep that in mind.",
+			assistantMirrorContent: "assistant mirror text",
 		});
-		expect(mockGetMaxJudgedMessageSequence).toHaveBeenCalledWith({
-			conversationId: "conv-1",
-			messageIds: ["user-message-1", "assistant-message-1"],
-		});
-		// Crash-safety: the explicit path leaves a dirty-ledger trail BEFORE the
-		// synchronous judge (mirroring the marathon branch) so a failed/crashed
-		// judge is retried by a later sweep. It still does not debounce an idle
-		// pass — it runs the judge synchronously.
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "deferred_intake",
-			scope: { type: "conversation", id: "conv-1" },
-		});
-		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith(
 			expect.objectContaining({
 				startedResetGeneration: 7,
@@ -435,35 +348,39 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
-	it("leaves a dirty-ledger safety net when an explicit judge call fails", async () => {
-		mockDetectExplicitMemoryRequest.mockReturnValue(true);
-		// The explicit judge's model call fails — the crash-safety trail must
-		// already exist so a later sweep/idle pass retries the exchange.
-		mockRunMemoryJudgeOnSegment.mockResolvedValue({
-			status: "failed",
-			reason: "judge_call_failed",
-		});
+	it("swallows a failing judge dispatch without rejecting post-turn completion", async () => {
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		mockJudgeFinishedTurn.mockRejectedValueOnce(new Error("judge offline"));
 		const { runPostTurnTasks } = await import("./finalize");
 
-		await runPostTurnTasks({
-			logPrefix: "[SEND]",
-			userId: "user-1",
-			conversationId: "conv-1",
-			upstreamMessage: "upstream prompt payload",
-			userMessage: "Please remember that I prefer concise answers.",
-			userMessageId: "user-message-1",
-			assistantResponse: "I will keep that in mind.",
-			assistantMirrorContent: "assistant mirror text",
-			assistantMessageId: "assistant-message-1",
-			maintenanceReason: "chat_send",
-		});
+		await expect(
+			runPostTurnTasks({
+				logPrefix: "[SEND]",
+				userId: "user-1",
+				conversationId: "conv-1",
+				upstreamMessage: "upstream prompt payload",
+				userMessage: "Please remember that I prefer concise answers.",
+				userMessageId: "user-message-1",
+				assistantResponse: "I will keep that in mind.",
+				assistantMirrorContent: "assistant mirror text",
+				assistantMessageId: "assistant-message-1",
+				maintenanceReason: "chat_send",
+			}),
+		).resolves.toBeUndefined();
 
-		// A dirty-ledger row exists despite the failed judge → not lost.
-		expect(mockMarkMemoryDirty).toHaveBeenCalledWith({
-			userId: "user-1",
-			reason: "deferred_intake",
-			scope: { type: "conversation", id: "conv-1" },
-		});
+		expect(mockJudgeFinishedTurn).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"[MEMORY_JUDGE] Post-turn trigger failed:",
+			expect.any(Error),
+		);
+		// The rest of the post-turn work still ran.
+		expect(mockRunUserMemoryMaintenance).toHaveBeenCalledWith(
+			"user-1",
+			"chat_send",
+		);
+		errorSpy.mockRestore();
 	});
 
 	it("does not block post-turn completion on memory maintenance", async () => {
@@ -1529,9 +1446,7 @@ describe("finalizeChatTurn", () => {
 			skipAssistantProseMemoryIntake: true,
 		});
 
-		expect(mockMarkMemoryDirty).not.toHaveBeenCalled();
-		expect(mockScheduleConversationJudge).not.toHaveBeenCalled();
-		expect(mockRunMemoryJudgeOnSegment).not.toHaveBeenCalled();
+		expect(mockJudgeFinishedTurn).not.toHaveBeenCalled();
 		expect(mockRefreshConversationSummary).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",

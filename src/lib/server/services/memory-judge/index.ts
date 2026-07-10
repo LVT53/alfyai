@@ -15,6 +15,7 @@ import { createOrUpdateMemoryReviewItem } from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
+import { REVIEW_EXPIRY_DAYS, REVIEW_OPEN_CAP } from "./config";
 import {
 	buildJudgeSystemPrompt,
 	buildJudgeUserMessage,
@@ -58,8 +59,6 @@ export type JudgeRunResult =
 	| { status: "empty" }
 	| { status: "failed"; reason: string };
 
-const REVIEW_OPEN_CAP = 10;
-const REVIEW_EXPIRY_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 export async function runMemoryJudgeOnSegment(params: {
