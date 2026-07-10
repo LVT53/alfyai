@@ -200,18 +200,118 @@ describe("MessageEvidenceDetails", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
-		// 3 considered total, 2 used (selected + reference); only rejected is set aside.
-		expect(screen.getByText(/3 considered, 2 used/i)).toBeInTheDocument();
+		// 3 considered total; 1 used row (the two selected/reference memory
+		// items collapse into a single "Memory" entry); the rejected item is
+		// set aside (also collapsed, alone, into its own "Memory" entry).
+		expect(screen.getByText(/3 considered, 1 used/i)).toBeInTheDocument();
 
 		const usedGroup = screen.getByRole("group", { name: /^Used$/i });
 		const setAsideGroup = screen.getByRole("group", { name: /^Set aside$/i });
 
+		const usedMemoryRow = within(usedGroup).getByRole("button", {
+			name: /Memory.*2/i,
+		});
+		expect(usedMemoryRow).toBeInTheDocument();
+		expect(within(usedGroup).queryByText("Recent task state")).toBeNull();
+
+		await fireEvent.click(usedMemoryRow);
 		expect(
 			within(usedGroup).getByText("Recent task state"),
 		).toBeInTheDocument();
-		expect(within(setAsideGroup).queryByText("Recent task state")).toBeNull();
+		expect(within(usedGroup).getByText("Selected memory")).toBeInTheDocument();
+
+		const asideMemoryRow = within(setAsideGroup).getByRole("button", {
+			name: /Memory.*1/i,
+		});
+		await fireEvent.click(asideMemoryRow);
 		expect(
 			within(setAsideGroup).getByText("Irrelevant memory"),
+		).toBeInTheDocument();
+	});
+
+	it("collapses N memory items into a single 'Memory' entry alongside a normal web row", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "memory",
+						label: "Memory",
+						reranked: false,
+						items: [
+							{
+								id: "memory-1",
+								title: "Prefers concise summaries",
+								sourceType: "memory",
+								status: "reference",
+							},
+							{
+								id: "memory-2",
+								title: "Recent task state",
+								sourceType: "memory",
+								status: "reference",
+							},
+							{
+								id: "memory-3",
+								title: "Session memory note",
+								sourceType: "memory",
+								status: "selected",
+							},
+							{
+								id: "memory-4",
+								title: "Project folder sibling",
+								sourceType: "memory",
+								status: "reference",
+							},
+						],
+					},
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "source-1",
+								title: "investopedia.com",
+								sourceType: "web",
+								status: "selected",
+								url: "https://example.com/source",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+		// 5 considered total (4 memory + 1 web); 2 used rows (1 collapsed
+		// memory row + 1 web row) — memory counts as a single used source.
+		expect(screen.getByText(/5 considered, 2 used/i)).toBeInTheDocument();
+
+		const usedGroup = screen.getByRole("group", { name: /^Used$/i });
+
+		// Exactly one row for memory, showing the count, not one row per item.
+		const memoryRow = within(usedGroup).getByRole("button", {
+			name: /Memory.*4/i,
+		});
+		expect(memoryRow).toBeInTheDocument();
+		expect(
+			within(usedGroup).queryByText("Prefers concise summaries"),
+		).toBeNull();
+		expect(within(usedGroup).queryByText("Recent task state")).toBeNull();
+
+		// Non-memory sources still render as their own row, unaffected.
+		expect(
+			within(usedGroup).getByRole("link", { name: /investopedia/i }),
+		).toBeInTheDocument();
+
+		// The collapsed row is expandable to reveal the underlying items.
+		await fireEvent.click(memoryRow);
+		expect(
+			within(usedGroup).getByText("Prefers concise summaries"),
+		).toBeInTheDocument();
+		expect(
+			within(usedGroup).getByText("Session memory note"),
 		).toBeInTheDocument();
 	});
 
@@ -393,6 +493,10 @@ describe("MessageEvidenceDetails", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
+		// The single memory item still collapses into a "Memory" entry; expand
+		// it to reach the underlying plain-text (non-link) item.
+		await fireEvent.click(screen.getByRole("button", { name: /Memory.*1/i }));
+
 		expect(screen.getByText(/Prefers concise summaries/i)).toBeInTheDocument();
 		expect(screen.queryByRole("link")).toBeNull();
 	});
@@ -406,6 +510,14 @@ describe("MessageEvidenceDetails", () => {
 			submitKnowledgeMemoryActionMock.mockResolvedValue({});
 			submitMemoryV2ActionMock.mockResolvedValue({});
 		});
+
+		// Memory items always collapse into a single "Memory" entry now, so
+		// reaching an individual memory-fact item's tap-to-reveal actions
+		// requires expanding that entry first.
+		async function expandSourcesAndMemoryGroup() {
+			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await fireEvent.click(screen.getByRole("button", { name: /Memory.*1/i }));
+		}
 
 		function renderWithMemoryFact() {
 			return render(MessageEvidenceDetails, {
@@ -432,7 +544,7 @@ describe("MessageEvidenceDetails", () => {
 
 		it("makes memory-fact items tappable and reveals Correct / Don't use / Retire", async () => {
 			renderWithMemoryFact();
-			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await expandSourcesAndMemoryGroup();
 
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
@@ -451,7 +563,7 @@ describe("MessageEvidenceDetails", () => {
 
 		it("Don't use suppresses the fact via the legacy action with a fetched revision", async () => {
 			renderWithMemoryFact();
-			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await expandSourcesAndMemoryGroup();
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
 			);
@@ -472,7 +584,7 @@ describe("MessageEvidenceDetails", () => {
 
 		it("Retire posts the v2 retire action and confirms", async () => {
 			renderWithMemoryFact();
-			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await expandSourcesAndMemoryGroup();
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
 			);
@@ -491,7 +603,7 @@ describe("MessageEvidenceDetails", () => {
 
 		it("Correct opens a prefilled inline input and posts the corrected statement", async () => {
 			renderWithMemoryFact();
-			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await expandSourcesAndMemoryGroup();
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
 			);
@@ -521,7 +633,7 @@ describe("MessageEvidenceDetails", () => {
 		it("shows an error state when the action fails", async () => {
 			submitMemoryV2ActionMock.mockRejectedValueOnce(new Error("boom"));
 			renderWithMemoryFact();
-			await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+			await expandSourcesAndMemoryGroup();
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Prefers dark roast coffee/i }),
 			);

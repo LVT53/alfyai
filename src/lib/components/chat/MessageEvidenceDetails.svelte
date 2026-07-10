@@ -72,8 +72,57 @@ let setAsideItems = $derived(
 	allItems.filter((item) => item.status === "rejected"),
 );
 
+// Memory-derived items (task state, recent turns, persona facts, session/
+// workflow memory, project-folder siblings, memory-tool candidates) all
+// share sourceType "memory" and, rendered individually, can flood the
+// disclosure with many near-identical rows. Collapse every memory item
+// within a bucket (Used / Set aside) into a single expandable "Memory" row
+// carrying a count; non-memory items keep their existing one-row-per-item
+// rendering untouched. In practice memory items are always `reference`, so
+// the Set-aside bucket rarely (if ever) contains one — but the same
+// collapsing rule applies there too for consistency should it happen.
+type EvidenceRow =
+	| { kind: "item"; item: MessageEvidenceItem }
+	| { kind: "memory-group"; items: MessageEvidenceItem[] };
+
+function buildRows(items: MessageEvidenceItem[]): EvidenceRow[] {
+	const rows: EvidenceRow[] = [];
+	let memoryGroup: MessageEvidenceItem[] | null = null;
+	for (const item of items) {
+		if (item.sourceType === "memory") {
+			if (!memoryGroup) {
+				memoryGroup = [];
+				rows.push({ kind: "memory-group", items: memoryGroup });
+			}
+			memoryGroup.push(item);
+			continue;
+		}
+		rows.push({ kind: "item", item });
+	}
+	return rows;
+}
+
+let usedRows = $derived(buildRows(usedItems));
+let setAsideRows = $derived(buildRows(setAsideItems));
+
+let usedMemoryExpanded = $state(false);
+let asideMemoryExpanded = $state(false);
+
+function toggleMemoryGroup(bucket: "used" | "aside") {
+	if (bucket === "used") {
+		usedMemoryExpanded = !usedMemoryExpanded;
+	} else {
+		asideMemoryExpanded = !asideMemoryExpanded;
+	}
+}
+
+// "Considered" reflects the raw number of candidate signals the system
+// evaluated — unaffected by how the UI groups them for display. "Used"
+// counts rendered rows in the Used section, so a collapsed Memory entry
+// contributes exactly 1 (matching what the user actually sees), same as
+// any other single-item row.
 let consideredCount = $derived(allItems.length);
-let usedCount = $derived(usedItems.length);
+let usedCount = $derived(usedRows.length);
 
 // Entrance-cascade timing: each row/title is one "slot" in a single running
 // sequence (title, then its rows, then the next section's title, etc.) so
@@ -88,7 +137,7 @@ function slotDelay(slot: number): string {
 
 const usedTitleSlot = 0;
 const usedRowSlotStart = 1;
-let asideTitleSlot = $derived(usedItems.length > 0 ? usedItems.length + 1 : 0);
+let asideTitleSlot = $derived(usedRows.length > 0 ? usedRows.length + 1 : 0);
 let asideRowSlotStart = $derived(asideTitleSlot + 1);
 
 async function toggle() {
@@ -274,7 +323,7 @@ function openDocument(item: MessageEvidenceItem) {
 
 	{#if expanded}
 		<div class="evidence-groups" out:flyOut={{ y: -6, duration: 200 }}>
-			{#if usedItems.length > 0}
+			{#if usedRows.length > 0}
 				<section
 					class="evidence-group evidence-group--used"
 					style={`animation-delay: ${slotDelay(usedTitleSlot)}`}
@@ -283,13 +332,17 @@ function openDocument(item: MessageEvidenceItem) {
 						{$t('messageEvidenceDetails.used')}
 					</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.used')}>
-						{#each usedItems as item, itemIndex (`used-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item, usedRowSlotStart + itemIndex)}
+						{#each usedRows as row, rowIndex (row.kind === 'item' ? `used-${row.item.id}-${row.item.status}-${rowIndex}` : 'used-memory-group')}
+							{#if row.kind === 'item'}
+								{@render renderItem(row.item, usedRowSlotStart + rowIndex)}
+							{:else}
+								{@render renderMemoryGroup(row.items, usedRowSlotStart + rowIndex, 'used')}
+							{/if}
 						{/each}
 					</div>
 				</section>
 			{/if}
-			{#if setAsideItems.length > 0}
+			{#if setAsideRows.length > 0}
 				<section
 					class="evidence-group evidence-group--aside"
 					style={`animation-delay: ${slotDelay(asideTitleSlot)}`}
@@ -298,8 +351,12 @@ function openDocument(item: MessageEvidenceItem) {
 						{$t('messageEvidenceDetails.setAside')}
 					</h4>
 					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.setAside')}>
-						{#each setAsideItems as item, itemIndex (`aside-${item.id}-${item.status}-${itemIndex}`)}
-							{@render renderItem(item, asideRowSlotStart + itemIndex)}
+						{#each setAsideRows as row, rowIndex (row.kind === 'item' ? `aside-${row.item.id}-${row.item.status}-${rowIndex}` : 'aside-memory-group')}
+							{#if row.kind === 'item'}
+								{@render renderItem(row.item, asideRowSlotStart + rowIndex)}
+							{:else}
+								{@render renderMemoryGroup(row.items, asideRowSlotStart + rowIndex, 'aside')}
+							{/if}
 						{/each}
 					</div>
 				</section>
@@ -437,6 +494,40 @@ function openDocument(item: MessageEvidenceItem) {
 		{/if}
 		{#if item.description}
 			<div class="evidence-description">{item.description}</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet renderMemoryGroup(items: MessageEvidenceItem[], slot: number, bucket: 'used' | 'aside')}
+	{@const TypeIcon = typeIconFor('memory')}
+	{@const isExpanded = bucket === 'used' ? usedMemoryExpanded : asideMemoryExpanded}
+	<div
+		class={`evidence-row${bucket === 'aside' ? ' evidence-row--aside' : ''}`}
+		style={`animation-delay: ${slotDelay(slot)}`}
+	>
+		<button
+			type="button"
+			class="evidence-row-button"
+			aria-expanded={isExpanded}
+			onclick={() => toggleMemoryGroup(bucket)}
+		>
+			<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
+			<span class="evidence-title">
+				{$t('messageEvidenceDetails.memoryGroupLabel', { count: items.length })}
+			</span>
+			<ChevronDown
+				size={12}
+				strokeWidth={1.8}
+				class={`evidence-open-icon${isExpanded ? ' expanded' : ''}`}
+				aria-hidden="true"
+			/>
+		</button>
+		{#if isExpanded}
+			<div class="evidence-memory-group-items">
+				{#each items as item (item.id)}
+					{@render renderItem(item, 0)}
+				{/each}
+			</div>
 		{/if}
 	</div>
 {/snippet}
@@ -651,10 +742,24 @@ function openDocument(item: MessageEvidenceItem) {
 		color: var(--icon-muted);
 		flex-shrink: 0;
 		opacity: 0.55;
+		transition: transform var(--duration-standard) var(--ease-out);
+	}
+
+	.evidence-open-icon.expanded {
+		transform: rotate(180deg);
 	}
 
 	.evidence-row--aside {
 		opacity: 0.55;
+	}
+
+	.evidence-memory-group-items {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		margin-left: 0.25rem;
+		padding-left: 1.1rem;
+		border-left: 1px solid color-mix(in srgb, var(--border-subtle) 60%, transparent 40%);
 	}
 
 	.evidence-memory-actions {
@@ -737,7 +842,8 @@ function openDocument(item: MessageEvidenceItem) {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.chevron {
+		.chevron,
+		.evidence-open-icon {
 			transition: none;
 		}
 

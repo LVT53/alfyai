@@ -616,6 +616,7 @@ const chatDict = {
 			"· {considered} considered, {used} used",
 		"messageEvidenceDetails.used": "Used",
 		"messageEvidenceDetails.setAside": "Set aside",
+		"messageEvidenceDetails.memoryGroupLabel": "Memory · {count}",
 		"messageEvidenceDetails.openDocument": "Open document",
 		"messageEvidenceDetails.memoryActions": "Memory actions",
 		"messageEvidenceDetails.memoryActionFailed":
@@ -1320,6 +1321,7 @@ const chatDict = {
 			"· {considered} vizsgált, {used} felhasznált",
 		"messageEvidenceDetails.used": "Felhasználva",
 		"messageEvidenceDetails.setAside": "Félretéve",
+		"messageEvidenceDetails.memoryGroupLabel": "Memória · {count}",
 		"messageEvidenceDetails.openDocument": "Dokumentum megnyitása",
 		"messageEvidenceDetails.memoryActions": "Memóriaműveletek",
 		"messageEvidenceDetails.memoryActionFailed":
