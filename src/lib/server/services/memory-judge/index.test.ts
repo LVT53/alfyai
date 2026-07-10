@@ -745,6 +745,68 @@ describe("Memory judge service", () => {
 		expect(watermark).toBe(2);
 	});
 
+	it("does NOT advance the watermark on the explicit path when a backlog sits below the exchange, so no message is skipped (D2 regression)", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		// A pre-existing unjudged backlog (seqs 1-4, watermark 0 — common during an
+		// active session where the idle timer keeps getting rescheduled) followed by
+		// the explicit exchange (seqs 5-6).
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "backlog-1" },
+				{ role: "assistant", content: "backlog-2" },
+				{ role: "user", content: "backlog-3" },
+				{ role: "assistant", content: "backlog-4" },
+				{ role: "user", content: "Remember that I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		mockControlModel({ decisions: [] });
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const { countUnjudgedMessages } = await import("./segment");
+		const readWatermark = () =>
+			db
+				.select()
+				.from(schema.conversationMemoryWatermarks)
+				.where(eq(schema.conversationMemoryWatermarks.conversationId, "c1"))
+				.all()[0]?.lastJudgedSequence ?? 0;
+
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "explicit",
+			segmentOverride: [
+				{ role: "user", content: "Remember that I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+			overrideHighestSequence: 6,
+		});
+		expect(result).toMatchObject({ status: "ran" });
+
+		// The watermark must NOT jump to 6: seqs 1-4 were never sent to the model,
+		// so marking them judged would be silent intake loss (D1-class).
+		expect(readWatermark()).toBe(0);
+		expect(
+			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
+		).toBe(6);
+
+		// A later oldest-first loader pass drains the whole backlog AND the explicit
+		// exchange — nothing is ever skipped.
+		const drain = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "sweep",
+		});
+		expect(drain.status).toBe("ran");
+		expect(readWatermark()).toBe(6);
+		expect(
+			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
+		).toBe(0);
+	});
+
 	it("does not advance the watermark on the explicit path when no override sequence is supplied", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });

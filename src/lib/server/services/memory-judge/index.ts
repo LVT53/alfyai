@@ -29,6 +29,7 @@ import {
 } from "./schema";
 import {
 	advanceConversationMemoryWatermark,
+	countUnjudgedMessages,
 	getUnjudgedConversationSegment,
 } from "./segment";
 
@@ -69,9 +70,15 @@ export async function runMemoryJudgeOnSegment(params: {
 	/**
 	 * When `segmentOverride` is supplied (the explicit "remember that…" path),
 	 * the highest `messageSequence` of the exchange being judged. The watermark is
-	 * advanced to this value under the same `> 0` guard as the segment-loader
-	 * path, so the explicitly-judged messages are marked judged and never
-	 * re-counted by a later marathon/idle/sweep pass. Omitted/zero is a no-op.
+	 * advanced to this value ONLY when the exchange is the entire unjudged tail —
+	 * i.e. no pre-existing backlog sits below it. `advanceConversationMemory
+	 * Watermark` takes `max(existing, value)`, so advancing while a lower-sequence
+	 * backlog is still unjudged would silently mark those never-sent messages
+	 * judged (D1-class intake loss). When a backlog exists we judge the synthetic
+	 * exchange for immediate effect but leave the watermark alone; the dirty-mark
+	 * + the loader's oldest-first drain re-judge everything losslessly (gate-5
+	 * non-redundancy dedupes the explicit exchange's re-judge). Omitted/zero is a
+	 * no-op.
 	 */
 	overrideHighestSequence?: number;
 }): Promise<JudgeRunResult> {
@@ -98,10 +105,24 @@ export async function runMemoryJudgeOnSegment(params: {
 	if (params.segmentOverride) {
 		segmentMessages = params.segmentOverride;
 		// Explicit path: advance the watermark to the newest message of the judged
-		// exchange (threaded from the caller). Guarded by the same `> 0` check as
-		// the segment-loader path below, so an unspecified override is a no-op and
-		// never marks unseen messages judged.
-		highestSequence = params.overrideHighestSequence ?? 0;
+		// exchange (threaded from the caller) ONLY when the exchange is the entire
+		// unjudged tail. If a pre-existing backlog sits below it, advancing (which
+		// is max(existing, value)) would mark those never-sent messages judged —
+		// D1-class intake loss. Detect the backlog via the unjudged count: when it
+		// is no larger than the exchange we're judging, nothing older is pending
+		// and it is safe to advance. Otherwise leave the watermark alone and let
+		// the oldest-first loader drain everything (the explicit exchange included)
+		// on a later dirty-mark-driven pass.
+		const override = params.overrideHighestSequence ?? 0;
+		if (override > 0) {
+			const unjudgedCount = await countUnjudgedMessages({
+				userId: params.userId,
+				conversationId: params.conversationId,
+			});
+			if (unjudgedCount <= segmentMessages.length) {
+				highestSequence = override;
+			}
+		}
 	} else {
 		const segment = await getUnjudgedConversationSegment(params);
 		if (segment.count === 0) return { status: "empty" };
