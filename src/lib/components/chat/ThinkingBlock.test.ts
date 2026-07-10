@@ -344,6 +344,105 @@ describe("ThinkingBlock", () => {
 		expect(screen.getByText("Checking answer plan")).toBeInTheDocument();
 	});
 
+	it("groups a burst of connector tool calls into one compact summary row per capability", async () => {
+		const calendarActions = [
+			"list_events",
+			"create_event",
+			"check_availability",
+			"update_event",
+			"delete_event",
+			"list_calendars",
+		];
+		const segments: ThinkingSegment[] = [
+			...calendarActions.map(
+				(action, i) =>
+					({
+						type: "tool_call",
+						name: "calendar",
+						status: i === calendarActions.length - 1 ? "running" : "done",
+						input: { action },
+					}) as const,
+			),
+			{
+				type: "tool_call",
+				name: "research_web",
+				status: "done",
+				input: { query: "weather forecast" },
+			},
+		];
+
+		const { rerender, container } = render(ThinkingBlock, {
+			props: {
+				content: "",
+				thinkingIsDone: false,
+				segments,
+			},
+		});
+
+		// Stack view: one grouped calendar summary row (count 6), not six rows.
+		const groupSummary = screen.getByText("Calendar · 6 actions");
+		expect(groupSummary).toBeInTheDocument();
+		expect(screen.queryByText(/Calendar: list events/)).not.toBeInTheDocument();
+		expect(
+			screen.getByText('Web search: "weather forecast"'),
+		).toBeInTheDocument();
+
+		// Running affordance: one call in the group is still running.
+		const groupRow = groupSummary.closest(".tool-call-row");
+		expect(groupRow).not.toBeNull();
+		expect(groupRow?.classList.contains("is-running")).toBe(true);
+		expect(groupRow?.querySelector(".tool-dot")).not.toBeNull();
+		expect(groupRow?.querySelector(".check-icon-header")).toBeNull();
+
+		// Expand the group to reveal the individual actions.
+		await fireEvent.click(groupSummary);
+		for (const label of [
+			"list events",
+			"create event",
+			"check availability",
+			"update event",
+			"delete event",
+			"list calendars",
+		]) {
+			expect(screen.getByText(label)).toBeInTheDocument();
+		}
+
+		// Also grouped in the expanded interleaved thinking view.
+		await fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
+		expect(screen.getAllByText("Calendar · 6 actions")).toHaveLength(2);
+
+		// Once every call in the group finishes, the group shows the done check.
+		const allDoneSegments: ThinkingSegment[] = [
+			...calendarActions.map(
+				(action) =>
+					({
+						type: "tool_call",
+						name: "calendar",
+						status: "done",
+						input: { action },
+					}) as const,
+			),
+			{
+				type: "tool_call",
+				name: "research_web",
+				status: "done",
+				input: { query: "weather forecast" },
+			},
+		];
+		await rerender({
+			content: "",
+			thinkingIsDone: false,
+			segments: allDoneSegments,
+		});
+		const stackSummary = container.querySelector(
+			".tool-call-stack summary.tool-label-text",
+		);
+		expect(stackSummary?.textContent).toBe("Calendar · 6 actions");
+		const doneGroupRow = stackSummary?.closest(".tool-call-row");
+		expect(doneGroupRow?.classList.contains("is-running")).toBe(false);
+		expect(doneGroupRow?.querySelector(".check-icon-header")).not.toBeNull();
+	});
+
 	it("shows fetched web source titles from research tool candidates", async () => {
 		const segments: ThinkingSegment[] = [
 			{

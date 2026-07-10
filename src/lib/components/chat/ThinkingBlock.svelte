@@ -14,6 +14,7 @@ import {
 } from "@lucide/svelte";
 import {
 	formatConnectionToolAction,
+	getConnectionToolLabelKey,
 	getHumanReadableToolNameKey,
 	isConnectionToolName,
 	isFileProductionToolName,
@@ -161,6 +162,121 @@ const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 const hasVisibleSurface = $derived(
 	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
 );
+
+type ToolCallSegment = ThinkingSegment & { type: "tool_call" };
+type TextSegment = ThinkingSegment & { type: "text" };
+type StatusSegment = ThinkingSegment & { type: "status" };
+
+// Connector tool calls (calendar/contacts/email/files/location/media/photos)
+// can fire dozens of times per turn. Collapse repeated calls to the same
+// capability into a single expandable group instead of spamming one row per
+// call — mirrors the existing fetchedSourceGroup collapse precedent below.
+type ToolStackEntry =
+	| { kind: "tool"; tool: ToolCallSegment; key: string }
+	| {
+			kind: "connector-group";
+			name: string;
+			tools: ToolCallSegment[];
+			key: string;
+	  };
+
+const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
+	const entries: ToolStackEntry[] = [];
+	const groupIndexByName = new Map<string, number>();
+	visibleTools.forEach((tool, i) => {
+		if (isConnectionToolName(tool.name)) {
+			const existingIndex = groupIndexByName.get(tool.name);
+			if (existingIndex !== undefined) {
+				const entry = entries[existingIndex];
+				if (entry.kind === "connector-group") entry.tools.push(tool);
+				return;
+			}
+			groupIndexByName.set(tool.name, entries.length);
+			entries.push({
+				kind: "connector-group",
+				name: tool.name,
+				tools: [tool],
+				key: `group-${tool.name}`,
+			});
+			return;
+		}
+		entries.push({
+			kind: "tool",
+			tool,
+			key: tool.callId ?? tool.name + JSON.stringify(tool.input) + "-" + i,
+		});
+	});
+	return entries;
+});
+
+// Interleaved thinking view: group connector calls only within a contiguous
+// run of connector tool_call segments. Any non-connector segment (thinking
+// text, a status step, or a non-connector tool call) breaks the run, so the
+// grouping never reorders content relative to the surrounding narration.
+type InterleavedEntry =
+	| { kind: "text"; segment: TextSegment; key: string }
+	| { kind: "status"; segment: StatusSegment; key: string }
+	| { kind: "tool"; segment: ToolCallSegment; key: string }
+	| {
+			kind: "connector-group";
+			name: string;
+			tools: ToolCallSegment[];
+			key: string;
+	  };
+
+const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
+	const entries: InterleavedEntry[] = [];
+	let runGroupIndexByName: Map<string, number> | null = null;
+	visibleSegments.forEach((seg, i) => {
+		if (seg.type === "tool_call" && isConnectionToolName(seg.name)) {
+			if (!runGroupIndexByName) runGroupIndexByName = new Map();
+			const existingIndex = runGroupIndexByName.get(seg.name);
+			if (existingIndex !== undefined) {
+				const entry = entries[existingIndex];
+				if (entry.kind === "connector-group") entry.tools.push(seg);
+				return;
+			}
+			runGroupIndexByName.set(seg.name, entries.length);
+			entries.push({
+				kind: "connector-group",
+				name: seg.name,
+				tools: [seg],
+				key: `group-${seg.name}-${i}`,
+			});
+			return;
+		}
+		runGroupIndexByName = null;
+		if (seg.type === "tool_call") {
+			entries.push({
+				kind: "tool",
+				segment: seg,
+				key: seg.callId ?? seg.name + JSON.stringify(seg.input) + "-" + i,
+			});
+		} else if (seg.type === "status") {
+			entries.push({ kind: "status", segment: seg, key: seg.id });
+		} else {
+			entries.push({ kind: "text", segment: seg, key: `text-${i}` });
+		}
+	});
+	return entries;
+});
+
+function connectorGroupLabel(name: string): string {
+	const key = getConnectionToolLabelKey(name);
+	return $t(key ?? "toolCalls.generic");
+}
+
+function connectorGroupSummary(name: string, count: number): string {
+	return `${connectorGroupLabel(name)} · ${$t("toolCalls.actionsCount", { count })}`;
+}
+
+function formatGroupedConnectorAction(tool: ToolCallSegment): string {
+	const action =
+		typeof tool.input.action === "string"
+			? formatConnectionToolAction(tool.input.action)
+			: "";
+	return action || formatToolCall(tool.name, tool.input);
+}
 
 $effect(() => {
 	const totalLength = hasSegments
@@ -425,6 +541,114 @@ async function toggle() {
 	</details>
 {/snippet}
 
+{#snippet connectorGroupDetails(tools: ToolCallSegment[], summaryClass: string)}
+	<details class="connector-group">
+		<summary class={summaryClass}>{connectorGroupSummary(tools[0].name, tools.length)}</summary>
+		<div class="connector-action-list">
+			{#each tools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
+				<div class="connector-action-item">
+					{#if tool.status === 'running'}
+						<span class="tool-dot-inline"></span>
+					{:else}
+						<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+					{/if}
+					<span class="tool-item-label">{formatGroupedConnectorAction(tool)}</span>
+				</div>
+			{/each}
+		</div>
+	</details>
+{/snippet}
+
+{#snippet singleToolStackRow(tool: ToolCallSegment)}
+	{@const fetchedSources = getFetchedSources(tool)}
+	{#if fetchedSources.length > 0}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+			{#if tool.status === 'running'}
+				<span class="tool-dot"></span>
+			{:else}
+				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{/if}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text')}
+		</div>
+	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
+		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+			{#if tool.status === 'running'}
+				<span class="tool-dot"></span>
+			{:else}
+				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{/if}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text')}
+		</div>
+	{:else}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
+			{#if tool.status === 'running'}
+				<span class="tool-dot"></span>
+			{:else}
+				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{/if}
+			<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet connectorGroupStackRow(tools: ToolCallSegment[])}
+	{@const anyRunning = tools.some((t) => t.status === 'running')}
+	<div class="tool-call-row" class:is-running={anyRunning}>
+		{#if anyRunning}
+			<span class="tool-dot"></span>
+		{:else}
+			<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
+		{/if}
+		{@render connectorGroupDetails(tools, 'tool-label-text')}
+	</div>
+{/snippet}
+
+{#snippet singleToolItem(seg: ToolCallSegment)}
+	{@const fetchedSources = getFetchedSources(seg)}
+	{#if fetchedSources.length > 0}
+		<div class="tool-call-item">
+			{#if seg.status === 'done'}
+				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{:else}
+				<span class="tool-dot-inline"></span>
+			{/if}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label')}
+		</div>
+	{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
+		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
+		<div class="tool-call-item">
+			{#if seg.status === 'done'}
+				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{:else}
+				<span class="tool-dot-inline"></span>
+			{/if}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label')}
+		</div>
+	{:else}
+		<div class="tool-call-item">
+			{#if seg.status === 'done'}
+				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+			{:else}
+				<span class="tool-dot-inline"></span>
+			{/if}
+			<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet connectorGroupItem(tools: ToolCallSegment[])}
+	{@const anyRunning = tools.some((t) => t.status === 'running')}
+	<div class="tool-call-item">
+		{#if anyRunning}
+			<span class="tool-dot-inline"></span>
+		{:else}
+			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+		{/if}
+		{@render connectorGroupDetails(tools, 'tool-item-label')}
+	</div>
+{/snippet}
+
 {#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
 	<button
@@ -449,36 +673,11 @@ async function toggle() {
 
 	{#if visibleTools.length > 0 || thinkingIsDone}
 		<div class="tool-call-stack" class:fade-out={thinkingIsDone}>
-			{#each visibleTools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
-				{@const fetchedSources = getFetchedSources(tool)}
-				{#if fetchedSources.length > 0}
-					<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-						{#if tool.status === 'running'}
-							<span class="tool-dot"></span>
-							{:else}
-								<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-						{/if}
-							{@render fetchedSourceGroup(fetchedSources, 'tool-label-text')}
-						</div>
-					{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
-						{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
-					<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-						{#if tool.status === 'running'}
-							<span class="tool-dot"></span>
-						{:else}
-							<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-						{/if}
-							{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text')}
-						</div>
-					{:else}
-						<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-						{#if tool.status === 'running'}
-							<span class="tool-dot"></span>
-						{:else}
-							<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-						{/if}
-						<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
-					</div>
+			{#each toolStackEntries as entry (entry.key)}
+				{#if entry.kind === 'connector-group'}
+					{@render connectorGroupStackRow(entry.tools)}
+				{:else}
+					{@render singleToolStackRow(entry.tool)}
 				{/if}
 			{/each}
 		</div>
@@ -487,11 +686,11 @@ async function toggle() {
 {#if expanded}
 <div class="thinking-content" class:content-fresh={contentFresh} transition:slide>
 				{#if hasSegments}
-				{#each visibleSegments as seg, i (seg.type === 'tool_call' ? (seg.callId ?? seg.name + JSON.stringify(seg.input) + '-' + i) : seg.type === 'status' ? seg.id : `text-${i}`)}
-				{#if seg.type === 'text'}
-					<pre class="thinking-text">{formatThinkingTextForDisplay(seg.content)}</pre>
-				{:else if seg.type === 'status'}
-					{@const statusSeg = seg as any}
+				{#each interleavedEntries as entry (entry.key)}
+				{#if entry.kind === 'text'}
+					<pre class="thinking-text">{formatThinkingTextForDisplay(entry.segment.content)}</pre>
+				{:else if entry.kind === 'status'}
+					{@const statusSeg = entry.segment as any}
 					{@const isDeliberationStatus = isDeliberationStatusSegment(statusSeg)}
 					<div
 						class="status-step"
@@ -556,37 +755,10 @@ async function toggle() {
 									{/if}
 									<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(statusSeg) : statusSeg.label}</span>
 								</div>
+					{:else if entry.kind === 'tool'}
+						{@render singleToolItem(entry.segment)}
 					{:else}
-						{@const fetchedSources = getFetchedSources(seg)}
-						{#if fetchedSources.length > 0}
-							<div class="tool-call-item">
-								{#if seg.status === 'done'}
-									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-								{:else}
-									<span class="tool-dot-inline"></span>
-								{/if}
-								{@render fetchedSourceGroup(fetchedSources, 'tool-item-label')}
-							</div>
-						{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
-							{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
-							<div class="tool-call-item">
-								{#if seg.status === 'done'}
-									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-								{:else}
-									<span class="tool-dot-inline"></span>
-								{/if}
-								{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label')}
-							</div>
-						{:else}
-							<div class="tool-call-item">
-								{#if seg.status === 'done'}
-									<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-								{:else}
-									<span class="tool-dot-inline"></span>
-								{/if}
-								<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
-							</div>
-						{/if}
+						{@render connectorGroupItem(entry.tools)}
 					{/if}
 				{/each}
 		{:else}
@@ -798,6 +970,31 @@ async function toggle() {
 		gap: 4px;
 		margin-top: 4px;
 		padding-left: 16px;
+	}
+
+	.connector-group {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.connector-group summary {
+		cursor: pointer;
+		list-style-position: inside;
+	}
+
+	.connector-action-list {
+		display: grid;
+		gap: 4px;
+		margin-top: 4px;
+		padding-left: 16px;
+	}
+
+	.connector-action-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
 	}
 
 	.fetched-source-link {
