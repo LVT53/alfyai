@@ -27,7 +27,6 @@ export const PATCH: RequestHandler = async (event) => {
 		theme?: unknown;
 		titleLanguage?: unknown;
 		uiLanguage?: unknown;
-		avatarId?: unknown;
 		preferredPersonalityId?: unknown;
 		sidebarProjectsExpanded?: unknown;
 		sidebarChatsExpanded?: unknown;
@@ -83,10 +82,6 @@ export const PATCH: RequestHandler = async (event) => {
 			return json({ error: "Invalid uiLanguage" }, { status: 400 });
 		}
 		updates.uiLanguage = body.uiLanguage;
-	}
-
-	if (body.avatarId !== undefined) {
-		updates.avatarId = body.avatarId === null ? null : Number(body.avatarId);
 	}
 
 	if (body.preferredPersonalityId !== undefined) {

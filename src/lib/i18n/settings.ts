@@ -614,7 +614,6 @@ const settingsDict = {
 		// ADR-0043 slice 18a — Profile grouped sections, icon buttons, jargon clearing.
 		settings_conversationStyle: "Conversation style",
 		settings_conversationStyleNote: "How AlfyAI responds by default.",
-		settings_changeColorA11y: "Change color",
 		settings_interfaceLanguage: "Interface language",
 		settings_interfaceLanguageNote:
 			"The language used for menus and buttons. Title language can be set separately below.",
@@ -633,9 +632,7 @@ const settingsDict = {
 		settings_skillsManagerSummaryLabel: "Skills",
 		settings_skillsManagerTitle: "Skills",
 		settings_uploadPhotoA11y: "Upload photo",
-		settings_avatarNumber: "Avatar {number}",
 		settings_campaignsTab: "Campaigns",
-		settings_changeColor: "Change color",
 		settings_changePassword: "Change Password",
 		settings_confirmNewPassword: "Confirm new password",
 		settings_createUserBtn: "Create User",
@@ -1344,7 +1341,6 @@ const settingsDict = {
 		settings_conversationStyle: "Beszélgetési stílus",
 		settings_conversationStyleNote:
 			"Hogyan válaszol az AlfyAI alapértelmezés szerint.",
-		settings_changeColorA11y: "Színváltás",
 		settings_interfaceLanguage: "Felület nyelve",
 		settings_interfaceLanguageNote:
 			"A menükben és gombokban használt nyelv. A cím nyelvét lent külön is beállíthatod.",
@@ -1363,9 +1359,7 @@ const settingsDict = {
 		settings_skillsManagerSummaryLabel: "Skillek",
 		settings_skillsManagerTitle: "Skillek",
 		settings_uploadPhotoA11y: "Kép feltöltése",
-		settings_avatarNumber: "Avatar {number}",
 		settings_campaignsTab: "Kampányok",
-		settings_changeColor: "Színváltás",
 		settings_changePassword: "Jelszó módosítása",
 		settings_confirmNewPassword: "Új jelszó megerősítése",
 		settings_createUserBtn: "Felhasználó létrehozása",

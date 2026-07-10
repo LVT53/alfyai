@@ -36,7 +36,6 @@ function user(overrides: Partial<SessionUser> = {}): SessionUser {
 		email: "user@example.com",
 		displayName: "User",
 		role: "user",
-		avatarId: null,
 		profilePicture: null,
 		titleLanguage: "auto",
 		uiLanguage: "en",

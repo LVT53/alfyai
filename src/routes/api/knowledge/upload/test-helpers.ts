@@ -93,7 +93,6 @@ function makeKnowledgeUploadRouteEvent<RouteId extends string>(params: {
 		email: params.email ?? "test@example.com",
 		displayName: params.displayName ?? "Test User",
 		role: "user",
-		avatarId: null,
 		profilePicture: null,
 		titleLanguage: "auto",
 		uiLanguage: "en",

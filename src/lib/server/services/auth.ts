@@ -62,7 +62,6 @@ export async function validateSession(
 		email: userObj.email,
 		displayName: userObj.name ?? userObj.email,
 		role: (userObj.role ?? "user") as import("../../types").UserRole,
-		avatarId: userObj.avatarId ?? null,
 		profilePicture: userObj.profilePicture ?? null,
 		titleLanguage: (userObj.titleLanguage ?? "auto") as "auto" | "en" | "hu",
 		uiLanguage: (userObj.uiLanguage ?? "en") as "en" | "hu",

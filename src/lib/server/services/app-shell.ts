@@ -46,7 +46,6 @@ export interface AppShellData {
 	userTitleLanguage: "auto" | "en" | "hu";
 	userUiLanguage: "en" | "hu";
 	userPersonality: string | null;
-	userAvatarId: number | null;
 	userSidebarProjectsExpanded: boolean;
 	userSidebarChatsExpanded: boolean;
 	modelNames: Record<string, string>;
@@ -98,7 +97,6 @@ export async function getAuthenticatedAppShellData(
 			| "hu",
 		userUiLanguage: (userRow?.uiLanguage ?? "en") as "en" | "hu",
 		userPersonality: userRow?.preferredPersonalityId ?? null,
-		userAvatarId: userRow?.avatarId ?? null,
 		userSidebarProjectsExpanded: userRow?.sidebarProjectsExpanded ?? true,
 		userSidebarChatsExpanded: userRow?.sidebarChatsExpanded ?? true,
 		modelNames,

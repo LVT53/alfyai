@@ -205,7 +205,7 @@ async function addProfileSection(
 	},
 ) {
 	let avatarMarkup = "";
-	if (params.user.avatarId !== null || params.user.profilePicture) {
+	if (params.user.profilePicture) {
 		const avatar = await readRequiredFile(
 			params.rootDir,
 			`data/avatars/${params.user.id}.webp`,

@@ -48,13 +48,8 @@ const baseProps = {
 	userId: "user-1",
 	userDisplayName: "User",
 	userEmail: "user@example.com",
-	avatarColors: ["#000000"] as string[],
-	avatarCount: 1,
-	selectedAvatar: 1,
-	showAvatarPicker: false,
 	onOpenPictureEditor: vi.fn(),
 	onRemovePhoto: vi.fn(),
-	onSelectAvatar: vi.fn(),
 	name: "User",
 	email: "user@example.com",
 	onSaveProfile: vi.fn(),
@@ -141,8 +136,9 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 
 		// Account: avatar controls + display name + email + password fields + import.
 		expect(screen.getByLabelText("Upload photo")).toBeInTheDocument();
-		expect(screen.getByLabelText("Change color")).toBeInTheDocument();
 		expect(screen.getByLabelText("Remove photo")).toBeInTheDocument();
+		// The dead "Change color" swatch picker was removed (leftover no-op control).
+		expect(screen.queryByLabelText("Change color")).not.toBeInTheDocument();
 		expect(
 			screen.getByRole("textbox", { name: "Display Name" }),
 		).toBeInTheDocument();
@@ -191,10 +187,9 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 		renderTab({ profilePicture: "https://example.com/p.png" });
 
 		const upload = screen.getByLabelText("Upload photo");
-		const color = screen.getByLabelText("Change color");
 		const remove = screen.getByLabelText("Remove photo");
 
-		for (const btn of [upload, color, remove]) {
+		for (const btn of [upload, remove]) {
 			expect(btn).toHaveClass("btn-icon-bare");
 			// Lucide svg present.
 			expect(btn.querySelector("svg")).toBeInTheDocument();

@@ -353,7 +353,6 @@ onMount(() => {
 					<AvatarCircle
 						userId={user?.id ?? 'default'}
 						name={user?.displayName ?? null}
-						avatarId={user?.avatarId ?? null}
 						profilePicture={$avatarState.profilePicture}
 					cacheBuster={$avatarState.cacheBuster}
 						size={22}
@@ -381,7 +380,6 @@ onMount(() => {
 					<AvatarCircle
 						userId={user?.id ?? 'default'}
 						name={user?.displayName ?? null}
-						avatarId={user?.avatarId ?? null}
 						profilePicture={$avatarState.profilePicture}
 					cacheBuster={$avatarState.cacheBuster}
 						size={28}

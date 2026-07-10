@@ -29,7 +29,6 @@ describe("settings client API", () => {
 						theme: "system",
 						titleLanguage: "auto",
 						uiLanguage: "en",
-						avatarId: null,
 						preferredPersonalityId: null,
 					},
 					profilePicture: null,

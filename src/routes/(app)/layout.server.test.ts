@@ -52,7 +52,6 @@ vi.mock("$lib/server/db", () => ({
 							titleLanguage: "auto",
 							uiLanguage: "en",
 							preferredPersonalityId: null,
-							avatarId: null,
 						},
 					]),
 				),

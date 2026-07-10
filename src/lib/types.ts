@@ -222,7 +222,6 @@ export interface UserPreferences {
 	theme: Theme;
 	titleLanguage: "auto" | "en" | "hu";
 	uiLanguage: UiLanguage;
-	avatarId: number | null;
 	preferredPersonalityId: string | null;
 	sidebarProjectsExpanded: boolean;
 	sidebarChatsExpanded: boolean;
@@ -272,7 +271,6 @@ export interface SessionUser {
 	email: string;
 	displayName: string;
 	role: UserRole;
-	avatarId: number | null;
 	profilePicture: string | null;
 	titleLanguage: "auto" | "en" | "hu";
 	uiLanguage: UiLanguage;

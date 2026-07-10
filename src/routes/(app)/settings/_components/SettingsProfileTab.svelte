@@ -5,7 +5,6 @@ import {
 	ChevronRight,
 	Download,
 	FileText,
-	Palette,
 	Trash2,
 	Upload,
 } from "@lucide/svelte";
@@ -45,14 +44,9 @@ let {
 	userEmail,
 	profilePicture = null,
 	cacheBuster = 0,
-	avatarColors,
-	avatarCount,
-	selectedAvatar,
-	showAvatarPicker = $bindable(false),
 	removingPhoto = false,
 	onOpenPictureEditor,
 	onRemovePhoto,
-	onSelectAvatar,
 	name = $bindable(""),
 	email = $bindable(""),
 	profileSaving = false,
@@ -114,14 +108,9 @@ let {
 	userEmail: string;
 	profilePicture?: string | null;
 	cacheBuster?: number;
-	avatarColors: string[];
-	avatarCount: number;
-	selectedAvatar: number | null;
-	showAvatarPicker: boolean;
 	removingPhoto?: boolean;
 	onOpenPictureEditor: () => void;
 	onRemovePhoto: () => void | Promise<void>;
-	onSelectAvatar: (avatarId: number) => void | Promise<void>;
 	name: string;
 	email: string;
 	profileSaving?: boolean;
@@ -244,7 +233,6 @@ onMount(() => {
 		<AvatarCircle
 			{userId}
 			name={userDisplayName}
-			avatarId={selectedAvatar}
 			{profilePicture}
 			{cacheBuster}
 			size={48}
@@ -258,15 +246,6 @@ onMount(() => {
 				onclick={onOpenPictureEditor}
 			>
 				<Upload size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-			<button
-				type="button"
-				class="btn-icon-bare"
-				aria-label={$t('settings_changeColorA11y')}
-				title={$t('settings_changeColor')}
-				onclick={() => (showAvatarPicker = !showAvatarPicker)}
-			>
-				<Palette size={16} strokeWidth={2} aria-hidden="true" />
 			</button>
 			{#if profilePicture}
 				<button

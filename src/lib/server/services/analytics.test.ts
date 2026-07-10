@@ -27,7 +27,6 @@ function user(
 		email: `${id}@example.com`,
 		displayName: id,
 		role,
-		avatarId: null,
 		profilePicture: null,
 		titleLanguage: "auto",
 		uiLanguage: "en",

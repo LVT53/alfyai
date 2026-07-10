@@ -165,7 +165,6 @@ describe("validateSession", () => {
 			email: "test@example.com",
 			displayName: "Test User",
 			role: "user",
-			avatarId: null,
 			profilePicture: null,
 			titleLanguage: "auto",
 			uiLanguage: "en",

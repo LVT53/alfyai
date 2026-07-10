@@ -52,7 +52,6 @@ import {
 import { setThemeAndSync } from "$lib/stores/theme";
 import { currentConversationId } from "$lib/stores/ui";
 import { t, type I18nKey } from "$lib/i18n";
-import { AVATAR_COLORS, AVATAR_COUNT } from "$lib/utils/avatar";
 import ConnectWizardModal from "./_components/ConnectWizardModal.svelte";
 import PrivacyActionModal, {
 	type PrivacyAction,
@@ -78,7 +77,6 @@ interface SettingsPageData {
 			theme: "system" | "light" | "dark";
 			titleLanguage: "auto" | "en" | "hu";
 			uiLanguage: "en" | "hu";
-			avatarId: number | null;
 			memoryEnabled?: boolean;
 		};
 		profilePicture: string | null;
@@ -171,7 +169,6 @@ let selectedTitleLanguage = $state(initialPreferences.titleLanguage ?? "auto");
 let selectedUiLanguage = $state<UiLanguage>(
 	initialPreferences.uiLanguage ?? "en",
 );
-let selectedAvatar = $state<number | null>(initialPreferences.avatarId);
 let selectedPersonalityId = $state<string | null>(
 	initialPreferences.preferredPersonalityId ?? null,
 );
@@ -231,7 +228,6 @@ let allAdminUsers = $state<
 	Array<{ id: string; email: string; name: string | null }>
 >([]);
 let excludedUsersLoading = $state(false);
-let showAvatarPicker = $state(false);
 let showPictureEditor = $state(false);
 let removingPhoto = $state(false);
 
@@ -421,11 +417,6 @@ async function savePassword() {
 	} finally {
 		passwordSaving = false;
 	}
-}
-
-async function selectAvatar(avatarId: number) {
-	selectedAvatar = avatarId;
-	await updateUserPreferences({ avatarId }).catch(() => {});
 }
 
 async function changePersonality(id: string | null) {
@@ -829,14 +820,9 @@ $effect(() => {
 				userEmail={data.userSettings.email}
 				profilePicture={$avatarState.profilePicture}
 				cacheBuster={$avatarState.cacheBuster}
-				avatarColors={AVATAR_COLORS}
-				avatarCount={AVATAR_COUNT}
-				selectedAvatar={selectedAvatar}
-				bind:showAvatarPicker
 				{removingPhoto}
 				onOpenPictureEditor={() => (showPictureEditor = true)}
 				onRemovePhoto={removePhoto}
-				onSelectAvatar={selectAvatar}
 				bind:name
 				bind:email
 				{profileSaving}
@@ -1095,24 +1081,6 @@ $effect(() => {
 
 	:global(.toggle-on .toggle-thumb) {
 		transform: translateX(20px);
-	}
-
-	:global(.avatar-swatch) {
-		border: 2px solid transparent;
-		cursor: pointer;
-		transition: all var(--duration-standard);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	:global(.avatar-swatch:hover) {
-		transform: scale(1.08);
-	}
-
-	:global(.avatar-selected) {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 2px var(--surface-page), 0 0 0 4px var(--accent);
 	}
 
 	:global(.stat-card) {

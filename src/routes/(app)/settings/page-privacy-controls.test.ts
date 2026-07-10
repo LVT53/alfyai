@@ -59,7 +59,6 @@ const pageData = {
 			theme: "system" as const,
 			titleLanguage: "auto" as const,
 			uiLanguage: "en" as const,
-			avatarId: null,
 			preferredPersonalityId: null,
 		},
 		profilePicture: null,

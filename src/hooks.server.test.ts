@@ -283,7 +283,6 @@ describe("hooks.server.ts", () => {
 			email: "test@example.com",
 			displayName: "Test User",
 			role: "user",
-			avatarId: null,
 			profilePicture: null,
 		};
 		mockValidateSession.mockResolvedValue(sessionUser);
@@ -316,7 +315,6 @@ describe("hooks.server.ts", () => {
 			email: "test@example.com",
 			displayName: "Test User",
 			role: "user",
-			avatarId: null,
 			profilePicture: null,
 		});
 		const resolve = vi.fn(
@@ -359,7 +357,6 @@ describe("hooks.server.ts", () => {
 			email: "test@example.com",
 			displayName: "Test User",
 			role: "user",
-			avatarId: null,
 			profilePicture: null,
 		});
 		const event = makeHookEvent("/login", "session-token");

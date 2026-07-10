@@ -1,4 +1,6 @@
-export const AVATAR_COLORS = [
+// Internal: no external consumers after the colour-switcher removal. Avatar
+// colour is always derived from a deterministic hash of the userId.
+const AVATAR_COLORS = [
 	"#C15F3C", // accent coral
 	"#5B7FA6", // slate blue
 	"#6B9E78", // sage green
@@ -9,16 +11,8 @@ export const AVATAR_COLORS = [
 	"#8A8A6B", // olive
 ];
 
-export const AVATAR_COUNT = AVATAR_COLORS.length;
-
-export function getAvatarColor(
-	avatarId: number | null,
-	userId: string,
-): string {
-	if (avatarId !== null && avatarId >= 0) {
-		return AVATAR_COLORS[avatarId % AVATAR_COLORS.length];
-	}
-	// Fallback: deterministic hash of userId
+export function getAvatarColor(userId: string): string {
+	// Deterministic hash of userId into the palette.
 	const hash = userId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
 	return AVATAR_COLORS[hash % AVATAR_COLORS.length];
 }

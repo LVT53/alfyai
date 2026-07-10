@@ -134,7 +134,6 @@ export async function updateUserPreferences(params: {
 	theme?: "system" | "light" | "dark";
 	titleLanguage?: "auto" | "en" | "hu";
 	uiLanguage?: "en" | "hu";
-	avatarId?: number | null;
 	preferredPersonalityId?: string | null;
 	sidebarProjectsExpanded?: boolean;
 	sidebarChatsExpanded?: boolean;

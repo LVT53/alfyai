@@ -4,20 +4,18 @@ import { getAvatarColor } from "$lib/utils/avatar";
 let {
 	userId,
 	name = null,
-	avatarId = null,
 	size = 28,
 	profilePicture = null,
 	cacheBuster = 0,
 }: {
 	userId: string;
 	name?: string | null;
-	avatarId?: number | null;
 	size?: number;
 	profilePicture?: string | null;
 	cacheBuster?: number;
 } = $props();
 
-const color = $derived(getAvatarColor(avatarId, userId));
+const color = $derived(getAvatarColor(userId));
 const initial = $derived(
 	name ? name[0].toUpperCase() : (userId[0] ?? "?").toUpperCase(),
 );
