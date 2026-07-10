@@ -1097,6 +1097,132 @@ describe("onedriveReadFile", () => {
 	});
 });
 
+// Task 8 Finding A — onedriveStat and onedriveReadFile each independently
+// refreshed the access token via onedriveGetAccessTokenForRead (formerly a
+// private getAccessTokenForRead). Because a single `read` tool action stats
+// a path (onedriveStat, via files.ts's isDirectory guard) and then downloads
+// it (onedriveReadFile), that meant TWO OAuth refreshes for one logical
+// read — and since Microsoft ROTATES the refresh token on every use, the
+// second refresh silently invalidated whatever the first one had just
+// stored. The fix: both functions now accept an already-resolved
+// `opts.accessToken` and use it as-is instead of refreshing again — see
+// files.ts's readFileForConn/statForConn, which resolve one token up front
+// (via onedriveGetAccessTokenForRead) and thread it into both calls.
+describe("onedriveStat / onedriveReadFile — pre-resolved opts.accessToken (Task 8 Finding A)", () => {
+	it("onedriveStat uses opts.accessToken as-is and never hits the token endpoint", async () => {
+		setConfiguredEnv();
+		const conn = await seedConnection();
+		const { onedriveStat } = await import("./onedrive");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === TOKEN_URL) {
+					throw new Error(
+						"onedriveStat should not refresh when opts.accessToken is supplied",
+					);
+				}
+				expect(url).toBe(`${GRAPH_BASE}/me/drive/root:/notes/todo.txt`);
+				const headers = new Headers(init?.headers);
+				expect(headers.get("Authorization")).toBe("Bearer pre-resolved");
+				return jsonResponse(200, {
+					name: "todo.txt",
+					size: 5,
+					file: { mimeType: "text/plain" },
+				});
+			},
+		);
+
+		const result = await onedriveStat(conn, "secret", "notes/todo.txt", {
+			fetch: fetchMock as unknown as typeof fetch,
+			accessToken: "pre-resolved",
+		});
+
+		expect(result?.name).toBe("todo.txt");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("onedriveReadFile uses opts.accessToken as-is and never hits the token endpoint", async () => {
+		setConfiguredEnv();
+		const conn = await seedConnection();
+		const { onedriveReadFile } = await import("./onedrive");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url === TOKEN_URL) {
+					throw new Error(
+						"onedriveReadFile should not refresh when opts.accessToken is supplied",
+					);
+				}
+				if (url === `${GRAPH_BASE}/me/drive/root:/notes.txt`) {
+					return jsonResponse(200, {
+						name: "notes.txt",
+						size: 5,
+						file: { mimeType: "text/plain" },
+					});
+				}
+				if (url === `${GRAPH_BASE}/me/drive/root:/notes.txt:/content`) {
+					const headers = new Headers(init?.headers);
+					expect(headers.get("Authorization")).toBe("Bearer pre-resolved");
+					return new Response("hello", { status: 200 });
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		const file = await onedriveReadFile(conn, "secret", "notes.txt", {
+			fetch: fetchMock as unknown as typeof fetch,
+			accessToken: "pre-resolved",
+		});
+
+		expect(Buffer.from(file.bytes).toString("utf-8")).toBe("hello");
+		expect(fetchMock).not.toHaveBeenCalledWith(TOKEN_URL, expect.anything());
+	});
+
+	it("a stat-then-download sequence sharing one pre-resolved token hits the token endpoint exactly once (vs. twice before the fix)", async () => {
+		setConfiguredEnv();
+		const conn = await seedConnection();
+		const { onedriveGetAccessTokenForRead, onedriveStat, onedriveReadFile } =
+			await import("./onedrive");
+
+		let tokenCalls = 0;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url === TOKEN_URL) {
+				tokenCalls += 1;
+				return jsonResponse(200, {
+					access_token: "fresh-access",
+					expires_in: 3600,
+				});
+			}
+			if (url === `${GRAPH_BASE}/me/drive/root:/notes.txt`) {
+				return jsonResponse(200, {
+					name: "notes.txt",
+					size: 5,
+					file: { mimeType: "text/plain" },
+				});
+			}
+			if (url === `${GRAPH_BASE}/me/drive/root:/notes.txt:/content`) {
+				return new Response("hello", { status: 200 });
+			}
+			throw new Error(`Unexpected fetch to ${url}`);
+		});
+		const opts = { fetch: fetchMock as unknown as typeof fetch };
+
+		// Mirrors files.ts's fixed read-path orchestration: resolve ONE token,
+		// then thread it through both the stat and the download.
+		const accessToken = await onedriveGetAccessTokenForRead(conn, opts);
+		await onedriveStat(conn, "secret", "notes.txt", { ...opts, accessToken });
+		await onedriveReadFile(conn, "secret", "notes.txt", {
+			...opts,
+			accessToken,
+		});
+
+		expect(tokenCalls).toBe(1);
+	});
+});
+
 describe("normalizeOneDrivePath", () => {
 	it("collapses slashes and drops '.' segments", async () => {
 		const { normalizeOneDrivePath } = await import("./onedrive");

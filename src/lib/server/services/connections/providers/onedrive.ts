@@ -38,6 +38,14 @@ import {
 
 type FetchOpt = { fetch?: typeof fetch };
 
+// Extends FetchOpt with an optional already-resolved access token — used by
+// onedriveStat/onedriveReadFile so a caller that needs BOTH (files.ts's
+// `read` action, which stats the path before downloading it) can resolve one
+// token via onedriveGetAccessTokenForRead and pass it to both calls instead
+// of each independently minting its own (see onedriveGetAccessTokenForRead's
+// doc comment for why that matters).
+type ReadOpt = FetchOpt & { accessToken?: string };
+
 const MS_AUTH_URL =
 	"https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const MS_TOKEN_URL =
@@ -753,8 +761,17 @@ function assertNotAuthFailure(response: Response): void {
 
 // Obtains a fresh access token for a read call — always refreshes (see
 // onedriveRefreshAccessToken's doc comment on why this is unconditional,
-// not expiry-gated like checkHealth).
-async function getAccessTokenForRead(
+// not expiry-gated like checkHealth). Exported so callers that fan out into
+// MULTIPLE read calls for a single logical operation (files.ts's `read`
+// action, which stats the path before downloading it — see onedriveStat/
+// onedriveReadFile's `opts.accessToken` below) can resolve a token exactly
+// ONCE and thread it through, instead of letting each call mint its own.
+// That matters specifically for OneDrive: Microsoft ROTATES refresh tokens
+// on every use (see onedriveRefreshAccessToken's doc comment), so two
+// refreshes for what is conceptually one read double the vault writes and
+// open a race where two concurrent reads on the same connection can each
+// invalidate the other's just-stored refresh token.
+export async function onedriveGetAccessTokenForRead(
 	conn: ConnectionPublic,
 	opts?: FetchOpt,
 ): Promise<string> {
@@ -878,18 +895,20 @@ async function collectChildren(
 
 // Lists the immediate children of `path` (empty path = OneDrive root).
 // `_secret` is unused — OAuth reads always mint a fresh access token via
-// getAccessTokenForRead (conn.userId/conn.id), never the caller-decrypted
-// secret string — kept in the signature only so files.ts's provider
-// dispatch can call this with the exact same (conn, secret, path) shape as
-// nextcloudListFolder (mirrors google.ts checkHealth's `_secret` param for
-// the same reason).
+// onedriveGetAccessTokenForRead (conn.userId/conn.id), never the
+// caller-decrypted secret string — kept in the signature only so files.ts's
+// provider dispatch can call this with the exact same (conn, secret, path)
+// shape as nextcloudListFolder (mirrors google.ts checkHealth's `_secret`
+// param for the same reason). Unlike onedriveStat/onedriveReadFile, this
+// always resolves its own token — a `list` action only ever calls this once,
+// so there's no double-refresh to dedupe here.
 export async function onedriveListFolder(
 	conn: ConnectionPublic,
 	_secret: string,
 	path: string,
 	opts?: FetchOpt,
 ): Promise<OneDriveItem[]> {
-	const accessToken = await getAccessTokenForRead(conn, opts);
+	const accessToken = await onedriveGetAccessTokenForRead(conn, opts);
 	const normalizedPath = normalizeOneDrivePath(path);
 	const url = normalizedPath
 		? `${GRAPH_BASE}/me/drive/root:/${encodePathSegments(normalizedPath)}:/children`
@@ -914,14 +933,19 @@ export async function onedriveListFolder(
 }
 
 // Stats a single path. Returns null when the path doesn't exist. `_secret`
-// is unused (see onedriveListFolder's doc comment above).
+// is unused (see onedriveListFolder's doc comment above). Accepts an
+// optional pre-resolved `opts.accessToken` (see onedriveGetAccessTokenForRead's
+// doc comment) — when the caller already has one (files.ts's `read` action
+// resolves once and passes it to both this and onedriveReadFile below), it's
+// reused as-is instead of minting a second one.
 export async function onedriveStat(
 	conn: ConnectionPublic,
 	_secret: string,
 	path: string,
-	opts?: FetchOpt,
+	opts?: ReadOpt,
 ): Promise<OneDriveItem | null> {
-	const accessToken = await getAccessTokenForRead(conn, opts);
+	const accessToken =
+		opts?.accessToken ?? (await onedriveGetAccessTokenForRead(conn, opts));
 	const normalizedPath = normalizeOneDrivePath(path);
 	const item = await getItemMetadata(accessToken, normalizedPath, opts);
 	if (!item) return null;
@@ -932,14 +956,17 @@ export async function onedriveStat(
 // full-text/filename search — a single round trip, no client-side tree
 // walk). Each result's path is derived from its own parentReference since
 // matches can come from anywhere in the tree.
-// `_secret` is unused (see onedriveListFolder's doc comment above).
+// `_secret` is unused (see onedriveListFolder's doc comment above). Always
+// resolves its own token — a `search` action only ever calls this once, so
+// there's no double-refresh to dedupe here (see onedriveListFolder's doc
+// comment).
 export async function onedriveSearch(
 	conn: ConnectionPublic,
 	_secret: string,
 	query: string,
 	opts?: FetchOpt,
 ): Promise<OneDriveItem[]> {
-	const accessToken = await getAccessTokenForRead(conn, opts);
+	const accessToken = await onedriveGetAccessTokenForRead(conn, opts);
 	// OData string-literal escaping: a single quote inside the search text is
 	// escaped by doubling it (`'` -> `''`) per OData syntax, then the whole
 	// literal is percent-encoded as a URL path segment. encodeURIComponent
@@ -959,12 +986,15 @@ export async function onedriveSearch(
 // endpoint otherwise). Refuses anything over MAX_READ_BYTES, checked against
 // the metadata's reported size up front and again against the actual
 // decoded size as a fallback.
-// `_secret` is unused (see onedriveListFolder's doc comment above).
+// `_secret` is unused (see onedriveListFolder's doc comment above). Accepts
+// an optional pre-resolved `opts.accessToken` (see onedriveStat's doc
+// comment above and onedriveGetAccessTokenForRead's doc comment) instead of
+// always minting its own.
 export async function onedriveReadFile(
 	conn: ConnectionPublic,
 	_secret: string,
 	path: string,
-	opts?: FetchOpt,
+	opts?: ReadOpt,
 ): Promise<{
 	bytes: Uint8Array;
 	etag: string | null;
@@ -973,7 +1003,8 @@ export async function onedriveReadFile(
 	webUrl: string | null;
 }> {
 	const fetchImpl = opts?.fetch ?? fetch;
-	const accessToken = await getAccessTokenForRead(conn, opts);
+	const accessToken =
+		opts?.accessToken ?? (await onedriveGetAccessTokenForRead(conn, opts));
 	const normalizedPath = normalizeOneDrivePath(path);
 	if (!normalizedPath) {
 		throw new OneDriveError(

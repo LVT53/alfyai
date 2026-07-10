@@ -9,6 +9,7 @@ import {
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
 	OneDriveError,
+	onedriveGetAccessTokenForRead,
 	onedriveListFolder,
 	onedriveReadFile,
 	onedriveSearch,
@@ -233,13 +234,23 @@ function searchFilesForConn(
 	return nextcloudSearch(conn, secret, query);
 }
 
+// `accessToken` is an already-resolved OneDrive access token (ignored for
+// Nextcloud, which doesn't do this per-call refresh dance) — see the `read`
+// action in runFilesTool below, which resolves ONE token up front and passes
+// it to both statForConn (the isDirectory guard) and readFileForConn so a
+// single logical read never triggers two OAuth refreshes. Microsoft ROTATES
+// refresh tokens on every use, so two refreshes per read would otherwise
+// double vault writes and race two concurrent reads into invalidating each
+// other's stored refresh token (see onedrive.ts's
+// onedriveGetAccessTokenForRead doc comment).
 function readFileForConn(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
+	accessToken?: string,
 ): Promise<FileContent> {
 	if (conn.provider === "onedrive") {
-		return onedriveReadFile(conn, secret, path);
+		return onedriveReadFile(conn, secret, path, { accessToken });
 	}
 	return nextcloudReadFile(conn, secret, path);
 }
@@ -248,9 +259,10 @@ function statForConn(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
+	accessToken?: string,
 ): Promise<FileEntry | null> {
 	if (conn.provider === "onedrive") {
-		return onedriveStat(conn, secret, path);
+		return onedriveStat(conn, secret, path, { accessToken });
 	}
 	return nextcloudStat(conn, secret, path);
 }
@@ -346,6 +358,12 @@ function mapAdapterError(err: unknown): string {
 	if (err instanceof OneDriveError) {
 		switch (err.code) {
 			case "needs_reauth":
+			// A read-time refresh that fails with Microsoft's invalid_grant
+			// (the stored refresh token was rejected — expired/revoked) means
+			// the same thing to the user as needs_reauth: reconnect. See
+			// onedriveRefreshAccessToken's doc comment — it throws this code
+			// specifically for that case.
+			case "invalid_grant":
 				return "Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.";
 			case "not_found":
 				return "That file or folder couldn't be found in your OneDrive.";
@@ -453,9 +471,10 @@ async function isDirectory(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
+	accessToken?: string,
 ): Promise<boolean> {
 	try {
-		const existing = await statForConn(conn, secret, path);
+		const existing = await statForConn(conn, secret, path, accessToken);
 		return existing?.isDir ?? false;
 	} catch {
 		return false;
@@ -1222,16 +1241,26 @@ export async function runFilesTool(
 				message: "A file path is required to read a file.",
 			});
 		}
+		// A `read` fans out into a stat (the isDirectory guard just below) and
+		// then the actual download — for OneDrive that's two Graph calls, each
+		// of which would otherwise mint its own fresh access token. Resolve ONE
+		// token here and thread it through both so Microsoft's refresh-token
+		// rotation only fires once per read (see readFileForConn's doc comment).
+		// Left undefined for Nextcloud, which ignores it.
+		const accessToken =
+			conn.provider === "onedrive"
+				? await onedriveGetAccessTokenForRead(conn)
+				: undefined;
 		// A folder path can't be read as a file — a raw GET on a folder
 		// otherwise returns a misleading success. Redirect the model to `list`.
-		if (await isDirectory(conn, secret, input.path)) {
+		if (await isDirectory(conn, secret, input.path, accessToken)) {
 			return buildPayload({
 				success: false,
 				action: "read",
 				message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
 			});
 		}
-		const file = await readFileForConn(conn, secret, input.path);
+		const file = await readFileForConn(conn, secret, input.path, accessToken);
 		const outcome = readOutcome(conn, input.path, file, ambiguous, connections);
 		return applyLocalDistillGate({ userId, modelId, input, outcome });
 	} catch (err) {

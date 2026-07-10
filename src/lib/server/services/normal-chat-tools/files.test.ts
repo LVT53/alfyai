@@ -16,6 +16,7 @@ import {
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
 	OneDriveError,
+	onedriveGetAccessTokenForRead,
 	onedriveListFolder,
 	onedriveReadFile,
 	onedriveSearch,
@@ -66,6 +67,7 @@ vi.mock("$lib/server/services/connections/providers/onedrive", async () => {
 		onedriveListFolder: vi.fn(),
 		onedriveReadFile: vi.fn(),
 		onedriveStat: vi.fn(),
+		onedriveGetAccessTokenForRead: vi.fn(),
 	};
 });
 vi.mock("$lib/server/services/connections/locality", () => ({
@@ -88,6 +90,9 @@ const onedriveSearchMock = vi.mocked(onedriveSearch);
 const onedriveListFolderMock = vi.mocked(onedriveListFolder);
 const onedriveReadFileMock = vi.mocked(onedriveReadFile);
 const onedriveStatMock = vi.mocked(onedriveStat);
+const onedriveGetAccessTokenForReadMock = vi.mocked(
+	onedriveGetAccessTokenForRead,
+);
 const createPendingWriteMock = vi.mocked(createPendingWrite);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
@@ -585,12 +590,14 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 		onedriveListFolderMock.mockReset();
 		onedriveReadFileMock.mockReset();
 		onedriveStatMock.mockReset();
+		onedriveGetAccessTokenForReadMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
 		hasLocalDistillEnabledMock.mockResolvedValue(false);
 		isCloudModelMock.mockResolvedValue(false);
 		getConnectionSecretMock.mockResolvedValue("secret");
+		onedriveGetAccessTokenForReadMock.mockResolvedValue("resolved-token");
 	});
 
 	it("search on a onedrive connection calls onedriveSearch, never nextcloudSearch", async () => {
@@ -694,15 +701,25 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 			LOCAL_MODEL_ID,
 		);
 
+		// Task 8 Finding A — the token is resolved exactly ONCE for the whole
+		// read (not once per stat + once per download): both onedriveStat (the
+		// isDirectory guard) and onedriveReadFile receive the SAME
+		// already-resolved token, and onedriveGetAccessTokenForRead itself is
+		// only invoked once. See files-onedrive-read-token.test.ts for the
+		// equivalent assertion against the real (unmocked) onedrive.ts adapter,
+		// counting actual POSTs to Microsoft's token endpoint.
+		expect(onedriveGetAccessTokenForReadMock).toHaveBeenCalledTimes(1);
 		expect(onedriveStatMock).toHaveBeenCalledWith(
 			conn,
 			"secret",
 			"notes/todo.txt",
+			{ accessToken: "resolved-token" },
 		);
 		expect(onedriveReadFileMock).toHaveBeenCalledWith(
 			conn,
 			"secret",
 			"notes/todo.txt",
+			{ accessToken: "resolved-token" },
 		);
 		expect(nextcloudStatMock).not.toHaveBeenCalled();
 		expect(nextcloudReadFileMock).not.toHaveBeenCalled();
@@ -761,6 +778,36 @@ describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", (
 		expect(outcome.modelPayload.message).toContain("OneDrive");
 		expect(outcome.modelPayload.message).toContain("reconnected");
 		expect(outcome.modelPayload.message).not.toContain("super-secret");
+	});
+
+	// Task 8 Finding B — a read-time refresh failing with Microsoft's
+	// invalid_grant (the stored refresh token was rejected — expired/revoked)
+	// throws OneDriveError code "invalid_grant", not "needs_reauth" (see
+	// onedriveRefreshAccessToken's doc comment in onedrive.ts). Before the
+	// fix, mapAdapterError had no case for that code and fell through to the
+	// generic "couldn't reach your files right now" message — misleading,
+	// since retrying can never succeed; only reconnecting can. It must map to
+	// the exact same reconnect message as needs_reauth.
+	it("maps a onedrive invalid_grant (expired/revoked refresh token) error to the same reconnect message as needs_reauth, not the generic transient-failure message", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveSearchMock.mockRejectedValue(
+			new OneDriveError(
+				"Microsoft rejected the stored refresh token",
+				"invalid_grant",
+			),
+		);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toBe(
+			"Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.",
+		);
 	});
 });
 
@@ -822,6 +869,7 @@ describe("runFilesTool — locality Option A distillation gate covers OneDrive (
 		needsDisambiguationMock.mockReset();
 		getConnectionSecretMock.mockReset();
 		onedriveReadFileMock.mockReset();
+		onedriveGetAccessTokenForReadMock.mockReset();
 		hasLocalDistillEnabledMock.mockReset();
 		isCloudModelMock.mockReset();
 		distillConnectorPayloadMock.mockReset();
@@ -830,6 +878,7 @@ describe("runFilesTool — locality Option A distillation gate covers OneDrive (
 		const conn = makeOneDriveConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
 		getConnectionSecretMock.mockResolvedValue("secret");
+		onedriveGetAccessTokenForReadMock.mockResolvedValue("resolved-token");
 		onedriveReadFileMock.mockResolvedValue({
 			bytes: new TextEncoder().encode(RAW_CONTENT),
 			etag: "etag-1",
