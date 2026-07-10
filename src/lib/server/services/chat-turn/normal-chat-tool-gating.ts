@@ -16,13 +16,29 @@ export function selectNormalChatToolsForRequest(
 	params: {
 		message: string;
 		forceProduceFileTool?: boolean;
+		// Read-side memory master gate for this turn. Callers resolve
+		// isMemoryActiveForConversation (the single source of truth: master
+		// toggle AND non-incognito) and pass the result. Omitted/true keeps
+		// today's behaviour; false withholds the memory_context recall tool so
+		// an incognito or memory-disabled conversation is never offered memory
+		// recall. Defaults to active when unspecified (fail open).
+		memoryActive?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
-	if (shouldExposeFileProductionTools(params)) return tools;
-	const {
-		produce_file: _produceFile,
-		read_generated_file: _readGeneratedFile,
-		...chatTools
-	} = tools;
-	return chatTools;
+	const selected: Partial<NormalChatToolSet> = shouldExposeFileProductionTools(
+		params,
+	)
+		? { ...tools }
+		: (() => {
+				const {
+					produce_file: _produceFile,
+					read_generated_file: _readGeneratedFile,
+					...chatTools
+				} = tools;
+				return chatTools;
+			})();
+	if (params.memoryActive === false) {
+		delete selected.memory_context;
+	}
+	return selected;
 }

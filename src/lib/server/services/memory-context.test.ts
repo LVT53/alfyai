@@ -1225,6 +1225,52 @@ describe("memory context service", () => {
 		);
 	});
 
+	it("returns an inert empty result and skips retrieval when memory is inactive (incognito)", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "gate-incognito@example.com",
+				passwordHash: "hash",
+				memoryEnabled: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values({
+				id: "conv-current",
+				userId: "user-1",
+				title: "Incognito chat",
+				memoryIncognito: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What should I remember about the user?",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "empty",
+			source: "active_memory_profile",
+			content: null,
+			evidenceCandidates: [],
+		});
+		// The master gate short-circuits before any retrieval work runs.
+		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+	});
+
 	it("rejects selected history detail outside the current history query result set", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		const now = new Date("2026-05-16T09:00:00.000Z");

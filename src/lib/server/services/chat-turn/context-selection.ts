@@ -61,6 +61,7 @@ import {
 	recordMemoryPromptTelemetry,
 	summarizeActiveMemoryProfileTelemetry,
 } from "../memory-context/telemetry";
+import { isMemoryActiveForConversation } from "../memory-controls";
 import type { MemoryProfileScope } from "../memory-profile/active-context";
 import { listMessages } from "../messages";
 import {
@@ -186,6 +187,20 @@ async function buildActiveMemoryProfilePromptSection(params: {
 	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
 }): Promise<ActiveMemoryProfilePromptSection | null> {
+	// Read-side master gate. isMemoryActiveForConversation is the single source
+	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
+	// memory is inactive, inject NO baseline section — an incognito or
+	// memory-disabled conversation must never have persona memory injected into
+	// its prompt. Both the shallow and deep context tiers funnel through here,
+	// so this one check covers every baseline injection. Fail open (treat as
+	// active) on a controls-lookup error, matching the predicate's contract.
+	const memoryActive = await isMemoryActiveForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => true);
+	if (!memoryActive) {
+		return null;
+	}
 	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
 		contextBudget: params.modelContextBudget,
 	});
