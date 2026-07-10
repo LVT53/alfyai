@@ -18,7 +18,9 @@ import {
 } from "$lib/server/services/connections/providers/onedrive";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
@@ -32,7 +34,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
-import { truncateText } from "./shared";
+import { noMatchingConnectionMessage, truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
 	action: z.enum([
@@ -51,6 +53,13 @@ export const filesToolInputSchema = z.object({
 	// path segment changes). Ignored by every other action.
 	destinationPath: z.string().optional(),
 	content: z.string().optional(),
+	// Multi-connection disambiguation — target ONE specific Files connection
+	// when the user has more than one (e.g. both Nextcloud and OneDrive). A
+	// provider name ("nextcloud"), a connection label, or the account
+	// identifier all work — see selectConnection in resolve.ts. Omitted -> the
+	// usual default (see pickDefaultConnection): a read uses the first
+	// connection alphabetically; a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type FilesToolInput = z.infer<typeof filesToolInputSchema>;
@@ -64,6 +73,7 @@ export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 			? { destinationPath: input.destinationPath.trim() }
 			: {}),
 		...(input.content !== undefined ? { content: input.content } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -326,7 +336,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Files connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Files connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -1107,7 +1118,19 @@ export async function runFilesTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage("Files", input.account, connections),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: WRITE_ACTIONS.has(input.action),
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,

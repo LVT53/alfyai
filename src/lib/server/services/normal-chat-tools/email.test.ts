@@ -23,10 +23,16 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runEmailTool, sanitizeEmailToolInput } from "./email";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/pending-writes", () => ({
 	createPendingWrite: vi.fn(),
 }));
@@ -173,6 +179,45 @@ describe("runEmailTool", () => {
 		expect(outcome.modelPayload.message).toContain("2 Email connections");
 		expect(outcome.modelPayload.message).toContain("Alice Mail");
 		expect(outcome.modelPayload.message).toContain("Bob Mail");
+	});
+
+	it("account selector routes to the matching connection instead of the alphabetically-first one", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Mail" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Mail" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		imapListRecentMock.mockResolvedValue([]);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "recent", account: "Bob Mail" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(imapListRecentMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-b",
+			expect.objectContaining({}),
+		);
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Mail" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Mail" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runEmailTool(
+			"user-1",
+			{ action: "recent", account: "yahoo" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Alice Mail");
+		expect(outcome.modelPayload.message).toContain("Bob Mail");
+		expect(imapListRecentMock).not.toHaveBeenCalled();
 	});
 
 	it("recent: returns messages and citations with an empty (non-linking) url", async () => {
@@ -657,6 +702,33 @@ describe("runEmailTool — write actions (Issue 6.3)", () => {
 	beforeEach(resetAllMocks);
 
 	describe("send", () => {
+		it("with no account and [Alice writes-off, Bob writes-on], send picks Bob, not the alphabetically-first Alice", async () => {
+			const off = makeWritableConn({
+				id: "conn-off",
+				label: "Alice Mail",
+				allowWrites: false,
+			});
+			const on = makeWritableConn({ id: "conn-on", label: "Bob Mail" });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([off, on]);
+			needsDisambiguationMock.mockReturnValue(true);
+
+			const outcome = await runEmailTool(
+				"user-1",
+				{
+					action: "send",
+					to: "carol@example.com",
+					subject: "Hi",
+					body: "Hello",
+				},
+				LOCAL_MODEL_ID,
+				"conv-1",
+			);
+
+			expect(outcome.modelPayload.success).toBe(true);
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call).toMatchObject({ connectionId: "conn-on", provider: "imap" });
+		});
+
 		it("allowWrites=false: returns a note and creates NO pending row, no secret decrypted, no read", async () => {
 			const conn = makeWritableConn({ allowWrites: false, label: "Work Mail" });
 			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -1109,7 +1181,11 @@ describe("runEmailTool — folder scoping + attachments (B4/B5)", () => {
 			},
 			text: "See attached",
 			attachments: [
-				{ filename: "invoice.pdf", contentType: "application/pdf", size: 12345 },
+				{
+					filename: "invoice.pdf",
+					contentType: "application/pdf",
+					size: 12345,
+				},
 			],
 		});
 

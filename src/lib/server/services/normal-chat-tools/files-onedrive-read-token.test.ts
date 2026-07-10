@@ -34,10 +34,16 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),

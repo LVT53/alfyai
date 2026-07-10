@@ -15,9 +15,15 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runContactsTool, sanitizeContactsToolInput } from "./contacts";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/contacts", () => ({
 	resolveContacts: vi.fn(),
 	resolveContactsByGroup: vi.fn(),
@@ -176,6 +182,57 @@ describe("runContactsTool", () => {
 			"ask the user",
 		);
 		expect(outcome.modelPayload.contacts).toEqual(matches);
+	});
+
+	it("an account selector narrows resolveContacts's merged results to just the matching connection", async () => {
+		const google = makeConn({
+			id: "conn-google",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "alice@example.com",
+		});
+		const apple = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "alice@icloud.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([apple, google]);
+		const googleMatch = makeMatch({
+			name: "Zsombor Kovács",
+			source: "google",
+			account: "alice@example.com",
+		});
+		const appleMatch = makeMatch({
+			name: "Zsombor Apple",
+			source: "apple",
+			account: "alice@icloud.com",
+		});
+		resolveContactsMock.mockResolvedValue([appleMatch, googleMatch]);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "lookup", query: "Zsombor", account: "google" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.contacts).toEqual([googleMatch]);
+	});
+
+	it("an account selector matching nothing returns a graceful listing message and never calls resolveContacts", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
+
+		const outcome = await runContactsTool(
+			"user-1",
+			{ action: "lookup", query: "Zsombor", account: "microsoft" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Google");
+		expect(outcome.modelPayload.message).toContain('"microsoft"');
+		expect(resolveContactsMock).not.toHaveBeenCalled();
 	});
 
 	it("degrades gracefully (no throw) when resolveContacts itself rejects", async () => {

@@ -26,6 +26,88 @@ export function needsDisambiguation(connections: ConnectionPublic[]): boolean {
 	return connections.length > 1;
 }
 
+// ── Multi-connection selection (disambiguation) ─────────────────
+//
+// A user can have more than one connection serving the same capability (e.g.
+// an Apple AND a Google calendar) — every capability tool used to blindly
+// take `connections[0]` (alphabetically first, from the sort in
+// resolveConnectionsForCapability above), silently routing every action to
+// whichever connection sorted first. selectConnection/pickDefaultConnection
+// below let a tool honor an explicit `account` selector from the model, and
+// otherwise fall back to a deterministic default that — for writes —
+// prefers a connection the user has actually enabled writes on, rather than
+// whichever one happens to sort first.
+
+// A connection is matched against a free-text selector on its `provider`
+// (e.g. "google"), `label` (e.g. "Apple iCloud"), or `accountIdentifier`
+// (e.g. "work@gmail.com"), case-insensitively. An exact match on provider or
+// label wins outright; otherwise a substring/contains match on any of the
+// three fields qualifies. Returns "exact" | "partial" | null so callers can
+// implement an exact-first tie-break across a whole connection list (see
+// selectConnection below) without duplicating the matching logic.
+function matchConnectionSelector(
+	conn: Pick<ConnectionPublic, "provider" | "label" | "accountIdentifier">,
+	needle: string,
+): "exact" | "partial" | null {
+	const provider = conn.provider.toLowerCase();
+	const label = conn.label.toLowerCase();
+	const accountIdentifier = conn.accountIdentifier.toLowerCase();
+	if (provider === needle || label === needle) return "exact";
+	if (
+		provider.includes(needle) ||
+		label.includes(needle) ||
+		accountIdentifier.includes(needle)
+	) {
+		return "partial";
+	}
+	return null;
+}
+
+// Resolves an optional model-supplied `account` selector (a provider name, a
+// connection label, or an account identifier/email) to one of the caller's
+// own connections, already scoped to the requesting user by whatever
+// produced `connections` (resolveConnectionsForCapability). Returns null
+// when no selector is given (the caller should fall back to
+// pickDefaultConnection), or when the selector matches none of the
+// connections (the caller should surface a graceful "which one did you
+// mean" message rather than silently picking one).
+export function selectConnection(
+	connections: ConnectionPublic[],
+	selector?: string | null,
+): ConnectionPublic | null {
+	const needle = selector?.trim().toLowerCase();
+	if (!needle) return null;
+	const exact = connections.find(
+		(conn) => matchConnectionSelector(conn, needle) === "exact",
+	);
+	if (exact) return exact;
+	const partial = connections.find(
+		(conn) => matchConnectionSelector(conn, needle) === "partial",
+	);
+	return partial ?? null;
+}
+
+// The deterministic fallback a tool uses when no `account` selector was
+// given (or selectConnection returned null and the caller decided to fall
+// back rather than ask). For a write action, a connection with
+// allowWrites=true is preferred over `connections[0]` — this alone fixes the
+// surfaced bug (Apple + Google calendar, Apple sorts first but only Google
+// has writes enabled: a create_event used to silently go to Apple). Reads,
+// and writes when nothing is writable, keep the prior connections[0]
+// (alphabetical-by-label) behavior for determinism and backward
+// compatibility.
+export function pickDefaultConnection(
+	connections: ConnectionPublic[],
+	opts?: { forWrite?: boolean },
+): ConnectionPublic | null {
+	if (connections.length === 0) return null;
+	if (opts?.forWrite) {
+		const writable = connections.find((conn) => conn.allowWrites === true);
+		if (writable) return writable;
+	}
+	return connections[0] ?? null;
+}
+
 // The set of capabilities the user currently has at least one connection
 // serving (same "serves it" predicate as resolveConnectionsForCapability:
 // connected status + the capability enabled on that connection). Used to

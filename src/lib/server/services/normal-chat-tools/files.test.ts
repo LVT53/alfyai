@@ -31,10 +31,16 @@ import { getConnectionSecret } from "$lib/server/services/connections/store";
 
 import { runFilesTool, sanitizeFilesToolInput } from "./files";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnectionSecret: vi.fn(),
 }));
@@ -210,6 +216,43 @@ describe("runFilesTool", () => {
 		expect(outcome.modelPayload.message).toContain("2 Files connections");
 		expect(outcome.modelPayload.message).toContain("Alice Nextcloud");
 		expect(outcome.modelPayload.message).toContain("Bob Nextcloud");
+	});
+
+	it("account selector routes to the matching connection instead of the alphabetically-first one", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Nextcloud" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Nextcloud" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		nextcloudSearchMock.mockResolvedValue([]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report", account: "Bob Nextcloud" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(nextcloudSearchMock).toHaveBeenCalledWith(connB, "secret", "report");
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Nextcloud" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Nextcloud" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report", account: "onedrive" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Alice Nextcloud");
+		expect(outcome.modelPayload.message).toContain("Bob Nextcloud");
+		expect(outcome.modelPayload.message).toContain('"onedrive"');
+		expect(nextcloudSearchMock).not.toHaveBeenCalled();
 	});
 
 	it("search returns compact results and citations", async () => {
@@ -1066,6 +1109,36 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 				withinAllowlist: true,
 				warnings: [],
 			},
+		});
+	});
+
+	it("with no account and two Nextcloud connections [writes-off, writes-on], save picks the writes-on one, not the alphabetically-first", async () => {
+		const off = makeConn({
+			id: "conn-off",
+			label: "Alice Nextcloud",
+			allowWrites: false,
+		});
+		const on = makeConn({
+			id: "conn-on",
+			label: "Bob Nextcloud",
+			allowWrites: true,
+			writeAllowlist: ["/AlfyAI"],
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([off, on]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call).toMatchObject({
+			connectionId: "conn-on",
+			provider: "nextcloud",
 		});
 	});
 

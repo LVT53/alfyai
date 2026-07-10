@@ -10,12 +10,15 @@ import {
 } from "$lib/server/services/connections/providers/owntracks";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction, and NO device/user override: this schema's
 // `action` enum only ever lists read actions (last, history, places,
@@ -37,6 +40,15 @@ export const locationToolInputSchema = z.object({
 	limit: z.number().optional(),
 	lat: z.number().optional(),
 	lon: z.number().optional(),
+	// Multi-connection disambiguation — target ONE of the CALLER'S OWN
+	// OwnTracks connections when they have more than one device connected (a
+	// provider name, connection label, or account identifier — see
+	// selectConnection in resolve.ts). This does NOT weaken the "own data
+	// only" guarantee described above: selectConnection only ever picks from
+	// `connections`, which is already scoped to this userId by
+	// resolveConnectionsForCapability — there is still no way to name another
+	// user's device.
+	account: z.string().optional(),
 });
 
 export type LocationToolInput = z.infer<typeof locationToolInputSchema>;
@@ -51,6 +63,7 @@ export function sanitizeLocationToolInput(
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
 		...(input.lat !== undefined ? { lat: input.lat } : {}),
 		...(input.lon !== undefined ? { lon: input.lon } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -181,7 +194,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Location connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Location connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -495,7 +509,19 @@ export async function runLocationTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage(
+				"Location",
+				input.account,
+				connections,
+			),
+		});
+	}
+	const conn = selected ?? pickDefaultConnection(connections);
 	if (!conn) {
 		return buildPayload({
 			success: false,

@@ -13,7 +13,9 @@ import {
 } from "$lib/server/services/connections/providers/imap";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
@@ -25,6 +27,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 export const emailToolInputSchema = z.object({
 	action: z.enum([
@@ -64,6 +67,13 @@ export const emailToolInputSchema = z.object({
 	inReplyTo: z.string().optional(),
 	flag: z.enum(["seen", "flagged"]).optional(),
 	value: z.boolean().optional(),
+	// Multi-connection disambiguation — target ONE specific Email (IMAP)
+	// connection when the user has more than one mailbox connected. A
+	// provider name, a connection label, or the account identifier (email
+	// address) all work — see selectConnection in resolve.ts. Omitted -> the
+	// usual default (see pickDefaultConnection): a read uses the first
+	// connection alphabetically; a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type EmailToolInput = z.infer<typeof emailToolInputSchema>;
@@ -85,6 +95,7 @@ export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 		...(input.inReplyTo ? { inReplyTo: input.inReplyTo.trim() } : {}),
 		...(input.flag ? { flag: input.flag } : {}),
 		...(input.value !== undefined ? { value: input.value } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -233,7 +244,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Email connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Email connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -867,7 +879,19 @@ export async function runEmailTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage("Email", input.account, connections),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: isEmailWriteAction(input.action),
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,

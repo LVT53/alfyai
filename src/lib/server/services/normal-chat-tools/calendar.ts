@@ -25,7 +25,9 @@ import {
 } from "$lib/server/services/connections/providers/google-calendar";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
@@ -37,6 +39,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 export const calendarToolInputSchema = z.object({
 	action: z.enum([
@@ -64,6 +67,14 @@ export const calendarToolInputSchema = z.object({
 	eventId: z.string().optional(),
 	calendarId: z.string().optional(),
 	recurringScope: z.enum(["this_event", "series"]).optional(),
+	// Multi-connection disambiguation — target ONE specific Calendar
+	// connection when the user has more than one (e.g. both Apple and
+	// Google). A provider name ("google"), a connection label ("Apple
+	// iCloud"), or the account identifier (email) all work — see
+	// selectConnection in resolve.ts. Omitted -> the usual default (see
+	// pickDefaultConnection): a read uses the first connection alphabetically;
+	// a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type CalendarToolInput = z.infer<typeof calendarToolInputSchema>;
@@ -82,6 +93,7 @@ export function sanitizeCalendarToolInput(
 		...(input.eventId ? { eventId: input.eventId.trim() } : {}),
 		...(input.calendarId ? { calendarId: input.calendarId.trim() } : {}),
 		...(input.recurringScope ? { recurringScope: input.recurringScope } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -266,7 +278,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Calendar connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Calendar connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -1406,7 +1419,23 @@ export async function runCalendarTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage(
+				"Calendar",
+				input.account,
+				connections,
+			),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: isCalendarWriteAction(input.action),
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,
@@ -1462,11 +1491,27 @@ export async function runCalendarTool(
 		// check_availability has no CalDAV free/busy equivalent wired up yet
 		// (5.3 scope) — it stays google-only. If the resolved connection isn't
 		// google, look for any google connection among the user's Calendar
-		// connections before giving up.
+		// connections before giving up. `account`, if given, still narrows which
+		// GOOGLE connection is used (re-run through selectConnection against
+		// just the google ones) — it can't make a non-google connection valid
+		// for this action, but it can pick among several google ones.
 		const googleConnections = connections.filter(
 			(c) => c.provider === "google",
 		);
-		const googleConn = googleConnections[0];
+		const googleSelected = selectConnection(googleConnections, input.account);
+		if (input.account && !googleSelected && googleConnections.length > 0) {
+			return buildPayload({
+				success: false,
+				action: "check_availability",
+				message: noMatchingConnectionMessage(
+					"Google Calendar",
+					input.account,
+					googleConnections,
+				),
+			});
+		}
+		const googleConn =
+			googleSelected ?? pickDefaultConnection(googleConnections);
 		if (!googleConn) {
 			return buildPayload({
 				success: false,

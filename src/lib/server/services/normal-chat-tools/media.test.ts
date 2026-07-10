@@ -24,10 +24,16 @@ import {
 	sanitizeMediaToolInput,
 } from "./media";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/plex", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/plex")
@@ -198,6 +204,45 @@ describe("runMediaTool", () => {
 		expect(outcome.modelPayload.message).toContain("2 Media connections");
 		expect(outcome.modelPayload.message).toContain("Alice Plex");
 		expect(outcome.modelPayload.message).toContain("Bob Plex");
+	});
+
+	it("account selector routes to the matching Plex connection instead of the alphabetically-first one", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Plex" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Plex" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		plexWatchHistoryMock.mockResolvedValue([]);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "watch_history", account: "Bob Plex" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(plexWatchHistoryMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-b",
+			expect.any(Object),
+		);
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Plex" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Plex" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runMediaTool(
+			"user-1",
+			{ action: "watch_history", account: "jellyfin" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Alice Plex");
+		expect(outcome.modelPayload.message).toContain("Bob Plex");
+		expect(plexWatchHistoryMock).not.toHaveBeenCalled();
 	});
 
 	it("watch_history: returns results, citations, and Sources-tab candidates", async () => {
@@ -466,9 +511,7 @@ describe("runMediaTool", () => {
 		);
 
 		expect(outcome.modelPayload.success).toBe(true);
-		expect(outcome.modelPayload.message).toContain(
-			"No matching titles found",
-		);
+		expect(outcome.modelPayload.message).toContain("No matching titles found");
 	});
 
 	it("library_search: never calls plexWatchHistory (distinct from history search)", async () => {

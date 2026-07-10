@@ -22,10 +22,16 @@ import {
 	sanitizeLocationToolInput,
 } from "./location";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/owntracks", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/owntracks")
@@ -108,13 +114,31 @@ describe("locationToolInputSchema", () => {
 		expect(values).toHaveLength(4);
 	});
 
-	it("has NO otUser/otDevice/connection override field — isolation is enforced entirely server-side", () => {
+	// `account` (multi-connection disambiguation, added alongside every other
+	// capability tool) is deliberately NOT forbidden by this test: it can
+	// only ever select among the CALLER'S OWN already-scoped connections (see
+	// selectConnection in resolve.ts, called with `connections` — a list
+	// resolveConnectionsForCapability already filtered to this userId) — it
+	// is not a raw provider-side otUser/otDevice/connectionId override that
+	// could reach another user's device. What remains forbidden is exactly
+	// that: a field letting the model name an arbitrary device/user outside
+	// the caller's own connections.
+	it("has NO otUser/otDevice/raw-connectionId override field — isolation is enforced entirely server-side", () => {
 		const shape = locationToolInputSchema.shape;
 		const keys = Object.keys(shape);
 		expect(keys).toEqual(
-			expect.arrayContaining(["action", "from", "to", "limit", "lat", "lon"]),
+			expect.arrayContaining([
+				"action",
+				"from",
+				"to",
+				"limit",
+				"lat",
+				"lon",
+				"account",
+			]),
 		);
 		for (const key of keys) {
+			if (key === "account") continue;
 			expect(key.toLowerCase()).not.toMatch(
 				/otuser|otdevice|device|user|connection|account/i,
 			);
@@ -194,6 +218,41 @@ describe("runLocationTool", () => {
 		expect(outcome.modelPayload.message).toContain("2 Location connections");
 		expect(outcome.modelPayload.message).toContain("Alice OwnTracks");
 		expect(outcome.modelPayload.message).toContain("Bob OwnTracks");
+	});
+
+	it("account selector routes to the matching OwnTracks connection, still scoped to this user's own connections", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice OwnTracks" });
+		const connB = makeConn({ id: "conn-b", label: "Bob OwnTracks" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		owntracksLastLocationMock.mockResolvedValue(null);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "last", account: "Bob OwnTracks" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(owntracksLastLocationMock).toHaveBeenCalledWith("user-1", "conn-b");
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice OwnTracks" });
+		const connB = makeConn({ id: "conn-b", label: "Bob OwnTracks" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runLocationTool(
+			"user-1",
+			{ action: "last", account: "traccar" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Alice OwnTracks");
+		expect(outcome.modelPayload.message).toContain("Bob OwnTracks");
+		expect(owntracksLastLocationMock).not.toHaveBeenCalled();
 	});
 
 	it("passes ONLY (userId, connectionId) to owntracksLastLocation/History — never an otUser/otDevice argument", async () => {

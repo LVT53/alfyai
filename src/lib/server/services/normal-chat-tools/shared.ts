@@ -42,6 +42,26 @@ export function shortHash(value: unknown): string {
 		.slice(0, 12);
 }
 
+// ── Multi-connection selection (disambiguation) ───────────────
+//
+// Shared by every capability tool (calendar/files/photos/contacts/tasks/
+// email/media/location) so an `account` selector that matches none of the
+// user's connections for that capability degrades gracefully — never a hard
+// error, and never a silent wrong-connection pick — by listing the accounts
+// the user actually has and asking which one they meant. Mirrors the
+// "degrade gracefully" posture every tool already uses for a missing/broken
+// connection.
+export function noMatchingConnectionMessage(
+	capabilityLabel: string,
+	selector: string,
+	connections: { label: string; provider: string }[],
+): string {
+	const listed = connections
+		.map((conn) => `${conn.label} (${conn.provider})`)
+		.join(", ");
+	return `You have these ${capabilityLabel} accounts: ${listed}. I couldn't match "${selector}" — which one did you mean?`;
+}
+
 // ── Metadata ───────────────────────────────────────────────────
 
 export function sanitizeMetadata(

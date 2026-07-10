@@ -13,12 +13,15 @@ import {
 } from "$lib/server/services/connections/providers/plex";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction: this schema's `action` enum only ever lists
 // read actions (watch_history, libraries, continue_watching, library_search).
@@ -35,6 +38,13 @@ export const mediaToolInputSchema = z.object({
 	query: z.string().optional(),
 	since: z.string().optional(),
 	limit: z.number().optional(),
+	// Multi-connection disambiguation — target ONE specific Media (Plex)
+	// connection when the user has more than one server. A provider name
+	// ("plex"), a connection label, or the account identifier all work — see
+	// selectConnection in resolve.ts. Omitted -> the first connection
+	// alphabetically (see pickDefaultConnection); this tool is read-only, so
+	// there is no write-preference branch.
+	account: z.string().optional(),
 });
 
 export type MediaToolInput = z.infer<typeof mediaToolInputSchema>;
@@ -45,6 +55,7 @@ export function sanitizeMediaToolInput(input: MediaToolInput): MediaToolInput {
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.since ? { since: input.since.trim() } : {}),
 		...(input.limit !== undefined ? { limit: input.limit } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -197,7 +208,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Media connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Media connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -304,8 +316,7 @@ function librarySearchOutcome(
 	connections: ConnectionPublic[],
 ): MediaToolOutcome {
 	const { items, totalCount } = result;
-	const shown =
-		items.length < totalCount ? ` (showing ${items.length})` : "";
+	const shown = items.length < totalCount ? ` (showing ${items.length})` : "";
 	const message =
 		totalCount === 0
 			? "No matching titles found in your library."
@@ -471,7 +482,15 @@ export async function runMediaTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage("Media", input.account, connections),
+		});
+	}
+	const conn = selected ?? pickDefaultConnection(connections);
 	if (!conn) {
 		return buildPayload({
 			success: false,
