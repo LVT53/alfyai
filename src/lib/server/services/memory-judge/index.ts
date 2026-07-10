@@ -46,6 +46,13 @@ export type JudgeRunResult =
 			review: number;
 			updated: number;
 			dryRun: boolean;
+			/**
+			 * True when the conversation still had unjudged messages beyond the
+			 * segment we just processed (a backlog > maxMessages). Callers that
+			 * complete the conversation's dirty-ledger rows after a run must
+			 * re-mark it dirty so a later sweep/idle pass drains the remainder.
+			 */
+			backlogRemaining: boolean;
 	  }
 	| { status: "empty" }
 	| { status: "failed"; reason: string };
@@ -79,6 +86,7 @@ export async function runMemoryJudgeOnSegment(params: {
 	const config = getConfig();
 	let segmentMessages: JudgeSegmentMessage[];
 	let highestSequence = 0;
+	let backlogRemaining = false;
 	if (params.segmentOverride) {
 		segmentMessages = params.segmentOverride;
 	} else {
@@ -86,6 +94,7 @@ export async function runMemoryJudgeOnSegment(params: {
 		if (segment.count === 0) return { status: "empty" };
 		segmentMessages = segment.messages;
 		highestSequence = segment.highestSequence;
+		backlogRemaining = segment.remaining > 0;
 	}
 
 	const [summary, projectId, activeContext] = await Promise.all([
@@ -175,7 +184,14 @@ export async function runMemoryJudgeOnSegment(params: {
 				lastJudgedSequence: highestSequence,
 			});
 		}
-		return { status: "ran", admitted: 0, review: 0, updated: 0, dryRun: true };
+		return {
+			status: "ran",
+			admitted: 0,
+			review: 0,
+			updated: 0,
+			dryRun: true,
+			backlogRemaining,
+		};
 	}
 
 	// Live-run diagnostics: record each post-filter reject so the intake funnel
@@ -308,7 +324,14 @@ export async function runMemoryJudgeOnSegment(params: {
 		metadata: { trigger: params.trigger, admitted, review, updated },
 	}).catch(() => {});
 
-	return { status: "ran", admitted, review, updated, dryRun: false };
+	return {
+		status: "ran",
+		admitted,
+		review,
+		updated,
+		dryRun: false,
+		backlogRemaining,
+	};
 }
 
 async function isUserAuthoredItem(

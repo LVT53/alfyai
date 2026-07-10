@@ -140,7 +140,7 @@ describe("memory-judge segment loader + watermark store", () => {
 		).toBe(0);
 	});
 
-	it("caps segment at maxMessages keeping the newest and reports true highestSequence", async () => {
+	it("caps segment at maxMessages keeping the OLDEST, and advances the watermark only over the kept batch (D1)", async () => {
 		seedUserAndConversation({ userId: "u1", conversationId: "c1" });
 		seedMessages({
 			conversationId: "c1",
@@ -160,10 +160,32 @@ describe("memory-judge segment loader + watermark store", () => {
 			conversationId: "c1",
 			maxMessages: 3,
 		});
-		expect(s.messages).toHaveLength(3);
-		expect(s.messages[2].content).toBe("m6");
-		expect(s.highestSequence).toBe(6);
-		expect(s.count).toBe(6);
+		// Oldest-first: the batch is m1..m3, and highestSequence stays inside it
+		// (3), so advancing the watermark can never mark the un-sent m4..m6 judged.
+		expect(s.messages.map((m) => m.content)).toEqual(["m1", "m2", "m3"]);
+		expect(s.highestSequence).toBe(3);
+		expect(s.count).toBe(3);
+		expect(s.remaining).toBe(3);
+
+		// After advancing over the kept batch, the surplus is still fully unjudged.
+		await seg.advanceConversationMemoryWatermark({
+			userId: "u1",
+			conversationId: "c1",
+			lastJudgedSequence: s.highestSequence,
+		});
+		expect(
+			await seg.countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
+		).toBe(3);
+
+		// A second pass drains the remainder with no gap.
+		const s2 = await seg.getUnjudgedConversationSegment({
+			userId: "u1",
+			conversationId: "c1",
+			maxMessages: 3,
+		});
+		expect(s2.messages.map((m) => m.content)).toEqual(["m4", "m5", "m6"]);
+		expect(s2.highestSequence).toBe(6);
+		expect(s2.remaining).toBe(0);
 	});
 
 	it("counts unjudged messages without loading them", async () => {

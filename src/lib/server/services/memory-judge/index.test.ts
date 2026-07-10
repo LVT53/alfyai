@@ -772,4 +772,102 @@ describe("Memory judge service", () => {
 			totalTokens: 160,
 		});
 	});
+
+	it("never marks a message judged unless it was sent to the model; drains an 87-message backlog across passes without gaps (D1)", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		// 87 unjudged messages, sequences 1..87, each with a unique marker so we
+		// can see exactly which sequences reached the model.
+		const TOTAL = 87;
+		const entries = Array.from({ length: TOTAL }, (_, i) => ({
+			role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+			content: `marker-seq-${i + 1}`,
+		}));
+		seedMessages({ db, conversationId: "c1", entries });
+		mockControlModel({ decisions: [] });
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const { countUnjudgedMessages } = await import("./segment");
+
+		const readWatermark = () =>
+			db
+				.select()
+				.from(schema.conversationMemoryWatermarks)
+				.where(eq(schema.conversationMemoryWatermarks.conversationId, "c1"))
+				.all()[0]?.lastJudgedSequence ?? 0;
+
+		// Collect the highest marker sequence present in each segment actually
+		// sent to the model.
+		const highestSentPerCall: number[] = [];
+		const sentSequences = new Set<number>();
+		const recordSent = () => {
+			const call =
+				sendJsonControlMessageMock.mock.calls[
+					sendJsonControlMessageMock.mock.calls.length - 1
+				];
+			const userMessage = String(call?.[0] ?? "");
+			let highest = 0;
+			for (let seq = 1; seq <= TOTAL; seq++) {
+				if (
+					userMessage.includes(`marker-seq-${seq}\n`) ||
+					userMessage.endsWith(`marker-seq-${seq}`)
+				) {
+					sentSequences.add(seq);
+					if (seq > highest) highest = seq;
+				}
+			}
+			highestSentPerCall.push(highest);
+		};
+
+		// Drain the backlog across as many passes as needed, re-marking is handled
+		// by the caller in prod; here we simply re-run the chokepoint until empty.
+		let priorWatermark = 0;
+		let passes = 0;
+		let lastBacklogRemaining = true;
+		while (
+			(await countUnjudgedMessages({
+				userId: "u1",
+				conversationId: "c1",
+			})) > 0
+		) {
+			passes++;
+			if (passes > 10) throw new Error("drain did not converge");
+			const result = await runMemoryJudgeOnSegment({
+				userId: "u1",
+				conversationId: "c1",
+				trigger: "sweep",
+			});
+			recordSent();
+			expect(result.status).toBe("ran");
+
+			const watermark = readWatermark();
+			// INVARIANT: the watermark never advances past the highest sequence
+			// that was actually sent to the model in this pass.
+			expect(watermark).toBeLessThanOrEqual(
+				highestSentPerCall[highestSentPerCall.length - 1],
+			);
+			// Watermark advances strictly (monotonic, no stall) each pass.
+			expect(watermark).toBeGreaterThan(priorWatermark);
+			priorWatermark = watermark;
+			if (result.status === "ran") {
+				lastBacklogRemaining = result.backlogRemaining;
+			}
+		}
+
+		// The default batch size is 50, so an 87-message backlog needs 2 passes.
+		expect(passes).toBe(2);
+		// First pass reported a remaining backlog; the final pass did not.
+		expect(lastBacklogRemaining).toBe(false);
+		// Every one of the 87 messages reached the model in some segment — no
+		// silent intake loss.
+		expect(sentSequences.size).toBe(TOTAL);
+		for (let seq = 1; seq <= TOTAL; seq++) {
+			expect(sentSequences.has(seq)).toBe(true);
+		}
+		// Backlog fully drained; watermark landed exactly on the last message.
+		expect(
+			await countUnjudgedMessages({ userId: "u1", conversationId: "c1" }),
+		).toBe(0);
+		expect(readWatermark()).toBe(TOTAL);
+	});
 });

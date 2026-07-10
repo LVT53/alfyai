@@ -4,8 +4,22 @@ import { conversationMemoryWatermarks, messages } from "$lib/server/db/schema";
 
 export type UnjudgedSegment = {
 	messages: Array<{ role: "user" | "assistant"; content: string }>;
+	/**
+	 * The highest message sequence contained in THIS segment (the batch actually
+	 * returned in `messages`). The caller advances the watermark to this value,
+	 * so it must never exceed a sequence that was included in the batch —
+	 * otherwise unseen messages would be marked judged. See `getUnjudged
+	 * ConversationSegment` for the oldest-first invariant.
+	 */
 	highestSequence: number;
+	/** Number of messages in this segment (i.e. `messages.length`). */
 	count: number;
+	/**
+	 * Count of still-unjudged messages that did NOT fit in this segment (the
+	 * backlog beyond `maxMessages`). When > 0 the caller must re-drain the
+	 * conversation in a later pass. Zero when the whole backlog fit.
+	 */
+	remaining: number;
 };
 
 const JUDGED_ROLES = ["user", "assistant"] as const;
@@ -58,10 +72,15 @@ export async function getUnjudgedConversationSegment(params: {
 		)
 		.orderBy(asc(messages.messageSequence));
 
-	const highestSequence = rows.length
-		? (rows[rows.length - 1].seq ?? watermark)
+	// Judge OLDEST-first: take the oldest `maxMessages` rows and advance the
+	// watermark only to the highest sequence in THAT batch. Any surplus stays
+	// unjudged for a later pass. (Previously this kept the NEWEST `maxMessages`
+	// but advanced the watermark to the top of the FULL set — silently marking
+	// the un-sent older messages judged. That was the D1 intake-loss defect.)
+	const kept = rows.slice(0, maxMessages);
+	const highestSequence = kept.length
+		? (kept[kept.length - 1].seq ?? watermark)
 		: 0;
-	const kept = rows.slice(-maxMessages);
 
 	return {
 		messages: kept.map((r) => ({
@@ -69,7 +88,8 @@ export async function getUnjudgedConversationSegment(params: {
 			content: r.content,
 		})),
 		highestSequence,
-		count: rows.length,
+		count: kept.length,
+		remaining: rows.length - kept.length,
 	};
 }
 
