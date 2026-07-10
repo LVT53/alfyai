@@ -15,6 +15,13 @@ import {
 	nextcloudStat,
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
+	OneDriveError,
+	onedriveListFolder,
+	onedriveReadFile,
+	onedriveSearch,
+	onedriveStat,
+} from "$lib/server/services/connections/providers/onedrive";
+import {
 	needsDisambiguation,
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
@@ -49,6 +56,18 @@ vi.mock(
 		};
 	},
 );
+vi.mock("$lib/server/services/connections/providers/onedrive", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/providers/onedrive")
+	>("$lib/server/services/connections/providers/onedrive");
+	return {
+		...actual,
+		onedriveSearch: vi.fn(),
+		onedriveListFolder: vi.fn(),
+		onedriveReadFile: vi.fn(),
+		onedriveStat: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	isCloudModel: vi.fn(),
@@ -65,6 +84,10 @@ const nextcloudListFolderMock = vi.mocked(nextcloudListFolder);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
 const nextcloudStatMock = vi.mocked(nextcloudStat);
 const executeNextcloudWriteMock = vi.mocked(executeNextcloudWrite);
+const onedriveSearchMock = vi.mocked(onedriveSearch);
+const onedriveListFolderMock = vi.mocked(onedriveListFolder);
+const onedriveReadFileMock = vi.mocked(onedriveReadFile);
+const onedriveStatMock = vi.mocked(onedriveStat);
 const createPendingWriteMock = vi.mocked(createPendingWrite);
 const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
@@ -94,6 +117,20 @@ function makeConn(overrides: Partial<ConnectionPublic> = {}): ConnectionPublic {
 		updatedAt: Date.now(),
 		...overrides,
 	};
+}
+
+function makeOneDriveConn(
+	overrides: Partial<ConnectionPublic> = {},
+): ConnectionPublic {
+	return makeConn({
+		id: "conn-od-1",
+		provider: "onedrive",
+		label: "OneDrive",
+		accountIdentifier: "alice@example.com",
+		config: {},
+		oauthScopes: ["Files.Read"],
+		...overrides,
+	});
 }
 
 describe("sanitizeFilesToolInput", () => {
@@ -527,6 +564,336 @@ describe("runFilesTool", () => {
 		);
 		expect(readOutcome.modelPayload.success).toBe(false);
 		expect(readOutcome.modelPayload.message).toContain("path is required");
+	});
+});
+
+// Task 8 — provider dispatch: onedrive -> onedrive* functions, nextcloud ->
+// nextcloud* functions. Every test below asserts BOTH that the right
+// provider's function was called AND that the other provider's function was
+// never touched, so a dispatch bug (calling the wrong provider, or calling
+// both) fails loudly.
+describe("runFilesTool — provider dispatch (Task 8, onedrive vs nextcloud)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		nextcloudSearchMock.mockReset();
+		nextcloudListFolderMock.mockReset();
+		nextcloudReadFileMock.mockReset();
+		nextcloudStatMock.mockReset();
+		onedriveSearchMock.mockReset();
+		onedriveListFolderMock.mockReset();
+		onedriveReadFileMock.mockReset();
+		onedriveStatMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(false);
+		getConnectionSecretMock.mockResolvedValue("secret");
+	});
+
+	it("search on a onedrive connection calls onedriveSearch, never nextcloudSearch", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveSearchMock.mockResolvedValue([
+			{
+				name: "budget.xlsx",
+				path: "Documents/budget.xlsx",
+				isDir: false,
+				size: 1024,
+				mtime: "2024-01-03T00:00:00Z",
+				contentType: "application/vnd.openxmlformats",
+				etag: "etag-1",
+				webUrl: "https://onedrive.live.com/budget.xlsx",
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "budget" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(onedriveSearchMock).toHaveBeenCalledWith(conn, "secret", "budget");
+		expect(nextcloudSearchMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.results[0]?.mtime).toBe("2024-01-03T00:00:00Z");
+		// OneDrive's own webUrl is used directly for the citation.
+		expect(outcome.modelPayload.citations[0]?.url).toBe(
+			"https://onedrive.live.com/budget.xlsx",
+		);
+	});
+
+	it("search on a nextcloud connection calls nextcloudSearch, never onedriveSearch", async () => {
+		const conn = makeConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		nextcloudSearchMock.mockResolvedValue([]);
+
+		await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(nextcloudSearchMock).toHaveBeenCalledWith(conn, "secret", "report");
+		expect(onedriveSearchMock).not.toHaveBeenCalled();
+	});
+
+	it("list on a onedrive connection calls onedriveListFolder, never nextcloudListFolder", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveListFolderMock.mockResolvedValue([
+			{
+				name: "a.pdf",
+				path: "a.pdf",
+				isDir: false,
+				size: 10,
+				mtime: "2024-01-01T00:00:00Z",
+				contentType: "application/pdf",
+				etag: "e1",
+				webUrl: null,
+			},
+		]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "list", path: "" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(onedriveListFolderMock).toHaveBeenCalledWith(conn, "secret", "");
+		expect(nextcloudListFolderMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.results).toHaveLength(1);
+	});
+
+	it("read on a onedrive connection stats + reads via onedrive functions, never nextcloud", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveStatMock.mockResolvedValue({
+			name: "todo.txt",
+			path: "notes/todo.txt",
+			isDir: false,
+			size: 5,
+			mtime: null,
+			contentType: "text/plain",
+			etag: null,
+			webUrl: null,
+		});
+		onedriveReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode("hello onedrive"),
+			etag: "etag-1",
+			contentType: "text/plain",
+			mtime: "2024-01-02T00:00:00Z",
+			webUrl: "https://onedrive.live.com/notes/todo.txt",
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "notes/todo.txt" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(onedriveStatMock).toHaveBeenCalledWith(
+			conn,
+			"secret",
+			"notes/todo.txt",
+		);
+		expect(onedriveReadFileMock).toHaveBeenCalledWith(
+			conn,
+			"secret",
+			"notes/todo.txt",
+		);
+		expect(nextcloudStatMock).not.toHaveBeenCalled();
+		expect(nextcloudReadFileMock).not.toHaveBeenCalled();
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.results[0]).toMatchObject({
+			content: "hello onedrive",
+			mtime: "2024-01-02T00:00:00Z",
+		});
+		expect(outcome.modelPayload.citations[0]?.url).toBe(
+			"https://onedrive.live.com/notes/todo.txt",
+		);
+	});
+
+	it("read on a onedrive folder path is refused via onedriveStat, without calling onedriveReadFile", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveStatMock.mockResolvedValue({
+			name: "Documents",
+			path: "Documents",
+			isDir: true,
+			size: 0,
+			mtime: null,
+			contentType: null,
+			etag: null,
+			webUrl: null,
+		});
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "read", path: "Documents" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("is a folder, not a file");
+		expect(onedriveReadFileMock).not.toHaveBeenCalled();
+	});
+
+	it("maps a onedrive needs_reauth error to a graceful note mentioning OneDrive, without leaking the secret", async () => {
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		onedriveSearchMock.mockRejectedValue(
+			new OneDriveError(
+				"Microsoft rejected the stored access token",
+				"needs_reauth",
+			),
+		);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action: "search", query: "report" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("OneDrive");
+		expect(outcome.modelPayload.message).toContain("reconnected");
+		expect(outcome.modelPayload.message).not.toContain("super-secret");
+	});
+});
+
+// Files-B9 write actions (save/move/delete/create_folder/share_link) stay
+// Nextcloud-only for v1 — OneDrive is read-only (providers/onedrive.ts's
+// module doc). A write against a onedrive connection must be refused
+// cleanly, before any Nextcloud-shaped write assumption ever runs.
+describe("runFilesTool — write actions against a onedrive connection are refused (Task 8)", () => {
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		createPendingWriteMock.mockReset();
+		executeNextcloudWriteMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+	});
+
+	it.each([
+		{ action: "save" as const, extra: { path: "/x.txt", content: "hi" } },
+		{
+			action: "move" as const,
+			extra: { path: "/a.txt", destinationPath: "/b.txt" },
+		},
+		{ action: "delete" as const, extra: { path: "/a.txt" } },
+		{ action: "create_folder" as const, extra: { path: "/NewFolder" } },
+		{ action: "share_link" as const, extra: { path: "/a.txt" } },
+	])("$action against a onedrive connection: clean not-supported message, no pending write, no secret decrypted", async ({
+		action,
+		extra,
+	}) => {
+		const conn = makeOneDriveConn({ allowWrites: true });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+
+		const outcome = await runFilesTool(
+			"user-1",
+			{ action, ...extra },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.action).toBe(action);
+		expect(outcome.modelPayload.message).toContain("OneDrive");
+		expect(outcome.modelPayload.message.toLowerCase()).toContain("read-only");
+		expect(createPendingWriteMock).not.toHaveBeenCalled();
+		expect(executeNextcloudWriteMock).not.toHaveBeenCalled();
+		expect(getConnectionSecretMock).not.toHaveBeenCalled();
+	});
+});
+
+// Task 8 — the shared Option A local-distill gate (already proven for
+// Nextcloud reads above) must cover OneDrive reads identically: raw file
+// content must never reach a cloud model un-distilled when local-distill is
+// on, regardless of which provider produced it.
+describe("runFilesTool — locality Option A distillation gate covers OneDrive (Task 8)", () => {
+	const RAW_CONTENT = "SSN 123-45-6789, balance due $9,999.";
+
+	beforeEach(() => {
+		resolveConnectionsForCapabilityMock.mockReset();
+		needsDisambiguationMock.mockReset();
+		getConnectionSecretMock.mockReset();
+		onedriveReadFileMock.mockReset();
+		hasLocalDistillEnabledMock.mockReset();
+		isCloudModelMock.mockReset();
+		distillConnectorPayloadMock.mockReset();
+		needsDisambiguationMock.mockReturnValue(false);
+
+		const conn = makeOneDriveConn();
+		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+		getConnectionSecretMock.mockResolvedValue("secret");
+		onedriveReadFileMock.mockResolvedValue({
+			bytes: new TextEncoder().encode(RAW_CONTENT),
+			etag: "etag-1",
+			contentType: "text/plain",
+			mtime: null,
+			webUrl: null,
+		});
+	});
+
+	async function readOnce() {
+		return runFilesTool(
+			"user-1",
+			{ action: "read", path: "notes/sensitive.txt" },
+			"whichever-model",
+		);
+	}
+
+	it("Option A off: raw OneDrive content is returned unchanged and distill is not called", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(false);
+		isCloudModelMock.mockResolvedValue(true);
+
+		const outcome = await readOnce();
+
+		expect(outcome.modelPayload.results[0]?.content).toBe(RAW_CONTENT);
+		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
+	});
+
+	it("Option A on + cloud model: the model-bound payload carries only the distilled summary — raw OneDrive content is absent", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "The balance due is $9,999.",
+		});
+
+		const outcome = await readOnce();
+
+		const serialized = JSON.stringify(outcome.modelPayload);
+		expect(serialized).not.toContain(RAW_CONTENT);
+		expect(serialized).not.toContain("123-45-6789");
+		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain(
+			"The balance due is $9,999.",
+		);
+		expect(distillConnectorPayloadMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				capability: "files",
+				rawText: expect.stringContaining(RAW_CONTENT),
+			}),
+		);
+	});
+
+	it("Option A on + cloud model + distill unavailable: raw OneDrive content is withheld, not leaked", async () => {
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({ unavailable: true });
+
+		const outcome = await readOnce();
+
+		const serialized = JSON.stringify(outcome.modelPayload);
+		expect(serialized).not.toContain(RAW_CONTENT);
+		expect(serialized).not.toContain("123-45-6789");
+		expect(outcome.modelPayload.results[0]?.content).toBeUndefined();
+		expect(outcome.modelPayload.message).toContain("withheld");
 	});
 });
 

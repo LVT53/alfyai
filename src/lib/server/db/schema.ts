@@ -2229,6 +2229,7 @@ export const CONNECTION_PROVIDERS = [
 	"owntracks",
 	"contacts",
 	"github",
+	"onedrive",
 ] as const;
 
 export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];

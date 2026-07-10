@@ -8,6 +8,14 @@ import {
 	nextcloudStat,
 } from "$lib/server/services/connections/providers/nextcloud-files";
 import {
+	OneDriveError,
+	onedriveListFolder,
+	onedriveReadFile,
+	onedriveSearch,
+	onedriveStat,
+	onedriveWebUrl,
+} from "$lib/server/services/connections/providers/onedrive";
+import {
 	needsDisambiguation,
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
@@ -66,9 +74,11 @@ export type FilesToolResultItem = {
 	isDir: boolean;
 	size: number;
 	contentType: string | null;
-	// Last-modified time (RFC 1123 date string as Nextcloud returns it), or
-	// null when the server didn't report one. Surfaced so the model can answer
-	// "my most recent invoice" / "the newest file" — impossible without it.
+	// Last-modified time, in whatever timestamp format the connected provider
+	// reports (Nextcloud: an RFC 1123 date string; OneDrive: an ISO 8601
+	// string), or null when the provider didn't report one. Surfaced so the
+	// model can answer "my most recent invoice" / "the newest file" —
+	// impossible without it.
 	mtime: string | null;
 	content?: string;
 	truncated?: boolean;
@@ -93,6 +103,16 @@ export type FilesToolOutcome = {
 	modelPayload: FilesToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
 };
+
+// Write actions stay Nextcloud-only for v1 (see the onedrive guard in
+// runFilesTool) — module-scope so the Set literal isn't rebuilt per call.
+const WRITE_ACTIONS = new Set<FilesToolInput["action"]>([
+	"save",
+	"move",
+	"delete",
+	"create_folder",
+	"share_link",
+]);
 
 const MAX_SEARCH_RESULTS = 20;
 // The Nextcloud read adapter already caps raw bytes at 25MB (chat-context
@@ -151,6 +171,104 @@ function nextcloudWebUiUrl(conn: ConnectionPublic, path: string): string {
 	const name = lastSlash === -1 ? path : path.slice(lastSlash + 1);
 	const dirParam = encodeURIComponent(`/${dir}`);
 	return `${serverUrl}/index.php/apps/files/?dir=${dirParam}&scrollto=${encodeURIComponent(name)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Provider dispatch (Task 8) — the files tool now serves two "files"-capability
+// providers: Nextcloud (WebDAV, unchanged behavior) and OneDrive (Microsoft
+// Graph, read-only). READ actions (list/search/read + the stat/metadata used
+// internally for the folder-guard) dispatch on `conn.provider` through the
+// small wrapper functions below rather than each call site branching itself
+// — every existing Nextcloud call keeps calling nextcloudXxx(conn, secret,
+// ...) with the exact same arguments it always has (see files.test.ts, which
+// asserts on those exact calls), so Nextcloud behavior is byte-for-byte
+// unchanged. WRITE actions (save/move/delete/create_folder/share_link) are
+// NOT part of this dispatch — they stay Nextcloud-only for v1; a write
+// against a onedrive connection is refused up front in runFilesTool, before
+// any of the Nextcloud write-outcome functions ever run (see the
+// `onedrive` guard near the top of runFilesTool below).
+//
+// FileEntry is a superset of nextcloud-files.ts's NcFile shape (adds an
+// optional `webUrl`, populated only by OneDrive) — NcFile is structurally
+// assignable to it since the extra field is optional, so nothing in
+// nextcloud-files.ts needs to change.
+export type FileEntry = {
+	name: string;
+	path: string;
+	isDir: boolean;
+	size: number;
+	mtime: string | null;
+	contentType: string | null;
+	etag: string | null;
+	webUrl?: string | null;
+};
+
+export type FileContent = {
+	bytes: Uint8Array;
+	etag: string | null;
+	contentType: string | null;
+	mtime: string | null;
+	webUrl?: string | null;
+};
+
+function listFolderForConn(
+	conn: ConnectionPublic,
+	secret: string,
+	path: string,
+): Promise<FileEntry[]> {
+	if (conn.provider === "onedrive") {
+		return onedriveListFolder(conn, secret, path);
+	}
+	return nextcloudListFolder(conn, secret, path);
+}
+
+function searchFilesForConn(
+	conn: ConnectionPublic,
+	secret: string,
+	query: string,
+): Promise<FileEntry[]> {
+	if (conn.provider === "onedrive") {
+		return onedriveSearch(conn, secret, query);
+	}
+	return nextcloudSearch(conn, secret, query);
+}
+
+function readFileForConn(
+	conn: ConnectionPublic,
+	secret: string,
+	path: string,
+): Promise<FileContent> {
+	if (conn.provider === "onedrive") {
+		return onedriveReadFile(conn, secret, path);
+	}
+	return nextcloudReadFile(conn, secret, path);
+}
+
+function statForConn(
+	conn: ConnectionPublic,
+	secret: string,
+	path: string,
+): Promise<FileEntry | null> {
+	if (conn.provider === "onedrive") {
+		return onedriveStat(conn, secret, path);
+	}
+	return nextcloudStat(conn, secret, path);
+}
+
+// Citation web URL for a file entry/read result. OneDrive items carry their
+// own `webUrl` (from Microsoft Graph, see onedriveWebUrl's doc comment);
+// Nextcloud has no such field in its WebDAV PROPFIND/GET response, so it
+// keeps building one from the connection's serverUrl + path exactly as
+// before.
+function webUrlForConn(
+	conn: ConnectionPublic,
+	path: string,
+	webUrl?: string | null,
+): string {
+	if (conn.provider === "onedrive") {
+		return onedriveWebUrl({ webUrl: webUrl ?? null });
+	}
+	return nextcloudWebUiUrl(conn, path);
 }
 
 function toCandidate(citation: FilesCitation): ToolEvidenceCandidate {
@@ -225,12 +343,29 @@ function mapAdapterError(err: unknown): string {
 				return "I couldn't reach your files right now. Please try again in a moment.";
 		}
 	}
+	if (err instanceof OneDriveError) {
+		switch (err.code) {
+			case "needs_reauth":
+				return "Your OneDrive connection needs to be reconnected before I can access your files. Please reconnect it in Settings.";
+			case "not_found":
+				return "That file or folder couldn't be found in your OneDrive.";
+			case "too_large":
+				return "That file is too large for me to read right now.";
+			case "invalid_path":
+				return "That file path isn't valid.";
+			case "invalid_config":
+			case "not_configured":
+				return "Your OneDrive connection is missing required configuration. Please reconnect it in Settings.";
+			default:
+				return "I couldn't reach your files right now. Please try again in a moment.";
+		}
+	}
 	return "I couldn't reach your files right now. Please try again in a moment.";
 }
 
 function searchOutcome(
 	conn: ConnectionPublic,
-	files: Awaited<ReturnType<typeof nextcloudSearch>>,
+	files: FileEntry[],
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
@@ -248,7 +383,7 @@ function searchOutcome(
 		.map((file) => ({
 			label: file.name,
 			path: file.path,
-			url: nextcloudWebUiUrl(conn, file.path),
+			url: webUrlForConn(conn, file.path, file.webUrl),
 		}));
 	const baseMessage =
 		files.length === 0
@@ -270,7 +405,7 @@ function searchOutcome(
 function listOutcome(
 	conn: ConnectionPublic,
 	path: string | undefined,
-	files: Awaited<ReturnType<typeof nextcloudListFolder>>,
+	files: FileEntry[],
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
@@ -288,9 +423,9 @@ function listOutcome(
 		.map((file) => ({
 			label: file.name,
 			path: file.path,
-			url: nextcloudWebUiUrl(conn, file.path),
+			url: webUrlForConn(conn, file.path, file.webUrl),
 		}));
-	const folderLabel = path && path.trim() ? path.trim() : "your Files root";
+	const folderLabel = path?.trim() ? path.trim() : "your Files root";
 	const dirCount = files.filter((file) => file.isDir).length;
 	const fileCount = files.length - dirCount;
 	const baseMessage =
@@ -306,21 +441,22 @@ function listOutcome(
 	});
 }
 
-// Best-effort check for whether `path` is a folder. A WebDAV GET on a
-// collection returns a misleading 2xx (the read path would report a bogus
+// Best-effort check for whether `path` is a folder. A GET on a folder
+// (WebDAV collection for Nextcloud; a driveItem with a `folder` facet for
+// OneDrive) returns a misleading 2xx (the read path would report a bogus
 // "Read X." success for a folder), so the read action uses this to redirect
 // the model to the `list` action instead. Never throws and never *blocks* a
-// read: an inconclusive stat (null / thrown) falls through to nextcloudReadFile,
-// which has its own not_found handling — only a POSITIVE "this is a directory"
-// short-circuits.
+// read: an inconclusive stat (null / thrown) falls through to
+// readFileForConn, which has its own not_found handling — only a POSITIVE
+// "this is a directory" short-circuits.
 async function isDirectory(
 	conn: ConnectionPublic,
 	secret: string,
 	path: string,
 ): Promise<boolean> {
 	try {
-		const existing = await nextcloudStat(conn, secret, path);
-		return existing !== null && existing.isDir;
+		const existing = await statForConn(conn, secret, path);
+		return existing?.isDir ?? false;
 	} catch {
 		return false;
 	}
@@ -329,7 +465,7 @@ async function isDirectory(
 function readOutcome(
 	conn: ConnectionPublic,
 	path: string,
-	file: Awaited<ReturnType<typeof nextcloudReadFile>>,
+	file: FileContent,
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): FilesToolOutcome {
@@ -337,7 +473,7 @@ function readOutcome(
 	const citation: FilesCitation = {
 		label,
 		path,
-		url: nextcloudWebUiUrl(conn, path),
+		url: webUrlForConn(conn, path, file.webUrl),
 	};
 
 	let result: FilesToolResultItem;
@@ -947,7 +1083,7 @@ export async function runFilesTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Files connection set up yet. Connect your Nextcloud account in Settings to search or read files.",
+				"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
 		});
 	}
 
@@ -958,7 +1094,22 @@ export async function runFilesTool(
 			success: false,
 			action: input.action,
 			message:
-				"You don't have a Files connection set up yet. Connect your Nextcloud account in Settings to search or read files.",
+				"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
+		});
+	}
+
+	// Task 8 — writes stay Nextcloud-only for v1. OneDrive is a read-only
+	// connector (see providers/onedrive.ts's module doc): a write action
+	// against a onedrive connection is refused here, before ANY of the
+	// write-outcome functions below run (so no pending row is ever created
+	// and no Nextcloud-shaped write assumption — resolveWriteTarget,
+	// wouldOverwrite's nextcloudStat call, etc. — is ever exercised against a
+	// non-Nextcloud connection).
+	if (WRITE_ACTIONS.has(input.action) && conn.provider !== "nextcloud") {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: `Writing to ${conn.label} isn't supported yet — OneDrive connections are currently read-only. I can list, search, and read files, but not save, move, delete, create folders, or share links.`,
 		});
 	}
 
@@ -1029,8 +1180,7 @@ export async function runFilesTool(
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message:
-				"Your Nextcloud connection is missing its stored credentials. Please reconnect it in Settings.",
+			message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
 		});
 	}
 
@@ -1043,7 +1193,7 @@ export async function runFilesTool(
 					message: "A search query is required to search your files.",
 				});
 			}
-			const files = await nextcloudSearch(conn, secret, input.query);
+			const files = await searchFilesForConn(conn, secret, input.query);
 			const outcome = searchOutcome(conn, files, ambiguous, connections);
 			return applyLocalDistillGate({ userId, modelId, input, outcome });
 		}
@@ -1054,7 +1204,7 @@ export async function runFilesTool(
 		// "what's in my <folder>" need; `search` only finds by name and can't
 		// enumerate a folder's contents.
 		if (input.action === "list") {
-			const files = await nextcloudListFolder(conn, secret, input.path ?? "");
+			const files = await listFolderForConn(conn, secret, input.path ?? "");
 			const outcome = listOutcome(
 				conn,
 				input.path,
@@ -1072,7 +1222,7 @@ export async function runFilesTool(
 				message: "A file path is required to read a file.",
 			});
 		}
-		// A folder path can't be read as a file — a WebDAV GET on a collection
+		// A folder path can't be read as a file — a raw GET on a folder
 		// otherwise returns a misleading success. Redirect the model to `list`.
 		if (await isDirectory(conn, secret, input.path)) {
 			return buildPayload({
@@ -1081,7 +1231,7 @@ export async function runFilesTool(
 				message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
 			});
 		}
-		const file = await nextcloudReadFile(conn, secret, input.path);
+		const file = await readFileForConn(conn, secret, input.path);
 		const outcome = readOutcome(conn, input.path, file, ambiguous, connections);
 		return applyLocalDistillGate({ userId, modelId, input, outcome });
 	} catch (err) {

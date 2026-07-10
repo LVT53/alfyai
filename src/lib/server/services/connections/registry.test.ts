@@ -71,4 +71,16 @@ describe("connections registry", () => {
 			expect(CONNECT_METHODS).toContain(PROVIDER_META[provider].connectMethod);
 		}
 	});
+
+	// Task 8 — OneDrive is a second provider under the existing "files"
+	// capability (alongside nextcloud), connected via OAuth like Google.
+	it("registers onedrive as an oauth files provider alongside nextcloud", () => {
+		expect(PROVIDER_META.onedrive).toEqual({
+			capabilities: ["files"],
+			connectMethod: "oauth",
+			displayName: "OneDrive",
+		});
+		expect(CAPABILITY_META.files.providers).toContain("onedrive");
+		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
+	});
 });

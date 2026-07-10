@@ -122,6 +122,8 @@ interface Config {
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
+	onedriveClientId: string;
+	onedriveClientSecret: string;
 	concurrentStreamLimit: number;
 	systemPrompt: string;
 	perUserStreamLimit: number;
@@ -607,6 +609,8 @@ function readConfig(): Config {
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
 		googleOauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || "",
 		googleOauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || "",
+		onedriveClientId: process.env.ONEDRIVE_CLIENT_ID || "",
+		onedriveClientSecret: process.env.ONEDRIVE_CLIENT_SECRET || "",
 		concurrentStreamLimit: Math.max(
 			1,
 			parseInt(process.env.CONCURRENT_STREAM_LIMIT || "3", 10) || 3,

@@ -74,6 +74,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"MINERU_TIMEOUT_MS",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
+	"ONEDRIVE_CLIENT_ID",
+	"ONEDRIVE_CLIENT_SECRET",
 	"OWNTRACKS_RECORDER_URL",
 	"OWNTRACKS_RECORDER_USER",
 	"OWNTRACKS_RECORDER_PASS",
@@ -228,6 +230,8 @@ export interface RuntimeConfig {
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
+	onedriveClientId: string;
+	onedriveClientSecret: string;
 	concurrentStreamLimit: number;
 	perUserStreamLimit: number;
 	systemPrompt: string;
@@ -753,6 +757,12 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	GOOGLE_OAUTH_CLIENT_SECRET: (config, value) => {
 		config.googleOauthClientSecret = value.trim();
 	},
+	ONEDRIVE_CLIENT_ID: (config, value) => {
+		config.onedriveClientId = value.trim();
+	},
+	ONEDRIVE_CLIENT_SECRET: (config, value) => {
+		config.onedriveClientSecret = value.trim();
+	},
 	APP_VERSION_OVERRIDE: (config, value) => {
 		config.appVersionOverride = value.trim() || null;
 	},
@@ -1226,6 +1236,8 @@ export function getResolvedAdminConfigValues(
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
+		ONEDRIVE_CLIENT_ID: config.onedriveClientId,
+		ONEDRIVE_CLIENT_SECRET: config.onedriveClientSecret ? "[set]" : "",
 		APP_VERSION_OVERRIDE: config.appVersionOverride ?? "",
 		SYSTEM_PROMPT: getSystemPrompt(config.systemPrompt),
 		MAX_FILE_UPLOAD_SIZE: String(config.maxFileUploadSize),

@@ -84,6 +84,11 @@ export const PROVIDER_META: Record<
 		connectMethod: "app-password",
 		displayName: "GitHub",
 	},
+	onedrive: {
+		capabilities: ["files"],
+		connectMethod: "oauth",
+		displayName: "OneDrive",
+	},
 };
 
 // Per-capability metadata.
@@ -107,7 +112,7 @@ export const CAPABILITY_META: Record<
 	},
 	files: {
 		tier: "explicit",
-		providers: ["nextcloud"],
+		providers: ["nextcloud", "onedrive"],
 		displayName: "Files",
 	},
 	photos: {
