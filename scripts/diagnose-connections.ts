@@ -175,6 +175,51 @@ async function diagnoseToolLayer(userId: string) {
 		`files read path="${folder}" (folder path -> should now refuse)`,
 		() => runFilesTool(userId, { action: "read", path: folder }, MODEL_ID),
 	);
+
+	line("");
+	line("  ======== B-TIER live probes (connected connectors) ========");
+	// Files: mtime now surfaced on list results.
+	line("  >> B-tier files list — mtime surfaced?");
+	try {
+		const r = await runFilesTool(
+			userId,
+			{ action: "list", path: folder === "/" ? undefined : folder },
+			MODEL_ID,
+		);
+		const first = r.modelPayload.results[0] as
+			| { name?: string; mtime?: string | null }
+			| undefined;
+		line(
+			`     success=${r.modelPayload.success}  first="${first?.name ?? "-"}" mtime=${first && "mtime" in first ? JSON.stringify(first.mtime) : "MISSING"}`,
+		);
+	} catch (err) {
+		line(`     THREW: ${err instanceof Error ? err.message : String(err)}`);
+	}
+	// Contacts: organization surfaced on lookup?
+	line(`  >> B-tier contacts lookup "${contactQuery}" — organization surfaced?`);
+	try {
+		const r = await runContactsTool(
+			userId,
+			{ action: "lookup", query: contactQuery },
+			MODEL_ID,
+		);
+		const c = r.modelPayload.contacts[0] as
+			| { name?: string; organization?: unknown }
+			| undefined;
+		line(
+			`     success=${r.modelPayload.success}  count=${r.modelPayload.contacts.length}  first="${c?.name ?? "-"}" org=${c?.organization ? JSON.stringify(c.organization) : "none"}`,
+		);
+	} catch (err) {
+		line(`     THREW: ${err instanceof Error ? err.message : String(err)}`);
+	}
+	// Contacts: group action (Google contact groups).
+	await reportTool('B-tier contacts group "Family"', () =>
+		runContactsTool(userId, { action: "group", query: "Family" }, MODEL_ID),
+	);
+	// Calendar: list_calendars discovery.
+	await reportTool("B-tier calendar list_calendars", () =>
+		runCalendarTool(userId, { action: "list_calendars" }, MODEL_ID),
+	);
 }
 
 async function diagnoseGoogle(userId: string, connectionId: string) {
