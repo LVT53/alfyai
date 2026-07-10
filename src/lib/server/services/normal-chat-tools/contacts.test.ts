@@ -415,4 +415,33 @@ describe("runContactsTool — locality Option A distillation gate (whole-payload
 		expect(distillConnectorPayloadMock).not.toHaveBeenCalled();
 		expect(outcome.modelPayload.success).toBe(true);
 	});
+
+	// Task 9b: the gate operates generically on outcome.modelPayload.contacts
+	// regardless of ContactMatch.source, so a caldav-sourced match must be
+	// wiped under Option A + cloud model exactly like a google/apple one —
+	// this test locks that in explicitly rather than relying on it being
+	// implied by the google-sourced coverage above.
+	it("Option A on + cloud model: a caldav-sourced contact is wiped from the model-facing payload just like google/apple", async () => {
+		const caldavMatch = makeMatch({
+			name: "Dóra Nagy",
+			emails: ["dora@example.com"],
+			phones: [],
+			source: "caldav",
+			account: "alice",
+		});
+		resolveContactsMock.mockResolvedValue([caldavMatch]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One matching contact.",
+		});
+
+		const outcome = await lookupOnce();
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Dóra Nagy");
+		expect(serializedPayload).not.toContain("dora@example.com");
+		expect(outcome.modelPayload.contacts).toEqual([]);
+		expect(outcome.modelPayload.message).toContain("One matching contact.");
+	});
 });

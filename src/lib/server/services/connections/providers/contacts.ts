@@ -1,15 +1,18 @@
 // Name -> identity Contacts resolver (5.8): dispatches across the user's
-// contacts-capable connections by provider and merges the results. v1
-// sources are Google People (this file) and Apple CardDAV (appleSearchContacts,
-// in providers/apple-caldav.ts — the CardDAV discovery/redirect/vCard parsing
-// machinery already lives there). Nextcloud CardDAV / the generic "contacts"
-// CardDAV provider (see registry.ts's CAPABILITY_META.contacts.providers)
-// are a documented follow-up — resolveContacts skips connections from those
-// providers rather than failing. Read-only, no separate connect flow: this
-// reuses the existing google (5.1) and apple (5.3) connections. Every
-// network call accepts an injectable `fetch` so this module is fully
-// testable against mocked Google/Apple endpoints — nothing here ever talks
-// to a live server in tests.
+// contacts-capable connections by provider and merges the results. Sources
+// are Google People (this file), Apple CardDAV (appleSearchContacts, in
+// providers/apple-caldav.ts — the CardDAV discovery/redirect/vCard parsing
+// machinery already lives there), and (Task 9b) the generic CalDAV/CardDAV
+// connector's caldavSearchContacts (providers/caldav-tasks.ts, any
+// standards-compliant server: Nextcloud, Fastmail, mailbox.org, Baïkal, ...).
+// Nextcloud's own CardDAV / the plain "contacts" CardDAV provider (see
+// registry.ts's CAPABILITY_META.contacts.providers) remain a documented
+// follow-up — resolveContacts skips connections from those two providers
+// rather than failing. Read-only, no separate connect flow beyond what each
+// provider's own connect route already does. Every network call accepts an
+// injectable `fetch` so this module is fully testable against mocked
+// Google/Apple/CalDAV endpoints — nothing here ever talks to a live server in
+// tests.
 
 import { resolveConnectionsForCapability } from "../resolve";
 import {
@@ -18,6 +21,7 @@ import {
 	updateConnection,
 } from "../store";
 import { appleSearchContacts } from "./apple-caldav";
+import { caldavSearchContacts } from "./caldav-tasks";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 
 type FetchOpt = { fetch?: typeof fetch };
@@ -36,7 +40,12 @@ export type ContactMatch = {
 	name: string;
 	emails: string[];
 	phones: string[];
-	source: "google" | "apple";
+	// "caldav" (Task 9b): the generic CardDAV connector (providers/caldav-
+	// tasks.ts), distinct from "apple" (Apple's iCloud-specific CardDAV path
+	// in providers/apple-caldav.ts) even though both are CardDAV under the
+	// hood — kept as separate source tags so the model-facing payload can
+	// still say which connection a match came from.
+	source: "google" | "apple" | "caldav";
 	account?: string;
 	organization?: ContactOrganization;
 };
@@ -539,7 +548,10 @@ async function searchConnection(
 		if (conn.provider === "apple") {
 			return await appleSearchContacts(userId, conn.id, params, opts);
 		}
-		// Nextcloud CardDAV / the generic "contacts" CardDAV provider are a
+		if (conn.provider === "caldav") {
+			return await caldavSearchContacts(userId, conn.id, params, opts);
+		}
+		// Nextcloud's own CardDAV / the plain "contacts" CardDAV provider are a
 		// documented v1 follow-up (see registry.ts's
 		// CAPABILITY_META.contacts.providers) — no search function exists for
 		// them yet, so they're silently skipped rather than dispatched.

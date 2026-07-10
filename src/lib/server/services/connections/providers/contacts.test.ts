@@ -1005,4 +1005,67 @@ describe("resolveContacts", () => {
 		);
 		expect(matches).toHaveLength(1);
 	});
+
+	// Task 9b — resolveContacts now also dispatches to the generic
+	// caldav connector's caldavSearchContacts, mirroring the apple dispatch
+	// coverage above.
+	async function seedCalDavConnection(
+		accountIdentifier: string,
+		addressbookUrl: string,
+	) {
+		const { createConnection } = await import("../store");
+		return createConnection({
+			userId: "userA",
+			provider: "caldav",
+			label: "CalDAV",
+			accountIdentifier,
+			capabilities: ["contacts"],
+			status: "connected",
+			secret: "app-pw",
+			config: {
+				serverUrl: "https://dav.example.com/dav/",
+				username: accountIdentifier,
+				principalUrl: "https://dav.example.com/dav/principals/users/alice/",
+				addressbookUrls: [addressbookUrl],
+			},
+		});
+	}
+
+	it("resolves matches from a caldav (generic CalDAV/CardDAV) connection too, tagged source: 'caldav'", async () => {
+		seedUser("userA");
+		await seedGoogleConnection({
+			oauthScopes: ["openid", "https://www.googleapis.com/auth/userinfo.email"],
+		});
+		await seedCalDavConnection(
+			"alice",
+			"https://dav.example.com/dav/addressbooks/alice/contacts/",
+		);
+		const { resolveContacts } = await import("./contacts");
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (
+					url === "https://dav.example.com/dav/addressbooks/alice/contacts/"
+				) {
+					expect(init?.method).toBe("REPORT");
+					return new Response(vcardXml("Carol Jones", "carol@example.com"), {
+						status: 207,
+						headers: { "Content-Type": "application/xml" },
+					});
+				}
+				throw new Error(`Unexpected fetch to ${url}`);
+			},
+		);
+
+		const matches = await resolveContacts(
+			"userA",
+			{ query: "" },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(matches).toEqual([
+			expect.objectContaining({ name: "Carol Jones", source: "caldav" }),
+		]);
+	});
 });

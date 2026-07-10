@@ -516,6 +516,44 @@ describe("runTasksTool — locality Option A distillation gate", () => {
 		expect(outcome.modelPayload.message).toContain("withheld");
 	});
 
+	// Folded-in Task 9a review minor (5b): 9a only exercised a Todoist-sourced
+	// task through this gate — this locks in that a CalDAV VTODO-sourced task
+	// (title/notes) is wiped the same way under local-distill on + cloud model.
+	it("Option A on + cloud model: a CalDAV-sourced task's title/notes are wiped from the model-facing payload too", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-caldav", provider: "caldav", label: "CalDAV" }),
+		]);
+		caldavListTasksMock.mockResolvedValue([
+			{
+				id: "todo-1",
+				summary: "Renew passport before the trip",
+				description: "Bring the old one and 2 passport photos",
+				due: "2026-07-15",
+				status: "NEEDS-ACTION",
+				priority: 1,
+				url: "https://dav.example.com/cal/todo-1.ics",
+			},
+		]);
+		hasLocalDistillEnabledMock.mockResolvedValue(true);
+		isCloudModelMock.mockResolvedValue(true);
+		distillConnectorPayloadMock.mockResolvedValue({
+			distilled: "One task due soon.",
+		});
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks" },
+			CLOUD_MODEL_ID,
+		);
+
+		const serializedPayload = JSON.stringify(outcome.modelPayload);
+		expect(serializedPayload).not.toContain("Renew passport");
+		expect(serializedPayload).not.toContain("passport photos");
+		expect(outcome.modelPayload.tasks).toEqual([]);
+		expect(outcome.modelPayload.message).toContain("One task due soon.");
+		expect(outcome.candidates[0]?.title).toBe("Renew passport before the trip");
+	});
+
 	it("also gates list_projects on project names", async () => {
 		todoistListProjectsMock.mockResolvedValue([
 			{ id: "1", name: "Divorce planning", isFavorite: false },
