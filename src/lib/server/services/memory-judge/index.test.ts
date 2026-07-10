@@ -325,6 +325,48 @@ describe("Memory judge service", () => {
 		expect(result).toEqual({ status: "empty" });
 	});
 
+	it("skips judging entirely when the user's master memory toggle is off — including the flush path", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		db.update(schema.users)
+			.set({ memoryEnabled: false })
+			.where(eq(schema.users.id, "u1"))
+			.run();
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		// A genuinely admissible fact is present — the guard must short-circuit
+		// BEFORE the judge model is ever consulted, on every trigger path.
+		mockControlModel({
+			decisions: [
+				{
+					action: "add",
+					statement: "I prefer plain language.",
+					category: "preferences",
+					scope: "global",
+					confidence: "stated",
+					expiryClass: "durable",
+					sourceQuote: "I prefer plain language",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+
+		expect(result).toEqual({ status: "empty" });
+		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+	});
+
 	it("caps open review items at 10", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });

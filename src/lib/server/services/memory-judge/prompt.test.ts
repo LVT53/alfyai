@@ -27,6 +27,18 @@ describe("judge prompts", () => {
 		])
 			expect(p.toLowerCase()).toContain(needle.toLowerCase());
 	});
+	it("gate 2 rejects connector-retrieved data but keeps user-stated facts", () => {
+		const p = buildJudgeSystemPrompt().toLowerCase();
+		// Connector-derived content (calendar/email/file/photo/contact/location
+		// surfaced by a tool) must be explicitly rejected as transient external
+		// data, honoring the memory-v2 "connector-derived memories = non-goal".
+		expect(p).toContain("connected accounts");
+		expect(p).toContain("calendar event");
+		expect(p).toContain("transient external data");
+		// ...but a preference the user states in their own words still qualifies.
+		expect(p).toContain("own words");
+	});
+
 	it("user message includes segment, summary, existing facts and project marker", () => {
 		const m = buildJudgeUserMessage({
 			segment: [

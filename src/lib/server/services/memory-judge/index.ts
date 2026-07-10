@@ -60,12 +60,20 @@ export async function runMemoryJudgeOnSegment(params: {
 	trigger: JudgeTrigger;
 	segmentOverride?: JudgeSegmentMessage[];
 }): Promise<JudgeRunResult> {
-	// Single chokepoint for incognito: every judge path (explicit, idle-scheduled,
-	// marathon, sweep, re-curation) funnels through here, so a conversation that
-	// was flipped to incognito is never judged — even for turns that were queued
-	// before the flip and whose delayed idle pass fires afterwards.
-	const { isConversationIncognito } = await import("../memory-controls");
-	if (await isConversationIncognito(params.conversationId).catch(() => false)) {
+	// Single chokepoint for BOTH memory controls: every judge path (explicit,
+	// idle-scheduled, marathon, sweep, re-curation, and the opportunistic flush
+	// of queued runs on new-conversation creation) funnels through here, so
+	// neither a conversation flipped to incognito NOR a user who has since
+	// turned their master memory toggle OFF is ever judged — even for a turn
+	// queued while memory was on whose delayed pass fires after it was disabled.
+	// (Previously this checked only incognito, so the flush path could still run
+	// a pending judge for a user who had since disabled memory.)
+	const { isMemoryActiveForConversation } = await import("../memory-controls");
+	const memoryActive = await isMemoryActiveForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => true);
+	if (!memoryActive) {
 		return { status: "empty" };
 	}
 	const config = getConfig();
