@@ -77,7 +77,10 @@ const MAX_REDIRECTS = 5;
 // brand-new VTODO connector — a good first task for 9b.
 export const DAV_NS = "DAV:";
 export const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
-const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
+// Exported (Task 9b) alongside DAV_NS/CALDAV_NS above, for the same reason:
+// providers/caldav-tasks.ts's generic CardDAV addressbook discovery/read
+// needs this namespace constant too, rather than re-declaring it.
+export const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
 
 export type AppleCalDavErrorCode =
 	| "invalid_credentials"
@@ -107,11 +110,20 @@ export function basicAuthHeader(appleId: string, appPassword: string): string {
 // iCloud endpoint can't hang a chat turn (or the connect flow) indefinitely —
 // mirrors the same pattern in providers/nextcloud-files.ts /
 // providers/google-calendar.ts.
+//
+// `requestLabel` (Task 9b, folded-in review minor) defaults to "Apple
+// CalDAV" so every existing call site in THIS module (none of which pass it)
+// keeps its exact original error wording. providers/caldav-tasks.ts's
+// generic CalDAV connector is the one caller that passes a different label
+// ("CalDAV") — without this, a Nextcloud/Fastmail/Baïkal user hitting a
+// timeout would see "Apple CalDAV request timed out...", which is wrong
+// branding for a connection that has nothing to do with Apple.
 export async function fetchWithTimeout(
 	fetchImpl: typeof fetch,
 	url: string,
 	init: RequestInit,
 	timeoutMs = REQUEST_TIMEOUT_MS,
+	requestLabel = "Apple CalDAV",
 ): Promise<Response> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -120,7 +132,7 @@ export async function fetchWithTimeout(
 	} catch (err) {
 		if (err instanceof Error && err.name === "AbortError") {
 			throw new AppleCalDavError(
-				`Apple CalDAV request timed out after ${timeoutMs}ms`,
+				`${requestLabel} request timed out after ${timeoutMs}ms`,
 				"request_failed",
 			);
 		}
@@ -139,6 +151,18 @@ export async function fetchWithTimeout(
 // every discovery step and every calendar REPORT routes through it.
 // ---------------------------------------------------------------------------
 
+// `labels` (Task 9b, folded-in review minor) lets a caller override the
+// branding baked into this shared function's error messages — see
+// fetchWithTimeout's doc comment above for why. Both fields default to
+// Apple's own exact original wording so apple-caldav.ts's own call sites
+// (none of which pass this argument) are unaffected;
+// providers/caldav-tasks.ts's generic connector passes generic wording for
+// both.
+export type CalDavRequestLabels = {
+	requestLabel?: string;
+	credentialsRejectedMessage?: string;
+};
+
 export async function caldavRequest(
 	fetchImpl: typeof fetch,
 	url: string,
@@ -146,24 +170,35 @@ export async function caldavRequest(
 	method: "PROPFIND" | "REPORT",
 	depth: "0" | "1",
 	body: string,
+	labels: CalDavRequestLabels = {},
 ): Promise<{ xml: string; finalUrl: string }> {
+	const requestLabel = labels.requestLabel ?? "Apple CalDAV";
+	const credentialsRejectedMessage =
+		labels.credentialsRejectedMessage ??
+		"Apple rejected the Apple ID or app-specific password";
 	let currentUrl = url;
 	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const response = await fetchWithTimeout(fetchImpl, currentUrl, {
-			method,
-			redirect: "manual",
-			headers: {
-				Authorization: auth,
-				"Content-Type": "text/xml; charset=utf-8",
-				Depth: depth,
-				"User-Agent": USER_AGENT,
+		const response = await fetchWithTimeout(
+			fetchImpl,
+			currentUrl,
+			{
+				method,
+				redirect: "manual",
+				headers: {
+					Authorization: auth,
+					"Content-Type": "text/xml; charset=utf-8",
+					Depth: depth,
+					"User-Agent": USER_AGENT,
+				},
+				body,
 			},
-			body,
-		});
+			REQUEST_TIMEOUT_MS,
+			requestLabel,
+		);
 
 		if (response.status === 401) {
 			throw new AppleCalDavError(
-				"Apple rejected the Apple ID or app-specific password",
+				credentialsRejectedMessage,
 				"invalid_credentials",
 			);
 		}
@@ -171,7 +206,7 @@ export async function caldavRequest(
 			const location = response.headers.get("Location");
 			if (!location) {
 				throw new AppleCalDavError(
-					`Apple CalDAV redirected without a Location header (status ${response.status})`,
+					`${requestLabel} redirected without a Location header (status ${response.status})`,
 					"request_failed",
 				);
 			}
@@ -180,7 +215,7 @@ export async function caldavRequest(
 		}
 		if (response.status !== 207) {
 			throw new AppleCalDavError(
-				`Apple CalDAV ${method} failed with status ${response.status}`,
+				`${requestLabel} ${method} failed with status ${response.status}`,
 				"request_failed",
 			);
 		}
@@ -188,7 +223,7 @@ export async function caldavRequest(
 		return { xml, finalUrl: currentUrl };
 	}
 	throw new AppleCalDavError(
-		"Too many redirects while talking to Apple CalDAV",
+		`Too many redirects while talking to ${requestLabel}`,
 		"request_failed",
 	);
 }
@@ -302,12 +337,12 @@ async function discoverCalendarHomeUrl(
 	return new URL(homeHref, finalUrl).toString();
 }
 
-// A response entry is a VEVENT-capable calendar collection when its
-// resourcetype includes CALDAV:calendar AND its
-// supported-calendar-component-set includes a <c:comp name="VEVENT"/> — a
-// pure collection (e.g. the home-set root itself) or a reminders-only
-// (VTODO) calendar is filtered out.
-function isVeventCalendarCollection(responseEl: Element): boolean {
+// Finds the "winning" propstat (the one with a 200 status, falling back to
+// the first if none is explicitly 200) and returns its <prop> element — the
+// same "which propstat has the actual values" logic every multistatus
+// <response> parser in this module (and providers/caldav-tasks.ts) needs,
+// factored out (Task 9b) so it's written once rather than five times.
+export function okPropOf(responseEl: Element): Element | null {
 	const propstats = Array.from(
 		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
 	);
@@ -316,19 +351,47 @@ function isVeventCalendarCollection(responseEl: Element): boolean {
 			const status = textOf(firstNs(ps, DAV_NS, "status"));
 			return status ? / 200 /.test(` ${status} `) : false;
 		}) ?? propstats[0];
-	const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
-	if (!prop) return false;
+	return okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+}
 
+// True when `prop` (a <response>'s winning propstat prop, see okPropOf) has
+// a CALDAV:calendar resourcetype — a pure WebDAV collection (e.g. the
+// home-set root itself) does not. Exported (Task 9b) so
+// providers/caldav-tasks.ts's generic VTODO/VEVENT collection filtering
+// shares this check with isVeventCalendarCollection below, instead of
+// re-declaring it.
+export function isCalendarCollection(prop: Element): boolean {
 	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
-	const isCalendar = resourcetype
+	return resourcetype
 		? resourcetype.getElementsByTagNameNS(CALDAV_NS, "calendar").length > 0
 		: false;
-	if (!isCalendar) return false;
+}
 
+// True when `prop`'s supported-calendar-component-set includes a
+// <c:comp name="componentName"/> (e.g. "VEVENT" or "VTODO"). Exported (Task
+// 9b) for the same reason as isCalendarCollection above.
+export function supportsCalendarComponent(
+	prop: Element,
+	componentName: string,
+): boolean {
 	const compSet = firstNs(prop, CALDAV_NS, "supported-calendar-component-set");
 	if (!compSet) return false;
 	const comps = Array.from(compSet.getElementsByTagNameNS(CALDAV_NS, "comp"));
-	return comps.some((comp) => comp.getAttribute("name") === "VEVENT");
+	return comps.some((comp) => comp.getAttribute("name") === componentName);
+}
+
+// A response entry is a VEVENT-capable calendar collection when its
+// resourcetype includes CALDAV:calendar AND its
+// supported-calendar-component-set includes a <c:comp name="VEVENT"/> — a
+// pure collection (e.g. the home-set root itself) or a reminders-only
+// (VTODO) calendar is filtered out. Rewritten (Task 9b) atop the two shared
+// helpers above; behavior is unchanged from the original inline version.
+function isVeventCalendarCollection(responseEl: Element): boolean {
+	const prop = okPropOf(responseEl);
+	if (!prop) return false;
+	return (
+		isCalendarCollection(prop) && supportsCalendarComponent(prop, "VEVENT")
+	);
 }
 
 async function discoverCalendarUrls(
@@ -400,7 +463,9 @@ const ADDRESSBOOK_HOME_SET_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"
 	</d:prop>
 </d:propfind>`;
 
-const ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+// Exported (Task 9b) so providers/caldav-tasks.ts's generic addressbook
+// collection enumeration reuses this exact PROPFIND body.
+export const ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
 	<d:prop>
 		<d:resourcetype/>
@@ -470,17 +535,12 @@ async function discoverAddressbookHomeUrl(
 // A response entry is kept when its resourcetype includes
 // CARDDAV:addressbook — filters out the home-set root collection itself
 // (which has no addressbook resourcetype), mirroring
-// isVeventCalendarCollection's filtering role for CalDAV above.
-function isAddressbookCollection(responseEl: Element): boolean {
-	const propstats = Array.from(
-		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-	);
-	const okPropstat =
-		propstats.find((ps) => {
-			const status = textOf(firstNs(ps, DAV_NS, "status"));
-			return status ? / 200 /.test(` ${status} `) : false;
-		}) ?? propstats[0];
-	const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+// isVeventCalendarCollection's filtering role for CalDAV above. Exported
+// (Task 9b) so providers/caldav-tasks.ts's generic CardDAV addressbook
+// discovery reuses this exact check instead of re-declaring it. Rewritten
+// atop okPropOf; behavior is unchanged from the original inline version.
+export function isAddressbookCollection(responseEl: Element): boolean {
+	const prop = okPropOf(responseEl);
 	if (!prop) return false;
 
 	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
@@ -923,7 +983,10 @@ function toICalUtcTimestamp(iso: string): string {
 	return `${date.toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
 }
 
-function calendarQueryBody(timeMin: string, timeMax: string): string {
+// Exported (Task 9b) so providers/caldav-tasks.ts's generic VEVENT read
+// builds the exact same calendar-query REPORT body (including the expand
+// window this doc comment above explains) rather than re-implementing it.
+export function calendarQueryBody(timeMin: string, timeMax: string): string {
 	const start = toICalUtcTimestamp(timeMin);
 	const end = toICalUtcTimestamp(timeMax);
 	// The CALDAV:expand (RFC 4791 §9.6.5) inside calendar-data asks the server
@@ -954,7 +1017,11 @@ function calendarQueryBody(timeMin: string, timeMax: string): string {
 </c:calendar-query>`;
 }
 
-function parseReportMultistatus(
+// Exported (Task 9b) so providers/caldav-tasks.ts's generic VEVENT read
+// parses a calendar-query REPORT's multistatus response the same way this
+// module's own Apple reads do — the XML shape is standard CalDAV, not
+// Apple-specific.
+export function parseReportMultistatus(
 	xml: string,
 	finalUrl: string,
 ): CalendarEvent[] {
@@ -1110,7 +1177,10 @@ function escapeXmlText(value: string): string {
 		.replace(/'/g, "&apos;");
 }
 
-function uidQueryBody(uid: string): string {
+// Exported (Task 9b) so providers/caldav-tasks.ts's generic
+// get-event-by-uid read builds the exact same UID-filtered calendar-query
+// REPORT body rather than re-implementing it.
+export function uidQueryBody(uid: string): string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
 	<d:prop>
@@ -1265,7 +1335,9 @@ export function parseVCards(vcardText: string): ParsedVCard[] {
 // bare `prop-filter name="UID"` matches any card that HAS a UID and the
 // `is-not-defined` arm matches any card that does NOT — together a tautology,
 // i.e. all cards, expressed in the RFC's own grammar.
-const ADDRESSBOOK_QUERY_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+// Exported (Task 9b) so providers/caldav-tasks.ts's generic vCard read reuses
+// this exact "match every card" addressbook-query REPORT body.
+export const ADDRESSBOOK_QUERY_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <card:addressbook-query xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
 	<d:prop>
 		<d:getetag/>
