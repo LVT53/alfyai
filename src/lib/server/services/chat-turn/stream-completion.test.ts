@@ -23,6 +23,38 @@ import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";
 
+// The post-turn side effects finalize.ts fans out to now live in
+// ./finalize-steps and message creation in $lib/server/services/messages;
+// completeStreamTurn no longer injects them. Seam at those module boundaries so
+// these glue tests can still assert on exactly what finalize hands each step.
+const {
+	mockCreateMessage,
+	mockPersistUserTurnAttachments,
+	mockPersistAssistantTurnState,
+	mockPersistAssistantEvidence,
+	mockRunPostTurnTasks,
+} = vi.hoisted(() => ({
+	mockCreateMessage: vi.fn(),
+	mockPersistUserTurnAttachments: vi.fn(),
+	mockPersistAssistantTurnState: vi.fn(),
+	mockPersistAssistantEvidence: vi.fn(),
+	mockRunPostTurnTasks: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/messages", () => ({
+	createMessage: mockCreateMessage,
+	updateMessageEvidence: vi.fn(async () => undefined),
+	updateMessageWebCitationAudit: vi.fn(async () => undefined),
+	listConversationMessagesForExport: vi.fn(async () => []),
+}));
+
+vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	persistUserTurnAttachments: mockPersistUserTurnAttachments,
+	persistAssistantTurnState: mockPersistAssistantTurnState,
+	persistAssistantEvidence: mockPersistAssistantEvidence,
+	runPostTurnTasks: mockRunPostTurnTasks,
+}));
+
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({ contextDiagnosticsDebug: false })),
 }));
@@ -87,11 +119,6 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe("completeStreamTurn", () => {
-	const mockCreateMessage = vi.fn();
-	const mockPersistUserTurnAttachments = vi.fn();
-	const mockPersistAssistantTurnState = vi.fn();
-	const mockPersistAssistantEvidence = vi.fn();
-	const mockRunPostTurnTasks = vi.fn();
 	const mockTouchConversation = vi.fn();
 	const mockEnqueueChunk = vi.fn();
 	const mockCloseDownstream = vi.fn();
@@ -241,21 +268,14 @@ describe("completeStreamTurn", () => {
 		activeDocumentArtifactId: "doc-1",
 		requestStartTime: Date.now() - 5000,
 		fileProductionJobIdsAtStart: new Set<string>(),
-		latestContextStatus: null,
-		latestActiveWorkingSet: undefined,
-		latestTaskState: null,
-		latestContextDebug: null,
-		latestContextTraceSections: defaultLatestContextTraceSections,
+		preparedContext: {
+			contextStatus: null,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: defaultLatestContextTraceSections,
+		},
 		latestProviderUsage: null,
 		serverTimeline: defaultServerTimeline,
-		initialContextStatus: undefined,
-		initialTaskState: null,
-		initialContextDebug: null,
-		createMessage: mockCreateMessage,
-		persistUserTurnAttachments: mockPersistUserTurnAttachments,
-		persistAssistantTurnState: mockPersistAssistantTurnState,
-		persistAssistantEvidence: mockPersistAssistantEvidence,
-		runPostTurnTasks: mockRunPostTurnTasks,
 		touchConversation: mockTouchConversation,
 		enqueueChunk: mockEnqueueChunk,
 		closeDownstream: mockCloseDownstream,
@@ -454,14 +474,13 @@ describe("completeStreamTurn", () => {
 	});
 
 	it("emits a model-safe stream error when assistant persistence fails before a stable assistant id", async () => {
-		const createMessage = vi
-			.fn()
+		mockCreateMessage
+			.mockReset()
 			.mockResolvedValueOnce({ id: "user-msg-1" })
 			.mockRejectedValueOnce(new Error("assistant persistence offline"));
 
 		await completeStreamTurn({
 			...defaultParams,
-			createMessage,
 			reasoningDepth: "max",
 		});
 
@@ -469,15 +488,12 @@ describe("completeStreamTurn", () => {
 	});
 
 	it("emits a model-safe stream error when required user persistence fails before a stable user id", async () => {
-		const createMessage = vi
-			.fn()
+		mockCreateMessage
+			.mockReset()
 			.mockRejectedValueOnce(new Error("user persistence offline"))
 			.mockResolvedValueOnce({ id: "asst-msg-1" });
 
-		await completeStreamTurn({
-			...defaultParams,
-			createMessage,
-		});
+		await completeStreamTurn(defaultParams);
 
 		expectModelSafeTerminalError();
 	});
@@ -542,28 +558,29 @@ describe("completeStreamTurn", () => {
 	it("persists the user message before the assistant response for the same turn", async () => {
 		const persistedRoles: string[] = [];
 		let resolveUserMessage: (() => void) | undefined;
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> => {
-				if (role === "user") {
-					return new Promise((resolve) => {
-						resolveUserMessage = () => {
-							persistedRoles.push("user");
-							resolve(makeChatMessage("user-msg-1", "user", "user message"));
-						};
-					});
-				}
+		mockCreateMessage
+			.mockReset()
+			.mockImplementation(
+				async (
+					_conversationId: string,
+					role: "user" | "assistant",
+				): Promise<ChatMessage> => {
+					if (role === "user") {
+						return new Promise((resolve) => {
+							resolveUserMessage = () => {
+								persistedRoles.push("user");
+								resolve(makeChatMessage("user-msg-1", "user", "user message"));
+							};
+						});
+					}
 
-				persistedRoles.push("assistant");
-				return makeChatMessage("asst-msg-1", "assistant", "response text");
-			},
-		);
+					persistedRoles.push("assistant");
+					return makeChatMessage("asst-msg-1", "assistant", "response text");
+				},
+			);
 
 		const completion = completeStreamTurn({
 			...defaultParams,
-			createMessage,
 			attachmentIds: [],
 		});
 		await Promise.resolve();
@@ -1063,9 +1080,6 @@ describe("completeStreamTurn", () => {
 	});
 
 	it("defers contextSources and turn-state projection outside fast receipt metadata", async () => {
-		const staleWorkingSet = [
-			artifact("artifact-stale-working", "Stale working"),
-		];
 		const persistedWorkingSet = [
 			artifact("artifact-persisted-working", "Persisted working"),
 		];
@@ -1086,15 +1100,7 @@ describe("completeStreamTurn", () => {
 			workCapsule: undefined,
 		});
 
-		await completeStreamTurn({
-			...defaultParams,
-			latestActiveWorkingSet: staleWorkingSet,
-			latestTaskState: taskState("task-stale"),
-			latestContextDebug: contextDebug(
-				"artifact-stale-evidence",
-				"Stale evidence",
-			),
-		});
+		await completeStreamTurn(defaultParams);
 
 		const data = getLatestEndPayload();
 

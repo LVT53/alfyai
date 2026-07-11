@@ -35,7 +35,8 @@ failures → retry-cleanup.ts
 | AI SDK UI stream frame grammar, terminal detection, metadata extraction | `src/lib/services/ai-sdk-ui-stream-contract.ts` |
 | Stream terminal persistence and `data-stream-metadata` / `finish` payloads | `stream-completion.ts` |
 | Reconnect replay and live stream subscription | `stream-reconnect.ts` |
-| Post-turn persistence fan-out (messages, task-state, knowledge) | `finalize.ts` |
+| Post-turn persistence fan-out orchestration (one ordered sequence) | `finalize.ts` |
+| Post-turn side-effect steps (turn-state, evidence, attachments, memory tasks) | `finalize-steps.ts` |
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |
 | Shared types | `types.ts` |
@@ -49,7 +50,8 @@ failures → retry-cleanup.ts
 - `stream-completion.ts` owns terminal stream completion: final persistence through `finalize.ts`, generated-file assignment, context-source hydration, and the `data-stream-metadata` / `finish` payload shape.
 - `stream-reconnect.ts` owns reconnect replay from `active-streams.ts` buffers and live subscription until terminal AI SDK UI stream completion (`finish` / `[DONE]`) or failed stream closure.
 - `active-streams.ts` owns active stream and replay-buffer ownership. Status, buffer, stop, reconnect, stream completion, and context-compression callers must pass authenticated `userId` plus conversation context when reading active stream or replay-buffer state.
-- `finalize.ts` is the single fan-out point after any turn (stream or non-stream). Add new post-turn side effects there, not in route files.
+- `finalize.ts` is the single fan-out point after any turn (stream or non-stream). `finalizeChatTurn` runs ONE ordered post-turn sequence — skill-control ops → assistant turn-state → evidence → completion context sources → generated-output reconciliation, then `runPostTurnTasks` as the deferred tail. The send path runs it eagerly and returns the durable result; the stream path passes `deferPostTurnProjection: true` to get its terminal receipt first and run the same sequence in the background via `createPostTurnTask`. There is no second copy of the sequence: add a new post-turn side effect in exactly one place here (or as a step in `finalize-steps.ts`), not in route files and not behind a `deferPostTurnProjection` fork.
+- The post-turn step functions (`persistAssistantTurnState`, `persistAssistantEvidence`, `persistUserTurnAttachments`, `runPostTurnTasks`) live in `finalize-steps.ts` as the mockable module seam. `finalizeChatTurn` calls them directly — they are not injectable through the public params. Tests seam by mocking `finalize-steps.ts`, not by passing function overrides.
 - `normalizer.ts` normalizes assistant text through the same stream-protocol helpers so `/send`, `/stream`, retry, and title generation return the same visible content shape.
 - `retry-cleanup.ts` runs idempotent cleanup for evidence links, checkpoints, work capsules, generated outputs, and the assistant message itself on failure.
 - Routes import from this pipeline; they do not duplicate turn logic.

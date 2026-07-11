@@ -21,12 +21,6 @@ import {
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
-import {
-	persistAssistantEvidence,
-	persistAssistantTurnState,
-	persistUserTurnAttachments,
-	runPostTurnTasks,
-} from "$lib/server/services/chat-turn/finalize";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
 	classifyStreamError,
@@ -69,7 +63,6 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
-import { createMessage } from "$lib/server/services/messages";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
@@ -101,7 +94,6 @@ import type {
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import type { StreamingNormalChatPreparedContext } from "./streaming-normal-chat-model-run";
-import type { WorkingSetItem } from "./types";
 
 function getStreamTimeoutMs(): number {
 	return Math.max(60_000, getConfig().requestTimeoutMs);
@@ -674,8 +666,11 @@ export function runChatStreamOrchestrator(
 				}
 				return true;
 			};
+			// One value per prepared-context concept. The completion boundary used
+			// to receive a latest*/initial* mirror-pair for each of these; they
+			// always held the same value here, so the orchestrator now tracks a
+			// single scalar each and hands them over as one snapshot object.
 			let latestContextStatus: ConversationContextStatus | undefined;
-			let latestActiveWorkingSet: WorkingSetItem[] | undefined;
 			let latestTaskState: TaskState | null | undefined;
 			let latestContextDebug: ContextDebugState | null | undefined;
 			let latestContextTraceSections:
@@ -689,12 +684,6 @@ export function runChatStreamOrchestrator(
 				preparedTurn?.depthMetadata;
 			let latestUpstreamFinishReason: FinishReason | null = null;
 			let latestUpstreamRawFinishReason: string | null = null;
-			let initialContextStatus: ConversationContextStatus | undefined;
-			let initialTaskState: TaskState | null | undefined;
-			let initialContextDebug: ContextDebugState | null | undefined;
-			let initialContextTraceSections:
-				| LegacyContextTraceSectionInput[]
-				| undefined;
 			let fileProductionJobIdsAtStart: StreamCompletionFact<FileProductionStartSnapshot> | null =
 				null;
 			const ensureFileProductionJobIdsAtStart = () => {
@@ -750,25 +739,20 @@ export function runChatStreamOrchestrator(
 					requestStartTime,
 					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),
 					pendingWriteIdsAtStart: ensurePendingWriteIdsAtStart(),
-					latestContextStatus,
-					latestActiveWorkingSet,
-					latestTaskState,
-					latestContextDebug,
-					latestContextTraceSections,
+					// The former latest*/initial* mirror-pairs always held the same
+					// value at this boundary, so they collapse into one prepared-context
+					// snapshot carried across as a single object.
+					preparedContext: {
+						contextStatus: latestContextStatus,
+						taskState: latestTaskState,
+						contextDebug: latestContextDebug,
+						contextTraceSections: latestContextTraceSections,
+					},
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
 					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
 					serverTimeline: createTerminalStreamTimelinePayload(phaseTimingMs),
-					initialContextStatus,
-					initialTaskState,
-					initialContextDebug,
-					initialContextTraceSections,
-					createMessage,
-					persistUserTurnAttachments,
-					persistAssistantTurnState,
-					persistAssistantEvidence,
-					runPostTurnTasks,
 					touchConversation,
 					enqueueChunk,
 					closeDownstream,
@@ -935,15 +919,12 @@ export function runChatStreamOrchestrator(
 					personalityPrompt,
 					onContextStatus: (status) => {
 						latestContextStatus = status;
-						initialContextStatus = status;
 					},
 					onTaskState: (state) => {
 						latestTaskState = state;
-						initialTaskState = state;
 					},
 					onContextDebug: (debug) => {
 						latestContextDebug = debug;
-						initialContextDebug = debug;
 					},
 					onProviderUsage: (usage) => {
 						latestProviderUsage = usage;
@@ -1108,7 +1089,6 @@ export function runChatStreamOrchestrator(
 				});
 				emitPrefetchedToolCalls(modelRun.prefetchedToolCalls);
 				latestContextStatus = prepared.contextStatus;
-				initialContextStatus = latestContextStatus;
 				latestTaskState =
 					prepared.taskState ??
 					(await getConversationTaskState(user.id, conversationId).catch(
@@ -1118,15 +1098,12 @@ export function runChatStreamOrchestrator(
 					user.id,
 					latestTaskState ?? null,
 				).catch(() => latestTaskState ?? null);
-				initialTaskState = latestTaskState;
 				latestContextDebug =
 					prepared.contextDebug ??
 					(await getContextDebugState(user.id, conversationId).catch(
 						() => null,
 					));
-				initialContextDebug = latestContextDebug;
 				latestContextTraceSections = prepared.contextTraceSections;
-				initialContextTraceSections = latestContextTraceSections;
 				emitResponseActivity({
 					id: RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER,
 					kind: "drafting",

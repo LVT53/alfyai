@@ -36,15 +36,19 @@ import {
 	streamTextEndEvent,
 	streamTextStartEvent,
 } from "./stream";
-import type {
-	PersistAssistantEvidenceParams,
-	PersistAssistantTurnStateParams,
-	PersistAssistantTurnStateResult,
-	RunPostTurnTasksParams,
-	WorkingSetItem,
-} from "./types";
 
 export type StreamCompletionFact<T> = T | Promise<T>;
+
+// The prepared-context snapshot the orchestrator hands to completion. It
+// replaces the former latest*/initial* scalar mirror-pairs: each pair always
+// carried the same value at this boundary, so it collapses to one value per
+// concept and the boundary carries a single object instead of eight scalars.
+export type PreparedContextSnapshot = {
+	contextStatus: ConversationContextStatus | null | undefined;
+	taskState: TaskState | null | undefined;
+	contextDebug: ContextDebugState | null | undefined;
+	contextTraceSections?: LegacyContextTraceSectionInput[];
+};
 
 export type FileProductionStartSnapshot =
 	| Set<string>
@@ -95,35 +99,12 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	activeSkillSessionId?: string | null;
 	activeDocumentArtifactId: string | null;
 	requestStartTime: number;
-	latestContextStatus: ConversationContextStatus | null | undefined;
-	latestActiveWorkingSet: WorkingSetItem[] | undefined;
-	latestTaskState: TaskState | null | undefined;
-	latestContextDebug: ContextDebugState | null | undefined;
-	latestContextTraceSections?: LegacyContextTraceSectionInput[];
+	preparedContext: PreparedContextSnapshot;
 	latestProviderUsage: ProviderUsageSnapshot | null;
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
 	serverTimeline?: StreamTimelineTerminalPayload;
-	initialContextStatus: ConversationContextStatus | undefined;
-	initialTaskState: TaskState | null | undefined;
-	initialContextDebug: ContextDebugState | null | undefined;
-	initialContextTraceSections?: LegacyContextTraceSectionInput[];
-	createMessage: typeof import("$lib/server/services/messages").createMessage;
-	persistUserTurnAttachments: (params: {
-		userId: string;
-		conversationId: string;
-		messageId: string;
-		normalizedMessage: string;
-		attachmentIds: string[];
-	}) => Promise<WorkingSetItem[] | undefined>;
-	persistAssistantTurnState: (
-		params: PersistAssistantTurnStateParams,
-	) => Promise<PersistAssistantTurnStateResult>;
-	persistAssistantEvidence: (
-		params: PersistAssistantEvidenceParams,
-	) => Promise<void>;
-	runPostTurnTasks: (params: RunPostTurnTasksParams) => Promise<void>;
 	touchConversation: (
 		userId: string,
 		conversationId: string,
@@ -192,21 +173,12 @@ export async function completeStreamTurn(
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
 		pendingWriteIdsAtStart: pendingWriteIdsAtStartFact,
-		latestContextStatus,
-		latestContextTraceSections,
+		preparedContext,
 		latestProviderUsage,
 		upstreamFinishReason = "stop",
 		upstreamRawFinishReason = null,
 		streamClosedWithoutFinish = false,
 		serverTimeline,
-		initialTaskState,
-		initialContextDebug,
-		initialContextTraceSections,
-		createMessage,
-		persistUserTurnAttachments,
-		persistAssistantTurnState,
-		persistAssistantEvidence,
-		runPostTurnTasks,
 		touchConversation,
 		enqueueChunk,
 		closeDownstream,
@@ -290,7 +262,6 @@ export async function completeStreamTurn(
 	const hadConnectionWriteToolCall = toolCallSummary.some((record) =>
 		isConnectionWriteToolName(record.name),
 	);
-	let deferredStartedResetGeneration: number | undefined;
 	const deferredFileProductionJobIdsAtStart = new Set<string>();
 	let fileProductionReconciliationReady = !hadFileProductionToolCall;
 	let fileProductionReconciliationSkipped = false;
@@ -308,14 +279,6 @@ export async function completeStreamTurn(
 		}
 		return getFileProductionJobs(requestUserId, requestConversationId);
 	};
-	const runPostTurnTasksWithDeferredFacts = (
-		postTurnParams: RunPostTurnTasksParams,
-	): Promise<void> =>
-		runPostTurnTasks({
-			...postTurnParams,
-			startedResetGeneration:
-				deferredStartedResetGeneration ?? postTurnParams.startedResetGeneration,
-		});
 
 	if (getConfig().contextDiagnosticsDebug) {
 		console.info("[CHAT_STREAM] Tool-call summary", {
@@ -429,6 +392,16 @@ export async function completeStreamTurn(
 						fact: pendingWriteIdsAtStartFact,
 					})
 				: undefined;
+		// Resolve the reset-generation fact here so finalize's post-turn tail
+		// receives the concrete value. The fact is pre-warmed at request start
+		// (see startStartedResetGenerationFact), so this await settles a
+		// resolved promise rather than blocking the terminal receipt; a rejected
+		// fact degrades to undefined and the turn still finalizes.
+		const startedResetGeneration = await resolveStartedResetGenerationFact({
+			conversationId,
+			streamId,
+			fact: startedResetGenerationFact,
+		});
 		const completion = await finalizeChatTurn({
 			logPrefix: "[STREAM]",
 			streamId,
@@ -463,9 +436,10 @@ export async function completeStreamTurn(
 			skillControlSessionId: activeSkillSessionId ?? null,
 			attachmentIds,
 			activeDocumentArtifactId,
-			contextStatus: latestContextStatus as ConversationContextStatus | null,
-			initialTaskState,
-			initialContextDebug,
+			contextStatus:
+				preparedContext.contextStatus as ConversationContextStatus | null,
+			initialTaskState: preparedContext.taskState,
+			initialContextDebug: preparedContext.contextDebug,
 			analytics: {
 				model: analyticsModel,
 				modelDisplayName,
@@ -478,19 +452,14 @@ export async function completeStreamTurn(
 			continuitySource: "stream",
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
+			startedResetGeneration,
 			toolCalls: toolCallRecords,
-			contextTraceSections:
-				latestContextTraceSections ?? initialContextTraceSections,
+			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			linkedSources,
 			persistenceMode: "best_effort",
 			persistAssistantMessage: true,
 			persistTurnState: !wasStopped,
-			createMessage,
-			persistUserTurnAttachments,
-			persistAssistantTurnState,
-			persistAssistantEvidence,
-			runPostTurnTasks: runPostTurnTasksWithDeferredFacts,
 			deferPostTurnProjection: true,
 			persistUserAttachmentsBeforeAssistantMessage: false,
 			generatedOutputReconciliation:
@@ -515,12 +484,6 @@ export async function completeStreamTurn(
 		}
 		sendEndAndClose(completion.userMessage?.id, completion.assistantMessage.id);
 		const deferredProjectionTask = (async () => {
-			deferredStartedResetGeneration = await resolveStartedResetGenerationFact({
-				conversationId,
-				streamId,
-				fact: startedResetGenerationFact,
-			});
-
 			if (hadFileProductionToolCall) {
 				const fileProductionStartSnapshot =
 					await resolveFileProductionJobIdsAtStart({
