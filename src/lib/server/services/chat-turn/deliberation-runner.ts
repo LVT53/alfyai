@@ -4,6 +4,7 @@ import {
 	buildReasoningDepthProviderOptions,
 	withReasoningDepthPreparedBudget,
 } from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import type {
 	NormalChatModelRunProvider,
 	NormalChatModelRunUsage,
@@ -177,7 +178,7 @@ export async function runNormalChatDeliberationPasses(
 	}
 
 	const deliberationRecorder = createToolCallRecorder();
-	const tools = createDeliberationTools({
+	const tools = await createDeliberationTools({
 		...params,
 		recorder: deliberationRecorder,
 	});
@@ -425,7 +426,7 @@ async function runSinglePassWithStatus(
 	passTotal: number,
 	previousBriefs: NormalChatDeliberationBrief[],
 	workspaceReport: DeliberationWorkspaceReport,
-	tools: ReturnType<typeof createDeliberationTools>,
+	tools: Awaited<ReturnType<typeof createDeliberationTools>>,
 ): Promise<RunPassResult> {
 	// Issue 2: Suppress per-pass status for local-only passes outside the prefix.
 	// The local prefix already handles aggregate status; non-prefix local passes
@@ -469,7 +470,7 @@ async function runRemainingSequentialPass(
 	workspaceReport: DeliberationWorkspaceReport,
 	usage: NormalChatModelRunUsage,
 	constraints: string[],
-	tools: ReturnType<typeof createDeliberationTools>,
+	tools: Awaited<ReturnType<typeof createDeliberationTools>>,
 ): Promise<void> {
 	if (params.abortSignal?.aborted) return;
 	const result = await runSinglePassWithStatus(
@@ -504,7 +505,7 @@ async function runRemainingParallelPasses(
 	workspaceReport: DeliberationWorkspaceReport,
 	usage: NormalChatModelRunUsage,
 	constraints: string[],
-	tools: ReturnType<typeof createDeliberationTools>,
+	tools: Awaited<ReturnType<typeof createDeliberationTools>>,
 ): Promise<void> {
 	if (midPasses.length === 0 || params.abortSignal?.aborted) return;
 
@@ -1348,7 +1349,7 @@ function emptyUsage(): NormalChatModelRunUsage {
 	};
 }
 
-function createDeliberationTools(
+export async function createDeliberationTools(
 	params: NormalChatDeliberationParams & { recorder: ToolCallRecorder },
 ) {
 	const normalChatTools = createNormalChatTools({
@@ -1363,7 +1364,17 @@ function createDeliberationTools(
 			: {}),
 	});
 	const { research_web, memory_context } = normalChatTools.tools;
-	return { research_web, memory_context };
+	// Read-side master gate for the recall tool, mirroring
+	// selectNormalChatToolsForRequest on the main chat path. Single source of
+	// truth (master toggle AND non-incognito); fail open (active) so a
+	// controls-lookup hiccup never silently drops recall. When inactive the
+	// deliberation sub-model is not offered memory_context at all, rather than
+	// relying on the getMemoryContext backstop returning an inert empty result.
+	const memoryActive = await isMemoryActiveForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => true);
+	return { research_web, ...(memoryActive ? { memory_context } : {}) };
 }
 
 async function runDeliberationPass(
@@ -1371,7 +1382,7 @@ async function runDeliberationPass(
 		passSpec: PlannedDeliberationPass;
 		previousBriefs: NormalChatDeliberationBrief[];
 		workspaceReport: DeliberationWorkspaceReport;
-		tools: ReturnType<typeof createDeliberationTools>;
+		tools: Awaited<ReturnType<typeof createDeliberationTools>>;
 	},
 ): Promise<RunPassResult> {
 	// RD-13: context_source_gap_review is a model call for Maximum profile,
