@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -658,6 +659,146 @@ describe("listPendingWritesForConversation", () => {
 		// the endpoint route projects only the safe subset. This test pins the
 		// preview shape the endpoint is allowed to forward.
 		expect(row.preview).toEqual(PREVIEW);
+	});
+});
+
+// Fix 1 (write-safety hardening) — pending-write TTL. Without an expiry, a
+// pending write could be confirmed arbitrarily far in the future against
+// state that changed long ago. createPendingWrite now stamps every new row
+// with `expiresAt = now + PENDING_WRITE_TTL_MS`; confirmPendingWrite refuses
+// (reason "expired") a still-"pending" row whose expiresAt has passed,
+// BEFORE ever claiming it — the row is moved to a terminal "failed" status
+// so a later confirm can't retry it. A NULL expiresAt (a row that predates
+// this column) is backward-compatible: it is never treated as expired.
+describe("pending-write TTL / expiry (Fix 1)", () => {
+	it("createPendingWrite stamps expiresAt as now + PENDING_WRITE_TTL_MS", async () => {
+		const { createPendingWrite, getPendingWrite, PENDING_WRITE_TTL_MS } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+
+		const beforeMs = Date.now();
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+		const afterMs = Date.now();
+
+		const fetched = await getPendingWrite("user-1", created.id);
+		expect(fetched?.expiresAt).not.toBeNull();
+		const expiresAtMs = (fetched?.expiresAt as number) * 1000;
+		expect(expiresAtMs).toBeGreaterThanOrEqual(
+			beforeMs + PENDING_WRITE_TTL_MS - 2000,
+		);
+		expect(expiresAtMs).toBeLessThanOrEqual(
+			afterMs + PENDING_WRITE_TTL_MS + 2000,
+		);
+	});
+
+	it("refuses to confirm an expired pending write with reason 'expired', marks it terminal, and never calls the executor", async () => {
+		const { createPendingWrite, confirmPendingWrite, getPendingWrite } =
+			await import("./pending-writes");
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		// Force this row's expiry into the past — simulates a pending write
+		// that sat unconfirmed past its TTL.
+		const db = drizzle(sqlite, { schema });
+		await db
+			.update(schema.connectionPendingWrites)
+			.set({ expiresAt: new Date(Date.now() - 60_000) })
+			.where(eq(schema.connectionPendingWrites.id, created.id));
+
+		const fetchMock = vi.fn();
+		const result = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result).toEqual({ ok: false, status: 409, reason: "expired" });
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		// Terminal — never left "pending" or "executing" so it can't be
+		// silently retried once expired.
+		const after = await getPendingWrite("user-1", created.id);
+		expect(after?.status).not.toBe("pending");
+		expect(after?.status).not.toBe("executing");
+
+		// A second confirm attempt is refused outright too, not re-evaluated
+		// as "expired" again from a terminal state.
+		const retryFetchMock = vi.fn();
+		const retry = await confirmPendingWrite("user-1", created.id, {
+			fetch: retryFetchMock as unknown as typeof fetch,
+		});
+		expect(retry.ok).toBe(false);
+		expect(retryFetchMock).not.toHaveBeenCalled();
+	});
+
+	it("a NULL expiresAt (legacy row, predates this column) is never treated as expired — confirms normally", async () => {
+		const { createPendingWrite, confirmPendingWrite } = await import(
+			"./pending-writes"
+		);
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const db = drizzle(sqlite, { schema });
+		await db
+			.update(schema.connectionPendingWrites)
+			.set({ expiresAt: null })
+			.where(eq(schema.connectionPendingWrites.id, created.id));
+
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(null, { status: 201, headers: { ETag: '"e1"' } }),
+		);
+		const result = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("a fresh row within the TTL window confirms normally", async () => {
+		const { createPendingWrite, confirmPendingWrite } = await import(
+			"./pending-writes"
+		);
+		const connectionId = await seedConnection("user-1");
+		const created = await createPendingWrite("user-1", {
+			connectionId,
+			provider: "nextcloud",
+			op: makeOp(connectionId),
+			content: "hello world",
+			idempotencyKey: "key-1",
+			preview: PREVIEW,
+		});
+
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(null, { status: 201, headers: { ETag: '"e1"' } }),
+		);
+		const result = await confirmPendingWrite("user-1", created.id, {
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });
 

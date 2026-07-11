@@ -9,6 +9,7 @@ import { createPendingWrite } from "$lib/server/services/connections/pending-wri
 import {
 	executeNextcloudWrite,
 	NextcloudFilesError,
+	nextcloudCheckVersioningEnabled,
 	nextcloudListFolder,
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -60,6 +61,7 @@ vi.mock(
 			nextcloudReadFile: vi.fn(),
 			nextcloudStat: vi.fn(),
 			executeNextcloudWrite: vi.fn(),
+			nextcloudCheckVersioningEnabled: vi.fn(),
 		};
 	},
 );
@@ -92,6 +94,9 @@ const nextcloudListFolderMock = vi.mocked(nextcloudListFolder);
 const nextcloudReadFileMock = vi.mocked(nextcloudReadFile);
 const nextcloudStatMock = vi.mocked(nextcloudStat);
 const executeNextcloudWriteMock = vi.mocked(executeNextcloudWrite);
+const nextcloudCheckVersioningEnabledMock = vi.mocked(
+	nextcloudCheckVersioningEnabled,
+);
 const onedriveSearchMock = vi.mocked(onedriveSearch);
 const onedriveListFolderMock = vi.mocked(onedriveListFolder);
 const onedriveReadFileMock = vi.mocked(onedriveReadFile);
@@ -1096,9 +1101,14 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 		nextcloudStatMock.mockReset();
 		executeNextcloudWriteMock.mockReset();
 		createPendingWriteMock.mockReset();
+		nextcloudCheckVersioningEnabledMock.mockReset();
 		needsDisambiguationMock.mockReturnValue(false);
 		getConnectionSecretMock.mockResolvedValue("secret");
 		nextcloudStatMock.mockResolvedValue(null);
+		// Fix 2 default: versioning ON (matches the pre-fix "always reversible"
+		// behavior for connections that DO have server-side versioning) — tests
+		// below override this per-case to prove the OFF/unknown paths.
+		nextcloudCheckVersioningEnabledMock.mockResolvedValue(true);
 		createPendingWriteMock.mockResolvedValue({
 			id: "pending-1",
 			preview: {
@@ -1218,6 +1228,113 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 
 		expect(outcome.modelPayload.success).toBe(false);
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	// Fix 2 (write-safety hardening) — the "reversible" claim on an overwrite
+	// must reflect whether the Nextcloud server actually has version history
+	// enabled, not an unconditional `true`. These three cases prove the
+	// capabilities probe result flows through into the WriteOperation.
+	describe("reversible flag reflects the Nextcloud versioning probe (Fix 2)", () => {
+		it("versioning ON: proposes an overwrite as reversible:true, no not-recoverable warning", async () => {
+			const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			nextcloudCheckVersioningEnabledMock.mockResolvedValue(true);
+			// An existing file at the target path — this IS an overwrite.
+			nextcloudStatMock.mockResolvedValue({
+				name: "note.txt",
+				path: "AlfyAI/note.txt",
+				isDir: false,
+				size: 10,
+				mtime: null,
+				contentType: "text/plain",
+				etag: "etag-1",
+			});
+
+			await runFilesTool(
+				"user-1",
+				{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+				LOCAL_MODEL_ID,
+				"conv-1",
+			);
+
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({ reversible: true, destructive: true });
+			expect(call?.preview.warnings.join(" ")).not.toMatch(/not.*recoverable/i);
+		});
+
+		it("versioning OFF: proposes an overwrite as reversible:false with a not-recoverable (no version history) warning", async () => {
+			const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			nextcloudCheckVersioningEnabledMock.mockResolvedValue(false);
+			nextcloudStatMock.mockResolvedValue({
+				name: "note.txt",
+				path: "AlfyAI/note.txt",
+				isDir: false,
+				size: 10,
+				mtime: null,
+				contentType: "text/plain",
+				etag: "etag-1",
+			});
+
+			const outcome = await runFilesTool(
+				"user-1",
+				{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+				LOCAL_MODEL_ID,
+				"conv-1",
+			);
+
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({ reversible: false, destructive: true });
+			expect(call?.preview.warnings.join(" ")).toMatch(
+				/version history/i,
+			);
+			expect(outcome.modelPayload.message).toMatch(/version history/i);
+		});
+
+		it("probe unknown (null): conservatively proposes reversible:false with a 'could not be confirmed' warning, not silently reversible:true", async () => {
+			const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			nextcloudCheckVersioningEnabledMock.mockResolvedValue(null);
+			nextcloudStatMock.mockResolvedValue({
+				name: "note.txt",
+				path: "AlfyAI/note.txt",
+				isDir: false,
+				size: 10,
+				mtime: null,
+				contentType: "text/plain",
+				etag: "etag-1",
+			});
+
+			const outcome = await runFilesTool(
+				"user-1",
+				{ action: "save", path: "/AlfyAI/note.txt", content: "hello world" },
+				LOCAL_MODEL_ID,
+				"conv-1",
+			);
+
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({ reversible: false, destructive: true });
+			expect(call?.preview.warnings.join(" ")).toMatch(/confirm/i);
+			expect(outcome.modelPayload.message).toMatch(/confirm/i);
+		});
+
+		it("a NEW file (not an overwrite) is not destructive, so no not-recoverable warning is added even when versioning is off", async () => {
+			const conn = makeConn({ allowWrites: true, writeAllowlist: ["/AlfyAI"] });
+			resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
+			nextcloudCheckVersioningEnabledMock.mockResolvedValue(false);
+			nextcloudStatMock.mockResolvedValue(null); // nothing at the target path
+
+			const outcome = await runFilesTool(
+				"user-1",
+				{ action: "save", path: "/AlfyAI/new.txt", content: "hello world" },
+				LOCAL_MODEL_ID,
+				"conv-1",
+			);
+
+			const call = createPendingWriteMock.mock.calls[0]?.[1];
+			expect(call?.op).toMatchObject({ reversible: false, destructive: false });
+			expect(outcome.modelPayload.message).not.toMatch(/version history/i);
+		});
 	});
 });
 

@@ -54,6 +54,15 @@ export type PendingWriteStatus =
 	| "cancelled"
 	| "failed";
 
+// Fix 1 (write-safety hardening) — TTL for the confirm chokepoint. Without
+// an expiry, a pending write proposed once could be confirmed arbitrarily
+// far in the future against state that has since changed underneath it
+// (a stale etag/uidValidity/allowlist, or just a very old, forgotten
+// proposal). 30 minutes comfortably covers a normal "propose, read the
+// preview, click confirm" turnaround without leaving a proposal live
+// indefinitely.
+export const PENDING_WRITE_TTL_MS = 30 * 60 * 1000;
+
 export type PendingWriteRecord = {
 	id: string;
 	userId: string;
@@ -74,6 +83,11 @@ export type PendingWriteRecord = {
 	conversationId: string | null;
 	assistantMessageId: string | null;
 	createdAt: number;
+	// Fix 1 — epoch seconds (same shape as createdAt) after which
+	// confirmPendingWrite refuses this row with reason "expired", or null for
+	// a row that predates this column (backward-compatible: NULL never
+	// expires). Always set on rows created via createPendingWrite below.
+	expiresAt: number | null;
 };
 
 // The persisted shape of `op_json` — the serialized WriteOperation plus the
@@ -97,7 +111,20 @@ function toRecord(row: PendingWriteRow): PendingWriteRecord {
 		conversationId: row.conversationId ?? null,
 		assistantMessageId: row.assistantMessageId ?? null,
 		createdAt: Math.floor(row.createdAt.getTime() / 1000),
+		expiresAt: row.expiresAt
+			? Math.floor(row.expiresAt.getTime() / 1000)
+			: null,
 	};
+}
+
+// True iff `expiresAt` (epoch seconds, or null for "no expiry") has passed
+// as of `now`. NULL is backward-compat for rows that predate the expiresAt
+// column — never expired (Fix 1).
+function isPendingWriteExpired(
+	expiresAt: number | null,
+	now: number = Date.now(),
+): boolean {
+	return expiresAt !== null && expiresAt * 1000 <= now;
 }
 
 function scoped(userId: string, id: string) {
@@ -128,6 +155,7 @@ export async function createPendingWrite(
 ): Promise<{ id: string; preview: WritePreview }> {
 	const id = randomUUID();
 	const opJson: PendingWriteOpJson = { op: params.op, content: params.content };
+	const now = new Date();
 	await db.insert(connectionPendingWrites).values({
 		id,
 		userId,
@@ -138,7 +166,10 @@ export async function createPendingWrite(
 		status: "pending",
 		previewJson: JSON.stringify(params.preview),
 		conversationId: params.conversationId ?? null,
-		createdAt: new Date(),
+		createdAt: now,
+		// Fix 1 — every new row gets a TTL; only rows created before this
+		// column existed can ever be NULL (see isPendingWriteExpired).
+		expiresAt: new Date(now.getTime() + PENDING_WRITE_TTL_MS),
 	});
 	return { id, preview: params.preview };
 }
@@ -275,6 +306,27 @@ export async function markPendingWriteFailed(
 	return result.changes > 0;
 }
 
+// Fix 1 — atomic "pending" -> "failed" transition for a row whose TTL has
+// passed. A single conditional UPDATE (same shape as cancelPendingWrite),
+// so a row is only ever expired out of "pending" — never out of
+// "executing"/"executed"/"cancelled"/"failed" — and a concurrent confirm
+// that already claimed the row (flipped it to "executing") between
+// confirmPendingWrite's read and this call simply loses this race (changes
+// === 0), exactly like a concurrent claim would. Terminal ("failed"), not
+// reopened, so an expired write can never be silently retried.
+export async function markPendingWriteExpired(
+	userId: string,
+	id: string,
+): Promise<boolean> {
+	const result = await db
+		.update(connectionPendingWrites)
+		.set({ status: "failed" })
+		.where(
+			and(scoped(userId, id), eq(connectionPendingWrites.status, "pending")),
+		);
+	return result.changes > 0;
+}
+
 // Conditional update — only a still-"pending" row can be cancelled. Returns
 // false for a missing/other-user/already-resolved row, same shape as
 // markPendingWriteExecuted.
@@ -335,7 +387,28 @@ export async function confirmPendingWrite(
 		return { ok: false, status: 409, reason: "in_progress" };
 	}
 
-	// record.status === "pending" here. Before claiming, re-check the
+	// record.status === "pending" here. Fix 1 — refuse an EXPIRED pending
+	// write BEFORE the allowWrites re-check or the claim: a proposal that has
+	// sat unconfirmed past its TTL is refused rather than executed against
+	// state that may have changed long ago. NULL expiresAt (a row that
+	// predates this column) is never expired — see isPendingWriteExpired.
+	if (isPendingWriteExpired(record.expiresAt)) {
+		const expired = await markPendingWriteExpired(userId, id);
+		if (!expired) {
+			// Lost a race with a concurrent confirm/cancel that resolved this
+			// row between our read and this point — report the authoritative
+			// current state rather than blindly claiming "expired", same
+			// posture as the claim-loss fallback below.
+			const latest = await getPendingWrite(userId, id);
+			if (latest?.status === "executed") {
+				return { ok: true, alreadyExecuted: true, etag: latest.etag };
+			}
+			return { ok: false, status: 409, reason: "in_progress" };
+		}
+		return { ok: false, status: 409, reason: "expired" };
+	}
+
+	// Before claiming, re-check the
 	// connection's CURRENT allowWrites setting — this is the fix for the
 	// second TOCTOU gap (write-safety point 1): a write can be proposed
 	// while allowWrites=true, then the user flips writes off in the 7.1

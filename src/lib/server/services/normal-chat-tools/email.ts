@@ -6,6 +6,7 @@ import {
 	ImapError,
 	type ImapFolder,
 	imapCount,
+	imapGetInboxUidValidity,
 	imapListFolders,
 	imapListRecent,
 	imapReadMessage,
@@ -649,11 +650,18 @@ async function proposeTrash(
 	}
 
 	let subject: string;
+	let uidValidity: string | null;
 	try {
-		const { header } = await imapReadMessage(userId, conn.id, {
-			uid: input.uid,
-		});
+		// Fix 3 (write-safety hardening) — UIDVALIDITY binding: capture
+		// INBOX's current UIDVALIDITY alongside the header fetch, so
+		// imap-write.ts can refuse to act on `uid` at execute time if the
+		// epoch has since changed (see imapGetInboxUidValidity's doc comment).
+		const [{ header }, capturedUidValidity] = await Promise.all([
+			imapReadMessage(userId, conn.id, { uid: input.uid }),
+			imapGetInboxUidValidity(userId, conn.id),
+		]);
 		subject = header.subject || "(no subject)";
+		uidValidity = capturedUidValidity;
 	} catch (err) {
 		return buildPayload({
 			success: false,
@@ -677,7 +685,10 @@ async function proposeTrash(
 		connectionId: conn.id,
 		provider: conn.provider,
 		op,
-		content: JSON.stringify({ uid: input.uid }),
+		content: JSON.stringify({
+			uid: input.uid,
+			...(uidValidity !== null ? { uidValidity } : {}),
+		}),
 		idempotencyKey: idempotencyKey(op),
 		// The DB row keeps the RAW preview (real subject) — never sent back
 		// through the model; only the copy below is.
@@ -743,6 +754,21 @@ async function proposeFlag(
 		});
 	}
 
+	// Fix 3 (write-safety hardening) — UIDVALIDITY binding, same rationale as
+	// proposeTrash above. A flag change has no other reason to open a
+	// connection at propose time, but the safety property needs this capture
+	// regardless.
+	let uidValidity: string | null;
+	try {
+		uidValidity = await imapGetInboxUidValidity(userId, conn.id);
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action: "flag",
+			message: mapAdapterError(err),
+		});
+	}
+
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
@@ -762,6 +788,7 @@ async function proposeFlag(
 			uid: input.uid,
 			flag: input.flag,
 			value: input.value,
+			...(uidValidity !== null ? { uidValidity } : {}),
 		}),
 		idempotencyKey: idempotencyKey(op),
 		preview,

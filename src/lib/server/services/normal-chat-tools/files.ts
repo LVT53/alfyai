@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
+	nextcloudCheckVersioningEnabled,
 	nextcloudListFolder,
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -614,16 +615,34 @@ async function saveOutcome(
 	const destructive = await wouldOverwrite(conn, secret, target.path);
 	const label = fileLabel(target.path);
 
+	// Fix 2 (write-safety hardening) — `reversible` must be TRUTHFUL: an
+	// overwrite is only actually recoverable if the connected Nextcloud
+	// server has its Versions app enabled. `null` (probe failed/inconclusive)
+	// is treated the same as "off" — conservative, never assumed safe.
+	const versioningStatus = await nextcloudCheckVersioningEnabled(conn, secret);
+	const reversible = versioningStatus === true;
+
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
 		action: "files.put",
 		summary: `Save ${label} to ${target.path}`,
-		reversible: true, // Nextcloud keeps versions/trash for overwritten files.
+		reversible,
 		destructive,
 		target: { path: target.path, withinAllowlist: target.withinAllowlist },
 	};
 	const preview = buildWritePreview(op);
+	// buildWritePreview already adds a generic "may not be recoverable"
+	// warning for any destructive && !reversible op — this appends the
+	// specific reason so the user knows WHY: no version history on the
+	// server (confirmed off) vs. simply couldn't confirm either way.
+	if (destructive && !reversible) {
+		preview.warnings.push(
+			versioningStatus === false
+				? "Nextcloud version history is off on this server, so this overwrite cannot be recovered."
+				: "Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
+		);
+	}
 
 	const { id } = await createPendingWrite(userId, {
 		connectionId: conn.id,

@@ -1379,6 +1379,54 @@ export async function nextcloudCreateShareLink(
 	return shareUrl;
 }
 
+// Fix 2 (write-safety hardening) — `null` means "could not confirm", not
+// "no". Every caller MUST treat null the same as `false` (conservative):
+// buildWritePreview only trusts an explicit `true` to suppress its "may not
+// be recoverable" warning, and files.ts's saveOutcome mirrors that.
+export type NextcloudVersioningStatus = boolean | null;
+
+// Probes the Nextcloud OCS capabilities endpoint to find out whether the
+// server-side Versions app is enabled — the save/put propose path
+// (normal-chat-tools/files.ts) uses this so its `reversible` claim on an
+// overwrite is TRUTHFUL rather than the previous unconditional `true`
+// (overwrite recovery only actually works when the server keeps versions).
+// Deliberately never throws: any failure (network, non-2xx, malformed body,
+// a server too old to report this capability) degrades to `null`
+// ("unknown"), which callers must treat as NOT confirmed reversible — this
+// function must never let an inconclusive probe read as "safe".
+export async function nextcloudCheckVersioningEnabled(
+	conn: ConnectionPublic,
+	appPassword: string,
+	opts?: FetchOpt,
+): Promise<NextcloudVersioningStatus> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	try {
+		const { serverUrl, loginName } = nextcloudConfig(conn);
+		const response = await fetchWithTimeout(
+			fetchImpl,
+			`${serverUrl}/ocs/v2.php/cloud/capabilities?format=json`,
+			{
+				method: "GET",
+				headers: {
+					Authorization: basicAuthHeader(loginName, appPassword),
+					"OCS-APIRequest": "true",
+					"User-Agent": USER_AGENT,
+				},
+			},
+		);
+		if (!response.ok) return null;
+		const body = (await response.json()) as {
+			ocs?: {
+				data?: { capabilities?: { files?: { versioning?: unknown } } };
+			};
+		};
+		const versioning = body?.ocs?.data?.capabilities?.files?.versioning;
+		return typeof versioning === "boolean" ? versioning : null;
+	} catch {
+		return null;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Guarded execute service (4.2) — the single chokepoint a chat-tool write
 // action (4.3) is expected to call through. Confirmation is assumed to have

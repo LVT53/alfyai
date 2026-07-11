@@ -186,9 +186,13 @@ class FakeImapWriteClient implements ImapWriteFlowLike {
 	async mailboxOpen(
 		path: string,
 		options?: { readOnly?: boolean },
-	): Promise<unknown> {
+	): Promise<{ exists?: number; uidValidity?: bigint }> {
 		this.mailboxOpenCalls.push({ path, options });
-		return (await this.behavior.mailboxOpen?.()) ?? { exists: 0 };
+		return (
+			((await this.behavior.mailboxOpen?.()) as
+				| { exists?: number; uidValidity?: bigint }
+				| undefined) ?? { exists: 0 }
+		);
 	}
 
 	// Not part of a read-only mailbox contract — kept only to satisfy
@@ -438,6 +442,67 @@ describe("imap write-executor — email.trash (safe delete, never EXPUNGE)", () 
 		expect(result).toEqual({ ok: false, reason: "connection_not_found" });
 		expect(client.connectCalls).toBe(0);
 	});
+
+	// Fix 3 (write-safety hardening) — UIDVALIDITY binding. A uid is only
+	// valid within the mailbox's UIDVALIDITY epoch it was captured under; if
+	// the epoch changed since the write was proposed, the uid can no longer
+	// be trusted to reference the same message.
+	describe("UIDVALIDITY binding (Fix 3)", () => {
+		it("refuses with uidvalidity_changed when INBOX's current UIDVALIDITY differs from the captured one, and never moves the message", async () => {
+			const client = new FakeImapWriteClient({
+				mailboxOpen: () => ({ uidValidity: 999n }),
+				list: () => [{ path: "Trash", name: "Trash", specialUse: "\\Trash" }],
+			});
+
+			const result = await imapExecutor().execute(
+				USER_ID,
+				CONNECTION_ID,
+				makeTrashOp(),
+				JSON.stringify({ uid: 42, uidValidity: "111" }),
+				{ createClient: createClientFactory(client) },
+			);
+
+			expect(result).toEqual({ ok: false, reason: "uidvalidity_changed" });
+			expect(client.messageMoveCalls).toEqual([]);
+		});
+
+		it("proceeds normally when the captured UIDVALIDITY matches the current one", async () => {
+			const client = new FakeImapWriteClient({
+				mailboxOpen: () => ({ uidValidity: 111n }),
+				list: () => [{ path: "Trash", name: "Trash", specialUse: "\\Trash" }],
+			});
+
+			const result = await imapExecutor().execute(
+				USER_ID,
+				CONNECTION_ID,
+				makeTrashOp(),
+				JSON.stringify({ uid: 42, uidValidity: "111" }),
+				{ createClient: createClientFactory(client) },
+			);
+
+			expect(result).toEqual({ ok: true, detail: "moved to trash" });
+			expect(client.messageMoveCalls).toEqual([
+				{ range: [42], destination: "Trash" },
+			]);
+		});
+
+		it("a pending write with no captured UIDVALIDITY (legacy content) is never refused as a mismatch", async () => {
+			const client = new FakeImapWriteClient({
+				mailboxOpen: () => ({ uidValidity: 999n }),
+				list: () => [{ path: "Trash", name: "Trash", specialUse: "\\Trash" }],
+			});
+
+			const result = await imapExecutor().execute(
+				USER_ID,
+				CONNECTION_ID,
+				makeTrashOp(),
+				JSON.stringify({ uid: 42 }),
+				{ createClient: createClientFactory(client) },
+			);
+
+			expect(result).toEqual({ ok: true, detail: "moved to trash" });
+		});
+	});
 });
 
 describe("imap write-executor — email.flag", () => {
@@ -492,6 +557,52 @@ describe("imap write-executor — email.flag", () => {
 		);
 
 		expect(client.logoutCalls).toBe(1);
+	});
+
+	// Fix 3 — same UIDVALIDITY binding as email.trash above.
+	describe("UIDVALIDITY binding (Fix 3)", () => {
+		it("refuses with uidvalidity_changed and never applies the flag when the epoch differs", async () => {
+			const client = new FakeImapWriteClient({
+				mailboxOpen: () => ({ uidValidity: 999n }),
+			});
+
+			const result = await imapExecutor().execute(
+				USER_ID,
+				CONNECTION_ID,
+				makeFlagOp(),
+				JSON.stringify({
+					uid: 42,
+					flag: "seen",
+					value: true,
+					uidValidity: "111",
+				}),
+				{ createClient: createClientFactory(client) },
+			);
+
+			expect(result).toEqual({ ok: false, reason: "uidvalidity_changed" });
+			expect(client.messageFlagsAddCalls).toEqual([]);
+		});
+
+		it("proceeds when the captured UIDVALIDITY matches the current one", async () => {
+			const client = new FakeImapWriteClient({
+				mailboxOpen: () => ({ uidValidity: 111n }),
+			});
+
+			const result = await imapExecutor().execute(
+				USER_ID,
+				CONNECTION_ID,
+				makeFlagOp(),
+				JSON.stringify({
+					uid: 42,
+					flag: "seen",
+					value: true,
+					uidValidity: "111",
+				}),
+				{ createClient: createClientFactory(client) },
+			);
+
+			expect(result).toEqual({ ok: true, detail: "set seen" });
+		});
 	});
 });
 
