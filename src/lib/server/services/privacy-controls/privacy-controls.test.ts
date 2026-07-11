@@ -220,26 +220,6 @@ function seedPrivacyUser() {
 			updatedAt: now,
 		})
 		.run();
-	db.insert(schema.memoryProjects)
-		.values({
-			projectId: "memory-project-1",
-			userId: "user-1",
-			name: "Memory project",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.memoryProjectTaskLinks)
-		.values({
-			id: "memory-link-1",
-			projectId: "memory-project-1",
-			taskId: "task-1",
-			userId: "user-1",
-			conversationId: "conversation-1",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
 	db.insert(schema.memoryEvents)
 		.values({
 			id: "memory-event-1",

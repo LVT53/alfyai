@@ -19,12 +19,9 @@ import {
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
 import {
-	applyProjectContinuitySignalFromMessage,
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
-	shouldTrackTaskContinuityFromTurn,
-	syncTaskContinuityFromTaskState,
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
@@ -156,36 +153,6 @@ export async function persistAssistantTurnState(
 	}).catch(async () =>
 		getConversationTaskState(params.userId, params.conversationId),
 	);
-
-	if (
-		taskState &&
-		shouldTrackTaskContinuityFromTurn({
-			message: params.normalizedMessage,
-			assistantResponse: params.assistantResponse,
-			taskState,
-			attachmentIds: params.attachmentIds,
-		})
-	) {
-		await syncTaskContinuityFromTaskState({
-			userId: params.userId,
-			taskState,
-		}).catch((error) =>
-			console.error(
-				`[CONTINUITY] Failed to sync focus continuity from ${params.continuitySource}:`,
-				error,
-			),
-		);
-		await applyProjectContinuitySignalFromMessage({
-			userId: params.userId,
-			taskState,
-			message: params.normalizedMessage,
-		}).catch((error) =>
-			console.error(
-				`[CONTINUITY] Failed to apply project continuity signal from ${params.continuitySource}:`,
-				error,
-			),
-		);
-	}
 
 	taskState = await attachContinuityToTaskState(
 		params.userId,

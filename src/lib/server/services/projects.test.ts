@@ -35,21 +35,11 @@ function seedProjectDeletionScenario() {
 			},
 		])
 		.run();
-	db.insert(schema.memoryProjects)
-		.values({
-			projectId: "memory-project-1",
-			userId: "owner-user",
-			name: "Launch continuity",
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
 	db.insert(schema.projects)
 		.values({
 			id: "folder-1",
 			userId: "owner-user",
 			name: "Launch folder",
-			canonicalMemoryProjectId: "memory-project-1",
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -76,17 +66,6 @@ function seedProjectDeletionScenario() {
 			confidence: 88,
 			locked: 0,
 			nextStepsJson: JSON.stringify(["Send the first draft"]),
-			createdAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.memoryProjectTaskLinks)
-		.values({
-			id: "link-1",
-			projectId: "memory-project-1",
-			taskId: "task-1",
-			userId: "owner-user",
-			conversationId: "conv-1",
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -119,30 +98,6 @@ function readProjectFolder(projectId = "folder-1") {
 	return project;
 }
 
-function readMemoryProject(projectId = "memory-project-1") {
-	const sqlite = new Database(dbPath);
-	const db = drizzle(sqlite, { schema });
-	const project = db
-		.select()
-		.from(schema.memoryProjects)
-		.where(eq(schema.memoryProjects.projectId, projectId))
-		.get();
-	sqlite.close();
-	return project;
-}
-
-function readMemoryProjectTaskLink(taskId = "task-1") {
-	const sqlite = new Database(dbPath);
-	const db = drizzle(sqlite, { schema });
-	const link = db
-		.select()
-		.from(schema.memoryProjectTaskLinks)
-		.where(eq(schema.memoryProjectTaskLinks.taskId, taskId))
-		.get();
-	sqlite.close();
-	return link;
-}
-
 describe("deleteProject", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-project-delete-${randomUUID()}.db`;
@@ -173,11 +128,9 @@ describe("deleteProject", () => {
 		expect(deleted).toBe(false);
 		expect(readProjectFolder()?.userId).toBe("owner-user");
 		expect(readConversation()?.projectId).toBe("folder-1");
-		expect(readMemoryProject()?.projectId).toBe("memory-project-1");
-		expect(readMemoryProjectTaskLink()?.projectId).toBe("memory-project-1");
 	});
 
-	it("removes the owned folder while preserving conversations and project continuity", async () => {
+	it("removes the owned folder while preserving conversations", async () => {
 		seedProjectDeletionScenario();
 		const { deleteProject } = await import("./projects");
 
@@ -192,20 +145,6 @@ describe("deleteProject", () => {
 				projectId: null,
 				sidebarPinned: true,
 				sidebarSortOrder: 7,
-			}),
-		);
-		expect(readMemoryProject()).toEqual(
-			expect.objectContaining({
-				projectId: "memory-project-1",
-				userId: "owner-user",
-				name: "Launch continuity",
-			}),
-		);
-		expect(readMemoryProjectTaskLink()).toEqual(
-			expect.objectContaining({
-				projectId: "memory-project-1",
-				taskId: "task-1",
-				conversationId: "conv-1",
 			}),
 		);
 	});

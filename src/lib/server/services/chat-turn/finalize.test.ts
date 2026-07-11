@@ -6,13 +6,7 @@ import { recordMemoryEvent } from "$lib/server/services/memory-events";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
-import {
-	applyProjectContinuitySignalFromMessage,
-	getProjectReferenceContext,
-	shouldTrackTaskContinuityFromTurn,
-	syncTaskContinuityFromTaskState,
-	updateTaskStateCheckpoint,
-} from "$lib/server/services/task-state";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import type { ChatMessage } from "$lib/types";
 
@@ -164,13 +158,11 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 }));
 
 vi.mock("$lib/server/services/task-state", () => ({
-	applyProjectContinuitySignalFromMessage: vi.fn(async () => undefined),
 	shouldTrackTaskContinuityFromTurn: mockShouldTrackTaskContinuityFromTurn,
 	attachContinuityToTaskState: vi.fn(async (_userId, taskState) => taskState),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
 	getProjectReferenceContext: vi.fn(async () => null),
-	syncTaskContinuityFromTaskState: vi.fn(async () => undefined),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
 
@@ -1615,68 +1607,6 @@ describe("finalizeChatTurn", () => {
 		});
 
 		expect(mockRecordMemoryEvent).not.toHaveBeenCalled();
-	});
-
-	it("does not sync project continuity for output-control-only turns", async () => {
-		const mockUpdateTaskStateCheckpoint =
-			updateTaskStateCheckpoint as ReturnType<typeof vi.fn>;
-		const mockSyncContinuity = syncTaskContinuityFromTaskState as ReturnType<
-			typeof vi.fn
-		>;
-		const mockApplyProjectContinuity =
-			applyProjectContinuitySignalFromMessage as ReturnType<typeof vi.fn>;
-		const mockShouldTrack = shouldTrackTaskContinuityFromTurn as ReturnType<
-			typeof vi.fn
-		>;
-		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
-			typeof vi.fn
-		>;
-
-		mockUpdateTaskStateCheckpoint.mockResolvedValueOnce({
-			taskId: "task-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			status: "active",
-			objective: "Track task state",
-			confidence: 82,
-			locked: false,
-			lastConfirmedTurnMessageId: "user-message-1",
-			constraints: [],
-			factsToPreserve: [],
-			decisions: [],
-			openQuestions: [],
-			activeArtifactIds: [],
-			nextSteps: [],
-			lastCheckpointAt: null,
-			createdAt: 1_777_140_000_000,
-			updatedAt: 1_777_140_000_000,
-		});
-		mockShouldTrack.mockReturnValue(false);
-		mockGetArtifactsForUser.mockResolvedValueOnce([]);
-
-		const { persistAssistantTurnState } =
-			await vi.importActual<typeof import("./finalize-steps")>(
-				"./finalize-steps",
-			);
-
-		await persistAssistantTurnState({
-			userId: "user-1",
-			conversationId: "conv-1",
-			normalizedMessage: "What is my codeword? Reply with only the codeword.",
-			assistantResponse: "The codeword is hidden.",
-			attachmentIds: [],
-			activeDocumentArtifactId: undefined,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			userMessageId: "user-message-1",
-			assistantMessageId: "assistant-message-1",
-			analytics: null,
-			continuitySource: "send",
-		});
-
-		expect(mockSyncContinuity).not.toHaveBeenCalled();
-		expect(mockApplyProjectContinuity).not.toHaveBeenCalled();
 	});
 
 	describe("incognito telemetry suppression", () => {

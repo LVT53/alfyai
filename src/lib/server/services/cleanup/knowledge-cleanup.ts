@@ -8,8 +8,6 @@ import {
 	memoryDirtyLedger,
 	memoryEvents,
 	memoryProjectionState,
-	memoryProjects,
-	memoryProjectTaskLinks,
 	memoryReviewItems,
 	memoryReworkTelemetry,
 	semanticEmbeddings,
@@ -45,13 +43,9 @@ export async function resetKnowledgeBaseState(userId: string): Promise<{
 			.where(eq(taskStateEvidenceLinks.userId, userId))
 			.run();
 		tx.delete(taskCheckpoints).where(eq(taskCheckpoints.userId, userId)).run();
-		tx.delete(memoryProjectTaskLinks)
-			.where(eq(memoryProjectTaskLinks.userId, userId))
-			.run();
 		tx.delete(conversationTaskStates)
 			.where(eq(conversationTaskStates.userId, userId))
 			.run();
-		tx.delete(memoryProjects).where(eq(memoryProjects.userId, userId)).run();
 		tx.delete(memoryEvents).where(eq(memoryEvents.userId, userId)).run();
 		tx.delete(memoryProjectionState)
 			.where(eq(memoryProjectionState.userId, userId))

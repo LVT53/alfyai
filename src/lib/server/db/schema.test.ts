@@ -128,40 +128,31 @@ describe("schema core tables", () => {
 	});
 
 	describe("projects table", () => {
-		it("links at most one project folder to a canonical memory project", () => {
+		// ADR-0051: folder-anchored continuity retired the inferred project-memory
+		// substrate. Project Folders no longer carry a canonical-memory pointer and
+		// the `memory_projects` / `memory_project_task_links` tables are gone.
+		it("is folder-anchored with no inferred continuity pointer or substrate tables", () => {
 			const columns = sqlite.prepare("PRAGMA table_info(projects)").all() as {
 				name: string;
 			}[];
 			const columnNames = columns.map((column) => column.name);
-			expect(columnNames).toContain("canonical_memory_project_id");
+			expect(columnNames).not.toContain("canonical_memory_project_id");
 
 			const indexes = sqlite.prepare("PRAGMA index_list(projects)").all() as {
 				name: string;
-				unique: number;
 			}[];
-			expect(indexes).toContainEqual(
-				expect.objectContaining({
-					name: "projects_canonical_memory_project_id_unique_idx",
-					unique: 1,
-				}),
+			const indexNames = indexes.map((index) => index.name);
+			expect(indexNames).not.toContain(
+				"projects_canonical_memory_project_id_unique_idx",
 			);
+			expect(indexNames).toContain("projects_user_sidebar_idx");
 
-			const foreignKeys = sqlite
-				.prepare("PRAGMA foreign_key_list(projects)")
-				.all() as {
-				from: string;
-				table: string;
-				to: string;
-				on_delete: string;
-			}[];
-			expect(foreignKeys).toContainEqual(
-				expect.objectContaining({
-					from: "canonical_memory_project_id",
-					table: "memory_projects",
-					to: "project_id",
-					on_delete: "SET NULL",
-				}),
-			);
+			const substrateTables = sqlite
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('memory_projects', 'memory_project_task_links')",
+				)
+				.all() as { name: string }[];
+			expect(substrateTables).toEqual([]);
 
 			const userId = "test-user-project-folder-link";
 			db.insert(schema.users)
@@ -173,49 +164,19 @@ describe("schema core tables", () => {
 				})
 				.run();
 
-			db.insert(schema.memoryProjects)
-				.values({
-					projectId: "memory-project-1",
-					userId,
-					name: "Canonical continuity",
-				})
-				.run();
-
-			db.insert(schema.projects)
-				.values({
-					id: "folder-with-canonical",
-					userId,
-					name: "Folder with canonical continuity",
-					canonicalMemoryProjectId: "memory-project-1",
-				})
-				.run();
-
 			db.insert(schema.projects)
 				.values([
-					{
-						id: "folder-without-canonical-1",
-						userId,
-						name: "Unlinked folder one",
-					},
-					{
-						id: "folder-without-canonical-2",
-						userId,
-						name: "Unlinked folder two",
-					},
+					{ id: "folder-one", userId, name: "Folder one" },
+					{ id: "folder-two", userId, name: "Folder two" },
 				])
 				.run();
 
-			expect(() =>
-				db
-					.insert(schema.projects)
-					.values({
-						id: "duplicate-folder-canonical",
-						userId,
-						name: "Duplicate canonical continuity",
-						canonicalMemoryProjectId: "memory-project-1",
-					})
-					.run(),
-			).toThrow();
+			const rows = db
+				.select()
+				.from(schema.projects)
+				.where(eq(schema.projects.userId, userId))
+				.all();
+			expect(rows).toHaveLength(2);
 		});
 	});
 

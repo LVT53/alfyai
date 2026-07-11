@@ -666,6 +666,13 @@
       "when": 1777140000081,
       "tag": "1777140000081_connection_pending_writes_expires_at",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1777140000082,
+      "tag": "1777140000082_retire_inferred_memory_projects",
+      "breakpoints": true
     }
   ]
 }

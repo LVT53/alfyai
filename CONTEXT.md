@@ -423,8 +423,8 @@ The constrained shaping step that turns admitted material into a clean remembere
 _Avoid_: free-form personality inference, raw sentence storage, duplicate category fanout, hidden rewrite, broad classifier guess
 
 **Memory Scope**:
-The applicability boundary for a remembered fact. It answers where AlfyAI may use the memory, separately from **Memory Profile Category**, which answers what kind of memory it is. Allowed scopes are global, project, conversation, and document. Scope assignment should use the narrowest confident scope; global scope is for clearly user-wide memory. Project scope attaches to the **Project Folder** when one is present, otherwise to confirmed **Project Continuity**. Scope prevents project-, conversation-, or document-specific remembered facts from leaking into global personalization while still allowing the right related chats to share context.
-_Avoid_: category, UI section, provenance, confidence score, global-by-default memory, free-form client scope, free-form topic scope
+The applicability boundary for a remembered fact. It answers where AlfyAI may use the memory, separately from **Memory Profile Category**, which answers what kind of memory it is. Allowed scopes are global, project, conversation, and document. Scope assignment should use the narrowest confident scope; global scope is for clearly user-wide memory. Project scope attaches to the **Project Folder** — the folder-anchored **Project Continuity** — when one is present. Scope prevents project-, conversation-, or document-specific remembered facts from leaking into global personalization while still allowing the right related chats to share context.
+_Avoid_: category, UI section, provenance, confidence score, global-by-default memory, free-form client scope, free-form topic scope, inferred project-continuity bucket, memoryProjects substrate
 
 **Document-Sourced Context**:
 Information available because it appears in an uploaded, generated, attached, or stored document. It may be used as document evidence or working-document context, but it is not user-truth or Memory Profile material merely because the document exists in AlfyAI.
@@ -913,20 +913,16 @@ The user-owned visual order of **Project Folders** and **Sidebar-Pinned Conversa
 _Avoid_: activity order, memory priority, conversation rank
 
 **Project Continuity**:
-AlfyAI's long-term memory about an ongoing project across related tasks and conversations.
-_Avoid_: memory project, project folder, task bucket
-
-**Project Continuity Candidate**:
-A possible link between a conversation or task and **Project Continuity** that AlfyAI has noticed but should not yet treat as confirmed project context. It may become **Project Continuity** after an explicit user signal or enough supporting evidence.
-_Avoid_: confirmed project, automatic project assignment, prompt authority
+Folder-anchored long-term memory about an ongoing project: the conversations filed under a **Project Folder**. Continuity is folder membership itself — there is no inferred bucket store behind it (ADR-0051 retired the `memoryProjects` substrate). An unorganized conversation has no passive continuity; on-demand recall over it goes through the `memory_context` tool's history search.
+_Avoid_: inferred project-continuity bucket, memoryProjects substrate, task bucket, canonical memory project
 
 **Project Folder Awareness**:
 Compact awareness of other conversations that belong to the same **Project Folder**.
 _Avoid_: folder dump, all project chats, sibling transcript context
 
 **Project Continuity Awareness**:
-Compact background awareness of other conversations or tasks linked to confirmed inferred **Project Continuity**. It may help AlfyAI orient a response, but it is not part of the user-facing **Knowledge Memory Overview** and should not be created from a weak one-off **Project Continuity Candidate**.
-_Avoid_: global chat search, folder awareness, all memory, Memory Profile item
+Compact background awareness of the sibling conversations filed under the current conversation's **Project Folder**, sourced from `getProjectFolderReferenceContext`. It may help AlfyAI orient a response, but it is not part of the user-facing **Knowledge Memory Overview**.
+_Avoid_: global chat search, inferred continuity bucket, all memory, Memory Profile item
 
 **Conversation Summary**:
 A compact durable description of what happened in one conversation.
@@ -1848,29 +1844,15 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Multiple **Conversation Forks** from the same source conversation should receive lineage-based title suffixes rather than relying on title text matching.
 - A sealed source conversation may still produce an open **Conversation Fork** because fork creation does not mutate the source conversation.
 - Opening a **Conversation Fork** should preserve visual continuity from the source conversation rather than abruptly replacing the chat surface.
-- **Project Continuity** may exist with or without a **Project Folder**.
-- When a conversation belongs to a **Project Folder**, that **Project Folder** is the canonical project identity for **Project Continuity**.
-- A **Project Folder** and **Project Continuity** keep separate identities even when they are linked.
-- A **Project Folder** may be linked to at most one canonical **Project Continuity**.
-- A **Project Continuity** may be linked to at most one **Project Folder**.
-- Creating an empty **Project Folder** does not by itself create **Project Continuity**.
-- A **Project Folder** gets canonical **Project Continuity** only after it has a conversation with meaningful task continuity.
-- Conversations without a **Project Folder** may still create and use inferred **Project Continuity**.
-- A single automatic match should create a **Project Continuity Candidate**, not confirmed **Project Continuity**.
-- A **Project Continuity Candidate** may become confirmed **Project Continuity** after an explicit user signal or repeated supporting evidence across related turns or conversations.
-- Explicit actions such as moving a conversation into a **Project Folder** or direct continue/pause/resume project language may confirm, pause, or resume **Project Continuity** immediately.
-- **Project Folder** linking adds explicit user authority when present; it does not replace automatic **Project Continuity** for unorganized conversations.
-- Conversations without a **Project Folder** may receive bounded **Project Continuity Awareness**.
-- **Project Continuity Awareness** has lower authority than **Project Folder Awareness** because it comes from inferred continuity rather than explicit user organization.
-- When linked, the **Project Folder** name is the canonical display label for **Project Continuity**.
-- Renaming a **Project Folder** changes the current label used for linked **Project Continuity** without rewriting historical memory events.
-- An explicit **Project Folder** assignment overrides inferred **Project Continuity** routing for future turns in that conversation.
-- When a conversation with existing **Project Continuity** is assigned to a linked **Project Folder**, future turns should use the folder's canonical **Project Continuity** rather than the previously inferred one.
-- Assigning or moving a conversation into a **Project Folder** should immediately converge that conversation's **Project Continuity** to the folder's canonical **Project Continuity**.
-- A later chat turn may refresh **Project Continuity** details, but it should not be required before the **Project Folder** identity applies.
-- Removing a conversation from a **Project Folder** removes that folder as the canonical project identity for future turns in the conversation.
-- Deleting a **Project Folder** unassigns its conversations from that folder and unlinks its canonical **Project Continuity**, but it does not delete the conversations or by itself mean the user asked AlfyAI to forget project memory.
-- **Project Continuity** is forgotten only through an explicit memory-forgetting action or cleanup of conversation-scoped memory links.
+- **Project Continuity** is folder-anchored (ADR-0051): it is the conversations filed under a **Project Folder**, not an inferred bucket store. There is no separate continuity identity to link, converge, or diverge from the folder.
+- A conversation belongs to at most one **Project Folder** (`conversations.projectId`), which is its project identity.
+- Creating an empty **Project Folder** yields no sibling continuity until it has conversations.
+- A conversation without a **Project Folder** has no passive **Project Continuity**; on-demand recall over unorganized conversations is served by the `memory_context` tool's history search, not a stored reference.
+- Moving a conversation into a **Project Folder** assigns `projectId` immediately; folder membership is the continuity, so nothing else needs to converge.
+- **Project Continuity Awareness** is sourced from **Project Folder** siblings (`getProjectFolderReferenceContext`); a non-folder conversation resolves to no reference context.
+- The **Project Folder** name is the display label for **Project Continuity**; renaming a folder changes the current label without rewriting historical memory events.
+- Removing a conversation from a **Project Folder** removes that folder as its project identity for future turns.
+- Deleting a **Project Folder** unassigns its conversations from that folder, but it does not delete the conversations or by itself mean the user asked AlfyAI to forget project memory.
 - A **Sidebar Pin** changes only conversation sidebar presentation; it does not pin a **Context Source**, change **Prompt Context**, or raise memory authority.
 - **Sidebar-Pinned Conversations** may use manual **Sidebar Order** relative to other pinned conversations.
 - **Sidebar-Pinned Conversations** appear once in a global pinned area even when they belong to a **Project Folder**.

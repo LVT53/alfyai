@@ -1,5 +1,7 @@
 # Project folders converge AI project continuity
 
+> **Superseded by [ADR-0051](0051-folder-anchored-continuity-retires-inferred-buckets.md) (2026-07-11).** The inferred `memory_projects` / `memory_project_task_links` substrate and the convergence glue described below have been removed; continuity is now folder-anchored only. Retained for historical context.
+
 Project Folders are user-managed conversation organization, while Project Continuity is AlfyAI's long-term memory about ongoing project work. We will keep those identities separate and link them structurally: when a conversation belongs to a Project Folder, that folder becomes the canonical project identity for future Project Continuity routing, display labels, and bounded Project Folder Awareness. Raw folder names are prompt-context metadata, not system-prompt instructions.
 
 The first production slice will promote relevant sibling conversation context through backend Context Selection, using bounded Project Folder Awareness by default and deeper sibling content only when the current turn gives a strong signal. Any follow-up explicit project/sibling conversation retrieval should be exposed through the app-owned Normal Chat tool boundary, and it should complement Context Selection rather than replacing it as the source of prompt-context authority.

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -7,9 +7,6 @@ import {
 	conversationSummaries,
 	conversations,
 	conversationTaskStates,
-	memoryProjects,
-	memoryProjectTaskLinks,
-	projects,
 	semanticEmbeddings,
 	taskCheckpoints,
 	users,
@@ -30,10 +27,6 @@ import {
 import { pruneOldMemoryEvents } from "./memory-events";
 import { backfillSemanticEmbeddingsForUser } from "./semantic-embedding-refresh";
 import { deleteSemanticEmbeddingsForSubjects } from "./semantic-embeddings";
-import {
-	pruneOrphanProjectMemory,
-	updateProjectMemoryStatuses,
-} from "./task-state";
 
 const KEEP_MICRO_CHECKPOINTS = 6;
 const KEEP_STABLE_CHECKPOINTS = 3;
@@ -198,52 +191,6 @@ async function pruneOrphanArtifactChunks(userId: string): Promise<number> {
 	return result.changes;
 }
 
-async function pruneOrphanMemoryProjects(userId: string): Promise<number> {
-	const orphanRows = await db
-		.select({ projectId: memoryProjects.projectId })
-		.from(memoryProjects)
-		.where(
-			and(
-				eq(memoryProjects.userId, userId),
-				notInArray(
-					memoryProjects.projectId,
-					db
-						.select({ projectId: memoryProjectTaskLinks.projectId })
-						.from(memoryProjectTaskLinks)
-						.where(eq(memoryProjectTaskLinks.userId, userId)),
-				),
-				notInArray(
-					memoryProjects.projectId,
-					db
-						.select({
-							canonicalMemoryProjectId: projects.canonicalMemoryProjectId,
-						})
-						.from(projects)
-						.where(
-							and(
-								eq(projects.userId, userId),
-								isNotNull(projects.canonicalMemoryProjectId),
-							),
-						),
-				),
-			),
-		);
-
-	const orphanIds = orphanRows.map((r) => r.projectId);
-	if (orphanIds.length === 0) return 0;
-
-	const result = await db
-		.delete(memoryProjects)
-		.where(
-			and(
-				eq(memoryProjects.userId, userId),
-				inArray(memoryProjects.projectId, orphanIds),
-			),
-		);
-
-	return result.changes;
-}
-
 function getUserMaintenanceState(userId: string) {
 	const existing = userMaintenanceStates.get(userId);
 	if (existing) return existing;
@@ -372,12 +319,6 @@ async function performUserMemoryMaintenance(
 
 	await safe("prune checkpoints", () => pruneTaskCheckpoints(userId));
 	await safe("archive stale tasks", () => archiveStaleTaskMemory(userId));
-	await safe("update project statuses", () =>
-		updateProjectMemoryStatuses(userId),
-	);
-	await safe("prune orphan project memory", () =>
-		pruneOrphanProjectMemory(userId),
-	);
 
 	await safe("prune old memory events", () => pruneOldMemoryEvents({ userId }));
 	await safe("delete orphan semantic embeddings", async () => {
@@ -410,9 +351,6 @@ async function performUserMemoryMaintenance(
 		pruneOrphanConversationSummaries(userId),
 	);
 	await safe("prune orphan chunks", () => pruneOrphanArtifactChunks(userId));
-	await safe("prune orphan memory projects", () =>
-		pruneOrphanMemoryProjects(userId),
-	);
 
 	// Global cleanup (run once per process lifetime)
 	await runGlobalCleanupOnce("deleteOrphanChatFiles", async () => {

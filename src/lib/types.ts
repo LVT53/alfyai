@@ -1349,7 +1349,6 @@ export interface TaskState {
 	activeArtifactIds: string[];
 	nextSteps: string[];
 	lastCheckpointAt: number | null;
-	continuity?: TaskContinuitySummary | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -1506,29 +1505,6 @@ export interface TaskMemoryItem {
 	updatedAt: number;
 	lastCheckpointAt: number | null;
 	checkpointSummary: string | null;
-}
-
-export type FocusContinuityStatus = "active" | "dormant" | "archived";
-
-export interface FocusContinuityItem {
-	continuityId: string;
-	name: string;
-	summary: string | null;
-	status: FocusContinuityStatus;
-	lastActiveAt: number | null;
-	updatedAt: number;
-	linkedTaskCount: number;
-	conversationTitles: string[];
-}
-
-export interface TaskContinuitySummary {
-	continuityId: string;
-	name: string;
-	summary: string | null;
-	status: FocusContinuityStatus;
-	linkedTaskCount: number;
-	lastActiveAt: number | null;
-	updatedAt: number;
 }
 
 export type KnowledgeMemoryOverviewSource = "persona_fallback" | null;
@@ -1745,7 +1721,6 @@ export interface KnowledgeMemoryPayload {
 	activeConstraints?: PersonaMemoryItem[];
 	currentProjectContext?: PersonaMemoryItem[];
 	taskMemories?: TaskMemoryItem[];
-	focusContinuities?: FocusContinuityItem[];
 	summary?: KnowledgeMemorySummary;
 }
 

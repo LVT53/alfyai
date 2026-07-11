@@ -44,12 +44,6 @@ vi.mock("$lib/server/db/schema", () => ({
 	memoryProjectionState: {
 		userId: { name: "memoryProjectionStateUserId" },
 	},
-	memoryProjects: {
-		userId: { name: "memoryProjectsUserId" },
-	},
-	memoryProjectTaskLinks: {
-		userId: { name: "memoryProjectTaskLinksUserId" },
-	},
 	memoryDirtyLedger: {
 		userId: { name: "memoryDirtyLedgerUserId" },
 	},

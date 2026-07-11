@@ -156,15 +156,6 @@ async function seedArchiveUser() {
 		createdAt: new Date("2026-02-01T10:04:00Z"),
 	});
 
-	await db.insert(schema.memoryProjects).values({
-		projectId: "project-1",
-		userId: "user-1",
-		name: "Q3 Launch",
-		summary: "Planning launch work.",
-		status: "active",
-		createdAt: new Date("2026-02-01T12:05:00Z"),
-		updatedAt: new Date("2026-02-01T12:05:00Z"),
-	});
 	await db.insert(schema.conversationTaskStates).values({
 		taskId: "task-1",
 		userId: "user-1",
