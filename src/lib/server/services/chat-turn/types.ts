@@ -168,7 +168,6 @@ export type PersistAssistantTurnStateParams = {
 	userMessageId?: string | null;
 	assistantMessageId: string;
 	analytics?: AssistantAnalytics | null;
-	continuitySource: "send" | "stream";
 };
 
 export type PersistAssistantTurnStateResult = {

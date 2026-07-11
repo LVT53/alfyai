@@ -120,7 +120,6 @@ export type FinalizeChatTurnParams = {
 	initialTaskState: PersistAssistantTurnStateParams["initialTaskState"];
 	initialContextDebug: PersistAssistantTurnStateParams["initialContextDebug"];
 	analytics: PersistAssistantTurnStateParams["analytics"];
-	continuitySource: PersistAssistantTurnStateParams["continuitySource"];
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
 	startedResetGeneration?: number;
@@ -606,7 +605,6 @@ export async function finalizeChatTurn(
 				userMessageId: userMessage?.id ?? null,
 				assistantMessageId: assistantMessage.id,
 				analytics: params.analytics,
-				continuitySource: params.continuitySource,
 			});
 		}
 

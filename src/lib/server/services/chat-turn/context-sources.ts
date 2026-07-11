@@ -379,11 +379,8 @@ function buildProjectReferenceGroup(
 		return null;
 	}
 
-	const isFolder = projectFolderReference.source === "project_folder";
-	const kind: Extract<
-		ContextSourceGroupKind,
-		"project_folder" | "project_continuity"
-	> = isFolder ? "project_folder" : "project_continuity";
+	const kind: Extract<ContextSourceGroupKind, "project_folder"> =
+		"project_folder";
 	const includedSiblingCount = projectFolderReference.entries.length;
 	const siblingCount =
 		includedSiblingCount + projectFolderReference.omittedSiblingCount;
@@ -398,8 +395,8 @@ function buildProjectReferenceGroup(
 		.join(" ");
 	const reason =
 		projectFolderReference.omittedSiblingCount > 0
-			? `${includedSiblingCount} ${isFolder ? "sibling" : "linked"} conversations summarized, ${projectFolderReference.omittedSiblingCount} more omitted`
-			: `${includedSiblingCount} ${isFolder ? "sibling" : "linked"} conversation${includedSiblingCount === 1 ? "" : "s"} summarized`;
+			? `${includedSiblingCount} sibling conversations summarized, ${projectFolderReference.omittedSiblingCount} more omitted`
+			: `${includedSiblingCount} sibling conversation${includedSiblingCount === 1 ? "" : "s"} summarized`;
 
 	return {
 		kind,
@@ -419,7 +416,6 @@ function buildProjectReferenceGroup(
 					includedSiblingCount,
 					omittedSiblingCount: projectFolderReference.omittedSiblingCount,
 					siblingSummary,
-					...(isFolder ? {} : { authority: projectFolderReference.source }),
 				},
 			},
 		],

@@ -732,7 +732,6 @@ describe("completeStreamTurn", () => {
 			expect.objectContaining({
 				userId: "user-1",
 				conversationId: "conv-1",
-				continuitySource: "stream",
 				analytics: expect.objectContaining({
 					model: "model-1",
 					modelDisplayName: "Model One",

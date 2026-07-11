@@ -449,7 +449,6 @@ export async function completeStreamTurn(
 				generationTimeMs: genTimeMs,
 				providerUsage: latestProviderUsage,
 			},
-			continuitySource: "stream",
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
 			startedResetGeneration,
