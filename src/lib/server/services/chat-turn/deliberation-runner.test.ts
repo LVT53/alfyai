@@ -5,7 +5,19 @@ import type { ReasoningDepthEffort } from "./reasoning-depth-effort";
 const mocks = vi.hoisted(() => ({
 	runPlainNormalChatModelRun: vi.fn(),
 	createNormalChatTools: vi.fn(),
+	isMemoryActiveForConversation: vi.fn(),
 }));
+
+vi.mock("$lib/server/services/memory-controls", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/memory-controls")
+		>();
+	return {
+		...actual,
+		isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
+	};
+});
 
 vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 	const actual =
@@ -31,6 +43,7 @@ vi.mock("$lib/server/services/normal-chat-tools", async (importOriginal) => {
 
 import {
 	appendDeliberationBriefsToInput,
+	createDeliberationTools,
 	planDeliberationPasses,
 	runNormalChatDeliberationPasses,
 	sumUsage,
@@ -147,6 +160,9 @@ describe("runNormalChatDeliberationPasses", () => {
 	beforeEach(() => {
 		mocks.runPlainNormalChatModelRun.mockReset();
 		mocks.createNormalChatTools.mockReset();
+		mocks.isMemoryActiveForConversation.mockReset();
+		// Fail open (active) by default so existing passes see memory_context.
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
 	});
 
 	it("derives a focused workspace brief for extended depth", async () => {
@@ -803,5 +819,56 @@ describe("deliberation prompt helpers", () => {
 			outputTokens: 130,
 			totalTokens: 530,
 		});
+	});
+});
+
+describe("createDeliberationTools memory master-gate", () => {
+	beforeEach(() => {
+		mocks.createNormalChatTools.mockReset();
+		mocks.isMemoryActiveForConversation.mockReset();
+		mocks.createNormalChatTools.mockReturnValue({
+			tools: {
+				research_web: { __tool: "research_web" },
+				memory_context: { __tool: "memory_context" },
+				produce_file: { __tool: "produce_file" },
+			},
+			getToolCalls: () => [],
+		});
+	});
+
+	const params = () => ({
+		...runParams(effort("extended")),
+		recorder: recorder(),
+	});
+
+	it("offers memory_context for a memory-active conversation", async () => {
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+		const tools = await createDeliberationTools(params());
+		expect(tools).toHaveProperty("research_web");
+		expect(tools).toHaveProperty("memory_context");
+	});
+
+	it("withholds memory_context when memory is inactive (incognito or master toggle off)", async () => {
+		mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+		const tools = await createDeliberationTools(params());
+		expect(tools).toHaveProperty("research_web");
+		expect(tools).not.toHaveProperty("memory_context");
+	});
+
+	it("passes userId + conversationId to the master-gate predicate", async () => {
+		mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+		await createDeliberationTools(params());
+		expect(mocks.isMemoryActiveForConversation).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+	});
+
+	it("fails open (offers memory_context) when the gate lookup throws", async () => {
+		mocks.isMemoryActiveForConversation.mockRejectedValue(
+			new Error("controls db unavailable"),
+		);
+		const tools = await createDeliberationTools(params());
+		expect(tools).toHaveProperty("memory_context");
 	});
 });
