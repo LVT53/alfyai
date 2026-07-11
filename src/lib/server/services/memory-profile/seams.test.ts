@@ -32,25 +32,29 @@ describe("memory profile module seams", () => {
 		}
 	});
 
-	it("keeps prompt-context callers on active-context and telemetry seams", () => {
+	it("keeps prompt-context callers on the granular read-path seams", () => {
+		// Post-C3 the memory READ path has a single source: prompt-context callers
+		// reach persona + telemetry through the memory-context read-path modules
+		// (which internally compose the memory-profile/active-context and
+		// memory-profile/telemetry seams). Callers still must NOT import the
+		// memory-profile barrel — the barrel bans below are the load-bearing guard.
 		const contextSelection = readService("chat-turn/context-selection.ts");
 		const memoryContext = readService("memory-context.ts");
 
 		expect(contextSelection).not.toContain('from "../memory-profile"');
+		expect(contextSelection).toContain('from "../memory-context/persona"');
+		expect(contextSelection).toContain('from "../memory-context/telemetry"');
+		// active-context is still consumed directly (for its scope type), so the
+		// granular seam stays wired.
 		expect(contextSelection).toContain(
 			'from "../memory-profile/active-context"',
 		);
-		expect(contextSelection).toContain('from "../memory-profile/telemetry"');
 
+		expect(memoryContext).not.toContain('from "./memory-profile"');
 		expect(memoryContext).not.toContain(
 			'from "$lib/server/services/memory-profile"',
 		);
-		expect(memoryContext).toContain(
-			'from "$lib/server/services/memory-profile/active-context"',
-		);
-		expect(memoryContext).toContain(
-			'from "$lib/server/services/memory-profile/telemetry"',
-		);
+		expect(memoryContext).toContain('from "./memory-context/read"');
 	});
 
 	it("keeps active profile reads detached from the control-model adapter", () => {
