@@ -617,65 +617,6 @@ export const semanticEmbeddings = sqliteTable(
 	}),
 );
 
-export const memoryProjects = sqliteTable(
-	"memory_projects",
-	{
-		projectId: text("project_id").primaryKey(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
-		name: text("name").notNull(),
-		summary: text("summary"),
-		status: text("status").notNull().default("active"),
-		lastActiveAt: integer("last_active_at", { mode: "timestamp" }),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-	},
-	(table) => ({
-		userStatusIdx: index("memory_projects_user_status_idx").on(
-			table.userId,
-			table.status,
-			table.updatedAt,
-		),
-	}),
-);
-
-export const memoryProjectTaskLinks = sqliteTable(
-	"memory_project_task_links",
-	{
-		id: text("id").primaryKey(),
-		projectId: text("project_id")
-			.notNull()
-			.references(() => memoryProjects.projectId, { onDelete: "cascade" }),
-		taskId: text("task_id")
-			.notNull()
-			.references(() => conversationTaskStates.taskId, { onDelete: "cascade" }),
-		userId: text("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
-		conversationId: text("conversation_id")
-			.notNull()
-			.references(() => conversations.id, { onDelete: "cascade" }),
-		createdAt: integer("created_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-		updatedAt: integer("updated_at", { mode: "timestamp" })
-			.notNull()
-			.default(sql`(unixepoch())`),
-	},
-	(table) => ({
-		taskIdx: uniqueIndex("memory_project_task_links_task_idx").on(table.taskId),
-		projectIdx: index("memory_project_task_links_project_idx").on(
-			table.projectId,
-			table.updatedAt,
-		),
-	}),
-);
-
 export const memoryEvents = sqliteTable(
 	"memory_events",
 	{
@@ -1458,10 +1399,6 @@ export const projects = sqliteTable(
 			.notNull()
 			.default(false),
 		sortOrder: integer("sort_order").notNull().default(0),
-		canonicalMemoryProjectId: text("canonical_memory_project_id").references(
-			() => memoryProjects.projectId,
-			{ onDelete: "set null" },
-		),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
@@ -1470,9 +1407,6 @@ export const projects = sqliteTable(
 			.default(sql`(unixepoch())`),
 	},
 	(table) => ({
-		canonicalMemoryProjectUniqueIdx: uniqueIndex(
-			"projects_canonical_memory_project_id_unique_idx",
-		).on(table.canonicalMemoryProjectId),
 		userSidebarIdx: index("projects_user_sidebar_idx").on(
 			table.userId,
 			table.sidebarPinned,
@@ -1513,8 +1447,6 @@ export const analyticsConversations = sqliteTable(
 		id: text("id").primaryKey(),
 		conversationId: text("conversation_id").notNull(),
 		userId: text("user_id").notNull(),
-		userEmail: text("user_email"),
-		userName: text("user_name"),
 		title: text("title"),
 		source: text("source").notNull().default("live"),
 		billingMonth: text("billing_month").notNull(),
@@ -1541,8 +1473,6 @@ export const usageEvents = sqliteTable(
 	{
 		id: text("id").primaryKey(),
 		userId: text("user_id").notNull(),
-		userEmail: text("user_email"),
-		userName: text("user_name"),
 		conversationId: text("conversation_id").notNull(),
 		conversationTitle: text("conversation_title"),
 		messageId: text("message_id").notNull(),

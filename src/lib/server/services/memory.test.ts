@@ -9,11 +9,22 @@ const mockRunUserMemoryMaintenance = vi.fn();
 const mockListTaskMemoryItems = vi.fn();
 const mockListFocusContinuityItems = vi.fn();
 
-vi.mock("./memory-profile", () => ({
+// Post-C6 the memory-profile barrel is gone; the split knowledge-memory
+// modules import the granular seams directly, so the mocks target those seams.
+vi.mock("./memory-profile/review", () => ({
 	applyMemoryReviewItemWithRevision: mockApplyMemoryReviewItemWithRevision,
+}));
+vi.mock("./memory-profile/read-model", () => ({
 	getMemoryProfileReadModel: mockGetMemoryProfileReadModel,
+}));
+vi.mock("./memory-profile/dirty-ledger", () => ({
 	markMemoryDirty: mockMarkMemoryDirty,
+	listPendingMemoryDirtyEntries: vi.fn(async () => []),
+}));
+vi.mock("./memory-profile/telemetry", () => ({
 	recordMemoryReworkTelemetry: mockRecordMemoryReworkTelemetry,
+}));
+vi.mock("./memory-profile/projection-store", () => ({
 	updateMemoryProfileItemWithRevision: mockUpdateMemoryProfileItemWithRevision,
 }));
 

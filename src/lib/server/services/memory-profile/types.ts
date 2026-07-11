@@ -1,3 +1,5 @@
+import { parseJsonRecord } from "./internal-json";
+
 export const MEMORY_PROFILE_CATEGORIES = [
 	"about_you",
 	"preferences",
@@ -164,19 +166,13 @@ export type JsonRecord = Record<string, unknown>;
 /**
  * Defensively parse an item's metadataJson into a plain record. Any parse
  * failure or non-object payload degrades to an empty object so callers never
- * throw on malformed persisted metadata.
+ * throw on malformed persisted metadata. The single fault-tolerant parse lives
+ * in `internal-json`; this is a thin, named re-export for metadata callers.
  */
 export function parseMemoryItemMetadata(
 	metadataJson: string | null | undefined,
 ): Record<string, unknown> {
-	try {
-		const parsed = JSON.parse(metadataJson ?? "{}");
-		return parsed && typeof parsed === "object"
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
-	}
+	return parseJsonRecord(metadataJson ?? null);
 }
 
 /**

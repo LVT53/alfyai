@@ -2,17 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
 import { getArtifactsForUser } from "$lib/server/services/knowledge";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
-import {
-	applyProjectContinuitySignalFromMessage,
-	getProjectReferenceContext,
-	shouldTrackTaskContinuityFromTurn,
-	syncTaskContinuityFromTaskState,
-	updateTaskStateCheckpoint,
-} from "$lib/server/services/task-state";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import type { ChatMessage } from "$lib/types";
 
@@ -26,6 +20,11 @@ const {
 	mockSyncGeneratedFilesToMemory,
 	mockShouldTrackTaskContinuityFromTurn,
 	mockIsConversationIncognito,
+	mockCreateMessage,
+	mockPersistUserTurnAttachments,
+	mockPersistAssistantTurnState,
+	mockPersistAssistantEvidence,
+	mockRunPostTurnTasks,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -64,10 +63,27 @@ const {
 	mockRunUserMemoryMaintenance: vi.fn(async () => undefined),
 	mockShouldTrackTaskContinuityFromTurn: vi.fn(() => true),
 	mockIsConversationIncognito: vi.fn(async () => false),
+	mockCreateMessage: vi.fn(),
+	mockPersistUserTurnAttachments: vi.fn(),
+	mockPersistAssistantTurnState: vi.fn(),
+	mockPersistAssistantEvidence: vi.fn(),
+	mockRunPostTurnTasks: vi.fn(),
+}));
+
+// finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
+// sequence. The finalizeChatTurn tests seam at that module boundary; the direct
+// tests of the steps below reach for the real implementations through
+// vi.importActual("./finalize-steps").
+vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	persistUserTurnAttachments: mockPersistUserTurnAttachments,
+	persistAssistantTurnState: mockPersistAssistantTurnState,
+	persistAssistantEvidence: mockPersistAssistantEvidence,
+	runPostTurnTasks: mockRunPostTurnTasks,
 }));
 
 vi.mock("$lib/server/services/chat-files", () => ({
 	syncGeneratedFilesToMemory: mockSyncGeneratedFilesToMemory,
+	getChatFilesForAssistantMessage: vi.fn(async () => []),
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -85,7 +101,7 @@ vi.mock("$lib/server/services/memory-controls", () => ({
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
-	createMessage: vi.fn(async () => ({ id: "message-1" })),
+	createMessage: mockCreateMessage,
 	listMessages: mockListMessages,
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
@@ -117,15 +133,15 @@ vi.mock("$lib/server/services/knowledge/store", () => ({
 	parseWorkingDocumentMetadata: vi.fn(() => ({})),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: vi.fn(async () => undefined),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: vi.fn(async () => undefined),
 }));
 
 vi.mock("$lib/server/services/memory-maintenance", () => ({
 	runUserMemoryMaintenance: mockRunUserMemoryMaintenance,
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	isCurrentMemoryResetGeneration: mockIsCurrentMemoryResetGeneration,
 }));
 
@@ -142,13 +158,11 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 }));
 
 vi.mock("$lib/server/services/task-state", () => ({
-	applyProjectContinuitySignalFromMessage: vi.fn(async () => undefined),
 	shouldTrackTaskContinuityFromTurn: mockShouldTrackTaskContinuityFromTurn,
 	attachContinuityToTaskState: vi.fn(async (_userId, taskState) => taskState),
 	getContextDebugState: vi.fn(async () => null),
 	getConversationTaskState: vi.fn(async () => null),
 	getProjectReferenceContext: vi.fn(async () => null),
-	syncTaskContinuityFromTaskState: vi.fn(async () => undefined),
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
 
@@ -229,7 +243,10 @@ describe("runPostTurnTasks", () => {
 		mockRefreshConversationSummary.mockRejectedValueOnce(
 			new Error("summary offline"),
 		);
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await expect(
 			runPostTurnTasks({
@@ -268,7 +285,10 @@ describe("runPostTurnTasks", () => {
 		// judgeFinishedTurn now — those behaviours are asserted against real logic
 		// in memory-judge/dispatch.test.ts. Here we only assert finalize hands the
 		// judge the right turn and does not otherwise gate it.
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await runPostTurnTasks({
 			logPrefix: "[SEND]",
@@ -312,7 +332,10 @@ describe("runPostTurnTasks", () => {
 	});
 
 	it("threads null message ids and defers to the dispatch's mirror-content fallback", async () => {
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await runPostTurnTasks({
 			logPrefix: "[SEND]",
@@ -353,7 +376,10 @@ describe("runPostTurnTasks", () => {
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
 		mockJudgeFinishedTurn.mockRejectedValueOnce(new Error("judge offline"));
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await expect(
 			runPostTurnTasks({
@@ -389,7 +415,10 @@ describe("runPostTurnTasks", () => {
 			resolveMaintenance = resolve;
 		});
 		mockRunUserMemoryMaintenance.mockReturnValueOnce(maintenancePromise);
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		let completed = false;
 		const postTurn = runPostTurnTasks({
@@ -427,7 +456,10 @@ describe("runPostTurnTasks", () => {
 				rejectMaintenance = reject;
 			}),
 		);
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await runPostTurnTasks({
 			logPrefix: "[SEND]",
@@ -456,10 +488,8 @@ describe("runPostTurnTasks", () => {
 describe("finalizeChatTurn", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-	});
-
-	it("can return a stream receipt before deferred turn projection resolves", async () => {
-		const createMessage = vi.fn(
+		mockCreateMessage.mockReset();
+		mockCreateMessage.mockImplementation(
 			async (
 				_conversationId: string,
 				role: "user" | "assistant",
@@ -470,29 +500,38 @@ describe("finalizeChatTurn", () => {
 					role === "user" ? "user message" : "assistant response",
 				),
 		);
+		mockPersistUserTurnAttachments.mockReset();
+		mockPersistUserTurnAttachments.mockResolvedValue(undefined);
+		mockPersistAssistantTurnState.mockReset();
+		mockPersistAssistantTurnState.mockResolvedValue({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: {},
+		});
+		mockPersistAssistantEvidence.mockReset();
+		mockPersistAssistantEvidence.mockResolvedValue(undefined);
+		mockRunPostTurnTasks.mockReset();
+		mockRunPostTurnTasks.mockResolvedValue(undefined);
+	});
+
+	it("can return a stream receipt before deferred turn projection resolves", async () => {
 		const deferredTurnState = createDeferred<{
 			activeWorkingSet: [];
 			taskState: null;
 			contextDebug: null;
 			workCapsule: undefined;
 		}>();
-		const persistAssistantTurnState = vi.fn(
-			async () => deferredTurnState.promise,
+		// Hold the assistant turn-state step open so the deferred projection
+		// cannot progress until the test resolves it.
+		mockPersistAssistantTurnState.mockReturnValueOnce(
+			deferredTurnState.promise,
 		);
-		const runPostTurnTasks = vi.fn(async () => undefined);
-		const buildCompletionContextSources = vi.fn(async () => ({
-			conversationId: "conv-1",
-			userId: "user-1",
-			activeCount: 0,
-			inferredCount: 0,
-			selectedCount: 0,
-			pinnedCount: 0,
-			excludedCount: 0,
-			reduced: false,
-			compacted: false,
-			groups: [],
-			updatedAt: 1_777_140_000_000,
-		}));
+		// buildChatTurnCompletionContextSources (kept real in finalize.ts) calls
+		// getProjectReferenceContext, so that mock is the honest proxy for "the
+		// deferred context-source projection ran".
+		const mockGetProjectReferenceContext =
+			getProjectReferenceContext as ReturnType<typeof vi.fn>;
 		const { finalizeChatTurn } = await import("./finalize");
 
 		let receipt: Awaited<ReturnType<typeof finalizeChatTurn>> | undefined;
@@ -520,10 +559,6 @@ describe("finalizeChatTurn", () => {
 			persistenceMode: "best_effort",
 			persistUserAttachmentsBeforeAssistantMessage: false,
 			deferPostTurnProjection: true,
-			createMessage,
-			persistAssistantTurnState,
-			runPostTurnTasks,
-			buildCompletionContextSources,
 		}).then((value) => {
 			receipt = value;
 			return value;
@@ -536,20 +571,20 @@ describe("finalizeChatTurn", () => {
 			expect(receipt?.assistantMessage?.id).toBe("assistant-message");
 			expect(receipt?.turnState).toBeNull();
 			expect(receipt?.contextSources.groups).toEqual([]);
-			expect(persistAssistantTurnState).not.toHaveBeenCalled();
+			expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
 			if (!receipt) {
 				throw new Error("Expected deferred finalize receipt");
 			}
 
 			const postTurnTask = receipt.createPostTurnTask();
 			await flushMicrotasks();
-			expect(persistAssistantTurnState).toHaveBeenCalledWith(
+			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 				expect.objectContaining({
 					userMessageId: "user-message",
 					assistantMessageId: "assistant-message",
 				}),
 			);
-			expect(buildCompletionContextSources).not.toHaveBeenCalled();
+			expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 
 			let postTurnSettled = false;
 			void postTurnTask.then(() => {
@@ -566,13 +601,13 @@ describe("finalizeChatTurn", () => {
 			});
 			await postTurnTask;
 
-			expect(buildCompletionContextSources).toHaveBeenCalledWith(
+			expect(mockGetProjectReferenceContext).toHaveBeenCalledWith(
 				expect.objectContaining({
 					userId: "user-1",
 					conversationId: "conv-1",
 				}),
 			);
-			expect(runPostTurnTasks).toHaveBeenCalledWith(
+			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 				expect.objectContaining({
 					userId: "user-1",
 					conversationId: "conv-1",
@@ -591,23 +626,6 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("reconciles new generated outputs during turn completion", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user" ? "user message" : "assistant response",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const assignGeneratedOutputJobs = vi.fn(async () => undefined);
 		const syncGeneratedFilesToMemory = vi.fn(async () => undefined);
 		const getGeneratedFilesForAssistantMessage = vi.fn(async () => [
@@ -652,8 +670,6 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 			generatedOutputReconciliation: {
 				fileProductionJobIdsAtStart: new Set(["job-existing"]),
 				getFileProductionJobs: vi.fn(async () => [
@@ -689,23 +705,6 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("reconciles new pending writes during turn completion, stamping only the new ids", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user" ? "user message" : "assistant response",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const assignPendingWrites = vi.fn(async () => undefined);
 		const getPendingWrites = vi.fn(async () => [
 			{ id: "pw-existing" },
@@ -741,8 +740,6 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 			generatedOutputReconciliation: {
 				fileProductionJobIdsAtStart: new Set(),
 				getFileProductionJobs: vi.fn(async () => []),
@@ -762,23 +759,6 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("skips pending-write reconciliation entirely when pendingWriteIdsAtStart is not provided (no-op, existing callers stay unaffected)", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user" ? "user message" : "assistant response",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const getPendingWrites = vi.fn(async () => []);
 		const { finalizeChatTurn } = await import("./finalize");
 
@@ -810,8 +790,6 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 			generatedOutputReconciliation: {
 				fileProductionJobIdsAtStart: new Set(),
 				getFileProductionJobs: vi.fn(async () => []),
@@ -824,7 +802,7 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("persists completed control-only turns with empty visible assistant text", async () => {
-		const createMessage = vi.fn(
+		mockCreateMessage.mockImplementation(
 			async (
 				_conversationId: string,
 				role: "user" | "assistant",
@@ -835,12 +813,6 @@ describe("finalizeChatTurn", () => {
 					role === "user" ? "normalized user message" : "",
 				),
 		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const mockApplySkillControlOperations =
 			applySkillControlOperations as ReturnType<typeof vi.fn>;
 		const { finalizeChatTurn } = await import("./finalize");
@@ -882,8 +854,6 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 		});
 
 		expect(completion.assistantMessage).toEqual(
@@ -893,7 +863,7 @@ describe("finalizeChatTurn", () => {
 				content: "",
 			}),
 		);
-		expect(createMessage).toHaveBeenCalledWith(
+		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
 			"",
@@ -909,7 +879,7 @@ describe("finalizeChatTurn", () => {
 				expect.objectContaining({ operationId: "control-only-question" }),
 			],
 		});
-		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantMessageId: "assistant-message",
 				assistantResponse: "",
@@ -987,7 +957,7 @@ describe("finalizeChatTurn", () => {
 
 	it("creates the assistant message before attachment persistence in stream mode", async () => {
 		const callOrder: string[] = [];
-		const createMessage = vi.fn(
+		mockCreateMessage.mockImplementation(
 			async (
 				_conversationId: string,
 				role: "user" | "assistant",
@@ -1002,16 +972,10 @@ describe("finalizeChatTurn", () => {
 				);
 			},
 		);
-		const persistUserTurnAttachments = vi.fn(async () => {
+		mockPersistUserTurnAttachments.mockImplementation(async () => {
 			callOrder.push("attachments:persist");
 			return [];
 		});
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
@@ -1044,9 +1008,6 @@ describe("finalizeChatTurn", () => {
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
 			persistUserAttachmentsBeforeAssistantMessage: false,
-			createMessage,
-			persistUserTurnAttachments,
-			persistAssistantTurnState,
 		});
 
 		expect(callOrder).toEqual([
@@ -1057,25 +1018,6 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("adds baseline Depth Metadata when persisting a completed assistant message", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user"
-						? "normalized user message"
-						: "visible assistant response",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
@@ -1110,11 +1052,9 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 		});
 
-		expect(createMessage).toHaveBeenCalledWith(
+		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
 			"visible assistant response",
@@ -1133,25 +1073,6 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("persists resolved Auto Depth Metadata from preflight instead of rebuilding the baseline", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user"
-						? "normalized user message"
-						: "visible assistant response",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
@@ -1195,11 +1116,9 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
 		});
 
-		expect(createMessage).toHaveBeenCalledWith(
+		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
 			"visible assistant response",
@@ -1220,28 +1139,9 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("swallows attachment persistence failures in stream mode", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user"
-						? "normalized user message"
-						: "visible assistant response",
-				),
-		);
-		const persistUserTurnAttachments = vi.fn(async () => {
+		mockPersistUserTurnAttachments.mockImplementation(async () => {
 			throw new Error("attachment offline");
 		});
-		const persistAssistantTurnState = vi.fn(async () => ({
-			activeWorkingSet: [],
-			taskState: null,
-			contextDebug: null,
-			workCapsule: {} as unknown as undefined,
-		}));
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
@@ -1274,9 +1174,6 @@ describe("finalizeChatTurn", () => {
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
 			persistUserAttachmentsBeforeAssistantMessage: false,
-			createMessage,
-			persistUserTurnAttachments,
-			persistAssistantTurnState,
 		});
 
 		await expect(completion.attachmentTask).resolves.toBeUndefined();
@@ -1304,10 +1201,12 @@ describe("finalizeChatTurn", () => {
 			});
 			return { promise, resolve };
 		})();
-		const mockPersistAssistantEvidence = vi.fn(
+		mockPersistAssistantEvidence.mockImplementationOnce(
 			async () => evidenceDeferred.promise,
 		);
-		const mockRunPostTurnTasks = vi.fn(async () => postTurnDeferred.promise);
+		mockRunPostTurnTasks.mockImplementationOnce(
+			async () => postTurnDeferred.promise,
+		);
 		const completion = await finalizeChatTurn({
 			logPrefix: "[SEND]",
 			userId: "user-1",
@@ -1340,12 +1239,14 @@ describe("finalizeChatTurn", () => {
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			waitForEvidenceBeforePostTurnTasks: false,
-			persistAssistantEvidence: mockPersistAssistantEvidence,
-			runPostTurnTasks: mockRunPostTurnTasks,
 		});
 
-		expect(completion.userMessage).toEqual({ id: "message-1" });
-		expect(completion.assistantMessage).toEqual({ id: "message-1" });
+		expect(completion.userMessage).toEqual(
+			expect.objectContaining({ id: "user-message" }),
+		);
+		expect(completion.assistantMessage).toEqual(
+			expect.objectContaining({ id: "assistant-message" }),
+		);
 		expect(mockRunUserMemoryMaintenance).not.toHaveBeenCalled();
 
 		const postTurnTask = completion.createPostTurnTask();
@@ -1357,18 +1258,7 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("forwards Atlas-style skip options through finalization without disabling other completion work", async () => {
-		const createMessage = vi.fn(
-			async (
-				_conversationId: string,
-				role: "user" | "assistant",
-			): Promise<ChatMessage> =>
-				makeChatMessage(
-					`${role}-message`,
-					role,
-					role === "user" ? "atlas request" : "atlas queued",
-				),
-		);
-		const persistAssistantTurnState = vi.fn(async () => ({
+		mockPersistAssistantTurnState.mockResolvedValue({
 			activeWorkingSet: [],
 			taskState: null,
 			contextDebug: null,
@@ -1377,8 +1267,7 @@ describe("finalizeChatTurn", () => {
 				workflowSummary: "Atlas workflow",
 				artifact: { name: "Atlas report" },
 			},
-		}));
-		const runPostTurnTasks = vi.fn(async () => undefined);
+		});
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
@@ -1402,20 +1291,17 @@ describe("finalizeChatTurn", () => {
 			continuitySource: "send",
 			assistantMirrorContent: "atlas queued",
 			maintenanceReason: "chat_send",
-			createMessage,
-			persistAssistantTurnState,
-			runPostTurnTasks,
 			skipAssistantProseMemoryIntake: true,
 		});
 
 		await completion.createPostTurnTask();
 
-		expect(persistAssistantTurnState).toHaveBeenCalledWith(
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantResponse: "atlas queued",
 			}),
 		);
-		expect(runPostTurnTasks).toHaveBeenCalledWith(
+		expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantResponse: "atlas queued",
 				skipAssistantProseMemoryIntake: true,
@@ -1424,7 +1310,10 @@ describe("finalizeChatTurn", () => {
 	});
 
 	it("skips assistant-prose memory intake while preserving summary refresh and maintenance", async () => {
-		const { runPostTurnTasks } = await import("./finalize");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await runPostTurnTasks({
 			logPrefix: "[SEND]",
@@ -1477,7 +1366,7 @@ describe("finalizeChatTurn", () => {
 			],
 			omittedSiblingCount: 0,
 		});
-		const persistAssistantTurnState = vi.fn(async () => ({
+		mockPersistAssistantTurnState.mockResolvedValue({
 			activeWorkingSet: [
 				{
 					id: "working-1",
@@ -1494,7 +1383,7 @@ describe("finalizeChatTurn", () => {
 			taskState: null,
 			contextDebug: null,
 			workCapsule: {} as unknown as undefined,
-		}));
+		});
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
@@ -1538,7 +1427,6 @@ describe("finalizeChatTurn", () => {
 					documentOrigin: "uploaded",
 				},
 			],
-			persistAssistantTurnState,
 		});
 
 		expect(completion.contextSources.groups).toEqual(
@@ -1577,7 +1465,9 @@ describe("finalizeChatTurn", () => {
 		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
 			typeof vi.fn
 		>;
-		const mockRecordMemoryEvent = recordMemoryEvent as ReturnType<typeof vi.fn>;
+		const mockRecordMemoryEvent = recordMemoryBehaviorEvent as ReturnType<
+			typeof vi.fn
+		>;
 		const mockResolveSelection = resolveWorkingDocumentSelection as ReturnType<
 			typeof vi.fn
 		>;
@@ -1639,7 +1529,10 @@ describe("finalizeChatTurn", () => {
 				workingDocumentProtectedArtifactIds: ["brief-v1"],
 			},
 		});
-		const { persistAssistantTurnState } = await import("./finalize");
+		const { persistAssistantTurnState } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await persistAssistantTurnState({
 			userId: "user-1",
@@ -1671,7 +1564,9 @@ describe("finalizeChatTurn", () => {
 		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
 			typeof vi.fn
 		>;
-		const mockRecordMemoryEvent = recordMemoryEvent as ReturnType<typeof vi.fn>;
+		const mockRecordMemoryEvent = recordMemoryBehaviorEvent as ReturnType<
+			typeof vi.fn
+		>;
 		mockGetArtifactsForUser.mockResolvedValueOnce([
 			{
 				id: "brief-v1",
@@ -1694,7 +1589,10 @@ describe("finalizeChatTurn", () => {
 				},
 			},
 		]);
-		const { persistAssistantTurnState } = await import("./finalize");
+		const { persistAssistantTurnState } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
 
 		await persistAssistantTurnState({
 			userId: "user-1",
@@ -1715,65 +1613,6 @@ describe("finalizeChatTurn", () => {
 		expect(mockRecordMemoryEvent).not.toHaveBeenCalled();
 	});
 
-	it("does not sync project continuity for output-control-only turns", async () => {
-		const mockUpdateTaskStateCheckpoint =
-			updateTaskStateCheckpoint as ReturnType<typeof vi.fn>;
-		const mockSyncContinuity = syncTaskContinuityFromTaskState as ReturnType<
-			typeof vi.fn
-		>;
-		const mockApplyProjectContinuity =
-			applyProjectContinuitySignalFromMessage as ReturnType<typeof vi.fn>;
-		const mockShouldTrack = shouldTrackTaskContinuityFromTurn as ReturnType<
-			typeof vi.fn
-		>;
-		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
-			typeof vi.fn
-		>;
-
-		mockUpdateTaskStateCheckpoint.mockResolvedValueOnce({
-			taskId: "task-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			status: "active",
-			objective: "Track task state",
-			confidence: 82,
-			locked: false,
-			lastConfirmedTurnMessageId: "user-message-1",
-			constraints: [],
-			factsToPreserve: [],
-			decisions: [],
-			openQuestions: [],
-			activeArtifactIds: [],
-			nextSteps: [],
-			lastCheckpointAt: null,
-			createdAt: 1_777_140_000_000,
-			updatedAt: 1_777_140_000_000,
-		});
-		mockShouldTrack.mockReturnValue(false);
-		mockGetArtifactsForUser.mockResolvedValueOnce([]);
-
-		const { persistAssistantTurnState } = await import("./finalize");
-
-		await persistAssistantTurnState({
-			userId: "user-1",
-			conversationId: "conv-1",
-			normalizedMessage: "What is my codeword? Reply with only the codeword.",
-			assistantResponse: "The codeword is hidden.",
-			attachmentIds: [],
-			activeDocumentArtifactId: undefined,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			userMessageId: "user-message-1",
-			assistantMessageId: "assistant-message-1",
-			analytics: null,
-			continuitySource: "send",
-		});
-
-		expect(mockSyncContinuity).not.toHaveBeenCalled();
-		expect(mockApplyProjectContinuity).not.toHaveBeenCalled();
-	});
-
 	describe("incognito telemetry suppression", () => {
 		beforeEach(() => {
 			mockIsConversationIncognito.mockResolvedValue(false);
@@ -1784,7 +1623,10 @@ describe("finalizeChatTurn", () => {
 			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
 				typeof vi.fn
 			>;
-			const { persistAssistantTurnState } = await import("./finalize");
+			const { persistAssistantTurnState } =
+				await vi.importActual<typeof import("./finalize-steps")>(
+					"./finalize-steps",
+				);
 
 			await persistAssistantTurnState({
 				userId: "user-1",
@@ -1822,7 +1664,10 @@ describe("finalizeChatTurn", () => {
 			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
 				typeof vi.fn
 			>;
-			const { persistAssistantTurnState } = await import("./finalize");
+			const { persistAssistantTurnState } =
+				await vi.importActual<typeof import("./finalize-steps")>(
+					"./finalize-steps",
+				);
 
 			await persistAssistantTurnState({
 				userId: "user-1",
@@ -1853,18 +1698,6 @@ describe("finalizeChatTurn", () => {
 			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
 				typeof vi.fn
 			>;
-			const createMessage = vi.fn(
-				async (
-					_conversationId: string,
-					role: "user" | "assistant",
-				): Promise<ChatMessage> =>
-					makeChatMessage(
-						`${role}-message`,
-						role,
-						role === "user" ? "user message" : "assistant response",
-					),
-			);
-			const runPostTurnTasks = vi.fn(async () => undefined);
 			const { finalizeChatTurn } = await import("./finalize");
 
 			const completion = await finalizeChatTurn({
@@ -1893,13 +1726,11 @@ describe("finalizeChatTurn", () => {
 				continuitySource: "send",
 				assistantMirrorContent: "assistant response",
 				maintenanceReason: "chat_send",
-				createMessage,
-				runPostTurnTasks,
 			});
 
 			// The conversation and its messages stay saved (incognito is
 			// saved-but-untracked, not hidden).
-			expect(createMessage).toHaveBeenCalledWith(
+			expect(mockCreateMessage).toHaveBeenCalledWith(
 				"conv-secret",
 				"assistant",
 				"assistant response",

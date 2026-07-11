@@ -26,7 +26,8 @@
 //     connector token.
 //   - I2 no-memory-fact / memory boundary: a turn that injects proactive
 //     connector context creates NO memory fact and never threads that
-//     content into the memory-judge/summary pipeline (`runPostTurnTasks`).
+//     content into the memory-judge/summary pipeline (`runPostTurnTasks`,
+//     now in chat-turn/finalize-steps.ts).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
@@ -280,13 +281,13 @@ vi.mock("$lib/server/services/knowledge", () => ({
 vi.mock("$lib/server/services/knowledge/store", () => ({
 	parseWorkingDocumentMetadata: vi.fn(() => ({})),
 }));
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: vi.fn(async () => undefined),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: vi.fn(async () => undefined),
 }));
 vi.mock("$lib/server/services/memory-maintenance", () => ({
 	runUserMemoryMaintenance: mocks.runUserMemoryMaintenance,
 }));
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	isCurrentMemoryResetGeneration: vi.fn(async () => true),
 }));
 vi.mock("$lib/server/services/message-evidence", () => ({
@@ -830,7 +831,7 @@ describe("locality — 8.1 whole-outbound-context locality (I1, REQUIRED)", () =
 // `runProactiveConnectorContextStage` splices the block into `inputValue`,
 // which becomes `upstreamMessage` for the model call) creates NO memory fact
 // and never threads that content into the memory-judge/summary pipeline.
-// runPostTurnTasks (chat-turn/finalize.ts) is the single post-turn entry
+// runPostTurnTasks (chat-turn/finalize-steps.ts) is the single post-turn entry
 // point that schedules memory intake; PINS (by code inspection AND this
 // runtime proof) that it only ever reads `params.userMessage` /
 // `params.assistantResponse` / `params.assistantMirrorContent` — NEVER
@@ -868,7 +869,7 @@ describe("locality — 8.1 no-memory-fact / memory boundary (I2, REQUIRED)", () 
 		].join("\n\n");
 
 		const { runPostTurnTasks } = await import(
-			"$lib/server/services/chat-turn/finalize"
+			"$lib/server/services/chat-turn/finalize-steps"
 		);
 		await runPostTurnTasks({
 			logPrefix: "[SEND]",

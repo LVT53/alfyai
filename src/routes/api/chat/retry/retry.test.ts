@@ -49,7 +49,7 @@ vi.mock("$lib/server/services/chat-turn/stream-orchestrator", () => ({
 	runChatStreamOrchestrator: vi.fn(() => new Response("retry stream")),
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
 }));
 

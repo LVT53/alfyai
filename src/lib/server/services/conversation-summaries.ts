@@ -6,7 +6,7 @@ import {
 	requestContextSummarizer,
 } from "$lib/server/services/task-state/control-model";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
-import { isCurrentMemoryResetGeneration } from "./memory-profile";
+import { isCurrentMemoryResetGeneration } from "./memory-profile/reset-generation";
 
 const SUMMARY_MAX_CHARS = 700;
 const MEANINGFUL_TURN_MIN_CHARS = 40;

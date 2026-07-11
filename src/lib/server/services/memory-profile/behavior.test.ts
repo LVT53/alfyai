@@ -7,6 +7,45 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 
+// The memory-profile barrel (index.ts) was retired in C6. This behavior test
+// exercises the whole seam surface, so it composes the granular seams into one
+// namespace here — the same set the old barrel re-exported — rather than
+// reaching through a production barrel.
+async function importMemoryProfileSeams() {
+	const [
+		types,
+		scope,
+		resetGeneration,
+		projectionStore,
+		readModel,
+		activeContext,
+		telemetry,
+		review,
+		dirtyLedger,
+	] = await Promise.all([
+		import("./types"),
+		import("./scope"),
+		import("./reset-generation"),
+		import("./projection-store"),
+		import("./read-model"),
+		import("./active-context"),
+		import("./telemetry"),
+		import("./review"),
+		import("./dirty-ledger"),
+	]);
+	return {
+		...types,
+		...scope,
+		...resetGeneration,
+		...projectionStore,
+		...readModel,
+		...activeContext,
+		...telemetry,
+		...review,
+		...dirtyLedger,
+	};
+}
+
 let dbPath: string;
 
 function openSeedDatabase() {
@@ -54,7 +93,7 @@ describe("memory profile foundation", () => {
 			advanceMemoryResetGeneration,
 			getCurrentMemoryResetGeneration,
 			isCurrentMemoryResetGeneration,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		await expect(getCurrentMemoryResetGeneration("user-1")).resolves.toBe(0);
 
@@ -82,7 +121,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getMemoryProfileItemDetail,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const emptyProfile = await getMemoryProfileReadModel({ userId: "user-1" });
 
@@ -155,7 +194,7 @@ describe("memory profile foundation", () => {
 
 	it("exposes confidence, expiry class and expiresAt on card items and review expiry", async () => {
 		const { createMemoryProfileItem, createOrUpdateMemoryReviewItem } =
-			await import("./index");
+			await importMemoryProfileSeams();
 		const { getMemoryProfileReadModel } = await import("./read-model");
 
 		const statedItem = await createMemoryProfileItem({
@@ -245,7 +284,7 @@ describe("memory profile foundation", () => {
 			createOrUpdateMemoryReviewItem,
 			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		await createMemoryProfileItem({
 			userId: "user-1",
@@ -308,9 +347,8 @@ describe("memory profile foundation", () => {
 	});
 
 	it("keeps one active profile item for duplicate creates with the same stable item key", async () => {
-		const { createMemoryProfileItem, getMemoryProfileReadModel } = await import(
-			"./index"
-		);
+		const { createMemoryProfileItem, getMemoryProfileReadModel } =
+			await importMemoryProfileSeams();
 
 		const first = await createMemoryProfileItem({
 			userId: "user-1",
@@ -343,7 +381,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getMemoryProfileReadModel,
 			updateMemoryProfileItemWithRevision,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const suppressed = await createMemoryProfileItem({
 			userId: "user-1",
@@ -416,7 +454,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getMemoryProfileReadModel,
 			updateMemoryProfileItemWithRevision,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const item = await createMemoryProfileItem({
 			userId: "user-1",
@@ -478,7 +516,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getMemoryProfileReadModel,
 			updateMemoryProfileItemWithRevision,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const edited = await createMemoryProfileItem({
 			userId: "user-1",
@@ -523,7 +561,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getMemoryProfileReadModel,
 			updateMemoryProfileItemWithRevision,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const source = await createMemoryProfileItem({
 			userId: "user-1",
@@ -570,7 +608,7 @@ describe("memory profile foundation", () => {
 			markMemoryDirty,
 			recordMemoryReworkTelemetry,
 			resolveMemoryReviewItem,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		expect(MEMORY_REVIEW_RESOLUTION_TYPES).toEqual([
 			"use_fact",
@@ -670,7 +708,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -715,7 +753,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -760,7 +798,7 @@ describe("memory profile foundation", () => {
 
 	it("shows the proposed memory text for review items with generic legacy labels", async () => {
 		const { createOrUpdateMemoryReviewItem, getMemoryProfileReadModel } =
-			await import("./index");
+			await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -792,7 +830,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -846,7 +884,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -884,7 +922,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -928,7 +966,7 @@ describe("memory profile foundation", () => {
 			createOrUpdateMemoryReviewItem,
 			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -969,7 +1007,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const first = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -1014,7 +1052,7 @@ describe("memory profile foundation", () => {
 			applyMemoryReviewItemWithRevision,
 			createOrUpdateMemoryReviewItem,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const review = await createOrUpdateMemoryReviewItem({
 			userId: "user-1",
@@ -1051,7 +1089,7 @@ describe("memory profile foundation", () => {
 			createOrUpdateMemoryReviewItem,
 			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const first = await createMemoryProfileItem({
 			userId: "user-1",
@@ -1109,7 +1147,7 @@ describe("memory profile foundation", () => {
 			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
 			updateMemoryProfileItemWithRevision,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const active = await createMemoryProfileItem({
 			userId: "user-1",
@@ -1172,7 +1210,7 @@ describe("memory profile foundation", () => {
 
 	it("includes global and applicable scoped memories in active prompt context", async () => {
 		const { createMemoryProfileItem, getActiveMemoryProfileContext } =
-			await import("./index");
+			await importMemoryProfileSeams();
 
 		await createMemoryProfileItem({
 			userId: "user-1",
@@ -1248,7 +1286,7 @@ describe("memory profile foundation", () => {
 
 	it("defaults active prompt context to global memories when no scoped applicability is provided", async () => {
 		const { createMemoryProfileItem, getActiveMemoryProfileContext } =
-			await import("./index");
+			await importMemoryProfileSeams();
 
 		await createMemoryProfileItem({
 			userId: "user-1",
@@ -1272,7 +1310,7 @@ describe("memory profile foundation", () => {
 
 	it("lists projection-policy blocked statements across non-active profile states", async () => {
 		const { createMemoryProfileItem, listProjectionPolicyBlockedStatements } =
-			await import("./index");
+			await importMemoryProfileSeams();
 
 		await createMemoryProfileItem({
 			userId: "user-1",
@@ -1369,7 +1407,7 @@ describe("memory profile foundation", () => {
 			createMemoryProfileItem,
 			getActiveMemoryProfileContext,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const expired = await createMemoryProfileItem({
 			userId: "user-1",
@@ -1412,7 +1450,7 @@ describe("memory profile foundation", () => {
 	it("orders active memory profile context newest-first", async () => {
 		const { db } = await import("$lib/server/db");
 		const { createMemoryProfileItem, getActiveMemoryProfileContext } =
-			await import("./index");
+			await importMemoryProfileSeams();
 
 		const stale = await createMemoryProfileItem({
 			userId: "user-1",
@@ -1446,9 +1484,8 @@ describe("memory profile foundation", () => {
 	});
 
 	it("formats active memory profile context item-by-item with omitted counts", async () => {
-		const { formatActiveMemoryProfileContextForPrompt } = await import(
-			"./index"
-		);
+		const { formatActiveMemoryProfileContextForPrompt } =
+			await importMemoryProfileSeams();
 		const context = {
 			resetGeneration: 0,
 			projectionRevision: 1,
@@ -1499,9 +1536,8 @@ describe("memory profile foundation", () => {
 	});
 
 	it("skips one oversized newest active memory instead of blanking later compact memories", async () => {
-		const { formatActiveMemoryProfileContextForPrompt } = await import(
-			"./index"
-		);
+		const { formatActiveMemoryProfileContextForPrompt } =
+			await importMemoryProfileSeams();
 		const context = {
 			resetGeneration: 0,
 			projectionRevision: 1,
@@ -1553,7 +1589,7 @@ describe("memory profile foundation", () => {
 			expireOverdueReviewMemoryProfileItems,
 			getCurrentMemoryResetGeneration,
 			getMemoryProfileReadModel,
-		} = await import("./index");
+		} = await importMemoryProfileSeams();
 
 		const item = await createMemoryProfileItem({
 			userId: "user-1",

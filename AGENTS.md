@@ -362,7 +362,7 @@ Task/document continuity and profile memory are separate subsystems. Continuity 
 - Public read facade + maintenance/orchestration:
   - [`src/lib/server/services/memory.ts`](./src/lib/server/services/memory.ts), [`src/lib/server/services/memory-maintenance.ts`](./src/lib/server/services/memory-maintenance.ts)
 - Event log:
-  - [`src/lib/server/services/memory-events.ts`](./src/lib/server/services/memory-events.ts)
+  - [`src/lib/server/services/memory-behavior-log.ts`](./src/lib/server/services/memory-behavior-log.ts)
 
 Rules:
 
@@ -374,7 +374,7 @@ Rules:
 - `memory-profile/` is the authority on fact state: item `status` (including `retired`), provenance, and projection revisions. `user_authored` items are protected — the judge, consolidation, and recuration must never rewrite, retire, or delete them. Read/write item metadata through the shared helpers in `memory-profile/types.ts` (`parseMemoryItemMetadata`, `isUserAuthoredMemoryMetadata`); do not re-implement the origin check locally.
 - Recall belongs to `memory-context/`: the prompt gets the persona summary plus active facts, each fact carrying its own evidence. Do not build a second lexical/semantic persona search surface beside this boundary, and do not invent "today/now" timing for undated facts.
 - `memory.ts` is the public read facade for the Knowledge Base Memory Profile and keeps `/api/knowledge/memory/overview` as a projection-backed wrapper. It must not depend on a live external overview service, raw markdown cleanup, or task-memory tables.
-- `memory-events.ts` owns the persisted normalized event log for important state changes (deadlines, preference updates, fact replacement, project continuity transitions, document supersession). Add new event types there; do not create ad hoc side logs or route-local event tables.
+- `memory-behavior-log.ts` owns the persisted normalized event log (recorded via `recordMemoryBehaviorEvent`, backed by the `memory_events` table) for important state changes (deadlines, preference updates, fact replacement, project continuity transitions, document supersession). Add new event types there; do not create ad hoc side logs or route-local event tables.
 - `task-state.ts` remains the continuity facade (task routing, checkpoints, evidence-context assembly, semantic task revival). Keep project continuity status/event truth deterministic in `task-state/continuity.ts`, which prefers the latest `project_paused`/`project_resumed` task-domain event over an older still-active row.
 - User-selected task evidence preferences stay family-aware for working documents: pinning/excluding one version clears contradictory preference links for sibling versions in the same family. Live Working Document selection signals belong in `working-document-selection.ts`, recomputed per turn.
 - `memory-maintenance.ts` owns per-user maintenance scheduling and lazy semantic-embedding backfill. Chat-triggered maintenance stays serialized/debounced there; generated-output duplicate repair and dormant-family (`historical`) downgrades reuse `evidence-family.ts` from there rather than a separate sweep. Historical families are soft-deprioritized, not hidden.

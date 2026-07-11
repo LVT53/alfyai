@@ -8,8 +8,8 @@ vi.mock("$lib/server/services/knowledge/store", () => ({
 	getArtifactsForUser: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: vi.fn(),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/document-resolution", () => ({
@@ -19,12 +19,14 @@ vi.mock("$lib/server/services/document-resolution", () => ({
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getDocumentBehaviorKey } from "$lib/server/services/document-resolution";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<typeof vi.fn>;
-const mockRecordMemoryEvent = recordMemoryEvent as ReturnType<typeof vi.fn>;
+const mockRecordMemoryEvent = recordMemoryBehaviorEvent as ReturnType<
+	typeof vi.fn
+>;
 const mockGetDocumentBehaviorKey = getDocumentBehaviorKey as ReturnType<
 	typeof vi.fn
 >;

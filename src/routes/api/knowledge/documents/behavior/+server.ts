@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getDocumentBehaviorKey } from "$lib/server/services/document-resolution";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import type { RequestHandler } from "./$types";
 
 const DOCUMENT_OPEN_BUCKET_MS = 30 * 60 * 1000;
@@ -42,7 +42,7 @@ export const POST: RequestHandler = async (event) => {
 	const observedAt = Date.now();
 	const bucketId = Math.floor(observedAt / DOCUMENT_OPEN_BUCKET_MS);
 
-	await recordMemoryEvent({
+	await recordMemoryBehaviorEvent({
 		eventKey: `document_opened:${subjectId}:${bucketId}`,
 		userId: user.id,
 		domain: "document",

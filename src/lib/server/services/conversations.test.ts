@@ -104,30 +104,6 @@ function readProjectFolder(id = "folder-1") {
 	return project;
 }
 
-function readMemoryProject(projectId: string) {
-	const sqlite = new Database(dbPath);
-	const db = drizzle(sqlite, { schema });
-	const project = db
-		.select()
-		.from(schema.memoryProjects)
-		.where(eq(schema.memoryProjects.projectId, projectId))
-		.get();
-	sqlite.close();
-	return project;
-}
-
-function readTaskLink(taskId = "task-1") {
-	const sqlite = new Database(dbPath);
-	const db = drizzle(sqlite, { schema });
-	const link = db
-		.select()
-		.from(schema.memoryProjectTaskLinks)
-		.where(eq(schema.memoryProjectTaskLinks.taskId, taskId))
-		.get();
-	sqlite.close();
-	return link;
-}
-
 describe("conversation project folder moves", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-conversation-folder-${randomUUID()}.db`;
@@ -149,7 +125,10 @@ describe("conversation project folder moves", () => {
 		}
 	});
 
-	it("assigns a meaningful conversation task to the folder canonical continuity immediately", async () => {
+	// ADR-0051: continuity is folder membership itself. Moving a conversation
+	// into a folder assigns `projectId`; there is no inferred canonical-memory
+	// bucket to converge, and the folder row stays a plain organizational record.
+	it("assigns a conversation into a project folder", async () => {
 		seedUserFolderConversation();
 		const { moveConversationToProject } = await import("./conversations");
 
@@ -160,150 +139,20 @@ describe("conversation project folder moves", () => {
 		);
 
 		expect(moved?.projectId).toBe("folder-1");
-		const projectFolder = readProjectFolder();
-		expect(projectFolder?.canonicalMemoryProjectId).toEqual(expect.any(String));
-		const canonicalMemoryProjectId = projectFolder?.canonicalMemoryProjectId;
-		if (!canonicalMemoryProjectId) {
-			throw new Error("Expected folder canonical continuity id");
-		}
-		const memoryProject = readMemoryProject(canonicalMemoryProjectId);
-		expect(memoryProject?.name).toBe("Launch folder");
-		const taskLink = readTaskLink();
-		expect(taskLink?.projectId).toBe(projectFolder?.canonicalMemoryProjectId);
-		expect(taskLink?.conversationId).toBe("conv-1");
+		expect(readProjectFolder()).toMatchObject({
+			id: "folder-1",
+			name: "Launch folder",
+		});
 	});
 
-	it("re-homes a conversation task to an existing folder canonical continuity", async () => {
-		seedUserFolderConversation();
-		const { sqlite, db } = openSeedDatabase();
-		const now = new Date("2026-05-14T09:05:00.000Z");
-		db.insert(schema.memoryProjects)
-			.values([
-				{
-					projectId: "folder-canonical-continuity",
-					userId: "user-1",
-					name: "Old folder name",
-					createdAt: now,
-					updatedAt: now,
-				},
-				{
-					projectId: "inferred-continuity",
-					userId: "user-1",
-					name: "Inferred continuity",
-					createdAt: now,
-					updatedAt: now,
-				},
-			])
-			.run();
-		db.update(schema.projects)
-			.set({ canonicalMemoryProjectId: "folder-canonical-continuity" })
-			.where(eq(schema.projects.id, "folder-1"))
-			.run();
-		db.insert(schema.memoryProjectTaskLinks)
-			.values({
-				id: "existing-link-1",
-				projectId: "inferred-continuity",
-				taskId: "task-1",
-				userId: "user-1",
-				conversationId: "conv-1",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		sqlite.close();
-		const { moveConversationToProject } = await import("./conversations");
-
-		await moveConversationToProject("user-1", "conv-1", "folder-1");
-
-		const projectFolder = readProjectFolder();
-		expect(projectFolder?.canonicalMemoryProjectId).toBe(
-			"folder-canonical-continuity",
-		);
-		expect(readTaskLink()?.projectId).toBe("folder-canonical-continuity");
-		expect(readMemoryProject("folder-canonical-continuity")?.name).toBe(
-			"Launch folder",
-		);
-	});
-
-	it("reuses existing inferred continuity as the folder canonical continuity on assignment", async () => {
-		seedUserFolderConversation();
-		const { sqlite, db } = openSeedDatabase();
-		const now = new Date("2026-05-14T09:07:00.000Z");
-		db.insert(schema.memoryProjects)
-			.values({
-				projectId: "inferred-continuity",
-				userId: "user-1",
-				name: "Draft the launch brief",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.insert(schema.memoryProjectTaskLinks)
-			.values({
-				id: "inferred-link-1",
-				projectId: "inferred-continuity",
-				taskId: "task-1",
-				userId: "user-1",
-				conversationId: "conv-1",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		sqlite.close();
-		const { moveConversationToProject } = await import("./conversations");
-
-		await moveConversationToProject("user-1", "conv-1", "folder-1");
-
-		expect(readProjectFolder()?.canonicalMemoryProjectId).toBe(
-			"inferred-continuity",
-		);
-		expect(readTaskLink()?.projectId).toBe("inferred-continuity");
-		expect(readMemoryProject("inferred-continuity")?.name).toBe(
-			"Launch folder",
-		);
-	});
-
-	it("removes folder authority when a conversation is moved out without deleting continuity", async () => {
+	it("moves a conversation out of a folder", async () => {
 		seedUserFolderConversation({ projectId: "folder-1" });
-		const { sqlite, db } = openSeedDatabase();
-		const now = new Date("2026-05-14T09:10:00.000Z");
-		db.insert(schema.memoryProjects)
-			.values({
-				projectId: "folder-canonical-continuity",
-				userId: "user-1",
-				name: "Launch folder",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		db.update(schema.projects)
-			.set({ canonicalMemoryProjectId: "folder-canonical-continuity" })
-			.where(eq(schema.projects.id, "folder-1"))
-			.run();
-		db.insert(schema.memoryProjectTaskLinks)
-			.values({
-				id: "folder-link-1",
-				projectId: "folder-canonical-continuity",
-				taskId: "task-1",
-				userId: "user-1",
-				conversationId: "conv-1",
-				createdAt: now,
-				updatedAt: now,
-			})
-			.run();
-		sqlite.close();
 		const { moveConversationToProject } = await import("./conversations");
 
 		const moved = await moveConversationToProject("user-1", "conv-1", null);
 
 		expect(moved?.projectId).toBeNull();
-		expect(readTaskLink()).toBeUndefined();
-		expect(readMemoryProject("folder-canonical-continuity")).toEqual(
-			expect.objectContaining({
-				projectId: "folder-canonical-continuity",
-				name: "Launch folder",
-			}),
-		);
+		expect(readProjectFolder()).toMatchObject({ id: "folder-1" });
 	});
 
 	it("rejects moving a conversation into another user's folder without changing assignment", async () => {
@@ -322,94 +171,6 @@ describe("conversation project folder moves", () => {
 
 		expect(moved).toBeNull();
 		expect(conversation?.projectId).toBe("folder-1");
-	});
-
-	it("syncs an already assigned meaningful task into the folder canonical continuity", async () => {
-		seedUserFolderConversation({ projectId: "folder-1" });
-		const { syncTaskContinuityFromTaskState } = await import(
-			"./task-state/continuity"
-		);
-
-		const continuityId = await syncTaskContinuityFromTaskState({
-			userId: "user-1",
-			taskState: {
-				taskId: "task-1",
-				userId: "user-1",
-				conversationId: "conv-1",
-				status: "active",
-				objective: "Draft the launch brief",
-				confidence: 88,
-				locked: false,
-				lastConfirmedTurnMessageId: null,
-				constraints: [],
-				factsToPreserve: [],
-				decisions: [],
-				openQuestions: [],
-				activeArtifactIds: [],
-				nextSteps: ["Send the first draft"],
-				lastCheckpointAt: null,
-				createdAt: Date.parse("2026-05-14T09:00:00.000Z"),
-				updatedAt: Date.parse("2026-05-14T09:00:00.000Z"),
-			},
-		});
-
-		const projectFolder = readProjectFolder();
-		expect(continuityId).toBe(projectFolder?.canonicalMemoryProjectId);
-		if (!continuityId) {
-			throw new Error("Expected folder continuity id");
-		}
-		expect(readMemoryProject(continuityId)?.name).toBe("Launch folder");
-		expect(readTaskLink()?.projectId).toBe(continuityId);
-	});
-
-	it("leaves a folder organization-only when the conversation task is still a placeholder", async () => {
-		seedUserFolderConversation({ objective: "New task" });
-		const { moveConversationToProject } = await import("./conversations");
-
-		await moveConversationToProject("user-1", "conv-1", "folder-1");
-
-		expect(readProjectFolder()?.canonicalMemoryProjectId).toBeNull();
-		expect(readTaskLink()).toBeUndefined();
-	});
-
-	it("keeps inferred continuity behavior for unorganized conversations", async () => {
-		seedUserFolderConversation();
-		const { syncTaskContinuityFromTaskState } = await import(
-			"./task-state/continuity"
-		);
-
-		const continuityId = await syncTaskContinuityFromTaskState({
-			userId: "user-1",
-			taskState: {
-				taskId: "task-1",
-				userId: "user-1",
-				conversationId: "conv-1",
-				status: "active",
-				objective: "Draft the launch brief",
-				confidence: 88,
-				locked: false,
-				lastConfirmedTurnMessageId: null,
-				constraints: [],
-				factsToPreserve: [],
-				decisions: [],
-				openQuestions: [],
-				activeArtifactIds: [],
-				nextSteps: ["Send the first draft"],
-				lastCheckpointAt: null,
-				createdAt: Date.parse("2026-05-14T09:00:00.000Z"),
-				updatedAt: Date.parse("2026-05-14T09:00:00.000Z"),
-			},
-		});
-
-		expect(continuityId).toEqual(expect.any(String));
-		expect(readProjectFolder()?.canonicalMemoryProjectId).toBeNull();
-		if (!continuityId) {
-			throw new Error("Expected inferred continuity id");
-		}
-		expect(readMemoryProject(continuityId)?.name).toBe(
-			"Draft the launch brief",
-		);
-		expect(readTaskLink()?.projectId).toBe(continuityId);
 	});
 });
 

@@ -12,7 +12,6 @@ import {
 	conversationTaskStates,
 	importJobs,
 	memoryEvents,
-	memoryProjects,
 	messages,
 	usageEvents,
 	userSkillDefinitions,
@@ -76,7 +75,6 @@ export async function createAccountDataArchive(
 		messageRows,
 		artifactRows,
 		generatedFileRows,
-		memoryProjectRows,
 		taskStateRows,
 		memoryEventRows,
 		skillRows,
@@ -88,9 +86,8 @@ export async function createAccountDataArchive(
 		listMessages(database, userId),
 		listArtifacts(database, userId),
 		listGeneratedFiles(database, userId),
-		listMemoryProjects(database, userId),
 		listTaskStates(database, userId),
-		listMemoryEvents(database, userId),
+		listMemoryBehaviorEvents(database, userId),
 		listUserSkills(database, userId),
 		listImportJobs(database, userId),
 		listUsageEvents(database, userId),
@@ -125,7 +122,6 @@ export async function createAccountDataArchive(
 		generatedFiles: generatedFileRows,
 	});
 	addMemorySection(archive, {
-		projects: memoryProjectRows,
 		tasks: taskStateRows,
 		events: memoryEventRows,
 	});
@@ -144,8 +140,7 @@ export async function createAccountDataArchive(
 		conversationCount: conversationRows.length,
 		uploadedFileCount: uploadedArtifacts.length,
 		generatedFileCount: generatedFileRows.length,
-		memoryCount:
-			memoryProjectRows.length + taskStateRows.length + memoryEventRows.length,
+		memoryCount: taskStateRows.length + memoryEventRows.length,
 		skillCount: skillRows.length,
 		noteCount: skillNoteArtifacts.length,
 		usageEventCount: usageRows.length,
@@ -411,13 +406,11 @@ function renderChatPage(params: {
 function addMemorySection(
 	archive: ArchiveBuilder,
 	params: {
-		projects: Array<typeof memoryProjects.$inferSelect>;
 		tasks: Array<typeof conversationTaskStates.$inferSelect>;
 		events: Array<typeof memoryEvents.$inferSelect>;
 	},
 ) {
 	const sections = [
-		renderMemoryProjects(params.projects),
 		renderTaskStates(params.tasks),
 		renderMemoryEvents(params.events),
 	].join("");
@@ -756,14 +749,6 @@ async function listGeneratedFiles(database: ArchiveDb, userId: string) {
 		.orderBy(asc(chatGeneratedFiles.createdAt));
 }
 
-async function listMemoryProjects(database: ArchiveDb, userId: string) {
-	return database
-		.select()
-		.from(memoryProjects)
-		.where(eq(memoryProjects.userId, userId))
-		.orderBy(asc(memoryProjects.createdAt));
-}
-
 async function listTaskStates(database: ArchiveDb, userId: string) {
 	return database
 		.select()
@@ -772,7 +757,7 @@ async function listTaskStates(database: ArchiveDb, userId: string) {
 		.orderBy(asc(conversationTaskStates.createdAt));
 }
 
-async function listMemoryEvents(database: ArchiveDb, userId: string) {
+async function listMemoryBehaviorEvents(database: ArchiveDb, userId: string) {
 	return database
 		.select()
 		.from(memoryEvents)
@@ -833,18 +818,6 @@ async function readRequiredFile(
 	} catch (error) {
 		throw new Error(`Failed to read ${description}`, { cause: error });
 	}
-}
-
-function renderMemoryProjects(rows: Array<typeof memoryProjects.$inferSelect>) {
-	if (rows.length === 0) return "";
-	return `<section><h2>Projects</h2>${renderTable(
-		rows.map((row) => [
-			row.name,
-			row.status,
-			row.summary ?? "",
-			formatDateTime(row.updatedAt),
-		]),
-	)}</section>`;
 }
 
 function renderTaskStates(

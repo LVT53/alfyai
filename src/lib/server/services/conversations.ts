@@ -10,7 +10,6 @@ import {
 import type { Conversation, ConversationListItem } from "$lib/types";
 import { recordConversationAnalytics } from "./analytics";
 import { getConversationForkSummaries } from "./conversation-forks";
-import { convergeProjectFolderContinuityForConversation } from "./task-state/continuity";
 
 type CreateConversationOptions = {
 	projectId?: string | null;
@@ -70,14 +69,6 @@ export async function createConversation(
 	void import("$lib/server/services/memory-judge/runner")
 		.then(({ flushPendingJudgeRuns }) => flushPendingJudgeRuns(userId))
 		.catch(() => {});
-	if (projectId) {
-		await convergeProjectFolderContinuityForConversation({
-			userId,
-			conversationId: conversation.id,
-			projectId,
-			previousProjectId: null,
-		});
-	}
 	recordConversationAnalytics({
 		conversationId: conversation.id,
 		userId,
@@ -403,11 +394,5 @@ export async function moveConversationToProject(
 		)
 		.returning();
 	if (!conversation) return null;
-	await convergeProjectFolderContinuityForConversation({
-		userId,
-		conversationId,
-		projectId,
-		previousProjectId: existingConversation.projectId ?? null,
-	});
 	return toConversation(conversation);
 }

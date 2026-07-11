@@ -7,6 +7,7 @@ import {
 	memoryProjectionState,
 	memoryReviewItems,
 } from "$lib/server/db/schema";
+import { parseJsonRecord } from "./internal-json";
 import {
 	assertExpectedMemoryResetGeneration,
 	getCurrentMemoryResetGeneration,
@@ -552,19 +553,6 @@ export async function updateMemoryProfileItemWithRevision(params: {
 	return result;
 }
 
-function parseMemoryProfileItemMetadata(
-	metadataJson: string | null,
-): Record<string, unknown> {
-	try {
-		const parsed = JSON.parse(metadataJson ?? "{}");
-		return parsed && typeof parsed === "object"
-			? (parsed as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
-	}
-}
-
 /**
  * Merge a metadata patch into an item's existing metadataJson so callers never
  * clobber fields (confidence/expiryClass/origin/...) written by other writers
@@ -587,7 +575,7 @@ export async function mergeMemoryProfileItemMetadata(params: {
 		)
 		.limit(1);
 	const next = {
-		...parseMemoryProfileItemMetadata(row?.metadataJson ?? "{}"),
+		...parseJsonRecord(row?.metadataJson ?? null),
 		...params.patch,
 	};
 	await db

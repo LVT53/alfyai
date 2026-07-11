@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact, TaskState } from "$lib/types";
+import type { Artifact } from "$lib/types";
 
 const {
 	mockRecordMemoryEvent,
@@ -9,11 +9,7 @@ const {
 	mockRequestStructuredControlModel,
 	mockRerankItems,
 	mockCanUseTeiReranker,
-	insertedProjectRows,
-	insertedLinkRows,
 	insertedEvidenceRows,
-	projectRows,
-	linkRows,
 	taskStateRows,
 	conversationRows,
 	checkpointRows,
@@ -32,11 +28,7 @@ const {
 				} | null,
 		),
 		mockCanUseTeiReranker: vi.fn(() => false),
-		insertedProjectRows: [] as Array<Record<string, unknown>>,
-		insertedLinkRows: [] as Array<Record<string, unknown>>,
 		insertedEvidenceRows: [] as Array<Record<string, unknown>>,
-		projectRows: [] as Array<Record<string, unknown>>,
-		linkRows: [] as Array<Record<string, unknown>>,
 		taskStateRows: [] as Array<Record<string, unknown>>,
 		conversationRows: [] as Array<Record<string, unknown>>,
 		checkpointRows: [] as Array<Record<string, unknown>>,
@@ -51,47 +43,6 @@ type SelectChain = unknown[] & {
 	orderBy: (...args: unknown[]) => SelectChain;
 	limit: (count?: number) => Promise<unknown[]>;
 };
-
-function makeTaskState(params: {
-	taskId: string;
-	userId: string;
-	conversationId: string;
-	status: TaskState["status"];
-	objective: string;
-	confidence: number;
-	locked: boolean;
-	lastConfirmedTurnMessageId?: string | null;
-	constraints?: string[];
-	factsToPreserve?: string[];
-	decisions?: string[];
-	openQuestions?: string[];
-	activeArtifactIds?: string[];
-	nextSteps?: string[];
-	lastCheckpointAt?: number | null;
-	createdAt?: number;
-	updatedAt?: number;
-}): TaskState {
-	const timestamp = params.createdAt ?? Date.now();
-	return {
-		taskId: params.taskId,
-		userId: params.userId,
-		conversationId: params.conversationId,
-		status: params.status,
-		objective: params.objective,
-		confidence: params.confidence,
-		locked: params.locked,
-		lastConfirmedTurnMessageId: params.lastConfirmedTurnMessageId ?? null,
-		constraints: params.constraints ?? [],
-		factsToPreserve: params.factsToPreserve ?? [],
-		decisions: params.decisions ?? [],
-		openQuestions: params.openQuestions ?? [],
-		activeArtifactIds: params.activeArtifactIds ?? [],
-		nextSteps: params.nextSteps ?? [],
-		lastCheckpointAt: params.lastCheckpointAt ?? null,
-		createdAt: timestamp,
-		updatedAt: params.updatedAt ?? timestamp,
-	};
-}
 
 function makeArtifact(params: {
 	id: string;
@@ -146,14 +97,8 @@ vi.mock("$lib/server/db", () => ({
 	db: {
 		select: () => ({
 			from: (table: { __name?: string }) => {
-				if (table?.__name === "memory_project_task_links") {
-					return createSelectChain(linkRows);
-				}
 				if (table?.__name === "task_checkpoints") {
 					return createSelectChain(checkpointRows);
-				}
-				if (table?.__name === "memory_projects") {
-					return createSelectChain(projectRows);
 				}
 				if (table?.__name === "conversation_task_states") {
 					return createSelectChain(taskStateRows);
@@ -172,14 +117,6 @@ vi.mock("$lib/server/db", () => ({
 		}),
 		insert: (table: { __name?: string }) => ({
 			values: (values: Record<string, unknown>) => {
-				if (table?.__name === "memory_projects") {
-					insertedProjectRows.push({ ...values });
-					projectRows.push({ ...values });
-				}
-				if (table?.__name === "memory_project_task_links") {
-					insertedLinkRows.push({ ...values });
-					linkRows.push({ ...values });
-				}
 				if (table?.__name === "task_state_evidence_links") {
 					const rows = Array.isArray(values) ? values : [values];
 					insertedEvidenceRows.push(...rows.map((row) => ({ ...row })));
@@ -230,31 +167,11 @@ vi.mock("$lib/server/db/schema", () => ({
 		confidence: { name: "confidence" },
 		constraints: { name: "constraints" },
 	},
-	memoryProjects: {
-		__name: "memory_projects",
-		projectId: { name: "projectId" },
-		userId: { name: "userId" },
-		status: { name: "status" },
-		updatedAt: { name: "updatedAt" },
-		lastActiveAt: { name: "lastActiveAt" },
-		name: { name: "name" },
-		summary: { name: "summary" },
-	},
-	memoryProjectTaskLinks: {
-		__name: "memory_project_task_links",
-		projectId: { name: "projectId" },
-		taskId: { name: "taskId" },
-		userId: { name: "userId" },
-		conversationId: { name: "conversationId" },
-		updatedAt: { name: "updatedAt" },
-		id: { name: "id" },
-	},
 	projects: {
 		__name: "projects",
 		id: { name: "id" },
 		userId: { name: "userId" },
 		name: { name: "name" },
-		canonicalMemoryProjectId: { name: "canonicalMemoryProjectId" },
 		updatedAt: { name: "updatedAt" },
 	},
 	taskCheckpoints: {
@@ -314,10 +231,10 @@ vi.mock("$lib/server/utils/text", () => ({
 	),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: mockRecordMemoryEvent,
-	listLatestMemoryEventsBySubject: mockListLatestMemoryEventsBySubject,
-	listMemoryEvents: mockListMemoryEvents,
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: mockRecordMemoryEvent,
+	listLatestMemoryBehaviorEventsBySubject: mockListLatestMemoryEventsBySubject,
+	listMemoryBehaviorEvents: mockListMemoryEvents,
 }));
 
 vi.mock("$lib/server/services/control-model", () => ({
@@ -372,205 +289,14 @@ vi.mock("$lib/server/config-store", () => ({
 	getTargetConstructedContext: () => 30_000,
 }));
 
-describe("task-state learning - project continuity signals", () => {
+describe("task-state learning - task continuity gate", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.resetModules();
-		insertedProjectRows.splice(0, insertedProjectRows.length);
-		insertedLinkRows.splice(0, insertedLinkRows.length);
 		insertedEvidenceRows.splice(0, insertedEvidenceRows.length);
-		projectRows.splice(0, projectRows.length);
-		linkRows.splice(0, linkRows.length);
 		mockRecordMemoryEvent.mockReset();
 		mockRecordMemoryEvent.mockResolvedValue(undefined);
 		mockListLatestMemoryEventsBySubject.mockResolvedValue(new Map());
-	});
-
-	it("detects pause signal from user message", async () => {
-		const { detectProjectContinuitySignal } = await import(
-			"./task-state/continuity"
-		);
-
-		expect(detectProjectContinuitySignal("Pause this project for now.")).toBe(
-			"project_paused",
-		);
-		expect(detectProjectContinuitySignal("Let us put this on hold.")).toBe(
-			"project_paused",
-		);
-		expect(detectProjectContinuitySignal("Hold off on this for a while.")).toBe(
-			"project_paused",
-		);
-		expect(detectProjectContinuitySignal("Please park this task.")).toBe(
-			"project_paused",
-		);
-	});
-
-	it("detects resume signal from user message", async () => {
-		const { detectProjectContinuitySignal } = await import(
-			"./task-state/continuity"
-		);
-
-		expect(detectProjectContinuitySignal("Let us resume the project.")).toBe(
-			"project_resumed",
-		);
-		expect(detectProjectContinuitySignal("Continue working on this.")).toBe(
-			"project_resumed",
-		);
-		expect(detectProjectContinuitySignal("Pick it back up.")).toBe(
-			"project_resumed",
-		);
-	});
-
-	it("returns null for unrelated messages", async () => {
-		const { detectProjectContinuitySignal } = await import(
-			"./task-state/continuity"
-		);
-
-		expect(
-			detectProjectContinuitySignal("What is the weather today?"),
-		).toBeNull();
-		expect(detectProjectContinuitySignal("Help me write an email.")).toBeNull();
-	});
-
-	it("resolves paused project events as dormant even when stored row says active", async () => {
-		const { resolveProjectContinuityStatus } = await import(
-			"./task-state/continuity"
-		);
-
-		const status = resolveProjectContinuityStatus({
-			storedStatus: "active",
-			lastActiveAt: Date.now(),
-			latestEventType: "project_paused",
-		});
-
-		expect(status).toBe("dormant");
-	});
-
-	it("maintains active status for recently active projects", async () => {
-		const { resolveProjectContinuityStatus } = await import(
-			"./task-state/continuity"
-		);
-
-		const status = resolveProjectContinuityStatus({
-			storedStatus: "active",
-			lastActiveAt: Date.now(),
-			latestEventType: "project_started",
-		});
-
-		expect(status).toBe("active");
-	});
-
-	it("archives projects not active for over 45 days", async () => {
-		const { resolveProjectContinuityStatus } = await import(
-			"./task-state/continuity"
-		);
-
-		const status = resolveProjectContinuityStatus({
-			storedStatus: "active",
-			lastActiveAt: Date.now() - 50 * 24 * 60 * 60 * 1000, // 50 days ago
-			latestEventType: null,
-		});
-
-		expect(status).toBe("archived");
-	});
-
-	it("records project_started event when creating new continuity bucket", async () => {
-		const { syncTaskContinuityFromTaskState } = await import(
-			"./task-state/continuity"
-		);
-
-		await syncTaskContinuityFromTaskState({
-			userId: "user-1",
-			taskState: makeTaskState({
-				taskId: "task-new-project",
-				userId: "user-1",
-				conversationId: "conv-1",
-				status: "active",
-				objective: "Create the quarterly report",
-				confidence: 85,
-				locked: false,
-				nextSteps: ["Gather data", "Write analysis"],
-			}),
-		});
-
-		expect(mockRecordMemoryEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				domain: "task",
-				eventType: "project_started",
-				relatedId: "task-new-project",
-			}),
-		);
-
-		expect(insertedProjectRows.length).toBe(1);
-	});
-
-	it("applies explicit pause signal from user message", async () => {
-		linkRows.push({
-			id: "link-1",
-			projectId: "project-to-pause",
-			status: "active",
-			lastActiveAt: new Date(),
-		});
-
-		projectRows.push({
-			projectId: "project-to-pause",
-			userId: "user-1",
-			name: "Project to pause",
-			status: "active",
-			lastActiveAt: new Date(),
-			updatedAt: new Date(),
-		});
-
-		const { applyProjectContinuitySignalFromMessage } = await import(
-			"./task-state/continuity"
-		);
-
-		await applyProjectContinuitySignalFromMessage({
-			userId: "user-1",
-			taskState: {
-				taskId: "task-pause-test",
-				userId: "user-1",
-				conversationId: "conv-1",
-				status: "active",
-				objective: "Test task",
-				confidence: 75,
-				locked: false,
-				lastConfirmedTurnMessageId: null,
-				constraints: [],
-				factsToPreserve: [],
-				decisions: [],
-				openQuestions: [],
-				activeArtifactIds: [],
-				nextSteps: [],
-				lastCheckpointAt: null,
-				createdAt: Date.now(),
-				updatedAt: Date.now(),
-			},
-			message: "Pause this project for now.",
-		});
-
-		expect(mockRecordMemoryEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				domain: "task",
-				eventType: "project_paused",
-				subjectId: "project-to-pause",
-			}),
-		);
-	});
-
-	it("handles projects that are explicitly paused as dormant", async () => {
-		const { resolveProjectContinuityStatus } = await import(
-			"./task-state/continuity"
-		);
-
-		// Even with recent lastActiveAt, explicit pause makes it dormant
-		const status = resolveProjectContinuityStatus({
-			storedStatus: "active",
-			lastActiveAt: Date.now() - 3 * 24 * 60 * 60 * 1000, // 3 days ago (should be active)
-			latestEventType: "project_paused",
-		});
-
-		expect(status).toBe("dormant");
 	});
 
 	it("marks output-control prompts as non-continuity for task-state gate and avoids creation", async () => {
@@ -959,6 +685,6 @@ describe("task-state selected evidence policy", () => {
 	});
 });
 
-// Note: selectTaskStateForTurn, listFocusContinuityItems, and listTaskMemoryItems
+// Note: selectTaskStateForTurn and listTaskMemoryItems
 // require complex DB mocking with specific data formats (nested vs flat row structures).
 // Most coverage here stays on exported policy helpers and narrow prepareTaskContext paths.

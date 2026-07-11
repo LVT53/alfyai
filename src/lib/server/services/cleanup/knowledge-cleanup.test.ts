@@ -44,12 +44,6 @@ vi.mock("$lib/server/db/schema", () => ({
 	memoryProjectionState: {
 		userId: { name: "memoryProjectionStateUserId" },
 	},
-	memoryProjects: {
-		userId: { name: "memoryProjectsUserId" },
-	},
-	memoryProjectTaskLinks: {
-		userId: { name: "memoryProjectTaskLinksUserId" },
-	},
 	memoryDirtyLedger: {
 		userId: { name: "memoryDirtyLedgerUserId" },
 	},
@@ -87,7 +81,7 @@ vi.mock("../knowledge", () => ({
 	hardDeleteArtifactsForUser: mockHardDeleteArtifactsForUser,
 }));
 
-vi.mock("../memory-profile", () => ({
+vi.mock("../memory-profile/reset-generation", () => ({
 	advanceMemoryResetGeneration: mockAdvanceMemoryResetGeneration,
 }));
 

@@ -40,7 +40,7 @@ vi.mock("$lib/server/services/chat-turn/stream-orchestrator", () => ({
 	startStartedResetGenerationFact: mocks.startStartedResetGenerationFact,
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: mocks.getCurrentMemoryResetGeneration,
 }));
 

@@ -154,7 +154,7 @@ describe("conversation summaries", () => {
 		sqlite.close();
 
 		const { advanceMemoryResetGeneration, getCurrentMemoryResetGeneration } =
-			await import("./memory-profile");
+			await import("./memory-profile/reset-generation");
 		const { getConversationSummary, refreshConversationSummary } = await import(
 			"./conversation-summaries"
 		);

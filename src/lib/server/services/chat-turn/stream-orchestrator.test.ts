@@ -9,7 +9,7 @@ import {
 	subscribeToStream,
 	unregisterActiveChatStream,
 } from "$lib/server/services/chat-turn/active-streams";
-import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import {
 	createContextPreparationStageTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
@@ -65,7 +65,7 @@ vi.mock("$lib/server/services/messages", () => ({
 	listConversationMessagesForExport: vi.fn(() => Promise.resolve([])),
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(() => Promise.resolve(0)),
 }));
 
@@ -78,26 +78,22 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(async () => null),
 }));
 
-vi.mock("$lib/server/services/chat-turn/finalize", async (importOriginal) => {
-	const actual =
-		await importOriginal<
-			typeof import("$lib/server/services/chat-turn/finalize")
-		>();
-	return {
-		...actual,
-		persistAssistantEvidence: vi.fn(() => Promise.resolve()),
-		persistAssistantTurnState: vi.fn(() =>
-			Promise.resolve({
-				activeWorkingSet: [],
-				taskState: null,
-				contextDebug: null,
-				workCapsule: undefined,
-			}),
-		),
-		persistUserTurnAttachments: vi.fn(() => Promise.resolve()),
-		runPostTurnTasks: vi.fn(() => Promise.resolve()),
-	};
-});
+// The post-turn side effects now live in ./finalize-steps, which finalize.ts
+// (kept real here) calls in its single ordered sequence. Seam at that module
+// boundary rather than injecting overrides through completeStreamTurn params.
+vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
+	persistAssistantEvidence: vi.fn(() => Promise.resolve()),
+	persistAssistantTurnState: vi.fn(() =>
+		Promise.resolve({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: undefined,
+		}),
+	),
+	persistUserTurnAttachments: vi.fn(() => Promise.resolve()),
+	runPostTurnTasks: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("$lib/server/services/chat-files", () => ({
 	getChatFilesForAssistantMessage: vi.fn(() => Promise.resolve([])),
@@ -402,7 +398,7 @@ async function resetCompletionMocks() {
 		persistAssistantTurnState,
 		persistUserTurnAttachments,
 		runPostTurnTasks,
-	} = await import("$lib/server/services/chat-turn/finalize");
+	} = await import("$lib/server/services/chat-turn/finalize-steps");
 	const { getChatFilesForAssistantMessage, syncGeneratedFilesToMemory } =
 		await import("$lib/server/services/chat-files");
 	const {
@@ -1301,7 +1297,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
 		const { persistAssistantTurnState } = await import(
-			"$lib/server/services/chat-turn/finalize"
+			"$lib/server/services/chat-turn/finalize-steps"
 		);
 		const prepared = {
 			contextStatus: { mode: "constructed", tokenCount: 12 },
@@ -1424,7 +1420,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
 		const { persistAssistantEvidence } = await import(
-			"$lib/server/services/chat-turn/finalize"
+			"$lib/server/services/chat-turn/finalize-steps"
 		);
 		(
 			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
@@ -1486,7 +1482,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
 		);
 		const { persistAssistantEvidence } = await import(
-			"$lib/server/services/chat-turn/finalize"
+			"$lib/server/services/chat-turn/finalize-steps"
 		);
 		const recorderEntry = {
 			callId: "call-research",
@@ -1715,7 +1711,7 @@ describe("stream-orchestrator SSE contract", () => {
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
 		const { persistAssistantTurnState } = await import(
-			"$lib/server/services/chat-turn/finalize"
+			"$lib/server/services/chat-turn/finalize-steps"
 		);
 		(
 			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>

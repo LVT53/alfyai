@@ -207,11 +207,11 @@ _Avoid_: privacy consent toggle, local-only claim, legal fine print
 ### Language
 
 **Account Erasure**:
-The user-requested deletion of an AlfyAI account and the personal workspace data that can identify or belong to that user, including app-controlled external memory state. Non-identifying aggregate usage and cost totals may remain, but retained records should not preserve the erased user's email, name, user identity, conversation titles, message identity, or other person-linked traces.
-_Avoid_: account cleanup, soft delete, analytics-preserving delete
+The user-requested deletion of an AlfyAI account and the personal workspace data that can identify or belong to that user, including app-controlled external memory state. Non-identifying aggregate usage and cost totals may remain, but retained records should not preserve the erased user's email, name, user identity, conversation titles, message identity, or other person-linked traces. Analytics rows no longer denormalize the user's email or name at all — identity is resolved from the account at read time — so a deleted account cannot be reidentified from a frozen analytics snapshot. The erasure sequence and the single enumeration of user-scoped tables it deletes are owned by one module (`account-lifecycle`); the underlying removal mechanism is the `ON DELETE CASCADE` from the user row.
+_Avoid_: account cleanup, soft delete, analytics-preserving delete, denormalized analytics identity
 
 **Analytics User Exclusion**:
-An admin setting (`ANALYTICS_EXCLUDED_USER_IDS`) that filters named users — typically staff or test accounts — out of admin **System Analytics** figures at query time (see [ADR-0049](docs/adr/0049-analytics-excluded-users.md)). The exclusion picker enumerates every user present in usage events, **including deleted-but-not-erased users** who still own historical rows, so their prior activity can be excluded too. It is a reversible presentation filter that deletes nothing — distinct from **Account Erasure**, which removes person-linked rows entirely. Analytics totals are therefore operator-relative and only meaningful alongside the active exclusion list.
+An admin setting (`ANALYTICS_EXCLUDED_USER_IDS`) that filters named users — typically staff or test accounts — out of admin **System Analytics** figures at query time (see [ADR-0049](docs/adr/0049-analytics-excluded-users.md)). The exclusion picker enumerates every user present in usage events, **including deleted-but-not-erased users** who still own historical rows, so their prior activity can be excluded too; because analytics identity is resolved from the `users` table at read time, a deleted-but-not-erased user surfaces by their opaque user id (no stored email or name) rather than a frozen snapshot. It is a reversible presentation filter that deletes nothing — distinct from **Account Erasure**, which removes person-linked rows entirely. Analytics totals are therefore operator-relative and only meaningful alongside the active exclusion list.
 _Avoid_: deleting staff rows, erasure, per-user opt-out, billing change
 
 **Account Data Archive**:
@@ -319,12 +319,16 @@ The complete product update that makes AlfyAI memory usable long-term by replaci
 _Avoid_: v1, draft, prototype, partial memory path, temporary cleanup pass
 
 **Memory Rework Telemetry**:
-The operational evidence AlfyAI records to judge whether the **Memory Rework Update** is working unattended, including memory intake decisions, maintenance actions, review burden, user correction and deletion patterns, and prompt-use outcomes. It is organized around fixed event families instead of free-form logs. By default it should record decisions, categories, reasons, counts, statuses, and stable identifiers rather than raw remembered text or raw chat excerpts. User-linked telemetry should clear with **Clear Memory and Knowledge**; non-identifying aggregate counters may remain only when they cannot identify the user or reconstruct memory. It should be backend/log-only by default, without a Memory Profile or admin summary view until collected data proves which metrics are useful.
-_Avoid_: raw memory dump, raw chat excerpt log, hidden debug log, free-form telemetry stream, vanity metric, later observability add-on, second sensitive memory store, default telemetry dashboard
+The operational evidence AlfyAI records to judge whether the **Memory Rework Update** is working unattended, including memory intake decisions, maintenance actions, review burden, user correction and deletion patterns, and prompt-use outcomes. It is organized around fixed event families instead of free-form logs. By default it should record decisions, categories, reasons, counts, statuses, and stable identifiers rather than raw remembered text or raw chat excerpts. User-linked telemetry should clear with **Clear Memory and Knowledge**; non-identifying aggregate counters may remain only when they cannot identify the user or reconstruct memory. It should be backend/log-only by default, without a Memory Profile or admin summary view until collected data proves which metrics are useful. In code it is decision telemetry: `recordMemoryReworkTelemetry` writing the `memoryReworkTelemetry` table (`memory-profile/telemetry.ts`). It must not be confused with the **Memory Behavior Log** — a separate, differently-named behavioral activity log — even though both once read as "memory telemetry".
+_Avoid_: raw memory dump, raw chat excerpt log, hidden debug log, free-form telemetry stream, vanity metric, later observability add-on, second sensitive memory store, default telemetry dashboard, behavioral activity log
 
 **Memory Rework Telemetry Event Family**:
-A stable class of **Memory Rework Telemetry** events used to make memory behavior measurable without storing raw remembered content. The default families are intake, active profile projection, prompt use, maintenance, guided review, profile action, reset or forget, and error or fallback.
-_Avoid_: arbitrary log label, dashboard metric, remembered fact type, memory category
+A stable class of **Memory Rework Telemetry** events used to make memory behavior measurable without storing raw remembered content. The default families (`MEMORY_REWORK_TELEMETRY_FAMILIES` in `memory-profile/types.ts`) are intake, active profile projection, prompt use, maintenance, guided review, profile action, reset or forget, error or fallback, and cost. These decision-telemetry families are distinct from the **Memory Behavior Log**'s activity domains and event types.
+_Avoid_: arbitrary log label, dashboard metric, remembered fact type, memory category, behavioral activity domain
+
+**Memory Behavior Log**:
+The behavioral activity log of what happened around a user's memory — document opened/refined/superseded, deadline set/extended/completed, project started/paused/resumed, preference updated, conversation fork created — recorded by `recordMemoryBehaviorEvent` into the `memoryEvents` table (`memory-behavior-log.ts`). It feeds retrieval and recency signals; it is NOT **Memory Rework Telemetry** (which is decision telemetry about whether the memory system itself is working). The two were deliberately renamed apart in C6 so the behavioral-event recorder and the rework/decision telemetry are unmistakable in code.
+_Avoid_: memory telemetry, rework telemetry, decision telemetry, memory event as a telemetry family
 
 **Memory Decision Confidence Band**:
 A coarse confidence range used to bootstrap automatic memory decisions such as active admission, junk rejection, supersession, review, preservation, or inactive use. It should guide defaults and telemetry, but it must not override **Memory Source Authority** or user-authored profile state.
@@ -343,7 +347,7 @@ The pressure-based limit that decides how much remembered material may remain ac
 _Avoid_: hard active item cap, fixed 100-memory limit, visible memory quota, profile pressure warning, storage limit, everything active
 
 **Knowledge Memory Overview**:
-The legacy compatibility surface for older Knowledge Memory callers. New user-facing memory UX should use the **Memory Profile Projection** returned by `src/lib/server/services/memory.ts`, while `/api/knowledge/memory/overview` may wrap that projection for callers that still expect a Knowledge Memory overview payload. It must not revive raw Honcho markdown, task/focus continuity buckets, or route-local Honcho cleanup as the Knowledge Base memory UI.
+The legacy compatibility serialize surface for older Knowledge Memory callers. It is not a distinct store or authority: `getKnowledgeMemoryOverview` in the read/serialize module `knowledge-memory-read.ts` (re-exported from the `src/lib/server/services/memory.ts` entrypoint) reads the **Memory Profile Projection** and wraps it in a backward-compatible overview payload for `/api/knowledge/memory/overview`. New user-facing memory UX should consume the projection directly. It must not revive raw Honcho markdown, task/focus continuity buckets, or route-local Honcho cleanup as the Knowledge Base memory UI.
 _Avoid_: memory markdown, Honcho dump, conversation results list, generated report, project continuity dashboard, task memory table, active profile authority
 
 **Memory Profile Projection**:
@@ -423,8 +427,8 @@ The constrained shaping step that turns admitted material into a clean remembere
 _Avoid_: free-form personality inference, raw sentence storage, duplicate category fanout, hidden rewrite, broad classifier guess
 
 **Memory Scope**:
-The applicability boundary for a remembered fact. It answers where AlfyAI may use the memory, separately from **Memory Profile Category**, which answers what kind of memory it is. Allowed scopes are global, project, conversation, and document. Scope assignment should use the narrowest confident scope; global scope is for clearly user-wide memory. Project scope attaches to the **Project Folder** when one is present, otherwise to confirmed **Project Continuity**. Scope prevents project-, conversation-, or document-specific remembered facts from leaking into global personalization while still allowing the right related chats to share context.
-_Avoid_: category, UI section, provenance, confidence score, global-by-default memory, free-form client scope, free-form topic scope
+The applicability boundary for a remembered fact. It answers where AlfyAI may use the memory, separately from **Memory Profile Category**, which answers what kind of memory it is. Allowed scopes are global, project, conversation, and document. Scope assignment should use the narrowest confident scope; global scope is for clearly user-wide memory. Project scope attaches to the **Project Folder** — the folder-anchored **Project Continuity** — when one is present. Scope prevents project-, conversation-, or document-specific remembered facts from leaking into global personalization while still allowing the right related chats to share context.
+_Avoid_: category, UI section, provenance, confidence score, global-by-default memory, free-form client scope, free-form topic scope, inferred project-continuity bucket, memoryProjects substrate
 
 **Document-Sourced Context**:
 Information available because it appears in an uploaded, generated, attached, or stored document. It may be used as document evidence or working-document context, but it is not user-truth or Memory Profile material merely because the document exists in AlfyAI.
@@ -519,7 +523,7 @@ A short synthesis of the user's active facts into fact-linked sentences (`{ sent
 _Avoid_: free-form personality essay, unsourced summary sentences, summary as separate store
 
 **Memory Master Toggle & Memory Incognito**:
-The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, enforced on the read side (an inactive turn injects no baseline memory section and is not offered the `memory_context` recall tool) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
+The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, enforced on the read side at every read call site (an inactive turn injects no baseline memory section, is not offered the `memory_context` recall tool on the main chat path, and is not offered it in the deliberation runner either) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
 _Avoid_: read-only gate, write-only gate, per-turn silent memory when off, incognito that still writes
 
 **Memory Cost Tracking**:
@@ -913,20 +917,16 @@ The user-owned visual order of **Project Folders** and **Sidebar-Pinned Conversa
 _Avoid_: activity order, memory priority, conversation rank
 
 **Project Continuity**:
-AlfyAI's long-term memory about an ongoing project across related tasks and conversations.
-_Avoid_: memory project, project folder, task bucket
-
-**Project Continuity Candidate**:
-A possible link between a conversation or task and **Project Continuity** that AlfyAI has noticed but should not yet treat as confirmed project context. It may become **Project Continuity** after an explicit user signal or enough supporting evidence.
-_Avoid_: confirmed project, automatic project assignment, prompt authority
+Folder-anchored long-term memory about an ongoing project: the conversations filed under a **Project Folder**. Continuity is folder membership itself — there is no inferred bucket store behind it (ADR-0051 retired the `memoryProjects` substrate). An unorganized conversation has no passive continuity; on-demand recall over it goes through the `memory_context` tool's history search.
+_Avoid_: inferred project-continuity bucket, memoryProjects substrate, task bucket, canonical memory project
 
 **Project Folder Awareness**:
 Compact awareness of other conversations that belong to the same **Project Folder**.
 _Avoid_: folder dump, all project chats, sibling transcript context
 
 **Project Continuity Awareness**:
-Compact background awareness of other conversations or tasks linked to confirmed inferred **Project Continuity**. It may help AlfyAI orient a response, but it is not part of the user-facing **Knowledge Memory Overview** and should not be created from a weak one-off **Project Continuity Candidate**.
-_Avoid_: global chat search, folder awareness, all memory, Memory Profile item
+Compact background awareness of the sibling conversations filed under the current conversation's **Project Folder**, sourced from `getProjectFolderReferenceContext`. It may help AlfyAI orient a response, but it is not part of the user-facing **Knowledge Memory Overview**.
+_Avoid_: global chat search, inferred continuity bucket, all memory, Memory Profile item
 
 **Conversation Summary**:
 A compact durable description of what happened in one conversation.
@@ -1848,29 +1848,15 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Multiple **Conversation Forks** from the same source conversation should receive lineage-based title suffixes rather than relying on title text matching.
 - A sealed source conversation may still produce an open **Conversation Fork** because fork creation does not mutate the source conversation.
 - Opening a **Conversation Fork** should preserve visual continuity from the source conversation rather than abruptly replacing the chat surface.
-- **Project Continuity** may exist with or without a **Project Folder**.
-- When a conversation belongs to a **Project Folder**, that **Project Folder** is the canonical project identity for **Project Continuity**.
-- A **Project Folder** and **Project Continuity** keep separate identities even when they are linked.
-- A **Project Folder** may be linked to at most one canonical **Project Continuity**.
-- A **Project Continuity** may be linked to at most one **Project Folder**.
-- Creating an empty **Project Folder** does not by itself create **Project Continuity**.
-- A **Project Folder** gets canonical **Project Continuity** only after it has a conversation with meaningful task continuity.
-- Conversations without a **Project Folder** may still create and use inferred **Project Continuity**.
-- A single automatic match should create a **Project Continuity Candidate**, not confirmed **Project Continuity**.
-- A **Project Continuity Candidate** may become confirmed **Project Continuity** after an explicit user signal or repeated supporting evidence across related turns or conversations.
-- Explicit actions such as moving a conversation into a **Project Folder** or direct continue/pause/resume project language may confirm, pause, or resume **Project Continuity** immediately.
-- **Project Folder** linking adds explicit user authority when present; it does not replace automatic **Project Continuity** for unorganized conversations.
-- Conversations without a **Project Folder** may receive bounded **Project Continuity Awareness**.
-- **Project Continuity Awareness** has lower authority than **Project Folder Awareness** because it comes from inferred continuity rather than explicit user organization.
-- When linked, the **Project Folder** name is the canonical display label for **Project Continuity**.
-- Renaming a **Project Folder** changes the current label used for linked **Project Continuity** without rewriting historical memory events.
-- An explicit **Project Folder** assignment overrides inferred **Project Continuity** routing for future turns in that conversation.
-- When a conversation with existing **Project Continuity** is assigned to a linked **Project Folder**, future turns should use the folder's canonical **Project Continuity** rather than the previously inferred one.
-- Assigning or moving a conversation into a **Project Folder** should immediately converge that conversation's **Project Continuity** to the folder's canonical **Project Continuity**.
-- A later chat turn may refresh **Project Continuity** details, but it should not be required before the **Project Folder** identity applies.
-- Removing a conversation from a **Project Folder** removes that folder as the canonical project identity for future turns in the conversation.
-- Deleting a **Project Folder** unassigns its conversations from that folder and unlinks its canonical **Project Continuity**, but it does not delete the conversations or by itself mean the user asked AlfyAI to forget project memory.
-- **Project Continuity** is forgotten only through an explicit memory-forgetting action or cleanup of conversation-scoped memory links.
+- **Project Continuity** is folder-anchored (ADR-0051): it is the conversations filed under a **Project Folder**, not an inferred bucket store. There is no separate continuity identity to link, converge, or diverge from the folder.
+- A conversation belongs to at most one **Project Folder** (`conversations.projectId`), which is its project identity.
+- Creating an empty **Project Folder** yields no sibling continuity until it has conversations.
+- A conversation without a **Project Folder** has no passive **Project Continuity**; on-demand recall over unorganized conversations is served by the `memory_context` tool's history search, not a stored reference.
+- Moving a conversation into a **Project Folder** assigns `projectId` immediately; folder membership is the continuity, so nothing else needs to converge.
+- **Project Continuity Awareness** is sourced from **Project Folder** siblings (`getProjectFolderReferenceContext`); a non-folder conversation resolves to no reference context.
+- The **Project Folder** name is the display label for **Project Continuity**; renaming a folder changes the current label without rewriting historical memory events.
+- Removing a conversation from a **Project Folder** removes that folder as its project identity for future turns.
+- Deleting a **Project Folder** unassigns its conversations from that folder, but it does not delete the conversations or by itself mean the user asked AlfyAI to forget project memory.
 - A **Sidebar Pin** changes only conversation sidebar presentation; it does not pin a **Context Source**, change **Prompt Context**, or raise memory authority.
 - **Sidebar-Pinned Conversations** may use manual **Sidebar Order** relative to other pinned conversations.
 - **Sidebar-Pinned Conversations** appear once in a global pinned area even when they belong to a **Project Folder**.

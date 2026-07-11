@@ -34,8 +34,6 @@ import {
 } from "$lib/server/db/schema";
 
 const USER_ID = "2b860f30-f106-416a-aac1-51d636b43b9a"; // campaign-preview@local
-const USER_EMAIL = "campaign-preview@local";
-const USER_NAME = "Campaign Preview";
 
 async function wipePriorSeed() {
 	// Conversations cascade-delete messages, context status, and compaction
@@ -615,8 +613,6 @@ async function main() {
 		await db.insert(usageEvents).values({
 			id: randomUUID(),
 			userId: USER_ID,
-			userEmail: USER_EMAIL,
-			userName: USER_NAME,
 			conversationId,
 			conversationTitle: "Q3 Revenue Deep-Dive",
 			messageId: msg.id,

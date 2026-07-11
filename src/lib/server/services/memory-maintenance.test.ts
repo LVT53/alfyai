@@ -15,12 +15,6 @@ const mockState = vi.hoisted(() => {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const mockArtifactChunkRows: unknown[] = [];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const mockMemoryProjectRows: unknown[] = [];
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const mockMemoryProjectTaskLinkRows: unknown[] = [];
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const mockProjectRows: unknown[] = [];
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const mockConversationRows: unknown[] = [];
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const mockUserRows: unknown[] = [];
@@ -55,9 +49,6 @@ const mockState = vi.hoisted(() => {
 		users: tTable("users"),
 		conversationSummaries: tTable("conversation_summaries"),
 		artifactChunks: tTable("artifact_chunks"),
-		memoryProjects: tTable("memory_projects"),
-		memoryProjectTaskLinks: tTable("memory_project_task_links"),
-		projects: tTable("projects"),
 		conversations: tTable("conversations"),
 		semanticEmbeddings: tTable("semantic_embeddings"),
 	};
@@ -66,9 +57,6 @@ const mockState = vi.hoisted(() => {
 		mockArtifactRows.length = 0;
 		mockConversationSummaryRows.length = 0;
 		mockArtifactChunkRows.length = 0;
-		mockMemoryProjectRows.length = 0;
-		mockMemoryProjectTaskLinkRows.length = 0;
-		mockProjectRows.length = 0;
 		mockConversationRows.length = 0;
 		mockUserRows.length = 0;
 		mockConfig = { memoryMaintenanceIntervalMinutes: 0 };
@@ -90,9 +78,6 @@ const mockState = vi.hoisted(() => {
 		mockArtifactRows,
 		mockConversationSummaryRows,
 		mockArtifactChunkRows,
-		mockMemoryProjectRows,
-		mockMemoryProjectTaskLinkRows,
-		mockProjectRows,
 		mockConversationRows,
 		mockUserRows,
 		mockConfig,
@@ -121,8 +106,8 @@ vi.mock("./semantic-embedding-refresh", () => ({
 	})),
 }));
 
-vi.mock("./memory-events", () => ({
-	pruneOldMemoryEvents: (
+vi.mock("./memory-behavior-log", () => ({
+	pruneOldMemoryBehaviorEvents: (
 		...args: Parameters<typeof mockState.mockPruneOldMemoryEvents>
 	) => mockState.mockPruneOldMemoryEvents(...args),
 }));
@@ -188,15 +173,6 @@ vi.mock("$lib/server/db", () => ({
 						break;
 					case "artifact_chunks":
 						rows = [...mockState.mockArtifactChunkRows];
-						break;
-					case "memory_projects":
-						rows = [...mockState.mockMemoryProjectRows];
-						break;
-					case "memory_project_task_links":
-						rows = [...mockState.mockMemoryProjectTaskLinkRows];
-						break;
-					case "projects":
-						rows = [...mockState.mockProjectRows];
 						break;
 					case "conversations":
 						rows = [...mockState.mockConversationRows];
@@ -280,43 +256,6 @@ function addArtifactChunkRow(id: string, artifactId: string, userId: string) {
 	});
 }
 
-function addMemoryProjectRow(projectId: string, userId: string) {
-	mockState.mockMemoryProjectRows.push({
-		projectId,
-		userId,
-		name: `mp-${projectId}`,
-		status: "active",
-	});
-}
-
-function addMemoryProjectTaskLinkRow(
-	id: string,
-	projectId: string,
-	taskId: string,
-	userId: string,
-) {
-	mockState.mockMemoryProjectTaskLinkRows.push({
-		id,
-		projectId,
-		taskId,
-		userId,
-		conversationId: "conv-1",
-	});
-}
-
-function addProjectRow(
-	id: string,
-	userId: string,
-	canonicalMemoryProjectId: string | null = null,
-) {
-	mockState.mockProjectRows.push({
-		id,
-		userId,
-		name: `proj-${id}`,
-		canonicalMemoryProjectId,
-	});
-}
-
 describe("memory-maintenance", () => {
 	beforeEach(() => {
 		mockState.resetMockState();
@@ -336,7 +275,7 @@ describe("memory-maintenance", () => {
 			expect(backfillSemanticEmbeddingsForUser).toHaveBeenCalledWith("user-1");
 		});
 
-		it("calls pruneOldMemoryEvents during maintenance", async () => {
+		it("calls pruneOldMemoryBehaviorEvents during maintenance", async () => {
 			addUserRow("user-1");
 
 			await runUserMemoryMaintenance("user-1", "manual");
@@ -375,36 +314,7 @@ describe("memory-maintenance", () => {
 			expect(mockDeleteRunner).toHaveBeenCalled();
 		});
 
-		it("prunes orphan memory projects", async () => {
-			addUserRow("user-1");
-			addMemoryProjectRow("mp-orphan", "user-1");
-
-			await runUserMemoryMaintenance("user-1", "manual");
-
-			expect(mockDeleteRunner).toHaveBeenCalled();
-		});
-
-		it("does not prune active memory projects with task links", async () => {
-			addUserRow("user-1");
-			addMemoryProjectRow("mp-active", "user-1");
-			addMemoryProjectTaskLinkRow("link-1", "mp-active", "task-1", "user-1");
-
-			await runUserMemoryMaintenance("user-1", "manual");
-
-			expect(mockDeleteRunner).toHaveBeenCalled();
-		});
-
-		it("does not prune memory projects that have a canonical project ref", async () => {
-			addUserRow("user-1");
-			addMemoryProjectRow("mp-ref", "user-1");
-			addProjectRow("proj-1", "user-1", "mp-ref");
-
-			await runUserMemoryMaintenance("user-1", "manual");
-
-			expect(mockDeleteRunner).toHaveBeenCalled();
-		});
-
-		it("handles errors in pruneOldMemoryEvents without crashing the pipeline", async () => {
+		it("handles errors in pruneOldMemoryBehaviorEvents without crashing the pipeline", async () => {
 			addUserRow("user-1");
 			mockState.mockPruneOldMemoryEvents.mockRejectedValueOnce(
 				new Error("Memory event prune failed"),

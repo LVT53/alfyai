@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +9,26 @@ function readService(relativePath: string): string {
 }
 
 describe("memory profile module seams", () => {
+	it("has no re-export barrel — callers import the granular seams directly", () => {
+		// Post-C6 the memory-profile/index.ts barrel is retired: it hid the
+		// granular seams and let callers reach across the module boundary as one
+		// bag. Every importer now names the specific seam it needs
+		// (reset-generation, telemetry, dirty-ledger, ...), so the file must not
+		// come back.
+		expect(existsSync(`${serviceRoot}/memory-profile/index.ts`)).toBe(false);
+
+		// And no source file may re-introduce a bare-barrel import of the folder.
+		const hits = execSync(
+			`git grep -n -E '[./]memory-profile"' -- src || true`,
+			{ cwd: process.cwd(), encoding: "utf8" },
+		)
+			.split("\n")
+			.filter((line) => line.trim().length > 0)
+			// This spec file necessarily mentions the barrel path in its assertions.
+			.filter((line) => !line.includes("memory-profile/seams.test.ts"));
+		expect(hits).toEqual([]);
+	});
+
 	it("keeps implementation bodies in owned modules instead of a catch-all file", () => {
 		expect(existsSync(`${serviceRoot}/memory-profile/implementation.ts`)).toBe(
 			false,

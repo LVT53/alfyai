@@ -665,6 +665,14 @@ export async function getAnalyticsDashboardReadModel({
 		...systemFilteredUsage.map((row) => row.userId),
 		...systemFilteredConversations.map((row) => row.userId),
 	]);
+	// Identity is resolved from `users` at READ time (not denormalized onto the
+	// analytics rows), so an erased user — whose `users` row is gone — surfaces
+	// anonymously (its opaque userId, no email/name) instead of via a frozen
+	// person-linked snapshot. Strengthens ADR-0029.
+	const userIdentities = await loadUserIdentities([
+		...usageRows.map((row) => row.userId),
+		...conversationRows.map((row) => row.userId),
+	]);
 	const perUser = (
 		await Promise.all(
 			[...userIds].map(async (userId) => {
@@ -673,21 +681,11 @@ export async function getAnalyticsDashboardReadModel({
 					(row) => row.userId === userId,
 				);
 				const summary = await summarize(rows, conversationRowsForUser);
-				const latestSnapshot = rows[rows.length - 1] ?? null;
-				const latestConversationSnapshot =
-					conversationRowsForUser[conversationRowsForUser.length - 1] ?? null;
+				const identity = userIdentities.get(userId) ?? null;
 				return {
 					userId,
-					displayName:
-						latestSnapshot?.userName ??
-						latestConversationSnapshot?.userName ??
-						latestSnapshot?.userEmail ??
-						latestConversationSnapshot?.userEmail ??
-						userId,
-					email:
-						latestSnapshot?.userEmail ??
-						latestConversationSnapshot?.userEmail ??
-						"",
+					displayName: identity?.name ?? identity?.email ?? userId,
+					email: identity?.email ?? "",
 					messageCount: summary.totalMessages,
 					avgGenerationMs: summary.avgGenerationMs,
 					totalTokens: summary.totalTokens,
@@ -705,14 +703,17 @@ export async function getAnalyticsDashboardReadModel({
 
 	const analyticsUsers: AnalyticsUserSummary[] = [
 		...new Map(
-			usageRows.map((row) => [
-				row.userId,
-				{
-					userId: row.userId,
-					email: row.userEmail ?? null,
-					name: row.userName ?? null,
-				},
-			]),
+			usageRows.map((row) => {
+				const identity = userIdentities.get(row.userId) ?? null;
+				return [
+					row.userId,
+					{
+						userId: row.userId,
+						email: identity?.email ?? null,
+						name: identity?.name ?? null,
+					},
+				];
+			}),
 		).values(),
 	].sort((left, right) => {
 		const leftName = left.name ?? left.email ?? left.userId;
@@ -744,13 +745,21 @@ function microsToUsd(value: number): number {
 	return value / 1_000_000;
 }
 
-async function getUserSnapshot(userId: string) {
-	const [row] = await db
+// Resolve display identity for a set of userIds from the `users` table at read
+// time. A userId with no matching row (e.g. an erased account) is simply absent
+// from the map, so callers render it anonymously.
+async function loadUserIdentities(
+	userIds: string[],
+): Promise<Map<string, { email: string | null; name: string | null }>> {
+	const uniqueIds = [...new Set(userIds)];
+	if (uniqueIds.length === 0) return new Map();
+	const rows = await db
 		.select({ id: users.id, email: users.email, name: users.name })
 		.from(users)
-		.where(eq(users.id, userId))
-		.limit(1);
-	return row ?? { id: userId, email: null, name: null };
+		.where(inArray(users.id, uniqueIds));
+	return new Map(
+		rows.map((row) => [row.id, { email: row.email, name: row.name }]),
+	);
 }
 
 async function getConversationSnapshot(userId: string, conversationId: string) {
@@ -1056,12 +1065,10 @@ export async function recordConversationAnalytics(params: {
 	createdAt?: Date | null;
 	source?: "live" | "legacy_estimate";
 }): Promise<void> {
-	const [user, conversation] = await Promise.all([
-		getUserSnapshot(params.userId),
+	const conversation =
 		params.title === undefined
-			? getConversationSnapshot(params.userId, params.conversationId)
-			: Promise.resolve(null),
-	]);
+			? await getConversationSnapshot(params.userId, params.conversationId)
+			: null;
 	const createdAt = params.createdAt ?? conversation?.createdAt ?? new Date();
 
 	await db
@@ -1070,8 +1077,6 @@ export async function recordConversationAnalytics(params: {
 			id: crypto.randomUUID(),
 			conversationId: params.conversationId,
 			userId: params.userId,
-			userEmail: user.email,
-			userName: user.name,
 			title: params.title ?? conversation?.title ?? null,
 			source: params.source ?? "live",
 			billingMonth: toBillingMonth(createdAt),
@@ -1115,8 +1120,7 @@ export async function recordMessageAnalytics(
 		})
 		.onConflictDoNothing();
 
-	const [user, conversation, model] = await Promise.all([
-		getUserSnapshot(params.userId),
+	const [conversation, model] = await Promise.all([
 		getConversationSnapshot(params.userId, params.conversationId),
 		getModelSnapshot(params.model, params.modelDisplayName),
 	]);
@@ -1155,8 +1159,6 @@ export async function recordMessageAnalytics(
 		.values({
 			id: crypto.randomUUID(),
 			userId: params.userId,
-			userEmail: user.email,
-			userName: user.name,
 			conversationId: params.conversationId,
 			conversationTitle: conversation.title,
 			messageId: params.messageId,
@@ -1204,10 +1206,10 @@ export async function recordAtlasJobAnalytics(params: {
 	totalTokens: number;
 	costUsdMicros: number;
 }): Promise<void> {
-	const [user, conversation] = await Promise.all([
-		getUserSnapshot(params.userId),
-		getConversationSnapshot(params.userId, params.conversationId),
-	]);
+	const conversation = await getConversationSnapshot(
+		params.userId,
+		params.conversationId,
+	);
 	const billingMonth = new Date().toISOString().slice(0, 7);
 	const modelDisplayName = `Atlas (${params.profile})`;
 	await db
@@ -1215,8 +1217,6 @@ export async function recordAtlasJobAnalytics(params: {
 		.values({
 			id: crypto.randomUUID(),
 			userId: params.userId,
-			userEmail: user.email,
-			userName: user.name,
 			conversationId: params.conversationId,
 			conversationTitle: conversation.title,
 			messageId: params.atlasJobId,
