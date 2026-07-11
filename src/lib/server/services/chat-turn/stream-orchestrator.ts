@@ -46,13 +46,21 @@ import {
 	type StreamCompletionFact,
 } from "$lib/server/services/chat-turn/stream-completion";
 import { runNonStreamFallback } from "$lib/server/services/chat-turn/stream-fallback";
+import {
+	shouldFallbackOnAbruptTermination,
+	shouldFallbackOnStreamConnectFailure,
+	shouldFallbackOnStreamError,
+	shouldFallbackOnUpstreamErrorEvent,
+} from "$lib/server/services/chat-turn/stream-fallback-policy";
+import { createUpstreamIdleTimeout } from "$lib/server/services/chat-turn/stream-idle-timeout";
 import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stream-reconnect";
+import { arbitrateStreamStart } from "$lib/server/services/chat-turn/stream-reconnect-arbiter";
+import { createStreamTerminal } from "$lib/server/services/chat-turn/stream-terminal";
 import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
 import type {
 	AdmittedChatTurn,
 	ChatTurnPreflight,
 	ChatTurnPreparationResult,
-	ChatTurnRequestError,
 } from "$lib/server/services/chat-turn/types";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
@@ -62,7 +70,6 @@ import {
 } from "$lib/server/services/file-production";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
 import { createMessage } from "$lib/server/services/messages";
-import { isModelTimeoutError } from "$lib/server/services/normal-chat-failover";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
@@ -159,25 +166,6 @@ function unrefTimer(
 	timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>,
 ) {
 	timer.unref?.();
-}
-
-function shouldFallbackToNonStreaming(error: unknown): boolean {
-	if (!(error instanceof Error)) {
-		return false;
-	}
-
-	const message = error.message.toLowerCase();
-
-	return (
-		isModelTimeoutError(error) ||
-		error.name === "AbortError" ||
-		message.includes("abort") ||
-		message.includes("timed out") ||
-		message.includes("fetch failed") ||
-		message.includes("socket") ||
-		message.includes("connection") ||
-		message.includes("terminated")
-	);
 }
 
 function asToolInput(value: unknown): Record<string, unknown> {
@@ -452,127 +440,27 @@ export function runChatStreamOrchestrator(
 			let isMainStream = false;
 
 			if (streamId) {
-				let existingStreamId: string | null;
-				try {
-					existingStreamId = getOrphanedStream({
-						userId: user.id,
-						conversationId,
-					});
-				} catch (err) {
-					console.error("[CHAT_STREAM] getOrphanedStream threw", {
-						conversationId,
-						streamId,
-						err,
-					});
+				const decision = arbitrateStreamStart({
+					streamId,
+					userId: user.id,
+					conversationId,
+					controller: upstreamAbortController,
+					userMessage: normalizedMessage,
+					reasoningDepth: turn.reasoningDepth,
+					getOrphanedStream,
+					isStreamActive,
+					registerActiveChatStream,
+					clearStreamBuffer,
+					getOrCreateStreamBuffer,
+				});
+				if (decision.action === "reconnect") {
+					setTimeout(() => doReconnect(decision.targetStreamId), 0);
+					return;
+				}
+				if (decision.action === "close") {
 					closeDownstream();
 					return;
 				}
-
-				if (existingStreamId === streamId) {
-					console.info("[CHAT_STREAM] Reconnect to same stream", streamId);
-					setTimeout(() => doReconnect(streamId), 0);
-					return;
-				} else if (existingStreamId) {
-					const clientStreamActive = isStreamActive({
-						streamId,
-						userId: user.id,
-						conversationId,
-					});
-					const orphanStreamActive = isStreamActive({
-						streamId: existingStreamId,
-						userId: user.id,
-						conversationId,
-					});
-
-					if (clientStreamActive) {
-						console.info(
-							"[CHAT_STREAM] Reconnect to client stream (concurrent active)",
-							streamId,
-						);
-						setTimeout(() => doReconnect(streamId), 0);
-						return;
-					} else if (orphanStreamActive) {
-						console.info(
-							"[CHAT_STREAM] Reconnect to orphan stream (client streamId stale)",
-							{
-								clientStreamId: streamId,
-								activeOrphanStreamId: existingStreamId,
-							},
-						);
-						setTimeout(() => doReconnect(existingStreamId), 0);
-						return;
-					} else {
-						console.info(
-							"[CHAT_STREAM] No active streams - cleaning up and starting new",
-							{
-								clientStreamId: streamId,
-								orphanedStreamId: existingStreamId,
-							},
-						);
-						clearStreamBuffer(existingStreamId);
-					}
-				}
-
-				const registered = registerActiveChatStream({
-					streamId,
-					userId: user.id,
-					controller: upstreamAbortController,
-					conversationId,
-				});
-				if (!registered) {
-					let currentStreamId: string | null = null;
-					try {
-						currentStreamId = getOrphanedStream({
-							userId: user.id,
-							conversationId,
-						});
-					} catch (err) {
-						console.error(
-							"[CHAT_STREAM] getOrphanedStream threw after conflict",
-							{
-								conversationId,
-								streamId,
-								err,
-							},
-						);
-					}
-					if (
-						currentStreamId &&
-						isStreamActive({
-							streamId: currentStreamId,
-							userId: user.id,
-							conversationId,
-						})
-					) {
-						console.info(
-							"[CHAT_STREAM] Reconnect after stream registration conflict",
-							{
-								streamId,
-								activeStreamId: currentStreamId,
-								conversationId,
-							},
-						);
-						setTimeout(() => doReconnect(currentStreamId), 0);
-					} else {
-						console.warn(
-							"[CHAT_STREAM] Stream registration conflict without active owner",
-							{
-								streamId,
-								conversationId,
-							},
-						);
-						closeDownstream();
-					}
-					return;
-				}
-
-				getOrCreateStreamBuffer({
-					streamId,
-					userId: user.id,
-					conversationId,
-					userMessage: normalizedMessage,
-					reasoningDepth: turn.reasoningDepth,
-				});
 				isMainStream = true;
 			}
 			const wasStopRequested = () =>
@@ -786,55 +674,6 @@ export function runChatStreamOrchestrator(
 				}
 				return true;
 			};
-			const completeOrRecoverAfterUpstreamEnd = async (
-				reason: "done_signal" | "end_event" | "stream_closed",
-			) => {
-				chunkRuntime.flushNativeToolCalls();
-				if (!flushBufferedStreamOutput()) {
-					return;
-				}
-				if (wasStopRequested()) {
-					await completeSuccess(true);
-					return;
-				}
-				if (
-					hasVisibleAssistantAnswerOutput() ||
-					hasCompletedFileProductionToolCall()
-				) {
-					await completeSuccess(false, {
-						streamClosedWithoutFinish: reason === "stream_closed",
-					});
-					return;
-				}
-				if (hasCompletedNonFileToolCall()) {
-					if (
-						!attemptedNonStreamFallback &&
-						!wasStopRequested() &&
-						fallbackToNonStreaming
-					) {
-						console.warn(
-							"[STREAM] Upstream stream ended before final assistant answer",
-							{
-								conversationId,
-								streamId,
-								modelId,
-								reason,
-								thinkingLength: chunkRuntime.thinkingContent.length,
-								toolCallCount: chunkRuntime.toolCallRecords.length,
-								completedToolCallCount: completedToolCallRecords().length,
-								hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
-							},
-						);
-						await fallbackToNonStreaming(
-							"stream_read_failure",
-							latestUpstreamAttempt,
-							new Error("Upstream stream ended before final assistant answer"),
-						);
-						return;
-					}
-				}
-				failStream("backend_failure");
-			};
 			let latestContextStatus: ConversationContextStatus | undefined;
 			let latestActiveWorkingSet: WorkingSetItem[] | undefined;
 			let latestTaskState: TaskState | null | undefined;
@@ -874,21 +713,12 @@ export function runChatStreamOrchestrator(
 				});
 				return pendingWriteIdsAtStart;
 			};
-			const completeSuccess = async (
-				wasStopped = false,
-				options: { streamClosedWithoutFinish?: boolean } = {},
-			) => {
-				if (ended) return;
-				ended = true;
-				logPhaseTiming(
-					options.streamClosedWithoutFinish
-						? "error"
-						: wasStopped
-							? "stopped"
-							: "success",
-				);
+			const runCompleteStreamTurn = async (args: {
+				wasStopped: boolean;
+				streamClosedWithoutFinish: boolean;
+			}) => {
 				await completeStreamTurn({
-					wasStopped,
+					wasStopped: args.wasStopped,
 					conversationId,
 					streamId: streamId ?? null,
 					modelId: latestModelId,
@@ -928,7 +758,7 @@ export function runChatStreamOrchestrator(
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
 					upstreamRawFinishReason: latestUpstreamRawFinishReason,
-					streamClosedWithoutFinish: options.streamClosedWithoutFinish === true,
+					streamClosedWithoutFinish: args.streamClosedWithoutFinish,
 					serverTimeline: createTerminalStreamTimelinePayload(phaseTimingMs),
 					initialContextStatus,
 					initialTaskState,
@@ -951,37 +781,48 @@ export function runChatStreamOrchestrator(
 					estimateTokenCount,
 				});
 			};
-
-			const failStream = (code: StreamErrorCode) => {
-				if (ended) return;
-				ended = true;
-				logPhaseTiming("error");
-				if (streamId) {
-					clearStreamBuffer(streamId);
-				}
-				emitError(code);
-				closeDownstream();
-			};
-			const failPreparedTurnStream = (error: ChatTurnRequestError) => {
-				if (ended) return;
-				ended = true;
-				logPhaseTiming("error");
-				enqueueChunk(streamRequestErrorEvent(error));
-				if (streamId) {
-					clearStreamBuffer(streamId);
-				}
-				closeDownstream();
-			};
+			const terminal = createStreamTerminal({
+				isEnded: () => ended,
+				markEnded: () => {
+					ended = true;
+				},
+				logPhaseTiming,
+				streamId,
+				clearStreamBuffer,
+				closeDownstream,
+				emitError,
+				emitRequestError: (error) =>
+					enqueueChunk(streamRequestErrorEvent(error)),
+				runCompleteStreamTurn,
+				flushNativeToolCalls: () => chunkRuntime.flushNativeToolCalls(),
+				flushBufferedStreamOutput,
+				wasStopRequested,
+				hasVisibleAssistantAnswerOutput,
+				hasCompletedFileProductionToolCall,
+				hasCompletedNonFileToolCall,
+				getAttemptedNonStreamFallback: () => attemptedNonStreamFallback,
+				getFallbackRunner: () => fallbackToNonStreaming,
+				getLatestUpstreamAttempt: () => latestUpstreamAttempt,
+				upstreamEndLog: { conversationId, streamId, modelId },
+				getUpstreamEndSnapshot: () => ({
+					thinkingLength: chunkRuntime.thinkingContent.length,
+					toolCallCount: chunkRuntime.toolCallRecords.length,
+					completedToolCallCount: completedToolCallRecords().length,
+					hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
+				}),
+			});
+			const {
+				completeSuccess,
+				failStream,
+				failPreparedTurnStream,
+				completeOrRecoverAfterUpstreamEnd,
+			} = terminal;
 
 			const timeoutId = setTimeout(() => {
 				failStream("timeout");
 				upstreamAbortController.abort();
 			}, getStreamTimeoutMs());
 			unrefTimer(timeoutId);
-			const upstreamIdleTimeoutMs = getUpstreamIdleTimeoutMs();
-			let upstreamIdleTimeoutId: ReturnType<typeof setTimeout> | null = null;
-			let lastUpstreamActivityAt = Date.now();
-			let upstreamIdleTimedOutBeforeOutput = false;
 			let fallbackToNonStreaming:
 				| ((
 						reason: "stream_connect_failure" | "stream_read_failure",
@@ -989,28 +830,17 @@ export function runChatStreamOrchestrator(
 						error: unknown,
 				  ) => Promise<null>)
 				| null = null;
-			const clearUpstreamIdleTimeout = () => {
-				if (!upstreamIdleTimeoutId) return;
-				clearTimeout(upstreamIdleTimeoutId);
-				upstreamIdleTimeoutId = null;
-			};
-			const scheduleUpstreamIdleTimeout = (attempt: number) => {
-				clearUpstreamIdleTimeout();
-				upstreamIdleTimeoutId = setTimeout(() => {
-					const now = Date.now();
-					console.warn("[STREAM] Upstream stream idle timeout", {
-						conversationId,
-						streamId,
-						modelId,
-						attempt,
-						idleTimeoutMs: upstreamIdleTimeoutMs,
-						elapsedSinceLastUpstreamMs: now - lastUpstreamActivityAt,
-						responseLength: chunkRuntime.fullResponse.length,
-						thinkingLength: chunkRuntime.thinkingContent.length,
-						toolCallCount: chunkRuntime.toolCallRecords.length,
-					});
-					if (!hasVisibleAssistantAnswerOutput()) {
-						upstreamIdleTimedOutBeforeOutput = true;
+			const idleTimeout = createUpstreamIdleTimeout({
+				idleTimeoutMs: getUpstreamIdleTimeoutMs(),
+				log: { conversationId, streamId, modelId },
+				snapshot: () => ({
+					responseLength: chunkRuntime.fullResponse.length,
+					thinkingLength: chunkRuntime.thinkingContent.length,
+					toolCallCount: chunkRuntime.toolCallRecords.length,
+				}),
+				hasVisibleAssistantAnswerOutput,
+				onIdleTimeout: (attempt, { willAttemptFallback }) => {
+					if (willAttemptFallback) {
 						void (async () => {
 							if (fallbackToNonStreaming && !ended) {
 								await fallbackToNonStreaming(
@@ -1028,13 +858,9 @@ export function runChatStreamOrchestrator(
 						failStream("timeout");
 						upstreamAbortController.abort();
 					}
-				}, upstreamIdleTimeoutMs);
-				unrefTimer(upstreamIdleTimeoutId);
-			};
-			const markUpstreamActivity = (attempt: number) => {
-				lastUpstreamActivityAt = Date.now();
-				scheduleUpstreamIdleTimeout(attempt);
-			};
+				},
+				unref: unrefTimer,
+			});
 
 			let personalityPrompt: string | undefined;
 			let latestUpstreamAttempt = 1;
@@ -1242,11 +1068,13 @@ export function runChatStreamOrchestrator(
 					modelRun = await runStreamingNormalChatSendModel(modelRunParams);
 					latestProviderIconUrl = modelRun.providerIconUrl ?? null;
 				} catch (error) {
-					if (wasStopRequested() || hasEmittedStreamOutput()) {
-						throw error;
-					}
-
-					if (!shouldFallbackToNonStreaming(error)) {
+					if (
+						!shouldFallbackOnStreamConnectFailure({
+							error,
+							wasStopRequested: wasStopRequested(),
+							hasEmittedStreamOutput: hasEmittedStreamOutput(),
+						})
+					) {
 						throw error;
 					}
 
@@ -1305,7 +1133,7 @@ export function runChatStreamOrchestrator(
 					status: "running",
 				});
 
-				scheduleUpstreamIdleTimeout(attempt);
+				idleTimeout.schedule(attempt);
 				let fileProductionActive = false;
 				const FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS = 300;
 				let fileProductionPostCaptureChars = 0;
@@ -1314,7 +1142,7 @@ export function runChatStreamOrchestrator(
 						recordElapsedPhase(
 							SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT,
 						);
-						markUpstreamActivity(attempt);
+						idleTimeout.markActivity(attempt);
 						switch (upstreamEvent.type) {
 							case "text_delta":
 								if (
@@ -1435,11 +1263,15 @@ export function runChatStreamOrchestrator(
 								const upstreamError = new Error(errorMessage);
 								const errorCode = classifyStreamError(errorMessage);
 								const canRecoverWithNonStreamFallback =
-									!attemptedNonStreamFallback &&
-									!wasStopRequested() &&
-									!hasVisibleAssistantAnswerOutput() &&
-									shouldFallbackToNonStreaming(upstreamError) &&
-									(!hasVisibleStreamOutput() || hasCompletedNonFileToolCall());
+									shouldFallbackOnUpstreamErrorEvent({
+										error: upstreamError,
+										attemptedNonStreamFallback,
+										wasStopRequested: wasStopRequested(),
+										hasVisibleAssistantAnswerOutput:
+											hasVisibleAssistantAnswerOutput(),
+										hasVisibleStreamOutput: hasVisibleStreamOutput(),
+										hasCompletedNonFileToolCall: hasCompletedNonFileToolCall(),
+									});
 								if (canRecoverWithNonStreamFallback && fallbackToNonStreaming) {
 									await fallbackToNonStreaming(
 										"stream_read_failure",
@@ -1466,7 +1298,7 @@ export function runChatStreamOrchestrator(
 						return;
 					}
 				} finally {
-					clearUpstreamIdleTimeout();
+					idleTimeout.clear();
 				}
 
 				await completeOrRecoverAfterUpstreamEnd("stream_closed");
@@ -1485,13 +1317,14 @@ export function runChatStreamOrchestrator(
 					return;
 				}
 				if (
-					!attemptedNonStreamFallback &&
-					!wasStopRequested() &&
-					(upstreamIdleTimedOutBeforeOutput ||
-						isModelTimeoutError(error) ||
-						(shouldFallbackToNonStreaming(error) &&
-							!hasVisibleStreamOutput())) &&
-					!hasVisibleAssistantAnswerOutput()
+					shouldFallbackOnStreamError({
+						error,
+						attemptedNonStreamFallback,
+						wasStopRequested: wasStopRequested(),
+						hasVisibleAssistantAnswerOutput: hasVisibleAssistantAnswerOutput(),
+						hasVisibleStreamOutput: hasVisibleStreamOutput(),
+						upstreamIdleTimedOutBeforeOutput: idleTimeout.timedOutBeforeOutput,
+					})
 				) {
 					await fallbackToNonStreaming(
 						"stream_read_failure",
@@ -1508,10 +1341,13 @@ export function runChatStreamOrchestrator(
 						return;
 					}
 					if (
-						!attemptedNonStreamFallback &&
-						!wasStopRequested() &&
-						shouldFallbackToNonStreaming(error) &&
-						!hasVisibleAssistantAnswerOutput()
+						shouldFallbackOnAbruptTermination({
+							error,
+							attemptedNonStreamFallback,
+							wasStopRequested: wasStopRequested(),
+							hasVisibleAssistantAnswerOutput:
+								hasVisibleAssistantAnswerOutput(),
+						})
 					) {
 						await fallbackToNonStreaming(
 							"stream_read_failure",
@@ -1548,7 +1384,7 @@ export function runChatStreamOrchestrator(
 			} finally {
 				clearInterval(heartbeatIntervalId);
 				clearTimeout(timeoutId);
-				clearUpstreamIdleTimeout();
+				idleTimeout.clear();
 				if (streamId) {
 					unregisterActiveChatStream(streamId, upstreamAbortController);
 				}
