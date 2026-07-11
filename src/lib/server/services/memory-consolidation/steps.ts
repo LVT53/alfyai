@@ -21,6 +21,7 @@ import {
 	isUserAuthoredMemoryMetadata,
 	parseMemoryItemMetadata,
 } from "../memory-profile/types";
+import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
 
 const DAY_MS = 86_400_000;
 const RENEW_EXPIRES_WITHIN_DAYS = 7;
@@ -326,7 +327,7 @@ export async function runReconcileAndMerge(params: {
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
 			userId,
-			eventFamily: "maintenance",
+			eventFamily: NIGHT_SHIFT_EVENT_FAMILY,
 			eventName: "reconcile_call_failed",
 			reason: `llm_error:${error instanceof Error ? error.name : "Unknown"}`,
 		}).catch(() => {});

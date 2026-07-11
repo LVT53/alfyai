@@ -666,6 +666,34 @@ export async function renewMemoryProfileItemExpiry(params: {
 }
 
 /**
+ * Store a freshly generated persona summary on the projection-state row and
+ * account for it with a single projection-revision step. The night shift's
+ * summary step used to issue this update (and its `revision + 1` bump) inline,
+ * outside the mutation door; routing it here keeps the projection revision the
+ * sole business of this store. The write is not item-shaped, so it stays a plain
+ * update — the door is here for authority, not for the optimistic-concurrency
+ * claim (a summary regeneration is unconditional, exactly as before).
+ */
+export async function storePersonaSummaryProjection(params: {
+	projectionStateId: string;
+	personaSummaryText: string;
+	personaSummaryLinksJson: string;
+	now: Date;
+}): Promise<void> {
+	await db
+		.update(memoryProjectionState)
+		.set({
+			personaSummaryText: params.personaSummaryText,
+			personaSummaryLinksJson: params.personaSummaryLinksJson,
+			personaSummaryUpdatedAt: params.now,
+			revision: sql`${memoryProjectionState.revision} + 1`,
+			updatedAt: params.now,
+		})
+		.where(eq(memoryProjectionState.id, params.projectionStateId))
+		.run();
+}
+
+/**
  * Copy every provenance row from one item onto another, preserving the original
  * source identity (type/id/label/summary/metadata/timestamp) and reset
  * generation. Consolidation's merge uses this to carry each member's provenance

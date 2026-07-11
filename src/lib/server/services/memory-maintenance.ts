@@ -21,6 +21,7 @@ import {
 	repairGeneratedOutputFamilyStatuses,
 	repairGeneratedOutputRetrievalClasses,
 } from "./evidence-family";
+import { createIntervalJob } from "./interval-job";
 import {
 	recordStepFailure,
 	recordStepStart,
@@ -40,8 +41,6 @@ const TASK_ARCHIVE_AFTER_DAYS = 30;
 const CHAT_MAINTENANCE_DEBOUNCE_MS = 10 * 60_000;
 const EMBEDDING_BACKFILL_COOLDOWN_MS = 24 * 60 * 60_000;
 
-let schedulerStarted = false;
-let schedulerHandle: ReturnType<typeof setInterval> | null = null;
 const userMaintenanceStates = new Map<
 	string,
 	{
@@ -529,25 +528,20 @@ export async function quiesceUserMemoryMaintenance(
 	userLastBackfill.delete(userId);
 }
 
-export function ensureMemoryMaintenanceScheduler(): void {
-	if (schedulerStarted) return;
-	const intervalMinutes = getConfig().memoryMaintenanceIntervalMinutes;
-	if (!intervalMinutes || intervalMinutes <= 0) return;
+// One interval-job for the housekeeping shift, sharing the scheduler spine with
+// the night-shift consolidation job.
+const maintenanceJob = createIntervalJob({
+	name: "MEMORY_MAINTENANCE",
+	periodMinutes: () => getConfig().memoryMaintenanceIntervalMinutes,
+	run: () => runAllUsersMemoryMaintenance("scheduler"),
+});
 
-	schedulerStarted = true;
-	schedulerHandle = setInterval(() => {
-		void runAllUsersMemoryMaintenance("scheduler");
-	}, intervalMinutes * 60_000);
-	schedulerHandle.unref?.();
-	console.info("[MEMORY_MAINTENANCE] Scheduler enabled", { intervalMinutes });
+export function ensureMemoryMaintenanceScheduler(): void {
+	maintenanceJob.start();
 }
 
 export function stopMemoryMaintenanceScheduler(): void {
-	if (schedulerHandle) {
-		clearInterval(schedulerHandle);
-		schedulerHandle = null;
-	}
-	schedulerStarted = false;
+	maintenanceJob.stop();
 	for (const state of userMaintenanceStates.values()) {
 		clearScheduledMaintenance(state);
 		state.scheduledReason = null;

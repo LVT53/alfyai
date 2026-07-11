@@ -7,16 +7,16 @@ import {
 	memoryProfileItems,
 	users,
 } from "$lib/server/db/schema";
-import { sweepDirtyConversations } from "../memory-judge/runner";
+import { createIntervalJob } from "../interval-job";
 import { listPendingMemoryDirtyEntries } from "../memory-profile/dirty-ledger";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
 // Self namespace import so the scheduler's timer callback dispatches through the
 // module's own export binding, which vi.spyOn can replace in tests.
 import * as self from "./index";
+import { NIGHT_SHIFT_SPINE } from "./spine";
 import type { ConsolidationAction } from "./steps";
-import { runExpireAndRenew, runReconcileAndMerge } from "./steps";
-import { generateAndStorePersonaSummary } from "./summary";
 
 export type MemoryConsolidationRunResult = {
 	status: "succeeded" | "failed" | "skipped";
@@ -145,7 +145,7 @@ async function recordRunTelemetry(params: {
 	try {
 		await recordMemoryReworkTelemetry({
 			userId: params.userId,
-			eventFamily: "maintenance",
+			eventFamily: NIGHT_SHIFT_EVENT_FAMILY,
 			eventName: "consolidation_run",
 			status: params.status,
 			count: params.count,
@@ -184,11 +184,16 @@ export async function runUserMemoryConsolidation(
 	const actions: ConsolidationAction[] = [];
 
 	try {
-		await sweepDirtyConversations(userId);
-		actions.push(...(await runExpireAndRenew({ userId })));
-		actions.push(...(await runReconcileAndMerge({ userId })));
-		const summary = await generateAndStorePersonaSummary({ userId });
-		const summaryText = buildSummaryText(actions, summary !== null);
+		// Walk the night-shift spine in order. Each step is transactional in its
+		// own right, so writes applied before a later step throws stay applied —
+		// the same guarantee the hand-inlined pipeline gave.
+		let summaryRefreshed = false;
+		for (const step of NIGHT_SHIFT_SPINE) {
+			const result = await step.run({ userId });
+			if (result.actions) actions.push(...result.actions);
+			if (result.summaryRefreshed) summaryRefreshed = true;
+		}
+		const summaryText = buildSummaryText(actions, summaryRefreshed);
 
 		const reportId = await writeReport({
 			userId,
@@ -281,26 +286,19 @@ export async function runAllUsersMemoryConsolidation(
 	}
 }
 
-let schedulerStarted = false;
-let schedulerHandle: ReturnType<typeof setInterval> | null = null;
+// One interval-job for the night shift. The tick dispatches through the module's
+// own `self.runAllUsersMemoryConsolidation` export binding so tests can spy the
+// timer callback (see index.test.ts "memory consolidation scheduler").
+const consolidationJob = createIntervalJob({
+	name: "MEMORY_CONSOLIDATION",
+	periodMinutes: () => getConfig().memoryConsolidationIntervalMinutes,
+	run: () => self.runAllUsersMemoryConsolidation("scheduler"),
+});
 
 export function ensureMemoryConsolidationScheduler(): void {
-	if (schedulerStarted) return;
-	const intervalMinutes = getConfig().memoryConsolidationIntervalMinutes;
-	if (!intervalMinutes || intervalMinutes <= 0) return;
-
-	schedulerStarted = true;
-	schedulerHandle = setInterval(() => {
-		void self.runAllUsersMemoryConsolidation("scheduler");
-	}, intervalMinutes * 60_000);
-	schedulerHandle.unref?.();
-	console.info("[MEMORY_CONSOLIDATION] Scheduler enabled", { intervalMinutes });
+	consolidationJob.start();
 }
 
 export function stopMemoryConsolidationScheduler(): void {
-	if (schedulerHandle) {
-		clearInterval(schedulerHandle);
-		schedulerHandle = null;
-	}
-	schedulerStarted = false;
+	consolidationJob.stop();
 }

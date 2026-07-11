@@ -1,14 +1,18 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { memoryProjectionState, users } from "$lib/server/db/schema";
+import { users } from "$lib/server/db/schema";
 import { callMemoryControlModel } from "../memory-control-model";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
-import { ensureProjectionState } from "../memory-profile/projection-store";
+import {
+	ensureProjectionState,
+	storePersonaSummaryProjection,
+} from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
 
 export type PersonaSummary = {
 	text: string;
@@ -200,17 +204,14 @@ export async function generateAndStorePersonaSummary(params: {
 	const now = new Date();
 	const resetGeneration = await getCurrentMemoryResetGeneration(userId);
 	const projection = await ensureProjectionState({ userId, resetGeneration });
-	await db
-		.update(memoryProjectionState)
-		.set({
-			personaSummaryText: text,
-			personaSummaryLinksJson: JSON.stringify(links),
-			personaSummaryUpdatedAt: now,
-			revision: sql`${memoryProjectionState.revision} + 1`,
-			updatedAt: now,
-		})
-		.where(eq(memoryProjectionState.id, projection.id))
-		.run();
+	// Route the persona-summary write + its revision bump through the projection
+	// store's door instead of hand-bumping the revision here (C1 sole-authority).
+	await storePersonaSummaryProjection({
+		projectionStateId: projection.id,
+		personaSummaryText: text,
+		personaSummaryLinksJson: JSON.stringify(links),
+		now,
+	});
 
 	return { text, links, updatedAt: now };
 }
@@ -222,7 +223,7 @@ async function recordPersonaSummaryFailure(
 	try {
 		await recordMemoryReworkTelemetry({
 			userId,
-			eventFamily: "maintenance",
+			eventFamily: NIGHT_SHIFT_EVENT_FAMILY,
 			eventName: "persona_summary_failed",
 			reason,
 		});
