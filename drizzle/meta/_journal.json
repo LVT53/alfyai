@@ -673,6 +673,13 @@
       "when": 1777140000082,
       "tag": "1777140000082_retire_inferred_memory_projects",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1777140000083,
+      "tag": "1777140000083_drop_analytics_identity_denormalization",
+      "breakpoints": true
     }
   ]
 }

@@ -46,6 +46,45 @@ async function closeServiceDatabase() {
 function seedAnalyticsRows() {
 	const { sqlite, database } = openSeedDatabase();
 
+	// Identity now lives only on `users` and is resolved at read time; the
+	// analytics rollups carry no email/name. Seed the people whose identity the
+	// dashboard should resolve. `erased-1` is intentionally absent (erased): its
+	// analytics rows are deleted below and it has no `users` row, so it can never
+	// be reidentified.
+	const now = new Date("2026-05-01T00:00:00.000Z");
+	database
+		.insert(schema.users)
+		.values([
+			{
+				id: "user-1",
+				email: "user@example.com",
+				name: "User One",
+				passwordHash: "hash",
+				role: "user",
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: "admin-1",
+				email: "admin@example.com",
+				name: "Admin One",
+				passwordHash: "hash",
+				role: "admin",
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: "conversation-only-user",
+				email: "conversation-only@example.com",
+				name: "Conversation Only",
+				passwordHash: "hash",
+				role: "user",
+				createdAt: now,
+				updatedAt: now,
+			},
+		])
+		.run();
+
 	database
 		.insert(schema.providers)
 		.values({
@@ -64,8 +103,6 @@ function seedAnalyticsRows() {
 			{
 				id: "usage-user-may",
 				userId: "user-1",
-				userEmail: "user@example.com",
-				userName: "User One",
 				conversationId: "conversation-user-may",
 				messageId: "message-user-may",
 				modelId: "model1",
@@ -83,8 +120,6 @@ function seedAnalyticsRows() {
 			{
 				id: "usage-user-june",
 				userId: "user-1",
-				userEmail: "user@example.com",
-				userName: "User One",
 				conversationId: "conversation-user-june",
 				messageId: "message-user-june",
 				modelId: "provider:provider-abc",
@@ -101,8 +136,6 @@ function seedAnalyticsRows() {
 			{
 				id: "usage-admin-may",
 				userId: "admin-1",
-				userEmail: "admin@example.com",
-				userName: "Admin One",
 				conversationId: "conversation-admin-may",
 				messageId: "message-admin-may",
 				modelId: "model2",
@@ -118,8 +151,6 @@ function seedAnalyticsRows() {
 			{
 				id: "usage-erased",
 				userId: "erased-1",
-				userEmail: "erased@example.com",
-				userName: "Erased Person",
 				conversationId: "conversation-erased",
 				messageId: "message-erased",
 				modelId: "model1",
@@ -141,8 +172,6 @@ function seedAnalyticsRows() {
 				id: "analytics-conversation-user-may",
 				conversationId: "conversation-user-may",
 				userId: "user-1",
-				userEmail: "user@example.com",
-				userName: "User One",
 				title: "User May",
 				billingMonth: "2026-05",
 				conversationCreatedAt: new Date("2026-05-10T09:00:00.000Z"),
@@ -151,8 +180,6 @@ function seedAnalyticsRows() {
 				id: "analytics-conversation-user-june",
 				conversationId: "conversation-user-june",
 				userId: "user-1",
-				userEmail: "user@example.com",
-				userName: "User One",
 				title: "User June",
 				billingMonth: "2026-06",
 				conversationCreatedAt: new Date("2026-06-10T09:00:00.000Z"),
@@ -161,8 +188,6 @@ function seedAnalyticsRows() {
 				id: "analytics-conversation-admin-may",
 				conversationId: "conversation-admin-may",
 				userId: "admin-1",
-				userEmail: "admin@example.com",
-				userName: "Admin One",
 				title: "Admin May",
 				billingMonth: "2026-05",
 				conversationCreatedAt: new Date("2026-05-11T09:00:00.000Z"),
@@ -171,8 +196,6 @@ function seedAnalyticsRows() {
 				id: "analytics-conversation-conversation-only",
 				conversationId: "conversation-only",
 				userId: "conversation-only-user",
-				userEmail: "conversation-only@example.com",
-				userName: "Conversation Only",
 				title: "Conversation Only",
 				billingMonth: "2026-05",
 				conversationCreatedAt: new Date("2026-05-13T09:00:00.000Z"),
@@ -181,8 +204,6 @@ function seedAnalyticsRows() {
 				id: "analytics-conversation-erased",
 				conversationId: "conversation-erased",
 				userId: "erased-1",
-				userEmail: "erased@example.com",
-				userName: "Erased Person",
 				title: "Erased Conversation",
 				billingMonth: "2026-05",
 				conversationCreatedAt: new Date("2026-05-12T09:00:00.000Z"),
@@ -409,6 +430,51 @@ describe("analytics dashboard read model", () => {
 		expect(JSON.stringify(result)).not.toContain("Erased Person");
 		expect(JSON.stringify(result)).not.toContain("conversation-erased");
 		expect(JSON.stringify(result)).not.toContain("message-erased");
+	});
+
+	it("resolves per-user identity from users at read time and renders a deleted user's leftover rows anonymously", async () => {
+		seedAnalyticsRows();
+		// The analytics rollups store only an opaque userId — verify no identity
+		// column survives on the row itself.
+		const usageColumns = new Database(dbPath)
+			.prepare("PRAGMA table_info(usage_events)")
+			.all()
+			.map((column) => (column as { name: string }).name);
+		expect(usageColumns).not.toContain("user_email");
+		expect(usageColumns).not.toContain("user_name");
+
+		// Simulate a user whose `users` row is gone (deleted) while usage rows
+		// remain: read-time resolution must render them anonymously (opaque
+		// userId, empty email) rather than via a frozen person-linked snapshot.
+		const teardown = new Database(dbPath);
+		teardown.pragma("foreign_keys = OFF");
+		teardown.prepare("DELETE FROM users WHERE id = ?").run("user-1");
+		teardown.close();
+
+		const { getAnalyticsDashboardReadModel } = await import("./analytics");
+		const result = await getAnalyticsDashboardReadModel({
+			user: user({ id: "admin-1", role: "admin" }),
+			systemMonth: "2026-05",
+		});
+
+		const anonymized = result.perUser?.find((row) => row.userId === "user-1");
+		expect(anonymized).toMatchObject({
+			userId: "user-1",
+			displayName: "user-1",
+			email: "",
+		});
+		const anonymizedSummary = result.analyticsUsers?.find(
+			(row) => row.userId === "user-1",
+		);
+		expect(anonymizedSummary).toMatchObject({
+			userId: "user-1",
+			email: null,
+			name: null,
+		});
+		// admin-1 still has a users row, so it still resolves to real identity.
+		expect(
+			result.perUser?.find((row) => row.userId === "admin-1"),
+		).toMatchObject({ displayName: "Admin One", email: "admin@example.com" });
 	});
 
 	it("serves mock analytics through the same admin visibility boundary", async () => {

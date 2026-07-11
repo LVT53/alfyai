@@ -1447,8 +1447,6 @@ export const analyticsConversations = sqliteTable(
 		id: text("id").primaryKey(),
 		conversationId: text("conversation_id").notNull(),
 		userId: text("user_id").notNull(),
-		userEmail: text("user_email"),
-		userName: text("user_name"),
 		title: text("title"),
 		source: text("source").notNull().default("live"),
 		billingMonth: text("billing_month").notNull(),
@@ -1475,8 +1473,6 @@ export const usageEvents = sqliteTable(
 	{
 		id: text("id").primaryKey(),
 		userId: text("user_id").notNull(),
-		userEmail: text("user_email"),
-		userName: text("user_name"),
 		conversationId: text("conversation_id").notNull(),
 		conversationTitle: text("conversation_title"),
 		messageId: text("message_id").notNull(),

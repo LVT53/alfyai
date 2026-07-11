@@ -160,8 +160,6 @@ function seedPrivacyUser() {
 			id: "analytics-conversation-1",
 			conversationId: "conversation-1",
 			userId: "user-1",
-			userEmail: "user@example.com",
-			userName: "Privacy User",
 			title: "Private chat",
 			billingMonth: "2026-06",
 			conversationCreatedAt: now,
@@ -172,8 +170,6 @@ function seedPrivacyUser() {
 		.values({
 			id: "usage-1",
 			userId: "user-1",
-			userEmail: "user@example.com",
-			userName: "Privacy User",
 			conversationId: "conversation-1",
 			conversationTitle: "Private chat",
 			messageId: "message-1",
