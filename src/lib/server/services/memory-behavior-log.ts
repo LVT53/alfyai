@@ -4,24 +4,24 @@ import { db } from "$lib/server/db";
 import { memoryEvents } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import type {
-	MemoryEvent,
-	MemoryEventDomain,
-	MemoryEventType,
+	MemoryBehaviorEvent,
+	MemoryBehaviorEventDomain,
+	MemoryBehaviorEventType,
 } from "$lib/types";
 
-type MemoryEventPayload = Record<string, unknown>;
+type MemoryBehaviorEventPayload = Record<string, unknown>;
 
-export interface MemoryEventInput {
+export interface MemoryBehaviorEventInput {
 	eventKey: string;
 	userId: string;
-	domain: MemoryEventDomain;
-	eventType: MemoryEventType;
+	domain: MemoryBehaviorEventDomain;
+	eventType: MemoryBehaviorEventType;
 	conversationId?: string | null;
 	messageId?: string | null;
 	subjectId?: string | null;
 	relatedId?: string | null;
 	observedAt?: number | Date;
-	payload?: MemoryEventPayload | null;
+	payload?: MemoryBehaviorEventPayload | null;
 }
 
 function normalizeObservedAt(value?: number | Date): Date {
@@ -45,15 +45,17 @@ function unscopeEventKey(userId: string, storedEventKey: string): string {
 		: storedEventKey;
 }
 
-function mapMemoryEventRow(row: typeof memoryEvents.$inferSelect): MemoryEvent {
+function mapMemoryBehaviorEventRow(
+	row: typeof memoryEvents.$inferSelect,
+): MemoryBehaviorEvent {
 	return {
 		id: row.id,
 		eventKey: unscopeEventKey(row.userId, row.eventKey),
 		userId: row.userId,
 		conversationId: row.conversationId ?? null,
 		messageId: row.messageId ?? null,
-		domain: row.domain as MemoryEventDomain,
-		eventType: row.eventType as MemoryEventType,
+		domain: row.domain as MemoryBehaviorEventDomain,
+		eventType: row.eventType as MemoryBehaviorEventType,
 		subjectId: row.subjectId ?? null,
 		relatedId: row.relatedId ?? null,
 		observedAt: row.observedAt.getTime(),
@@ -62,8 +64,8 @@ function mapMemoryEventRow(row: typeof memoryEvents.$inferSelect): MemoryEvent {
 	};
 }
 
-export async function recordMemoryEvent(
-	params: MemoryEventInput,
+export async function recordMemoryBehaviorEvent(
+	params: MemoryBehaviorEventInput,
 ): Promise<void> {
 	await db
 		.insert(memoryEvents)
@@ -85,8 +87,8 @@ export async function recordMemoryEvent(
 		});
 }
 
-export async function recordMemoryEvents(
-	params: MemoryEventInput[],
+export async function recordMemoryBehaviorEvents(
+	params: MemoryBehaviorEventInput[],
 ): Promise<void> {
 	if (params.length === 0) {
 		return;
@@ -114,14 +116,14 @@ export async function recordMemoryEvents(
 		});
 }
 
-export async function listMemoryEvents(params: {
+export async function listMemoryBehaviorEvents(params: {
 	userId: string;
-	domain?: MemoryEventDomain;
-	eventTypes?: MemoryEventType[];
+	domain?: MemoryBehaviorEventDomain;
+	eventTypes?: MemoryBehaviorEventType[];
 	subjectId?: string | null;
 	subjectIds?: string[];
 	limit?: number;
-}): Promise<MemoryEvent[]> {
+}): Promise<MemoryBehaviorEvent[]> {
 	const conditions = [eq(memoryEvents.userId, params.userId)];
 	if (params.domain) {
 		conditions.push(eq(memoryEvents.domain, params.domain));
@@ -143,21 +145,21 @@ export async function listMemoryEvents(params: {
 		.orderBy(desc(memoryEvents.observedAt))
 		.limit(params.limit ?? 20);
 
-	return rows.map(mapMemoryEventRow);
+	return rows.map(mapMemoryBehaviorEventRow);
 }
 
-export async function listLatestMemoryEventsBySubject(params: {
+export async function listLatestMemoryBehaviorEventsBySubject(params: {
 	userId: string;
-	domain?: MemoryEventDomain;
-	eventTypes?: MemoryEventType[];
+	domain?: MemoryBehaviorEventDomain;
+	eventTypes?: MemoryBehaviorEventType[];
 	subjectIds: string[];
 	limitPerSubject?: number;
-}): Promise<Map<string, MemoryEvent>> {
+}): Promise<Map<string, MemoryBehaviorEvent>> {
 	if (params.subjectIds.length === 0) {
 		return new Map();
 	}
 
-	const rows = await listMemoryEvents({
+	const rows = await listMemoryBehaviorEvents({
 		userId: params.userId,
 		domain: params.domain,
 		eventTypes: params.eventTypes,
@@ -168,7 +170,7 @@ export async function listLatestMemoryEventsBySubject(params: {
 		),
 	});
 
-	const latestBySubject = new Map<string, MemoryEvent>();
+	const latestBySubject = new Map<string, MemoryBehaviorEvent>();
 	for (const row of rows) {
 		if (!row.subjectId || latestBySubject.has(row.subjectId)) continue;
 		latestBySubject.set(row.subjectId, row);
@@ -177,10 +179,10 @@ export async function listLatestMemoryEventsBySubject(params: {
 	return latestBySubject;
 }
 
-export async function countRecentMemoryEventsBySubject(params: {
+export async function countRecentMemoryBehaviorEventsBySubject(params: {
 	userId: string;
-	domain?: MemoryEventDomain;
-	eventTypes?: MemoryEventType[];
+	domain?: MemoryBehaviorEventDomain;
+	eventTypes?: MemoryBehaviorEventType[];
 	subjectIds: string[];
 	since?: number | Date;
 	limitPerSubject?: number;
@@ -196,7 +198,7 @@ export async function countRecentMemoryEventsBySubject(params: {
 				? params.since
 				: null;
 
-	const rows = await listMemoryEvents({
+	const rows = await listMemoryBehaviorEvents({
 		userId: params.userId,
 		domain: params.domain,
 		eventTypes: params.eventTypes,
@@ -217,7 +219,7 @@ export async function countRecentMemoryEventsBySubject(params: {
 	return counts;
 }
 
-export async function pruneOldMemoryEvents(params: {
+export async function pruneOldMemoryBehaviorEvents(params: {
 	userId: string;
 	olderThanDays?: number;
 	keepPerSubject?: number;
@@ -226,7 +228,7 @@ export async function pruneOldMemoryEvents(params: {
 	const keepPerSubject = params.keepPerSubject ?? 5;
 	const cutoff = new Date(Date.now() - olderThanDays * 86400000);
 
-	const allEvents = await listMemoryEvents({
+	const allEvents = await listMemoryBehaviorEvents({
 		userId: params.userId,
 		limit: 100000,
 	});

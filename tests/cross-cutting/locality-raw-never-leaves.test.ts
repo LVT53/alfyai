@@ -280,13 +280,13 @@ vi.mock("$lib/server/services/knowledge", () => ({
 vi.mock("$lib/server/services/knowledge/store", () => ({
 	parseWorkingDocumentMetadata: vi.fn(() => ({})),
 }));
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: vi.fn(async () => undefined),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: vi.fn(async () => undefined),
 }));
 vi.mock("$lib/server/services/memory-maintenance", () => ({
 	runUserMemoryMaintenance: mocks.runUserMemoryMaintenance,
 }));
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	isCurrentMemoryResetGeneration: vi.fn(async () => true),
 }));
 vi.mock("$lib/server/services/message-evidence", () => ({

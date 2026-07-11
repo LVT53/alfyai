@@ -143,8 +143,8 @@ vi.mock("./store", () => ({
 	getTargetConstructedContext: vi.fn(() => 60_000),
 }));
 
-vi.mock("../memory-events", () => ({
-	countRecentMemoryEventsBySubject: vi.fn(async () => new Map()),
+vi.mock("../memory-behavior-log", () => ({
+	countRecentMemoryBehaviorEventsBySubject: vi.fn(async () => new Map()),
 }));
 
 vi.mock("../document-resolution", () => ({

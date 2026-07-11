@@ -24,7 +24,7 @@ import {
 	recordStepStart,
 	recordStepSuccess,
 } from "./maintenance-metrics";
-import { pruneOldMemoryEvents } from "./memory-events";
+import { pruneOldMemoryBehaviorEvents } from "./memory-behavior-log";
 import { backfillSemanticEmbeddingsForUser } from "./semantic-embedding-refresh";
 import { deleteSemanticEmbeddingsForSubjects } from "./semantic-embeddings";
 
@@ -320,7 +320,9 @@ async function performUserMemoryMaintenance(
 	await safe("prune checkpoints", () => pruneTaskCheckpoints(userId));
 	await safe("archive stale tasks", () => archiveStaleTaskMemory(userId));
 
-	await safe("prune old memory events", () => pruneOldMemoryEvents({ userId }));
+	await safe("prune old memory events", () =>
+		pruneOldMemoryBehaviorEvents({ userId }),
+	);
 	await safe("delete orphan semantic embeddings", async () => {
 		const orphanRows = await db
 			.select({ subjectId: semanticEmbeddings.subjectId })

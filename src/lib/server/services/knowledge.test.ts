@@ -169,7 +169,7 @@ vi.mock("../utils/conversation-boundary-filter", () => ({
 	isCrossConversationArtifactEligible: vi.fn(() => true),
 }));
 
-// We should mock countRecentMemoryEventsBySubject directly
+// We should mock countRecentMemoryBehaviorEventsBySubject directly
 const mockCountRecentMemoryEventsBySubject = vi.fn(() =>
 	Promise.resolve(new Map()),
 );
@@ -185,8 +185,8 @@ vi.mock("./document-resolution", async (importOriginal) => {
 	};
 });
 
-vi.mock("./memory-events", () => ({
-	countRecentMemoryEventsBySubject: (
+vi.mock("./memory-behavior-log", () => ({
+	countRecentMemoryBehaviorEventsBySubject: (
 		...args: Parameters<typeof mockCountRecentMemoryEventsBySubject>
 	) => mockCountRecentMemoryEventsBySubject(...args),
 }));

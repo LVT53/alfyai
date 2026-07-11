@@ -22,7 +22,7 @@ import {
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
 import { quiesceUserMemoryMaintenance } from "../memory-maintenance";
-import { advanceMemoryResetGeneration } from "../memory-profile";
+import { advanceMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { clearMessageEvidenceForUser } from "../messages";
 import {
 	explicitErasureTables,

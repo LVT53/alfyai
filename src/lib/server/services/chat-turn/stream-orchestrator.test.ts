@@ -9,7 +9,7 @@ import {
 	subscribeToStream,
 	unregisterActiveChatStream,
 } from "$lib/server/services/chat-turn/active-streams";
-import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import {
 	createContextPreparationStageTimelineMark,
 	SERVER_STREAM_TIMELINE_MARKS,
@@ -65,7 +65,7 @@ vi.mock("$lib/server/services/messages", () => ({
 	listConversationMessagesForExport: vi.fn(() => Promise.resolve([])),
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(() => Promise.resolve(0)),
 }));
 

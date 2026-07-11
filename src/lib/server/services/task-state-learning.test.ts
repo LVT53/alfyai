@@ -231,10 +231,10 @@ vi.mock("$lib/server/utils/text", () => ({
 	),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: mockRecordMemoryEvent,
-	listLatestMemoryEventsBySubject: mockListLatestMemoryEventsBySubject,
-	listMemoryEvents: mockListMemoryEvents,
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: mockRecordMemoryEvent,
+	listLatestMemoryBehaviorEventsBySubject: mockListLatestMemoryEventsBySubject,
+	listMemoryBehaviorEvents: mockListMemoryEvents,
 }));
 
 vi.mock("$lib/server/services/control-model", () => ({

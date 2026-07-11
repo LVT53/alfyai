@@ -27,7 +27,7 @@ import {
 	isGeneratedDocumentPromptEligible,
 	resolveRelevantGeneratedDocumentSelection,
 } from "../document-resolution";
-import { countRecentMemoryEventsBySubject } from "../memory-events";
+import { countRecentMemoryBehaviorEventsBySubject } from "../memory-behavior-log";
 import { canUseTeiEmbedder, embedText } from "../tei-embedder";
 import {
 	resolveWorkingDocumentSelection,
@@ -772,14 +772,14 @@ export async function findRelevantKnowledgeArtifacts(params: {
 	const [behaviorScoresByKey, reopenScoresByKey] =
 		generatedBehaviorKeys.length > 0
 			? await Promise.all([
-					countRecentMemoryEventsBySubject({
+					countRecentMemoryBehaviorEventsBySubject({
 						userId: params.userId,
 						domain: "document",
 						eventTypes: ["document_refined"],
 						subjectIds: generatedBehaviorKeys,
 						since: recentBehaviorWindowStart,
 					}).catch(() => new Map<string, number>()),
-					countRecentMemoryEventsBySubject({
+					countRecentMemoryBehaviorEventsBySubject({
 						userId: params.userId,
 						domain: "document",
 						eventTypes: ["document_opened"],

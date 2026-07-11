@@ -115,15 +115,15 @@ vi.mock("$lib/server/utils/json", () => ({
 	parseJsonStringArray: vi.fn(() => []),
 }));
 
-describe("memory-events learning - recordMemoryEvent", () => {
+describe("memory-behavior-log learning - recordMemoryBehaviorEvent", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 	});
 
 	it("stores events with correct domain", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:task-domain",
 			userId: "user-1",
 			domain: "task",
@@ -136,9 +136,9 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 
 	it("stores events with correct eventType", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:event-type",
 			userId: "user-1",
 			domain: "persona",
@@ -151,9 +151,9 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 
 	it("stores payload as JSON string", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:payload",
 			userId: "user-1",
 			domain: "temporal",
@@ -169,9 +169,9 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 
 	it("handles null payload gracefully", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:no-payload",
 			userId: "user-1",
 			domain: "task",
@@ -183,9 +183,9 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 
 	it("stores conversationId and messageId when provided", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:full-context",
 			userId: "user-1",
 			domain: "document",
@@ -201,10 +201,10 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 
 	it("normalizes numeric observedAt to Date", async () => {
-		const { recordMemoryEvent } = await import("./memory-events");
+		const { recordMemoryBehaviorEvent } = await import("./memory-behavior-log");
 
 		const timestamp = Date.UTC(2026, 3, 15, 10, 30);
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:observed-at",
 			userId: "user-1",
 			domain: "task",
@@ -217,7 +217,7 @@ describe("memory-events learning - recordMemoryEvent", () => {
 	});
 });
 
-describe("memory-events learning - listMemoryEvents", () => {
+describe("memory-behavior-log learning - listMemoryBehaviorEvents", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 		queryConditions = [];
@@ -283,9 +283,12 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 
 	it("retrieves events ordered by observedAt descending", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 
 		expect(events.length).toBe(3); // Only user-1's events
 		expect(events[0].eventType).toBe("persona_fact_updated"); // Most recent
@@ -294,9 +297,9 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 
 	it("filters events by domain", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const taskEvents = await listMemoryEvents({
+		const taskEvents = await listMemoryBehaviorEvents({
 			userId: "user-1",
 			domain: "task",
 			limit: 10,
@@ -307,9 +310,9 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 
 	it("filters events by subjectId", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const events = await listMemoryEvents({
+		const events = await listMemoryBehaviorEvents({
 			userId: "user-1",
 			subjectId: "project-1",
 			limit: 10,
@@ -320,9 +323,9 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 
 	it("filters events by multiple eventTypes", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const events = await listMemoryEvents({
+		const events = await listMemoryBehaviorEvents({
 			userId: "user-1",
 			eventTypes: ["project_started", "persona_fact_updated"],
 			limit: 10,
@@ -335,18 +338,27 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 
 	it("respects limit parameter", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const events = await listMemoryEvents({ userId: "user-1", limit: 2 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 2,
+		});
 
 		expect(events.length).toBe(2);
 	});
 
 	it("does not return events from other users", async () => {
-		const { listMemoryEvents } = await import("./memory-events");
+		const { listMemoryBehaviorEvents } = await import("./memory-behavior-log");
 
-		const user1Events = await listMemoryEvents({ userId: "user-1", limit: 10 });
-		const user2Events = await listMemoryEvents({ userId: "user-2", limit: 10 });
+		const user1Events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
+		const user2Events = await listMemoryBehaviorEvents({
+			userId: "user-2",
+			limit: 10,
+		});
 
 		const user1Ids = new Set(user1Events.map((e) => e.id));
 		const user2Ids = new Set(user2Events.map((e) => e.id));
@@ -358,19 +370,18 @@ describe("memory-events learning - listMemoryEvents", () => {
 	});
 });
 
-describe("memory-events learning - event key uniqueness", () => {
+describe("memory-behavior-log learning - event key uniqueness", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 		queryConditions = [];
 	});
 
 	it("deduplicates events by scoped event key per user", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		// Record same event twice
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:project-1",
 			userId: "user-1",
 			domain: "temporal",
@@ -378,7 +389,7 @@ describe("memory-events learning - event key uniqueness", () => {
 			subjectId: "project-1",
 		});
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:project-1",
 			userId: "user-1",
 			domain: "temporal",
@@ -387,16 +398,18 @@ describe("memory-events learning - event key uniqueness", () => {
 		});
 
 		// Should only have one event
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(events).toHaveLength(1);
 	});
 
 	it("allows same eventKey for different users", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:project-1",
 			userId: "user-1",
 			domain: "temporal",
@@ -404,7 +417,7 @@ describe("memory-events learning - event key uniqueness", () => {
 			subjectId: "project-1",
 		});
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:project-1",
 			userId: "user-2",
 			domain: "temporal",
@@ -412,20 +425,25 @@ describe("memory-events learning - event key uniqueness", () => {
 			subjectId: "project-1",
 		});
 
-		const user1Events = await listMemoryEvents({ userId: "user-1", limit: 10 });
-		const user2Events = await listMemoryEvents({ userId: "user-2", limit: 10 });
+		const user1Events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
+		const user2Events = await listMemoryBehaviorEvents({
+			userId: "user-2",
+			limit: 10,
+		});
 
 		expect(user1Events).toHaveLength(1);
 		expect(user2Events).toHaveLength(1);
 	});
 
 	it("allows same raw eventKey for different event types when scoped keys differ", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		// Each call creates a different scoped key (u:user-1:eventType:project-1)
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "project_started:project-1",
 			userId: "user-1",
 			domain: "task",
@@ -433,7 +451,7 @@ describe("memory-events learning - event key uniqueness", () => {
 			subjectId: "project-1",
 		});
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "project_paused:project-1",
 			userId: "user-1",
 			domain: "task",
@@ -442,16 +460,18 @@ describe("memory-events learning - event key uniqueness", () => {
 		});
 
 		// Both should be stored since scoped keys differ
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(events.length).toBe(2);
 	});
 
 	it("extracts payload from stored JSON", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "test:payload-extraction",
 			userId: "user-1",
 			domain: "preference",
@@ -464,22 +484,27 @@ describe("memory-events learning - event key uniqueness", () => {
 			},
 		});
 
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(events[0].payload).toBeDefined();
 		expect(events[0].payload?.preferenceValue).toBe("concise");
 	});
 });
 
-describe("memory-events learning - recordMemoryEvents batch", () => {
+describe("memory-behavior-log learning - recordMemoryBehaviorEvents batch", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 		queryConditions = [];
 	});
 
 	it("records multiple events in a batch", async () => {
-		const { recordMemoryEvents } = await import("./memory-events");
+		const { recordMemoryBehaviorEvents } = await import(
+			"./memory-behavior-log"
+		);
 
-		await recordMemoryEvents([
+		await recordMemoryBehaviorEvents([
 			{
 				eventKey: "batch:event-1",
 				userId: "user-1",
@@ -504,20 +529,21 @@ describe("memory-events learning - recordMemoryEvents batch", () => {
 	});
 
 	it("handles empty batch gracefully", async () => {
-		const { recordMemoryEvents } = await import("./memory-events");
+		const { recordMemoryBehaviorEvents } = await import(
+			"./memory-behavior-log"
+		);
 
 		// Should not throw
-		await recordMemoryEvents([]);
+		await recordMemoryBehaviorEvents([]);
 
 		expect(rows.length).toBe(0);
 	});
 
 	it("applies deduplication to batch with duplicates", async () => {
-		const { recordMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
-		await recordMemoryEvents([
+		await recordMemoryBehaviorEvents([
 			{
 				eventKey: "batch:duplicate-test",
 				userId: "user-1",
@@ -538,12 +564,15 @@ describe("memory-events learning - recordMemoryEvents batch", () => {
 			},
 		]);
 
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(events.length).toBe(2); // One duplicate, one unique
 	});
 });
 
-describe("memory-events learning - listLatestMemoryEventsBySubject", () => {
+describe("memory-behavior-log learning - listLatestMemoryBehaviorEventsBySubject", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 		queryConditions = [];
@@ -595,9 +624,11 @@ describe("memory-events learning - listLatestMemoryEventsBySubject", () => {
 	});
 
 	it("returns latest event per subject", async () => {
-		const { listLatestMemoryEventsBySubject } = await import("./memory-events");
+		const { listLatestMemoryBehaviorEventsBySubject } = await import(
+			"./memory-behavior-log"
+		);
 
-		const latestBySubject = await listLatestMemoryEventsBySubject({
+		const latestBySubject = await listLatestMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			subjectIds: ["proj-A", "proj-B"],
 		});
@@ -608,9 +639,11 @@ describe("memory-events learning - listLatestMemoryEventsBySubject", () => {
 	});
 
 	it("returns empty map for empty subjectIds", async () => {
-		const { listLatestMemoryEventsBySubject } = await import("./memory-events");
+		const { listLatestMemoryBehaviorEventsBySubject } = await import(
+			"./memory-behavior-log"
+		);
 
-		const latestBySubject = await listLatestMemoryEventsBySubject({
+		const latestBySubject = await listLatestMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			subjectIds: [],
 		});
@@ -619,9 +652,11 @@ describe("memory-events learning - listLatestMemoryEventsBySubject", () => {
 	});
 
 	it("filters by eventTypes when provided", async () => {
-		const { listLatestMemoryEventsBySubject } = await import("./memory-events");
+		const { listLatestMemoryBehaviorEventsBySubject } = await import(
+			"./memory-behavior-log"
+		);
 
-		const latestBySubject = await listLatestMemoryEventsBySubject({
+		const latestBySubject = await listLatestMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			subjectIds: ["proj-A", "proj-B"],
 			eventTypes: ["project_paused"],
@@ -633,7 +668,7 @@ describe("memory-events learning - listLatestMemoryEventsBySubject", () => {
 	});
 });
 
-describe("memory-events learning - countRecentMemoryEventsBySubject", () => {
+describe("memory-behavior-log learning - countRecentMemoryBehaviorEventsBySubject", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 		queryConditions = [];
@@ -698,11 +733,11 @@ describe("memory-events learning - countRecentMemoryEventsBySubject", () => {
 	});
 
 	it("counts events per subject within time window", async () => {
-		const { countRecentMemoryEventsBySubject } = await import(
-			"./memory-events"
+		const { countRecentMemoryBehaviorEventsBySubject } = await import(
+			"./memory-behavior-log"
 		);
 
-		const counts = await countRecentMemoryEventsBySubject({
+		const counts = await countRecentMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			domain: "document",
 			eventTypes: ["document_refined"],
@@ -717,13 +752,13 @@ describe("memory-events learning - countRecentMemoryEventsBySubject", () => {
 	});
 
 	it("returns zero for subjects with no recent events", async () => {
-		const { countRecentMemoryEventsBySubject } = await import(
-			"./memory-events"
+		const { countRecentMemoryBehaviorEventsBySubject } = await import(
+			"./memory-behavior-log"
 		);
 
-		// Note: The mock's listMemoryEvents doesn't filter by 'since', so we test
+		// Note: The mock's listMemoryBehaviorEvents doesn't filter by 'since', so we test
 		// that the function handles non-existent subjects correctly
-		const counts = await countRecentMemoryEventsBySubject({
+		const counts = await countRecentMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			domain: "document",
 			eventTypes: ["document_refined"],

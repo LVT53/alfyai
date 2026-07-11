@@ -29,7 +29,7 @@ import {
 	isAttachmentReadinessError,
 } from "$lib/server/services/knowledge";
 import { detectLanguage } from "$lib/server/services/language";
-import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";

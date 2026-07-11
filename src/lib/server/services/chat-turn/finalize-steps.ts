@@ -11,7 +11,7 @@ import {
 	upsertWorkCapsule,
 } from "$lib/server/services/knowledge";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { runUserMemoryMaintenance } from "$lib/server/services/memory-maintenance";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import {
@@ -172,7 +172,7 @@ export async function persistAssistantTurnState(
 		);
 		const behaviorSubjectId =
 			documentMetadata.documentFamilyId ?? activeDocumentArtifact.id;
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: `document_refined:${behaviorSubjectId}:${params.assistantMessageId}`,
 			userId: params.userId,
 			conversationId: params.conversationId,

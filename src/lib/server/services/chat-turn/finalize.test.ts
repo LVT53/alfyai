@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordMessageAnalytics } from "$lib/server/services/analytics";
 import type { ChatFile } from "$lib/server/services/chat-files";
 import { getArtifactsForUser } from "$lib/server/services/knowledge";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
@@ -133,15 +133,15 @@ vi.mock("$lib/server/services/knowledge/store", () => ({
 	parseWorkingDocumentMetadata: vi.fn(() => ({})),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: vi.fn(async () => undefined),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: vi.fn(async () => undefined),
 }));
 
 vi.mock("$lib/server/services/memory-maintenance", () => ({
 	runUserMemoryMaintenance: mockRunUserMemoryMaintenance,
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	isCurrentMemoryResetGeneration: mockIsCurrentMemoryResetGeneration,
 }));
 
@@ -1465,7 +1465,9 @@ describe("finalizeChatTurn", () => {
 		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
 			typeof vi.fn
 		>;
-		const mockRecordMemoryEvent = recordMemoryEvent as ReturnType<typeof vi.fn>;
+		const mockRecordMemoryEvent = recordMemoryBehaviorEvent as ReturnType<
+			typeof vi.fn
+		>;
 		const mockResolveSelection = resolveWorkingDocumentSelection as ReturnType<
 			typeof vi.fn
 		>;
@@ -1562,7 +1564,9 @@ describe("finalizeChatTurn", () => {
 		const mockGetArtifactsForUser = getArtifactsForUser as ReturnType<
 			typeof vi.fn
 		>;
-		const mockRecordMemoryEvent = recordMemoryEvent as ReturnType<typeof vi.fn>;
+		const mockRecordMemoryEvent = recordMemoryBehaviorEvent as ReturnType<
+			typeof vi.fn
+		>;
 		mockGetArtifactsForUser.mockResolvedValueOnce([
 			{
 				id: "brief-v1",

@@ -87,7 +87,7 @@ export async function createAccountDataArchive(
 		listArtifacts(database, userId),
 		listGeneratedFiles(database, userId),
 		listTaskStates(database, userId),
-		listMemoryEvents(database, userId),
+		listMemoryBehaviorEvents(database, userId),
 		listUserSkills(database, userId),
 		listImportJobs(database, userId),
 		listUsageEvents(database, userId),
@@ -757,7 +757,7 @@ async function listTaskStates(database: ArchiveDb, userId: string) {
 		.orderBy(asc(conversationTaskStates.createdAt));
 }
 
-async function listMemoryEvents(database: ArchiveDb, userId: string) {
+async function listMemoryBehaviorEvents(database: ArchiveDb, userId: string) {
 	return database
 		.select()
 		.from(memoryEvents)

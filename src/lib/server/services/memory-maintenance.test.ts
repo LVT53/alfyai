@@ -106,8 +106,8 @@ vi.mock("./semantic-embedding-refresh", () => ({
 	})),
 }));
 
-vi.mock("./memory-events", () => ({
-	pruneOldMemoryEvents: (
+vi.mock("./memory-behavior-log", () => ({
+	pruneOldMemoryBehaviorEvents: (
 		...args: Parameters<typeof mockState.mockPruneOldMemoryEvents>
 	) => mockState.mockPruneOldMemoryEvents(...args),
 }));
@@ -275,7 +275,7 @@ describe("memory-maintenance", () => {
 			expect(backfillSemanticEmbeddingsForUser).toHaveBeenCalledWith("user-1");
 		});
 
-		it("calls pruneOldMemoryEvents during maintenance", async () => {
+		it("calls pruneOldMemoryBehaviorEvents during maintenance", async () => {
 			addUserRow("user-1");
 
 			await runUserMemoryMaintenance("user-1", "manual");
@@ -314,7 +314,7 @@ describe("memory-maintenance", () => {
 			expect(mockDeleteRunner).toHaveBeenCalled();
 		});
 
-		it("handles errors in pruneOldMemoryEvents without crashing the pipeline", async () => {
+		it("handles errors in pruneOldMemoryBehaviorEvents without crashing the pipeline", async () => {
 			addUserRow("user-1");
 			mockState.mockPruneOldMemoryEvents.mockRejectedValueOnce(
 				new Error("Memory event prune failed"),

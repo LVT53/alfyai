@@ -1418,14 +1418,14 @@ export type PersonaMemoryTemporalFreshness =
 	| "unknown";
 export type PersonaMemoryTopicStatus = "active" | "dormant" | "historical";
 export type PersonaMemoryDomain = "persona" | "temporal" | "preference";
-export type MemoryEventDomain =
+export type MemoryBehaviorEventDomain =
 	| "persona"
 	| "temporal"
 	| "preference"
 	| "task"
 	| "document"
 	| "conversation";
-export type MemoryEventType =
+export type MemoryBehaviorEventType =
 	| "persona_fact_updated"
 	| "deadline_set"
 	| "deadline_extended"
@@ -1480,14 +1480,14 @@ export interface PersonaMemoryItem {
 	members: PersonaMemoryMemberItem[];
 }
 
-export interface MemoryEvent {
+export interface MemoryBehaviorEvent {
 	id: string;
 	eventKey: string;
 	userId: string;
 	conversationId: string | null;
 	messageId: string | null;
-	domain: MemoryEventDomain;
-	eventType: MemoryEventType;
+	domain: MemoryBehaviorEventDomain;
+	eventType: MemoryBehaviorEventType;
 	subjectId: string | null;
 	relatedId: string | null;
 	observedAt: number;

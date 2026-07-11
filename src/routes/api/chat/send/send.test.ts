@@ -143,7 +143,7 @@ vi.mock("$lib/server/services/task-state", () => ({
 	updateTaskStateCheckpoint: vi.fn(async () => null),
 }));
 
-vi.mock("$lib/server/services/memory-profile", () => ({
+vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	getCurrentMemoryResetGeneration: vi.fn(async () => 0),
 	isCurrentMemoryResetGeneration: vi.fn(async () => true),
 }));

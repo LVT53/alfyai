@@ -8,7 +8,7 @@ import { getConfig } from "$lib/server/config-store";
 import { prepareRetryChatTurn } from "$lib/server/services/chat-turn/retry";
 import { createStreamJsonErrorResponse } from "$lib/server/services/chat-turn/stream";
 import { runChatStreamOrchestrator } from "$lib/server/services/chat-turn/stream-orchestrator";
-import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);

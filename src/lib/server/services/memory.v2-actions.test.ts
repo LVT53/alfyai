@@ -706,7 +706,7 @@ describe("memory v2 actions service", () => {
 		seedUser(db, userId, now);
 		seedProjectionState(db, userId, now);
 
-		const { markMemoryDirty } = await import("./memory-profile");
+		const { markMemoryDirty } = await import("./memory-profile/dirty-ledger");
 		const { getKnowledgeMemoryOverview } = await import("./memory");
 
 		// Only a read-induced staleness marker exists (and getKnowledgeMemoryOverview
@@ -741,7 +741,7 @@ describe("memory v2 actions service", () => {
 		seedUser(db, userId, now);
 		seedProjectionState(db, userId, now);
 
-		const { markMemoryDirty } = await import("./memory-profile");
+		const { markMemoryDirty } = await import("./memory-profile/dirty-ledger");
 		const { getKnowledgeMemoryOverview } = await import("./memory");
 
 		// Marked twice for the same reason+scope: the ledger row's internal

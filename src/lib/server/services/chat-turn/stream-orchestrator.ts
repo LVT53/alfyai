@@ -62,7 +62,7 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile";
+import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";

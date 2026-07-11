@@ -19,7 +19,7 @@ import {
 	getArtifactOwnershipScope,
 	hardDeleteArtifactsForUser,
 } from "../knowledge";
-import { advanceMemoryResetGeneration } from "../memory-profile";
+import { advanceMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { clearMessageEvidenceForUser } from "../messages";
 
 export async function resetKnowledgeBaseState(userId: string): Promise<{

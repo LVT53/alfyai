@@ -22,7 +22,7 @@ import {
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyContext,
 } from "$lib/server/services/knowledge/store/document-metadata";
-import { recordMemoryEvent } from "$lib/server/services/memory-events";
+import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
 import type { Artifact } from "$lib/types";
@@ -724,7 +724,7 @@ export async function syncGeneratedFilesToMemory(params: {
 					linkType: "supersedes",
 				});
 
-				await recordMemoryEvent({
+				await recordMemoryBehaviorEvent({
 					eventKey: `document_superseded:${previousVersion.artifactId}:${memoryArtifact.id}`,
 					userId: params.userId,
 					conversationId: params.conversationId,

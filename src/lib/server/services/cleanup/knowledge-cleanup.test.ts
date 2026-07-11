@@ -81,7 +81,7 @@ vi.mock("../knowledge", () => ({
 	hardDeleteArtifactsForUser: mockHardDeleteArtifactsForUser,
 }));
 
-vi.mock("../memory-profile", () => ({
+vi.mock("../memory-profile/reset-generation", () => ({
 	advanceMemoryResetGeneration: mockAdvanceMemoryResetGeneration,
 }));
 

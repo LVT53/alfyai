@@ -466,9 +466,10 @@ vi.mock("$lib/server/services/knowledge", () => ({
 	) => mockCreateGeneratedOutputArtifact(...args),
 }));
 
-vi.mock("$lib/server/services/memory-events", () => ({
-	recordMemoryEvent: (...args: Parameters<typeof mockRecordMemoryEvent>) =>
-		mockRecordMemoryEvent(...args),
+vi.mock("$lib/server/services/memory-behavior-log", () => ({
+	recordMemoryBehaviorEvent: (
+		...args: Parameters<typeof mockRecordMemoryEvent>
+	) => mockRecordMemoryEvent(...args),
 }));
 
 vi.mock("./document-extraction", () => ({

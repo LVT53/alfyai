@@ -116,17 +116,16 @@ vi.mock("$lib/server/utils/json", () => ({
 	),
 }));
 
-describe("memory-events service", () => {
+describe("memory-behavior-log service", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 	});
 
 	it("persists deduplicated events by event key", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:cluster-1",
 			userId: "user-1",
 			domain: "temporal",
@@ -134,7 +133,7 @@ describe("memory-events service", () => {
 			subjectId: "cluster-1",
 			payload: { topicKey: "assessment" },
 		});
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:cluster-1",
 			userId: "user-1",
 			domain: "temporal",
@@ -143,7 +142,10 @@ describe("memory-events service", () => {
 			payload: { topicKey: "assessment" },
 		});
 
-		const events = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const events = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(events).toHaveLength(1);
 		expect(events[0]).toMatchObject({
 			eventKey: "deadline_set:cluster-1",
@@ -155,18 +157,17 @@ describe("memory-events service", () => {
 	});
 
 	it("deduplicates event keys per user instead of globally", async () => {
-		const { recordMemoryEvent, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { recordMemoryBehaviorEvent, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:cluster-1",
 			userId: "user-1",
 			domain: "temporal",
 			eventType: "deadline_set",
 			subjectId: "cluster-1",
 		});
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "deadline_set:cluster-1",
 			userId: "user-2",
 			domain: "temporal",
@@ -174,11 +175,11 @@ describe("memory-events service", () => {
 			subjectId: "cluster-1",
 		});
 
-		const userOneEvents = await listMemoryEvents({
+		const userOneEvents = await listMemoryBehaviorEvents({
 			userId: "user-1",
 			limit: 10,
 		});
-		const userTwoEvents = await listMemoryEvents({
+		const userTwoEvents = await listMemoryBehaviorEvents({
 			userId: "user-2",
 			limit: 10,
 		});
@@ -190,10 +191,12 @@ describe("memory-events service", () => {
 	});
 
 	it("counts recent events by subject within the requested window", async () => {
-		const { recordMemoryEvent, countRecentMemoryEventsBySubject } =
-			await import("./memory-events");
+		const {
+			recordMemoryBehaviorEvent,
+			countRecentMemoryBehaviorEventsBySubject,
+		} = await import("./memory-behavior-log");
 
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "document_refined:family-brief:1",
 			userId: "user-1",
 			domain: "document",
@@ -201,7 +204,7 @@ describe("memory-events service", () => {
 			subjectId: "family-brief",
 			observedAt: Date.UTC(2026, 3, 2),
 		});
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "document_refined:family-brief:2",
 			userId: "user-1",
 			domain: "document",
@@ -209,7 +212,7 @@ describe("memory-events service", () => {
 			subjectId: "family-brief",
 			observedAt: Date.UTC(2026, 3, 4),
 		});
-		await recordMemoryEvent({
+		await recordMemoryBehaviorEvent({
 			eventKey: "document_refined:family-slides:1",
 			userId: "user-1",
 			domain: "document",
@@ -218,7 +221,7 @@ describe("memory-events service", () => {
 			observedAt: Date.UTC(2026, 2, 10),
 		});
 
-		const counts = await countRecentMemoryEventsBySubject({
+		const counts = await countRecentMemoryBehaviorEventsBySubject({
 			userId: "user-1",
 			domain: "document",
 			eventTypes: ["document_refined"],
@@ -231,7 +234,7 @@ describe("memory-events service", () => {
 	});
 });
 
-describe("pruneOldMemoryEvents", () => {
+describe("pruneOldMemoryBehaviorEvents", () => {
 	beforeEach(() => {
 		rows.splice(0, rows.length);
 	});
@@ -256,9 +259,8 @@ describe("pruneOldMemoryEvents", () => {
 	}
 
 	it("deletes events older than the default 90-day cutoff while keeping recent events", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		rows.push(
 			makeRow({
@@ -275,21 +277,23 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 0,
 		});
 
 		expect(result.deletedCount).toBe(1);
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0].id).toBe("recent-1");
 	});
 
 	it("keeps at least keepPerSubject latest events per subject even if they are old", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		// 5 old events for proj-1 (oldest first)
 		for (let i = 0; i < 5; i++) {
@@ -303,7 +307,7 @@ describe("pruneOldMemoryEvents", () => {
 			);
 		}
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 3,
 		});
@@ -311,7 +315,10 @@ describe("pruneOldMemoryEvents", () => {
 		// keepPerSubject=3 means the 3 most recent of the 5 old events survive
 		expect(result.deletedCount).toBe(2);
 
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(3);
 		// The 3 survivors should be the most recent (old-proj1-2, old-proj1-3, old-proj1-4)
 		const survivorIds = remaining.map((e) => e.id).sort();
@@ -319,9 +326,8 @@ describe("pruneOldMemoryEvents", () => {
 	});
 
 	it("does not delete events belonging to other users", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		rows.push(
 			makeRow({
@@ -338,17 +344,19 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		await pruneOldMemoryEvents({ userId: "user-1" });
+		await pruneOldMemoryBehaviorEvents({ userId: "user-1" });
 
-		const user2Events = await listMemoryEvents({ userId: "user-2", limit: 10 });
+		const user2Events = await listMemoryBehaviorEvents({
+			userId: "user-2",
+			limit: 10,
+		});
 		expect(user2Events).toHaveLength(1);
 		expect(user2Events[0].id).toBe("old-user2");
 	});
 
 	it("respects custom olderThanDays parameter", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		rows.push(
 			makeRow({
@@ -366,22 +374,24 @@ describe("pruneOldMemoryEvents", () => {
 		);
 
 		// With olderThanDays=30, only the 40d event should be pruned
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			olderThanDays: 30,
 			keepPerSubject: 0,
 		});
 
 		expect(result.deletedCount).toBe(1);
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0].id).toBe("old-20d");
 	});
 
 	it("keepPerSubject=0 deletes all old events regardless of subject", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		rows.push(
 			makeRow({
@@ -398,27 +408,34 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 0,
 		});
 
 		expect(result.deletedCount).toBe(2);
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(0);
 	});
 
 	it("handles empty table gracefully", async () => {
-		const { pruneOldMemoryEvents } = await import("./memory-events");
+		const { pruneOldMemoryBehaviorEvents } = await import(
+			"./memory-behavior-log"
+		);
 
-		const result = await pruneOldMemoryEvents({ userId: "user-1" });
+		const result = await pruneOldMemoryBehaviorEvents({ userId: "user-1" });
 
 		expect(result.deletedCount).toBe(0);
 		expect(rows).toHaveLength(0);
 	});
 
 	it("returns deletedCount matching the number of removed rows", async () => {
-		const { pruneOldMemoryEvents } = await import("./memory-events");
+		const { pruneOldMemoryBehaviorEvents } = await import(
+			"./memory-behavior-log"
+		);
 
 		rows.push(
 			makeRow({
@@ -453,7 +470,7 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 2,
 		});
@@ -463,9 +480,8 @@ describe("pruneOldMemoryEvents", () => {
 	});
 
 	it("protects events with null subjectId by keepPerSubject count", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		rows.push(
 			makeRow({
@@ -488,7 +504,7 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 2,
 		});
@@ -496,16 +512,18 @@ describe("pruneOldMemoryEvents", () => {
 		// 3 null-subject events, keep 2 newest, delete 1 oldest
 		expect(result.deletedCount).toBe(1);
 
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(2);
 		const survivorIds = remaining.map((e) => e.id).sort();
 		expect(survivorIds).toEqual(["null-2", "null-3"]);
 	});
 
 	it("protects per-subject counts independently across different subjects", async () => {
-		const { pruneOldMemoryEvents, listMemoryEvents } = await import(
-			"./memory-events"
-		);
+		const { pruneOldMemoryBehaviorEvents, listMemoryBehaviorEvents } =
+			await import("./memory-behavior-log");
 
 		// proj-1: 3 old events
 		rows.push(
@@ -544,7 +562,7 @@ describe("pruneOldMemoryEvents", () => {
 			}),
 		);
 
-		const result = await pruneOldMemoryEvents({
+		const result = await pruneOldMemoryBehaviorEvents({
 			userId: "user-1",
 			keepPerSubject: 2,
 		});
@@ -553,7 +571,10 @@ describe("pruneOldMemoryEvents", () => {
 		// proj-2: keep 2, delete 0
 		expect(result.deletedCount).toBe(1);
 
-		const remaining = await listMemoryEvents({ userId: "user-1", limit: 10 });
+		const remaining = await listMemoryBehaviorEvents({
+			userId: "user-1",
+			limit: 10,
+		});
 		expect(remaining).toHaveLength(4);
 
 		// proj-1 survivors: p1-2, p1-3 (the 2 most recent)
