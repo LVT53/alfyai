@@ -3,11 +3,12 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
 import { getConversationSummary } from "../conversation-summaries";
-import { recordMemoryModelUsage } from "../memory-cost";
+import { callMemoryControlModel } from "../memory-control-model";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
+	setMemoryProfileItemMetadataAndExpiry,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
@@ -15,6 +16,7 @@ import { createOrUpdateMemoryReviewItem } from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
+import { REVIEW_EXPIRY_DAYS, REVIEW_OPEN_CAP } from "./config";
 import {
 	buildJudgeSystemPrompt,
 	buildJudgeUserMessage,
@@ -25,10 +27,10 @@ import {
 	type JudgeDecision,
 	parseJudgeDecisionsDetailed,
 	type RejectedJudgeCandidate,
-	reasoningAwareMaxTokens,
 } from "./schema";
 import {
 	advanceConversationMemoryWatermark,
+	countUnjudgedMessages,
 	getUnjudgedConversationSegment,
 } from "./segment";
 
@@ -46,12 +48,17 @@ export type JudgeRunResult =
 			review: number;
 			updated: number;
 			dryRun: boolean;
+			/**
+			 * True when the conversation still had unjudged messages beyond the
+			 * segment we just processed (a backlog > maxMessages). Callers that
+			 * complete the conversation's dirty-ledger rows after a run must
+			 * re-mark it dirty so a later sweep/idle pass drains the remainder.
+			 */
+			backlogRemaining: boolean;
 	  }
 	| { status: "empty" }
 	| { status: "failed"; reason: string };
 
-const REVIEW_OPEN_CAP = 10;
-const REVIEW_EXPIRY_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 export async function runMemoryJudgeOnSegment(params: {
@@ -59,6 +66,20 @@ export async function runMemoryJudgeOnSegment(params: {
 	conversationId: string;
 	trigger: JudgeTrigger;
 	segmentOverride?: JudgeSegmentMessage[];
+	/**
+	 * When `segmentOverride` is supplied (the explicit "remember that…" path),
+	 * the highest `messageSequence` of the exchange being judged. The watermark is
+	 * advanced to this value ONLY when the exchange is the entire unjudged tail —
+	 * i.e. no pre-existing backlog sits below it. `advanceConversationMemory
+	 * Watermark` takes `max(existing, value)`, so advancing while a lower-sequence
+	 * backlog is still unjudged would silently mark those never-sent messages
+	 * judged (D1-class intake loss). When a backlog exists we judge the synthetic
+	 * exchange for immediate effect but leave the watermark alone; the dirty-mark
+	 * + the loader's oldest-first drain re-judge everything losslessly (gate-5
+	 * non-redundancy dedupes the explicit exchange's re-judge). Omitted/zero is a
+	 * no-op.
+	 */
+	overrideHighestSequence?: number;
 }): Promise<JudgeRunResult> {
 	// Single chokepoint for BOTH memory controls: every judge path (explicit,
 	// idle-scheduled, marathon, sweep, re-curation, and the opportunistic flush
@@ -79,13 +100,34 @@ export async function runMemoryJudgeOnSegment(params: {
 	const config = getConfig();
 	let segmentMessages: JudgeSegmentMessage[];
 	let highestSequence = 0;
+	let backlogRemaining = false;
 	if (params.segmentOverride) {
 		segmentMessages = params.segmentOverride;
+		// Explicit path: advance the watermark to the newest message of the judged
+		// exchange (threaded from the caller) ONLY when the exchange is the entire
+		// unjudged tail. If a pre-existing backlog sits below it, advancing (which
+		// is max(existing, value)) would mark those never-sent messages judged —
+		// D1-class intake loss. Detect the backlog via the unjudged count: when it
+		// is no larger than the exchange we're judging, nothing older is pending
+		// and it is safe to advance. Otherwise leave the watermark alone and let
+		// the oldest-first loader drain everything (the explicit exchange included)
+		// on a later dirty-mark-driven pass.
+		const override = params.overrideHighestSequence ?? 0;
+		if (override > 0) {
+			const unjudgedCount = await countUnjudgedMessages({
+				userId: params.userId,
+				conversationId: params.conversationId,
+			});
+			if (unjudgedCount <= segmentMessages.length) {
+				highestSequence = override;
+			}
+		}
 	} else {
 		const segment = await getUnjudgedConversationSegment(params);
 		if (segment.count === 0) return { status: "empty" };
 		segmentMessages = segment.messages;
 		highestSequence = segment.highestSequence;
+		backlogRemaining = segment.remaining > 0;
 	}
 
 	const [summary, projectId, activeContext] = await Promise.all([
@@ -102,11 +144,19 @@ export async function runMemoryJudgeOnSegment(params: {
 	let decisions: JudgeDecision[];
 	let rejected: RejectedJudgeCandidate[] = [];
 	try {
-		const { sendJsonControlMessage } = await import(
-			"../normal-chat-control-model"
-		);
-		const res = await sendJsonControlMessage(
-			buildJudgeUserMessage({
+		// One structured control-model call via the shared memory adapter: it owns
+		// control-model selection, thinkingMode:"off" (same-quality, ~7x faster —
+		// measured 9s vs 69s on a Qwen thinking model), the reasoning-aware budget
+		// (a reasoning model's CoT grows with the conversation and counts against
+		// max_tokens; a flat budget truncated an 87-message segment to 0 decisions
+		// at 2400 vs 3 clean at 8000), and the per-feature cost row. The judge keeps
+		// its bespoke `parseJudgeDecisionsDetailed` (strict JSON.parse + post-filter
+		// rejects), so no envelopeKey is passed.
+		const res = await callMemoryControlModel({
+			userId: params.userId,
+			feature: "judge",
+			systemPrompt: buildJudgeSystemPrompt(),
+			userMessage: buildJudgeUserMessage({
 				segment: segmentMessages,
 				conversationSummary: summary?.summary ?? null,
 				existingFacts: activeContext.items.map((i) => ({
@@ -116,30 +166,9 @@ export async function runMemoryJudgeOnSegment(params: {
 				})),
 				projectId,
 			}),
-			config.memoryJudgeModel,
-			{
-				systemPrompt: buildJudgeSystemPrompt(),
-				temperature: 0,
-				// Structured extraction, not reasoning: disable chain-of-thought.
-				// On a thinking model this is same-quality and ~7x faster (measured
-				// 9s vs 69s across the eval fixtures on a Qwen thinking model).
-				thinkingMode: "off",
-				// Scale with segment length: a reasoning model's chain-of-thought
-				// grows with the conversation it must weigh and counts against
-				// max_tokens on these providers. A flat budget silently truncates
-				// long conversations into all-reasoning, zero-decision responses
-				// (verified: an 87-message segment yielded 0 decisions at 2400 and
-				// 3 clean decisions at 8000).
-				maxTokens: reasoningAwareMaxTokens(segmentMessages.length),
-				jsonSchema: JUDGE_JSON_SCHEMA,
-				allowReasoningFallback: true,
-			},
-		);
-		await recordMemoryModelUsage({
-			userId: params.userId,
-			feature: "judge",
 			modelId: config.memoryJudgeModel,
-			usage: res.usage,
+			inputSizeHint: segmentMessages.length,
+			jsonSchema: JUDGE_JSON_SCHEMA,
 		});
 		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
 	} catch (error) {
@@ -175,7 +204,14 @@ export async function runMemoryJudgeOnSegment(params: {
 				lastJudgedSequence: highestSequence,
 			});
 		}
-		return { status: "ran", admitted: 0, review: 0, updated: 0, dryRun: true };
+		return {
+			status: "ran",
+			admitted: 0,
+			review: 0,
+			updated: 0,
+			dryRun: true,
+			backlogRemaining,
+		};
 	}
 
 	// Live-run diagnostics: record each post-filter reject so the intake funnel
@@ -308,7 +344,14 @@ export async function runMemoryJudgeOnSegment(params: {
 		metadata: { trigger: params.trigger, admitted, review, updated },
 	}).catch(() => {});
 
-	return { status: "ran", admitted, review, updated, dryRun: false };
+	return {
+		status: "ran",
+		admitted,
+		review,
+		updated,
+		dryRun: false,
+		backlogRemaining,
+	};
 }
 
 async function isUserAuthoredItem(
@@ -346,18 +389,16 @@ async function applyItemMetadata(
 		: d.expiryClass === "time_bound" && d.expiresInDays
 			? new Date(Date.now() + d.expiresInDays * DAY_MS)
 			: undefined;
-	await db
-		.update(memoryProfileItems)
-		.set({
-			metadataJson: JSON.stringify(meta),
-			...(expiresAt ? { expiresAt } : {}),
-		})
-		.where(
-			and(
-				eq(memoryProfileItems.id, itemId),
-				eq(memoryProfileItems.userId, userId),
-			),
-		);
+	// The item was just created by createMemoryProfileItem (which already claimed
+	// the projection revision); writing its metadata/expiry is a side write on
+	// that same row, routed through the store so the judge issues no raw item-
+	// table update of its own.
+	await setMemoryProfileItemMetadataAndExpiry({
+		userId,
+		itemId,
+		metadataJson: JSON.stringify(meta),
+		expiresAt,
+	});
 }
 
 async function addProvenanceForItem(

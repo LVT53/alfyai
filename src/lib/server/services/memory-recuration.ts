@@ -9,13 +9,12 @@ import {
 } from "$lib/server/db/schema";
 import type { ModelId } from "$lib/types";
 import { runUserMemoryConsolidation } from "./memory-consolidation/index";
-import { recordMemoryModelUsage } from "./memory-cost";
+import { callMemoryControlModel } from "./memory-control-model";
 import { buildJudgeSystemPrompt } from "./memory-judge/prompt";
 import {
 	EVIDENCE_TRAIL_RE,
 	HEDGE_RE,
 	parseJsonWithEnvelopeExtraction,
-	reasoningAwareMaxTokens,
 	THIRD_PERSON_RE,
 } from "./memory-judge/schema";
 import {
@@ -183,38 +182,28 @@ async function fetchRecurationVerdicts(
 	memoryJudgeModel: ModelId | undefined,
 	userId: string,
 ): Promise<RecurationVerdict[]> {
-	const { sendJsonControlMessage } = await import(
-		"./normal-chat-control-model"
-	);
-	const maxTokens = reasoningAwareMaxTokens(eligible.length);
-	const res = await sendJsonControlMessage(
-		buildRecurationUserMessage(
+	// One structured control-model call via the shared memory adapter: it owns
+	// control-model selection, thinkingMode:"off" (re-curation is structured
+	// extraction, not reasoning — on a thinking model CoT adds ~40-60%
+	// latency/tokens and overflows large batches into unparseable output for zero
+	// gain), the reasoning-aware budget (see the BATCH_SIZE arithmetic above), and
+	// the per-batch cost row (re-curation loops many calls, so each batch and
+	// per-item fallback is priced independently — `modelId ?? "model1"` names the
+	// model actually invoked). Verdict parsing stays here (envelope extraction +
+	// strict zod), so no envelopeKey is passed.
+	const res = await callMemoryControlModel({
+		userId,
+		feature: "recuration",
+		systemPrompt: buildRecurationSystemPrompt(),
+		userMessage: buildRecurationUserMessage(
 			eligible.map((row) => {
 				const category = row.category as MemoryProfileCategory;
 				return { id: row.id, statement: row.statement, category };
 			}),
 		),
-		memoryJudgeModel,
-		{
-			systemPrompt: buildRecurationSystemPrompt(),
-			temperature: 0,
-			// Re-curation is structured extraction, not reasoning: disable the
-			// model's chain-of-thought. On a thinking model (e.g. a Qwen served
-			// with enable_thinking=true) CoT adds ~40-60% latency/tokens per call
-			// and overflows large batches into unparseable output for zero gain.
-			thinkingMode: "off",
-			maxTokens,
-			jsonSchema: RECURATION_JSON_SCHEMA,
-			allowReasoningFallback: true,
-		},
-	);
-	// Per-batch usage/cost: re-curation loops many control-model calls, so each
-	// batch (and per-item fallback call) is priced independently.
-	await recordMemoryModelUsage({
-		userId,
-		feature: "recuration",
-		modelId: memoryJudgeModel ?? "model1",
-		usage: res.usage,
+		modelId: memoryJudgeModel,
+		inputSizeHint: eligible.length,
+		jsonSchema: RECURATION_JSON_SCHEMA,
 	});
 	return parseRecurationVerdicts(res.text);
 }

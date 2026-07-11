@@ -1185,63 +1185,19 @@ export async function runPostTurnTasks(
 	if (!params.skipAssistantProseMemoryIntake) {
 		postTurnTasks.push(
 			(async () => {
-				// Respect the user's master memory toggle and per-conversation
-				// incognito mode: neither should ever contribute to memory.
-				const { isMemoryActiveForConversation } = await import(
-					"../memory-controls"
-				);
-				const memoryActive = await isMemoryActiveForConversation({
+				// The Memory Judge owns the entire post-turn intake decision — the
+				// master-gate check, the explicit/marathon/idle tier policy, the
+				// dirty-ledger safety net, and the D1/D2 watermark invariants. This
+				// finalizer just hands it the finished turn.
+				const { judgeFinishedTurn } = await import("../memory-judge/dispatch");
+				await judgeFinishedTurn({
 					userId: params.userId,
 					conversationId: params.conversationId,
-				}).catch(() => true);
-				if (!memoryActive) return;
-				const { detectExplicitMemoryRequest, scheduleConversationJudge } =
-					await import("../memory-judge/runner");
-				const { markMemoryDirty } = await import(
-					"../memory-profile/dirty-ledger"
-				);
-				const { countUnjudgedMessages } = await import(
-					"../memory-judge/segment"
-				);
-				if (detectExplicitMemoryRequest(params.userMessage)) {
-					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
-					await runMemoryJudgeOnSegment({
-						userId: params.userId,
-						conversationId: params.conversationId,
-						trigger: "explicit",
-						segmentOverride: [
-							{ role: "user", content: params.userMessage },
-							{
-								role: "assistant",
-								content:
-									params.assistantMirrorContent ?? params.assistantResponse,
-							},
-						],
-					});
-					return;
-				}
-				await markMemoryDirty({
-					userId: params.userId,
-					reason: "deferred_intake",
-					scope: { type: "conversation", id: params.conversationId },
-				});
-				if (
-					(await countUnjudgedMessages({
-						userId: params.userId,
-						conversationId: params.conversationId,
-					})) >= 25
-				) {
-					const { runMemoryJudgeOnSegment } = await import("../memory-judge");
-					await runMemoryJudgeOnSegment({
-						userId: params.userId,
-						conversationId: params.conversationId,
-						trigger: "marathon",
-					});
-					return;
-				}
-				scheduleConversationJudge({
-					userId: params.userId,
-					conversationId: params.conversationId,
+					userMessage: params.userMessage,
+					userMessageId: params.userMessageId ?? null,
+					assistantMessageId: params.assistantMessageId ?? null,
+					assistantResponse: params.assistantResponse,
+					assistantMirrorContent: params.assistantMirrorContent,
 				});
 			})().catch((err) =>
 				console.error("[MEMORY_JUDGE] Post-turn trigger failed:", err),

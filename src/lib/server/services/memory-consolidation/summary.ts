@@ -1,17 +1,18 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { memoryProjectionState, users } from "$lib/server/db/schema";
-import { recordMemoryModelUsage } from "../memory-cost";
-import {
-	parseJsonWithEnvelopeExtraction,
-	reasoningAwareMaxTokens,
-} from "../memory-judge/schema";
+import { users } from "$lib/server/db/schema";
+import { callMemoryControlModel } from "../memory-control-model";
+import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
-import { ensureProjectionState } from "../memory-profile/projection-store";
+import {
+	ensureProjectionState,
+	storePersonaSummaryProjection,
+} from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
 
 export type PersonaSummary = {
 	text: string;
@@ -162,33 +163,25 @@ export async function generateAndStorePersonaSummary(params: {
 
 	let responseText: string;
 	try {
-		const { sendJsonControlMessage } = await import(
-			"../normal-chat-control-model"
-		);
-		const res = await sendJsonControlMessage(
-			userMessage,
-			getConfig().memoryConsolidationModel,
-			{
-				systemPrompt: buildSystemPrompt(language),
-				temperature: 0,
-				// Structured extraction, not reasoning — disable chain-of-thought
-				// (same quality, far cheaper on thinking models). See memory-recuration.
-				thinkingMode: "off",
-				// Reasoning-aware: chain-of-thought scales with the fact count and
-				// counts against max_tokens on these providers; a flat budget starves
-				// large profiles into invalid_json (see memory-judge/schema.ts).
-				maxTokens: reasoningAwareMaxTokens(context.items.length),
-				jsonSchema: PERSONA_SUMMARY_JSON_SCHEMA,
-				allowReasoningFallback: true,
-			},
-		);
-		responseText = res.text;
-		await recordMemoryModelUsage({
+		// One structured control-model call via the shared memory adapter: it owns
+		// control-model selection, thinkingMode:"off" (same quality, far cheaper on
+		// thinking models), the reasoning-aware budget (CoT scales with the fact
+		// count and counts against max_tokens; a flat budget starves large profiles
+		// into invalid_json — observed live at 49 and 81 active facts), and the
+		// per-feature cost row. The budget is sized on the full active-fact count
+		// (not the 30-fact input cap) to preserve the prior behavior exactly.
+		// Summary keeps its bespoke two-step parse (parseLinks / isParseableJson),
+		// so no envelopeKey is passed.
+		const res = await callMemoryControlModel({
 			userId,
 			feature: "summary",
+			systemPrompt: buildSystemPrompt(language),
+			userMessage,
 			modelId: getConfig().memoryConsolidationModel,
-			usage: res.usage,
+			inputSizeHint: context.items.length,
+			jsonSchema: PERSONA_SUMMARY_JSON_SCHEMA,
 		});
+		responseText = res.text;
 	} catch (error) {
 		await recordPersonaSummaryFailure(
 			userId,
@@ -211,17 +204,14 @@ export async function generateAndStorePersonaSummary(params: {
 	const now = new Date();
 	const resetGeneration = await getCurrentMemoryResetGeneration(userId);
 	const projection = await ensureProjectionState({ userId, resetGeneration });
-	await db
-		.update(memoryProjectionState)
-		.set({
-			personaSummaryText: text,
-			personaSummaryLinksJson: JSON.stringify(links),
-			personaSummaryUpdatedAt: now,
-			revision: sql`${memoryProjectionState.revision} + 1`,
-			updatedAt: now,
-		})
-		.where(eq(memoryProjectionState.id, projection.id))
-		.run();
+	// Route the persona-summary write + its revision bump through the projection
+	// store's door instead of hand-bumping the revision here (C1 sole-authority).
+	await storePersonaSummaryProjection({
+		projectionStateId: projection.id,
+		personaSummaryText: text,
+		personaSummaryLinksJson: JSON.stringify(links),
+		now,
+	});
 
 	return { text, links, updatedAt: now };
 }
@@ -233,7 +223,7 @@ async function recordPersonaSummaryFailure(
 	try {
 		await recordMemoryReworkTelemetry({
 			userId,
-			eventFamily: "maintenance",
+			eventFamily: NIGHT_SHIFT_EVENT_FAMILY,
 			eventName: "persona_summary_failed",
 			reason,
 		});

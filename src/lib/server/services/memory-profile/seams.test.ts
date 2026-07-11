@@ -32,25 +32,29 @@ describe("memory profile module seams", () => {
 		}
 	});
 
-	it("keeps prompt-context callers on active-context and telemetry seams", () => {
+	it("keeps prompt-context callers on the granular read-path seams", () => {
+		// Post-C3 the memory READ path has a single source: prompt-context callers
+		// reach persona + telemetry through the memory-context read-path modules
+		// (which internally compose the memory-profile/active-context and
+		// memory-profile/telemetry seams). Callers still must NOT import the
+		// memory-profile barrel — the barrel bans below are the load-bearing guard.
 		const contextSelection = readService("chat-turn/context-selection.ts");
 		const memoryContext = readService("memory-context.ts");
 
 		expect(contextSelection).not.toContain('from "../memory-profile"');
+		expect(contextSelection).toContain('from "../memory-context/persona"');
+		expect(contextSelection).toContain('from "../memory-context/telemetry"');
+		// active-context is still consumed directly (for its scope type), so the
+		// granular seam stays wired.
 		expect(contextSelection).toContain(
 			'from "../memory-profile/active-context"',
 		);
-		expect(contextSelection).toContain('from "../memory-profile/telemetry"');
 
+		expect(memoryContext).not.toContain('from "./memory-profile"');
 		expect(memoryContext).not.toContain(
 			'from "$lib/server/services/memory-profile"',
 		);
-		expect(memoryContext).toContain(
-			'from "$lib/server/services/memory-profile/active-context"',
-		);
-		expect(memoryContext).toContain(
-			'from "$lib/server/services/memory-profile/telemetry"',
-		);
+		expect(memoryContext).toContain('from "./memory-context/read"');
 	});
 
 	it("keeps active profile reads detached from the control-model adapter", () => {
@@ -59,5 +63,32 @@ describe("memory profile module seams", () => {
 
 		expect(activeContext).not.toContain("normal-chat-control-model");
 		expect(readModel).not.toContain("normal-chat-control-model");
+	});
+
+	it("routes every memoryProfileItems write + revision bump through the projection store", () => {
+		// The projection store is the SOLE write authority for the item table and
+		// the projection revision. No other module may issue a raw
+		// db.insert/update(memoryProfileItems) or hand-bump the revision — they must
+		// compose the store's mutation door instead. This keeps the optimistic-
+		// concurrency invariant (revision claim + stale_projection) unskippable.
+		const writerModules = [
+			"memory-profile/review.ts",
+			"memory-consolidation/steps.ts",
+			"memory-recuration.ts",
+			"memory-judge/index.ts",
+		];
+		for (const modulePath of writerModules) {
+			const source = readService(modulePath);
+			expect(source).not.toContain("insert(memoryProfileItems)");
+			expect(source).not.toContain("update(memoryProfileItems)");
+			expect(source).not.toContain("bumpProjectionRevision");
+		}
+
+		// The escape hatch is gone: bumpProjectionRevision exists nowhere, and the
+		// only module that writes the item table is the store itself.
+		const store = readService("memory-profile/projection-store.ts");
+		expect(store).not.toContain("bumpProjectionRevision");
+		expect(store).toContain("update(memoryProfileItems)");
+		expect(store).toContain("insert(memoryProfileItems)");
 	});
 });

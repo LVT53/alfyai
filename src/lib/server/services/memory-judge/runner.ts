@@ -38,11 +38,35 @@ async function fireJudge(
 	owners.delete(conversationId);
 	try {
 		const { runMemoryJudgeOnSegment } = await import("./index");
-		await runMemoryJudgeOnSegment({ userId, conversationId, trigger: "idle" });
+		const result = await runMemoryJudgeOnSegment({
+			userId,
+			conversationId,
+			trigger: "idle",
+		});
 		await completeDirtyRowsForConversation(userId, conversationId);
+		// A backlog larger than one segment is drained oldest-first across
+		// several passes. Re-mark dirty (after completing this pass's rows so the
+		// mark survives) and reschedule an idle pass so the remainder drains
+		// without waiting for the next consolidation sweep.
+		if (result.status === "ran" && result.backlogRemaining) {
+			await requeueConversationForDrain(userId, conversationId);
+			scheduleConversationJudge({ userId, conversationId });
+		}
 	} catch (error) {
 		console.error("[MEMORY_JUDGE] idle run failed:", error);
 	}
+}
+
+async function requeueConversationForDrain(
+	userId: string,
+	conversationId: string,
+): Promise<void> {
+	const { markMemoryDirty } = await import("../memory-profile/dirty-ledger");
+	await markMemoryDirty({
+		userId,
+		reason: "deferred_intake",
+		scope: { type: "conversation", id: conversationId },
+	});
 }
 
 export async function flushPendingJudgeRuns(userId: string): Promise<void> {
@@ -89,6 +113,14 @@ export async function sweepDirtyConversations(userId: string): Promise<number> {
 		});
 		if (result.status === "ran") ran++;
 		await completeDirtyRowsForConversation(userId, conversationId);
+		// If the segment loader left a backlog (conversation had more unjudged
+		// messages than one segment holds), re-mark it dirty AFTER completing this
+		// pass's rows so a subsequent sweep drains the remainder. The current
+		// sweep only iterates the conversations gathered at entry, so this fresh
+		// row is picked up next sweep — not looped here.
+		if (result.status === "ran" && result.backlogRemaining) {
+			await requeueConversationForDrain(userId, conversationId);
+		}
 	}
 	return ran;
 }

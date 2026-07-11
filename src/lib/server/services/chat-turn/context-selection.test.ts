@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
 	getLatestValidContextCompressionSnapshot: vi.fn(),
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
+	isMemoryActiveForConversation: vi.fn(),
 }));
 
 vi.mock("../../config-store", () => ({
@@ -193,6 +194,10 @@ vi.mock("../memory-profile/telemetry", () => ({
 	recordMemoryReworkTelemetry: mocks.recordMemoryReworkTelemetry,
 }));
 
+vi.mock("../memory-controls", () => ({
+	isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
+}));
+
 function artifact(overrides: {
 	id: string;
 	name: string;
@@ -333,6 +338,9 @@ function resetConstructedContextMocks() {
 		estimatedTokens: 0,
 		compactionApplied: false,
 	});
+	// Default: memory is active for the conversation (non-incognito, master
+	// toggle on). Individual gate tests override this to false.
+	mocks.isMemoryActiveForConversation.mockResolvedValue(true);
 }
 
 describe("selectPromptContext", () => {
@@ -538,6 +546,84 @@ describe("buildConstructedContext", () => {
 				promptArtifactCount: 0,
 			}),
 		);
+	});
+
+	it("routes the baseline memory section through the master gate and injects it when memory is active (shallow tier)", async () => {
+		resetConstructedContextMocks();
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks, that helps.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(mocks.isMemoryActiveForConversation).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+		});
+		expect(constructed.inputValue).toContain("## Baseline Memory Profile");
+		expect(constructed.inputValue).toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+	});
+
+	it("omits the baseline memory section for an incognito conversation (shallow tier)", async () => {
+		resetConstructedContextMocks();
+		// Incognito ⇒ isMemoryActiveForConversation resolves false.
+		mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks, that helps.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(mocks.isMemoryActiveForConversation).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conversation-1",
+		});
+		expect(constructed.inputValue).not.toContain("## Baseline Memory Profile");
+		expect(constructed.inputValue).not.toContain(
+			"The user prefers projection-gated launch briefs.",
+		);
+		// Gate short-circuits before any projection retrieval.
+		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
+	});
+
+	it("omits the baseline memory section when the master toggle is off (deep tier)", async () => {
+		resetConstructedContextMocks();
+		// Master toggle off (users.memoryEnabled=false) ⇒ inactive.
+		mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			// Deep-tier intent so buildConstructedContext takes the deep branch.
+			message:
+				"Summarize the attached document and cite the evidence from earlier.",
+			attachmentIds: ["attachment-1"],
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		expect(constructed.inputValue).not.toContain("## Baseline Memory Profile");
+		expect(mocks.getActiveMemoryProfileContext).not.toHaveBeenCalled();
 	});
 
 	it("keeps fresh active memory profile items before stale items when the profile budget is constrained", async () => {

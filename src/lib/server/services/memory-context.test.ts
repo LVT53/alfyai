@@ -1162,6 +1162,115 @@ describe("memory context service", () => {
 		]);
 	});
 
+	it("sanitizes identity references in history content reaching the model", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "sanitize-history@example.com",
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "conv-current",
+					userId: "user-1",
+					title: "Current chat",
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: "bike-identity",
+					userId: "user-1",
+					title: "Bike notes for user-1",
+					projectId: null,
+					createdAt: new Date("2026-05-14T08:00:00.000Z"),
+					updatedAt: new Date("2026-05-14T09:00:00.000Z"),
+				},
+			])
+			.run();
+		db.insert(schema.conversationSummaries)
+			.values({
+				conversationId: "bike-identity",
+				userId: "user-1",
+				summary: "user-1 prefers a steel bike frame for commuting.",
+				source: "deterministic",
+				createdAt: new Date("2026-05-14T09:00:00.000Z"),
+				updatedAt: new Date("2026-05-14T09:00:00.000Z"),
+			})
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "history",
+			query: "bike",
+			userDisplayName: "Ada",
+			maxHistoryConversations: 10,
+		});
+		const historyResult = result as HistoryMemoryContextResult;
+
+		const serialized = JSON.stringify(historyResult);
+		expect(serialized).not.toContain("user-1 prefers");
+		expect(serialized).not.toContain("Bike notes for user-1");
+		expect(historyResult.conversations[0]?.title).toBe("Bike notes for Ada");
+		expect(historyResult.conversations[0]?.summary).toBe(
+			"Ada prefers a steel bike frame for commuting.",
+		);
+	});
+
+	it("returns an inert empty result and skips retrieval when memory is inactive (incognito)", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		const now = new Date("2026-05-16T09:00:00.000Z");
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "gate-incognito@example.com",
+				passwordHash: "hash",
+				memoryEnabled: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values({
+				id: "conv-current",
+				userId: "user-1",
+				title: "Incognito chat",
+				memoryIncognito: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		sqlite.close();
+
+		const { getMemoryContext } = await import("./memory-context");
+		const result = await getMemoryContext({
+			userId: "user-1",
+			conversationId: "conv-current",
+			mode: "persona",
+			query: "What should I remember about the user?",
+		});
+
+		expect(result).toMatchObject({
+			success: true,
+			mode: "persona",
+			status: "empty",
+			source: "active_memory_profile",
+			content: null,
+			evidenceCandidates: [],
+		});
+		// The master gate short-circuits before any retrieval work runs.
+		expect(mockGetActiveMemoryProfileContext).not.toHaveBeenCalled();
+		expect(mockGetProjectContext).not.toHaveBeenCalled();
+	});
+
 	it("rejects selected history detail outside the current history query result set", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		const now = new Date("2026-05-16T09:00:00.000Z");

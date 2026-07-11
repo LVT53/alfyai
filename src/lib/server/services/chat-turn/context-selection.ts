@@ -56,13 +56,13 @@ import {
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from "../knowledge";
 import { listConversationLinkedContextSources } from "../linked-context-sources";
+import { retrievePersonaMemory } from "../memory-context/persona";
 import {
-	type ActiveMemoryProfileContext,
-	formatActiveMemoryProfileContextForPrompt,
-	getActiveMemoryProfileContext,
-	type MemoryProfileScope,
-} from "../memory-profile/active-context";
-import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
+	recordMemoryPromptTelemetry,
+	summarizeActiveMemoryProfileTelemetry,
+} from "../memory-context/telemetry";
+import { isMemoryActiveForConversation } from "../memory-controls";
+import type { MemoryProfileScope } from "../memory-profile/active-context";
 import { listMessages } from "../messages";
 import {
 	getConversationProjectId,
@@ -165,44 +165,6 @@ type ContextLatencyTierResolution = {
 	reasons: string[];
 };
 
-function summarizeActiveMemoryProfileTelemetry(
-	context: ActiveMemoryProfileContext,
-): {
-	categoryCounts: Record<string, number>;
-	scopeCounts: Record<string, number>;
-} {
-	const categoryCounts: Record<string, number> = {};
-	const scopeCounts: Record<string, number> = {};
-	for (const item of context.items) {
-		categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
-		scopeCounts[item.scope.type] = (scopeCounts[item.scope.type] ?? 0) + 1;
-	}
-	return { categoryCounts, scopeCounts };
-}
-
-async function recordPromptMemoryTelemetry(params: {
-	userId: string;
-	eventName: string;
-	reason: string;
-	status: string;
-	count: number;
-	metadata?: Record<string, unknown>;
-}): Promise<void> {
-	try {
-		await recordMemoryReworkTelemetry({
-			userId: params.userId,
-			eventFamily: "prompt_use",
-			eventName: params.eventName,
-			reason: params.reason,
-			status: params.status,
-			count: params.count,
-			metadata: params.metadata,
-		});
-	} catch {
-		// Prompt assembly should not fail because telemetry is unavailable.
-	}
-}
-
 const ACTIVE_MEMORY_PROFILE_SECTION_TITLE = "Baseline Memory Profile";
 const PERSONA_FACT_EVIDENCE_TITLE_MAX_CHARS = 120;
 
@@ -212,24 +174,50 @@ type ActiveMemoryProfilePromptSection = {
 	itemTitles: string[];
 };
 
+/**
+ * Baseline (passive) memory injection. Thin caller over the shared persona
+ * retrieval engine (`retrievePersonaMemory`) — the single source shared with
+ * the memory_context tool. Baseline stays facts-only with a model-scaled budget
+ * and no summary/shortlist; it keeps its own "active_memory_profile_*"
+ * telemetry vocabulary and prompt-section shaping.
+ */
 async function buildActiveMemoryProfilePromptSection(params: {
 	userId: string;
 	conversationId: string;
 	applicableScopes?: MemoryProfileScope[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
 }): Promise<ActiveMemoryProfilePromptSection | null> {
-	let context: ActiveMemoryProfileContext;
-	try {
-		context = await getActiveMemoryProfileContext({
-			userId: params.userId,
-			applicableScopes:
-				params.applicableScopes ??
-				buildApplicableMemoryProfileScopes({
-					conversationId: params.conversationId,
-				}),
-		});
-	} catch {
-		await recordPromptMemoryTelemetry({
+	// Read-side master gate. isMemoryActiveForConversation is the single source
+	// of truth (users.memoryEnabled AND not conversations.memoryIncognito). When
+	// memory is inactive, inject NO baseline section — an incognito or
+	// memory-disabled conversation must never have persona memory injected into
+	// its prompt. Both the shallow and deep context tiers funnel through here,
+	// so this one check covers every baseline injection. Fail open (treat as
+	// active) on a controls-lookup error, matching the predicate's contract.
+	const memoryActive = await isMemoryActiveForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => true);
+	if (!memoryActive) {
+		return null;
+	}
+	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
+		contextBudget: params.modelContextBudget,
+	});
+	const retrieval = await retrievePersonaMemory({
+		userId: params.userId,
+		applicableScopes:
+			params.applicableScopes ??
+			buildApplicableMemoryProfileScopes({
+				conversationId: params.conversationId,
+			}),
+		includeSummary: false,
+		applyShortlist: false,
+		baseBudget: baselineMemoryProfileBudget.totalBudget,
+	});
+
+	if (retrieval.status === "error") {
+		await recordMemoryPromptTelemetry({
 			userId: params.userId,
 			eventName: "active_memory_profile_blocked",
 			reason: "active_profile_context_error",
@@ -239,8 +227,9 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		return null;
 	}
 
+	const { activeProfile: context, formatted: formattedContext } = retrieval;
 	if (context.items.length === 0) {
-		await recordPromptMemoryTelemetry({
+		await recordMemoryPromptTelemetry({
 			userId: params.userId,
 			eventName: "active_memory_profile_empty",
 			reason: "no_active_projection_items",
@@ -254,15 +243,9 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		return null;
 	}
 
-	const baselineMemoryProfileBudget = deriveBaselineMemoryProfileBudget({
-		contextBudget: params.modelContextBudget,
-	});
-	const formattedContext = formatActiveMemoryProfileContextForPrompt(context, {
-		maxTokens: baselineMemoryProfileBudget.totalBudget,
-	});
 	const body = formattedContext.content;
 	if (!body) {
-		await recordPromptMemoryTelemetry({
+		await recordMemoryPromptTelemetry({
 			userId: params.userId,
 			eventName: "active_memory_profile_empty",
 			reason: "active_profile_budget_too_small",
@@ -276,7 +259,7 @@ async function buildActiveMemoryProfilePromptSection(params: {
 		});
 		return null;
 	}
-	await recordPromptMemoryTelemetry({
+	await recordMemoryPromptTelemetry({
 		userId: params.userId,
 		eventName: "active_memory_profile_included",
 		reason: "active_projection_items",
