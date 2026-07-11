@@ -3,7 +3,7 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
 import { getConversationSummary } from "../conversation-summaries";
-import { recordMemoryModelUsage } from "../memory-cost";
+import { callMemoryControlModel } from "../memory-control-model";
 import { getActiveMemoryProfileContext } from "../memory-profile/active-context";
 import {
 	addMemoryProfileItemProvenance,
@@ -27,7 +27,6 @@ import {
 	type JudgeDecision,
 	parseJudgeDecisionsDetailed,
 	type RejectedJudgeCandidate,
-	reasoningAwareMaxTokens,
 } from "./schema";
 import {
 	advanceConversationMemoryWatermark,
@@ -145,11 +144,19 @@ export async function runMemoryJudgeOnSegment(params: {
 	let decisions: JudgeDecision[];
 	let rejected: RejectedJudgeCandidate[] = [];
 	try {
-		const { sendJsonControlMessage } = await import(
-			"../normal-chat-control-model"
-		);
-		const res = await sendJsonControlMessage(
-			buildJudgeUserMessage({
+		// One structured control-model call via the shared memory adapter: it owns
+		// control-model selection, thinkingMode:"off" (same-quality, ~7x faster —
+		// measured 9s vs 69s on a Qwen thinking model), the reasoning-aware budget
+		// (a reasoning model's CoT grows with the conversation and counts against
+		// max_tokens; a flat budget truncated an 87-message segment to 0 decisions
+		// at 2400 vs 3 clean at 8000), and the per-feature cost row. The judge keeps
+		// its bespoke `parseJudgeDecisionsDetailed` (strict JSON.parse + post-filter
+		// rejects), so no envelopeKey is passed.
+		const res = await callMemoryControlModel({
+			userId: params.userId,
+			feature: "judge",
+			systemPrompt: buildJudgeSystemPrompt(),
+			userMessage: buildJudgeUserMessage({
 				segment: segmentMessages,
 				conversationSummary: summary?.summary ?? null,
 				existingFacts: activeContext.items.map((i) => ({
@@ -159,30 +166,9 @@ export async function runMemoryJudgeOnSegment(params: {
 				})),
 				projectId,
 			}),
-			config.memoryJudgeModel,
-			{
-				systemPrompt: buildJudgeSystemPrompt(),
-				temperature: 0,
-				// Structured extraction, not reasoning: disable chain-of-thought.
-				// On a thinking model this is same-quality and ~7x faster (measured
-				// 9s vs 69s across the eval fixtures on a Qwen thinking model).
-				thinkingMode: "off",
-				// Scale with segment length: a reasoning model's chain-of-thought
-				// grows with the conversation it must weigh and counts against
-				// max_tokens on these providers. A flat budget silently truncates
-				// long conversations into all-reasoning, zero-decision responses
-				// (verified: an 87-message segment yielded 0 decisions at 2400 and
-				// 3 clean decisions at 8000).
-				maxTokens: reasoningAwareMaxTokens(segmentMessages.length),
-				jsonSchema: JUDGE_JSON_SCHEMA,
-				allowReasoningFallback: true,
-			},
-		);
-		await recordMemoryModelUsage({
-			userId: params.userId,
-			feature: "judge",
 			modelId: config.memoryJudgeModel,
-			usage: res.usage,
+			inputSizeHint: segmentMessages.length,
+			jsonSchema: JUDGE_JSON_SCHEMA,
 		});
 		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
 	} catch (error) {

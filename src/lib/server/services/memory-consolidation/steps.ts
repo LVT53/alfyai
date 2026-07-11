@@ -2,12 +2,8 @@ import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { memoryProfileItems } from "$lib/server/db/schema";
-import { recordMemoryModelUsage } from "../memory-cost";
+import { callMemoryControlModel } from "../memory-control-model";
 import { refreshFactEmbedding } from "../memory-judge";
-import {
-	parseJsonWithEnvelopeExtraction,
-	reasoningAwareMaxTokens,
-} from "../memory-judge/schema";
 import {
 	copyMemoryProfileItemProvenance,
 	createMemoryProfileItem,
@@ -308,38 +304,24 @@ export async function runReconcileAndMerge(params: {
 
 	let llmActions: ConsolidationLlmAction[];
 	try {
-		const { sendJsonControlMessage } = await import(
-			"../normal-chat-control-model"
-		);
-		const res = await sendJsonControlMessage(
-			userMessage,
-			config.memoryConsolidationModel,
-			{
-				systemPrompt: CONSOLIDATION_SYSTEM_PROMPT,
-				temperature: 0,
-				// Structured extraction, not reasoning — disable chain-of-thought
-				// (same quality, far cheaper on thinking models). See memory-recuration.
-				thinkingMode: "off",
-				// Reasoning-aware: chain-of-thought scales with the candidate count
-				// and counts against max_tokens on these providers; a flat budget
-				// starves large profiles (see memory-judge/schema.ts).
-				maxTokens: reasoningAwareMaxTokens(candidates.length),
-				jsonSchema: CONSOLIDATION_JSON_SCHEMA,
-				allowReasoningFallback: true,
-			},
-		);
-		await recordMemoryModelUsage({
+		// One structured control-model call via the shared memory adapter: it owns
+		// control-model selection, thinkingMode:"off" (same quality, far cheaper on
+		// thinking models), the reasoning-aware budget (CoT scales with candidate
+		// count and counts against max_tokens; a flat budget starves large
+		// profiles), the per-feature cost row, and the envelope extraction (a
+		// reasoning model may wrap the JSON in CoT prose surfaced via the
+		// reasoning-fallback path — `data` recovers the real object from the end).
+		const res = await callMemoryControlModel({
 			userId,
 			feature: "consolidation",
+			systemPrompt: CONSOLIDATION_SYSTEM_PROMPT,
+			userMessage,
 			modelId: config.memoryConsolidationModel,
-			usage: res.usage,
+			inputSizeHint: candidates.length,
+			jsonSchema: CONSOLIDATION_JSON_SCHEMA,
+			envelopeKey: "actions",
 		});
-		// Reasoning models may wrap the JSON envelope in chain-of-thought
-		// prose surfaced via allowReasoningFallback; extract the real object
-		// from the end rather than failing the whole reconcile pass.
-		const parsed = parseJsonWithEnvelopeExtraction(res.text, "actions") as {
-			actions?: ConsolidationLlmAction[];
-		} | null;
+		const parsed = res.data as { actions?: ConsolidationLlmAction[] } | null;
 		llmActions = Array.isArray(parsed?.actions) ? parsed.actions : [];
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
