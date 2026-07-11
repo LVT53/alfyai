@@ -88,14 +88,26 @@ export interface UserScopedTable {
 }
 
 /**
- * THE single authoritative enumeration of every user-scoped table — the one list
- * that replaced the two hand-maintained delete-lists (`purgeUserData` and
+ * THE single authoritative enumeration of the user-scoped tables that full
+ * erasure and the memory/workspace resets act on — the one list that replaced
+ * the two hand-maintained delete-lists (`purgeUserData` and
  * `clearMemoryAndKnowledgeForUser`) that used to shadow each other and the FK
  * cascade. Ordered children-before-parents within a scope so that filtering by a
  * reset scope yields an FK-safe delete order (e.g. `conversations` last).
  *
- * Adding a new user-scoped table? Add it here (and classify its erasure) — the
- * completeness test in `account-lifecycle.test.ts` fails until you do.
+ * Scope note: this covers every table with a row-OWNING person key (`user_id`,
+ * or `campaign_assets.uploaded_by_user_id`). A few tables carry only an
+ * author-STAMP person column and are handled OUTSIDE this registry, by
+ * `detachSharedContentAuthorship` (ADR-0031), so the shared row survives with
+ * authorship removed: `admin_config.updated_by`,
+ * `announcement_campaigns.{created_by,published_by}_user_id`, and
+ * `announcement_campaign_snapshots.published_by_user_id`. They are deliberately
+ * absent here and instead sit on the `NON_REGISTRY_PERSON_TABLES` allowlist in
+ * `account-lifecycle.test.ts`.
+ *
+ * Adding a new user-scoped table? Register it here (and classify its erasure) —
+ * or, if it is such an author-stamp-only case, allowlist it in that test. The
+ * schema-derived completeness guard fails until one of the two happens.
  */
 export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 	// --- Memory + task/context derived state (memory-scope + workspace-scope) ---

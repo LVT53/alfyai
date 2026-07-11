@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import Database from "better-sqlite3";
-import { sql } from "drizzle-orm";
+import { getTableColumns, getTableName, is, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
 import {
@@ -11,6 +12,44 @@ import {
 	tablesForResetScope,
 	USER_SCOPED_TABLES,
 } from "./user-scoped-tables";
+
+// A column name that directly keys a row to a person (holds a `users.id` value).
+// Covers the plain `user_id` column, the `admin_config.updated_by` author stamp
+// (which stores a userId or the literal "detached"), and every `*_by_user_id`
+// authorship column (uploaded_by / created_by / published_by).
+function isPersonKeyingColumnName(name: string): boolean {
+	return (
+		name === "user_id" || name === "updated_by" || name.endsWith("_by_user_id")
+	);
+}
+
+// Tables that DO carry a person-keying column but are intentionally NOT in
+// USER_SCOPED_TABLES because full erasure handles them outside the per-user
+// explicit-delete / cascade paths — their authorship is detached or nulled by
+// detachSharedContentAuthorship (ADR-0031), leaving the shared row intact. Each
+// entry documents why it is safe to omit from the registry.
+const NON_REGISTRY_PERSON_TABLES: Record<string, string> = {
+	admin_config:
+		"author stamp only (updated_by); reset to 'detached' by detachSharedContentAuthorship",
+	announcement_campaigns:
+		"author stamps only (created_by_user_id / published_by_user_id); set null by detachSharedContentAuthorship",
+	announcement_campaign_snapshots:
+		"author stamp only (published_by_user_id); set null by detachSharedContentAuthorship",
+};
+
+// Enumerate every SQLite table in schema.ts that keys rows to a person.
+function schemaTablesWithPersonColumn(): string[] {
+	const names: string[] = [];
+	for (const value of Object.values(schema)) {
+		if (!is(value, SQLiteTable)) continue;
+		const columns = getTableColumns(value);
+		const hasPersonColumn = Object.values(columns).some((column) =>
+			isPersonKeyingColumnName(column.name),
+		);
+		if (hasPersonColumn) names.push(getTableName(value));
+	}
+	return names;
+}
 
 const {
 	mockQuiesceUserMemoryMaintenance,
@@ -504,6 +543,18 @@ function seedEveryUserScopedTable(userId: string) {
 			updatedAt: now,
 		})
 		.run();
+	// Transitive-cascade grandchild: no user_id of its own, removed only via
+	// file_production_jobs -> users cascade.
+	db.insert(schema.fileProductionJobAttempts)
+		.values({
+			id: p("file-attempt"),
+			jobId: p("file-job"),
+			attemptNumber: 1,
+			status: "succeeded",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.atlasJobs)
 		.values({
 			id: p("atlas"),
@@ -518,6 +569,18 @@ function seedEveryUserScopedTable(userId: string) {
 			title: "Atlas",
 			status: "succeeded",
 			stage: "complete",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	// Transitive-cascade grandchild: no user_id of its own, removed only via
+	// atlas_jobs -> users cascade.
+	db.insert(schema.atlasRoundCheckpoints)
+		.values({
+			id: p("atlas-checkpoint"),
+			jobId: p("atlas"),
+			roundNumber: 1,
+			stage: "synthesize",
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -674,6 +737,37 @@ describe("account-lifecycle user-scoped-table registry", () => {
 		);
 	});
 
+	it("registers (or explicitly allowlists) every schema table that keys rows to a person", () => {
+		// Schema-derived completeness guard: a NEW user-scoped table added to
+		// schema.ts that is neither registered in USER_SCOPED_TABLES nor documented
+		// on NON_REGISTRY_PERSON_TABLES fails this test — which is exactly the
+		// guarantee the registry comment promises. This does not rely on a
+		// hand-maintained name list.
+		const registered = new Set(USER_SCOPED_TABLES.map((entry) => entry.name));
+		const unclassified = schemaTablesWithPersonColumn().filter(
+			(name) => !registered.has(name) && !(name in NON_REGISTRY_PERSON_TABLES),
+		);
+		expect(unclassified).toEqual([]);
+	});
+
+	it("keeps the non-registry allowlist minimal and mutually exclusive with the registry", () => {
+		const registered = new Set(USER_SCOPED_TABLES.map((entry) => entry.name));
+		// Every allowlisted table really has a person column (otherwise it should
+		// not be on the list at all)...
+		const personTables = new Set(schemaTablesWithPersonColumn());
+		for (const name of Object.keys(NON_REGISTRY_PERSON_TABLES)) {
+			expect(
+				personTables.has(name),
+				`${name} should have a person column`,
+			).toBe(true);
+			// ...and is not ALSO in the registry (a table is handled one way).
+			expect(
+				registered.has(name),
+				`${name} must not be double-classified`,
+			).toBe(false);
+		}
+	});
+
 	it("has exactly two explicit (non-cascading) tables — the analytics rollups", () => {
 		expect(
 			explicitErasureTables()
@@ -763,8 +857,43 @@ describe("full account erasure leaves no person-linked survivor", () => {
 			).toBe(0);
 		}
 
-		// The erased users row itself is gone.
 		const { db } = await import("$lib/server/db");
+
+		// Transitive-cascade coverage: rows with no user_id of their own are still
+		// removed because their parent chain terminates at the erased users row.
+		// messages: conversations -> users. file_production_job_attempts:
+		// file_production_jobs -> users. atlas_round_checkpoints: atlas_jobs -> users.
+		const transitiveSurvivors = {
+			messages: (
+				await db
+					.select({ id: schema.messages.id })
+					.from(schema.messages)
+					.where(sql`${schema.messages.conversationId} = 'erase-me-conv'`)
+			).length,
+			fileProductionJobAttempts: (
+				await db
+					.select({ id: schema.fileProductionJobAttempts.id })
+					.from(schema.fileProductionJobAttempts)
+					.where(
+						sql`${schema.fileProductionJobAttempts.id} = 'erase-me-file-attempt'`,
+					)
+			).length,
+			atlasRoundCheckpoints: (
+				await db
+					.select({ id: schema.atlasRoundCheckpoints.id })
+					.from(schema.atlasRoundCheckpoints)
+					.where(
+						sql`${schema.atlasRoundCheckpoints.id} = 'erase-me-atlas-checkpoint'`,
+					)
+			).length,
+		};
+		expect(transitiveSurvivors).toEqual({
+			messages: 0,
+			fileProductionJobAttempts: 0,
+			atlasRoundCheckpoints: 0,
+		});
+
+		// The erased users row itself is gone.
 		const remainingUsers = await db
 			.select({ id: schema.users.id })
 			.from(schema.users);
