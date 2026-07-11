@@ -60,4 +60,31 @@ describe("memory profile module seams", () => {
 		expect(activeContext).not.toContain("normal-chat-control-model");
 		expect(readModel).not.toContain("normal-chat-control-model");
 	});
+
+	it("routes every memoryProfileItems write + revision bump through the projection store", () => {
+		// The projection store is the SOLE write authority for the item table and
+		// the projection revision. No other module may issue a raw
+		// db.insert/update(memoryProfileItems) or hand-bump the revision — they must
+		// compose the store's mutation door instead. This keeps the optimistic-
+		// concurrency invariant (revision claim + stale_projection) unskippable.
+		const writerModules = [
+			"memory-profile/review.ts",
+			"memory-consolidation/steps.ts",
+			"memory-recuration.ts",
+			"memory-judge/index.ts",
+		];
+		for (const modulePath of writerModules) {
+			const source = readService(modulePath);
+			expect(source).not.toContain("insert(memoryProfileItems)");
+			expect(source).not.toContain("update(memoryProfileItems)");
+			expect(source).not.toContain("bumpProjectionRevision");
+		}
+
+		// The escape hatch is gone: bumpProjectionRevision exists nowhere, and the
+		// only module that writes the item table is the store itself.
+		const store = readService("memory-profile/projection-store.ts");
+		expect(store).not.toContain("bumpProjectionRevision");
+		expect(store).toContain("update(memoryProfileItems)");
+		expect(store).toContain("insert(memoryProfileItems)");
+	});
 });

@@ -8,6 +8,7 @@ import { getActiveMemoryProfileContext } from "../memory-profile/active-context"
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
+	setMemoryProfileItemMetadataAndExpiry,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
@@ -402,18 +403,16 @@ async function applyItemMetadata(
 		: d.expiryClass === "time_bound" && d.expiresInDays
 			? new Date(Date.now() + d.expiresInDays * DAY_MS)
 			: undefined;
-	await db
-		.update(memoryProfileItems)
-		.set({
-			metadataJson: JSON.stringify(meta),
-			...(expiresAt ? { expiresAt } : {}),
-		})
-		.where(
-			and(
-				eq(memoryProfileItems.id, itemId),
-				eq(memoryProfileItems.userId, userId),
-			),
-		);
+	// The item was just created by createMemoryProfileItem (which already claimed
+	// the projection revision); writing its metadata/expiry is a side write on
+	// that same row, routed through the store so the judge issues no raw item-
+	// table update of its own.
+	await setMemoryProfileItemMetadataAndExpiry({
+		userId,
+		itemId,
+		metadataJson: JSON.stringify(meta),
+		expiresAt,
+	});
 }
 
 async function addProvenanceForItem(

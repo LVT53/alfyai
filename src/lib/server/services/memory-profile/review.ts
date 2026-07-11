@@ -1,26 +1,25 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import {
-	memoryProfileItems,
-	memoryProjectionState,
-	memoryReviewItems,
-	memoryReviewResolutions,
-} from "$lib/server/db/schema";
+import { memoryReviewItems } from "$lib/server/db/schema";
 import {
 	type MemoryProfileTextSanitizer,
 	sanitizePublicMemoryText,
 } from "./identity-sanitizer";
 import { parseJsonArray, parseJsonRecord } from "./internal-json";
-import { ensureProjectionState } from "./projection-store";
+import {
+	applyReviewItemProjectionMutation,
+	ensureProjectionState,
+	markActiveMemoryProfileItemsForReview,
+} from "./projection-store";
 import {
 	assertExpectedMemoryResetGeneration,
 	getCurrentMemoryResetGeneration,
 } from "./reset-generation";
+import { resolveReviewRowsTx } from "./review-resolution";
 import {
 	resolveMemoryProfileItemKey,
 	stableMemoryMaintenanceDigest,
-	toScopeColumns,
 } from "./scope";
 import {
 	assertOneOf,
@@ -174,7 +173,7 @@ export async function createOrUpdateMemoryReviewItem(params: {
 				...requestedAffectedItemIds,
 			]),
 		);
-		await markAffectedActiveMemoryProfileItemsForReview({
+		await markActiveMemoryProfileItemsForReview({
 			userId: params.userId,
 			resetGeneration,
 			affectedItemIds,
@@ -204,7 +203,7 @@ export async function createOrUpdateMemoryReviewItem(params: {
 	}
 
 	const id = randomUUID();
-	await markAffectedActiveMemoryProfileItemsForReview({
+	await markActiveMemoryProfileItemsForReview({
 		userId: params.userId,
 		resetGeneration,
 		affectedItemIds: requestedAffectedItemIds,
@@ -235,57 +234,6 @@ export async function createOrUpdateMemoryReviewItem(params: {
 	};
 }
 
-async function markAffectedActiveMemoryProfileItemsForReview(params: {
-	userId: string;
-	resetGeneration: number;
-	affectedItemIds: string[];
-	now: Date;
-	mutateReviewItem: (
-		tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-	) => void;
-}): Promise<void> {
-	const affectedItemIds = Array.from(new Set(params.affectedItemIds));
-	const projection =
-		affectedItemIds.length > 0
-			? await ensureProjectionState({
-					userId: params.userId,
-					resetGeneration: params.resetGeneration,
-				})
-			: null;
-
-	db.transaction((tx) => {
-		params.mutateReviewItem(tx);
-		if (affectedItemIds.length === 0 || !projection) return;
-
-		const result = tx
-			.update(memoryProfileItems)
-			.set({
-				status: "review_needed",
-				revision: sql`${memoryProfileItems.revision} + 1`,
-				updatedAt: params.now,
-			})
-			.where(
-				and(
-					eq(memoryProfileItems.userId, params.userId),
-					eq(memoryProfileItems.resetGeneration, params.resetGeneration),
-					eq(memoryProfileItems.status, "active"),
-					inArray(memoryProfileItems.id, affectedItemIds),
-				),
-			)
-			.run() as { changes?: number };
-		const changedCount = result.changes ?? 0;
-		if (changedCount === 0) return;
-
-		tx.update(memoryProjectionState)
-			.set({
-				revision: sql`${memoryProjectionState.revision} + ${changedCount}`,
-				updatedAt: params.now,
-			})
-			.where(eq(memoryProjectionState.id, projection.id))
-			.run();
-	});
-}
-
 export async function resolveMemoryReviewItem(params: {
 	userId: string;
 	reviewItemId: string;
@@ -314,30 +262,20 @@ export async function resolveMemoryReviewItem(params: {
 	if (!review) return { status: "not_found" };
 
 	const now = new Date();
-	await db.transaction((tx) => {
-		tx.insert(memoryReviewResolutions)
-			.values({
-				id: randomUUID(),
-				reviewItemId: review.id,
-				userId: params.userId,
-				resetGeneration,
-				resolutionType: params.resolutionType,
-				editedStatement: params.editedStatement,
-				metadataJson: JSON.stringify(params.metadata ?? {}),
-				createdAt: now,
-			})
-			.onConflictDoNothing({
-				target: memoryReviewResolutions.reviewItemId,
-			})
-			.run();
-		tx.update(memoryReviewItems)
-			.set({
-				status: "resolved",
-				resolvedAt: now,
-				updatedAt: now,
-			})
-			.where(eq(memoryReviewItems.id, review.id))
-			.run();
+	db.transaction((tx) => {
+		resolveReviewRowsTx(tx, {
+			userId: params.userId,
+			resetGeneration,
+			now,
+			rows: [
+				{
+					reviewItemId: review.id,
+					resolutionType: params.resolutionType,
+					editedStatement: params.editedStatement,
+					metadata: params.metadata,
+				},
+			],
+		});
 	});
 
 	return { status: "resolved" };
@@ -419,172 +357,75 @@ export async function applyMemoryReviewItemWithRevision(params: {
 	}
 
 	const now = new Date();
-	const nextProjectionRevision = params.expectedProjectionRevision + 1;
-	const result = db.transaction((tx) => {
-		const projectionClaim = tx
-			.update(memoryProjectionState)
-			.set({
-				revision: sql`${memoryProjectionState.revision} + 1`,
-				updatedAt: now,
-			})
-			.where(
-				and(
-					eq(memoryProjectionState.id, projection.id),
-					eq(memoryProjectionState.revision, params.expectedProjectionRevision),
-				),
-			)
-			.run() as { changes?: number };
 
-		if ((projectionClaim.changes ?? 0) !== 1) {
-			return { status: "stale_projection" as const };
-		}
+	// On accept, recompute expiresAt from the review item's own metadata: a
+	// time_bound item gets its factual horizon applied now (it no longer needs
+	// the review auto-expiry window); a durable item has its expiry cleared.
+	const acceptExpiresInDays =
+		params.action === "accept" &&
+		metadata.expiryClass === "time_bound" &&
+		typeof metadata.expiresInDays === "number"
+			? metadata.expiresInDays
+			: null;
+	const acceptExpiresAt =
+		params.action === "accept"
+			? acceptExpiresInDays !== null
+				? new Date(now.getTime() + acceptExpiresInDays * 86_400_000)
+				: null
+			: undefined;
 
-		// On accept, recompute expiresAt from the review item's own
-		// metadata: a time_bound item gets its factual horizon applied now
-		// (it no longer needs the review auto-expiry window); a durable item
-		// has its expiry cleared entirely.
-		const acceptExpiresInDays =
-			params.action === "accept" &&
-			metadata.expiryClass === "time_bound" &&
-			typeof metadata.expiresInDays === "number"
-				? metadata.expiresInDays
-				: null;
-		const acceptExpiresAt =
-			params.action === "accept"
-				? acceptExpiresInDays !== null
-					? new Date(now.getTime() + acceptExpiresInDays * 86_400_000)
-					: null
-				: undefined;
+	const resolutionType: MemoryReviewResolutionType =
+		params.action === "accept"
+			? "use_fact"
+			: params.action === "edit"
+				? "edit_fact"
+				: "do_not_remember";
 
-		let itemId: string | null = null;
-		if (category && statement) {
-			const scope: MemoryProfileScope = { type: "global" };
-			const scopeColumns = toScopeColumns(scope);
-			const itemKey = resolveMemoryProfileItemKey({
-				category,
-				scope,
-				statement,
-			});
-			const [existing] = tx
-				.select()
-				.from(memoryProfileItems)
-				.where(
-					and(
-						eq(memoryProfileItems.userId, params.userId),
-						eq(memoryProfileItems.resetGeneration, resetGeneration),
-						eq(memoryProfileItems.itemKey, itemKey),
-					),
-				)
-				.limit(1)
-				.all();
-
-			if (existing) {
-				itemId = existing.id;
-				if (
-					existing.status !== "active" ||
-					existing.statement !== statement ||
-					acceptExpiresAt !== undefined
-				) {
-					tx.update(memoryProfileItems)
-						.set({
+	// Hand the projection store a plain decision; it runs the revision claim, the
+	// create/reactivate + suppress item writes, and the review-row resolution as
+	// one atomic transaction. review.ts owns only the review-specific reasoning.
+	const scope: MemoryProfileScope = { type: "global" };
+	const mutation = await applyReviewItemProjectionMutation({
+		userId: params.userId,
+		resetGeneration,
+		projectionStateId: projection.id,
+		expectedProjectionRevision: params.expectedProjectionRevision,
+		now,
+		upsert:
+			category && statement
+				? {
+						itemKey: resolveMemoryProfileItemKey({
+							category,
+							scope,
 							statement,
-							status: "active",
-							deletedAt: null,
-							suppressedAt: null,
-							...(acceptExpiresAt !== undefined
-								? { expiresAt: acceptExpiresAt }
-								: {}),
-							revision: sql`${memoryProfileItems.revision} + 1`,
-							updatedAt: now,
-						})
-						.where(eq(memoryProfileItems.id, existing.id))
-						.run();
-				}
-			} else {
-				itemId = randomUUID();
-				tx.insert(memoryProfileItems)
-					.values({
-						id: itemId,
-						userId: params.userId,
-						projectionStateId: projection.id,
-						resetGeneration,
-						itemKey,
+						}),
 						category,
-						scopeType: scopeColumns.scopeType,
-						scopeId: scopeColumns.scopeId,
+						scope,
 						statement,
-						status: "active",
-						expiresAt: acceptExpiresAt ?? undefined,
-						revision: 0,
-						createdAt: now,
-						updatedAt: now,
-					})
-					.run();
-			}
-		}
-
-		if (params.action === "dismiss" && affectedItemIds.length > 0) {
-			tx.update(memoryProfileItems)
-				.set({
-					status: "suppressed",
-					suppressedAt: now,
-					revision: sql`${memoryProfileItems.revision} + 1`,
-					updatedAt: now,
-				})
-				.where(
-					and(
-						eq(memoryProfileItems.userId, params.userId),
-						eq(memoryProfileItems.resetGeneration, resetGeneration),
-						eq(memoryProfileItems.status, "active"),
-						inArray(memoryProfileItems.id, affectedItemIds),
-					),
-				)
-				.run();
-		}
-
-		const resolutionType: MemoryReviewResolutionType =
-			params.action === "accept"
-				? "use_fact"
-				: params.action === "edit"
-					? "edit_fact"
-					: "do_not_remember";
-		for (const duplicateReview of duplicateReviewRows) {
-			tx.insert(memoryReviewResolutions)
-				.values({
-					id: randomUUID(),
-					reviewItemId: duplicateReview.id,
-					userId: params.userId,
-					resetGeneration,
-					resolutionType,
-					editedStatement: params.action === "edit" ? statement : undefined,
-					metadataJson: JSON.stringify({
-						action: params.action,
-						category,
-						resolvedWithReviewItemId: review.id,
-					}),
-					createdAt: now,
-				})
-				.onConflictDoNothing({
-					target: memoryReviewResolutions.reviewItemId,
-				})
-				.run();
-			tx.update(memoryReviewItems)
-				.set({
-					status: "resolved",
-					resolvedAt: now,
-					updatedAt: now,
-				})
-				.where(eq(memoryReviewItems.id, duplicateReview.id))
-				.run();
-		}
-
-		return {
-			status: "updated" as const,
-			projectionRevision: nextProjectionRevision,
-			itemId,
-			category,
-		};
+						acceptExpiresAt,
+					}
+				: null,
+		suppressItemIds: params.action === "dismiss" ? affectedItemIds : [],
+		resolveRows: duplicateReviewRows.map((duplicateReview) => ({
+			reviewItemId: duplicateReview.id,
+			resolutionType,
+			editedStatement:
+				params.action === "edit" ? (statement ?? undefined) : undefined,
+			metadata: {
+				action: params.action,
+				category,
+				resolvedWithReviewItemId: review.id,
+			},
+		})),
 	});
 
-	return result;
+	if (mutation.status === "stale_projection") {
+		return { status: "stale_projection" };
+	}
+	return {
+		status: "updated",
+		projectionRevision: mutation.projectionRevision,
+		itemId: mutation.itemId,
+		category,
+	};
 }

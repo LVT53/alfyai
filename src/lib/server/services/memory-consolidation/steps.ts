@@ -1,11 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import {
-	memoryProfileItemProvenance,
-	memoryProfileItems,
-} from "$lib/server/db/schema";
+import { memoryProfileItems } from "$lib/server/db/schema";
 import { recordMemoryModelUsage } from "../memory-cost";
 import { refreshFactEmbedding } from "../memory-judge";
 import {
@@ -13,11 +9,13 @@ import {
 	reasoningAwareMaxTokens,
 } from "../memory-judge/schema";
 import {
+	copyMemoryProfileItemProvenance,
 	createMemoryProfileItem,
 	ensureProjectionState,
 	expireOverdueActiveMemoryProfileItems,
 	expireOverdueReviewMemoryProfileItems,
 	mergeMemoryProfileItemMetadata,
+	renewMemoryProfileItemExpiry,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
@@ -123,7 +121,6 @@ export async function runExpireAndRenew(params: {
 	const resetGeneration = await getCurrentMemoryResetGeneration(userId);
 	const projection = await ensureProjectionState({ userId, resetGeneration });
 	const actions: ConsolidationAction[] = [];
-	let renewedCount = 0;
 
 	// 1. RENEW: active time_bound items expiring within the next 7 days AND
 	//    touched within the last 14 days → extend expiresAt by +30 days.
@@ -157,17 +154,15 @@ export async function runExpireAndRenew(params: {
 		const nextExpiresAt = new Date(
 			prevExpiresAt.getTime() + RENEW_EXTENSION_DAYS * DAY_MS,
 		);
-		await db
-			.update(memoryProfileItems)
-			.set({ expiresAt: nextExpiresAt, updatedAt: now })
-			.where(
-				and(
-					eq(memoryProfileItems.userId, userId),
-					eq(memoryProfileItems.id, item.id),
-				),
-			)
-			.run();
-		renewedCount += 1;
+		// Extend the expiry and account for it with one projection-revision step,
+		// atomically, through the store's door — no raw item write, no hand-bump.
+		await renewMemoryProfileItemExpiry({
+			userId,
+			itemId: item.id,
+			projectionStateId: projection.id,
+			expiresAt: nextExpiresAt,
+			now,
+		});
 		actions.push({
 			type: "renewed",
 			itemIds: [item.id],
@@ -180,19 +175,6 @@ export async function runExpireAndRenew(params: {
 					prevExpiresAt: prevExpiresAt.toISOString(),
 				},
 			],
-		});
-	}
-	// Renewals wrote to the items table directly, so bump the projection
-	// revision by the number of renewals (the expiry helpers below bump their
-	// own counts). This keeps revision discipline consistent across writers.
-	if (renewedCount > 0) {
-		const { bumpProjectionRevision } = await import(
-			"../memory-profile/projection-store"
-		);
-		bumpProjectionRevision({
-			projectionStateId: projection.id,
-			amount: renewedCount,
-			now,
 		});
 	}
 
@@ -466,29 +448,14 @@ export async function runReconcileAndMerge(params: {
 			// statement is recall-searchable. Fire-and-forget; never fails the merge.
 			await refreshFactEmbedding(userId, created.id, action.mergedStatement);
 
-			// Copy provenance rows from every member to the merged item.
+			// Copy provenance rows from every member to the merged item, through
+			// the store so consolidation never issues raw provenance inserts.
 			for (const memberId of uniqueMemberIds) {
-				const provRows = await db
-					.select()
-					.from(memoryProfileItemProvenance)
-					.where(eq(memoryProfileItemProvenance.itemId, memberId));
-				for (const prov of provRows) {
-					await db
-						.insert(memoryProfileItemProvenance)
-						.values({
-							id: randomUUID(),
-							itemId: created.id,
-							userId,
-							resetGeneration: prov.resetGeneration,
-							sourceType: prov.sourceType,
-							sourceId: prov.sourceId,
-							label: prov.label,
-							summary: prov.summary,
-							metadataJson: prov.metadataJson,
-							createdAt: prov.createdAt,
-						})
-						.run();
-				}
+				await copyMemoryProfileItemProvenance({
+					userId,
+					fromItemId: memberId,
+					toItemId: created.id,
+				});
 			}
 
 			// Retire the members and record mergedInto.
