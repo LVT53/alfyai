@@ -519,7 +519,7 @@ A short synthesis of the user's active facts into fact-linked sentences (`{ sent
 _Avoid_: free-form personality essay, unsourced summary sentences, summary as separate store
 
 **Memory Master Toggle & Memory Incognito**:
-The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, checked on both the read side (context injection) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
+The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, enforced on the read side (an inactive turn injects no baseline memory section and is not offered the `memory_context` recall tool) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
 _Avoid_: read-only gate, write-only gate, per-turn silent memory when off, incognito that still writes
 
 **Memory Cost Tracking**:

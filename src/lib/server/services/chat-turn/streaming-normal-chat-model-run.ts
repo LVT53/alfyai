@@ -30,6 +30,7 @@ import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-
 import type { Capability } from "$lib/server/services/connections/registry";
 import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
 import { detectLanguage } from "$lib/server/services/language";
+import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import {
 	type AuthenticatedPromptUser,
 	prepareOutboundChatContext,
@@ -209,8 +210,15 @@ export async function runStreamingNormalChatSendModel(
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),
 	});
+	// Read-side master gate for the recall tool. Single source of truth; fail
+	// open (active) so a controls-lookup hiccup never silently drops recall.
+	const memoryActive = await isMemoryActiveForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	}).catch(() => true);
 	const modelTools = selectNormalChatToolsForRequest(normalChatTools.tools, {
 		message: params.message,
+		memoryActive,
 	});
 	const recorder = normalChatTools.recorder ?? createToolCallRecorder();
 	const deliberationStartMs = Date.now();
