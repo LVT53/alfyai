@@ -31,10 +31,20 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runCalendarTool, sanitizeCalendarToolInput } from "./calendar";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+// selectConnection/pickDefaultConnection are kept as their REAL (pure)
+// implementations — only resolveConnectionsForCapability/needsDisambiguation
+// (which touch the DB) are mocked, same posture as every other tool test
+// file after the multi-connection disambiguation change.
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock(
 	"$lib/server/services/connections/providers/google-calendar",
 	async () => {
@@ -192,6 +202,82 @@ describe("runCalendarTool", () => {
 		expect(outcome.modelPayload.message).toContain("2 Calendar connections");
 		expect(outcome.modelPayload.message).toContain("Alice Google");
 		expect(outcome.modelPayload.message).toContain("Bob Google");
+	});
+
+	it("account:'google' routes to the Google connection even though Apple sorts first alphabetically", async () => {
+		const apple = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "me@icloud.com",
+		});
+		const google = makeConn({
+			id: "conn-google",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "me@gmail.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([apple, google]);
+		needsDisambiguationMock.mockReturnValue(true);
+		googleListEventsMock.mockResolvedValue([]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events", account: "google" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(googleListEventsMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-google",
+			expect.objectContaining({ timeMin: expect.any(String) }),
+		);
+		expect(appleListEventsMock).not.toHaveBeenCalled();
+	});
+
+	it("an account selector matching nothing returns a graceful listing message and never calls a provider", async () => {
+		const apple = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+		});
+		const google = makeConn({
+			id: "conn-google",
+			provider: "google",
+			label: "Google",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([apple, google]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events", account: "microsoft" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Apple iCloud");
+		expect(outcome.modelPayload.message).toContain("Google");
+		expect(outcome.modelPayload.message).toContain('"microsoft"');
+		expect(googleListEventsMock).not.toHaveBeenCalled();
+		expect(appleListEventsMock).not.toHaveBeenCalled();
+	});
+
+	it("the ambiguity note mentions the account param so the model can target a different connection", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Google" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Google" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		googleListEventsMock.mockResolvedValue([]);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{ action: "list_events" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.message).toContain("account:");
 	});
 
 	it("list_events returns events and citations, defaulting to now..now+7d when unspecified", async () => {
@@ -1032,6 +1118,48 @@ describe("runCalendarTool — write actions (Issue 6.1)", () => {
 			"only supported for Google and Apple",
 		);
 		expect(createPendingWriteMock).not.toHaveBeenCalled();
+	});
+
+	// The exact bug this task fixes: a user with both an Apple (writes off)
+	// and a Google (writes on) calendar connection used to have every write
+	// silently routed to Apple, because connections[0] is alphabetically
+	// first ("Apple iCloud" < "Google"). With no explicit `account`, a write
+	// action must now prefer the writes-enabled connection instead.
+	it("create_event with no account and [Apple writes-off, Google writes-on] picks Google, not the alphabetically-first Apple", async () => {
+		const apple = makeConn({
+			id: "conn-apple",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "me@icloud.com",
+			allowWrites: false,
+		});
+		const google = makeWritableGoogleConn({
+			id: "conn-google",
+			label: "Google",
+			accountIdentifier: "me@gmail.com",
+		});
+		resolveConnectionsForCapabilityMock.mockResolvedValue([apple, google]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runCalendarTool(
+			"user-1",
+			{
+				action: "create_event",
+				title: "Standup",
+				start: "2026-07-10T09:00:00-04:00",
+				end: "2026-07-10T09:30:00-04:00",
+			},
+			LOCAL_MODEL_ID,
+			"conv-1",
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(createPendingWriteMock).toHaveBeenCalledTimes(1);
+		const call = createPendingWriteMock.mock.calls[0]?.[1];
+		expect(call).toMatchObject({
+			connectionId: "conn-google",
+			provider: "google",
+		});
 	});
 
 	describe("create_event", () => {

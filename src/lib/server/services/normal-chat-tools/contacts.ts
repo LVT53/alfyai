@@ -4,10 +4,15 @@ import {
 	resolveContacts,
 	resolveContactsByGroup,
 } from "$lib/server/services/connections/providers/contacts";
-import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
+import {
+	resolveConnectionsForCapability,
+	selectConnection,
+} from "$lib/server/services/connections/resolve";
+import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 // `query` is overloaded by `action` (kept as one field rather than two
 // action-specific ones, matching the existing single-field shape): for
@@ -16,6 +21,12 @@ import { decideLocalDistill } from "./connector-distill";
 export const contactsToolInputSchema = z.object({
 	action: z.enum(["lookup", "group"]),
 	query: z.string(),
+	// Multi-connection disambiguation — by default this tool AGGREGATES
+	// matches across every contacts-capable connection (Google, Apple
+	// iCloud). `account`, when given, narrows the lookup down to ONE specific
+	// connection (a provider name, connection label, or account identifier —
+	// see selectConnection in resolve.ts) instead of combining every source.
+	account: z.string().optional(),
 });
 
 export type ContactsToolInput = z.infer<typeof contactsToolInputSchema>;
@@ -26,6 +37,7 @@ export function sanitizeContactsToolInput(
 	return {
 		action: input.action,
 		query: input.query.trim(),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -199,6 +211,27 @@ async function applyLocalDistillGate(params: {
 	};
 }
 
+// Restricts an already-merged ContactMatch[] down to the ones that came
+// from `selectedConn` — matched on (source === provider, account ===
+// accountIdentifier), the two fields every provider (google/apple/caldav)
+// already stamps onto a ContactMatch (see googleSearchContacts/
+// appleSearchContacts/caldavSearchContacts in providers/contacts.ts and
+// friends). Used when an explicit `account` selector narrowed the lookup to
+// one connection (see runContactsTool) — resolveContacts/
+// resolveContactsByGroup always query every contacts-capable connection
+// internally, so filtering their merged result is how a single-connection
+// selector is honored without changing those functions' signatures.
+function filterMatchesByConnection(
+	matches: ContactMatch[],
+	selectedConn: ConnectionPublic,
+): ContactMatch[] {
+	return matches.filter(
+		(match) =>
+			match.source === selectedConn.provider &&
+			match.account === selectedConn.accountIdentifier,
+	);
+}
+
 // "group" action (GAP B8): resolves a named contact group ("Family",
 // "Work", ...) across the user's contacts-capable connections (Google
 // only, v1 — see resolveContactsByGroup's doc comment) instead of a
@@ -209,6 +242,7 @@ async function runGroupLookup(
 	userId: string,
 	input: ContactsToolInput,
 	modelId: string,
+	selectedConn: ConnectionPublic | null,
 ): Promise<ContactsToolOutcome> {
 	let matches: ContactMatch[];
 	try {
@@ -216,6 +250,8 @@ async function runGroupLookup(
 			groupName: input.query,
 			limit: MAX_MATCHES,
 		});
+		if (selectedConn)
+			matches = filterMatchesByConnection(matches, selectedConn);
 	} catch {
 		return buildPayload({
 			success: false,
@@ -250,6 +286,7 @@ async function runNameLookup(
 	userId: string,
 	input: ContactsToolInput,
 	modelId: string,
+	selectedConn: ConnectionPublic | null,
 ): Promise<ContactsToolOutcome> {
 	let matches: ContactMatch[];
 	try {
@@ -257,6 +294,8 @@ async function runNameLookup(
 			query: input.query,
 			limit: MAX_MATCHES,
 		});
+		if (selectedConn)
+			matches = filterMatchesByConnection(matches, selectedConn);
 	} catch {
 		return buildPayload({
 			success: false,
@@ -296,7 +335,10 @@ async function runNameLookup(
 // degrading gracefully (never throwing) so a connection or lookup problem
 // never aborts the chat turn, and applying the same Option-A
 // local-distillation posture as calendar.ts/email.ts before any raw PII
-// reaches a cloud model.
+// reaches a cloud model. An explicit `account` selector (multi-connection
+// disambiguation) narrows the lookup to just the one matching connection
+// instead of aggregating every source — see selectConnection in resolve.ts
+// and filterMatchesByConnection above.
 export async function runContactsTool(
 	userId: string,
 	input: ContactsToolInput,
@@ -312,8 +354,24 @@ export async function runContactsTool(
 		});
 	}
 
-	if (input.action === "group") {
-		return runGroupLookup(userId, input, modelId);
+	let selectedConn: ConnectionPublic | null = null;
+	if (input.account) {
+		selectedConn = selectConnection(connections, input.account);
+		if (!selectedConn) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: noMatchingConnectionMessage(
+					"Contacts",
+					input.account,
+					connections,
+				),
+			});
+		}
 	}
-	return runNameLookup(userId, input, modelId);
+
+	if (input.action === "group") {
+		return runGroupLookup(userId, input, modelId, selectedConn);
+	}
+	return runNameLookup(userId, input, modelId, selectedConn);
 }

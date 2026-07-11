@@ -2336,6 +2336,14 @@ export const connectionPendingWrites = sqliteTable(
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
+		// Fix 1 (write-safety hardening) — TTL for the confirm chokepoint.
+		// Nullable so existing rows (created before this column existed)
+		// migrate in as NULL, which confirmPendingWrite treats as "no expiry,
+		// never expired" (backward-compatible — see pending-writes.ts's
+		// isPendingWriteExpired). Every NEW row created via createPendingWrite
+		// always sets this to `now + PENDING_WRITE_TTL_MS`, so only pre-
+		// migration rows can ever be NULL here.
+		expiresAt: integer("expires_at", { mode: "timestamp" }),
 	},
 	(table) => ({
 		userStatusIdx: index("connection_pending_writes_user_status_idx").on(

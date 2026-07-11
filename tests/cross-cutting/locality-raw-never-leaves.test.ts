@@ -99,10 +99,20 @@ const mocks = vi.hoisted(() => ({
 	runUserMemoryMaintenance: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: mocks.resolveConnectionsForCapability,
-	needsDisambiguation: mocks.needsDisambiguation,
-}));
+// selectConnection/pickDefaultConnection are kept as their REAL (pure)
+// implementations — only resolveConnectionsForCapability/needsDisambiguation
+// (which touch the DB) are mocked, same posture as every per-tool test file
+// after the multi-connection disambiguation change.
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: mocks.resolveConnectionsForCapability,
+		needsDisambiguation: mocks.needsDisambiguation,
+	};
+});
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: mocks.hasLocalDistillEnabled,
 	isCloudModel: mocks.isCloudModel,

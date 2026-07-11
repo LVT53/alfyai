@@ -221,19 +221,35 @@ function parseSendContent(content: string): SendContent | null {
 	}
 }
 
-type TrashContent = { uid: number };
+// Fix 3 (write-safety hardening) — `uidValidity`, when present, is INBOX's
+// UIDVALIDITY as captured at propose time (email.ts's imapGetInboxUidValidity
+// call). Optional so a pending write from before this fix (or a propose
+// whose capture itself came back null) still parses; a missing value is
+// never treated as a mismatch by uidValidityChanged below — see its doc
+// comment.
+type TrashContent = { uid: number; uidValidity?: string };
 
 function parseTrashContent(content: string): TrashContent | null {
 	try {
 		const parsed = JSON.parse(content) as Partial<TrashContent>;
 		if (typeof parsed.uid !== "number") return null;
-		return { uid: parsed.uid };
+		return {
+			uid: parsed.uid,
+			...(typeof parsed.uidValidity === "string"
+				? { uidValidity: parsed.uidValidity }
+				: {}),
+		};
 	} catch {
 		return null;
 	}
 }
 
-type FlagContent = { uid: number; flag: "seen" | "flagged"; value: boolean };
+type FlagContent = {
+	uid: number;
+	flag: "seen" | "flagged";
+	value: boolean;
+	uidValidity?: string;
+};
 
 function parseFlagContent(content: string): FlagContent | null {
 	try {
@@ -245,10 +261,34 @@ function parseFlagContent(content: string): FlagContent | null {
 		) {
 			return null;
 		}
-		return { uid: parsed.uid, flag: parsed.flag, value: parsed.value };
+		return {
+			uid: parsed.uid,
+			flag: parsed.flag,
+			value: parsed.value,
+			...(typeof parsed.uidValidity === "string"
+				? { uidValidity: parsed.uidValidity }
+				: {}),
+		};
 	} catch {
 		return null;
 	}
+}
+
+// Fix 3 — true iff the pending write's captured UIDVALIDITY (from propose
+// time) no longer matches INBOX's CURRENT one (re-read at execute time,
+// inside the write connection). A captured value that is MISSING (a legacy
+// pending write, or a propose whose capture itself failed) is never treated
+// as a mismatch — this only guards against a CONFIRMED epoch change, not the
+// absence of a signal, mirroring Fix 1's NULL-is-never-expired posture.
+function uidValidityChanged(
+	captured: string | undefined,
+	current: { uidValidity?: bigint },
+): boolean {
+	if (captured === undefined) return false;
+	return (
+		current.uidValidity === undefined ||
+		current.uidValidity.toString() !== captured
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +303,19 @@ type ImapWriteFailure =
 	| { ok: false; reason: "needs_reauth" }
 	| { ok: false; reason: "request_failed" };
 
+// `run`'s second param carries the mailboxOpen() result (Fix 3 —
+// executeTrash/executeFlag read `.uidValidity` off it to re-check against
+// the value captured at propose time; executeSend never uses this
+// chokepoint at all, so it is unaffected).
 async function withImapWriteConnection<T>(
 	userId: string,
 	connectionId: string,
 	mailboxPath: string,
 	opts: ImapWriteOpt | undefined,
-	run: (client: ImapWriteFlowLike) => Promise<T>,
+	run: (
+		client: ImapWriteFlowLike,
+		mailbox: { exists?: number; uidValidity?: bigint },
+	) => Promise<T>,
 ): Promise<T | ImapWriteFailure> {
 	const conn = await getConnection(userId, connectionId);
 	if (!conn) return { ok: false, reason: "connection_not_found" };
@@ -283,8 +330,8 @@ async function withImapWriteConnection<T>(
 
 	try {
 		await client.connect();
-		await client.mailboxOpen(mailboxPath, { readOnly: false });
-		return await run(client);
+		const mailbox = await client.mailboxOpen(mailboxPath, { readOnly: false });
+		return await run(client, mailbox);
 	} catch (err) {
 		if (isAuthFailure(err)) {
 			await updateConnection(userId, connectionId, {
@@ -338,7 +385,15 @@ async function executeTrash(
 		connectionId,
 		INBOX,
 		opts,
-		async (client): Promise<WriteExecutionResult> => {
+		async (client, mailbox): Promise<WriteExecutionResult> => {
+			// Fix 3 — a `uid` is only valid within the UIDVALIDITY epoch it was
+			// captured under; if INBOX's epoch changed since propose time, this
+			// uid can no longer be trusted to reference the intended message.
+			// Refuse rather than act on it.
+			if (uidValidityChanged(parsed.uidValidity, mailbox)) {
+				return { ok: false, reason: "uidvalidity_changed" };
+			}
+
 			const trashPath = await resolveTrashMailbox(client);
 			if (!trashPath) return { ok: false, reason: "no_trash_folder" };
 
@@ -378,7 +433,12 @@ async function executeFlag(
 		connectionId,
 		INBOX,
 		opts,
-		async (client): Promise<WriteExecutionResult> => {
+		async (client, mailbox): Promise<WriteExecutionResult> => {
+			// Fix 3 — same UIDVALIDITY re-check as executeTrash above.
+			if (uidValidityChanged(parsed.uidValidity, mailbox)) {
+				return { ok: false, reason: "uidvalidity_changed" };
+			}
+
 			if (parsed.value) {
 				await client.messageFlagsAdd([parsed.uid], [imapFlag], { uid: true });
 			} else {

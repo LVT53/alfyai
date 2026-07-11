@@ -94,10 +94,13 @@ export type ImapFlowLike = {
 	connect(): Promise<void>;
 	logout(): Promise<void>;
 	close(): void;
+	// Narrowed to the two fields this module (and imap-write.ts's Fix 3
+	// UIDVALIDITY check — see imapGetInboxUidValidity below) actually reads.
+	// `uidValidity` is a bigint on the wire per imapflow's MailboxObject.
 	mailboxOpen(
 		path: string,
 		options?: { readOnly?: boolean },
-	): Promise<{ exists?: number } | unknown>;
+	): Promise<{ exists?: number; uidValidity?: bigint }>;
 	search(
 		query: Record<string, unknown>,
 		options?: { uid?: boolean },
@@ -523,12 +526,19 @@ async function resolveFolderPath(
 // to open, defaulting to INBOX; it is resolved SPECIAL-USE-first then by name.
 // An auth failure mid-op marks the connection needs_reauth (mirrors
 // google.ts/apple-caldav.ts) before rethrowing.
+// `run`'s second param carries the mailboxOpen() result (exists/uidValidity)
+// for callers that need it (currently only imapGetInboxUidValidity below,
+// Fix 3) — every existing caller here declares `run` with just `(client)`,
+// which TypeScript still accepts (a callback may ignore trailing params).
 async function withImapConnection<T>(
 	userId: string,
 	connectionId: string,
 	folder: string | undefined,
 	opts: ImapOpt | undefined,
-	run: (client: ImapFlowLike) => Promise<T>,
+	run: (
+		client: ImapFlowLike,
+		mailbox: { exists?: number; uidValidity?: bigint },
+	) => Promise<T>,
 ): Promise<T> {
 	const conn = await getConnection(userId, connectionId);
 	if (!conn) {
@@ -551,8 +561,8 @@ async function withImapConnection<T>(
 	try {
 		await client.connect();
 		const mailboxPath = await resolveFolderPath(client, folder);
-		await client.mailboxOpen(mailboxPath, { readOnly: true });
-		return await run(client);
+		const mailbox = await client.mailboxOpen(mailboxPath, { readOnly: true });
+		return await run(client, mailbox);
 	} catch (err) {
 		if (err instanceof ImapError) throw err;
 		if (isAuthFailure(err)) {
@@ -567,6 +577,35 @@ async function withImapConnection<T>(
 	} finally {
 		await closeClient(client);
 	}
+}
+
+// Fix 3 (write-safety hardening) — UIDVALIDITY binding. A message `uid` is
+// only stable within one UIDVALIDITY epoch of a mailbox; if the server ever
+// renumbers uids (a rare but real IMAP event), a `uid` captured when a
+// trash/flag write was PROPOSED could silently refer to a different message
+// by the time the write is confirmed and EXECUTED. The email tool
+// (normal-chat-tools/email.ts) calls this at propose time to capture
+// INBOX's current UIDVALIDITY onto the pending write's content; imap-write.ts
+// re-reads it at execute time and refuses (`uidvalidity_changed`) rather than
+// act on a uid that can no longer be trusted to mean the same message.
+// Returns the value as a decimal string (UIDVALIDITY is a bigint on the
+// wire, and pending-write content is JSON) — null if the server didn't
+// report one at all (very old/nonstandard server); a missing value is never
+// treated as a mismatch by the execute-time check, only a CONFIRMED change
+// is.
+export async function imapGetInboxUidValidity(
+	userId: string,
+	connectionId: string,
+	opts?: ImapOpt,
+): Promise<string | null> {
+	return withImapConnection(
+		userId,
+		connectionId,
+		undefined,
+		opts,
+		async (_client, mailbox) =>
+			mailbox.uidValidity !== undefined ? mailbox.uidValidity.toString() : null,
+	);
 }
 
 function formatFrom(envelope: ImapEnvelope | undefined): string {
@@ -780,8 +819,7 @@ export async function imapCount(
 			// No free-text words: a single SEARCH whose UID count is the answer. An
 			// empty base means "count everything" -> SEARCH ALL.
 			if (words.length === 0) {
-				const searchQuery =
-					Object.keys(base).length > 0 ? base : { all: true };
+				const searchQuery = Object.keys(base).length > 0 ? base : { all: true };
 				const uids = await client.search(searchQuery, { uid: true });
 				return uids ? uids.length : 0;
 			}
@@ -962,7 +1000,11 @@ export async function imapReadMessage(
 	connectionId: string,
 	params: { uid: number; folder?: string },
 	opts?: ImapOpt,
-): Promise<{ header: EmailHeader; text: string; attachments: ImapAttachment[] }> {
+): Promise<{
+	header: EmailHeader;
+	text: string;
+	attachments: ImapAttachment[];
+}> {
 	return withImapConnection(
 		userId,
 		connectionId,

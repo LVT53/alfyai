@@ -8,11 +8,15 @@ import {
 	todoistListProjects,
 	todoistListTasks,
 } from "$lib/server/services/connections/providers/todoist";
-import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
+import {
+	resolveConnectionsForCapability,
+	selectConnection,
+} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction for v1: the action enum only ever lists read
 // actions, across both providers this tool aggregates (Todoist + generic
@@ -29,6 +33,12 @@ export const tasksToolInputSchema = z.object({
 	// date) — case-insensitively also accepts the literal "overdue", meaning
 	// "due date is before today".
 	due: z.string().optional(),
+	// Multi-connection disambiguation — by default this tool AGGREGATES
+	// across every tasks-capable connection (see runTasksTool's doc comment).
+	// `account`, when given, narrows that aggregation down to ONE specific
+	// connection (a provider name, connection label, or account identifier —
+	// see selectConnection in resolve.ts) instead of combining every source.
+	account: z.string().optional(),
 });
 
 export type TasksToolInput = z.infer<typeof tasksToolInputSchema>;
@@ -39,6 +49,7 @@ export function sanitizeTasksToolInput(input: TasksToolInput): TasksToolInput {
 		...(input.query ? { query: input.query.trim() } : {}),
 		...(input.projectId ? { projectId: input.projectId.trim() } : {}),
 		...(input.due ? { due: input.due.trim() } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -399,20 +410,40 @@ async function runSearchTasks(
 // source), degrading gracefully (never throwing) so a connection or lookup
 // problem never aborts the chat turn, and applying the same Option-A
 // local-distillation posture as contacts.ts/calendar.ts before any raw task
-// text reaches a cloud model.
+// text reaches a cloud model. An explicit `account` selector (multi-
+// connection disambiguation) narrows this aggregation down to just the one
+// matching connection instead of combining every source — see
+// selectConnection in resolve.ts.
 export async function runTasksTool(
 	userId: string,
 	input: TasksToolInput,
 	modelId: string,
 ): Promise<TasksToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "tasks");
-	if (connections.length === 0) {
+	const allConnections = await resolveConnectionsForCapability(userId, "tasks");
+	if (allConnections.length === 0) {
 		return buildPayload({
 			success: false,
 			action: input.action,
 			message:
 				"You don't have a Tasks connection set up yet. Connect Todoist or a CalDAV account in Settings to view your tasks.",
 		});
+	}
+
+	let connections = allConnections;
+	if (input.account) {
+		const selected = selectConnection(allConnections, input.account);
+		if (!selected) {
+			return buildPayload({
+				success: false,
+				action: input.action,
+				message: noMatchingConnectionMessage(
+					"Tasks",
+					input.account,
+					allConnections,
+				),
+			});
+		}
+		connections = [selected];
 	}
 
 	try {

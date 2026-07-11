@@ -19,9 +19,15 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runTasksTool, sanitizeTasksToolInput } from "./tasks";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/todoist", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/todoist")
@@ -303,6 +309,63 @@ describe("runTasksTool", () => {
 			"10",
 			"20",
 		]);
+	});
+
+	it("an account selector narrows aggregation to just the matching connection", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-1", label: "Todoist" }),
+			makeConn({ id: "conn-2", label: "Todoist (work)" }),
+		]);
+		todoistListTasksMock.mockImplementation(async (_userId, connectionId) => {
+			return connectionId === "conn-1"
+				? [
+						{
+							id: "10",
+							content: "Personal task",
+							description: "",
+							projectId: "2",
+							priority: 1,
+							url: "https://todoist.com/task/10",
+							labels: [],
+						},
+					]
+				: [
+						{
+							id: "20",
+							content: "Work task",
+							description: "",
+							projectId: "3",
+							priority: 1,
+							url: "https://todoist.com/task/20",
+							labels: [],
+						},
+					];
+		});
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks", account: "Todoist (work)" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.tasks.map((t) => t.id)).toEqual(["20"]);
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		resolveConnectionsForCapabilityMock.mockResolvedValue([
+			makeConn({ id: "conn-1", label: "Todoist" }),
+		]);
+
+		const outcome = await runTasksTool(
+			"user-1",
+			{ action: "list_tasks", account: "google" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Todoist");
+		expect(outcome.modelPayload.message).toContain('"google"');
+		expect(todoistListTasksMock).not.toHaveBeenCalled();
 	});
 
 	it("maps a Todoist needs_reauth error to a graceful failure message", async () => {

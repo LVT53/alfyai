@@ -110,9 +110,13 @@ class FakeImapClient implements ImapFlowLike {
 	async mailboxOpen(
 		path: string,
 		options?: { readOnly?: boolean },
-	): Promise<unknown> {
+	): Promise<{ exists?: number; uidValidity?: bigint }> {
 		this.mailboxOpenCalls.push({ path, options });
-		return (await this.behavior.mailboxOpen?.()) ?? { exists: 0 };
+		return (
+			((await this.behavior.mailboxOpen?.()) as
+				| { exists?: number; uidValidity?: bigint }
+				| undefined) ?? { exists: 0 }
+		);
 	}
 
 	async search(query: Record<string, unknown>): Promise<number[] | false> {

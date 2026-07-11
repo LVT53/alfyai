@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
+	nextcloudCheckVersioningEnabled,
 	nextcloudListFolder,
 	nextcloudReadFile,
 	nextcloudSearch,
@@ -18,7 +19,9 @@ import {
 } from "$lib/server/services/connections/providers/onedrive";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
@@ -32,7 +35,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
-import { truncateText } from "./shared";
+import { noMatchingConnectionMessage, truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
 	action: z.enum([
@@ -51,6 +54,13 @@ export const filesToolInputSchema = z.object({
 	// path segment changes). Ignored by every other action.
 	destinationPath: z.string().optional(),
 	content: z.string().optional(),
+	// Multi-connection disambiguation — target ONE specific Files connection
+	// when the user has more than one (e.g. both Nextcloud and OneDrive). A
+	// provider name ("nextcloud"), a connection label, or the account
+	// identifier all work — see selectConnection in resolve.ts. Omitted -> the
+	// usual default (see pickDefaultConnection): a read uses the first
+	// connection alphabetically; a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type FilesToolInput = z.infer<typeof filesToolInputSchema>;
@@ -64,6 +74,7 @@ export function sanitizeFilesToolInput(input: FilesToolInput): FilesToolInput {
 			? { destinationPath: input.destinationPath.trim() }
 			: {}),
 		...(input.content !== undefined ? { content: input.content } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -326,7 +337,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Files connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Files connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -603,16 +615,34 @@ async function saveOutcome(
 	const destructive = await wouldOverwrite(conn, secret, target.path);
 	const label = fileLabel(target.path);
 
+	// Fix 2 (write-safety hardening) — `reversible` must be TRUTHFUL: an
+	// overwrite is only actually recoverable if the connected Nextcloud
+	// server has its Versions app enabled. `null` (probe failed/inconclusive)
+	// is treated the same as "off" — conservative, never assumed safe.
+	const versioningStatus = await nextcloudCheckVersioningEnabled(conn, secret);
+	const reversible = versioningStatus === true;
+
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
 		action: "files.put",
 		summary: `Save ${label} to ${target.path}`,
-		reversible: true, // Nextcloud keeps versions/trash for overwritten files.
+		reversible,
 		destructive,
 		target: { path: target.path, withinAllowlist: target.withinAllowlist },
 	};
 	const preview = buildWritePreview(op);
+	// buildWritePreview already adds a generic "may not be recoverable"
+	// warning for any destructive && !reversible op — this appends the
+	// specific reason so the user knows WHY: no version history on the
+	// server (confirmed off) vs. simply couldn't confirm either way.
+	if (destructive && !reversible) {
+		preview.warnings.push(
+			versioningStatus === false
+				? "Nextcloud version history is off on this server, so this overwrite cannot be recovered."
+				: "Could not confirm whether this overwrite is recoverable (Nextcloud version history status unknown).",
+		);
+	}
 
 	const { id } = await createPendingWrite(userId, {
 		connectionId: conn.id,
@@ -1107,7 +1137,19 @@ export async function runFilesTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage("Files", input.account, connections),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: WRITE_ACTIONS.has(input.action),
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,

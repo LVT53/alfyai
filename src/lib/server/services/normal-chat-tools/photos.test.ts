@@ -22,10 +22,16 @@ import type { ConnectionPublic } from "$lib/server/services/connections/store";
 
 import { runPhotosTool, sanitizePhotosToolInput } from "./photos";
 
-vi.mock("$lib/server/services/connections/resolve", () => ({
-	resolveConnectionsForCapability: vi.fn(),
-	needsDisambiguation: vi.fn(),
-}));
+vi.mock("$lib/server/services/connections/resolve", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/connections/resolve")
+	>("$lib/server/services/connections/resolve");
+	return {
+		...actual,
+		resolveConnectionsForCapability: vi.fn(),
+		needsDisambiguation: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/immich")
@@ -167,6 +173,45 @@ describe("runPhotosTool", () => {
 		expect(outcome.modelPayload.message).toContain("Bob Photos");
 	});
 
+	it("account selector routes the search to the matching Immich connection", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Photos" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Photos" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+		immichSmartSearchMock.mockResolvedValue([]);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach", account: "Bob Photos" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(immichSmartSearchMock).toHaveBeenCalledWith(
+			"user-1",
+			"conn-b",
+			expect.objectContaining({ query: "beach" }),
+		);
+	});
+
+	it("an account selector matching nothing returns a graceful listing message", async () => {
+		const connA = makeConn({ id: "conn-a", label: "Alice Photos" });
+		const connB = makeConn({ id: "conn-b", label: "Bob Photos" });
+		resolveConnectionsForCapabilityMock.mockResolvedValue([connA, connB]);
+		needsDisambiguationMock.mockReturnValue(true);
+
+		const outcome = await runPhotosTool(
+			"user-1",
+			{ action: "search", query: "beach", account: "google" },
+			LOCAL_MODEL_ID,
+		);
+
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Alice Photos");
+		expect(outcome.modelPayload.message).toContain("Bob Photos");
+		expect(immichSmartSearchMock).not.toHaveBeenCalled();
+	});
+
 	it("search: requires a query", async () => {
 		const conn = makeConn();
 		resolveConnectionsForCapabilityMock.mockResolvedValue([conn]);
@@ -215,8 +260,16 @@ describe("runPhotosTool", () => {
 				type: "IMAGE",
 				place: "Malibu, California",
 				description: "Sunset at the beach",
+				imageUrl:
+					"/api/connections/immich/thumbnail/asset-1?connectionId=conn-1",
 			},
 		]);
+		// The imageUrl is the AUTHED per-user app proxy (Task 11a), never the
+		// raw Immich path (thumbnailPath, which stays candidates-only below) —
+		// the model gets a URL it can embed, not a route requiring the vault key.
+		expect(outcome.modelPayload.results[0]?.imageUrl).not.toContain(
+			"/api/assets/",
+		);
 		expect(outcome.modelPayload.citations).toEqual([
 			{ label: "beach.jpg", url: "" },
 		]);
@@ -342,6 +395,17 @@ describe("runPhotosTool — locality Option A distillation gate", () => {
 		expect(outcome.modelPayload.results[0]?.fileName).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.place).toBeUndefined();
 		expect(outcome.modelPayload.results[0]?.description).toBeUndefined();
+		// id/takenAt/imageUrl are structural (derived from the asset id the
+		// gate already preserves) and survive the distill gate — imageUrl
+		// reveals nothing beyond the id: the model never sees photo bytes, only
+		// a URL to the authed per-user proxy the client fetches through.
+		expect(outcome.modelPayload.results[0]?.id).toBe("asset-1");
+		expect(outcome.modelPayload.results[0]?.takenAt).toBe(
+			"2026-06-01T09:55:00.000Z",
+		);
+		expect(outcome.modelPayload.results[0]?.imageUrl).toBe(
+			"/api/connections/immich/thumbnail/asset-1?connectionId=conn-1",
+		);
 		expect(outcome.modelPayload.message).toContain(
 			"One photo of a person recovering after a medical procedure.",
 		);

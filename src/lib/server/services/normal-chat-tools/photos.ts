@@ -14,7 +14,9 @@ import {
 } from "$lib/server/services/connections/providers/immich";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
@@ -26,6 +28,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 export const photosToolInputSchema = z.object({
 	action: z.enum([
@@ -54,6 +57,13 @@ export const photosToolInputSchema = z.object({
 	// Write-action field (6.4) — ids the user is referring to from a prior
 	// search this turn/session (opaque Immich asset ids, never filenames).
 	assetIds: z.array(z.string()).optional(),
+	// Multi-connection disambiguation — target ONE specific Photos (Immich)
+	// connection when the user has more than one. A provider name ("immich"),
+	// a connection label, or the account identifier all work — see
+	// selectConnection in resolve.ts. Omitted -> the usual default (see
+	// pickDefaultConnection): a read uses the first connection alphabetically;
+	// a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type PhotosToolInput = z.infer<typeof photosToolInputSchema>;
@@ -78,6 +88,7 @@ export function sanitizePhotosToolInput(
 		...(input.assetIds !== undefined
 			? { assetIds: input.assetIds.map((id) => id.trim()).filter(Boolean) }
 			: {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -99,6 +110,16 @@ export type PhotoToolResultItem = {
 	type: "IMAGE" | "VIDEO";
 	place?: string;
 	description?: string;
+	// A renderable image URL the model can embed directly as markdown
+	// (`![caption](imageUrl)`) to SHOW the photo, not just describe it. Points
+	// at the AUTHED per-user app proxy (Task 11a,
+	// /api/connections/immich/thumbnail/[assetId]) — never the raw Immich
+	// path (that's `PhotoResult.thumbnailPath`, candidates-only, see
+	// toCandidate below). Structural, like `id`/`takenAt`: it's derived from
+	// `id` alone and carries no photo bytes, so it is intentionally NOT
+	// stripped by the locality Option-A distill gate below — see that gate's
+	// comment for the full reasoning.
+	imageUrl: string;
 };
 
 // Album/person discovery items (B1 list_albums / B6 list_people). Like
@@ -132,7 +153,26 @@ export type PhotosToolOutcome = {
 	candidates: ToolEvidenceCandidate[];
 };
 
-function toToolResultItem(photo: PhotoResult): PhotoToolResultItem {
+// The AUTHED per-user app proxy path (Task 11a) — NOT the raw Immich path
+// (`photo.thumbnailPath`, e.g. "/api/assets/{id}/thumbnail"). The proxy
+// resolves the caller's own connection/vault key server-side, so this is
+// safe to hand to the model as a plain relative URL string: only the id
+// (and, now, the connectionId) is disclosed, never a credential, and the
+// client (not the model) is what actually fetches the bytes when it renders
+// the markdown image. `connectionId` is REQUIRED (not optional) so a photo
+// result always resolves back to the SAME Immich connection it came from —
+// with more than one Immich connection, omitting it would let the proxy's
+// own "first Immich connection" fallback (see the route's doc comment)
+// silently resolve to the WRONG account's thumbnail for a result that came
+// from a different one.
+function thumbnailProxyUrl(assetId: string, connectionId: string): string {
+	return `/api/connections/immich/thumbnail/${assetId}?connectionId=${encodeURIComponent(connectionId)}`;
+}
+
+function toToolResultItem(
+	photo: PhotoResult,
+	conn: ConnectionPublic,
+): PhotoToolResultItem {
 	return {
 		id: photo.id,
 		fileName: photo.fileName,
@@ -140,6 +180,7 @@ function toToolResultItem(photo: PhotoResult): PhotoToolResultItem {
 		type: photo.type,
 		...(photo.place ? { place: photo.place } : {}),
 		...(photo.description ? { description: photo.description } : {}),
+		imageUrl: thumbnailProxyUrl(photo.id, conn.id),
 	};
 }
 
@@ -204,7 +245,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Photos connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Photos connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -240,7 +282,7 @@ function searchOutcome(
 	ambiguous: boolean,
 	connections: ConnectionPublic[],
 ): PhotosToolOutcome {
-	const items = photos.map(toToolResultItem);
+	const items = photos.map((photo) => toToolResultItem(photo, conn));
 	const citations: PhotoCitation[] = items.map((item) => ({
 		label: citationLabel(item),
 		url: "",
@@ -384,6 +426,17 @@ async function applyLocalDistillGate(params: {
 	});
 	if (!decision.shouldDistill) return outcome;
 
+	// `imageUrl` is deliberately NOT destructured out here, unlike
+	// fileName/place/description — it survives the gate alongside `id`/
+	// `takenAt`/`type`. Rationale: imageUrl is derived purely from
+	// `results[].id` (see thumbnailProxyUrl above), a value this gate already
+	// treats as structural and preserves; it adds no new information beyond
+	// that id. It also carries no photo BYTES — it's a same-origin URL to the
+	// authed per-user proxy (`/api/connections/immich/thumbnail/{id}`), which
+	// the *client* fetches when it renders the model's markdown image, using
+	// the caller's own session, never the model. So keeping imageUrl lets the
+	// model still SHOW a distilled photo (with a generic/takenAt caption)
+	// even when fileName/place/description have been withheld from it.
 	const strippedResults = outcome.modelPayload.results.map((item) => {
 		const {
 			fileName: _fileName,
@@ -556,7 +609,23 @@ export async function runPhotosTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage(
+				"Photos",
+				input.account,
+				connections,
+			),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: input.action === "add_to_album",
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,

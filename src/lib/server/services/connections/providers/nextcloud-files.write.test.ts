@@ -536,6 +536,133 @@ describe("nextcloudCreateShareLink", () => {
 	});
 });
 
+// Fix 2 (write-safety hardening) — the "reversible" flag files.ts's save
+// action puts on a WriteOperation is only truthful if Nextcloud's own
+// Versions app is actually enabled on the connected server; this probes the
+// OCS capabilities endpoint to find out. Pure/mocked-fetch only — no DB
+// needed.
+describe("nextcloudCheckVersioningEnabled (Fix 2 — truthful reversible flag)", () => {
+	it("GETs the OCS capabilities endpoint with OCS-APIRequest + basic auth, and returns true when files.versioning is enabled", async () => {
+		const { nextcloudCheckVersioningEnabled } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				expect(String(input)).toBe(
+					"https://cloud.example.com/ocs/v2.php/cloud/capabilities?format=json",
+				);
+				const headers = new Headers(init?.headers);
+				expect(headers.get("OCS-APIRequest")).toBe("true");
+				expect(headers.get("Authorization")).toBe(
+					`Basic ${Buffer.from("alice:app-password-xyz").toString("base64")}`,
+				);
+				return new Response(
+					JSON.stringify({
+						ocs: {
+							meta: { status: "ok", statuscode: 200 },
+							data: { capabilities: { files: { versioning: true } } },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			},
+		);
+
+		const result = await nextcloudCheckVersioningEnabled(
+			conn,
+			"app-password-xyz",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toBe(true);
+	});
+
+	it("returns false when files.versioning is explicitly disabled", async () => {
+		const { nextcloudCheckVersioningEnabled } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ocs: {
+							meta: { status: "ok", statuscode: 200 },
+							data: { capabilities: { files: { versioning: false } } },
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		);
+
+		const result = await nextcloudCheckVersioningEnabled(
+			conn,
+			"app-password-xyz",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toBe(false);
+	});
+
+	it("returns null (unknown) when the server responds with a non-2xx status — never assumes true", async () => {
+		const { nextcloudCheckVersioningEnabled } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
+
+		const result = await nextcloudCheckVersioningEnabled(
+			conn,
+			"app-password-xyz",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null (unknown) when the response body doesn't carry a boolean files.versioning capability", async () => {
+		const { nextcloudCheckVersioningEnabled } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ ocs: { data: { capabilities: {} } } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+		);
+
+		const result = await nextcloudCheckVersioningEnabled(
+			conn,
+			"app-password-xyz",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toBeNull();
+	});
+
+	it("returns null (unknown) rather than throwing when the fetch itself rejects", async () => {
+		const { nextcloudCheckVersioningEnabled } = await import(
+			"./nextcloud-files"
+		);
+		const conn = makeConn();
+		const fetchMock = vi.fn(async () => {
+			throw new Error("network down");
+		});
+
+		const result = await nextcloudCheckVersioningEnabled(
+			conn,
+			"app-password-xyz",
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+
+		expect(result).toBeNull();
+	});
+});
+
 // ---------------------------------------------------------------------------
 // executeNextcloudWrite — guarded service tests. These need a real (sqlite)
 // store since the function loads the connection + decrypts the secret via

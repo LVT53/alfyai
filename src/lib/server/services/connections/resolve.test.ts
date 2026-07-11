@@ -322,6 +322,237 @@ describe("getDefaultOnCapabilities", () => {
 	});
 });
 
+describe("selectConnection", () => {
+	it("returns null when no selector is given", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Personal Google",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(selectConnection([conn], undefined)).toBeNull();
+		expect(selectConnection([conn], null)).toBeNull();
+		expect(selectConnection([conn], "")).toBeNull();
+		expect(selectConnection([conn], "   ")).toBeNull();
+	});
+
+	it("matches by provider case-insensitively", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "me@icloud.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "me@gmail.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(selectConnection([apple, google], "GOOGLE")).toEqual(google);
+		expect(selectConnection([apple, google], "google")).toEqual(google);
+	});
+
+	it("matches by label case-insensitively", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "me@icloud.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work Google",
+			accountIdentifier: "work@gmail.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(selectConnection([apple, google], "apple icloud")).toEqual(apple);
+	});
+
+	it("matches by accountIdentifier substring", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			accountIdentifier: "me@icloud.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work Google",
+			accountIdentifier: "work@gmail.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(selectConnection([apple, google], "work@gmail.com")).toEqual(google);
+		expect(selectConnection([apple, google], "icloud.com")).toEqual(apple);
+	});
+
+	it("prefers an exact provider/label match over a substring match", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		// Label "Google Work" CONTAINS "google", but a connection whose
+		// provider is exactly "google" should still win over the substring hit.
+		const labelContainsGoogle = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Google Work Notes",
+			accountIdentifier: "notes@icloud.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const exactProviderGoogle = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Personal",
+			accountIdentifier: "me@gmail.com",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(
+			selectConnection([labelContainsGoogle, exactProviderGoogle], "google"),
+		).toEqual(exactProviderGoogle);
+	});
+
+	it("returns null when the selector matches no connection", async () => {
+		const { selectConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		expect(selectConnection([conn], "microsoft")).toBeNull();
+	});
+});
+
+describe("pickDefaultConnection", () => {
+	it("returns null for an empty list", async () => {
+		const { pickDefaultConnection } = await import("./resolve");
+		expect(pickDefaultConnection([])).toBeNull();
+	});
+
+	it("returns the first connection (alphabetical, from resolveConnectionsForCapability) when not forWrite", async () => {
+		const { pickDefaultConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			status: "connected",
+			allowWrites: false,
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			allowWrites: true,
+			capabilities: ["calendar"],
+		});
+
+		expect(pickDefaultConnection([apple, google])).toEqual(apple);
+	});
+
+	it("prefers a writes-enabled connection when forWrite is true", async () => {
+		const { pickDefaultConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		// Apple sorts first alphabetically but has writes off; Google has
+		// writes on. This is the exact scenario from the surfaced bug.
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			status: "connected",
+			allowWrites: false,
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			allowWrites: true,
+			capabilities: ["calendar"],
+		});
+
+		expect(pickDefaultConnection([apple, google], { forWrite: true })).toEqual(
+			google,
+		);
+	});
+
+	it("falls back to the first connection when forWrite is true but none are writable", async () => {
+		const { pickDefaultConnection } = await import("./resolve");
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			status: "connected",
+			allowWrites: false,
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			status: "connected",
+			allowWrites: false,
+			capabilities: ["calendar"],
+		});
+
+		expect(pickDefaultConnection([apple, google], { forWrite: true })).toEqual(
+			apple,
+		);
+	});
+});
+
 describe("resolveActiveCapabilities", () => {
 	it("fails closed: drops a requested capability the user does not serve", async () => {
 		const { createConnection } = await import("./store");

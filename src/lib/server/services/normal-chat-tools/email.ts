@@ -6,6 +6,7 @@ import {
 	ImapError,
 	type ImapFolder,
 	imapCount,
+	imapGetInboxUidValidity,
 	imapListFolders,
 	imapListRecent,
 	imapReadMessage,
@@ -13,7 +14,9 @@ import {
 } from "$lib/server/services/connections/providers/imap";
 import {
 	needsDisambiguation,
+	pickDefaultConnection,
 	resolveConnectionsForCapability,
+	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
@@ -25,6 +28,7 @@ import {
 import type { ToolEvidenceCandidate } from "$lib/types";
 
 import { decideLocalDistill } from "./connector-distill";
+import { noMatchingConnectionMessage } from "./shared";
 
 export const emailToolInputSchema = z.object({
 	action: z.enum([
@@ -64,6 +68,13 @@ export const emailToolInputSchema = z.object({
 	inReplyTo: z.string().optional(),
 	flag: z.enum(["seen", "flagged"]).optional(),
 	value: z.boolean().optional(),
+	// Multi-connection disambiguation — target ONE specific Email (IMAP)
+	// connection when the user has more than one mailbox connected. A
+	// provider name, a connection label, or the account identifier (email
+	// address) all work — see selectConnection in resolve.ts. Omitted -> the
+	// usual default (see pickDefaultConnection): a read uses the first
+	// connection alphabetically; a write prefers a writes-enabled connection.
+	account: z.string().optional(),
 });
 
 export type EmailToolInput = z.infer<typeof emailToolInputSchema>;
@@ -85,6 +96,7 @@ export function sanitizeEmailToolInput(input: EmailToolInput): EmailToolInput {
 		...(input.inReplyTo ? { inReplyTo: input.inReplyTo.trim() } : {}),
 		...(input.flag ? { flag: input.flag } : {}),
 		...(input.value !== undefined ? { value: input.value } : {}),
+		...(input.account ? { account: input.account.trim() } : {}),
 	};
 }
 
@@ -233,7 +245,8 @@ function ambiguityNote(
 	connections: ConnectionPublic[],
 ): string {
 	const labels = connections.map((c) => c.label).join(", ");
-	return `You have ${connections.length} Email connections (${labels}); using "${conn.label}" for this request.`;
+	const other = connections.find((c) => c.id !== conn.id);
+	return `You have ${connections.length} Email connections (${labels}); using "${conn.label}" for this request.${other ? ` Pass account:"${other.label}" to use ${other.label} instead.` : ""}`;
 }
 
 function withAmbiguityPrefix(
@@ -637,11 +650,18 @@ async function proposeTrash(
 	}
 
 	let subject: string;
+	let uidValidity: string | null;
 	try {
-		const { header } = await imapReadMessage(userId, conn.id, {
-			uid: input.uid,
-		});
+		// Fix 3 (write-safety hardening) — UIDVALIDITY binding: capture
+		// INBOX's current UIDVALIDITY alongside the header fetch, so
+		// imap-write.ts can refuse to act on `uid` at execute time if the
+		// epoch has since changed (see imapGetInboxUidValidity's doc comment).
+		const [{ header }, capturedUidValidity] = await Promise.all([
+			imapReadMessage(userId, conn.id, { uid: input.uid }),
+			imapGetInboxUidValidity(userId, conn.id),
+		]);
 		subject = header.subject || "(no subject)";
+		uidValidity = capturedUidValidity;
 	} catch (err) {
 		return buildPayload({
 			success: false,
@@ -665,7 +685,10 @@ async function proposeTrash(
 		connectionId: conn.id,
 		provider: conn.provider,
 		op,
-		content: JSON.stringify({ uid: input.uid }),
+		content: JSON.stringify({
+			uid: input.uid,
+			...(uidValidity !== null ? { uidValidity } : {}),
+		}),
 		idempotencyKey: idempotencyKey(op),
 		// The DB row keeps the RAW preview (real subject) — never sent back
 		// through the model; only the copy below is.
@@ -731,6 +754,21 @@ async function proposeFlag(
 		});
 	}
 
+	// Fix 3 (write-safety hardening) — UIDVALIDITY binding, same rationale as
+	// proposeTrash above. A flag change has no other reason to open a
+	// connection at propose time, but the safety property needs this capture
+	// regardless.
+	let uidValidity: string | null;
+	try {
+		uidValidity = await imapGetInboxUidValidity(userId, conn.id);
+	} catch (err) {
+		return buildPayload({
+			success: false,
+			action: "flag",
+			message: mapAdapterError(err),
+		});
+	}
+
 	const op: WriteOperation = {
 		provider: conn.provider,
 		connectionId: conn.id,
@@ -750,6 +788,7 @@ async function proposeFlag(
 			uid: input.uid,
 			flag: input.flag,
 			value: input.value,
+			...(uidValidity !== null ? { uidValidity } : {}),
 		}),
 		idempotencyKey: idempotencyKey(op),
 		preview,
@@ -867,7 +906,19 @@ export async function runEmailTool(
 	}
 
 	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
+	const selected = selectConnection(connections, input.account);
+	if (input.account && !selected) {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage("Email", input.account, connections),
+		});
+	}
+	const conn =
+		selected ??
+		pickDefaultConnection(connections, {
+			forWrite: isEmailWriteAction(input.action),
+		});
 	if (!conn) {
 		return buildPayload({
 			success: false,
