@@ -1,96 +1,54 @@
 import { randomUUID } from "node:crypto";
-import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import {
 	appendDeliberationBriefsToInput,
-	runNormalChatDeliberationPasses,
-	shouldRunDeliberationPasses,
 	sumUsage,
 	verifyAndRepairDeliberatedFinalAnswer,
 } from "$lib/server/services/chat-turn/deliberation-runner";
 import {
-	type DepthClarificationClassifier,
-	evaluateDepthClarificationGate,
-} from "$lib/server/services/chat-turn/depth-clarification";
-import {
-	selectNormalChatToolsForRequest,
-	shouldExposeFileProductionTools,
-} from "$lib/server/services/chat-turn/normal-chat-tool-gating";
-import {
 	buildReasoningDepthProviderOptions,
-	resolveReasoningDepthEffort,
 	withReasoningDepthPreparedBudget,
 } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
+	type ActiveDepthEffort,
+	type ClarificationDecision,
 	createRequestAbortSignal,
+	createToolPack,
+	evaluateClarification,
 	isEvidenceReadyToolCall,
-	resolvePromptContextLimits,
-	resolvePromptModelConfig,
+	type NormalChatSendModelBaseParams,
+	type PreparedModelContext,
+	type ProviderRuntime,
+	prepareOutboundContext,
+	resolveActiveDepthEffort,
+	resolveProviderRuntime,
+	runDeliberationIfNeeded,
+	type ToolPack,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import type { Capability } from "$lib/server/services/connections/registry";
 import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
-import { detectLanguage } from "$lib/server/services/language";
-import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
-import {
-	type AuthenticatedPromptUser,
-	prepareOutboundChatContext,
-} from "$lib/server/services/normal-chat-context";
-import {
-	createNormalChatContextPreparationActivityHandler,
-	type NormalChatContextPreparationActivity,
-	type NormalChatContextPreparationStageTiming,
-} from "$lib/server/services/normal-chat-context-preparation";
+import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import {
 	buildNormalChatModelRunProviderOptions,
 	mapNormalChatModelRunUsageToProviderSnapshot,
 	type NormalChatModelRunProvider,
-	resolveNormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
-import {
-	createNormalChatTools,
-	createToolCallRecorder,
-} from "$lib/server/services/normal-chat-tools";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
 	ModelId,
 	TaskState,
-	ThinkingMode,
 	ToolCallEntry,
 } from "$lib/types";
 
-export type PlainNormalChatSendModelParams = {
-	userId: string;
-	runtimeConfig: RuntimeConfig;
-	message: string;
-	conversationId: string;
-	modelId: ModelId | undefined;
-	user?: AuthenticatedPromptUser;
-	attachmentIds?: string[];
-	activeDocumentArtifactId?: string;
-	attachmentTraceId?: string;
-	systemPromptAppendix?: string;
-	personalityPrompt?: string;
-	thinkingMode?: ThinkingMode;
-	depthMetadata?: DepthMetadata;
-	forceWebSearch?: boolean;
-	enabledConnectionCapabilities?: string[];
-	createTurnId?: () => string;
-	signal?: AbortSignal;
-	disableTools?: boolean;
-	forceProduceFileTool?: boolean;
-	depthClarificationClassifier?: DepthClarificationClassifier;
-	overrideProvider?: NormalChatModelRunProvider;
-	onContextPreparationActivity?: (
-		activity: NormalChatContextPreparationActivity,
-	) => void;
-	onResponseActivity?: (
-		entry: import("$lib/types").ResponseActivityEntry,
-	) => void;
+export type PlainNormalChatSendModelParams = NormalChatSendModelBaseParams & {
+	// disableTools / forceProduceFileTool are inherited from the base type;
+	// they are plain-only options but typed on the shared base so the shared
+	// six-step helpers can read them uniformly.
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -110,40 +68,11 @@ export type PlainNormalChatSendModelResult = {
 	depthMetadata?: DepthMetadata;
 };
 
-type PreparedModelContext = Awaited<
-	ReturnType<typeof prepareOutboundChatContext>
->;
-
-type DepthEffort = Awaited<
-	ReturnType<typeof resolveReasoningDepthEffort>
-> | null;
-type NormalChatModelTools = Partial<
-	ReturnType<typeof createNormalChatTools>["tools"]
->;
-
-type ClarificationDecision = Awaited<
-	ReturnType<typeof evaluateDepthClarificationGate>
->;
-
-type ProviderRuntime = {
-	modelId: ModelId;
-	provider: NormalChatModelRunProvider;
-	modelConfig: ReturnType<typeof resolvePromptModelConfig>;
-	baseContextLimits: NonNullable<ReturnType<typeof resolvePromptContextLimits>>;
-	depthEffort: DepthEffort;
-};
-
-type ToolPack = {
-	tools: NormalChatModelTools | undefined;
-	recorder: ReturnType<typeof createToolCallRecorder>;
-	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
-};
-
 type ModelRunParams = {
 	params: PlainNormalChatSendModelParams;
 	runtime: ProviderRuntime;
 	prepared: PreparedModelContext;
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>;
+	activeDepthEffort: ActiveDepthEffort | null;
 	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>;
 	tools: ToolPack["tools"];
 };
@@ -153,7 +82,7 @@ type BuildResultInput = {
 	clarification: ClarificationDecision;
 	runtime: ProviderRuntime;
 	prepared: PreparedModelContext;
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>;
+	activeDepthEffort: ActiveDepthEffort | null;
 	result: Awaited<ReturnType<typeof runPlainNormalChatModelRun>>;
 	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>;
 	finalAnswerRepair: Awaited<ReturnType<typeof maybeRepairFinalAnswer>>;
@@ -240,53 +169,6 @@ export async function runPlainNormalChatSendModel(
 	});
 }
 
-async function resolveProviderRuntime(
-	params: PlainNormalChatSendModelParams,
-): Promise<ProviderRuntime> {
-	const modelId = params.modelId ?? "model1";
-	const provider =
-		params.overrideProvider ??
-		(await resolveNormalChatModelRunProvider(modelId, params.runtimeConfig));
-	const modelConfig = resolvePromptModelConfig({
-		modelId,
-		provider,
-		runtimeConfig: params.runtimeConfig,
-	});
-	const baseContextLimits = resolvePromptContextLimits({
-		modelId,
-		provider,
-		runtimeConfig: params.runtimeConfig,
-	});
-	const depthEffort = params.depthMetadata
-		? resolveReasoningDepthEffort({
-				depthMetadata: params.depthMetadata,
-				provider,
-				baseContextLimits,
-				configuredMaxOutputTokens: modelConfig.maxTokens,
-				forceWebSearch: params.forceWebSearch,
-			})
-		: null;
-
-	return {
-		modelId,
-		provider,
-		modelConfig,
-		baseContextLimits,
-		depthEffort,
-	};
-}
-
-async function evaluateClarification(
-	params: PlainNormalChatSendModelParams,
-	depthEffort: DepthEffort,
-): Promise<ClarificationDecision> {
-	return evaluateDepthClarificationGate({
-		message: params.message,
-		depthMetadata: depthEffort?.depthMetadata ?? params.depthMetadata,
-		classifier: params.depthClarificationClassifier,
-	});
-}
-
 function buildClarificationResult(
 	runtime: ProviderRuntime,
 	clarification: ClarificationDecision,
@@ -321,130 +203,6 @@ function buildClarificationResult(
 		resolvedProviderId: runtime.provider.id,
 		depthMetadata: clarification.depthMetadata,
 	};
-}
-
-function resolveActiveDepthEffort(
-	depthEffort: DepthEffort,
-	clarification: ClarificationDecision,
-) {
-	return depthEffort
-		? {
-				...depthEffort,
-				depthMetadata: clarification.depthMetadata ?? depthEffort.depthMetadata,
-			}
-		: null;
-}
-
-async function prepareOutboundContext(
-	params: PlainNormalChatSendModelParams,
-	runtime: ProviderRuntime,
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
-	enabledConnectionCapabilities: Set<Capability>,
-): Promise<PreparedModelContext> {
-	return prepareOutboundChatContext({
-		message: params.message,
-		sessionId: params.conversationId,
-		modelConfig: activeDepthEffort
-			? {
-					...runtime.modelConfig,
-					maxTokens: activeDepthEffort.modelMaxOutputTokens,
-				}
-			: runtime.modelConfig,
-		user: params.user,
-		attachmentIds: params.attachmentIds,
-		activeDocumentArtifactId: params.activeDocumentArtifactId,
-		attachmentTraceId: params.attachmentTraceId,
-		systemPromptAppendix: params.systemPromptAppendix,
-		personalityPrompt: params.personalityPrompt,
-		forceWebSearch: params.forceWebSearch,
-		fileProductionToolsAvailable:
-			!params.disableTools &&
-			shouldExposeFileProductionTools({
-				message: params.message,
-				forceProduceFileTool: params.forceProduceFileTool,
-			}),
-		modelId: runtime.modelId,
-		contextLimits:
-			activeDepthEffort?.contextLimits ?? runtime.baseContextLimits,
-		reasoningDepthEffort: activeDepthEffort ?? undefined,
-		activeConnectionCapabilities: enabledConnectionCapabilities,
-		onContextPreparationActivity:
-			createNormalChatContextPreparationActivityHandler(params),
-		logLabel: "provider request",
-	});
-}
-
-async function createToolPack(
-	params: PlainNormalChatSendModelParams,
-	turnId: string,
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
-	modelId: ModelId,
-	enabledConnectionCapabilities: Set<Capability>,
-): Promise<ToolPack> {
-	const normalChatTools = createNormalChatTools({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		turnId,
-		language: detectLanguage(params.message),
-		enabledConnectionCapabilities,
-		modelId,
-		...(activeDepthEffort
-			? { webSourceBudget: activeDepthEffort.webSourceBudget }
-			: {}),
-	});
-
-	// Read-side master gate for the recall tool. Single source of truth; fail
-	// open (active) so a controls-lookup hiccup never silently drops recall.
-	const memoryActive = params.disableTools
-		? false
-		: await isMemoryActiveForConversation({
-				userId: params.userId,
-				conversationId: params.conversationId,
-			}).catch(() => true);
-
-	return {
-		tools: params.disableTools
-			? undefined
-			: selectNormalChatToolsForRequest(normalChatTools.tools, {
-					message: params.message,
-					forceProduceFileTool: params.forceProduceFileTool,
-					memoryActive,
-				}),
-		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
-		getToolCalls: normalChatTools.getToolCalls,
-	};
-}
-
-async function runDeliberationIfNeeded(
-	params: PlainNormalChatSendModelParams,
-	runtime: ProviderRuntime,
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
-	prepared: PreparedModelContext,
-	turnId: string,
-	recorder: ReturnType<typeof createToolCallRecorder>,
-) {
-	if (!activeDepthEffort || params.disableTools) return null;
-	if (!shouldRunDeliberationPasses(activeDepthEffort)) return null;
-
-	return runNormalChatDeliberationPasses({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		modelId: runtime.modelId,
-		runtimeConfig: params.runtimeConfig,
-		provider: runtime.provider,
-		depthEffort: activeDepthEffort,
-		preparedInputValue: prepared.inputValue,
-		preparedSystemPrompt: prepared.systemPrompt,
-		user: params.user,
-		language: detectLanguage(params.message),
-		turnId,
-		recorder,
-		onStatus: params.onResponseActivity,
-		abortSignal: createRequestAbortSignal(
-			params.runtimeConfig.requestTimeoutMs,
-			params.signal,
-		),
-	});
 }
 
 async function runPlainModelRun(params: ModelRunParams) {
@@ -499,7 +257,7 @@ async function maybeRepairFinalAnswer(
 	params: PlainNormalChatSendModelParams,
 	prepared: PreparedModelContext,
 	runtimeProvider: NormalChatModelRunProvider,
-	activeDepthEffort: ReturnType<typeof resolveActiveDepthEffort>,
+	activeDepthEffort: ActiveDepthEffort | null,
 	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>,
 ) {
 	if (!deliberation || !activeDepthEffort) return null;
