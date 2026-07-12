@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
+import { requireApiUser } from "$lib/server/api/auth";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
 import {
 	OwnTracksError,
 	owntracksListDevices,
@@ -14,8 +15,7 @@ import type { RequestHandler } from "./$types";
 // later, at read time, by owntracksLastLocation/owntracksLocationHistory —
 // not by restricting this list.
 export const GET: RequestHandler = async (event) => {
-	requireAuth(event);
-	const user = event.locals.user;
+	const user = requireApiUser(event);
 
 	try {
 		const devices = await owntracksListDevices(user.id);
@@ -25,14 +25,11 @@ export const GET: RequestHandler = async (event) => {
 			err instanceof OwnTracksError && err.code === "not_configured"
 				? 409
 				: 502;
-		return json(
-			{
-				error:
-					err instanceof OwnTracksError
-						? err.message
-						: "Failed to list OwnTracks devices",
-			},
-			{ status },
+		return createJsonErrorResponse(
+			err instanceof OwnTracksError
+				? err.message
+				: "Failed to list OwnTracks devices",
+			status,
 		);
 	}
 };

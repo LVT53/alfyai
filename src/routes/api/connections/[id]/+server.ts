@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
+import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	type Capability,
 	PROVIDER_META,
@@ -37,14 +38,15 @@ const MAX_WRITE_ALLOWLIST_ENTRIES = 20;
 // getConnection(userId, id) first so another user's connection id 404s
 // instead of leaking existence or allowing a cross-user mutation.
 export const PATCH: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
-	const connection = await getConnection(userId, id);
-	if (!connection) {
-		return createJsonErrorResponse("Connection not found", 404);
+	const owned = await requireOwnedConnection(userId, id);
+	if (!owned.ok) {
+		return owned.response;
 	}
+	const connection = owned.connection;
 
 	let body: PatchBody;
 	try {
@@ -139,8 +141,8 @@ export const PATCH: RequestHandler = async (event) => {
 // DELETE /api/connections/[id] — disconnects (removes) one of the caller's
 // connections. 404 for a missing or another user's id.
 export const DELETE: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
 	const deleted = await deleteConnection(userId, id);

@@ -1,4 +1,3 @@
-import { redirect } from "@sveltejs/kit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Route-level test for GET /api/connections/immich/thumbnail/[assetId] —
@@ -10,10 +9,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // getConnection-first-then-404 convention from nextcloud-folders.test.ts /
 // owntracks-home.test.ts, plus the "propagates auth redirects" convention
 // from conversations/[id]/conversation-detail.test.ts.
-
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
 
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnection: vi.fn(),
@@ -38,7 +33,6 @@ vi.mock("$lib/server/services/connections/providers/immich", () => {
 	};
 });
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	ImmichError,
 	immichThumbnail,
@@ -47,7 +41,6 @@ import { resolveConnectionsForCapability } from "$lib/server/services/connection
 import { getConnection } from "$lib/server/services/connections/store";
 import { GET } from "./+server";
 
-const mockRequireAuth = vi.mocked(requireAuth);
 const mockGetConnection = vi.mocked(getConnection);
 const mockResolveConnectionsForCapability = vi.mocked(
 	resolveConnectionsForCapability,
@@ -100,7 +93,6 @@ function makeEvent(opts?: {
 describe("GET /api/connections/immich/thumbnail/[assetId]", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockResolveConnectionsForCapability.mockResolvedValue([
 			ownerImmichConnection,
 		]);
@@ -132,20 +124,9 @@ describe("GET /api/connections/immich/thumbnail/[assetId]", () => {
 		);
 	});
 
-	it("propagates authentication redirects for anonymous callers instead of leaking bytes", async () => {
-		let redirectError: unknown;
-		try {
-			redirect(302, "/login");
-		} catch (err) {
-			redirectError = err;
-		}
-		mockRequireAuth.mockImplementation(() => {
-			throw redirectError;
-		});
-
+	it("returns 401 (not a 302 redirect) for anonymous callers instead of leaking bytes", async () => {
 		await expect(GET(makeEvent({ userId: null }))).rejects.toMatchObject({
-			status: 302,
-			location: "/login",
+			status: 401,
 		});
 		expect(mockImmichThumbnail).not.toHaveBeenCalled();
 	});

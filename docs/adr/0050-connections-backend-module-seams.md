@@ -117,6 +117,24 @@ suites) now trigger registration by side-effect-importing the merged read module
 behavior stays fully covered — the `*-write.test.ts` files were kept and repointed, not
 deleted.
 
+## Route Seams  *(slice D1)*
+
+**Decision:** The connection route handlers share four seams (in `src/lib/server/api/`):
+`requireApiUser(event)` (throws SvelteKit `error(401)` → 401 JSON), `mapConnectError(err)`
+(the one provider-error→status ladder), `handleCredentialConnect(...)` /
+`handleOAuthConnectStart(...)` (the credential and OAuth start families — the
+google/onedrive byte-for-byte twins collapse here), and `requireOwnedConnection(userId,
+id, {guard})` (user-scoped fetch + 404 + optional provider-guard). Error responses
+standardize on the single `createJsonErrorResponse` `{error}` helper; `isCapability` is
+declared once.
+
+**Deliberate behavior change:** `/api/connections/**` now returns **401 JSON** for
+unauthenticated requests instead of a 302 redirect to `/login` (the page-load `requireAuth`
+in `auth/hooks.ts` is unchanged). Pinned by tests.
+
+**Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
+extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).
+
 
 
 

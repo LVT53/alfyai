@@ -1,5 +1,4 @@
-import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
+import { handleCredentialConnect } from "$lib/server/api/connect";
 import {
 	OwnTracksError,
 	owntracksConnect,
@@ -11,52 +10,30 @@ import type { RequestHandler } from "./$types";
 // token/password is ever accepted here: the recorder is admin-configured
 // server-side (OWNTRACKS_RECORDER_URL, see config-store.ts), so there is
 // nothing secret for this route to receive or store.
-export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const user = event.locals.user;
-
-	let body: {
-		otUser?: unknown;
-		otDevice?: unknown;
-		label?: unknown;
-	};
-	try {
-		body = await event.request.json();
-	} catch {
-		return json({ error: "Invalid JSON" }, { status: 400 });
-	}
-
-	const otUser = typeof body.otUser === "string" ? body.otUser.trim() : "";
-	const otDevice =
-		typeof body.otDevice === "string" ? body.otDevice.trim() : "";
-	const label = typeof body.label === "string" ? body.label.trim() : undefined;
-	if (!otUser || !otDevice) {
-		return json({ error: "otUser and otDevice are required" }, { status: 400 });
-	}
-
-	try {
-		const result = await owntracksConnect({
-			userId: user.id,
-			otUser,
-			otDevice,
-			...(label ? { label } : {}),
-		});
-		return json(result);
-	} catch (err) {
-		const status =
-			err instanceof OwnTracksError && err.code === "not_configured"
-				? 409
-				: err instanceof OwnTracksError && err.code === "invalid_config"
-					? 400
-					: 502;
-		return json(
-			{
-				error:
-					err instanceof OwnTracksError
-						? err.message
-						: "Failed to connect to OwnTracks",
-			},
-			{ status },
-		);
-	}
-};
+export const POST: RequestHandler = (event) =>
+	handleCredentialConnect({
+		event,
+		errorType: OwnTracksError,
+		fallbackError: "Failed to connect to OwnTracks",
+		// not_configured (no recorder configured server-side) is a 409 here; the
+		// base ladder handles invalid_config -> 400 and everything else -> 502.
+		errorStatusOverrides: { not_configured: 409 },
+		parse: (body) => {
+			const otUser = typeof body.otUser === "string" ? body.otUser.trim() : "";
+			const otDevice =
+				typeof body.otDevice === "string" ? body.otDevice.trim() : "";
+			const label =
+				typeof body.label === "string" ? body.label.trim() : undefined;
+			if (!otUser || !otDevice) {
+				return { ok: false, error: "otUser and otDevice are required" };
+			}
+			return { ok: true, value: { otUser, otDevice, label } };
+		},
+		connect: ({ userId, value }) =>
+			owntracksConnect({
+				userId,
+				otUser: value.otUser,
+				otDevice: value.otDevice,
+				...(value.label ? { label: value.label } : {}),
+			}),
+	});

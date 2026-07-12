@@ -1,12 +1,12 @@
+import { requireApiUser } from "$lib/server/api/auth";
+import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	ImmichError,
 	type ImmichErrorCode,
 	immichThumbnail,
 } from "$lib/server/services/connections/providers/immich";
 import { resolveConnectionsForCapability } from "$lib/server/services/connections/resolve";
-import { getConnection } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
 // Immich asset ids are UUIDs in production; test fixtures elsewhere in the
@@ -45,8 +45,8 @@ const IMMICH_ERROR_STATUS: Partial<Record<ImmichErrorCode, number>> = {
 // Immich connection is picked via resolveConnectionsForCapability, which is
 // likewise scoped by userId (mirrors the enable-writes route's lookup).
 export const GET: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 
 	const assetId = event.params.assetId;
 	if (!assetId || !SAFE_ASSET_ID.test(assetId)) {
@@ -57,11 +57,19 @@ export const GET: RequestHandler = async (event) => {
 
 	let connectionId: string;
 	if (requestedConnectionId) {
-		const connection = await getConnection(userId, requestedConnectionId);
-		if (!connection || connection.provider !== "immich") {
-			return createJsonErrorResponse("Immich connection not found", 404);
+		// A wrong-provider or another-user's / missing id both collapse to the
+		// same 404 "Immich connection not found" here (mismatchStatus: 404) so
+		// existence is never leaked and the message stays uniform.
+		const owned = await requireOwnedConnection(userId, requestedConnectionId, {
+			guard: (connection) => connection.provider === "immich",
+			notFoundMessage: "Immich connection not found",
+			mismatchMessage: "Immich connection not found",
+			mismatchStatus: 404,
+		});
+		if (!owned.ok) {
+			return owned.response;
 		}
-		connectionId = connection.id;
+		connectionId = owned.connection.id;
 	} else {
 		const connections = await resolveConnectionsForCapability(userId, "photos");
 		const connection = connections.find((c) => c.provider === "immich");

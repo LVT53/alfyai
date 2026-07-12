@@ -1,22 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
 	setLocalDistillEnabled: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	hasLocalDistillEnabled,
 	setLocalDistillEnabled,
 } from "$lib/server/services/connections/locality";
 import { GET, PATCH } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockHasLocalDistillEnabled = hasLocalDistillEnabled as ReturnType<
 	typeof vi.fn
 >;
@@ -50,13 +44,19 @@ function makePatchEvent(body: unknown, userId = "owner-user") {
 describe("GET /api/connections/locality", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockHasLocalDistillEnabled.mockResolvedValue(false);
 	});
 
-	it("requires auth", async () => {
-		await GET(makeGetEvent());
-		expect(mockRequireAuth).toHaveBeenCalled();
+	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
+		const event = {
+			request: new Request("http://localhost/api/connections/locality"),
+			locals: { user: null },
+			params: {},
+			url: new URL("http://localhost/api/connections/locality"),
+			route: { id: "/api/connections/locality" },
+		} as Parameters<typeof GET>[0];
+		await expect(GET(event)).rejects.toMatchObject({ status: 401 });
+		expect(mockHasLocalDistillEnabled).not.toHaveBeenCalled();
 	});
 
 	it("returns the caller's local-distill preference", async () => {
@@ -74,13 +74,22 @@ describe("GET /api/connections/locality", () => {
 describe("PATCH /api/connections/locality", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockSetLocalDistillEnabled.mockResolvedValue(undefined);
 	});
 
-	it("requires auth", async () => {
-		await PATCH(makePatchEvent({ localDistill: true }));
-		expect(mockRequireAuth).toHaveBeenCalled();
+	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
+		const event = {
+			request: new Request("http://localhost/api/connections/locality", {
+				method: "PATCH",
+				body: JSON.stringify({ localDistill: true }),
+			}),
+			locals: { user: null },
+			params: {},
+			url: new URL("http://localhost/api/connections/locality"),
+			route: { id: "/api/connections/locality" },
+		} as Parameters<typeof PATCH>[0];
+		await expect(PATCH(event)).rejects.toMatchObject({ status: 401 });
+		expect(mockSetLocalDistillEnabled).not.toHaveBeenCalled();
 	});
 
 	it("400s on invalid JSON", async () => {

@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/store", () => ({
 	listConnectionsForUser: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import { listConnectionsForUser } from "$lib/server/services/connections/store";
 import { GET } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockListConnectionsForUser = listConnectionsForUser as ReturnType<
 	typeof vi.fn
 >;
@@ -51,13 +45,19 @@ const secretlessConnection = {
 describe("GET /api/connections", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockListConnectionsForUser.mockResolvedValue([]);
 	});
 
-	it("requires auth", async () => {
-		await GET(makeEvent());
-		expect(mockRequireAuth).toHaveBeenCalled();
+	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
+		const event = {
+			request: new Request("http://localhost/api/connections"),
+			locals: { user: null },
+			params: {},
+			url: new URL("http://localhost/api/connections"),
+			route: { id: "/api/connections" },
+		} as Parameters<typeof GET>[0];
+		await expect(GET(event)).rejects.toMatchObject({ status: 401 });
+		expect(mockListConnectionsForUser).not.toHaveBeenCalled();
 	});
 
 	it("returns only the authenticated caller's connections", async () => {

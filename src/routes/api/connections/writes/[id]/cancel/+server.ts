@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	cancelPendingWrite,
 	getPendingWrite,
@@ -11,8 +11,8 @@ import type { RequestHandler } from "./$types";
 // cancelled. Once cancelled, a later confirm on the same id is permanently
 // refused (see confirmPendingWrite's "cancelled" -> 409 branch).
 export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
 	const record = await getPendingWrite(userId, id);
