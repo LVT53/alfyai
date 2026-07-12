@@ -690,8 +690,8 @@ function distillCalendarReadOutcome(params: {
 // createPendingWrite (4.3), which persists a PENDING row and nothing more.
 // The only path from here to an actual Google Calendar mutation is the user
 // explicitly confirming via the confirm API — a separate request entirely,
-// dispatched by the "google" write-executor (providers/google-calendar-write
-// .ts) registered in Issue 6.1.
+// dispatched by the "google" write-executor (providers/google-calendar.ts's
+// write path) registered in Issue 6.1.
 // ---------------------------------------------------------------------------
 
 // Calendar reads (5.1/5.2) only ever requested calendar.readonly; a write

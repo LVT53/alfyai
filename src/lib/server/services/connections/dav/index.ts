@@ -2,11 +2,11 @@
 //
 // This module is the shared DAV library that Apple (providers/apple-caldav.ts),
 // the generic CalDAV connector (providers/caldav-tasks.ts), the Apple write
-// executor (providers/apple-caldav-write.ts), and Nextcloud Files
+// executor (providers/apple-caldav.ts's write path), and Nextcloud Files
 // (providers/nextcloud-files.ts) all build on. It used to live inside
 // apple-caldav.ts, which doubled as the de-facto shared library while
-// nextcloud-files re-implemented the XML layer independently and
-// apple-caldav-write re-implemented the write transport — this module ends both
+// nextcloud-files re-implemented the XML layer independently and the Apple
+// write path re-implemented the write transport — this module ends both
 // duplications. Everything here is provider-agnostic: no store access, no
 // connection lookup, no per-provider error type or branding (callers inject
 // those via the transport's makeError/labels seams).

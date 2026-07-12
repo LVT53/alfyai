@@ -102,7 +102,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("finds an existing 'AlfyAI' album and PUTs the asset ids, never calling POST /albums", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		const putBodies: unknown[] = [];
 		const fetchMock = vi.fn(
@@ -164,7 +164,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("creates the 'AlfyAI' album via POST only when GET found none, then PUTs assets to the new album", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		let createBody: unknown;
 		const fetchMock = vi.fn(
@@ -219,7 +219,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("ignores a same-named album owned by someone else (a shared album) and creates the user's own instead", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		let createBody: unknown;
 		const fetchMock = vi.fn(
@@ -279,7 +279,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("treats a duplicate-asset response as success, not an error", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -322,7 +322,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("NEVER issues a DELETE, or any request with a force flag, for any URL", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -370,7 +370,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("returns writes_not_provisioned when the connection has no write secret", async () => {
 		const connectionId = await seedImmichConnection({ withWriteSecret: false });
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn();
 		const executor = getWriteExecutor("immich");
@@ -390,7 +390,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
 		const { getConnection } = await import("../store");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -436,7 +436,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
 		const { getConnection } = await import("../store");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -473,7 +473,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
 		const { getConnection } = await import("../store");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -514,7 +514,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("an unsupported action returns unsupported_operation without calling fetch", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		const fetchMock = vi.fn();
 		const executor = getWriteExecutor("immich");
@@ -544,7 +544,7 @@ describe("immich write-executor — immich.add_to_album", () => {
 	it("aborts a hung album-lookup request after the timeout and surfaces request_failed", async () => {
 		const connectionId = await seedImmichConnection();
 		const { getWriteExecutor } = await import("../write-executors");
-		await import("./immich-write");
+		await import("./immich");
 
 		vi.useFakeTimers();
 		try {

@@ -24,23 +24,27 @@ import { connectionPendingWrites } from "$lib/server/db/schema";
 // ---------------------------------------------------------------------------
 
 // Side-effect imports ONLY — load providers/nextcloud-files.ts,
-// providers/google-calendar-write.ts, providers/apple-caldav-write.ts,
-// providers/imap-write.ts, and providers/immich-write.ts so their top-level
+// providers/google-calendar.ts, providers/apple-caldav.ts,
+// providers/imap-write.ts, and providers/immich.ts so their top-level
 // registerWriteExecutor(...) calls (Issue 6.0, 6.1, 6.2, 6.3, 6.4) have run
 // before confirmPendingWrite below ever dispatches to getWriteExecutor.
-// This mirrors how, before 6.0, this module's own direct import of
-// executeNextcloudWrite from the same file caused the same module evaluation
-// (and its registerConnectionAdapter side effect) to happen as a byproduct.
-// Nothing in this module calls into any provider module directly anymore —
-// dispatch happens purely through the write-executors registry — but each
-// registration still needs to run somewhere in every path that reaches
-// confirmPendingWrite (prod request handling AND every *.test.ts here that
-// exercises confirm without importing the provider module itself).
+// The google/apple/immich write executors now live IN their read modules (C2 —
+// each provider's read + write are one module), so those registrations are
+// triggered by importing the read module itself; only imap keeps a separate
+// *-write module (its raw-socket write path was not merged). This mirrors how,
+// before 6.0, this module's own direct import of executeNextcloudWrite from the
+// same file caused the same module evaluation (and its registerConnectionAdapter
+// side effect) to happen as a byproduct. Nothing in this module calls into any
+// provider module directly anymore — dispatch happens purely through the
+// write-executors registry — but each registration still needs to run somewhere
+// in every path that reaches confirmPendingWrite (prod request handling AND
+// every *.test.ts here that exercises confirm without importing the provider
+// module itself).
 import "./providers/nextcloud-files";
-import "./providers/google-calendar-write";
-import "./providers/apple-caldav-write";
+import "./providers/google-calendar";
+import "./providers/apple-caldav";
 import "./providers/imap-write";
-import "./providers/immich-write";
+import "./providers/immich";
 import { getConnection } from "./store";
 import { getWriteExecutor } from "./write-executors";
 import type { WriteOperation, WritePreview } from "./write-guard";

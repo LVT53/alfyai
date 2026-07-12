@@ -101,5 +101,22 @@ aggregate seam for those two is possible follow-up, not part of this slice.
 housing the seam in its own module keeps its cross-module imports interceptable by those
 mocks.
 
+## Split-Pair Merge  *(slice C2)*
+
+**Decision:** Each provider's read and write live in ONE module (the `nextcloud-files.ts`
+model). `google-calendar-write` → `google-calendar`, `immich-write` → `immich`,
+`apple-caldav-write` → `apple-caldav`. Base-URL / auth / origin / event-id knowledge is
+derived once: a single `CALENDAR_API_BASE`; the immich write path uses the read module's
+`immichConfig(conn)` instead of a hand-rolled `conn.config.origin` read; Apple ID auth
+identity comes from one `appleIdOf(conn)` helper. `imap.ts`/`imap-write.ts` stay split
+(raw-socket, not flagged).
+
+**Registration side-effects:** the write executor `registerWriteExecutor({...})` calls
+moved into the merged modules unchanged; `pending-writes.ts` (and the `*-write.test.ts`
+suites) now trigger registration by side-effect-importing the merged read modules. Write
+behavior stays fully covered — the `*-write.test.ts` files were kept and repointed, not
+deleted.
+
+
 
 

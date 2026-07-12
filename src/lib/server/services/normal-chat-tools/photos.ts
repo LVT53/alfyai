@@ -475,7 +475,7 @@ function distillPhotosReadOutcome(params: {
 // createPendingWrite (4.3), which persists a PENDING row and nothing more.
 // The only path from here to an actual Immich album mutation is the user
 // explicitly confirming via the confirm API, dispatched by the "immich"
-// write-executor (providers/immich-write.ts, Issue 6.4).
+// write-executor (providers/immich.ts's write path, Issue 6.4).
 //
 // `input.assetIds` are OPAQUE Immich asset ids the model is referring to from
 // a prior search this turn/session — this action never looks up or embeds a

@@ -12,7 +12,7 @@
 //     and lets the caller interpret the status.
 //
 // Both were previously private to (and re-implemented across) providers/
-// apple-caldav.ts and providers/apple-caldav-write.ts. Error branding is
+// apple-caldav.ts's read and write paths. Error branding is
 // injectable (makeError / labels / timeoutError) so a caller keeps its own
 // error type + exact wording — Apple throws AppleCalDavError, the generic
 // connector wraps into CalDavError — while the transport logic lives once here.
