@@ -636,3 +636,189 @@ describe("resolveActiveCapabilities", () => {
 		expect(result).toEqual(new Set(["files"]));
 	});
 });
+
+describe("withCapabilityConnection", () => {
+	it("returns a not-connected result (fn never runs) when the user has no connections", async () => {
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+
+		let called = false;
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{},
+			async () => {
+				called = true;
+				return "ran";
+			},
+		);
+
+		expect(called).toBe(false);
+		expect(result).toEqual({ kind: "not-connected" });
+	});
+
+	it("picks the single connection and surfaces ambiguous=false", async () => {
+		const { createConnection } = await import("./store");
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Personal Google",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{},
+			async (picked, ctx) => ({ pickedId: picked.id, ...ctx }),
+		);
+
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") throw new Error("expected ok");
+		expect(result.value.pickedId).toBe(conn.id);
+		expect(result.value.ambiguous).toBe(false);
+		expect(result.value.connections).toHaveLength(1);
+	});
+
+	it("selects the account-matched connection when multiple serve the capability", async () => {
+		const { createConnection } = await import("./store");
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+		await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Apple iCloud", // sorts first alphabetically
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const google = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work Google",
+			status: "connected",
+			capabilities: ["calendar"],
+			accountIdentifier: "work@gmail.com",
+		});
+
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{ account: "work@gmail.com" },
+			async (picked, ctx) => ({
+				pickedId: picked.id,
+				ambiguous: ctx.ambiguous,
+			}),
+		);
+
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") throw new Error("expected ok");
+		expect(result.value.pickedId).toBe(google.id);
+		expect(result.value.ambiguous).toBe(true);
+	});
+
+	it("returns a no-match result (fn never runs) when an account is given but matches nothing", async () => {
+		const { createConnection } = await import("./store");
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+		const a = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Personal Google",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const b = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud",
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+
+		let called = false;
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{ account: "does-not-exist" },
+			async () => {
+				called = true;
+				return "ran";
+			},
+		);
+
+		expect(called).toBe(false);
+		expect(result.kind).toBe("no-match");
+		if (result.kind !== "no-match") throw new Error("expected no-match");
+		expect(result.selector).toBe("does-not-exist");
+		expect(result.connections.map((c) => c.id).sort()).toEqual(
+			[a.id, b.id].sort(),
+		);
+	});
+
+	it("falls back to pickDefault (first by label) for a read with no account", async () => {
+		const { createConnection } = await import("./store");
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+		const apple = await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud", // sorts first
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work Google",
+			status: "connected",
+			capabilities: ["calendar"],
+			allowWrites: true,
+		});
+
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{},
+			async (picked) => picked.id,
+		);
+
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") throw new Error("expected ok");
+		expect(result.value).toBe(apple.id);
+	});
+
+	it("prefers a writable connection over the first-by-label for a write", async () => {
+		const { createConnection } = await import("./store");
+		const { withCapabilityConnection } = await import("./capability-read");
+		seedUser("userA");
+		await createConnection({
+			userId: "userA",
+			provider: "apple",
+			label: "Apple iCloud", // sorts first, not writable
+			status: "connected",
+			capabilities: ["calendar"],
+		});
+		const writable = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Work Google",
+			status: "connected",
+			capabilities: ["calendar"],
+			allowWrites: true,
+		});
+
+		const result = await withCapabilityConnection(
+			"userA",
+			"calendar",
+			{ forWrite: true },
+			async (picked) => picked.id,
+		);
+
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") throw new Error("expected ok");
+		expect(result.value).toBe(writable.id);
+	});
+});

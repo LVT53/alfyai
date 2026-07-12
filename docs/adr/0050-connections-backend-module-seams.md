@@ -79,4 +79,27 @@ into the shared transport via `makeError`/label/`timeoutError` options, so every
 injection seam, redirect-following, expect-207 for reads, and namespace URIs are
 unchanged (nextcloud's `DAV_NS = "DAV:"` matched Apple's).
 
+## Capability-Read Seam  *(slice C1)*
+
+**Decision:** One seam (`connections/capability-read.ts`,
+`withCapabilityConnection(userId, capability, {account, forWrite}, fn)`) owns the
+resolve → disambiguation → default-pick dance the connection tools each copied. It
+returns a discriminated result (`not-connected` | `no-match` | `ok`) so each tool maps
+the outcome onto its own verbatim per-capability message — the exact "not connected" and
+`noMatchingConnectionMessage(...)` strings stay at the call sites, unchanged. The 9
+re-declared `applyLocalDistillGate` wrappers collapse into one shared helper in
+`connector-distill.ts` (each tool keeps only its payload-shaping `distill<Tool>ReadOutcome`
+adapter).
+
+**Migrated:** calendar, files, email, photos, media, location (full), and repos
+(single-provider). **Not migrated:** tasks and contacts — they aggregate across multiple
+sources rather than selecting one connection, which the single-connection seam would
+distort; their distill wrappers were still folded into the shared helper. A companion
+aggregate seam for those two is possible follow-up, not part of this slice.
+
+**Why a separate module (not `resolve.ts`):** tool tests mock `resolve.ts`'s primitives;
+housing the seam in its own module keeps its cross-module imports interceptable by those
+mocks.
+
+
 

@@ -10,7 +10,7 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction for v1: the action enum only ever lists read
@@ -223,66 +223,76 @@ const WITHHELD_TASKS_MESSAGE =
 const WITHHELD_PROJECTS_MESSAGE =
 	"These project names couldn't be privately summarized for a cloud model, so they were withheld. Switch to a local model to view them, or try again.";
 
-async function applyLocalDistillGate(params: {
+function distillTasksReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: TasksToolInput;
 	outcome: TasksToolOutcome;
 }): Promise<TasksToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 	const payload = outcome.modelPayload;
 
 	if (payload.action === "list_projects") {
-		if (payload.projects.length === 0) return outcome;
-		const rawText = payload.projects.map((project) => project.name).join("\n");
-		const decision = await decideLocalDistill({
+		return applyLocalDistillGate({
+			outcome,
 			userId,
 			modelId,
 			capability: "tasks",
 			userQuestion: input.query ?? "",
-			rawText,
+			rawText: payload.projects.map((project) => project.name).join("\n"),
+			onDistilled: (o, distilled) => ({
+				...o,
+				modelPayload: {
+					...o.modelPayload,
+					message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+					projects: [],
+				},
+			}),
+			onUnavailable: (o) => ({
+				...o,
+				modelPayload: {
+					...o.modelPayload,
+					message: WITHHELD_PROJECTS_MESSAGE,
+					projects: [],
+				},
+			}),
 		});
-		if (!decision.shouldDistill) return outcome;
-		const message =
-			"distilled" in decision
-				? `${payload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
-				: WITHHELD_PROJECTS_MESSAGE;
-		return {
-			...outcome,
-			modelPayload: { ...payload, message, projects: [] },
-		};
 	}
 
 	// list_tasks / search_tasks
-	if (payload.tasks.length === 0) return outcome;
-	const rawText = payload.tasks
-		.map((task) => [task.title, task.notes].filter(Boolean).join(" — "))
-		.join("\n");
-	const decision = await decideLocalDistill({
+	const redactedCitations = (): TasksCitation[] =>
+		payload.citations.map((_citation, index) => ({
+			label: `Task ${index + 1}`,
+			url: "",
+		}));
+	return applyLocalDistillGate({
+		outcome,
 		userId,
 		modelId,
 		capability: "tasks",
 		userQuestion: input.query ?? "",
-		rawText,
+		rawText: payload.tasks
+			.map((task) => [task.title, task.notes].filter(Boolean).join(" — "))
+			.join("\n"),
+		onDistilled: (o, distilled) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				tasks: [],
+				citations: redactedCitations(),
+			},
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message: WITHHELD_TASKS_MESSAGE,
+				tasks: [],
+				citations: redactedCitations(),
+			},
+		}),
 	});
-	if (!decision.shouldDistill) return outcome;
-	const message =
-		"distilled" in decision
-			? `${payload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
-			: WITHHELD_TASKS_MESSAGE;
-	const redactedCitations: TasksCitation[] = payload.citations.map(
-		(_citation, index) => ({ label: `Task ${index + 1}`, url: "" }),
-	);
-	return {
-		...outcome,
-		modelPayload: {
-			...payload,
-			message,
-			tasks: [],
-			citations: redactedCitations,
-		},
-	};
 }
 
 async function runListTasks(
@@ -404,14 +414,14 @@ export async function runTasksTool(
 	try {
 		if (input.action === "list_projects") {
 			const outcome = await runListProjects(userId, connections);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
+			return distillTasksReadOutcome({ userId, modelId, input, outcome });
 		}
 		if (input.action === "search_tasks") {
 			const outcome = await runSearchTasks(userId, connections, input);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
+			return distillTasksReadOutcome({ userId, modelId, input, outcome });
 		}
 		const outcome = await runListTasks(userId, connections, input);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
+		return distillTasksReadOutcome({ userId, modelId, input, outcome });
 	} catch (err) {
 		return buildPayload({
 			success: false,

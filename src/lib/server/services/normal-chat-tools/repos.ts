@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import {
 	type GitHubCiRunSummary,
 	type GitHubCodeSearchItem,
@@ -16,14 +17,10 @@ import {
 	githubReadFile,
 	githubSearchCode,
 } from "$lib/server/services/connections/providers/github";
-import {
-	needsDisambiguation,
-	resolveConnectionsForCapability,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 
 // Read-only by construction: this schema's `action` enum only ever lists
 // read actions. GitHub NEVER gets a write path in this connector — there is
@@ -393,14 +390,9 @@ const WITHHELD_SUFFIX =
 
 function withDistillOutcome(
 	outcome: ReposToolOutcome,
-	decision: Awaited<ReturnType<typeof decideLocalDistill>>,
-	withheldMessage: string,
+	message: string,
 	redacted: Partial<ReposToolModelPayload>,
 ): ReposToolOutcome {
-	const message =
-		"distilled" in decision
-			? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
-			: withheldMessage;
 	return {
 		...outcome,
 		modelPayload: {
@@ -409,6 +401,15 @@ function withDistillOutcome(
 			message,
 		},
 	};
+}
+
+// The distilled-summary message shared by every repos read branch's
+// onDistilled callback — identical wording to the other connector tools.
+function distilledMessage(
+	outcome: ReposToolOutcome,
+	distilled: string,
+): string {
+	return `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`;
 }
 
 // Locality Option A: repos is the last connector tool (Task 7 review finding
@@ -432,168 +433,170 @@ function withDistillOutcome(
 // citation label) because issue/PR/commit/code-search citation labels are
 // built directly from the same title/message/path text being stripped —
 // leaving them alone would leak the raw text back through a side channel.
-async function applyLocalDistillGate(params: {
+function distillReposReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: ReposToolInput;
 	outcome: ReposToolOutcome;
 }): Promise<ReposToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 	const payload = outcome.modelPayload;
 
 	if (payload.action === "read_file") {
-		if (
-			!payload.file ||
-			payload.file.type !== "file" ||
-			!payload.file.content
-		) {
-			return outcome;
-		}
-		const rawText = payload.file.content;
-		const decision = await decideLocalDistill({
+		const file =
+			payload.file && payload.file.type === "file" && payload.file.content
+				? payload.file
+				: null;
+		return applyLocalDistillGate({
+			outcome,
 			userId,
 			modelId,
 			capability: "repos",
 			userQuestion: input.path ?? "",
-			rawText,
+			rawText: file?.content ?? "",
+			onDistilled: (o, distilled) =>
+				withDistillOutcome(o, distilledMessage(o, distilled), {
+					file: file ? { ...file, content: "" } : o.modelPayload.file,
+				}),
+			onUnavailable: (o) =>
+				withDistillOutcome(o, `This file's content ${WITHHELD_SUFFIX}`, {
+					file: file ? { ...file, content: "" } : o.modelPayload.file,
+				}),
 		});
-		if (!decision.shouldDistill) return outcome;
-		return withDistillOutcome(
-			outcome,
-			decision,
-			`This file's content ${WITHHELD_SUFFIX}`,
-			{ file: { ...payload.file, content: "" } },
-		);
 	}
 
 	if (payload.action === "list_issues") {
-		if (payload.issues.length === 0) return outcome;
-		const rawText = payload.issues
-			.map((issue) => `#${issue.number} ${issue.title}`)
-			.join("\n");
-		const decision = await decideLocalDistill({
-			userId,
-			modelId,
-			capability: "repos",
-			userQuestion: input.query ?? "",
-			rawText,
-		});
-		if (!decision.shouldDistill) return outcome;
-		const redactedIssues = payload.issues.map((issue) => ({
-			...issue,
-			title: REDACTED,
-		}));
-		return withDistillOutcome(
-			outcome,
-			decision,
-			`These issue titles ${WITHHELD_SUFFIX}`,
-			{
-				issues: redactedIssues,
-				citations: redactedIssues.map((issue) => ({
+		const redactedIssues = () =>
+			payload.issues.map((issue) => ({ ...issue, title: REDACTED }));
+		const patch = () => {
+			const issues = redactedIssues();
+			return {
+				issues,
+				citations: issues.map((issue) => ({
 					label: `#${issue.number} ${issue.title}`,
 					url: issue.url,
 				})),
-			},
-		);
+			};
+		};
+		return applyLocalDistillGate({
+			outcome,
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText: payload.issues
+				.map((issue) => `#${issue.number} ${issue.title}`)
+				.join("\n"),
+			onDistilled: (o, distilled) =>
+				withDistillOutcome(o, distilledMessage(o, distilled), patch()),
+			onUnavailable: (o) =>
+				withDistillOutcome(o, `These issue titles ${WITHHELD_SUFFIX}`, patch()),
+		});
 	}
 
 	if (payload.action === "list_prs") {
-		if (payload.prs.length === 0) return outcome;
-		const rawText = payload.prs
-			.map((pr) => `#${pr.number} ${pr.title}`)
-			.join("\n");
-		const decision = await decideLocalDistill({
-			userId,
-			modelId,
-			capability: "repos",
-			userQuestion: input.query ?? "",
-			rawText,
-		});
-		if (!decision.shouldDistill) return outcome;
-		const redactedPrs = payload.prs.map((pr) => ({ ...pr, title: REDACTED }));
-		return withDistillOutcome(
-			outcome,
-			decision,
-			`These pull request titles ${WITHHELD_SUFFIX}`,
-			{
-				prs: redactedPrs,
-				citations: redactedPrs.map((pr) => ({
+		const patch = () => {
+			const prs = payload.prs.map((pr) => ({ ...pr, title: REDACTED }));
+			return {
+				prs,
+				citations: prs.map((pr) => ({
 					label: `#${pr.number} ${pr.title}`,
 					url: pr.url,
 				})),
-			},
-		);
+			};
+		};
+		return applyLocalDistillGate({
+			outcome,
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText: payload.prs.map((pr) => `#${pr.number} ${pr.title}`).join("\n"),
+			onDistilled: (o, distilled) =>
+				withDistillOutcome(o, distilledMessage(o, distilled), patch()),
+			onUnavailable: (o) =>
+				withDistillOutcome(
+					o,
+					`These pull request titles ${WITHHELD_SUFFIX}`,
+					patch(),
+				),
+		});
 	}
 
 	if (payload.action === "list_commits") {
-		if (payload.commits.length === 0) return outcome;
-		const rawText = payload.commits.map((commit) => commit.message).join("\n");
-		const decision = await decideLocalDistill({
-			userId,
-			modelId,
-			capability: "repos",
-			userQuestion: input.query ?? "",
-			rawText,
-		});
-		if (!decision.shouldDistill) return outcome;
-		const redactedCommits = payload.commits.map((commit) => ({
-			...commit,
-			message: REDACTED,
-		}));
-		return withDistillOutcome(
-			outcome,
-			decision,
-			`These commit messages ${WITHHELD_SUFFIX}`,
-			{
-				commits: redactedCommits,
-				citations: redactedCommits.map((commit) => ({
+		const patch = () => {
+			const commits = payload.commits.map((commit) => ({
+				...commit,
+				message: REDACTED,
+			}));
+			return {
+				commits,
+				citations: commits.map((commit) => ({
 					label: commit.message.split("\n")[0] || commit.sha.slice(0, 7),
 					url: commit.url,
 				})),
-			},
-		);
-	}
-
-	if (payload.action === "search_code") {
-		if (payload.codeResults.length === 0) return outcome;
-		const rawText = payload.codeResults
-			.map((item) => `${item.repository} — ${item.path}`)
-			.join("\n");
-		const decision = await decideLocalDistill({
+			};
+		};
+		return applyLocalDistillGate({
+			outcome,
 			userId,
 			modelId,
 			capability: "repos",
 			userQuestion: input.query ?? "",
-			rawText,
+			rawText: payload.commits.map((commit) => commit.message).join("\n"),
+			onDistilled: (o, distilled) =>
+				withDistillOutcome(o, distilledMessage(o, distilled), patch()),
+			onUnavailable: (o) =>
+				withDistillOutcome(
+					o,
+					`These commit messages ${WITHHELD_SUFFIX}`,
+					patch(),
+				),
 		});
-		if (!decision.shouldDistill) return outcome;
+	}
+
+	if (payload.action === "search_code") {
 		// `url` embeds the same repository/path text being redacted (a GitHub
 		// blob URL is literally `.../<repo>/blob/<ref>/<path>`), so it must be
 		// blanked too — otherwise it's a side channel that leaks the very text
 		// `repository`/`path` just stripped.
-		const redactedCode = payload.codeResults.map((item) => ({
-			...item,
-			repository: REDACTED,
-			path: REDACTED,
-			url: "",
-		}));
-		return withDistillOutcome(
-			outcome,
-			decision,
-			`These code search results ${WITHHELD_SUFFIX}`,
-			{
-				codeResults: redactedCode,
-				citations: redactedCode.map((item) => ({
+		const patch = () => {
+			const codeResults = payload.codeResults.map((item) => ({
+				...item,
+				repository: REDACTED,
+				path: REDACTED,
+				url: "",
+			}));
+			return {
+				codeResults,
+				citations: codeResults.map((item) => ({
 					label: `${item.repository} — ${item.path}`,
 					url: item.url,
 				})),
-			},
-		);
+			};
+		};
+		return applyLocalDistillGate({
+			outcome,
+			userId,
+			modelId,
+			capability: "repos",
+			userQuestion: input.query ?? "",
+			rawText: payload.codeResults
+				.map((item) => `${item.repository} — ${item.path}`)
+				.join("\n"),
+			onDistilled: (o, distilled) =>
+				withDistillOutcome(o, distilledMessage(o, distilled), patch()),
+			onUnavailable: (o) =>
+				withDistillOutcome(
+					o,
+					`These code search results ${WITHHELD_SUFFIX}`,
+					patch(),
+				),
+		});
 	}
 
 	// list_repos, ci_status — not gated, see the doc comment above.
-	return outcome;
+	return Promise.resolve(outcome);
 }
 
 // Resolves the user's Repositories (GitHub) connection(s) and executes the
@@ -607,163 +610,175 @@ export async function runReposTool(
 	input: ReposToolInput,
 	modelId: string,
 ): Promise<ReposToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "repos");
-	if (connections.length === 0) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Repositories connection set up yet. Connect your GitHub account in Settings to browse repos, issues, PRs, commits, and CI.",
-		});
-	}
+	const notConnectedMessage =
+		"You don't have a Repositories connection set up yet. Connect your GitHub account in Settings to browse repos, issues, PRs, commits, and CI.";
 
-	const ambiguous = needsDisambiguation(connections);
-	const conn = connections[0];
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Repositories connection set up yet. Connect your GitHub account in Settings to browse repos, issues, PRs, commits, and CI.",
-		});
-	}
+	// repos is single-provider (GitHub) and has no `account` selector — the seam
+	// still fits: with no account, it resolves, falls back to
+	// pickDefaultConnection (== connections[0] for a read), and surfaces the
+	// same `ambiguous` flag this tool already used. The no-match branch is
+	// simply never reached (no account is ever passed).
+	const result = await withCapabilityConnection(
+		userId,
+		"repos",
+		{},
+		async (conn, { ambiguous, connections }): Promise<ReposToolOutcome> => {
+			try {
+				if (input.action === "list_repos") {
+					const repos = await githubListRepos(userId, conn.id, {
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					return reposOutcome(conn, repos, ambiguous, connections);
+				}
 
-	try {
-		if (input.action === "list_repos") {
-			const repos = await githubListRepos(userId, conn.id, {
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			return reposOutcome(conn, repos, ambiguous, connections);
-		}
+				if (input.action === "search_code") {
+					if (!input.query) {
+						return missingParamOutcome(
+							"search_code",
+							"A search query is required to search code.",
+						);
+					}
+					const items = await githubSearchCode(userId, conn.id, {
+						query: input.query,
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = codeSearchOutcome(
+						conn,
+						input.query,
+						items,
+						ambiguous,
+						connections,
+					);
+					return distillReposReadOutcome({ userId, modelId, input, outcome });
+				}
 
-		if (input.action === "search_code") {
-			if (!input.query) {
-				return missingParamOutcome(
-					"search_code",
-					"A search query is required to search code.",
+				// Every remaining action is scoped to one repository.
+				if (!input.owner || !input.repo) {
+					return missingParamOutcome(
+						input.action,
+						"An `owner` and `repo` are required for this action.",
+					);
+				}
+
+				if (input.action === "read_file") {
+					if (!input.path) {
+						return missingParamOutcome(
+							"read_file",
+							"A `path` is required to read a file.",
+						);
+					}
+					const file = await githubReadFile(userId, conn.id, {
+						owner: input.owner,
+						repo: input.repo,
+						path: input.path,
+						...(input.ref ? { ref: input.ref } : {}),
+					});
+					const outcome = fileOutcome(
+						conn,
+						input.owner,
+						input.repo,
+						input.path,
+						file,
+						ambiguous,
+						connections,
+					);
+					return distillReposReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				if (input.action === "list_issues") {
+					const issues = await githubListIssues(userId, conn.id, {
+						owner: input.owner,
+						repo: input.repo,
+						...(input.state ? { state: input.state } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = issuesOutcome(
+						conn,
+						input.owner,
+						input.repo,
+						issues,
+						ambiguous,
+						connections,
+					);
+					return distillReposReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				if (input.action === "list_prs") {
+					const prs = await githubListPullRequests(userId, conn.id, {
+						owner: input.owner,
+						repo: input.repo,
+						...(input.state ? { state: input.state } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = prsOutcome(
+						conn,
+						input.owner,
+						input.repo,
+						prs,
+						ambiguous,
+						connections,
+					);
+					return distillReposReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				if (input.action === "list_commits") {
+					const commits = await githubListCommits(userId, conn.id, {
+						owner: input.owner,
+						repo: input.repo,
+						...(input.path ? { path: input.path } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = commitsOutcome(
+						conn,
+						input.owner,
+						input.repo,
+						commits,
+						ambiguous,
+						connections,
+					);
+					return distillReposReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				// ci_status
+				const runs = await githubCiStatus(userId, conn.id, {
+					owner: input.owner,
+					repo: input.repo,
+					...(input.ref ? { ref: input.ref } : {}),
+					...(input.limit !== undefined ? { limit: input.limit } : {}),
+				});
+				return ciStatusOutcome(
+					conn,
+					input.owner,
+					input.repo,
+					runs,
+					ambiguous,
+					connections,
 				);
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
 			}
-			const items = await githubSearchCode(userId, conn.id, {
-				query: input.query,
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = codeSearchOutcome(
-				conn,
-				input.query,
-				items,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
+		},
+	);
 
-		// Every remaining action is scoped to one repository.
-		if (!input.owner || !input.repo) {
-			return missingParamOutcome(
-				input.action,
-				"An `owner` and `repo` are required for this action.",
-			);
-		}
-
-		if (input.action === "read_file") {
-			if (!input.path) {
-				return missingParamOutcome(
-					"read_file",
-					"A `path` is required to read a file.",
-				);
-			}
-			const file = await githubReadFile(userId, conn.id, {
-				owner: input.owner,
-				repo: input.repo,
-				path: input.path,
-				...(input.ref ? { ref: input.ref } : {}),
-			});
-			const outcome = fileOutcome(
-				conn,
-				input.owner,
-				input.repo,
-				input.path,
-				file,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		if (input.action === "list_issues") {
-			const issues = await githubListIssues(userId, conn.id, {
-				owner: input.owner,
-				repo: input.repo,
-				...(input.state ? { state: input.state } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = issuesOutcome(
-				conn,
-				input.owner,
-				input.repo,
-				issues,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		if (input.action === "list_prs") {
-			const prs = await githubListPullRequests(userId, conn.id, {
-				owner: input.owner,
-				repo: input.repo,
-				...(input.state ? { state: input.state } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = prsOutcome(
-				conn,
-				input.owner,
-				input.repo,
-				prs,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		if (input.action === "list_commits") {
-			const commits = await githubListCommits(userId, conn.id, {
-				owner: input.owner,
-				repo: input.repo,
-				...(input.path ? { path: input.path } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = commitsOutcome(
-				conn,
-				input.owner,
-				input.repo,
-				commits,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		// ci_status
-		const runs = await githubCiStatus(userId, conn.id, {
-			owner: input.owner,
-			repo: input.repo,
-			...(input.ref ? { ref: input.ref } : {}),
-			...(input.limit !== undefined ? { limit: input.limit } : {}),
-		});
-		return ciStatusOutcome(
-			conn,
-			input.owner,
-			input.repo,
-			runs,
-			ambiguous,
-			connections,
-		);
-	} catch (err) {
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message: mapAdapterError(err),
+			message: notConnectedMessage,
 		});
 	}
+	// no-match is unreachable (repos has no account selector), but map it to the
+	// same not-connected message for exhaustiveness rather than leaving a gap.
+	if (result.kind === "no-match") {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: notConnectedMessage,
+		});
+	}
+	return result.value;
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	type EmailHeader,
@@ -12,12 +13,6 @@ import {
 	imapReadMessage,
 	imapSearch,
 } from "$lib/server/services/connections/providers/imap";
-import {
-	needsDisambiguation,
-	pickDefaultConnection,
-	resolveConnectionsForCapability,
-	selectConnection,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
 	buildWritePreview,
@@ -27,7 +22,7 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 export const emailToolInputSchema = z.object({
@@ -419,14 +414,13 @@ function redactCitationsForModel(
 // redacts `citations[].label` (see redactCitationsForModel) — i.e. the WHOLE
 // model-facing payload, not just one field, matches the issue's "entire
 // model payload must be distilled/redacted" requirement.
-async function applyLocalDistillGate(params: {
+function distillEmailReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: EmailToolInput;
 	outcome: EmailToolOutcome;
 }): Promise<EmailToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
 	const rawTextParts: string[] = [];
 	for (const item of outcome.modelPayload.messages) {
@@ -444,54 +438,54 @@ async function applyLocalDistillGate(params: {
 	for (const att of outcome.modelPayload.attachments ?? []) {
 		rawTextParts.push(att.filename);
 	}
-	// Nothing raw to protect (e.g. every message has an empty from/subject and
-	// there's no body) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
 
-	const decision = await decideLocalDistill({
+	const strippedMessages = () =>
+		outcome.modelPayload.messages.map((item) => {
+			const {
+				from: _from,
+				subject: _subject,
+				snippet: _snippet,
+				...rest
+			} = item;
+			return rest;
+		});
+	const redactedCitations = () =>
+		redactCitationsForModel(
+			outcome.modelPayload.messages,
+			outcome.modelPayload.citations,
+		);
+
+	return applyLocalDistillGate({
+		outcome,
 		userId,
 		modelId,
 		capability: "email",
 		userQuestion: input.query ?? "",
 		rawText: rawTextParts.join("\n\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
-
-	const strippedMessages = outcome.modelPayload.messages.map((item) => {
-		const { from: _from, subject: _subject, snippet: _snippet, ...rest } = item;
-		return rest;
-	});
-	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.messages,
-		outcome.modelPayload.citations,
-	);
-
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
-				messages: strippedMessages,
-				citations: redactedCitations,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				messages: strippedMessages(),
+				citations: redactedCitations(),
 				text: undefined,
 				attachments: undefined,
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"This email couldn't be privately summarized for a cloud model, so its details were withheld. Switch to a local model to view them, or try again.",
-			messages: strippedMessages,
-			citations: redactedCitations,
-			text: undefined,
-			attachments: undefined,
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"This email couldn't be privately summarized for a cloud model, so its details were withheld. Switch to a local model to view them, or try again.",
+				messages: strippedMessages(),
+				citations: redactedCitations(),
+				text: undefined,
+				attachments: undefined,
+			},
+		}),
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -895,156 +889,153 @@ export async function runEmailTool(
 	modelId: string,
 	conversationId?: string,
 ): Promise<EmailToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "email");
-	if (connections.length === 0) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have an Email connection set up yet. Connect your mailbox in Settings to check your email.",
-		});
-	}
+	const notConnectedMessage =
+		"You don't have an Email connection set up yet. Connect your mailbox in Settings to check your email.";
 
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: noMatchingConnectionMessage("Email", input.account, connections),
-		});
-	}
-	const conn =
-		selected ??
-		pickDefaultConnection(connections, {
-			forWrite: isEmailWriteAction(input.action),
-		});
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have an Email connection set up yet. Connect your mailbox in Settings to check your email.",
-		});
-	}
+	const result = await withCapabilityConnection(
+		userId,
+		"email",
+		{ account: input.account, forWrite: isEmailWriteAction(input.action) },
+		async (conn, { ambiguous, connections }): Promise<EmailToolOutcome> => {
+			// Write actions (6.3) are proposal-only and branch here — before the
+			// read-side try/catch below — same posture as calendar.ts's write branch
+			// ahead of its shared range-resolution flow.
+			if (isEmailWriteAction(input.action)) {
+				return emailWriteOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					input.action,
+					ambiguous,
+					connections,
+					modelId,
+				);
+			}
 
-	// Write actions (6.3) are proposal-only and branch here — before the
-	// read-side try/catch below — same posture as calendar.ts's write branch
-	// ahead of its shared range-resolution flow.
-	if (isEmailWriteAction(input.action)) {
-		return emailWriteOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			input.action,
-			ambiguous,
-			connections,
-			modelId,
-		);
-	}
+			try {
+				// B4: enumerate the account's mailboxes so the model can discover folder
+				// names and resolve "Sent"/"Archive"/… — pure structure, no message read.
+				if (input.action === "list_folders") {
+					const folders = await imapListFolders(userId, conn.id);
+					return foldersOutcome(conn, folders, ambiguous, connections);
+				}
 
-	try {
-		// B4: enumerate the account's mailboxes so the model can discover folder
-		// names and resolve "Sent"/"Archive"/… — pure structure, no message read.
-		if (input.action === "list_folders") {
-			const folders = await imapListFolders(userId, conn.id);
-			return foldersOutcome(conn, folders, ambiguous, connections);
-		}
+				if (input.action === "recent") {
+					const headers = await imapListRecent(userId, conn.id, {
+						unseenOnly: input.unseenOnly,
+						...(input.folder ? { folder: input.folder } : {}),
+					});
+					const outcome = listOutcome(
+						conn,
+						"recent",
+						headers,
+						ambiguous,
+						connections,
+					);
+					return distillEmailReadOutcome({ userId, modelId, input, outcome });
+				}
 
-		if (input.action === "recent") {
-			const headers = await imapListRecent(userId, conn.id, {
-				unseenOnly: input.unseenOnly,
-				...(input.folder ? { folder: input.folder } : {}),
-			});
-			const outcome = listOutcome(
-				conn,
-				"recent",
-				headers,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
+				if (input.action === "search") {
+					// A2: a search is valid with free text OR any structured filter
+					// (sender/subject/date) — "emails from Anna" needs no `query`.
+					const criteria = searchCriteria(input);
+					if (Object.keys(criteria).length === 0) {
+						return buildPayload({
+							success: false,
+							action: "search",
+							message:
+								"A search query is required (or a sender, subject, or date filter) to search your email.",
+						});
+					}
+					const headers = await imapSearch(userId, conn.id, {
+						...criteria,
+						...(input.folder ? { folder: input.folder } : {}),
+					});
+					const outcome = listOutcome(
+						conn,
+						"search",
+						headers,
+						ambiguous,
+						connections,
+					);
+					return distillEmailReadOutcome({ userId, modelId, input, outcome });
+				}
 
-		if (input.action === "search") {
-			// A2: a search is valid with free text OR any structured filter
-			// (sender/subject/date) — "emails from Anna" needs no `query`.
-			const criteria = searchCriteria(input);
-			if (Object.keys(criteria).length === 0) {
+				if (input.action === "count") {
+					// A4: an accurate count of matching UIDs (never bounded by the list
+					// cap). Defaults to counting UNREAD ("how many unread emails do I
+					// have?") when no explicit unseenOnly and no search filter is given;
+					// an explicit `unseenOnly: false` counts the whole mailbox, and any
+					// filter switches to counting the matching search.
+					const criteria = searchCriteria(input);
+					const filtered = Object.keys(criteria).length > 0;
+					const unseenOnly = input.unseenOnly ?? (filtered ? undefined : true);
+					const count = await imapCount(userId, conn.id, {
+						...criteria,
+						...(unseenOnly !== undefined ? { unseenOnly } : {}),
+						...(input.folder ? { folder: input.folder } : {}),
+					});
+					return countOutcome(
+						conn,
+						count,
+						{ unread: unseenOnly === true, filtered },
+						ambiguous,
+						connections,
+					);
+				}
+
+				if (input.uid === undefined) {
+					return buildPayload({
+						success: false,
+						action: "read",
+						message: "A message uid is required to read an email.",
+					});
+				}
+				const { header, text, attachments } = await imapReadMessage(
+					userId,
+					conn.id,
+					{
+						uid: input.uid,
+						...(input.folder ? { folder: input.folder } : {}),
+					},
+				);
+				const outcome = readOutcome(
+					conn,
+					header,
+					text,
+					attachments,
+					ambiguous,
+					connections,
+				);
+				return distillEmailReadOutcome({ userId, modelId, input, outcome });
+			} catch (err) {
 				return buildPayload({
 					success: false,
-					action: "search",
-					message:
-						"A search query is required (or a sender, subject, or date filter) to search your email.",
+					action: input.action,
+					message: mapAdapterError(err),
 				});
 			}
-			const headers = await imapSearch(userId, conn.id, {
-				...criteria,
-				...(input.folder ? { folder: input.folder } : {}),
-			});
-			const outcome = listOutcome(
-				conn,
-				"search",
-				headers,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
+		},
+	);
 
-		if (input.action === "count") {
-			// A4: an accurate count of matching UIDs (never bounded by the list
-			// cap). Defaults to counting UNREAD ("how many unread emails do I
-			// have?") when no explicit unseenOnly and no search filter is given;
-			// an explicit `unseenOnly: false` counts the whole mailbox, and any
-			// filter switches to counting the matching search.
-			const criteria = searchCriteria(input);
-			const filtered = Object.keys(criteria).length > 0;
-			const unseenOnly = input.unseenOnly ?? (filtered ? undefined : true);
-			const count = await imapCount(userId, conn.id, {
-				...criteria,
-				...(unseenOnly !== undefined ? { unseenOnly } : {}),
-				...(input.folder ? { folder: input.folder } : {}),
-			});
-			return countOutcome(
-				conn,
-				count,
-				{ unread: unseenOnly === true, filtered },
-				ambiguous,
-				connections,
-			);
-		}
-
-		if (input.uid === undefined) {
-			return buildPayload({
-				success: false,
-				action: "read",
-				message: "A message uid is required to read an email.",
-			});
-		}
-		const { header, text, attachments } = await imapReadMessage(
-			userId,
-			conn.id,
-			{
-				uid: input.uid,
-				...(input.folder ? { folder: input.folder } : {}),
-			},
-		);
-		const outcome = readOutcome(
-			conn,
-			header,
-			text,
-			attachments,
-			ambiguous,
-			connections,
-		);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
-	} catch (err) {
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message: mapAdapterError(err),
+			message: notConnectedMessage,
 		});
 	}
+	if (result.kind === "no-match") {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage(
+				"Email",
+				result.selector,
+				result.connections,
+			),
+		});
+	}
+	return result.value;
 }

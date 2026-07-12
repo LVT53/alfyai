@@ -45,3 +45,44 @@ export async function decideLocalDistill(params: {
 	}
 	return { shouldDistill: true, unavailable: true };
 }
+
+// The shared Option-A gate every connector-backed tool wraps its read outcome
+// in. Each tool used to re-declare a near-identical `applyLocalDistillGate`
+// that repeated the SAME control flow — bail on a failed outcome, bail when
+// there's no raw connector text to protect, run decideLocalDistill, bail when
+// the gate is inactive, then rebuild the outcome for the distilled vs.
+// unavailable case. Only two things genuinely differ per tool: how the raw
+// text is assembled from the payload, and how the payload's raw fields are
+// stripped/redacted afterward — so those stay at the call site (the tool
+// assembles `rawText` and supplies `onDistilled`/`onUnavailable` rebuilders),
+// while this helper owns the identical gating in one place. `rawText === ""`
+// means "nothing raw to protect" and short-circuits to a no-op WITHOUT calling
+// the local model, preserving each tool's prior empty-list early return.
+export async function applyLocalDistillGate<
+	T extends { modelPayload: { success: boolean } },
+>(params: {
+	outcome: T;
+	userId: string;
+	modelId: string;
+	capability: string;
+	userQuestion: string;
+	rawText: string;
+	onDistilled: (outcome: T, distilled: string) => T;
+	onUnavailable: (outcome: T) => T;
+}): Promise<T> {
+	if (!params.outcome.modelPayload.success) return params.outcome;
+	if (params.rawText.length === 0) return params.outcome;
+
+	const decision = await decideLocalDistill({
+		userId: params.userId,
+		modelId: params.modelId,
+		capability: params.capability,
+		userQuestion: params.userQuestion,
+		rawText: params.rawText,
+	});
+	if (!decision.shouldDistill) return params.outcome;
+	if ("distilled" in decision) {
+		return params.onDistilled(params.outcome, decision.distilled);
+	}
+	return params.onUnavailable(params.outcome);
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	AppleCalDavError,
@@ -26,7 +27,6 @@ import {
 import {
 	needsDisambiguation,
 	pickDefaultConnection,
-	resolveConnectionsForCapability,
 	selectConnection,
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
@@ -38,7 +38,7 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate, decideLocalDistill } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 export const calendarToolInputSchema = z.object({
@@ -617,16 +617,19 @@ function redactCitationsForModel(
 // `redactCitationsForModel` above) — citations are not metadata here the way
 // a filename is for the files tool, since the label is the raw summary
 // itself.
-async function applyLocalDistillGate(params: {
+// Assembles this tool's raw event text + field-level stripping and delegates
+// the identical gating control flow to the shared applyLocalDistillGate (see
+// connector-distill.ts). The per-tool part — which fields are raw (summary/
+// location) and how they're stripped/redacted — stays here.
+function distillCalendarReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: CalendarToolInput;
 	outcome: CalendarToolOutcome;
 }): Promise<CalendarToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = outcome.modelPayload.events
+	const rawText = outcome.modelPayload.events
 		.map((event) => {
 			const descriptors = [event.summary, event.location].filter(
 				(value): value is string => Boolean(value),
@@ -634,54 +637,50 @@ async function applyLocalDistillGate(params: {
 			if (descriptors.length === 0) return null;
 			return `${descriptors.join(" @ ")} (${event.start} to ${event.end})`;
 		})
-		.filter((value): value is string => Boolean(value));
-	// Nothing raw to protect (e.g. every event is untitled with no location) —
-	// the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
+		.filter((value): value is string => Boolean(value))
+		.join("\n");
 
-	const decision = await decideLocalDistill({
+	const strippedEvents = () =>
+		outcome.modelPayload.events.map((event) => {
+			const { summary: _summary, location: _location, ...rest } = event;
+			return rest;
+		});
+	// Redact only the MODEL-facing copy — `outcome.candidates` (the
+	// user-facing Sources-tab list) was already built from the original,
+	// unredacted citations in `buildPayload` and is untouched by this gate.
+	const redactedCitations = () =>
+		redactCitationsForModel(
+			outcome.modelPayload.events,
+			outcome.modelPayload.citations,
+		);
+
+	return applyLocalDistillGate({
+		outcome,
 		userId,
 		modelId,
 		capability: "calendar",
 		userQuestion: input.query ?? "",
-		rawText: rawTextParts.join("\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
-
-	const strippedEvents = outcome.modelPayload.events.map((event) => {
-		const { summary: _summary, location: _location, ...rest } = event;
-		return rest;
-	});
-	// Redact only the MODEL-facing copy — `outcome.candidates` (the
-	// user-facing Sources-tab list) was already built from the original,
-	// unredacted citations in `buildPayload` and is untouched by this gate.
-	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.events,
-		outcome.modelPayload.citations,
-	);
-
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
-				events: strippedEvents,
-				citations: redactedCitations,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				events: strippedEvents(),
+				citations: redactedCitations(),
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"These events couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
-			citations: redactedCitations,
-			events: strippedEvents,
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"These events couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
+				citations: redactedCitations(),
+				events: strippedEvents(),
+			},
+		}),
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -1408,138 +1407,139 @@ export async function runCalendarTool(
 	modelId: string,
 	conversationId?: string,
 ): Promise<CalendarToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "calendar");
-	if (connections.length === 0) {
+	const notConnectedMessage =
+		"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.";
+
+	const result = await withCapabilityConnection(
+		userId,
+		"calendar",
+		{ account: input.account, forWrite: isCalendarWriteAction(input.action) },
+		async (conn, { ambiguous, connections }): Promise<CalendarToolOutcome> => {
+			// Write actions (6.1) are proposal-only and branch here — before the
+			// read-side range resolution below — same posture as files.ts's "save"
+			// branching ahead of its shared secret-fetch flow.
+			if (isCalendarWriteAction(input.action)) {
+				return calendarWriteOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					input.action,
+					ambiguous,
+					connections,
+					modelId,
+				);
+			}
+
+			try {
+				// list_calendars (Gap A5) needs no time range — discovery only. Kept
+				// inside the try so an adapter failure degrades to a graceful note like
+				// every other read.
+				if (input.action === "list_calendars") {
+					return await listCalendarsOutcome(userId, conn, connections);
+				}
+
+				const { timeMin, timeMax } = resolveRange(input);
+
+				if (input.action === "list_events") {
+					const events = await listEventsForConnection(userId, conn, {
+						timeMin,
+						timeMax,
+						query: input.query,
+						calendarId: input.calendarId,
+					});
+					const outcome = listEventsOutcome(
+						conn,
+						events,
+						ambiguous,
+						connections,
+						providerCalendarIdIgnored(conn, input),
+					);
+					return distillCalendarReadOutcome({
+						userId,
+						modelId,
+						input,
+						outcome,
+					});
+				}
+
+				// check_availability has no CalDAV free/busy equivalent wired up yet
+				// (5.3 scope) — it stays google-only. If the resolved connection isn't
+				// google, look for any google connection among the user's Calendar
+				// connections before giving up. `account`, if given, still narrows which
+				// GOOGLE connection is used (re-run through selectConnection against
+				// just the google ones) — it can't make a non-google connection valid
+				// for this action, but it can pick among several google ones.
+				const googleConnections = connections.filter(
+					(c) => c.provider === "google",
+				);
+				const googleSelected = selectConnection(
+					googleConnections,
+					input.account,
+				);
+				if (input.account && !googleSelected && googleConnections.length > 0) {
+					return buildPayload({
+						success: false,
+						action: "check_availability",
+						message: noMatchingConnectionMessage(
+							"Google Calendar",
+							input.account,
+							googleConnections,
+						),
+					});
+				}
+				const googleConn =
+					googleSelected ?? pickDefaultConnection(googleConnections);
+				if (!googleConn) {
+					return buildPayload({
+						success: false,
+						action: "check_availability",
+						message:
+							"Checking availability needs a Google Calendar connection — Apple iCloud calendars don't support free/busy lookups yet. Connect a Google account in Settings, or ask me to list your Apple events instead.",
+					});
+				}
+				const googleAmbiguous = needsDisambiguation(googleConnections);
+				// Trap C1 fix: scope free/busy to a requested calendarId when given;
+				// omitted -> undefined -> googleFreeBusy defaults to ["primary"],
+				// preserving the prior default-primary behavior exactly.
+				const busy = await googleFreeBusy(userId, googleConn.id, {
+					timeMin,
+					timeMax,
+					...(input.calendarId ? { calendarIds: [input.calendarId] } : {}),
+				});
+				return freeBusyOutcome(
+					googleConn,
+					busy,
+					googleAmbiguous,
+					googleConnections,
+				);
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
+			}
+		},
+	);
+
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message:
-				"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
+			message: notConnectedMessage,
 		});
 	}
-
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
+	if (result.kind === "no-match") {
 		return buildPayload({
 			success: false,
 			action: input.action,
 			message: noMatchingConnectionMessage(
 				"Calendar",
-				input.account,
-				connections,
+				result.selector,
+				result.connections,
 			),
 		});
 	}
-	const conn =
-		selected ??
-		pickDefaultConnection(connections, {
-			forWrite: isCalendarWriteAction(input.action),
-		});
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Calendar connection set up yet. Connect your Google, Apple iCloud, or CalDAV account in Settings to check your calendar.",
-		});
-	}
-
-	// Write actions (6.1) are proposal-only and branch here — before the
-	// read-side range resolution below — same posture as files.ts's "save"
-	// branching ahead of its shared secret-fetch flow.
-	if (isCalendarWriteAction(input.action)) {
-		return calendarWriteOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			input.action,
-			ambiguous,
-			connections,
-			modelId,
-		);
-	}
-
-	try {
-		// list_calendars (Gap A5) needs no time range — discovery only. Kept
-		// inside the try so an adapter failure degrades to a graceful note like
-		// every other read.
-		if (input.action === "list_calendars") {
-			return await listCalendarsOutcome(userId, conn, connections);
-		}
-
-		const { timeMin, timeMax } = resolveRange(input);
-
-		if (input.action === "list_events") {
-			const events = await listEventsForConnection(userId, conn, {
-				timeMin,
-				timeMax,
-				query: input.query,
-				calendarId: input.calendarId,
-			});
-			const outcome = listEventsOutcome(
-				conn,
-				events,
-				ambiguous,
-				connections,
-				providerCalendarIdIgnored(conn, input),
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		// check_availability has no CalDAV free/busy equivalent wired up yet
-		// (5.3 scope) — it stays google-only. If the resolved connection isn't
-		// google, look for any google connection among the user's Calendar
-		// connections before giving up. `account`, if given, still narrows which
-		// GOOGLE connection is used (re-run through selectConnection against
-		// just the google ones) — it can't make a non-google connection valid
-		// for this action, but it can pick among several google ones.
-		const googleConnections = connections.filter(
-			(c) => c.provider === "google",
-		);
-		const googleSelected = selectConnection(googleConnections, input.account);
-		if (input.account && !googleSelected && googleConnections.length > 0) {
-			return buildPayload({
-				success: false,
-				action: "check_availability",
-				message: noMatchingConnectionMessage(
-					"Google Calendar",
-					input.account,
-					googleConnections,
-				),
-			});
-		}
-		const googleConn =
-			googleSelected ?? pickDefaultConnection(googleConnections);
-		if (!googleConn) {
-			return buildPayload({
-				success: false,
-				action: "check_availability",
-				message:
-					"Checking availability needs a Google Calendar connection — Apple iCloud calendars don't support free/busy lookups yet. Connect a Google account in Settings, or ask me to list your Apple events instead.",
-			});
-		}
-		const googleAmbiguous = needsDisambiguation(googleConnections);
-		// Trap C1 fix: scope free/busy to a requested calendarId when given;
-		// omitted -> undefined -> googleFreeBusy defaults to ["primary"],
-		// preserving the prior default-primary behavior exactly.
-		const busy = await googleFreeBusy(userId, googleConn.id, {
-			timeMin,
-			timeMax,
-			...(input.calendarId ? { calendarIds: [input.calendarId] } : {}),
-		});
-		return freeBusyOutcome(
-			googleConn,
-			busy,
-			googleAmbiguous,
-			googleConnections,
-		);
-	} catch (err) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: mapAdapterError(err),
-		});
-	}
+	return result.value;
 }

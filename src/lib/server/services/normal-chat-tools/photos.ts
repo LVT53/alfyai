@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	type ImmichAlbumSummary,
@@ -12,12 +13,6 @@ import {
 	type MetadataSearchParams,
 	type PhotoResult,
 } from "$lib/server/services/connections/providers/immich";
-import {
-	needsDisambiguation,
-	pickDefaultConnection,
-	resolveConnectionsForCapability,
-	selectConnection,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import {
 	buildWritePreview,
@@ -27,7 +22,7 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 export const photosToolInputSchema = z.object({
@@ -395,16 +390,15 @@ function redactCitationsForModel(
 // Sources-tab list) is untouched: it feeds the user's own screen, a
 // different channel from what the model sees, and keeps the real data so
 // thumbnails can still render.
-async function applyLocalDistillGate(params: {
+function distillPhotosReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: PhotosToolInput;
 	outcome: PhotosToolOutcome;
 }): Promise<PhotosToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = outcome.modelPayload.results
+	const rawText = outcome.modelPayload.results
 		.map((item) => {
 			const descriptors = [item.fileName, item.place, item.description].filter(
 				(value): value is string => Boolean(value),
@@ -412,19 +406,8 @@ async function applyLocalDistillGate(params: {
 			if (descriptors.length === 0) return null;
 			return `${descriptors.join(" — ")} (${item.takenAt})`;
 		})
-		.filter((value): value is string => Boolean(value));
-	// Nothing raw to protect (e.g. every result is bare metadata with no
-	// filename/place/description) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
-
-	const decision = await decideLocalDistill({
-		userId,
-		modelId,
-		capability: "photos",
-		userQuestion: input.query ?? "",
-		rawText: rawTextParts.join("\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
+		.filter((value): value is string => Boolean(value))
+		.join("\n");
 
 	// `imageUrl` is deliberately NOT destructured out here, unlike
 	// fileName/place/description — it survives the gate alongside `id`/
@@ -437,45 +420,52 @@ async function applyLocalDistillGate(params: {
 	// the caller's own session, never the model. So keeping imageUrl lets the
 	// model still SHOW a distilled photo (with a generic/takenAt caption)
 	// even when fileName/place/description have been withheld from it.
-	const strippedResults = outcome.modelPayload.results.map((item) => {
-		const {
-			fileName: _fileName,
-			place: _place,
-			description: _description,
-			...rest
-		} = item;
-		return rest;
-	});
+	const strippedResults = () =>
+		outcome.modelPayload.results.map((item) => {
+			const {
+				fileName: _fileName,
+				place: _place,
+				description: _description,
+				...rest
+			} = item;
+			return rest;
+		});
 	// Redact only the MODEL-facing copy — `outcome.candidates` (the
 	// user-facing Sources-tab list) was already built from the original,
 	// unredacted photos in `searchOutcome` and is untouched by this gate.
-	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.results,
-		outcome.modelPayload.citations,
-	);
+	const redactedCitations = () =>
+		redactCitationsForModel(
+			outcome.modelPayload.results,
+			outcome.modelPayload.citations,
+		);
 
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+	return applyLocalDistillGate({
+		outcome,
+		userId,
+		modelId,
+		capability: "photos",
+		userQuestion: input.query ?? "",
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
-				results: strippedResults,
-				citations: redactedCitations,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				results: strippedResults(),
+				citations: redactedCitations(),
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"These photos couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
-			results: strippedResults,
-			citations: redactedCitations,
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"These photos couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
+				results: strippedResults(),
+				citations: redactedCitations(),
+			},
+		}),
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -598,199 +588,197 @@ export async function runPhotosTool(
 	modelId: string,
 	conversationId?: string,
 ): Promise<PhotosToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "photos");
-	if (connections.length === 0) {
+	const notConnectedMessage =
+		"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.";
+
+	const result = await withCapabilityConnection(
+		userId,
+		"photos",
+		{ account: input.account, forWrite: input.action === "add_to_album" },
+		async (conn, { ambiguous, connections }): Promise<PhotosToolOutcome> => {
+			// Write action (6.4) branches here — before the read-side query
+			// validation below — same posture as calendar.ts's write branching ahead
+			// of its shared read flow.
+			if (input.action === "add_to_album") {
+				return proposeAddToAlbum(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
+
+			// Discovery browse actions (B1 list_albums / B6 list_people). Like
+			// calendar.ts's list_calendars, these are inside their own try so an
+			// adapter failure degrades to a graceful note, and — being discovery
+			// metadata, not photo-content reads — they never run through the
+			// Option-A distill gate.
+			if (input.action === "list_albums") {
+				try {
+					const albums = await immichListAlbums(userId, conn.id);
+					return listAlbumsOutcome(conn, albums, ambiguous, connections);
+				} catch (err) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message: mapAdapterError(err),
+					});
+				}
+			}
+
+			if (input.action === "list_people") {
+				try {
+					const people = await immichListPeople(userId, conn.id);
+					return listPeopleOutcome(conn, people, ambiguous, connections);
+				} catch (err) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message: mapAdapterError(err),
+					});
+				}
+			}
+
+			// Album assets (B1) — a photo-content read, so it goes through the
+			// Option-A distill gate like search does.
+			if (input.action === "album") {
+				if (!input.albumId) {
+					return buildPayload({
+						success: false,
+						action: "album",
+						message:
+							"An albumId is required — call list_albums first to find it.",
+					});
+				}
+				try {
+					const photos = await immichAlbumAssets(userId, conn.id, {
+						albumId: input.albumId,
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = searchOutcome(
+						conn,
+						photos,
+						"album",
+						ambiguous,
+						connections,
+					);
+					return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+				} catch (err) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message: mapAdapterError(err),
+					});
+				}
+			}
+
+			// Metadata / date-range / person search (B1 + B6). A photo-content read,
+			// so it goes through the Option-A distill gate.
+			if (input.action === "search_by_date") {
+				try {
+					let personIds: string[] | undefined;
+					if (input.personName) {
+						const people = await immichListPeople(userId, conn.id);
+						const matches = matchPeopleByName(people, input.personName);
+						if (matches.length === 0) {
+							return buildPayload({
+								success: false,
+								action: "search_by_date",
+								message: withAmbiguityPrefix(
+									`I couldn't find anyone named "${input.personName}" in your photos. Use list_people to see the names Immich has.`,
+									ambiguous,
+									conn,
+									connections,
+								),
+							});
+						}
+						personIds = matches.map((p) => p.id);
+					}
+
+					const searchParams: MetadataSearchParams = {
+						...(input.from ? { takenAfter: input.from } : {}),
+						...(input.to ? { takenBefore: input.to } : {}),
+						...(input.city ? { city: input.city } : {}),
+						...(input.country ? { country: input.country } : {}),
+						...(input.type ? { type: input.type } : {}),
+						...(input.favorites !== undefined
+							? { isFavorite: input.favorites }
+							: {}),
+						...(personIds ? { personIds } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					};
+					const photos = await immichMetadataSearch(
+						userId,
+						conn.id,
+						searchParams,
+					);
+					const outcome = searchOutcome(
+						conn,
+						photos,
+						"search_by_date",
+						ambiguous,
+						connections,
+					);
+					return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+				} catch (err) {
+					return buildPayload({
+						success: false,
+						action: input.action,
+						message: mapAdapterError(err),
+					});
+				}
+			}
+
+			if (!input.query) {
+				return buildPayload({
+					success: false,
+					action: "search",
+					message: "A search query is required to search your photos.",
+				});
+			}
+
+			try {
+				const photos = await immichSmartSearch(userId, conn.id, {
+					query: input.query,
+					...(input.limit !== undefined ? { limit: input.limit } : {}),
+				});
+				const outcome = searchOutcome(
+					conn,
+					photos,
+					"search",
+					ambiguous,
+					connections,
+				);
+				return distillPhotosReadOutcome({ userId, modelId, input, outcome });
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
+			}
+		},
+	);
+
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message:
-				"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.",
+			message: notConnectedMessage,
 		});
 	}
-
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
+	if (result.kind === "no-match") {
 		return buildPayload({
 			success: false,
 			action: input.action,
 			message: noMatchingConnectionMessage(
 				"Photos",
-				input.account,
-				connections,
+				result.selector,
+				result.connections,
 			),
 		});
 	}
-	const conn =
-		selected ??
-		pickDefaultConnection(connections, {
-			forWrite: input.action === "add_to_album",
-		});
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Photos connection set up yet. Connect your Immich account in Settings to search your photos.",
-		});
-	}
-
-	// Write action (6.4) branches here — before the read-side query
-	// validation below — same posture as calendar.ts's write branching ahead
-	// of its shared read flow.
-	if (input.action === "add_to_album") {
-		return proposeAddToAlbum(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	// Discovery browse actions (B1 list_albums / B6 list_people). Like
-	// calendar.ts's list_calendars, these are inside their own try so an
-	// adapter failure degrades to a graceful note, and — being discovery
-	// metadata, not photo-content reads — they never run through the
-	// Option-A distill gate.
-	if (input.action === "list_albums") {
-		try {
-			const albums = await immichListAlbums(userId, conn.id);
-			return listAlbumsOutcome(conn, albums, ambiguous, connections);
-		} catch (err) {
-			return buildPayload({
-				success: false,
-				action: input.action,
-				message: mapAdapterError(err),
-			});
-		}
-	}
-
-	if (input.action === "list_people") {
-		try {
-			const people = await immichListPeople(userId, conn.id);
-			return listPeopleOutcome(conn, people, ambiguous, connections);
-		} catch (err) {
-			return buildPayload({
-				success: false,
-				action: input.action,
-				message: mapAdapterError(err),
-			});
-		}
-	}
-
-	// Album assets (B1) — a photo-content read, so it goes through the
-	// Option-A distill gate like search does.
-	if (input.action === "album") {
-		if (!input.albumId) {
-			return buildPayload({
-				success: false,
-				action: "album",
-				message: "An albumId is required — call list_albums first to find it.",
-			});
-		}
-		try {
-			const photos = await immichAlbumAssets(userId, conn.id, {
-				albumId: input.albumId,
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = searchOutcome(
-				conn,
-				photos,
-				"album",
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		} catch (err) {
-			return buildPayload({
-				success: false,
-				action: input.action,
-				message: mapAdapterError(err),
-			});
-		}
-	}
-
-	// Metadata / date-range / person search (B1 + B6). A photo-content read,
-	// so it goes through the Option-A distill gate.
-	if (input.action === "search_by_date") {
-		try {
-			let personIds: string[] | undefined;
-			if (input.personName) {
-				const people = await immichListPeople(userId, conn.id);
-				const matches = matchPeopleByName(people, input.personName);
-				if (matches.length === 0) {
-					return buildPayload({
-						success: false,
-						action: "search_by_date",
-						message: withAmbiguityPrefix(
-							`I couldn't find anyone named "${input.personName}" in your photos. Use list_people to see the names Immich has.`,
-							ambiguous,
-							conn,
-							connections,
-						),
-					});
-				}
-				personIds = matches.map((p) => p.id);
-			}
-
-			const searchParams: MetadataSearchParams = {
-				...(input.from ? { takenAfter: input.from } : {}),
-				...(input.to ? { takenBefore: input.to } : {}),
-				...(input.city ? { city: input.city } : {}),
-				...(input.country ? { country: input.country } : {}),
-				...(input.type ? { type: input.type } : {}),
-				...(input.favorites !== undefined
-					? { isFavorite: input.favorites }
-					: {}),
-				...(personIds ? { personIds } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			};
-			const photos = await immichMetadataSearch(userId, conn.id, searchParams);
-			const outcome = searchOutcome(
-				conn,
-				photos,
-				"search_by_date",
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		} catch (err) {
-			return buildPayload({
-				success: false,
-				action: input.action,
-				message: mapAdapterError(err),
-			});
-		}
-	}
-
-	if (!input.query) {
-		return buildPayload({
-			success: false,
-			action: "search",
-			message: "A search query is required to search your photos.",
-		});
-	}
-
-	try {
-		const photos = await immichSmartSearch(userId, conn.id, {
-			query: input.query,
-			...(input.limit !== undefined ? { limit: input.limit } : {}),
-		});
-		const outcome = searchOutcome(
-			conn,
-			photos,
-			"search",
-			ambiguous,
-			connections,
-		);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
-	} catch (err) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: mapAdapterError(err),
-		});
-	}
+	return result.value;
 }
