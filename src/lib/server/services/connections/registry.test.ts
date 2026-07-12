@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isKnownProvider } from "$lib/client/connections/provider-catalog";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { CONNECTION_PROVIDERS } from "$lib/server/db/schema";
 import {
@@ -92,19 +93,18 @@ describe("connections registry", () => {
 		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
 	});
 
-	// Task 9a — a new "tasks" capability served by two new providers:
-	// Todoist (REST, API token) and generic CalDAV (VTODO, app-password).
-	it("registers the tasks capability with todoist and caldav providers", () => {
+	// Slice A1 — Todoist is fully retired. The "tasks" capability is now served
+	// by CalDAV only; "todoist" must not survive anywhere in the product.
+	it("serves the tasks capability with caldav only — todoist is fully retired", () => {
 		expect(CAPABILITY_META.tasks).toEqual({
 			tier: "explicit",
-			providers: ["todoist", "caldav"],
+			providers: ["caldav"],
 			displayName: "Tasks",
 		});
-		expect(PROVIDER_META.todoist).toEqual({
-			capabilities: ["tasks"],
-			connectMethod: "app-password",
-			displayName: "Todoist",
-		});
+		expect(CAPABILITY_META.tasks.providers).not.toContain("todoist");
+		expect(isKnownProvider("todoist")).toBe(false);
+		expect(CONNECTION_PROVIDERS).not.toContain("todoist" as ConnectionProvider);
+		expect("todoist" in PROVIDER_META).toBe(false);
 	});
 
 	// Task 9b — generalizes the "caldav" provider from tasks-only (9a) to also

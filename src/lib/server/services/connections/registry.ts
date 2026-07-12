@@ -91,11 +91,6 @@ export const PROVIDER_META: Record<
 		connectMethod: "oauth",
 		displayName: "OneDrive",
 	},
-	todoist: {
-		capabilities: ["tasks"],
-		connectMethod: "app-password",
-		displayName: "Todoist",
-	},
 	// Task 9b: widened from Task 9a's ["tasks"] — a generic caldav connection
 	// (Nextcloud, Fastmail, mailbox.org, Baïkal, ...) now discovers and can
 	// serve calendar (VEVENT) and contacts (CardDAV vCard) alongside tasks
@@ -162,7 +157,7 @@ export const CAPABILITY_META: Record<
 	},
 	tasks: {
 		tier: "explicit",
-		providers: ["todoist", "caldav"],
+		providers: ["caldav"],
 		displayName: "Tasks",
 	},
 };

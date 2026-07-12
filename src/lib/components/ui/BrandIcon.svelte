@@ -37,7 +37,6 @@ const DISPLAY_NAMES: Record<string, string> = {
 	contacts: "Contacts",
 	github: "GitHub",
 	onedrive: "OneDrive",
-	todoist: "Todoist",
 	caldav: "CalDAV",
 };
 

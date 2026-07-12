@@ -16,7 +16,6 @@ vi.mock("$lib/client/api/connections", () => ({
 	startOneDriveConnect: vi.fn(),
 	startOwnTracksConnect: vi.fn(),
 	startPlexConnect: vi.fn(),
-	startTodoistConnect: vi.fn(),
 }));
 
 import {
@@ -32,7 +31,6 @@ import {
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
-	startTodoistConnect,
 } from "$lib/client/api/connections";
 
 const mockFetchOwnTracksDevices = fetchOwnTracksDevices as ReturnType<
@@ -56,7 +54,6 @@ const mockStartOwnTracksConnect = startOwnTracksConnect as ReturnType<
 >;
 const mockStartPlexConnect = startPlexConnect as ReturnType<typeof vi.fn>;
 const mockStartGitHubConnect = startGitHubConnect as ReturnType<typeof vi.fn>;
-const mockStartTodoistConnect = startTodoistConnect as ReturnType<typeof vi.fn>;
 const mockStartCalDavConnect = startCalDavConnect as ReturnType<typeof vi.fn>;
 
 function baseProps(overrides: Record<string, unknown> = {}) {
@@ -612,46 +609,6 @@ describe("ConnectWizardModal", () => {
 				});
 			});
 			expect(onConnected).toHaveBeenCalledOnce();
-		});
-	});
-
-	describe("app-password (Todoist)", () => {
-		it("submits the token and calls onConnected on success", async () => {
-			mockStartTodoistConnect.mockResolvedValue({
-				connection: { id: "conn-todoist", provider: "todoist" },
-			});
-			const onConnected = vi.fn();
-
-			render(
-				ConnectWizardModal,
-				baseProps({ provider: "todoist", onConnected }),
-			);
-
-			await fireEvent.input(screen.getByLabelText("API token"), {
-				target: { value: "todoist-token-abc" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-			await waitFor(() => {
-				expect(mockStartTodoistConnect).toHaveBeenCalledWith({
-					token: "todoist-token-abc",
-				});
-			});
-			expect(onConnected).toHaveBeenCalledOnce();
-		});
-
-		it("disables Connect until a token is entered", async () => {
-			render(ConnectWizardModal, baseProps({ provider: "todoist" }));
-
-			expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
-
-			await fireEvent.input(screen.getByLabelText("API token"), {
-				target: { value: "todoist-token-abc" },
-			});
-
-			expect(
-				screen.getByRole("button", { name: "Connect" }),
-			).not.toBeDisabled();
 		});
 	});
 

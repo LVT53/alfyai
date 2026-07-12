@@ -31,7 +31,6 @@ import {
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
-	startTodoistConnect,
 } from "$lib/client/api/connections";
 import { ApiError } from "$lib/client/api/http";
 import {
@@ -366,29 +365,6 @@ async function submitApple(event: Event) {
 			appleId: appleId.trim(),
 			appPassword: appleAppPassword.trim(),
 		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
-
-// --- app-password (Todoist) --------------------------------------------------
-// The API token itself is never persisted in plaintext, so it can't be
-// prefilled on reconnect (see todoistConnect in
-// src/lib/server/services/connections/providers/todoist.ts).
-let todoistToken = $state("");
-let todoistShowToken = $state(false);
-
-async function submitTodoist(event: Event) {
-	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startTodoistConnect({ token: todoistToken.trim() });
 		onConnected();
 		onClose();
 	} catch (err) {
@@ -909,35 +885,6 @@ onMount(() => {
 							type="submit"
 							class="btn-primary w-full whitespace-nowrap sm:w-auto"
 							disabled={submitting || !appleId.trim() || !appleAppPassword.trim()}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'todoist'}
-				<form onsubmit={submitTodoist}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.todoist.help')}</p>
-					<PasswordField
-						id="wizard-todoist-token"
-						label={$t('connections.wizard.todoist.tokenLabel')}
-						bind:value={todoistToken}
-						bind:shown={todoistShowToken}
-						autocomplete="off"
-					/>
-					<p class="mt-1 text-xs text-text-muted">
-						<a href="https://todoist.com/app/settings/integrations/developer" target="_blank" rel="noopener noreferrer" class="underline">
-							{$t('connections.wizard.todoist.generateLink')}
-						</a>
-					</p>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !todoistToken.trim()}
 						>
 							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
 						</button>

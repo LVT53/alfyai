@@ -2160,7 +2160,6 @@ export const CONNECTION_PROVIDERS = [
 	"contacts",
 	"github",
 	"onedrive",
-	"todoist",
 	"caldav",
 ] as const;
 

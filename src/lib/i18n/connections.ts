@@ -107,12 +107,6 @@ const connectionsDict = {
 		"connections.wizard.apple.generateLink":
 			"Generate one at appleid.apple.com",
 
-		"connections.wizard.todoist.tokenLabel": "API token",
-		"connections.wizard.todoist.help":
-			"Find your token at todoist.com → Settings → Integrations → Developer.",
-		"connections.wizard.todoist.generateLink":
-			"Find it at todoist.com/app/settings/integrations/developer",
-
 		"connections.wizard.caldav.serverUrlLabel": "CalDAV/CardDAV server URL",
 		"connections.wizard.caldav.serverUrlPlaceholder":
 			"cloud.example.com/remote.php/dav",
@@ -347,12 +341,6 @@ const connectionsDict = {
 			"Készíts egy alkalmazásspecifikus jelszót az appleid.apple.com oldalon, és illeszd be ide — a szokásos Apple ID jelszavad nem fog működni.",
 		"connections.wizard.apple.generateLink":
 			"Készíts egyet az appleid.apple.com oldalon",
-
-		"connections.wizard.todoist.tokenLabel": "API token",
-		"connections.wizard.todoist.help":
-			"A tokened itt találod: todoist.com → Settings → Integrations → Developer.",
-		"connections.wizard.todoist.generateLink":
-			"Itt találod: todoist.com/app/settings/integrations/developer",
 
 		"connections.wizard.caldav.serverUrlLabel": "CalDAV/CardDAV szerver URL",
 		"connections.wizard.caldav.serverUrlPlaceholder":

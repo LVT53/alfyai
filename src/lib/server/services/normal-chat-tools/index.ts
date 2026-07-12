@@ -224,7 +224,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		tasks: {
 			description:
-				"Read the user's connected to-do/task lists (Todoist, and/or a CalDAV account's task lists): `list_tasks` to see open tasks (optionally scoped to a `projectId`, and/or filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); `list_projects` to discover the user's projects/task lists and their ids (find a `projectId` here before scoping a `list_tasks`/`search_tasks` call); and `search_tasks` to free-text search task titles/notes with `query`, optionally combined with `projectId`/`due`. Results are combined across every connected task source. Use when the user asks about their to-dos, what's due, or a specific task. Read-only. Pass `account` (a provider name, connection label, or account email) to narrow to one specific task source instead of combining every source.",
+				"Read the user's connected to-do/task lists (a CalDAV account's task lists): `list_tasks` to see open tasks (optionally filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); and `search_tasks` to free-text search task titles/notes with `query`, optionally combined with `due`. Results are combined across every connected task source. Use when the user asks about their to-dos, what's due, or a specific task. Read-only. Pass `account` (a provider name, connection label, or account email) to narrow to one specific task source instead of combining every source.",
 			errorPrefix: "Tasks lookup failed",
 		},
 	},
@@ -295,7 +295,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		tasks: {
 			description:
-				"A felhasználó csatlakoztatott teendő-/feladatlistáinak (Todoist, és/vagy egy CalDAV-fiók feladatlistái) olvasása: `list_tasks` a nyitott feladatok megtekintéséhez (opcionálisan egy `projectId`-ra szűkítve, és/vagy `due` szerint szűrve — egy 'ÉÉÉÉ-HH-NN' dátum vagy a szó szerinti 'overdue'); `list_projects` a felhasználó projektjeinek/feladatlistáinak és azonosítóiknak felfedezéséhez (itt találhatod meg a `projectId`-t egy `list_tasks`/`search_tasks` szűkítése előtt); és `search_tasks` a feladatcímek/jegyzetek szabad szöveges kereséséhez a `query` alapján, opcionálisan `projectId`/`due`-val kombinálva. Az eredmények minden csatlakoztatott feladatforrásból összesítve jelennek meg. Akkor használd, ha a felhasználó a teendőire, a határidőkre vagy egy konkrét feladatra kérdez rá. Csak olvasható. Add meg az `account` mezőt (szolgáltató neve, kapcsolat címkéje vagy fiók e-mail címe) egy konkrét feladatforrásra szűkítéshez, ahelyett hogy minden forrást összesítene.",
+				"A felhasználó csatlakoztatott teendő-/feladatlistáinak (egy CalDAV-fiók feladatlistái) olvasása: `list_tasks` a nyitott feladatok megtekintéséhez (opcionálisan `due` szerint szűrve — egy 'ÉÉÉÉ-HH-NN' dátum vagy a szó szerinti 'overdue'); és `search_tasks` a feladatcímek/jegyzetek szabad szöveges kereséséhez a `query` alapján, opcionálisan `due`-val kombinálva. Az eredmények minden csatlakoztatott feladatforrásból összesítve jelennek meg. Akkor használd, ha a felhasználó a teendőire, a határidőkre vagy egy konkrét feladatra kérdez rá. Csak olvasható. Add meg az `account` mezőt (szolgáltató neve, kapcsolat címkéje vagy fiók e-mail címe) egy konkrét feladatforrásra szűkítéshez, ahelyett hogy minden forrást összesítene.",
 			errorPrefix: "A feladatok elérése sikertelen",
 		},
 	},

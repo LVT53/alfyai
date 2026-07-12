@@ -34,7 +34,6 @@ export type ConnectionProvider =
 	| "contacts"
 	| "github"
 	| "onedrive"
-	| "todoist"
 	| "caldav";
 
 export type ProviderCatalogEntry = {
@@ -162,16 +161,6 @@ export const PROVIDER_CATALOG: Record<
 		writable: false,
 		pathBasedWrites: false,
 		icon: "Cloud",
-		connectable: true,
-	},
-	todoist: {
-		displayName: "Todoist",
-		capabilities: ["tasks"],
-		connectMethod: "app-password",
-		// Read-only in v1 (see providers/todoist.ts) — no allow-writes toggle.
-		writable: false,
-		pathBasedWrites: false,
-		icon: "ListTodo",
 		connectable: true,
 	},
 	// Task 9b: widened from tasks-only (9a) — a caldav connection now discovers
