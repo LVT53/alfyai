@@ -918,8 +918,7 @@ describe("plexLibrarySearch", () => {
 				});
 			}
 			if (
-				url ===
-				"https://plex.example.com/library/sections/1/all?title=matrix"
+				url === "https://plex.example.com/library/sections/1/all?title=matrix"
 			) {
 				return jsonResponse(200, {
 					MediaContainer: {
@@ -930,8 +929,7 @@ describe("plexLibrarySearch", () => {
 				});
 			}
 			if (
-				url ===
-				"https://plex.example.com/library/sections/2/all?title=matrix"
+				url === "https://plex.example.com/library/sections/2/all?title=matrix"
 			) {
 				return jsonResponse(200, {
 					MediaContainer: { size: 0, totalSize: 0, Metadata: [] },
@@ -977,14 +975,14 @@ describe("plexLibrarySearch", () => {
 					MediaContainer: {
 						size: 1,
 						totalSize: 1,
-						Metadata: [
-							{ title: "Unwatched Gem", type: "movie", year: 2020 },
-						],
+						Metadata: [{ title: "Unwatched Gem", type: "movie", year: 2020 }],
 					},
 				});
 			}
 			// Watch history never saw this title.
-			if (url.startsWith("https://plex.example.com/status/sessions/history/all")) {
+			if (
+				url.startsWith("https://plex.example.com/status/sessions/history/all")
+			) {
 				return jsonResponse(200, { MediaContainer: { size: 0, Metadata: [] } });
 			}
 			throw new Error(`unexpected url ${url}`);

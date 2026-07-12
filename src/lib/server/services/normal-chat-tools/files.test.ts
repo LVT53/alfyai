@@ -1285,9 +1285,7 @@ describe("runFilesTool — save action (explicit-confirm write flow, 4.3)", () =
 
 			const call = createPendingWriteMock.mock.calls[0]?.[1];
 			expect(call?.op).toMatchObject({ reversible: false, destructive: true });
-			expect(call?.preview.warnings.join(" ")).toMatch(
-				/version history/i,
-			);
+			expect(call?.preview.warnings.join(" ")).toMatch(/version history/i);
 			expect(outcome.modelPayload.message).toMatch(/version history/i);
 		});
 

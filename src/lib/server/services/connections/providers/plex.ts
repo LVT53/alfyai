@@ -689,7 +689,9 @@ function toContinueWatchingItem(
 		...(viewOffsetMs !== undefined ? { viewOffsetMs } : {}),
 		...(durationMs !== undefined ? { durationMs } : {}),
 		...(progress !== undefined ? { progress } : {}),
-		...(entry.librarySectionTitle ? { library: entry.librarySectionTitle } : {}),
+		...(entry.librarySectionTitle
+			? { library: entry.librarySectionTitle }
+			: {}),
 	};
 }
 

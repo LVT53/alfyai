@@ -205,7 +205,7 @@ const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 		entries.push({
 			kind: "tool",
 			tool,
-			key: tool.callId ?? tool.name + JSON.stringify(tool.input) + "-" + i,
+			key: tool.callId ?? `${tool.name + JSON.stringify(tool.input)}-${i}`,
 		});
 	});
 	return entries;
@@ -252,7 +252,7 @@ const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
 			entries.push({
 				kind: "tool",
 				segment: seg,
-				key: seg.callId ?? seg.name + JSON.stringify(seg.input) + "-" + i,
+				key: seg.callId ?? `${seg.name + JSON.stringify(seg.input)}-${i}`,
 			});
 		} else if (seg.type === "status") {
 			entries.push({ kind: "status", segment: seg, key: seg.id });

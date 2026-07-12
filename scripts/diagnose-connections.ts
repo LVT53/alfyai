@@ -196,7 +196,9 @@ async function diagnoseToolLayer(userId: string) {
 		line(`     THREW: ${err instanceof Error ? err.message : String(err)}`);
 	}
 	// Contacts: organization surfaced on lookup?
-	line(`  >> B-tier contacts lookup "${contactQuery}" — organization surfaced?`);
+	line(
+		`  >> B-tier contacts lookup "${contactQuery}" — organization surfaced?`,
+	);
 	try {
 		const r = await runContactsTool(
 			userId,

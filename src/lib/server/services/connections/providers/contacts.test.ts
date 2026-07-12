@@ -655,9 +655,7 @@ describe("googleSearchContactsByGroup", () => {
 				"https://www.googleapis.com/auth/calendar.readonly",
 			],
 		});
-		const { googleSearchContactsByGroup, ContactsError } = await import(
-			"./contacts"
-		);
+		const { googleSearchContactsByGroup } = await import("./contacts");
 
 		const fetchMock = vi.fn(async () => {
 			throw new Error("fetch should never be called when scope is missing");
