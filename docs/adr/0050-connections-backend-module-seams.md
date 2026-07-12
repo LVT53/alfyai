@@ -128,9 +128,17 @@ id, {guard})` (user-scoped fetch + 404 + optional provider-guard). Error respons
 standardize on the single `createJsonErrorResponse` `{error}` helper; `isCapability` is
 declared once.
 
-**Deliberate behavior change:** `/api/connections/**` now returns **401 JSON** for
-unauthenticated requests instead of a 302 redirect to `/login` (the page-load `requireAuth`
-in `auth/hooks.ts` is unchanged). Pinned by tests.
+**Deliberate behavior change (partial in practice):** `requireApiUser` returns **401 JSON**
+for unauthenticated requests at the handler level (pinned by tests), replacing the old
+`requireAuth` 302. HOWEVER, the global `handle` hook in `src/hooks.server.ts` already
+`throw redirect(303, "/login")` for any non-`PUBLIC_PATHS` request without a user, BEFORE
+any route handler runs — so in the live request pipeline an unauthenticated
+`/api/connections/**` call is a **303 redirect from the hook**, and `requireApiUser`'s 401
+only fires for paths/callers that get past the hook. This is NOT a regression (the hook
+shadowed the old 302 identically), but the intended API-clean 401 is not observable in
+prod. Making `/api/**` genuinely return 401 is a global hook change (affects every API
+route) and is intentionally left as a separate follow-up, not slipped into this slice.
+Verified live post-deploy: unauth `/api/connections` → 303; authenticated → 200 JSON.
 
 **Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
 extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).

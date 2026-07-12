@@ -186,15 +186,26 @@ branch — behavioral equivalence, gates, dead refs, secret-firewall posture, do
 
 ---
 
-## F3 — Deploy + live verification  ⏸ HANDOFF (harness blocks agent SSH to prod)
+## F3 — Deploy + live verification  ✅ DEPLOYED
 **Blocked by:** F2.
 
-**Status:** all code done, audited, full gate green, branch pushed + PR open. The Claude
-Code auto-mode classifier denies the agent SSH access to the `alfydesign` prod server, so
-the agent cannot run `scripts/deploy.sh` itself. Deploy is handed to the owner (merge PR →
-`ssh alfydesign` → `nohup bash scripts/deploy.sh &`). NOTE: deploy runs `db:prepare`,
-which applies the destructive Todoist migration on prod (owner-approved). Reminder: set
-`OWNTRACKS_RECORDER_URL` (+ USER/PASS) in the prod `.env` if OwnTracks should work.
+**Done:** PR #113 merged to `main`; owner granted prod SSH; `scripts/deploy.sh` ran on
+`alfydesign` (pull → install → migrate → build → restart); `langflow-chat.service` active,
+prod HEAD = the merge commit.
+
+**Live verification (real prod data):**
+- Migration: `user_connections` todoist rows = **0**; 5 other connections intact
+  (nextcloud/immich/imap/google/apple), all `connected`.
+- Authenticated `GET /api/connections` → **200**, 5 connections, `hasSecret=true`, **no
+  secret leak** in the DTO (store.toPublic firewall holds live). `active-capabilities` → 200.
+- Unauth `/api/connections` → 303 (global hook redirect — see ADR-0050 §Route Seams; not a
+  regression; the handler-level 401 is shadowed by the hook).
+- OwnTracks: `OWNTRACKS_RECORDER_URL` is **SET** on prod (so the not_configured/409 path —
+  and the E1 message — is for the unset case; if OwnTracks still misbehaves in prod UI the
+  cause is elsewhere: recorder reachability/creds/device binding — separate diagnostic).
+
+**Deliberately NOT driven live (safety):** a fresh connect flow and a write propose→confirm
+would create/mutate real user accounts on prod; covered by 5880 tests + judge audit instead.
 
 **What to build:** Merge, deploy to prod (per `memory/alfydesign-deploy-ops.md`), verify
 Connections live.
