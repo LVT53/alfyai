@@ -17,13 +17,12 @@ import { noMatchingConnectionMessage } from "./shared";
 // actions over the CalDAV VTODO source this tool aggregates — same posture
 // as repos.ts's GitHub-only read set.
 export const tasksToolInputSchema = z.object({
-	action: z.enum(["list_tasks", "list_projects", "search_tasks"]),
+	action: z.enum(["list_tasks", "search_tasks"]),
 	// Free-text search for "search_tasks" — matched against a task's title
 	// and notes, client-side (neither provider offers a reliable
 	// cross-server free-text search primitive, same rationale as
 	// apple-caldav.ts's appleSearchContacts).
 	query: z.string().optional(),
-	projectId: z.string().optional(),
 	// A due-date filter as "YYYY-MM-DD" (exact match against a task's due
 	// date) — case-insensitively also accepts the literal "overdue", meaning
 	// "due date is before today".
@@ -42,7 +41,6 @@ export function sanitizeTasksToolInput(input: TasksToolInput): TasksToolInput {
 	return {
 		action: input.action,
 		...(input.query ? { query: input.query.trim() } : {}),
-		...(input.projectId ? { projectId: input.projectId.trim() } : {}),
 		...(input.due ? { due: input.due.trim() } : {}),
 		...(input.account ? { account: input.account.trim() } : {}),
 	};
@@ -148,12 +146,10 @@ function mapAdapterError(err: unknown): string {
 // Per-connection task listing — CalDAV VTODOs (providers/caldav-tasks.ts).
 // CalDAV has no separate "project" concept exposed by this connector (each
 // task list IS a collection of VTODOs with no further grouping — see
-// caldavListTasks's doc comment), so a CalDAV task's `projectId` is simply
-// omitted and the `params.projectId` filter is a no-op for CalDAV.
+// caldavListTasks's doc comment).
 async function listTasksForConnection(
 	userId: string,
 	conn: ConnectionPublic,
-	_params: { projectId?: string },
 ): Promise<TaskItem[]> {
 	if (conn.provider === "caldav") {
 		const tasks = await caldavListTasks(userId, conn.id);
@@ -169,16 +165,6 @@ async function listTasksForConnection(
 			connectionId: conn.id,
 		}));
 	}
-	return [];
-}
-
-// CalDAV has no distinct "project" resource for this connector (see
-// listTasksForConnection's doc comment), so list_projects currently never
-// surfaces any projects.
-async function listProjectsForConnection(
-	_userId: string,
-	_conn: ConnectionPublic,
-): Promise<TaskProjectItem[]> {
 	return [];
 }
 
@@ -206,11 +192,9 @@ function matchesQuery(task: TaskItem, query: string): boolean {
 // ---------------------------------------------------------------------------
 // Locality Option A — task titles/notes are sensitive free text (same
 // posture as calendar.ts's summary/location and contacts.ts's whole-payload
-// gate). Every action that can carry raw task/project text is gated on its
+// gate). Every action that can carry raw task text is gated on its
 // own most-sensitive field(s) before a cloud model ever sees it:
 //   - list_tasks/search_tasks: task title + notes.
-//   - list_projects: project name (also arbitrary user-authored free text —
-//     e.g. "Job search Q3" is as sensitive as a task title).
 // `outcome.candidates` (the user's own Sources-tab list, built from the
 // original unredacted data before this gate ever runs) is left untouched —
 // it's the user's own data on their own screen, a different channel from
@@ -220,8 +204,6 @@ function matchesQuery(task: TaskItem, query: string): boolean {
 
 const WITHHELD_TASKS_MESSAGE =
 	"These tasks couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.";
-const WITHHELD_PROJECTS_MESSAGE =
-	"These project names couldn't be privately summarized for a cloud model, so they were withheld. Switch to a local model to view them, or try again.";
 
 function distillTasksReadOutcome(params: {
 	userId: string;
@@ -231,33 +213,6 @@ function distillTasksReadOutcome(params: {
 }): Promise<TasksToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
 	const payload = outcome.modelPayload;
-
-	if (payload.action === "list_projects") {
-		return applyLocalDistillGate({
-			outcome,
-			userId,
-			modelId,
-			capability: "tasks",
-			userQuestion: input.query ?? "",
-			rawText: payload.projects.map((project) => project.name).join("\n"),
-			onDistilled: (o, distilled) => ({
-				...o,
-				modelPayload: {
-					...o.modelPayload,
-					message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
-					projects: [],
-				},
-			}),
-			onUnavailable: (o) => ({
-				...o,
-				modelPayload: {
-					...o.modelPayload,
-					message: WITHHELD_PROJECTS_MESSAGE,
-					projects: [],
-				},
-			}),
-		});
-	}
 
 	// list_tasks / search_tasks
 	const redactedCitations = (): TasksCitation[] =>
@@ -302,11 +257,7 @@ async function runListTasks(
 ): Promise<TasksToolOutcome> {
 	const allTasks: TaskItem[] = [];
 	for (const conn of connections) {
-		allTasks.push(
-			...(await listTasksForConnection(userId, conn, {
-				...(input.projectId ? { projectId: input.projectId } : {}),
-			})),
-		);
+		allTasks.push(...(await listTasksForConnection(userId, conn)));
 	}
 	const tasks = input.due
 		? allTasks.filter((task) => matchesDueFilter(task, input.due as string))
@@ -318,26 +269,6 @@ async function runListTasks(
 	return buildPayload({ success: true, action: "list_tasks", message, tasks });
 }
 
-async function runListProjects(
-	userId: string,
-	connections: ConnectionPublic[],
-): Promise<TasksToolOutcome> {
-	const projects: TaskProjectItem[] = [];
-	for (const conn of connections) {
-		projects.push(...(await listProjectsForConnection(userId, conn)));
-	}
-	const message =
-		projects.length === 0
-			? "No projects found."
-			: `Found ${projects.length} ${projects.length === 1 ? "project" : "projects"}.`;
-	return buildPayload({
-		success: true,
-		action: "list_projects",
-		message,
-		projects,
-	});
-}
-
 async function runSearchTasks(
 	userId: string,
 	connections: ConnectionPublic[],
@@ -345,11 +276,7 @@ async function runSearchTasks(
 ): Promise<TasksToolOutcome> {
 	const allTasks: TaskItem[] = [];
 	for (const conn of connections) {
-		allTasks.push(
-			...(await listTasksForConnection(userId, conn, {
-				...(input.projectId ? { projectId: input.projectId } : {}),
-			})),
-		);
+		allTasks.push(...(await listTasksForConnection(userId, conn)));
 	}
 	let tasks = allTasks;
 	if (input.query)
@@ -368,7 +295,7 @@ async function runSearchTasks(
 	});
 }
 
-// Dispatches to list_tasks/list_projects/search_tasks across every
+// Dispatches to list_tasks/search_tasks across every
 // tasks-capable (CalDAV) connection, aggregated — same "combine,
 // don't disambiguate" posture as contacts.ts, since a user may reasonably
 // want a single "what's on my plate" view across more than one task
@@ -412,10 +339,6 @@ export async function runTasksTool(
 	}
 
 	try {
-		if (input.action === "list_projects") {
-			const outcome = await runListProjects(userId, connections);
-			return distillTasksReadOutcome({ userId, modelId, input, outcome });
-		}
 		if (input.action === "search_tasks") {
 			const outcome = await runSearchTasks(userId, connections, input);
 			return distillTasksReadOutcome({ userId, modelId, input, outcome });

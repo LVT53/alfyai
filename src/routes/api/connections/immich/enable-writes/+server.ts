@@ -51,11 +51,14 @@ export const POST: RequestHandler = async (event) => {
 		});
 		return json(result);
 	} catch (err) {
+		// Gate BOTH the message and the status on the provider-error check —
+		// same posture as handleCredentialConnect (connect.ts). An unexpected,
+		// non-ImmichError must fall back to 502 rather than letting
+		// mapConnectError read a stray `.code` off it.
+		const isImmichError = err instanceof ImmichError;
 		return createJsonErrorResponse(
-			err instanceof ImmichError
-				? err.message
-				: "Failed to enable Immich writes",
-			mapConnectError(err, { connection_not_found: 404 }),
+			isImmichError ? err.message : "Failed to enable Immich writes",
+			isImmichError ? mapConnectError(err, { connection_not_found: 404 }) : 502,
 		);
 	}
 };

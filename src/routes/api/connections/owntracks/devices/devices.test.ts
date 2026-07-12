@@ -4,10 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the device-selection listing the connect wizard's picker (otDevices in
 // ConnectWizardModal.svelte) calls before startOwnTracksConnect binds one.
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 const listDevicesMock = vi.fn();
 
 vi.mock("$lib/server/services/connections/providers/owntracks", async () => {

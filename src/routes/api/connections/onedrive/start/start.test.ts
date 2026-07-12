@@ -6,10 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // including its not-configured -> 501 / other-failure -> 502 status mapping
 // and its capabilities validation.
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 const ENV_KEYS = [
 	"ONEDRIVE_CLIENT_ID",
 	"ONEDRIVE_CLIENT_SECRET",

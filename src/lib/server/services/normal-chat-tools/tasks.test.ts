@@ -84,18 +84,16 @@ beforeEach(() => {
 });
 
 describe("sanitizeTasksToolInput", () => {
-	it("trims query/projectId/due and drops empty ones", () => {
+	it("trims query/due and drops empty ones", () => {
 		expect(
 			sanitizeTasksToolInput({
 				action: "search_tasks",
 				query: "  milk  ",
-				projectId: " 2 ",
 				due: " 2026-07-11 ",
 			}),
 		).toEqual({
 			action: "search_tasks",
 			query: "milk",
-			projectId: "2",
 			due: "2026-07-11",
 		});
 	});
@@ -189,19 +187,6 @@ describe("runTasksTool", () => {
 		);
 
 		expect(outcome.modelPayload.tasks.map((t) => t.id)).toEqual(["todo-1"]);
-	});
-
-	it("list_projects returns none — CalDAV exposes no project resource", async () => {
-		resolveConnectionsForCapabilityMock.mockResolvedValue([makeConn()]);
-
-		const outcome = await runTasksTool(
-			"user-1",
-			{ action: "list_projects" },
-			LOCAL_MODEL_ID,
-		);
-
-		expect(outcome.modelPayload.success).toBe(true);
-		expect(outcome.modelPayload.projects).toEqual([]);
 	});
 
 	it("search_tasks matches on title or notes, case-insensitively", async () => {
