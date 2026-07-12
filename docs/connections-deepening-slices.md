@@ -160,7 +160,7 @@ admin-not-configured case reads as a clear message, not a generic failure.
 
 ---
 
-## F1 — Doc/ADR/CONTEXT reconciliation + prior-loop audit  🟨
+## F1 — Doc/ADR/CONTEXT reconciliation + prior-loop audit  ✅
 **Blocked by:** all code slices (A1, B1–B3, C1–C3, D1, E1).
 
 **What to build:** Consolidate ADR-0050/0051, finalize the CONTEXT.md Connections
@@ -174,7 +174,7 @@ deepening-4-8-audit) are current.
 
 ---
 
-## F2 — Independent judge audit  ⬜
+## F2 — Independent judge audit  ✅  (NO BLOCKERS; 3 SHOULD-FIX applied)
 **Blocked by:** F1.
 
 **What to build:** A separate judge subagent (fresh context) audits the whole integration
@@ -186,8 +186,15 @@ branch — behavioral equivalence, gates, dead refs, secret-firewall posture, do
 
 ---
 
-## F3 — Deploy + live verification  ⬜
+## F3 — Deploy + live verification  ⏸ HANDOFF (harness blocks agent SSH to prod)
 **Blocked by:** F2.
+
+**Status:** all code done, audited, full gate green, branch pushed + PR open. The Claude
+Code auto-mode classifier denies the agent SSH access to the `alfydesign` prod server, so
+the agent cannot run `scripts/deploy.sh` itself. Deploy is handed to the owner (merge PR →
+`ssh alfydesign` → `nohup bash scripts/deploy.sh &`). NOTE: deploy runs `db:prepare`,
+which applies the destructive Todoist migration on prod (owner-approved). Reminder: set
+`OWNTRACKS_RECORDER_URL` (+ USER/PASS) in the prod `.env` if OwnTracks should work.
 
 **What to build:** Merge, deploy to prod (per `memory/alfydesign-deploy-ops.md`), verify
 Connections live.
