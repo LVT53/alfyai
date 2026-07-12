@@ -697,9 +697,9 @@ describe("getProjectContext", () => {
 		).rejects.toThrow(errorPattern);
 	});
 
-	it("rejects detail for a sibling outside the allowed project continuity scope", async () => {
+	it("rejects detail for a sibling outside the allowed project folder scope", async () => {
 		mockGetProjectReferenceContext.mockResolvedValue({
-			source: "project_continuity",
+			source: "project_folder",
 			projectId: "memory-project-1",
 			projectName: "Inferred launch work",
 			omittedSiblingCount: 0,

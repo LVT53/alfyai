@@ -1290,7 +1290,6 @@ export type ContextSourceGroupKind =
 	| "excluded"
 	| "memory"
 	| "project_folder"
-	| "project_continuity"
 	| "conversation";
 
 export type ContextSourceItemState =

@@ -553,7 +553,6 @@ describe("finalizeChatTurn", () => {
 			initialTaskState: null,
 			initialContextDebug: null,
 			analytics: null,
-			continuitySource: "stream",
 			assistantMirrorContent: "assistant response",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -667,7 +666,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
@@ -737,7 +735,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
@@ -787,7 +784,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "Done.",
 			maintenanceReason: "chat_send",
 			generatedOutputReconciliation: {
@@ -851,7 +847,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "",
 			maintenanceReason: "chat_send",
 		});
@@ -931,7 +926,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "stream",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -1003,7 +997,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "stream",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -1049,7 +1042,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 		});
@@ -1113,7 +1105,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 		});
@@ -1169,7 +1160,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "stream",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
 			persistenceMode: "best_effort",
@@ -1235,7 +1225,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			waitForEvidenceBeforePostTurnTasks: false,
@@ -1288,7 +1277,6 @@ describe("finalizeChatTurn", () => {
 			initialTaskState: null,
 			initialContextDebug: null,
 			analytics: null,
-			continuitySource: "send",
 			assistantMirrorContent: "atlas queued",
 			maintenanceReason: "chat_send",
 			skipAssistantProseMemoryIntake: true,
@@ -1414,7 +1402,6 @@ describe("finalizeChatTurn", () => {
 				generationTimeMs: undefined,
 				providerUsage: null,
 			},
-			continuitySource: "send",
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
 			linkedSources: [
@@ -1547,7 +1534,6 @@ describe("finalizeChatTurn", () => {
 			userMessageId: "user-message-1",
 			assistantMessageId: "assistant-message-1",
 			analytics: null,
-			continuitySource: "send",
 		});
 
 		expect(mockRecordMemoryEvent).toHaveBeenCalledWith(
@@ -1607,7 +1593,6 @@ describe("finalizeChatTurn", () => {
 			userMessageId: "user-message-1",
 			assistantMessageId: "assistant-message-1",
 			analytics: null,
-			continuitySource: "send",
 		});
 
 		expect(mockRecordMemoryEvent).not.toHaveBeenCalled();
@@ -1645,7 +1630,6 @@ describe("finalizeChatTurn", () => {
 					promptTokens: 10,
 					completionTokens: 5,
 				},
-				continuitySource: "send",
 			});
 
 			expect(mockIsConversationIncognito).toHaveBeenCalledWith("conv-1");
@@ -1686,7 +1670,6 @@ describe("finalizeChatTurn", () => {
 					promptTokens: 10,
 					completionTokens: 5,
 				},
-				continuitySource: "send",
 			});
 
 			expect(mockIsConversationIncognito).toHaveBeenCalledWith("conv-secret");
@@ -1723,7 +1706,6 @@ describe("finalizeChatTurn", () => {
 					promptTokens: 10,
 					completionTokens: 5,
 				},
-				continuitySource: "send",
 				assistantMirrorContent: "assistant response",
 				maintenanceReason: "chat_send",
 			});
