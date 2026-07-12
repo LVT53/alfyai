@@ -922,10 +922,44 @@ describe("ConnectWizardModal", () => {
 			await waitFor(() => {
 				expect(
 					screen.getByText(
-						"OwnTracks isn't configured on this server yet. Ask your administrator to set it up.",
+						"OwnTracks isn't configured on this server. Ask your administrator to set the OwnTracks Recorder URL.",
 					),
 				).toBeInTheDocument();
 			});
+		});
+
+		// E1 — the recorder can become unconfigured between listing devices and
+		// binding one (or the start route's config gate can 409 independently);
+		// the start submission must surface the same clear admin message, not a
+		// generic failure.
+		it("shows the not-configured message when start returns 409, not a generic error", async () => {
+			mockFetchOwnTracksDevices.mockResolvedValue([
+				{ otUser: "alice", otDevice: "phone" },
+			]);
+			mockStartOwnTracksConnect.mockRejectedValue(
+				new ApiError("OwnTracks is not configured", { status: 409 }),
+			);
+			const onConnected = vi.fn();
+
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "owntracks", onConnected }),
+			);
+
+			await waitFor(() => {
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
+			});
+			await fireEvent.click(screen.getByLabelText("alice / phone"));
+			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+			await waitFor(() => {
+				expect(
+					screen.getByText(
+						"OwnTracks isn't configured on this server. Ask your administrator to set the OwnTracks Recorder URL.",
+					),
+				).toBeInTheDocument();
+			});
+			expect(onConnected).not.toHaveBeenCalled();
 		});
 	});
 

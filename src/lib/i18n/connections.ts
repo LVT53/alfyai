@@ -8,6 +8,8 @@ const connectionsDict = {
 		"connections.actions.reconnect": "Reconnect",
 		"connections.actions.viewDetails": "View details",
 		"connections.addConnection.title": "Add a connection",
+		"connections.addConnection.groupProducts": "Products",
+		"connections.addConnection.groupCustom": "Custom integrations",
 		"connections.row.capabilitiesA11y": "Capabilities: {list}",
 		"connections.googleSignIn.label": "Continue with Google",
 		"connections.allowWrites.label": "Allow writes",
@@ -151,7 +153,7 @@ const connectionsDict = {
 		"connections.wizard.owntracks.help":
 			"Pick which device is yours. AlfyAI will only ever read this device's location.",
 		"connections.wizard.owntracks.notConfigured":
-			"OwnTracks isn't configured on this server yet. Ask your administrator to set it up.",
+			"OwnTracks isn't configured on this server. Ask your administrator to set the OwnTracks Recorder URL.",
 		"connections.wizard.owntracks.empty":
 			"No devices found on the OwnTracks recorder yet.",
 		"connections.wizard.owntracks.deviceOption": "{otUser} / {otDevice}",
@@ -243,6 +245,8 @@ const connectionsDict = {
 		"connections.actions.reconnect": "Újracsatlakoztatás",
 		"connections.actions.viewDetails": "Részletek megtekintése",
 		"connections.addConnection.title": "Kapcsolat hozzáadása",
+		"connections.addConnection.groupProducts": "Termékek",
+		"connections.addConnection.groupCustom": "Egyéni integrációk",
 		"connections.row.capabilitiesA11y": "Képességek: {list}",
 		"connections.googleSignIn.label": "Csatlakozás Google-fiókkal",
 		"connections.allowWrites.label": "Írás engedélyezése",
@@ -386,7 +390,7 @@ const connectionsDict = {
 		"connections.wizard.owntracks.help":
 			"Válaszd ki, melyik eszköz a tiéd. Az AlfyAI kizárólag ennek az eszköznek a helyadatait fogja tudni olvasni.",
 		"connections.wizard.owntracks.notConfigured":
-			"Az OwnTracks még nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be.",
+			"Az OwnTracks nincs beállítva ezen a szerveren. Kérd meg a rendszergazdát, hogy állítsa be az OwnTracks Recorder URL-t.",
 		"connections.wizard.owntracks.empty":
 			"Még nem található eszköz az OwnTracks rekorderen.",
 		"connections.wizard.owntracks.deviceOption": "{otUser} / {otDevice}",

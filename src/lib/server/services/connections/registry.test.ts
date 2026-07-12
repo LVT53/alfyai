@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isKnownProvider } from "$lib/client/connections/provider-catalog";
+import {
+	isKnownProvider,
+	PROVIDER_CATALOG,
+} from "$lib/client/connections/provider-catalog";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { CONNECTION_PROVIDERS } from "$lib/server/db/schema";
 import {
@@ -88,6 +91,7 @@ describe("connections registry", () => {
 			capabilities: ["files"],
 			connectMethod: "oauth",
 			displayName: "OneDrive",
+			group: "product",
 		});
 		expect(CAPABILITY_META.files.providers).toContain("onedrive");
 		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
@@ -107,6 +111,43 @@ describe("connections registry", () => {
 		expect("todoist" in PROVIDER_META).toBe(false);
 	});
 
+	// Slice E1 (ADR-0051 Decision 2) — the catalog grouping lives in two
+	// deliberately-duplicated mirrors (server PROVIDER_META + client
+	// PROVIDER_CATALOG). Guard that they never drift on displayName,
+	// connectMethod, or the new `group` tag.
+	it("keeps server PROVIDER_META and client PROVIDER_CATALOG in sync on group/displayName/connectMethod", () => {
+		for (const provider of CONNECTION_PROVIDERS) {
+			const server = PROVIDER_META[provider];
+			const client = PROVIDER_CATALOG[provider];
+			expect(client).toBeDefined();
+			expect(client.group).toBe(server.group);
+			expect(client.displayName).toBe(server.displayName);
+			expect(client.connectMethod).toBe(server.connectMethod);
+			expect(client.capabilities).toEqual(server.capabilities);
+		}
+	});
+
+	it("tags each provider's group correctly (products vs custom integrations)", () => {
+		const byGroup = (group: "product" | "custom") =>
+			CONNECTION_PROVIDERS.filter(
+				(p) => PROVIDER_META[p].group === group,
+			).sort();
+		expect(byGroup("product")).toEqual(
+			[
+				"nextcloud",
+				"immich",
+				"imap",
+				"google",
+				"apple",
+				"plex",
+				"owntracks",
+				"github",
+				"onedrive",
+			].sort(),
+		);
+		expect(byGroup("custom")).toEqual(["caldav", "contacts"].sort());
+	});
+
 	// Task 9b — generalizes the "caldav" provider from tasks-only (9a) to also
 	// serve calendar (VEVENT) and contacts (CardDAV vCard), so it works for any
 	// standards-compliant CalDAV/CardDAV server, not just Apple iCloud.
@@ -115,6 +156,7 @@ describe("connections registry", () => {
 			capabilities: ["tasks", "calendar", "contacts"],
 			connectMethod: "app-password",
 			displayName: "CalDAV",
+			group: "custom",
 		});
 		expect(CAPABILITY_META.calendar.providers).toContain("caldav");
 		expect(CAPABILITY_META.contacts.providers).toContain("caldav");

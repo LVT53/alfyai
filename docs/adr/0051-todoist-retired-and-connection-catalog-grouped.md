@@ -23,11 +23,21 @@ abort-if-any-exist — the owner accepted the data loss outright. NOTE: `list_pr
 description; CalDAV has no "project" concept.
 
 **2. The connection catalog is grouped into solid products vs custom integrations.**
-*(Implemented in slice E1.)* Each provider carries a `group: "product" | "custom"` field on
-both `PROVIDER_META` (server) and the client `PROVIDER_CATALOG` mirror. The "Add a
-connection" list renders a visual divider between the two groups so a concrete product
-(e.g. Google Calendar) reads distinctly from a generic protocol integration (e.g. CalDAV,
-manual IMAP, CardDAV contacts). This section will be finalized when E1 lands.
+*(Shipped in slice E1.)* Each provider carries a `group: "product" | "custom"` field on
+both `PROVIDER_META` (server, `registry.ts`) and the client `PROVIDER_CATALOG` mirror
+(`provider-catalog.ts`); the two remain deliberately duplicated and are guarded against
+drift by a `registry.test.ts` case that asserts `group`/`displayName`/`connectMethod`/
+`capabilities` match across the mirrors. **product** (branded products) = nextcloud,
+immich, imap (Email), google, apple, plex, owntracks, github, onedrive. **custom** (generic
+protocol integrations) = caldav and contacts (CardDAV); `contacts` is resolver-only so it
+is tagged `custom` but never appears in the add list. A pure helper
+`groupConnectableProviders()` (alongside `CONNECTABLE_PROVIDER_LIST`) splits the connectable
+providers into `{ product, custom }`, preserving catalog declaration order within each
+group. The "Add a connection" list (`SettingsConnectionsTab.svelte`) renders the two groups
+as labeled sub-sections ("Products" / "Custom integrations") separated by a horizontal rule,
+so a concrete product (e.g. Google) reads distinctly from a generic protocol integration
+(e.g. CalDAV). Todoist, retired in Decision 1 / slice A1, is absent from both mirrors and
+the list.
 
 ## Context
 

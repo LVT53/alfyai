@@ -582,7 +582,16 @@ async function submitOwnTracks(event: Event) {
 		onConnected();
 		onClose();
 	} catch (err) {
-		errorText = errMessage(err);
+		// The start route maps OwnTracksError `not_configured` (no recorder
+		// configured server-side) to HTTP 409 — the same admin-config gate the
+		// devices listing hits. Surface the clear "ask your admin" message
+		// (flipping the whole view to otNotConfigured, as on load) instead of a
+		// raw error string.
+		if (err instanceof ApiError && err.status === 409) {
+			otNotConfigured = true;
+		} else {
+			errorText = errMessage(err);
+		}
 	} finally {
 		submitting = false;
 	}

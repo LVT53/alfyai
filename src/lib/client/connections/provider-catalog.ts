@@ -23,6 +23,13 @@ export type ConnectMethod =
 	| "password-key"
 	| "app-password";
 
+// Catalog grouping (ADR-0051 Decision 2, slice E1). "product" = a concrete,
+// branded product integration; "custom" = a generic protocol adapter the user
+// points at their own server. The "Add a connection" list renders a divider
+// between the two groups (see groupConnectableProviders below). Mirror of
+// ProviderGroup in the server registry (registry.ts) — keep in sync.
+export type ProviderGroup = "product" | "custom";
+
 export type ConnectionProvider =
 	| "nextcloud"
 	| "immich"
@@ -62,6 +69,9 @@ export type ProviderCatalogEntry = {
 	// ConnectWizardModal.svelte's "unavailable" fallback for the backstop
 	// if one of these is ever opened directly.
 	connectable: boolean;
+	// Which "Add a connection" group this provider belongs to — a branded
+	// product vs a generic protocol integration (see ProviderGroup above).
+	group: ProviderGroup;
 };
 
 export const PROVIDER_CATALOG: Record<
@@ -76,6 +86,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: true,
 		icon: "Cloud",
 		connectable: true,
+		group: "product",
 	},
 	immich: {
 		displayName: "Immich",
@@ -85,6 +96,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Image",
 		connectable: true,
+		group: "product",
 	},
 	imap: {
 		displayName: "Email",
@@ -94,6 +106,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Mail",
 		connectable: true,
+		group: "product",
 	},
 	google: {
 		displayName: "Google",
@@ -103,6 +116,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Calendar",
 		connectable: true,
+		group: "product",
 	},
 	apple: {
 		displayName: "Apple iCloud",
@@ -112,6 +126,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Apple",
 		connectable: true,
+		group: "product",
 	},
 	plex: {
 		displayName: "Plex",
@@ -121,6 +136,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "CirclePlay",
 		connectable: true,
+		group: "product",
 	},
 	owntracks: {
 		displayName: "OwnTracks",
@@ -130,6 +146,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "MapPin",
 		connectable: true,
+		group: "product",
 	},
 	contacts: {
 		displayName: "Contacts (CardDAV)",
@@ -142,6 +159,10 @@ export const PROVIDER_CATALOG: Record<
 		// and have no standalone connect route (see registry.ts on the
 		// server side). Excluded from the "Add a connection" list.
 		connectable: false,
+		// Generic CardDAV protocol integration (grouped with other custom
+		// integrations even though it isn't connectable and won't appear in the
+		// add list).
+		group: "custom",
 	},
 	github: {
 		displayName: "GitHub",
@@ -152,6 +173,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Github",
 		connectable: true,
+		group: "product",
 	},
 	onedrive: {
 		displayName: "OneDrive",
@@ -162,6 +184,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "Cloud",
 		connectable: true,
+		group: "product",
 	},
 	// Task 9b: widened from tasks-only (9a) — a caldav connection now discovers
 	// and can serve calendar/contacts/tasks (see registry.ts's PROVIDER_META
@@ -177,6 +200,7 @@ export const PROVIDER_CATALOG: Record<
 		pathBasedWrites: false,
 		icon: "ListTodo",
 		connectable: true,
+		group: "custom",
 	},
 };
 
@@ -189,6 +213,29 @@ export const PROVIDER_LIST: ConnectionProvider[] = Object.keys(
 // flag above.
 export const CONNECTABLE_PROVIDER_LIST: ConnectionProvider[] =
 	PROVIDER_LIST.filter((provider) => PROVIDER_CATALOG[provider].connectable);
+
+// ADR-0051 Decision 2 (slice E1) — splits CONNECTABLE_PROVIDER_LIST into the
+// two catalog groups for the "Add a connection" list's divider. Ordering
+// within each group is preserved from CONNECTABLE_PROVIDER_LIST (i.e. from
+// PROVIDER_CATALOG's declaration order). Resolver-only providers (e.g.
+// contacts) are already absent because they aren't connectable.
+export type ConnectableProviderGroups = {
+	product: ConnectionProvider[];
+	custom: ConnectionProvider[];
+};
+
+export function groupConnectableProviders(): ConnectableProviderGroups {
+	const product: ConnectionProvider[] = [];
+	const custom: ConnectionProvider[] = [];
+	for (const provider of CONNECTABLE_PROVIDER_LIST) {
+		if (PROVIDER_CATALOG[provider].group === "product") {
+			product.push(provider);
+		} else {
+			custom.push(provider);
+		}
+	}
+	return { product, custom };
+}
 
 export function isKnownProvider(
 	provider: string,
@@ -213,5 +260,6 @@ export function getProviderCatalogEntry(
 		pathBasedWrites: false,
 		icon: "Cloud",
 		connectable: false,
+		group: "custom",
 	};
 }
