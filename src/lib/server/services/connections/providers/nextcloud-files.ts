@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { registerConnectionAdapter } from "../adapters";
+import {
+	basicAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -380,17 +385,21 @@ export type NextcloudFilesErrorCode =
 	| "writes_disabled"
 	| "connection_not_found";
 
-export class NextcloudFilesError extends Error {
-	constructor(
-		message: string,
-		public readonly code: NextcloudFilesErrorCode,
-	) {
-		super(message);
+export class NextcloudFilesError extends ConnectionHttpError<NextcloudFilesErrorCode> {
+	constructor(message: string, code: NextcloudFilesErrorCode) {
+		super(message, code);
 		this.name = "NextcloudFilesError";
 	}
 }
 
-const REQUEST_TIMEOUT_MS = 15_000;
+// Timeout error for every WebDAV call routed through providerFetch — matches
+// the wording the private fetchWithTimeout produced.
+const nextcloudTimeout = (ms: number) =>
+	new NextcloudFilesError(
+		`Nextcloud request timed out after ${ms}ms`,
+		"request_failed",
+	);
+
 const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only.
 // PROPFIND/SEARCH responses are metadata-only XML and should never
 // legitimately approach this size; capped separately (and much lower than
@@ -443,10 +452,6 @@ function nextcloudConfig(conn: ConnectionPublic): {
 	return { serverUrl, loginName };
 }
 
-function basicAuthHeader(loginName: string, appPassword: string): string {
-	return `Basic ${Buffer.from(`${loginName}:${appPassword}`).toString("base64")}`;
-}
-
 function filesRootUrl(serverUrl: string, loginName: string): string {
 	return `${serverUrl}/remote.php/dav/files/${encodeURIComponent(loginName)}`;
 }
@@ -465,31 +470,6 @@ function filesUrl(
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
 	return `${root}/${encoded}`;
-}
-
-// Bounds every WebDAV call to ~15s via AbortController so a slow/unreachable
-// Nextcloud instance can't hang a chat turn indefinitely.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new NextcloudFilesError(
-				`Nextcloud request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
 }
 
 // Shared 401 -> needs_reauth mapping so the caller (a tool/route) can react
@@ -640,7 +620,9 @@ async function propfind(
 	const normalizedPath = normalizeNextcloudPath(path);
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "PROPFIND",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -747,7 +729,9 @@ export async function nextcloudReadFile(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "GET",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -865,7 +849,9 @@ export async function nextcloudSearch(
 	const { serverUrl, loginName } = nextcloudConfig(conn);
 	const url = `${serverUrl}/remote.php/dav/`;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "SEARCH",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -996,7 +982,9 @@ async function directPut(
 	};
 	if (ifMatch) headers["If-Match"] = ifMatch;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "PUT",
 		headers,
 		// Buffer.from copies into a Uint8Array<ArrayBuffer> — the DOM fetch
@@ -1036,7 +1024,9 @@ async function chunkedPut(
 	const transferId = randomUUID();
 	const uploadsRoot = uploadsRootUrl(serverUrl, loginName, transferId);
 
-	const mkcolResponse = await fetchWithTimeout(fetchImpl, uploadsRoot, {
+	const mkcolResponse = await providerFetch(uploadsRoot, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MKCOL",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1061,7 +1051,9 @@ async function chunkedPut(
 		const chunk = bytes.subarray(start, end);
 		const chunkUrl = `${uploadsRoot}/${String(index + 1).padStart(5, "0")}`;
 
-		const chunkResponse = await fetchWithTimeout(fetchImpl, chunkUrl, {
+		const chunkResponse = await providerFetch(chunkUrl, {
+			fetch: fetchImpl,
+			timeoutError: nextcloudTimeout,
 			method: "PUT",
 			headers: {
 				Authorization: basicAuthHeader(loginName, appPassword),
@@ -1087,14 +1079,12 @@ async function chunkedPut(
 	};
 	if (ifMatch) assembleHeaders["If-Match"] = ifMatch;
 
-	const moveResponse = await fetchWithTimeout(
-		fetchImpl,
-		`${uploadsRoot}/.file`,
-		{
-			method: "MOVE",
-			headers: assembleHeaders,
-		},
-	);
+	const moveResponse = await providerFetch(`${uploadsRoot}/.file`, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
+		method: "MOVE",
+		headers: assembleHeaders,
+	});
 	assertNotAuthFailure(moveResponse);
 	assertNotEtagMismatch(moveResponse);
 	if (!moveResponse.ok) {
@@ -1178,7 +1168,9 @@ export async function nextcloudMoveFile(
 	const fromUrl = filesUrl(serverUrl, loginName, normalizedFrom);
 	const toUrl = filesUrl(serverUrl, loginName, normalizedTo);
 
-	const response = await fetchWithTimeout(fetchImpl, fromUrl, {
+	const response = await providerFetch(fromUrl, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MOVE",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1231,7 +1223,9 @@ export async function nextcloudDeleteFile(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "DELETE",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1277,7 +1271,9 @@ export async function nextcloudCreateFolder(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MKCOL",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1333,7 +1329,9 @@ export async function nextcloudCreateShareLink(
 	const ocsPath = `/${normalizedPath}`;
 	const url = `${serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json`;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "POST",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1402,10 +1400,11 @@ export async function nextcloudCheckVersioningEnabled(
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
 		const { serverUrl, loginName } = nextcloudConfig(conn);
-		const response = await fetchWithTimeout(
-			fetchImpl,
+		const response = await providerFetch(
 			`${serverUrl}/ocs/v2.php/cloud/capabilities?format=json`,
 			{
+				fetch: fetchImpl,
+				timeoutError: nextcloudTimeout,
 				method: "GET",
 				headers: {
 					Authorization: basicAuthHeader(loginName, appPassword),

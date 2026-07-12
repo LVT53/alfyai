@@ -14,6 +14,11 @@
 // module is fully testable against mocked CalDAV endpoints.
 import { createRequire } from "node:module";
 import { registerConnectionAdapter } from "../adapters";
+import {
+	basicAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -24,6 +29,12 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
+
+// basicAuthHeader now lives in the shared provider-http module; re-exported
+// here so providers/caldav-tasks.ts and providers/apple-caldav-write.ts keep
+// importing it from "./apple-caldav" unchanged.
+export { basicAuthHeader };
+
 // Type-only — ContactMatch is owned by contacts.ts (5.8's shared resolver
 // hub, see its module doc comment); this is erased at compile time so it
 // creates no runtime circular dependency with contacts.ts importing
@@ -56,7 +67,6 @@ const WELL_KNOWN_URL = "https://caldav.icloud.com/.well-known/caldav";
 // calendar discovery's cached principal/home URLs).
 const WELL_KNOWN_CARDDAV_URL =
 	"https://contacts.icloud.com/.well-known/carddav";
-const REQUEST_TIMEOUT_MS = 15_000;
 // Bounds how many 3xx hops a single discovery/read request will follow — a
 // real iCloud discovery is at most one redirect (well-known -> partition
 // host), this just guards against a misbehaving/looping server.
@@ -66,15 +76,10 @@ const MAX_REDIRECTS = 5;
 // connector) can reuse the same namespace constants when parsing PROPFIND/
 // REPORT multistatus XML, instead of re-declaring them. NOTE for Task 9b
 // (generic CalDAV/CardDAV generalization): these low-level exports
-// (DAV_NS/CALDAV_NS/CARDDAV_NS, fetchWithTimeout, caldavRequest, textOf,
-// firstNs, parseXml below) are a minimal, additive-only "make the existing
-// helpers reusable" step — they change no existing behavior (every
-// export here was already `function`, just gained the keyword) and every
-// apple-caldav.test.ts case stayed green. A real `caldav-client.ts`
-// extraction (moving this plumbing to its own module both apple-caldav.ts
-// and caldav-tasks.ts import from) is still worth doing but was judged too
-// risky to the calendar/contacts read paths to do in the same change as a
-// brand-new VTODO connector — a good first task for 9b.
+// (DAV_NS/CALDAV_NS/CARDDAV_NS, caldavRequest, textOf, firstNs, parseXml
+// below) are a minimal, additive-only "make the existing helpers reusable"
+// step. The shared HTTP timeout plumbing itself now lives in
+// ../provider-http (providerFetch); caldavRequest below routes through it.
 export const DAV_NS = "DAV:";
 export const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
 // Exported (Task 9b) alongside DAV_NS/CALDAV_NS above, for the same reason:
@@ -89,57 +94,28 @@ export type AppleCalDavErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class AppleCalDavError extends Error {
-	constructor(
-		message: string,
-		public readonly code: AppleCalDavErrorCode,
-	) {
-		super(message);
+export class AppleCalDavError extends ConnectionHttpError<AppleCalDavErrorCode> {
+	constructor(message: string, code: AppleCalDavErrorCode) {
+		super(message, code);
 		this.name = "AppleCalDavError";
 	}
 }
 
-// Exported for the write executor (6.2, providers/apple-caldav-write.ts) —
-// every mutating CalDAV request needs the exact same Basic-auth header this
-// module's own reads use.
-export function basicAuthHeader(appleId: string, appPassword: string): string {
-	return `Basic ${Buffer.from(`${appleId}:${appPassword}`).toString("base64")}`;
-}
-
-// Bounds every CalDAV call to ~15s via AbortController so a slow/unreachable
-// iCloud endpoint can't hang a chat turn (or the connect flow) indefinitely —
-// mirrors the same pattern in providers/nextcloud-files.ts /
-// providers/google-calendar.ts.
+// Builds the timeout error for a CalDAV call routed through providerFetch.
 //
 // `requestLabel` (Task 9b, folded-in review minor) defaults to "Apple
 // CalDAV" so every existing call site in THIS module (none of which pass it)
 // keeps its exact original error wording. providers/caldav-tasks.ts's
-// generic CalDAV connector is the one caller that passes a different label
-// ("CalDAV") — without this, a Nextcloud/Fastmail/Baïkal user hitting a
-// timeout would see "Apple CalDAV request timed out...", which is wrong
-// branding for a connection that has nothing to do with Apple.
-export async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-	requestLabel = "Apple CalDAV",
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new AppleCalDavError(
-				`${requestLabel} request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
+// generic CalDAV connector goes through caldavRequest, which passes a
+// different label ("CalDAV") — without this, a Nextcloud/Fastmail/Baïkal user
+// hitting a timeout would see "Apple CalDAV request timed out...", which is
+// wrong branding for a connection that has nothing to do with Apple.
+function caldavTimeout(requestLabel = "Apple CalDAV") {
+	return (ms: number) =>
+		new AppleCalDavError(
+			`${requestLabel} request timed out after ${ms}ms`,
+			"request_failed",
+		);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +129,7 @@ export async function fetchWithTimeout(
 
 // `labels` (Task 9b, folded-in review minor) lets a caller override the
 // branding baked into this shared function's error messages — see
-// fetchWithTimeout's doc comment above for why. Both fields default to
+// caldavTimeout's doc comment above for why. Both fields default to
 // Apple's own exact original wording so apple-caldav.ts's own call sites
 // (none of which pass this argument) are unaffected;
 // providers/caldav-tasks.ts's generic connector passes generic wording for
@@ -178,23 +154,19 @@ export async function caldavRequest(
 		"Apple rejected the Apple ID or app-specific password";
 	let currentUrl = url;
 	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const response = await fetchWithTimeout(
-			fetchImpl,
-			currentUrl,
-			{
-				method,
-				redirect: "manual",
-				headers: {
-					Authorization: auth,
-					"Content-Type": "text/xml; charset=utf-8",
-					Depth: depth,
-					"User-Agent": USER_AGENT,
-				},
-				body,
+		const response = await providerFetch(currentUrl, {
+			method,
+			redirect: "manual",
+			headers: {
+				Authorization: auth,
+				"Content-Type": "text/xml; charset=utf-8",
+				Depth: depth,
+				"User-Agent": USER_AGENT,
 			},
-			REQUEST_TIMEOUT_MS,
-			requestLabel,
-		);
+			body,
+			fetch: fetchImpl,
+			timeoutError: caldavTimeout(requestLabel),
+		});
 
 		if (response.status === 401) {
 			throw new AppleCalDavError(

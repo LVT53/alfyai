@@ -20,6 +20,11 @@
 // GitHub.com REST semantics (path shapes, response fields) and does not
 // special-case Gitea's differences — that's future work if it's ever needed.
 import { registerConnectionAdapter } from "../adapters";
+import {
+	bearerAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -34,7 +39,6 @@ import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 
-const REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 // GitHub requires a User-Agent on every request or it 403s unauthenticated-
@@ -49,15 +53,19 @@ export type GitHubErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class GitHubError extends Error {
-	constructor(
-		message: string,
-		public readonly code: GitHubErrorCode,
-	) {
-		super(message);
+export class GitHubError extends ConnectionHttpError<GitHubErrorCode> {
+	constructor(message: string, code: GitHubErrorCode) {
+		super(message, code);
 		this.name = "GitHubError";
 	}
 }
+
+// Timeout error for every GitHub call routed through providerFetch — matches
+// the wording the private fetchWithTimeout produced. Call sites already treat
+// a thrown GitHubError specially (rethrow unchanged), so a timeout surfaces
+// through the same request_failed path.
+const githubTimeout = (ms: number) =>
+	new GitHubError(`GitHub request timed out after ${ms}ms`, "request_failed");
 
 // ---------------------------------------------------------------------------
 // Base URL normalization
@@ -92,39 +100,13 @@ function normalizeBaseUrl(baseUrl: string | undefined): string {
 // Shared request plumbing
 // ---------------------------------------------------------------------------
 
-// Bounds every GitHub HTTP call to ~15s via AbortController so a
-// reachable-but-hung API endpoint can't stall a chat turn indefinitely —
-// mirrors the same pattern in providers/immich.ts/providers/nextcloud-files.ts.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new GitHubError(
-				`GitHub request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 // The token is sent as a Bearer header (never a query string) so it never
 // ends up in server access logs. `X-GitHub-Api-Version` pins the REST
 // response shape this module was written against; `User-Agent` is required
 // by GitHub on every request (see USER_AGENT doc comment above).
 function githubHeaders(token: string): HeadersInit {
 	return {
-		Authorization: `Bearer ${token}`,
+		...bearerAuthHeader(token),
 		Accept: "application/vnd.github+json",
 		"X-GitHub-Api-Version": GITHUB_API_VERSION,
 		"User-Agent": USER_AGENT,
@@ -171,8 +153,10 @@ async function githubProbeUser(
 ): Promise<GitHubUserResponse> {
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${baseUrl}/user`, {
+		response = await providerFetch(`${baseUrl}/user`, {
 			headers: githubHeaders(token),
+			fetch: fetchImpl,
+			timeoutError: githubTimeout,
 		});
 	} catch (err) {
 		if (err instanceof GitHubError) throw err;
@@ -337,9 +321,11 @@ async function githubAuthorizedRequest(
 
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${baseUrl}${path}`, {
+		response = await providerFetch(`${baseUrl}${path}`, {
 			...init,
 			headers: { ...githubHeaders(token), ...(init.headers ?? {}) },
+			fetch: fetchImpl,
+			timeoutError: githubTimeout,
 		});
 	} catch (err) {
 		if (err instanceof GitHubError) throw err;
@@ -969,8 +955,10 @@ async function checkHealth(
 	const { baseUrl } = githubConfig(conn);
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchWithTimeout(fetchImpl, `${baseUrl}/user`, {
+		const response = await providerFetch(`${baseUrl}/user`, {
 			headers: githubHeaders(secret),
+			fetch: fetchImpl,
+			timeoutError: githubTimeout,
 		});
 		if (response.status === 401) {
 			return {

@@ -21,6 +21,7 @@
 // provider — see apple-caldav.ts's module doc comment for why iCloud's CalDAV
 // behavior can't be trusted to be safe any other way.
 import { createHash } from "node:crypto";
+import { providerFetch } from "../provider-http";
 import { getConnection, getConnectionSecret, updateConnection } from "../store";
 import {
 	registerWriteExecutor,
@@ -39,7 +40,13 @@ type FetchOpt = { fetch?: typeof fetch };
 // Matches the read side's User-Agent (apple-caldav.ts) so every request this
 // connection makes — read or write — presents the same identity to iCloud.
 const USER_AGENT = "AlfyAI";
-const REQUEST_TIMEOUT_MS = 15_000;
+
+// Timeout error for every write-path CalDAV call routed through providerFetch.
+// Throws a plain Error (not AppleCalDavError) on abort — matching the previous
+// private fetchWithTimeout — because every call site already maps any thrown
+// error to a request_failed write result.
+const appleCalDavWriteTimeout = (ms: number) =>
+	new Error(`Apple CalDAV write request timed out after ${ms}ms`);
 // Bounds how many 3xx hops a single write request will follow — mirrors
 // apple-caldav.ts's own MAX_REDIRECTS for reads (iCloud's undocumented
 // partition redirect, see that module's doc comment).
@@ -537,27 +544,6 @@ function patchVevent(
 // fetch plumbing
 // ---------------------------------------------------------------------------
 
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new Error(
-				`Apple CalDAV write request timed out after ${REQUEST_TIMEOUT_MS}ms`,
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 type ConditionalHeader =
 	| { name: "If-None-Match"; value: "*" }
 	| { name: "If-Match"; value: string };
@@ -578,7 +564,7 @@ async function caldavWriteRequest(
 ): Promise<Response> {
 	let currentUrl = url;
 	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const response = await fetchWithTimeout(fetchImpl, currentUrl, {
+		const response = await providerFetch(currentUrl, {
 			method,
 			redirect: "manual",
 			headers: {
@@ -590,6 +576,8 @@ async function caldavWriteRequest(
 					: {}),
 			},
 			...(body !== undefined ? { body } : {}),
+			fetch: fetchImpl,
+			timeoutError: appleCalDavWriteTimeout,
 		});
 		if ([301, 302, 303, 307, 308].includes(response.status)) {
 			const location = response.headers.get("Location");

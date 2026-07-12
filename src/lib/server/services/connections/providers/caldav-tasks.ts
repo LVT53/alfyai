@@ -34,7 +34,7 @@
 // reads, widened (Task 9b) with `export` keywords and, where a caller needs
 // to vary error-message branding, an optional labels argument — with zero
 // behavior change to any existing apple-caldav.ts call site (see
-// fetchWithTimeout/caldavRequest's doc comments there). Only the pieces
+// caldavRequest's doc comment there). Only the pieces
 // genuinely specific to a generic (non-iCloud) connection — the
 // serverUrl-rooted discovery chain, the combined home-set PROPFIND, the
 // VTODO-specific parser, and this module's own CalDavError type — are new
@@ -45,6 +45,7 @@
 // `fetch` so this module is fully testable against mocked CalDAV/CardDAV
 // endpoints.
 import { registerConnectionAdapter } from "../adapters";
+import { ConnectionHttpError } from "../provider-http";
 import type { Capability, ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -98,17 +99,14 @@ export type CalDavErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class CalDavError extends Error {
-	constructor(
-		message: string,
-		public readonly code: CalDavErrorCode,
-	) {
-		super(message);
+export class CalDavError extends ConnectionHttpError<CalDavErrorCode> {
+	constructor(message: string, code: CalDavErrorCode) {
+		super(message, code);
 		this.name = "CalDavError";
 	}
 }
 
-// caldavRequest/fetchWithTimeout (reused from apple-caldav.ts) always throw
+// caldavRequest (reused from apple-caldav.ts) always throws
 // AppleCalDavError, not CalDavError — this connector's own error type. Every
 // call site below routes its low-level request through this adapter so the
 // rest of the module (and every caller) only ever sees CalDavError, keeping

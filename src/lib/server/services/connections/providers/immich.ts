@@ -13,6 +13,12 @@
 // `.create`/`.write` scope) fails loudly at connect time instead of silently
 // granting write access. A dedicated test pins this.
 import { registerConnectionAdapter } from "../adapters";
+import {
+	apiKeyHeader,
+	bearerAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -28,8 +34,6 @@ import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 
-const REQUEST_TIMEOUT_MS = 15_000;
-
 export type ImmichErrorCode =
 	| "invalid_credentials"
 	| "invalid_config"
@@ -37,15 +41,21 @@ export type ImmichErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class ImmichError extends Error {
-	constructor(
-		message: string,
-		public readonly code: ImmichErrorCode,
-	) {
-		super(message);
+export class ImmichError extends ConnectionHttpError<ImmichErrorCode> {
+	constructor(message: string, code: ImmichErrorCode) {
+		super(message, code);
 		this.name = "ImmichError";
 	}
 }
+
+// Every Immich HTTP call routes through providerFetch (shared ~15s bound); on
+// timeout it throws this exact ImmichError, matching the wording the private
+// fetchWithTimeout used before. Every call site already wraps its request in a
+// try/catch that maps ANY thrown error to a contextual request_failed
+// ImmichError, so a timeout surfaces through the same path a network failure
+// would.
+const immichTimeout = (ms: number) =>
+	new ImmichError(`Immich request timed out after ${ms}ms`, "request_failed");
 
 // ---------------------------------------------------------------------------
 // Structural read-only guard
@@ -141,40 +151,6 @@ function normalizeOrigin(serverUrl: string): string {
 // Shared request plumbing
 // ---------------------------------------------------------------------------
 
-// Bounds every Immich HTTP call to ~15s via AbortController so a
-// reachable-but-hung Immich server can't stall a chat turn indefinitely —
-// mirrors the same pattern in providers/nextcloud-files.ts and
-// providers/google-calendar.ts. The injectable `fetchImpl` is passed straight
-// through (with `signal` added), so every call site below — and every test
-// that supplies its own mocked fetch — keeps working unchanged. Every call
-// site already wraps its `fetchWithTimeout` call in its own try/catch that
-// maps ANY thrown error (network failure or this timeout) to that call
-// site's contextual ImmichError message, so a timeout surfaces through the
-// exact same "couldn't reach the server" / request_failed path an ordinary
-// network failure would.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new ImmichError(
-				`Immich request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Login + key mint
 // ---------------------------------------------------------------------------
@@ -202,10 +178,12 @@ async function immichLogin(
 ): Promise<LoginResponse> {
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${origin}/api/auth/login`, {
+		response = await providerFetch(`${origin}/api/auth/login`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email, password }),
+			fetch: fetchImpl,
+			timeoutError: immichTimeout,
 		});
 	} catch {
 		throw new ImmichError(
@@ -253,16 +231,18 @@ async function mintReadOnlyApiKey(
 
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${origin}/api/api-keys`, {
+		response = await providerFetch(`${origin}/api/api-keys`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer ${accessToken}`,
+				...bearerAuthHeader(accessToken),
 			},
 			body: JSON.stringify({
 				name: READ_ONLY_API_KEY_NAME,
 				permissions: READ_ONLY_IMMICH_PERMISSIONS,
 			}),
+			fetch: fetchImpl,
+			timeoutError: immichTimeout,
 		});
 	} catch {
 		throw new ImmichError(
@@ -444,16 +424,18 @@ async function mintWriteApiKey(
 
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${origin}/api/api-keys`, {
+		response = await providerFetch(`${origin}/api/api-keys`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer ${accessToken}`,
+				...bearerAuthHeader(accessToken),
 			},
 			body: JSON.stringify({
 				name: WRITE_API_KEY_NAME,
 				permissions: WRITE_IMMICH_PERMISSIONS,
 			}),
+			fetch: fetchImpl,
+			timeoutError: immichTimeout,
 		});
 	} catch {
 		throw new ImmichError(
@@ -648,9 +630,11 @@ async function immichAuthorizedRequest(
 
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(fetchImpl, `${origin}${path}`, {
+		response = await providerFetch(`${origin}${path}`, {
 			...init,
-			headers: { ...(init.headers ?? {}), "x-api-key": apiKey },
+			headers: { ...(init.headers ?? {}), ...apiKeyHeader(apiKey) },
+			fetch: fetchImpl,
+			timeoutError: immichTimeout,
 		});
 	} catch {
 		throw new ImmichError(
@@ -1003,11 +987,11 @@ async function checkHealth(
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchWithTimeout(
-			fetchImpl,
-			`${config.origin}/api/albums`,
-			{ headers: { "x-api-key": secret } },
-		);
+		const response = await providerFetch(`${config.origin}/api/albums`, {
+			headers: { ...apiKeyHeader(secret) },
+			fetch: fetchImpl,
+			timeoutError: immichTimeout,
+		});
 		if (response.status === 401) {
 			return {
 				status: "needs_reauth",

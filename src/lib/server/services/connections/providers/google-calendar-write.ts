@@ -8,6 +8,7 @@
 // accepts an injectable `fetch` so this module is fully testable against
 // mocked Google endpoints — nothing here ever talks to live Google in tests.
 import { createHash } from "node:crypto";
+import { bearerAuthHeader, providerFetch } from "../provider-http";
 import { updateConnection } from "../store";
 import {
 	registerWriteExecutor,
@@ -19,7 +20,13 @@ import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 type FetchOpt = { fetch?: typeof fetch };
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
-const REQUEST_TIMEOUT_MS = 15_000;
+
+// Timeout error for every write-path Calendar call routed through
+// providerFetch. Throws a plain Error (not GoogleCalendarError) on abort —
+// matching the previous private fetchWithTimeout — because every call site
+// already maps any thrown error to a request_failed write result.
+const googleCalendarWriteTimeout = (ms: number) =>
+	new Error(`Google Calendar write request timed out after ${ms}ms`);
 
 // ---------------------------------------------------------------------------
 // content parsing — the calendar tool (normal-chat-tools/calendar.ts) is the
@@ -124,31 +131,6 @@ function toGoogleEventTime(
 	return ALL_DAY_PATTERN.test(value) ? { date: value } : { dateTime: value };
 }
 
-// ---------------------------------------------------------------------------
-// fetch plumbing
-// ---------------------------------------------------------------------------
-
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new Error(
-				`Google Calendar write request timed out after ${REQUEST_TIMEOUT_MS}ms`,
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 async function calendarWriteRequest(
 	fetchImpl: typeof fetch,
 	token: string,
@@ -156,13 +138,15 @@ async function calendarWriteRequest(
 	url: string,
 	body?: unknown,
 ): Promise<Response> {
-	return fetchWithTimeout(fetchImpl, url, {
+	return providerFetch(url, {
 		method,
 		headers: {
-			Authorization: `Bearer ${token}`,
+			...bearerAuthHeader(token),
 			...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 		},
 		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+		fetch: fetchImpl,
+		timeoutError: googleCalendarWriteTimeout,
 	});
 }
 
@@ -254,10 +238,14 @@ async function resolveTargetEventId(
 > {
 	if (recurringScope === undefined) return { ok: true, id: eventId };
 
-	const response = await fetchWithTimeout(
-		fetchImpl,
+	const response = await providerFetch(
 		`${CALENDAR_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-		{ method: "GET", headers: { Authorization: `Bearer ${token}` } },
+		{
+			method: "GET",
+			headers: { ...bearerAuthHeader(token) },
+			fetch: fetchImpl,
+			timeoutError: googleCalendarWriteTimeout,
+		},
 	);
 	if (response.status === 401 || response.status === 403) {
 		await flagNeedsReauth(userId, connectionId);

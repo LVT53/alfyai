@@ -8,13 +8,17 @@
 // and hits Google's token endpoint) and every network call accepts an
 // injectable `fetch` so this module is fully testable against mocked Google
 // endpoints.
+import {
+	bearerAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import { updateConnection } from "../store";
 import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 
 type FetchOpt = { fetch?: typeof fetch };
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
-const REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_EVENTS = 25;
 
 export type GoogleCalendarErrorCode =
@@ -28,15 +32,20 @@ export type GoogleCalendarErrorCode =
 // ordinary outcome for a write-action caller to branch on rather than a typed
 // exception every caller must catch.
 
-export class GoogleCalendarError extends Error {
-	constructor(
-		message: string,
-		public readonly code: GoogleCalendarErrorCode,
-	) {
-		super(message);
+export class GoogleCalendarError extends ConnectionHttpError<GoogleCalendarErrorCode> {
+	constructor(message: string, code: GoogleCalendarErrorCode) {
+		super(message, code);
 		this.name = "GoogleCalendarError";
 	}
 }
+
+// Timeout error for every Google Calendar call routed through providerFetch —
+// matches the wording the private fetchWithTimeout produced.
+const googleCalendarTimeout = (ms: number) =>
+	new GoogleCalendarError(
+		`Google Calendar request timed out after ${ms}ms`,
+		"request_failed",
+	);
 
 export type GoogleCalendarListEntry = {
 	id: string;
@@ -137,32 +146,6 @@ async function getAccessToken(
 	}
 }
 
-// Bounds every Calendar API call to ~15s via AbortController so a
-// slow/unreachable Google endpoint can't hang a chat turn indefinitely —
-// mirrors the same pattern in providers/nextcloud-files.ts.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new GoogleCalendarError(
-				`Google Calendar request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 // A 401 here means Google is rejecting the access token even right after a
 // successful refresh (e.g. the grant was revoked server-side mid-flight) —
 // distinct from the refresh step itself failing, but treated identically:
@@ -197,9 +180,11 @@ async function calendarGet(
 		if (value !== undefined) url.searchParams.set(key, String(value));
 	}
 
-	const response = await fetchWithTimeout(fetchImpl, url.toString(), {
+	const response = await providerFetch(url.toString(), {
 		method: "GET",
-		headers: { Authorization: `Bearer ${accessToken}` },
+		headers: { ...bearerAuthHeader(accessToken) },
+		fetch: fetchImpl,
+		timeoutError: googleCalendarTimeout,
 	});
 
 	await assertNotAuthFailure(response, userId, connectionId);
@@ -361,12 +346,13 @@ export async function googleGetEvent(
 	const calendarId = encodeURIComponent(params.calendarId ?? "primary");
 	const eventId = encodeURIComponent(params.eventId);
 
-	const response = await fetchWithTimeout(
-		fetchImpl,
+	const response = await providerFetch(
 		`${CALENDAR_API_BASE}/calendars/${calendarId}/events/${eventId}`,
 		{
 			method: "GET",
-			headers: { Authorization: `Bearer ${accessToken}` },
+			headers: { ...bearerAuthHeader(accessToken) },
+			fetch: fetchImpl,
+			timeoutError: googleCalendarTimeout,
 		},
 	);
 
@@ -413,22 +399,20 @@ export async function googleFreeBusy(
 			? params.calendarIds
 			: ["primary"];
 
-	const response = await fetchWithTimeout(
-		fetchImpl,
-		`${CALENDAR_API_BASE}/freeBusy`,
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				timeMin: params.timeMin,
-				timeMax: params.timeMax,
-				items: calendarIds.map((id) => ({ id })),
-			}),
+	const response = await providerFetch(`${CALENDAR_API_BASE}/freeBusy`, {
+		method: "POST",
+		headers: {
+			...bearerAuthHeader(accessToken),
+			"Content-Type": "application/json",
 		},
-	);
+		body: JSON.stringify({
+			timeMin: params.timeMin,
+			timeMax: params.timeMax,
+			items: calendarIds.map((id) => ({ id })),
+		}),
+		fetch: fetchImpl,
+		timeoutError: googleCalendarTimeout,
+	});
 
 	await assertNotAuthFailure(response, userId, connectionId);
 	if (!response.ok) {

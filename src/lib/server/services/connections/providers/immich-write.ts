@@ -23,6 +23,8 @@
 // flow is never used for this call. Every network call accepts an
 // injectable `fetch` so this module is fully testable against mocked Immich
 // endpoints — nothing here ever talks to a live Immich server in tests.
+
+import { apiKeyHeader, providerFetch } from "../provider-http";
 import {
 	getConnection,
 	getConnectionWriteSecret,
@@ -39,40 +41,15 @@ import { ImmichError } from "./immich";
 export type ImmichWriteOpt = { fetch?: typeof fetch };
 
 const ALBUM_NAME = "AlfyAI";
-const REQUEST_TIMEOUT_MS = 15_000;
 
-// ---------------------------------------------------------------------------
-// fetch plumbing — bounds every write-path Immich call to ~15s via
-// AbortController so a reachable-but-hung Immich server can't stall a
-// pending-write confirmation indefinitely. Mirrors the read side's
-// fetchWithTimeout (immich.ts) as well as the same private-per-module helper
-// in providers/apple-caldav-write.ts / providers/google-calendar-write.ts —
-// this module keeps its own copy (rather than importing immich.ts's) to match
-// that established write-module convention. Throws a plain Error (not
-// ImmichError) on abort because every call site below already wraps its
-// fetchWithTimeout call in its own try/catch that maps ANY thrown error to a
+// Timeout error for every write-path Immich call routed through providerFetch.
+// Throws a plain Error (not ImmichError) on abort — matching the previous
+// private fetchWithTimeout — because every call site below already wraps its
+// request in a try/catch that maps ANY thrown error to a
 // `{ ok: false, reason: "request_failed" }` WriteExecutionResult, exactly the
 // same way it already does for an ordinary network failure.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new Error(
-				`Immich write request timed out after ${REQUEST_TIMEOUT_MS}ms`,
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
+const immichWriteTimeout = (ms: number) =>
+	new Error(`Immich write request timed out after ${ms}ms`);
 
 type AddToAlbumContent = { assetIds: string[]; albumName: string };
 
@@ -149,9 +126,11 @@ async function findOrCreateAlbum(
 > {
 	let listResponse: Response;
 	try {
-		listResponse = await fetchWithTimeout(fetchImpl, `${origin}/api/albums`, {
+		listResponse = await providerFetch(`${origin}/api/albums`, {
 			method: "GET",
-			headers: { "x-api-key": apiKey },
+			headers: { ...apiKeyHeader(apiKey) },
+			fetch: fetchImpl,
+			timeoutError: immichWriteTimeout,
 		});
 	} catch {
 		return { ok: false, reason: "request_failed" };
@@ -184,13 +163,15 @@ async function findOrCreateAlbum(
 
 	let createResponse: Response;
 	try {
-		createResponse = await fetchWithTimeout(fetchImpl, `${origin}/api/albums`, {
+		createResponse = await providerFetch(`${origin}/api/albums`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"x-api-key": apiKey,
+				...apiKeyHeader(apiKey),
 			},
 			body: JSON.stringify({ albumName }),
+			fetch: fetchImpl,
+			timeoutError: immichWriteTimeout,
 		});
 	} catch {
 		return { ok: false, reason: "request_failed" };
@@ -223,18 +204,16 @@ async function addAssetsToAlbum(
 ): Promise<WriteExecutionResult> {
 	let response: Response;
 	try {
-		response = await fetchWithTimeout(
-			fetchImpl,
-			`${origin}/api/albums/${albumId}/assets`,
-			{
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-					"x-api-key": apiKey,
-				},
-				body: JSON.stringify({ ids: assetIds }),
+		response = await providerFetch(`${origin}/api/albums/${albumId}/assets`, {
+			method: "PUT",
+			headers: {
+				"Content-Type": "application/json",
+				...apiKeyHeader(apiKey),
 			},
-		);
+			body: JSON.stringify({ ids: assetIds }),
+			fetch: fetchImpl,
+			timeoutError: immichWriteTimeout,
+		});
 	} catch {
 		return { ok: false, reason: "request_failed" };
 	}

@@ -16,6 +16,7 @@
 // mocked Plex endpoints — nothing here ever talks to a live Plex server in
 // tests.
 import { registerConnectionAdapter } from "../adapters";
+import { ConnectionHttpError, providerFetch } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -37,15 +38,18 @@ export type PlexErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class PlexError extends Error {
-	constructor(
-		message: string,
-		public readonly code: PlexErrorCode,
-	) {
-		super(message);
+export class PlexError extends ConnectionHttpError<PlexErrorCode> {
+	constructor(message: string, code: PlexErrorCode) {
+		super(message, code);
 		this.name = "PlexError";
 	}
 }
+
+// Timeout error for the health check now routed through providerFetch —
+// previously this call had no timeout wrapper at all (B1 closes that gap so
+// the ~15s bound is uniform with every other provider's health check).
+const plexTimeout = (ms: number) =>
+	new PlexError(`Plex request timed out after ${ms}ms`, "request_failed");
 
 // ---------------------------------------------------------------------------
 // Server URL normalization
@@ -881,8 +885,10 @@ async function checkHealth(
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchImpl(`${config.origin}/identity`, {
+		const response = await providerFetch(`${config.origin}/identity`, {
 			headers: plexHeaders(secret),
+			fetch: fetchImpl,
+			timeoutError: plexTimeout,
 		});
 		if (response.status === 401) {
 			return {

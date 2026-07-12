@@ -8,6 +8,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import { config as envConfig } from "$lib/server/env";
 import { registerConnectionAdapter } from "../adapters";
+import { ConnectionHttpError } from "../provider-http";
 import type { Capability, ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -38,12 +39,9 @@ export type GoogleOAuthErrorCode =
 	| "connection_not_found"
 	| "needs_reauth";
 
-export class GoogleOAuthError extends Error {
-	constructor(
-		message: string,
-		public readonly code: GoogleOAuthErrorCode,
-	) {
-		super(message);
+export class GoogleOAuthError extends ConnectionHttpError<GoogleOAuthErrorCode> {
+	constructor(message: string, code: GoogleOAuthErrorCode) {
+		super(message, code);
 		this.name = "GoogleOAuthError";
 	}
 }
