@@ -16,6 +16,7 @@
 // mocked Plex endpoints — nothing here ever talks to a live Plex server in
 // tests.
 import { registerConnectionAdapter } from "../adapters";
+import { assertPublicHttpsUrl } from "../host-locality";
 import { ConnectionHttpError, providerFetch } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
@@ -27,7 +28,6 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
-import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 

@@ -14,12 +14,13 @@
 //
 // Base URL: defaults to `https://api.github.com`. A caller may instead
 // supply a custom API root (Gitea, GitHub Enterprise Server) — validated via
-// the shared `assertPublicHttpsUrl` SSRF guard (see nextcloud-files.ts),
+// the shared `assertPublicHttpsUrl` SSRF guard (see host-locality.ts),
 // exactly like the Immich/Plex/Nextcloud server-URL fields. A custom base
 // URL is treated as a "GitHub-compatible API root": this module keeps
 // GitHub.com REST semantics (path shapes, response fields) and does not
 // special-case Gitea's differences — that's future work if it's ever needed.
 import { registerConnectionAdapter } from "../adapters";
+import { assertPublicHttpsUrl } from "../host-locality";
 import {
 	bearerAuthHeader,
 	ConnectionHttpError,
@@ -35,7 +36,6 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
-import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 

@@ -36,3 +36,24 @@ fetch — untouched. `ImapError` and the validation-only `IcalWriteError` are un
 Rejected: collapsing the provider error classes into one type — it would break the route
 error ladders (`instanceof <Provider>Error`), and D1 reworks route error-mapping
 separately.
+
+## Host Locality  *(slice B2)*
+
+**Decision:** One module (`connections/host-locality.ts`) owns the
+private/loopback/link-local host classifier, used behind BOTH the SSRF guard
+(`assertPublicHttpsUrl`, for user-pasted server URLs) and the cloud-connector warning
+(`isPrivateHostname`, in `locality.ts`). The prior duplicate classifier in `net.ts` is
+deleted (the module became empty and was removed); the SSRF guard moved OUT of
+`providers/nextcloud-files.ts` — the 4 providers that reached across to import it
+(github, immich, plex, caldav-tasks) plus the two nextcloud routes now import it from
+host-locality.
+
+**Intentional hardening (behavior change, noted):** the two original classifiers were
+identical except `net.ts` treated `*.local` mDNS names as private and the Nextcloud SSRF
+inline checks did not. The reconciled classifier keeps the `.local` check, so
+`assertPublicHttpsUrl` now also rejects `https://*.local` URLs (previously they passed).
+This is the correct SSRF direction — `.local` is a LAN host, and RFC1918/loopback IPs
+were already rejected — but it is a user-visible change: a connection whose server URL is
+an mDNS `.local` name will now fail the guard. On-box connectors that legitimately need a
+LAN host (OwnTracks) are already exempt from the guard by design.
+

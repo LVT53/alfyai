@@ -45,6 +45,7 @@
 // `fetch` so this module is fully testable against mocked CalDAV/CardDAV
 // endpoints.
 import { registerConnectionAdapter } from "../adapters";
+import { assertPublicHttpsUrl } from "../host-locality";
 import { ConnectionHttpError } from "../provider-http";
 import type { Capability, ConnectionAdapter } from "../registry";
 import {
@@ -88,7 +89,6 @@ import {
 // caldavSearchContacts from this module.
 import type { ContactMatch } from "./contacts";
 import type { CalendarEvent } from "./google-calendar";
-import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 

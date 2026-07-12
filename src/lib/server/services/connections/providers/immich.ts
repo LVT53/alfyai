@@ -13,6 +13,7 @@
 // `.create`/`.write` scope) fails loudly at connect time instead of silently
 // granting write access. A dedicated test pins this.
 import { registerConnectionAdapter } from "../adapters";
+import { assertPublicHttpsUrl } from "../host-locality";
 import {
 	apiKeyHeader,
 	bearerAuthHeader,
@@ -30,7 +31,6 @@ import {
 	setConnectionWriteSecret,
 	updateConnection,
 } from "../store";
-import { assertPublicHttpsUrl } from "./nextcloud-files";
 
 type FetchOpt = { fetch?: typeof fetch };
 
@@ -120,7 +120,7 @@ function stripTrailingSlashes(value: string): string {
 // without a trailing slash) and always returns the bare origin the way the
 // rest of this module expects to build `{origin}/api/...` calls. Delegates
 // the https + private/loopback/link-local host guard to the shared
-// `assertPublicHttpsUrl` (see nextcloud-files.ts) — the user-pasted server
+// `assertPublicHttpsUrl` (see host-locality.ts) — the user-pasted server
 // URL here is fetched server-side with the user's secret attached, exactly
 // like the Nextcloud connector's serverUrl, so it needs the same SSRF guard.
 function normalizeOrigin(serverUrl: string): string {

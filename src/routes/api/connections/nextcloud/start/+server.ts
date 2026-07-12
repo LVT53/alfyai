@@ -1,9 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	assertPublicHttpsUrl,
-	nextcloudConnectStart,
-} from "$lib/server/services/connections/providers/nextcloud-files";
+import { assertPublicHttpsUrl } from "$lib/server/services/connections/host-locality";
+import { nextcloudConnectStart } from "$lib/server/services/connections/providers/nextcloud-files";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
