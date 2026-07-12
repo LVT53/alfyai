@@ -57,3 +57,26 @@ were already rejected — but it is a user-visible change: a connection whose se
 an mDNS `.local` name will now fail the guard. On-box connectors that legitimately need a
 LAN host (OwnTracks) are already exempt from the guard by design.
 
+## DAV Toolkit  *(slice B3)*
+
+**Decision:** The provider-agnostic WebDAV/CalDAV/CardDAV + iCal/vCard toolkit lives in
+its own module (`connections/dav/`: `xml.ts`, `transport.ts`, `ical.ts`) instead of
+inside the 1545-line Apple provider. `apple-caldav.ts` becomes a pure consumer (Apple
+principal/home-set discovery + adapter/health only) and no longer re-exports the toolkit.
+`caldav-tasks.ts`, `contacts.ts`, `apple-caldav-write.ts`, and `nextcloud-files.ts` all
+depend on `dav/`; nextcloud-files drops its parallel XML implementation (its own
+`DAV_NS`/`textOf`/`firstNs`/propstat-walk/inline jsdom).
+
+**Two transport forms:** `caldavRequest` (PROPFIND/REPORT, redirect-following,
+expect-207) for reads, and `caldavWriteRequest` (PUT/DELETE, redirect-following, does NOT
+assume 207 — returns the raw Response) for writes, folding in what
+apple-caldav-write's local fork previously needed. Both built on `providerFetch` (B1).
+
+**Preservation of behavior:** provider-specific error branding (Apple's exact messages +
+`AppleCalDavError`, the generic connector's `CalDavError`/"CalDAV" wording) is injected
+into the shared transport via `makeError`/label/`timeoutError` options, so every
+`instanceof`/`.code` check and user-facing message is byte-identical. The `{ fetch? }`
+injection seam, redirect-following, expect-207 for reads, and namespace URIs are
+unchanged (nextcloud's `DAV_NS = "DAV:"` matched Apple's).
+
+

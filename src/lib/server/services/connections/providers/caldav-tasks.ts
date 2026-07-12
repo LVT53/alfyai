@@ -28,45 +28,30 @@
 // Low-level CalDAV/CardDAV plumbing (redirect-following PROPFIND/REPORT
 // requests, the WebDAV multistatus XML parser, the RFC 5545 line-unfolding/
 // property-parsing primitives, the VEVENT/vCard readers and their REPORT
-// query bodies, and the collection-type filters) is REUSED from
-// providers/apple-caldav.ts rather than duplicated — every export this
-// module pulls from there was already used by Apple's own CalDAV/CardDAV
-// reads, widened (Task 9b) with `export` keywords and, where a caller needs
-// to vary error-message branding, an optional labels argument — with zero
-// behavior change to any existing apple-caldav.ts call site (see
-// caldavRequest's doc comment there). Only the pieces
-// genuinely specific to a generic (non-iCloud) connection — the
-// serverUrl-rooted discovery chain, the combined home-set PROPFIND, the
-// VTODO-specific parser, and this module's own CalDavError type — are new
-// here.
+// query bodies, and the collection-type filters) is REUSED from the shared
+// ../dav module (B3) rather than duplicated — the same toolkit Apple's own
+// CalDAV/CardDAV reads build on. caldavRequest's error branding is varied via
+// its options argument (a generic "CalDAV" requestLabel + credentials message),
+// and its thrown DavError is re-wrapped into this module's own CalDavError (see
+// toCalDavError below). Only the pieces genuinely specific to a generic
+// (non-iCloud) connection — the serverUrl-rooted discovery chain, the combined
+// home-set PROPFIND, the VTODO-specific parser, and this module's own
+// CalDavError type — are new here.
 //
 // Read-only by construction for v1: only ever issues PROPFIND/REPORT
 // (read-only WebDAV methods). Every network call accepts an injectable
 // `fetch` so this module is fully testable against mocked CalDAV/CardDAV
 // endpoints.
 import { registerConnectionAdapter } from "../adapters";
-import { assertPublicHttpsUrl } from "../host-locality";
-import { ConnectionHttpError } from "../provider-http";
-import type { Capability, ConnectionAdapter } from "../registry";
-import {
-	type ConnectionPublic,
-	createConnection,
-	findConnectionByAccount,
-	getConnection,
-	getConnectionSecret,
-	setConnectionSecret,
-	updateConnection,
-} from "../store";
 import {
 	ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY,
 	ADDRESSBOOK_QUERY_BODY,
-	AppleCalDavError,
-	basicAuthHeader,
 	CALDAV_NS,
 	CARDDAV_NS,
 	caldavRequest,
 	calendarQueryBody,
 	DAV_NS,
+	DavError,
 	firstNs,
 	isAddressbookCollection,
 	isCalendarCollection,
@@ -81,7 +66,19 @@ import {
 	textOf,
 	uidQueryBody,
 	unfoldICalLines,
-} from "./apple-caldav";
+} from "../dav";
+import { assertPublicHttpsUrl } from "../host-locality";
+import { basicAuthHeader, ConnectionHttpError } from "../provider-http";
+import type { Capability, ConnectionAdapter } from "../registry";
+import {
+	type ConnectionPublic,
+	createConnection,
+	findConnectionByAccount,
+	getConnection,
+	getConnectionSecret,
+	setConnectionSecret,
+	updateConnection,
+} from "../store";
 // Type-only, same rationale as apple-caldav.ts's own import of this type
 // (see that module's doc comment on the ContactMatch import above
 // appleSearchContacts): erased at compile time, so it creates no runtime
@@ -106,14 +103,13 @@ export class CalDavError extends ConnectionHttpError<CalDavErrorCode> {
 	}
 }
 
-// caldavRequest (reused from apple-caldav.ts) always throws
-// AppleCalDavError, not CalDavError — this connector's own error type. Every
-// call site below routes its low-level request through this adapter so the
-// rest of the module (and every caller) only ever sees CalDavError, keeping
-// AppleCalDavError an apple-caldav.ts-internal-turned-shared implementation
-// detail rather than a public-facing type of this module.
+// caldavRequest (from ../dav) throws the shared DavError, not CalDavError —
+// this connector's own error type. Every call site below routes its low-level
+// request through this adapter so the rest of the module (and every caller)
+// only ever sees CalDavError, keeping DavError a ../dav implementation detail
+// rather than a public-facing type of this module.
 function toCalDavError(err: unknown): CalDavError {
-	if (err instanceof AppleCalDavError) {
+	if (err instanceof DavError) {
 		return new CalDavError(err.message, err.code);
 	}
 	return new CalDavError(

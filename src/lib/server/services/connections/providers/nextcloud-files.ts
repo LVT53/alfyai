@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import { registerConnectionAdapter } from "../adapters";
+import { DAV_NS, firstNs, okPropOf, parseXml, textOf } from "../dav";
 import { assertPublicHttpsUrl } from "../host-locality";
 import {
 	basicAuthHeader,
@@ -23,19 +23,6 @@ import { resolveWriteTarget, type WriteOperation } from "../write-guard";
 const USER_AGENT = "AlfyAI";
 
 type FetchOpt = { fetch?: typeof fetch };
-
-// jsdom is a real (non-dev) dependency already used server-side for HTML
-// extraction (see web-research/extraction.ts) — reused here as a namespace-
-// aware XML parser for WebDAV multistatus responses rather than pulling in a
-// dedicated XML package. Loaded via createRequire (not a static import) so
-// it stays a lazily-resolved CJS module the same way extraction.ts does.
-const require = createRequire(import.meta.url);
-const { JSDOM } = require("jsdom") as {
-	JSDOM: new (
-		xml: string,
-		options?: Record<string, unknown>,
-	) => { window: { document: Document } };
-};
 
 function isUniqueConstraintError(err: unknown): boolean {
 	return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
@@ -414,8 +401,6 @@ function assertMultistatusSizeWithinLimit(response: Response): void {
 	}
 }
 
-const DAV_NS = "DAV:";
-
 const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:">
 	<d:prop>
@@ -427,19 +412,6 @@ const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 		<d:resourcetype/>
 	</d:prop>
 </d:propfind>`;
-
-function textOf(el: Element | null | undefined): string | null {
-	if (!el) return null;
-	const text = el.textContent;
-	if (text === null) return null;
-	const trimmed = text.trim();
-	return trimmed.length > 0 ? trimmed : null;
-}
-
-function firstNs(el: Element | Document, localName: string): Element | null {
-	const found = el.getElementsByTagNameNS(DAV_NS, localName);
-	return found.length > 0 ? (found[0] as Element) : null;
-}
 
 // Recovers the path relative to the user's files root from a `<d:href>`,
 // independent of any scheme/host/subpath prefix Nextcloud may have put in
@@ -462,35 +434,31 @@ function parseResponseElement(
 	responseEl: Element,
 	loginName: string,
 ): NcFile | null {
-	const href = textOf(firstNs(responseEl, "href"));
+	const href = textOf(firstNs(responseEl, DAV_NS, "href"));
 	if (!href) return null;
 	const relPath = relativePathFromHref(href, loginName);
 	if (relPath === null) return null;
 
-	const propstats = Array.from(
-		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-	);
-	const okPropstat =
-		propstats.find((ps) => {
-			const status = textOf(firstNs(ps, "status"));
-			return status ? / 200 /.test(` ${status} `) : false;
-		}) ?? propstats[0];
-	const prop = okPropstat ? firstNs(okPropstat, "prop") : null;
+	const prop = okPropOf(responseEl);
 
-	const displayName = prop ? textOf(firstNs(prop, "displayname")) : null;
-	const resourcetype = prop ? firstNs(prop, "resourcetype") : null;
+	const displayName = prop
+		? textOf(firstNs(prop, DAV_NS, "displayname"))
+		: null;
+	const resourcetype = prop ? firstNs(prop, DAV_NS, "resourcetype") : null;
 	const isDir = resourcetype
 		? resourcetype.getElementsByTagNameNS(DAV_NS, "collection").length > 0
 		: false;
 	const contentLengthText = prop
-		? textOf(firstNs(prop, "getcontentlength"))
+		? textOf(firstNs(prop, DAV_NS, "getcontentlength"))
 		: null;
 	const parsedSize = contentLengthText
 		? Number.parseInt(contentLengthText, 10)
 		: 0;
-	const mtime = prop ? textOf(firstNs(prop, "getlastmodified")) : null;
-	const contentType = prop ? textOf(firstNs(prop, "getcontenttype")) : null;
-	const etag = prop ? textOf(firstNs(prop, "getetag")) : null;
+	const mtime = prop ? textOf(firstNs(prop, DAV_NS, "getlastmodified")) : null;
+	const contentType = prop
+		? textOf(firstNs(prop, DAV_NS, "getcontenttype"))
+		: null;
+	const etag = prop ? textOf(firstNs(prop, DAV_NS, "getetag")) : null;
 
 	const segments = relPath.split("/").filter(Boolean);
 	const name = displayName ?? segments[segments.length - 1] ?? "";
@@ -508,10 +476,10 @@ function parseResponseElement(
 
 // Parses a WebDAV 207 Multistatus response into NcFile[]. Namespace-aware
 // (matches on the `DAV:` namespace URI, not on the `d:`/`D:` prefix some
-// servers use) via jsdom's XML DOM rather than regexing the XML by hand.
+// servers use) via ../dav's shared XML DOM parser rather than regexing the XML
+// by hand.
 function parseMultistatus(xml: string, loginName: string): NcFile[] {
-	const dom = new JSDOM(xml, { contentType: "application/xml" });
-	const doc = dom.window.document;
+	const doc = parseXml(xml);
 	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
 	const files: NcFile[] = [];
 	for (const responseEl of responses) {

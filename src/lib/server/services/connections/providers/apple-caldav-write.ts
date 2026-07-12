@@ -21,36 +21,30 @@
 // provider — see apple-caldav.ts's module doc comment for why iCloud's CalDAV
 // behavior can't be trusted to be safe any other way.
 import { createHash } from "node:crypto";
-import { providerFetch } from "../provider-http";
+import {
+	type ConditionalHeader,
+	caldavWriteRequest,
+	parseICalProperty,
+	parseICalTimestamp,
+	unfoldICalLines,
+} from "../dav";
+import { basicAuthHeader } from "../provider-http";
 import { getConnection, getConnectionSecret, updateConnection } from "../store";
 import {
 	registerWriteExecutor,
 	type WriteExecutionResult,
 } from "../write-executors";
 import { idempotencyKey, type WriteOperation } from "../write-guard";
-import {
-	basicAuthHeader,
-	parseICalProperty,
-	parseICalTimestamp,
-	unfoldICalLines,
-} from "./apple-caldav";
 
 type FetchOpt = { fetch?: typeof fetch };
 
-// Matches the read side's User-Agent (apple-caldav.ts) so every request this
-// connection makes — read or write — presents the same identity to iCloud.
-const USER_AGENT = "AlfyAI";
-
-// Timeout error for every write-path CalDAV call routed through providerFetch.
-// Throws a plain Error (not AppleCalDavError) on abort — matching the previous
-// private fetchWithTimeout — because every call site already maps any thrown
-// error to a request_failed write result.
+// Timeout error for every write-path CalDAV call — injected into ../dav's
+// caldavWriteRequest so it keeps this module's exact wording. Throws a plain
+// Error (not AppleCalDavError) on abort — matching the previous private
+// fetchWithTimeout — because every call site already maps any thrown error to a
+// request_failed write result.
 const appleCalDavWriteTimeout = (ms: number) =>
 	new Error(`Apple CalDAV write request timed out after ${ms}ms`);
-// Bounds how many 3xx hops a single write request will follow — mirrors
-// apple-caldav.ts's own MAX_REDIRECTS for reads (iCloud's undocumented
-// partition redirect, see that module's doc comment).
-const MAX_REDIRECTS = 5;
 
 // ---------------------------------------------------------------------------
 // content parsing — the calendar tool (normal-chat-tools/calendar.ts) is the
@@ -544,17 +538,14 @@ function patchVevent(
 // fetch plumbing
 // ---------------------------------------------------------------------------
 
-type ConditionalHeader =
-	| { name: "If-None-Match"; value: "*" }
-	| { name: "If-Match"; value: string };
-
 // Issues a PUT/DELETE with Basic auth and the caller's mandatory conditional
-// header, manually following iCloud's undocumented partition redirect the
-// same way apple-caldav.ts's caldavRequest does for PROPFIND/REPORT —
-// reimplemented here (rather than reused) because caldavRequest hard-codes
-// "expect a 207 multistatus XML body", which does not hold for a write
-// response (200/201/204/404/410/412, no XML body).
-async function caldavWriteRequest(
+// header via ../dav's write-capable request variant, which follows iCloud's
+// undocumented partition redirect the same way the read transport does for
+// PROPFIND/REPORT but WITHOUT the "expect a 207 multistatus XML body"
+// assumption (a write response is 200/201/204/404/410/412 with no XML body).
+// The abort/timeout error factory is injected so it keeps this module's exact
+// "Apple CalDAV write ..." wording.
+async function appleCaldavWriteRequest(
 	fetchImpl: typeof fetch,
 	url: string,
 	auth: string,
@@ -562,36 +553,9 @@ async function caldavWriteRequest(
 	conditional: ConditionalHeader,
 	body?: string,
 ): Promise<Response> {
-	let currentUrl = url;
-	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const response = await providerFetch(currentUrl, {
-			method,
-			redirect: "manual",
-			headers: {
-				Authorization: auth,
-				"User-Agent": USER_AGENT,
-				[conditional.name]: conditional.value,
-				...(body !== undefined
-					? { "Content-Type": "text/calendar; charset=utf-8" }
-					: {}),
-			},
-			...(body !== undefined ? { body } : {}),
-			fetch: fetchImpl,
-			timeoutError: appleCalDavWriteTimeout,
-		});
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			const location = response.headers.get("Location");
-			if (!location) {
-				throw new Error(
-					`Apple CalDAV write redirected without a Location header (status ${response.status})`,
-				);
-			}
-			currentUrl = new URL(location, currentUrl).toString();
-			continue;
-		}
-		return response;
-	}
-	throw new Error("Too many redirects while writing to Apple CalDAV");
+	return caldavWriteRequest(fetchImpl, url, auth, method, conditional, body, {
+		timeoutError: appleCalDavWriteTimeout,
+	});
 }
 
 // A 401 here means iCloud rejected the (stored) app-specific password for
@@ -649,7 +613,7 @@ async function executeCreate(
 	const resourceHref = `${content.calendarUrl.replace(/\/$/, "")}/${uid}.ics`;
 	const ics = serializeVevent(uid, content.event ?? {});
 
-	const response = await caldavWriteRequest(
+	const response = await appleCaldavWriteRequest(
 		fetchImpl,
 		resourceHref,
 		auth,
@@ -712,7 +676,7 @@ async function executeUpdate(
 		content.uid,
 		content.event ?? {},
 	);
-	const response = await caldavWriteRequest(
+	const response = await appleCaldavWriteRequest(
 		fetchImpl,
 		content.resourceHref,
 		auth,
@@ -752,7 +716,7 @@ async function executeDelete(
 		return { ok: false, reason: "missing_target" };
 	}
 
-	const response = await caldavWriteRequest(
+	const response = await appleCaldavWriteRequest(
 		fetchImpl,
 		content.resourceHref,
 		auth,
