@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnection: vi.fn(),
 }));
@@ -23,7 +19,6 @@ vi.mock("$lib/server/services/connections/providers/nextcloud-files", () => {
 	};
 });
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	NextcloudFilesError,
 	nextcloudListFolders,
@@ -31,7 +26,6 @@ import {
 import { getConnection } from "$lib/server/services/connections/store";
 import { GET } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConnection = getConnection as ReturnType<typeof vi.fn>;
 const mockListFolders = nextcloudListFolders as ReturnType<typeof vi.fn>;
 
@@ -73,7 +67,6 @@ function makeEvent(id = "conn-nc", userId = "owner-user", path?: string) {
 describe("GET /api/connections/[id]/nextcloud-folders", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockGetConnection.mockResolvedValue(nextcloudConnection);
 		mockListFolders.mockResolvedValue([
 			{ path: "/Documents", name: "Documents" },

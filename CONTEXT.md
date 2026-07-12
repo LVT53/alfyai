@@ -2576,7 +2576,7 @@ A single external account a user has linked to AlfyAI (one login), such as a Goo
 _Avoid_: integration, account link, provider (a provider is the service type, not the user's linked account), data source
 
 **Capability**:
-A kind of data or action a **Connection** can serve — calendar, files, email, photos, media, location, or contacts. Capabilities are per-connection and toggleable. One **Connection** (e.g. a Google login) can serve several capabilities.
+A kind of data or action a **Connection** can serve — calendar, files, photos, email, location, media, contacts, repos, or tasks. It is the unit the chat-facing tools are gated on. Capabilities are per-connection and toggleable, and one **Connection** (e.g. a Google login) can serve several. Which providers can back each capability is fixed in `CAPABILITY_META` (e.g. tasks is CalDAV-only).
 _Avoid_: scope, permission, feature, tool (a tool is the chat-facing surface a capability powers)
 
 **Account**:
@@ -2602,6 +2602,68 @@ _Avoid_: settings accordion, inline expander, connection card (the fat always-ex
 **Data Locality**:
 Keeping a user's connected-account data on AlfyAI's own infrastructure — processing it with a local model before any third-party cloud model can see it (Option A), or warning the user the first time connected data would reach a third-party cloud model (Option C). The settings surface for this must plainly say it keeps connected-account data private/on-device; the prototype title "Adatvédelem és adatkezelés helye" is rejected as unclear.
 _Avoid_: locality guard (internal term), Option A/Option C (internal labels — not user-facing copy), data residency
+
+**ConnectionPublic**:
+The secret-free data-transfer object for a **Connection**, produced by the store's `toPublic` mapping. Every field is copied explicitly from the row (the raw row is never spread), so it is structurally impossible for a secret column to leak; secret presence is exposed only as a derived boolean (`hasSecret` / has-write-secret), never the secret itself. It is the only connection shape that crosses out of the store to routes, tools, and adapters — the plaintext secret has a single separate read path and is never part of ConnectionPublic.
+_Avoid_: connection row, serialized connection, DTO with secret, connection payload
+
+**Connect Method**:
+How a provider authenticates at connect time — one of `oauth`, `login-flow-v2` (Nextcloud), `password-key`, or `app-password`. It is per-provider metadata on `PROVIDER_META`, mirrored to the client catalog, and it selects which connect route and wizard form a provider uses.
+_Avoid_: auth type, grant type, OAuth (only one of the four methods), credential
+
+**Connection Adapter**:
+The per-provider lifecycle contract registered process-locally in the adapter registry (`registerConnectionAdapter`/`getConnectionAdapter`). It fixes only the framework-called shape — `checkHealth`, optional `disconnect`, and a `requiresSecret` flag — not capability reads, which stay in the provider modules. Concrete providers register their adapter by side-effect at module load.
+_Avoid_: provider module, driver, plugin, integration
+
+**Write Executor**:
+The per-provider write-dispatch contract registered in the write-executor registry (`registerWriteExecutor`/`getWriteExecutor`), mirroring the adapter registry but for the confirm-time mutation path. `confirmPendingWrite` dispatches to whichever executor matches a pending write's `provider` via a uniform `execute(userId, connectionId, op, content)`, rather than hardwiring one provider's write path. Reads are deliberately NOT dispatched symmetrically — see [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Registry Read Dispatch.
+_Avoid_: write adapter, mutation handler, provider writer, read dispatcher
+
+**Write-Guard (Corruption Firewall)**:
+The pure, provider-agnostic layer every connection write passes through before any provider I/O — no HTTP, no database, no network. It builds the human-readable write preview, normalizes and allowlist-checks a target path (rejecting `..` traversal rather than silently clamping), marks reversible/destructive, and computes the idempotency key. A path-bearing target that has not been verified surfaces as `withinAllowlist: null` plus a warning — "unknown" is never treated as "safe."
+_Avoid_: validator, sanitizer, permission check, SSRF guard (that is Host Locality)
+
+**Pending Write / Confirm Chokepoint**:
+The propose→confirm lifecycle for every connector mutation. A row is created ONCE as `pending` and NEVER executed at creation time; a single conditional UPDATE (`claimPendingWrite`, `pending`→`executing`) runs BEFORE the executor is called, so a write executes exactly once even under racing confirms, client retries, or multiple workers — only the confirm that wins the claim ever touches the provider. Proposals carry a TTL (`PENDING_WRITE_TTL_MS`, 30 minutes); a confirm past expiry is refused rather than run against stale state.
+_Avoid_: draft write, queued write, two-phase commit, optimistic lock
+
+**Provider HTTP**:
+The shared outbound-HTTP module (`provider-http.ts`) every fetch-based provider uses instead of hand-rolling its own client. It owns `providerFetch` (AbortController + a uniform ~15s timeout + AbortError→timeout mapping, with an injectable `fetch` seam for tests), the three auth-header shapes (Bearer / x-api-key / Basic), and the `ConnectionHttpError` base that every named provider error class extends. IMAP is deliberately out of scope (raw TCP via ImapFlow, not fetch). See [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Provider HTTP.
+_Avoid_: fetch wrapper, HTTP client class, per-provider client, request helper
+
+**DAV Toolkit**:
+The provider-agnostic WebDAV/CalDAV/CardDAV + iCal/vCard module (`dav/`: `xml.ts`, `transport.ts`, `ical.ts`) that Apple, CalDAV-tasks, contacts, and Nextcloud-files all consume, instead of the toolkit living inside the Apple provider with a parallel copy in Nextcloud. It exposes two transport forms built on **Provider HTTP** — `caldavRequest` (PROPFIND/REPORT, redirect-following, expect-207) for reads and `caldavWriteRequest` (PUT/DELETE, no 207 assumption) for writes. Provider-specific error branding is injected, so every message and `instanceof`/`.code` check stays byte-identical. See [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §DAV Toolkit.
+_Avoid_: CalDAV library, XML parser, Apple provider internals, iCal dependency
+
+**Host Locality**:
+The single private/loopback/link-local host classifier (`host-locality.ts`) that sits behind BOTH the SSRF guard (`assertPublicHttpsUrl`, for user-pasted server URLs) and the **Cloud-Connector Warning** (`isPrivateHostname`, via `locality.ts`). It replaces the two byte-identical copies that previously lived in `net.ts` and the Nextcloud provider; it classifies literal IPs and hostnames only and does not resolve DNS. See [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Host Locality.
+_Avoid_: SSRF guard (a consumer of this), network util, IP allowlist, DNS resolver
+
+**Cloud-Connector Warning**:
+The one-time warn-and-acknowledge gate (**Data Locality** "Option C") shown the first time a turn would send connected-account data to a third-party cloud model. It fires only when the selected model is cloud, at least one connector capability is active for the turn, and the user has not already acknowledged; the acknowledgement is sticky (there is no un-acknowledge).
+_Avoid_: Option C (internal label), consent modal, privacy banner, per-turn confirmation
+
+**Local Distill**:
+The **Data Locality** "Option A" privacy path: route raw connector text through an on-box local model before any third-party cloud model can see it. The shared gate (`decideLocalDistill` in `connector-distill.ts`) activates only when the user has local-distill enabled AND the selected model is cloud; each tool supplies its own raw-text assembly and redaction while the gate owns the identical activate → distill → replace decision. Empty raw text short-circuits without ever calling the local model.
+_Avoid_: Option A (internal label), summarization, redaction (only part of it), RAG
+
+**Per-User Device Isolation**:
+The isolation-by-construction posture of the OwnTracks location connector. The on-box recorder holds every AlfyAI user's devices under one `(otUser, otDevice)` keyspace and has no notion of which AlfyAI user is asking, so the boundary is enforced entirely in the provider module: it reads `otUser`/`otDevice` only from the caller's own stored **Connection**, and a connection the caller does not own yields nothing without the recorder ever being called. A dedicated isolation test pins exactly this.
+_Avoid_: row-level security, tenant isolation, recorder-side auth, per-device ACL
+
+**Capability-Read Seam**:
+The one seam (`capability-read.ts`, `withCapabilityConnection(userId, capability, {account, forWrite}, fn)`) that owns the resolve → disambiguation → default-pick dance the capability tools each used to copy. It returns a discriminated result (`not-connected` | `no-match` | `ok`) so each tool keeps its verbatim per-capability messages at the call site. Calendar, files, email, photos, media, location, and single-provider repos are migrated; the multi-source tasks and contacts tools aggregate across sources rather than selecting one connection and stay out by design. See [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Capability-Read Seam.
+_Avoid_: resolver, connection picker, router, provider dispatcher
+
+### Relationships
+
+- A **Connection** is stored with its secret encrypted; only **ConnectionPublic** (secret-free) leaves the store, and the plaintext secret has one separate read path used by adapters/executors.
+- A provider's **Connect Method** and **Capability** set live in `PROVIDER_META`; a **Capability**'s backing providers live in `CAPABILITY_META`. The two are cross-checked so the server catalog and client mirror cannot drift (ADR-0051, catalog grouping).
+- A **Connection Adapter** owns health/disconnect; a **Write Executor** owns confirm-time writes. Both are process-local registries a provider registers into at module load; capability reads are dispatched per-tool, not through a registry (deliberate — [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Registry Read Dispatch).
+- Every connector mutation flows tool → **Write-Guard** (pure preview/allowlist/idempotency) → **Pending Write / Confirm Chokepoint** (propose, then atomic-claim confirm) → **Write Executor** (provider I/O). The guard runs before any provider is touched; the executor runs at most once per proposal.
+- **Provider HTTP** is the outbound-HTTP floor every fetch-based provider (and the **DAV Toolkit**) builds on; **Host Locality** is the one classifier the SSRF guard and the **Cloud-Connector Warning** share.
+- **Local Distill** (Option A) and the **Cloud-Connector Warning** (Option C) are the two **Data Locality** paths for connector data reaching a cloud model — distill on-box first, or warn-and-acknowledge once.
+- The **Capability-Read Seam** is the read-side counterpart to the write path: it resolves and disambiguates a **Connection** for a **Capability** before a tool reads, and threads the **Local Distill** gate around the raw connector text.
 
 ## Flagged ambiguities
 

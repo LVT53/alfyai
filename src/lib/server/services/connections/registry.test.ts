@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+	isKnownProvider,
+	PROVIDER_CATALOG,
+} from "$lib/client/connections/provider-catalog";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { CONNECTION_PROVIDERS } from "$lib/server/db/schema";
 import {
@@ -87,24 +91,61 @@ describe("connections registry", () => {
 			capabilities: ["files"],
 			connectMethod: "oauth",
 			displayName: "OneDrive",
+			group: "product",
 		});
 		expect(CAPABILITY_META.files.providers).toContain("onedrive");
 		expect(CAPABILITY_META.files.providers).toContain("nextcloud");
 	});
 
-	// Task 9a — a new "tasks" capability served by two new providers:
-	// Todoist (REST, API token) and generic CalDAV (VTODO, app-password).
-	it("registers the tasks capability with todoist and caldav providers", () => {
+	// Slice A1 — Todoist is fully retired. The "tasks" capability is now served
+	// by CalDAV only; "todoist" must not survive anywhere in the product.
+	it("serves the tasks capability with caldav only — todoist is fully retired", () => {
 		expect(CAPABILITY_META.tasks).toEqual({
 			tier: "explicit",
-			providers: ["todoist", "caldav"],
+			providers: ["caldav"],
 			displayName: "Tasks",
 		});
-		expect(PROVIDER_META.todoist).toEqual({
-			capabilities: ["tasks"],
-			connectMethod: "app-password",
-			displayName: "Todoist",
-		});
+		expect(CAPABILITY_META.tasks.providers).not.toContain("todoist");
+		expect(isKnownProvider("todoist")).toBe(false);
+		expect(CONNECTION_PROVIDERS).not.toContain("todoist" as ConnectionProvider);
+		expect("todoist" in PROVIDER_META).toBe(false);
+	});
+
+	// Slice E1 (ADR-0051 Decision 2) — the catalog grouping lives in two
+	// deliberately-duplicated mirrors (server PROVIDER_META + client
+	// PROVIDER_CATALOG). Guard that they never drift on displayName,
+	// connectMethod, or the new `group` tag.
+	it("keeps server PROVIDER_META and client PROVIDER_CATALOG in sync on group/displayName/connectMethod", () => {
+		for (const provider of CONNECTION_PROVIDERS) {
+			const server = PROVIDER_META[provider];
+			const client = PROVIDER_CATALOG[provider];
+			expect(client).toBeDefined();
+			expect(client.group).toBe(server.group);
+			expect(client.displayName).toBe(server.displayName);
+			expect(client.connectMethod).toBe(server.connectMethod);
+			expect(client.capabilities).toEqual(server.capabilities);
+		}
+	});
+
+	it("tags each provider's group correctly (products vs custom integrations)", () => {
+		const byGroup = (group: "product" | "custom") =>
+			CONNECTION_PROVIDERS.filter(
+				(p) => PROVIDER_META[p].group === group,
+			).sort();
+		expect(byGroup("product")).toEqual(
+			[
+				"nextcloud",
+				"immich",
+				"imap",
+				"google",
+				"apple",
+				"plex",
+				"owntracks",
+				"github",
+				"onedrive",
+			].sort(),
+		);
+		expect(byGroup("custom")).toEqual(["caldav", "contacts"].sort());
 	});
 
 	// Task 9b — generalizes the "caldav" provider from tasks-only (9a) to also
@@ -115,6 +156,7 @@ describe("connections registry", () => {
 			capabilities: ["tasks", "calendar", "contacts"],
 			connectMethod: "app-password",
 			displayName: "CalDAV",
+			group: "custom",
 		});
 		expect(CAPABILITY_META.calendar.providers).toContain("caldav");
 		expect(CAPABILITY_META.contacts.providers).toContain("caldav");

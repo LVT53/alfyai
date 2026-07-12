@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // actual route handler, including its status-code mapping (400 missing
 // field(s) / 401 invalid credentials / 502 other failure) and JSON parsing.
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 const connectMock = vi.fn();
 
 vi.mock("$lib/server/services/connections/providers/caldav-tasks", async () => {

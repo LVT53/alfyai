@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import { createPendingWrite } from "$lib/server/services/connections/pending-writes";
 import {
 	NextcloudFilesError,
@@ -17,12 +18,6 @@ import {
 	onedriveStat,
 	onedriveWebUrl,
 } from "$lib/server/services/connections/providers/onedrive";
-import {
-	needsDisambiguation,
-	pickDefaultConnection,
-	resolveConnectionsForCapability,
-	selectConnection,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 import {
@@ -34,7 +29,7 @@ import {
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage, truncateText } from "./shared";
 
 export const filesToolInputSchema = z.object({
@@ -1064,56 +1059,54 @@ async function shareLinkOutcome(
 // content must never reach the cloud model in that case. Citations (names/
 // paths, used for Sources-tab candidates) are metadata, not sensitive
 // content, and are left untouched by this gate.
-async function applyLocalDistillGate(params: {
+// Assembles this tool's raw file content + field-level stripping and delegates
+// the identical gating control flow to the shared applyLocalDistillGate (see
+// connector-distill.ts). The per-tool part — that `results[].content` is the
+// raw field, and how it's stripped — stays here.
+function distillFilesReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: FilesToolInput;
 	outcome: FilesToolOutcome;
 }): Promise<FilesToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = outcome.modelPayload.results
+	const rawText = outcome.modelPayload.results
 		.map((result) => result.content)
-		.filter((content): content is string => Boolean(content));
-	// Nothing raw to protect (e.g. a search listing, or a binary file with no
-	// inlined text) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
+		.filter((content): content is string => Boolean(content))
+		.join("\n\n");
 
-	const decision = await decideLocalDistill({
+	const strippedResults = () =>
+		outcome.modelPayload.results.map((result) => {
+			const { content: _content, ...rest } = result;
+			return rest;
+		});
+
+	return applyLocalDistillGate({
+		outcome,
 		userId,
 		modelId,
 		capability: "files",
 		userQuestion: input.query ?? input.path ?? "",
-		rawText: rawTextParts.join("\n\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
-
-	const strippedResults = outcome.modelPayload.results.map((result) => {
-		const { content: _content, ...rest } = result;
-		return rest;
-	});
-
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
-				results: strippedResults,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				results: strippedResults(),
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"This file's content couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
-			results: strippedResults,
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"This file's content couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
+				results: strippedResults(),
+			},
+		}),
+	});
 }
 
 // Resolves the user's Files connection(s) and executes a search/read against
@@ -1126,190 +1119,198 @@ export async function runFilesTool(
 	modelId: string,
 	conversationId?: string,
 ): Promise<FilesToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "files");
-	if (connections.length === 0) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
-		});
-	}
+	const notConnectedMessage =
+		"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.";
 
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: noMatchingConnectionMessage("Files", input.account, connections),
-		});
-	}
-	const conn =
-		selected ??
-		pickDefaultConnection(connections, {
-			forWrite: WRITE_ACTIONS.has(input.action),
-		});
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Files connection set up yet. Connect your Nextcloud or OneDrive account in Settings to search or read files.",
-		});
-	}
-
-	// Task 8 — writes stay Nextcloud-only for v1. OneDrive is a read-only
-	// connector (see providers/onedrive.ts's module doc): a write action
-	// against a onedrive connection is refused here, before ANY of the
-	// write-outcome functions below run (so no pending row is ever created
-	// and no Nextcloud-shaped write assumption — resolveWriteTarget,
-	// wouldOverwrite's nextcloudStat call, etc. — is ever exercised against a
-	// non-Nextcloud connection).
-	if (WRITE_ACTIONS.has(input.action) && conn.provider !== "nextcloud") {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: `Writing to ${conn.label} isn't supported yet — OneDrive connections are currently read-only. I can list, search, and read files, but not save, move, delete, create folders, or share links.`,
-		});
-	}
-
-	// The write actions ("save", "move", "delete", "create_folder",
-	// "share_link") are write proposals, not
-	// reads: each must check the allowWrites gate BEFORE any secret is
-	// decrypted, so they branch here — before the shared getConnectionSecret
-	// call below — and manage their own secret fetch internally once the gate
-	// has passed. None of them ever executes inline; each only ever creates a
-	// PENDING row awaiting explicit confirmation.
-	if (input.action === "save") {
-		return saveOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	if (input.action === "move") {
-		return moveOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	if (input.action === "delete") {
-		return deleteOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	if (input.action === "create_folder") {
-		return createFolderOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	if (input.action === "share_link") {
-		return shareLinkOutcome(
-			userId,
-			conversationId,
-			conn,
-			input,
-			ambiguous,
-			connections,
-		);
-	}
-
-	const secret = await getConnectionSecret(userId, conn.id);
-	if (!secret) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
-		});
-	}
-
-	try {
-		if (input.action === "search") {
-			if (!input.query) {
+	const result = await withCapabilityConnection(
+		userId,
+		"files",
+		{ account: input.account, forWrite: WRITE_ACTIONS.has(input.action) },
+		async (conn, { ambiguous, connections }): Promise<FilesToolOutcome> => {
+			// Task 8 — writes stay Nextcloud-only for v1. OneDrive is a read-only
+			// connector (see providers/onedrive.ts's module doc): a write action
+			// against a onedrive connection is refused here, before ANY of the
+			// write-outcome functions below run (so no pending row is ever created
+			// and no Nextcloud-shaped write assumption — resolveWriteTarget,
+			// wouldOverwrite's nextcloudStat call, etc. — is ever exercised against a
+			// non-Nextcloud connection).
+			if (WRITE_ACTIONS.has(input.action) && conn.provider !== "nextcloud") {
 				return buildPayload({
 					success: false,
-					action: "search",
-					message: "A search query is required to search your files.",
+					action: input.action,
+					message: `Writing to ${conn.label} isn't supported yet — OneDrive connections are currently read-only. I can list, search, and read files, but not save, move, delete, create folders, or share links.`,
 				});
 			}
-			const files = await searchFilesForConn(conn, secret, input.query);
-			const outcome = searchOutcome(conn, files, ambiguous, connections);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
 
-		// "list" enumerates a folder's immediate children (files + subfolders) so
-		// the model can navigate the tree and count items — an omitted/empty path
-		// lists the Files root. This is what "how many files are in <folder>" and
-		// "what's in my <folder>" need; `search` only finds by name and can't
-		// enumerate a folder's contents.
-		if (input.action === "list") {
-			const files = await listFolderForConn(conn, secret, input.path ?? "");
-			const outcome = listOutcome(
-				conn,
-				input.path,
-				files,
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
+			// The write actions ("save", "move", "delete", "create_folder",
+			// "share_link") are write proposals, not
+			// reads: each must check the allowWrites gate BEFORE any secret is
+			// decrypted, so they branch here — before the shared getConnectionSecret
+			// call below — and manage their own secret fetch internally once the gate
+			// has passed. None of them ever executes inline; each only ever creates a
+			// PENDING row awaiting explicit confirmation.
+			if (input.action === "save") {
+				return saveOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
 
-		if (!input.path) {
-			return buildPayload({
-				success: false,
-				action: "read",
-				message: "A file path is required to read a file.",
-			});
-		}
-		// A `read` fans out into a stat (the isDirectory guard just below) and
-		// then the actual download — for OneDrive that's two Graph calls, each
-		// of which would otherwise mint its own fresh access token. Resolve ONE
-		// token here and thread it through both so Microsoft's refresh-token
-		// rotation only fires once per read (see readFileForConn's doc comment).
-		// Left undefined for Nextcloud, which ignores it.
-		const accessToken =
-			conn.provider === "onedrive"
-				? await onedriveGetAccessTokenForRead(conn)
-				: undefined;
-		// A folder path can't be read as a file — a raw GET on a folder
-		// otherwise returns a misleading success. Redirect the model to `list`.
-		if (await isDirectory(conn, secret, input.path, accessToken)) {
-			return buildPayload({
-				success: false,
-				action: "read",
-				message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
-			});
-		}
-		const file = await readFileForConn(conn, secret, input.path, accessToken);
-		const outcome = readOutcome(conn, input.path, file, ambiguous, connections);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
-	} catch (err) {
+			if (input.action === "move") {
+				return moveOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
+
+			if (input.action === "delete") {
+				return deleteOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
+
+			if (input.action === "create_folder") {
+				return createFolderOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
+
+			if (input.action === "share_link") {
+				return shareLinkOutcome(
+					userId,
+					conversationId,
+					conn,
+					input,
+					ambiguous,
+					connections,
+				);
+			}
+
+			const secret = await getConnectionSecret(userId, conn.id);
+			if (!secret) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: `Your ${conn.label} connection is missing its stored credentials. Please reconnect it in Settings.`,
+				});
+			}
+
+			try {
+				if (input.action === "search") {
+					if (!input.query) {
+						return buildPayload({
+							success: false,
+							action: "search",
+							message: "A search query is required to search your files.",
+						});
+					}
+					const files = await searchFilesForConn(conn, secret, input.query);
+					const outcome = searchOutcome(conn, files, ambiguous, connections);
+					return distillFilesReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				// "list" enumerates a folder's immediate children (files + subfolders) so
+				// the model can navigate the tree and count items — an omitted/empty path
+				// lists the Files root. This is what "how many files are in <folder>" and
+				// "what's in my <folder>" need; `search` only finds by name and can't
+				// enumerate a folder's contents.
+				if (input.action === "list") {
+					const files = await listFolderForConn(conn, secret, input.path ?? "");
+					const outcome = listOutcome(
+						conn,
+						input.path,
+						files,
+						ambiguous,
+						connections,
+					);
+					return distillFilesReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				if (!input.path) {
+					return buildPayload({
+						success: false,
+						action: "read",
+						message: "A file path is required to read a file.",
+					});
+				}
+				// A `read` fans out into a stat (the isDirectory guard just below) and
+				// then the actual download — for OneDrive that's two Graph calls, each
+				// of which would otherwise mint its own fresh access token. Resolve ONE
+				// token here and thread it through both so Microsoft's refresh-token
+				// rotation only fires once per read (see readFileForConn's doc comment).
+				// Left undefined for Nextcloud, which ignores it.
+				const accessToken =
+					conn.provider === "onedrive"
+						? await onedriveGetAccessTokenForRead(conn)
+						: undefined;
+				// A folder path can't be read as a file — a raw GET on a folder
+				// otherwise returns a misleading success. Redirect the model to `list`.
+				if (await isDirectory(conn, secret, input.path, accessToken)) {
+					return buildPayload({
+						success: false,
+						action: "read",
+						message: `"${fileLabel(input.path)}" is a folder, not a file. Use the "list" action to see what's inside it.`,
+					});
+				}
+				const file = await readFileForConn(
+					conn,
+					secret,
+					input.path,
+					accessToken,
+				);
+				const outcome = readOutcome(
+					conn,
+					input.path,
+					file,
+					ambiguous,
+					connections,
+				);
+				return distillFilesReadOutcome({ userId, modelId, input, outcome });
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
+			}
+		},
+	);
+
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message: mapAdapterError(err),
+			message: notConnectedMessage,
 		});
 	}
+	if (result.kind === "no-match") {
+		return buildPayload({
+			success: false,
+			action: input.action,
+			message: noMatchingConnectionMessage(
+				"Files",
+				result.selector,
+				result.connections,
+			),
+		});
+	}
+	return result.value;
 }

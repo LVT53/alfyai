@@ -1,14 +1,12 @@
 import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	assertPublicHttpsUrl,
-	nextcloudConnectPoll,
-} from "$lib/server/services/connections/providers/nextcloud-files";
+import { requireApiUser } from "$lib/server/api/auth";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
+import { assertPublicHttpsUrl } from "$lib/server/services/connections/host-locality";
+import { nextcloudConnectPoll } from "$lib/server/services/connections/providers/nextcloud-files";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const user = event.locals.user;
+	const user = requireApiUser(event);
 
 	let body: {
 		serverUrl?: unknown;
@@ -17,7 +15,7 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		body = await event.request.json();
 	} catch {
-		return json({ error: "Invalid JSON" }, { status: 400 });
+		return createJsonErrorResponse("Invalid JSON", 400);
 	}
 
 	const rawServerUrl =
@@ -29,19 +27,16 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		serverUrl = assertPublicHttpsUrl(rawServerUrl);
 	} catch (err) {
-		return json(
-			{
-				error:
-					err instanceof Error
-						? err.message
-						: "serverUrl must be a non-empty public https URL",
-			},
-			{ status: 400 },
+		return createJsonErrorResponse(
+			err instanceof Error
+				? err.message
+				: "serverUrl must be a non-empty public https URL",
+			400,
 		);
 	}
 
 	if (!pollToken) {
-		return json({ error: "pollToken is required" }, { status: 400 });
+		return createJsonErrorResponse("pollToken is required", 400);
 	}
 
 	try {
@@ -52,12 +47,9 @@ export const POST: RequestHandler = async (event) => {
 		});
 		return json(result);
 	} catch (err) {
-		return json(
-			{
-				error:
-					err instanceof Error ? err.message : "Failed to poll Nextcloud login",
-			},
-			{ status: 502 },
+		return createJsonErrorResponse(
+			err instanceof Error ? err.message : "Failed to poll Nextcloud login",
+			502,
 		);
 	}
 };

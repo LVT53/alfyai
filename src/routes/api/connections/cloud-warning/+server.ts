@@ -1,22 +1,13 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
+import { isCapability } from "$lib/server/api/capabilities";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import { shouldWarnCloudConnector } from "$lib/server/services/connections/locality";
-import {
-	CAPABILITIES,
-	type Capability,
-} from "$lib/server/services/connections/registry";
+import { CAPABILITIES } from "$lib/server/services/connections/registry";
 import { getEnabledConnectionCapabilities } from "$lib/server/services/connections/resolve";
 import type { RequestHandler } from "./$types";
 
 const MAX_MODEL_ID_LENGTH = 200;
-
-function isCapability(value: unknown): value is Capability {
-	return (
-		typeof value === "string" &&
-		(CAPABILITIES as readonly string[]).includes(value)
-	);
-}
 
 interface CloudWarningBody {
 	modelId?: unknown;
@@ -36,8 +27,8 @@ interface CloudWarningBody {
 // it never exposes any connector data — but the intersection keeps the
 // signal honest regardless.
 export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 
 	let body: CloudWarningBody;
 	try {

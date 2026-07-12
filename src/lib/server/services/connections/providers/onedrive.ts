@@ -25,6 +25,11 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getConfig } from "$lib/server/config-store";
 import { config as envConfig } from "$lib/server/env";
 import { registerConnectionAdapter } from "../adapters";
+import {
+	bearerAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { Capability, ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -51,7 +56,6 @@ const MS_AUTH_URL =
 const MS_TOKEN_URL =
 	"https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only, same cap as Nextcloud.
 const MAX_LIST_ITEMS = 500; // Defensive cap while following `@odata.nextLink` pagination.
 
@@ -73,15 +77,20 @@ export type OneDriveErrorCode =
 	| "invalid_config"
 	| "request_failed";
 
-export class OneDriveError extends Error {
-	constructor(
-		message: string,
-		public readonly code: OneDriveErrorCode,
-	) {
-		super(message);
+export class OneDriveError extends ConnectionHttpError<OneDriveErrorCode> {
+	constructor(message: string, code: OneDriveErrorCode) {
+		super(message, code);
 		this.name = "OneDriveError";
 	}
 }
+
+// Timeout error for every Graph call routed through providerFetch — matches
+// the wording the private fetchWithTimeout produced.
+const onedriveTimeout = (ms: number) =>
+	new OneDriveError(
+		`Microsoft Graph request timed out after ${ms}ms`,
+		"request_failed",
+	);
 
 // Read-only v1 — Files.Read only (no Files.ReadWrite). User.Read resolves
 // the account's email/UPN for the connection's accountIdentifier;
@@ -725,31 +734,6 @@ function encodePathSegments(normalizedPath: string): string {
 		.join("/");
 }
 
-// Bounds every Graph call to ~15s via AbortController — mirrors the same
-// pattern in nextcloud-files.ts/github.ts.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new OneDriveError(
-				`Microsoft Graph request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
 function assertNotAuthFailure(response: Response): void {
 	if (response.status === 401) {
 		throw new OneDriveError(
@@ -842,8 +826,10 @@ async function getItemMetadata(
 		? `${GRAPH_BASE}/me/drive/root:/${encodePathSegments(normalizedPath)}`
 		: `${GRAPH_BASE}/me/drive/root`;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
-		headers: { Authorization: `Bearer ${accessToken}` },
+	const response = await providerFetch(url, {
+		headers: { ...bearerAuthHeader(accessToken) },
+		fetch: fetchImpl,
+		timeoutError: onedriveTimeout,
 	});
 	assertNotAuthFailure(response);
 	if (response.status === 404) return null;
@@ -871,8 +857,10 @@ async function collectChildren(
 	const items: GraphDriveItem[] = [];
 
 	while (next && items.length < MAX_LIST_ITEMS) {
-		const response = await fetchWithTimeout(fetchImpl, next, {
-			headers: { Authorization: `Bearer ${accessToken}` },
+		const response = await providerFetch(next, {
+			headers: { ...bearerAuthHeader(accessToken) },
+			fetch: fetchImpl,
+			timeoutError: onedriveTimeout,
 		});
 		assertNotAuthFailure(response);
 		if (first && response.status === 404) return null;
@@ -1034,11 +1022,17 @@ export async function onedriveReadFile(
 
 	const downloadUrl = item["@microsoft.graph.downloadUrl"];
 	const contentResponse = downloadUrl
-		? await fetchWithTimeout(fetchImpl, downloadUrl, {})
-		: await fetchWithTimeout(
-				fetchImpl,
+		? await providerFetch(downloadUrl, {
+				fetch: fetchImpl,
+				timeoutError: onedriveTimeout,
+			})
+		: await providerFetch(
 				`${GRAPH_BASE}/me/drive/root:/${encodePathSegments(normalizedPath)}:/content`,
-				{ headers: { Authorization: `Bearer ${accessToken}` } },
+				{
+					headers: { ...bearerAuthHeader(accessToken) },
+					fetch: fetchImpl,
+					timeoutError: onedriveTimeout,
+				},
 			);
 
 	assertNotAuthFailure(contentResponse);

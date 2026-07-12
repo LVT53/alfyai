@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import { confirmPendingWrite } from "$lib/server/services/connections/pending-writes";
 import type { RequestHandler } from "./$types";
 
@@ -11,8 +11,8 @@ import type { RequestHandler } from "./$types";
 // executing again; a cancelled/unknown/other-user's pending write is
 // refused.
 export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
 	const result = await confirmPendingWrite(userId, id);

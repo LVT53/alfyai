@@ -680,6 +680,13 @@
       "when": 1777140000083,
       "tag": "1777140000083_drop_analytics_identity_denormalization",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1777140000084,
+      "tag": "1777140000084_retire_todoist",
+      "breakpoints": true
     }
   ]
 }

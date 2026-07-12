@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import { registerConnectionAdapter } from "../adapters";
+import { DAV_NS, firstNs, okPropOf, parseXml, textOf } from "../dav";
+import { assertPublicHttpsUrl } from "../host-locality";
+import {
+	basicAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -17,107 +23,6 @@ import { resolveWriteTarget, type WriteOperation } from "../write-guard";
 const USER_AGENT = "AlfyAI";
 
 type FetchOpt = { fetch?: typeof fetch };
-
-// jsdom is a real (non-dev) dependency already used server-side for HTML
-// extraction (see web-research/extraction.ts) — reused here as a namespace-
-// aware XML parser for WebDAV multistatus responses rather than pulling in a
-// dedicated XML package. Loaded via createRequire (not a static import) so
-// it stays a lazily-resolved CJS module the same way extraction.ts does.
-const require = createRequire(import.meta.url);
-const { JSDOM } = require("jsdom") as {
-	JSDOM: new (
-		xml: string,
-		options?: Record<string, unknown>,
-	) => { window: { document: Document } };
-};
-
-// IPv4 octets that make a host loopback/private/link-local (RFC1918 +
-// RFC3927 + loopback). Only used for literal dotted-quad hostnames — DNS
-// names are not resolved here (see assertPublicHttpsUrl doc comment).
-function isPrivateOrLoopbackIpv4(hostname: string): boolean {
-	const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-	if (!match) return false;
-	const octets = match.slice(1).map(Number);
-	if (octets.some((n) => n < 0 || n > 255)) return false;
-	const [a, b] = octets;
-	if (a === 127) return true; // loopback
-	if (a === 10) return true; // RFC1918
-	if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
-	if (a === 192 && b === 168) return true; // RFC1918
-	if (a === 169 && b === 254) return true; // link-local
-	if (a === 0) return true; // "this network"
-	return false;
-}
-
-const PRIVATE_HOSTNAMES = new Set([
-	"localhost",
-	"localhost.localdomain",
-	"ip6-localhost",
-	"ip6-loopback",
-]);
-
-function isLoopbackOrLinkLocalIpv6(hostname: string): boolean {
-	const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-	if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
-	if (h.startsWith("fe80:")) return true; // link-local
-	return false;
-}
-
-// Matches a leading URL scheme ("https://", "http://", "ftp://", ...) per
-// RFC 3986 (`scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )` followed by
-// ":"). Used only to decide whether `assertPublicHttpsUrl` needs to prepend
-// `https://` to a bare host/origin — every other check below still runs
-// unchanged afterwards, so this never widens what the guard accepts beyond
-// "a scheme-less value is treated as if the user had typed https:// first".
-const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-
-// SSRF guard shared by both the start and poll routes/helpers: the
-// serverUrl a user supplies is fetched server-side with the request's own
-// secrets attached (or used to derive a URL that is), so it must be a
-// public https origin — not loopback/link-local/private. This intentionally
-// does NOT resolve DNS (no protection against DNS rebinding to a private
-// IP behind a public hostname); real-world Nextcloud instances used by this
-// app are public (e.g. https://alfycloud.hu), so self-hosted/private-network
-// Nextcloud is out of scope for now.
-//
-// Bare-host convenience: a value with no scheme at all (e.g.
-// `cloud.example.com`, optionally with a port/path like
-// `cloud.example.com:8443/dav`) is normalized to `https://<value>` before
-// anything else runs — https is the only scheme this guard ever accepts, so
-// assuming it for scheme-less input just saves the user typing it. A value
-// that already names an explicit scheme (including `http://`, which still
-// fails the https check below exactly as before) is left byte-for-byte
-// untouched.
-export function assertPublicHttpsUrl(value: string): string {
-	const trimmed = value.trim();
-	const withScheme = URL_SCHEME_RE.test(trimmed)
-		? trimmed
-		: `https://${trimmed}`;
-
-	let parsed: URL;
-	try {
-		parsed = new URL(withScheme);
-	} catch {
-		throw new Error("serverUrl must be a valid absolute URL");
-	}
-
-	if (parsed.protocol !== "https:") {
-		throw new Error("serverUrl must use https");
-	}
-
-	const hostname = parsed.hostname.toLowerCase();
-	if (PRIVATE_HOSTNAMES.has(hostname)) {
-		throw new Error("serverUrl must not point to a private or loopback host");
-	}
-	if (isPrivateOrLoopbackIpv4(hostname)) {
-		throw new Error("serverUrl must not point to a private or loopback host");
-	}
-	if (hostname.includes(":") && isLoopbackOrLinkLocalIpv6(hostname)) {
-		throw new Error("serverUrl must not point to a private or loopback host");
-	}
-
-	return withScheme.replace(/\/+$/, "");
-}
 
 function isUniqueConstraintError(err: unknown): boolean {
 	return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
@@ -380,17 +285,21 @@ export type NextcloudFilesErrorCode =
 	| "writes_disabled"
 	| "connection_not_found";
 
-export class NextcloudFilesError extends Error {
-	constructor(
-		message: string,
-		public readonly code: NextcloudFilesErrorCode,
-	) {
-		super(message);
+export class NextcloudFilesError extends ConnectionHttpError<NextcloudFilesErrorCode> {
+	constructor(message: string, code: NextcloudFilesErrorCode) {
+		super(message, code);
 		this.name = "NextcloudFilesError";
 	}
 }
 
-const REQUEST_TIMEOUT_MS = 15_000;
+// Timeout error for every WebDAV call routed through providerFetch — matches
+// the wording the private fetchWithTimeout produced.
+const nextcloudTimeout = (ms: number) =>
+	new NextcloudFilesError(
+		`Nextcloud request timed out after ${ms}ms`,
+		"request_failed",
+	);
+
 const MAX_READ_BYTES = 25 * 1024 * 1024; // 25 MB — chat-context reads only.
 // PROPFIND/SEARCH responses are metadata-only XML and should never
 // legitimately approach this size; capped separately (and much lower than
@@ -443,10 +352,6 @@ function nextcloudConfig(conn: ConnectionPublic): {
 	return { serverUrl, loginName };
 }
 
-function basicAuthHeader(loginName: string, appPassword: string): string {
-	return `Basic ${Buffer.from(`${loginName}:${appPassword}`).toString("base64")}`;
-}
-
 function filesRootUrl(serverUrl: string, loginName: string): string {
 	return `${serverUrl}/remote.php/dav/files/${encodeURIComponent(loginName)}`;
 }
@@ -465,31 +370,6 @@ function filesUrl(
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
 	return `${root}/${encoded}`;
-}
-
-// Bounds every WebDAV call to ~15s via AbortController so a slow/unreachable
-// Nextcloud instance can't hang a chat turn indefinitely.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new NextcloudFilesError(
-				`Nextcloud request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
 }
 
 // Shared 401 -> needs_reauth mapping so the caller (a tool/route) can react
@@ -521,8 +401,6 @@ function assertMultistatusSizeWithinLimit(response: Response): void {
 	}
 }
 
-const DAV_NS = "DAV:";
-
 const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:">
 	<d:prop>
@@ -534,19 +412,6 @@ const PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
 		<d:resourcetype/>
 	</d:prop>
 </d:propfind>`;
-
-function textOf(el: Element | null | undefined): string | null {
-	if (!el) return null;
-	const text = el.textContent;
-	if (text === null) return null;
-	const trimmed = text.trim();
-	return trimmed.length > 0 ? trimmed : null;
-}
-
-function firstNs(el: Element | Document, localName: string): Element | null {
-	const found = el.getElementsByTagNameNS(DAV_NS, localName);
-	return found.length > 0 ? (found[0] as Element) : null;
-}
 
 // Recovers the path relative to the user's files root from a `<d:href>`,
 // independent of any scheme/host/subpath prefix Nextcloud may have put in
@@ -569,35 +434,31 @@ function parseResponseElement(
 	responseEl: Element,
 	loginName: string,
 ): NcFile | null {
-	const href = textOf(firstNs(responseEl, "href"));
+	const href = textOf(firstNs(responseEl, DAV_NS, "href"));
 	if (!href) return null;
 	const relPath = relativePathFromHref(href, loginName);
 	if (relPath === null) return null;
 
-	const propstats = Array.from(
-		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-	);
-	const okPropstat =
-		propstats.find((ps) => {
-			const status = textOf(firstNs(ps, "status"));
-			return status ? / 200 /.test(` ${status} `) : false;
-		}) ?? propstats[0];
-	const prop = okPropstat ? firstNs(okPropstat, "prop") : null;
+	const prop = okPropOf(responseEl);
 
-	const displayName = prop ? textOf(firstNs(prop, "displayname")) : null;
-	const resourcetype = prop ? firstNs(prop, "resourcetype") : null;
+	const displayName = prop
+		? textOf(firstNs(prop, DAV_NS, "displayname"))
+		: null;
+	const resourcetype = prop ? firstNs(prop, DAV_NS, "resourcetype") : null;
 	const isDir = resourcetype
 		? resourcetype.getElementsByTagNameNS(DAV_NS, "collection").length > 0
 		: false;
 	const contentLengthText = prop
-		? textOf(firstNs(prop, "getcontentlength"))
+		? textOf(firstNs(prop, DAV_NS, "getcontentlength"))
 		: null;
 	const parsedSize = contentLengthText
 		? Number.parseInt(contentLengthText, 10)
 		: 0;
-	const mtime = prop ? textOf(firstNs(prop, "getlastmodified")) : null;
-	const contentType = prop ? textOf(firstNs(prop, "getcontenttype")) : null;
-	const etag = prop ? textOf(firstNs(prop, "getetag")) : null;
+	const mtime = prop ? textOf(firstNs(prop, DAV_NS, "getlastmodified")) : null;
+	const contentType = prop
+		? textOf(firstNs(prop, DAV_NS, "getcontenttype"))
+		: null;
+	const etag = prop ? textOf(firstNs(prop, DAV_NS, "getetag")) : null;
 
 	const segments = relPath.split("/").filter(Boolean);
 	const name = displayName ?? segments[segments.length - 1] ?? "";
@@ -615,10 +476,10 @@ function parseResponseElement(
 
 // Parses a WebDAV 207 Multistatus response into NcFile[]. Namespace-aware
 // (matches on the `DAV:` namespace URI, not on the `d:`/`D:` prefix some
-// servers use) via jsdom's XML DOM rather than regexing the XML by hand.
+// servers use) via ../dav's shared XML DOM parser rather than regexing the XML
+// by hand.
 function parseMultistatus(xml: string, loginName: string): NcFile[] {
-	const dom = new JSDOM(xml, { contentType: "application/xml" });
-	const doc = dom.window.document;
+	const doc = parseXml(xml);
 	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
 	const files: NcFile[] = [];
 	for (const responseEl of responses) {
@@ -640,7 +501,9 @@ async function propfind(
 	const normalizedPath = normalizeNextcloudPath(path);
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "PROPFIND",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -747,7 +610,9 @@ export async function nextcloudReadFile(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "GET",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -865,7 +730,9 @@ export async function nextcloudSearch(
 	const { serverUrl, loginName } = nextcloudConfig(conn);
 	const url = `${serverUrl}/remote.php/dav/`;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "SEARCH",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -996,7 +863,9 @@ async function directPut(
 	};
 	if (ifMatch) headers["If-Match"] = ifMatch;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "PUT",
 		headers,
 		// Buffer.from copies into a Uint8Array<ArrayBuffer> — the DOM fetch
@@ -1036,7 +905,9 @@ async function chunkedPut(
 	const transferId = randomUUID();
 	const uploadsRoot = uploadsRootUrl(serverUrl, loginName, transferId);
 
-	const mkcolResponse = await fetchWithTimeout(fetchImpl, uploadsRoot, {
+	const mkcolResponse = await providerFetch(uploadsRoot, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MKCOL",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1061,7 +932,9 @@ async function chunkedPut(
 		const chunk = bytes.subarray(start, end);
 		const chunkUrl = `${uploadsRoot}/${String(index + 1).padStart(5, "0")}`;
 
-		const chunkResponse = await fetchWithTimeout(fetchImpl, chunkUrl, {
+		const chunkResponse = await providerFetch(chunkUrl, {
+			fetch: fetchImpl,
+			timeoutError: nextcloudTimeout,
 			method: "PUT",
 			headers: {
 				Authorization: basicAuthHeader(loginName, appPassword),
@@ -1087,14 +960,12 @@ async function chunkedPut(
 	};
 	if (ifMatch) assembleHeaders["If-Match"] = ifMatch;
 
-	const moveResponse = await fetchWithTimeout(
-		fetchImpl,
-		`${uploadsRoot}/.file`,
-		{
-			method: "MOVE",
-			headers: assembleHeaders,
-		},
-	);
+	const moveResponse = await providerFetch(`${uploadsRoot}/.file`, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
+		method: "MOVE",
+		headers: assembleHeaders,
+	});
 	assertNotAuthFailure(moveResponse);
 	assertNotEtagMismatch(moveResponse);
 	if (!moveResponse.ok) {
@@ -1178,7 +1049,9 @@ export async function nextcloudMoveFile(
 	const fromUrl = filesUrl(serverUrl, loginName, normalizedFrom);
 	const toUrl = filesUrl(serverUrl, loginName, normalizedTo);
 
-	const response = await fetchWithTimeout(fetchImpl, fromUrl, {
+	const response = await providerFetch(fromUrl, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MOVE",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1231,7 +1104,9 @@ export async function nextcloudDeleteFile(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "DELETE",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1277,7 +1152,9 @@ export async function nextcloudCreateFolder(
 	}
 	const url = filesUrl(serverUrl, loginName, normalizedPath);
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "MKCOL",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1333,7 +1210,9 @@ export async function nextcloudCreateShareLink(
 	const ocsPath = `/${normalizedPath}`;
 	const url = `${serverUrl}/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json`;
 
-	const response = await fetchWithTimeout(fetchImpl, url, {
+	const response = await providerFetch(url, {
+		fetch: fetchImpl,
+		timeoutError: nextcloudTimeout,
 		method: "POST",
 		headers: {
 			Authorization: basicAuthHeader(loginName, appPassword),
@@ -1402,10 +1281,11 @@ export async function nextcloudCheckVersioningEnabled(
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
 		const { serverUrl, loginName } = nextcloudConfig(conn);
-		const response = await fetchWithTimeout(
-			fetchImpl,
+		const response = await providerFetch(
 			`${serverUrl}/ocs/v2.php/cloud/capabilities?format=json`,
 			{
+				fetch: fetchImpl,
+				timeoutError: nextcloudTimeout,
 				method: "GET",
 				headers: {
 					Authorization: basicAuthHeader(loginName, appPassword),

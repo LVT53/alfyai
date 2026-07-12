@@ -1,5 +1,4 @@
-import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
+import { handleCredentialConnect } from "$lib/server/api/connect";
 import {
 	ImmichError,
 	immichConnect,
@@ -12,56 +11,29 @@ import type { RequestHandler } from "./$types";
 // scoped read-only API key) before responding. The password is used only in
 // memory for the login call inside `immichConnect` — it is never persisted
 // and never appears in the response.
-export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const user = event.locals.user;
-
-	let body: {
-		serverUrl?: unknown;
-		email?: unknown;
-		password?: unknown;
-	};
-	try {
-		body = await event.request.json();
-	} catch {
-		return json({ error: "Invalid JSON" }, { status: 400 });
-	}
-
-	const serverUrl =
-		typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-	const email = typeof body.email === "string" ? body.email.trim() : "";
-	const password = typeof body.password === "string" ? body.password : "";
-	if (!serverUrl || !email || !password) {
-		return json(
-			{ error: "serverUrl, email, and password are required" },
-			{ status: 400 },
-		);
-	}
-
-	try {
-		const result = await immichConnect({
-			userId: user.id,
-			serverUrl,
-			email,
-			password,
-		});
-		return json(result);
-	} catch (err) {
-		const status =
-			err instanceof ImmichError &&
-			(err.code === "invalid_credentials" || err.code === "invalid_config")
-				? err.code === "invalid_credentials"
-					? 401
-					: 400
-				: 502;
-		return json(
-			{
-				error:
-					err instanceof ImmichError
-						? err.message
-						: "Failed to connect to the Immich server",
-			},
-			{ status },
-		);
-	}
-};
+export const POST: RequestHandler = (event) =>
+	handleCredentialConnect({
+		event,
+		errorType: ImmichError,
+		fallbackError: "Failed to connect to the Immich server",
+		parse: (body) => {
+			const serverUrl =
+				typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
+			const email = typeof body.email === "string" ? body.email.trim() : "";
+			const password = typeof body.password === "string" ? body.password : "";
+			if (!serverUrl || !email || !password) {
+				return {
+					ok: false,
+					error: "serverUrl, email, and password are required",
+				};
+			}
+			return { ok: true, value: { serverUrl, email, password } };
+		},
+		connect: ({ userId, value }) =>
+			immichConnect({
+				userId,
+				serverUrl: value.serverUrl,
+				email: value.email,
+				password: value.password,
+			}),
+	});

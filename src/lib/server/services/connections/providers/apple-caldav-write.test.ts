@@ -17,7 +17,7 @@ import { idempotencyKey, type WriteOperation } from "../write-guard";
 // getWriteExecutor("apple") rather than calling any internal function
 // directly, so these tests double as proof the registration actually
 // happens.
-import "./apple-caldav-write";
+import "./apple-caldav";
 
 vi.mock("../store", () => ({
 	getConnection: vi.fn(),

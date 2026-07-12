@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	hasLocalDistillEnabled,
 	setLocalDistillEnabled,
@@ -11,17 +11,17 @@ import type { RequestHandler } from "./$types";
 // has opted in to routing connector data through a local model for
 // privacy-preserving distillation before any cloud chat model can see it.
 export const GET: RequestHandler = async (event) => {
-	requireAuth(event);
+	const user = requireApiUser(event);
 
-	const localDistill = await hasLocalDistillEnabled(event.locals.user.id);
+	const localDistill = await hasLocalDistillEnabled(user.id);
 
 	return json({ localDistill });
 };
 
 // PATCH /api/connections/locality — sets the caller's Option-A preference.
 export const PATCH: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 
 	let body: { localDistill?: unknown };
 	try {

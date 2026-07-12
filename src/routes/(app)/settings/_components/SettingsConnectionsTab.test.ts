@@ -348,6 +348,34 @@ describe("SettingsConnectionsTab", () => {
 			).not.toBeInTheDocument();
 		});
 
+		// E1 (ADR-0051 Decision 2) — products and custom integrations render as
+		// two labeled groups split by a divider.
+		it("splits providers into Products and Custom integrations groups with a divider", () => {
+			render(SettingsConnectionsTab, baseProps({ connections: [] }));
+
+			const products = screen.getByTestId("connections-add-products");
+			const custom = screen.getByTestId("connections-add-custom");
+			expect(screen.getByTestId("connections-add-divider")).toBeInTheDocument();
+			expect(screen.getByText("Products")).toBeInTheDocument();
+			expect(screen.getByText("Custom integrations")).toBeInTheDocument();
+
+			// A branded product sits in the products group...
+			expect(
+				within(products).getByRole("button", { name: "Connect Google" }),
+			).toBeInTheDocument();
+			expect(
+				within(products).queryByRole("button", { name: "Connect CalDAV" }),
+			).not.toBeInTheDocument();
+
+			// ...and CalDAV sits in the custom-integrations group.
+			expect(
+				within(custom).getByRole("button", { name: "Connect CalDAV" }),
+			).toBeInTheDocument();
+			expect(
+				within(custom).queryByRole("button", { name: "Connect Google" }),
+			).not.toBeInTheDocument();
+		});
+
 		// R3-fix #3 — Google is a plain brand button like every other
 		// provider now, not the branded GoogleSignInButton.
 		it("renders Google as a plain brand-icon button, not GoogleSignInButton", () => {

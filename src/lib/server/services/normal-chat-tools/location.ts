@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import {
 	groupFixesByPlace,
 	haversineDistanceMeters,
@@ -8,16 +9,10 @@ import {
 	owntracksLocationHistory,
 	type PlaceVisit,
 } from "$lib/server/services/connections/providers/owntracks";
-import {
-	needsDisambiguation,
-	pickDefaultConnection,
-	resolveConnectionsForCapability,
-	selectConnection,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction, and NO device/user override: this schema's
@@ -401,16 +396,15 @@ function redactCitationsForModel(
 // one field. `outcome.candidates` (the Sources-tab list) is untouched: it
 // feeds the user's own screen, a different channel from what the model
 // sees, and keeps the real coordinates so a map can still render.
-async function applyLocalDistillGate(params: {
+function distillLocationReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: LocationToolInput;
 	outcome: LocationToolOutcome;
 }): Promise<LocationToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = [
+	const rawText = [
 		...outcome.modelPayload.results
 			.map((item) => {
 				if (item.lat === undefined || item.lon === undefined) return null;
@@ -424,31 +418,21 @@ async function applyLocalDistillGate(params: {
 		...(outcome.modelPayload.places ?? []).map(
 			(visit) => `${visit.place} from ${visit.from} to ${visit.to}`,
 		),
-	];
-	// Nothing raw to protect (e.g. a "no fix available" result with no
-	// lat/lon at all, and no places[]) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
+	].join("\n");
 
-	const decision = await decideLocalDistill({
-		userId,
-		modelId,
-		capability: "location",
-		userQuestion: input.action,
-		rawText: rawTextParts.join("\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
-
-	const strippedResults = outcome.modelPayload.results.map((item) => {
-		const { lat: _lat, lon: _lon, place: _place, ...rest } = item;
-		return rest;
-	});
+	const strippedResults = () =>
+		outcome.modelPayload.results.map((item) => {
+			const { lat: _lat, lon: _lon, place: _place, ...rest } = item;
+			return rest;
+		});
 	// Redact only the MODEL-facing copy — `outcome.candidates` (the
 	// user-facing Sources-tab list) was already built from the original,
 	// unredacted fixes and is untouched by this gate.
-	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.results,
-		outcome.modelPayload.citations,
-	);
+	const redactedCitations = () =>
+		redactCitationsForModel(
+			outcome.modelPayload.results,
+			outcome.modelPayload.citations,
+		);
 	// B7 — `places[].place` is raw place-name text, exactly what this gate
 	// exists to protect; the distilled summary (in `message`) replaces it, so
 	// the structured list is fully cleared rather than partially redacted
@@ -456,30 +440,35 @@ async function applyLocalDistillGate(params: {
 	// place name is gone).
 	const strippedPlaces = outcome.modelPayload.places ? [] : undefined;
 
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+	return applyLocalDistillGate({
+		outcome,
+		userId,
+		modelId,
+		capability: "location",
+		userQuestion: input.action,
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
-				results: strippedResults,
-				citations: redactedCitations,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				results: strippedResults(),
+				citations: redactedCitations(),
 				...(strippedPlaces !== undefined ? { places: strippedPlaces } : {}),
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"This location couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
-			results: strippedResults,
-			citations: redactedCitations,
-			...(strippedPlaces !== undefined ? { places: strippedPlaces } : {}),
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"This location couldn't be privately summarized for a cloud model, so it was withheld. Switch to a local model to view it, or try again.",
+				results: strippedResults(),
+				citations: redactedCitations(),
+				...(strippedPlaces !== undefined ? { places: strippedPlaces } : {}),
+			},
+		}),
+	});
 }
 
 // Resolves the user's Location (OwnTracks) connection(s) and executes a
@@ -498,181 +487,208 @@ export async function runLocationTool(
 	input: LocationToolInput,
 	modelId: string,
 ): Promise<LocationToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "location");
-	if (connections.length === 0) {
+	const notConnectedMessage =
+		"You don't have a Location connection set up yet. Connect your OwnTracks device in Settings to check your location.";
+
+	const result = await withCapabilityConnection(
+		userId,
+		"location",
+		{ account: input.account },
+		async (conn, { ambiguous, connections }): Promise<LocationToolOutcome> => {
+			try {
+				if (input.action === "history") {
+					const fixes = await owntracksLocationHistory(userId, conn.id, {
+						...(input.from !== undefined ? { from: input.from } : {}),
+						...(input.to !== undefined ? { to: input.to } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = historyOutcome(conn, fixes, ambiguous, connections);
+					return distillLocationReadOutcome({
+						userId,
+						modelId,
+						input,
+						outcome,
+					});
+				}
+
+				// B7 — "places": same underlying history fetch as "history", but
+				// collapsed into a compact places-visited summary (see
+				// groupFixesByPlace's doc comment in owntracks.ts).
+				if (input.action === "places") {
+					const fixes = await owntracksLocationHistory(userId, conn.id, {
+						...(input.from !== undefined ? { from: input.from } : {}),
+						...(input.to !== undefined ? { to: input.to } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const visits = groupFixesByPlace(fixes);
+					const outcome = placesOutcome(conn, visits, ambiguous, connections);
+					return distillLocationReadOutcome({
+						userId,
+						modelId,
+						input,
+						outcome,
+					});
+				}
+
+				// B7 — "distance": three mutually exclusive modes, checked in this
+				// order — (1) a caller-supplied reference point ("how far is X from
+				// Y" given coords), (2) a from/to range ("how far did I travel"),
+				// (3) falling back to the connection's stored home reference ("how
+				// far am I from home"). The home-reference check happens BEFORE any
+				// recorder call so a device with no home set never needlessly hits
+				// the recorder for a question this module can't answer anyway.
+				if (input.action === "distance") {
+					if (input.lat !== undefined && input.lon !== undefined) {
+						const fix = await owntracksLastLocation(userId, conn.id);
+						if (!fix) {
+							return buildPayload({
+								success: true,
+								action: "distance",
+								message: withAmbiguityPrefix(
+									"No location fix is available yet.",
+									ambiguous,
+									conn,
+									connections,
+								),
+							});
+						}
+						const meters = haversineDistanceMeters(fix, {
+							lat: input.lat,
+							lon: input.lon,
+						});
+						const outcome = distanceOutcome(
+							conn,
+							[fix],
+							meters,
+							"reference_point",
+							ambiguous,
+							connections,
+						);
+						return distillLocationReadOutcome({
+							userId,
+							modelId,
+							input,
+							outcome,
+						});
+					}
+
+					if (input.from !== undefined || input.to !== undefined) {
+						const fixes = await owntracksLocationHistory(userId, conn.id, {
+							...(input.from !== undefined ? { from: input.from } : {}),
+							...(input.to !== undefined ? { to: input.to } : {}),
+							...(input.limit !== undefined ? { limit: input.limit } : {}),
+						});
+						if (fixes.length < 2) {
+							const outcome = buildPayload({
+								success: true,
+								action: "distance",
+								message: withAmbiguityPrefix(
+									"Not enough location history in that range to calculate distance.",
+									ambiguous,
+									conn,
+									connections,
+								),
+								results: fixes.map(toToolResultItem),
+							});
+							return distillLocationReadOutcome({
+								userId,
+								modelId,
+								input,
+								outcome,
+							});
+						}
+						const first = fixes[0] as LocationFixLike;
+						const last = fixes[fixes.length - 1] as LocationFixLike;
+						const meters = haversineDistanceMeters(first, last);
+						const outcome = distanceOutcome(
+							conn,
+							[first, last],
+							meters,
+							"range",
+							ambiguous,
+							connections,
+						);
+						return distillLocationReadOutcome({
+							userId,
+							modelId,
+							input,
+							outcome,
+						});
+					}
+
+					const home = ownTracksHomeReference(conn);
+					if (!home) {
+						return buildPayload({
+							success: true,
+							action: "distance",
+							message: withAmbiguityPrefix(
+								"You don't have a home location saved for this device, so I can't calculate the distance to home.",
+								ambiguous,
+								conn,
+								connections,
+							),
+						});
+					}
+					const fix = await owntracksLastLocation(userId, conn.id);
+					if (!fix) {
+						return buildPayload({
+							success: true,
+							action: "distance",
+							message: withAmbiguityPrefix(
+								"No location fix is available yet.",
+								ambiguous,
+								conn,
+								connections,
+							),
+						});
+					}
+					const meters = haversineDistanceMeters(fix, home);
+					const outcome = distanceOutcome(
+						conn,
+						[fix],
+						meters,
+						"home",
+						ambiguous,
+						connections,
+					);
+					return distillLocationReadOutcome({
+						userId,
+						modelId,
+						input,
+						outcome,
+					});
+				}
+
+				const fix = await owntracksLastLocation(userId, conn.id);
+				const outcome = lastOutcome(conn, fix, ambiguous, connections);
+				return distillLocationReadOutcome({ userId, modelId, input, outcome });
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
+			}
+		},
+	);
+
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message:
-				"You don't have a Location connection set up yet. Connect your OwnTracks device in Settings to check your location.",
+			message: notConnectedMessage,
 		});
 	}
-
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
+	if (result.kind === "no-match") {
 		return buildPayload({
 			success: false,
 			action: input.action,
 			message: noMatchingConnectionMessage(
 				"Location",
-				input.account,
-				connections,
+				result.selector,
+				result.connections,
 			),
 		});
 	}
-	const conn = selected ?? pickDefaultConnection(connections);
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Location connection set up yet. Connect your OwnTracks device in Settings to check your location.",
-		});
-	}
-
-	try {
-		if (input.action === "history") {
-			const fixes = await owntracksLocationHistory(userId, conn.id, {
-				...(input.from !== undefined ? { from: input.from } : {}),
-				...(input.to !== undefined ? { to: input.to } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = historyOutcome(conn, fixes, ambiguous, connections);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		// B7 — "places": same underlying history fetch as "history", but
-		// collapsed into a compact places-visited summary (see
-		// groupFixesByPlace's doc comment in owntracks.ts).
-		if (input.action === "places") {
-			const fixes = await owntracksLocationHistory(userId, conn.id, {
-				...(input.from !== undefined ? { from: input.from } : {}),
-				...(input.to !== undefined ? { to: input.to } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const visits = groupFixesByPlace(fixes);
-			const outcome = placesOutcome(conn, visits, ambiguous, connections);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		// B7 — "distance": three mutually exclusive modes, checked in this
-		// order — (1) a caller-supplied reference point ("how far is X from
-		// Y" given coords), (2) a from/to range ("how far did I travel"),
-		// (3) falling back to the connection's stored home reference ("how
-		// far am I from home"). The home-reference check happens BEFORE any
-		// recorder call so a device with no home set never needlessly hits
-		// the recorder for a question this module can't answer anyway.
-		if (input.action === "distance") {
-			if (input.lat !== undefined && input.lon !== undefined) {
-				const fix = await owntracksLastLocation(userId, conn.id);
-				if (!fix) {
-					return buildPayload({
-						success: true,
-						action: "distance",
-						message: withAmbiguityPrefix(
-							"No location fix is available yet.",
-							ambiguous,
-							conn,
-							connections,
-						),
-					});
-				}
-				const meters = haversineDistanceMeters(fix, {
-					lat: input.lat,
-					lon: input.lon,
-				});
-				const outcome = distanceOutcome(
-					conn,
-					[fix],
-					meters,
-					"reference_point",
-					ambiguous,
-					connections,
-				);
-				return applyLocalDistillGate({ userId, modelId, input, outcome });
-			}
-
-			if (input.from !== undefined || input.to !== undefined) {
-				const fixes = await owntracksLocationHistory(userId, conn.id, {
-					...(input.from !== undefined ? { from: input.from } : {}),
-					...(input.to !== undefined ? { to: input.to } : {}),
-					...(input.limit !== undefined ? { limit: input.limit } : {}),
-				});
-				if (fixes.length < 2) {
-					const outcome = buildPayload({
-						success: true,
-						action: "distance",
-						message: withAmbiguityPrefix(
-							"Not enough location history in that range to calculate distance.",
-							ambiguous,
-							conn,
-							connections,
-						),
-						results: fixes.map(toToolResultItem),
-					});
-					return applyLocalDistillGate({ userId, modelId, input, outcome });
-				}
-				const first = fixes[0] as LocationFixLike;
-				const last = fixes[fixes.length - 1] as LocationFixLike;
-				const meters = haversineDistanceMeters(first, last);
-				const outcome = distanceOutcome(
-					conn,
-					[first, last],
-					meters,
-					"range",
-					ambiguous,
-					connections,
-				);
-				return applyLocalDistillGate({ userId, modelId, input, outcome });
-			}
-
-			const home = ownTracksHomeReference(conn);
-			if (!home) {
-				return buildPayload({
-					success: true,
-					action: "distance",
-					message: withAmbiguityPrefix(
-						"You don't have a home location saved for this device, so I can't calculate the distance to home.",
-						ambiguous,
-						conn,
-						connections,
-					),
-				});
-			}
-			const fix = await owntracksLastLocation(userId, conn.id);
-			if (!fix) {
-				return buildPayload({
-					success: true,
-					action: "distance",
-					message: withAmbiguityPrefix(
-						"No location fix is available yet.",
-						ambiguous,
-						conn,
-						connections,
-					),
-				});
-			}
-			const meters = haversineDistanceMeters(fix, home);
-			const outcome = distanceOutcome(
-				conn,
-				[fix],
-				meters,
-				"home",
-				ambiguous,
-				connections,
-			);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		const fix = await owntracksLastLocation(userId, conn.id);
-		const outcome = lastOutcome(conn, fix, ambiguous, connections);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
-	} catch (err) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: mapAdapterError(err),
-		});
-	}
+	return result.value;
 }

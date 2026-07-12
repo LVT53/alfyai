@@ -1,10 +1,8 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
+import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	getConnection,
-	updateConnection,
-} from "$lib/server/services/connections/store";
+import { updateConnection } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
 interface OwnTracksHomeBody {
@@ -35,20 +33,18 @@ const MAX_LON = 180;
 // or allowing a cross-user mutation (mirrors connections-id +server.ts /
 // nextcloud-folders +server.ts).
 export const PATCH: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
-	const connection = await getConnection(userId, id);
-	if (!connection) {
-		return createJsonErrorResponse("Connection not found", 404);
+	const owned = await requireOwnedConnection(userId, id, {
+		guard: (connection) => connection.provider === "owntracks",
+		mismatchMessage: "Connection does not support a home location",
+	});
+	if (!owned.ok) {
+		return owned.response;
 	}
-	if (connection.provider !== "owntracks") {
-		return createJsonErrorResponse(
-			"Connection does not support a home location",
-			400,
-		);
-	}
+	const connection = owned.connection;
 
 	let body: OwnTracksHomeBody;
 	try {

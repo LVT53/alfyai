@@ -1,5 +1,4 @@
-import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
+import { handleCredentialConnect } from "$lib/server/api/connect";
 import {
 	PlexError,
 	plexConnect,
@@ -11,50 +10,24 @@ import type { RequestHandler } from "./$types";
 // this route synchronously validates it against `GET /identity` before
 // storing it (encrypted). The token is never persisted in plaintext, never
 // logged, and never appears in the response.
-export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
-	const user = event.locals.user;
-
-	let body: {
-		serverUrl?: unknown;
-		token?: unknown;
-	};
-	try {
-		body = await event.request.json();
-	} catch {
-		return json({ error: "Invalid JSON" }, { status: 400 });
-	}
-
-	const serverUrl =
-		typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
-	const token = typeof body.token === "string" ? body.token.trim() : "";
-	if (!serverUrl || !token) {
-		return json({ error: "serverUrl and token are required" }, { status: 400 });
-	}
-
-	try {
-		const result = await plexConnect({
-			userId: user.id,
-			serverUrl,
-			token,
-		});
-		return json(result);
-	} catch (err) {
-		const status =
-			err instanceof PlexError &&
-			(err.code === "invalid_token" || err.code === "invalid_config")
-				? err.code === "invalid_token"
-					? 401
-					: 400
-				: 502;
-		return json(
-			{
-				error:
-					err instanceof PlexError
-						? err.message
-						: "Failed to connect to the Plex server",
-			},
-			{ status },
-		);
-	}
-};
+export const POST: RequestHandler = (event) =>
+	handleCredentialConnect({
+		event,
+		errorType: PlexError,
+		fallbackError: "Failed to connect to the Plex server",
+		parse: (body) => {
+			const serverUrl =
+				typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
+			const token = typeof body.token === "string" ? body.token.trim() : "";
+			if (!serverUrl || !token) {
+				return { ok: false, error: "serverUrl and token are required" };
+			}
+			return { ok: true, value: { serverUrl, token } };
+		},
+		connect: ({ userId, value }) =>
+			plexConnect({
+				userId,
+				serverUrl: value.serverUrl,
+				token: value.token,
+			}),
+	});

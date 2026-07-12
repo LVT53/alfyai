@@ -3,7 +3,7 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import { resolveNormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
-import { isPrivateHostname } from "./net";
+import { isPrivateHostname } from "./host-locality";
 
 /**
  * True when `modelId` resolves to a provider whose base URL is NOT a

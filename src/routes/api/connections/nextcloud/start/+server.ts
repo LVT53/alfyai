@@ -1,19 +1,18 @@
 import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
-import {
-	assertPublicHttpsUrl,
-	nextcloudConnectStart,
-} from "$lib/server/services/connections/providers/nextcloud-files";
+import { requireApiUser } from "$lib/server/api/auth";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
+import { assertPublicHttpsUrl } from "$lib/server/services/connections/host-locality";
+import { nextcloudConnectStart } from "$lib/server/services/connections/providers/nextcloud-files";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
-	requireAuth(event);
+	requireApiUser(event);
 
 	let body: { serverUrl?: unknown };
 	try {
 		body = await event.request.json();
 	} catch {
-		return json({ error: "Invalid JSON" }, { status: 400 });
+		return createJsonErrorResponse("Invalid JSON", 400);
 	}
 
 	const rawServerUrl =
@@ -23,14 +22,11 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		serverUrl = assertPublicHttpsUrl(rawServerUrl);
 	} catch (err) {
-		return json(
-			{
-				error:
-					err instanceof Error
-						? err.message
-						: "serverUrl must be a non-empty public https URL",
-			},
-			{ status: 400 },
+		return createJsonErrorResponse(
+			err instanceof Error
+				? err.message
+				: "serverUrl must be a non-empty public https URL",
+			400,
 		);
 	}
 
@@ -38,14 +34,9 @@ export const POST: RequestHandler = async (event) => {
 		const result = await nextcloudConnectStart(serverUrl);
 		return json(result);
 	} catch (err) {
-		return json(
-			{
-				error:
-					err instanceof Error
-						? err.message
-						: "Failed to start Nextcloud login",
-			},
-			{ status: 502 },
+		return createJsonErrorResponse(
+			err instanceof Error ? err.message : "Failed to start Nextcloud login",
+			502,
 		);
 	}
 };

@@ -16,7 +16,6 @@ vi.mock("$lib/client/api/connections", () => ({
 	startOneDriveConnect: vi.fn(),
 	startOwnTracksConnect: vi.fn(),
 	startPlexConnect: vi.fn(),
-	startTodoistConnect: vi.fn(),
 }));
 
 import {
@@ -32,7 +31,6 @@ import {
 	startOneDriveConnect,
 	startOwnTracksConnect,
 	startPlexConnect,
-	startTodoistConnect,
 } from "$lib/client/api/connections";
 
 const mockFetchOwnTracksDevices = fetchOwnTracksDevices as ReturnType<
@@ -56,7 +54,6 @@ const mockStartOwnTracksConnect = startOwnTracksConnect as ReturnType<
 >;
 const mockStartPlexConnect = startPlexConnect as ReturnType<typeof vi.fn>;
 const mockStartGitHubConnect = startGitHubConnect as ReturnType<typeof vi.fn>;
-const mockStartTodoistConnect = startTodoistConnect as ReturnType<typeof vi.fn>;
 const mockStartCalDavConnect = startCalDavConnect as ReturnType<typeof vi.fn>;
 
 function baseProps(overrides: Record<string, unknown> = {}) {
@@ -615,46 +612,6 @@ describe("ConnectWizardModal", () => {
 		});
 	});
 
-	describe("app-password (Todoist)", () => {
-		it("submits the token and calls onConnected on success", async () => {
-			mockStartTodoistConnect.mockResolvedValue({
-				connection: { id: "conn-todoist", provider: "todoist" },
-			});
-			const onConnected = vi.fn();
-
-			render(
-				ConnectWizardModal,
-				baseProps({ provider: "todoist", onConnected }),
-			);
-
-			await fireEvent.input(screen.getByLabelText("API token"), {
-				target: { value: "todoist-token-abc" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-			await waitFor(() => {
-				expect(mockStartTodoistConnect).toHaveBeenCalledWith({
-					token: "todoist-token-abc",
-				});
-			});
-			expect(onConnected).toHaveBeenCalledOnce();
-		});
-
-		it("disables Connect until a token is entered", async () => {
-			render(ConnectWizardModal, baseProps({ provider: "todoist" }));
-
-			expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
-
-			await fireEvent.input(screen.getByLabelText("API token"), {
-				target: { value: "todoist-token-abc" },
-			});
-
-			expect(
-				screen.getByRole("button", { name: "Connect" }),
-			).not.toBeDisabled();
-		});
-	});
-
 	describe("app-password (CalDAV)", () => {
 		it("submits serverUrl/username/appPassword and calls onConnected on success", async () => {
 			mockStartCalDavConnect.mockResolvedValue({
@@ -965,10 +922,44 @@ describe("ConnectWizardModal", () => {
 			await waitFor(() => {
 				expect(
 					screen.getByText(
-						"OwnTracks isn't configured on this server yet. Ask your administrator to set it up.",
+						"OwnTracks isn't configured on this server. Ask your administrator to set the OwnTracks Recorder URL.",
 					),
 				).toBeInTheDocument();
 			});
+		});
+
+		// E1 — the recorder can become unconfigured between listing devices and
+		// binding one (or the start route's config gate can 409 independently);
+		// the start submission must surface the same clear admin message, not a
+		// generic failure.
+		it("shows the not-configured message when start returns 409, not a generic error", async () => {
+			mockFetchOwnTracksDevices.mockResolvedValue([
+				{ otUser: "alice", otDevice: "phone" },
+			]);
+			mockStartOwnTracksConnect.mockRejectedValue(
+				new ApiError("OwnTracks is not configured", { status: 409 }),
+			);
+			const onConnected = vi.fn();
+
+			render(
+				ConnectWizardModal,
+				baseProps({ provider: "owntracks", onConnected }),
+			);
+
+			await waitFor(() => {
+				expect(screen.getByLabelText("alice / phone")).toBeInTheDocument();
+			});
+			await fireEvent.click(screen.getByLabelText("alice / phone"));
+			await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+			await waitFor(() => {
+				expect(
+					screen.getByText(
+						"OwnTracks isn't configured on this server. Ask your administrator to set the OwnTracks Recorder URL.",
+					),
+				).toBeInTheDocument();
+			});
+			expect(onConnected).not.toHaveBeenCalled();
 		});
 	});
 

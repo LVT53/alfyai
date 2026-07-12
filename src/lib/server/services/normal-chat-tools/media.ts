@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withCapabilityConnection } from "$lib/server/services/connections/capability-read";
 import {
 	type ContinueWatchingItem,
 	type LibrarySearchItem,
@@ -11,16 +12,10 @@ import {
 	plexWatchHistory,
 	type WatchEntry,
 } from "$lib/server/services/connections/providers/plex";
-import {
-	needsDisambiguation,
-	pickDefaultConnection,
-	resolveConnectionsForCapability,
-	selectConnection,
-} from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 // Read-only by construction: this schema's `action` enum only ever lists
@@ -368,27 +363,31 @@ function redactCitationsForModel(
 // and keeps the real titles. `libraries` (bare section names) and
 // `library_search` (owned catalog, not viewing behavior) are not gated — see
 // MediaToolLibrarySearchItem's doc comment.
-async function applyLocalDistillGate(params: {
+function distillMediaReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: MediaToolInput;
 	outcome: MediaToolOutcome;
 }): Promise<MediaToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 	const action = outcome.modelPayload.action;
-	if (action !== "watch_history" && action !== "continue_watching") {
-		return outcome;
-	}
+	// Only watch_history / continue_watching carry raw viewing data; anything
+	// else has no raw text so the gate would be a no-op anyway. An empty rawText
+	// below short-circuits the shared gate to a no-op — but the guard also keeps
+	// the field-shape logic (results vs onDeck) below well-defined.
 	const isHistory = action === "watch_history";
 
 	// Loosely typed to the fields this gate actually needs — both
 	// MediaToolWatchItem (viewedAt required) and MediaToolOnDeckItem (no
 	// viewedAt at all) satisfy it structurally.
 	const items: { title?: string; show?: string; viewedAt?: string }[] =
-		isHistory ? outcome.modelPayload.results : outcome.modelPayload.onDeck;
+		action === "watch_history" || action === "continue_watching"
+			? isHistory
+				? outcome.modelPayload.results
+				: outcome.modelPayload.onDeck
+			: [];
 
-	const rawTextParts = items
+	const rawText = items
 		.map((item) => {
 			const descriptors = [item.show, item.title].filter(
 				(value): value is string => Boolean(value),
@@ -397,66 +396,62 @@ async function applyLocalDistillGate(params: {
 			const label = descriptors.join(" — ");
 			return isHistory ? `${label} (${item.viewedAt})` : label;
 		})
-		.filter((value): value is string => Boolean(value));
-	// Nothing raw to protect (e.g. every result is bare metadata with no
-	// title/show) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
-
-	const decision = await decideLocalDistill({
-		userId,
-		modelId,
-		capability: "media",
-		userQuestion: input.query ?? "",
-		rawText: rawTextParts.join("\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
+		.filter((value): value is string => Boolean(value))
+		.join("\n");
 
 	// Redact only the MODEL-facing copy — `outcome.candidates` (the
 	// user-facing Sources-tab list) was already built from the original,
 	// unredacted entries in watchHistoryOutcome/onDeckOutcome and is
 	// untouched by this gate.
-	const redactedCitations = redactCitationsForModel(
-		items,
-		outcome.modelPayload.citations,
-		isHistory ? "Watched item" : "Continue-watching item",
-	);
+	const redactedCitations = () =>
+		redactCitationsForModel(
+			items,
+			outcome.modelPayload.citations,
+			isHistory ? "Watched item" : "Continue-watching item",
+		);
 	const withheldMessage = `This ${isHistory ? "watch history" : "continue-watching list"} couldn't be privately summarized for a cloud model, so its details were withheld. Switch to a local model to view them, or try again.`;
 
-	if (isHistory) {
-		const strippedResults = outcome.modelPayload.results.map((item) => {
-			const { title: _title, show: _show, ...rest } = item;
-			return rest;
-		});
-		return {
-			...outcome,
-			modelPayload: {
-				...outcome.modelPayload,
-				message:
-					"distilled" in decision
-						? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
-						: withheldMessage,
-				results: strippedResults,
-				citations: redactedCitations,
-			},
-		};
-	}
+	const strippedField = () =>
+		isHistory
+			? {
+					results: outcome.modelPayload.results.map((item) => {
+						const { title: _title, show: _show, ...rest } = item;
+						return rest;
+					}),
+				}
+			: {
+					onDeck: outcome.modelPayload.onDeck.map((item) => {
+						const { title: _title, show: _show, ...rest } = item;
+						return rest;
+					}),
+				};
 
-	const strippedOnDeck = outcome.modelPayload.onDeck.map((item) => {
-		const { title: _title, show: _show, ...rest } = item;
-		return rest;
+	return applyLocalDistillGate({
+		outcome,
+		userId,
+		modelId,
+		capability: "media",
+		userQuestion: input.query ?? "",
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
+				...strippedField(),
+				citations: redactedCitations(),
+			},
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message: withheldMessage,
+				...strippedField(),
+				citations: redactedCitations(),
+			},
+		}),
 	});
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"distilled" in decision
-					? `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`
-					: withheldMessage,
-			onDeck: strippedOnDeck,
-			citations: redactedCitations,
-		},
-	};
 }
 
 // Resolves the user's Media (Plex) connection(s) and executes a
@@ -471,69 +466,75 @@ export async function runMediaTool(
 	input: MediaToolInput,
 	modelId: string,
 ): Promise<MediaToolOutcome> {
-	const connections = await resolveConnectionsForCapability(userId, "media");
-	if (connections.length === 0) {
+	const notConnectedMessage =
+		"You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history.";
+
+	const result = await withCapabilityConnection(
+		userId,
+		"media",
+		{ account: input.account },
+		async (conn, { ambiguous, connections }): Promise<MediaToolOutcome> => {
+			try {
+				if (input.action === "libraries") {
+					const sections = await plexLibrarySections(userId, conn.id);
+					return librariesOutcome(conn, sections, ambiguous, connections);
+				}
+
+				if (input.action === "continue_watching") {
+					const items = await plexOnDeck(userId, conn.id, {
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					const outcome = onDeckOutcome(conn, items, ambiguous, connections);
+					return distillMediaReadOutcome({ userId, modelId, input, outcome });
+				}
+
+				if (input.action === "library_search") {
+					const result = await plexLibrarySearch(userId, conn.id, {
+						...(input.query !== undefined ? { query: input.query } : {}),
+						...(input.limit !== undefined ? { limit: input.limit } : {}),
+					});
+					return librarySearchOutcome(conn, result, ambiguous, connections);
+				}
+
+				const entries = await plexWatchHistory(userId, conn.id, {
+					...(input.since !== undefined ? { since: input.since } : {}),
+					...(input.limit !== undefined ? { limit: input.limit } : {}),
+					...(input.query !== undefined ? { query: input.query } : {}),
+				});
+				const outcome = watchHistoryOutcome(
+					conn,
+					entries,
+					ambiguous,
+					connections,
+				);
+				return distillMediaReadOutcome({ userId, modelId, input, outcome });
+			} catch (err) {
+				return buildPayload({
+					success: false,
+					action: input.action,
+					message: mapAdapterError(err),
+				});
+			}
+		},
+	);
+
+	if (result.kind === "not-connected") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message:
-				"You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history.",
+			message: notConnectedMessage,
 		});
 	}
-
-	const ambiguous = needsDisambiguation(connections);
-	const selected = selectConnection(connections, input.account);
-	if (input.account && !selected) {
+	if (result.kind === "no-match") {
 		return buildPayload({
 			success: false,
 			action: input.action,
-			message: noMatchingConnectionMessage("Media", input.account, connections),
+			message: noMatchingConnectionMessage(
+				"Media",
+				result.selector,
+				result.connections,
+			),
 		});
 	}
-	const conn = selected ?? pickDefaultConnection(connections);
-	if (!conn) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message:
-				"You don't have a Media connection set up yet. Connect your Plex server in Settings to check your watch history.",
-		});
-	}
-
-	try {
-		if (input.action === "libraries") {
-			const sections = await plexLibrarySections(userId, conn.id);
-			return librariesOutcome(conn, sections, ambiguous, connections);
-		}
-
-		if (input.action === "continue_watching") {
-			const items = await plexOnDeck(userId, conn.id, {
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			const outcome = onDeckOutcome(conn, items, ambiguous, connections);
-			return applyLocalDistillGate({ userId, modelId, input, outcome });
-		}
-
-		if (input.action === "library_search") {
-			const result = await plexLibrarySearch(userId, conn.id, {
-				...(input.query !== undefined ? { query: input.query } : {}),
-				...(input.limit !== undefined ? { limit: input.limit } : {}),
-			});
-			return librarySearchOutcome(conn, result, ambiguous, connections);
-		}
-
-		const entries = await plexWatchHistory(userId, conn.id, {
-			...(input.since !== undefined ? { since: input.since } : {}),
-			...(input.limit !== undefined ? { limit: input.limit } : {}),
-			...(input.query !== undefined ? { query: input.query } : {}),
-		});
-		const outcome = watchHistoryOutcome(conn, entries, ambiguous, connections);
-		return applyLocalDistillGate({ userId, modelId, input, outcome });
-	} catch (err) {
-		return buildPayload({
-			success: false,
-			action: input.action,
-			message: mapAdapterError(err),
-		});
-	}
+	return result.value;
 }

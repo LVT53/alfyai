@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/resolve", () => ({
 	getDefaultOnCapabilities: vi.fn(),
 	getEnabledConnectionCapabilities: vi.fn(),
 	resolveConnectionsForCapability: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	getDefaultOnCapabilities,
 	getEnabledConnectionCapabilities,
@@ -18,7 +13,6 @@ import {
 } from "$lib/server/services/connections/resolve";
 import { GET } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetEnabledConnectionCapabilities =
 	getEnabledConnectionCapabilities as ReturnType<typeof vi.fn>;
 const mockGetDefaultOnCapabilities = getDefaultOnCapabilities as ReturnType<
@@ -42,15 +36,23 @@ function makeEvent(userId = "owner-user") {
 describe("GET /api/connections/active-capabilities", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockGetEnabledConnectionCapabilities.mockResolvedValue(new Set());
 		mockGetDefaultOnCapabilities.mockResolvedValue(new Set());
 		mockResolveConnectionsForCapability.mockResolvedValue([]);
 	});
 
-	it("requires auth", async () => {
-		await GET(makeEvent());
-		expect(mockRequireAuth).toHaveBeenCalled();
+	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
+		const event = {
+			request: new Request(
+				"http://localhost/api/connections/active-capabilities",
+			),
+			locals: { user: null },
+			params: {},
+			url: new URL("http://localhost/api/connections/active-capabilities"),
+			route: { id: "/api/connections/active-capabilities" },
+		} as Parameters<typeof GET>[0];
+		await expect(GET(event)).rejects.toMatchObject({ status: 401 });
+		expect(mockGetEnabledConnectionCapabilities).not.toHaveBeenCalled();
 	});
 
 	it("scopes the lookups to the authenticated caller", async () => {

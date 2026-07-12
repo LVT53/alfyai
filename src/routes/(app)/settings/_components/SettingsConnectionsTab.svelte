@@ -37,10 +37,10 @@ import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
-	CONNECTABLE_PROVIDER_LIST,
 	type Capability,
 	type ConnectionProvider,
 	getProviderCatalogEntry,
+	groupConnectableProviders,
 } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
@@ -128,6 +128,12 @@ const connectedProviders = $derived(
 	new Set(connections.map((conn) => conn.provider)),
 );
 
+// ADR-0051 Decision 2 (slice E1) — the "Add a connection" list separates
+// branded products from generic custom integrations with a labeled divider.
+// Ordering within each group is preserved from the catalog (see
+// groupConnectableProviders).
+const providerGroups = $derived(groupConnectableProviders());
+
 function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 	const names = conn.capabilities.map((capability) =>
 		$t(`connections.capability.${capability}` as Parameters<typeof $t>[0]),
@@ -152,6 +158,26 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 	>
 		<Check size={14} strokeWidth={2.5} aria-hidden="true" />
 	</span>
+{/snippet}
+
+<!-- One brand-icon connect button in the "Add a connection" list. Shared by
+     the products and custom-integrations groups so the two only differ by
+     which providers they iterate. -->
+{#snippet providerPill(provider: ConnectionProvider)}
+	{@const entry = getProviderCatalogEntry(provider)}
+	{@const alreadyConnected = connectedProviders.has(provider)}
+	<button
+		type="button"
+		class="pref-pill connections-provider-pill"
+		aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
+		onclick={() => onStartConnect(provider)}
+	>
+		<BrandIcon provider={provider} size={16} ariaHidden />
+		{entry.displayName}
+		{#if alreadyConnected}
+			{@render connectedIcon()}
+		{/if}
+	</button>
 {/snippet}
 
 <p class="settings-group-label">{$t('connections.title')}</p>
@@ -259,24 +285,24 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 	     onStartConnect('google'), which opens the OAuth wizard. -->
 	<section class="settings-card mb-4" data-testid="connections-add">
 		<p class="settings-label mb-2">{$t('connections.addConnection.title')}</p>
-		<div class="connections-provider-grid">
-			{#each CONNECTABLE_PROVIDER_LIST as provider}
-				{@const entry = getProviderCatalogEntry(provider)}
-				{@const alreadyConnected = connectedProviders.has(provider)}
-				<button
-					type="button"
-					class="pref-pill connections-provider-pill"
-					aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
-					onclick={() => onStartConnect(provider)}
-				>
-					<BrandIcon provider={provider} size={16} ariaHidden />
-					{entry.displayName}
-					{#if alreadyConnected}
-						{@render connectedIcon()}
-					{/if}
-				</button>
+		<!-- ADR-0051 Decision 2 (E1) — branded products and generic custom
+		     integrations are shown as two labeled groups split by a divider so a
+		     concrete product reads distinctly from a protocol adapter. -->
+		<p class="connections-group-heading">{$t('connections.addConnection.groupProducts')}</p>
+		<div class="connections-provider-grid" data-testid="connections-add-products">
+			{#each providerGroups.product as provider (provider)}
+				{@render providerPill(provider)}
 			{/each}
 		</div>
+		{#if providerGroups.custom.length > 0}
+			<hr class="connections-group-divider" data-testid="connections-add-divider" />
+			<p class="connections-group-heading">{$t('connections.addConnection.groupCustom')}</p>
+			<div class="connections-provider-grid" data-testid="connections-add-custom">
+				{#each providerGroups.custom as provider (provider)}
+					{@render providerPill(provider)}
+				{/each}
+			</div>
+		{/if}
 	</section>
 
 	<p class="settings-group-label">{$t('connections.locality.title')}</p>
@@ -466,6 +492,24 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	/* ADR-0051 Decision 2 (E1) — group heading + divider for the two
+	   "Add a connection" groups (products vs custom integrations). The heading
+	   reuses the quiet uppercase-caption language of .settings-group-label. */
+	.connections-group-heading {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
+		margin: 0 0 var(--space-sm) 0;
+	}
+
+	.connections-group-divider {
+		border: none;
+		border-top: 1px solid var(--border-default);
+		margin: 1rem 0 0.75rem;
 	}
 
 	.connections-provider-pill {

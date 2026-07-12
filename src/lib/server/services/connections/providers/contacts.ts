@@ -14,6 +14,11 @@
 // Google/Apple/CalDAV endpoints — nothing here ever talks to a live server in
 // tests.
 
+import {
+	bearerAuthHeader,
+	ConnectionHttpError,
+	providerFetch,
+} from "../provider-http";
 import { resolveConnectionsForCapability } from "../resolve";
 import {
 	type ConnectionPublic,
@@ -56,17 +61,21 @@ export type ContactsErrorCode =
 	| "connection_not_found"
 	| "request_failed";
 
-export class ContactsError extends Error {
-	constructor(
-		message: string,
-		public readonly code: ContactsErrorCode,
-	) {
-		super(message);
+export class ContactsError extends ConnectionHttpError<ContactsErrorCode> {
+	constructor(message: string, code: ContactsErrorCode) {
+		super(message, code);
 		this.name = "ContactsError";
 	}
 }
 
-const REQUEST_TIMEOUT_MS = 15_000;
+// Timeout error for every Google People call routed through providerFetch —
+// matches the wording the private fetchWithTimeout produced.
+const contactsTimeout = (ms: number) =>
+	new ContactsError(
+		`Google People request timed out after ${ms}ms`,
+		"request_failed",
+	);
+
 const DEFAULT_LIMIT = 10;
 const GOOGLE_CONTACTS_SCOPE =
 	"https://www.googleapis.com/auth/contacts.readonly";
@@ -84,32 +93,6 @@ const MAX_GROUP_MEMBERS = 200;
 // scope; full pagination is a documented follow-up if it ever doesn't.
 const GROUP_LIST_PAGE_SIZE = 200;
 const PEOPLE_READ_MASK = "names,emailAddresses,phoneNumbers,organizations";
-
-// Bounds the People API call to ~15s via AbortController, same pattern as
-// google-calendar.ts/apple-caldav.ts, so a slow/unreachable Google endpoint
-// can't hang a chat turn indefinitely.
-async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new ContactsError(
-				`Google People request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -352,9 +335,11 @@ export async function googleSearchContacts(
 		url.searchParams.set("readMask", PEOPLE_READ_MASK);
 		url.searchParams.set("pageSize", String(limit));
 
-		const response = await fetchWithTimeout(fetchImpl, url.toString(), {
+		const response = await providerFetch(url.toString(), {
 			method: "GET",
-			headers: { Authorization: `Bearer ${accessToken}` },
+			headers: { ...bearerAuthHeader(accessToken) },
+			fetch: fetchImpl,
+			timeoutError: contactsTimeout,
 		});
 		await assertGoogleContactsResponseOk(
 			userId,
@@ -416,9 +401,11 @@ async function findGoogleContactGroup(
 	url.searchParams.set("groupFields", "name,groupType,memberCount");
 	url.searchParams.set("pageSize", String(GROUP_LIST_PAGE_SIZE));
 
-	const response = await fetchWithTimeout(fetchImpl, url.toString(), {
+	const response = await providerFetch(url.toString(), {
 		method: "GET",
-		headers: { Authorization: `Bearer ${accessToken}` },
+		headers: { ...bearerAuthHeader(accessToken) },
+		fetch: fetchImpl,
+		timeoutError: contactsTimeout,
 	});
 	await assertGoogleContactsResponseOk(
 		userId,
@@ -474,9 +461,11 @@ export async function googleSearchContactsByGroup(
 	groupUrl.searchParams.set("maxMembers", String(MAX_GROUP_MEMBERS));
 	groupUrl.searchParams.set("groupFields", "memberCount");
 
-	const groupResponse = await fetchWithTimeout(fetchImpl, groupUrl.toString(), {
+	const groupResponse = await providerFetch(groupUrl.toString(), {
 		method: "GET",
-		headers: { Authorization: `Bearer ${accessToken}` },
+		headers: { ...bearerAuthHeader(accessToken) },
+		fetch: fetchImpl,
+		timeoutError: contactsTimeout,
 	});
 	await assertGoogleContactsResponseOk(
 		userId,
@@ -497,9 +486,11 @@ export async function googleSearchContactsByGroup(
 	}
 	batchUrl.searchParams.set("personFields", PEOPLE_READ_MASK);
 
-	const batchResponse = await fetchWithTimeout(fetchImpl, batchUrl.toString(), {
+	const batchResponse = await providerFetch(batchUrl.toString(), {
 		method: "GET",
-		headers: { Authorization: `Bearer ${accessToken}` },
+		headers: { ...bearerAuthHeader(accessToken) },
+		fetch: fetchImpl,
+		timeoutError: contactsTimeout,
 	});
 	await assertGoogleContactsResponseOk(
 		userId,

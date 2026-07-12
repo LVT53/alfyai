@@ -8,23 +8,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // getConnection(userId, id) first (404 for another user's id or a missing
 // connection), then 400 for a non-owntracks connection.
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnection: vi.fn(),
 	updateConnection: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	getConnection,
 	updateConnection,
 } from "$lib/server/services/connections/store";
 import { PATCH } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConnection = getConnection as ReturnType<typeof vi.fn>;
 const mockUpdateConnection = updateConnection as ReturnType<typeof vi.fn>;
 
@@ -69,7 +63,6 @@ function makeEvent(
 describe("PATCH /api/connections/[id]/owntracks-home", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockGetConnection.mockResolvedValue(ownTracksConnection);
 		mockUpdateConnection.mockResolvedValue({
 			...ownTracksConnection,

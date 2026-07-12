@@ -11,7 +11,7 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import type { ToolEvidenceCandidate } from "$lib/types";
 
-import { decideLocalDistill } from "./connector-distill";
+import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";
 
 // `query` is overloaded by `action` (kept as one field rather than two
@@ -149,16 +149,15 @@ function redactCitationsForModel(
 // from the original unredacted contacts above, before this gate ever runs)
 // is intentionally left untouched — it's the user's own data on their own
 // screen, a different channel from what reaches the (cloud) model.
-async function applyLocalDistillGate(params: {
+function distillContactsReadOutcome(params: {
 	userId: string;
 	modelId: string;
 	input: ContactsToolInput;
 	outcome: ContactsToolOutcome;
 }): Promise<ContactsToolOutcome> {
 	const { userId, modelId, input, outcome } = params;
-	if (!outcome.modelPayload.success) return outcome;
 
-	const rawTextParts = outcome.modelPayload.contacts
+	const rawText = outcome.modelPayload.contacts
 		.map((contact) =>
 			[
 				contact.name,
@@ -170,45 +169,39 @@ async function applyLocalDistillGate(params: {
 				.filter((value): value is string => Boolean(value))
 				.join(" / "),
 		)
-		.filter((value) => value.length > 0);
-	// Nothing raw to protect (e.g. zero matches) — the gate is a no-op.
-	if (rawTextParts.length === 0) return outcome;
+		.filter((value) => value.length > 0)
+		.join("\n");
 
-	const decision = await decideLocalDistill({
+	const redactedCitations = () =>
+		redactCitationsForModel(outcome.modelPayload.citations);
+
+	return applyLocalDistillGate({
+		outcome,
 		userId,
 		modelId,
 		capability: "contacts",
 		userQuestion: input.query,
-		rawText: rawTextParts.join("\n"),
-	});
-	if (!decision.shouldDistill) return outcome;
-
-	const redactedCitations = redactCitationsForModel(
-		outcome.modelPayload.citations,
-	);
-
-	if ("distilled" in decision) {
-		return {
-			...outcome,
+		rawText,
+		onDistilled: (o, distilled) => ({
+			...o,
 			modelPayload: {
-				...outcome.modelPayload,
-				message: `${outcome.modelPayload.message} Privately summarized for a cloud model. Summary: ${decision.distilled}`,
+				...o.modelPayload,
+				message: `${o.modelPayload.message} Privately summarized for a cloud model. Summary: ${distilled}`,
 				contacts: [],
-				citations: redactedCitations,
+				citations: redactedCitations(),
 			},
-		};
-	}
-
-	return {
-		...outcome,
-		modelPayload: {
-			...outcome.modelPayload,
-			message:
-				"These contacts couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
-			contacts: [],
-			citations: redactedCitations,
-		},
-	};
+		}),
+		onUnavailable: (o) => ({
+			...o,
+			modelPayload: {
+				...o.modelPayload,
+				message:
+					"These contacts couldn't be privately summarized for a cloud model, so their details were withheld. Switch to a local model to view them, or try again.",
+				contacts: [],
+				citations: redactedCitations(),
+			},
+		}),
+	});
 }
 
 // Restricts an already-merged ContactMatch[] down to the ones that came
@@ -275,7 +268,7 @@ async function runGroupLookup(
 		message: groupFoundMessage(matches.length, input.query),
 		contacts: matches,
 	});
-	return applyLocalDistillGate({ userId, modelId, input, outcome });
+	return distillContactsReadOutcome({ userId, modelId, input, outcome });
 }
 
 // "lookup" action: resolves the user's name -> identity lookup across ALL
@@ -328,7 +321,7 @@ async function runNameLookup(
 					contacts: matches,
 				});
 
-	return applyLocalDistillGate({ userId, modelId, input, outcome });
+	return distillContactsReadOutcome({ userId, modelId, input, outcome });
 }
 
 // Dispatches to the "lookup" (name/email) or "group" (GAP B8) resolver,

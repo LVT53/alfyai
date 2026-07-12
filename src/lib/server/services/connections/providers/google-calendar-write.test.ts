@@ -12,7 +12,7 @@ import { GoogleOAuthError, googleRefreshAccessToken } from "./google";
 // production. Every test below dispatches through getWriteExecutor("google")
 // rather than calling any internal function directly, so these tests double
 // as proof the registration actually happens.
-import "./google-calendar-write";
+import "./google-calendar";
 
 vi.mock("./google", async () => {
 	const actual = await vi.importActual<typeof import("./google")>("./google");

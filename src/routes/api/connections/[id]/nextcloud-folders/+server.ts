@@ -1,12 +1,12 @@
 import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
+import { requireOwnedConnection } from "$lib/server/api/ownership";
 import { createJsonErrorResponse } from "$lib/server/api/responses";
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	NextcloudFilesError,
 	type NextcloudFilesErrorCode,
 	nextcloudListFolders,
 } from "$lib/server/services/connections/providers/nextcloud-files";
-import { getConnection } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
 const ERROR_STATUS: Record<NextcloudFilesErrorCode, number> = {
@@ -33,22 +33,18 @@ const ERROR_STATUS: Record<NextcloudFilesErrorCode, number> = {
 // only thing that must never appear in the response is the secret itself,
 // which nextcloudListFolders never returns.
 export const GET: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 	const id = event.params.id;
 
-	const connection = await getConnection(userId, id);
-	if (!connection) {
-		return createJsonErrorResponse("Connection not found", 404);
-	}
-	if (
-		connection.provider !== "nextcloud" ||
-		!connection.capabilities.includes("files")
-	) {
-		return createJsonErrorResponse(
-			"Connection does not support Nextcloud folder listing",
-			400,
-		);
+	const owned = await requireOwnedConnection(userId, id, {
+		guard: (connection) =>
+			connection.provider === "nextcloud" &&
+			connection.capabilities.includes("files"),
+		mismatchMessage: "Connection does not support Nextcloud folder listing",
+	});
+	if (!owned.ok) {
+		return owned.response;
 	}
 
 	const path = event.url.searchParams.get("path") ?? undefined;

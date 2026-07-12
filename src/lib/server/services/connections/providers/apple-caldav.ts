@@ -1,19 +1,57 @@
-// Apple iCloud CalDAV connect (app-specific password, no OAuth) + read (5.3).
-// Apple has no calendar OAuth — the user pastes their Apple ID email and an
-// app-specific password generated at appleid.apple.com, and every request is
-// Basic-authed with that pair. Discovery walks the standard CalDAV chain
-// (.well-known/caldav -> current-user-principal -> calendar-home-set ->
-// calendar collections) but iCloud specifically answers the well-known URL
-// with a 3xx redirect to a per-account "partition" host (e.g.
-// p12-caldav.icloud.com) that must be followed with the SAME credentials —
-// undocumented but consistent iCloud behavior. Reads use CalDAV REPORT
-// (calendar-query) with a hand-rolled, minimal iCalendar (VEVENT) parser: no
-// new dependency is pulled in for this, only line-unfolding + a
-// BEGIN/END:VEVENT field scan (see parseICalEvents below). Read-only — writes
-// land in Phase 6.2. Every network call accepts an injectable `fetch` so this
-// module is fully testable against mocked CalDAV endpoints.
-import { createRequire } from "node:module";
+// Apple iCloud CalDAV connect (app-specific password, no OAuth) + read (5.3) +
+// CardDAV contacts (5.8). Apple has no calendar OAuth — the user pastes their
+// Apple ID email and an app-specific password generated at appleid.apple.com,
+// and every request is Basic-authed with that pair. Discovery walks the
+// standard CalDAV chain (.well-known/caldav -> current-user-principal ->
+// calendar-home-set -> calendar collections) but iCloud specifically answers
+// the well-known URL with a 3xx redirect to a per-account "partition" host
+// (e.g. p12-caldav.icloud.com) that must be followed with the SAME credentials
+// — undocumented but consistent iCloud behavior.
+//
+// The provider-agnostic WebDAV/CalDAV/CardDAV plumbing this module builds on —
+// the redirect-following PROPFIND/REPORT transport, the multistatus XML parser
+// + propstat selection, the collection-type filters, and the iCal/vCard
+// parsers + REPORT query bodies — now lives in ../dav (B3). This module used to
+// own all of that and export it as the de-facto shared toolkit; it is now just
+// a consumer, holding only the Apple-specific logic: iCloud's well-known URLs,
+// the principal/home-set discovery chain, needs_reauth flagging, connection
+// storage, the Apple adapter + health check, AND (Issue 6.2, co-located here by
+// C2) the WRITE executor for create/update/delete of calendar events. Keeping
+// read and write in one module means the Apple ID auth identity (appleIdOf) and
+// the ../dav plumbing are derived once, not across a file split. The write
+// executor is registered via registerWriteExecutor (Issue 6.0) so
+// confirmPendingWrite (pending-writes.ts) dispatches "apple" pending writes
+// here, only after the user has explicitly confirmed. Every network call
+// accepts an injectable `fetch` so this module is fully testable against mocked
+// endpoints.
+import { createHash } from "node:crypto";
 import { registerConnectionAdapter } from "../adapters";
+import {
+	ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY,
+	ADDRESSBOOK_QUERY_BODY,
+	CALDAV_NS,
+	CARDDAV_NS,
+	type ConditionalHeader,
+	caldavRequest,
+	caldavWriteRequest,
+	calendarQueryBody,
+	DAV_NS,
+	firstNs,
+	isAddressbookCollection,
+	isCalendarCollection,
+	okPropOf,
+	type ParsedVCard,
+	parseICalProperty,
+	parseICalTimestamp,
+	parseReportMultistatus,
+	parseVCards,
+	parseXml,
+	supportsCalendarComponent,
+	textOf,
+	uidQueryBody,
+	unfoldICalLines,
+} from "../dav";
+import { basicAuthHeader, ConnectionHttpError } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -24,10 +62,16 @@ import {
 	setConnectionSecret,
 	updateConnection,
 } from "../store";
-// Type-only — ContactMatch is owned by contacts.ts (5.8's shared resolver
-// hub, see its module doc comment); this is erased at compile time so it
-// creates no runtime circular dependency with contacts.ts importing
-// appleSearchContacts from this module.
+import {
+	registerWriteExecutor,
+	type WriteExecutionResult,
+} from "../write-executors";
+import { idempotencyKey, type WriteOperation } from "../write-guard";
+
+// Type-only — ContactMatch is owned by contacts.ts (5.8's shared resolver hub,
+// see its module doc comment); this is erased at compile time so it creates no
+// runtime circular dependency with contacts.ts importing appleSearchContacts
+// from this module.
 import type { ContactMatch } from "./contacts";
 import type { CalendarEvent } from "./google-calendar";
 
@@ -35,52 +79,14 @@ export type { CalendarEvent } from "./google-calendar";
 
 type FetchOpt = { fetch?: typeof fetch };
 
-// jsdom is a real (non-dev) dependency already used server-side as a
-// namespace-aware XML parser for WebDAV/CalDAV multistatus responses (see
-// providers/nextcloud-files.ts) — reused here rather than pulling in a
-// dedicated XML package. Loaded via createRequire, same as there.
-const require = createRequire(import.meta.url);
-const { JSDOM } = require("jsdom") as {
-	JSDOM: new (
-		xml: string,
-		options?: Record<string, unknown>,
-	) => { window: { document: Document } };
-};
-
-const USER_AGENT = "AlfyAI";
 const WELL_KNOWN_URL = "https://caldav.icloud.com/.well-known/caldav";
 // CardDAV (contacts, 5.8) has its own well-known discovery entry point,
 // distinct from CalDAV's — both live on iCloud and both redirect to the same
 // kind of per-account "partition" host, but the well-known paths themselves
-// differ and are discovered independently (contacts does NOT reuse the
-// calendar discovery's cached principal/home URLs).
+// differ and are discovered independently (contacts does NOT reuse the calendar
+// discovery's cached principal/home URLs).
 const WELL_KNOWN_CARDDAV_URL =
 	"https://contacts.icloud.com/.well-known/carddav";
-const REQUEST_TIMEOUT_MS = 15_000;
-// Bounds how many 3xx hops a single discovery/read request will follow — a
-// real iCloud discovery is at most one redirect (well-known -> partition
-// host), this just guards against a misbehaving/looping server.
-const MAX_REDIRECTS = 5;
-
-// Exported (Task 9a) so providers/caldav-tasks.ts (the generic CalDAV VTODO
-// connector) can reuse the same namespace constants when parsing PROPFIND/
-// REPORT multistatus XML, instead of re-declaring them. NOTE for Task 9b
-// (generic CalDAV/CardDAV generalization): these low-level exports
-// (DAV_NS/CALDAV_NS/CARDDAV_NS, fetchWithTimeout, caldavRequest, textOf,
-// firstNs, parseXml below) are a minimal, additive-only "make the existing
-// helpers reusable" step — they change no existing behavior (every
-// export here was already `function`, just gained the keyword) and every
-// apple-caldav.test.ts case stayed green. A real `caldav-client.ts`
-// extraction (moving this plumbing to its own module both apple-caldav.ts
-// and caldav-tasks.ts import from) is still worth doing but was judged too
-// risky to the calendar/contacts read paths to do in the same change as a
-// brand-new VTODO connector — a good first task for 9b.
-export const DAV_NS = "DAV:";
-export const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
-// Exported (Task 9b) alongside DAV_NS/CALDAV_NS above, for the same reason:
-// providers/caldav-tasks.ts's generic CardDAV addressbook discovery/read
-// needs this namespace constant too, rather than re-declaring it.
-export const CARDDAV_NS = "urn:ietf:params:xml:ns:carddav";
 
 export type AppleCalDavErrorCode =
 	| "invalid_credentials"
@@ -89,170 +95,38 @@ export type AppleCalDavErrorCode =
 	| "request_failed"
 	| "connection_not_found";
 
-export class AppleCalDavError extends Error {
-	constructor(
-		message: string,
-		public readonly code: AppleCalDavErrorCode,
-	) {
-		super(message);
+export class AppleCalDavError extends ConnectionHttpError<AppleCalDavErrorCode> {
+	constructor(message: string, code: AppleCalDavErrorCode) {
+		super(message, code);
 		this.name = "AppleCalDavError";
 	}
 }
 
-// Exported for the write executor (6.2, providers/apple-caldav-write.ts) —
-// every mutating CalDAV request needs the exact same Basic-auth header this
-// module's own reads use.
-export function basicAuthHeader(appleId: string, appPassword: string): string {
-	return `Basic ${Buffer.from(`${appleId}:${appPassword}`).toString("base64")}`;
-}
-
-// Bounds every CalDAV call to ~15s via AbortController so a slow/unreachable
-// iCloud endpoint can't hang a chat turn (or the connect flow) indefinitely —
-// mirrors the same pattern in providers/nextcloud-files.ts /
-// providers/google-calendar.ts.
-//
-// `requestLabel` (Task 9b, folded-in review minor) defaults to "Apple
-// CalDAV" so every existing call site in THIS module (none of which pass it)
-// keeps its exact original error wording. providers/caldav-tasks.ts's
-// generic CalDAV connector is the one caller that passes a different label
-// ("CalDAV") — without this, a Nextcloud/Fastmail/Baïkal user hitting a
-// timeout would see "Apple CalDAV request timed out...", which is wrong
-// branding for a connection that has nothing to do with Apple.
-export async function fetchWithTimeout(
-	fetchImpl: typeof fetch,
-	url: string,
-	init: RequestInit,
-	timeoutMs = REQUEST_TIMEOUT_MS,
-	requestLabel = "Apple CalDAV",
-): Promise<Response> {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	try {
-		return await fetchImpl(url, { ...init, signal: controller.signal });
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			throw new AppleCalDavError(
-				`${requestLabel} request timed out after ${timeoutMs}ms`,
-				"request_failed",
-			);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timer);
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Low-level CalDAV request helper — issues a PROPFIND/REPORT with Basic auth
-// and manually follows 3xx redirects (rather than relying on fetch's own
-// redirect handling), re-sending the SAME method/body/Authorization at the
-// new Location each hop. This is the one chokepoint that has to cope with
-// iCloud's undocumented partition redirect (see module doc comment above);
-// every discovery step and every calendar REPORT routes through it.
-// ---------------------------------------------------------------------------
-
-// `labels` (Task 9b, folded-in review minor) lets a caller override the
-// branding baked into this shared function's error messages — see
-// fetchWithTimeout's doc comment above for why. Both fields default to
-// Apple's own exact original wording so apple-caldav.ts's own call sites
-// (none of which pass this argument) are unaffected;
-// providers/caldav-tasks.ts's generic connector passes generic wording for
-// both.
-export type CalDavRequestLabels = {
-	requestLabel?: string;
-	credentialsRejectedMessage?: string;
-};
-
-export async function caldavRequest(
+// Routes every Apple read through the shared ../dav transport while preserving
+// this module's exact error type + wording: caldavRequest's generic defaults
+// ("CalDAV ...", a neutral credentials message, a plain DavError) are overridden
+// so an Apple call still throws an AppleCalDavError that says "Apple CalDAV" /
+// "Apple rejected the Apple ID or app-specific password", which the connect
+// route and the read paths' needs_reauth flagging both depend on.
+async function appleCaldavRequest(
 	fetchImpl: typeof fetch,
 	url: string,
 	auth: string,
 	method: "PROPFIND" | "REPORT",
 	depth: "0" | "1",
 	body: string,
-	labels: CalDavRequestLabels = {},
 ): Promise<{ xml: string; finalUrl: string }> {
-	const requestLabel = labels.requestLabel ?? "Apple CalDAV";
-	const credentialsRejectedMessage =
-		labels.credentialsRejectedMessage ??
-		"Apple rejected the Apple ID or app-specific password";
-	let currentUrl = url;
-	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const response = await fetchWithTimeout(
-			fetchImpl,
-			currentUrl,
-			{
-				method,
-				redirect: "manual",
-				headers: {
-					Authorization: auth,
-					"Content-Type": "text/xml; charset=utf-8",
-					Depth: depth,
-					"User-Agent": USER_AGENT,
-				},
-				body,
-			},
-			REQUEST_TIMEOUT_MS,
-			requestLabel,
-		);
-
-		if (response.status === 401) {
-			throw new AppleCalDavError(
-				credentialsRejectedMessage,
-				"invalid_credentials",
-			);
-		}
-		if ([301, 302, 303, 307, 308].includes(response.status)) {
-			const location = response.headers.get("Location");
-			if (!location) {
-				throw new AppleCalDavError(
-					`${requestLabel} redirected without a Location header (status ${response.status})`,
-					"request_failed",
-				);
-			}
-			currentUrl = new URL(location, currentUrl).toString();
-			continue;
-		}
-		if (response.status !== 207) {
-			throw new AppleCalDavError(
-				`${requestLabel} ${method} failed with status ${response.status}`,
-				"request_failed",
-			);
-		}
-		const xml = await response.text();
-		return { xml, finalUrl: currentUrl };
-	}
-	throw new AppleCalDavError(
-		`Too many redirects while talking to ${requestLabel}`,
-		"request_failed",
-	);
-}
-
-export function textOf(el: Element | null | undefined): string | null {
-	if (!el) return null;
-	const text = el.textContent;
-	if (text === null) return null;
-	const trimmed = text.trim();
-	return trimmed.length > 0 ? trimmed : null;
-}
-
-export function firstNs(
-	el: Element | Document,
-	ns: string,
-	localName: string,
-): Element | null {
-	const found = el.getElementsByTagNameNS(ns, localName);
-	return found.length > 0 ? (found[0] as Element) : null;
-}
-
-export function parseXml(xml: string): Document {
-	const dom = new JSDOM(xml, { contentType: "application/xml" });
-	return dom.window.document;
+	return caldavRequest(fetchImpl, url, auth, method, depth, body, {
+		requestLabel: "Apple CalDAV",
+		credentialsRejectedMessage:
+			"Apple rejected the Apple ID or app-specific password",
+		makeError: (message, code) => new AppleCalDavError(message, code),
+	});
 }
 
 // ---------------------------------------------------------------------------
-// Discovery: .well-known/caldav -> current-user-principal -> calendar-home-
-// set -> calendar collections that support VEVENT.
+// Discovery: .well-known/caldav -> current-user-principal -> calendar-home-set
+// -> calendar collections that support VEVENT.
 // ---------------------------------------------------------------------------
 
 const PRINCIPAL_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
@@ -282,7 +156,7 @@ async function discoverPrincipalUrl(
 	fetchImpl: typeof fetch,
 	auth: string,
 ): Promise<string> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		WELL_KNOWN_URL,
 		auth,
@@ -312,7 +186,7 @@ async function discoverCalendarHomeUrl(
 	auth: string,
 	principalUrl: string,
 ): Promise<string> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		principalUrl,
 		auth,
@@ -337,55 +211,10 @@ async function discoverCalendarHomeUrl(
 	return new URL(homeHref, finalUrl).toString();
 }
 
-// Finds the "winning" propstat (the one with a 200 status, falling back to
-// the first if none is explicitly 200) and returns its <prop> element — the
-// same "which propstat has the actual values" logic every multistatus
-// <response> parser in this module (and providers/caldav-tasks.ts) needs,
-// factored out (Task 9b) so it's written once rather than five times.
-export function okPropOf(responseEl: Element): Element | null {
-	const propstats = Array.from(
-		responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-	);
-	const okPropstat =
-		propstats.find((ps) => {
-			const status = textOf(firstNs(ps, DAV_NS, "status"));
-			return status ? / 200 /.test(` ${status} `) : false;
-		}) ?? propstats[0];
-	return okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
-}
-
-// True when `prop` (a <response>'s winning propstat prop, see okPropOf) has
-// a CALDAV:calendar resourcetype — a pure WebDAV collection (e.g. the
-// home-set root itself) does not. Exported (Task 9b) so
-// providers/caldav-tasks.ts's generic VTODO/VEVENT collection filtering
-// shares this check with isVeventCalendarCollection below, instead of
-// re-declaring it.
-export function isCalendarCollection(prop: Element): boolean {
-	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
-	return resourcetype
-		? resourcetype.getElementsByTagNameNS(CALDAV_NS, "calendar").length > 0
-		: false;
-}
-
-// True when `prop`'s supported-calendar-component-set includes a
-// <c:comp name="componentName"/> (e.g. "VEVENT" or "VTODO"). Exported (Task
-// 9b) for the same reason as isCalendarCollection above.
-export function supportsCalendarComponent(
-	prop: Element,
-	componentName: string,
-): boolean {
-	const compSet = firstNs(prop, CALDAV_NS, "supported-calendar-component-set");
-	if (!compSet) return false;
-	const comps = Array.from(compSet.getElementsByTagNameNS(CALDAV_NS, "comp"));
-	return comps.some((comp) => comp.getAttribute("name") === componentName);
-}
-
-// A response entry is a VEVENT-capable calendar collection when its
-// resourcetype includes CALDAV:calendar AND its
-// supported-calendar-component-set includes a <c:comp name="VEVENT"/> — a
-// pure collection (e.g. the home-set root itself) or a reminders-only
-// (VTODO) calendar is filtered out. Rewritten (Task 9b) atop the two shared
-// helpers above; behavior is unchanged from the original inline version.
+// A response entry is a VEVENT-capable calendar collection when its resourcetype
+// includes CALDAV:calendar AND its supported-calendar-component-set includes a
+// <c:comp name="VEVENT"/> — a pure collection (e.g. the home-set root itself) or
+// a reminders-only (VTODO) calendar is filtered out.
 function isVeventCalendarCollection(responseEl: Element): boolean {
 	const prop = okPropOf(responseEl);
 	if (!prop) return false;
@@ -399,7 +228,7 @@ async function discoverCalendarUrls(
 	auth: string,
 	calendarHomeUrl: string,
 ): Promise<string[]> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		calendarHomeUrl,
 		auth,
@@ -450,10 +279,9 @@ async function discoverAppleCalendars(
 // ---------------------------------------------------------------------------
 // CardDAV discovery for Contacts (5.8): .well-known/carddav ->
 // current-user-principal -> addressbook-home-set -> addressbook collections.
-// Same redirect-following/XML-parsing plumbing as the CalDAV discovery above
-// (caldavRequest, parseXml, textOf, firstNs) — CardDAV and CalDAV are sibling
-// WebDAV extensions and share the same PROPFIND/REPORT mechanics, only the
-// XML namespace and element names differ.
+// Same redirect-following/XML-parsing plumbing as the CalDAV discovery above —
+// CardDAV and CalDAV are sibling WebDAV extensions and share the same
+// PROPFIND/REPORT mechanics, only the XML namespace and element names differ.
 // ---------------------------------------------------------------------------
 
 const ADDRESSBOOK_HOME_SET_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
@@ -463,21 +291,11 @@ const ADDRESSBOOK_HOME_SET_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"
 	</d:prop>
 </d:propfind>`;
 
-// Exported (Task 9b) so providers/caldav-tasks.ts's generic addressbook
-// collection enumeration reuses this exact PROPFIND body.
-export const ADDRESSBOOK_COLLECTIONS_PROPFIND_BODY = `<?xml version="1.0" encoding="UTF-8"?>
-<d:propfind xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
-	<d:prop>
-		<d:resourcetype/>
-		<d:displayname/>
-	</d:prop>
-</d:propfind>`;
-
 async function discoverAddressbookPrincipalUrl(
 	fetchImpl: typeof fetch,
 	auth: string,
 ): Promise<string> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		WELL_KNOWN_CARDDAV_URL,
 		auth,
@@ -507,7 +325,7 @@ async function discoverAddressbookHomeUrl(
 	auth: string,
 	principalUrl: string,
 ): Promise<string> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		principalUrl,
 		auth,
@@ -532,29 +350,12 @@ async function discoverAddressbookHomeUrl(
 	return new URL(homeHref, finalUrl).toString();
 }
 
-// A response entry is kept when its resourcetype includes
-// CARDDAV:addressbook — filters out the home-set root collection itself
-// (which has no addressbook resourcetype), mirroring
-// isVeventCalendarCollection's filtering role for CalDAV above. Exported
-// (Task 9b) so providers/caldav-tasks.ts's generic CardDAV addressbook
-// discovery reuses this exact check instead of re-declaring it. Rewritten
-// atop okPropOf; behavior is unchanged from the original inline version.
-export function isAddressbookCollection(responseEl: Element): boolean {
-	const prop = okPropOf(responseEl);
-	if (!prop) return false;
-
-	const resourcetype = firstNs(prop, DAV_NS, "resourcetype");
-	return resourcetype
-		? resourcetype.getElementsByTagNameNS(CARDDAV_NS, "addressbook").length > 0
-		: false;
-}
-
 async function discoverAddressbookUrls(
 	fetchImpl: typeof fetch,
 	auth: string,
 	addressbookHomeUrl: string,
 ): Promise<string[]> {
-	const { xml, finalUrl } = await caldavRequest(
+	const { xml, finalUrl } = await appleCaldavRequest(
 		fetchImpl,
 		addressbookHomeUrl,
 		auth,
@@ -675,415 +476,25 @@ export async function appleConnect(
 }
 
 // ---------------------------------------------------------------------------
-// Minimal iCal (RFC 5545) VEVENT parser — hand-rolled, no dependency. Only
-// unfolds lines and extracts the handful of fields the calendar tool needs
-// (UID/SUMMARY/DTSTART/DTEND/LOCATION); anything else in the VEVENT block is
-// ignored. Deliberately not a general-purpose iCal library.
-// ---------------------------------------------------------------------------
-
-// RFC 5545 §3.1 line folding: a line that starts with a single space or tab
-// is a continuation of the previous line (with that one leading whitespace
-// character removed, and NOT replaced with anything — i.e. simple
-// concatenation). Lines are terminated by CRLF, but a bare LF is tolerated.
-// Exported for reuse by providers/apple-caldav-write.ts (6.2's
-// preserve-and-patch update) — patching the original resource's exact
-// property lines needs the SAME unfolding this read-side parser uses, not a
-// second hand-rolled copy of it.
-export function unfoldICalLines(text: string): string[] {
-	const rawLines = text.split(/\r\n|\r|\n/);
-	const lines: string[] = [];
-	for (const raw of rawLines) {
-		if ((raw.startsWith(" ") || raw.startsWith("\t")) && lines.length > 0) {
-			lines[lines.length - 1] += raw.slice(1);
-		} else {
-			lines.push(raw);
-		}
-	}
-	return lines;
-}
-
-// Reverses the RFC 5545 §3.3.11 TEXT escaping (\\, \;, \,, \N or \n) — only
-// applied to free-text fields (SUMMARY/LOCATION), never to structured values
-// like DTSTART.
-function unescapeICalText(value: string): string {
-	return value.replace(/\\(.)/g, (_match, ch: string) => {
-		if (ch === "n" || ch === "N") return "\n";
-		return ch;
-	});
-}
-
-export type ICalProperty = {
-	name: string;
-	params: Record<string, string>;
-	value: string;
-};
-
-// Splits a single unfolded content line ("NAME;PARAM=VALUE;...:value") into
-// its property name, parameter map, and raw value. The split point is the
-// FIRST unparametrized colon; everything before it (split on `;`) is the
-// name followed by `PARAM=VALUE` pairs. Exported for reuse by
-// providers/apple-caldav-write.ts (6.2's preserve-and-patch update) — it
-// needs to locate the exact original UID/SUMMARY/DTSTART/... lines within a
-// fetched VEVENT block the same way this read-side parser does.
-export function parseICalProperty(line: string): ICalProperty | null {
-	const colonIndex = line.indexOf(":");
-	if (colonIndex === -1) return null;
-	const head = line.slice(0, colonIndex);
-	const value = line.slice(colonIndex + 1);
-	const [rawName, ...paramParts] = head.split(";");
-	if (!rawName) return null;
-	// RFC 6350 §3.3 (contentline = [group "."] name ...) lets a property carry
-	// a leading group prefix — Apple Contacts labels grouped properties this
-	// way, e.g. "item1.EMAIL;type=INTERNET:...". Strip that "group." prefix
-	// before anything downstream compares the property name, or a labeled
-	// EMAIL/TEL never matches its case arm (name would be "ITEM1.EMAIL", not
-	// "EMAIL"). An iCalendar property name never contains a '.', so this is a
-	// no-op for calendar data — only vCard grouping is affected.
-	const dotIndex = rawName.indexOf(".");
-	const name = dotIndex === -1 ? rawName : rawName.slice(dotIndex + 1);
-	if (!name) return null;
-	const params: Record<string, string> = {};
-	for (const part of paramParts) {
-		const eq = part.indexOf("=");
-		if (eq === -1) continue;
-		params[part.slice(0, eq).toUpperCase()] = part.slice(eq + 1);
-	}
-	return { name: name.toUpperCase(), params, value };
-}
-
-// Maps a raw DTSTART/DTEND value to an ISO-ish string. All-day
-// (`;VALUE=DATE:YYYYMMDD` or a bare 8-digit value) becomes `YYYY-MM-DD`;
-// a timed value (`YYYYMMDDTHHMMSS[Z]`, with or without a TZID param) becomes
-// `YYYY-MM-DDTHH:MM:SS` plus a trailing `Z` iff the raw value itself ended in
-// Z. A TZID param's offset is deliberately NOT resolved — "ISO-ish is fine"
-// for what the calendar tool needs; over-engineering timezone math here isn't
-// worth it for a read-only MVP. Exported so the write executor
-// (providers/apple-caldav-write.ts) can detect a "no genuine change" update by
-// comparing a caller's resent start/end against exactly this parse of the
-// original DTSTART/DTEND line — the read and write sides must agree on what a
-// stored timestamp "is", rather than each guessing independently.
-export function parseICalTimestamp(prop: ICalProperty): string | null {
-	const value = prop.value.trim();
-	const isDateOnly = prop.params.VALUE === "DATE" || /^\d{8}$/.test(value);
-	if (isDateOnly) {
-		const match = value.match(/^(\d{4})(\d{2})(\d{2})$/);
-		if (!match) return null;
-		return `${match[1]}-${match[2]}-${match[3]}`;
-	}
-	const match = value.match(
-		/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/,
-	);
-	if (!match) return null;
-	const [, year, month, day, hour, minute, second, zone] = match;
-	return `${year}-${month}-${day}T${hour}:${minute}:${second}${zone ?? ""}`;
-}
-
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-// Parses an RFC 5545 §3.3.6 DURATION value (e.g. "PT1H", "P1D", "P1DT2H30M",
-// "PT45M", "P2W", optionally sign-prefixed) into signed milliseconds. Returns
-// null for anything it can't parse or a bare "P" with no components — the
-// caller then falls back to the RFC default end rather than a bogus zero.
-function parseICalDuration(value: string): number | null {
-	const m = value
-		.trim()
-		.match(
-			/^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/,
-		);
-	if (!m) return null;
-	const [, sign, w, d, h, mi, s] = m;
-	if (
-		w === undefined &&
-		d === undefined &&
-		h === undefined &&
-		mi === undefined &&
-		s === undefined
-	) {
-		return null;
-	}
-	const total =
-		((((Number(w ?? 0) * 7 + Number(d ?? 0)) * 24 + Number(h ?? 0)) * 60 +
-			Number(mi ?? 0)) *
-			60 +
-			Number(s ?? 0)) *
-		1000;
-	return (sign === "-" ? -1 : 1) * total;
-}
-
-// Shifts an already-parsed ISO-ish DTSTART string (from parseICalTimestamp) by
-// `ms` milliseconds, preserving its shape: a date-only "YYYY-MM-DD" stays
-// date-only; a timed value keeps its trailing "Z" iff the original had one.
-// Arithmetic runs through Date.UTC purely so day/month/year rollover is correct
-// and server-timezone-independent — this is NOT a timezone conversion, just
-// wall-clock addition of the requested offset.
-function shiftICalTimestamp(parsed: string, ms: number): string | null {
-	const p2 = (n: number) => String(n).padStart(2, "0");
-	const dateOnly = parsed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-	if (dateOnly) {
-		const at = new Date(
-			Date.UTC(
-				Number(dateOnly[1]),
-				Number(dateOnly[2]) - 1,
-				Number(dateOnly[3]),
-			) + ms,
-		);
-		return `${at.getUTCFullYear()}-${p2(at.getUTCMonth() + 1)}-${p2(at.getUTCDate())}`;
-	}
-	const timed = parsed.match(
-		/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z)?$/,
-	);
-	if (timed) {
-		const at = new Date(
-			Date.UTC(
-				Number(timed[1]),
-				Number(timed[2]) - 1,
-				Number(timed[3]),
-				Number(timed[4]),
-				Number(timed[5]),
-				Number(timed[6]),
-			) + ms,
-		);
-		return `${at.getUTCFullYear()}-${p2(at.getUTCMonth() + 1)}-${p2(at.getUTCDate())}T${p2(at.getUTCHours())}:${p2(at.getUTCMinutes())}:${p2(at.getUTCSeconds())}${timed[7] ?? ""}`;
-	}
-	return null;
-}
-
-export type ParsedICalEvent = {
-	uid: string;
-	summary?: string;
-	location?: string;
-	description?: string;
-	dtstart: string;
-	dtend: string;
-	// Raw RRULE value (e.g. "FREQ=WEEKLY;..."), present iff this VEVENT block
-	// carries one. Not parsed further — the calendar write tool (6.2) only
-	// ever needs "is this event recurring at all", never the rule's actual
-	// frequency/interval.
-	recurrenceRule?: string;
-};
-
-// Scans unfolded lines for BEGIN:VEVENT..END:VEVENT blocks and extracts the
-// fields the calendar tool needs. A block missing UID or DTSTART is dropped
-// rather than surfaced half-populated — but a block with DTSTART and no DTEND
-// is NOT dropped: per RFC 5545 §3.6.1 an event's end is derived from DURATION
-// when present, and otherwise defaults (VALUE=DATE start -> start + 1 day; a
-// timed start -> zero duration, i.e. end == start). Imported/subscribed ICS
-// routinely uses DTSTART+DURATION or DTSTART alone, and silently dropping those
-// events was a real data-loss bug.
-export function parseICalEvents(icsText: string): ParsedICalEvent[] {
-	const lines = unfoldICalLines(icsText);
-	const events: ParsedICalEvent[] = [];
-
-	let inEvent = false;
-	let uid: string | undefined;
-	let summary: string | undefined;
-	let location: string | undefined;
-	let description: string | undefined;
-	let dtstart: string | undefined;
-	let dtend: string | undefined;
-	let duration: string | undefined;
-	let recurrenceRule: string | undefined;
-
-	for (const line of lines) {
-		if (line === "BEGIN:VEVENT") {
-			inEvent = true;
-			uid = undefined;
-			summary = undefined;
-			location = undefined;
-			description = undefined;
-			dtstart = undefined;
-			dtend = undefined;
-			duration = undefined;
-			recurrenceRule = undefined;
-			continue;
-		}
-		if (line === "END:VEVENT") {
-			if (inEvent && uid && dtstart) {
-				let end = dtend;
-				if (end === undefined && duration !== undefined) {
-					const ms = parseICalDuration(duration);
-					if (ms !== null) end = shiftICalTimestamp(dtstart, ms) ?? undefined;
-				}
-				if (end === undefined) {
-					// RFC 5545 §3.6.1 defaults: an all-day (VALUE=DATE, so no "T")
-					// event lasts one day; a timed event has zero duration.
-					const dtstartDateOnly = !dtstart.includes("T");
-					end = dtstartDateOnly
-						? (shiftICalTimestamp(dtstart, ONE_DAY_MS) ?? dtstart)
-						: dtstart;
-				}
-				events.push({
-					uid,
-					dtstart,
-					dtend: end,
-					...(summary !== undefined ? { summary } : {}),
-					...(location !== undefined ? { location } : {}),
-					...(description !== undefined ? { description } : {}),
-					...(recurrenceRule !== undefined ? { recurrenceRule } : {}),
-				});
-			}
-			inEvent = false;
-			continue;
-		}
-		if (!inEvent) continue;
-
-		const prop = parseICalProperty(line);
-		if (!prop) continue;
-		switch (prop.name) {
-			case "UID":
-				uid = prop.value;
-				break;
-			case "SUMMARY":
-				summary = unescapeICalText(prop.value);
-				break;
-			case "LOCATION":
-				location = unescapeICalText(prop.value);
-				break;
-			case "DESCRIPTION":
-				description = unescapeICalText(prop.value);
-				break;
-			case "RRULE":
-				recurrenceRule = prop.value;
-				break;
-			case "DURATION":
-				duration = prop.value.trim();
-				break;
-			case "DTSTART": {
-				const parsed = parseICalTimestamp(prop);
-				if (parsed) dtstart = parsed;
-				break;
-			}
-			case "DTEND": {
-				const parsed = parseICalTimestamp(prop);
-				if (parsed) dtend = parsed;
-				break;
-			}
-			default:
-				break;
-		}
-	}
-
-	return events;
-}
-
-// ---------------------------------------------------------------------------
 // Read: REPORT (calendar-query) filtered by time-range, Depth 1.
 // ---------------------------------------------------------------------------
 
-// CalDAV time-range filters use iCal's "basic" UTC form (no dashes/colons,
-// always Z) regardless of what format the caller's ISO timestamp used.
-function toICalUtcTimestamp(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) {
-		throw new AppleCalDavError(
-			`Invalid timeMin/timeMax value: ${iso}`,
-			"request_failed",
-		);
-	}
-	return `${date.toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
-}
-
-// Exported (Task 9b) so providers/caldav-tasks.ts's generic VEVENT read
-// builds the exact same calendar-query REPORT body (including the expand
-// window this doc comment above explains) rather than re-implementing it.
-export function calendarQueryBody(timeMin: string, timeMax: string): string {
-	const start = toICalUtcTimestamp(timeMin);
-	const end = toICalUtcTimestamp(timeMax);
-	// The CALDAV:expand (RFC 4791 §9.6.5) inside calendar-data asks the server
-	// to MATERIALIZE each recurrence instance that overlaps [start, end) as its
-	// own single-occurrence VEVENT, instead of returning the recurring master
-	// verbatim. Without it, a weekly series with a long-past DTSTART came back
-	// as one VEVENT carrying that original (out-of-window) start, so the whole
-	// in-window series collapsed to a single wrongly-dated entry. The expand
-	// window MUST match the time-range filter below so every occurrence the
-	// filter selects is also expanded. This is read-side only — the write
-	// path's UID lookup (uidQueryBody) deliberately does NOT expand, since it
-	// needs the real master resource text to patch/delete.
-	return `<?xml version="1.0" encoding="UTF-8"?>
-<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-	<d:prop>
-		<d:getetag/>
-		<c:calendar-data>
-			<c:expand start="${start}" end="${end}"/>
-		</c:calendar-data>
-	</d:prop>
-	<c:filter>
-		<c:comp-filter name="VCALENDAR">
-			<c:comp-filter name="VEVENT">
-				<c:time-range start="${start}" end="${end}"/>
-			</c:comp-filter>
-		</c:comp-filter>
-	</c:filter>
-</c:calendar-query>`;
-}
-
-// Exported (Task 9b) so providers/caldav-tasks.ts's generic VEVENT read
-// parses a calendar-query REPORT's multistatus response the same way this
-// module's own Apple reads do — the XML shape is standard CalDAV, not
-// Apple-specific.
-export function parseReportMultistatus(
-	xml: string,
-	finalUrl: string,
-): CalendarEvent[] {
-	const doc = parseXml(xml);
-	const responses = Array.from(doc.getElementsByTagNameNS(DAV_NS, "response"));
-
-	const events: CalendarEvent[] = [];
-	for (const responseEl of responses) {
-		const href = textOf(firstNs(responseEl, DAV_NS, "href"));
-		if (!href) continue;
-		const propstats = Array.from(
-			responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-		);
-		const okPropstat =
-			propstats.find((ps) => {
-				const status = textOf(firstNs(ps, DAV_NS, "status"));
-				return status ? / 200 /.test(` ${status} `) : false;
-			}) ?? propstats[0];
-		const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
-		if (!prop) continue;
-
-		const etag = textOf(firstNs(prop, DAV_NS, "getetag")) ?? undefined;
-		const calendarData = textOf(firstNs(prop, CALDAV_NS, "calendar-data"));
-		if (!calendarData) continue;
-
-		const absoluteHref = new URL(href, finalUrl).toString();
-		for (const parsed of parseICalEvents(calendarData)) {
-			events.push({
-				id: parsed.uid,
-				summary: parsed.summary ?? "",
-				start: parsed.dtstart,
-				end: parsed.dtend,
-				...(parsed.location ? { location: parsed.location } : {}),
-				...(parsed.description ? { description: parsed.description } : {}),
-				htmlLink: absoluteHref,
-				...(etag ? { etag } : {}),
-				// Captured verbatim for the 6.2 write path's preserve-and-patch
-				// update (see CalendarEvent.rawIcs's doc comment) — this is the
-				// exact `calendar-data` text this event was parsed out of, not a
-				// re-serialization of the parsed fields above.
-				rawIcs: calendarData,
-				// See CalendarEvent.recurrence's doc comment (google-calendar.ts):
-				// Apple never distinguishes a recurring master from an expanded
-				// instance the way Google does, so a bare non-empty array is enough
-				// signal for isRecurring — the rule's actual content is unused.
-				...(parsed.recurrenceRule
-					? { recurrence: [parsed.recurrenceRule] }
-					: {}),
-			});
-		}
-	}
-	return events;
+// The Apple ID auth identity for a connection — the stored config value when
+// present, else the connection's own account identifier. Derived once here and
+// reused by every read/write path (appleConfig, appleSearchContacts,
+// checkHealth, and the write executor's getAuthOrReauth) so the fallback rule
+// lives in exactly one place.
+function appleIdOf(conn: ConnectionPublic): string {
+	return typeof conn.config.appleId === "string"
+		? conn.config.appleId
+		: conn.accountIdentifier;
 }
 
 function appleConfig(conn: ConnectionPublic): {
 	appleId: string;
 	calendarUrls: string[];
 } {
-	const appleId =
-		typeof conn.config.appleId === "string"
-			? conn.config.appleId
-			: conn.accountIdentifier;
+	const appleId = appleIdOf(conn);
 	const calendarUrls = Array.isArray(conn.config.calendarUrls)
 		? conn.config.calendarUrls.filter(
 				(value): value is string => typeof value === "string",
@@ -1123,12 +534,20 @@ export async function appleListEvents(
 
 	const { appleId, calendarUrls } = appleConfig(conn);
 	const auth = basicAuthHeader(appleId, appPassword);
-	const body = calendarQueryBody(params.timeMin, params.timeMax);
+	let body: string;
+	try {
+		body = calendarQueryBody(params.timeMin, params.timeMax);
+	} catch (err) {
+		throw new AppleCalDavError(
+			err instanceof Error ? err.message : String(err),
+			"request_failed",
+		);
+	}
 
 	const events: CalendarEvent[] = [];
 	try {
 		for (const calendarUrl of calendarUrls) {
-			const { xml, finalUrl } = await caldavRequest(
+			const { xml, finalUrl } = await appleCaldavRequest(
 				fetchImpl,
 				calendarUrl,
 				auth,
@@ -1154,50 +573,13 @@ export async function appleListEvents(
 }
 
 // ---------------------------------------------------------------------------
-// Fetch a single event by UID (Issue 6.2 write path) — a calendar-query
-// REPORT filtered by a UID prop-filter, deliberately NOT reusing
-// appleListEvents's time-range filter: update/delete need to resolve a
-// target event's resourceHref+etag regardless of how far in the past or
-// future it falls, which a bounded time-range lookup could simply miss.
-// Searches every configured calendar collection and returns the first match.
+// Fetch a single event by UID (Issue 6.2 write path) — a calendar-query REPORT
+// filtered by a UID prop-filter, deliberately NOT reusing appleListEvents's
+// time-range filter: update/delete need to resolve a target event's
+// resourceHref+etag regardless of how far in the past or future it falls, which
+// a bounded time-range lookup could simply miss. Searches every configured
+// calendar collection and returns the first match.
 // ---------------------------------------------------------------------------
-
-// Minimal XML-text escaping for interpolating a caller-supplied value (the
-// calendar tool's `eventId`, ultimately model-controlled) into a REPORT
-// request body — this is the one CalDAV request body in this module built
-// from untrusted input, so escaping here is required to keep it from
-// breaking out of the <c:text-match> element (or injecting sibling filter
-// elements) rather than merely failing to match.
-function escapeXmlText(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&apos;");
-}
-
-// Exported (Task 9b) so providers/caldav-tasks.ts's generic
-// get-event-by-uid read builds the exact same UID-filtered calendar-query
-// REPORT body rather than re-implementing it.
-export function uidQueryBody(uid: string): string {
-	return `<?xml version="1.0" encoding="UTF-8"?>
-<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-	<d:prop>
-		<d:getetag/>
-		<c:calendar-data/>
-	</d:prop>
-	<c:filter>
-		<c:comp-filter name="VCALENDAR">
-			<c:comp-filter name="VEVENT">
-				<c:prop-filter name="UID">
-					<c:text-match collation="i;octet" match-type="equals">${escapeXmlText(uid)}</c:text-match>
-				</c:prop-filter>
-			</c:comp-filter>
-		</c:comp-filter>
-	</c:filter>
-</c:calendar-query>`;
-}
 
 export async function appleGetEventByUid(
 	userId: string,
@@ -1228,7 +610,7 @@ export async function appleGetEventByUid(
 
 	try {
 		for (const calendarUrl of calendarUrls) {
-			const { xml, finalUrl } = await caldavRequest(
+			const { xml, finalUrl } = await appleCaldavRequest(
 				fetchImpl,
 				calendarUrl,
 				auth,
@@ -1260,96 +642,12 @@ export async function appleGetEventByUid(
 }
 
 // ---------------------------------------------------------------------------
-// vCard (RFC 6350) parser for Contacts (5.8) — hand-rolled, no dependency,
-// deliberately mirroring parseICalEvents above: vCard and iCalendar share the
-// same RFC 5545 §3.1-style line-folding and "NAME;PARAM=VALUE:value" content
-// line grammar (RFC 6350 explicitly reuses it), so unfoldICalLines and
-// parseICalProperty are reused as-is rather than duplicated. Only extracts
-// what the contacts resolver needs (FN, EMAIL, TEL) — not a general-purpose
-// vCard library.
+// Contacts (5.8) — CardDAV addressbook-query REPORT across every discovered
+// addressbook, matched client-side (CardDAV has no reliable cross-server
+// free-text search primitive worth relying on across servers, so the query is
+// applied client-side — same rationale as calendar.ts not passing `query`
+// through to appleListEvents).
 // ---------------------------------------------------------------------------
-
-export type ParsedVCard = {
-	fn?: string;
-	emails: string[];
-	phones: string[];
-};
-
-export function parseVCards(vcardText: string): ParsedVCard[] {
-	const lines = unfoldICalLines(vcardText);
-	const cards: ParsedVCard[] = [];
-
-	let inCard = false;
-	let fn: string | undefined;
-	let emails: string[] = [];
-	let phones: string[] = [];
-
-	for (const line of lines) {
-		if (line === "BEGIN:VCARD") {
-			inCard = true;
-			fn = undefined;
-			emails = [];
-			phones = [];
-			continue;
-		}
-		if (line === "END:VCARD") {
-			if (inCard)
-				cards.push({ ...(fn !== undefined ? { fn } : {}), emails, phones });
-			inCard = false;
-			continue;
-		}
-		if (!inCard) continue;
-
-		const prop = parseICalProperty(line);
-		if (!prop) continue;
-		switch (prop.name) {
-			case "FN":
-				fn = unescapeICalText(prop.value);
-				break;
-			case "EMAIL": {
-				const value = unescapeICalText(prop.value.trim());
-				if (value) emails.push(value);
-				break;
-			}
-			case "TEL": {
-				const value = unescapeICalText(prop.value.trim());
-				if (value) phones.push(value);
-				break;
-			}
-			default:
-				break;
-		}
-	}
-
-	return cards;
-}
-
-// RFC 6352 §10.3 defines addressbook-query as
-// `((allprop|propname|prop)?, filter, limit?)` — the CARDDAV:filter element is
-// MANDATORY (no `?` quantifier), unlike CalDAV's calendar-query where the
-// filter is likewise required but iCloud is laxer about. Omitting it made a
-// strict iCloud endpoint 400 the REPORT, which surfaced upstream as "no
-// contacts". We still match/rank client-side (CardDAV has no reliable
-// cross-server free-text primitive — see appleSearchContacts), so this filter
-// must select EVERY card: with the default `test="anyof"` (logical OR), a
-// bare `prop-filter name="UID"` matches any card that HAS a UID and the
-// `is-not-defined` arm matches any card that does NOT — together a tautology,
-// i.e. all cards, expressed in the RFC's own grammar.
-// Exported (Task 9b) so providers/caldav-tasks.ts's generic vCard read reuses
-// this exact "match every card" addressbook-query REPORT body.
-export const ADDRESSBOOK_QUERY_BODY = `<?xml version="1.0" encoding="UTF-8"?>
-<card:addressbook-query xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
-	<d:prop>
-		<d:getetag/>
-		<card:address-data/>
-	</d:prop>
-	<card:filter test="anyof">
-		<card:prop-filter name="UID"/>
-		<card:prop-filter name="UID">
-			<card:is-not-defined/>
-		</card:prop-filter>
-	</card:filter>
-</card:addressbook-query>`;
 
 function parseAddressbookReportMultistatus(xml: string): ParsedVCard[] {
 	const doc = parseXml(xml);
@@ -1357,15 +655,7 @@ function parseAddressbookReportMultistatus(xml: string): ParsedVCard[] {
 
 	const cards: ParsedVCard[] = [];
 	for (const responseEl of responses) {
-		const propstats = Array.from(
-			responseEl.getElementsByTagNameNS(DAV_NS, "propstat"),
-		);
-		const okPropstat =
-			propstats.find((ps) => {
-				const status = textOf(firstNs(ps, DAV_NS, "status"));
-				return status ? / 200 /.test(` ${status} `) : false;
-			}) ?? propstats[0];
-		const prop = okPropstat ? firstNs(okPropstat, DAV_NS, "prop") : null;
+		const prop = okPropOf(responseEl);
 		if (!prop) continue;
 
 		const addressData = textOf(firstNs(prop, CARDDAV_NS, "address-data"));
@@ -1386,14 +676,9 @@ function appleContactsCachedAddressbookUrls(
 	return strings.length > 0 ? strings : null;
 }
 
-// Resolves contacts across the Apple ID's CardDAV addressbooks for the
-// contacts chat tool / resolveContacts (5.8) — discovery is cached into the
-// connection's config on first use (see appleContactsCachedAddressbookUrls
-// above), same caching posture as appleListEvents's calendarUrls. Matching
-// is client-side (FN or any EMAIL contains `query`, case-insensitive) since
-// CardDAV's addressbook-query REPORT has no free-text search primitive worth
-// relying on across servers — same rationale as calendar.ts not passing
-// `query` through to appleListEvents.
+// Resolves contacts across the Apple ID's CardDAV addressbooks for the contacts
+// chat tool / resolveContacts (5.8) — discovery is cached into the connection's
+// config on first use, same caching posture as appleListEvents's calendarUrls.
 export async function appleSearchContacts(
 	userId: string,
 	connectionId: string,
@@ -1417,10 +702,7 @@ export async function appleSearchContacts(
 		);
 	}
 
-	const appleId =
-		typeof conn.config.appleId === "string"
-			? conn.config.appleId
-			: conn.accountIdentifier;
+	const appleId = appleIdOf(conn);
 	const auth = basicAuthHeader(appleId, appPassword);
 	const limit = params.limit ?? 10;
 	const query = params.query.trim().toLowerCase();
@@ -1440,7 +722,7 @@ export async function appleSearchContacts(
 
 		const matches: ContactMatch[] = [];
 		for (const addressbookUrl of addressbookUrls) {
-			const { xml } = await caldavRequest(
+			const { xml } = await appleCaldavRequest(
 				fetchImpl,
 				addressbookUrl,
 				auth,
@@ -1480,9 +762,9 @@ export async function appleSearchContacts(
 }
 
 // ---------------------------------------------------------------------------
-// Adapter — a cheap PROPFIND on the stored principal URL is enough to
-// confirm the Apple ID + app-specific password still work, without touching
-// any calendar data.
+// Adapter — a cheap PROPFIND on the stored principal URL is enough to confirm
+// the Apple ID + app-specific password still work, without touching any
+// calendar data.
 // ---------------------------------------------------------------------------
 
 async function checkHealth(
@@ -1498,10 +780,7 @@ async function checkHealth(
 		typeof conn.config.principalUrl === "string"
 			? conn.config.principalUrl
 			: "";
-	const appleId =
-		typeof conn.config.appleId === "string"
-			? conn.config.appleId
-			: conn.accountIdentifier;
+	const appleId = appleIdOf(conn);
 	if (!principalUrl || !appleId) {
 		return {
 			status: "error",
@@ -1510,7 +789,7 @@ async function checkHealth(
 	}
 
 	try {
-		await caldavRequest(
+		await appleCaldavRequest(
 			fetchImpl,
 			principalUrl,
 			basicAuthHeader(appleId, secret),
@@ -1533,13 +812,807 @@ async function checkHealth(
 	}
 }
 
-// Not annotated as `: ConnectionAdapter` — that would narrow checkHealth's
-// call signature to the interface's (secret, conn) shape and break the
-// mocked-fetch tests that pass a third `{ fetch }` opts arg, same rationale
-// as nextcloudFilesAdapter in providers/nextcloud-files.ts.
+// Not annotated as `: ConnectionAdapter` — that would narrow checkHealth's call
+// signature to the interface's (secret, conn) shape and break the mocked-fetch
+// tests that pass a third `{ fetch }` opts arg, same rationale as
+// nextcloudFilesAdapter in providers/nextcloud-files.ts.
 export const appleAdapter = {
 	provider: "apple" as const,
 	checkHealth,
 };
 
 registerConnectionAdapter(appleAdapter satisfies ConnectionAdapter);
+
+// ===========================================================================
+// WRITE executor (Issue 6.2) — the ONLY code path that ever issues a mutating
+// (PUT/DELETE) request against a user's Apple iCloud Calendar. Co-located with
+// the read path above (C2) so it reuses appleIdOf and the ../dav plumbing.
+//
+// CalDAV has no server-enforced idempotent-create or optimistic-concurrency
+// primitive beyond plain HTTP conditional requests, and iCloud's own CalDAV
+// implementation is undocumented and fragile — so EVERY mutating request here
+// carries a conditional header, with no exceptions:
+//   - create -> `If-None-Match: *`   (only succeeds if nothing exists yet)
+//   - update/delete -> `If-Match: {etag}` (only succeeds if unchanged since read)
+// A 412 on create means "already created" (idempotent success, not an error);
+// a 412 on update/delete means the resource changed since it was last read,
+// which is surfaced as `conflict_changed` and NEVER retried/overwritten
+// unconditionally. This is the whole "can't corrupt files" guarantee for this
+// provider — see this module's doc comment for why iCloud's CalDAV behavior
+// can't be trusted to be safe any other way.
+// ===========================================================================
+
+// Timeout error for every write-path CalDAV call — injected into ../dav's
+// caldavWriteRequest so it keeps this module's exact wording. Throws a plain
+// Error (not AppleCalDavError) on abort — matching the previous private
+// fetchWithTimeout — because every call site already maps any thrown error to a
+// request_failed write result.
+const appleCalDavWriteTimeout = (ms: number) =>
+	new Error(`Apple CalDAV write request timed out after ${ms}ms`);
+
+// ---------------------------------------------------------------------------
+// content parsing — the calendar tool (normal-chat-tools/calendar.ts) is the
+// only producer of this shape; this module is the only consumer.
+// ---------------------------------------------------------------------------
+
+type AppleCalendarWriteEventFields = {
+	summary?: string;
+	start?: string;
+	end?: string;
+	location?: string;
+	description?: string;
+};
+
+export type AppleCalendarWriteContent = {
+	// Required for create_event — the collection a new .ics resource is PUT
+	// into.
+	calendarUrl?: string;
+	// Required for update_event/delete_event — the exact resource identified
+	// by the tool's propose-time fetch (appleGetEventByUid).
+	resourceHref?: string;
+	etag?: string;
+	// Required for update_event — identifies which VEVENT block within
+	// `originalIcs` (below) to patch, rather than the executor having to
+	// guess it back out of resourceHref (which may not follow this module's
+	// own `{uid}.ics` naming convention for an event that pre-dates this
+	// connection, e.g. one created from a Mac/iPhone).
+	uid?: string;
+	// Required for update_event (corruption-safety fix) — the ORIGINAL
+	// `calendar-data` VCALENDAR document text for the target resource,
+	// exactly as iCloud returned it (the event is already fetched at propose
+	// time to resolve resourceHref/etag, so this costs no extra round trip).
+	// A CalDAV PUT replaces the whole resource, and this tool only ever
+	// models a handful of VEVENT properties — so update PATCHES this text in
+	// place (see patchVevent below) rather than regenerating a brand-new
+	// VEVENT from just those fields, which would silently destroy any
+	// property this schema doesn't know about (ATTENDEE/ORGANIZER/VALARM/
+	// RRULE/CATEGORIES/X-*/...). Without this, executeUpdate refuses the
+	// write rather than risk that.
+	originalIcs?: string;
+	event?: AppleCalendarWriteEventFields;
+	// Set by the tool at propose time (via appleGetEventByUid's `recurrence`)
+	// when the target event carries an RRULE. update_event refuses outright
+	// whenever this is true — see the module doc comment on
+	// executeUpdate below for why. This is a defense-in-depth check (the
+	// primary guardrail lives in the calendar tool, which never even creates
+	// a pending write for a recurring update): staleness between propose and
+	// confirm time is still caught by the mandatory If-Match/etag check
+	// above, which would 412 if the event's RRULE-ness itself changed
+	// server-side in between.
+	recurring?: boolean;
+};
+
+function parseContent(content: string): AppleCalendarWriteContent | null {
+	try {
+		const parsed = JSON.parse(content) as Partial<AppleCalendarWriteContent>;
+		return {
+			...(typeof parsed.calendarUrl === "string"
+				? { calendarUrl: parsed.calendarUrl }
+				: {}),
+			...(typeof parsed.resourceHref === "string"
+				? { resourceHref: parsed.resourceHref }
+				: {}),
+			...(typeof parsed.etag === "string" ? { etag: parsed.etag } : {}),
+			...(typeof parsed.uid === "string" ? { uid: parsed.uid } : {}),
+			...(typeof parsed.originalIcs === "string"
+				? { originalIcs: parsed.originalIcs }
+				: {}),
+			...(parsed.event && typeof parsed.event === "object"
+				? { event: parsed.event as AppleCalendarWriteEventFields }
+				: {}),
+			...(typeof parsed.recurring === "boolean"
+				? { recurring: parsed.recurring }
+				: {}),
+		};
+	} catch {
+		return null;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic client-derived UID (create idempotency) — mirrors
+// google-calendar.ts's googleEventIdForOp: deriving the UID from the
+// pending write's idempotencyKey (a pure function of the WriteOperation) so
+// re-attempting the SAME create (a retried confirm after a crash, or a
+// second pending write proposed from byte-identical tool input) always PUTs
+// the exact same resource path. `If-None-Match: *` then turns iCloud's own
+// 412 on that re-PUT into idempotent success rather than a silent duplicate
+// event — no persisted state of its own needed, the determinism is the whole
+// mechanism.
+export function appleEventUidForOp(op: WriteOperation): string {
+	const hash = createHash("sha256").update(idempotencyKey(op)).digest("hex");
+	return `${hash}@alfyai.app`;
+}
+
+// ---------------------------------------------------------------------------
+// Minimal iCalendar (RFC 5545) VEVENT serializer — hand-rolled, no
+// dependency, mirroring the read-side iCal parsing in reverse. Used ONLY by
+// create_event, which always generates a brand-new resource (there is no
+// pre-existing content to preserve). update_event does NOT use this — see
+// patchVevent below for why "regenerate the whole VEVENT from just this
+// tool's minimal fields" was a corruption bug (it silently dropped ATTENDEE/
+// ORGANIZER/VALARM/RRULE/CATEGORIES/X-*/... on every update) and how the fix
+// instead patches the original resource's exact text in place.
+// ---------------------------------------------------------------------------
+
+const ALL_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_LINE_OCTETS = 75;
+
+// Raised whenever this module refuses to write ICS content rather than risk
+// emitting something malformed or corrupting/dropping data — see
+// assertNoLineBreak and patchVevent below. Caught at the single dispatch
+// point in registerWriteExecutor's execute() and turned into a typed
+// WriteExecutionResult, never left to leak as an unhandled exception.
+class IcalWriteError extends Error {
+	constructor(
+		message: string,
+		public readonly reason: "invalid_ical_value" | "missing_target",
+	) {
+		super(message);
+		this.name = "IcalWriteError";
+	}
+}
+
+// Defense-in-depth guard against ICS line-injection: any value THIS module
+// interpolates directly into a NEW content line (as opposed to copying an
+// existing line byte-for-byte out of an already-parsed original resource)
+// must not carry a raw CR/LF — those bytes are the wire format's own line
+// terminator, so an unescaped one would end the current content line and
+// start a brand-new, value-controlled one (i.e. inject an extra ICS
+// property/component) rather than staying inside this property's value.
+// TEXT properties (SUMMARY/LOCATION/DESCRIPTION) never hit this — they
+// already escape real line breaks via escapeICalText's \r/\n handling below.
+// This exists for values that do NOT go through TEXT escaping, e.g. UID —
+// there is no way to *safely* represent a raw line break in a non-TEXT
+// property, so this rejects the write outright instead of ever emitting
+// malformed/injectable ICS.
+function assertNoLineBreak(value: string, field: string): string {
+	if (/[\r\n]/.test(value)) {
+		throw new IcalWriteError(
+			`${field} contains an embedded line break and cannot be safely written to a CalDAV resource`,
+			"invalid_ical_value",
+		);
+	}
+	return value;
+}
+
+// Reverses the read-side unescapeICalText — RFC 5545 §3.3.11 TEXT
+// escaping. Backslash MUST be escaped first, before the other replacements
+// introduce new backslashes of their own; escaping it again afterwards would
+// double-escape them. CRLF/bare-CR/bare-LF are all normalized to the same
+// `\n` escape (a real embedded line break has only one valid representation
+// in iCalendar TEXT) — this also closes the one gap that let a raw `\r`
+// (without a paired `\n`) survive escaping and land as a literal control
+// byte inside a folded content line.
+function escapeICalText(value: string): string {
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/\r\n/g, "\\n")
+		.replace(/\r/g, "\\n")
+		.replace(/\n/g, "\\n")
+		.replace(/,/g, "\\,")
+		.replace(/;/g, "\\;");
+}
+
+function icalDateOnly(value: string): string {
+	return value.replace(/-/g, "");
+}
+
+// Always emits the UTC "basic" form (YYYYMMDDTHHMMSSZ) regardless of what
+// offset/zone the input ISO string carried — this module never writes a
+// TZID, mirroring parseICalTimestamp's read-side stance that resolving
+// timezone offsets precisely isn't worth the complexity for this connector.
+function icalUtcTimestamp(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		throw new Error(`Invalid event date/time value: ${JSON.stringify(value)}`);
+	}
+	return `${date.toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+}
+
+function toICalDtProperty(name: "DTSTART" | "DTEND", value: string): string {
+	return ALL_DAY_PATTERN.test(value)
+		? `${name};VALUE=DATE:${icalDateOnly(value)}`
+		: `${name}:${icalUtcTimestamp(value)}`;
+}
+
+// RFC 5545 §3.1 line folding: no content line may exceed 75 octets
+// (UTF-8 bytes, NOT characters); continuation lines are introduced by a
+// CRLF followed by a single space, and that leading space itself counts
+// toward the next line's 75-octet budget. Splits on octet boundaries only —
+// never inside a multi-byte UTF-8 character — by backing off while the byte
+// at the candidate split point is a UTF-8 continuation byte (0b10xxxxxx).
+function foldICalLine(line: string): string {
+	const bytes = Buffer.from(line, "utf8");
+	if (bytes.length <= MAX_LINE_OCTETS) return line;
+
+	const chunks: string[] = [];
+	let start = 0;
+	let limit = MAX_LINE_OCTETS;
+	while (start < bytes.length) {
+		let end = Math.min(start + limit, bytes.length);
+		while (end > start + 1 && (bytes[end] as number) >>> 6 === 0b10) end--;
+		chunks.push(bytes.subarray(start, end).toString("utf8"));
+		start = end;
+		// Every continuation line after the first starts with one leading
+		// space, which itself occupies one of the 75 octets.
+		limit = MAX_LINE_OCTETS - 1;
+	}
+	return chunks.join("\r\n ");
+}
+
+function serializeVevent(
+	uid: string,
+	event: AppleCalendarWriteEventFields,
+): string {
+	const lines: string[] = [
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"PRODID:-//AlfyAI//Calendar Write 1.0//EN",
+		"BEGIN:VEVENT",
+		// uid is always the deterministic sha256-hex-derived value from
+		// appleEventUidForOp in practice — never user/model-controlled — but
+		// this is still run through the same line-break guard every other
+		// interpolated value gets, on principle (see assertNoLineBreak's doc
+		// comment).
+		`UID:${assertNoLineBreak(uid, "uid")}`,
+		`DTSTAMP:${icalUtcTimestamp(new Date().toISOString())}`,
+	];
+	if (event.start !== undefined)
+		lines.push(toICalDtProperty("DTSTART", event.start));
+	if (event.end !== undefined) lines.push(toICalDtProperty("DTEND", event.end));
+	if (event.summary !== undefined) {
+		lines.push(`SUMMARY:${escapeICalText(event.summary)}`);
+	}
+	if (event.location !== undefined) {
+		lines.push(`LOCATION:${escapeICalText(event.location)}`);
+	}
+	if (event.description !== undefined) {
+		lines.push(`DESCRIPTION:${escapeICalText(event.description)}`);
+	}
+	lines.push("END:VEVENT", "END:VCALENDAR");
+	return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Preserve-and-patch VEVENT update (corruption-safety fix) — CalDAV's PUT
+// replaces the WHOLE resource, so an update built by regenerating a fresh
+// VEVENT from only this tool's modeled fields (SUMMARY/DTSTART/DTEND/
+// LOCATION/DESCRIPTION) silently destroyed every OTHER property a
+// pre-existing event carried: ATTENDEE, ORGANIZER, VALARM (reminders),
+// RRULE, CATEGORIES, X-* extensions, etc. — on ANY update, including a bare
+// location tweak. patchVevent instead starts from the ORIGINAL fetched ICS
+// text (AppleCalendarWriteContent.originalIcs, captured by the calendar tool
+// at propose time — the event is already fetched there for its etag) and
+// replaces ONLY the specific top-level property lines the caller actually
+// supplied, leaving every other line — including nested sub-components like
+// BEGIN:VALARM..END:VALARM blocks, VTIMEZONE, and anything outside the
+// target VEVENT entirely — untouched and in its original position.
+// ---------------------------------------------------------------------------
+
+// Locates the [start, end] unfolded-line indices of the BEGIN:VEVENT..
+// END:VEVENT block whose UID property matches `uid` exactly (a calendar-data
+// document can in principle hold more than one VEVENT, e.g. a recurring
+// master plus RECURRENCE-ID overrides sharing a UID — recurring events never
+// reach this function, see executeUpdate's guardrail, so matching the first
+// occurrence is unambiguous for anything that does).
+function findVeventBlock(
+	lines: string[],
+	uid: string,
+): { start: number; end: number } | null {
+	let blockStart = -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i] === "BEGIN:VEVENT") {
+			blockStart = i;
+			continue;
+		}
+		if (lines[i] === "END:VEVENT" && blockStart !== -1) {
+			const hasMatchingUid = lines.slice(blockStart + 1, i).some((line) => {
+				const prop = parseICalProperty(line);
+				return prop?.name === "UID" && prop.value === uid;
+			});
+			if (hasMatchingUid) return { start: blockStart, end: i };
+			blockStart = -1;
+		}
+	}
+	return null;
+}
+
+// The RFC 5545 ABNF for a VEVENT (`eventprop *alarmc`) puts every top-level
+// property BEFORE any nested sub-component — so a newly-inserted property
+// (one the original resource didn't have) must land before the first
+// BEGIN:... line in the block, not merely before END:VEVENT, or it would
+// come after e.g. a BEGIN:VALARM..END:VALARM block and violate that
+// ordering. Falls back to just before END:VEVENT when there's no
+// sub-component to avoid.
+function findInsertionIndex(
+	lines: string[],
+	start: number,
+	end: number,
+): number {
+	for (let i = start + 1; i < end; i++) {
+		if (lines[i]?.startsWith("BEGIN:")) return i;
+	}
+	return end;
+}
+
+// Finds the first line index in [start, end) matching `pattern`, WITHOUT
+// ever looking inside a nested sub-component (BEGIN:...END:... — e.g.
+// VALARM). This is what keeps replaceOrInsert below from mistaking, say, a
+// VALARM's own DESCRIPTION line for the VEVENT's top-level DESCRIPTION
+// property and overwriting content inside a supposedly-untouched alarm.
+function findTopLevelLineIndex(
+	lines: string[],
+	start: number,
+	end: number,
+	pattern: RegExp,
+): number {
+	let i = start;
+	while (i < end) {
+		const line = lines[i] as string;
+		if (line.startsWith("BEGIN:")) {
+			// Skip the entire nested sub-component (which may itself nest
+			// further, hence tracking depth) before resuming the top-level scan.
+			let depth = 1;
+			i++;
+			while (i < end && depth > 0) {
+				const inner = lines[i] as string;
+				if (inner.startsWith("BEGIN:")) depth++;
+				else if (inner.startsWith("END:")) depth--;
+				i++;
+			}
+			continue;
+		}
+		if (pattern.test(line)) return i;
+		i++;
+	}
+	return -1;
+}
+
+// Builds the replacement DTSTART/DTEND line for an update patch — the
+// two-part corruption fix for timed events:
+//
+//   (a) Returns undefined ("leave the original line byte-identical") when
+//       `newValue` is not a GENUINE change from the original property.
+//       calendar.ts always resends the existing start/end even on a
+//       metadata-only edit (`start: input.start ?? existing.start`), and
+//       `existing.start` is exactly parseICalTimestamp(originalLine). So a
+//       rename would otherwise rewrite an unchanged DTSTART — dropping its
+//       TZID and, via new Date() below, shifting the instant by the server's
+//       UTC offset. Comparing against the same parse the read side produced
+//       detects that no-op precisely.
+//
+//   (b) When the value IS a genuine change, a zone-less ("floating" or
+//       TZID-local) datetime keeps its literal wall-clock digits and the
+//       ORIGINAL TZID param, rather than being fed through new Date()/
+//       toISOString (which reinterprets a zone-less string in the server's
+//       local timezone and silently moves the event). A value carrying an
+//       explicit Z (or offset) is safe to normalize to UTC; a bare date
+//       becomes VALUE=DATE.
+function buildDtLine(
+	name: "DTSTART" | "DTEND",
+	originalLine: string | undefined,
+	newValue: string,
+): string | undefined {
+	const originalProp = originalLine ? parseICalProperty(originalLine) : null;
+	if (originalProp) {
+		const originalParsed = parseICalTimestamp(originalProp);
+		if (originalParsed !== null && originalParsed === newValue)
+			return undefined;
+	}
+	if (ALL_DAY_PATTERN.test(newValue)) {
+		return `${name};VALUE=DATE:${icalDateOnly(newValue)}`;
+	}
+	// A zone-less local datetime: no trailing Z and no explicit ±HH:MM offset.
+	const localMatch = newValue.match(
+		/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
+	);
+	if (localMatch) {
+		const [, y, mo, d, h, mi, s] = localMatch;
+		const basic = `${y}${mo}${d}T${h}${mi}${s ?? "00"}`;
+		const tzid = originalProp?.params.TZID;
+		return tzid ? `${name};TZID=${tzid}:${basic}` : `${name}:${basic}`;
+	}
+	return `${name}:${icalUtcTimestamp(newValue)}`;
+}
+
+function patchVevent(
+	originalIcs: string,
+	uid: string,
+	event: AppleCalendarWriteEventFields,
+): string {
+	assertNoLineBreak(uid, "uid");
+	const lines = unfoldICalLines(originalIcs);
+	const block = findVeventBlock(lines, uid);
+	if (!block) {
+		throw new IcalWriteError(
+			"Original ICS does not contain a VEVENT matching the expected UID",
+			"missing_target",
+		);
+	}
+
+	let end = block.end;
+	let insertAt = findInsertionIndex(lines, block.start, block.end);
+
+	// Replaces the first TOP-LEVEL line in the block matching `pattern` with
+	// `newLine`; if none matches, inserts `newLine` at the ordering-safe
+	// insertion point above. A `newLine` of `undefined` means the caller
+	// didn't supply this field — leave the block completely untouched for it
+	// (the whole point of patching rather than regenerating).
+	const replaceOrInsert = (pattern: RegExp, newLine: string | undefined) => {
+		if (newLine === undefined) return;
+		const idx = findTopLevelLineIndex(lines, block.start + 1, end, pattern);
+		if (idx !== -1) {
+			lines[idx] = newLine;
+			return;
+		}
+		lines.splice(insertAt, 0, newLine);
+		insertAt += 1;
+		end += 1;
+	};
+
+	// DTSTART/DTEND go through buildDtLine rather than replaceOrInsert: the
+	// caller always resends the existing start/end, so a straight replace would
+	// rewrite an unchanged line and lose its TZID / shift its instant. buildDtLine
+	// returns undefined for a no-op change, which replaceDt honors by leaving the
+	// original line byte-identical.
+	const replaceDt = (
+		name: "DTSTART" | "DTEND",
+		pattern: RegExp,
+		newValue: string | undefined,
+	) => {
+		if (newValue === undefined) return;
+		const idx = findTopLevelLineIndex(lines, block.start + 1, end, pattern);
+		const originalLine = idx !== -1 ? (lines[idx] as string) : undefined;
+		const newLine = buildDtLine(name, originalLine, newValue);
+		if (newLine === undefined) return;
+		if (idx !== -1) {
+			lines[idx] = newLine;
+			return;
+		}
+		lines.splice(insertAt, 0, newLine);
+		insertAt += 1;
+		end += 1;
+	};
+
+	replaceOrInsert(
+		/^SUMMARY(;|:)/i,
+		event.summary !== undefined
+			? `SUMMARY:${escapeICalText(event.summary)}`
+			: undefined,
+	);
+	replaceDt("DTSTART", /^DTSTART(;|:)/i, event.start);
+	replaceDt("DTEND", /^DTEND(;|:)/i, event.end);
+	replaceOrInsert(
+		/^LOCATION(;|:)/i,
+		event.location !== undefined
+			? `LOCATION:${escapeICalText(event.location)}`
+			: undefined,
+	);
+	replaceOrInsert(
+		/^DESCRIPTION(;|:)/i,
+		event.description !== undefined
+			? `DESCRIPTION:${escapeICalText(event.description)}`
+			: undefined,
+	);
+
+	// Best-effort SEQUENCE bump — correct CalDAV/iCalendar etiquette on a
+	// modification, but only when it's trivially safe: a TOP-LEVEL SEQUENCE
+	// must already be present and parse cleanly as a plain integer. Never
+	// inserted if absent (an absent SEQUENCE is a perfectly valid VEVENT —
+	// RFC 5545 defaults it to 0) — skipping is always safe, guessing is not.
+	const sequencePattern = /^SEQUENCE:(-?\d+)\s*$/i;
+	const seqIdx = findTopLevelLineIndex(
+		lines,
+		block.start + 1,
+		end,
+		sequencePattern,
+	);
+	if (seqIdx !== -1) {
+		const match = sequencePattern.exec(lines[seqIdx] as string);
+		if (match) {
+			lines[seqIdx] = `SEQUENCE:${Number.parseInt(match[1] as string, 10) + 1}`;
+		}
+	}
+
+	return `${lines.map(foldICalLine).join("\r\n")}\r\n`;
+}
+
+// ---------------------------------------------------------------------------
+// fetch plumbing
+// ---------------------------------------------------------------------------
+
+// Issues a PUT/DELETE with Basic auth and the caller's mandatory conditional
+// header via ../dav's write-capable request variant, which follows iCloud's
+// undocumented partition redirect the same way the read transport does for
+// PROPFIND/REPORT but WITHOUT the "expect a 207 multistatus XML body"
+// assumption (a write response is 200/201/204/404/410/412 with no XML body).
+// The abort/timeout error factory is injected so it keeps this module's exact
+// "Apple CalDAV write ..." wording.
+async function appleCaldavWriteRequest(
+	fetchImpl: typeof fetch,
+	url: string,
+	auth: string,
+	method: "PUT" | "DELETE",
+	conditional: ConditionalHeader,
+	body?: string,
+): Promise<Response> {
+	return caldavWriteRequest(fetchImpl, url, auth, method, conditional, body, {
+		timeoutError: appleCalDavWriteTimeout,
+	});
+}
+
+// A 401 here means iCloud rejected the (stored) app-specific password for
+// this specific request. Never logs/surfaces the password itself — only a
+// generic detail, same posture as the read-side flagging above.
+async function flagWriteNeedsReauth(
+	userId: string,
+	connectionId: string,
+): Promise<void> {
+	await updateConnection(userId, connectionId, {
+		status: "needs_reauth",
+		statusDetail:
+			"Apple rejected the write request for this Calendar connection",
+	});
+}
+
+async function getAuthOrReauth(
+	userId: string,
+	connectionId: string,
+): Promise<
+	{ ok: true; auth: string } | { ok: false; result: WriteExecutionResult }
+> {
+	const conn = await getConnection(userId, connectionId);
+	if (!conn) {
+		return { ok: false, result: { ok: false, reason: "connection_not_found" } };
+	}
+	const appPassword = await getConnectionSecret(userId, connectionId);
+	if (!appPassword) {
+		return { ok: false, result: { ok: false, reason: "needs_reauth" } };
+	}
+	return { ok: true, auth: basicAuthHeader(appleIdOf(conn), appPassword) };
+}
+
+// ---------------------------------------------------------------------------
+// create / update / delete
+// ---------------------------------------------------------------------------
+
+async function executeCreate(
+	userId: string,
+	connectionId: string,
+	auth: string,
+	op: WriteOperation,
+	content: AppleCalendarWriteContent,
+	opts?: FetchOpt,
+): Promise<WriteExecutionResult> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	if (!content.calendarUrl)
+		return { ok: false, reason: "missing_calendar_url" };
+
+	const uid = appleEventUidForOp(op);
+	const resourceHref = `${content.calendarUrl.replace(/\/$/, "")}/${uid}.ics`;
+	const ics = serializeVevent(uid, content.event ?? {});
+
+	const response = await appleCaldavWriteRequest(
+		fetchImpl,
+		resourceHref,
+		auth,
+		"PUT",
+		{ name: "If-None-Match", value: "*" },
+		ics,
+	);
+
+	if (response.status === 401) {
+		await flagWriteNeedsReauth(userId, connectionId);
+		return { ok: false, reason: "needs_reauth" };
+	}
+	if (response.status === 412) {
+		// The client-derived resource already exists — idempotent success, NOT
+		// a double-create. Never falls back to an unconditional PUT.
+		return { ok: true, detail: "already created" };
+	}
+	if (!response.ok) {
+		return { ok: false, reason: "request_failed" };
+	}
+	return { ok: true, etag: response.headers.get("ETag"), detail: "created" };
+}
+
+// Recurring events are refused here unconditionally (regardless of any
+// scope) — CalDAV has no "this occurrence only" primitive equivalent to
+// Google's expanded-instance ids, and regenerating a recurring master's whole
+// VEVENT (RRULE/EXDATE/RECURRENCE-ID overrides) from this tool's minimal
+// event fields would risk silently destroying the series definition. The
+// calendar tool itself already refuses to even create a pending write for a
+// recurring update (see normal-chat-tools/calendar.ts) — this check is
+// defense-in-depth for any pending write that reaches this executor anyway.
+async function executeUpdate(
+	userId: string,
+	connectionId: string,
+	auth: string,
+	content: AppleCalendarWriteContent,
+	opts?: FetchOpt,
+): Promise<WriteExecutionResult> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	if (!content.resourceHref || !content.etag || !content.uid) {
+		return { ok: false, reason: "missing_target" };
+	}
+	if (content.recurring) {
+		return { ok: false, reason: "recurring_update_unsupported" };
+	}
+	if (!content.originalIcs) {
+		// Without the original resource text there is nothing safe to patch —
+		// regenerating a brand-new VEVENT from only this tool's minimal event
+		// fields would silently destroy any property (ATTENDEE/ORGANIZER/
+		// VALARM/RRULE/CATEGORIES/X-*/...) the pre-existing event carries that
+		// this schema doesn't model. Refuse rather than risk that corruption;
+		// the calendar tool always supplies this (see
+		// AppleCalendarWriteContent.originalIcs's doc comment) so this only
+		// fires for a malformed/legacy pending write.
+		return { ok: false, reason: "missing_target" };
+	}
+
+	const ics = patchVevent(
+		content.originalIcs,
+		content.uid,
+		content.event ?? {},
+	);
+	const response = await appleCaldavWriteRequest(
+		fetchImpl,
+		content.resourceHref,
+		auth,
+		"PUT",
+		{ name: "If-Match", value: content.etag },
+		ics,
+	);
+
+	if (response.status === 401) {
+		await flagWriteNeedsReauth(userId, connectionId);
+		return { ok: false, reason: "needs_reauth" };
+	}
+	if (response.status === 412) {
+		// The resource changed since it was read — NEVER retried/overwritten
+		// unconditionally.
+		return { ok: false, reason: "conflict_changed" };
+	}
+	if (!response.ok) {
+		return { ok: false, reason: "request_failed" };
+	}
+	return {
+		ok: true,
+		etag: response.headers.get("ETag"),
+		detail: "event updated",
+	};
+}
+
+async function executeDelete(
+	userId: string,
+	connectionId: string,
+	auth: string,
+	content: AppleCalendarWriteContent,
+	opts?: FetchOpt,
+): Promise<WriteExecutionResult> {
+	const fetchImpl = opts?.fetch ?? fetch;
+	if (!content.resourceHref || !content.etag) {
+		return { ok: false, reason: "missing_target" };
+	}
+
+	const response = await appleCaldavWriteRequest(
+		fetchImpl,
+		content.resourceHref,
+		auth,
+		"DELETE",
+		{ name: "If-Match", value: content.etag },
+	);
+
+	if (response.status === 401) {
+		await flagWriteNeedsReauth(userId, connectionId);
+		return { ok: false, reason: "needs_reauth" };
+	}
+	// 404/410 means the resource is already gone — idempotent success, not a
+	// failure to surface a second time.
+	if (response.status === 404 || response.status === 410) {
+		return { ok: true, detail: "already deleted" };
+	}
+	if (response.status === 412) {
+		return { ok: false, reason: "conflict_changed" };
+	}
+	if (!response.ok) {
+		return { ok: false, reason: "request_failed" };
+	}
+	// Deleting a recurring event's resource removes the WHOLE series (CalDAV
+	// has only one resource per series, master + overrides together) — the
+	// calendar tool's preview already surfaces this before confirm; `detail`
+	// here just reflects it back for anything that logs/displays the result.
+	return { ok: true, detail: content.recurring ? "series deleted" : "deleted" };
+}
+
+// ---------------------------------------------------------------------------
+// registration (Issue 6.0) — imported for its side effect by pending-writes
+// .ts, the same way providers/nextcloud-files.ts is (see the comment above
+// that import for why this needs to happen on that exact import path).
+// ---------------------------------------------------------------------------
+
+registerWriteExecutor({
+	provider: "apple",
+	async execute(userId, connectionId, op, content, opts) {
+		const parsed = parseContent(content);
+		if (!parsed) return { ok: false, reason: "unsupported_operation" };
+
+		try {
+			const authResult = await getAuthOrReauth(userId, connectionId);
+			if (!authResult.ok) return authResult.result;
+
+			switch (op.action) {
+				case "calendar.create_event":
+					// Every branch is explicitly `await`ed (rather than returned as a
+					// bare promise) so a SYNCHRONOUS throw inside these functions
+					// (icalUtcTimestamp on an invalid date, patchVevent's
+					// IcalWriteError, etc.) becomes a rejection of THIS async
+					// function's own execution — which the surrounding try/catch can
+					// actually intercept. Returning the promise unawaited would let
+					// its eventual rejection propagate past this catch entirely.
+					return await executeCreate(
+						userId,
+						connectionId,
+						authResult.auth,
+						op,
+						parsed,
+						opts,
+					);
+				case "calendar.update_event":
+					return await executeUpdate(
+						userId,
+						connectionId,
+						authResult.auth,
+						parsed,
+						opts,
+					);
+				case "calendar.delete_event":
+					return await executeDelete(
+						userId,
+						connectionId,
+						authResult.auth,
+						parsed,
+						opts,
+					);
+				default:
+					return { ok: false, reason: "unsupported_operation" };
+			}
+		} catch (err) {
+			// IcalWriteError is a deliberate refusal (an unsafe-to-write value, or
+			// an original resource patchVevent couldn't locate the target VEVENT
+			// in) — surface its specific typed reason rather than the generic
+			// fallback below.
+			if (err instanceof IcalWriteError) {
+				return { ok: false, reason: err.reason };
+			}
+			// Anything else — caldavWriteRequest throws on a timeout/redirect-loop
+			// /missing Location header, icalUtcTimestamp throws on an invalid
+			// date — none of those are the user's fault, and none of them should
+			// ever leak internals (or the app-specific password, which never
+			// appears in these error messages to begin with) back through the
+			// confirm response.
+			return { ok: false, reason: "request_failed" };
+		}
+	},
+});

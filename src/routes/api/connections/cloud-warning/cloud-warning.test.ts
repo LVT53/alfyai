@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/locality", () => ({
 	shouldWarnCloudConnector: vi.fn(),
 }));
@@ -12,12 +8,10 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 	getEnabledConnectionCapabilities: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import { shouldWarnCloudConnector } from "$lib/server/services/connections/locality";
 import { getEnabledConnectionCapabilities } from "$lib/server/services/connections/resolve";
 import { POST } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockShouldWarn = shouldWarnCloudConnector as ReturnType<typeof vi.fn>;
 const mockGetEnabledConnectionCapabilities =
 	getEnabledConnectionCapabilities as ReturnType<typeof vi.fn>;
@@ -38,14 +32,23 @@ function makeEvent(body: unknown, userId = "owner-user") {
 describe("POST /api/connections/cloud-warning", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockGetEnabledConnectionCapabilities.mockResolvedValue(new Set());
 		mockShouldWarn.mockResolvedValue(false);
 	});
 
-	it("requires auth", async () => {
-		await POST(makeEvent({ modelId: "model2", capabilities: [] }));
-		expect(mockRequireAuth).toHaveBeenCalled();
+	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
+		const event = {
+			request: new Request("http://localhost/api/connections/cloud-warning", {
+				method: "POST",
+				body: JSON.stringify({ modelId: "model2", capabilities: [] }),
+			}),
+			locals: { user: null },
+			params: {},
+			url: new URL("http://localhost/api/connections/cloud-warning"),
+			route: { id: "/api/connections/cloud-warning" },
+		} as Parameters<typeof POST>[0];
+		await expect(POST(event)).rejects.toMatchObject({ status: 401 });
+		expect(mockShouldWarn).not.toHaveBeenCalled();
 	});
 
 	it("400s on invalid JSON", async () => {

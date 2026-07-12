@@ -1,5 +1,5 @@
 import { json } from "@sveltejs/kit";
-import { requireAuth } from "$lib/server/auth/hooks";
+import { requireApiUser } from "$lib/server/api/auth";
 import { CAPABILITIES } from "$lib/server/services/connections/registry";
 import {
 	getDefaultOnCapabilities,
@@ -18,8 +18,8 @@ import type { RequestHandler } from "./$types";
 //     provider only, no secrets) so the composer can render the multi-account
 //     indicator when more than one connection serves a capability.
 export const GET: RequestHandler = async (event) => {
-	requireAuth(event);
-	const userId = event.locals.user.id;
+	const user = requireApiUser(event);
+	const userId = user.id;
 
 	const [served, defaultOn] = await Promise.all([
 		getEnabledConnectionCapabilities(userId),

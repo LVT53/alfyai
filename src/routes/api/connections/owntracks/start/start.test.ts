@@ -6,10 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // token/password accepted (requiresSecret: false — the recorder is admin-
 // configured server-side), and its status-code mapping.
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 const connectMock = vi.fn();
 
 vi.mock("$lib/server/services/connections/providers/owntracks", async () => {

@@ -32,6 +32,14 @@ export const CAPABILITIES: readonly Capability[] = [
 	"tasks",
 ];
 
+// Catalog grouping (ADR-0051 Decision 2, slice E1). "product" = a concrete,
+// branded product integration (Nextcloud, Google, ...); "custom" = a generic
+// protocol adapter the user points at their own server (CalDAV, CardDAV
+// contacts). The "Add a connection" list renders a divider between the two.
+// Kept in sync with the client mirror's ProviderCatalogEntry.group in
+// src/lib/client/connections/provider-catalog.ts.
+export type ProviderGroup = "product" | "custom";
+
 // Per-provider metadata. ConnectionProvider comes from 1.1 (schema/types).
 export const PROVIDER_META: Record<
 	ConnectionProvider,
@@ -39,62 +47,70 @@ export const PROVIDER_META: Record<
 		capabilities: Capability[];
 		connectMethod: ConnectMethod;
 		displayName: string;
+		group: ProviderGroup;
 	}
 > = {
 	nextcloud: {
 		capabilities: ["files", "contacts"],
 		connectMethod: "login-flow-v2",
 		displayName: "Nextcloud",
+		group: "product",
 	},
 	immich: {
 		capabilities: ["photos"],
 		connectMethod: "password-key",
 		displayName: "Immich",
+		group: "product",
 	},
 	imap: {
 		capabilities: ["email"],
 		connectMethod: "app-password",
 		displayName: "Email",
+		group: "product",
 	},
 	google: {
 		capabilities: ["calendar", "contacts"],
 		connectMethod: "oauth",
 		displayName: "Google",
+		group: "product",
 	},
 	apple: {
 		capabilities: ["calendar", "contacts"],
 		connectMethod: "app-password",
 		displayName: "Apple iCloud",
+		group: "product",
 	},
 	plex: {
 		capabilities: ["media"],
 		connectMethod: "password-key",
 		displayName: "Plex",
+		group: "product",
 	},
 	owntracks: {
 		capabilities: ["location"],
 		connectMethod: "password-key",
 		displayName: "OwnTracks",
+		group: "product",
 	},
 	contacts: {
 		capabilities: ["contacts"],
 		connectMethod: "app-password",
 		displayName: "Contacts (CardDAV)",
+		// Generic CardDAV protocol integration (resolver-only / not connectable),
+		// grouped with the other custom integrations.
+		group: "custom",
 	},
 	github: {
 		capabilities: ["repos"],
 		connectMethod: "app-password",
 		displayName: "GitHub",
+		group: "product",
 	},
 	onedrive: {
 		capabilities: ["files"],
 		connectMethod: "oauth",
 		displayName: "OneDrive",
-	},
-	todoist: {
-		capabilities: ["tasks"],
-		connectMethod: "app-password",
-		displayName: "Todoist",
+		group: "product",
 	},
 	// Task 9b: widened from Task 9a's ["tasks"] — a generic caldav connection
 	// (Nextcloud, Fastmail, mailbox.org, Baïkal, ...) now discovers and can
@@ -108,6 +124,9 @@ export const PROVIDER_META: Record<
 		capabilities: ["tasks", "calendar", "contacts"],
 		connectMethod: "app-password",
 		displayName: "CalDAV",
+		// Generic CalDAV/CardDAV protocol integration — a custom integration,
+		// not a branded product.
+		group: "custom",
 	},
 };
 
@@ -162,7 +181,7 @@ export const CAPABILITY_META: Record<
 	},
 	tasks: {
 		tier: "explicit",
-		providers: ["todoist", "caldav"],
+		providers: ["caldav"],
 		displayName: "Tasks",
 	},
 };

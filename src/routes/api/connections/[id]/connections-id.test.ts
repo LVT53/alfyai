@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/auth/hooks", () => ({
-	requireAuth: vi.fn(),
-}));
-
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnection: vi.fn(),
 	setAllowWrites: vi.fn(),
@@ -13,7 +9,6 @@ vi.mock("$lib/server/services/connections/store", () => ({
 	deleteConnection: vi.fn(),
 }));
 
-import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	deleteConnection,
 	getConnection,
@@ -24,7 +19,6 @@ import {
 } from "$lib/server/services/connections/store";
 import { DELETE, PATCH } from "./+server";
 
-const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetConnection = getConnection as ReturnType<typeof vi.fn>;
 const mockSetAllowWrites = setAllowWrites as ReturnType<typeof vi.fn>;
 const mockSetDefaultOn = setDefaultOn as ReturnType<typeof vi.fn>;
@@ -82,7 +76,6 @@ function makeEvent(body: unknown, id = "conn-1", userId = "owner-user") {
 describe("/api/connections/[id]", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockRequireAuth.mockReturnValue(undefined);
 		mockGetConnection.mockResolvedValue(googleConnection);
 		mockSetAllowWrites.mockResolvedValue(googleConnection);
 		mockSetDefaultOn.mockResolvedValue(googleConnection);

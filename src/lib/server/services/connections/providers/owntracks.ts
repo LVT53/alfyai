@@ -28,6 +28,7 @@
 // the public-host SSRF guard.
 import { getConfig } from "$lib/server/config-store";
 import { registerConnectionAdapter } from "../adapters";
+import { ConnectionHttpError, providerFetch } from "../provider-http";
 import type { ConnectionAdapter } from "../registry";
 import {
 	type ConnectionPublic,
@@ -44,15 +45,21 @@ export type OwnTracksErrorCode =
 	| "invalid_config"
 	| "request_failed";
 
-export class OwnTracksError extends Error {
-	constructor(
-		message: string,
-		public readonly code: OwnTracksErrorCode,
-	) {
-		super(message);
+export class OwnTracksError extends ConnectionHttpError<OwnTracksErrorCode> {
+	constructor(message: string, code: OwnTracksErrorCode) {
+		super(message, code);
 		this.name = "OwnTracksError";
 	}
 }
+
+// Timeout error for the health check now routed through providerFetch —
+// previously this call had no timeout wrapper at all (B1 closes that gap so
+// the ~15s bound is uniform with every other provider's health check).
+const owntracksTimeout = (ms: number) =>
+	new OwnTracksError(
+		`OwnTracks request timed out after ${ms}ms`,
+		"request_failed",
+	);
 
 // ---------------------------------------------------------------------------
 // Admin config gate — the recorder URL/creds are server config, never
@@ -598,9 +605,13 @@ async function checkHealth(
 
 	const fetchImpl = opts?.fetch ?? fetch;
 	try {
-		const response = await fetchImpl(
+		const response = await providerFetch(
 			`${server.origin}/api/0/last?user=${encodeURIComponent(deviceConfig.otUser)}&device=${encodeURIComponent(deviceConfig.otDevice)}`,
-			{ headers: recorderHeaders(server.authHeader) },
+			{
+				headers: recorderHeaders(server.authHeader),
+				fetch: fetchImpl,
+				timeoutError: owntracksTimeout,
+			},
 		);
 		if (!response.ok) {
 			return {
