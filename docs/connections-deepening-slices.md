@@ -10,7 +10,7 @@ Status legend: ⬜ todo · 🟨 in progress · ✅ done
 
 ---
 
-## A1 — Fully retire Todoist  ⬜
+## A1 — Fully retire Todoist  ✅
 **Blocked by:** None — start immediately (do first; shrinks surface).
 
 **What to build:** Todoist ceases to exist in the product. The tasks capability is served
@@ -29,7 +29,7 @@ the database. No `todoist` reference survives anywhere in `src`.
 
 ---
 
-## B1 — `provider-http` module (Candidate 01)  ⬜
+## B1 — `provider-http` module (Candidate 01)  ✅
 **Blocked by:** None. (Prefactor for C2.)
 
 **What to build:** One outbound-HTTP module every provider uses for fetch + timeout +
@@ -47,7 +47,7 @@ becomes uniform (closes the plex/owntracks health-call gap).
 
 ---
 
-## B2 — `host-locality` module (Candidate 03)  ⬜
+## B2 — `host-locality` module (Candidate 03)  ✅
 **Blocked by:** None.
 
 **What to build:** One host classifier behind both the SSRF guard and the cloud-connector
@@ -63,7 +63,7 @@ inside a provider module.
 
 ---
 
-## B3 — `dav` module (Candidate 02)  ⬜
+## B3 — `dav` module (Candidate 02)  ✅
 **Blocked by:** None (smoother after B1).
 
 **What to build:** The WebDAV/CalDAV/CardDAV + iCal/vCard toolkit becomes its own module
@@ -80,7 +80,7 @@ toolkit living inside the 1545-line Apple provider with a parallel copy in Nextc
 
 ---
 
-## C1 — `withCapabilityConnection` seam (Candidate 04)  ⬜
+## C1 — `withCapabilityConnection` seam (Candidate 04)  ✅
 **Blocked by:** A1.
 
 **What to build:** One seam owns the resolve → disambiguation → distill-gate dance that 9
@@ -97,7 +97,7 @@ tools each copy today. Tools shrink to their own logic plus a call into the seam
 
 ---
 
-## C2 — Merge split read/write provider pairs (Candidate 06)  ⬜
+## C2 — Merge split read/write provider pairs (Candidate 06)  ✅
 **Blocked by:** B1, B3.
 
 **What to build:** Each provider's read and write live in one module (the nextcloud-files
@@ -113,7 +113,7 @@ file split.
 
 ---
 
-## C3 — Read dispatch through the registry (Candidate 05)  ⬜
+## C3 — Read dispatch through the registry (Candidate 05)  ⬜ DEFERRED — see [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Registry Read Dispatch
 **Blocked by:** C1, C2.
 
 **What to build:** Reads dispatch through the adapter registry keyed by (capability,
@@ -129,7 +129,7 @@ provider), symmetric with the write-executor registry — replacing the per-tool
 
 ---
 
-## D1 — Thin the route layer (Candidate 07)  ⬜
+## D1 — Thin the route layer (Candidate 07)  ✅
 **Blocked by:** None (can run parallel to B/C).
 
 **What to build:** One connect-start handler, one error mapper, one ownership guard, one
@@ -144,7 +144,7 @@ provider), symmetric with the write-executor registry — replacing the per-tool
 
 ---
 
-## E1 — Catalog grouping + OwnTracks UX  ⬜
+## E1 — Catalog grouping + OwnTracks UX  ✅
 **Blocked by:** A1.
 
 **What to build:** The "Add a connection" list visually separates solid products from
@@ -160,7 +160,7 @@ admin-not-configured case reads as a clear message, not a generic failure.
 
 ---
 
-## F1 — Doc/ADR/CONTEXT reconciliation + prior-loop audit  ⬜
+## F1 — Doc/ADR/CONTEXT reconciliation + prior-loop audit  🟨
 **Blocked by:** all code slices (A1, B1–B3, C1–C3, D1, E1).
 
 **What to build:** Consolidate ADR-0050/0051, finalize the CONTEXT.md Connections
