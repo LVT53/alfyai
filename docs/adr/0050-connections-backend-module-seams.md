@@ -135,6 +135,31 @@ in `auth/hooks.ts` is unchanged). Pinned by tests.
 **Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
 extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).
 
+## Registry Read Dispatch — CONSIDERED AND DEFERRED  *(slice C3)*
+
+**Decision:** Do NOT route capability reads through the adapter registry keyed by
+`(capability, provider)`. Keep the per-tool provider dispatch (the localized
+`if (conn.provider)` branches and the per-provider read wrappers). Recorded here so future
+architecture reviews don't re-suggest it.
+
+**Why (design-it-twice outcome):** the appeal was symmetry with the write path
+(`getWriteExecutor(provider)`), but that symmetry doesn't hold. **Writes are uniform** —
+every write is `execute(userId, connId, op, content)`, so one registry with one interface
+serves all providers. **Reads are not** — each capability's read surface is a different
+shape (calendar list-events vs files list/read/search/stat vs tasks list), with
+provider-specific extras (google-only `getEvent`/`freeBusy`; onedrive-only read-token).
+A read registry is therefore N bespoke registries sharing only `provider: string` — more
+surface, less uniform than what it mirrors. It also doesn't fit the aggregate tools
+(contacts dispatches inside its resolver; tasks is caldav-only after A1), and it would
+force rewriting ~130 test assertions that `vi.mock` whole provider modules (which would
+erase a module-load registration side-effect). The if-chains it removes are already
+small, well-commented, and well-abstracted, so the payoff doesn't justify the churn.
+
+**If revisited:** the one self-contained candidate is a `FilesReader` registry alone
+(files is the only capability with a uniform, already-abstracted 2-provider read surface);
+scope it as its own task with the test-mock rework budgeted in.
+
+
 
 
 
