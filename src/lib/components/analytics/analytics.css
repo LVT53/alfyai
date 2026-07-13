@@ -1,0 +1,130 @@
+/**
+ * Shared analytics visual vocabulary (Phase B, wave B2).
+ *
+ * These class definitions are COPIED verbatim (tokens preserved) from the
+ * existing analytics panes in `src/routes/(app)/settings/+page.svelte`
+ * (the `:global(...)` block). They are duplicated here on purpose so the
+ * reusable `src/lib/components/analytics/*` components can style themselves
+ * without depending on the settings page. The originals stay in place until a
+ * later wave replaces those panes — the temporary duplication is intentional.
+ *
+ * Components import this file:  import "./analytics.css";
+ */
+
+.settings-card {
+	background: var(--surface-overlay);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-lg);
+	padding: var(--space-lg);
+}
+
+.stat-card {
+	background: var(--surface-page);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-md);
+	padding: 0.75rem;
+}
+
+.stat-value {
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: var(--text-primary);
+	line-height: 1.2;
+}
+
+.stat-label {
+	font-size: 0.75rem;
+	color: var(--text-muted);
+	margin-top: 0.25rem;
+}
+
+.stat-card--hero {
+	background: var(--surface-page);
+	border: 1px solid var(--accent);
+	border-radius: var(--radius-md);
+	padding: 0.75rem;
+}
+
+.stat-value-hero {
+	font-size: 1.5rem;
+	font-weight: 700;
+	color: var(--accent);
+	line-height: 1.1;
+}
+
+.stat-comparison {
+	font-size: 0.7rem;
+	color: var(--text-muted);
+	margin-top: 0.35rem;
+}
+
+.month-label {
+	font-size: 0.82rem;
+	font-weight: 500;
+	color: var(--text-primary);
+	min-width: 7rem;
+	text-align: center;
+}
+
+.month-nav-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-full);
+	background: var(--surface-page);
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+	cursor: pointer;
+	transition: border-color var(--duration-standard);
+}
+
+.month-nav-btn:hover:not(:disabled) {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.month-nav-btn:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.month-alltime-btn {
+	margin-left: 0.5rem;
+	font-size: 0.72rem;
+	color: var(--text-muted);
+	cursor: pointer;
+	border: none;
+	background: none;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.month-alltime-btn:hover {
+	color: var(--accent);
+}
+
+.timeline-toggle-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 26px;
+	border: none;
+	border-radius: var(--radius-full);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 0.72rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background var(--duration-standard),
+		color var(--duration-standard);
+}
+
+.timeline-toggle-btn--active {
+	background: var(--accent);
+	color: #fff;
+}

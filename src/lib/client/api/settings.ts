@@ -80,6 +80,17 @@ interface SystemAnalytics {
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
 	monthly?: MonthlyAnalyticsRow[];
+	parallel?: {
+		monthly: {
+			month: string;
+			turboCalls: number;
+			extractCalls: number;
+			costUsd: number;
+		}[];
+		totalTurboCalls: number;
+		totalExtractCalls: number;
+		totalCostUsd: number;
+	};
 }
 
 interface PerUserAnalytics {

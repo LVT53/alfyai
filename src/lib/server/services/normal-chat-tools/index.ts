@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
+import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
@@ -374,6 +375,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								config: { parallelApiKey, parallelBaseUrl },
 								signal: abortSignal,
 							});
+							// Fire-and-forget Parallel Turbo usage tracking; never
+							// block or alter the tool result on analytics failure.
+							void recordParallelUsage({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								tool: "research_web",
+							}).catch(() => {});
 							const modelPayload = buildGroundedWebModelPayload(result);
 							const candidates = createGroundedWebCandidates(result);
 							return {
@@ -442,6 +450,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								config: { parallelApiKey, parallelBaseUrl },
 								signal: abortSignal,
 							});
+							// Fire-and-forget Parallel Extract usage tracking; never
+							// block or alter the tool result on analytics failure.
+							void recordParallelUsage({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								tool: "fetch_url",
+							}).catch(() => {});
 							const modelPayload = buildGroundedWebModelPayload(result);
 							const candidates = createGroundedWebCandidates(result);
 							return {

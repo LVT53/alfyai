@@ -500,4 +500,220 @@ describe("analytics dashboard read model", () => {
 		expect(userResult.perUser).toBeUndefined();
 		expect(userResult.systemAvailableMonths).toBeUndefined();
 	});
+
+	describe("recordParallelUsage", () => {
+		it("records a flat-cost Parallel usage event with a unique synthetic message id per call", async () => {
+			openSeedDatabase().sqlite.close();
+			const { recordParallelUsage } = await import("./analytics");
+
+			await recordParallelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "research_web",
+			});
+			await recordParallelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "research_web",
+			});
+			await recordParallelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "fetch_url",
+			});
+
+			const rows = new Database(dbPath)
+				.prepare(
+					"SELECT message_id, model_id, model_display_name, provider_display_name, cost_usd_micros, usage_source, prompt_tokens, total_tokens, billing_month FROM usage_events ORDER BY model_id, message_id",
+				)
+				.all() as Array<{
+				message_id: string;
+				model_id: string;
+				model_display_name: string;
+				provider_display_name: string;
+				cost_usd_micros: number;
+				usage_source: string;
+				prompt_tokens: number;
+				total_tokens: number;
+				billing_month: string;
+			}>;
+
+			expect(rows).toHaveLength(3);
+			// Synthetic message ids never collide, so a second call is never
+			// swallowed by the messageId unique index.
+			expect(new Set(rows.map((row) => row.message_id)).size).toBe(3);
+			for (const row of rows) {
+				expect(row.message_id).toMatch(/^parallel:/);
+				expect(row.cost_usd_micros).toBe(1000);
+				expect(row.provider_display_name).toBe("Parallel");
+				expect(row.usage_source).toBe("provider");
+				expect(row.prompt_tokens).toBe(0);
+				expect(row.total_tokens).toBe(0);
+				expect(row.billing_month).toBe(new Date().toISOString().slice(0, 7));
+			}
+
+			const turbo = rows.filter((row) => row.model_id === "parallel:turbo");
+			expect(turbo).toHaveLength(2);
+			expect(turbo[0]?.model_display_name).toBe("Parallel Turbo");
+			const extract = rows.filter((row) => row.model_id === "parallel:extract");
+			expect(extract).toHaveLength(1);
+			expect(extract[0]?.model_display_name).toBe("Parallel Extract");
+		});
+
+		it("skips recording when userId is missing", async () => {
+			openSeedDatabase().sqlite.close();
+			const { recordParallelUsage } = await import("./analytics");
+
+			await recordParallelUsage({
+				userId: "",
+				conversationId: "conversation-1",
+				tool: "research_web",
+			});
+
+			const count = (
+				new Database(dbPath)
+					.prepare("SELECT COUNT(*) AS n FROM usage_events")
+					.get() as { n: number }
+			).n;
+			expect(count).toBe(0);
+		});
+	});
+
+	describe("parallelBreakdown", () => {
+		function parallelRow(overrides: {
+			id: string;
+			modelId: string;
+			billingMonth: string;
+			costUsdMicros: number;
+		}) {
+			return {
+				id: overrides.id,
+				userId: "user-1",
+				conversationId: "conversation-1",
+				messageId: `parallel:${overrides.id}`,
+				modelId: overrides.modelId,
+				billingMonth: overrides.billingMonth,
+				costUsdMicros: overrides.costUsdMicros,
+			};
+		}
+
+		it("aggregates turbo/extract calls and flat cost by billing month, ignoring non-parallel rows", async () => {
+			const { sqlite, database } = openSeedDatabase();
+			database
+				.insert(schema.usageEvents)
+				.values([
+					parallelRow({
+						id: "p1",
+						modelId: "parallel:turbo",
+						billingMonth: "2026-05",
+						costUsdMicros: 1000,
+					}),
+					parallelRow({
+						id: "p2",
+						modelId: "parallel:turbo",
+						billingMonth: "2026-05",
+						costUsdMicros: 1000,
+					}),
+					parallelRow({
+						id: "p3",
+						modelId: "parallel:extract",
+						billingMonth: "2026-05",
+						costUsdMicros: 1000,
+					}),
+					parallelRow({
+						id: "p4",
+						modelId: "parallel:turbo",
+						billingMonth: "2026-06",
+						costUsdMicros: 1000,
+					}),
+					parallelRow({
+						id: "n1",
+						modelId: "model1",
+						billingMonth: "2026-06",
+						costUsdMicros: 5000,
+					}),
+				])
+				.run();
+			const rows = database.select().from(schema.usageEvents).all();
+			sqlite.close();
+
+			const { parallelBreakdown } = await import("./analytics");
+			const result = parallelBreakdown(rows);
+
+			expect(result.totalTurboCalls).toBe(3);
+			expect(result.totalExtractCalls).toBe(1);
+			expect(result.totalCostUsd).toBe(0.004);
+			expect(result.monthly).toEqual([
+				{ month: "2026-05", turboCalls: 2, extractCalls: 1, costUsd: 0.003 },
+				{ month: "2026-06", turboCalls: 1, extractCalls: 0, costUsd: 0.001 },
+			]);
+		});
+	});
+
+	it("surfaces an admin-only parallel breakdown wired into the system read model", async () => {
+		const { sqlite, database } = openSeedDatabase();
+		database
+			.insert(schema.usageEvents)
+			.values([
+				{
+					id: "parallel-turbo-1",
+					userId: "user-1",
+					conversationId: "conversation-user-may",
+					messageId: "parallel:turbo-1",
+					modelId: "parallel:turbo",
+					modelDisplayName: "Parallel Turbo",
+					providerDisplayName: "Parallel",
+					usageSource: "provider",
+					billingMonth: "2026-05",
+					costUsdMicros: 1000,
+				},
+				{
+					id: "parallel-extract-1",
+					userId: "user-1",
+					conversationId: "conversation-user-may",
+					messageId: "parallel:extract-1",
+					modelId: "parallel:extract",
+					modelDisplayName: "Parallel Extract",
+					providerDisplayName: "Parallel",
+					usageSource: "provider",
+					billingMonth: "2026-05",
+					costUsdMicros: 1000,
+				},
+			])
+			.run();
+		sqlite.close();
+		const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+		const adminResult = await getAnalyticsDashboardReadModel({
+			user: user({ id: "admin-1", role: "admin" }),
+			systemMonth: "2026-05",
+		});
+		expect(adminResult.system?.parallel).toEqual({
+			monthly: [
+				{ month: "2026-05", turboCalls: 1, extractCalls: 1, costUsd: 0.002 },
+			],
+			totalTurboCalls: 1,
+			totalExtractCalls: 1,
+			totalCostUsd: 0.002,
+		});
+		// The parallel rows also fold into the existing model breakdown with a
+		// readable display name.
+		expect(adminResult.system?.byModel).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					model: "parallel:turbo",
+					displayName: "Parallel Turbo",
+				}),
+				expect.objectContaining({
+					model: "parallel:extract",
+					displayName: "Parallel Extract",
+				}),
+			]),
+		);
+
+		const userResult = await getAnalyticsDashboardReadModel({
+			user: user({ id: "user-1", role: "user" }),
+		});
+		expect(userResult.system).toBeUndefined();
+	});
 });

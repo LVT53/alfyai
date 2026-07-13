@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { recordParallelUsage } from "$lib/server/services/analytics";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -35,6 +35,9 @@ import {
 
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
+}));
+vi.mock("$lib/server/services/analytics", () => ({
+	recordParallelUsage: vi.fn(),
 }));
 vi.mock("$lib/server/services/parallel-search/research", () => ({
 	researchWebViaParallel: vi.fn(),
@@ -121,6 +124,7 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 });
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
+const recordParallelUsageMock = vi.mocked(recordParallelUsage);
 const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
 const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
@@ -207,6 +211,8 @@ describe("createNormalChatTools", () => {
 
 	beforeEach(() => {
 		submitFileProductionIntakeMock.mockReset();
+		recordParallelUsageMock.mockReset();
+		recordParallelUsageMock.mockResolvedValue(undefined);
 		researchWebViaParallelMock.mockReset();
 		fetchUrlViaParallelMock.mockReset();
 		getMemoryContextMock.mockReset();
@@ -1008,7 +1014,9 @@ describe("createNormalChatTools", () => {
 			},
 		});
 		if (hasInstructions(result)) {
-			expect(result.instructions).toContain("No citation-ready evidence was returned");
+			expect(result.instructions).toContain(
+				"No citation-ready evidence was returned",
+			);
 		}
 		expect(getToolCalls()).toEqual([
 			expect.objectContaining({
@@ -1027,6 +1035,111 @@ describe("createNormalChatTools", () => {
 				}),
 			}),
 		]);
+	});
+
+	describe("Parallel API usage tracking", () => {
+		function emptyGroundedWebResult(query: string) {
+			return {
+				query,
+				queries: [{ query }],
+				sources: [],
+				evidence: [],
+				answerBrief: {
+					markdown: "",
+					instructions: ["Answer only from these sources."],
+				},
+				diagnostics: {
+					mode: "turbo" as const,
+					freshness: "auto" as const,
+					sourcePolicy: "general" as const,
+					plannedQueryCount: 1,
+					directUrlCount: 0,
+					fetchedSourceCount: 0,
+					fusedSourceCount: 0,
+					selectedSourceCount: 0,
+					openedPageCount: 0,
+					pageExtraction: {
+						attemptedCount: 0,
+						succeededCount: 0,
+						cacheHitCount: 0,
+						lowQualityCount: 0,
+						blockedCount: 0,
+						failedCount: 0,
+						totalLatencyMs: 0,
+					},
+					evidenceCandidateCount: 0,
+					exactEvidenceCandidateCount: 0,
+					reranked: false,
+					sourceReranked: false,
+					fallbackReasons: [],
+				},
+			};
+		}
+
+		it("records a Parallel Turbo usage event after a successful research_web call", async () => {
+			researchWebViaParallelMock.mockResolvedValue(
+				emptyGroundedWebResult("current docs"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await tools.research_web.execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-research-usage", messages: [] },
+			);
+
+			expect(recordParallelUsageMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "research_web",
+			});
+		});
+
+		it("records a Parallel Extract usage event after a successful fetch_url call", async () => {
+			fetchUrlViaParallelMock.mockResolvedValue(
+				emptyGroundedWebResult("https://example.com"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await tools.fetch_url.execute(
+				{ urls: ["https://example.com"] },
+				{ toolCallId: "call-fetch-usage", messages: [] },
+			);
+
+			expect(recordParallelUsageMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "fetch_url",
+			});
+		});
+
+		it("does not record Parallel usage when the underlying call fails", async () => {
+			researchWebViaParallelMock.mockRejectedValueOnce(
+				new Error("research unavailable"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await tools.research_web.execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-research-usage-failed", messages: [] },
+			);
+
+			expect(recordParallelUsageMock).not.toHaveBeenCalled();
+		});
 	});
 
 	it("exposes fetch_url unconditionally, without any enabled connection capabilities", () => {

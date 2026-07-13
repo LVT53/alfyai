@@ -109,6 +109,18 @@ interface PersonalAnalytics {
 	monthly: MonthlyAnalyticsRow[];
 }
 
+export interface ParallelUsageBreakdown {
+	monthly: Array<{
+		month: string;
+		turboCalls: number;
+		extractCalls: number;
+		costUsd: number;
+	}>;
+	totalTurboCalls: number;
+	totalExtractCalls: number;
+	totalCostUsd: number;
+}
+
 interface SystemAnalytics {
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
@@ -125,6 +137,9 @@ interface SystemAnalytics {
 	monthly?: MonthlyAnalyticsRow[];
 	favoriteModel?: string | null;
 	chatCount?: number;
+	// Admin-only rollup of Parallel API usage (Turbo search + Extract fetch),
+	// derived from usage_events rows whose modelId starts with "parallel:".
+	parallel?: ParallelUsageBreakdown;
 }
 
 interface PerUserAnalytics {
@@ -502,6 +517,55 @@ function monthlyBreakdown(rows: UsageRow[]) {
 	);
 }
 
+// Roll up Parallel API usage from usage_events. Turbo search rows carry
+// modelId "parallel:turbo" and Extract fetch rows "parallel:extract"; every
+// other row is ignored. Grouped by billing month and summed into a flat cost.
+export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
+	const grouped = new Map<
+		string,
+		{
+			month: string;
+			turboCalls: number;
+			extractCalls: number;
+			costMicros: number;
+		}
+	>();
+	let totalTurboCalls = 0;
+	let totalExtractCalls = 0;
+	let totalCostMicros = 0;
+
+	for (const row of events) {
+		if (!row.modelId.startsWith("parallel:")) continue;
+		const current = grouped.get(row.billingMonth) ?? {
+			month: row.billingMonth,
+			turboCalls: 0,
+			extractCalls: 0,
+			costMicros: 0,
+		};
+		if (row.modelId === "parallel:turbo") {
+			current.turboCalls += 1;
+			totalTurboCalls += 1;
+		} else if (row.modelId === "parallel:extract") {
+			current.extractCalls += 1;
+			totalExtractCalls += 1;
+		}
+		current.costMicros += row.costUsdMicros;
+		totalCostMicros += row.costUsdMicros;
+		grouped.set(row.billingMonth, current);
+	}
+
+	const monthly = [...grouped.values()]
+		.map(({ costMicros, ...rest }) => ({ ...rest, costUsd: usd(costMicros) }))
+		.sort((left, right) => left.month.localeCompare(right.month));
+
+	return {
+		monthly,
+		totalTurboCalls,
+		totalExtractCalls,
+		totalCostUsd: usd(totalCostMicros),
+	};
+}
+
 function computeTimeline(rows: UsageRow[], granularity: string) {
 	const grouped = new Map<string, { label: string; tokens: number }>();
 
@@ -659,6 +723,7 @@ export async function getAnalyticsDashboardReadModel({
 		totalConversations: new Set(
 			systemFilteredConversations.map((row) => row.conversationId),
 		).size,
+		parallel: parallelBreakdown(systemFilteredUsage),
 	};
 
 	const userIds = new Set([
@@ -1246,6 +1311,67 @@ export async function recordAtlasJobAnalytics(params: {
 		title: conversation.title,
 		createdAt: conversation.createdAt,
 	}).catch(() => undefined);
+}
+
+// Flat cost booked per Parallel API call: $1 per 1,000 calls = 1,000 micros.
+const PARALLEL_COST_USD_MICROS = 1000;
+
+const PARALLEL_TOOL_MODEL = {
+	research_web: {
+		modelId: "parallel:turbo",
+		modelDisplayName: "Parallel Turbo",
+	},
+	fetch_url: {
+		modelId: "parallel:extract",
+		modelDisplayName: "Parallel Extract",
+	},
+} as const;
+
+// Record a single Parallel API call (Turbo search or Extract fetch) as a
+// usage_events row so its cost folds into the model breakdown automatically and
+// the admin dashboard can chart Parallel usage. Best-effort: like the other
+// analytics writers it never throws into the caller. The synthetic messageId is
+// unique per call so it never collides with a real message row or another
+// Parallel call under the messageId unique index.
+export async function recordParallelUsage(input: {
+	userId: string;
+	conversationId?: string | null;
+	tool: "research_web" | "fetch_url";
+}): Promise<void> {
+	if (!input.userId) return;
+	try {
+		const model = PARALLEL_TOOL_MODEL[input.tool];
+		await db
+			.insert(usageEvents)
+			.values({
+				id: crypto.randomUUID(),
+				userId: input.userId,
+				conversationId: input.conversationId ?? "",
+				conversationTitle: null,
+				messageId: `parallel:${crypto.randomUUID()}`,
+				modelId: model.modelId,
+				modelDisplayName: model.modelDisplayName,
+				providerId: null,
+				providerDisplayName: "Parallel",
+				providerBaseUrl: null,
+				providerModelName: null,
+				promptTokens: 0,
+				cachedInputTokens: 0,
+				cacheHitTokens: 0,
+				cacheMissTokens: 0,
+				completionTokens: 0,
+				reasoningTokens: 0,
+				totalTokens: 0,
+				usageSource: "provider",
+				generationTimeMs: null,
+				billingMonth: toBillingMonth(new Date()),
+				costUsdMicros: PARALLEL_COST_USD_MICROS,
+				priceRuleId: null,
+			})
+			.onConflictDoNothing();
+	} catch (error) {
+		console.error("[ANALYTICS] Failed to record Parallel usage", error);
+	}
 }
 
 export interface ConversationCostSummary {
