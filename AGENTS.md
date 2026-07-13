@@ -167,7 +167,7 @@ Do not:
   - [`src/lib/server/services/normal-chat-stability-snapshot.ts`](./src/lib/server/services/normal-chat-stability-snapshot.ts)
     - Owns content-free operational stability snapshots for Normal Chat streams, providers, tools, web grounding, context limits, and maintenance metrics.
   - [`src/lib/server/services/normal-chat-tools/`](./src/lib/server/services/normal-chat-tools/)
-    - Owns app-backed AI SDK tools such as `produce_file`, `research_web`, `image_search`, and `memory_context`, plus the shared tool execution envelope for timeout, abort, model-safe failure, and recorder behavior.
+    - Owns app-backed AI SDK tools such as `produce_file`, `research_web` (Parallel Search), `fetch_url` (Parallel Extract, on-demand page read), `image_search` (Brave), and `memory_context`, plus the shared tool execution envelope for timeout, abort, model-safe failure, and recorder behavior.
   - [`src/lib/server/services/normal-chat-control-model.ts`](./src/lib/server/services/normal-chat-control-model.ts)
     - Owns structured JSON control-model calls used by context compression and similar control tasks.
   - [`src/lib/server/services/title-generator.ts`](./src/lib/server/services/title-generator.ts)

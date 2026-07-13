@@ -1,5 +1,7 @@
 # Atlas quality gate, analytics, and rendering improvements
 
+> **Updated by [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (2026-07-13).** The image-search `time_range` discussion below describes the SearXNG backend, which has been removed. Atlas text/web search now runs on the **Parallel Search API**; image search remains on **Brave**. Read the SearXNG mentions as historical; the freshness/`time_range` intent carries over to the current image backend.
+
 A series of production issues and UX improvements to Atlas after the writer-centered report migration (ADR 0038) and bounded adaptive rounds (ADR 0037) were deployed. Each change is small and independently revertable.
 
 ## Quality Gate Softening

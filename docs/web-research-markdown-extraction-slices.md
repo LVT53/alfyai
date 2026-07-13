@@ -1,5 +1,7 @@
 # Web Research Markdown Extraction Slices
 
+> **Historical — superseded by [ADR-0052](adr/0052-replace-searxng-web-research-with-parallel-search.md) (2026-07-13).** This draft assumes SearXNG as the search/discovery layer and an in-process HTML→Markdown page-fetch pipeline. Both are gone: web search now runs on the **Parallel Search API** (`research_web`), and page reads are a separate on-demand **Parallel Extract** tool (`fetch_url`). The whole `web-research` service this doc plans against has been deleted. Kept for history only; do not implement.
+
 This is a local `$to-issues` draft for improving model-facing web search quality. It is written as issue-ready implementation slices, but it is not published to the tracker.
 
 ## Goal

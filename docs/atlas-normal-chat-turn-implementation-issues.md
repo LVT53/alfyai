@@ -1,5 +1,7 @@
 # Atlas Normal Chat Turn Implementation Issues
 
+> **Historical — the SearXNG assumptions here are superseded by [ADR-0052](adr/0052-replace-searxng-web-research-with-parallel-search.md) (2026-07-13).** Statements below that "Atlas requires SearXNG" / gate on `SEARXNG_BASE_URL` describe the original build. SearXNG has been removed: Atlas text/web search now runs on the **Parallel Search API** and gates on `PARALLEL_API_KEY`; image search is on Brave. The Atlas Normal-Chat-Turn architecture this doc planned still stands.
+
 This document is local planning output, not published tracker state. It converts the current Atlas ADR and domain context into issue-ready tracer-bullet slices for implementation. It does not change the source of truth in `AGENTS.md`, `CONTEXT.md`, or ADRs.
 
 ## Source Decisions / Docs Check

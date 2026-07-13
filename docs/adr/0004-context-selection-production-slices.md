@@ -1,5 +1,7 @@
 # Migrate context selection in production TDD slices
 
+> **Updated by [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (2026-07-13).** The `web-research` service referenced in the slices below has been replaced by the Parallel-backed `parallel-search` service (`research_web` search + `fetch_url` extract). The context-selection migration decision is unchanged; only the web backend it composes changed.
+
 Normal Chat context selection will be migrated through independently testable production slices rather than a broad rewrite. Each slice must start from behavior tests, ship with enough fallback and observability to run in production, and remove the context-selection debt it replaces.
 
 **Slice Order**
