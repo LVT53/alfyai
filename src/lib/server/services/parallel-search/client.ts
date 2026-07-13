@@ -43,6 +43,13 @@ export interface ParallelSearchRequest {
 	objective: string;
 	searchQueries: string[];
 	mode?: ParallelMode;
+	// Groups a related search + follow-up extracts as one logical task so
+	// Parallel can use cross-call context (we pass the conversation id).
+	sessionId?: string;
+	// Upper bound on total excerpt characters across all results.
+	maxCharsTotal?: number;
+	// Per-result excerpt size (advanced_settings.excerpt_settings).
+	excerptMaxChars?: number;
 }
 
 export interface ParallelExtractResult {
@@ -71,6 +78,11 @@ export interface ParallelExtractRequest {
 	// fetch, which occasionally spikes to 25-42s; page content rarely needs
 	// sub-day freshness. Omit for a live fetch.
 	maxAgeSeconds?: number;
+	sessionId?: string;
+	// Upper bound on total returned characters. Does NOT constrain full_content
+	// per the API; used to size returned content to the consuming model.
+	maxCharsTotal?: number;
+	excerptMaxChars?: number;
 }
 
 const DEFAULT_PARALLEL_BASE_URL = "https://api.parallel.ai";
@@ -121,6 +133,15 @@ export async function parallelSearch(
 			objective: req.objective.slice(0, MAX_OBJECTIVE_CHARS),
 			search_queries: clampQueries(req.searchQueries),
 			mode: req.mode ?? "turbo",
+			...(req.sessionId ? { session_id: req.sessionId } : {}),
+			...(req.maxCharsTotal ? { max_chars_total: req.maxCharsTotal } : {}),
+			...(req.excerptMaxChars
+				? {
+						advanced_settings: {
+							excerpt_settings: { max_chars_per_result: req.excerptMaxChars },
+						},
+					}
+				: {}),
 		}),
 		signal: deps.signal,
 	});
@@ -151,6 +172,11 @@ export async function parallelExtract(
 	if (req.maxAgeSeconds !== undefined) {
 		advancedSettings.fetch_policy = { max_age_seconds: req.maxAgeSeconds };
 	}
+	if (req.excerptMaxChars !== undefined) {
+		advancedSettings.excerpt_settings = {
+			max_chars_per_result: req.excerptMaxChars,
+		};
+	}
 
 	const res = await deps.fetch(extractEndpoint(deps.config), {
 		method: "POST",
@@ -164,6 +190,8 @@ export async function parallelExtract(
 			...(req.searchQueries?.length
 				? { search_queries: clampQueries(req.searchQueries) }
 				: {}),
+			...(req.sessionId ? { session_id: req.sessionId } : {}),
+			...(req.maxCharsTotal ? { max_chars_total: req.maxCharsTotal } : {}),
 			...(Object.keys(advancedSettings).length
 				? { advanced_settings: advancedSettings }
 				: {}),
