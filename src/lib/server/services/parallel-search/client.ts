@@ -66,6 +66,11 @@ export interface ParallelExtractRequest {
 	objective: string;
 	searchQueries?: string[];
 	fullContent?: boolean;
+	// Prefer Parallel's cached page content up to this age (seconds) instead of a
+	// live fetch. Cached retrieval is faster and far less variable than a live
+	// fetch, which occasionally spikes to 25-42s; page content rarely needs
+	// sub-day freshness. Omit for a live fetch.
+	maxAgeSeconds?: number;
 }
 
 const DEFAULT_PARALLEL_BASE_URL = "https://api.parallel.ai";
@@ -141,6 +146,12 @@ export async function parallelExtract(
 		);
 	}
 
+	const advancedSettings: Record<string, unknown> = {};
+	if (req.fullContent) advancedSettings.full_content = true;
+	if (req.maxAgeSeconds !== undefined) {
+		advancedSettings.fetch_policy = { max_age_seconds: req.maxAgeSeconds };
+	}
+
 	const res = await deps.fetch(extractEndpoint(deps.config), {
 		method: "POST",
 		headers: {
@@ -153,7 +164,9 @@ export async function parallelExtract(
 			...(req.searchQueries?.length
 				? { search_queries: clampQueries(req.searchQueries) }
 				: {}),
-			...(req.fullContent ? { advanced_settings: { full_content: true } } : {}),
+			...(Object.keys(advancedSettings).length
+				? { advanced_settings: advancedSettings }
+				: {}),
 		}),
 		signal: deps.signal,
 	});

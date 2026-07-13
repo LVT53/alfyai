@@ -21,6 +21,12 @@ const MAX_EVIDENCE = 12;
 const SNIPPET_CHARS = 300;
 const FULL_CONTENT_QUOTE_CHARS = 900;
 
+// Prefer cached page content up to 24h old. Live Extract fetches are usually
+// ~1s but occasionally spike to 25-42s (and can time out empty); cached
+// retrieval is ~735ms and far less variable. Page content read on demand rarely
+// needs sub-day freshness.
+const DEFAULT_MAX_AGE_SECONDS = 86_400;
+
 export interface FetchUrlRequest {
 	urls: string[];
 	objective?: string;
@@ -51,6 +57,7 @@ export async function fetchUrlViaParallel(
 			urls: req.urls,
 			objective: req.objective ?? DEFAULT_OBJECTIVE,
 			fullContent: false,
+			maxAgeSeconds: DEFAULT_MAX_AGE_SECONDS,
 		},
 		deps,
 	);
