@@ -1183,7 +1183,10 @@ async function maybePrefetchWebSearch(params: {
 	try {
 		const deps = {
 			fetch,
-			config: { parallelApiKey: getConfig().parallelApiKey },
+			config: {
+				parallelApiKey: getConfig().parallelApiKey,
+				parallelBaseUrl: getConfig().parallelBaseUrl,
+			},
 		};
 		const {
 			createGroundedWebCandidates,

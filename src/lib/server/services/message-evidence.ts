@@ -469,11 +469,7 @@ async function buildArtifactGroups(params: {
 function getToolCallSourceType(tool: ToolCallEntry): EvidenceSourceType {
 	if (tool.sourceType) return tool.sourceType;
 	const toolName = tool.name.toLowerCase();
-	if (
-		toolName.includes("search") ||
-		toolName.includes("tavily") ||
-		toolName.includes("searx")
-	) {
+	if (toolName.includes("search") || toolName.includes("fetch_url")) {
 		return "web";
 	}
 	return "tool";
