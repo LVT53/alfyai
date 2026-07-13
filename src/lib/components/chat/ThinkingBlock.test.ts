@@ -139,9 +139,9 @@ describe("ThinkingBlock", () => {
 		expect(
 			screen.getByRole("button", { name: /Thinking/ }),
 		).toBeInTheDocument();
-		expect(screen.getByText("Fetched: 2 sites")).toBeInTheDocument();
+		expect(screen.getByText("Read 2 pages")).toBeInTheDocument();
 
-		await fireEvent.click(screen.getByText("Fetched: 2 sites"));
+		await fireEvent.click(screen.getByText("Read 2 pages"));
 		const links = screen.getAllByRole("link", { name: /(?:a|b)\.example/ });
 		expect(links).toHaveLength(2);
 		expect(links[0]).toHaveAttribute("href", "https://a.example/x");
@@ -183,8 +183,10 @@ describe("ThinkingBlock", () => {
 			screen.getByRole("button", { name: /Thinking/ }),
 		).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
-		expect(screen.getAllByText("Fetched: 1 site")).toHaveLength(2);
-		const [firstFetchedSummary] = screen.getAllByText("Fetched: 1 site");
+		expect(screen.getAllByText("Searched the web · 1 source")).toHaveLength(2);
+		const [firstFetchedSummary] = screen.getAllByText(
+			"Searched the web · 1 source",
+		);
 		if (!firstFetchedSummary) throw new Error("Missing fetched source summary");
 		await fireEvent.click(firstFetchedSummary);
 		expect(
@@ -526,8 +528,12 @@ describe("ThinkingBlock", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
 
-		expect(screen.getAllByText("Fetched: 1 site").length).toBeGreaterThan(0);
-		const [firstFetchedSummary] = screen.getAllByText("Fetched: 1 site");
+		expect(
+			screen.getAllByText("Searched the web · 1 source").length,
+		).toBeGreaterThan(0);
+		const [firstFetchedSummary] = screen.getAllByText(
+			"Searched the web · 1 source",
+		);
 		if (!firstFetchedSummary) throw new Error("Missing fetched source summary");
 		await fireEvent.click(firstFetchedSummary);
 		const links = screen.getAllByRole("link", {

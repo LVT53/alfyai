@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { Snippet } from "svelte";
 import { untrack } from "svelte";
 import {
 	type ColumnType,
@@ -22,6 +23,16 @@ interface SortableTableProps {
 	filterPlaceholder?: string;
 	/** Optional pinned summary row (rendered last, not sorted/filtered). */
 	totalRow?: TableRow;
+	/**
+	 * Optional custom cell renderers keyed by column key. When a column has a
+	 * matching snippet, its body cells render the snippet — receiving
+	 * `(row, value)` — instead of the default formatted text. Sorting and
+	 * filtering still operate on the underlying `row[key]` value, so custom
+	 * rendering (e.g. a leading icon) stays decoupled from the data. Kept
+	 * generic: the caller decides which column opts in and what it renders.
+	 * The pinned `totalRow` always uses the default text (never a custom cell).
+	 */
+	cells?: Record<string, Snippet<[TableRow, unknown]>>;
 }
 
 let {
@@ -32,6 +43,7 @@ let {
 	filterKeys,
 	filterPlaceholder = "Filter…",
 	totalRow,
+	cells,
 }: SortableTableProps = $props();
 
 // Capture the initial sort once; the input props are not meant to be reactive
@@ -135,7 +147,11 @@ function isNumeric(type: ColumnType): boolean {
 								col.align ?? (isNumeric(col.type) ? 'right' : 'left'),
 							)} {isNumeric(col.type) ? 'tabular-nums' : ''}"
 						>
-							{formatCell(row[col.key], col.type)}
+							{#if cells?.[col.key]}
+								{@render cells[col.key](row, row[col.key])}
+							{:else}
+								{formatCell(row[col.key], col.type)}
+							{/if}
 						</td>
 					{/each}
 				</tr>

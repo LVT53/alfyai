@@ -37,7 +37,12 @@ describe("stepMonth", () => {
 	});
 
 	it("enters the newest month when stepping back from all-time", () => {
+		// Regression lock: previous-from-all-time enters the NEWEST month (one
+		// step in), NOT the pre-rebuild bespoke nav's second-newest ("2026-06").
+		// See the stepMonth doc comment for why the second-newest quirk was
+		// intentionally dropped in favor of this intuitive behavior.
 		expect(stepMonth(months, null, -1)).toBe("2026-07");
+		expect(stepMonth(months, null, -1)).not.toBe("2026-06");
 	});
 
 	it("stays all-time when stepping forward from all-time", () => {

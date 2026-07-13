@@ -1,4 +1,5 @@
 <script lang="ts">
+import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import {
 	AnalyticsCard,
@@ -26,7 +27,6 @@ let {
 	analyticsLoading = false,
 	analyticsError = "",
 	modelNames,
-	// biome-ignore lint/correctness/noUnusedVariables: kept for prop-interface parity with the parent wiring.
 	modelIcons = {},
 	onRetry,
 	selectedSystemMonth = null,
@@ -108,6 +108,10 @@ function modelDisplayName(key: string): string {
 	return modelNames[key] ?? key;
 }
 
+function modelIconUrl(key: string | null | undefined): string | null {
+	return key ? (modelIcons[key] ?? null) : null;
+}
+
 function formatUsd(value: number): string {
 	return `$${Number(value ?? 0).toFixed(4)}`;
 }
@@ -178,6 +182,7 @@ const modelColumns = $derived<TableColumn[]>([
 const modelRows = $derived<TableRow[]>(
 	(system?.byModel ?? []).map((row) => ({
 		model: row.displayName ?? modelDisplayName(row.model),
+		iconUrl: modelIconUrl(row.model),
 		provider: row.providerDisplayName ?? "",
 		calls: row.msgCount,
 		tokens: row.totalTokens ?? 0,
@@ -364,6 +369,12 @@ async function toggleExcludedUser(userId: string) {
 					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
 				{/snippet}
 				{#if modelRows.length > 0}
+					{#snippet modelCell(row: TableRow)}
+						<span class="inline-flex min-w-0 items-center gap-2">
+							<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+							<span class="truncate text-text-primary">{row.model}</span>
+						</span>
+					{/snippet}
 					<SortableTable
 						columns={modelColumns}
 						rows={modelRows}
@@ -372,6 +383,7 @@ async function toggleExcludedUser(userId: string) {
 						filterKeys={['model', 'provider']}
 						filterPlaceholder={$t('analytics.filterModels')}
 						totalRow={modelTotalRow}
+						cells={{ model: modelCell }}
 					/>
 				{:else}
 					<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>

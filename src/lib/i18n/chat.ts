@@ -672,9 +672,10 @@ const chatDict = {
 		"toolCalls.photos": "Photos",
 		"toolCalls.repos": "Repositories",
 		"toolCalls.tasks": "Tasks",
-		"toolCalls.fetched": "Fetched",
-		"toolCalls.fetchedSite": "site",
-		"toolCalls.fetchedSites": "sites",
+		"toolCalls.searchedWeb": "Searched the web",
+		"toolCalls.sourcesCount": "{count} source{count, plural, one {} other {s}}",
+		"toolCalls.readPagesCount":
+			"Read {count} page{count, plural, one {} other {s}}",
 		"toolCalls.actionsCount": "{count} action{count, plural, one {} other {s}}",
 		"toolCalls.agendaUpcoming": "Upcoming",
 		"personalityProfile.concise.description":
@@ -1382,9 +1383,9 @@ const chatDict = {
 		"toolCalls.photos": "Fényképek",
 		"toolCalls.repos": "Tárolók",
 		"toolCalls.tasks": "Feladatok",
-		"toolCalls.fetched": "Lekérve",
-		"toolCalls.fetchedSite": "oldal",
-		"toolCalls.fetchedSites": "oldal",
+		"toolCalls.searchedWeb": "Keresés a weben",
+		"toolCalls.sourcesCount": "{count} forrás",
+		"toolCalls.readPagesCount": "{count} oldal elolvasva",
 		"toolCalls.actionsCount": "{count} művelet",
 		"toolCalls.agendaUpcoming": "Következő",
 		"personalityProfile.concise.description":

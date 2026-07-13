@@ -419,11 +419,15 @@ function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
 	return deduped;
 }
 
-function fetchedSourceSummary(sources: FetchedSource[]): string {
+function fetchedSourceSummary(
+	sources: FetchedSource[],
+	kind: "search" | "read",
+): string {
 	const count = sources.length;
-	const label =
-		count === 1 ? $t("toolCalls.fetchedSite") : $t("toolCalls.fetchedSites");
-	return `${$t("toolCalls.fetched")}: ${count} ${label}`;
+	if (kind === "read") {
+		return $t("toolCalls.readPagesCount", { count });
+	}
+	return `${$t("toolCalls.searchedWeb")} · ${$t("toolCalls.sourcesCount", { count })}`;
 }
 
 // Task 11b — agenda peek + photo strip. Both read exclusively from
@@ -557,7 +561,7 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
-{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string)}
+{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string, kind: "search" | "read")}
 	<details class="fetched-source-group">
 		<summary class={summaryClass}>
 			<span class="fetched-source-summary">
@@ -577,7 +581,7 @@ async function toggle() {
 						{/if}
 					{/each}
 				</span>
-				<span>{fetchedSourceSummary(sources)}</span>
+				<span>{fetchedSourceSummary(sources, kind)}</span>
 			</span>
 		</summary>
 		<div class="fetched-source-list">
@@ -689,7 +693,7 @@ async function toggle() {
 			{:else}
 				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
 			{/if}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text')}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search')}
 		</div>
 	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
@@ -699,7 +703,7 @@ async function toggle() {
 			{:else}
 				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
 			{/if}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text')}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read')}
 		</div>
 	{:else}
 		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
@@ -745,7 +749,7 @@ async function toggle() {
 			{:else}
 				<span class="tool-dot-inline"></span>
 			{/if}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label')}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search')}
 		</div>
 	{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
@@ -755,7 +759,7 @@ async function toggle() {
 			{:else}
 				<span class="tool-dot-inline"></span>
 			{/if}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label')}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read')}
 		</div>
 	{:else}
 		<div class="tool-call-item">

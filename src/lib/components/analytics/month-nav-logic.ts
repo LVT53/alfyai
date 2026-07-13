@@ -28,6 +28,14 @@ export function formatMonthLabel(month: string, locale?: string): string {
  * back enters the newest month and stepping forward stays all-time. Stepping
  * off either end returns the current `selected` unchanged (clamped).
  *
+ * NOTE: previous-from-all-time enters the NEWEST month (one step in), NOT the
+ * second-newest. The pre-rebuild bespoke nav stepped to the second-newest
+ * month here — an asymmetric quirk (its "next" from all-time landed on the
+ * newest, so "previous" skipping a month made "previous month" feel broken).
+ * All-time is treated as sitting just past the newest edge: ◀ enters the
+ * most-recent month, ▶ is a no-op. This is the intuitive behavior; see
+ * month-nav-logic.test.ts.
+ *
  * @returns the resulting month key, or `null` for all-time.
  */
 export function stepMonth(
