@@ -924,7 +924,9 @@ describe("createNormalChatTools", () => {
 				},
 				signal: expect.any(AbortSignal),
 			},
-			{ sessionId: "conversation-1", excerptMaxChars: 2000 },
+			// Per-turn id groups a search→fetch chain without leaking a stable
+			// cross-conversation correlator to Parallel.
+			{ sessionId: "turn-1", excerptMaxChars: 2000 },
 		);
 		expect(result).toMatchObject({
 			success: true,
@@ -1294,8 +1296,9 @@ describe("createNormalChatTools", () => {
 				signal: expect.any(AbortSignal),
 			},
 			// No modelId on ctx -> unknown capacity -> default 60k char cap; the
-			// fetch is chained to the conversation session.
-			{ sessionId: "conversation-1", maxCharsTotal: 60_000 },
+			// fetch is chained to the per-turn session (turnId), not the
+			// conversation.
+			{ sessionId: "turn-1", maxCharsTotal: 60_000 },
 		);
 		// Reuses the shared grounded-web model payload builder, so the compact
 		// payload carries the web-grounding envelope (name "research_web") while
@@ -1367,7 +1370,7 @@ describe("createNormalChatTools", () => {
 		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
 			{ urls: ["https://example.com"] },
 			expect.objectContaining({ fetch: expect.any(Function) }),
-			{ sessionId: "conversation-7", maxCharsTotal: 200_000 },
+			{ sessionId: "turn-1", maxCharsTotal: 200_000 },
 		);
 	});
 
@@ -1392,8 +1395,64 @@ describe("createNormalChatTools", () => {
 		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
 			{ urls: ["https://example.com"] },
 			expect.objectContaining({ fetch: expect.any(Function) }),
-			{ sessionId: "conversation-8", maxCharsTotal: 102_400 },
+			{ sessionId: "turn-1", maxCharsTotal: 102_400 },
 		);
+	});
+
+	it("keeps the fetch_url answer brief sized to the model-aware cap (not re-truncated to 30k)", async () => {
+		// A ~80k-char brief, larger than the 30k default markdown cap.
+		const longMarkdown = `# Fetched page content\n\n${"y".repeat(80_000)}`;
+		fetchUrlViaParallelMock.mockResolvedValue({
+			...emptyGroundedFetchResult("https://example.com"),
+			sources: [
+				{
+					id: "p0",
+					provider: "parallel",
+					title: "T",
+					url: "https://example.com",
+					snippet: "s",
+					highlights: [],
+					providerRank: 0,
+					publishedAt: null,
+					updatedAt: null,
+					authorityClass: "standard",
+					authorityScore: 50,
+				},
+			],
+			evidence: [
+				{
+					id: "p0e0",
+					sourceId: "p0",
+					title: "T",
+					url: "https://example.com",
+					provider: "parallel",
+					quote: "q",
+					score: 1,
+				},
+			],
+			answerBrief: {
+				markdown: longMarkdown,
+				instructions: ["Answer only from these fetched pages."],
+			},
+		});
+
+		// model2 -> 200k-char cap, so the ~80k brief is passed to
+		// buildGroundedWebModelPayload as maxMarkdownChars and survives whole.
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			modelId: "model2",
+		});
+
+		const result = (await tools.fetch_url.execute(
+			{ urls: ["https://example.com"] },
+			{ toolCallId: "call-fetch-brief", messages: [] },
+		)) as { answerBriefMarkdown: string };
+
+		// Well beyond the 30k default: the model-aware cap governs, not 30k.
+		expect(result.answerBriefMarkdown.length).toBeGreaterThan(30_000);
+		expect(result.answerBriefMarkdown).toContain("y".repeat(80_000));
 	});
 
 	it("records fetch_url service failures without evidence-ready candidates", async () => {

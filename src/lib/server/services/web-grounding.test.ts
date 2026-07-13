@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 import {
+	emptyGroundedWebDiagnostics,
+	type GroundedWebResult,
+} from "./parallel-search/types";
+import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
 	extractGroundedWebCitationSources,
 	summarizeGroundedWebResult,
 } from "./web-grounding";
-import {
-	emptyGroundedWebDiagnostics,
-	type GroundedWebResult,
-} from "./parallel-search/types";
 
-function fixture(overrides: Partial<GroundedWebResult> = {}): GroundedWebResult {
+function fixture(
+	overrides: Partial<GroundedWebResult> = {},
+): GroundedWebResult {
 	return {
 		query: "what is the capital of france",
 		queries: [{ query: "what is the capital of france" }],
@@ -152,6 +154,26 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 	it("empty evidence makes the payload not evidence-ready", () => {
 		const payload = buildGroundedWebModelPayload(fixture({ evidence: [] }));
 		expect(payload.success).toBe(false);
+	});
+
+	it("maxMarkdownChars opt raises the answer-brief markdown limit", () => {
+		const longMarkdown = "x".repeat(45000);
+		const briefOverride = {
+			answerBrief: { markdown: longMarkdown, instructions: [] },
+		};
+
+		// Default caps the brief at 30000 chars (plus a truncation ellipsis).
+		const defaultPayload = buildGroundedWebModelPayload(fixture(briefOverride));
+		expect(defaultPayload.answerBriefMarkdown.length).toBeLessThanOrEqual(
+			30003,
+		);
+		expect(defaultPayload.answerBriefMarkdown.length).toBeGreaterThan(29000);
+
+		// A larger maxMarkdownChars lets the full brief through untruncated.
+		const raisedPayload = buildGroundedWebModelPayload(fixture(briefOverride), {
+			maxMarkdownChars: 50000,
+		});
+		expect(raisedPayload.answerBriefMarkdown.length).toBe(45000);
 	});
 
 	it("summarizeGroundedWebResult reports the counts", () => {

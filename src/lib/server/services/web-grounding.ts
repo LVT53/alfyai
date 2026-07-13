@@ -103,8 +103,14 @@ function optionalScalarMetadata(
 	return value === undefined ? undefined : value;
 }
 
+// Default cap on the answer-brief markdown emitted to the model. Callers that
+// have sized the brief to a model-aware budget (e.g. fetch_url) pass a larger
+// maxMarkdownChars so the brief isn't re-truncated below that budget.
+const DEFAULT_ANSWER_BRIEF_MARKDOWN_CHARS = 30_000;
+
 export function buildGroundedWebModelPayload(
 	result: GroundedWebResult,
+	opts?: { maxMarkdownChars?: number },
 ): GroundedWebModelPayload {
 	const sources = result.sources.slice(0, 8).map((source) => ({
 		id: source.id,
@@ -144,7 +150,10 @@ export function buildGroundedWebModelPayload(
 			sourceCount: sources.length,
 			evidenceCount: evidence.length,
 		},
-		answerBriefMarkdown: truncateText(result.answerBrief.markdown, 30000),
+		answerBriefMarkdown: truncateText(
+			result.answerBrief.markdown,
+			opts?.maxMarkdownChars ?? DEFAULT_ANSWER_BRIEF_MARKDOWN_CHARS,
+		),
 		sources,
 		evidence,
 		diagnostics: {

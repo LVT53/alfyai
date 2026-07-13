@@ -382,7 +382,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									config: { parallelApiKey, parallelBaseUrl },
 									signal: abortSignal,
 								},
-								{ sessionId: ctx.conversationId, excerptMaxChars: 2000 },
+								{ sessionId: ctx.turnId, excerptMaxChars: 2000 },
 							);
 							// Fire-and-forget Parallel Turbo usage tracking; never
 							// block or alter the tool result on analytics failure.
@@ -466,7 +466,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									config: { parallelApiKey, parallelBaseUrl },
 									signal: abortSignal,
 								},
-								{ sessionId: ctx.conversationId, maxCharsTotal },
+								{ sessionId: ctx.turnId, maxCharsTotal },
 							);
 							// Fire-and-forget Parallel Extract usage tracking; never
 							// block or alter the tool result on analytics failure.
@@ -475,7 +475,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								conversationId: ctx.conversationId,
 								tool: "fetch_url",
 							}).catch(() => {});
-							const modelPayload = buildGroundedWebModelPayload(result);
+							// Keep the answer brief sized to the same model-aware cap the
+							// fetch used, so the detailed full_content isn't re-truncated
+							// below it when building the model payload.
+							const modelPayload = buildGroundedWebModelPayload(result, {
+								maxMarkdownChars: maxCharsTotal,
+							});
 							const candidates = createGroundedWebCandidates(result);
 							return {
 								modelPayload,
@@ -1717,7 +1722,10 @@ async function resolveModelContextTokens(
 		if (parts.length >= 3) {
 			try {
 				const models = await listEnabledProviderModels(parts[1]);
-				const model = models.find((candidate) => candidate.id === parts[2]);
+				// The model segment can itself contain colons (e.g. an id like
+				// "org/model:tag"), so rejoin everything after the provider segment.
+				const modelId = parts.slice(2).join(":");
+				const model = models.find((candidate) => candidate.id === modelId);
 				if (model) {
 					return (
 						model.maxModelContext ?? model.targetConstructedContext ?? null

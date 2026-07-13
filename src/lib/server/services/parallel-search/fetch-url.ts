@@ -18,8 +18,16 @@ const DEFAULT_OBJECTIVE =
 const MAX_EVIDENCE = 12;
 
 // Character budgets for synthetic snippets/quotes derived from full_content.
+// These stay short: they feed citation surfaces (source snippet, evidence
+// quotes), not the bulk page body. The detailed full_content flows to the
+// model through the answer brief instead (see buildAnswerBrief), where a
+// model-aware per-page budget governs how much survives.
 const SNIPPET_CHARS = 300;
 const FULL_CONTENT_QUOTE_CHARS = 900;
+
+// Fallback total answer-brief budget (chars) when the caller supplies no
+// model-aware maxCharsTotal. Split evenly across the fetched pages.
+const DEFAULT_ANSWER_BRIEF_CHARS_TOTAL = 60_000;
 
 // Prefer cached page content up to 24h old. Live Extract fetches are usually
 // ~1s but occasionally spike to 25-42s (and can time out empty); cached
@@ -33,26 +41,61 @@ export interface FetchUrlRequest {
 }
 
 // Optional tuning threaded through from the tool layer. sessionId groups this
-// fetch with the conversation's other Parallel calls so the API can reuse
-// cross-call context; maxCharsTotal sizes returned content to the consuming
-// model's context window; searchQueries sharpen the returned excerpts.
+// fetch with the other Parallel calls made in the same assistant turn (a
+// search→fetch chain) so the API can reuse task context, without leaking a
+// stable cross-conversation correlator; maxCharsTotal sizes returned content to
+// the consuming model's context window; searchQueries sharpen the returned
+// excerpts.
 export interface FetchUrlOptions {
 	sessionId?: string;
 	maxCharsTotal?: number;
 	searchQueries?: string[];
 }
 
-function buildAnswerBrief(sources: GroundedWebSource[]): string {
+// Truncate a page body to a per-page character budget, appending an ellipsis
+// when trimmed so the model can tell content was cut.
+function truncateBody(text: string, budget: number): string {
+	if (budget <= 0 || text.length <= budget) {
+		return text.length <= budget ? text : "";
+	}
+	return `${text.slice(0, budget).trimEnd()}…`;
+}
+
+// Build the answer-brief markdown that carries the DETAILED page content to the
+// model. Each fetched page gets a block: a `[n] title — url` heading, its
+// excerpts as a short lead-in, then its full_content body truncated to a
+// per-page budget = floor(maxCharsTotal / pageCount). This is the channel
+// through which up to ~maxCharsTotal chars of page content actually reach the
+// model — the source snippet and evidence quotes stay short for citations.
+function buildAnswerBrief(
+	sources: GroundedWebSource[],
+	fullContents: (string | null)[],
+	maxCharsTotal: number | undefined,
+): string {
 	if (sources.length === 0) {
 		return "";
 	}
+	const totalBudget =
+		maxCharsTotal && maxCharsTotal > 0
+			? maxCharsTotal
+			: DEFAULT_ANSWER_BRIEF_CHARS_TOTAL;
+	const perPageBudget = Math.floor(totalBudget / sources.length);
 	const blocks = sources.map((source, index) => {
 		const heading = `[${index + 1}] ${source.title} — ${source.url}`;
-		const body =
-			source.highlights.length > 0
-				? source.highlights.map((h) => `- ${h}`).join("\n")
-				: (source.snippet ?? "");
-		return body ? `${heading}\n${body}` : heading;
+		const parts = [heading];
+		// Excerpts as a short lead-in when present.
+		if (source.highlights.length > 0) {
+			parts.push(source.highlights.map((h) => `- ${h}`).join("\n"));
+		}
+		// The full_content body is the point: emit it up to the per-page budget.
+		const fullContent = fullContents[index];
+		const body = fullContent
+			? truncateBody(fullContent, perPageBudget)
+			: (source.snippet ?? "");
+		if (body) {
+			parts.push(body);
+		}
+		return parts.join("\n");
 	});
 	return `# Fetched page content\n\n${blocks.join("\n\n")}`;
 }
@@ -67,8 +110,11 @@ export async function fetchUrlViaParallel(
 		{
 			urls: req.urls,
 			objective: req.objective ?? DEFAULT_OBJECTIVE,
-			// Detailed page content: the model reads full_content, not just
-			// excerpts. maxCharsTotal (below) keeps it sized to the model.
+			// Request detailed page content: the model reads full_content (via the
+			// answer brief), not just excerpts. Note max_chars_total does NOT bound
+			// full_content at the API level (see client), so WE size it when building
+			// the brief below — this field is passed through but is not the cap that
+			// governs what the model sees.
 			fullContent: true,
 			maxAgeSeconds: DEFAULT_MAX_AGE_SECONDS,
 			...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
@@ -88,8 +134,10 @@ export async function fetchUrlViaParallel(
 		provider: "parallel",
 		authorityClass: "standard",
 		authorityScore: 60,
-		// full_content is now the primary snippet source (detailed page body);
-		// fall back to the first excerpt when a page returned no full_content.
+		// Short citation snippet (a lead-in derived from full_content), NOT the
+		// bulk page body — the detailed full_content reaches the model through
+		// the answer brief instead. Fall back to the first excerpt when a page
+		// returned no full_content.
 		snippet: result.full_content
 			? result.full_content.slice(0, SNIPPET_CHARS)
 			: (result.excerpts[0] ?? null),
@@ -148,7 +196,11 @@ export async function fetchUrlViaParallel(
 		sources,
 		evidence,
 		answerBrief: {
-			markdown: buildAnswerBrief(sources),
+			markdown: buildAnswerBrief(
+				sources,
+				results.map((result) => result.full_content ?? null),
+				opts?.maxCharsTotal,
+			),
 			instructions: [
 				"Answer only from these fetched pages.",
 				"Cite claims with the returned page URLs.",

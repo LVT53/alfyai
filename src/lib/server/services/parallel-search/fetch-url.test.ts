@@ -179,6 +179,63 @@ describe("fetchUrlViaParallel", () => {
 		]);
 	});
 
+	it("emits each page's full_content body into the answer brief", async () => {
+		const fetchMock = vi.fn(async () => extractResponse());
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a", "https://example.com/b"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		// The FULL page bodies flow through the brief (both small, under budget),
+		// not just the ~300/900-char citation snippets.
+		expect(result.answerBrief.markdown).toContain("full content of page A");
+		expect(result.answerBrief.markdown).toContain(
+			"B full content ".repeat(100),
+		);
+		// Excerpts remain as a short lead-in above the body.
+		expect(result.answerBrief.markdown).toContain("A excerpt one");
+	});
+
+	it("bounds each page's full_content body to floor(maxCharsTotal / pageCount)", async () => {
+		const bigResponse = jsonResponse({
+			extract_id: "ex-big",
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: "A".repeat(5000),
+				},
+				{
+					url: "https://example.com/b",
+					title: "Page B",
+					publish_date: null,
+					excerpts: [],
+					full_content: "B".repeat(5000),
+				},
+			],
+			errors: [],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => bigResponse);
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a", "https://example.com/b"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+			// 2 pages, 4000-char total budget -> 2000 chars/page.
+			{ maxCharsTotal: 4000 },
+		);
+
+		// Each 5000-char body is truncated to its 2000-char budget + ellipsis.
+		expect(result.answerBrief.markdown).toContain(`${"A".repeat(2000)}…`);
+		expect(result.answerBrief.markdown).toContain(`${"B".repeat(2000)}…`);
+		// The over-budget tail did NOT survive.
+		expect(result.answerBrief.markdown).not.toContain("A".repeat(2001));
+	});
+
 	it("reports fetch diagnostics", async () => {
 		const fetchMock = vi.fn(async () => extractResponse());
 
