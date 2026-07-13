@@ -5,7 +5,7 @@
 // namespace-aware DOM walk + propstat-200 selection. This module owns that once.
 //
 // jsdom is a real (non-dev) dependency already used server-side (see
-// web-research/extraction.ts and every WebDAV provider) as a namespace-aware
+// every WebDAV provider) as a namespace-aware
 // XML parser for multistatus responses — reused here rather than pulling in a
 // dedicated XML package. Loaded via createRequire, same as those call sites.
 import { createRequire } from "node:module";

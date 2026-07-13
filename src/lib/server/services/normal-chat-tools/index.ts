@@ -368,11 +368,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async (abortSignal) => {
-							// TODO(#13): parallelApiKey added to config in Wave 4
-							const parallelApiKey =
-								(getConfig() as { parallelApiKey?: string }).parallelApiKey ??
-								process.env.PARALLEL_API_KEY ??
-								"";
+							const parallelApiKey = getConfig().parallelApiKey;
 							const result = await researchWebViaParallel(safeInput, {
 								fetch,
 								config: { parallelApiKey },
@@ -440,11 +436,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async (abortSignal) => {
-							// TODO(#13): parallelApiKey added to config in Wave 4
-							const parallelApiKey =
-								(getConfig() as { parallelApiKey?: string }).parallelApiKey ??
-								process.env.PARALLEL_API_KEY ??
-								"";
+							const parallelApiKey = getConfig().parallelApiKey;
 							const result = await fetchUrlViaParallel(safeInput, {
 								fetch,
 								config: { parallelApiKey },

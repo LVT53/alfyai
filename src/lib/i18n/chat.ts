@@ -276,8 +276,8 @@ const chatDict = {
 			"Atlas is disabled by the administrator.",
 		"composerTools.atlasUnavailableReason":
 			"Atlas requires web search before it can start.",
-		"composerTools.atlasUnavailableSearxng":
-			"Atlas requires SearXNG web search configuration.",
+		"composerTools.atlasUnavailableParallel":
+			"Atlas requires Parallel web search configuration.",
 		"composerTools.attachFile": "Attach file",
 		"composerTools.attachFileMaxSize": "Attach file (max 100MB)",
 		"composerTools.defaultStyle": "AlfyAI",
@@ -980,8 +980,8 @@ const chatDict = {
 			"Az Atlas indításához webes keresés szükséges.",
 		"composerTools.atlasUnavailableDisabled":
 			"Az Atlas rendszergazdai beállítás miatt ki van kapcsolva.",
-		"composerTools.atlasUnavailableSearxng":
-			"Az Atlas indításához SearXNG webes keresési beállítás szükséges.",
+		"composerTools.atlasUnavailableParallel":
+			"Az Atlas indításához Parallel webes keresési beállítás szükséges.",
 		"composerTools.attachFile": "Fájl csatolása",
 		"composerTools.attachFileMaxSize": "Fájl csatolása (max. 100 MB)",
 		"composerTools.defaultStyle": "AlfyAI",

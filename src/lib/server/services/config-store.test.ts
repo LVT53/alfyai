@@ -79,19 +79,7 @@ vi.mock("../env", () => ({
 		atlasExhaustiveMaxOutputTokens: 16000,
 		atlasMaxWriterPromptChars: 80000,
 		composerCommandRegistryEnabled: true,
-		searxngBaseUrl: "",
-		webResearchSearxngNumResults: 12,
-		webResearchSearxngLanguage: "en",
-		webResearchSearxngSafesearch: 1,
-		webResearchSearxngCategories: "general",
-		webResearchMaxSources: 8,
-		webResearchHighlightChars: 4000,
-		webResearchContentChars: 12000,
-		webResearchFreshnessHours: 24,
-		webResearchExtractorMode: "readability",
-		webResearchExtractTimeoutMs: 6000,
-		webResearchExtractCacheTtlHours: 24,
-		webResearchLlmExtractionReviewEnabled: false,
+		parallelApiKey: "",
 	},
 	envConfig: {
 		workingSetDocumentTokenBudget: 4000,
@@ -137,19 +125,7 @@ vi.mock("../env", () => ({
 		atlasExhaustiveMaxOutputTokens: 16000,
 		atlasMaxWriterPromptChars: 80000,
 		composerCommandRegistryEnabled: true,
-		searxngBaseUrl: "",
-		webResearchSearxngNumResults: 12,
-		webResearchSearxngLanguage: "en",
-		webResearchSearxngSafesearch: 1,
-		webResearchSearxngCategories: "general",
-		webResearchMaxSources: 8,
-		webResearchHighlightChars: 4000,
-		webResearchContentChars: 12000,
-		webResearchFreshnessHours: 24,
-		webResearchExtractorMode: "readability",
-		webResearchExtractTimeoutMs: 6000,
-		webResearchExtractCacheTtlHours: 24,
-		webResearchLlmExtractionReviewEnabled: false,
+		parallelApiKey: "",
 	},
 }));
 
@@ -336,30 +312,16 @@ describe("Knowledge Store Config", () => {
 			});
 		});
 
-		it("getConfig() should expose and override web research extraction settings", async () => {
-			expect(getConfig()).toMatchObject({
-				webResearchExtractorMode: "readability",
-				webResearchExtractTimeoutMs: 6000,
-				webResearchExtractCacheTtlHours: 24,
-			});
+		it("getConfig() should expose and override the Parallel API key", async () => {
+			expect(getConfig()).toMatchObject({ parallelApiKey: "" });
 
-			adminConfigRows = [
-				{ key: "WEB_RESEARCH_EXTRACTOR_MODE", value: "auto" },
-				{ key: "WEB_RESEARCH_EXTRACT_TIMEOUT_MS", value: "500" },
-				{ key: "WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS", value: "-1" },
-			];
+			adminConfigRows = [{ key: "PARALLEL_API_KEY", value: "parallel-key" }];
 
 			await refreshConfig();
 
-			expect(getConfig()).toMatchObject({
-				webResearchExtractorMode: "auto",
-				webResearchExtractTimeoutMs: 1000,
-				webResearchExtractCacheTtlHours: 0,
-			});
+			expect(getConfig()).toMatchObject({ parallelApiKey: "parallel-key" });
 			expect(getResolvedAdminConfigValues()).toMatchObject({
-				WEB_RESEARCH_EXTRACTOR_MODE: "auto",
-				WEB_RESEARCH_EXTRACT_TIMEOUT_MS: "1000",
-				WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS: "0",
+				PARALLEL_API_KEY: "parallel-key",
 			});
 		});
 

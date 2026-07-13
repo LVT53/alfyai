@@ -136,12 +136,7 @@ export async function executeNextAtlasJob(
 					runAtlasSearchStage({
 						queries,
 						config: {
-							// TODO(#13): source parallelApiKey from RuntimeConfig once Wave 4
-							// adds it; until then resolve defensively.
-							parallelApiKey:
-								(config as { parallelApiKey?: string }).parallelApiKey ??
-								process.env.PARALLEL_API_KEY ??
-								"",
+							parallelApiKey: config.parallelApiKey,
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
 							maxAcceptedSources: profileConfig.maxAcceptedWebSources,

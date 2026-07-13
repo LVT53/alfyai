@@ -45,14 +45,7 @@ function config(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
 		model2CompactionUiThreshold: 209_715,
 		model2TargetConstructedContext: 235_929,
 		model2MaxMessageLength: 1_048_576,
-		searxngBaseUrl: "http://searxng.local",
-		webResearchMaxSources: 8,
-		webResearchContentChars: 12_000,
-		webResearchHighlightChars: 4_000,
-		webResearchFreshnessHours: 24,
-		webResearchSearxngLanguage: "en",
-		webResearchSearxngSafesearch: 1,
-		webResearchSearxngCategories: "general",
+		parallelApiKey: "parallel-key",
 		braveSearchApiKey: "brave-key",
 		fileProductionMaxOutputs: 4,
 		fileProductionSandboxTimeoutMs: 120_000,
@@ -123,8 +116,7 @@ describe("getNormalChatStabilitySnapshot", () => {
 		});
 		expect(snapshot.webGrounding).toMatchObject({
 			status: "ok",
-			searxngConfigured: true,
-			maxSources: 8,
+			parallelConfigured: true,
 		});
 		expect(JSON.stringify(snapshot)).not.toContain("user-1");
 		expect(JSON.stringify(snapshot)).not.toContain("not-returned");
@@ -153,7 +145,7 @@ describe("getNormalChatStabilitySnapshot", () => {
 		const snapshot = await getNormalChatStabilitySnapshot({
 			getConfig: () =>
 				config({
-					searxngBaseUrl: "",
+					parallelApiKey: "",
 					model1TargetConstructedContext: 262_144,
 				}),
 			getStreamStats: () =>
@@ -176,7 +168,7 @@ describe("getNormalChatStabilitySnapshot", () => {
 		});
 		expect(snapshot.webGrounding).toMatchObject({
 			status: "degraded",
-			degradedReason: "searxng_not_configured",
+			degradedReason: "parallel_not_configured",
 		});
 		expect(snapshot.context.status).toBe("degraded");
 		expect(snapshot.maintenance).toMatchObject({

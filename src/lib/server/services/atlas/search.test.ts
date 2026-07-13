@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AtlasSearchSource } from "./search";
 
 vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({})),
+	getConfig: vi.fn(() => ({ parallelApiKey: "" })),
 }));
 
 describe("sanitizeSearchSnippet", () => {

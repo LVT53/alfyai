@@ -25,8 +25,8 @@ const settingsDict = {
 			"Global active limit caps concurrent Atlas jobs across the server. Search concurrency and batch delay control web-search pressure during each Atlas run.",
 		"admin.atlasSearchBatchDelayMs": "Search Batch Delay (ms)",
 		"admin.atlasSearchConcurrency": "Search Concurrency",
-		"admin.atlasSearxngDependency":
-			"Atlas also requires SearXNG Base URL in Web Research. Without SearXNG, the chat composer shows Atlas as unavailable.",
+		"admin.atlasParallelDependency":
+			"Atlas also requires a Parallel API Key in Web Research. Without Parallel, the chat composer shows Atlas as unavailable.",
 		"admin.atlasSynthesisModel": "Atlas Synthesis Model",
 		"admin.atlasSynthesisModelDescription":
 			"Writes the staged Atlas findings, outline, and report body.",
@@ -724,8 +724,8 @@ const settingsDict = {
 			"A globális aktív korlát a szerveren egyszerre futó Atlas feladatokat szabályozza. A keresési párhuzamosság és a kötegkésleltetés az egyes Atlas futások webkeresési terhelését állítja.",
 		"admin.atlasSearchBatchDelayMs": "Keresési kötegkésleltetés (ms)",
 		"admin.atlasSearchConcurrency": "Keresési párhuzamosság",
-		"admin.atlasSearxngDependency":
-			"Az Atlashoz a Webes kutatás SearXNG alap URL-je is szükséges. SearXNG nélkül a chat beviteli eszköztára az Atlast nem elérhetőként mutatja.",
+		"admin.atlasParallelDependency":
+			"Az Atlashoz a Webes kutatás Parallel API-kulcsa is szükséges. Parallel nélkül a chat beviteli eszköztára az Atlast nem elérhetőként mutatja.",
 		"admin.atlasSynthesisModel": "Atlas szintézis modell",
 		"admin.atlasSynthesisModelDescription":
 			"Megírja a szakaszolt Atlas eredményeket, vázlatot és jelentéstörzset.",

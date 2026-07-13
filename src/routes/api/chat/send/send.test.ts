@@ -168,7 +168,7 @@ vi.mock("$lib/server/config-store", () => ({
 		composerCommandRegistryEnabled:
 			configMockState.composerCommandRegistryEnabled,
 		atlasWorkerEnabled: true,
-		searxngBaseUrl: "http://searxng.local",
+		parallelApiKey: "parallel-key",
 		model1: {
 			displayName: "Model 1",
 		},

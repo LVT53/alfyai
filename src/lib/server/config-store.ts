@@ -79,18 +79,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"OWNTRACKS_RECORDER_URL",
 	"OWNTRACKS_RECORDER_USER",
 	"OWNTRACKS_RECORDER_PASS",
-	"SEARXNG_BASE_URL",
-	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
-	"WEB_RESEARCH_SEARXNG_LANGUAGE",
-	"WEB_RESEARCH_SEARXNG_SAFESEARCH",
-	"WEB_RESEARCH_SEARXNG_CATEGORIES",
-	"WEB_RESEARCH_MAX_SOURCES",
-	"WEB_RESEARCH_HIGHLIGHT_CHARS",
-	"WEB_RESEARCH_CONTENT_CHARS",
-	"WEB_RESEARCH_FRESHNESS_HOURS",
-	"WEB_RESEARCH_EXTRACTOR_MODE",
-	"WEB_RESEARCH_EXTRACT_TIMEOUT_MS",
-	"WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS",
+	"PARALLEL_API_KEY",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -214,19 +203,7 @@ export interface RuntimeConfig {
 	owntracksRecorderUrl: string;
 	owntracksRecorderUser: string;
 	owntracksRecorderPass: string;
-	searxngBaseUrl: string;
-	webResearchSearxngNumResults: number;
-	webResearchSearxngLanguage: string;
-	webResearchSearxngSafesearch: number;
-	webResearchSearxngCategories: string;
-	webResearchMaxSources: number;
-	webResearchHighlightChars: number;
-	webResearchContentChars: number;
-	webResearchFreshnessHours: number;
-	webResearchExtractorMode: "readability" | "basic" | "auto";
-	webResearchExtractTimeoutMs: number;
-	webResearchExtractCacheTtlHours: number;
-	webResearchLlmExtractionReviewEnabled: boolean;
+	parallelApiKey: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -282,14 +259,6 @@ type OverrideApplier = (config: RuntimeConfig, value: string) => void;
 function parseIntOverride(value: string): number | undefined {
 	const parsed = parseInt(value, 10);
 	return Number.isNaN(parsed) ? undefined : parsed;
-}
-
-function normalizeWebResearchExtractorMode(
-	value: string,
-): RuntimeConfig["webResearchExtractorMode"] {
-	return value === "basic" || value === "auto" || value === "readability"
-		? value
-		: "readability";
 }
 
 function normalizeReasoningEffortOverride(
@@ -693,60 +662,8 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	OWNTRACKS_RECORDER_PASS: (config, value) => {
 		config.owntracksRecorderPass = value;
 	},
-	SEARXNG_BASE_URL: (config, value) => {
-		config.searxngBaseUrl = value.trim();
-	},
-	WEB_RESEARCH_SEARXNG_NUM_RESULTS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchSearxngNumResults = Math.max(1, parsed);
-	},
-	WEB_RESEARCH_SEARXNG_LANGUAGE: (config, value) => {
-		config.webResearchSearxngLanguage = value.trim() || "en";
-	},
-	WEB_RESEARCH_SEARXNG_SAFESEARCH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) {
-			config.webResearchSearxngSafesearch = Math.max(0, Math.min(2, parsed));
-		}
-	},
-	WEB_RESEARCH_SEARXNG_CATEGORIES: (config, value) => {
-		config.webResearchSearxngCategories = value.trim() || "general";
-	},
-	WEB_RESEARCH_MAX_SOURCES: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchMaxSources = Math.max(1, parsed);
-	},
-	WEB_RESEARCH_HIGHLIGHT_CHARS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchHighlightChars = Math.max(200, parsed);
-	},
-	WEB_RESEARCH_CONTENT_CHARS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchContentChars = Math.max(1000, parsed);
-	},
-	WEB_RESEARCH_FRESHNESS_HOURS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchFreshnessHours = Math.max(-1, parsed);
-	},
-	WEB_RESEARCH_EXTRACTOR_MODE: (config, value) => {
-		config.webResearchExtractorMode = normalizeWebResearchExtractorMode(
-			value.trim(),
-		);
-	},
-	WEB_RESEARCH_EXTRACT_TIMEOUT_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchExtractTimeoutMs = Math.max(1000, parsed);
-	},
-	WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.webResearchExtractCacheTtlHours = Math.max(0, parsed);
+	PARALLEL_API_KEY: (config, value) => {
+		config.parallelApiKey = value;
 	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
@@ -1215,24 +1132,7 @@ export function getResolvedAdminConfigValues(
 		OWNTRACKS_RECORDER_URL: config.owntracksRecorderUrl,
 		OWNTRACKS_RECORDER_USER: config.owntracksRecorderUser,
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
-		SEARXNG_BASE_URL: config.searxngBaseUrl,
-		WEB_RESEARCH_SEARXNG_NUM_RESULTS: String(
-			config.webResearchSearxngNumResults,
-		),
-		WEB_RESEARCH_SEARXNG_LANGUAGE: config.webResearchSearxngLanguage,
-		WEB_RESEARCH_SEARXNG_SAFESEARCH: String(
-			config.webResearchSearxngSafesearch,
-		),
-		WEB_RESEARCH_SEARXNG_CATEGORIES: config.webResearchSearxngCategories,
-		WEB_RESEARCH_MAX_SOURCES: String(config.webResearchMaxSources),
-		WEB_RESEARCH_HIGHLIGHT_CHARS: String(config.webResearchHighlightChars),
-		WEB_RESEARCH_CONTENT_CHARS: String(config.webResearchContentChars),
-		WEB_RESEARCH_FRESHNESS_HOURS: String(config.webResearchFreshnessHours),
-		WEB_RESEARCH_EXTRACTOR_MODE: config.webResearchExtractorMode,
-		WEB_RESEARCH_EXTRACT_TIMEOUT_MS: String(config.webResearchExtractTimeoutMs),
-		WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS: String(
-			config.webResearchExtractCacheTtlHours,
-		),
+		PARALLEL_API_KEY: config.parallelApiKey,
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",

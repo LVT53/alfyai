@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	getSystemPrompt: vi.fn(),
 	listContextCompressionSourceMessages: vi.fn(),
 	logAttachmentTrace: vi.fn(),
-	researchWeb: vi.fn(),
+	researchWebViaParallel: vi.fn(),
 	runContextCompression: vi.fn(),
 	summarizeAttachmentSectionInInput: vi.fn(),
 }));
@@ -42,8 +42,8 @@ vi.mock("./context-compression", () => ({
 	runContextCompression: mocks.runContextCompression,
 }));
 
-vi.mock("./web-research", () => ({
-	researchWeb: mocks.researchWeb,
+vi.mock("./parallel-search/research", () => ({
+	researchWebViaParallel: mocks.researchWebViaParallel,
 }));
 
 vi.mock("./chat-turn/proactive-connector-context", () => ({
@@ -371,7 +371,10 @@ describe("normal chat context preparation stages", () => {
 describe("prepareOutboundChatContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: false });
+		mocks.getConfig.mockReturnValue({
+			contextDiagnosticsDebug: false,
+			parallelApiKey: "parallel-key",
+		});
 		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
 		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
@@ -385,13 +388,13 @@ describe("prepareOutboundChatContext", () => {
 			preview: "",
 			previewHash: "",
 		});
-		mocks.researchWeb.mockResolvedValue({
+		mocks.researchWebViaParallel.mockResolvedValue({
 			query: "What changed today?",
 			queries: [{ query: "What changed today?", purpose: "exact" }],
 			sources: [
 				{
 					id: "source-1",
-					provider: "searxng",
+					provider: "parallel",
 					title: "Official source",
 					url: "https://example.com/source",
 					canonicalUrl: "https://example.com/source",
@@ -414,7 +417,7 @@ describe("prepareOutboundChatContext", () => {
 					sourceId: "source-1",
 					title: "Official source",
 					url: "https://example.com/source",
-					provider: "searxng",
+					provider: "parallel",
 					quote: "Official update details.",
 					surroundingText: "Official update details.",
 					score: 0.9,
@@ -448,7 +451,7 @@ describe("prepareOutboundChatContext", () => {
 				mode: "exact",
 				freshness: "live",
 				sourcePolicy: "general",
-				providers: { searxngConfigured: true },
+				providers: { parallelConfigured: true },
 				plannedQueryCount: 1,
 				directUrlCount: 0,
 				fetchedSourceCount: 1,
@@ -1411,14 +1414,10 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(mocks.researchWeb).toHaveBeenCalledWith(
+		expect(mocks.researchWebViaParallel).toHaveBeenCalledWith(
+			expect.objectContaining({ query: "What changed today?" }),
 			expect.objectContaining({
-				query: "What changed today?",
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "general",
-				maxSources: 6,
-				quoteRequired: false,
+				config: { parallelApiKey: "parallel-key" },
 			}),
 		);
 		expect(prepared.inputValue.indexOf("## Current Web Research")).toBeLessThan(
@@ -1472,11 +1471,10 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(mocks.researchWeb).toHaveBeenCalledWith(
+		expect(mocks.researchWebViaParallel).toHaveBeenCalledWith(
+			expect.objectContaining({ query: `What does this page say? ${url}` }),
 			expect.objectContaining({
-				query: `What does this page say? ${url}`,
-				mode: "exact",
-				freshness: "live",
+				config: { parallelApiKey: "parallel-key" },
 			}),
 		);
 		expect(prepared.inputValue).toContain("## Current Web Research");
@@ -1497,7 +1495,9 @@ describe("prepareOutboundChatContext", () => {
 	});
 
 	it("warns and continues with the original input when forced web prefetch fails", async () => {
-		mocks.researchWeb.mockRejectedValueOnce(new Error("search backend down"));
+		mocks.researchWebViaParallel.mockRejectedValueOnce(
+			new Error("search backend down"),
+		);
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		try {

@@ -168,14 +168,14 @@ async function runAtlasSendTurn({
 			{ status: 503 },
 		);
 	}
-	if (!config.searxngBaseUrl?.trim()) {
+	if (!config.parallelApiKey?.trim()) {
 		return json(
 			{
 				error:
 					responseLanguage === "hu"
-						? "Az Atlas használatához be kell állítani a SearXNG keresést."
-						: "Atlas requires SearXNG search to be configured.",
-				code: "ATLAS_SEARXNG_REQUIRED",
+						? "Az Atlas használatához be kell állítani a Parallel keresést."
+						: "Atlas requires Parallel search to be configured.",
+				code: "ATLAS_PARALLEL_REQUIRED",
 			},
 			{ status: 503 },
 		);

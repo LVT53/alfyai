@@ -43,8 +43,6 @@ export interface AtlasImageSearchLimitation {
 }
 
 export interface AtlasSearchConfig {
-	// TODO(#13): `parallelApiKey` becomes a first-class RuntimeConfig field in
-	// Wave 4; until then it is resolved defensively (config-store / env).
 	parallelApiKey?: string;
 	// Brave Search API key backing the image-search stage.
 	braveSearchApiKey?: string;
@@ -442,16 +440,8 @@ async function enrichAcceptedSources(input: {
 	return enriched;
 }
 
-// TODO(#13): resolve `parallelApiKey` from a first-class RuntimeConfig field
-// once Wave 4 adds it. Until then fall back to the runtime config store and
-// the PARALLEL_API_KEY environment variable defensively.
 function resolveParallelApiKey(explicit?: string): string {
-	return (
-		explicit?.trim() ||
-		(getConfig() as { parallelApiKey?: string }).parallelApiKey?.trim() ||
-		process.env.PARALLEL_API_KEY?.trim() ||
-		""
-	);
+	return explicit?.trim() || getConfig().parallelApiKey.trim();
 }
 
 async function searchParallel(

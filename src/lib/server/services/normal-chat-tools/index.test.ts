@@ -50,15 +50,7 @@ vi.mock("$lib/server/services/image-search", () => ({
 }));
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
-		webResearchSearxngLanguage: "en",
-		searxngBaseUrl: "",
-		webResearchSearxngNumResults: 12,
-		webResearchSearxngSafesearch: 1,
-		webResearchSearxngCategories: "general",
-		webResearchMaxSources: 8,
-		webResearchHighlightChars: 4000,
-		webResearchContentChars: 12000,
-		webResearchFreshnessHours: 24,
+		parallelApiKey: "parallel-key",
 	})),
 }));
 vi.mock("$lib/server/services/connections/resolve", async () => {

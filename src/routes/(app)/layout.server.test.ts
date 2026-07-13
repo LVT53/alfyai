@@ -27,7 +27,7 @@ vi.mock("$lib/server/config-store", () => ({
 		maxMessageLength: 12000,
 		composerCommandRegistryEnabled: true,
 		atlasWorkerEnabled: true,
-		searxngBaseUrl: "http://searxng.local",
+		parallelApiKey: "parallel-key",
 		defaultNewUserModel: "model2",
 		model1: { displayName: "Model 1" },
 		model2: { displayName: "Model 2" },

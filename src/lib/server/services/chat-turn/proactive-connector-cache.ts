@@ -1,9 +1,8 @@
 // Issue 8.1 — short-TTL, in-memory cache for the proactive_connector_context
-// stage. Mirrors web-research/extraction.ts's cache shape exactly (a
-// Map<key, {expiresAt, value}>, capped size, oldest-first eviction via Map
-// insertion order) — same pattern, different payload: here the cached value
+// stage. A simple TTL cache shape (a Map<key, {expiresAt, value}>, capped
+// size, oldest-first eviction via Map insertion order): here the cached value
 // is the FETCHED+SUMMARIZED, PRE-DISTILL compact line list for one
-// connection+capability, not a whole extracted web page.
+// connection+capability.
 //
 // Deliberately keyed by `userId:connectionId:capability` only — NEVER by
 // message content. The underlying data (upcoming events in the next ~48h,

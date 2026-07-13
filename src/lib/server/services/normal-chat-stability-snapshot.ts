@@ -14,7 +14,6 @@ import {
 	type ProviderModel,
 } from "$lib/server/services/provider-models";
 import { listProviders, type Provider } from "$lib/server/services/providers";
-import { getWebResearchExtractionMetrics } from "$lib/server/services/web-research";
 
 type StabilityComponentStatus = "ok" | "degraded";
 
@@ -72,26 +71,7 @@ export type ToolStabilitySnapshot = {
 
 export type WebGroundingStabilitySnapshot = {
 	status: StabilityComponentStatus;
-	searxngConfigured: boolean;
-	maxSources: number;
-	contentChars: number;
-	highlightChars: number;
-	freshnessHours: number;
-	language: string;
-	safesearch: number;
-	categories: string;
-	extraction: {
-		mode: string;
-		timeoutMs: number;
-		cacheTtlHours: number;
-		attemptedCount: number;
-		succeededCount: number;
-		cacheHitCount: number;
-		lowQualityCount: number;
-		blockedCount: number;
-		failedCount: number;
-		lastErrorCode: string | null;
-	};
+	parallelConfigured: boolean;
 	degradedReason: string | null;
 };
 
@@ -326,31 +306,11 @@ function buildToolSnapshot(config: RuntimeConfig): ToolStabilitySnapshot {
 function buildWebGroundingSnapshot(
 	config: RuntimeConfig,
 ): WebGroundingStabilitySnapshot {
-	const searxngConfigured = Boolean(config.searxngBaseUrl.trim());
-	const extractionMetrics = getWebResearchExtractionMetrics();
+	const parallelConfigured = Boolean(config.parallelApiKey.trim());
 	return {
-		status: searxngConfigured ? "ok" : "degraded",
-		searxngConfigured,
-		maxSources: config.webResearchMaxSources,
-		contentChars: config.webResearchContentChars,
-		highlightChars: config.webResearchHighlightChars,
-		freshnessHours: config.webResearchFreshnessHours,
-		language: config.webResearchSearxngLanguage,
-		safesearch: config.webResearchSearxngSafesearch,
-		categories: config.webResearchSearxngCategories,
-		extraction: {
-			mode: config.webResearchExtractorMode ?? "readability",
-			timeoutMs: config.webResearchExtractTimeoutMs ?? 6000,
-			cacheTtlHours: config.webResearchExtractCacheTtlHours ?? 24,
-			attemptedCount: extractionMetrics.attemptedCount,
-			succeededCount: extractionMetrics.succeededCount,
-			cacheHitCount: extractionMetrics.cacheHitCount,
-			lowQualityCount: extractionMetrics.lowQualityCount,
-			blockedCount: extractionMetrics.blockedCount,
-			failedCount: extractionMetrics.failedCount,
-			lastErrorCode: extractionMetrics.lastErrorCode,
-		},
-		degradedReason: searxngConfigured ? null : "searxng_not_configured",
+		status: parallelConfigured ? "ok" : "degraded",
+		parallelConfigured,
+		degradedReason: parallelConfigured ? null : "parallel_not_configured",
 	};
 }
 

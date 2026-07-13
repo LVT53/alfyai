@@ -514,7 +514,7 @@ const NORMAL_CHAT_GUIDANCE_PACKS: Record<
 	"web-core": {
 		id: "web-core",
 		description: "primary web search workflow",
-		getText: () => WEB_RESEARCH_GUARD,
+		getText: () => WEB_SEARCH_GUARD,
 	},
 	"web-detailed": {
 		id: "web-detailed",
@@ -678,7 +678,7 @@ const IMAGE_SEARCH_GUARD = [
 	"- The user cannot see the raw tool output, so if you do not write the markdown tags, the images will be invisible.",
 ].join("\n");
 
-const WEB_RESEARCH_GUARD = [
+const WEB_SEARCH_GUARD = [
 	"Web research workflow:",
 	"- If `research_web` is available, use it to search the web for current facts, prices, availability, specs, policies, page-backed claims, comparisons, and multi-source research.",
 	'- Pass {"query": "your exact research question"}. The tool returns sources and evidence snippets with citation instructions.',
@@ -1160,7 +1160,7 @@ function insertContextBeforeCurrentMessage(
 		.join("\n\n");
 }
 
-async function maybePrefetchWebResearch(params: {
+async function maybePrefetchWebSearch(params: {
 	inputValue: string;
 	message: string;
 	forceWebSearch?: boolean;
@@ -1177,20 +1177,18 @@ async function maybePrefetchWebResearch(params: {
 	}
 
 	try {
-		const { researchWeb } = await import("./web-research");
+		const { researchWebViaParallel } = await import(
+			"./parallel-search/research"
+		);
 		const {
 			createGroundedWebCandidates,
 			createGroundedWebMetadata,
 			summarizeGroundedWebResult,
 		} = await import("./web-grounding");
-		const result = await researchWeb({
-			query: params.message,
-			mode: "exact",
-			freshness: "live",
-			...(params.forceWebSearch ? { sourcePolicy: "general" as const } : {}),
-			maxSources: 6,
-			quoteRequired: false,
-		});
+		const result = await researchWebViaParallel(
+			{ query: params.message },
+			{ fetch, config: { parallelApiKey: getConfig().parallelApiKey } },
+		);
 		const sourceCandidates = createGroundedWebCandidates(result);
 		const metadata = {
 			...createGroundedWebMetadata(result),
@@ -1217,8 +1215,6 @@ async function maybePrefetchWebResearch(params: {
 					name: "research_web",
 					input: {
 						query: params.message,
-						mode: "exact",
-						freshness: "live",
 						source: "server_prefetch",
 						prefetchReason,
 					},
@@ -1982,7 +1978,7 @@ async function runForcedWebPrefetchStage(input: {
 			>
 		>
 > {
-	const forcedWebPrefetch = await maybePrefetchWebResearch({
+	const forcedWebPrefetch = await maybePrefetchWebSearch({
 		inputValue: input.state.inputValue,
 		message: input.params.message,
 		forceWebSearch: input.params.forceWebSearch,
@@ -2018,7 +2014,7 @@ async function runForcedWebPrefetchStage(input: {
 // Never throws: buildProactiveConnectorContext already fails safe (silently
 // skips a broken connector, withholds on distill-unavailable), and the
 // `.catch` below is a second backstop so a bug in that module can never
-// abort the chat turn — same posture as maybePrefetchWebResearch's own
+// abort the chat turn — same posture as maybePrefetchWebSearch's own
 // try/catch.
 async function runProactiveConnectorContextStage(input: {
 	params: PrepareOutboundChatContextParams;

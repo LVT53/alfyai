@@ -269,16 +269,16 @@ const LEADING_RESPONSE_MARKER_RE =
 const LEADING_RESPONSE_SPACE_BEFORE_UPPER_RE = /^response[\t ]+(?=[A-Z])/;
 const TENTATIVE_LEADING_RESPONSE_MARKER_RE =
 	/^response(?:(?=[A-Z])|(?=\s*<)|:\s*|[\t ]+|\n+)/i;
-const WEB_RESEARCH_DIAGNOSTIC_RE =
+const WEB_SEARCH_DIAGNOSTIC_RE =
 	/Found\s+\d+\s+source(?:\(s\)|s)?\s+and\s+\d+\s+evidence(?:\s+snippet(?:s|\(s\))?)?(?:\.|(?=$|\s|[A-Z]|[,;:!?]))/i;
 const WEB_TOOL_MARKER_PATTERNS = [
-	WEB_RESEARCH_DIAGNOSTIC_RE,
+	WEB_SEARCH_DIAGNOSTIC_RE,
 	/(?:search|research)\s+results(?:\s+for)?\s*:/i,
 	/(?:fetch_content|get_contents|fetch)\s+(?:results?|output|content)\s*:/i,
 ] as const;
-const WEB_RESEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS = 180;
+const WEB_SEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS = 180;
 const RAW_WEB_PAGE_PREFIX_SCAN_CHARS = 720;
-const WEB_RESEARCH_DIAGNOSTIC_PREFIX_WORDS = [
+const WEB_SEARCH_DIAGNOSTIC_PREFIX_WORDS = [
 	"found",
 	"source",
 	"sources",
@@ -625,7 +625,7 @@ function findFirstWebToolMarker(
 			const candidate = {
 				index: match.index,
 				length: match[0].length,
-				suppressFollowing: pattern !== WEB_RESEARCH_DIAGNOSTIC_RE,
+				suppressFollowing: pattern !== WEB_SEARCH_DIAGNOSTIC_RE,
 			};
 			if (!bestMatch || candidate.index < bestMatch.index) {
 				bestMatch = candidate;
@@ -1422,7 +1422,7 @@ function isLeakedToolDiagnosticPrefix(value: string): boolean {
 	if (!firstWord || !"found".startsWith(firstWord)) return false;
 
 	return restWords.every((word) =>
-		WEB_RESEARCH_DIAGNOSTIC_PREFIX_WORDS.some(
+		WEB_SEARCH_DIAGNOSTIC_PREFIX_WORDS.some(
 			(allowed) => allowed.startsWith(word) || word.startsWith(allowed),
 		),
 	);
@@ -1510,7 +1510,7 @@ export function getLeakedToolDiagnosticPrefixLength(value: string): number {
 		0,
 		value.length -
 			Math.max(
-				WEB_RESEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS,
+				WEB_SEARCH_DIAGNOSTIC_PREFIX_SCAN_CHARS,
 				RAW_WEB_PAGE_PREFIX_SCAN_CHARS,
 				PYTHON_TOOL_DIAGNOSTIC_PREFIX_SCAN_CHARS,
 				TOOL_PLANNING_NARRATION_PREFIX_SCAN_CHARS,

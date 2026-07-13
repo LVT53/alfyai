@@ -2497,7 +2497,7 @@ A **Library Document** from the user's Knowledge Library or active working set t
 _Avoid_: knowledge attachment, uploaded research input, library artifact citation
 
 **Atlas Web Source**:
-A web page discovered through SearXNG during the **Atlas Turn** search stage. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section.
+A web page discovered through Parallel web search during the **Atlas Turn** search stage. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section.
 _Avoid_: search result, fetched page, web citation
 
 **Atlas Completion Notice**:
@@ -2527,7 +2527,7 @@ _Avoid_: research notification, Atlas email alert, separate notification center
 - A failed **Atlas Turn** preserves durable job/checkpoint state for **Atlas Resume** behavior; cancelled jobs do not resume.
 - An **Atlas Turn** tracks model usage across all model calls; the **Atlas Cost Summary** is shown to the user after completion, with cost set to zero when provider pricing is unavailable. Atlas pipeline costs are also recorded as **Usage Events** so they appear in the analytics dashboard and **Context Usage Ring** alongside Normal Chat costs.
 - The **Atlas Concurrent Limit** allows one active Atlas per user and a global admin-configurable limit. Excess jobs queue, they are not rejected.
-- An **Atlas** draws on both **Atlas Web Sources** (SearXNG) and **Atlas Local Sources** (explicit linked sources, composer attachments, active working-set documents, and parent Atlas seed sources). Memory is background context, not a citable source.
+- An **Atlas** draws on both **Atlas Web Sources** (Parallel) and **Atlas Local Sources** (explicit linked sources, composer attachments, active working-set documents, and parent Atlas seed sources). Memory is background context, not a citable source.
 - An **Atlas Completion Notice** fires through three layers: on-page progress polling, sidebar badge on conversation list refresh, and browser push notification when the user has left AlfyAI.
 - An **Atlas** ships a full report when it has a trustworthy source basis, even when evidence is thin. The **Limitations** section and **Atlas Basis Markers** communicate evidence quality honestly. Only structural critical quality-gate failures (such as zero accepted sources) fail the Atlas Turn; model-generated critical audit markers are downgraded to warnings so the report ships with caveats instead of being discarded.
 - **Atlas Lifecycle Actions** (Continue, Fork, Revise) require the parent Atlas job to have `status: "succeeded"`. The server validates this before creating the new job and before loading the parent seed.

@@ -240,7 +240,7 @@ describe("SettingsAdminSystemPane", () => {
 
 		expect(getByText("Atlas")).toBeInTheDocument();
 		expect(
-			getByText(/Atlas also requires SearXNG Base URL in Web Research/),
+			getByText(/Atlas also requires a Parallel API Key in Web Research/),
 		).toBeInTheDocument();
 
 		await fireEvent.click(getByLabelText("Enable Atlas Worker"));
@@ -284,7 +284,7 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.WEB_PUSH_VAPID_SUBJECT).toBe("mailto:ops@example.com");
 	});
 
-	it("renders the Parallel and Brave search keys without SearXNG/Web Research controls", async () => {
+	it("renders the Parallel and Brave search keys without legacy search controls", async () => {
 		const adminConfig = {
 			PARALLEL_API_KEY: "",
 			BRAVE_SEARCH_API_KEY: "",
@@ -313,10 +313,8 @@ describe("SettingsAdminSystemPane", () => {
 
 		expect(getByLabelText("Brave Search API Key")).toBeInTheDocument();
 
-		expect(queryByLabelText("SearXNG Base URL")).toBeNull();
 		expect(queryByLabelText("Max Returned Sources")).toBeNull();
 		expect(queryByLabelText("Page Extractor Mode")).toBeNull();
-		expect(queryByLabelText("SearXNG Results Per Query")).toBeNull();
 	});
 
 	it("lets admins publish draft System Skills", async () => {

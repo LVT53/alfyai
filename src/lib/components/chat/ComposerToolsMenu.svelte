@@ -66,8 +66,8 @@ let atlasAvailable = $derived(
 let atlasUnavailableReason = $derived(
 	atlasAvailability?.reasonCode === "disabled"
 		? $t("composerTools.atlasUnavailableDisabled")
-		: atlasAvailability?.reasonCode === "missing_searxng"
-			? $t("composerTools.atlasUnavailableSearxng")
+		: atlasAvailability?.reasonCode === "missing_parallel"
+			? $t("composerTools.atlasUnavailableParallel")
 			: $t("composerTools.atlasUnavailableReason"),
 );
 

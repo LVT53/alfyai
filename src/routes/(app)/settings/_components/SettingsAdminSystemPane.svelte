@@ -1113,7 +1113,7 @@ function placeholderFor(key: string): string {
 			{/each}
 		</div>
 		<p class="text-xs text-text-muted">{$t('admin.atlasLimitsDescription')}</p>
-		<p class="text-xs text-text-muted">{$t('admin.atlasSearxngDependency')}</p>
+		<p class="text-xs text-text-muted">{$t('admin.atlasParallelDependency')}</p>
 
 		<div class="grid gap-3 md:grid-cols-3">
 			<div>

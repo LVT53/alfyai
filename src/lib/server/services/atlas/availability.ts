@@ -4,11 +4,7 @@ import type { AtlasAvailability } from "$lib/types";
 export function getAtlasAvailability(
 	config: RuntimeConfig = getConfig(),
 ): AtlasAvailability {
-	// TODO(#13): read `parallelApiKey` from a first-class RuntimeConfig field
-	// once Wave 4 adds it; until then it is resolved defensively.
-	const parallelApiKey = (
-		config as { parallelApiKey?: string }
-	).parallelApiKey?.trim();
+	const parallelApiKey = config.parallelApiKey.trim();
 	if (!config.atlasWorkerEnabled) {
 		return {
 			enabled: false,
