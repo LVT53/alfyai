@@ -103,7 +103,7 @@
       "cookie": "0.7.2"
     },
     "dockerode": {
-      "protobufjs": "7.6.0"
+      "protobufjs": "7.6.5"
     }
   }
 }
