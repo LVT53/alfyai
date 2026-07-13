@@ -210,7 +210,7 @@ describe("normalizeEvidenceText sanitization", () => {
 		expect(normalizeEvidenceText(text)).toBe("This is the actual content.");
 	});
 
-	it("strips SearXNG metadata keywords", () => {
+	it("strips search-engine metadata keywords", () => {
 		const text =
 			"Naptár · Keresés · Beállítások · Some content about AI regulation.";
 		expect(normalizeEvidenceText(text)).toBe(
@@ -218,13 +218,13 @@ describe("normalizeEvidenceText sanitization", () => {
 		);
 	});
 
-	it("strips SearXNG Hungarian filter echoes", () => {
+	it("strips search-engine Hungarian filter echoes", () => {
 		const text =
 			"Nem tartalmazza: foo | Tartalmaznia kell: bar | Content about retrieval.";
 		expect(normalizeEvidenceText(text)).toBe("Content about retrieval.");
 	});
 
-	it("strips SearXNG English filter echoes", () => {
+	it("strips search-engine English filter echoes", () => {
 		const text =
 			"Excluding: foo | Must include: bar | Content about regulation.";
 		expect(normalizeEvidenceText(text)).toBe("Content about regulation.");
@@ -269,7 +269,7 @@ describe("normalizeEvidenceText sanitization", () => {
 		expect(normalizeEvidenceText(text)).toBe("snippet. excerpt. excerpt2.");
 	});
 
-	it("strips combined SearXNG artifacts", () => {
+	it("strips combined search-engine artifacts", () => {
 		const text =
 			"Naptár · Nem tartalmazza: foo | Tartalmaznia kell: bar | 2024. márc. 15. · Actual content here.";
 		expect(normalizeEvidenceText(text)).toBe("Actual content here.");
@@ -330,7 +330,7 @@ describe("Atlas evidence pack summary boilerplate filtering", () => {
 		);
 	});
 
-	it("strips SearXNG boilerplate from evidence summary", () => {
+	it("strips search-engine boilerplate from evidence summary", () => {
 		const result = buildAtlasEvidencePacks({
 			query: "test",
 			currentDate: "2026-06-22",

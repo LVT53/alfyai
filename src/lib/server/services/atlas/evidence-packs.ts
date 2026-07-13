@@ -310,7 +310,7 @@ function unknownText(value: unknown): string {
 	return "";
 }
 
-const SEARXNG_ARTIFACT_PATTERNS: RegExp[] = [
+const SEARCH_ENGINE_ARTIFACT_PATTERNS: RegExp[] = [
 	/\b(?:Naptár|Keresés|Beállítások)\s*·\s*/gu,
 	/Nem tartalmazza:[^|]*\|\s*Tartalmaznia kell:[^|]*\|\s*/gi,
 	/Nem tartalmazza:[^|]*\|\s*/gi,
@@ -375,7 +375,7 @@ export function normalizeEvidenceText(text: string): string {
 		.replace(/\bSearch result snippet:\s*/gi, "")
 		.replace(/\bFetched page excerpt:\s*/gi, "")
 		.replace(/\bAccepted source excerpt:\s*/gi, "");
-	for (const pattern of SEARXNG_ARTIFACT_PATTERNS) {
+	for (const pattern of SEARCH_ENGINE_ARTIFACT_PATTERNS) {
 		result = result.replace(pattern, "");
 	}
 	for (const pattern of YOUTUBE_FOOTER_PATTERNS) {

@@ -192,7 +192,7 @@ export function sanitizeSourceTitle(title: string): string {
 	let result = title.trim();
 	if (!result) return result;
 
-	// Strip SearXNG language filter echoes (combined then single)
+	// Strip search-engine language filter echoes (combined then single)
 	result = result.replace(
 		/^Nem tartalmazza:[^|]*\|\s*Tartalmaznia kell:[^|]*\|\s*/i,
 		"",
@@ -220,7 +220,7 @@ export function sanitizeSourceTitle(title: string): string {
 const BOILERPLATE_SENTENCE_PATTERNS = {
 	always: [
 		/\b(?:cookie|subscribe|sign in|privacy policy|advertisement|loading|navigation menu|copied from the fetched page)\b/i,
-		// SearXNG metadata echoes
+		// Search-engine metadata echoes
 		/\bNem tartalmazza\b/i,
 		/\bTartalmaznia kell\b/i,
 		/\bKeresés\b/iu,

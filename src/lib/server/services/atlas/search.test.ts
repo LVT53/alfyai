@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AtlasSearchSource } from "./search";
 
+vi.mock("$lib/server/config-store", () => ({
+	getConfig: vi.fn(() => ({})),
+}));
+
 describe("sanitizeSearchSnippet", () => {
 	it("strips Hungarian language filter echo from snippet start", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
@@ -52,7 +56,7 @@ describe("sanitizeSearchSnippet", () => {
 		expect(result).toBe("Introduction to vector databases");
 	});
 
-	it("strips SearXNG metadata keyword Naptár at snippet start", async () => {
+	it("strips search-engine metadata keyword Naptár at snippet start", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
 		const result = sanitizeSearchSnippet(
 			"Naptár · 2024. jan. 26. · Event details for AI conference",
@@ -60,13 +64,13 @@ describe("sanitizeSearchSnippet", () => {
 		expect(result).toBe("Event details for AI conference");
 	});
 
-	it("strips SearXNG metadata keyword Keresés at snippet start", async () => {
+	it("strips search-engine metadata keyword Keresés at snippet start", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
 		const result = sanitizeSearchSnippet("Keresés · keresési javaslatok");
 		expect(result).toBe("keresési javaslatok");
 	});
 
-	it("strips SearXNG metadata keyword Beállítások at snippet start", async () => {
+	it("strips search-engine metadata keyword Beállítások at snippet start", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
 		const result = sanitizeSearchSnippet("Beállítások · rendszerkonfiguráció");
 		expect(result).toBe("rendszerkonfiguráció");
@@ -224,7 +228,7 @@ describe("isUnusableAtlasSnippet", () => {
 		).toBe(true);
 	});
 
-	it("rejects snippets that are pure SearXNG UI metadata", async () => {
+	it("rejects snippets that are pure search-engine UI metadata", async () => {
 		const { isUnusableAtlasSnippet } = await import("./search");
 		expect(isUnusableAtlasSnippet("Naptár")).toBe(true);
 		expect(isUnusableAtlasSnippet("Keresés")).toBe(true);
@@ -420,6 +424,7 @@ describe("hasSubstantiveAtlasSourceTitle", () => {
 describe("Atlas search stage", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
 	});
 
 	it("requires Parallel Search configuration", async () => {
@@ -659,7 +664,7 @@ describe("Atlas search stage", () => {
 				{
 					id: "web-search-artifact",
 					title: "Search results",
-					url: "https://searxng.example/results",
+					url: "https://search.example/results",
 					snippet: "Nem tartalmazza: English | Tartalmaznia kell: technical | ",
 				},
 				{
@@ -765,67 +770,82 @@ describe("Atlas search stage", () => {
 		expect(result.sources[0].snippet).toContain("Fetched page excerpt");
 	});
 
-	it("normalizes SearXNG image results, filters unsafe or non-HTTPS images, and de-duplicates image URLs", async () => {
+	it("maps Brave image results, filters unsafe or non-HTTPS images, and de-duplicates image URLs", async () => {
 		const { runAtlasImageSearchStage } = await import("./search");
-		const fetchMock = vi.fn(async (url: URL | string) => {
+		const fetchMock = vi.fn(async (url: URL | string, init?: RequestInit) => {
 			const requestUrl = new URL(String(url));
-			expect(requestUrl.pathname).toBe("/search");
-			expect(requestUrl.searchParams.get("format")).toBe("json");
-			expect(requestUrl.searchParams.get("categories")).toBe("images");
-			expect(requestUrl.searchParams.get("safesearch")).toBe("1");
-			expect(requestUrl.searchParams.get("image_proxy")).toBe("0");
+			expect(requestUrl.hostname).toBe("api.search.brave.com");
+			expect(requestUrl.pathname).toBe("/res/v1/images/search");
+			expect(requestUrl.searchParams.get("q")).toBe("enterprise architecture");
+			expect(requestUrl.searchParams.get("safesearch")).toBe("strict");
+			expect(
+				(init?.headers as Record<string, string> | undefined)?.[
+					"X-Subscription-Token"
+				],
+			).toBe("test-brave-key");
 			return new Response(
 				JSON.stringify({
 					results: [
 						{
 							title: "Enterprise architecture diagram",
-							content: "Enterprise architecture diagram caption",
-							img_src: "https://cdn.example.com/architecture.png",
-							thumbnail_src: "https://cdn.example.com/architecture-thumb.png",
 							url: "https://example.com/report",
 							source: "Example Research",
-							resolution: "1024 x 768",
+							page_fetched: "2026-06-01T00:00:00Z",
+							thumbnail: {
+								src: "https://cdn.example.com/architecture-thumb.png",
+							},
+							properties: {
+								url: "https://cdn.example.com/architecture.png",
+								width: 1024,
+								height: 768,
+							},
+							meta_url: { hostname: "example.com" },
 						},
 						{
 							title: "Algolia devicon logo",
-							content: "Algolia logo icon",
-							img_src:
-								"https://cdn.jsdelivr.net/gh/devicons/devicon/icons/algolia/algolia-original.svg",
 							url: "https://github.com/devicons/devicon",
 							source: "Devicon",
-							resolution: "512 x 512",
+							thumbnail: {
+								src: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/algolia/algolia-original.svg",
+							},
+							properties: {
+								url: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/algolia/algolia-original.svg",
+							},
 						},
 						{
 							title: "Generic SaaS illustration",
-							content: "Unrelated product screenshot",
-							img_src: "https://cdn.example.com/unrelated-product.png",
 							url: "https://example.com/unrelated-product",
 							source: "Example Images",
-							resolution: "1200 x 900",
+							properties: {
+								url: "https://cdn.example.com/unrelated-product.png",
+								width: 1200,
+								height: 900,
+							},
 						},
 						{
 							title: "Generic cover artwork",
-							content: "Stock product illustration",
-							img_src:
-								"https://cdn.example.com/enterprise-architecture-cover.png",
 							url: "https://example.com/stock-artwork",
 							source: "Example Images",
-							resolution: "1200 x 900",
+							properties: {
+								url: "https://cdn.example.com/enterprise-architecture-cover.png",
+								width: 1200,
+								height: 900,
+							},
 						},
 						{
 							title: "Duplicate diagram",
-							img_src: "https://cdn.example.com/architecture.png",
 							url: "https://example.com/duplicate",
+							properties: { url: "https://cdn.example.com/architecture.png" },
 						},
 						{
 							title: "HTTP image is not embeddable",
-							img_src: "http://cdn.example.com/insecure.png",
 							url: "https://example.com/insecure",
+							properties: { url: "http://cdn.example.com/insecure.png" },
 						},
 						{
 							title: "Porn result",
-							img_src: "https://cdn.example.com/adult.png",
 							url: "https://example.com/adult",
+							properties: { url: "https://cdn.example.com/adult.png" },
 						},
 					],
 				}),
@@ -836,7 +856,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasImageSearchStage({
 			queries: ["enterprise architecture"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				braveSearchApiKey: "test-brave-key",
 				concurrency: 1,
 				interBatchDelayMs: 0,
 				maxImageCandidates: 3,
@@ -844,6 +864,7 @@ describe("Atlas search stage", () => {
 			},
 		});
 
+		expect(fetchMock).toHaveBeenCalled();
 		expect(result.imageLimitation).toBeNull();
 		expect(result.imageCandidates).toEqual([
 			expect.objectContaining({
@@ -855,9 +876,29 @@ describe("Atlas search stage", () => {
 				thumbnailUrl: "https://cdn.example.com/architecture-thumb.png",
 				width: 1024,
 				height: 768,
-				caption: "Enterprise architecture diagram caption",
+				caption: "Enterprise architecture diagram",
 			}),
 		]);
+	});
+
+	it("returns an image limitation when the Brave key is missing", async () => {
+		vi.stubEnv("BRAVE_SEARCH_API_KEY", "");
+		const { runAtlasImageSearchStage } = await import("./search");
+
+		const result = await runAtlasImageSearchStage({
+			queries: ["enterprise architecture"],
+			config: {
+				concurrency: 1,
+				interBatchDelayMs: 0,
+				maxImageCandidates: 3,
+				maxAttempts: 1,
+			},
+		});
+
+		expect(result.imageCandidates).toEqual([]);
+		expect(result.imageLimitation).toMatchObject({
+			code: "atlas_image_search_unavailable",
+		});
 	});
 
 	it("keeps image search failures non-fatal", async () => {
@@ -866,7 +907,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasImageSearchStage({
 			queries: ["enterprise architecture"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				braveSearchApiKey: "test-brave-key",
 				concurrency: 1,
 				interBatchDelayMs: 0,
 				maxAttempts: 1,

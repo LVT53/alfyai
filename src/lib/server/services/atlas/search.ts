@@ -46,8 +46,8 @@ export interface AtlasSearchConfig {
 	// TODO(#13): `parallelApiKey` becomes a first-class RuntimeConfig field in
 	// Wave 4; until then it is resolved defensively (config-store / env).
 	parallelApiKey?: string;
-	// Retained for the image-search stage, which still uses SearXNG.
-	searxngBaseUrl?: string;
+	// Brave Search API key backing the image-search stage.
+	braveSearchApiKey?: string;
 	concurrency?: number;
 	interBatchDelayMs?: number;
 	maxAcceptedSources?: number;
@@ -60,6 +60,12 @@ export interface AtlasSearchConfig {
 export interface AtlasSearchDeps {
 	fetch?: typeof fetch;
 	config?: { parallelApiKey?: string };
+	signal?: AbortSignal;
+}
+
+export interface AtlasImageSearchDeps {
+	fetch?: typeof fetch;
+	config?: { braveSearchApiKey?: string };
 	signal?: AbortSignal;
 }
 
@@ -82,7 +88,7 @@ export interface RunAtlasImageSearchStageInput {
 	queries: string[];
 	config: Pick<
 		AtlasSearchConfig,
-		| "searxngBaseUrl"
+		| "braveSearchApiKey"
 		| "concurrency"
 		| "interBatchDelayMs"
 		| "maxImageCandidates"
@@ -90,6 +96,7 @@ export interface RunAtlasImageSearchStageInput {
 		| "maxRetryBackoffMs"
 		| "maxAttempts"
 	>;
+	deps?: AtlasImageSearchDeps;
 	timeRange?: string | null;
 	searchImages?: (query: string) => Promise<AtlasImageCandidate[]>;
 	sleep?: (ms: number) => Promise<void>;
@@ -109,10 +116,6 @@ function uniqueQueries(queries: string[]): string[] {
 async function defaultSleep(ms: number): Promise<void> {
 	if (ms <= 0) return;
 	await new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeBaseUrl(value: string): string {
-	return value.trim().replace(/\/+$/, "");
 }
 
 function normalizedSourceUrlKey(url: string): string {
@@ -494,22 +497,23 @@ function httpsUrl(value: unknown): string | null {
 	}
 }
 
-function parseResolution(value: unknown): {
-	width: number | null;
-	height: number | null;
-} {
-	if (typeof value !== "string") return { width: null, height: null };
-	const match = value.match(/(\d{2,6})\s*[x×]\s*(\d{2,6})/i);
-	if (!match) return { width: null, height: null };
-	const width = Number(match[1]);
-	const height = Number(match[2]);
-	return {
-		width: Number.isFinite(width) ? width : null,
-		height: Number.isFinite(height) ? height : null,
-	};
+function parseDimension(value: unknown): number | null {
+	const numeric =
+		typeof value === "number"
+			? value
+			: typeof value === "string"
+				? Number(value)
+				: Number.NaN;
+	return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
-function normalizeSearxngImageResult(
+function asRecord(value: unknown): Record<string, unknown> {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
+}
+
+function normalizeBraveImageResult(
 	query: string,
 	result: unknown,
 	index: number,
@@ -518,24 +522,22 @@ function normalizeSearxngImageResult(
 		return null;
 	}
 	const record = result as Record<string, unknown>;
+	const properties = asRecord(record.properties);
+	const thumbnail = asRecord(record.thumbnail);
+	const metaUrl = asRecord(record.meta_url);
 	const imageUrl =
-		httpsUrl(record.img_src) ??
-		httpsUrl(record.thumbnail_src) ??
-		httpsUrl(record.thumbnail);
+		httpsUrl(properties.url) ?? httpsUrl(thumbnail.src) ?? httpsUrl(record.url);
 	if (!imageUrl) return null;
 	const sourcePageUrl = httpsUrl(record.url);
-	const title =
-		cleanOptionalText(record.title) ??
-		cleanOptionalText(record.content) ??
-		sourcePageUrl ??
-		imageUrl;
+	const title = cleanOptionalText(record.title) ?? sourcePageUrl ?? imageUrl;
 	const sourceTitle =
 		cleanOptionalText(record.source) ??
-		cleanOptionalText(record.engine) ??
+		cleanOptionalText(metaUrl.hostname) ??
 		(sourcePageUrl ? new URL(sourcePageUrl).hostname : null);
-	const { width, height } = parseResolution(record.resolution);
-	const caption = cleanOptionalText(record.content) ?? title;
-	const publishedAt = cleanOptionalText(record.publishedDate);
+	const width = parseDimension(properties.width);
+	const height = parseDimension(properties.height);
+	const caption = cleanOptionalText(record.title) ?? title;
+	const publishedAt = cleanOptionalText(record.page_fetched);
 	return {
 		id: `image:${query}:${index}`,
 		query,
@@ -543,11 +545,11 @@ function normalizeSearxngImageResult(
 		imageUrl,
 		sourcePageUrl,
 		sourceTitle,
-		thumbnailUrl: httpsUrl(record.thumbnail_src) ?? httpsUrl(record.thumbnail),
+		thumbnailUrl: httpsUrl(thumbnail.src) ?? httpsUrl(properties.url),
 		width,
 		height,
 		caption,
-		selectionReason: `Image result for "${query}" from SearXNG.`,
+		selectionReason: `Image result for "${query}" from Brave image search.`,
 		publishedAt,
 	};
 }
@@ -585,26 +587,40 @@ function convergeImageCandidates(input: {
 	return accepted;
 }
 
-async function searchSearxngImages(
-	baseUrl: string,
+interface BraveImageCallDeps {
+	fetch: typeof fetch;
+	braveSearchApiKey: string;
+	signal?: AbortSignal;
+}
+
+// The Brave image API exposes only "off"/"strict" safesearch; map the numeric
+// Atlas default (0 = off, >=1 = on) onto those two levels.
+function braveSafesearch(value: number): "off" | "strict" {
+	return value >= 1 ? "strict" : "off";
+}
+
+async function searchBraveImages(
 	query: string,
-	timeRange?: string | null,
+	deps: BraveImageCallDeps,
 ): Promise<AtlasImageCandidate[]> {
-	const url = new URL(`${normalizeBaseUrl(baseUrl)}/search`);
+	const url = new URL("https://api.search.brave.com/res/v1/images/search");
 	url.searchParams.set("q", query);
-	url.searchParams.set("format", "json");
-	url.searchParams.set("categories", "images");
+	url.searchParams.set("count", "20");
 	url.searchParams.set(
 		"safesearch",
-		String(DEFAULT_ATLAS_IMAGE_SEARCH_SAFESEARCH),
+		braveSafesearch(DEFAULT_ATLAS_IMAGE_SEARCH_SAFESEARCH),
 	);
-	url.searchParams.set("image_proxy", "0");
-	if (timeRange) {
-		url.searchParams.set("time_range", timeRange);
-	}
-	const response = await fetch(url);
+	const response = await deps.fetch(url.toString(), {
+		method: "GET",
+		headers: {
+			Accept: "application/json",
+			"Accept-Encoding": "gzip",
+			"X-Subscription-Token": deps.braveSearchApiKey,
+		},
+		signal: deps.signal,
+	});
 	if (!response.ok) {
-		throw new Error(`SearXNG image search failed with HTTP ${response.status}`);
+		throw new Error(`Brave image search failed with HTTP ${response.status}`);
 	}
 	const body = (await response.json()) as unknown;
 	const results =
@@ -614,8 +630,17 @@ async function searchSearxngImages(
 			? (body as { results: unknown[] }).results
 			: [];
 	return results
-		.map((result, index) => normalizeSearxngImageResult(query, result, index))
+		.map((result, index) => normalizeBraveImageResult(query, result, index))
 		.filter((source): source is AtlasImageCandidate => source !== null);
+}
+
+function resolveBraveSearchApiKey(explicit?: string): string {
+	return (
+		explicit?.trim() ||
+		(getConfig() as { braveSearchApiKey?: string }).braveSearchApiKey?.trim() ||
+		process.env.BRAVE_SEARCH_API_KEY?.trim() ||
+		""
+	);
 }
 
 async function runWithRetries<T>(
@@ -772,13 +797,16 @@ export async function runAtlasSearchStage(
 export async function runAtlasImageSearchStage(
 	input: RunAtlasImageSearchStageInput,
 ): Promise<AtlasImageSearchStageResult> {
-	const baseUrl = normalizeBaseUrl(input.config.searxngBaseUrl ?? "");
-	if (!baseUrl) {
+	const braveSearchApiKey = resolveBraveSearchApiKey(
+		input.deps?.config?.braveSearchApiKey ?? input.config.braveSearchApiKey,
+	);
+	if (!braveSearchApiKey) {
 		return {
 			imageCandidates: [],
 			imageLimitation: {
 				code: "atlas_image_search_unavailable",
-				message: "Atlas image search requires SearXNG to be configured.",
+				message:
+					"Atlas image search requires the Brave Search API to be configured.",
 			},
 		};
 	}
@@ -805,9 +833,13 @@ export async function runAtlasImageSearchStage(
 		input.config.maxRetryBackoffMs ?? DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS;
 	const sleep = input.sleep ?? defaultSleep;
 	const timeRange = input.timeRange ?? null;
+	const braveDeps: BraveImageCallDeps = {
+		fetch: input.deps?.fetch ?? fetch,
+		braveSearchApiKey,
+		signal: input.deps?.signal,
+	};
 	const searchImages =
-		input.searchImages ??
-		((query) => searchSearxngImages(baseUrl, query, timeRange));
+		input.searchImages ?? ((query) => searchBraveImages(query, braveDeps));
 	const imageCandidates: AtlasImageCandidate[] = [];
 	const failedQueries: string[] = [];
 	const maxImageCandidates = Math.max(0, input.config.maxImageCandidates ?? 3);

@@ -1961,7 +1961,7 @@ describe("Atlas renderer output", () => {
 		expect(result).not.toMatch(/Ismertető|Sajtó|Szerzői jog/i);
 	});
 
-	it("filters SearXNG metadata echoes from source notes regardless of language", async () => {
+	it("filters search-engine metadata echoes from source notes regardless of language", async () => {
 		const { compactAtlasSourceRelevanceNote } = await import(
 			"./renderer-output"
 		);
@@ -2089,7 +2089,7 @@ describe("Atlas renderer output", () => {
 		expect(result).toBe("Actual relevant content");
 	});
 
-	it("sanitizeSourceTitle strips SearXNG Nem tartalmazza echo", async () => {
+	it("sanitizeSourceTitle strips search-engine Nem tartalmazza echo", async () => {
 		const { sanitizeSourceTitle } = await import("./renderer-output");
 		const result = sanitizeSourceTitle(
 			"Nem tartalmazza: English | Tartalmaznia kell: technical | Best practices",

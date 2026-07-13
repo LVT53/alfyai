@@ -151,7 +151,7 @@ export async function executeNextAtlasJob(
 					runAtlasImageSearchStage({
 						queries,
 						config: {
-							searxngBaseUrl: config.searxngBaseUrl,
+							braveSearchApiKey: config.braveSearchApiKey,
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
 							maxImageCandidates: profileConfig.maxImageCandidates,
