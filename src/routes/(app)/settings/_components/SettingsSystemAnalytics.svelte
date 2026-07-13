@@ -1,22 +1,32 @@
 <script lang="ts">
-import type { Chart as ChartInstance, TooltipItem } from "chart.js";
-import { onDestroy, tick } from "svelte";
-import { get } from "svelte/store";
-import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
-import { t, type I18nKey } from "$lib/i18n";
+import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
+import {
+	AnalyticsCard,
+	AnalyticsChart,
+	MonthNav,
+	SERIES,
+	SortableTable,
+	StatCard,
+	StatGrid,
+	type TableColumn,
+	type TableRow,
+} from "$lib/components/analytics";
+import { t } from "$lib/i18n";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
-import { chartAnimation } from "./chart-reduced-motion";
+import "$lib/components/analytics/analytics.css";
 
-// ADR-0043 slice 18c: the system Blocks B/C/D analytics (admin-only) extracted
-// from the former standalone SettingsAnalyticsTab. Rendered as a sub-pane under
-// the Administration tab. This component is ADMIN-GATED by its host
-// (SettingsAdministrationTab only renders under the admin-only Administration
-// tab) and contains NO personal content.
+// Phase B, wave B3: the system Blocks B/C/D analytics (admin-only) rebuilt on
+// the shared analytics components. ADMIN-GATED by its host (rendered only under
+// the admin-only Administration tab) — contains NO personal content. Prop
+// interface preserved so the parent wiring (month change reloads via
+// onSystemMonthChange; excluded-users persists via onExcludedUsersChange)
+// keeps working unchanged.
 let {
 	analyticsData = null,
 	analyticsLoading = false,
 	analyticsError = "",
 	modelNames,
+	// biome-ignore lint/correctness/noUnusedVariables: kept for prop-interface parity with the parent wiring.
 	modelIcons = {},
 	onRetry,
 	selectedSystemMonth = null,
@@ -40,31 +50,66 @@ let {
 		| undefined;
 } = $props();
 
-let userChart = $state<ChartInstance | null>(null);
-let userChartCanvas = $state<HTMLCanvasElement | null>(null);
+type SystemTab = "overview" | "byModel" | "parallel" | "byUser";
+let activeTab = $state<SystemTab>("overview");
+
 let excludedUsersSaveState = $state<"idle" | "saving" | "saved" | "error">(
 	"idle",
 );
 let excludedUsersSaveTimer: ReturnType<typeof setTimeout> | null = null;
-const perUserRows = $derived(analyticsData?.perUser ?? []);
-const hasPerUser = $derived(perUserRows.length > 0);
 
-function destroyCharts() {
-	userChart?.destroy();
-	userChart = null;
-}
+const system = $derived(analyticsData?.system);
+const parallel = $derived(system?.parallel);
+const perUserRows = $derived(analyticsData?.perUser ?? []);
+
+const onMonth = $derived(onSystemMonthChange ?? (() => {}));
+
+// MonthNav expects chronologically ascending "YYYY-MM" keys.
+const months = $derived(
+	[
+		...(analyticsData?.systemAvailableMonths ??
+			system?.monthly?.map((m) => m.month) ??
+			[]),
+	].sort(),
+);
+
+const tabs = $derived([
+	{
+		id: "overview",
+		label: $t("analytics.overview"),
+		tabId: "system-analytics-overview-tab",
+		panelId: "system-analytics-overview-panel",
+	},
+	{
+		id: "byModel",
+		label: $t("analytics.usageByModel"),
+		tabId: "system-analytics-bymodel-tab",
+		panelId: "system-analytics-bymodel-panel",
+	},
+	...(parallel
+		? [
+				{
+					id: "parallel",
+					label: $t("analytics.parallelApi"),
+					tabId: "system-analytics-parallel-tab",
+					panelId: "system-analytics-parallel-panel",
+				},
+			]
+		: []),
+	{
+		id: "byUser",
+		label: $t("analytics.byUser"),
+		tabId: "system-analytics-byuser-tab",
+		panelId: "system-analytics-byuser-panel",
+	},
+]);
 
 function modelDisplayName(key: string): string {
 	return modelNames[key] ?? key;
 }
 
-function modelIconUrl(key: string | null | undefined): string | null {
-	return key ? (modelIcons[key] ?? null) : null;
-}
-
-function formatMs(ms: number): string {
-	if (!ms) return "—";
-	return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+function formatUsd(value: number): string {
+	return `$${Number(value ?? 0).toFixed(4)}`;
 }
 
 function formatNum(value: number): string {
@@ -72,55 +117,176 @@ function formatNum(value: number): string {
 	return value.toLocaleString();
 }
 
-function formatUsd(value: number): string {
-	return `$${Number(value ?? 0).toFixed(4)}`;
-}
-
-function formatMonth(ym: string): string {
+function formatMonthShort(ym: string): string {
 	const [y, m] = ym.split("-");
 	const date = new Date(Number(y), Number(m) - 1, 1);
-	return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+	return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
 }
 
-let systemAvailableMonths = $derived.by(() => {
-	const months =
-		analyticsData?.systemAvailableMonths ??
-		analyticsData?.system?.monthly?.map((m) => m.month) ??
-		[];
-	return [...months].sort().reverse() as string[];
+// ---- Overview ----------------------------------------------------------
+const parallelCostUsd = $derived(parallel?.totalCostUsd ?? 0);
+const llmCostUsd = $derived((system?.totalCostUsd ?? 0) - parallelCostUsd);
+const webCalls = $derived(
+	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
+);
+const costSplit = $derived(
+	parallel
+		? $t("analytics.llmParallelSplit", {
+				llm: formatUsd(llmCostUsd),
+				parallel: formatUsd(parallelCostUsd),
+			})
+		: undefined,
+);
+
+const monthlyCostData = $derived({
+	labels: (system?.monthly ?? []).map((m) => formatMonthShort(m.month)),
+	datasets: [
+		{
+			label: $t("analytics.monthlyCost"),
+			data: (system?.monthly ?? []).map((m) => m.totalCostUsd),
+			backgroundColor: SERIES.llm,
+			borderRadius: 4,
+		},
+	],
 });
 
-function previousMonthFromAllTime(months: string[]): string | null {
-	return months[1] ?? months[0] ?? null;
-}
+const monthlyCostOptions = {
+	plugins: { legend: { display: false } },
+} as const;
 
-function prevSystemMonth() {
-	if (systemAvailableMonths.length === 0) return;
-	if (!selectedSystemMonth) {
-		onSystemMonthChange?.(previousMonthFromAllTime(systemAvailableMonths));
-		return;
-	}
-	const idx = systemAvailableMonths.indexOf(selectedSystemMonth);
-	if (idx < systemAvailableMonths.length - 1) {
-		onSystemMonthChange?.(systemAvailableMonths[idx + 1]);
-	}
-}
+// ---- Usage by model ----------------------------------------------------
+const providerPresent = $derived(
+	(system?.byModel ?? []).some((row) => row.providerDisplayName),
+);
 
-function nextSystemMonth() {
-	if (systemAvailableMonths.length === 0) return;
-	if (!selectedSystemMonth) {
-		onSystemMonthChange?.(systemAvailableMonths[0]);
-		return;
-	}
-	const idx = systemAvailableMonths.indexOf(selectedSystemMonth);
-	if (idx > 0) {
-		onSystemMonthChange?.(systemAvailableMonths[idx - 1]);
-	}
-}
+const modelColumns = $derived<TableColumn[]>([
+	{ key: "model", label: $t("analytics.model"), type: "text" },
+	...(providerPresent
+		? [
+				{
+					key: "provider",
+					label: $t("analytics.provider"),
+					type: "text" as const,
+				},
+			]
+		: []),
+	{ key: "calls", label: $t("analytics.calls"), type: "number" },
+	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
+	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+]);
 
-function selectAllSystemTime() {
-	onSystemMonthChange?.(null);
-}
+const modelRows = $derived<TableRow[]>(
+	(system?.byModel ?? []).map((row) => ({
+		model: row.displayName ?? modelDisplayName(row.model),
+		provider: row.providerDisplayName ?? "",
+		calls: row.msgCount,
+		tokens: row.totalTokens ?? 0,
+		cost: row.totalCostUsd,
+	})),
+);
+
+const modelTotalRow = $derived<TableRow>({
+	model: $t("analytics.total"),
+	provider: "",
+	calls: (system?.byModel ?? []).reduce((sum, row) => sum + row.msgCount, 0),
+	tokens: (system?.byModel ?? []).reduce(
+		(sum, row) => sum + (row.totalTokens ?? 0),
+		0,
+	),
+	cost: (system?.byModel ?? []).reduce((sum, row) => sum + row.totalCostUsd, 0),
+});
+
+// ---- Parallel API ------------------------------------------------------
+const parallelTotalCalls = $derived(
+	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
+);
+
+const parallelChartData = $derived({
+	labels: (parallel?.monthly ?? []).map((m) => formatMonthShort(m.month)),
+	datasets: [
+		{
+			label: $t("analytics.turbo"),
+			data: (parallel?.monthly ?? []).map((m) => m.turboCalls),
+			backgroundColor: SERIES.turbo,
+			borderRadius: 4,
+		},
+		{
+			label: $t("analytics.extract"),
+			data: (parallel?.monthly ?? []).map((m) => m.extractCalls),
+			backgroundColor: SERIES.extract,
+			borderRadius: 4,
+		},
+	],
+});
+
+const parallelColumns: TableColumn[] = [
+	{ key: "month", label: $t("analytics.month"), type: "text" },
+	{ key: "turbo", label: $t("analytics.turbo"), type: "number" },
+	{ key: "extract", label: $t("analytics.extract"), type: "number" },
+	{ key: "total", label: $t("analytics.total"), type: "number" },
+	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+];
+
+const parallelRows = $derived<TableRow[]>(
+	(parallel?.monthly ?? []).map((m) => ({
+		month: formatMonthShort(m.month),
+		turbo: m.turboCalls,
+		extract: m.extractCalls,
+		total: m.turboCalls + m.extractCalls,
+		cost: m.costUsd,
+	})),
+);
+
+const parallelTotalRow = $derived<TableRow>({
+	month: $t("analytics.total"),
+	turbo: parallel?.totalTurboCalls ?? 0,
+	extract: parallel?.totalExtractCalls ?? 0,
+	total: parallelTotalCalls,
+	cost: parallelCostUsd,
+});
+
+// ---- By user -----------------------------------------------------------
+const userColumns: TableColumn[] = [
+	{ key: "user", label: $t("analytics.user"), type: "text" },
+	{ key: "messages", label: $t("analytics.messages"), type: "number" },
+	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
+	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+];
+
+const userRows = $derived<TableRow[]>(
+	perUserRows.map((row) => ({
+		user: row.displayName || row.email,
+		email: row.email,
+		messages: row.messageCount,
+		tokens: row.totalTokens ?? 0,
+		cost: row.totalCostUsd,
+	})),
+);
+
+const userChartData = $derived.by(() => {
+	const top10 = [...perUserRows]
+		.sort((a, b) => b.messageCount - a.messageCount)
+		.slice(0, 10);
+	return {
+		labels: top10.map((row) => row.displayName || row.email),
+		datasets: [
+			{
+				label: $t("analytics.chartMessages"),
+				data: top10.map((row) => row.messageCount),
+				backgroundColor: SERIES.llm,
+				borderRadius: 4,
+			},
+			{
+				label: $t("analytics.chartConversations"),
+				data: top10.map((row) => row.conversationCount),
+				backgroundColor: SERIES.turbo,
+				borderRadius: 4,
+			},
+		],
+	};
+});
+
+const userChartOptions = { indexAxis: "y" } as const;
 
 async function toggleExcludedUser(userId: string) {
 	if (!onExcludedUsersChange) return;
@@ -145,97 +311,6 @@ async function toggleExcludedUser(userId: string) {
 		}, 3000);
 	}
 }
-
-async function initCharts(
-	translateFn: (
-		key: I18nKey,
-		params?: Record<string, string | number>,
-	) => string,
-) {
-	if (!analyticsData) return;
-	await tick();
-	destroyCharts();
-
-	const { Chart } = await import("chart.js/auto");
-
-	if (userChartCanvas) Chart.getChart(userChartCanvas)?.destroy();
-
-	if (userChartCanvas && perUserRows.length > 0) {
-		const top10 = [...perUserRows]
-			.sort((left, right) => right.messageCount - left.messageCount)
-			.slice(0, 10);
-		userChart = new Chart(userChartCanvas, {
-			type: "bar",
-			data: {
-				labels: top10.map((row) => row.displayName || row.email),
-				datasets: [
-					{
-						label: translateFn("analytics.chartMessages"),
-						data: top10.map((row) => row.messageCount),
-						backgroundColor: "rgba(193, 95, 60, 0.8)",
-						borderRadius: 4,
-					},
-					{
-						label: translateFn("analytics.chartConversations"),
-						data: top10.map((row) => row.conversationCount),
-						backgroundColor: "rgba(100, 143, 175, 0.75)",
-						borderRadius: 4,
-					},
-				],
-			},
-			options: {
-				indexAxis: "y",
-				maintainAspectRatio: false,
-				animation: chartAnimation({ duration: 500 }),
-				plugins: {
-					legend: {
-						position: "top",
-						labels: {
-							font: { size: 12 },
-							color: "rgba(128,128,128,0.9)",
-							padding: 16,
-						},
-					},
-				},
-				scales: {
-					x: {
-						grid: { color: "rgba(128,128,128,0.1)" },
-						ticks: { color: "rgba(128,128,128,0.8)", font: { size: 11 } },
-					},
-					y: {
-						grid: { display: false },
-						ticks: { color: "rgba(128,128,128,0.9)", font: { size: 12 } },
-					},
-				},
-			},
-		});
-	}
-}
-
-$effect(() => {
-	if (!analyticsData || analyticsLoading || analyticsError || !hasPerUser) {
-		destroyCharts();
-		return;
-	}
-
-	const translateFn = get(t);
-	let cancelled = false;
-
-	void (async () => {
-		await tick();
-		if (cancelled) return;
-		await initCharts(translateFn);
-	})();
-
-	return () => {
-		cancelled = true;
-		destroyCharts();
-	};
-});
-
-onDestroy(() => {
-	destroyCharts();
-});
 </script>
 
 {#if analyticsLoading && !analyticsData}
@@ -245,228 +320,167 @@ onDestroy(() => {
 		<p class="text-danger text-sm">{analyticsError}</p>
 		<button class="btn-secondary mt-3" onclick={onRetry}>{$t('analytics.retry')}</button>
 	</div>
-{:else if analyticsData && analyticsData.system}
-	<section class="settings-card mb-4">
-		<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-			<h2 class="settings-section-title mb-0">{$t('analytics.systemOverview')}</h2>
-			<div class="flex items-center gap-1">
-				<button
-					class="month-nav-btn"
-					onclick={prevSystemMonth}
-					disabled={systemAvailableMonths.length === 0}
-					aria-label={$t('analytics.previousSystemMonth')}
-				>&larr;</button>
-				<span class="month-label">
-					{selectedSystemMonth ? formatMonth(selectedSystemMonth) : $t('analytics.allTime')}
-				</span>
-				<button
-					class="month-nav-btn"
-					onclick={nextSystemMonth}
-					disabled={systemAvailableMonths.length === 0}
-					aria-label={$t('analytics.nextSystemMonth')}
-				>&rarr;</button>
-				{#if selectedSystemMonth}
-					<button class="month-alltime-btn" onclick={selectAllSystemTime}>
-						{$t('analytics.allTime')}
-					</button>
-				{/if}
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.totalMessages)}</div>
-				<div class="stat-label">{$t('analytics.totalMessages')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.totalUsers)}</div>
-				<div class="stat-label">{$t('analytics.totalUsers')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatMs(analyticsData.system.avgGenerationMs)}</div>
-				<div class="stat-label">{$t('analytics.avgResponseTime')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.totalTokens)}</div>
-				<div class="stat-label">{$t('analytics.totalTokens')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatUsd(analyticsData.system.totalCostUsd)}</div>
-				<div class="stat-label">{$t('totalCost')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.promptTokens)}</div>
-				<div class="stat-label">{$t('promptTokens')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.cachedInputTokens)}</div>
-				<div class="stat-label">{$t('cachedInput')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.reasoningTokens)}</div>
-				<div class="stat-label">{$t('analytics.reasoningTokens')}</div>
-			</div>
-			<div class="stat-card">
-				<div class="stat-value">{formatNum(analyticsData.system.totalConversations ?? 0)}</div>
-				<div class="stat-label">{$t('analytics.totalConversations')}</div>
-			</div>
-		</div>
-		{#if analyticsData.system.byModel?.length > 0}
-			<div class="mt-5 overflow-x-auto">
-				<p class="settings-label mb-3">{$t('analytics.usageByModel')}</p>
-				<table class="analytics-table w-full text-sm">
-					<thead>
-						<tr class="border-b border-border text-left text-xs text-text-muted">
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.model')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.msgs')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('promptTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('cachedInput')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('outputTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.reasoning')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.totalTokens')}</th>
-							<th class="pb-2 font-medium">{$t('analytics.cost')}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each analyticsData.system.byModel as row}
-							<tr class="border-b border-border last:border-0">
-								<td class="py-2 pr-3">
-									<span class="inline-flex min-w-0 items-center gap-2">
-										<ModelIcon iconUrl={modelIconUrl(row.model)} displayName={row.displayName ?? modelDisplayName(row.model)} size={20} />
-										<span class="truncate text-text-primary">{row.displayName ?? modelDisplayName(row.model)}</span>
-									</span>
-								</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.msgCount)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.promptTokens ?? 0)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.cachedInputTokens ?? 0)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.outputTokens ?? 0)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.reasoningTokens ?? 0)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.totalTokens ?? 0)}</td>
-								<td class="py-2 text-text-secondary">{formatUsd(row.totalCostUsd)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-	</section>
+{:else if analyticsData && system}
+	<div class="mb-4">
+		<PageSwitcher
+			items={tabs}
+			activeId={activeTab}
+			ariaLabel={$t('analytics.systemOverview')}
+			onChange={(id) => (activeTab = id as SystemTab)}
+		/>
+	</div>
 
-	{#if hasPerUser}
-		<section class="settings-card mb-4">
-			<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-				<h2 class="settings-section-title mb-0">{$t('analytics.perUserBreakdown')}</h2>
-				<div class="flex items-center gap-1">
-					<button
-						class="month-nav-btn"
-						onclick={prevSystemMonth}
-						disabled={systemAvailableMonths.length === 0}
-						aria-label={$t('analytics.previousPerUserMonth')}
-					>&larr;</button>
-					<span class="month-label">
-						{selectedSystemMonth ? formatMonth(selectedSystemMonth) : $t('analytics.allTime')}
-					</span>
-					<button
-						class="month-nav-btn"
-						onclick={nextSystemMonth}
-						disabled={systemAvailableMonths.length === 0}
-						aria-label={$t('analytics.nextPerUserMonth')}
-					>&rarr;</button>
-					{#if selectedSystemMonth}
-						<button class="month-alltime-btn" onclick={selectAllSystemTime}>
-							{$t('analytics.allTime')}
-						</button>
-					{/if}
-				</div>
-			</div>
-			<div style={`height: ${Math.min(perUserRows.slice(0, 10).length * 36 + 60, 420)}px; position: relative;`}>
-				<canvas bind:this={userChartCanvas}></canvas>
-			</div>
-			<div class="mt-5 overflow-x-auto">
-				<table class="analytics-table w-full text-sm">
-					<thead>
-						<tr class="border-b border-border text-left text-xs text-text-muted">
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.user')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.msgs')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.avgTime')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('promptTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('outputTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.reasoning')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.totalTokens')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.cost')}</th>
-							<th class="pb-2 pr-3 font-medium">{$t('analytics.model')}</th>
-							<th class="pb-2 font-medium">{$t('analytics.chats')}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each perUserRows as row}
-							<tr class="border-b border-border last:border-0">
-								<td class="py-2 pr-3">
-									<div class="font-medium text-text-primary">{row.displayName}</div>
-									<div class="text-xs text-text-muted">{row.email}</div>
-								</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.messageCount)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatMs(row.avgGenerationMs)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.promptTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.outputTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.reasoningTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatNum(row.totalTokens)}</td>
-								<td class="py-2 pr-3 text-text-secondary">{formatUsd(row.totalCostUsd)}</td>
-								<td class="py-2 pr-3 text-text-secondary">
-									{#if row.favoriteModel}
-										<span class="inline-flex min-w-0 items-center gap-2">
-											<ModelIcon iconUrl={modelIconUrl(row.favoriteModel)} displayName={modelDisplayName(row.favoriteModel)} size={20} />
-											<span>{modelDisplayName(row.favoriteModel)}</span>
-										</span>
-									{:else}
-										—
-									{/if}
-								</td>
-								<td class="py-2 text-text-secondary">{formatNum(row.conversationCount)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</section>
-	{/if}
-
-	{#if allUsers.length > 0}
-		<section class="settings-card mb-4">
-			<div class="flex items-center justify-between mb-3">
-				<h2 class="settings-section-title mb-0">{$t('analytics.excludedUsers')}</h2>
-				{#if excludedUsersSaveState !== "idle"}
-					<span
-						class="text-xs font-medium transition-opacity duration-200"
-						class:text-success={excludedUsersSaveState === "saved"}
-						class:text-danger={excludedUsersSaveState === "error"}
-						class:text-text-muted={excludedUsersSaveState === "saving"}
-					>
-						{#if excludedUsersSaveState === "saving"}
-							{$t('analytics.saving')}
-						{:else if excludedUsersSaveState === "saved"}
-							{$t('analytics.saved')}
-						{:else if excludedUsersSaveState === "error"}
-							{$t('analytics.saveFailed')}
-						{/if}
-					</span>
+	{#if activeTab === 'overview'}
+		<div role="tabpanel" id="system-analytics-overview-panel" aria-labelledby="system-analytics-overview-tab">
+			<AnalyticsCard title={$t('analytics.systemOverview')}>
+				{#snippet header()}
+					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+				{/snippet}
+				<StatGrid>
+					<StatCard
+						hero
+						value={formatUsd(system.totalCostUsd)}
+						label={$t('totalCost')}
+						comparison={costSplit}
+					/>
+					<StatCard value={formatNum(system.totalMessages)} label={$t('analytics.totalMessages')} />
+					<StatCard value={formatNum(system.totalTokens)} label={$t('analytics.totalTokens')} />
+					<StatCard value={formatNum(webCalls)} label={$t('analytics.webCalls')} />
+					<StatCard value={formatNum(system.totalUsers)} label={$t('analytics.activeUsers')} />
+					<StatCard value={formatNum(system.totalConversations ?? 0)} label={$t('analytics.totalConversations')} />
+				</StatGrid>
+				{#if (system.monthly ?? []).length > 0}
+					<div class="mt-5">
+						<p class="settings-label mb-3">{$t('analytics.monthlyCost')}</p>
+						<AnalyticsChart type="bar" data={monthlyCostData} options={monthlyCostOptions} height="220px" />
+					</div>
 				{/if}
-			</div>
-			<p class="text-xs text-text-muted mb-3">{$t('analytics.excludedUsersDescription')}</p>
-			<div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
-				{#each allUsers as user}
-					{@const excluded = excludedUserIds.includes(user.id)}
-					<label class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-page cursor-pointer">
-						<input
-							type="checkbox"
-							checked={excluded}
-							oninput={() => toggleExcludedUser(user.id)}
-							class="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+			</AnalyticsCard>
+		</div>
+	{:else if activeTab === 'byModel'}
+		<div role="tabpanel" id="system-analytics-bymodel-panel" aria-labelledby="system-analytics-bymodel-tab">
+			<AnalyticsCard title={$t('analytics.usageByModel')}>
+				{#snippet header()}
+					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+				{/snippet}
+				{#if modelRows.length > 0}
+					<SortableTable
+						columns={modelColumns}
+						rows={modelRows}
+						initialSort={{ key: 'cost', dir: 'desc' }}
+						filterable
+						filterKeys={['model', 'provider']}
+						filterPlaceholder={$t('analytics.filterModels')}
+						totalRow={modelTotalRow}
+					/>
+				{:else}
+					<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+				{/if}
+			</AnalyticsCard>
+		</div>
+	{:else if activeTab === 'parallel' && parallel}
+		<div role="tabpanel" id="system-analytics-parallel-panel" aria-labelledby="system-analytics-parallel-tab">
+			<AnalyticsCard title={$t('analytics.parallelApi')}>
+				{#snippet header()}
+					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+				{/snippet}
+				<StatGrid>
+					<StatCard value={formatNum(parallel.totalTurboCalls)} label={$t('analytics.turboSearches')} />
+					<StatCard value={formatNum(parallel.totalExtractCalls)} label={$t('analytics.extractFetches')} />
+					<StatCard hero value={formatUsd(parallelCostUsd)} label={$t('analytics.parallelCost')} />
+					<StatCard value={formatNum(parallelTotalCalls)} label={$t('analytics.totalCalls')} />
+				</StatGrid>
+				{#if (parallel.monthly ?? []).length > 0}
+					<div class="mt-5">
+						<p class="settings-label mb-3">{$t('analytics.parallelUsage')}</p>
+						<AnalyticsChart type="bar" data={parallelChartData} height="220px" />
+					</div>
+				{/if}
+			</AnalyticsCard>
+
+			{#if (parallel.monthly ?? []).length > 0}
+				<div class="mt-4">
+					<AnalyticsCard title={$t('analytics.monthlyBreakdown')}>
+						<SortableTable
+							columns={parallelColumns}
+							rows={parallelRows}
+							initialSort={{ key: 'month', dir: 'desc' }}
+							totalRow={parallelTotalRow}
 						/>
-						<span class="text-text-primary">{user.name || user.email}</span>
-						<span class="text-xs text-text-muted">{user.email}</span>
-					</label>
-				{/each}
-			</div>
-		</section>
+					</AnalyticsCard>
+				</div>
+			{/if}
+		</div>
+	{:else if activeTab === 'byUser'}
+		<div role="tabpanel" id="system-analytics-byuser-panel" aria-labelledby="system-analytics-byuser-tab">
+			<AnalyticsCard title={$t('analytics.perUserBreakdown')}>
+				{#snippet header()}
+					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+				{/snippet}
+				{#if perUserRows.length > 0}
+					<div class="mb-5">
+						<AnalyticsChart
+							type="bar"
+							data={userChartData}
+							options={userChartOptions}
+							height={`${Math.min(perUserRows.slice(0, 10).length * 36 + 60, 420)}px`}
+						/>
+					</div>
+					<SortableTable
+						columns={userColumns}
+						rows={userRows}
+						initialSort={{ key: 'messages', dir: 'desc' }}
+						filterable
+						filterKeys={['user', 'email']}
+						filterPlaceholder={$t('analytics.filterUsers')}
+					/>
+				{:else}
+					<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+				{/if}
+			</AnalyticsCard>
+
+			{#if allUsers.length > 0}
+				<div class="mt-4">
+					<AnalyticsCard>
+						<div class="mb-3 flex items-center justify-between">
+							<h3 class="text-[0.9375rem] font-semibold text-text-primary">{$t('analytics.excludedUsers')}</h3>
+							{#if excludedUsersSaveState !== 'idle'}
+								<span
+									class="text-xs font-medium transition-opacity duration-200"
+									class:text-success={excludedUsersSaveState === 'saved'}
+									class:text-danger={excludedUsersSaveState === 'error'}
+									class:text-text-muted={excludedUsersSaveState === 'saving'}
+								>
+									{#if excludedUsersSaveState === 'saving'}
+										{$t('analytics.saving')}
+									{:else if excludedUsersSaveState === 'saved'}
+										{$t('analytics.saved')}
+									{:else if excludedUsersSaveState === 'error'}
+										{$t('analytics.saveFailed')}
+									{/if}
+								</span>
+							{/if}
+						</div>
+						<p class="mb-3 text-xs text-text-muted">{$t('analytics.excludedUsersDescription')}</p>
+						<div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+							{#each allUsers as user}
+								{@const excluded = excludedUserIds.includes(user.id)}
+								<label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-page">
+									<input
+										type="checkbox"
+										checked={excluded}
+										oninput={() => toggleExcludedUser(user.id)}
+										class="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+									/>
+									<span class="text-text-primary">{user.name || user.email}</span>
+									<span class="text-xs text-text-muted">{user.email}</span>
+								</label>
+							{/each}
+						</div>
+					</AnalyticsCard>
+				</div>
+			{/if}
+		</div>
 	{/if}
 {:else}
 	<div class="settings-card py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>

@@ -89,7 +89,7 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		expect(getByText("June 2026")).toBeInTheDocument();
 	});
 
-	it("selects the previous available month from All Time instead of the oldest month", async () => {
+	it("steps from All Time to the newest month via the shared MonthNav", async () => {
 		const onMonthChange = vi.fn();
 		const { getByLabelText } = render(SettingsPersonalAnalytics, {
 			analyticsData: personalFixture(),
@@ -101,7 +101,41 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 
 		await fireEvent.click(getByLabelText("Previous month"));
 
-		expect(onMonthChange).toHaveBeenCalledWith("2026-05");
+		// Shared MonthNav steps from all-time into the newest available month.
+		expect(onMonthChange).toHaveBeenCalledWith("2026-06");
+	});
+
+	it("switches to the Usage by model tab and renders the model table", async () => {
+		const data: AnalyticsResponse = {
+			...personalFixture(),
+			personal: {
+				...personalFixture().personal,
+				byModel: [
+					{
+						model: "model1",
+						displayName: "Model One",
+						msgCount: 4,
+						totalTokens: 250,
+						totalCostUsd: 1.5,
+					},
+				],
+			},
+		};
+		const { getByRole, getByText, getAllByText } = render(
+			SettingsPersonalAnalytics,
+			{
+				analyticsData: data,
+				modelNames: {},
+				onRetry: vi.fn(),
+				selectedMonth: "2026-06",
+			},
+		);
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+
+		expect(getByText("Model One")).toBeInTheDocument();
+		// 250 appears in both the model row and the pinned total row.
+		expect(getAllByText("250").length).toBeGreaterThan(0);
 	});
 
 	it("shows a graceful empty state when there is no data yet", () => {
