@@ -22,12 +22,24 @@ const ANSWER_BRIEF_INSTRUCTIONS = [
 
 export interface ResearchWebViaParallelRequest {
 	query: string;
+	// Optional model-supplied intent sentence. Falls back to `query`.
+	objective?: string;
+	// Optional model-supplied keyword queries (distinct angles). Falls back to
+	// `[query]` when omitted or empty.
+	searchQueries?: string[];
 }
 
 export interface ResearchWebViaParallelDeps {
 	fetch: typeof fetch;
 	config: ParallelClientConfig;
 	signal?: AbortSignal;
+}
+
+export interface ResearchWebViaParallelOptions {
+	// Groups this search with related follow-ups (we pass the conversation id).
+	sessionId?: string;
+	// Per-result excerpt size passed through to the Parallel search request.
+	excerptMaxChars?: number;
 }
 
 function buildAnswerBriefMarkdown(
@@ -53,13 +65,18 @@ function buildAnswerBriefMarkdown(
 export async function researchWebViaParallel(
 	req: ResearchWebViaParallelRequest,
 	deps: ResearchWebViaParallelDeps,
+	opts?: ResearchWebViaParallelOptions,
 ): Promise<GroundedWebResult> {
 	const startedAt = Date.now();
 	const results = await parallelSearch(
 		{
-			objective: req.query,
-			searchQueries: [req.query],
+			objective: req.objective ?? req.query,
+			searchQueries: req.searchQueries?.length
+				? req.searchQueries
+				: [req.query],
 			mode: "turbo",
+			sessionId: opts?.sessionId,
+			excerptMaxChars: opts?.excerptMaxChars,
 		},
 		deps,
 	);

@@ -57,6 +57,12 @@ describe("prompts", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/sourcePolicy/);
 	});
 
+	it("invites the model to add an objective and short keyword searchQueries to research_web", () => {
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"objective"');
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain('"searchQueries"');
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("2-3 short keyword queries");
+	});
+
 	it("teaches the unified produce_file contract in the built-in assistant prompt", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("produce_file");
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain("simple produce_file form");

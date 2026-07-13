@@ -55,6 +55,9 @@ vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		parallelApiKey: "parallel-key",
 		parallelBaseUrl: "https://api.parallel.ai",
+		// Builtin model context windows used to size fetch_url content.
+		model1MaxModelContext: 64_000,
+		model2MaxModelContext: 200_000,
 	})),
 }));
 vi.mock("$lib/server/services/connections/resolve", async () => {
@@ -199,6 +202,46 @@ function makeFileProductionJob(
 		dismissed: false,
 		error: null,
 		...overrides,
+	};
+}
+
+// A minimal empty GroundedWebResult for fetch_url mocks that only care about
+// the call args (not the mapped output).
+function emptyGroundedFetchResult(query: string) {
+	return {
+		query,
+		queries: [{ query }],
+		sources: [],
+		evidence: [],
+		answerBrief: {
+			markdown: "",
+			instructions: ["Answer only from these fetched pages."],
+		},
+		diagnostics: {
+			mode: "fetch" as const,
+			freshness: "auto" as const,
+			sourcePolicy: "general" as const,
+			plannedQueryCount: 0,
+			directUrlCount: 1,
+			fetchedSourceCount: 0,
+			fusedSourceCount: 0,
+			selectedSourceCount: 0,
+			openedPageCount: 1,
+			pageExtraction: {
+				attemptedCount: 1,
+				succeededCount: 0,
+				cacheHitCount: 0,
+				lowQualityCount: 0,
+				blockedCount: 0,
+				failedCount: 1,
+				totalLatencyMs: 0,
+			},
+			evidenceCandidateCount: 0,
+			exactEvidenceCandidateCount: 0,
+			reranked: false,
+			sourceReranked: false,
+			fallbackReasons: [],
+		},
 	};
 }
 
@@ -858,6 +901,8 @@ describe("createNormalChatTools", () => {
 		const result = await tools.research_web.execute(
 			{
 				query: "latest Vercel AI SDK tool API",
+				objective: "Find the current Vercel AI SDK tool-calling API shape",
+				searchQueries: ["Vercel AI SDK tool API", "ai-sdk tool inputSchema"],
 			},
 			{
 				toolCallId: "call-research",
@@ -868,6 +913,8 @@ describe("createNormalChatTools", () => {
 		expect(researchWebViaParallelMock).toHaveBeenCalledWith(
 			{
 				query: "latest Vercel AI SDK tool API",
+				objective: "Find the current Vercel AI SDK tool-calling API shape",
+				searchQueries: ["Vercel AI SDK tool API", "ai-sdk tool inputSchema"],
 			},
 			{
 				fetch: expect.any(Function),
@@ -877,6 +924,7 @@ describe("createNormalChatTools", () => {
 				},
 				signal: expect.any(AbortSignal),
 			},
+			{ sessionId: "conversation-1", excerptMaxChars: 2000 },
 		);
 		expect(result).toMatchObject({
 			success: true,
@@ -908,6 +956,8 @@ describe("createNormalChatTools", () => {
 				name: "research_web",
 				input: {
 					query: "latest Vercel AI SDK tool API",
+					objective: "Find the current Vercel AI SDK tool-calling API shape",
+					searchQueries: ["Vercel AI SDK tool API", "ai-sdk tool inputSchema"],
 				},
 				status: "done",
 				outputSummary: "Web research returned 1 source and 1 evidence snippet.",
@@ -1243,6 +1293,9 @@ describe("createNormalChatTools", () => {
 				},
 				signal: expect.any(AbortSignal),
 			},
+			// No modelId on ctx -> unknown capacity -> default 60k char cap; the
+			// fetch is chained to the conversation session.
+			{ sessionId: "conversation-1", maxCharsTotal: 60_000 },
 		);
 		// Reuses the shared grounded-web model payload builder, so the compact
 		// payload carries the web-grounding envelope (name "research_web") while
@@ -1290,6 +1343,57 @@ describe("createNormalChatTools", () => {
 				}),
 			}),
 		]);
+	});
+
+	it("sizes the fetch_url content cap to the selected model's context window", async () => {
+		fetchUrlViaParallelMock.mockResolvedValue(
+			emptyGroundedFetchResult("https://example.com"),
+		);
+
+		// Builtin "model2" resolves to model2MaxModelContext (200k tokens) from
+		// runtime config, whose char cap saturates at the 200k ceiling.
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-7",
+			turnId: "turn-1",
+			modelId: "model2",
+		});
+
+		await tools.fetch_url.execute(
+			{ urls: ["https://example.com"] },
+			{ toolCallId: "call-fetch-model2", messages: [] },
+		);
+
+		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
+			{ urls: ["https://example.com"] },
+			expect.objectContaining({ fetch: expect.any(Function) }),
+			{ sessionId: "conversation-7", maxCharsTotal: 200_000 },
+		);
+	});
+
+	it("uses the model1 context window when modelId is model1", async () => {
+		fetchUrlViaParallelMock.mockResolvedValue(
+			emptyGroundedFetchResult("https://example.com"),
+		);
+
+		// model1MaxModelContext = 64k tokens -> 64000 * 4 * 0.4 = 102400 chars.
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-8",
+			turnId: "turn-1",
+			modelId: "model1",
+		});
+
+		await tools.fetch_url.execute(
+			{ urls: ["https://example.com"] },
+			{ toolCallId: "call-fetch-model1", messages: [] },
+		);
+
+		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
+			{ urls: ["https://example.com"] },
+			expect.objectContaining({ fetch: expect.any(Function) }),
+			{ sessionId: "conversation-8", maxCharsTotal: 102_400 },
+		);
 	});
 
 	it("records fetch_url service failures without evidence-ready candidates", async () => {

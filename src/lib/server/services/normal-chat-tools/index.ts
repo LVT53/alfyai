@@ -14,6 +14,7 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
+import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -35,7 +36,11 @@ import {
 	runEmailTool,
 	sanitizeEmailToolInput,
 } from "./email";
-import { fetchUrlInputSchema, sanitizeFetchUrlInput } from "./fetch-url";
+import {
+	fetchUrlInputSchema,
+	resolveFetchContentCharCap,
+	sanitizeFetchUrlInput,
+} from "./fetch-url";
 import {
 	filesToolInputSchema,
 	runFilesTool,
@@ -370,11 +375,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						recorder,
 						run: async (abortSignal) => {
 							const { parallelApiKey, parallelBaseUrl } = getConfig();
-							const result = await researchWebViaParallel(safeInput, {
-								fetch,
-								config: { parallelApiKey, parallelBaseUrl },
-								signal: abortSignal,
-							});
+							const result = await researchWebViaParallel(
+								safeInput,
+								{
+									fetch,
+									config: { parallelApiKey, parallelBaseUrl },
+									signal: abortSignal,
+								},
+								{ sessionId: ctx.conversationId, excerptMaxChars: 2000 },
+							);
 							// Fire-and-forget Parallel Turbo usage tracking; never
 							// block or alter the tool result on analytics failure.
 							void recordParallelUsage({
@@ -445,11 +454,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						recorder,
 						run: async (abortSignal) => {
 							const { parallelApiKey, parallelBaseUrl } = getConfig();
-							const result = await fetchUrlViaParallel(safeInput, {
-								fetch,
-								config: { parallelApiKey, parallelBaseUrl },
-								signal: abortSignal,
-							});
+							// Size returned page content to the selected model's context
+							// window, and chain this fetch to the conversation's session.
+							const maxCharsTotal = resolveFetchContentCharCap(
+								await resolveModelContextTokens(ctx.modelId),
+							);
+							const result = await fetchUrlViaParallel(
+								safeInput,
+								{
+									fetch,
+									config: { parallelApiKey, parallelBaseUrl },
+									signal: abortSignal,
+								},
+								{ sessionId: ctx.conversationId, maxCharsTotal },
+							);
 							// Fire-and-forget Parallel Extract usage tracking; never
 							// block or alter the tool result on analytics failure.
 							void recordParallelUsage({
@@ -1683,6 +1701,42 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 	};
+}
+
+// Resolve the selected model's context window (in tokens) from ctx.modelId.
+// Composite ids (`provider:<providerId>:<modelId>`) resolve against the
+// provider-models table; builtin ids (model1/model2) resolve from runtime
+// config. Returns null when the model or its capacity can't be resolved, which
+// resolveFetchContentCharCap turns into a safe default cap.
+async function resolveModelContextTokens(
+	modelId: string | undefined,
+): Promise<number | null> {
+	if (!modelId) return null;
+	if (modelId.startsWith("provider:")) {
+		const parts = modelId.split(":");
+		if (parts.length >= 3) {
+			try {
+				const models = await listEnabledProviderModels(parts[1]);
+				const model = models.find((candidate) => candidate.id === parts[2]);
+				if (model) {
+					return (
+						model.maxModelContext ?? model.targetConstructedContext ?? null
+					);
+				}
+			} catch {
+				return null;
+			}
+		}
+		return null;
+	}
+	try {
+		const config = getConfig();
+		return modelId === "model2"
+			? (config.model2MaxModelContext ?? null)
+			: (config.model1MaxModelContext ?? null);
+	} catch {
+		return null;
+	}
 }
 
 async function getPreviousGeneratedFileContent(

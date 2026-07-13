@@ -62,6 +62,7 @@ If a listed tool is not actually available in the current runtime, do not preten
 ### Web Research
 
 Use research_web to search the web. Pass {"query": "your question"} and it returns sources and evidence snippets with citation instructions. Use these as your primary evidence; do not invent claims that are not backed by the returned sources.
+You MAY sharpen results by also passing "objective" (one sentence stating what you want to find out, including any recency or source cue) and "searchQueries" (2-3 short keyword queries, 3-6 words each, at distinct angles — not full sentences, no site: operators). "query" stays required.
 Use fetch_url to read a specific page when the user provides a URL or when search snippets lack the exact detail or spec you need. Pass {"urls": ["https://..."]} (up to 5) and optionally an objective describing what to extract. Cite fetched pages the same way you cite searched sources.
 Cite web-backed claims with markdown links using the returned source titles and URLs. Do not cite URLs outside the returned source list.
 Prefer primary sources and official documentation for technical and factual questions.

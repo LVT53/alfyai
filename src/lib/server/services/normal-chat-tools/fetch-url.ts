@@ -33,3 +33,39 @@ export function sanitizeFetchUrlInput(input: FetchUrlInput): FetchUrlInput {
 		...(objective ? { objective } : {}),
 	};
 }
+
+// ── Model-aware fetched-content cap ────────────────────────────
+//
+// fetch_url returns detailed full_content. To keep a big page from crowding out
+// the rest of a small model's context window — while letting large-context
+// models see more — we size the returned content to a fraction of the model's
+// window, expressed in characters (~4 chars/token). Most pages are ~10-35KB, so
+// the cap rarely bites; it's a guardrail, not a routine trim.
+const FETCH_CONTENT_CONTEXT_FRACTION = 0.4;
+const FETCH_CONTENT_CHARS_PER_TOKEN = 4;
+const FETCH_CONTENT_CHAR_FLOOR = 20_000;
+const FETCH_CONTENT_CHAR_CEILING = 200_000;
+const FETCH_CONTENT_CHAR_DEFAULT = 60_000;
+
+/**
+ * Compute the max total characters of page content to request for a fetch,
+ * given the selected model's context window in tokens. Roughly 40% of the
+ * window converted to chars, clamped to a floor/ceiling. Returns a safe default
+ * when the capacity is unknown (null/undefined/non-positive).
+ */
+export function resolveFetchContentCharCap(
+	contextTokens: number | null | undefined,
+): number {
+	if (!contextTokens || contextTokens <= 0) {
+		return FETCH_CONTENT_CHAR_DEFAULT;
+	}
+	const raw = Math.floor(
+		contextTokens *
+			FETCH_CONTENT_CHARS_PER_TOKEN *
+			FETCH_CONTENT_CONTEXT_FRACTION,
+	);
+	return Math.min(
+		FETCH_CONTENT_CHAR_CEILING,
+		Math.max(FETCH_CONTENT_CHAR_FLOOR, raw),
+	);
+}

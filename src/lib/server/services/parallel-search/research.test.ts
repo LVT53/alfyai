@@ -170,6 +170,92 @@ describe("researchWebViaParallel", () => {
 		expect(result.diagnostics.evidenceCandidateCount).toBe(0);
 	});
 
+	it("forwards the model-supplied objective and searchQueries to the search body", async () => {
+		let capturedBody: Record<string, unknown> | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return jsonResponse(twoResultBody);
+			},
+		);
+
+		await researchWebViaParallel(
+			{
+				query: "widget price",
+				objective: "Find the current retail price of the widget in 2026",
+				searchQueries: ["widget price 2026", "widget retail cost"],
+			},
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(capturedBody?.objective).toBe(
+			"Find the current retail price of the widget in 2026",
+		);
+		expect(capturedBody?.search_queries).toEqual([
+			"widget price 2026",
+			"widget retail cost",
+		]);
+		expect(capturedBody?.mode).toBe("turbo");
+	});
+
+	it("falls back to the raw query for objective and search_queries when omitted", async () => {
+		let capturedBody: Record<string, unknown> | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return jsonResponse(twoResultBody);
+			},
+		);
+
+		await researchWebViaParallel(
+			{ query: "widget price" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(capturedBody?.objective).toBe("widget price");
+		expect(capturedBody?.search_queries).toEqual(["widget price"]);
+		expect(capturedBody?.session_id).toBeUndefined();
+		expect(capturedBody?.advanced_settings).toBeUndefined();
+	});
+
+	it("also falls back when searchQueries is an empty array", async () => {
+		let capturedBody: Record<string, unknown> | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return jsonResponse(twoResultBody);
+			},
+		);
+
+		await researchWebViaParallel(
+			{ query: "widget price", searchQueries: [] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(capturedBody?.search_queries).toEqual(["widget price"]);
+	});
+
+	it("threads sessionId and excerptMaxChars from opts into the search body", async () => {
+		let capturedBody: Record<string, unknown> | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				capturedBody = JSON.parse(init?.body as string);
+				return jsonResponse(twoResultBody);
+			},
+		);
+
+		await researchWebViaParallel(
+			{ query: "widget price" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+			{ sessionId: "conversation-42", excerptMaxChars: 2000 },
+		);
+
+		expect(capturedBody?.session_id).toBe("conversation-42");
+		expect(capturedBody?.advanced_settings).toEqual({
+			excerpt_settings: { max_chars_per_result: 2000 },
+		});
+	});
+
 	it("propagates an aborted fetch rejection", async () => {
 		const controller = new AbortController();
 		controller.abort();

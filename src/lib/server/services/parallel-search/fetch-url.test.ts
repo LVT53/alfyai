@@ -57,14 +57,15 @@ describe("fetchUrlViaParallel", () => {
 			provider: "parallel",
 			authorityClass: "standard",
 			authorityScore: 60,
-			snippet: "A excerpt one",
+			// full_content is the primary snippet source now (detailed page body).
+			snippet: "full content of page A",
 			highlights: ["A excerpt one", "A excerpt two"],
 			providerRank: 0,
 			publishedAt: "2026-02-03",
 			updatedAt: null,
 		});
 
-		// Second result has no excerpts: snippet falls back to sliced full_content.
+		// Second result has no excerpts: snippet still comes from full_content.
 		expect(b.id).toBe("e1");
 		expect(b.providerRank).toBe(1);
 		expect(b.publishedAt).toBeNull();
@@ -72,7 +73,7 @@ describe("fetchUrlViaParallel", () => {
 		expect(b.highlights).toEqual([]);
 	});
 
-	it("emits one evidence per excerpt with descending scores", async () => {
+	it("emits a full_content quote plus one evidence per excerpt with descending scores", async () => {
 		const fetchMock = vi.fn(async () => extractResponse());
 
 		const result = await fetchUrlViaParallel(
@@ -81,17 +82,18 @@ describe("fetchUrlViaParallel", () => {
 		);
 
 		const fromA = result.evidence.filter((e) => e.sourceId === "e0");
-		expect(fromA).toHaveLength(2);
+		// full_content quote (primary) followed by the two targeted excerpts.
+		expect(fromA).toHaveLength(3);
 		expect(fromA[0]).toMatchObject({
 			id: "e0q0",
 			sourceId: "e0",
 			title: "Page A",
 			url: "https://example.com/a",
 			provider: "parallel",
-			quote: "A excerpt one",
+			quote: "full content of page A",
 		});
-		expect(fromA[1].id).toBe("e0q1");
-		expect(fromA[1].quote).toBe("A excerpt two");
+		expect(fromA[1]).toMatchObject({ id: "e0q1", quote: "A excerpt one" });
+		expect(fromA[2]).toMatchObject({ id: "e0q2", quote: "A excerpt two" });
 
 		// Scores strictly descending across the whole evidence array.
 		for (let i = 1; i < result.evidence.length; i++) {
@@ -226,6 +228,73 @@ describe("fetchUrlViaParallel", () => {
 		expect(body?.objective).toBe(
 			"Extract the key facts, details, and specifications from these pages.",
 		);
+	});
+
+	it("requests detailed full_content on every extract call", async () => {
+		let body: { advanced_settings?: { full_content?: boolean } } | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				body = JSON.parse(init?.body as string);
+				return extractResponse();
+			},
+		);
+
+		await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(body?.advanced_settings?.full_content).toBe(true);
+	});
+
+	it("passes sessionId, maxCharsTotal, and searchQueries through to extract", async () => {
+		let body:
+			| {
+					session_id?: string;
+					max_chars_total?: number;
+					search_queries?: string[];
+					advanced_settings?: { full_content?: boolean };
+			  }
+			| undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				body = JSON.parse(init?.body as string);
+				return extractResponse();
+			},
+		);
+
+		await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+			{
+				sessionId: "conversation-9",
+				maxCharsTotal: 100_000,
+				searchQueries: ["price", "specs"],
+			},
+		);
+
+		expect(body?.session_id).toBe("conversation-9");
+		expect(body?.max_chars_total).toBe(100_000);
+		expect(body?.search_queries).toEqual(["price", "specs"]);
+		expect(body?.advanced_settings?.full_content).toBe(true);
+	});
+
+	it("omits sessionId and maxCharsTotal when no opts are supplied", async () => {
+		let body: { session_id?: string; max_chars_total?: number } | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				body = JSON.parse(init?.body as string);
+				return extractResponse();
+			},
+		);
+
+		await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(body?.session_id).toBeUndefined();
+		expect(body?.max_chars_total).toBeUndefined();
 	});
 
 	it("forwards the abort signal to fetch", async () => {

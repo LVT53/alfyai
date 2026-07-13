@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type FetchUrlInput,
 	fetchUrlInputSchema,
+	resolveFetchContentCharCap,
 	sanitizeFetchUrlInput,
 } from "./fetch-url";
 
@@ -113,5 +114,28 @@ describe("sanitizeFetchUrlInput", () => {
 		const input: FetchUrlInput = { urls: ["https://a.com"] };
 		const result = sanitizeFetchUrlInput(input);
 		expect("objective" in result).toBe(false);
+	});
+});
+
+describe("resolveFetchContentCharCap", () => {
+	it("clamps a small context window up to the floor", () => {
+		// 4k tokens -> 4000 * 4 * 0.4 = 6400 chars, below the 20k floor.
+		expect(resolveFetchContentCharCap(4_000)).toBe(20_000);
+	});
+
+	it("clamps a huge context window down to the ceiling", () => {
+		// 1M tokens -> 1.6M chars, above the 200k ceiling.
+		expect(resolveFetchContentCharCap(1_000_000)).toBe(200_000);
+	});
+
+	it("scales linearly for a mid-range context window", () => {
+		// 64k tokens -> 64000 * 4 * 0.4 = 102400 chars, between the bounds.
+		expect(resolveFetchContentCharCap(64_000)).toBe(102_400);
+	});
+
+	it("falls back to a safe default when the capacity is unknown", () => {
+		expect(resolveFetchContentCharCap(undefined)).toBe(60_000);
+		expect(resolveFetchContentCharCap(null)).toBe(60_000);
+		expect(resolveFetchContentCharCap(0)).toBe(60_000);
 	});
 });

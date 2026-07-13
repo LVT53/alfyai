@@ -32,6 +32,16 @@ export interface FetchUrlRequest {
 	objective?: string;
 }
 
+// Optional tuning threaded through from the tool layer. sessionId groups this
+// fetch with the conversation's other Parallel calls so the API can reuse
+// cross-call context; maxCharsTotal sizes returned content to the consuming
+// model's context window; searchQueries sharpen the returned excerpts.
+export interface FetchUrlOptions {
+	sessionId?: string;
+	maxCharsTotal?: number;
+	searchQueries?: string[];
+}
+
 function buildAnswerBrief(sources: GroundedWebSource[]): string {
 	if (sources.length === 0) {
 		return "";
@@ -50,14 +60,22 @@ function buildAnswerBrief(sources: GroundedWebSource[]): string {
 export async function fetchUrlViaParallel(
 	req: FetchUrlRequest,
 	deps: ParallelClientDeps,
+	opts?: FetchUrlOptions,
 ): Promise<GroundedWebResult> {
 	const startedAt = Date.now();
 	const results = await parallelExtract(
 		{
 			urls: req.urls,
 			objective: req.objective ?? DEFAULT_OBJECTIVE,
-			fullContent: false,
+			// Detailed page content: the model reads full_content, not just
+			// excerpts. maxCharsTotal (below) keeps it sized to the model.
+			fullContent: true,
 			maxAgeSeconds: DEFAULT_MAX_AGE_SECONDS,
+			...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+			...(opts?.maxCharsTotal ? { maxCharsTotal: opts.maxCharsTotal } : {}),
+			...(opts?.searchQueries?.length
+				? { searchQueries: opts.searchQueries }
+				: {}),
 		},
 		deps,
 	);
@@ -70,11 +88,11 @@ export async function fetchUrlViaParallel(
 		provider: "parallel",
 		authorityClass: "standard",
 		authorityScore: 60,
-		snippet:
-			result.excerpts[0] ??
-			(result.full_content
-				? result.full_content.slice(0, SNIPPET_CHARS)
-				: null),
+		// full_content is now the primary snippet source (detailed page body);
+		// fall back to the first excerpt when a page returned no full_content.
+		snippet: result.full_content
+			? result.full_content.slice(0, SNIPPET_CHARS)
+			: (result.excerpts[0] ?? null),
 		highlights: result.excerpts,
 		providerRank: index,
 		publishedAt: result.publish_date,
@@ -87,24 +105,11 @@ export async function fetchUrlViaParallel(
 		if (evidence.length >= MAX_EVIDENCE) {
 			break;
 		}
-		if (result.excerpts.length > 0) {
-			for (let j = 0; j < result.excerpts.length; j++) {
-				if (evidence.length >= MAX_EVIDENCE) {
-					break;
-				}
-				evidence.push({
-					id: `e${i}q${j}`,
-					sourceId: `e${i}`,
-					title: result.title,
-					url: result.url,
-					provider: "parallel",
-					quote: result.excerpts[j],
-					score: 0,
-				});
-			}
-		} else if (result.full_content) {
+		let quoteIndex = 0;
+		// Primary: a detailed quote from full_content when present.
+		if (result.full_content) {
 			evidence.push({
-				id: `e${i}q0`,
+				id: `e${i}q${quoteIndex}`,
 				sourceId: `e${i}`,
 				title: result.title,
 				url: result.url,
@@ -112,6 +117,23 @@ export async function fetchUrlViaParallel(
 				quote: result.full_content.slice(0, FULL_CONTENT_QUOTE_CHARS),
 				score: 0,
 			});
+			quoteIndex++;
+		}
+		// Secondary: the targeted excerpts, still emitted when present.
+		for (let j = 0; j < result.excerpts.length; j++) {
+			if (evidence.length >= MAX_EVIDENCE) {
+				break;
+			}
+			evidence.push({
+				id: `e${i}q${quoteIndex}`,
+				sourceId: `e${i}`,
+				title: result.title,
+				url: result.url,
+				provider: "parallel",
+				quote: result.excerpts[j],
+				score: 0,
+			});
+			quoteIndex++;
 		}
 	}
 
