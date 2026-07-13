@@ -137,6 +137,7 @@ export async function executeNextAtlasJob(
 						queries,
 						config: {
 							parallelApiKey: config.parallelApiKey,
+							parallelBaseUrl: config.parallelBaseUrl,
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
 							maxAcceptedSources: profileConfig.maxAcceptedWebSources,

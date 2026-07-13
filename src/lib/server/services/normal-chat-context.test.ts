@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	getSystemPrompt: vi.fn(),
 	listContextCompressionSourceMessages: vi.fn(),
+	fetchUrlViaParallel: vi.fn(),
 	logAttachmentTrace: vi.fn(),
 	researchWebViaParallel: vi.fn(),
 	runContextCompression: vi.fn(),
@@ -44,6 +45,10 @@ vi.mock("./context-compression", () => ({
 
 vi.mock("./parallel-search/research", () => ({
 	researchWebViaParallel: mocks.researchWebViaParallel,
+}));
+
+vi.mock("./parallel-search/fetch-url", () => ({
+	fetchUrlViaParallel: mocks.fetchUrlViaParallel,
 }));
 
 vi.mock("./chat-turn/proactive-connector-context", () => ({
@@ -388,7 +393,7 @@ describe("prepareOutboundChatContext", () => {
 			preview: "",
 			previewHash: "",
 		});
-		mocks.researchWebViaParallel.mockResolvedValue({
+		const groundedWebResult = {
 			query: "What changed today?",
 			queries: [{ query: "What changed today?", purpose: "exact" }],
 			sources: [
@@ -470,7 +475,9 @@ describe("prepareOutboundChatContext", () => {
 				youtubeTranscriptErrors: [],
 				fallbackReasons: [],
 			},
-		});
+		};
+		mocks.researchWebViaParallel.mockResolvedValue(groundedWebResult);
+		mocks.fetchUrlViaParallel.mockResolvedValue(groundedWebResult);
 	});
 
 	it("describes produce_file using direct AI SDK tool inputs without Langflow-era wording", () => {
@@ -754,7 +761,7 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).toContain(
 			"Do not expose chain-of-thought or scratchpad reasoning",
 		);
-		expect(prompt).toContain("you may use up to 12 sources");
+		expect(prompt).not.toContain("Source budget");
 		expect(prompt).not.toContain("Current-turn forced web retrieval");
 	});
 
@@ -1471,14 +1478,17 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(mocks.researchWebViaParallel).toHaveBeenCalledWith(
-			expect.objectContaining({ query: `What does this page say? ${url}` }),
+		expect(mocks.fetchUrlViaParallel).toHaveBeenCalledWith(
+			expect.objectContaining({ urls: [url] }),
 			expect.objectContaining({
 				config: { parallelApiKey: "parallel-key" },
 			}),
 		);
+		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
 		expect(prepared.inputValue).toContain("## Current Web Research");
-		expect(prepared.inputValue).toContain("because the user pasted a URL");
+		expect(prepared.inputValue).toContain(
+			"Server-prefetched page content for the pasted URL",
+		);
 		expect(prepared.inputValue).toContain(url);
 		expect(prepared.prefetchedToolCalls).toEqual([
 			expect.objectContaining({

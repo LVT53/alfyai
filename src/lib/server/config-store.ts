@@ -80,6 +80,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"OWNTRACKS_RECORDER_USER",
 	"OWNTRACKS_RECORDER_PASS",
 	"PARALLEL_API_KEY",
+	"PARALLEL_BASE_URL",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -204,6 +205,7 @@ export interface RuntimeConfig {
 	owntracksRecorderUser: string;
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
+	parallelBaseUrl: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -663,7 +665,10 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		config.owntracksRecorderPass = value;
 	},
 	PARALLEL_API_KEY: (config, value) => {
-		config.parallelApiKey = value;
+		config.parallelApiKey = value.trim();
+	},
+	PARALLEL_BASE_URL: (config, value) => {
+		config.parallelBaseUrl = value.trim() || "https://api.parallel.ai";
 	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
@@ -1133,6 +1138,7 @@ export function getResolvedAdminConfigValues(
 		OWNTRACKS_RECORDER_USER: config.owntracksRecorderUser,
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		PARALLEL_API_KEY: config.parallelApiKey,
+		PARALLEL_BASE_URL: config.parallelBaseUrl,
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",

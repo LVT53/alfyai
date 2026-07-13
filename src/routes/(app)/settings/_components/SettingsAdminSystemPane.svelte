@@ -1289,6 +1289,7 @@ function placeholderFor(key: string): string {
 				placeholder={placeholderFor('BRAVE_SEARCH_API_KEY')}
 				autocomplete="off"
 			/>
+			<p class="mt-1 text-xs text-text-muted">{$t('admin.braveSearchApiKeyDescription')}</p>
 		</div>
 	</div>
 </section>

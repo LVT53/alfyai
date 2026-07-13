@@ -87,7 +87,6 @@ const mocks = vi.hoisted(() => ({
 	getLatestValidContextCompressionSnapshot: vi.fn(),
 	listContextCompressionSourceMessages: vi.fn(),
 	runContextCompression: vi.fn(),
-	researchWeb: vi.fn(),
 	isConversationIncognito: vi.fn(),
 	isMemoryActiveForConversation: vi.fn(),
 	isUserMemoryEnabled: vi.fn(),
@@ -227,9 +226,6 @@ vi.mock("$lib/server/services/context-compression", () => ({
 	listContextCompressionSourceMessages:
 		mocks.listContextCompressionSourceMessages,
 	runContextCompression: mocks.runContextCompression,
-}));
-vi.mock("$lib/server/services/web-research", () => ({
-	researchWeb: mocks.researchWeb,
 }));
 vi.mock("$lib/server/services/memory-controls", () => ({
 	isConversationIncognito: mocks.isConversationIncognito,
@@ -674,7 +670,6 @@ describe("locality — 8.1 whole-outbound-context locality (I1, REQUIRED)", () =
 		mocks.listContextCompressionSourceMessages.mockReset();
 		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
 		mocks.runContextCompression.mockReset();
-		mocks.researchWeb.mockReset();
 	});
 
 	it("with Option A on + cloud model + calendar/email active, neither the injected block NOR the whole assembled outbound context string carries a raw event title/location/email subject/sender — distilled only", async () => {

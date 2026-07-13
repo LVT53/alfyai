@@ -368,10 +368,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async (abortSignal) => {
-							const parallelApiKey = getConfig().parallelApiKey;
+							const { parallelApiKey, parallelBaseUrl } = getConfig();
 							const result = await researchWebViaParallel(safeInput, {
 								fetch,
-								config: { parallelApiKey },
+								config: { parallelApiKey, parallelBaseUrl },
 								signal: abortSignal,
 							});
 							const modelPayload = buildGroundedWebModelPayload(result);
@@ -436,10 +436,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async (abortSignal) => {
-							const parallelApiKey = getConfig().parallelApiKey;
+							const { parallelApiKey, parallelBaseUrl } = getConfig();
 							const result = await fetchUrlViaParallel(safeInput, {
 								fetch,
-								config: { parallelApiKey },
+								config: { parallelApiKey, parallelBaseUrl },
 								signal: abortSignal,
 							});
 							const modelPayload = buildGroundedWebModelPayload(result);

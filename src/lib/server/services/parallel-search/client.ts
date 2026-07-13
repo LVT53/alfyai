@@ -13,7 +13,12 @@
 export type ParallelMode = "turbo" | "basic" | "advanced";
 
 // Narrow local config: do NOT widen this to import env.ts / config-store.
-export type ParallelClientConfig = { parallelApiKey: string };
+// parallelBaseUrl is optional and defaults to the production host; it exists so
+// tests (and self-hosted deployments) can point the client at a local server.
+export type ParallelClientConfig = {
+	parallelApiKey: string;
+	parallelBaseUrl?: string;
+};
 
 export interface ParallelClientDeps {
 	fetch: typeof fetch;
@@ -63,8 +68,22 @@ export interface ParallelExtractRequest {
 	fullContent?: boolean;
 }
 
-const SEARCH_ENDPOINT = "https://api.parallel.ai/v1/search";
-const EXTRACT_ENDPOINT = "https://api.parallel.ai/v1/extract";
+const DEFAULT_PARALLEL_BASE_URL = "https://api.parallel.ai";
+
+function searchEndpoint(config: ParallelClientConfig): string {
+	return `${resolveBaseUrl(config)}/v1/search`;
+}
+
+function extractEndpoint(config: ParallelClientConfig): string {
+	return `${resolveBaseUrl(config)}/v1/extract`;
+}
+
+function resolveBaseUrl(config: ParallelClientConfig): string {
+	return (config.parallelBaseUrl || DEFAULT_PARALLEL_BASE_URL).replace(
+		/\/+$/,
+		"",
+	);
+}
 
 const MAX_QUERIES = 5;
 const MAX_QUERY_CHARS = 200;
@@ -87,7 +106,7 @@ export async function parallelSearch(
 	req: ParallelSearchRequest,
 	deps: ParallelClientDeps,
 ): Promise<ParallelSearchResult[]> {
-	const res = await deps.fetch(SEARCH_ENDPOINT, {
+	const res = await deps.fetch(searchEndpoint(deps.config), {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
@@ -122,7 +141,7 @@ export async function parallelExtract(
 		);
 	}
 
-	const res = await deps.fetch(EXTRACT_ENDPOINT, {
+	const res = await deps.fetch(extractEndpoint(deps.config), {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",

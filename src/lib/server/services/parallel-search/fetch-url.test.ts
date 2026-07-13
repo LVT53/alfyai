@@ -115,6 +115,46 @@ describe("fetchUrlViaParallel", () => {
 		expect(fromB[0].quote).toBe("B full content ".repeat(100).slice(0, 900));
 	});
 
+	it("caps total evidence at 12 quotes across pages", async () => {
+		// Two pages with 8 excerpts each = 16 total, exceeding the MAX_EVIDENCE cap.
+		const manyExcerptsResponse = jsonResponse({
+			extract_id: "ex-cap",
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: Array.from({ length: 8 }, (_, i) => `A excerpt ${i}`),
+					full_content: "full A",
+				},
+				{
+					url: "https://example.com/b",
+					title: "Page B",
+					publish_date: null,
+					excerpts: Array.from({ length: 8 }, (_, i) => `B excerpt ${i}`),
+					full_content: "full B",
+				},
+			],
+			errors: [],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => manyExcerptsResponse);
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a", "https://example.com/b"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(result.evidence).toHaveLength(12);
+		// Scores remain strictly descending even at the cap.
+		for (let i = 1; i < result.evidence.length; i++) {
+			expect(result.evidence[i].score).toBeLessThan(
+				result.evidence[i - 1].score,
+			);
+		}
+	});
+
 	it("produces a non-empty answer brief and query metadata", async () => {
 		const fetchMock = vi.fn(async () => extractResponse());
 

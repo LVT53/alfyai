@@ -80,6 +80,7 @@ vi.mock("../env", () => ({
 		atlasMaxWriterPromptChars: 80000,
 		composerCommandRegistryEnabled: true,
 		parallelApiKey: "",
+		parallelBaseUrl: "https://api.parallel.ai",
 	},
 	envConfig: {
 		workingSetDocumentTokenBudget: 4000,
@@ -126,6 +127,7 @@ vi.mock("../env", () => ({
 		atlasMaxWriterPromptChars: 80000,
 		composerCommandRegistryEnabled: true,
 		parallelApiKey: "",
+		parallelBaseUrl: "https://api.parallel.ai",
 	},
 }));
 
@@ -315,13 +317,45 @@ describe("Knowledge Store Config", () => {
 		it("getConfig() should expose and override the Parallel API key", async () => {
 			expect(getConfig()).toMatchObject({ parallelApiKey: "" });
 
-			adminConfigRows = [{ key: "PARALLEL_API_KEY", value: "parallel-key" }];
+			adminConfigRows = [
+				{ key: "PARALLEL_API_KEY", value: "  parallel-key  " },
+			];
 
 			await refreshConfig();
 
+			// Value is trimmed by the setter.
 			expect(getConfig()).toMatchObject({ parallelApiKey: "parallel-key" });
 			expect(getResolvedAdminConfigValues()).toMatchObject({
 				PARALLEL_API_KEY: "parallel-key",
+			});
+		});
+
+		it("getConfig() should expose and override the Parallel base URL", async () => {
+			expect(getConfig()).toMatchObject({
+				parallelBaseUrl: "https://api.parallel.ai",
+			});
+
+			adminConfigRows = [
+				{ key: "PARALLEL_BASE_URL", value: "http://127.0.0.1:4321" },
+			];
+
+			await refreshConfig();
+
+			expect(getConfig()).toMatchObject({
+				parallelBaseUrl: "http://127.0.0.1:4321",
+			});
+			expect(getResolvedAdminConfigValues()).toMatchObject({
+				PARALLEL_BASE_URL: "http://127.0.0.1:4321",
+			});
+		});
+
+		it("getConfig() should fall back to the default Parallel base URL when blank", async () => {
+			adminConfigRows = [{ key: "PARALLEL_BASE_URL", value: "   " }];
+
+			await refreshConfig();
+
+			expect(getConfig()).toMatchObject({
+				parallelBaseUrl: "https://api.parallel.ai",
 			});
 		});
 

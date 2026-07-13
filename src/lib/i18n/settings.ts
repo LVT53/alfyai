@@ -40,6 +40,8 @@ const settingsDict = {
 		"admin.baseUrl": "Base URL",
 		"admin.baseUrlPlaceholder": "e.g. https://api.openai.com/v1",
 		"admin.braveSearchApiKey": "Brave Search API Key",
+		"admin.braveSearchApiKeyDescription":
+			"API key for the Brave Search image-search service. Leave empty to disable Brave-backed image search.",
 		"admin.campaigns.actionLabelEn": "English action label",
 		"admin.campaigns.actionLabelHu": "Hungarian action label",
 		"admin.campaigns.actionUrl": "Action URL",
@@ -739,6 +741,8 @@ const settingsDict = {
 		"admin.baseUrl": "Alap-URL",
 		"admin.baseUrlPlaceholder": "pl. https://api.openai.com/v1",
 		"admin.braveSearchApiKey": "Brave Search API-kulcs",
+		"admin.braveSearchApiKeyDescription":
+			"A Brave Search képkeresési szolgáltatás API-kulcsa. Hagyd üresen a Brave-alapú képkeresés letiltásához.",
 		"admin.campaigns.actionLabelEn": "Angol műveletcímke",
 		"admin.campaigns.actionLabelHu": "Magyar műveletcímke",
 		"admin.campaigns.actionUrl": "Művelet URL",

@@ -26,9 +26,11 @@ const ATLAS_ADMIN_CONFIG_KEYS = [
 	"ATLAS_SEARCH_BATCH_DELAY_MS",
 	"ATLAS_SYNTHESIS_MODEL",
 	"ATLAS_AUDIT_MODEL",
-	"SEARXNG_BASE_URL",
-	"WEB_RESEARCH_EXTRACTOR_MODE",
+	"PARALLEL_API_KEY",
+	"PARALLEL_BASE_URL",
 ] as const;
+
+const FAKE_PARALLEL_API_KEY = "fake-atlas-e2e-parallel-key";
 
 type AtlasAdminConfigKey = (typeof ATLAS_ADMIN_CONFIG_KEYS)[number];
 
@@ -78,8 +80,12 @@ test.describe("Atlas job app flow", () => {
 				ATLAS_SEARCH_BATCH_DELAY_MS: "0",
 				ATLAS_SYNTHESIS_MODEL: providerModel.selectedModel,
 				ATLAS_AUDIT_MODEL: providerModel.selectedModel,
-				SEARXNG_BASE_URL: searchServer.origin,
-				WEB_RESEARCH_EXTRACTOR_MODE: "direct",
+				// Point the Parallel client at the local fake so the Atlas worker
+				// gathers sources from POST /v1/search + POST /v1/extract. The worker
+				// reads getConfig().parallelApiKey/parallelBaseUrl, both refreshed from
+				// admin_config after this PUT, so interception is fully in-process.
+				PARALLEL_API_KEY: FAKE_PARALLEL_API_KEY,
+				PARALLEL_BASE_URL: searchServer.origin,
 			});
 
 			const conversationId = await createConversation(request);
@@ -358,6 +364,43 @@ async function deleteTemporaryProvider(
 	await request.delete(`/api/admin/providers/${providerId}`);
 }
 
+// Canned Parallel-shaped results, keyed by the page URL the Atlas worker will
+// discover via /v1/search and then enrich via /v1/extract.
+function fakeParallelPages(origin: string): Array<{
+	url: string;
+	title: string;
+	publish_date: string | null;
+	excerpts: string[];
+	full_content: string;
+}> {
+	return [
+		{
+			url: `${origin}/source/vendor`,
+			title: "Vendor docs",
+			publish_date: null,
+			excerpts: [
+				"Vendor docs say revenue increased by 12% after teams adopted retrieval review and source governance.",
+			],
+			full_content:
+				"Revenue increased by 12% after enterprise teams adopted retrieval review, source governance, and rollout controls. The vendor evidence is useful but representative rather than exhaustive across every business unit.",
+		},
+		{
+			url: `${origin}/source/benchmark`,
+			title: "Benchmark report",
+			publish_date: null,
+			excerpts: [
+				"Benchmark report compares enterprise RAG adoption patterns and highlights retrieval quality controls.",
+			],
+			full_content:
+				"Enterprise RAG adoption patterns differ by retrieval quality, reviewer workflow, and governance maturity. The benchmark report supports comparing adoption patterns without claiming universal rollout success.",
+		},
+	];
+}
+
+// Fake Parallel API. Serves POST /v1/search (source discovery) and
+// POST /v1/extract (per-URL page content) in the JSON shape the Parallel client
+// parses. The Atlas worker reaches this server because PARALLEL_BASE_URL is set
+// to its origin via admin config.
 async function startFakeAtlasSearchServer(): Promise<{
 	origin: string;
 	stop: () => Promise<void>;
@@ -366,47 +409,50 @@ async function startFakeAtlasSearchServer(): Promise<{
 		async (request: IncomingMessage, response: ServerResponse) => {
 			const origin = serverOrigin(server);
 			const url = new URL(request.url ?? "/", origin);
-			if (request.method === "GET" && url.pathname === "/search") {
+			const pages = fakeParallelPages(origin);
+
+			if (request.method === "POST" && url.pathname === "/v1/search") {
+				// Drain the request body (objective/search_queries) though the fake
+				// returns the same deterministic sources regardless of the query.
+				await readRequestBody(request);
 				await writeJson(response, {
-					results: [
-						{
-							title: "Vendor docs",
-							url: `${origin}/source/vendor`,
-							content:
-								"Vendor docs say revenue increased by 12% after teams adopted retrieval review and source governance.",
-						},
-						{
-							title: "Benchmark report",
-							url: `${origin}/source/benchmark`,
-							content:
-								"Benchmark report compares enterprise RAG adoption patterns and highlights retrieval quality controls.",
-						},
-					],
+					search_id: "atlas-e2e-search",
+					session_id: "atlas-e2e-session",
+					results: pages.map(({ url, title, publish_date, excerpts }) => ({
+						url,
+						title,
+						publish_date,
+						excerpts,
+					})),
 				});
 				return;
 			}
-			if (request.method === "GET" && url.pathname === "/source/vendor") {
-				await writeHtml(
-					response,
-					[
-						"<h1>Vendor docs</h1>",
-						"<p>Revenue increased by 12% after enterprise teams adopted retrieval review, source governance, and rollout controls.</p>",
-						"<p>The vendor evidence is useful but representative rather than exhaustive across every business unit.</p>",
-					].join(""),
-				);
+
+			if (request.method === "POST" && url.pathname === "/v1/extract") {
+				const body = parseJson(await readRequestBody(request)) as {
+					urls?: unknown;
+				} | null;
+				const requestedUrls = Array.isArray(body?.urls)
+					? (body?.urls.filter((u): u is string => typeof u === "string") ?? [])
+					: [];
+				const results =
+					requestedUrls.length > 0
+						? requestedUrls
+								.map((requested) =>
+									pages.find((page) => page.url === requested),
+								)
+								.filter((page): page is (typeof pages)[number] => Boolean(page))
+						: pages;
+				await writeJson(response, {
+					extract_id: "atlas-e2e-extract",
+					results,
+					errors: [],
+					warnings: [],
+					usage: {},
+				});
 				return;
 			}
-			if (request.method === "GET" && url.pathname === "/source/benchmark") {
-				await writeHtml(
-					response,
-					[
-						"<h1>Benchmark report</h1>",
-						"<p>Enterprise RAG adoption patterns differ by retrieval quality, reviewer workflow, and governance maturity.</p>",
-						"<p>The benchmark report supports comparing adoption patterns without claiming universal rollout success.</p>",
-					].join(""),
-				);
-				return;
-			}
+
 			await writeJson(response, { error: "Not found" }, 404);
 		},
 	);
@@ -694,17 +740,6 @@ async function writeJson(
 		"Content-Type": "application/json; charset=utf-8",
 	});
 	response.end(JSON.stringify(body));
-}
-
-async function writeHtml(
-	response: ServerResponse,
-	body: string,
-	status = 200,
-): Promise<void> {
-	response.writeHead(status, {
-		"Content-Type": "text/html; charset=utf-8",
-	});
-	response.end(`<!doctype html><html><body>${body}</body></html>`);
 }
 
 async function listen(server: Server): Promise<void> {

@@ -107,6 +107,7 @@ interface Config {
 	owntracksRecorderUser: string;
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
+	parallelBaseUrl: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -540,6 +541,7 @@ function readConfig(): Config {
 		owntracksRecorderUser: process.env.OWNTRACKS_RECORDER_USER || "",
 		owntracksRecorderPass: process.env.OWNTRACKS_RECORDER_PASS || "",
 		parallelApiKey: process.env.PARALLEL_API_KEY || "",
+		parallelBaseUrl: process.env.PARALLEL_BASE_URL || "https://api.parallel.ai",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",

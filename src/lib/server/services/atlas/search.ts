@@ -44,6 +44,7 @@ export interface AtlasImageSearchLimitation {
 
 export interface AtlasSearchConfig {
 	parallelApiKey?: string;
+	parallelBaseUrl?: string;
 	// Brave Search API key backing the image-search stage.
 	braveSearchApiKey?: string;
 	concurrency?: number;
@@ -57,7 +58,7 @@ export interface AtlasSearchConfig {
 
 export interface AtlasSearchDeps {
 	fetch?: typeof fetch;
-	config?: { parallelApiKey?: string };
+	config?: { parallelApiKey?: string; parallelBaseUrl?: string };
 	signal?: AbortSignal;
 }
 
@@ -382,6 +383,7 @@ function fetchedSnippet(input: {
 interface ParallelCallDeps {
 	fetch: typeof fetch;
 	parallelApiKey: string;
+	parallelBaseUrl?: string;
 	signal?: AbortSignal;
 }
 
@@ -394,7 +396,10 @@ async function defaultFetchPageContent(
 		{ urls: [source.url], objective, fullContent: true },
 		{
 			fetch: deps.fetch,
-			config: { parallelApiKey: deps.parallelApiKey },
+			config: {
+				parallelApiKey: deps.parallelApiKey,
+				parallelBaseUrl: deps.parallelBaseUrl,
+			},
 			signal: deps.signal,
 		},
 	);
@@ -444,6 +449,10 @@ function resolveParallelApiKey(explicit?: string): string {
 	return explicit?.trim() || getConfig().parallelApiKey.trim();
 }
 
+function resolveParallelBaseUrl(explicit?: string): string {
+	return explicit?.trim() || getConfig().parallelBaseUrl;
+}
+
 async function searchParallel(
 	query: string,
 	deps: ParallelCallDeps,
@@ -452,7 +461,10 @@ async function searchParallel(
 		{ objective: query, searchQueries: [query], mode: "turbo" },
 		{
 			fetch: deps.fetch,
-			config: { parallelApiKey: deps.parallelApiKey },
+			config: {
+				parallelApiKey: deps.parallelApiKey,
+				parallelBaseUrl: deps.parallelBaseUrl,
+			},
 			signal: deps.signal,
 		},
 	);
@@ -669,6 +681,9 @@ export async function runAtlasSearchStage(
 	const parallelApiKey = resolveParallelApiKey(
 		input.deps?.config?.parallelApiKey ?? input.config.parallelApiKey,
 	);
+	const parallelBaseUrl = resolveParallelBaseUrl(
+		input.deps?.config?.parallelBaseUrl ?? input.config.parallelBaseUrl,
+	);
 	if (!parallelApiKey) {
 		return {
 			sources: [],
@@ -687,6 +702,7 @@ export async function runAtlasSearchStage(
 	const parallelDeps: ParallelCallDeps = {
 		fetch: fetchImpl,
 		parallelApiKey,
+		parallelBaseUrl,
 		signal,
 	};
 	// Objective threaded into extract: the joined research queries describe what

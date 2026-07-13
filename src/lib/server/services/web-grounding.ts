@@ -167,7 +167,7 @@ export function buildGroundedWebModelPayload(
 		},
 		instructions: evidenceReady
 			? "Answer only from the returned answer brief, sources, and evidence. Use markdown links with returned source URLs, and never cite URLs outside the returned source list."
-			: "No citation-ready page evidence was fetched. Say the page could not be loaded or no usable evidence was returned; do not infer facts from the URL or answer from memory.",
+			: "No citation-ready evidence was returned. Say you could not find the information in the results; do not infer facts or answer from memory.",
 	};
 }
 

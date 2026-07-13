@@ -37,6 +37,7 @@ import {
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
 import { isProduceFileRequest } from "./normal-chat-tools/produce-file";
+import type { GroundedWebResult } from "./parallel-search/types";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 const CURRENT_USER_MESSAGE_MARKER = "## Current User Message\n";
@@ -185,6 +186,14 @@ export type NormalChatGuidancePackSelection = {
 
 function containsDirectHttpUrl(value: string): boolean {
 	return DIRECT_HTTP_URL_RE.test(value);
+}
+
+function extractPastedUrls(value: string): string[] {
+	const matches = value.match(/https?:\/\/[^\s<>)\]]+/gi) ?? [];
+	return matches
+		.map((url) => url.replace(/[.,;:!?]+$/, ""))
+		.filter((url) => url.length > 0)
+		.slice(0, 5);
 }
 
 function isLikelySimpleDirectPrompt(message: string): boolean {
@@ -799,9 +808,7 @@ const FORCE_WEB_SEARCH_GUARD = [
 
 function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
-	const maxSources = effort.webSourceBudget.maxSources;
 	const grounding = effort.grounding.guidance;
-	const sourceExpansion = effort.webSourceBudget.sourceExpansion;
 	const depthContract =
 		profile === "maximum"
 			? [
@@ -838,9 +845,6 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 				: grounding === "minimal"
 					? "- Grounding pressure: minimal. Keep retrieval conditional; explicit web requests and pasted URLs still require normal grounding."
 					: "- Grounding pressure: standard. Use retrieval when the ordinary web/source guidance says it is needed.",
-		sourceExpansion
-			? `- Source budget: when calling research_web for this turn, you may use up to ${maxSources} sources when the evidence need justifies it. Prefer focused queries over broad sweeps.`
-			: `- Source budget: keep research_web source requests compact; do not exceed ${maxSources} sources unless another system instruction explicitly requires it.`,
 		`- Tool loop budget: the runtime can support up to ${effort.maxToolSteps} tool steps for this profile. Stop early once the answer is grounded enough.`,
 	].join("\n");
 }
@@ -1177,18 +1181,29 @@ async function maybePrefetchWebSearch(params: {
 	}
 
 	try {
-		const { researchWebViaParallel } = await import(
-			"./parallel-search/research"
-		);
+		const deps = {
+			fetch,
+			config: { parallelApiKey: getConfig().parallelApiKey },
+		};
 		const {
 			createGroundedWebCandidates,
 			createGroundedWebMetadata,
 			summarizeGroundedWebResult,
 		} = await import("./web-grounding");
-		const result = await researchWebViaParallel(
-			{ query: params.message },
-			{ fetch, config: { parallelApiKey: getConfig().parallelApiKey } },
-		);
+		const pastedUrls =
+			prefetchReason === "pasted_url" ? extractPastedUrls(params.message) : [];
+		let result: GroundedWebResult;
+		if (prefetchReason === "pasted_url" && pastedUrls.length > 0) {
+			const { fetchUrlViaParallel } = await import(
+				"./parallel-search/fetch-url"
+			);
+			result = await fetchUrlViaParallel({ urls: pastedUrls }, deps);
+		} else {
+			const { researchWebViaParallel } = await import(
+				"./parallel-search/research"
+			);
+			result = await researchWebViaParallel({ query: params.message }, deps);
+		}
 		const sourceCandidates = createGroundedWebCandidates(result);
 		const metadata = {
 			...createGroundedWebMetadata(result),
@@ -1198,7 +1213,7 @@ async function maybePrefetchWebSearch(params: {
 		const webContext = [
 			"## Current Web Research",
 			prefetchReason === "pasted_url"
-				? "Server-prefetched web context because the user pasted a URL. Use it only as retrieved evidence. If it has no evidence snippets, say the page could not be loaded or no usable evidence was returned; do not infer facts from the URL."
+				? "Server-prefetched page content for the pasted URL; use it as retrieved evidence."
 				: "Server-prefetched web context for this forced-search turn. Use it as retrieved evidence. Do not expose raw source dumps, diagnostics, JSON, or search-result internals.",
 			result.answerBrief.markdown,
 		].join("\n\n");

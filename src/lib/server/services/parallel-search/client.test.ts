@@ -138,6 +138,27 @@ describe("parallelSearch", () => {
 		).rejects.toThrow(/boom failure detail/);
 	});
 
+	it("targets a custom parallelBaseUrl when supplied (trailing slash trimmed)", async () => {
+		let capturedUrl: string | undefined;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			capturedUrl = input.toString();
+			return jsonResponse({ results: [] });
+		});
+
+		await parallelSearch(
+			{ objective: "o", searchQueries: ["q"] },
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+				config: {
+					parallelApiKey: "test-key",
+					parallelBaseUrl: "http://127.0.0.1:4321/",
+				},
+			},
+		);
+
+		expect(capturedUrl).toBe("http://127.0.0.1:4321/v1/search");
+	});
+
 	it("forwards the abort signal to fetch", async () => {
 		let capturedInit: RequestInit | undefined;
 		const fetchMock = vi.fn(
@@ -271,6 +292,27 @@ describe("parallelExtract", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it("targets a custom parallelBaseUrl when supplied (trailing slash trimmed)", async () => {
+		let capturedUrl: string | undefined;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+			capturedUrl = input.toString();
+			return jsonResponse({ results: [] });
+		});
+
+		await parallelExtract(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{
+				fetch: fetchMock as unknown as typeof fetch,
+				config: {
+					parallelApiKey: "test-key",
+					parallelBaseUrl: "http://127.0.0.1:4321/",
+				},
+			},
+		);
+
+		expect(capturedUrl).toBe("http://127.0.0.1:4321/v1/extract");
+	});
+
 	it("throws on non-2xx responses including status and trimmed body", async () => {
 		const fetchMock = vi.fn(
 			async () =>
@@ -286,6 +328,12 @@ describe("parallelExtract", () => {
 				{ fetch: fetchMock as unknown as typeof fetch, config },
 			),
 		).rejects.toThrow(/500/);
+		await expect(
+			parallelExtract(
+				{ urls: ["https://example.com/a"], objective: "o" },
+				{ fetch: fetchMock as unknown as typeof fetch, config },
+			),
+		).rejects.toThrow(/extract exploded/);
 	});
 
 	it("forwards the abort signal to fetch", async () => {

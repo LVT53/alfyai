@@ -51,6 +51,7 @@ vi.mock("$lib/server/services/image-search", () => ({
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
 		parallelApiKey: "parallel-key",
+		parallelBaseUrl: "https://api.parallel.ai",
 	})),
 }));
 vi.mock("$lib/server/services/connections/resolve", async () => {
@@ -864,7 +865,10 @@ describe("createNormalChatTools", () => {
 			},
 			{
 				fetch: expect.any(Function),
-				config: { parallelApiKey: expect.any(String) },
+				config: {
+					parallelApiKey: expect.any(String),
+					parallelBaseUrl: expect.any(String),
+				},
 				signal: expect.any(AbortSignal),
 			},
 		);
@@ -1004,7 +1008,7 @@ describe("createNormalChatTools", () => {
 			},
 		});
 		if (hasInstructions(result)) {
-			expect(result.instructions).toContain("No citation-ready page evidence");
+			expect(result.instructions).toContain("No citation-ready evidence was returned");
 		}
 		expect(getToolCalls()).toEqual([
 			expect.objectContaining({
@@ -1120,7 +1124,10 @@ describe("createNormalChatTools", () => {
 			},
 			{
 				fetch: expect.any(Function),
-				config: { parallelApiKey: expect.any(String) },
+				config: {
+					parallelApiKey: expect.any(String),
+					parallelBaseUrl: expect.any(String),
+				},
 				signal: expect.any(AbortSignal),
 			},
 		);
