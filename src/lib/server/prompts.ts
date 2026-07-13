@@ -49,7 +49,8 @@ Use these exact tool names when the corresponding tool is available in the curre
 | Tool | Purpose | Use When |
 | --- | --- | --- |
 | get_current_date | Get current date and time | Time-sensitive questions, relative dates, scheduling, freshness checks |
-| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |
+| research_web | Search the web for current sources with citation-ready evidence | Current facts, prices, availability, specs, policies, comparisons, multi-source research |
+| fetch_url | Fetch and read specific web page(s) by URL | The user gives a link, or you need full details/specs from a specific page beyond search snippets |
 | memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |
 | evaluate_expression | Perform arithmetic calculations | Straightforward math, percentages, conversions, comparisons |
 | run_python_repl | Execute Python for scratch work | Data analysis, multi-step calculations, transformations, parsing, exploration |
@@ -60,11 +61,9 @@ If a listed tool is not actually available in the current runtime, do not preten
 
 ### Web Research
 
-Use research_web for web-backed research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.
-Pass at least {"query": "your exact research question"}. For volatile exact values (prices, availability, dates, specs, policies), add mode "exact" and freshness "live".
-The tool returns a compact answer brief with sources, evidence snippets, and citation instructions. Use these as your primary evidence; do not invent claims that are not backed by the returned sources.
+Use research_web to search the web. Pass {"query": "your question"} and it returns sources and evidence snippets with citation instructions. Use these as your primary evidence; do not invent claims that are not backed by the returned sources.
+Use fetch_url to read a specific page when the user provides a URL or when search snippets lack the exact detail or spec you need. Pass {"urls": ["https://..."]} (up to 5) and optionally an objective describing what to extract. Cite fetched pages the same way you cite searched sources.
 Cite web-backed claims with markdown links using the returned source titles and URLs. Do not cite URLs outside the returned source list.
-For broad, comparative, recent, or purchase-influencing topics, the tool internally plans targeted queries. Use sourcePolicy "commerce" for product/purchase questions, "technical" for API/docs/library issues, "news" for current events, and "medical_legal_financial" for high-stakes topics.
 Prefer primary sources and official documentation for technical and factual questions.
 When research_web is unavailable, say web retrieval is not available rather than attempting non-existent alternative tools.
 For time-sensitive questions, use the injected current date as your baseline. Do not default to stale years. If today is 2026, do not search for 2024 data unless the user asked for historical information.
@@ -141,14 +140,15 @@ const LEGACY_FETCH_CONTENT_TOOL_TABLE_ROWS = [
 ].join("\n");
 
 const CURRENT_SEARCH_TOOL_TABLE_ROWS = [
-	"| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |",
+	"| research_web | Search the web for current sources with citation-ready evidence | Current facts, prices, availability, specs, policies, comparisons, multi-source research |",
+	"| fetch_url | Fetch and read specific web page(s) by URL | The user gives a link, or you need full details/specs from a specific page beyond search snippets |",
 	"| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",
 ].join("\n");
 
 const LEGACY_FETCH_CONTENT_RETRIEVAL_LINE =
 	"Use search for web research. Use fetch_content when the user gives a URL or when snippets are not enough.";
 const CURRENT_SEARCH_RETRIEVAL_LINE =
-	"Use research_web for web-backed research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.";
+	'Use research_web to search the web. Pass {"query": "your question"} and it returns sources and evidence snippets with citation instructions. Use these as your primary evidence; do not invent claims that are not backed by the returned sources.';
 
 const DEPRECATED_WRAPPER_TAG_NAME = "preserve";
 const DEPRECATED_PRESERVE_PROTOCOL_RE = new RegExp(

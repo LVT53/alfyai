@@ -2,6 +2,7 @@ import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
@@ -10,13 +11,14 @@ import type { FileProductionIntakeResult } from "$lib/server/services/file-produ
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
+import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
-import { researchWeb } from "$lib/server/services/web-research";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -32,6 +34,7 @@ import {
 	runEmailTool,
 	sanitizeEmailToolInput,
 } from "./email";
+import { fetchUrlInputSchema, sanitizeFetchUrlInput } from "./fetch-url";
 import {
 	filesToolInputSchema,
 	runFilesTool,
@@ -163,6 +166,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Search and fetch current web sources, returning compact citation-ready evidence.",
 			errorPrefix: "Web research failed",
 		},
+		fetch_url: {
+			description:
+				"Fetch and read specific web pages by URL, returning citation-ready page content. Use when the user gives a link or you need full details/specs from a page beyond search snippets.",
+			errorPrefix: "Fetch URL failed",
+		},
 		memory_context: {
 			description:
 				"Retrieve bounded durable memory, named project-folder context, project continuity, persona memory, or account history for this conversation.",
@@ -233,6 +241,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"Keresés az interneten aktuális források után, tömör, hivatkozásra kész bizonyítékokkal.",
 			errorPrefix: "A webes kutatás sikertelen",
+		},
+		fetch_url: {
+			description:
+				"Konkrét weboldalak letöltése és elolvasása URL alapján, hivatkozásra kész oldaltartalommal. Akkor használd, ha a felhasználó megad egy linket, vagy ha a keresési részleteken túl egy oldal teljes tartalmára/adataira van szükséged.",
+			errorPrefix: "Az URL letöltése sikertelen",
 		},
 		memory_context: {
 			description:
@@ -348,17 +361,21 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					input: z.infer<typeof researchWebInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
-					const safeInput = applyResearchWebSourceBudget(
-						sanitizeResearchWebInput(input),
-						ctx.webSourceBudget,
-					);
+					const safeInput = sanitizeResearchWebInput(input);
 					return executeToolWithEnvelope({
 						toolName: "research_web",
 						timeoutMs: TOOL_TIMEOUTS_MS.research_web,
 						options,
 						recorder,
 						run: async (abortSignal) => {
-							const result = await researchWeb(safeInput, {
+							// TODO(#13): parallelApiKey added to config in Wave 4
+							const parallelApiKey =
+								(getConfig() as { parallelApiKey?: string }).parallelApiKey ??
+								process.env.PARALLEL_API_KEY ??
+								"";
+							const result = await researchWebViaParallel(safeInput, {
+								fetch,
+								config: { parallelApiKey },
 								signal: abortSignal,
 							});
 							const modelPayload = buildGroundedWebModelPayload(result);
@@ -391,6 +408,78 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								entry: {
 									callId: options.toolCallId,
 									name: "research_web",
+									input: safeInput,
+									status: "done",
+									outputSummary: modelPayload.error,
+									sourceType: "web",
+									candidates: [],
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										error: modelPayload.error,
+									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		fetch_url: asExecutableTool(
+			tool({
+				description: i18n.fetch_url.description,
+				inputSchema: fetchUrlInputSchema,
+				execute: async (
+					input: z.infer<typeof fetchUrlInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					const safeInput = sanitizeFetchUrlInput(input);
+					return executeToolWithEnvelope({
+						toolName: "fetch_url",
+						timeoutMs: TOOL_TIMEOUTS_MS.fetch_url,
+						options,
+						recorder,
+						run: async (abortSignal) => {
+							// TODO(#13): parallelApiKey added to config in Wave 4
+							const parallelApiKey =
+								(getConfig() as { parallelApiKey?: string }).parallelApiKey ??
+								process.env.PARALLEL_API_KEY ??
+								"";
+							const result = await fetchUrlViaParallel(safeInput, {
+								fetch,
+								config: { parallelApiKey },
+								signal: abortSignal,
+							});
+							const modelPayload = buildGroundedWebModelPayload(result);
+							const candidates = createGroundedWebCandidates(result);
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "fetch_url",
+									input: safeInput,
+									status: "done",
+									outputSummary: summarizeGroundedWebResult(result),
+									sourceType: "web",
+									candidates,
+									metadata: createGroundedWebMetadata(result),
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								i18n.fetch_url.errorPrefix,
+							);
+							const modelPayload = {
+								success: false as const,
+								error: message,
+							};
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "fetch_url",
 									input: safeInput,
 									status: "done",
 									outputSummary: modelPayload.error,
@@ -1586,21 +1675,6 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		tools,
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
-	};
-}
-
-function applyResearchWebSourceBudget(
-	input: z.infer<typeof researchWebInputSchema>,
-	budget: ReasoningDepthWebSourceBudget | undefined,
-): z.infer<typeof researchWebInputSchema> {
-	if (!budget) return input;
-	const maxSources = Math.max(1, Math.min(12, Math.floor(budget.maxSources)));
-	if (input.maxSources === undefined) {
-		return { ...input, maxSources };
-	}
-	return {
-		...input,
-		maxSources: Math.min(input.maxSources, maxSources),
 	};
 }
 

@@ -21,10 +21,10 @@ describe("prompts", () => {
 
 	it("normalizes the old fetch_content prompt body back to the current key", () => {
 		const legacyPrompt = ALFYAI_NEMOTRON_PROMPT.replace(
-			"| research_web | Search and retrieve web sources with citation-ready evidence (handles searching, page fetching, evidence extraction in one call) | Current facts, prices, availability, specs, policies, page-backed claims, comparisons, multi-source research |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",
+			"| research_web | Search the web for current sources with citation-ready evidence | Current facts, prices, availability, specs, policies, comparisons, multi-source research |\n| fetch_url | Fetch and read specific web page(s) by URL | The user gives a link, or you need full details/specs from a specific page beyond search snippets |\n| memory_context | Retrieve durable memory, project context, persona memory, or account history | User preferences, project continuity, earlier decisions, generated reports, personal context |",
 			"| search | Search the web for information | Current events, recent facts, product research, general-topic research, verification |\n| fetch_content | Fetch and read a specific URL | The user gives a link, search snippets are insufficient, or exact page details matter |",
 		).replace(
-			"Use research_web for web-backed research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.",
+			'Use research_web to search the web. Pass {"query": "your question"} and it returns sources and evidence snippets with citation instructions. Use these as your primary evidence; do not invent claims that are not backed by the returned sources.',
 			"Use search for web research. Use fetch_content when the user gives a URL or when snippets are not enough.",
 		);
 
@@ -39,6 +39,22 @@ describe("prompts", () => {
 
 		expect(normalizeSystemPromptReference(customPrompt)).toBe(customPrompt);
 		expect(getSystemPrompt(customPrompt)).toBe(customPrompt);
+	});
+
+	it("documents both research_web and fetch_url as separate web tools", () => {
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("research_web");
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain("fetch_url");
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+			"| fetch_url | Fetch and read specific web page(s) by URL |",
+		);
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain('{"query": "your question"}');
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain('{"urls": ["https://..."]}');
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain(
+			"no separate search or fetch step",
+		);
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/mode "exact"/);
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/freshness "live"/);
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toMatch(/sourcePolicy/);
 	});
 
 	it("teaches the unified produce_file contract in the built-in assistant prompt", () => {

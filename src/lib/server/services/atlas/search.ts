@@ -1,7 +1,8 @@
+import { getConfig } from "$lib/server/config-store";
 import {
-	extractWebResearchPage,
-	type WebResearchExtractionConfig,
-} from "$lib/server/services/web-research/extraction";
+	parallelExtract,
+	parallelSearch,
+} from "$lib/server/services/parallel-search/client";
 import {
 	DEFAULT_ATLAS_IMAGE_SEARCH_SAFESEARCH,
 	DEFAULT_ATLAS_SEARCH_CONCURRENCY,
@@ -42,7 +43,11 @@ export interface AtlasImageSearchLimitation {
 }
 
 export interface AtlasSearchConfig {
-	searxngBaseUrl: string;
+	// TODO(#13): `parallelApiKey` becomes a first-class RuntimeConfig field in
+	// Wave 4; until then it is resolved defensively (config-store / env).
+	parallelApiKey?: string;
+	// Retained for the image-search stage, which still uses SearXNG.
+	searxngBaseUrl?: string;
 	concurrency?: number;
 	interBatchDelayMs?: number;
 	maxAcceptedSources?: number;
@@ -50,14 +55,18 @@ export interface AtlasSearchConfig {
 	initialRetryBackoffMs?: number;
 	maxRetryBackoffMs?: number;
 	maxAttempts?: number;
-	webResearchExtractorMode?: WebResearchExtractionConfig["webResearchExtractorMode"];
-	webResearchExtractTimeoutMs?: number;
-	webResearchExtractCacheTtlHours?: number;
+}
+
+export interface AtlasSearchDeps {
+	fetch?: typeof fetch;
+	config?: { parallelApiKey?: string };
+	signal?: AbortSignal;
 }
 
 export interface RunAtlasSearchStageInput {
 	queries: string[];
 	config: AtlasSearchConfig;
+	deps?: AtlasSearchDeps;
 	search?: (query: string) => Promise<AtlasSearchSource[]>;
 	fetchPage?: (source: AtlasSearchSource) => Promise<AtlasSearchSource>;
 	sleep?: (ms: number) => Promise<void>;
@@ -170,7 +179,7 @@ export function hasSubstantiveAtlasSourceTitle(title: string): boolean {
 
 /**
  * Rejects sources whose snippet is empty, pure boilerplate (YouTube footer,
- * SearXNG UI metadata), or too short to produce usable evidence after
+ * search-engine UI metadata), or too short to produce usable evidence after
  * sanitization.  These sources would fill acceptance slots without
  * contributing to Evidence Packs.
  *
@@ -200,7 +209,7 @@ export function isUnusableAtlasSnippet(
 	const sanitized = sanitizeSearchSnippet(snippet);
 	if (!sanitized) return true;
 
-	// Pure SearXNG UI metadata keywords with nothing else
+	// Pure search-engine UI metadata keywords with nothing else
 	if (/^(Naptár|Keresés|Beállítások)\s*$/iu.test(sanitized)) return true;
 
 	// YouTube footer boilerplate — when the fetched page has no transcript
@@ -282,10 +291,10 @@ function convergeSources(input: {
 }
 
 /**
- * Strips known SearXNG artifacts and boilerplate from a search result snippet.
+ * Strips known search-result artifacts and boilerplate from a snippet.
  *
  * Removes in order:
- * 1. SearXNG UI metadata keywords at start (Naptár, Keresés, Beállítások)
+ * 1. Search-engine UI metadata keywords at start (Naptár, Keresés, Beállítások)
  * 2. Hungarian language filter echoes (Nem tartalmazza: ... | Tartalmaznia kell: ... |)
  * 3. English language filter echoes (Excluding: ... | Must include: ... |)
  * 4. YouTube channel prefix (YouTube ·)
@@ -298,7 +307,7 @@ export function sanitizeSearchSnippet(snippet: string): string {
 	let result = snippet.trim();
 	if (!result) return result;
 
-	// SearXNG UI metadata keywords at snippet start
+	// Search-engine UI metadata keywords at snippet start
 	result = result.replace(/^(Naptár|Keresés|Beállítások)\s*·\s*/, "");
 
 	// Hungarian language filter echo (both conditions: Nem tartalmazza + Tartalmaznia kell)
@@ -325,7 +334,7 @@ export function sanitizeSearchSnippet(snippet: string): string {
 		"",
 	);
 
-	// Common boilerplate prefixes that survive SearXNG snippet extraction
+	// Common boilerplate prefixes that survive snippet extraction
 	result = result.replace(
 		/^(?:Loading\.\.\.\s*|Please wait\.\.\.\s*|Please enable JavaScript(?:[^.]*\.)?\s*|Enable JavaScript(?:[^.]*\.)?\s*)+/i,
 		"",
@@ -369,23 +378,40 @@ function fetchedSnippet(input: {
 	};
 }
 
+interface ParallelCallDeps {
+	fetch: typeof fetch;
+	parallelApiKey: string;
+	signal?: AbortSignal;
+}
+
 async function defaultFetchPageContent(
 	source: AtlasSearchSource,
-	config: AtlasSearchConfig,
+	objective: string,
+	deps: ParallelCallDeps,
 ): Promise<AtlasSearchSource> {
-	const extracted = await extractWebResearchPage({
-		url: source.url,
-		config: {
-			webResearchExtractorMode: config.webResearchExtractorMode,
-			webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
-			webResearchExtractCacheTtlHours: config.webResearchExtractCacheTtlHours,
+	const [extracted] = await parallelExtract(
+		{ urls: [source.url], objective, fullContent: true },
+		{
+			fetch: deps.fetch,
+			config: { parallelApiKey: deps.parallelApiKey },
+			signal: deps.signal,
 		},
-	});
+	);
 	if (!extracted) return source;
+	// Parallel extract returns { title, full_content, excerpts }. Map the full
+	// page content (falling back to joined excerpts) into the plain-text field
+	// Atlas already consumes for the "Fetched page excerpt" snippet.
+	const text =
+		extracted.full_content?.trim() ||
+		extracted.excerpts
+			.map((excerpt) => excerpt.trim())
+			.filter(Boolean)
+			.join("\n\n");
+	if (!text) return source;
 	return fetchedSnippet({
 		source,
 		title: extracted.title,
-		text: extracted.plainText,
+		text,
 	});
 }
 
@@ -413,62 +439,44 @@ async function enrichAcceptedSources(input: {
 	return enriched;
 }
 
-function normalizeSearxngResult(
-	query: string,
-	result: unknown,
-	index: number,
-): AtlasSearchSource | null {
-	if (!result || typeof result !== "object" || Array.isArray(result)) {
-		return null;
-	}
-	const record = result as Record<string, unknown>;
-	const url = typeof record.url === "string" ? record.url.trim() : "";
-	if (!url) return null;
-	const title = sanitizeSourceTitle(
-		typeof record.title === "string" && record.title.trim()
-			? record.title.trim()
-			: url,
+// TODO(#13): resolve `parallelApiKey` from a first-class RuntimeConfig field
+// once Wave 4 adds it. Until then fall back to the runtime config store and
+// the PARALLEL_API_KEY environment variable defensively.
+function resolveParallelApiKey(explicit?: string): string {
+	return (
+		explicit?.trim() ||
+		(getConfig() as { parallelApiKey?: string }).parallelApiKey?.trim() ||
+		process.env.PARALLEL_API_KEY?.trim() ||
+		""
 	);
-	const rawSnippet =
-		typeof record.content === "string"
-			? record.content.trim()
-			: typeof record.snippet === "string"
-				? record.snippet.trim()
-				: null;
-	let snippet: string | null = rawSnippet;
-	if (snippet) {
-		const sanitized = sanitizeSearchSnippet(snippet);
-		snippet = sanitized.length > 0 ? sanitized : title;
-	}
-	return {
-		id: `web:${query}:${index}`,
-		title,
-		url,
-		snippet: snippet || null,
-	};
 }
 
-async function searchSearxng(
-	baseUrl: string,
+async function searchParallel(
 	query: string,
+	deps: ParallelCallDeps,
 ): Promise<AtlasSearchSource[]> {
-	const url = new URL(`${normalizeBaseUrl(baseUrl)}/search`);
-	url.searchParams.set("q", query);
-	url.searchParams.set("format", "json");
-	const response = await fetch(url);
-	if (!response.ok) {
-		throw new Error(`SearXNG search failed with HTTP ${response.status}`);
-	}
-	const body = (await response.json()) as unknown;
-	const results =
-		body &&
-		typeof body === "object" &&
-		Array.isArray((body as { results?: unknown }).results)
-			? (body as { results: unknown[] }).results
-			: [];
+	const results = await parallelSearch(
+		{ objective: query, searchQueries: [query], mode: "turbo" },
+		{
+			fetch: deps.fetch,
+			config: { parallelApiKey: deps.parallelApiKey },
+			signal: deps.signal,
+		},
+	);
 	return results
-		.map((result, index) => normalizeSearxngResult(query, result, index))
-		.filter((source): source is AtlasSearchSource => source !== null);
+		.map((result, index) => {
+			const url = result.url?.trim() ?? "";
+			const title = sanitizeSourceTitle(result.title?.trim() || url);
+			const rawSnippet = result.excerpts?.[0]?.trim() ?? "";
+			const snippet = sanitizeSearchSnippet(rawSnippet) || title;
+			return {
+				id: `web:${query}:${index}`,
+				title,
+				url,
+				snippet: snippet || null,
+			};
+		})
+		.filter((source) => source.url.length > 0);
 }
 
 function cleanOptionalText(value: unknown): string | null {
@@ -643,19 +651,32 @@ async function runWithRetries<T>(
 export async function runAtlasSearchStage(
 	input: RunAtlasSearchStageInput,
 ): Promise<AtlasSearchStageResult> {
-	const baseUrl = normalizeBaseUrl(input.config.searxngBaseUrl);
-	if (!baseUrl) {
+	const parallelApiKey = resolveParallelApiKey(
+		input.deps?.config?.parallelApiKey ?? input.config.parallelApiKey,
+	);
+	if (!parallelApiKey) {
 		return {
 			sources: [],
 			rejectedSources: [],
 			limitation: {
-				code: "atlas_searxng_required",
-				message: "Atlas web search requires SearXNG to be configured.",
+				code: "atlas_parallel_required",
+				message:
+					"Atlas web search requires the Parallel Search API to be configured.",
 			},
 		};
 	}
 
 	const queries = uniqueQueries(input.queries);
+	const fetchImpl = input.deps?.fetch ?? fetch;
+	const signal = input.deps?.signal;
+	const parallelDeps: ParallelCallDeps = {
+		fetch: fetchImpl,
+		parallelApiKey,
+		signal,
+	};
+	// Objective threaded into extract: the joined research queries describe what
+	// each fetched page is being mined for.
+	const extractObjective = queries.join(" | ") || input.queries.join(" ");
 	const concurrency = Math.max(
 		1,
 		input.config.concurrency ?? DEFAULT_ATLAS_SEARCH_CONCURRENCY,
@@ -672,13 +693,14 @@ export async function runAtlasSearchStage(
 	const maxRetryBackoffMs =
 		input.config.maxRetryBackoffMs ?? DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS;
 	const sleep = input.sleep ?? defaultSleep;
-	const search = input.search ?? ((query) => searchSearxng(baseUrl, query));
+	const search =
+		input.search ?? ((query) => searchParallel(query, parallelDeps));
 	const fetchPage =
 		input.fetchPage ??
 		(input.search
 			? null
 			: (source: AtlasSearchSource) =>
-					defaultFetchPageContent(source, input.config));
+					defaultFetchPageContent(source, extractObjective, parallelDeps));
 	const sources: AtlasSearchSource[] = [];
 	const rejectedSources: RejectedAtlasSearchSource[] = [];
 	const maxAcceptedSources = Math.max(1, input.config.maxAcceptedSources ?? 18);
@@ -750,7 +772,7 @@ export async function runAtlasSearchStage(
 export async function runAtlasImageSearchStage(
 	input: RunAtlasImageSearchStageInput,
 ): Promise<AtlasImageSearchStageResult> {
-	const baseUrl = normalizeBaseUrl(input.config.searxngBaseUrl);
+	const baseUrl = normalizeBaseUrl(input.config.searxngBaseUrl ?? "");
 	if (!baseUrl) {
 		return {
 			imageCandidates: [],

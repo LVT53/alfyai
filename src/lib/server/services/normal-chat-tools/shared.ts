@@ -121,6 +121,7 @@ export function createToolCallRecorder(
 
 export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	research_web: 60_000,
+	fetch_url: 30_000,
 	memory_context: 15_000,
 	image_search: 30_000,
 	produce_file: 30_000,

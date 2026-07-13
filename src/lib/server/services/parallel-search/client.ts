@@ -1,0 +1,148 @@
+// HTTP client for the Parallel Search API (https://api.parallel.ai).
+//
+// Contract confirmed live:
+//   POST /v1/search   header x-api-key
+//     body {objective, search_queries, mode} -> {search_id, results, session_id}
+//   POST /v1/extract  header x-api-key
+//     body {urls, objective, search_queries?, advanced_settings?} -> {extract_id, results, ...}
+//
+// Dependency-injected (fetch + config) so orchestrators stay testable. This
+// module is intentionally decoupled from env.ts / config-store: it takes a
+// narrow local config type and never reaches for global state.
+
+export type ParallelMode = "turbo" | "basic" | "advanced";
+
+// Narrow local config: do NOT widen this to import env.ts / config-store.
+export type ParallelClientConfig = { parallelApiKey: string };
+
+export interface ParallelClientDeps {
+	fetch: typeof fetch;
+	config: ParallelClientConfig;
+	signal?: AbortSignal;
+}
+
+export interface ParallelSearchResult {
+	url: string;
+	title: string;
+	publish_date: string | null;
+	excerpts: string[];
+}
+
+export interface ParallelSearchResponse {
+	search_id?: string;
+	results: ParallelSearchResult[];
+	session_id?: string;
+}
+
+export interface ParallelSearchRequest {
+	objective: string;
+	searchQueries: string[];
+	mode?: ParallelMode;
+}
+
+export interface ParallelExtractResult {
+	url: string;
+	title: string;
+	publish_date: string | null;
+	excerpts: string[];
+	full_content: string | null;
+}
+
+export interface ParallelExtractResponse {
+	extract_id?: string;
+	results: ParallelExtractResult[];
+	errors?: unknown;
+	warnings?: unknown;
+	usage?: unknown;
+}
+
+export interface ParallelExtractRequest {
+	urls: string[];
+	objective: string;
+	searchQueries?: string[];
+	fullContent?: boolean;
+}
+
+const SEARCH_ENDPOINT = "https://api.parallel.ai/v1/search";
+const EXTRACT_ENDPOINT = "https://api.parallel.ai/v1/extract";
+
+const MAX_QUERIES = 5;
+const MAX_QUERY_CHARS = 200;
+const MAX_OBJECTIVE_CHARS = 5000;
+const MAX_EXTRACT_URLS = 20;
+const ERROR_BODY_CHARS = 500;
+
+function clampQueries(queries: string[]): string[] {
+	return queries.map((q) => q.slice(0, MAX_QUERY_CHARS)).slice(0, MAX_QUERIES);
+}
+
+async function throwForStatus(res: Response, label: string): Promise<never> {
+	const text = await res.text().catch(() => "");
+	throw new Error(
+		`Parallel ${label} failed: ${res.status} ${res.statusText} ${text.slice(0, ERROR_BODY_CHARS)}`.trim(),
+	);
+}
+
+export async function parallelSearch(
+	req: ParallelSearchRequest,
+	deps: ParallelClientDeps,
+): Promise<ParallelSearchResult[]> {
+	const res = await deps.fetch(SEARCH_ENDPOINT, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"x-api-key": deps.config.parallelApiKey,
+		},
+		body: JSON.stringify({
+			objective: req.objective.slice(0, MAX_OBJECTIVE_CHARS),
+			search_queries: clampQueries(req.searchQueries),
+			mode: req.mode ?? "turbo",
+		}),
+		signal: deps.signal,
+	});
+
+	if (!res.ok) {
+		return throwForStatus(res, "search");
+	}
+
+	const body = (await res.json()) as ParallelSearchResponse;
+	return Array.isArray(body.results) ? body.results : [];
+}
+
+export async function parallelExtract(
+	req: ParallelExtractRequest,
+	deps: ParallelClientDeps,
+): Promise<ParallelExtractResult[]> {
+	if (req.urls.length < 1) {
+		throw new Error("Parallel extract requires at least 1 url");
+	}
+	if (req.urls.length > MAX_EXTRACT_URLS) {
+		throw new Error(
+			`Parallel extract accepts at most ${MAX_EXTRACT_URLS} urls (got ${req.urls.length})`,
+		);
+	}
+
+	const res = await deps.fetch(EXTRACT_ENDPOINT, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"x-api-key": deps.config.parallelApiKey,
+		},
+		body: JSON.stringify({
+			urls: req.urls,
+			objective: req.objective.slice(0, MAX_OBJECTIVE_CHARS),
+			...(req.searchQueries?.length
+				? { search_queries: clampQueries(req.searchQueries) }
+				: {}),
+			...(req.fullContent ? { advanced_settings: { full_content: true } } : {}),
+		}),
+		signal: deps.signal,
+	});
+
+	if (!res.ok) {
+		return throwForStatus(res, "extract");
+	}
+
+	const body = (await res.json()) as ParallelExtractResponse;
+	return Array.isArray(body.results) ? body.results : [];
+}

@@ -723,20 +723,8 @@ function configLabelKey(key: string): I18nKey {
 		TITLE_GEN_MODEL: "admin.titleGenModel",
 		CONTEXT_SUMMARIZER_URL: "admin.contextSummarizerUrl",
 		CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
-		SEARXNG_BASE_URL: "admin.searxngBaseUrl",
+		PARALLEL_API_KEY: "admin.parallelApiKey",
 		BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
-		WEB_RESEARCH_SEARXNG_NUM_RESULTS: "admin.webResearchSearxngNumResults",
-		WEB_RESEARCH_SEARXNG_LANGUAGE: "admin.webResearchSearxngLanguage",
-		WEB_RESEARCH_SEARXNG_SAFESEARCH: "admin.webResearchSearxngSafesearch",
-		WEB_RESEARCH_SEARXNG_CATEGORIES: "admin.webResearchSearxngCategories",
-		WEB_RESEARCH_MAX_SOURCES: "admin.webResearchMaxSources",
-		WEB_RESEARCH_HIGHLIGHT_CHARS: "admin.webResearchHighlightChars",
-		WEB_RESEARCH_CONTENT_CHARS: "admin.webResearchContentChars",
-		WEB_RESEARCH_FRESHNESS_HOURS: "admin.webResearchFreshnessHours",
-		WEB_RESEARCH_EXTRACTOR_MODE: "admin.webResearchExtractorMode",
-		WEB_RESEARCH_EXTRACT_TIMEOUT_MS: "admin.webResearchExtractTimeoutMs",
-		WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS:
-			"admin.webResearchExtractCacheTtlHours",
 		TITLE_GEN_SYSTEM_PROMPT_EN: "admin.titleGenPromptEn",
 		TITLE_GEN_SYSTEM_PROMPT_HU: "admin.titleGenPromptHu",
 		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN: "admin.titleGenCodeAppendixEn",
@@ -776,14 +764,6 @@ const NUMBER_KEYS = new Set([
 	"TARGET_CONSTRUCTED_CONTEXT",
 	"MAX_MESSAGE_LENGTH",
 	"MINERU_TIMEOUT_MS",
-	"WEB_RESEARCH_SEARXNG_NUM_RESULTS",
-	"WEB_RESEARCH_SEARXNG_SAFESEARCH",
-	"WEB_RESEARCH_MAX_SOURCES",
-	"WEB_RESEARCH_HIGHLIGHT_CHARS",
-	"WEB_RESEARCH_CONTENT_CHARS",
-	"WEB_RESEARCH_FRESHNESS_HOURS",
-	"WEB_RESEARCH_EXTRACT_TIMEOUT_MS",
-	"WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS",
 	"MAX_FILE_UPLOAD_SIZE",
 	"REQUEST_TIMEOUT_MS",
 	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
@@ -1286,101 +1266,30 @@ function placeholderFor(key: string): string {
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('admin.webResearch')}</h2>
 	<p class="mb-3 text-xs text-text-muted">{$t('admin.webResearchDescription')}</p>
-	<div class="flex flex-col gap-4">
-		<div class="grid gap-3 md:grid-cols-2">
-			{#each ['SEARXNG_BASE_URL', 'BRAVE_SEARCH_API_KEY'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type={key === 'BRAVE_SEARCH_API_KEY' ? 'password' : 'url'}
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-						autocomplete="off"
-					/>
-				</div>
-			{/each}
+	<div class="grid gap-3 md:grid-cols-2">
+		<div>
+			<label class="settings-label" for="PARALLEL_API_KEY">{$t('admin.parallelApiKey')}</label>
+			<input
+				id="PARALLEL_API_KEY"
+				type="password"
+				class="settings-input"
+				bind:value={adminConfig.PARALLEL_API_KEY}
+				placeholder={placeholderFor('PARALLEL_API_KEY')}
+				autocomplete="off"
+			/>
+			<p class="mt-1 text-xs text-text-muted">{$t('admin.parallelApiKeyDescription')}</p>
 		</div>
-		<p class="text-xs text-text-muted">{$t('admin.webResearchProviderDescription')}</p>
-
-		<div class="grid gap-3 md:grid-cols-3">
-			{#each ['WEB_RESEARCH_SEARXNG_NUM_RESULTS', 'WEB_RESEARCH_MAX_SOURCES', 'WEB_RESEARCH_SEARXNG_SAFESEARCH'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="number"
-						min="1"
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
+		<div>
+			<label class="settings-label" for="BRAVE_SEARCH_API_KEY">{$t('admin.braveSearchApiKey')}</label>
+			<input
+				id="BRAVE_SEARCH_API_KEY"
+				type="password"
+				class="settings-input"
+				bind:value={adminConfig.BRAVE_SEARCH_API_KEY}
+				placeholder={placeholderFor('BRAVE_SEARCH_API_KEY')}
+				autocomplete="off"
+			/>
 		</div>
-		<p class="text-xs text-text-muted">{$t('admin.webResearchBreadthDescription')}</p>
-
-		<div class="grid gap-3 md:grid-cols-2">
-			{#each ['WEB_RESEARCH_SEARXNG_LANGUAGE', 'WEB_RESEARCH_SEARXNG_CATEGORIES'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="text"
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
-		</div>
-
-		<div class="grid gap-3 md:grid-cols-3">
-			{#each ['WEB_RESEARCH_HIGHLIGHT_CHARS', 'WEB_RESEARCH_CONTENT_CHARS', 'WEB_RESEARCH_FRESHNESS_HOURS'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="number"
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
-		</div>
-		<p class="text-xs text-text-muted">{$t('admin.webResearchEvidenceDescription')}</p>
-
-		<div class="grid gap-3 md:grid-cols-3">
-			<div>
-				<label class="settings-label" for="WEB_RESEARCH_EXTRACTOR_MODE">{$t(configLabelKey('WEB_RESEARCH_EXTRACTOR_MODE'))}</label>
-				<select
-					id="WEB_RESEARCH_EXTRACTOR_MODE"
-					class="settings-input"
-					bind:value={adminConfig.WEB_RESEARCH_EXTRACTOR_MODE}
-				>
-					<option value="">{$t('admin.unchanged')}</option>
-					<option value="readability">Readability</option>
-					<option value="auto">Auto</option>
-					<option value="basic">Basic</option>
-				</select>
-			</div>
-			{#each ['WEB_RESEARCH_EXTRACT_TIMEOUT_MS', 'WEB_RESEARCH_EXTRACT_CACHE_TTL_HOURS'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="number"
-						min="0"
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
-		</div>
-		<p class="text-xs text-text-muted">{$t('admin.webResearchExtractionDescription')}</p>
 	</div>
 </section>
 

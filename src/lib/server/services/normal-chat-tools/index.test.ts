@@ -24,7 +24,8 @@ import { getConnectionSecret } from "$lib/server/services/connections/store";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
-import { researchWeb } from "$lib/server/services/web-research";
+import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
+import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { FileProductionJob } from "$lib/types";
 import {
 	createNormalChatTools,
@@ -35,8 +36,11 @@ import {
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
 }));
-vi.mock("$lib/server/services/web-research", () => ({
-	researchWeb: vi.fn(),
+vi.mock("$lib/server/services/parallel-search/research", () => ({
+	researchWebViaParallel: vi.fn(),
+}));
+vi.mock("$lib/server/services/parallel-search/fetch-url", () => ({
+	fetchUrlViaParallel: vi.fn(),
 }));
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
@@ -124,7 +128,8 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 });
 
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
-const researchWebMock = vi.mocked(researchWeb);
+const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
+const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
 const searchImagesMock = vi.mocked(searchImages);
 const resolveConnectionsForCapabilityMock = vi.mocked(
@@ -209,7 +214,8 @@ describe("createNormalChatTools", () => {
 
 	beforeEach(() => {
 		submitFileProductionIntakeMock.mockReset();
-		researchWebMock.mockReset();
+		researchWebViaParallelMock.mockReset();
+		fetchUrlViaParallelMock.mockReset();
 		getMemoryContextMock.mockReset();
 		searchImagesMock.mockReset();
 		resolveConnectionsForCapabilityMock.mockReset();
@@ -783,108 +789,63 @@ describe("createNormalChatTools", () => {
 		});
 	});
 
-	it("research_web calls web research directly and records compact web candidates", async () => {
-		researchWebMock.mockResolvedValue({
+	it("research_web calls Parallel-backed web research and records compact web candidates", async () => {
+		researchWebViaParallelMock.mockResolvedValue({
 			query: "latest Vercel AI SDK tool API",
-			queries: [
-				{
-					query: "Vercel AI SDK tool inputSchema execute",
-					purpose: "technical",
-				},
-			],
+			queries: [{ query: "latest Vercel AI SDK tool API" }],
 			sources: [
 				{
-					id: "source-1",
-					provider: "searxng",
+					id: "p0",
+					provider: "parallel",
 					title: "AI SDK Tools",
 					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-					canonicalUrl:
-						"https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
 					snippet: "Tools are functions that can be called by the model.",
 					highlights: ["Use inputSchema and execute."],
-					text: "FULL SOURCE TEXT SHOULD NOT BE RECORDED",
-					score: 0.93,
-					providerRank: 1,
-					query: "Vercel AI SDK tool inputSchema execute",
+					providerRank: 0,
 					publishedAt: null,
 					updatedAt: null,
-					retrievedAt: "2026-06-01T10:00:00.000Z",
-					authorityClass: "official",
-					authorityScore: 0.95,
+					authorityClass: "standard",
+					authorityScore: 50,
 				},
 			],
 			evidence: [
 				{
-					id: "evidence-1",
-					sourceId: "source-1",
+					id: "p0e0",
+					sourceId: "p0",
 					title: "AI SDK Tools",
 					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-					provider: "searxng",
+					provider: "parallel",
 					quote: "Use inputSchema and execute.",
-					surroundingText: "RAW SURROUNDING TEXT SHOULD NOT BE RECORDED",
-					score: 0.9,
-					authorityScore: 0.95,
+					score: 1,
 				},
 			],
 			answerBrief: {
 				markdown: "Research brief with compact citation guidance.",
-				instructions: ["Use returned URLs for citations."],
-				sources: [
-					{
-						ref: "S1",
-						sourceId: "source-1",
-						title: "AI SDK Tools",
-						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-						provider: "searxng",
-						authorityClass: "official",
-						authorityScore: 0.95,
-						publishedAt: null,
-						updatedAt: null,
-					},
-				],
-				evidence: [
-					{
-						ref: "E1",
-						evidenceId: "evidence-1",
-						sourceRef: "S1",
-						sourceId: "source-1",
-						title: "AI SDK Tools",
-						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
-						quote: "Use inputSchema and execute.",
-						score: 0.9,
-					},
-				],
+				instructions: ["Answer only from these sources."],
 			},
 			diagnostics: {
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "technical",
-				providers: { searxngConfigured: true },
+				mode: "turbo",
+				freshness: "auto",
+				sourcePolicy: "general",
 				plannedQueryCount: 1,
 				directUrlCount: 0,
 				fetchedSourceCount: 1,
 				fusedSourceCount: 1,
 				selectedSourceCount: 1,
-				providerCalls: [],
-				contentCharBudget: 8000,
-				openedPageCount: 1,
-				sourceReranked: false,
-				evidenceCandidateCount: 1,
-				exactEvidenceCandidateCount: 1,
-				reranked: true,
+				openedPageCount: 0,
 				pageExtraction: {
-					attemptedCount: 1,
-					succeededCount: 1,
+					attemptedCount: 0,
+					succeededCount: 0,
 					cacheHitCount: 0,
 					lowQualityCount: 0,
 					blockedCount: 0,
 					failedCount: 0,
-					totalLatencyMs: 2200,
+					totalLatencyMs: 0,
 				},
-				youtubeTranscriptCandidateCount: 0,
-				youtubeTranscriptFetchedCount: 0,
-				youtubeTranscriptFailedCount: 0,
-				youtubeTranscriptErrors: [],
+				evidenceCandidateCount: 1,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				sourceReranked: false,
 				fallbackReasons: [],
 			},
 		});
@@ -898,11 +859,6 @@ describe("createNormalChatTools", () => {
 		const result = await tools.research_web.execute(
 			{
 				query: "latest Vercel AI SDK tool API",
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "technical",
-				maxSources: 4,
-				quoteRequired: true,
 			},
 			{
 				toolCallId: "call-research",
@@ -910,16 +866,15 @@ describe("createNormalChatTools", () => {
 			},
 		);
 
-		expect(researchWebMock).toHaveBeenCalledWith(
+		expect(researchWebViaParallelMock).toHaveBeenCalledWith(
 			{
 				query: "latest Vercel AI SDK tool API",
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "technical",
-				maxSources: 4,
-				quoteRequired: true,
 			},
-			{ signal: expect.any(AbortSignal) },
+			{
+				fetch: expect.any(Function),
+				config: { parallelApiKey: expect.any(String) },
+				signal: expect.any(AbortSignal),
+			},
 		);
 		expect(result).toMatchObject({
 			success: true,
@@ -932,49 +887,42 @@ describe("createNormalChatTools", () => {
 			},
 			sources: [
 				{
-					id: "source-1",
+					id: "p0",
 					title: "AI SDK Tools",
 					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
 				},
 			],
 			evidence: [
 				{
-					id: "evidence-1",
-					sourceId: "source-1",
+					id: "p0e0",
+					sourceId: "p0",
 					quote: "Use inputSchema and execute.",
 				},
 			],
 		});
-		expect(JSON.stringify(result)).not.toContain("FULL SOURCE TEXT");
-		expect(JSON.stringify(result)).not.toContain("RAW SURROUNDING TEXT");
 		expect(getToolCalls()).toEqual([
 			{
 				callId: "call-research",
 				name: "research_web",
 				input: {
 					query: "latest Vercel AI SDK tool API",
-					mode: "exact",
-					freshness: "live",
-					sourcePolicy: "technical",
-					maxSources: 4,
-					quoteRequired: true,
 				},
 				status: "done",
 				outputSummary: "Web research returned 1 source and 1 evidence snippet.",
 				sourceType: "web",
 				candidates: [
 					{
-						id: "source-1",
+						id: "p0",
 						title: "AI SDK Tools",
 						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
 						snippet: "Tools are functions that can be called by the model.",
 						sourceType: "web",
 						material: true,
 						metadata: {
-							provider: "searxng",
-							authorityClass: "official",
-							authorityScore: 0.95,
-							providerRank: 1,
+							provider: "parallel",
+							authorityClass: "standard",
+							authorityScore: 50,
+							providerRank: 0,
 						},
 					},
 				],
@@ -983,221 +931,39 @@ describe("createNormalChatTools", () => {
 					evidenceReady: true,
 					sourceCount: 1,
 					evidenceCount: 1,
-					mode: "exact",
-					freshness: "live",
-					sourcePolicy: "technical",
+					mode: "turbo",
+					freshness: "auto",
+					sourcePolicy: "general",
 					selectedSourceCount: 1,
-					openedPageCount: 1,
-					reranked: true,
+					openedPageCount: 0,
+					reranked: false,
 					sourceReranked: false,
 				},
 			},
 		]);
-		expect(JSON.stringify(getToolCalls())).not.toContain("FULL SOURCE TEXT");
-		expect(JSON.stringify(getToolCalls())).not.toContain(
-			"RAW SURROUNDING TEXT",
-		);
 	});
 
-	it("caps research_web maxSources to the resolved reasoning depth source budget", async () => {
-		researchWebMock.mockResolvedValue({
-			query: "current release options",
-			queries: [{ query: "current release options", purpose: "exact" }],
-			sources: [],
-			evidence: [],
-			answerBrief: {
-				markdown: "Research brief.",
-				instructions: [],
-				sources: [],
-				evidence: [],
-			},
-			diagnostics: {
-				mode: "research",
-				freshness: "live",
-				sourcePolicy: "general",
-				providers: { searxngConfigured: true },
-				plannedQueryCount: 1,
-				directUrlCount: 0,
-				fetchedSourceCount: 0,
-				fusedSourceCount: 0,
-				selectedSourceCount: 0,
-				providerCalls: [],
-				contentCharBudget: 8000,
-				openedPageCount: 0,
-				sourceReranked: false,
-				evidenceCandidateCount: 0,
-				exactEvidenceCandidateCount: 0,
-				reranked: false,
-				pageExtraction: {
-					attemptedCount: 0,
-					succeededCount: 0,
-					cacheHitCount: 0,
-					lowQualityCount: 0,
-					blockedCount: 0,
-					failedCount: 0,
-					totalLatencyMs: 0,
-				},
-				youtubeTranscriptCandidateCount: 0,
-				youtubeTranscriptFetchedCount: 0,
-				youtubeTranscriptFailedCount: 0,
-				youtubeTranscriptErrors: [],
-				fallbackReasons: [],
-			},
-		});
-
-		const { tools, getToolCalls } = createNormalChatTools({
-			userId: "user-1",
-			conversationId: "conversation-1",
-			turnId: "turn-1",
-			webSourceBudget: {
-				maxSources: 8,
-				sourceExpansion: true,
-			},
-		});
-
-		await tools.research_web.execute(
-			{
-				query: "current release options",
-				mode: "research",
-				freshness: "live",
-				maxSources: 12,
-			},
-			{
-				toolCallId: "call-research-budgeted",
-				messages: [],
-			},
-		);
-
-		expect(researchWebMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				query: "current release options",
-				maxSources: 8,
-			}),
-			{ signal: expect.any(AbortSignal) },
-		);
-		expect(getToolCalls()[0]?.input).toMatchObject({
-			query: "current release options",
-			maxSources: 8,
-		});
-	});
-
-	it("applies resolved research_web source budget when maxSources is omitted", async () => {
-		researchWebMock.mockResolvedValue({
-			query: "current release options",
-			queries: [{ query: "current release options", purpose: "primary" }],
-			sources: [],
-			evidence: [],
-			answerBrief: {
-				markdown: "Research brief.",
-				instructions: [],
-				sources: [],
-				evidence: [],
-			},
-			diagnostics: {
-				mode: "research",
-				freshness: "live",
-				sourcePolicy: "general",
-				providers: { searxngConfigured: true },
-				plannedQueryCount: 1,
-				directUrlCount: 0,
-				fetchedSourceCount: 0,
-				fusedSourceCount: 0,
-				selectedSourceCount: 0,
-				providerCalls: [],
-				contentCharBudget: 8000,
-				openedPageCount: 0,
-				sourceReranked: false,
-				evidenceCandidateCount: 0,
-				exactEvidenceCandidateCount: 0,
-				reranked: false,
-				pageExtraction: {
-					attemptedCount: 0,
-					succeededCount: 0,
-					cacheHitCount: 0,
-					lowQualityCount: 0,
-					blockedCount: 0,
-					failedCount: 0,
-					totalLatencyMs: 0,
-				},
-				youtubeTranscriptCandidateCount: 0,
-				youtubeTranscriptFetchedCount: 0,
-				youtubeTranscriptFailedCount: 0,
-				youtubeTranscriptErrors: [],
-				fallbackReasons: [],
-			},
-		});
-
-		const { tools, getToolCalls } = createNormalChatTools({
-			userId: "user-1",
-			conversationId: "conversation-1",
-			turnId: "turn-1",
-			webSourceBudget: {
-				maxSources: 4,
-				sourceExpansion: false,
-			},
-		});
-
-		await tools.research_web.execute(
-			{
-				query: "current release options",
-				mode: "research",
-				freshness: "live",
-			},
-			{
-				toolCallId: "call-research-budget-default",
-				messages: [],
-			},
-		);
-
-		expect(researchWebMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				query: "current release options",
-				maxSources: 4,
-			}),
-			{ signal: expect.any(AbortSignal) },
-		);
-		expect(getToolCalls()[0]?.input).toMatchObject({
-			query: "current release options",
-			maxSources: 4,
-		});
-	});
-
-	it("research_web reports pasted URL fetch failures as not evidence-ready", async () => {
+	it("research_web reports empty Parallel results as not evidence-ready", async () => {
 		const pastedUrl = "https://shop.example.com/products/widget-pro";
-		researchWebMock.mockResolvedValue({
+		researchWebViaParallelMock.mockResolvedValue({
 			query: `What price is shown on ${pastedUrl}?`,
-			queries: [
-				{
-					query: `What price is shown on ${pastedUrl}?`,
-					purpose: "exact",
-				},
-			],
+			queries: [{ query: `What price is shown on ${pastedUrl}?` }],
 			sources: [],
 			evidence: [],
 			answerBrief: {
-				markdown:
-					"Research brief for: pasted URL\n\nSources: none returned.\n\nEvidence snippets: none returned.",
-				instructions: ["Use only the sources and evidence in this brief."],
-				sources: [],
-				evidence: [],
+				markdown: "",
+				instructions: ["Answer only from these sources."],
 			},
 			diagnostics: {
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "commerce",
-				providers: { searxngConfigured: false },
+				mode: "turbo",
+				freshness: "auto",
+				sourcePolicy: "general",
 				plannedQueryCount: 1,
 				directUrlCount: 1,
 				fetchedSourceCount: 0,
-				fusedSourceCount: 1,
+				fusedSourceCount: 0,
 				selectedSourceCount: 0,
-				providerCalls: [],
-				contentCharBudget: 12000,
 				openedPageCount: 0,
-				sourceReranked: false,
-				evidenceCandidateCount: 0,
-				exactEvidenceCandidateCount: 0,
-				reranked: false,
 				pageExtraction: {
 					attemptedCount: 0,
 					succeededCount: 0,
@@ -1207,10 +973,10 @@ describe("createNormalChatTools", () => {
 					failedCount: 0,
 					totalLatencyMs: 0,
 				},
-				youtubeTranscriptCandidateCount: 0,
-				youtubeTranscriptFetchedCount: 0,
-				youtubeTranscriptFailedCount: 0,
-				youtubeTranscriptErrors: [],
+				evidenceCandidateCount: 0,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				sourceReranked: false,
 				fallbackReasons: ["page_open_failed", "direct_url_open_failed"],
 			},
 		});
@@ -1224,10 +990,6 @@ describe("createNormalChatTools", () => {
 		const result = await tools.research_web.execute(
 			{
 				query: `What price is shown on ${pastedUrl}?`,
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "commerce",
-				maxSources: 1,
 			},
 			{
 				toolCallId: "call-research",
@@ -1267,6 +1029,228 @@ describe("createNormalChatTools", () => {
 					selectedSourceCount: 0,
 					openedPageCount: 0,
 				}),
+			}),
+		]);
+	});
+
+	it("exposes fetch_url unconditionally, without any enabled connection capabilities", () => {
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		expect(tools).toHaveProperty("fetch_url");
+	});
+
+	it("fetch_url calls Parallel-backed page fetch and records compact web candidates", async () => {
+		fetchUrlViaParallelMock.mockResolvedValue({
+			query: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+			queries: [
+				{ query: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling" },
+			],
+			sources: [
+				{
+					id: "p0",
+					provider: "parallel",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+					snippet: "Tools are functions that can be called by the model.",
+					highlights: ["Use inputSchema and execute."],
+					providerRank: 0,
+					publishedAt: null,
+					updatedAt: null,
+					authorityClass: "standard",
+					authorityScore: 50,
+				},
+			],
+			evidence: [
+				{
+					id: "p0e0",
+					sourceId: "p0",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+					provider: "parallel",
+					quote: "Use inputSchema and execute.",
+					score: 1,
+				},
+			],
+			answerBrief: {
+				markdown: "Fetched page brief with compact citation guidance.",
+				instructions: ["Answer only from these sources."],
+			},
+			diagnostics: {
+				mode: "turbo",
+				freshness: "auto",
+				sourcePolicy: "general",
+				plannedQueryCount: 1,
+				directUrlCount: 1,
+				fetchedSourceCount: 1,
+				fusedSourceCount: 1,
+				selectedSourceCount: 1,
+				openedPageCount: 1,
+				pageExtraction: {
+					attemptedCount: 1,
+					succeededCount: 1,
+					cacheHitCount: 0,
+					lowQualityCount: 0,
+					blockedCount: 0,
+					failedCount: 0,
+					totalLatencyMs: 0,
+				},
+				evidenceCandidateCount: 1,
+				exactEvidenceCandidateCount: 0,
+				reranked: false,
+				sourceReranked: false,
+				fallbackReasons: [],
+			},
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.fetch_url.execute(
+			{
+				urls: ["https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling"],
+			},
+			{
+				toolCallId: "call-fetch",
+				messages: [],
+			},
+		);
+
+		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
+			{
+				urls: ["https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling"],
+			},
+			{
+				fetch: expect.any(Function),
+				config: { parallelApiKey: expect.any(String) },
+				signal: expect.any(AbortSignal),
+			},
+		);
+		// Reuses the shared grounded-web model payload builder, so the compact
+		// payload carries the web-grounding envelope (name "research_web") while
+		// the recorded tool-call entry below is the fetch_url-specific one.
+		expect(result).toMatchObject({
+			success: true,
+			sourceType: "web",
+			sources: [
+				{
+					id: "p0",
+					title: "AI SDK Tools",
+					url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+				},
+			],
+			evidence: [
+				{
+					id: "p0e0",
+					sourceId: "p0",
+					quote: "Use inputSchema and execute.",
+				},
+			],
+		});
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-fetch",
+				name: "fetch_url",
+				input: {
+					urls: ["https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling"],
+				},
+				status: "done",
+				sourceType: "web",
+				candidates: [
+					expect.objectContaining({
+						id: "p0",
+						title: "AI SDK Tools",
+						url: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",
+						sourceType: "web",
+					}),
+				],
+				metadata: expect.objectContaining({
+					ok: true,
+					evidenceReady: true,
+					sourceCount: 1,
+					evidenceCount: 1,
+				}),
+			}),
+		]);
+	});
+
+	it("records fetch_url service failures without evidence-ready candidates", async () => {
+		fetchUrlViaParallelMock.mockRejectedValueOnce(
+			new Error("fetch unavailable"),
+		);
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await expect(
+			tools.fetch_url.execute(
+				{ urls: ["https://x.com"] },
+				{ toolCallId: "call-fetch-failed", messages: [] },
+			),
+		).resolves.toEqual({
+			success: false,
+			error: "fetch unavailable",
+		});
+
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-fetch-failed",
+				name: "fetch_url",
+				sourceType: "web",
+				candidates: [],
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "fetch unavailable",
+				},
+			}),
+		]);
+	});
+
+	it("records aborted fetch_url executions without calling the downstream service", async () => {
+		const abortController = new AbortController();
+		abortController.abort(new Error("user cancelled"));
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		await expect(
+			tools.fetch_url.execute(
+				{ urls: ["https://x.com"] },
+				{
+					toolCallId: "call-fetch-aborted",
+					messages: [],
+					abortSignal: abortController.signal,
+				},
+			),
+		).resolves.toEqual({
+			success: false,
+			error: "fetch_url aborted: user cancelled",
+		});
+
+		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+		expect(getToolCalls()).toEqual([
+			expect.objectContaining({
+				callId: "call-fetch-aborted",
+				name: "fetch_url",
+				sourceType: "web",
+				candidates: [],
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					error: "fetch_url aborted: user cancelled",
+				},
 			}),
 		]);
 	});
@@ -1504,7 +1488,9 @@ describe("createNormalChatTools", () => {
 	});
 
 	it("records new tool service failures without evidence-ready candidates", async () => {
-		researchWebMock.mockRejectedValueOnce(new Error("research unavailable"));
+		researchWebViaParallelMock.mockRejectedValueOnce(
+			new Error("research unavailable"),
+		);
 		getMemoryContextMock.mockRejectedValueOnce(new Error("memory unavailable"));
 		searchImagesMock.mockRejectedValueOnce(
 			new Error("image search unavailable"),
@@ -1584,7 +1570,9 @@ describe("createNormalChatTools", () => {
 	it("records timed out tool executions through the shared envelope", async () => {
 		vi.useFakeTimers();
 		try {
-			researchWebMock.mockReturnValueOnce(new Promise(() => undefined));
+			researchWebViaParallelMock.mockReturnValueOnce(
+				new Promise(() => undefined),
+			);
 			const { tools, getToolCalls } = createNormalChatTools({
 				userId: "user-1",
 				conversationId: "conversation-1",
@@ -1643,7 +1631,7 @@ describe("createNormalChatTools", () => {
 			error: "research_web aborted: user cancelled",
 		});
 
-		expect(researchWebMock).not.toHaveBeenCalled();
+		expect(researchWebViaParallelMock).not.toHaveBeenCalled();
 		expect(getToolCalls()).toEqual([
 			expect.objectContaining({
 				callId: "call-research-aborted",

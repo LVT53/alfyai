@@ -422,21 +422,81 @@ describe("Atlas search stage", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("requires SearXNG configuration", async () => {
+	it("requires Parallel Search configuration", async () => {
 		const { runAtlasSearchStage } = await import("./search");
 
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise search"],
-			config: { searxngBaseUrl: "" },
-			search: vi.fn(),
+			config: {},
+			deps: { config: { parallelApiKey: "" } },
 		});
 
 		expect(result).toMatchObject({
 			sources: [],
 			limitation: {
-				code: "atlas_searxng_required",
+				code: "atlas_parallel_required",
 			},
 		});
+	});
+
+	it("maps Parallel search results to AtlasSearchSource and enriches via Parallel extract", async () => {
+		const { runAtlasSearchStage } = await import("./search");
+		const fetchMock = vi.fn(async (url: URL | string) => {
+			const requestUrl = String(url);
+			if (requestUrl.endsWith("/v1/search")) {
+				return new Response(
+					JSON.stringify({
+						results: [
+							{
+								url: "https://example.com/a",
+								title: "Result A",
+								publish_date: null,
+								excerpts: [
+									"Search excerpt about the enterprise topic with enough detail.",
+								],
+							},
+						],
+					}),
+				);
+			}
+			if (requestUrl.endsWith("/v1/extract")) {
+				return new Response(
+					JSON.stringify({
+						results: [
+							{
+								url: "https://example.com/a",
+								title: "Result A Full Title",
+								publish_date: null,
+								excerpts: ["fragment"],
+								full_content:
+									"Full page content covering the enterprise topic with detailed evidence.",
+							},
+						],
+					}),
+				);
+			}
+			throw new Error(`unexpected url ${requestUrl}`);
+		});
+
+		const result = await runAtlasSearchStage({
+			queries: ["enterprise topic"],
+			config: { concurrency: 1, interBatchDelayMs: 0, maxAttempts: 1 },
+			deps: {
+				fetch: fetchMock as unknown as typeof fetch,
+				config: { parallelApiKey: "test-key" },
+			},
+		});
+
+		expect(result.limitation).toBeNull();
+		expect(result.sources).toHaveLength(1);
+		expect(result.sources[0]).toMatchObject({
+			id: "web:enterprise topic:0",
+			url: "https://example.com/a",
+			// Enriched title comes from the extract result.
+			title: "Result A Full Title",
+		});
+		expect(result.sources[0].snippet).toContain("Fetched page excerpt");
+		expect(result.sources[0].snippet).toContain("Full page content");
 	});
 
 	it("uses bounded batch concurrency and stops when more than half a batch fails", async () => {
@@ -464,7 +524,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["q1", "q2", "q3", "q4"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 3,
 				interBatchDelayMs: 0,
 				initialRetryBackoffMs: 0,
@@ -488,7 +548,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise search", "retrieval evaluation"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 2,
 				interBatchDelayMs: 0,
 				maxAttempts: 1,
@@ -539,7 +599,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["routing docs"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 1,
 				interBatchDelayMs: 0,
 				maxAcceptedSources: 3,
@@ -569,7 +629,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise search"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 1,
 				interBatchDelayMs: 0,
 				maxAcceptedSources: 3,
@@ -633,7 +693,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise search"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 1,
 				interBatchDelayMs: 0,
 				maxAcceptedSources: 3,
@@ -683,7 +743,7 @@ describe("Atlas search stage", () => {
 		const result = await runAtlasSearchStage({
 			queries: ["retrieval evaluation"],
 			config: {
-				searxngBaseUrl: "http://searxng.local",
+				parallelApiKey: "test-key",
 				concurrency: 2,
 				interBatchDelayMs: 0,
 				maxAttempts: 1,

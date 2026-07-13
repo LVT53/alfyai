@@ -450,7 +450,7 @@ export type AtlasJobStatus =
 export interface AtlasAvailability {
 	enabled: boolean;
 	configured: boolean;
-	reasonCode?: "disabled" | "missing_searxng" | null;
+	reasonCode?: "disabled" | "missing_searxng" | "missing_parallel" | null;
 	reason?: string | null;
 }
 

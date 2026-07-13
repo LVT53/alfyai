@@ -1,4 +1,4 @@
-import type { ResearchResult } from "$lib/server/services/web-research";
+import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 
 export type GroundedWebSource = {
@@ -104,7 +104,7 @@ function optionalScalarMetadata(
 }
 
 export function buildGroundedWebModelPayload(
-	result: ResearchResult,
+	result: GroundedWebResult,
 ): GroundedWebModelPayload {
 	const sources = result.sources.slice(0, 8).map((source) => ({
 		id: source.id,
@@ -172,7 +172,7 @@ export function buildGroundedWebModelPayload(
 }
 
 export function createGroundedWebCandidates(
-	result: ResearchResult,
+	result: GroundedWebResult,
 ): ToolEvidenceCandidate[] {
 	return result.sources.slice(0, 12).map((source) => ({
 		id: source.id,
@@ -201,7 +201,7 @@ export function createGroundedWebCandidates(
 }
 
 export function createGroundedWebMetadata(
-	result: ResearchResult,
+	result: GroundedWebResult,
 ): GroundedWebMetadata {
 	const hasGroundingEvidence = result.evidence.length > 0;
 	return {
@@ -219,7 +219,7 @@ export function createGroundedWebMetadata(
 	};
 }
 
-export function summarizeGroundedWebResult(result: ResearchResult): string {
+export function summarizeGroundedWebResult(result: GroundedWebResult): string {
 	const sourceLabel = result.sources.length === 1 ? "source" : "sources";
 	const evidenceLabel =
 		result.evidence.length === 1 ? "evidence snippet" : "evidence snippets";
@@ -260,8 +260,11 @@ export function extractAssistantWebCitationUrls(
 	return [...urls];
 }
 
-function isResearchWebTool(tool: ToolCallEntry): boolean {
-	return tool.status === "done" && tool.name === "research_web";
+function isWebGroundingTool(tool: ToolCallEntry): boolean {
+	return (
+		tool.status === "done" &&
+		(tool.name === "research_web" || tool.name === "fetch_url")
+	);
 }
 
 function candidateToGroundedWebCitationSource(
@@ -284,7 +287,7 @@ export function extractGroundedWebCitationSources(
 ): GroundedWebCitationSource[] {
 	const uniqueSources = new Map<string, GroundedWebCitationSource>();
 	for (const source of toolCalls
-		.filter(isResearchWebTool)
+		.filter(isWebGroundingTool)
 		.flatMap((tool) => tool.candidates ?? [])
 		.map(candidateToGroundedWebCitationSource)
 		.filter((source): source is GroundedWebCitationSource => Boolean(source))) {

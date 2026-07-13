@@ -284,6 +284,41 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.WEB_PUSH_VAPID_SUBJECT).toBe("mailto:ops@example.com");
 	});
 
+	it("renders the Parallel and Brave search keys without SearXNG/Web Research controls", async () => {
+		const adminConfig = {
+			PARALLEL_API_KEY: "",
+			BRAVE_SEARCH_API_KEY: "",
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_2_ENABLED: "true",
+		};
+
+		const { getByLabelText, queryByLabelText } = render(
+			SettingsAdminSystemPane,
+			{
+				adminConfig,
+				envDefaults: {
+					PARALLEL_API_KEY: "",
+					BRAVE_SEARCH_API_KEY: "",
+				},
+				availableModels: [{ id: "model1", displayName: "Model 1" }],
+				onSaveAdminConfig: vi.fn(),
+			},
+		);
+
+		const parallelInput = getByLabelText("Parallel API Key");
+		await fireEvent.input(parallelInput, {
+			target: { value: "parallel-key" },
+		});
+		expect(adminConfig.PARALLEL_API_KEY).toBe("parallel-key");
+
+		expect(getByLabelText("Brave Search API Key")).toBeInTheDocument();
+
+		expect(queryByLabelText("SearXNG Base URL")).toBeNull();
+		expect(queryByLabelText("Max Returned Sources")).toBeNull();
+		expect(queryByLabelText("Page Extractor Mode")).toBeNull();
+		expect(queryByLabelText("SearXNG Results Per Query")).toBeNull();
+	});
+
 	it("lets admins publish draft System Skills", async () => {
 		mockFetchAdminSystemSkills.mockResolvedValue([
 			{

@@ -613,7 +613,7 @@ const URL_LIST_TOOL_ARGUMENT_GUARD = [
 	"Tool argument safety for URL-processing tools:",
 	"- If a tool field is named `urls` or expects a list of URLs/links, always pass an array of strings.",
 	'- For a single link, use `["https://example.com"]`, never a bare string.',
-	"- To fetch the content of a user-pasted URL, call `research_web` with the URL in the query. The tool will fetch the page directly and return it as a primary source — do not use or invent a separate fetch tool.",
+	"- To read the content of a user-pasted URL, call `fetch_url` with the URL in the `urls` array. It fetches the page directly and returns it as a primary source.",
 ].join("\n");
 const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>)\]]+/i;
 
@@ -680,18 +680,12 @@ const IMAGE_SEARCH_GUARD = [
 
 const WEB_RESEARCH_GUARD = [
 	"Web research workflow:",
-	"- If `research_web` is available, use it for current facts, prices, availability, specs, policies, page-backed claims, comparisons, and multi-source research. It handles searching, page fetching, evidence extraction, and answer-brief assembly in one call — there is no separate search or fetch step.",
-	'- Pass at least {"query": "your exact research question"}. Full input schema:',
-	"  - query (required, string): The research question.",
-	'  - mode (optional): "quick" (fast answers), "research" (deep multi-source), "exact" (precise values like prices/dates).',
-	'  - freshness (optional): "auto", "live" (current day), "recent" (configured window), "cache" (no time restriction).',
-	'  - sourcePolicy (optional): "general", "technical" (API/docs/library), "news", "commerce" (product/purchase), "medical_legal_financial".',
-	"  - maxSources (optional, integer 1-12): Maximum sources to return.",
-	"  - quoteRequired (optional, boolean): Whether exact quotes are required.",
-	'- Example for prices/availability: {"query": "iPhone 16 Pro Max price 2026", "mode": "exact", "freshness": "live", "sourcePolicy": "commerce"}',
-	'- Example for technical docs: {"query": "SvelteKit form actions API", "mode": "quick", "sourcePolicy": "technical"}',
-	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on", "mode": "research", "sourcePolicy": "commerce"}',
-	'- When the user pastes a URL, include it in the `query` and use `mode: "exact"`. The tool will fetch the page content directly and return it as a primary source. Do not try to use a separate fetch tool — `research_web` handles the page fetch internally.',
+	"- If `research_web` is available, use it to search the web for current facts, prices, availability, specs, policies, page-backed claims, comparisons, and multi-source research.",
+	'- Pass {"query": "your exact research question"}. The tool returns sources and evidence snippets with citation instructions.',
+	'- Example: {"query": "iPhone 16 Pro Max price 2026"}',
+	'- Example for technical docs: {"query": "SvelteKit form actions API"}',
+	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on"}',
+	'- To read a specific page — when the user pastes a URL, or when search snippets lack the exact detail or spec you need — use `fetch_url`. Pass {"urls": ["https://..."]} (up to 5) and optionally an `objective` describing what to extract. Cite fetched pages the same way as searched sources.',
 	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
@@ -712,11 +706,11 @@ const SOURCE_LINKING_GUARD = [
 const WEB_SEARCH_QUERY_PLANNING_GUARD = [
 	"Web search query planning:",
 	"- Before searching, identify the concrete entity, target fact, timeframe, geography or jurisdiction, version or model, and source authority needed. Keep those terms in the query instead of sending a vague paraphrase.",
-	"- For freshness-sensitive prompts such as today, current, latest, now, price, availability, policy, version, leadership, schedule, or deadline, include the current year/date or explicit timeframe when useful. Prefer `freshness: live` and `mode: exact` for exact values.",
+	"- For freshness-sensitive prompts such as today, current, latest, now, price, availability, policy, version, leadership, schedule, or deadline, include the current year/date or explicit timeframe when useful.",
 	"- For role-holder, office-holder, executive, organization, or named-person questions where the answer may have changed, search the current role/title and organization first rather than relying on a remembered name.",
-	"- For technical, API, library, package, migration, or error questions, query official docs, release notes, changelogs, README, or issue tracker terms first. Prefer `sourcePolicy: technical`.",
-	"- For law, medical, finance, tax, policy, safety, or other high-stakes topics, search official, government, regulatory, or primary sources first. Prefer `sourcePolicy: medical_legal_financial` when available.",
-	"- For commerce, product, availability, and buying advice, include exact product/model, region, current year/date, official specs or store, independent review, and known issue or complaint terms as appropriate. Prefer `sourcePolicy: commerce`.",
+	"- For technical, API, library, package, migration, or error questions, query official docs, release notes, changelogs, README, or issue tracker terms first.",
+	"- For law, medical, finance, tax, policy, safety, or other high-stakes topics, search official, government, regulatory, or primary sources first.",
+	"- For commerce, product, availability, and buying advice, include exact product/model, region, current year/date, official specs or store, independent review, and known issue or complaint terms as appropriate.",
 	"- If the first retrieved evidence is thin, stale, ambiguous, or conflicting, make the follow-up query narrower by adding the missing attribute, source type, date, version, location, or conflicting term.",
 	"- Do not issue broad queries like `latest news`, `reviews`, or `best products` without the entity and decision criteria that make the result relevant.",
 ].join("\n");
@@ -744,7 +738,7 @@ const MEMORY_CONTEXT_GUARD = [
 
 const WEB_FACT_EXTRACTION_GUARD = [
 	"Exact web facts and prices:",
-	'- For prices, availability, dates, specs, policies, contact details, addresses, numeric values, or claims from a specific webpage, use `research_web` with `mode: "exact"` and `freshness: "live"`. The tool handles page fetching and evidence extraction internally.',
+	"- For prices, availability, dates, specs, policies, contact details, addresses, numeric values, or general current facts, use `research_web`. For a value that lives on a specific page — one the user pasted, or one search snippets do not fully expose — use `fetch_url` to read that page directly.",
 	"- Extract the exact value from the returned evidence snippets and cite the source page. If the evidence does not contain the value, say that the retrieved source did not expose it instead of guessing.",
 	"- When sources conflict, prefer the primary/original page over aggregators, ads, snippets, or third-party summaries, and mention the conflict briefly.",
 	"- Do not copy an old price, a nearby unrelated price, or a search-result preview into the final answer unless the returned evidence supports it.",

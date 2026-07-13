@@ -1,221 +1,200 @@
 import { describe, expect, it } from "vitest";
-import type { ResearchResult } from "$lib/server/services/web-research";
+import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
-	extractAssistantWebCitationUrls,
 	extractGroundedWebCitationSources,
+	summarizeGroundedWebResult,
 } from "./web-grounding";
+import {
+	emptyGroundedWebDiagnostics,
+	type GroundedWebResult,
+} from "./parallel-search/types";
 
-function researchResult(): ResearchResult {
+function fixture(overrides: Partial<GroundedWebResult> = {}): GroundedWebResult {
 	return {
-		query: "current product price",
-		queries: [{ query: "official current product price", purpose: "official" }],
+		query: "what is the capital of france",
+		queries: [{ query: "what is the capital of france" }],
 		sources: [
 			{
-				id: "source-1",
-				provider: "searxng",
-				title: "Official Product Page",
-				url: "https://www.example.com/product?utm_source=search",
-				canonicalUrl: "https://example.com/product",
-				snippet: "Current price is $799.",
-				highlights: ["Current price is $799."],
-				text: "RAW PAGE TEXT SHOULD NOT REACH MODEL PAYLOAD",
-				score: 0.94,
-				providerRank: 1,
-				query: "official current product price",
+				id: "p0",
+				title: "Source Zero",
+				url: "https://example.com/a",
+				provider: "parallel",
+				authorityClass: "standard",
+				authorityScore: 50,
+				snippet: "snippet a",
+				highlights: ["highlight a"],
+				providerRank: 0,
 				publishedAt: null,
-				updatedAt: "2026-06-01T10:00:00.000Z",
-				retrievedAt: "2026-06-04T10:00:00.000Z",
-				authorityClass: "official",
-				authorityScore: 0.96,
+				updatedAt: null,
+			},
+			{
+				id: "p1",
+				title: "Source One",
+				url: "https://example.org/b",
+				provider: "parallel",
+				authorityClass: "standard",
+				authorityScore: 50,
+				snippet: "snippet b",
+				highlights: ["highlight b"],
+				providerRank: 1,
+				publishedAt: null,
+				updatedAt: null,
 			},
 		],
 		evidence: [
 			{
-				id: "evidence-1",
-				sourceId: "source-1",
-				title: "Official Product Page",
-				url: "https://www.example.com/product?utm_source=search",
-				provider: "searxng",
-				quote: "Current price is $799.",
-				surroundingText: "RAW SURROUNDING TEXT SHOULD NOT REACH MODEL PAYLOAD",
-				score: 0.91,
-				authorityScore: 0.96,
+				id: "p0e0",
+				sourceId: "p0",
+				title: "Source Zero",
+				url: "https://example.com/a",
+				provider: "parallel",
+				quote: "quote a",
+				score: 1,
+			},
+			{
+				id: "p1e0",
+				sourceId: "p1",
+				title: "Source One",
+				url: "https://example.org/b",
+				provider: "parallel",
+				quote: "quote b",
+				score: 0.9,
 			},
 		],
 		answerBrief: {
-			markdown: "Use [Official Product Page](https://www.example.com/product).",
-			instructions: ["Only cite returned source URLs."],
-			sources: [],
-			evidence: [],
+			markdown: "# Web research brief\n[1] Source Zero — https://example.com/a",
+			instructions: ["Answer only from these sources."],
 		},
-		diagnostics: {
-			mode: "exact",
-			freshness: "live",
-			sourcePolicy: "commerce",
-			providers: { searxngConfigured: true },
-			plannedQueryCount: 1,
-			directUrlCount: 0,
-			fetchedSourceCount: 1,
-			fusedSourceCount: 1,
-			selectedSourceCount: 1,
-			providerCalls: [],
-			contentCharBudget: 12_000,
-			openedPageCount: 1,
-			pageExtraction: {
-				attemptedCount: 1,
-				succeededCount: 1,
-				cacheHitCount: 0,
-				lowQualityCount: 0,
-				blockedCount: 0,
-				failedCount: 0,
-				totalLatencyMs: 120,
-			},
-			sourceReranked: false,
-			evidenceCandidateCount: 1,
-			exactEvidenceCandidateCount: 1,
-			reranked: true,
-			youtubeTranscriptCandidateCount: 0,
-			youtubeTranscriptFetchedCount: 0,
-			youtubeTranscriptFailedCount: 0,
-			youtubeTranscriptErrors: [],
-			fallbackReasons: [],
-		},
+		diagnostics: emptyGroundedWebDiagnostics({
+			mode: "turbo",
+			fetchedSourceCount: 2,
+			fusedSourceCount: 2,
+			selectedSourceCount: 2,
+			evidenceCandidateCount: 2,
+		}),
+		...overrides,
 	};
 }
 
-describe("web grounding", () => {
-	it("builds the model-safe research_web payload without raw source text", () => {
-		const payload = buildGroundedWebModelPayload(researchResult());
+const FROZEN_PAYLOAD_KEYS = [
+	"success",
+	"name",
+	"sourceType",
+	"query",
+	"queries",
+	"answerBrief",
+	"answerBriefMarkdown",
+	"sources",
+	"evidence",
+	"diagnostics",
+	"instructions",
+];
 
-		expect(payload).toMatchObject({
-			success: true,
-			name: "research_web",
-			sourceType: "web",
-			query: "current product price",
-			answerBrief: {
-				sourceCount: 1,
-				evidenceCount: 1,
-			},
-			diagnostics: {
-				mode: "exact",
-				freshness: "live",
-				sourcePolicy: "commerce",
-			},
-		});
+describe("web-grounding contract guard (GroundedWebResult)", () => {
+	it("buildGroundedWebModelPayload emits the frozen top-level field names", () => {
+		const payload = buildGroundedWebModelPayload(fixture());
+		for (const key of FROZEN_PAYLOAD_KEYS) {
+			expect(payload).toHaveProperty(key);
+		}
+		expect(payload.name).toBe("research_web");
+		expect(payload.sourceType).toBe("web");
+		expect(payload.success).toBe(true);
+		expect(payload.query).toBe("what is the capital of france");
+		expect(payload.queries).toEqual(["what is the capital of france"]);
+		expect(payload.answerBriefMarkdown).toContain("Web research brief");
+		expect(typeof payload.instructions).toBe("string");
+	});
+
+	it("source and evidence entries carry the frozen field names", () => {
+		const payload = buildGroundedWebModelPayload(fixture());
 		expect(payload.sources[0]).toMatchObject({
-			id: "source-1",
-			title: "Official Product Page",
-			url: "https://www.example.com/product?utm_source=search",
-			authorityClass: "official",
+			id: "p0",
+			title: "Source Zero",
+			url: "https://example.com/a",
+			provider: "parallel",
+			authorityClass: "standard",
+			authorityScore: 50,
 		});
 		expect(payload.evidence[0]).toMatchObject({
-			id: "evidence-1",
-			sourceId: "source-1",
-			quote: "Current price is $799.",
+			id: "p0e0",
+			sourceId: "p0",
+			quote: "quote a",
+			url: "https://example.com/a",
+			score: 1,
 		});
-		expect(JSON.stringify(payload)).not.toContain("RAW PAGE TEXT");
-		expect(JSON.stringify(payload)).not.toContain("RAW SURROUNDING TEXT");
 	});
 
-	it("creates citation-ready candidates and deduped canonical audit sources", () => {
-		const candidates = createGroundedWebCandidates(researchResult());
-		const firstCandidate = candidates[0];
-		expect(firstCandidate).toBeDefined();
-		if (!firstCandidate) throw new Error("Expected grounded web candidate");
-		const sources = extractGroundedWebCitationSources([
-			{
-				callId: "call-1",
-				name: "research_web",
-				input: { query: "current product price" },
-				status: "done",
-				sourceType: "web",
-				outputSummary: "Found sources",
-				candidates: [
-					...candidates,
-					{
-						...firstCandidate,
-						id: "duplicate-source",
-						url: "https://example.com/product?utm_campaign=chat",
-					},
-				],
-			},
-		]);
+	it("createGroundedWebCandidates yields web candidates", () => {
+		const candidates = createGroundedWebCandidates(fixture());
+		expect(candidates.length).toBe(2);
+		for (const c of candidates) {
+			expect(c.sourceType).toBe("web");
+			expect(c.material).toBe(true);
+			expect(c.id).toBeTruthy();
+			expect(c.title).toBeTruthy();
+			expect(c.url).toBeTruthy();
+		}
+	});
 
-		expect(candidates[0]).toMatchObject({
-			id: "source-1",
-			title: "Official Product Page",
-			url: "https://www.example.com/product?utm_source=search",
-			snippet: "Current price is $799.",
+	it("createGroundedWebMetadata gates evidence", () => {
+		expect(createGroundedWebMetadata(fixture())).toMatchObject({
+			ok: true,
+			evidenceReady: true,
+		});
+		const noEvidence = createGroundedWebMetadata(fixture({ evidence: [] }));
+		expect(noEvidence.ok).toBe(true);
+		expect(noEvidence.evidenceReady).toBe(false);
+	});
+
+	it("empty evidence makes the payload not evidence-ready", () => {
+		const payload = buildGroundedWebModelPayload(fixture({ evidence: [] }));
+		expect(payload.success).toBe(false);
+	});
+
+	it("summarizeGroundedWebResult reports the counts", () => {
+		const summary = summarizeGroundedWebResult(fixture());
+		expect(summary).toContain("2");
+		expect(summary.length).toBeGreaterThan(0);
+	});
+});
+
+describe("extractGroundedWebCitationSources", () => {
+	const candidate = (url: string): ToolEvidenceCandidate => ({
+		id: `c-${url}`,
+		title: "T",
+		url,
+		snippet: null,
+		sourceType: "web",
+		material: true,
+	});
+	const entry = (name: string, url: string): ToolCallEntry =>
+		({
+			callId: `call-${name}`,
+			name,
+			input: {},
+			status: "done",
 			sourceType: "web",
-			material: true,
-		});
-		expect(sources).toEqual([
-			{
-				id: "source-1",
-				title: "Official Product Page",
-				url: "https://www.example.com/product?utm_source=search",
-				canonicalUrl: "https://example.com/product",
-				host: "example.com",
-			},
+			candidates: [candidate(url)],
+			metadata: { ok: true, evidenceReady: true },
+		}) as unknown as ToolCallEntry;
+
+	it("harvests citation sources from both research_web and fetch_url", () => {
+		const sources = extractGroundedWebCitationSources([
+			entry("research_web", "https://example.com/a"),
+			entry("fetch_url", "https://example.org/b"),
 		]);
+		const hosts = sources.map((s) => s.host).sort();
+		expect(hosts).toEqual(["example.com", "example.org"]);
 	});
 
-	it("marks zero-source research results as not evidence-ready", () => {
-		const result = researchResult();
-		result.sources = [];
-		result.evidence = [];
-
-		expect(createGroundedWebMetadata(result)).toMatchObject({
-			ok: true,
-			evidenceReady: false,
-			sourceCount: 0,
-			evidenceCount: 0,
-			mode: "exact",
-			freshness: "live",
-		});
-	});
-
-	it("marks source-only research results without snippets as not evidence-ready", () => {
-		const result = researchResult();
-		const firstSource = result.sources[0];
-		expect(firstSource).toBeDefined();
-		if (!firstSource) throw new Error("Expected research source");
-		result.sources = [
-			{
-				...firstSource,
-				snippet: null,
-				highlights: [],
-				text: null,
-			},
-		];
-		result.evidence = [];
-
-		expect(createGroundedWebMetadata(result)).toMatchObject({
-			ok: true,
-			evidenceReady: false,
-			sourceCount: 1,
-			evidenceCount: 0,
-		});
-		expect(buildGroundedWebModelPayload(result)).toMatchObject({
-			success: false,
-			answerBrief: {
-				sourceCount: 1,
-				evidenceCount: 0,
-			},
-			diagnostics: {
-				fallbackReasons: [],
-			},
-		});
-	});
-
-	it("extracts markdown and bare web citation URLs for audit handoff", () => {
-		expect(
-			extractAssistantWebCitationUrls(
-				"See [official](https://example.com/product). Mirror: https://cdn.example.net/item.",
-			),
-		).toEqual(["https://example.com/product", "https://cdn.example.net/item."]);
+	it("ignores non-web / non-done tool calls", () => {
+		const notDone = {
+			...entry("research_web", "https://x.com/1"),
+			status: "running",
+		} as unknown as ToolCallEntry;
+		expect(extractGroundedWebCitationSources([notDone])).toEqual([]);
 	});
 });

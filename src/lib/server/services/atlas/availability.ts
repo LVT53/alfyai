@@ -4,20 +4,25 @@ import type { AtlasAvailability } from "$lib/types";
 export function getAtlasAvailability(
 	config: RuntimeConfig = getConfig(),
 ): AtlasAvailability {
+	// TODO(#13): read `parallelApiKey` from a first-class RuntimeConfig field
+	// once Wave 4 adds it; until then it is resolved defensively.
+	const parallelApiKey = (
+		config as { parallelApiKey?: string }
+	).parallelApiKey?.trim();
 	if (!config.atlasWorkerEnabled) {
 		return {
 			enabled: false,
-			configured: Boolean(config.searxngBaseUrl?.trim()),
+			configured: Boolean(parallelApiKey),
 			reasonCode: "disabled",
 			reason: "Atlas is disabled by the administrator.",
 		};
 	}
-	if (!config.searxngBaseUrl?.trim()) {
+	if (!parallelApiKey) {
 		return {
 			enabled: true,
 			configured: false,
-			reasonCode: "missing_searxng",
-			reason: "Atlas requires SearXNG web search configuration.",
+			reasonCode: "missing_parallel",
+			reason: "Atlas requires Parallel Search API configuration.",
 		};
 	}
 	return { enabled: true, configured: true, reasonCode: null, reason: null };

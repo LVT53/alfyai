@@ -136,14 +136,15 @@ export async function executeNextAtlasJob(
 					runAtlasSearchStage({
 						queries,
 						config: {
-							searxngBaseUrl: config.searxngBaseUrl,
+							// TODO(#13): source parallelApiKey from RuntimeConfig once Wave 4
+							// adds it; until then resolve defensively.
+							parallelApiKey:
+								(config as { parallelApiKey?: string }).parallelApiKey ??
+								process.env.PARALLEL_API_KEY ??
+								"",
 							concurrency: config.atlasSearchConcurrency,
 							interBatchDelayMs: config.atlasSearchBatchDelayMs,
 							maxAcceptedSources: profileConfig.maxAcceptedWebSources,
-							webResearchExtractorMode: config.webResearchExtractorMode,
-							webResearchExtractTimeoutMs: config.webResearchExtractTimeoutMs,
-							webResearchExtractCacheTtlHours:
-								config.webResearchExtractCacheTtlHours,
 						},
 					}),
 				searchImages: (queries, timeRange) =>
