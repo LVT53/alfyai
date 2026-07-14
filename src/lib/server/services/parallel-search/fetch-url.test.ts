@@ -236,6 +236,84 @@ describe("fetchUrlViaParallel", () => {
 		expect(result.answerBrief.markdown).not.toContain("A".repeat(2001));
 	});
 
+	it("appends a bounded 'Could not read' note listing each failed url and reason", async () => {
+		// Mixed payload: one page succeeded, two urls failed with distinct reasons.
+		const mixed = jsonResponse({
+			extract_id: "ex-mixed",
+			results: [
+				{
+					url: "https://example.com/a",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: "full content of page A",
+				},
+			],
+			errors: [
+				{ url: "https://example.com/b", message: "404 Not Found" },
+				{ url: "https://example.com/c", reason: "paywall blocked" },
+			],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => mixed);
+
+		const result = await fetchUrlViaParallel(
+			{
+				urls: [
+					"https://example.com/a",
+					"https://example.com/b",
+					"https://example.com/c",
+				],
+			},
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		// The successful page body still flows through the brief.
+		expect(result.answerBrief.markdown).toContain("full content of page A");
+		// Each failure is spelled out with its url and reason.
+		expect(result.answerBrief.markdown).toContain("Could not read");
+		expect(result.answerBrief.markdown).toContain(
+			"https://example.com/b — 404 Not Found",
+		);
+		expect(result.answerBrief.markdown).toContain(
+			"https://example.com/c — paywall blocked",
+		);
+	});
+
+	it("surfaces failures in the brief even when every url failed (no page content)", async () => {
+		const allFailed = jsonResponse({
+			extract_id: "ex-allfail",
+			results: [],
+			errors: [{ url: "https://example.com/gone", message: "timeout" }],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => allFailed);
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/gone"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(result.sources).toEqual([]);
+		expect(result.answerBrief.markdown).toContain("Could not read");
+		expect(result.answerBrief.markdown).toContain(
+			"https://example.com/gone — timeout",
+		);
+	});
+
+	it("adds no failure note when the extract reported no per-url errors", async () => {
+		const fetchMock = vi.fn(async () => extractResponse());
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a", "https://example.com/b"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(result.answerBrief.markdown).not.toContain("Could not read");
+	});
+
 	it("reports fetch diagnostics", async () => {
 		const fetchMock = vi.fn(async () => extractResponse());
 

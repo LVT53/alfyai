@@ -1374,7 +1374,12 @@ export async function createDeliberationTools(
 		userId: params.userId,
 		conversationId: params.conversationId,
 	}).catch(() => true);
-	return { research_web, ...(memoryActive ? { memory_context } : {}) };
+	// research_web is only present when Parallel is configured; omit it entirely
+	// when absent so the deliberation sub-model isn't handed an undefined tool.
+	return {
+		...(research_web ? { research_web } : {}),
+		...(memoryActive ? { memory_context } : {}),
+	};
 }
 
 async function runDeliberationPass(

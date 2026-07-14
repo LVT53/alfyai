@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type ParallelClientConfig,
 	parallelExtract,
+	parallelExtractWithErrors,
 	parallelSearch,
 } from "./client";
 
@@ -356,5 +357,55 @@ describe("parallelExtract", () => {
 		);
 
 		expect(capturedInit?.signal).toBe(controller.signal);
+	});
+});
+
+describe("parallelExtractWithErrors", () => {
+	it("returns results plus per-url errors normalized from the response", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				extract_id: "e-mixed",
+				results: [
+					{
+						url: "https://example.com/a",
+						title: "A",
+						publish_date: null,
+						excerpts: [],
+						full_content: "ok",
+					},
+				],
+				errors: [
+					{ url: "https://example.com/b", message: "404 Not Found" },
+					// reason-keyed and a bare string are both tolerated defensively.
+					{ url: "https://example.com/c", reason: "paywall" },
+					"generic failure",
+				],
+			}),
+		);
+
+		const { results, errors } = await parallelExtractWithErrors(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(results).toHaveLength(1);
+		expect(errors).toEqual([
+			{ url: "https://example.com/b", reason: "404 Not Found" },
+			{ url: "https://example.com/c", reason: "paywall" },
+			{ url: null, reason: "generic failure" },
+		]);
+	});
+
+	it("yields an empty errors array when the response omits or malforms errors", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ results: [], errors: "not-an-array" }),
+		);
+
+		const { errors } = await parallelExtractWithErrors(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(errors).toEqual([]);
 	});
 });

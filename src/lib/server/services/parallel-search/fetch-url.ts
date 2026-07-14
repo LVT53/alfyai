@@ -3,7 +3,11 @@
 // shape consumed by web-grounding.ts. This is the "fetch" counterpart to the
 // search-backed research orchestrator; it does no planning, ranking, or fusion.
 
-import { type ParallelClientDeps, parallelExtract } from "./client";
+import {
+	type ParallelClientDeps,
+	type ParallelExtractUrlError,
+	parallelExtractWithErrors,
+} from "./client";
 import {
 	baseGroundedWebDiagnostics,
 	type GroundedWebEvidence,
@@ -101,13 +105,53 @@ function buildAnswerBrief(
 	return `# Fetched page content\n\n${blocks.join("\n\n")}`;
 }
 
+// Bound on how many per-URL failures we spell out in the brief, and how long
+// each reason may be, so a pathological error payload can't bloat the brief.
+const MAX_FAILURE_NOTES = 10;
+const FAILURE_REASON_CHARS = 200;
+
+// Render the per-URL Extract failures as a short, bounded "Could not read"
+// list appended to the answer brief. This is additive content INSIDE the brief
+// markdown (not a new top-level field), so the model can tell the user which
+// url failed and why (404 / paywall / timeout) instead of silently dropping it.
+// Returns "" when there were no reported failures.
+function buildFailureNote(errors: ParallelExtractUrlError[]): string {
+	if (errors.length === 0) {
+		return "";
+	}
+	const shown = errors.slice(0, MAX_FAILURE_NOTES);
+	const lines = shown.map((error) => {
+		const url = error.url ?? "(url not reported)";
+		const reason = truncateBody(
+			error.reason || "unknown error",
+			FAILURE_REASON_CHARS,
+		);
+		return `- ${url} — ${reason}`;
+	});
+	const remaining = errors.length - shown.length;
+	const overflow = remaining > 0 ? `\n- …and ${remaining} more` : "";
+	return `## Could not read\n\n${lines.join("\n")}${overflow}`;
+}
+
+// Join the fetched-page brief with the failure note, tolerating either being
+// empty (e.g. every url failed -> no page content, note only).
+function appendFailureNote(briefMarkdown: string, note: string): string {
+	if (!note) {
+		return briefMarkdown;
+	}
+	if (!briefMarkdown) {
+		return note;
+	}
+	return `${briefMarkdown}\n\n${note}`;
+}
+
 export async function fetchUrlViaParallel(
 	req: FetchUrlRequest,
 	deps: ParallelClientDeps,
 	opts?: FetchUrlOptions,
 ): Promise<GroundedWebResult> {
 	const startedAt = Date.now();
-	const results = await parallelExtract(
+	const { results, errors } = await parallelExtractWithErrors(
 		{
 			urls: req.urls,
 			objective: req.objective ?? DEFAULT_OBJECTIVE,
@@ -197,10 +241,13 @@ export async function fetchUrlViaParallel(
 		sources,
 		evidence,
 		answerBrief: {
-			markdown: buildAnswerBrief(
-				sources,
-				results.map((result) => result.full_content ?? null),
-				opts?.maxCharsTotal,
+			markdown: appendFailureNote(
+				buildAnswerBrief(
+					sources,
+					results.map((result) => result.full_content ?? null),
+					opts?.maxCharsTotal,
+				),
+				buildFailureNote(errors),
 			),
 			instructions: [
 				"Answer only from these fetched pages.",

@@ -121,7 +121,12 @@ export function createToolCallRecorder(
 
 export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	research_web: 60_000,
-	fetch_url: 30_000,
+	// fetch_url defaults to CACHED Extract (max_age 86400, ~735ms), so slow
+	// fetches are rare; but an UNCACHED live Extract can spike to ~42s (see
+	// parallel-search/fetch-url.ts), which the old 30s cap surfaced as a spurious
+	// tool timeout. 45s clears that worst-case tail while staying under
+	// research_web's 60s.
+	fetch_url: 45_000,
 	memory_context: 15_000,
 	image_search: 30_000,
 	produce_file: 30_000,
