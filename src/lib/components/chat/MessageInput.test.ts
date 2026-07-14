@@ -2223,6 +2223,7 @@ describe("MessageInput incognito toggle", () => {
 describe("MessageInput Connections toggle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		localStorage.clear();
 		uiLanguage.set("en");
 		selectedModel.set("model1");
 		fetchKnowledgeLibraryMock.mockResolvedValue({
@@ -2315,7 +2316,7 @@ describe("MessageInput Connections toggle", () => {
 		);
 	});
 
-	it("resets to on when the bound conversation id changes", async () => {
+	it("defaults to on when switching to a different conversation with no remembered choice", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: ["calendar"],
 			defaultOn: ["calendar"],
@@ -2362,6 +2363,99 @@ describe("MessageInput Connections toggle", () => {
 		expect(toggle).toHaveAttribute(
 			"aria-label",
 			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
+		);
+	});
+
+	it("remembers an off choice across the draft -> real conversation creation (no snap-back)", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const { getByTestId, rerender } = render(MessageInput);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		// The draft becomes a real conversation (null -> id) — e.g. when a model
+		// switch or the first send creates it. The choice must not snap back on.
+		await rerender({ conversationId: "conv-created" });
+
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
+		expect(
+			localStorage.getItem("alfyai:composer:connectionsDisabled:conv-created"),
+		).toBe("1");
+	});
+
+	it("restores a remembered off choice on mount (survives reload / navigation)", async () => {
+		localStorage.setItem(
+			"alfyai:composer:connectionsDisabled:conv-remembered",
+			"1",
+		);
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const sendSpy = vi.fn();
+		const { getByTestId, getByPlaceholderText, getByRole } = render(
+			MessageInput,
+			{ conversationId: "conv-remembered", onSend: sendSpy },
+		);
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Check my schedule" },
+		});
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ enabledConnectionCapabilities: [] }),
+		);
+	});
+
+	it("restores each conversation's own remembered choice when switching back", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar"],
+			defaultOn: ["calendar"],
+			accounts: [],
+		});
+		const { getByTestId, rerender } = render(MessageInput, {
+			conversationId: "conv-a",
+		});
+
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const toggle = getByTestId("connections-toggle");
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		// Switch to a different conversation (defaults on), then back to conv-a.
+		await rerender({ conversationId: "conv-b" });
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+
+		await rerender({ conversationId: "conv-a" });
+		expect(getByTestId("connections-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"false",
 		);
 	});
 });
