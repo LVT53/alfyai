@@ -14,7 +14,6 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
-import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -41,6 +40,7 @@ import {
 	resolveFetchContentCharCap,
 	sanitizeFetchUrlInput,
 } from "./fetch-url";
+import { resolveModelContextTokens } from "./model-context-tokens";
 import {
 	filesToolInputSchema,
 	runFilesTool,
@@ -1715,45 +1715,6 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 	};
-}
-
-// Resolve the selected model's context window (in tokens) from ctx.modelId.
-// Composite ids (`provider:<providerId>:<modelId>`) resolve against the
-// provider-models table; builtin ids (model1/model2) resolve from runtime
-// config. Returns null when the model or its capacity can't be resolved, which
-// resolveFetchContentCharCap turns into a safe default cap.
-async function resolveModelContextTokens(
-	modelId: string | undefined,
-): Promise<number | null> {
-	if (!modelId) return null;
-	if (modelId.startsWith("provider:")) {
-		const parts = modelId.split(":");
-		if (parts.length >= 3) {
-			try {
-				const models = await listEnabledProviderModels(parts[1]);
-				// The model segment can itself contain colons (e.g. an id like
-				// "org/model:tag"), so rejoin everything after the provider segment.
-				const modelId = parts.slice(2).join(":");
-				const model = models.find((candidate) => candidate.id === modelId);
-				if (model) {
-					return (
-						model.maxModelContext ?? model.targetConstructedContext ?? null
-					);
-				}
-			} catch {
-				return null;
-			}
-		}
-		return null;
-	}
-	try {
-		const config = getConfig();
-		return modelId === "model2"
-			? (config.model2MaxModelContext ?? null)
-			: (config.model1MaxModelContext ?? null);
-	} catch {
-		return null;
-	}
 }
 
 async function getPreviousGeneratedFileContent(
