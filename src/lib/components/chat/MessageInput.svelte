@@ -524,16 +524,60 @@ function ensureCapabilitiesLoaded(): Promise<void> {
 	return capabilitiesLoadPromise;
 }
 
-// Per-conversation Connections master toggle. Resets to the default (on)
-// whenever the conversation the composer is bound to changes, mirroring the
-// incognito sync above — this is local-only state (no server persistence),
-// giving the user a fresh per-turn "don't touch my accounts for this
-// conversation" escape hatch per ADR 0044 Decision 1.
+// Per-conversation Connections master toggle. The user's on/off choice is
+// remembered per conversation (persisted in localStorage) so it survives
+// model switches, the draft -> real conversation creation (null -> id), the
+// post-send `/` -> `/chat/[id]` navigation remount, and reloads. Brand-new
+// drafts default to on (trust-the-assistant). This supersedes ADR 0044
+// Decision 1's original reset-per-conversation behavior, which flipped the
+// toggle back on whenever the bound conversation id changed (e.g. on send or
+// when a model switch created the draft conversation).
+const CONNECTIONS_DISABLED_KEY_PREFIX = "alfyai:composer:connectionsDisabled:";
+
+function readConnectionsDisabled(id: string): boolean {
+	if (!browser) return false;
+	try {
+		return localStorage.getItem(CONNECTIONS_DISABLED_KEY_PREFIX + id) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function persistConnectionsChoice(id: string, enabled: boolean): void {
+	if (!browser) return;
+	try {
+		if (enabled) {
+			localStorage.removeItem(CONNECTIONS_DISABLED_KEY_PREFIX + id);
+		} else {
+			localStorage.setItem(CONNECTIONS_DISABLED_KEY_PREFIX + id, "1");
+		}
+	} catch {
+		/* storage unavailable — fall back to in-memory-only for this session */
+	}
+}
+
 $effect(() => {
 	const boundId = conversationId ?? null;
 	if (connectionsSyncedConversationId === boundId) return;
+	if (boundId === null) {
+		// Back to a brand-new draft: default on.
+		connectionsSyncedConversationId = null;
+		connectionsEnabled = true;
+		return;
+	}
+	const wasDraft = connectionsSyncedConversationId === null;
 	connectionsSyncedConversationId = boundId;
-	connectionsEnabled = true;
+	if (readConnectionsDisabled(boundId)) {
+		// Existing conversation (or reload) with a remembered "off" choice.
+		connectionsEnabled = false;
+	} else if (wasDraft && !connectionsEnabled) {
+		// A draft the user turned off just became a real conversation. Carry the
+		// choice across creation and persist it so it survives the post-send
+		// navigation remount instead of snapping back on.
+		persistConnectionsChoice(boundId, false);
+	} else {
+		connectionsEnabled = true;
+	}
 });
 
 // Derives the active capability set from the master toggle: on -> the
@@ -555,6 +599,13 @@ function toggleConnections() {
 	// disabled (greyed) with a tooltip pointing to settings.
 	if (!hasConnections) return;
 	connectionsEnabled = !connectionsEnabled;
+	const id = conversationId ?? resolvedConversationId;
+	if (id) {
+		// Remember the choice for this conversation immediately. For a brand-new
+		// draft (no id yet), the conversation-bound effect above persists it once
+		// the conversation is created.
+		persistConnectionsChoice(id, connectionsEnabled);
+	}
 }
 
 $effect(() => {
