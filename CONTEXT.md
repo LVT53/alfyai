@@ -2500,6 +2500,10 @@ _Avoid_: knowledge attachment, uploaded research input, library artifact citatio
 A web page discovered through **Parallel Search** during the **Atlas Turn** search stage. Web sources are the primary source pool for an Atlas and appear in the Atlas under a "Web Sources" subsection of the Sources section. Text discovery and page fetch both run through Parallel; **image search alone runs on Brave** because Parallel has no image API. Atlas availability gates on `PARALLEL_API_KEY` (`missing_parallel`).
 _Avoid_: search result, fetched page, web citation, SearXNG result
 
+**Atlas Source Acquisition**:
+The `atlas/search.ts` module that turns research queries into accepted, enriched, deduplicated **Atlas Web Sources**. It runs search → converge → enrich: it queries **Parallel Search**, converges results within a round (adult-content and unusable-snippet filtering plus canonical URL dedup), and enriches accepted sources (title hygiene, page-excerpt fetch) before they enter the source pool. Cross-round gap-fill convergence lives in the pipeline, but both stages dedup on the same canonical URL key (`atlas/source-url.ts`). It is the acquisition front end of an **Atlas Research Round**, not the curator, evidence builder, or renderer.
+_Avoid_: search stage, fetch step, source scraper, crawler
+
 **Atlas Completion Notice**:
 The set of signals that tell a user an **Atlas** has finished compiling. Three layers: on-page progress card updates in real-time via polling; conversation list sidebar shows an unseen-completion badge on a conversation with a newly completed Atlas when the user navigates within AlfyAI; browser push notification fires when the Atlas completes and the user has left AlfyAI entirely. The sidebar badge is not a permanent marker: it does not show for the currently open chat, and opening the chat marks that specific completed Atlas badge as seen while allowing later Atlas completions in the same chat to show a fresh badge. Browser push requires a one-time permission prompt and uses the Web Push API with VAPID keys.
 _Avoid_: research notification, Atlas email alert, separate notification center

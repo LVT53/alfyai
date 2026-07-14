@@ -28,6 +28,7 @@ import {
 	type AtlasReportShapeDiagnostics,
 	diagnoseAtlasReportShape,
 } from "./report-shape-diagnostics";
+import { canonicalSourceUrlKey } from "./source-url";
 import type {
 	AtlasAssemblyDiagnostics,
 	AtlasAssemblyMetadata,
@@ -314,14 +315,14 @@ function evidencePackForWebSource(
 	evidencePacks: AtlasEvidencePack[],
 	source: AtlasPipelineWebSource,
 ): AtlasEvidencePack | null {
-	const sourceUrlKey = canonicalWebSourceUrlKey(source.url);
+	const sourceUrlKey = canonicalSourceUrlKey(source.url);
 	return (
 		evidencePacks.find((pack) =>
 			pack.sourceRefs.some((ref) => {
 				if (ref.kind !== "web") return false;
 				if (ref.id === source.id || ref.title === source.title) return true;
 				return ref.url
-					? canonicalWebSourceUrlKey(ref.url) === sourceUrlKey
+					? canonicalSourceUrlKey(ref.url) === sourceUrlKey
 					: false;
 			}),
 		) ?? null
@@ -1008,7 +1009,7 @@ function convergeGapFillWebSources(input: {
 	const roundRejectedSources: AtlasPipelineRejectedWebSource[] = [];
 	const seenUrlKeys = new Set(
 		input.existingWebSources.map((source) =>
-			canonicalWebSourceUrlKey(source.url),
+			canonicalSourceUrlKey(source.url),
 		),
 	);
 	const seenMaterialKeys = new Set(
@@ -1019,7 +1020,7 @@ function convergeGapFillWebSources(input: {
 	let materiallyNewExcerptCount = 0;
 
 	for (const source of input.candidates) {
-		const urlKey = canonicalWebSourceUrlKey(source.url);
+		const urlKey = canonicalSourceUrlKey(source.url);
 		if (seenUrlKeys.has(urlKey)) {
 			roundRejectedSources.push({
 				...source,
@@ -1121,17 +1122,6 @@ function buildGapFillDiagnostics(input: {
 		materiallyNewExcerptCount: input.materiallyNewExcerptCount,
 		diagnostics,
 	};
-}
-
-function canonicalWebSourceUrlKey(url: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.hash = "";
-		parsed.searchParams.sort();
-		return parsed.toString().replace(/\/+$/, "").toLowerCase();
-	} catch {
-		return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
-	}
 }
 
 function webSourceMaterialKey(source: AtlasPipelineWebSource): string | null {

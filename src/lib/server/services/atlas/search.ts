@@ -13,6 +13,7 @@ import {
 } from "./config";
 import { isUsableAtlasImageCandidate } from "./image-quality";
 import { sanitizeSourceTitle } from "./source-title";
+import { canonicalSourceUrlKey } from "./source-url";
 import type { AtlasImageCandidate } from "./types";
 
 export interface AtlasSearchSource {
@@ -113,18 +114,6 @@ function uniqueQueries(queries: string[]): string[] {
 async function defaultSleep(ms: number): Promise<void> {
 	if (ms <= 0) return;
 	await new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizedSourceUrlKey(url: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.hash = "";
-		parsed.searchParams.sort();
-		const normalized = parsed.toString().replace(/\/+$/, "");
-		return normalized.toLowerCase();
-	} catch {
-		return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
-	}
 }
 
 function isUnsafeAdultSource(source: AtlasSearchSource): boolean {
@@ -237,7 +226,7 @@ function convergeSources(input: {
 			continue;
 		}
 
-		const key = normalizedSourceUrlKey(source.url);
+		const key = canonicalSourceUrlKey(source.url);
 		if (seenUrls.has(key)) {
 			rejectedSources.push({ ...source, rejectionReason: "duplicate_url" });
 			continue;
@@ -520,7 +509,7 @@ function convergeImageCandidates(input: {
 		if (isUnsafeAdultImageCandidate(candidate)) continue;
 		if (!isUsableAtlasImageCandidate(candidate, input.freshnessSensitive))
 			continue;
-		const key = normalizedSourceUrlKey(candidate.imageUrl);
+		const key = canonicalSourceUrlKey(candidate.imageUrl);
 		if (seenUrls.has(key)) continue;
 		seenUrls.add(key);
 		if (accepted.length >= input.maxAccepted) break;
