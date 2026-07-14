@@ -1300,11 +1300,12 @@ describe("createNormalChatTools", () => {
 			// conversation.
 			{ sessionId: "turn-1", maxCharsTotal: 60_000 },
 		);
-		// Reuses the shared grounded-web model payload builder, so the compact
-		// payload carries the web-grounding envelope (name "research_web") while
-		// the recorded tool-call entry below is the fetch_url-specific one.
+		// Reuses the shared grounded-web model payload builder, but stamps the
+		// fetch_url tool name so the compact payload envelope and the recorded
+		// tool-call entry below both identify as fetch_url.
 		expect(result).toMatchObject({
 			success: true,
+			name: "fetch_url",
 			sourceType: "web",
 			sources: [
 				{

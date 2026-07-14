@@ -1,7 +1,11 @@
-import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
+import {
+	type GroundedWebResult,
+	MAX_PAYLOAD_EVIDENCE,
+	MAX_PAYLOAD_SOURCES,
+} from "$lib/server/services/parallel-search/types";
 import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 
-export type GroundedWebSource = {
+export type GroundedWebPayloadSource = {
 	id: string;
 	title: string;
 	url: string;
@@ -11,18 +15,9 @@ export type GroundedWebSource = {
 	publishedAt: string | null;
 	updatedAt: string | null;
 	snippet?: string;
-	youtubeTranscript?: {
-		videoId: string;
-		language: string;
-		languageCode: string;
-		isGenerated: boolean;
-		isTranslated: boolean;
-		snippetCount: number;
-		fetchedAt: string;
-	};
 };
 
-export type GroundedWebEvidence = {
+export type GroundedWebPayloadEvidence = {
 	id: string;
 	sourceId: string;
 	title: string;
@@ -34,7 +29,7 @@ export type GroundedWebEvidence = {
 
 export type GroundedWebModelPayload = {
 	success: boolean;
-	name: "research_web";
+	name: "research_web" | "fetch_url";
 	sourceType: "web";
 	query: string;
 	queries: string[];
@@ -44,8 +39,8 @@ export type GroundedWebModelPayload = {
 		evidenceCount: number;
 	};
 	answerBriefMarkdown: string;
-	sources: GroundedWebSource[];
-	evidence: GroundedWebEvidence[];
+	sources: GroundedWebPayloadSource[];
+	evidence: GroundedWebPayloadEvidence[];
 	diagnostics: {
 		mode: string;
 		freshness: string;
@@ -110,23 +105,22 @@ const DEFAULT_ANSWER_BRIEF_MARKDOWN_CHARS = 30_000;
 
 export function buildGroundedWebModelPayload(
 	result: GroundedWebResult,
-	opts?: { maxMarkdownChars?: number },
+	opts?: { maxMarkdownChars?: number; name?: "research_web" | "fetch_url" },
 ): GroundedWebModelPayload {
-	const sources = result.sources.slice(0, 8).map((source) => ({
-		id: source.id,
-		title: truncateText(source.title, 180),
-		url: truncateText(source.url, 500),
-		provider: source.provider,
-		authorityClass: source.authorityClass,
-		authorityScore: source.authorityScore,
-		publishedAt: source.publishedAt,
-		updatedAt: source.updatedAt,
-		...(source.snippet ? { snippet: truncateText(source.snippet, 500) } : {}),
-		...(source.youtubeTranscript
-			? { youtubeTranscript: source.youtubeTranscript }
-			: {}),
-	}));
-	const evidence = result.evidence.slice(0, 12).map((item) => ({
+	const sources = result.sources
+		.slice(0, MAX_PAYLOAD_SOURCES)
+		.map((source) => ({
+			id: source.id,
+			title: truncateText(source.title, 180),
+			url: truncateText(source.url, 500),
+			provider: source.provider,
+			authorityClass: source.authorityClass,
+			authorityScore: source.authorityScore,
+			publishedAt: source.publishedAt,
+			updatedAt: source.updatedAt,
+			...(source.snippet ? { snippet: truncateText(source.snippet, 500) } : {}),
+		}));
+	const evidence = result.evidence.slice(0, MAX_PAYLOAD_EVIDENCE).map((item) => ({
 		id: item.id,
 		sourceId: item.sourceId,
 		title: truncateText(item.title, 180),
@@ -139,7 +133,7 @@ export function buildGroundedWebModelPayload(
 
 	return {
 		success: evidenceReady,
-		name: "research_web",
+		name: opts?.name ?? "research_web",
 		sourceType: "web",
 		query: result.query,
 		queries: result.queries.slice(0, 6).map((query) => query.query),

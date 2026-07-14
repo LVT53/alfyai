@@ -44,7 +44,7 @@ export interface ParallelSearchRequest {
 	searchQueries: string[];
 	mode?: ParallelMode;
 	// Groups a related search + follow-up extracts as one logical task so
-	// Parallel can use cross-call context (we pass the conversation id).
+	// Parallel can use cross-call context (we pass the per-turn id, ctx.turnId).
 	sessionId?: string;
 	// Upper bound on total excerpt characters across all results.
 	maxCharsTotal?: number;

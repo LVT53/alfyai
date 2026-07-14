@@ -5,17 +5,15 @@
 
 import { type ParallelClientDeps, parallelExtract } from "./client";
 import {
-	emptyGroundedWebDiagnostics,
+	baseGroundedWebDiagnostics,
 	type GroundedWebEvidence,
 	type GroundedWebResult,
 	type GroundedWebSource,
+	MAX_PAYLOAD_EVIDENCE,
 } from "./types";
 
 const DEFAULT_OBJECTIVE =
 	"Extract the key facts, details, and specifications from these pages.";
-
-// Cap on total evidence quotes emitted across all fetched pages.
-const MAX_EVIDENCE = 12;
 
 // Character budgets for synthetic snippets/quotes derived from full_content.
 // These stay short: they feed citation surfaces (source snippet, evidence
@@ -55,8 +53,11 @@ export interface FetchUrlOptions {
 // Truncate a page body to a per-page character budget, appending an ellipsis
 // when trimmed so the model can tell content was cut.
 function truncateBody(text: string, budget: number): string {
-	if (budget <= 0 || text.length <= budget) {
-		return text.length <= budget ? text : "";
+	if (budget <= 0) {
+		return "";
+	}
+	if (text.length <= budget) {
+		return text;
 	}
 	return `${text.slice(0, budget).trimEnd()}…`;
 }
@@ -150,7 +151,7 @@ export async function fetchUrlViaParallel(
 	const evidence: GroundedWebEvidence[] = [];
 	for (let i = 0; i < results.length; i++) {
 		const result = results[i];
-		if (evidence.length >= MAX_EVIDENCE) {
+		if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 			break;
 		}
 		let quoteIndex = 0;
@@ -169,7 +170,7 @@ export async function fetchUrlViaParallel(
 		}
 		// Secondary: the targeted excerpts, still emitted when present.
 		for (let j = 0; j < result.excerpts.length; j++) {
-			if (evidence.length >= MAX_EVIDENCE) {
+			if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 				break;
 			}
 			evidence.push({
@@ -187,7 +188,7 @@ export async function fetchUrlViaParallel(
 
 	// Assign strictly descending scores in emission order.
 	for (let k = 0; k < evidence.length; k++) {
-		evidence[k].score = 1 - k / MAX_EVIDENCE;
+		evidence[k].score = 1 - k / MAX_PAYLOAD_EVIDENCE;
 	}
 
 	return {
@@ -206,7 +207,7 @@ export async function fetchUrlViaParallel(
 				"Cite claims with the returned page URLs.",
 			],
 		},
-		diagnostics: emptyGroundedWebDiagnostics({
+		diagnostics: baseGroundedWebDiagnostics({
 			mode: "fetch",
 			openedPageCount: req.urls.length,
 			fetchedSourceCount: results.length,

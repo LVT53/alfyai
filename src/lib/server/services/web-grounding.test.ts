@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 import {
-	emptyGroundedWebDiagnostics,
+	baseGroundedWebDiagnostics,
 	type GroundedWebResult,
 } from "./parallel-search/types";
 import {
@@ -70,7 +70,7 @@ function fixture(
 			markdown: "# Web research brief\n[1] Source Zero — https://example.com/a",
 			instructions: ["Answer only from these sources."],
 		},
-		diagnostics: emptyGroundedWebDiagnostics({
+		diagnostics: baseGroundedWebDiagnostics({
 			mode: "turbo",
 			fetchedSourceCount: 2,
 			fusedSourceCount: 2,

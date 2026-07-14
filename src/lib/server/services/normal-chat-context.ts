@@ -696,7 +696,7 @@ const WEB_SEARCH_GUARD = [
 	'- Example for technical docs: {"query": "SvelteKit form actions API"}',
 	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on"}',
 	'- To read a specific page — when the user pastes a URL, or when search snippets lack the exact detail or spec you need — use `fetch_url`. Pass {"urls": ["https://..."]} (up to 5) and optionally an `objective` describing what to extract. Cite fetched pages the same way as searched sources.',
-	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
+	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` surfaces review and hands-on sources.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
 	"- Never paste raw tool output into the final answer. Do not expose raw JSON, field names, diagnostics, source/evidence arrays, numbered search dumps, or fetched page text dumps from `research_web`.",

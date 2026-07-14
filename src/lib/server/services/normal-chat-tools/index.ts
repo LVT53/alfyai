@@ -118,6 +118,11 @@ import {
 	tasksToolInputSchema,
 } from "./tasks";
 
+// Per-result excerpt budget (chars) requested from Parallel for research_web.
+// Keeps each source's excerpt short enough to fit several sources into the
+// model payload without crowding out the answer brief.
+const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
+
 type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
 	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
 };
@@ -382,7 +387,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									config: { parallelApiKey, parallelBaseUrl },
 									signal: abortSignal,
 								},
-								{ sessionId: ctx.turnId, excerptMaxChars: 2000 },
+								{
+									sessionId: ctx.turnId,
+									excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
+								},
 							);
 							// Fire-and-forget Parallel Turbo usage tracking; never
 							// block or alter the tool result on analytics failure.
@@ -480,6 +488,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							// below it when building the model payload.
 							const modelPayload = buildGroundedWebModelPayload(result, {
 								maxMarkdownChars: maxCharsTotal,
+								name: "fetch_url",
 							});
 							const candidates = createGroundedWebCandidates(result);
 							return {
