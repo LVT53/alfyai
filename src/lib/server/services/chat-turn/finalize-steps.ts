@@ -25,6 +25,7 @@ import {
 	updateTaskStateCheckpoint,
 } from "$lib/server/services/task-state";
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
+import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import type {
 	PersistAssistantEvidenceParams,
@@ -224,6 +225,11 @@ export async function persistAssistantEvidence(
 			params.attachmentIds.length > 0
 				? await getArtifactsForUser(params.userId, params.attachmentIds)
 				: [];
+		// The URLs the model actually cited drive which web sources are shown as
+		// "used" (vs "also found") — not the reranker's relevance score.
+		const citedCanonicalWebUrls = extractCitedCanonicalWebUrls(
+			params.assistantResponse,
+		);
 		const messageEvidence = await buildAssistantEvidenceSummary({
 			userId: params.userId,
 			message: params.normalizedMessage,
@@ -233,6 +239,7 @@ export async function persistAssistantEvidence(
 			contextTraceSections: params.contextTraceSections,
 			toolCalls: doneToolCalls,
 			currentAttachments,
+			citedCanonicalWebUrls,
 		});
 		const webCitationAudit =
 			params.webCitationAudit === undefined

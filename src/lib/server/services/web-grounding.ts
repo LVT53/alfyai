@@ -177,7 +177,10 @@ export function buildGroundedWebModelPayload(
 export function createGroundedWebCandidates(
 	result: GroundedWebResult,
 ): ToolEvidenceCandidate[] {
-	return result.sources.slice(0, 12).map((source) => ({
+	// Slice to the SAME cap as the model payload (MAX_PAYLOAD_SOURCES). A chip
+	// must never represent a source the model was never given — otherwise the
+	// candidate set could include sources #9–12 that never reached the model.
+	return result.sources.slice(0, MAX_PAYLOAD_SOURCES).map((source) => ({
 		id: source.id,
 		title: truncateText(source.title, 180),
 		url: source.url,
@@ -261,6 +264,21 @@ export function extractAssistantWebCitationUrls(
 		if (value) urls.add(value);
 	}
 	return [...urls];
+}
+
+// Canonical set of the web URLs the assistant actually cited in its answer.
+// This is the signal that drives which displayed sources count as "used":
+// canonicalization here must match canonicalizeGroundedWebUrl applied to the
+// candidate URLs so trailing slashes / www / utm params don't defeat a match.
+export function extractCitedCanonicalWebUrls(
+	assistantResponse: string,
+): Set<string> {
+	const canonical = new Set<string>();
+	for (const url of extractAssistantWebCitationUrls(assistantResponse)) {
+		const result = canonicalizeGroundedWebUrl(url);
+		if (result) canonical.add(result.canonicalUrl);
+	}
+	return canonical;
 }
 
 function isWebGroundingTool(tool: ToolCallEntry): boolean {
