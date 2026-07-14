@@ -1,17 +1,15 @@
-import type { AtlasJobIntakeResult, SubmitAtlasJobIntakeInput } from "./intake";
-import type { AtlasAction, AtlasJobCard, AtlasProfile } from "./types";
+import type {
+	AtlasJobIntakeResult,
+	SubmitAtlasJobIntakeInput,
+} from "./job-ledger";
 
 type JobLedgerModule = typeof import("./job-ledger");
 type ReadModelModule = typeof import("./read-model");
 type WorkerRunnerModule = typeof import("./worker-runner");
 
 export type {
-	AtlasJobIntakeResult,
-	SubmitAtlasJobIntakeDependencies,
-	SubmitAtlasJobIntakeInput,
-} from "./intake";
-export type {
 	ApplyAtlasGeneratedTitleInput,
+	AtlasJobIntakeResult,
 	CancelAtlasJobInput,
 	ClaimedAtlasJob,
 	ClaimNextAtlasJobInput,
@@ -23,6 +21,7 @@ export type {
 	HeartbeatAtlasJobInput,
 	LinkAtlasJobAssistantMessageInput,
 	RecoverStaleAtlasJobsInput,
+	SubmitAtlasJobIntakeInput,
 } from "./job-ledger";
 export type {
 	AtlasAction,
@@ -149,11 +148,8 @@ export async function listConversationAtlasJobs(
 export async function submitAtlasJobIntake(
 	input: SubmitAtlasJobIntakeInput,
 ): Promise<AtlasJobIntakeResult> {
-	const [{ submitAtlasJobIntakeWithDependencies }, jobLedger] =
-		await Promise.all([import("./intake"), loadJobLedger()]);
-	return submitAtlasJobIntakeWithDependencies(input, {
-		createOrReuseAtlasJob: jobLedger.createOrReuseAtlasJob,
-	});
+	const { createOrReuseAtlasJob } = await loadJobLedger();
+	return createOrReuseAtlasJob(input);
 }
 
 export function wakeAtlasWorker(): void {
@@ -171,98 +167,3 @@ export async function ensureAtlasWorker(
 	return ensureAtlasWorker(...args);
 }
 
-export interface KickoffAtlasTurnInput {
-	userId: string;
-	conversationId: string;
-	message: string;
-	profile: AtlasProfile;
-	action?: AtlasAction;
-	parentAtlasId?: string | null;
-	clientAtlasTurnId?: string | null;
-}
-
-export type KickoffAtlasTurnResult =
-	| {
-			ok: true;
-			value: {
-				assistantResponse: string;
-				assistantMetadata: {
-					evidenceStatus: "not_applicable";
-					atlas: {
-						jobId: string;
-						status: string;
-						stage: string;
-						profile: AtlasProfile;
-						action: AtlasAction;
-						reused: boolean;
-					};
-				};
-				atlasJob: AtlasJobCard;
-				reused: boolean;
-			};
-	  }
-	| {
-			ok: false;
-			error: {
-				status: number;
-				error: string;
-				code: string;
-			};
-	  };
-
-export async function kickoffAtlasTurn(
-	input: KickoffAtlasTurnInput,
-): Promise<KickoffAtlasTurnResult> {
-	const action = normalizeAtlasAction(input.action);
-	const clientAtlasTurnId = input.clientAtlasTurnId?.trim();
-	if (!clientAtlasTurnId) {
-		return {
-			ok: false,
-			error: {
-				status: 400,
-				error: "clientAtlasTurnId is required for Atlas turns.",
-				code: "ATLAS_CLIENT_TURN_ID_REQUIRED",
-			},
-		};
-	}
-
-	const result = await submitAtlasJobIntake({
-		userId: input.userId,
-		conversationId: input.conversationId,
-		action,
-		parentAtlasJobId: input.parentAtlasId ?? null,
-		profile: input.profile,
-		query: input.message,
-		clientAtlasTurnId,
-	});
-
-	return {
-		ok: true,
-		value: {
-			assistantResponse: buildAtlasKickoffAssistantMessage(result.job.profile),
-			assistantMetadata: {
-				evidenceStatus: "not_applicable",
-				atlas: {
-					jobId: result.job.id,
-					status: result.job.status,
-					stage: result.job.stage,
-					profile: result.job.profile,
-					action,
-					reused: result.reused,
-				},
-			},
-			atlasJob: result.job,
-			reused: result.reused,
-		},
-	};
-}
-
-function buildAtlasKickoffAssistantMessage(_profile: AtlasProfile): string {
-	return "";
-}
-
-function normalizeAtlasAction(action: AtlasAction | undefined): AtlasAction {
-	return action === "continue" || action === "fork" || action === "revise"
-		? action
-		: "create";
-}

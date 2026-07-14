@@ -31,7 +31,6 @@ vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 
 vi.mock("$lib/server/services/atlas", () => ({
 	cancelAtlasJob: vi.fn(async () => null),
-	kickoffAtlasTurn: vi.fn(),
 	linkAtlasJobAssistantMessage: vi.fn(),
 	submitAtlasJobIntake: vi.fn(),
 	wakeAtlasWorker: vi.fn(),
@@ -183,7 +182,6 @@ vi.mock("$lib/server/config-store", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
-	kickoffAtlasTurn,
 	linkAtlasJobAssistantMessage,
 	submitAtlasJobIntake,
 	wakeAtlasWorker,
@@ -229,7 +227,6 @@ import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
-const mockKickoffAtlasTurn = kickoffAtlasTurn as ReturnType<typeof vi.fn>;
 const mockLinkAtlasJobAssistantMessage =
 	linkAtlasJobAssistantMessage as ReturnType<typeof vi.fn>;
 const mockSubmitAtlasJobIntake = submitAtlasJobIntake as ReturnType<
@@ -293,9 +290,6 @@ describe("POST /api/chat/send", () => {
 		mockRequireAuth.mockReturnValue(undefined);
 		mockCheckStreamCapacity.mockReset();
 		mockCheckStreamCapacity.mockReturnValue({ allowed: true });
-		mockKickoffAtlasTurn.mockRejectedValue(
-			new Error("Unexpected Atlas kickoff call"),
-		);
 		mockLinkAtlasJobAssistantMessage.mockRejectedValue(
 			new Error("Unexpected Atlas link call"),
 		);
