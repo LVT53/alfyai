@@ -19,15 +19,6 @@ export interface GroundedWebSource {
 	providerRank: number;
 	publishedAt: string | null;
 	updatedAt: string | null;
-	youtubeTranscript?: {
-		videoId: string;
-		language: string;
-		languageCode: string;
-		isGenerated: boolean;
-		isTranslated: boolean;
-		snippetCount: number;
-		fetchedAt: string;
-	};
 }
 
 export interface GroundedWebEvidence {
@@ -76,6 +67,13 @@ export interface GroundedWebDiagnostics {
 	searchLatencyMs?: number;
 }
 
+// Single source of truth for the truncation caps applied when building the
+// model/citation payload: at most this many sources and evidence quotes reach
+// the model. Used by the orchestrators (research.ts, fetch-url.ts) and the
+// payload builder (web-grounding.ts) so the caps never drift apart.
+export const MAX_PAYLOAD_SOURCES = 8;
+export const MAX_PAYLOAD_EVIDENCE = 12;
+
 export interface GroundedWebResult {
 	query: string;
 	queries: Array<{ query: string }>;
@@ -85,9 +83,10 @@ export interface GroundedWebResult {
 	diagnostics: GroundedWebDiagnostics;
 }
 
-// Zero-valued diagnostics helper: Turbo has no fetch/fuse/rerank pipeline, so
-// most of these fields are synthetic. Orchestrators override the meaningful ones.
-export function emptyGroundedWebDiagnostics(
+// Base diagnostics helper: sets the provider/mode defaults (mode "turbo",
+// provider "parallel") and zeroes the synthetic pipeline counters that Turbo has
+// no analog for. Orchestrators override the meaningful ones.
+export function baseGroundedWebDiagnostics(
 	overrides: Partial<GroundedWebDiagnostics> = {},
 ): GroundedWebDiagnostics {
 	return {

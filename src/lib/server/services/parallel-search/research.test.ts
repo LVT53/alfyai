@@ -155,6 +155,27 @@ describe("researchWebViaParallel", () => {
 		expect(result.diagnostics.searchLatencyMs).toBeGreaterThanOrEqual(0);
 	});
 
+	it("reflects the model-supplied multi-query fan-out in queries and plannedQueryCount", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse(twoResultBody));
+
+		const result = await researchWebViaParallel(
+			{
+				query: "widget price",
+				searchQueries: ["widget price 2026", "widget retail cost"],
+			},
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		// queries mirrors the resolved query list actually sent to Parallel.
+		expect(result.queries).toEqual([
+			{ query: "widget price 2026" },
+			{ query: "widget retail cost" },
+		]);
+		expect(result.diagnostics.plannedQueryCount).toBe(2);
+		// The raw query field stays the user-facing single query.
+		expect(result.query).toBe("widget price");
+	});
+
 	it("returns empty sources/evidence and empty markdown on zero results", async () => {
 		const fetchMock = vi.fn(async () => jsonResponse({ results: [] }));
 

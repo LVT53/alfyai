@@ -36,6 +36,8 @@ import {
 	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
+import { resolveFetchContentCharCap } from "./normal-chat-tools/fetch-url";
+import { resolveModelContextTokens } from "./normal-chat-tools/model-context-tokens";
 import { isProduceFileRequest } from "./normal-chat-tools/produce-file";
 import type { GroundedWebResult } from "./parallel-search/types";
 
@@ -51,6 +53,13 @@ const GPT_OSS_REASONING_DIRECTIVE_RE =
 const GPT_OSS_REASONING_DIRECTIVE_LINE_RE =
 	/^\s*Reasoning:\s*(?:low|medium|high)\s*$/i;
 const NORMAL_CHAT_CONTEXT_LOG_PREFIX = "[NORMAL_CHAT_CONTEXT]";
+// Upper bound on a server-side web prefetch made while building the turn
+// context. Live Parallel Extract fetches occasionally spike to 25-42s (see
+// parallel-search/fetch-url.ts); without a bound a cache-missing pasted URL
+// could stall the START of the turn indefinitely. On timeout we abort the
+// underlying request and degrade gracefully (no prefetched tool calls). Kept
+// within the design review's 10-15s guidance.
+const PREFETCH_TIMEOUT_MS = 12_000;
 
 export type AuthenticatedPromptUser = {
 	id: string;
@@ -696,7 +705,7 @@ const WEB_SEARCH_GUARD = [
 	'- Example for technical docs: {"query": "SvelteKit form actions API"}',
 	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on"}',
 	'- To read a specific page — when the user pastes a URL, or when search snippets lack the exact detail or spec you need — use `fetch_url`. Pass {"urls": ["https://..."]} (up to 5) and optionally an `objective` describing what to extract. Cite fetched pages the same way as searched sources.',
-	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` can surface transcript-backed evidence from selected YouTube results.",
+	"- For product reviews, hands-on comparisons, or buying advice, include `review`, `YouTube`, or `video` in the research query when relevant so `research_web` surfaces review and hands-on sources.",
 	"- Treat `research_web.evidence` as the strongest source of page-backed facts. If an exact value is not present in evidence or source text, say that the retrieved source did not expose it.",
 	"- Cite final web claims with markdown links using the returned source title and URL. Do not cite a source unless it supports the sentence.",
 	"- Never paste raw tool output into the final answer. Do not expose raw JSON, field names, diagnostics, source/evidence arrays, numbered search dumps, or fetched page text dumps from `research_web`.",
@@ -1181,6 +1190,25 @@ async function maybePrefetchWebSearch(params: {
 		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
 	}
 
+	// Pre-gate on Parallel being configured, mirroring the index.ts tool gate:
+	// without an API key every Parallel call 401s, so skip issuing a doomed
+	// request (and starting a timer) and degrade to no prefetched context.
+	if (!getConfig().parallelApiKey?.trim()) {
+		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+	}
+
+	// Bound the prefetch: create a signal that fires after PREFETCH_TIMEOUT_MS and
+	// thread it into the Parallel client via deps.signal (the client forwards it
+	// into fetch), so a timeout TRULY aborts the underlying request rather than
+	// leaving it running detached. On abort the awaited call rejects and the
+	// catch below degrades gracefully. The timer is unref'd so it never keeps the
+	// process alive, and cleared in the finally so a fast call leaves no dangling
+	// timer.
+	const abortController = new AbortController();
+	const prefetchTimeout = setTimeout(() => {
+		abortController.abort();
+	}, PREFETCH_TIMEOUT_MS);
+	prefetchTimeout.unref?.();
 	try {
 		const deps = {
 			fetch,
@@ -1188,6 +1216,7 @@ async function maybePrefetchWebSearch(params: {
 				parallelApiKey: getConfig().parallelApiKey,
 				parallelBaseUrl: getConfig().parallelBaseUrl,
 			},
+			signal: abortController.signal,
 		};
 		const {
 			createGroundedWebCandidates,
@@ -1201,7 +1230,14 @@ async function maybePrefetchWebSearch(params: {
 			const { fetchUrlViaParallel } = await import(
 				"./parallel-search/fetch-url"
 			);
-			result = await fetchUrlViaParallel({ urls: pastedUrls }, deps);
+			// Size the fetched-page brief to the selected model's context window the
+			// same way the fetch_url tool does, instead of the flat 60k default.
+			const maxCharsTotal = resolveFetchContentCharCap(
+				await resolveModelContextTokens(params.modelId),
+			);
+			result = await fetchUrlViaParallel({ urls: pastedUrls }, deps, {
+				maxCharsTotal,
+			});
 		} else {
 			const { researchWebViaParallel } = await import(
 				"./parallel-search/research"
@@ -1253,6 +1289,8 @@ async function maybePrefetchWebSearch(params: {
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+	} finally {
+		clearTimeout(prefetchTimeout);
 	}
 }
 

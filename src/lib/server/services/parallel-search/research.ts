@@ -2,17 +2,16 @@
 // maps its raw results into the frozen GroundedWebResult shape that
 // web-grounding.ts consumes. This is intentionally a thin, pure mapping layer:
 // no fetch/fuse/rerank pipeline (Turbo has none), so most diagnostics fields are
-// synthetic (see emptyGroundedWebDiagnostics).
+// synthetic (see baseGroundedWebDiagnostics).
 
 import { type ParallelClientConfig, parallelSearch } from "./client";
 import {
-	emptyGroundedWebDiagnostics,
+	baseGroundedWebDiagnostics,
 	type GroundedWebEvidence,
 	type GroundedWebResult,
 	type GroundedWebSource,
+	MAX_PAYLOAD_EVIDENCE,
 } from "./types";
-
-const MAX_EVIDENCE = 12;
 
 const ANSWER_BRIEF_INSTRUCTIONS = [
 	"Answer only from these sources.",
@@ -36,7 +35,7 @@ export interface ResearchWebViaParallelDeps {
 }
 
 export interface ResearchWebViaParallelOptions {
-	// Groups this search with related follow-ups (we pass the conversation id).
+	// Groups this search with related follow-ups (we pass the per-turn id).
 	sessionId?: string;
 	// Per-result excerpt size passed through to the Parallel search request.
 	excerptMaxChars?: number;
@@ -68,12 +67,16 @@ export async function researchWebViaParallel(
 	opts?: ResearchWebViaParallelOptions,
 ): Promise<GroundedWebResult> {
 	const startedAt = Date.now();
+	// The queries actually sent to Parallel: the model-supplied searchQueries when
+	// present, else the single raw query. Diagnostics below reflect this real
+	// fan-out rather than a hardcoded single query.
+	const resolvedQueries = req.searchQueries?.length
+		? req.searchQueries
+		: [req.query];
 	const results = await parallelSearch(
 		{
 			objective: req.objective ?? req.query,
-			searchQueries: req.searchQueries?.length
-				? req.searchQueries
-				: [req.query],
+			searchQueries: resolvedQueries,
 			mode: "turbo",
 			sessionId: opts?.sessionId,
 			excerptMaxChars: opts?.excerptMaxChars,
@@ -100,7 +103,7 @@ export async function researchWebViaParallel(
 	let scoreIndex = 0;
 	for (const [i, result] of results.entries()) {
 		for (const [j, excerpt] of result.excerpts.entries()) {
-			if (evidence.length >= MAX_EVIDENCE) {
+			if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 				break;
 			}
 			evidence.push({
@@ -114,23 +117,23 @@ export async function researchWebViaParallel(
 			});
 			scoreIndex++;
 		}
-		if (evidence.length >= MAX_EVIDENCE) {
+		if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 			break;
 		}
 	}
 
 	return {
 		query: req.query,
-		queries: [{ query: req.query }],
+		queries: resolvedQueries.map((query) => ({ query })),
 		sources,
 		evidence,
 		answerBrief: {
 			markdown: buildAnswerBriefMarkdown(sources, results),
 			instructions: ANSWER_BRIEF_INSTRUCTIONS,
 		},
-		diagnostics: emptyGroundedWebDiagnostics({
+		diagnostics: baseGroundedWebDiagnostics({
 			mode: "turbo",
-			plannedQueryCount: 1,
+			plannedQueryCount: resolvedQueries.length,
 			fetchedSourceCount: results.length,
 			fusedSourceCount: sources.length,
 			selectedSourceCount: sources.length,

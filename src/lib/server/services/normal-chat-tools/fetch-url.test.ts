@@ -75,6 +75,20 @@ describe("sanitizeFetchUrlInput", () => {
 		});
 	});
 
+	it("keeps case-distinct paths as separate resources (dedupes only origin case)", () => {
+		const input: FetchUrlInput = {
+			urls: [
+				"https://example.com/Page",
+				"https://example.com/page",
+				// Same origin+path but host cased differently -> a duplicate of the first.
+				"https://EXAMPLE.com/Page",
+			],
+		};
+		expect(sanitizeFetchUrlInput(input)).toEqual({
+			urls: ["https://example.com/Page", "https://example.com/page"],
+		});
+	});
+
 	it("clamps more than five urls to five", () => {
 		const input: FetchUrlInput = {
 			urls: [

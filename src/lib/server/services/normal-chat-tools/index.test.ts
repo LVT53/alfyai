@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getConfig } from "$lib/server/config-store";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import {
 	hasLocalDistillEnabled,
@@ -126,7 +127,19 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	};
 });
 
+const getConfigMock = vi.mocked(getConfig);
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
+
+// research_web and fetch_url are now optional in the tools set (registered only
+// when Parallel is configured). These tests configure Parallel by default, so
+// the tools are present; this narrows the optional lookup for the common case
+// without sprinkling non-null assertions across every call site.
+function requireTool<T>(t: T | undefined): NonNullable<T> {
+	if (t == null) {
+		throw new Error("expected tool to be registered");
+	}
+	return t as NonNullable<T>;
+}
 const recordParallelUsageMock = vi.mocked(recordParallelUsage);
 const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
 const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
@@ -898,7 +911,7 @@ describe("createNormalChatTools", () => {
 			turnId: "turn-1",
 		});
 
-		const result = await tools.research_web.execute(
+		const result = await requireTool(tools.research_web).execute(
 			{
 				query: "latest Vercel AI SDK tool API",
 				objective: "Find the current Vercel AI SDK tool-calling API shape",
@@ -1041,7 +1054,7 @@ describe("createNormalChatTools", () => {
 			turnId: "turn-1",
 		});
 
-		const result = await tools.research_web.execute(
+		const result = await requireTool(tools.research_web).execute(
 			{
 				query: `What price is shown on ${pastedUrl}?`,
 			},
@@ -1139,7 +1152,7 @@ describe("createNormalChatTools", () => {
 				turnId: "turn-1",
 			});
 
-			await tools.research_web.execute(
+			await requireTool(tools.research_web).execute(
 				{ query: "current docs" },
 				{ toolCallId: "call-research-usage", messages: [] },
 			);
@@ -1162,7 +1175,7 @@ describe("createNormalChatTools", () => {
 				turnId: "turn-1",
 			});
 
-			await tools.fetch_url.execute(
+			await requireTool(tools.fetch_url).execute(
 				{ urls: ["https://example.com"] },
 				{ toolCallId: "call-fetch-usage", messages: [] },
 			);
@@ -1185,7 +1198,7 @@ describe("createNormalChatTools", () => {
 				turnId: "turn-1",
 			});
 
-			await tools.research_web.execute(
+			await requireTool(tools.research_web).execute(
 				{ query: "current docs" },
 				{ toolCallId: "call-research-usage-failed", messages: [] },
 			);
@@ -1194,14 +1207,38 @@ describe("createNormalChatTools", () => {
 		});
 	});
 
-	it("exposes fetch_url unconditionally, without any enabled connection capabilities", () => {
+	it("registers research_web and fetch_url when Parallel is configured", () => {
+		// Default getConfig mock supplies a parallelApiKey, so both web tools are
+		// present even with no enabled connection capabilities.
 		const { tools } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
 		});
 
+		expect(tools).toHaveProperty("research_web");
 		expect(tools).toHaveProperty("fetch_url");
+	});
+
+	it("omits research_web and fetch_url when Parallel is not configured", () => {
+		// Fail closed: with no Parallel key the tools are ABSENT (rather than
+		// present-but-throwing-a-raw-401), so the model falls back to the prompt
+		// guidance that web retrieval is unavailable.
+		getConfigMock.mockReturnValueOnce({
+			parallelApiKey: "   ",
+			parallelBaseUrl: "https://api.parallel.ai",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		} as unknown as ReturnType<typeof getConfig>);
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		expect(tools).not.toHaveProperty("research_web");
+		expect(tools).not.toHaveProperty("fetch_url");
 	});
 
 	it("fetch_url calls Parallel-backed page fetch and records compact web candidates", async () => {
@@ -1273,7 +1310,7 @@ describe("createNormalChatTools", () => {
 			turnId: "turn-1",
 		});
 
-		const result = await tools.fetch_url.execute(
+		const result = await requireTool(tools.fetch_url).execute(
 			{
 				urls: ["https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling"],
 			},
@@ -1300,11 +1337,12 @@ describe("createNormalChatTools", () => {
 			// conversation.
 			{ sessionId: "turn-1", maxCharsTotal: 60_000 },
 		);
-		// Reuses the shared grounded-web model payload builder, so the compact
-		// payload carries the web-grounding envelope (name "research_web") while
-		// the recorded tool-call entry below is the fetch_url-specific one.
+		// Reuses the shared grounded-web model payload builder, but stamps the
+		// fetch_url tool name so the compact payload envelope and the recorded
+		// tool-call entry below both identify as fetch_url.
 		expect(result).toMatchObject({
 			success: true,
+			name: "fetch_url",
 			sourceType: "web",
 			sources: [
 				{
@@ -1362,7 +1400,7 @@ describe("createNormalChatTools", () => {
 			modelId: "model2",
 		});
 
-		await tools.fetch_url.execute(
+		await requireTool(tools.fetch_url).execute(
 			{ urls: ["https://example.com"] },
 			{ toolCallId: "call-fetch-model2", messages: [] },
 		);
@@ -1387,7 +1425,7 @@ describe("createNormalChatTools", () => {
 			modelId: "model1",
 		});
 
-		await tools.fetch_url.execute(
+		await requireTool(tools.fetch_url).execute(
 			{ urls: ["https://example.com"] },
 			{ toolCallId: "call-fetch-model1", messages: [] },
 		);
@@ -1445,7 +1483,7 @@ describe("createNormalChatTools", () => {
 			modelId: "model2",
 		});
 
-		const result = (await tools.fetch_url.execute(
+		const result = (await requireTool(tools.fetch_url).execute(
 			{ urls: ["https://example.com"] },
 			{ toolCallId: "call-fetch-brief", messages: [] },
 		)) as { answerBriefMarkdown: string };
@@ -1467,7 +1505,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		await expect(
-			tools.fetch_url.execute(
+			requireTool(tools.fetch_url).execute(
 				{ urls: ["https://x.com"] },
 				{ toolCallId: "call-fetch-failed", messages: [] },
 			),
@@ -1501,7 +1539,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		await expect(
-			tools.fetch_url.execute(
+			requireTool(tools.fetch_url).execute(
 				{ urls: ["https://x.com"] },
 				{
 					toolCallId: "call-fetch-aborted",
@@ -1778,7 +1816,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		await expect(
-			tools.research_web.execute(
+			requireTool(tools.research_web).execute(
 				{ query: "current docs" },
 				{ toolCallId: "call-research-failed", messages: [] },
 			),
@@ -1854,7 +1892,7 @@ describe("createNormalChatTools", () => {
 				turnId: "turn-1",
 			});
 
-			const resultPromise = tools.research_web.execute(
+			const resultPromise = requireTool(tools.research_web).execute(
 				{ query: "slow current docs" },
 				{ toolCallId: "call-research-timeout", messages: [] },
 			);
@@ -1893,7 +1931,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		await expect(
-			tools.research_web.execute(
+			requireTool(tools.research_web).execute(
 				{ query: "cancelled current docs" },
 				{
 					toolCallId: "call-research-aborted",

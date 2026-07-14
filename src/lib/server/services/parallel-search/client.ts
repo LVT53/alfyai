@@ -44,7 +44,7 @@ export interface ParallelSearchRequest {
 	searchQueries: string[];
 	mode?: ParallelMode;
 	// Groups a related search + follow-up extracts as one logical task so
-	// Parallel can use cross-call context (we pass the conversation id).
+	// Parallel can use cross-call context (we pass the per-turn id, ctx.turnId).
 	sessionId?: string;
 	// Upper bound on total excerpt characters across all results.
 	maxCharsTotal?: number;
@@ -66,6 +66,25 @@ export interface ParallelExtractResponse {
 	errors?: unknown;
 	warnings?: unknown;
 	usage?: unknown;
+}
+
+// A per-URL Extract failure, normalized from the API's (loosely-typed) `errors`
+// field. `url` is the page that failed (null when the API omitted it); `reason`
+// is a short human-readable cause (404 / paywall / timeout / …). Surfaced so the
+// consuming model can tell the user WHICH url failed and WHY, instead of a bare
+// aggregate count.
+export interface ParallelExtractUrlError {
+	url: string | null;
+	reason: string;
+}
+
+// Detailed result of an Extract call: the successful page results plus the
+// per-URL errors the API reported. `parallelExtract` (below) returns just the
+// results for callers that don't need failure detail; `parallelExtractWithErrors`
+// exposes both.
+export interface ParallelExtractDetailed {
+	results: ParallelExtractResult[];
+	errors: ParallelExtractUrlError[];
 }
 
 export interface ParallelExtractRequest {
@@ -154,10 +173,57 @@ export async function parallelSearch(
 	return Array.isArray(body.results) ? body.results : [];
 }
 
-export async function parallelExtract(
+// Collapse all interior whitespace (newlines, tabs, runs of spaces) into single
+// spaces and trim. A provider `reason` can be multi-line; left as-is it fractures
+// the markdown bullet list rendered downstream (see buildFailureNote).
+function collapseWhitespace(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
+}
+
+// Defensively normalize the API's `errors` field into ParallelExtractUrlError[].
+// The exact shape is not contractually frozen, so we probe several plausible
+// keys and never throw on an unexpected shape: an object item yields its `url`
+// (when a string) plus the first present of message/reason/error/detail/code as
+// the reason; a string item becomes a reason with a null url; anything else is
+// skipped. A non-array `errors` (or absent) yields [].
+function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	const out: ParallelExtractUrlError[] = [];
+	for (const item of raw) {
+		if (typeof item === "string") {
+			const reason = collapseWhitespace(item);
+			if (reason) out.push({ url: null, reason });
+			continue;
+		}
+		if (item && typeof item === "object") {
+			const record = item as Record<string, unknown>;
+			const url = typeof record.url === "string" ? record.url : null;
+			const reasonCandidate =
+				record.message ??
+				record.reason ??
+				record.error ??
+				record.detail ??
+				record.code;
+			const reason =
+				typeof reasonCandidate === "string" && collapseWhitespace(reasonCandidate)
+					? collapseWhitespace(reasonCandidate)
+					: "unknown error";
+			out.push({ url, reason });
+		}
+	}
+	return out;
+}
+
+// Full Extract call surfacing BOTH the successful results and the per-URL
+// errors. Prefer this when the caller wants to tell the user which url failed
+// and why (see fetchUrlViaParallel). `parallelExtract` is the results-only
+// convenience wrapper for callers that don't need failure detail.
+export async function parallelExtractWithErrors(
 	req: ParallelExtractRequest,
 	deps: ParallelClientDeps,
-): Promise<ParallelExtractResult[]> {
+): Promise<ParallelExtractDetailed> {
 	if (req.urls.length < 1) {
 		throw new Error("Parallel extract requires at least 1 url");
 	}
@@ -204,5 +270,15 @@ export async function parallelExtract(
 	}
 
 	const body = (await res.json()) as ParallelExtractResponse;
-	return Array.isArray(body.results) ? body.results : [];
+	return {
+		results: Array.isArray(body.results) ? body.results : [],
+		errors: parseExtractErrors(body.errors),
+	};
+}
+
+export async function parallelExtract(
+	req: ParallelExtractRequest,
+	deps: ParallelClientDeps,
+): Promise<ParallelExtractResult[]> {
+	return (await parallelExtractWithErrors(req, deps)).results;
 }

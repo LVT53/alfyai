@@ -3,19 +3,21 @@
 // shape consumed by web-grounding.ts. This is the "fetch" counterpart to the
 // search-backed research orchestrator; it does no planning, ranking, or fusion.
 
-import { type ParallelClientDeps, parallelExtract } from "./client";
 import {
-	emptyGroundedWebDiagnostics,
+	type ParallelClientDeps,
+	type ParallelExtractUrlError,
+	parallelExtractWithErrors,
+} from "./client";
+import {
+	baseGroundedWebDiagnostics,
 	type GroundedWebEvidence,
 	type GroundedWebResult,
 	type GroundedWebSource,
+	MAX_PAYLOAD_EVIDENCE,
 } from "./types";
 
 const DEFAULT_OBJECTIVE =
 	"Extract the key facts, details, and specifications from these pages.";
-
-// Cap on total evidence quotes emitted across all fetched pages.
-const MAX_EVIDENCE = 12;
 
 // Character budgets for synthetic snippets/quotes derived from full_content.
 // These stay short: they feed citation surfaces (source snippet, evidence
@@ -55,8 +57,11 @@ export interface FetchUrlOptions {
 // Truncate a page body to a per-page character budget, appending an ellipsis
 // when trimmed so the model can tell content was cut.
 function truncateBody(text: string, budget: number): string {
-	if (budget <= 0 || text.length <= budget) {
-		return text.length <= budget ? text : "";
+	if (budget <= 0) {
+		return "";
+	}
+	if (text.length <= budget) {
+		return text;
 	}
 	return `${text.slice(0, budget).trimEnd()}…`;
 }
@@ -100,13 +105,60 @@ function buildAnswerBrief(
 	return `# Fetched page content\n\n${blocks.join("\n\n")}`;
 }
 
+// Bound on how many per-URL failures we spell out in the brief, and how long
+// each reason may be, so a pathological error payload can't bloat the brief.
+const MAX_FAILURE_NOTES = 10;
+const FAILURE_REASON_CHARS = 200;
+
+// Render the per-URL Extract failures as a short, bounded "Could not read"
+// list appended to the answer brief. This is additive content INSIDE the brief
+// markdown (not a new top-level field), so the model can tell the user which
+// url failed and why (404 / paywall / timeout) instead of silently dropping it.
+// Returns "" when there were no reported failures.
+function buildFailureNote(errors: ParallelExtractUrlError[]): string {
+	if (errors.length === 0) {
+		return "";
+	}
+	const shown = errors.slice(0, MAX_FAILURE_NOTES);
+	const lines = shown.map((error) => {
+		const url = error.url ?? "(url not reported)";
+		// error.reason is already normalized non-empty (and whitespace-collapsed)
+		// by parseExtractErrors; here we only bound its length.
+		const reason = truncateBody(error.reason, FAILURE_REASON_CHARS);
+		return `- ${url} — ${reason}`;
+	});
+	const remaining = errors.length - shown.length;
+	const overflow = remaining > 0 ? `\n- …and ${remaining} more` : "";
+	return `## Could not read\n\n${lines.join("\n")}${overflow}`;
+}
+
+// Join the fetched-page brief with the failure note, tolerating either being
+// empty (e.g. every url failed -> no page content, note only).
+//
+// The note is PREPENDED, not appended: downstream buildGroundedWebModelPayload
+// re-truncates this markdown to maxMarkdownChars (fetch_url passes maxCharsTotal
+// as that cap — the same budget buildAnswerBrief used to size the page bodies).
+// When a page body fills the budget, a tail-appended note would be trimmed off
+// exactly in the large-output case, losing which-URL-failed info. Putting the
+// bounded note at the HEAD means tail-truncation only eats page body, so the
+// note always reaches the model.
+function prependFailureNote(briefMarkdown: string, note: string): string {
+	if (!note) {
+		return briefMarkdown;
+	}
+	if (!briefMarkdown) {
+		return note;
+	}
+	return `${note}\n\n${briefMarkdown}`;
+}
+
 export async function fetchUrlViaParallel(
 	req: FetchUrlRequest,
 	deps: ParallelClientDeps,
 	opts?: FetchUrlOptions,
 ): Promise<GroundedWebResult> {
 	const startedAt = Date.now();
-	const results = await parallelExtract(
+	const { results, errors } = await parallelExtractWithErrors(
 		{
 			urls: req.urls,
 			objective: req.objective ?? DEFAULT_OBJECTIVE,
@@ -150,7 +202,7 @@ export async function fetchUrlViaParallel(
 	const evidence: GroundedWebEvidence[] = [];
 	for (let i = 0; i < results.length; i++) {
 		const result = results[i];
-		if (evidence.length >= MAX_EVIDENCE) {
+		if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 			break;
 		}
 		let quoteIndex = 0;
@@ -169,7 +221,7 @@ export async function fetchUrlViaParallel(
 		}
 		// Secondary: the targeted excerpts, still emitted when present.
 		for (let j = 0; j < result.excerpts.length; j++) {
-			if (evidence.length >= MAX_EVIDENCE) {
+			if (evidence.length >= MAX_PAYLOAD_EVIDENCE) {
 				break;
 			}
 			evidence.push({
@@ -187,7 +239,7 @@ export async function fetchUrlViaParallel(
 
 	// Assign strictly descending scores in emission order.
 	for (let k = 0; k < evidence.length; k++) {
-		evidence[k].score = 1 - k / MAX_EVIDENCE;
+		evidence[k].score = 1 - k / MAX_PAYLOAD_EVIDENCE;
 	}
 
 	return {
@@ -196,17 +248,20 @@ export async function fetchUrlViaParallel(
 		sources,
 		evidence,
 		answerBrief: {
-			markdown: buildAnswerBrief(
-				sources,
-				results.map((result) => result.full_content ?? null),
-				opts?.maxCharsTotal,
+			markdown: prependFailureNote(
+				buildAnswerBrief(
+					sources,
+					results.map((result) => result.full_content ?? null),
+					opts?.maxCharsTotal,
+				),
+				buildFailureNote(errors),
 			),
 			instructions: [
 				"Answer only from these fetched pages.",
 				"Cite claims with the returned page URLs.",
 			],
 		},
-		diagnostics: emptyGroundedWebDiagnostics({
+		diagnostics: baseGroundedWebDiagnostics({
 			mode: "fetch",
 			openedPageCount: req.urls.length,
 			fetchedSourceCount: results.length,

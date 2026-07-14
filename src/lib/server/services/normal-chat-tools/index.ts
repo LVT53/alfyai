@@ -14,7 +14,6 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
-import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -41,6 +40,7 @@ import {
 	resolveFetchContentCharCap,
 	sanitizeFetchUrlInput,
 } from "./fetch-url";
+import { resolveModelContextTokens } from "./model-context-tokens";
 import {
 	filesToolInputSchema,
 	runFilesTool,
@@ -117,6 +117,11 @@ import {
 	sanitizeTasksToolInput,
 	tasksToolInputSchema,
 } from "./tasks";
+
+// Per-result excerpt budget (chars) requested from Parallel for research_web.
+// Keeps each source's excerpt short enough to fit several sources into the
+// model payload without crowding out the answer brief.
+const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
 
 type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
 	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
@@ -330,6 +335,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		string,
 		Extract<FileProductionIntakeResult, { ok: true }>
 	>();
+	// Parallel-backed web tools (research_web, fetch_url) are registered only
+	// when a Parallel API key is configured. Mirrors the stability snapshot's
+	// `parallelConfigured = Boolean(config.parallelApiKey.trim())`. The execute
+	// closures below already read getConfig() at call time; reading it once here
+	// for the registration gate matches that existing dependency.
+	const parallelConfigured = Boolean(getConfig().parallelApiKey?.trim());
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);
@@ -359,174 +370,187 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	);
 
 	const tools = {
-		research_web: asExecutableTool(
-			tool({
-				description: i18n.research_web.description,
-				inputSchema: researchWebInputSchema,
-				execute: async (
-					input: z.infer<typeof researchWebInputSchema>,
-					options: ToolExecutionOptions,
-				) => {
-					const safeInput = sanitizeResearchWebInput(input);
-					return executeToolWithEnvelope({
-						toolName: "research_web",
-						timeoutMs: TOOL_TIMEOUTS_MS.research_web,
-						options,
-						recorder,
-						run: async (abortSignal) => {
-							const { parallelApiKey, parallelBaseUrl } = getConfig();
-							const result = await researchWebViaParallel(
-								safeInput,
-								{
-									fetch,
-									config: { parallelApiKey, parallelBaseUrl },
-									signal: abortSignal,
-								},
-								{ sessionId: ctx.turnId, excerptMaxChars: 2000 },
-							);
-							// Fire-and-forget Parallel Turbo usage tracking; never
-							// block or alter the tool result on analytics failure.
-							void recordParallelUsage({
-								userId: ctx.userId,
-								conversationId: ctx.conversationId,
-								tool: "research_web",
-							}).catch(() => {});
-							const modelPayload = buildGroundedWebModelPayload(result);
-							const candidates = createGroundedWebCandidates(result);
-							return {
-								modelPayload,
-								entry: {
-									callId: options.toolCallId,
-									name: "research_web",
-									input: safeInput,
-									status: "done",
-									outputSummary: summarizeGroundedWebResult(result),
-									sourceType: "web",
-									candidates,
-									metadata: createGroundedWebMetadata(result),
-								},
-							};
-						},
-						onError: (error) => {
-							const message = modelSafeToolError(
-								error,
-								i18n.research_web.errorPrefix,
-							);
-							const modelPayload = {
-								success: false as const,
-								error: message,
-							};
-							return {
-								modelPayload,
-								entry: {
-									callId: options.toolCallId,
-									name: "research_web",
-									input: safeInput,
-									status: "done",
-									outputSummary: modelPayload.error,
-									sourceType: "web",
-									candidates: [],
-									metadata: {
-										ok: false,
-										evidenceReady: false,
-										error: modelPayload.error,
+		// research_web + fetch_url are Parallel-backed. Register them ONLY when
+		// Parallel is configured, so an unconfigured deployment omits them
+		// entirely — the model then follows the prompt's "web retrieval is
+		// unavailable" guidance instead of calling the tool and receiving a raw
+		// "Parallel search failed: 401 …" provider error.
+		...(parallelConfigured
+			? {
+					research_web: asExecutableTool(
+						tool({
+							description: i18n.research_web.description,
+							inputSchema: researchWebInputSchema,
+							execute: async (
+								input: z.infer<typeof researchWebInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeResearchWebInput(input);
+								return executeToolWithEnvelope({
+									toolName: "research_web",
+									timeoutMs: TOOL_TIMEOUTS_MS.research_web,
+									options,
+									recorder,
+									run: async (abortSignal) => {
+										const { parallelApiKey, parallelBaseUrl } = getConfig();
+										const result = await researchWebViaParallel(
+											safeInput,
+											{
+												fetch,
+												config: { parallelApiKey, parallelBaseUrl },
+												signal: abortSignal,
+											},
+											{
+												sessionId: ctx.turnId,
+												excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
+											},
+										);
+										// Fire-and-forget Parallel Turbo usage tracking; never
+										// block or alter the tool result on analytics failure.
+										void recordParallelUsage({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											tool: "research_web",
+										}).catch(() => {});
+										const modelPayload = buildGroundedWebModelPayload(result);
+										const candidates = createGroundedWebCandidates(result);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "research_web",
+												input: safeInput,
+												status: "done",
+												outputSummary: summarizeGroundedWebResult(result),
+												sourceType: "web",
+												candidates,
+												metadata: createGroundedWebMetadata(result),
+											},
+										};
 									},
-								},
-							};
-						},
-					});
-				},
-			}),
-		),
-		fetch_url: asExecutableTool(
-			tool({
-				description: i18n.fetch_url.description,
-				inputSchema: fetchUrlInputSchema,
-				execute: async (
-					input: z.infer<typeof fetchUrlInputSchema>,
-					options: ToolExecutionOptions,
-				) => {
-					const safeInput = sanitizeFetchUrlInput(input);
-					return executeToolWithEnvelope({
-						toolName: "fetch_url",
-						timeoutMs: TOOL_TIMEOUTS_MS.fetch_url,
-						options,
-						recorder,
-						run: async (abortSignal) => {
-							const { parallelApiKey, parallelBaseUrl } = getConfig();
-							// Size returned page content to the selected model's context
-							// window, and chain this fetch to the conversation's session.
-							const maxCharsTotal = resolveFetchContentCharCap(
-								await resolveModelContextTokens(ctx.modelId),
-							);
-							const result = await fetchUrlViaParallel(
-								safeInput,
-								{
-									fetch,
-									config: { parallelApiKey, parallelBaseUrl },
-									signal: abortSignal,
-								},
-								{ sessionId: ctx.turnId, maxCharsTotal },
-							);
-							// Fire-and-forget Parallel Extract usage tracking; never
-							// block or alter the tool result on analytics failure.
-							void recordParallelUsage({
-								userId: ctx.userId,
-								conversationId: ctx.conversationId,
-								tool: "fetch_url",
-							}).catch(() => {});
-							// Keep the answer brief sized to the same model-aware cap the
-							// fetch used, so the detailed full_content isn't re-truncated
-							// below it when building the model payload.
-							const modelPayload = buildGroundedWebModelPayload(result, {
-								maxMarkdownChars: maxCharsTotal,
-							});
-							const candidates = createGroundedWebCandidates(result);
-							return {
-								modelPayload,
-								entry: {
-									callId: options.toolCallId,
-									name: "fetch_url",
-									input: safeInput,
-									status: "done",
-									outputSummary: summarizeGroundedWebResult(result),
-									sourceType: "web",
-									candidates,
-									metadata: createGroundedWebMetadata(result),
-								},
-							};
-						},
-						onError: (error) => {
-							const message = modelSafeToolError(
-								error,
-								i18n.fetch_url.errorPrefix,
-							);
-							const modelPayload = {
-								success: false as const,
-								error: message,
-							};
-							return {
-								modelPayload,
-								entry: {
-									callId: options.toolCallId,
-									name: "fetch_url",
-									input: safeInput,
-									status: "done",
-									outputSummary: modelPayload.error,
-									sourceType: "web",
-									candidates: [],
-									metadata: {
-										ok: false,
-										evidenceReady: false,
-										error: modelPayload.error,
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.research_web.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											error: message,
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "research_web",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.error,
+												sourceType: "web",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: modelPayload.error,
+												},
+											},
+										};
 									},
-								},
-							};
-						},
-					});
-				},
-			}),
-		),
+								});
+							},
+						}),
+					),
+					fetch_url: asExecutableTool(
+						tool({
+							description: i18n.fetch_url.description,
+							inputSchema: fetchUrlInputSchema,
+							execute: async (
+								input: z.infer<typeof fetchUrlInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeFetchUrlInput(input);
+								return executeToolWithEnvelope({
+									toolName: "fetch_url",
+									timeoutMs: TOOL_TIMEOUTS_MS.fetch_url,
+									options,
+									recorder,
+									run: async (abortSignal) => {
+										const { parallelApiKey, parallelBaseUrl } = getConfig();
+										// Size returned page content to the selected model's context
+										// window, and chain this fetch to the conversation's session.
+										const maxCharsTotal = resolveFetchContentCharCap(
+											await resolveModelContextTokens(ctx.modelId),
+										);
+										const result = await fetchUrlViaParallel(
+											safeInput,
+											{
+												fetch,
+												config: { parallelApiKey, parallelBaseUrl },
+												signal: abortSignal,
+											},
+											{ sessionId: ctx.turnId, maxCharsTotal },
+										);
+										// Fire-and-forget Parallel Extract usage tracking; never
+										// block or alter the tool result on analytics failure.
+										void recordParallelUsage({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											tool: "fetch_url",
+										}).catch(() => {});
+										// Keep the answer brief sized to the same model-aware cap the
+										// fetch used, so the detailed full_content isn't re-truncated
+										// below it when building the model payload.
+										const modelPayload = buildGroundedWebModelPayload(result, {
+											maxMarkdownChars: maxCharsTotal,
+											name: "fetch_url",
+										});
+										const candidates = createGroundedWebCandidates(result);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "fetch_url",
+												input: safeInput,
+												status: "done",
+												outputSummary: summarizeGroundedWebResult(result),
+												sourceType: "web",
+												candidates,
+												metadata: createGroundedWebMetadata(result),
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.fetch_url.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											error: message,
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "fetch_url",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.error,
+												sourceType: "web",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: modelPayload.error,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
 		memory_context: asExecutableTool(
 			tool({
 				description: i18n.memory_context.description,
@@ -1706,45 +1730,6 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 	};
-}
-
-// Resolve the selected model's context window (in tokens) from ctx.modelId.
-// Composite ids (`provider:<providerId>:<modelId>`) resolve against the
-// provider-models table; builtin ids (model1/model2) resolve from runtime
-// config. Returns null when the model or its capacity can't be resolved, which
-// resolveFetchContentCharCap turns into a safe default cap.
-async function resolveModelContextTokens(
-	modelId: string | undefined,
-): Promise<number | null> {
-	if (!modelId) return null;
-	if (modelId.startsWith("provider:")) {
-		const parts = modelId.split(":");
-		if (parts.length >= 3) {
-			try {
-				const models = await listEnabledProviderModels(parts[1]);
-				// The model segment can itself contain colons (e.g. an id like
-				// "org/model:tag"), so rejoin everything after the provider segment.
-				const modelId = parts.slice(2).join(":");
-				const model = models.find((candidate) => candidate.id === modelId);
-				if (model) {
-					return (
-						model.maxModelContext ?? model.targetConstructedContext ?? null
-					);
-				}
-			} catch {
-				return null;
-			}
-		}
-		return null;
-	}
-	try {
-		const config = getConfig();
-		return modelId === "model2"
-			? (config.model2MaxModelContext ?? null)
-			: (config.model1MaxModelContext ?? null);
-	} catch {
-		return null;
-	}
 }
 
 async function getPreviousGeneratedFileContent(

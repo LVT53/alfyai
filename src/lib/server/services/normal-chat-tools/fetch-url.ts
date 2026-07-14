@@ -7,6 +7,18 @@ export const fetchUrlInputSchema = z.object({
 
 export type FetchUrlInput = z.infer<typeof fetchUrlInputSchema>;
 
+// Build the dedupe key for a URL: lowercased origin joined to the verbatim
+// path/query/hash, so case-insensitive hosts collapse while case-distinct paths
+// stay separate. Falls back to the whole-URL lowercase for unparseable input.
+function dedupeKey(url: string): string {
+	try {
+		const parsed = new URL(url);
+		return `${parsed.origin.toLowerCase()}${parsed.pathname}${parsed.search}${parsed.hash}`;
+	} catch {
+		return url.toLowerCase();
+	}
+}
+
 export function sanitizeFetchUrlInput(input: FetchUrlInput): FetchUrlInput {
 	const seen = new Set<string>();
 	const urls: string[] = [];
@@ -15,7 +27,11 @@ export function sanitizeFetchUrlInput(input: FetchUrlInput): FetchUrlInput {
 		if (url.length === 0) {
 			continue;
 		}
-		const key = url.toLowerCase();
+		// Dedupe on lowercased origin + VERBATIM path/query/hash. The origin
+		// (scheme + host + port) is case-insensitive, but the path is not: `/Page`
+		// and `/page` are distinct resources and must both survive. Fall back to the
+		// whole-URL lowercase key only when the URL fails to parse.
+		const key = dedupeKey(url);
 		if (seen.has(key)) {
 			continue;
 		}
