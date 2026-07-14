@@ -691,7 +691,7 @@ const WEB_SEARCH_GUARD = [
 	"Web research workflow:",
 	"- If `research_web` is available, use it to search the web for current facts, prices, availability, specs, policies, page-backed claims, comparisons, and multi-source research.",
 	'- Pass {"query": "your exact research question"}. The tool returns sources and evidence snippets with citation instructions.',
-	"- You MAY sharpen results by also passing `objective` (one sentence stating what you want to find out, including any recency or source cue) and `searchQueries` (2-3 short keyword queries, 3-6 words each, at distinct angles — not full sentences, no site: operators). `query` stays required.",
+	"- You MAY sharpen results by also passing `objective` (one sentence stating what you want to find out, including any recency or source cue) and `searchQueries` (2-3 short keyword queries, 3-6 words each, at distinct angles — not full sentences, no site: operators, and no specific years or version numbers unless the question is explicitly historical, since those bias toward stale results). `query` stays required.",
 	'- Example: {"query": "iPhone 16 Pro Max price 2026"}',
 	'- Example for technical docs: {"query": "SvelteKit form actions API"}',
 	'- Example for product reviews: {"query": "Framework Laptop 16 review YouTube hands-on"}',
