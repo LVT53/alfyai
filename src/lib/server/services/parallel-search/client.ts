@@ -173,6 +173,13 @@ export async function parallelSearch(
 	return Array.isArray(body.results) ? body.results : [];
 }
 
+// Collapse all interior whitespace (newlines, tabs, runs of spaces) into single
+// spaces and trim. A provider `reason` can be multi-line; left as-is it fractures
+// the markdown bullet list rendered downstream (see buildFailureNote).
+function collapseWhitespace(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
+}
+
 // Defensively normalize the API's `errors` field into ParallelExtractUrlError[].
 // The exact shape is not contractually frozen, so we probe several plausible
 // keys and never throw on an unexpected shape: an object item yields its `url`
@@ -186,7 +193,7 @@ function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
 	const out: ParallelExtractUrlError[] = [];
 	for (const item of raw) {
 		if (typeof item === "string") {
-			const reason = item.trim();
+			const reason = collapseWhitespace(item);
 			if (reason) out.push({ url: null, reason });
 			continue;
 		}
@@ -200,8 +207,8 @@ function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
 				record.detail ??
 				record.code;
 			const reason =
-				typeof reasonCandidate === "string" && reasonCandidate.trim()
-					? reasonCandidate.trim()
+				typeof reasonCandidate === "string" && collapseWhitespace(reasonCandidate)
+					? collapseWhitespace(reasonCandidate)
 					: "unknown error";
 			out.push({ url, reason });
 		}

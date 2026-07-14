@@ -122,10 +122,9 @@ function buildFailureNote(errors: ParallelExtractUrlError[]): string {
 	const shown = errors.slice(0, MAX_FAILURE_NOTES);
 	const lines = shown.map((error) => {
 		const url = error.url ?? "(url not reported)";
-		const reason = truncateBody(
-			error.reason || "unknown error",
-			FAILURE_REASON_CHARS,
-		);
+		// error.reason is already normalized non-empty (and whitespace-collapsed)
+		// by parseExtractErrors; here we only bound its length.
+		const reason = truncateBody(error.reason, FAILURE_REASON_CHARS);
 		return `- ${url} — ${reason}`;
 	});
 	const remaining = errors.length - shown.length;
@@ -135,14 +134,22 @@ function buildFailureNote(errors: ParallelExtractUrlError[]): string {
 
 // Join the fetched-page brief with the failure note, tolerating either being
 // empty (e.g. every url failed -> no page content, note only).
-function appendFailureNote(briefMarkdown: string, note: string): string {
+//
+// The note is PREPENDED, not appended: downstream buildGroundedWebModelPayload
+// re-truncates this markdown to maxMarkdownChars (fetch_url passes maxCharsTotal
+// as that cap — the same budget buildAnswerBrief used to size the page bodies).
+// When a page body fills the budget, a tail-appended note would be trimmed off
+// exactly in the large-output case, losing which-URL-failed info. Putting the
+// bounded note at the HEAD means tail-truncation only eats page body, so the
+// note always reaches the model.
+function prependFailureNote(briefMarkdown: string, note: string): string {
 	if (!note) {
 		return briefMarkdown;
 	}
 	if (!briefMarkdown) {
 		return note;
 	}
-	return `${briefMarkdown}\n\n${note}`;
+	return `${note}\n\n${briefMarkdown}`;
 }
 
 export async function fetchUrlViaParallel(
@@ -241,7 +248,7 @@ export async function fetchUrlViaParallel(
 		sources,
 		evidence,
 		answerBrief: {
-			markdown: appendFailureNote(
+			markdown: prependFailureNote(
 				buildAnswerBrief(
 					sources,
 					results.map((result) => result.full_content ?? null),

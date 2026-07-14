@@ -1190,6 +1190,13 @@ async function maybePrefetchWebSearch(params: {
 		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
 	}
 
+	// Pre-gate on Parallel being configured, mirroring the index.ts tool gate:
+	// without an API key every Parallel call 401s, so skip issuing a doomed
+	// request (and starting a timer) and degrade to no prefetched context.
+	if (!getConfig().parallelApiKey?.trim()) {
+		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+	}
+
 	// Bound the prefetch: create a signal that fires after PREFETCH_TIMEOUT_MS and
 	// thread it into the Parallel client via deps.signal (the client forwards it
 	// into fetch), so a timeout TRULY aborts the underlying request rather than

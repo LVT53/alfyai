@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { buildGroundedWebModelPayload } from "../web-grounding";
 import { fetchUrlViaParallel } from "./fetch-url";
 
 const config = { parallelApiKey: "test-key" };
@@ -118,7 +119,7 @@ describe("fetchUrlViaParallel", () => {
 	});
 
 	it("caps total evidence at 12 quotes across pages", async () => {
-		// Two pages with 8 excerpts each = 16 total, exceeding the MAX_EVIDENCE cap.
+		// Two pages with 8 excerpts each = 16 total, exceeding the MAX_PAYLOAD_EVIDENCE cap.
 		const manyExcerptsResponse = jsonResponse({
 			extract_id: "ex-cap",
 			results: [
@@ -312,6 +313,122 @@ describe("fetchUrlViaParallel", () => {
 		);
 
 		expect(result.answerBrief.markdown).not.toContain("Could not read");
+	});
+
+	it("keeps the failure note in the FINAL payload when page content fills the budget", async () => {
+		// A large successful page body sized to fill the answer-brief budget, plus
+		// a failed URL. The failure note must reach the model AFTER
+		// buildGroundedWebModelPayload re-truncates the brief to maxMarkdownChars
+		// (fetch_url passes maxCharsTotal as that cap) — i.e. it must survive.
+		const bigWithFailure = jsonResponse({
+			extract_id: "ex-bigfail",
+			results: [
+				{
+					url: "https://example.com/ok",
+					title: "Big Page",
+					publish_date: null,
+					excerpts: [],
+					full_content: "A".repeat(10_000),
+				},
+			],
+			errors: [{ url: "https://example.com/dead", message: "404 Not Found" }],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => bigWithFailure);
+
+		const maxCharsTotal = 4000;
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/ok", "https://example.com/dead"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+			{ maxCharsTotal },
+		);
+
+		// Mirror the fetch_url tool: maxCharsTotal flows in as maxMarkdownChars.
+		const payload = buildGroundedWebModelPayload(result, {
+			maxMarkdownChars: maxCharsTotal,
+			name: "fetch_url",
+		});
+
+		// The which-URL-failed note survives truncation of the large page body.
+		expect(payload.answerBriefMarkdown).toContain("Could not read");
+		expect(payload.answerBriefMarkdown).toContain(
+			"https://example.com/dead — 404 Not Found",
+		);
+		// And the big page body is still present (truncated), proving it did fill
+		// the budget rather than the note simply having room to spare.
+		expect(payload.answerBriefMarkdown).toContain("A".repeat(1000));
+	});
+
+	it("bounds the failure note: overflow line, reason truncation, and null-url rendering", async () => {
+		const errors: Array<Record<string, unknown>> = Array.from(
+			{ length: 12 },
+			(_, i) => ({ url: `https://example.com/fail-${i}`, message: `error ${i}` }),
+		);
+		// One error with no url reported (renders as "(url not reported)").
+		errors[0] = { message: "no url here" };
+		// One error with an over-long reason (must be truncated at 200 chars + …).
+		errors[1] = { url: "https://example.com/long", message: "X".repeat(300) };
+
+		const overflowResponse = jsonResponse({
+			extract_id: "ex-overflow",
+			results: [
+				{
+					url: "https://example.com/ok",
+					title: "Page A",
+					publish_date: null,
+					excerpts: [],
+					full_content: "ok",
+				},
+			],
+			errors,
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => overflowResponse);
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/ok"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		const markdown = result.answerBrief.markdown;
+		// Null-url rendering.
+		expect(markdown).toContain("(url not reported) — no url here");
+		// Reason truncated to FAILURE_REASON_CHARS (200) with an ellipsis; the
+		// 201st char did not survive.
+		expect(markdown).toContain(`${"X".repeat(200)}…`);
+		expect(markdown).not.toContain("X".repeat(201));
+		// Only MAX_FAILURE_NOTES (10) of the 12 are spelled out; the rest overflow.
+		expect(markdown).toContain("…and 2 more");
+	});
+
+	it("collapses interior whitespace in a failure reason into a single clean bullet", async () => {
+		const multiline = jsonResponse({
+			extract_id: "ex-multiline",
+			results: [],
+			errors: [
+				{
+					url: "https://example.com/x",
+					message: "line one\nline two\t  more",
+				},
+			],
+			warnings: [],
+			usage: {},
+		});
+		const fetchMock = vi.fn(async () => multiline);
+
+		const result = await fetchUrlViaParallel(
+			{ urls: ["https://example.com/x"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		// The multi-line reason renders as one clean bullet, not a fractured list.
+		expect(result.answerBrief.markdown).toContain(
+			"- https://example.com/x — line one line two more",
+		);
+		const noteSection = result.answerBrief.markdown.split("## Could not read")[1];
+		expect(noteSection).not.toContain("line one\n");
 	});
 
 	it("reports fetch diagnostics", async () => {

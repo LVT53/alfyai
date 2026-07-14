@@ -396,6 +396,47 @@ describe("parallelExtractWithErrors", () => {
 		]);
 	});
 
+	it("falls back to 'unknown error' when an object error item has no known reason key", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				results: [],
+				// None of message/reason/error/detail/code present.
+				errors: [{ url: "https://example.com/z", foo: "bar", status: 500 }],
+			}),
+		);
+
+		const { errors } = await parallelExtractWithErrors(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(errors).toEqual([
+			{ url: "https://example.com/z", reason: "unknown error" },
+		]);
+	});
+
+	it("collapses interior whitespace in normalized reasons to a single line", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				results: [],
+				errors: [
+					{ url: "https://example.com/m", message: "first line\n\tsecond   line" },
+					"bare\nstring\nreason",
+				],
+			}),
+		);
+
+		const { errors } = await parallelExtractWithErrors(
+			{ urls: ["https://example.com/a"], objective: "o" },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+
+		expect(errors).toEqual([
+			{ url: "https://example.com/m", reason: "first line second line" },
+			{ url: null, reason: "bare string reason" },
+		]);
+	});
+
 	it("yields an empty errors array when the response omits or malforms errors", async () => {
 		const fetchMock = vi.fn(async () =>
 			jsonResponse({ results: [], errors: "not-an-array" }),

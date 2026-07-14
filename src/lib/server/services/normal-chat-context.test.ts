@@ -1669,6 +1669,87 @@ describe("prepareOutboundChatContext", () => {
 		}
 	});
 
+	it("aborts the pasted-URL prefetch when it exceeds the timeout and degrades gracefully", async () => {
+		const url = "https://example.com/source";
+		let capturedSignal: AbortSignal | undefined;
+		// Faithfully simulate the real client: a fetch that only settles when its
+		// abort signal fires (rejecting, as an aborted fetch does).
+		mocks.fetchUrlViaParallel.mockImplementationOnce(
+			(_req: unknown, deps: { signal?: AbortSignal }) => {
+				capturedSignal = deps.signal;
+				return new Promise((_resolve, reject) => {
+					deps.signal?.addEventListener("abort", () => {
+						reject(new Error("The operation was aborted"));
+					});
+				});
+			},
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.useFakeTimers();
+
+		try {
+			const pending = prepareOutboundChatContext({
+				message: `Summarize ${url}`,
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				logLabel: "provider request",
+			});
+
+			// Let the prefetch issue its call and start awaiting, then fire the
+			// PREFETCH_TIMEOUT_MS (12s) timer.
+			await vi.advanceTimersByTimeAsync(12_000);
+			const prepared = await pending;
+
+			// (a) the timeout truly aborted the underlying request...
+			expect(capturedSignal?.aborted).toBe(true);
+			// ...and (b) the turn degraded gracefully to the original input.
+			expect(prepared.inputValue).toBe(`Summarize ${url}`);
+			expect(prepared.prefetchedToolCalls).toEqual([]);
+			expect(warn).toHaveBeenCalledWith(
+				"[NORMAL_CHAT_CONTEXT] Web prefetch failed",
+				expect.objectContaining({
+					sessionId: "conv-1",
+					prefetchReason: "pasted_url",
+				}),
+			);
+		} finally {
+			vi.useRealTimers();
+			warn.mockRestore();
+		}
+	});
+
+	it("skips the prefetch entirely when Parallel is not configured", async () => {
+		mocks.getConfig.mockReturnValue({
+			contextDiagnosticsDebug: false,
+			parallelApiKey: "  ",
+		});
+		const url = "https://example.com/source";
+
+		const prepared = await prepareOutboundChatContext({
+			message: `Summarize ${url}`,
+			sessionId: "conv-1",
+			modelConfig,
+			modelId: "model1",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+			logLabel: "provider request",
+		});
+
+		expect(mocks.fetchUrlViaParallel).not.toHaveBeenCalled();
+		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
+		expect(prepared.inputValue).toBe(`Summarize ${url}`);
+		expect(prepared.prefetchedToolCalls).toEqual([]);
+	});
+
 	it("rebuilds the system prompt after forced prefetch injects web context", async () => {
 		const prepared = await prepareOutboundChatContext({
 			message: "What changed today?",
@@ -1691,7 +1772,12 @@ describe("prepareOutboundChatContext", () => {
 	});
 
 	it("applies prompt budgeting after forced web prefetch and keeps output token budget fields", async () => {
-		mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: true });
+		// parallelApiKey must be present for the prefetch to proceed past the
+		// Parallel-configured pre-gate (see maybePrefetchWebSearch).
+		mocks.getConfig.mockReturnValue({
+			contextDiagnosticsDebug: true,
+			parallelApiKey: "parallel-key",
+		});
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		try {
