@@ -1,6 +1,10 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { ThinkingSegment, ToolEvidenceCandidate } from "$lib/types";
+import type {
+	MessageEvidenceStatus,
+	ThinkingSegment,
+	ToolEvidenceCandidate,
+} from "$lib/types";
 import { untrack } from "svelte";
 import {
 	Check,
@@ -58,6 +62,12 @@ let thinkingTimerInterval: ReturnType<typeof setInterval> | undefined;
 type FetchedSource = {
 	title: string;
 	url: string;
+	// Citation-driven status from C1: "selected" = the answer cited this
+	// source; "reference"/"rejected" = retrieved but not cited. Absent for
+	// plain read (fetch_url) pages, which have no citation concept.
+	status?: MessageEvidenceStatus;
+	// Compact reason/snippet surfaced in the chip's hover tooltip.
+	reason?: string;
 };
 
 const isActiveThinking = $derived(!thinkingIsDone);
@@ -383,16 +393,47 @@ function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
 	return Object.values(input).flatMap(toUrlList);
 }
 
+// Pull a compact tooltip reason for a web candidate: prefer its snippet, then
+// fall back to a reasoning/description/reason field the server may attach on
+// the candidate's metadata bag.
+function candidateReason(candidate: ToolEvidenceCandidate): string | undefined {
+	if (candidate.snippet && candidate.snippet.trim())
+		return candidate.snippet.trim();
+	const meta = candidate.metadata ?? {};
+	for (const key of ["reason", "reasoning", "description", "summary"]) {
+		const value = meta[key];
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return undefined;
+}
+
+function isCitedSource(source: FetchedSource): boolean {
+	return source.status === "selected";
+}
+
+// Cited (status "selected") sources lead; everything else keeps its original
+// order behind them. Stable so the collapsed favicon stack and the expanded
+// chip row agree on ordering.
+function orderCitedFirst(sources: FetchedSource[]): FetchedSource[] {
+	const cited = sources.filter(isCitedSource);
+	const rest = sources.filter((source) => !isCitedSource(source));
+	return [...cited, ...rest];
+}
+
 function getFetchedSources(segment: ThinkingSegment): FetchedSource[] {
 	if (segment.type !== "tool_call" || segment.name !== "research_web")
 		return [];
-	return dedupeSourcesByUrl(
-		(segment.candidates ?? [])
-			.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-			.map((candidate) => ({
-				title: candidate.title || extractHostname(candidate.url ?? ""),
-				url: candidate.url as string,
-			})),
+	return orderCitedFirst(
+		dedupeSourcesByUrl(
+			(segment.candidates ?? [])
+				.filter((candidate) => candidate.sourceType === "web" && candidate.url)
+				.map((candidate) => ({
+					title: candidate.title || extractHostname(candidate.url ?? ""),
+					url: candidate.url as string,
+					status: candidate.status,
+					reason: candidateReason(candidate),
+				})),
+		),
 	);
 }
 
@@ -419,6 +460,20 @@ function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
 	return deduped;
 }
 
+// Uncited chips beyond this count fold behind a "+N" reveal so a long tail of
+// "also found" sources can't dominate the compact chip row. Cited chips are
+// always shown in full — they're the answer's actual citations (and already
+// capped server-side to MAX_PAYLOAD_SOURCES).
+const UNCITED_CHIP_LIMIT = 6;
+
+function citedCount(sources: FetchedSource[]): number {
+	return sources.filter(isCitedSource).length;
+}
+
+function uncitedSources(sources: FetchedSource[]): FetchedSource[] {
+	return sources.filter((source) => !isCitedSource(source));
+}
+
 function fetchedSourceSummary(
 	sources: FetchedSource[],
 	kind: "search" | "read",
@@ -427,7 +482,16 @@ function fetchedSourceSummary(
 	if (kind === "read") {
 		return $t("toolCalls.readPagesCount", { count });
 	}
-	return `${$t("toolCalls.searchedWeb")} · ${$t("toolCalls.sourcesCount", { count })}`;
+	const base = `${$t("toolCalls.searchedWeb")} · ${$t("toolCalls.sourcesCount", { count })}`;
+	const cited = citedCount(sources);
+	if (cited > 0) {
+		return `${base} · ${$t("toolCalls.citedCount", { count: cited })}`;
+	}
+	return base;
+}
+
+function chipTooltip(source: FetchedSource): string {
+	return source.reason ? `${source.title}\n${source.reason}` : source.title;
 }
 
 // Task 11b — agenda peek + photo strip. Both read exclusively from
@@ -561,7 +625,52 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
+{#snippet fetchedChip(source: FetchedSource)}
+	{@const faviconUrl = getFaviconUrl(source.url)}
+	{@const cited = isCitedSource(source)}
+	<a
+		class="fetched-source-chip"
+		class:is-cited={cited}
+		class:is-uncited={!cited}
+		href={source.url}
+		target="_blank"
+		rel="noopener noreferrer"
+		title={chipTooltip(source)}
+		aria-label={source.title}
+	>
+		{#if faviconUrl}
+			<img
+				class="fetched-favicon"
+				src={faviconUrl}
+				alt=""
+				loading="lazy"
+				decoding="async"
+				referrerpolicy="no-referrer"
+				onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+			/>
+		{/if}
+		{#if cited}
+			<span class="fetched-chip-cited-dot" aria-hidden="true"></span>
+		{/if}
+		<span class="fetched-source-tooltip" role="tooltip" aria-hidden="true">
+			<span class="fetched-tooltip-title">
+				{#if cited}
+					<span class="fetched-tooltip-cited">{$t('toolCalls.citedMarker')}</span>
+				{/if}
+				{source.title}
+			</span>
+			{#if source.reason}
+				<span class="fetched-tooltip-reason">{source.reason}</span>
+			{/if}
+		</span>
+	</a>
+{/snippet}
+
 {#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string, kind: "search" | "read")}
+	{@const cited = sources.filter(isCitedSource)}
+	{@const uncited = uncitedSources(sources)}
+	{@const visibleUncited = uncited.slice(0, UNCITED_CHIP_LIMIT)}
+	{@const overflowUncited = uncited.slice(UNCITED_CHIP_LIMIT)}
 	<details class="fetched-source-group">
 		<summary class={summaryClass}>
 			<span class="fetched-source-summary">
@@ -584,28 +693,23 @@ async function toggle() {
 				<span>{fetchedSourceSummary(sources, kind)}</span>
 			</span>
 		</summary>
-		<div class="fetched-source-list">
-			{#each sources as source}
-				{@const faviconUrl = getFaviconUrl(source.url)}
-				<div class="fetched-source-item">
-					{#if faviconUrl}
-						<img
-							class="fetched-favicon"
-							src={faviconUrl}
-							alt=""
-							loading="lazy"
-							decoding="async"
-							referrerpolicy="no-referrer"
-							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-						/>
-					{/if}
-					<a
-						class="tool-link fetched-source-link"
-						href={source.url}
-						target="_blank"
-						rel="noopener noreferrer">{source.title}</a>
-				</div>
+		<div class="fetched-source-chips">
+			{#each cited as source}
+				{@render fetchedChip(source)}
 			{/each}
+			{#each visibleUncited as source}
+				{@render fetchedChip(source)}
+			{/each}
+			{#if overflowUncited.length > 0}
+				<details class="fetched-chip-more">
+					<summary class="fetched-chip-more-summary">{$t('toolCalls.moreSourcesCount', { count: overflowUncited.length })}</summary>
+					<div class="fetched-source-chips fetched-source-chips--overflow">
+						{#each overflowUncited as source}
+							{@render fetchedChip(source)}
+						{/each}
+					</div>
+				</details>
+			{/if}
 		</div>
 	</details>
 {/snippet}
@@ -1083,13 +1187,6 @@ async function toggle() {
 		margin-left: -5px;
 	}
 
-	.fetched-source-item {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-
 	.fetched-favicon {
 		width: 14px;
 		height: 14px;
@@ -1101,11 +1198,150 @@ async function toggle() {
 		object-fit: cover;
 	}
 
-	.fetched-source-list {
-		display: grid;
-		gap: 4px;
-		margin-top: 4px;
+	/* Compact cited-first chip row: reuses the 14px favicon circle tokens from
+	   the collapsed stack, wrapping into a tidy grid instead of the old
+	   full-width vertical link list. */
+	.fetched-source-chips {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		margin-top: 6px;
 		padding-left: 16px;
+	}
+
+	.fetched-source-chips--overflow {
+		margin-top: 6px;
+		padding-left: 0;
+	}
+
+	.fetched-source-chip {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		flex: 0 0 auto;
+	}
+
+	.fetched-source-chip .fetched-favicon {
+		width: 14px;
+		height: 14px;
+	}
+
+	/* Cited chips lead and carry a subtle accent ring so the answer's actual
+	   citations read as primary; uncited ("also found") chips sit dimmed. */
+	.fetched-source-chip.is-cited {
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+
+	.fetched-source-chip.is-uncited {
+		opacity: 0.55;
+	}
+
+	.fetched-source-chip.is-uncited:hover,
+	.fetched-source-chip.is-uncited:focus-visible {
+		opacity: 1;
+	}
+
+	.fetched-source-chip:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.fetched-chip-cited-dot {
+		position: absolute;
+		right: -1px;
+		bottom: -1px;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--accent);
+		border: 1px solid var(--surface-page);
+	}
+
+	/* Hover/focus tooltip: favicon-adjacent card with title (line 1) + compact
+	   reason (line 2). Absolutely positioned within the chip (never fixed), so
+	   it never leaks out of the thinking block's own scroll context. */
+	.fetched-source-tooltip {
+		position: absolute;
+		bottom: calc(100% + 6px);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 20;
+		display: none;
+		flex-direction: column;
+		gap: 2px;
+		width: max-content;
+		max-width: min(260px, 60vw);
+		padding: 6px 8px;
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		border: 1px solid var(--border-default);
+		box-shadow: 0 4px 14px color-mix(in srgb, var(--shadow-color, #000) 18%, transparent);
+		font-family: var(--font-sans);
+		text-align: left;
+		pointer-events: none;
+	}
+
+	.fetched-source-chip:hover .fetched-source-tooltip,
+	.fetched-source-chip:focus-visible .fetched-source-tooltip {
+		display: flex;
+	}
+
+	.fetched-tooltip-title {
+		font-size: var(--text-xs, 0.75rem);
+		font-weight: 600;
+		color: var(--text-primary);
+		line-height: 1.3;
+		overflow-wrap: anywhere;
+	}
+
+	.fetched-tooltip-cited {
+		display: inline-block;
+		margin-right: 4px;
+		padding: 0 5px;
+		border-radius: 9999px;
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 16%, transparent);
+	}
+
+	.fetched-tooltip-reason {
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-muted);
+		line-height: 1.35;
+		overflow-wrap: anywhere;
+	}
+
+	.fetched-chip-more {
+		flex: 0 0 auto;
+	}
+
+	.fetched-chip-more-summary {
+		cursor: pointer;
+		list-style: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 22px;
+		height: 22px;
+		padding: 0 6px;
+		border-radius: 9999px;
+		background: var(--surface-elevated);
+		border: 1px solid var(--border-default);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-muted);
+	}
+
+	.fetched-chip-more-summary::-webkit-details-marker {
+		display: none;
 	}
 
 	.connector-group {
@@ -1131,25 +1367,6 @@ async function toggle() {
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-	}
-
-	.fetched-source-link {
-		display: block;
-		width: fit-content;
-		max-width: 100%;
-	}
-
-	.tool-link {
-		color: inherit;
-		text-decoration: underline;
-		text-underline-offset: 2px;
-		text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-		overflow-wrap: anywhere;
-		word-break: break-word;
-	}
-
-	.tool-link:hover {
-		text-decoration-color: currentColor;
 	}
 
 	.check-icon-header {
