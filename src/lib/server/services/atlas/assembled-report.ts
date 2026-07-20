@@ -6,6 +6,10 @@ import type {
 	AtlasSectionBrief,
 	AtlasSectionBriefSourceAssociation,
 } from "./types";
+import {
+	PROMPT_INSTRUCTION_HEADING_PATTERN,
+	SAFE_REPORT_HEADING_LABELS,
+} from "./report-shape-primitives";
 import { ATLAS_ASSEMBLY_SCHEMA_VERSION } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -17,10 +21,10 @@ import { ATLAS_ASSEMBLY_SCHEMA_VERSION } from "./types";
 // dependency on the pipeline orchestrator, model calls, or `dependencies`; it
 // only transforms/inspects report text and the accepted evidence.
 //
-// NOTE: `report-shape-diagnostics.ts` maintains its own private copies of some
-// of the same primitives (SAFE_REPORT_HEADING_LABELS, CLAIM_HEADING_VERB_PATTERN,
-// PROMPT_INSTRUCTION_HEADING_PATTERN, stripMarkdown/normalizedHeading/wordCount).
-// The duplication is intentionally left in place in this relocation pass.
+// SAFE_REPORT_HEADING_LABELS + PROMPT_INSTRUCTION_HEADING_PATTERN are shared with
+// report-shape-diagnostics.ts via ./report-shape-primitives. This module keeps
+// its own markdown-strip/normalize helpers and a Hungarian-extended
+// CLAIM_HEADING_VERB_PATTERN, which deliberately differ from that module's.
 // ---------------------------------------------------------------------------
 
 export function looksLikeProcessOnlyReport(markdown: string): boolean {
@@ -255,40 +259,10 @@ const MALFORMED_WRITER_HEADING_LABELS = new Set([
 	"key model characteristics",
 ]);
 
-const SAFE_REPORT_HEADING_LABELS = new Set([
-	"analysis",
-	"deployment implications",
-	"evidence gaps",
-	"executive summary",
-	"findings",
-	"key findings",
-	"latency and cost",
-	"limitations",
-	"model shortlist",
-	"overview",
-	"ranked shortlist",
-	"recommendation",
-	"recommendations",
-	"recommended architecture",
-	"retrieval quality",
-	"sources",
-	"summary",
-	"tradeoffs",
-	"trade offs",
-	"vezetoi osszefoglalo",
-	"osszefoglalo",
-	"megallapitasok",
-	"ajanlas",
-	"ajanlasok",
-	"korlatok",
-	"kompromisszumok",
-]);
-
+// CLAIM_HEADING_VERB_PATTERN here additionally matches Hungarian claim verbs —
+// intentionally broader than report-shape-diagnostics.ts's EN-only copy.
 const CLAIM_HEADING_VERB_PATTERN =
 	/\b(?:(?:are|avoid|can|cannot|choose|dominates?|has|have|improves?|is|keeps?|leads?|limits?|needs?|offers?|outperforms?|requires?|should|supports?|uses?|wins?)\b|támogat|javít|nyújt|kínál|működik|teljesít)/i;
-
-const PROMPT_INSTRUCTION_HEADING_PATTERN =
-	/\b(?:answer|cite|compare|cover|explain|include|provide|return|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence|write)\b/i;
 
 export function isLikelySentenceClaimHeading(title: string): boolean {
 	const trimmed = title.trim().replace(/[.:;]+$/g, "");

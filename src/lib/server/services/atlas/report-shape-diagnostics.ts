@@ -3,6 +3,10 @@ import type {
 	GeneratedDocumentSource,
 	GeneratedDocumentSourceChip,
 } from "$lib/server/services/file-production/source-schema";
+import {
+	PROMPT_INSTRUCTION_HEADING_PATTERN,
+	SAFE_REPORT_HEADING_LABELS,
+} from "./report-shape-primitives";
 
 export type AtlasReportShapeWarningCode =
 	| "atlas_report_body_too_thin"
@@ -69,38 +73,11 @@ const SOURCE_DOMINATES_RATIO = 3;
 const SUBSTANTIVE_SECTION_WORDS = 55;
 const SUBSTANTIVE_STRUCTURED_SECTION_WORDS = 30;
 const HOLLOW_RECOMMENDATION_WORDS = 18;
-const SAFE_REPORT_HEADING_LABELS = new Set([
-	"analysis",
-	"deployment implications",
-	"evidence gaps",
-	"executive summary",
-	"findings",
-	"key findings",
-	"latency and cost",
-	"limitations",
-	"model shortlist",
-	"overview",
-	"ranked shortlist",
-	"recommendation",
-	"recommendations",
-	"recommended architecture",
-	"retrieval quality",
-	"sources",
-	"summary",
-	"tradeoffs",
-	"trade offs",
-	"vezetoi osszefoglalo",
-	"osszefoglalo",
-	"megallapitasok",
-	"ajanlas",
-	"ajanlasok",
-	"korlatok",
-	"kompromisszumok",
-]);
+// SAFE_REPORT_HEADING_LABELS + PROMPT_INSTRUCTION_HEADING_PATTERN are shared with
+// assembled-report.ts via ./report-shape-primitives. This module's claim-verb
+// pattern is intentionally EN-only (assembled-report's additionally matches HU).
 const CLAIM_HEADING_VERB_PATTERN =
 	/\b(?:are|avoid|can|cannot|choose|dominates?|has|have|improves?|is|keeps?|leads?|limits?|needs?|offers?|outperforms?|requires?|should|supports?|uses?|wins?)\b/i;
-const PROMPT_INSTRUCTION_HEADING_PATTERN =
-	/\b(?:answer|cite|compare|cover|explain|include|provide|return|use\s+current\s+web\s+evidence|with\s+current\s+web\s+evidence|write)\b/i;
 
 const SOURCE_SECTION_LABELS = new Set([
 	"sources",
