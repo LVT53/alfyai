@@ -6,85 +6,7 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 describe("sanitizeSearchSnippet", () => {
-	it("strips Hungarian language filter echo from snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"Nem tartalmazza: English | Tartalmaznia kell: technical | Best self-hosted embedding models for enterprise search",
-		);
-		expect(result).toBe(
-			"Best self-hosted embedding models for enterprise search",
-		);
-	});
-
-	it("strips English language filter echo from snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"Excluding: English | Must include: technical | Best self-hosted embedding models",
-		);
-		expect(result).toBe("Best self-hosted embedding models");
-	});
-
-	it("strips abbreviated Hungarian month date prefix (jan.)", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"2024. jan. 26. · What is retrieval augmented generation",
-		);
-		expect(result).toBe("What is retrieval augmented generation");
-	});
-
-	it("strips abbreviated Hungarian month date prefix (dec.)", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"2023. dec. 05. · A complete guide to RAG pipelines",
-		);
-		expect(result).toBe("A complete guide to RAG pipelines");
-	});
-
-	it("strips full Hungarian month name date prefix (január)", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"2024. január 26. · What is retrieval augmented generation",
-		);
-		expect(result).toBe("What is retrieval augmented generation");
-	});
-
-	it("strips full Hungarian month name date prefix (szeptember)", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"2024. szeptember 15. · Introduction to vector databases",
-		);
-		expect(result).toBe("Introduction to vector databases");
-	});
-
-	it("strips search-engine metadata keyword Naptár at snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"Naptár · 2024. jan. 26. · Event details for AI conference",
-		);
-		expect(result).toBe("Event details for AI conference");
-	});
-
-	it("strips search-engine metadata keyword Keresés at snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet("Keresés · keresési javaslatok");
-		expect(result).toBe("keresési javaslatok");
-	});
-
-	it("strips search-engine metadata keyword Beállítások at snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet("Beállítások · rendszerkonfiguráció");
-		expect(result).toBe("rendszerkonfiguráció");
-	});
-
-	it("strips YouTube channel prefix at snippet start", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"YouTube · TechChannel · How vector databases work",
-		);
-		expect(result).toBe("TechChannel · How vector databases work");
-	});
-
-	it("preserves legitimate Hungarian content", async () => {
+	it("preserves legitimate content without generic boilerplate", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
 		const result = sanitizeSearchSnippet(
 			"A mesterséges intelligencia forradalmasítja a keresést",
@@ -92,28 +14,12 @@ describe("sanitizeSearchSnippet", () => {
 		expect(result).toBe(
 			"A mesterséges intelligencia forradalmasítja a keresést",
 		);
-	});
-
-	it("returns empty string when snippet is only language filter artifact", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"Nem tartalmazza: English | Tartalmaznia kell: technical |   ",
-		);
-		expect(result).toBe("");
 	});
 
 	it("handles empty and whitespace-only input", async () => {
 		const { sanitizeSearchSnippet } = await import("./search");
 		expect(sanitizeSearchSnippet("")).toBe("");
 		expect(sanitizeSearchSnippet("   ")).toBe("");
-	});
-
-	it("strips language filter echo then date prefix in sequence", async () => {
-		const { sanitizeSearchSnippet } = await import("./search");
-		const result = sanitizeSearchSnippet(
-			"Nem tartalmazza: English | Tartalmaznia kell: technical | 2024. jan. 26. · Actual relevant content here",
-		);
-		expect(result).toBe("Actual relevant content here");
 	});
 
 	it("strips loading and JavaScript boilerplate prefixes", async () => {
@@ -174,7 +80,7 @@ describe("sanitizeSearchSnippet", () => {
 
 describe("sanitizeSourceTitle (applied to search titles)", () => {
 	it("sanitizeSourceTitle strips - YouTube suffix", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		const result = sanitizeSourceTitle(
 			"Heat Pump Vs. Furnace - Which is BETTER? - YouTube",
 		);
@@ -182,20 +88,20 @@ describe("sanitizeSourceTitle (applied to search titles)", () => {
 	});
 
 	it("sanitizeSourceTitle strips Reddit verification suffix", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		const result = sanitizeSourceTitle("Reddit - Please wait for verification");
 		expect(result).toBe("Reddit");
 	});
 
 	it("sanitizeSourceTitle strips platform | suffix", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		expect(sanitizeSourceTitle("Cool content | Instagram")).toBe(
 			"Cool content",
 		);
 	});
 
 	it("sanitizeSourceTitle strips Hungarian date prefix", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		const result = sanitizeSourceTitle(
 			"2024. jan. 26. · Actual relevant content",
 		);
@@ -203,14 +109,14 @@ describe("sanitizeSourceTitle (applied to search titles)", () => {
 	});
 
 	it("sanitizeSourceTitle preserves legitimate platform names in titles", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		expect(sanitizeSourceTitle("YouTube: Best Embedding Models")).toBe(
 			"YouTube: Best Embedding Models",
 		);
 	});
 
 	it("sanitizeSourceTitle handles empty input", async () => {
-		const { sanitizeSourceTitle } = await import("./renderer-output");
+		const { sanitizeSourceTitle } = await import("./source-title");
 		expect(sanitizeSourceTitle("")).toBe("");
 	});
 });
@@ -220,33 +126,9 @@ describe("isUnusableAtlasSnippet", () => {
 		const { isUnusableAtlasSnippet } = await import("./search");
 		expect(isUnusableAtlasSnippet("")).toBe(false);
 		expect(isUnusableAtlasSnippet(null)).toBe(false);
-		expect(isUnusableAtlasSnippet("Keresés · ")).toBe(true);
-		expect(
-			isUnusableAtlasSnippet(
-				"Nem tartalmazza: English | Tartalmaznia kell: technical | ",
-			),
-		).toBe(true);
-	});
-
-	it("rejects snippets that are pure search-engine UI metadata", async () => {
-		const { isUnusableAtlasSnippet } = await import("./search");
-		expect(isUnusableAtlasSnippet("Naptár")).toBe(true);
-		expect(isUnusableAtlasSnippet("Keresés")).toBe(true);
-		expect(isUnusableAtlasSnippet("Beállítások")).toBe(true);
-	});
-
-	it("rejects YouTube footer boilerplate with 2+ footer keywords", async () => {
-		const { isUnusableAtlasSnippet } = await import("./search");
-		expect(
-			isUnusableAtlasSnippet(
-				"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem Irányelvek YouTube működése",
-			),
-		).toBe(true);
-		expect(
-			isUnusableAtlasSnippet(
-				"Policy & Safety How YouTube works Test new features",
-			),
-		).toBe(true);
+		// Snippets that reduce to empty after generic page-hygiene sanitization
+		expect(isUnusableAtlasSnippet("Please enable JavaScript.")).toBe(true);
+		expect(isUnusableAtlasSnippet("Loading... Please wait...")).toBe(true);
 	});
 
 	it("rejects very short sanitized snippets (< 8 chars)", async () => {
@@ -299,16 +181,6 @@ describe("isUnusableAtlasSnippet", () => {
 		expect(isUnusableAtlasSnippet("Ok", "")).toBe(true);
 	});
 
-	it("still rejects YouTube footer boilerplate even with a substantive title", async () => {
-		const { isUnusableAtlasSnippet } = await import("./search");
-		expect(
-			isUnusableAtlasSnippet(
-				"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés",
-				"Best Embedding Models Comparison 2026 - YouTube",
-			),
-		).toBe(true);
-	});
-
 	it("accepts normal-length snippets with substantive content", async () => {
 		const { isUnusableAtlasSnippet } = await import("./search");
 		expect(
@@ -319,15 +191,6 @@ describe("isUnusableAtlasSnippet", () => {
 		expect(
 			isUnusableAtlasSnippet(
 				"A comprehensive comparison of the best embedding models for enterprise search in 2026.",
-			),
-		).toBe(false);
-	});
-
-	it("accepts a single YouTube footer keyword mixed with real content", async () => {
-		const { isUnusableAtlasSnippet } = await import("./search");
-		expect(
-			isUnusableAtlasSnippet(
-				"This video demonstrates how to configure RAG pipelines for enterprise search. Adatvédelem considerations are discussed at 12:34.",
 			),
 		).toBe(false);
 	});
@@ -432,8 +295,7 @@ describe("Atlas search stage", () => {
 
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise search"],
-			config: {},
-			deps: { config: { parallelApiKey: "" } },
+			config: { parallelApiKey: "" },
 		});
 
 		expect(result).toMatchObject({
@@ -485,10 +347,14 @@ describe("Atlas search stage", () => {
 
 		const result = await runAtlasSearchStage({
 			queries: ["enterprise topic"],
-			config: { concurrency: 1, interBatchDelayMs: 0, maxAttempts: 1 },
+			config: {
+				concurrency: 1,
+				interBatchDelayMs: 0,
+				maxAttempts: 1,
+				parallelApiKey: "test-key",
+			},
 			deps: {
 				fetch: fetchMock as unknown as typeof fetch,
-				config: { parallelApiKey: "test-key" },
 			},
 		});
 
@@ -628,7 +494,7 @@ describe("Atlas search stage", () => {
 		).toHaveLength(5);
 	});
 
-	it("rejects sources with unusable snippets (YouTube footer, short text) before they consume acceptance slots", async () => {
+	it("rejects sources with unusable snippets (boilerplate-only, login title, short text) before they consume acceptance slots", async () => {
 		const { runAtlasSearchStage } = await import("./search");
 
 		const result = await runAtlasSearchStage({
@@ -649,11 +515,10 @@ describe("Atlas search stage", () => {
 						"A comprehensive comparison of the best embedding models for enterprise search in 2026 including E5, BGE-M3, and Cohere Embed v4 with detailed benchmarks.",
 				},
 				{
-					id: "web-youtube-footer",
-					title: "Embedding models video - YouTube",
-					url: "https://youtube.com/watch?v=abc123",
-					snippet:
-						"Ismertető Sajtó Szerzői jog Kapcsolatfelvétel Alkotók Hirdetés Fejlesztők Feltételek Adatvédelem",
+					id: "web-boilerplate",
+					title: "Cookie notice",
+					url: "https://example.com/cookies",
+					snippet: "Please enable JavaScript to view this page.",
 				},
 				{
 					id: "web-tiny",
@@ -662,10 +527,10 @@ describe("Atlas search stage", () => {
 					snippet: "Log in",
 				},
 				{
-					id: "web-search-artifact",
-					title: "Search results",
+					id: "web-short",
+					title: "Read",
 					url: "https://search.example/results",
-					snippet: "Nem tartalmazza: English | Tartalmaznia kell: technical | ",
+					snippet: "Hi",
 				},
 				{
 					id: "web-good-2",

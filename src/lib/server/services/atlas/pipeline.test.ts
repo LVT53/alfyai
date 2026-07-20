@@ -7547,36 +7547,36 @@ describe("Atlas guard functions", () => {
 
 	describe("looksLikeProcessOnlyReport", () => {
 		it("returns true for an empty string", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			expect(looksLikeProcessOnlyReport("")).toBe(true);
 		});
 
 		it("returns true for whitespace-only string", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			expect(looksLikeProcessOnlyReport("   \n\t  ")).toBe(true);
 		});
 
 		it("returns true when body words before sources are under 60 even with a substantive heading", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const short =
 				"## Executive Summary\n\nShort body with very few words here.";
 			expect(looksLikeProcessOnlyReport(short)).toBe(true);
 		});
 
 		it("returns true when there are no substantive report section headings", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const noHeading = goodReportBody(100);
 			expect(looksLikeProcessOnlyReport(noHeading)).toBe(true);
 		});
 
 		it("returns true when there are no substantive headings even with many words", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown = `# Random Title\n\n${goodReportBody(200)}`;
 			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
 		});
 
 		it("returns true when process phrases >= 2 exist regardless of word count or signals", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown = reportWithHeading("Executive Summary", 80).replace(
 				"reveals",
 				"I examined sources and reviewed the findings and synthesized the findings because the evidence shows hybrid retrieval works",
@@ -7585,7 +7585,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when process phrases === 1 and words < 180", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown =
 				"## Executive Summary\n\nI examined the evidence and found that hybrid retrieval is a strong approach. " +
 				goodReportBody(70);
@@ -7593,7 +7593,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when process phrases === 1, words >= 180, but no substantive signals", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const bodyText = Array.from(
 				{ length: 200 },
 				() => "data point entry record metric value sample observation result",
@@ -7605,7 +7605,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false when process phrases === 1, words >= 180, and substantive signals are present", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown =
 				"## Executive Summary\n\nI examined the sources and found that hybrid retrieval is a strong approach. The evidence shows that combining lexical and semantic search improves recall. However, there are trade-offs in latency and cost. " +
 				goodReportBody(200);
@@ -7613,26 +7613,26 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false for a good report with zero process phrases", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(300)}\n\n## Findings\n\n${goodReportBody(100)}\n\n## Recommendations\n\n${goodReportBody(100)}`;
 			expect(looksLikeProcessOnlyReport(markdown)).toBe(false);
 		});
 
 		it("returns true for a Hungarian process-only report with process phrases", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown =
 				"## Vezetői összefoglaló\n\nA források ellenőrzése után megállapítottuk hogy a hibrid visszakeresés hatékony. Kockázat: a magas késleltetés problémát jelenthet. ";
 			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
 		});
 
 		it("returns true for a Hungarian report without English substantive headings (accented headings do not match \\b)", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const markdown = `## Vezetői összefoglaló\n\n${goodReportBody(250)}`;
 			expect(looksLikeProcessOnlyReport(markdown)).toBe(true);
 		});
 
 		it("excludes words after a '## Sources' heading from body word count", async () => {
-			const { looksLikeProcessOnlyReport } = await import("./pipeline");
+			const { looksLikeProcessOnlyReport } = await import("./assembled-report");
 			const shortBeforeSources = "## Executive Summary\n\nBrief note only. \n";
 			const manyAfterSources = `## Sources\n\n${goodReportBody(300)}`;
 			const markdown = shortBeforeSources + manyAfterSources;
@@ -7642,7 +7642,7 @@ describe("Atlas guard functions", () => {
 
 	describe("looksLikeMalformedAssembledReport", () => {
 		it("returns false for a well-formed report with 4 substantive headings including Limitations", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7653,7 +7653,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false for a single scalar heading (below threshold of 2)", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## 8B parameters\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7664,7 +7664,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when scalar heading count >= 2", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\ntext\n\n## 8 GB\n\ntext\n\n## 16 GB\n\ntext`;
 			const result = looksLikeMalformedAssembledReport({
 				markdown,
@@ -7674,7 +7674,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when envelope heading count >= 2", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Date 2026-06-21\n\n${goodReportBody(40)}\n\n## Profile overview\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7685,7 +7685,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false when source-title-matching heading count is 2 (below threshold of 3)", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Evidence from performance benchmarks\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7699,7 +7699,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when source-title-matching heading count >= 3", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Performance benchmarks latency\n\n${goodReportBody(40)}\n\n## Scalability analysis cloud deployment\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7714,7 +7714,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when envelope heading + envelope scalar lines >= 3", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Profile overview\n\n${goodReportBody(40)}\n\n**Date:** 2026-06-21\n\n${goodReportBody(40)}\n\n**Status:** final\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7725,7 +7725,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false for a good report with 5 substantive headings including Limitations", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./pipeline");
+			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Key Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(50)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7738,7 +7738,7 @@ describe("Atlas guard functions", () => {
 
 	describe("needsAssemblyRepair", () => {
 		it("returns false for a report passing both guards", async () => {
-			const { needsAssemblyRepair } = await import("./pipeline");
+			const { needsAssemblyRepair } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(300)}\n\n## Analysis\n\n${goodReportBody(100)}\n\n## Findings\n\n${goodReportBody(100)}\n\n## Limitations\n\n${goodReportBody(80)}\n\n## Recommendations\n\n${goodReportBody(100)}`;
 			expect(
 				needsAssemblyRepair({
@@ -7749,7 +7749,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when failing process-only guard", async () => {
-			const { needsAssemblyRepair } = await import("./pipeline");
+			const { needsAssemblyRepair } = await import("./assembled-report");
 			expect(
 				needsAssemblyRepair({
 					markdown: "",
@@ -7759,7 +7759,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when failing malformed-assembled guard", async () => {
-			const { needsAssemblyRepair } = await import("./pipeline");
+			const { needsAssemblyRepair } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\ntext\n\n## 8 GB\n\ntext\n\n## 16 MB\n\ntext`;
 			expect(
 				needsAssemblyRepair({
@@ -7770,7 +7770,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when both guards fail", async () => {
-			const { needsAssemblyRepair } = await import("./pipeline");
+			const { needsAssemblyRepair } = await import("./assembled-report");
 			expect(
 				needsAssemblyRepair({
 					markdown: "   \n  ",
@@ -7782,31 +7782,31 @@ describe("Atlas guard functions", () => {
 
 	describe("isLikelySentenceClaimHeading", () => {
 		it("returns false for a topical heading with trailing period but no claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./pipeline");
+			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
 			expect(isLikelySentenceClaimHeading("Top Self-Hosted Models.")).toBe(
 				false,
 			);
 		});
 
 		it("returns true for a sentence heading with trailing period and claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./pipeline");
+			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
 			expect(
 				isLikelySentenceClaimHeading("This model outperforms competitors."),
 			).toBe(true);
 		});
 
 		it("returns false for a short heading without trailing period", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./pipeline");
+			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
 			expect(isLikelySentenceClaimHeading("Key Findings")).toBe(false);
 		});
 
 		it("returns false for a Hungarian topical heading with period but no claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./pipeline");
+			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
 			expect(isLikelySentenceClaimHeading("Legjobb modellek.")).toBe(false);
 		});
 
 		it("returns true for a Hungarian sentence heading with period and claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./pipeline");
+			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
 			expect(
 				isLikelySentenceClaimHeading("A modell támogatja a gyors keresést."),
 			).toBe(true);
@@ -7815,21 +7815,21 @@ describe("Atlas guard functions", () => {
 
 	describe("ensureLimitationsSection", () => {
 		it("returns unchanged when report has fewer than 4 headings", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
 		});
 
 		it("returns unchanged when report already has a Limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
 		});
 
 		it("appends Limitations section when report has 4+ headings and no Limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toContain("## Limitations");
@@ -7837,7 +7837,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("appends Hungarian Limitations section when language is 'hu'", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Vezetői összefoglaló\n\n${goodReportBody(60)}\n\n## Elemzés\n\n${goodReportBody(60)}\n\n## Megállapítások\n\n${goodReportBody(60)}\n\n## Ajánlások\n\n${goodReportBody(60)}`;
 			const result = ensureLimitationsSection(markdown, "hu");
 			expect(result).toContain("## Korlátok");
@@ -7845,7 +7845,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("recognizes 'Constraints' as an existing limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Constraints\n\n${goodReportBody(60)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
@@ -7854,7 +7854,7 @@ describe("Atlas guard functions", () => {
 
 	describe("stripModelBoilerplate", () => {
 		it("strips 'Report generated at the ... stage' boilerplate", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nSome content.\n\nReport generated at the assembly stage\n\n## Analysis\n\nMore content.`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toContain("Report generated at the assembly stage");
@@ -7863,28 +7863,28 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("strips 'Generated by the Atlas assemble stage' boilerplate", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nContent.\n\nGenerated by the Atlas assemble stage\n\n## Analysis`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toContain("Generated by the Atlas assemble stage");
 		});
 
 		it("strips 'Generated during the synthesize stage' boilerplate", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nContent.\n\nGenerated during the synthesize stage\n\n## Analysis`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toContain("Generated during the synthesize stage");
 		});
 
 		it("strips 'This report was compiled by Atlas' boilerplate", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nContent.\n\nThis report was compiled by Atlas\n\n## Analysis`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toContain("This report was compiled by Atlas");
 		});
 
 		it("strips 'Use this as a starting point' boilerplate", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nContent.\n\nUse this as a starting point for further investigation\n\n## Analysis`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toContain(
@@ -7893,14 +7893,14 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("does NOT strip legitimate content that mentions a stage name without generation verb", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Assembly Process\n\nThe assembly stage involves processing the evidence packs to produce a coherent report.`;
 			const result = stripModelBoilerplate(input);
 			expect(result).toBe(input);
 		});
 
 		it("cleans up excess newlines after boilerplate removal", async () => {
-			const { stripModelBoilerplate } = await import("./pipeline");
+			const { stripModelBoilerplate } = await import("./assembled-report");
 			const input = `## Summary\n\nContent.\n\nReport generated at the assembly stage\n\n## Analysis\n\nMore.`;
 			const result = stripModelBoilerplate(input);
 			expect(result).not.toMatch(/\n{4,}/);
@@ -7909,7 +7909,7 @@ describe("Atlas guard functions", () => {
 
 	describe("deduplicateHeadings", () => {
 		it("removes duplicate ## Limitations headings keeping first occurrence", async () => {
-			const { deduplicateHeadings } = await import("./pipeline");
+			const { deduplicateHeadings } = await import("./assembled-report");
 			const input = `## Summary\n\nBody.\n\n## Limitations\n\nFirst limitations.\n\n## Analysis\n\nBody.\n\n## Limitations\n\nSecond limitations.`;
 			const result = deduplicateHeadings(input);
 			// Only the heading line is removed; content under duplicate headings is preserved
@@ -7919,14 +7919,14 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("preserves unique headings unchanged", async () => {
-			const { deduplicateHeadings } = await import("./pipeline");
+			const { deduplicateHeadings } = await import("./assembled-report");
 			const input = `## Summary\n\nBody.\n\n## Analysis\n\nBody.\n\n## Findings\n\nBody.`;
 			const result = deduplicateHeadings(input);
 			expect(result).toBe(input);
 		});
 
 		it("handles case-insensitive deduplication of headings", async () => {
-			const { deduplicateHeadings } = await import("./pipeline");
+			const { deduplicateHeadings } = await import("./assembled-report");
 			const input = `## Limitations\n\nFirst.\n\n## LIMITATIONS\n\nSecond.`;
 			const result = deduplicateHeadings(input);
 			expect((result.match(/^## Limitations\b/gm) || []).length).toBe(1);
@@ -7935,7 +7935,7 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("handles accent-insensitive deduplication of Hungarian headings", async () => {
-			const { deduplicateHeadings } = await import("./pipeline");
+			const { deduplicateHeadings } = await import("./assembled-report");
 			const input = `## Korlátok\n\nElső.\n\n## Korlatok\n\nMásodik.`;
 			const result = deduplicateHeadings(input);
 			const korlatokCount =
@@ -7947,35 +7947,35 @@ describe("Atlas guard functions", () => {
 
 	describe("hasLimitationsHeading extended detection", () => {
 		it("detects '## Limitations and Caveats' as a limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations and Caveats\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
 		});
 
 		it("detects '## Limitations & Gaps' as a limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations & Gaps\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
 		});
 
 		it("detects '## Report Limitations' as a limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Report Limitations\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);
 		});
 
 		it("detects '## Korlátok' (Hungarian with accent) as a limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Vezetői összefoglaló\n\n${goodReportBody(60)}\n\n## Elemzés\n\n${goodReportBody(60)}\n\n## Megállapítások\n\n${goodReportBody(60)}\n\n## Korlátok\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "hu");
 			expect(result).toBe(markdown);
 		});
 
 		it("detects '## Limitations and Constraints' as a limitations heading", async () => {
-			const { ensureLimitationsSection } = await import("./pipeline");
+			const { ensureLimitationsSection } = await import("./assembled-report");
 			const markdown = `## Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations and Constraints\n\n${goodReportBody(50)}`;
 			const result = ensureLimitationsSection(markdown, "en");
 			expect(result).toBe(markdown);

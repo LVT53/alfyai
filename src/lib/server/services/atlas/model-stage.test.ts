@@ -159,7 +159,7 @@ describe("Atlas model stage", () => {
 	});
 
 	it("calls the normal chat model boundary for audit with strict JSON instructions", async () => {
-		const { runAtlasAuditStage } = await import("./model-stage");
+		const { runAtlasModelStage } = await import("./model-stage");
 		const runModel = vi.fn(async () => ({
 			text: '{"markers":[],"retryRequested":false}',
 			usage: {
@@ -174,7 +174,8 @@ describe("Atlas model stage", () => {
 			},
 		}));
 
-		const result = await runAtlasAuditStage({
+		const result = await runAtlasModelStage({
+			variant: "audit",
 			profile: "overview",
 			modelSelection: "model2",
 			prompt: '{"report":"Atlas"}',
@@ -227,7 +228,7 @@ describe("Atlas model stage", () => {
 	});
 
 	it("returns finishReason from the audit stage", async () => {
-		const { runAtlasAuditStage } = await import("./model-stage");
+		const { runAtlasModelStage } = await import("./model-stage");
 		const runModel = vi.fn(async () => ({
 			text: '{"markers":[],"retryRequested":false}',
 			finishReason: "stop" as const,
@@ -243,7 +244,8 @@ describe("Atlas model stage", () => {
 			},
 		}));
 
-		const result = await runAtlasAuditStage({
+		const result = await runAtlasModelStage({
+			variant: "audit",
 			profile: "exhaustive",
 			modelSelection: "model2",
 			prompt: '{"report":"Atlas"}',

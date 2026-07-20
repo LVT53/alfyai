@@ -38,6 +38,9 @@ export interface CreateOrReuseAtlasJobResult {
 	normalizedQueryHash: string;
 }
 
+export type SubmitAtlasJobIntakeInput = CreateOrReuseAtlasJobInput;
+export type AtlasJobIntakeResult = CreateOrReuseAtlasJobResult;
+
 export interface LinkAtlasJobAssistantMessageInput {
 	userId: string;
 	conversationId: string;

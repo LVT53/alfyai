@@ -12,7 +12,8 @@ import {
 	DEFAULT_ATLAS_SEARCH_MAX_RETRY_BACKOFF_MS,
 } from "./config";
 import { isUsableAtlasImageCandidate } from "./image-quality";
-import { sanitizeSourceTitle } from "./renderer-output";
+import { sanitizeSourceTitle } from "./source-title";
+import { canonicalSourceUrlKey } from "./source-url";
 import type { AtlasImageCandidate } from "./types";
 
 export interface AtlasSearchSource {
@@ -58,13 +59,11 @@ export interface AtlasSearchConfig {
 
 export interface AtlasSearchDeps {
 	fetch?: typeof fetch;
-	config?: { parallelApiKey?: string; parallelBaseUrl?: string };
 	signal?: AbortSignal;
 }
 
 export interface AtlasImageSearchDeps {
 	fetch?: typeof fetch;
-	config?: { braveSearchApiKey?: string };
 	signal?: AbortSignal;
 }
 
@@ -115,18 +114,6 @@ function uniqueQueries(queries: string[]): string[] {
 async function defaultSleep(ms: number): Promise<void> {
 	if (ms <= 0) return;
 	await new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizedSourceUrlKey(url: string): string {
-	try {
-		const parsed = new URL(url);
-		parsed.hash = "";
-		parsed.searchParams.sort();
-		const normalized = parsed.toString().replace(/\/+$/, "");
-		return normalized.toLowerCase();
-	} catch {
-		return url.trim().replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
-	}
 }
 
 function isUnsafeAdultSource(source: AtlasSearchSource): boolean {
@@ -180,10 +167,9 @@ export function hasSubstantiveAtlasSourceTitle(title: string): boolean {
 }
 
 /**
- * Rejects sources whose snippet is empty, pure boilerplate (YouTube footer,
- * search-engine UI metadata), or too short to produce usable evidence after
- * sanitization.  These sources would fill acceptance slots without
- * contributing to Evidence Packs.
+ * Rejects sources whose snippet is empty after page-hygiene sanitization or
+ * too short to produce usable evidence.  These sources would fill acceptance
+ * slots without contributing to Evidence Packs.
  *
  * When an optional `title` is provided and the only rejection reason is a
  * short (< 8 char) sanitized snippet, a substantive title can override the
@@ -210,34 +196,6 @@ export function isUnusableAtlasSnippet(
 	if (!snippet) return false;
 	const sanitized = sanitizeSearchSnippet(snippet);
 	if (!sanitized) return true;
-
-	// Pure search-engine UI metadata keywords with nothing else
-	if (/^(Naptár|Keresés|Beállítások)\s*$/iu.test(sanitized)) return true;
-
-	// YouTube footer boilerplate — when the fetched page has no transcript
-	// and the excerpt consists entirely of footer navigation words.
-	const footerPatterns: RegExp[] = [
-		/\bIsmertető\b/iu,
-		/\bSajtó\b/iu,
-		/\bSzerzői\s+jog\b/iu,
-		/\bKapcsolatfelvétel\b/iu,
-		/\bAlkotók\b/iu,
-		/\bHirdetés\b/iu,
-		/\bFejlesztők\b/iu,
-		/\bFeltételek\b/iu,
-		/\bAdatvédelem\b/iu,
-		/\bIrányelvek\b/iu,
-		/\bYouTube\s+működése\b/iu,
-		/\bÚj\s+funkciók\s+tesztelése\b/iu,
-		/\bPolicy\s*&\s*Safety\b/i,
-		/\bHow\s+YouTube\s+works\b/i,
-		/\bTest\s+new\s+features\b/i,
-		/\bAbout\s+(?:Press|Copyright|Contact us|Creators|Advertise|Developers|Terms|Privacy)\b/i,
-	];
-	const footerHits = footerPatterns.filter((pattern) =>
-		pattern.test(sanitized),
-	).length;
-	if (footerHits >= 2) return true;
 
 	if (sanitized.length < 8) {
 		// Title exemption: a substantive title can compensate for a short snippet
@@ -268,7 +226,7 @@ function convergeSources(input: {
 			continue;
 		}
 
-		const key = normalizedSourceUrlKey(source.url);
+		const key = canonicalSourceUrlKey(source.url);
 		if (seenUrls.has(key)) {
 			rejectedSources.push({ ...source, rejectionReason: "duplicate_url" });
 			continue;
@@ -293,48 +251,20 @@ function convergeSources(input: {
 }
 
 /**
- * Strips known search-result artifacts and boilerplate from a snippet.
+ * Strips generic page-hygiene boilerplate that survives in a Parallel excerpt
+ * or extract before it reaches evidence extraction.
  *
- * Removes in order:
- * 1. Search-engine UI metadata keywords at start (Naptár, Keresés, Beállítások)
- * 2. Hungarian language filter echoes (Nem tartalmazza: ... | Tartalmaznia kell: ... |)
- * 3. English language filter echoes (Excluding: ... | Must include: ... |)
- * 4. YouTube channel prefix (YouTube ·)
- * 5. Hungarian date prefixes (2024. jan. 26. ·, 2024. január 26. ·)
+ * Removes, in order, leading:
+ * 1. Loading / "please enable JavaScript" placeholders
+ * 2. Cookie-consent banners
+ * 3. Login / social-media view prompts (Please log in, View on Instagram, …)
  *
  * After each pass the result is trimmed. Returns empty string when the entire
- * snippet is consumed by artifacts.
+ * snippet is consumed by boilerplate.
  */
 export function sanitizeSearchSnippet(snippet: string): string {
 	let result = snippet.trim();
 	if (!result) return result;
-
-	// Search-engine UI metadata keywords at snippet start
-	result = result.replace(/^(Naptár|Keresés|Beállítások)\s*·\s*/, "");
-
-	// Hungarian language filter echo (both conditions: Nem tartalmazza + Tartalmaznia kell)
-	result = result.replace(
-		/^Nem tartalmazza:[^|]+\|\s*Tartalmaznia kell:[^|]+\|\s*/i,
-		"",
-	);
-	// Hungarian single-condition fallbacks
-	result = result.replace(/^Nem tartalmazza:[^|]+\|\s*/i, "");
-	result = result.replace(/^Tartalmaznia kell:[^|]+\|\s*/i, "");
-
-	// English language filter echo (both conditions)
-	result = result.replace(/^Excluding:[^|]+\|\s*Must include:[^|]+\|\s*/i, "");
-	// English single-condition fallbacks
-	result = result.replace(/^Excluding:[^|]+\|\s*/i, "");
-	result = result.replace(/^Must include:[^|]+\|\s*/i, "");
-
-	// YouTube channel prefix
-	result = result.replace(/^YouTube ·\s*/, "");
-
-	// Hungarian date prefixes
-	result = result.replace(
-		/^\d{4}\. (?:jan\.|febr\.|márc\.|ápr\.|máj\.|jún\.|júl\.|aug\.|szept\.|okt\.|nov\.|dec\.|január|február|március|április|május|június|július|augusztus|szeptember|október|november|december) \d{1,2}\. ·\s*/,
-		"",
-	);
 
 	// Common boilerplate prefixes that survive snippet extraction
 	result = result.replace(
@@ -579,7 +509,7 @@ function convergeImageCandidates(input: {
 		if (isUnsafeAdultImageCandidate(candidate)) continue;
 		if (!isUsableAtlasImageCandidate(candidate, input.freshnessSensitive))
 			continue;
-		const key = normalizedSourceUrlKey(candidate.imageUrl);
+		const key = canonicalSourceUrlKey(candidate.imageUrl);
 		if (seenUrls.has(key)) continue;
 		seenUrls.add(key);
 		if (accepted.length >= input.maxAccepted) break;
@@ -678,12 +608,8 @@ async function runWithRetries<T>(
 export async function runAtlasSearchStage(
 	input: RunAtlasSearchStageInput,
 ): Promise<AtlasSearchStageResult> {
-	const parallelApiKey = resolveParallelApiKey(
-		input.deps?.config?.parallelApiKey ?? input.config.parallelApiKey,
-	);
-	const parallelBaseUrl = resolveParallelBaseUrl(
-		input.deps?.config?.parallelBaseUrl ?? input.config.parallelBaseUrl,
-	);
+	const parallelApiKey = resolveParallelApiKey(input.config.parallelApiKey);
+	const parallelBaseUrl = resolveParallelBaseUrl(input.config.parallelBaseUrl);
 	if (!parallelApiKey) {
 		return {
 			sources: [],
@@ -804,7 +730,7 @@ export async function runAtlasImageSearchStage(
 	input: RunAtlasImageSearchStageInput,
 ): Promise<AtlasImageSearchStageResult> {
 	const braveSearchApiKey = resolveBraveSearchApiKey(
-		input.deps?.config?.braveSearchApiKey ?? input.config.braveSearchApiKey,
+		input.config.braveSearchApiKey,
 	);
 	if (!braveSearchApiKey) {
 		return {

@@ -25,7 +25,7 @@ import {
 	heartbeatAtlasJob,
 	recoverStaleAtlasJobs,
 } from "./job-ledger";
-import { runAtlasAuditStage, runAtlasModelStage } from "./model-stage";
+import { runAtlasModelStage } from "./model-stage";
 import { AtlasPipelineQualityError, runAtlasPipeline } from "./pipeline";
 import { auditAtlasBasis } from "./quality-gates";
 import { renderAtlasOutputs } from "./renderer-output";
@@ -167,7 +167,8 @@ export async function executeNextAtlasJob(
 						...auditInput,
 						auditModelWarning: auditModel.warning,
 						runAuditModel: (prompt) =>
-							runAtlasAuditStage({
+							runAtlasModelStage({
+								variant: "audit",
 								profile: claimed.job.profile,
 								modelSelection: auditModel.modelSelection,
 								prompt,
