@@ -44,21 +44,25 @@ export interface AtlasNormalChatModelBoundaryResult {
 	};
 }
 
-export interface RunAtlasModelStageInput {
-	stage: Exclude<AtlasPipelineStage, "search" | "audit">;
-	profile: AtlasProfile;
-	modelSelection: ModelId;
-	system: string;
-	prompt: string;
-	runModel?: (
-		input: AtlasNormalChatModelBoundaryInput,
-	) => Promise<AtlasNormalChatModelBoundaryResult>;
-}
+export type AtlasModelStageVariant = "stage" | "audit";
 
-export interface RunAtlasAuditStageInput {
+/**
+ * The fixed audit system prompt. The audit variant runs the same model boundary
+ * as a normal stage but with this bespoke system and no per-stage suffix.
+ */
+const ATLAS_AUDIT_SYSTEM =
+	"Audit the Atlas report against the provided sources. Return strict JSON only. Do not rewrite the report.";
+
+export interface RunAtlasModelStageInput {
 	profile: AtlasProfile;
 	modelSelection: ModelId;
 	prompt: string;
+	/** Selects the system-prompt shape. Defaults to `"stage"`. */
+	variant?: AtlasModelStageVariant;
+	/** Required for the `"stage"` variant; ignored for `"audit"`. */
+	stage?: Exclude<AtlasPipelineStage, "search" | "audit">;
+	/** Required for the `"stage"` variant; ignored for `"audit"`. */
+	system?: string;
 	runModel?: (
 		input: AtlasNormalChatModelBoundaryInput,
 	) => Promise<AtlasNormalChatModelBoundaryResult>;
@@ -199,43 +203,14 @@ export async function runAtlasModelStage(
 	input: RunAtlasModelStageInput,
 ): Promise<AtlasModelStageResult> {
 	const runModel = input.runModel ?? runNormalChatModelBoundary;
+	const system =
+		input.variant === "audit"
+			? ATLAS_AUDIT_SYSTEM
+			: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`;
 	const result = await runModel({
 		modelSelection: input.modelSelection,
 		messages: [{ role: "user", content: input.prompt }],
-		system: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`,
-		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile)
-			.maxOutputTokens,
-	});
-	const usage = normalizeUsage(result.usage);
-	const costUsdMicros = await calculateStageCostUsdMicros({
-		modelSelection: input.modelSelection,
-		model: result.model,
-		usage,
-	});
-	return {
-		text: result.text,
-		finishReason: result.finishReason,
-		usage: {
-			...usage,
-			costUsdMicros,
-		},
-		model: {
-			modelId: result.model?.modelId ?? String(input.modelSelection),
-			providerId: result.model?.providerId ?? "unknown",
-			displayName: result.model?.displayName ?? String(input.modelSelection),
-		},
-	};
-}
-
-export async function runAtlasAuditStage(
-	input: RunAtlasAuditStageInput,
-): Promise<AtlasModelStageResult> {
-	const runModel = input.runModel ?? runNormalChatModelBoundary;
-	const result = await runModel({
-		modelSelection: input.modelSelection,
-		messages: [{ role: "user", content: input.prompt }],
-		system:
-			"Audit the Atlas report against the provided sources. Return strict JSON only. Do not rewrite the report.",
+		system,
 		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile)
 			.maxOutputTokens,
 	});

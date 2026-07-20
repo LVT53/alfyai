@@ -65,6 +65,7 @@ import {
 	buildAtlasWriterEvidenceCards,
 	routeAtlasWriterEvidenceCards,
 } from "./writer-evidence-cards";
+import { makeAtlasStageRunner } from "./stage-runner";
 
 type ModelStage = Exclude<AtlasPipelineStage, "search" | "audit" | "render">;
 
@@ -415,17 +416,37 @@ function buildEvidenceAppendixSummary(input: {
 	};
 }
 
-function addUsage(
-	total: AtlasStageUsage,
-	next: AtlasStageUsage,
-): AtlasStageUsage {
-	return {
-		inputTokens: total.inputTokens + next.inputTokens,
-		outputTokens: total.outputTokens + next.outputTokens,
-		totalTokens: total.totalTokens + next.totalTokens,
-		costUsdMicros: total.costUsdMicros + next.costUsdMicros,
-	};
-}
+/**
+ * Single source of truth for every heartbeat progress percent Atlas emits.
+ * Values are the exact literals/formulas each site emitted before the stage
+ * runner refactor — see the per-site comments. Research-round stages depend on
+ * `roundKind` + `roundNumber`, so they are expressed as functions.
+ */
+const ATLAS_PIPELINE_PROGRESS = {
+	decompose: 10,
+	research: {
+		search: (roundKind: AtlasResearchRoundKind, roundNumber: number): number =>
+			roundKind === "initial" ? 25 : Math.min(64, 50 + roundNumber * 4),
+		imageSearch: 32,
+		curate: (roundKind: AtlasResearchRoundKind, roundNumber: number): number =>
+			roundKind === "initial" ? 40 : Math.min(72, 56 + roundNumber * 4),
+		coverageReview: (
+			roundKind: AtlasResearchRoundKind,
+			roundNumber: number,
+		): number =>
+			roundKind === "initial" ? 50 : Math.min(78, 60 + roundNumber * 4),
+	},
+	synthesize: 55,
+	integrate: 70,
+	assemble: 82,
+	assembleRepair: 86,
+	assembleMinimalRepair: 88,
+	assembleImprove: 88,
+	audit: 92,
+	reviseAfterAudit: 88,
+	auditReview: 94,
+	render: 97,
+} as const;
 
 function seededPrompt(input: {
 	query: string;
@@ -758,20 +779,24 @@ async function runAtlasResearchRound(input: {
 		"searchWeb" | "searchImages" | "runModelStage" | "heartbeat"
 	>;
 }): Promise<AtlasResearchRoundResult> {
-	const usageSeed: AtlasStageUsage = {
-		inputTokens: 0,
-		outputTokens: 0,
-		totalTokens: 0,
-		costUsdMicros: 0,
-	};
-	let usage = usageSeed;
+	const stageRunner = makeAtlasStageRunner({
+		runModelStage: input.dependencies.runModelStage,
+		heartbeat: input.dependencies.heartbeat,
+		resolveStageSystem: (stage) =>
+			stageSystem(
+				stage,
+				input.language,
+				input.currentDate,
+				input.profilePosture,
+			),
+	});
 
 	await input.dependencies.heartbeat?.({
 		stage: "search",
-		progressPercent:
-			input.roundKind === "initial"
-				? 25
-				: Math.min(64, 50 + input.roundNumber * 4),
+		progressPercent: ATLAS_PIPELINE_PROGRESS.research.search(
+			input.roundKind,
+			input.roundNumber,
+		),
 		progressDetails: { queries: input.searchQueries },
 	});
 	const search = await input.dependencies.searchWeb(input.searchQueries);
@@ -787,7 +812,7 @@ async function runAtlasResearchRound(input: {
 		);
 		await input.dependencies.heartbeat?.({
 			stage: "search",
-			progressPercent: 32,
+			progressPercent: ATLAS_PIPELINE_PROGRESS.research.imageSearch,
 			progressDetails: { queries: input.searchQueries },
 		});
 		try {
@@ -846,38 +871,28 @@ async function runAtlasResearchRound(input: {
 				})
 			: null;
 
-	await input.dependencies.heartbeat?.({
-		stage: "curate",
-		progressPercent:
-			input.roundKind === "initial"
-				? 40
-				: Math.min(72, 56 + input.roundNumber * 4),
-	});
-	const curate = await input.dependencies.runModelStage({
-		stage: "curate",
-		system: stageSystem(
-			"curate",
-			input.language,
-			input.currentDate,
-			input.profilePosture,
+	const curate = await stageRunner.runStage("curate", {
+		progress: ATLAS_PIPELINE_PROGRESS.research.curate(
+			input.roundKind,
+			input.roundNumber,
 		),
-		prompt: JSON.stringify({
-			detectedLanguage: input.language,
-			currentDate: input.currentDate,
-			roundNumber: input.roundNumber,
-			roundKind: input.roundKind,
-			searchQueries: input.searchQueries,
-			approvedGaps: input.approvedGaps,
-			local: input.localSources,
-			web: webSources,
-			newWeb: convergence.acceptedNewSources,
-			rejectedWeb: convergence.roundRejectedSources,
-			imageCandidates: imageSearch.imageCandidates,
-			parentCuratedSourcePool: input.parentCuratedSourcePool,
-			atlasLifecycle: input.job.lifecycle.family,
-		}),
+		buildPrompt: () =>
+			JSON.stringify({
+				detectedLanguage: input.language,
+				currentDate: input.currentDate,
+				roundNumber: input.roundNumber,
+				roundKind: input.roundKind,
+				searchQueries: input.searchQueries,
+				approvedGaps: input.approvedGaps,
+				local: input.localSources,
+				web: webSources,
+				newWeb: convergence.acceptedNewSources,
+				rejectedWeb: convergence.roundRejectedSources,
+				imageCandidates: imageSearch.imageCandidates,
+				parentCuratedSourcePool: input.parentCuratedSourcePool,
+				atlasLifecycle: input.job.lifecycle.family,
+			}),
 	});
-	usage = addUsage(usage, curate.usage);
 
 	const evidencePackResult = buildAtlasEvidencePacks({
 		query: input.job.query,
@@ -893,36 +908,26 @@ async function runAtlasResearchRound(input: {
 		...(gapDiagnostics?.diagnostics ?? []),
 	];
 
-	await input.dependencies.heartbeat?.({
-		stage: "coverage-review",
-		progressPercent:
-			input.roundKind === "initial"
-				? 50
-				: Math.min(78, 60 + input.roundNumber * 4),
-	});
-	const coverageReviewModel = await input.dependencies.runModelStage({
-		stage: "coverage-review",
-		system: stageSystem(
-			"coverage-review",
-			input.language,
-			input.currentDate,
-			input.profilePosture,
+	const coverageReviewModel = await stageRunner.runStage("coverage-review", {
+		progress: ATLAS_PIPELINE_PROGRESS.research.coverageReview(
+			input.roundKind,
+			input.roundNumber,
 		),
-		prompt: buildAtlasCoverageReviewPrompt({
-			language: input.language,
-			query: input.job.query,
-			currentDate: input.currentDate,
-			intendedQuestions: coverageReviewIntendedQuestions({
+		buildPrompt: () =>
+			buildAtlasCoverageReviewPrompt({
+				language: input.language,
 				query: input.job.query,
-				decomposeText: input.decomposeText,
-				maxQueries: input.profileConfig.maxSearchQueries,
+				currentDate: input.currentDate,
+				intendedQuestions: coverageReviewIntendedQuestions({
+					query: input.job.query,
+					decomposeText: input.decomposeText,
+					maxQueries: input.profileConfig.maxSearchQueries,
+				}),
+				outline: input.decomposeText,
+				evidencePacks: evidencePackResult.evidencePacks,
+				evidencePackDiagnostics,
 			}),
-			outline: input.decomposeText,
-			evidencePacks: evidencePackResult.evidencePacks,
-			evidencePackDiagnostics,
-		}),
 	});
-	usage = addUsage(usage, coverageReviewModel.usage);
 	const coverageReview = parseAndApproveAtlasCoverageReview({
 		modelText: coverageReviewModel.text,
 		profileConfig: input.profileConfig,
@@ -945,7 +950,7 @@ async function runAtlasResearchRound(input: {
 		evidencePackDiagnostics,
 		coverageReview,
 		coverageReviewFinishReason: coverageReviewModel.finishReason,
-		usage,
+		usage: stageRunner.usage,
 		qualityDiagnostics: {
 			roundNumber: input.roundNumber,
 			roundKind: input.roundKind,
@@ -2331,29 +2336,23 @@ export async function runAtlasPipeline(
 	const profileConfig = getAtlasProfileRuntimeConfig(input.job.profile);
 	const profilePosture = profileConfig.promptPosture[language];
 	const sources = await input.dependencies.resolveSources();
-	const usageSeed: AtlasStageUsage = {
-		inputTokens: 0,
-		outputTokens: 0,
-		totalTokens: 0,
-		costUsdMicros: 0,
-	};
-	let usage = usageSeed;
+	const stageRunner = makeAtlasStageRunner({
+		runModelStage: input.dependencies.runModelStage,
+		heartbeat: input.dependencies.heartbeat,
+		resolveStageSystem: (stage) =>
+			stageSystem(stage, language, currentDate, profilePosture),
+	});
 
-	await input.dependencies.heartbeat?.({
-		stage: "decompose",
-		progressPercent: 10,
+	const decompose = await stageRunner.runStage("decompose", {
+		progress: ATLAS_PIPELINE_PROGRESS.decompose,
+		buildPrompt: () =>
+			seededPrompt({
+				query: input.job.query,
+				lifecycle: input.job.lifecycle,
+				language,
+				currentDate,
+			}),
 	});
-	const decompose = await input.dependencies.runModelStage({
-		stage: "decompose",
-		system: stageSystem("decompose", language, currentDate, profilePosture),
-		prompt: seededPrompt({
-			query: input.job.query,
-			lifecycle: input.job.lifecycle,
-			language,
-			currentDate,
-		}),
-	});
-	usage = addUsage(usage, decompose.usage);
 	const searchQueries = buildAtlasSearchQueries({
 		query: input.job.query,
 		decomposeText: decompose.text,
@@ -2381,7 +2380,7 @@ export async function runAtlasPipeline(
 		completedGapFillRoundsForReview: 0,
 		dependencies: input.dependencies,
 	});
-	usage = addUsage(usage, initialRound.usage);
+	stageRunner.foldUsage(initialRound.usage);
 	researchRounds.push(initialRound);
 	let latestRound = initialRound;
 
@@ -2418,7 +2417,7 @@ export async function runAtlasPipeline(
 			completedGapFillRoundsForReview: completedGapFillRounds + 1,
 			dependencies: input.dependencies,
 		});
-		usage = addUsage(usage, gapRound.usage);
+		stageRunner.foldUsage(gapRound.usage);
 		researchRounds.push(gapRound);
 		latestRound = gapRound;
 		if (!gapRound.qualityDiagnostics.gapFill?.useful) {
@@ -2435,47 +2434,37 @@ export async function runAtlasPipeline(
 		finalResearchRound.coverageReviewFinishReason;
 	const searchLimitation = combineResearchRoundLimitations(researchRounds);
 
-	await input.dependencies.heartbeat?.({
-		stage: "synthesize",
-		progressPercent: 55,
+	const synthesize = await stageRunner.runStage("synthesize", {
+		progress: ATLAS_PIPELINE_PROGRESS.synthesize,
+		buildPrompt: () =>
+			JSON.stringify({
+				detectedLanguage: language,
+				currentDate,
+				evidencePacksVersion: evidencePackResult.version,
+				evidencePacks: evidencePackResult.evidencePacks,
+				evidencePackDiagnostics,
+				coverageReview,
+				curationSummary: finalResearchRound.curatedEvidence,
+				parentCompressedFindings:
+					input.job.lifecycle.seed?.compressedFindings ?? null,
+				atlasLifecycle: input.job.lifecycle.family,
+			}),
 	});
-	const synthesize = await input.dependencies.runModelStage({
-		stage: "synthesize",
-		system: stageSystem("synthesize", language, currentDate, profilePosture),
-		prompt: JSON.stringify({
-			detectedLanguage: language,
-			currentDate,
-			evidencePacksVersion: evidencePackResult.version,
-			evidencePacks: evidencePackResult.evidencePacks,
-			evidencePackDiagnostics,
-			coverageReview,
-			curationSummary: finalResearchRound.curatedEvidence,
-			parentCompressedFindings:
-				input.job.lifecycle.seed?.compressedFindings ?? null,
-			atlasLifecycle: input.job.lifecycle.family,
-		}),
-	});
-	usage = addUsage(usage, synthesize.usage);
 
-	await input.dependencies.heartbeat?.({
-		stage: "integrate",
-		progressPercent: 70,
+	const integrate = await stageRunner.runStage("integrate", {
+		progress: ATLAS_PIPELINE_PROGRESS.integrate,
+		buildPrompt: () =>
+			JSON.stringify({
+				detectedLanguage: language,
+				currentDate,
+				synthesis: synthesize.text,
+				evidencePacksVersion: evidencePackResult.version,
+				evidencePacks: evidencePackResult.evidencePacks,
+				evidencePackDiagnostics,
+				coverageReview,
+				atlasLifecycle: input.job.lifecycle.family,
+			}),
 	});
-	const integrate = await input.dependencies.runModelStage({
-		stage: "integrate",
-		system: stageSystem("integrate", language, currentDate, profilePosture),
-		prompt: JSON.stringify({
-			detectedLanguage: language,
-			currentDate,
-			synthesis: synthesize.text,
-			evidencePacksVersion: evidencePackResult.version,
-			evidencePacks: evidencePackResult.evidencePacks,
-			evidencePackDiagnostics,
-			coverageReview,
-			atlasLifecycle: input.job.lifecycle.family,
-		}),
-	});
-	usage = addUsage(usage, integrate.usage);
 
 	const integratedSectionBriefs = sectionBriefsFromIntegration(integrate.text);
 	const deterministicWriterEvidenceCardResult = buildAtlasWriterEvidenceCards({
@@ -2520,16 +2509,10 @@ export async function runAtlasPipeline(
 	};
 	const writerPrompt = buildAtlasWriterPrompt(writerPromptInput);
 
-	await input.dependencies.heartbeat?.({
-		stage: "assemble",
-		progressPercent: 82,
+	const assemble = await stageRunner.runStage("assemble", {
+		progress: ATLAS_PIPELINE_PROGRESS.assemble,
+		buildPrompt: () => writerPrompt,
 	});
-	const assemble = await input.dependencies.runModelStage({
-		stage: "assemble",
-		system: stageSystem("assemble", language, currentDate, profilePosture),
-		prompt: writerPrompt,
-	});
-	usage = addUsage(usage, assemble.usage);
 	const writerFinishReason = assemble.finishReason;
 	let assemblyOutput = parseAtlasAssemblyOutput(assemble.text);
 	let assemblyMetadata = assemblyOutput.metadata;
@@ -2572,20 +2555,15 @@ export async function runAtlasPipeline(
 			writerPromptTruncated: false,
 			writerPromptCharCount: writerPrompt.length,
 		};
-		await input.dependencies.heartbeat?.({
-			stage: "assemble",
-			progressPercent: 86,
+		const repair = await stageRunner.runStage("assemble", {
+			progress: ATLAS_PIPELINE_PROGRESS.assembleRepair,
+			buildPrompt: () =>
+				buildAssembleRepairPrompt({
+					basePrompt: writerPrompt,
+					previousDraft: finalAssembledMarkdown,
+					language,
+				}),
 		});
-		const repair = await input.dependencies.runModelStage({
-			stage: "assemble",
-			system: stageSystem("assemble", language, currentDate, profilePosture),
-			prompt: buildAssembleRepairPrompt({
-				basePrompt: writerPrompt,
-				previousDraft: finalAssembledMarkdown,
-				language,
-			}),
-		});
-		usage = addUsage(usage, repair.usage);
 		assemblyOutput = parseAtlasAssemblyOutput(repair.text);
 		assemblyMetadata = mergeAssemblyMetadata(
 			assemblyMetadata,
@@ -2614,20 +2592,15 @@ export async function runAtlasPipeline(
 				assemblyOutput.metadata.structured;
 			assemblyDiagnostics.firstRepairRepairReason = firstRepairRepairReason;
 
-			await input.dependencies.heartbeat?.({
-				stage: "assemble",
-				progressPercent: 88,
+			const minimalRepair = await stageRunner.runStage("assemble", {
+				progress: ATLAS_PIPELINE_PROGRESS.assembleMinimalRepair,
+				buildPrompt: () =>
+					buildMinimalAssembleRepairPrompt({
+						basePrompt: writerPrompt,
+						query: input.job.query,
+						language,
+					}),
 			});
-			const minimalRepair = await input.dependencies.runModelStage({
-				stage: "assemble",
-				system: stageSystem("assemble", language, currentDate, profilePosture),
-				prompt: buildMinimalAssembleRepairPrompt({
-					basePrompt: writerPrompt,
-					query: input.job.query,
-					language,
-				}),
-			});
-			usage = addUsage(usage, minimalRepair.usage);
 			const minimalOutput = parseAtlasAssemblyOutput(minimalRepair.text);
 			assemblyMetadata = mergeAssemblyMetadata(
 				assemblyMetadata,
@@ -2725,20 +2698,15 @@ export async function runAtlasPipeline(
 				usedDeterministicFallbackBeforeImprovement,
 			skippedReason: null,
 		};
-		await input.dependencies.heartbeat?.({
-			stage: "assemble",
-			progressPercent: 88,
+		const improve = await stageRunner.runStage("assemble", {
+			progress: ATLAS_PIPELINE_PROGRESS.assembleImprove,
+			buildPrompt: () =>
+				buildAtlasWriterImprovementPrompt({
+					...writerPromptInput,
+					currentDraft: finalAssembledMarkdown,
+					reportShapeDiagnostics: firstDraftReportShapeDiagnostics,
+				}),
 		});
-		const improve = await input.dependencies.runModelStage({
-			stage: "assemble",
-			system: stageSystem("assemble", language, currentDate, profilePosture),
-			prompt: buildAtlasWriterImprovementPrompt({
-				...writerPromptInput,
-				currentDraft: finalAssembledMarkdown,
-				reportShapeDiagnostics: firstDraftReportShapeDiagnostics,
-			}),
-		});
-		usage = addUsage(usage, improve.usage);
 		assemblyOutput = parseAtlasAssemblyOutput(improve.text);
 		assemblyMetadata = mergeAssemblyMetadata(
 			assemblyMetadata,
@@ -2797,7 +2765,7 @@ export async function runAtlasPipeline(
 	});
 	await input.dependencies.heartbeat?.({
 		stage: "audit",
-		progressPercent: 92,
+		progressPercent: ATLAS_PIPELINE_PROGRESS.audit,
 	});
 	const claimBasisReportMaxChars = Math.min(
 		12000,
@@ -2817,32 +2785,26 @@ export async function runAtlasPipeline(
 		writerClaimBasis: assemblyMetadata.writerClaimBasis,
 		maxChars: claimBasisReportMaxChars,
 	});
-	if (audit.usage) {
-		usage = addUsage(usage, audit.usage);
-	}
+	stageRunner.foldUsage(audit.usage);
 	let auditFinishReason = audit.finishReason;
 	if (audit.retryRequested) {
-		await input.dependencies.heartbeat?.({
-			stage: "assemble",
-			progressPercent: 88,
-		});
-		const revise = await input.dependencies.runModelStage({
-			stage: "assemble",
+		const revise = await stageRunner.runStage("assemble", {
+			progress: ATLAS_PIPELINE_PROGRESS.reviseAfterAudit,
 			system:
 				language === "hu"
 					? "Dolgozd át az Atlas jelentést az audit megállapításai alapján. Tartsd meg az alátámasztott állításokat, vedd ki a nem alátámasztott bizonyosságot, és adj hozzá kifejezett korlátokat, ahol gyenge a bizonyíték. A jelentés magyar legyen."
 					: "Revise the Atlas report to address audit findings. Preserve supported claims, remove unsupported certainty, and add explicit limitations where evidence is weak.",
-			prompt: JSON.stringify({
-				detectedLanguage: language,
-				assembledMarkdown: finalAssembledMarkdown,
-				auditFindings: audit,
-				evidencePacksVersion: evidencePackResult.version,
-				evidencePacks: evidencePackResult.evidencePacks,
-				evidencePackDiagnostics,
-				coverageReview,
-			}),
+			buildPrompt: () =>
+				JSON.stringify({
+					detectedLanguage: language,
+					assembledMarkdown: finalAssembledMarkdown,
+					auditFindings: audit,
+					evidencePacksVersion: evidencePackResult.version,
+					evidencePacks: evidencePackResult.evidencePacks,
+					evidencePackDiagnostics,
+					coverageReview,
+				}),
 		});
-		usage = addUsage(usage, revise.usage);
 		assemblyOutput = parseAtlasAssemblyOutput(revise.text);
 		assemblyMetadata = mergeAssemblyMetadata(
 			assemblyMetadata,
@@ -2855,7 +2817,7 @@ export async function runAtlasPipeline(
 		});
 		await input.dependencies.heartbeat?.({
 			stage: "audit",
-			progressPercent: 94,
+			progressPercent: ATLAS_PIPELINE_PROGRESS.auditReview,
 		});
 		audit = await input.dependencies.auditBasis({
 			assembledMarkdown: finalAssembledMarkdown,
@@ -2871,9 +2833,7 @@ export async function runAtlasPipeline(
 			writerClaimBasis: assemblyMetadata.writerClaimBasis,
 			maxChars: claimBasisReportMaxChars,
 		});
-		if (audit.usage) {
-			usage = addUsage(usage, audit.usage);
-		}
+		stageRunner.foldUsage(audit.usage);
 		auditFinishReason = audit.finishReason;
 	}
 	const auditFailedOrRetry = !audit.passed || audit.retryRequested;
@@ -3054,7 +3014,7 @@ export async function runAtlasPipeline(
 						curate: round.curatedEvidence,
 						coverageReview: round.coverageReview,
 					},
-			usage: isFinalRound ? usage : round.usage,
+			usage: isFinalRound ? stageRunner.usage : round.usage,
 			qualityDiagnostics: isFinalRound
 				? {
 						...audit,
@@ -3148,10 +3108,10 @@ export async function runAtlasPipeline(
 				).length,
 			},
 			usage: {
-				inputTokens: usage.inputTokens,
-				outputTokens: usage.outputTokens,
-				totalTokens: usage.totalTokens,
-				costUsdMicros: usage.costUsdMicros,
+				inputTokens: stageRunner.usage.inputTokens,
+				outputTokens: stageRunner.usage.outputTokens,
+				totalTokens: stageRunner.usage.totalTokens,
+				costUsdMicros: stageRunner.usage.costUsdMicros,
 			},
 			assembledMarkdownSummary: auditedMarkdown.slice(0, 1000),
 			claimBasisStatus,
@@ -3167,7 +3127,7 @@ export async function runAtlasPipeline(
 
 	await input.dependencies.heartbeat?.({
 		stage: "render",
-		progressPercent: 97,
+		progressPercent: ATLAS_PIPELINE_PROGRESS.render,
 	});
 	const outputs = await input.dependencies.renderOutputs(documentSource);
 
@@ -3180,7 +3140,7 @@ export async function runAtlasPipeline(
 		audit: {
 			honestyMarkers: audit.honestyMarkers,
 		},
-		usage,
+		usage: stageRunner.usage,
 		sourceCounts: {
 			local: sources.localSources.length,
 			web: finalResearchRound.webSources.length,

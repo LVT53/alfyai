@@ -38,7 +38,7 @@ const mocks = vi.hoisted(() => ({
 		completedAt: null,
 	})),
 	runAtlasPipeline: vi.fn(),
-	runAtlasAuditStage: vi.fn(async () => ({
+	runAtlasModelStage: vi.fn(async () => ({
 		text: '{"markers":[],"retryRequested":false}',
 		usage: {
 			inputTokens: 2,
@@ -97,8 +97,7 @@ vi.mock("./pipeline", () => ({
 }));
 
 vi.mock("./model-stage", () => ({
-	runAtlasAuditStage: mocks.runAtlasAuditStage,
-	runAtlasModelStage: vi.fn(),
+	runAtlasModelStage: mocks.runAtlasModelStage,
 }));
 
 vi.mock("./quality-gates", () => ({
