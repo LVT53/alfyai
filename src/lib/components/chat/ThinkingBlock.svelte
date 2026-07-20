@@ -450,12 +450,22 @@ function getFetchUrlSources(
 }
 
 function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
-	const seen = new Set<string>();
+	const indexByUrl = new Map<string, number>();
 	const deduped: FetchedSource[] = [];
 	for (const source of sources) {
-		if (seen.has(source.url)) continue;
-		seen.add(source.url);
-		deduped.push(source);
+		const existingIndex = indexByUrl.get(source.url);
+		if (existingIndex === undefined) {
+			indexByUrl.set(source.url, deduped.length);
+			deduped.push(source);
+			continue;
+		}
+		// On a URL collision, prefer the cited ("selected") copy so a divergent
+		// status (e.g. the same URL retrieved once as a reference and once as a
+		// citation) never drops the citation. First-occurrence position is kept.
+		const existing = deduped[existingIndex];
+		if (source.status === "selected" && existing.status !== "selected") {
+			deduped[existingIndex] = source;
+		}
 	}
 	return deduped;
 }
@@ -625,13 +635,13 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
-{#snippet fetchedChip(source: FetchedSource)}
+{#snippet fetchedChip(source: FetchedSource, dimUncited: boolean)}
 	{@const faviconUrl = getFaviconUrl(source.url)}
 	{@const cited = isCitedSource(source)}
 	<a
 		class="fetched-source-chip"
 		class:is-cited={cited}
-		class:is-uncited={!cited}
+		class:is-uncited={!cited && dimUncited}
 		href={source.url}
 		target="_blank"
 		rel="noopener noreferrer"
@@ -671,6 +681,11 @@ async function toggle() {
 	{@const uncited = uncitedSources(sources)}
 	{@const visibleUncited = uncited.slice(0, UNCITED_CHIP_LIMIT)}
 	{@const overflowUncited = uncited.slice(UNCITED_CHIP_LIMIT)}
+	<!-- Only dim uncited chips when there's actually a cited source to contrast
+	     against. In the zero-citation fallback (and for read-page/fetch_url
+	     segments, which have no citation concept), every chip renders neutral at
+	     full opacity instead of a uniformly dimmed row. -->
+	{@const dimUncited = cited.length > 0}
 	<details class="fetched-source-group">
 		<summary class={summaryClass}>
 			<span class="fetched-source-summary">
@@ -695,17 +710,20 @@ async function toggle() {
 		</summary>
 		<div class="fetched-source-chips">
 			{#each cited as source}
-				{@render fetchedChip(source)}
+				{@render fetchedChip(source, dimUncited)}
 			{/each}
 			{#each visibleUncited as source}
-				{@render fetchedChip(source)}
+				{@render fetchedChip(source, dimUncited)}
 			{/each}
 			{#if overflowUncited.length > 0}
 				<details class="fetched-chip-more">
-					<summary class="fetched-chip-more-summary">{$t('toolCalls.moreSourcesCount', { count: overflowUncited.length })}</summary>
+					<summary
+						class="fetched-chip-more-summary"
+						aria-label={$t('toolCalls.moreSourcesLabel', { count: overflowUncited.length })}
+					>{$t('toolCalls.moreSourcesCount', { count: overflowUncited.length })}</summary>
 					<div class="fetched-source-chips fetched-source-chips--overflow">
 						{#each overflowUncited as source}
-							{@render fetchedChip(source)}
+							{@render fetchedChip(source, dimUncited)}
 						{/each}
 					</div>
 				</details>

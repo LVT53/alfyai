@@ -683,6 +683,154 @@ describe("ThinkingBlock", () => {
 			expect(tooltip?.textContent).toContain("Cited");
 		});
 
+		it("does not dim any chip when nothing was cited", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "a",
+							title: "Reference One",
+							url: "https://ref1.example/x",
+							sourceType: "web",
+							status: "reference",
+						},
+						{
+							id: "b",
+							title: "Reference Two",
+							url: "https://ref2.example/y",
+							sourceType: "web",
+							status: "reference",
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(screen.getByText("Searched the web · 2 sources"));
+
+			const chips = document.querySelectorAll(".fetched-source-chip");
+			expect(chips).toHaveLength(2);
+			// With zero cited sources, no chip carries the dimmed class — the whole
+			// row renders neutral at full opacity.
+			for (const chip of chips) {
+				expect(chip.classList.contains("is-uncited")).toBe(false);
+			}
+		});
+
+		it("does not dim read-page (fetch_url) chips, which have no citation concept", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "fetch_url",
+					status: "done",
+					input: { url: "https://a.example/x, https://b.example/y" },
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(screen.getByText("Read 2 pages"));
+
+			const chips = document.querySelectorAll(".fetched-source-chip");
+			expect(chips).toHaveLength(2);
+			for (const chip of chips) {
+				expect(chip.classList.contains("is-uncited")).toBe(false);
+			}
+		});
+
+		it("prefers the cited copy when the same URL appears with divergent status", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "ref",
+							title: "Reference Copy",
+							url: "https://dup.example/page",
+							sourceType: "web",
+							status: "reference",
+						},
+						{
+							id: "sel",
+							title: "Cited Copy",
+							url: "https://dup.example/page",
+							sourceType: "web",
+							status: "selected",
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			// The two copies collapse to one source, counted as cited.
+			await fireEvent.click(
+				screen.getByText("Searched the web · 1 source · 1 cited"),
+			);
+
+			const chips = document.querySelectorAll(".fetched-source-chip");
+			expect(chips).toHaveLength(1);
+			// The surviving copy is the cited one, not the reference dropped first.
+			expect(chips[0]?.getAttribute("aria-label")).toBe("Cited Copy");
+			expect(chips[0]?.classList.contains("is-cited")).toBe(true);
+		});
+
+		it("gives the +N reveal a descriptive accessible name", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "cited",
+							title: "Cited Source",
+							url: "https://cited.example/",
+							sourceType: "web",
+							status: "selected",
+						},
+						...Array.from({ length: 9 }, (_, i) => ({
+							id: `u${i}`,
+							title: `Uncited ${i}`,
+							url: `https://u${i}.example/`,
+							sourceType: "web" as const,
+							status: "reference" as const,
+						})),
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(
+				screen.getByText("Searched the web · 10 sources · 1 cited"),
+			);
+
+			// Visible text stays "+3"; the accessible name describes the reveal.
+			const moreReveal = screen.getByText("+3");
+			expect(moreReveal).toHaveAttribute("aria-label", "3 more sources");
+		});
+
 		it("folds a long tail of uncited sources behind a +N reveal", async () => {
 			const segments: ThinkingSegment[] = [
 				{

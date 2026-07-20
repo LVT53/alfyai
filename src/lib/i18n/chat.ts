@@ -678,6 +678,8 @@ const chatDict = {
 		"toolCalls.citedCount": "{count} cited",
 		"toolCalls.citedMarker": "Cited",
 		"toolCalls.moreSourcesCount": "+{count}",
+		"toolCalls.moreSourcesLabel":
+			"{count} more source{count, plural, one {} other {s}}",
 		"toolCalls.readPagesCount":
 			"Read {count} page{count, plural, one {} other {s}}",
 		"toolCalls.actionsCount": "{count} action{count, plural, one {} other {s}}",
@@ -1393,6 +1395,7 @@ const chatDict = {
 		"toolCalls.citedCount": "{count} idézett",
 		"toolCalls.citedMarker": "Idézve",
 		"toolCalls.moreSourcesCount": "+{count}",
+		"toolCalls.moreSourcesLabel": "még {count} forrás",
 		"toolCalls.readPagesCount": "{count} oldal elolvasva",
 		"toolCalls.actionsCount": "{count} művelet",
 		"toolCalls.agendaUpcoming": "Következő",
