@@ -17,6 +17,7 @@ import type { LegacyContextTraceSectionInput } from "./chat-turn/context-trace";
 import { resolveArtifactFamilyKeys } from "./evidence-family";
 import { getArtifactsForUser } from "./knowledge";
 import { canUseTeiReranker, rerankItems } from "./tei-reranker";
+import { canonicalizeGroundedWebUrl } from "./web-grounding";
 
 const GROUP_LABELS: Record<EvidenceSourceType, string> = {
 	web: "Web Search",
@@ -480,6 +481,10 @@ async function buildRerankedToolGroup(params: {
 	message: string;
 	taskState: TaskState | null;
 	toolCalls: ToolCallEntry[];
+	// Canonical URLs the assistant actually cited (web only). When present and
+	// matching at least one candidate, "used" means cited — not reranker
+	// relevance. The reranker is then used only to ORDER within groups.
+	citedCanonicalUrls?: Set<string>;
 }): Promise<MessageEvidenceGroup | null> {
 	const candidateItems = uniqueByCanonicalId(
 		params.toolCalls.flatMap((tool) =>
@@ -523,6 +528,27 @@ async function buildRerankedToolGroup(params: {
 		return null;
 	}
 
+	// Citation-driven classification (web only): "used" must mean the answer
+	// actually cited the source, not that the reranker judged it relevant. We
+	// only switch into this mode when the answer cited ≥1 URL that matches a
+	// candidate; otherwise we fall back to the reranker/default classification
+	// below so an answer that emits no link citations (or cites URLs outside the
+	// source set) is never left with an empty "used" group.
+	const citedCanonicalUrls =
+		params.sourceType === "web" ? params.citedCanonicalUrls : undefined;
+	const isCitedCandidate = (url: string | null | undefined): boolean => {
+		if (!url || !citedCanonicalUrls || citedCanonicalUrls.size === 0) {
+			return false;
+		}
+		const canonical = canonicalizeGroundedWebUrl(url);
+		return canonical
+			? citedCanonicalUrls.has(canonical.canonicalUrl)
+			: false;
+	};
+	const useCitedClassification = candidateItems.some((candidate) =>
+		isCitedCandidate(candidate.url),
+	);
+
 	if (candidateItems.length <= 1) {
 		return {
 			sourceType: params.sourceType,
@@ -530,7 +556,13 @@ async function buildRerankedToolGroup(params: {
 			reranked: false,
 			items:
 				candidateItems.length > 0
-					? candidateItems.map((item) => ({ ...item, status: "selected" }))
+					? candidateItems.map((item) => ({
+							...item,
+							status:
+								useCitedClassification && !isCitedCandidate(item.url)
+									? ("reference" as const)
+									: ("selected" as const),
+						}))
 					: referenceItems,
 		};
 	}
@@ -541,7 +573,12 @@ async function buildRerankedToolGroup(params: {
 		candidateItems.length,
 		Math.max(3, Math.ceil(candidateItems.length / 2)),
 	);
-	let selectedIds = new Set(
+	// Ordering signal: default to the original candidate order; the reranker
+	// overrides it below when it runs with sufficient confidence.
+	let rankById = new Map(
+		candidateItems.map((item, index) => [item.id, index]),
+	);
+	let rerankSelectedIds = new Set(
 		candidateItems.slice(0, defaultKeepCount).map((item) => item.id),
 	);
 	let confidence = 0;
@@ -583,17 +620,17 @@ async function buildRerankedToolGroup(params: {
 				const confidenceFloor =
 					params.sourceType === "web" ? 40 : RERANK_CONFIDENCE_MIN;
 				if (rerankedResponse.confidence >= confidenceFloor) {
+					const orderedIds = rerankedResponse.items.map(
+						({ item }) => item.id,
+					);
 					const rerankKeepCount = Math.min(
 						rerankedResponse.items.length,
 						Math.max(3, Math.ceil(rerankedResponse.items.length / 2)),
 					);
-					const nextSelectedIds = new Set(
-						rerankedResponse.items
-							.slice(0, rerankKeepCount)
-							.map(({ item }) => item.id),
-					);
+					const nextSelectedIds = new Set(orderedIds.slice(0, rerankKeepCount));
 					if (nextSelectedIds.size > 0) {
-						selectedIds = nextSelectedIds;
+						rerankSelectedIds = nextSelectedIds;
+						rankById = new Map(orderedIds.map((id, index) => [id, index]));
 						confidence = Math.round(rerankedResponse.confidence);
 						reranked = true;
 					}
@@ -604,20 +641,36 @@ async function buildRerankedToolGroup(params: {
 		}
 	}
 
+	// Selection: cited-driven when the answer cited matching web sources,
+	// otherwise the reranker/default classification. Ordering always follows the
+	// reranker (rankById), falling back to original candidate order.
+	const selectedIds = useCitedClassification
+		? new Set(
+				candidateItems
+					.filter((candidate) => isCitedCandidate(candidate.url))
+					.map((candidate) => candidate.id),
+			)
+		: rerankSelectedIds;
+	// Uncited web candidates are demoted to "reference" (also-found), never
+	// "rejected"; the reranker fallback keeps the prior "rejected" semantics.
+	const unselectedStatus: "reference" | "rejected" = useCitedClassification
+		? "reference"
+		: "rejected";
+
 	const items = candidateItems
-		.map((candidate) => ({
-			...candidate,
-			status: selectedIds.has(candidate.id)
-				? ("selected" as const)
-				: ("rejected" as const),
-			confidence: selectedIds.has(candidate.id)
-				? confidence || undefined
-				: undefined,
-		}))
+		.map((candidate) => {
+			const isSelected = selectedIds.has(candidate.id);
+			return {
+				...candidate,
+				status: isSelected ? ("selected" as const) : unselectedStatus,
+				confidence: isSelected && reranked ? confidence || undefined : undefined,
+			};
+		})
 		.sort((a, b) => {
 			if (a.status !== b.status) return a.status === "selected" ? -1 : 1;
-			if ((b.confidence ?? 0) !== (a.confidence ?? 0))
-				return (b.confidence ?? 0) - (a.confidence ?? 0);
+			const rankA = rankById.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+			const rankB = rankById.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+			if (rankA !== rankB) return rankA - rankB;
 			return a.title.localeCompare(b.title);
 		});
 
@@ -639,6 +692,10 @@ export async function buildAssistantEvidenceSummary(params: {
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	toolCalls?: ToolCallEntry[];
 	currentAttachments?: ArtifactSummary[];
+	// Canonical URLs the assistant actually cited (used to classify which web
+	// sources count as "used" vs "also found"). Empty/omitted => reranker
+	// fallback classification.
+	citedCanonicalWebUrls?: Set<string>;
 }): Promise<MessageEvidenceSummary | null> {
 	const toolCalls = params.toolCalls ?? [];
 	const completedToolCalls = toolCalls.filter((tool) => tool.status === "done");
@@ -658,6 +715,7 @@ export async function buildAssistantEvidenceSummary(params: {
 			message: params.message,
 			taskState: params.taskState,
 			toolCalls: completedToolCalls,
+			citedCanonicalUrls: params.citedCanonicalWebUrls,
 		}),
 		await buildRerankedToolGroup({
 			sourceType: "tool",

@@ -57,16 +57,17 @@ const flyOut = reducedMotionAware(fly);
 let expanded = $state(false);
 let container = $state<HTMLDivElement | null>(null);
 
-// Flatten every item across groups; the disclosure reports overall counts
-// and re-groups by status (Used / Set aside), not by sourceType.
+// Flatten every item across groups; the disclosure reports overall counts and
+// re-groups by the C1 citation-driven status, not by sourceType:
+//   selected  → "Cited by the answer" (the answer actually cited this source)
+//   reference → "Also found" (retrieved, informed context, but not cited)
+//   rejected  → "Set aside" (only surfaces in the zero-citation fallback)
 let allItems = $derived(evidenceSummary.groups.flatMap((group) => group.items));
-// `reference` items are contextual memory that informed the answer (task state,
-// recent turns, session memory), so they count as Used alongside `selected`;
-// only `rejected` items are set aside.
-let usedItems = $derived(
-	allItems.filter(
-		(item) => item.status === "selected" || item.status === "reference",
-	),
+let citedItems = $derived(
+	allItems.filter((item) => item.status === "selected"),
+);
+let alsoFoundItems = $derived(
+	allItems.filter((item) => item.status === "reference"),
 );
 let setAsideItems = $derived(
 	allItems.filter((item) => item.status === "rejected"),
@@ -102,27 +103,38 @@ function buildRows(items: MessageEvidenceItem[]): EvidenceRow[] {
 	return rows;
 }
 
-let usedRows = $derived(buildRows(usedItems));
+let citedRows = $derived(buildRows(citedItems));
+let alsoFoundRows = $derived(buildRows(alsoFoundItems));
 let setAsideRows = $derived(buildRows(setAsideItems));
 
-let usedMemoryExpanded = $state(false);
+let citedMemoryExpanded = $state(false);
+let alsoFoundMemoryExpanded = $state(false);
 let asideMemoryExpanded = $state(false);
 
-function toggleMemoryGroup(bucket: "used" | "aside") {
-	if (bucket === "used") {
-		usedMemoryExpanded = !usedMemoryExpanded;
+type EvidenceBucket = "cited" | "also" | "aside";
+
+function memoryGroupExpanded(bucket: EvidenceBucket): boolean {
+	if (bucket === "cited") return citedMemoryExpanded;
+	if (bucket === "also") return alsoFoundMemoryExpanded;
+	return asideMemoryExpanded;
+}
+
+function toggleMemoryGroup(bucket: EvidenceBucket) {
+	if (bucket === "cited") {
+		citedMemoryExpanded = !citedMemoryExpanded;
+	} else if (bucket === "also") {
+		alsoFoundMemoryExpanded = !alsoFoundMemoryExpanded;
 	} else {
 		asideMemoryExpanded = !asideMemoryExpanded;
 	}
 }
 
 // "Considered" reflects the raw number of candidate signals the system
-// evaluated — unaffected by how the UI groups them for display. "Used"
-// counts rendered rows in the Used section, so a collapsed Memory entry
-// contributes exactly 1 (matching what the user actually sees), same as
-// any other single-item row.
+// evaluated. With the C1 citation-driven statuses, "used" now means the
+// sources the answer actually cited (status "selected") — the precise,
+// user-meaningful count, independent of how memory rows collapse for display.
 let consideredCount = $derived(allItems.length);
-let usedCount = $derived(usedRows.length);
+let usedCount = $derived(citedItems.length);
 
 // Entrance-cascade timing: each row/title is one "slot" in a single running
 // sequence (title, then its rows, then the next section's title, etc.) so
@@ -135,9 +147,11 @@ function slotDelay(slot: number): string {
 	return `${Math.min(slot, MAX_STAGGER_SLOTS) * STAGGER_STEP_MS}ms`;
 }
 
-const usedTitleSlot = 0;
-const usedRowSlotStart = 1;
-let asideTitleSlot = $derived(usedRows.length > 0 ? usedRows.length + 1 : 0);
+const citedTitleSlot = 0;
+const citedRowSlotStart = 1;
+let alsoFoundTitleSlot = $derived(citedRows.length + 1);
+let alsoFoundRowSlotStart = $derived(alsoFoundTitleSlot + 1);
+let asideTitleSlot = $derived(alsoFoundTitleSlot + 1 + alsoFoundRows.length);
 let asideRowSlotStart = $derived(asideTitleSlot + 1);
 
 async function toggle() {
@@ -275,6 +289,15 @@ async function runMemoryAction(
 	}
 }
 
+// Compact per-item detail line: prefer the explicit description, fall back to
+// the citation reason C1 attaches to web items. Surfaced both inline and as a
+// hover tooltip (title) so a long reason stays reachable without bloating the
+// row.
+function itemDetail(item: MessageEvidenceItem): string | undefined {
+	const detail = item.description ?? item.reason;
+	return detail && detail.trim() ? detail.trim() : undefined;
+}
+
 function isDocument(item: MessageEvidenceItem): boolean {
 	return (
 		item.sourceType === "document" &&
@@ -323,20 +346,41 @@ function openDocument(item: MessageEvidenceItem) {
 
 	{#if expanded}
 		<div class="evidence-groups" out:flyOut={{ y: -6, duration: 200 }}>
-			{#if usedRows.length > 0}
+			{#if citedRows.length > 0}
+				{@const citedLabel = $t('messageEvidenceDetails.citedByAnswer', { count: citedItems.length })}
 				<section
-					class="evidence-group evidence-group--used"
-					style={`animation-delay: ${slotDelay(usedTitleSlot)}`}
+					class="evidence-group evidence-group--cited"
+					style={`animation-delay: ${slotDelay(citedTitleSlot)}`}
 				>
-					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(usedTitleSlot)}`}>
-						{$t('messageEvidenceDetails.used')}
+					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(citedTitleSlot)}`}>
+						{citedLabel}
 					</h4>
-					<div class="evidence-list" role="group" aria-label={$t('messageEvidenceDetails.used')}>
-						{#each usedRows as row, rowIndex (row.kind === 'item' ? `used-${row.item.id}-${row.item.status}-${rowIndex}` : 'used-memory-group')}
+					<div class="evidence-list" role="group" aria-label={citedLabel}>
+						{#each citedRows as row, rowIndex (row.kind === 'item' ? `cited-${row.item.id}-${row.item.status}-${rowIndex}` : 'cited-memory-group')}
 							{#if row.kind === 'item'}
-								{@render renderItem(row.item, usedRowSlotStart + rowIndex)}
+								{@render renderItem(row.item, citedRowSlotStart + rowIndex)}
 							{:else}
-								{@render renderMemoryGroup(row.items, usedRowSlotStart + rowIndex, 'used')}
+								{@render renderMemoryGroup(row.items, citedRowSlotStart + rowIndex, 'cited')}
+							{/if}
+						{/each}
+					</div>
+				</section>
+			{/if}
+			{#if alsoFoundRows.length > 0}
+				{@const alsoFoundLabel = $t('messageEvidenceDetails.alsoFound', { count: alsoFoundItems.length })}
+				<section
+					class="evidence-group evidence-group--reference"
+					style={`animation-delay: ${slotDelay(alsoFoundTitleSlot)}`}
+				>
+					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(alsoFoundTitleSlot)}`}>
+						{alsoFoundLabel}
+					</h4>
+					<div class="evidence-list" role="group" aria-label={alsoFoundLabel}>
+						{#each alsoFoundRows as row, rowIndex (row.kind === 'item' ? `also-${row.item.id}-${row.item.status}-${rowIndex}` : 'also-memory-group')}
+							{#if row.kind === 'item'}
+								{@render renderItem(row.item, alsoFoundRowSlotStart + rowIndex)}
+							{:else}
+								{@render renderMemoryGroup(row.items, alsoFoundRowSlotStart + rowIndex, 'also')}
 							{/if}
 						{/each}
 					</div>
@@ -492,15 +536,15 @@ function openDocument(item: MessageEvidenceItem) {
 				<span class="evidence-title">{item.title}</span>
 			</div>
 		{/if}
-		{#if item.description}
-			<div class="evidence-description">{item.description}</div>
+		{#if itemDetail(item)}
+			<div class="evidence-description" title={itemDetail(item)}>{itemDetail(item)}</div>
 		{/if}
 	</div>
 {/snippet}
 
-{#snippet renderMemoryGroup(items: MessageEvidenceItem[], slot: number, bucket: 'used' | 'aside')}
+{#snippet renderMemoryGroup(items: MessageEvidenceItem[], slot: number, bucket: EvidenceBucket)}
 	{@const TypeIcon = typeIconFor('memory')}
-	{@const isExpanded = bucket === 'used' ? usedMemoryExpanded : asideMemoryExpanded}
+	{@const isExpanded = memoryGroupExpanded(bucket)}
 	<div
 		class={`evidence-row${bucket === 'aside' ? ' evidence-row--aside' : ''}`}
 		style={`animation-delay: ${slotDelay(slot)}`}
@@ -609,9 +653,21 @@ function openDocument(item: MessageEvidenceItem) {
 		animation: evidence-fade-drop-in 0.26s ease-out backwards;
 	}
 
-	.evidence-group--used {
+	/* Cited group leads with the accent rail — these are the sources the answer
+	   actually cited. "Also found" gets a quieter neutral rail so it reads as
+	   secondary without disappearing. */
+	.evidence-group--cited {
 		border-left: 2px solid var(--accent);
 		padding-left: 0.6rem;
+	}
+
+	.evidence-group--reference {
+		border-left: 2px solid color-mix(in srgb, var(--border-default) 70%, transparent);
+		padding-left: 0.6rem;
+	}
+
+	.evidence-group--reference .evidence-group-title {
+		color: var(--text-muted);
 	}
 
 	.evidence-group-title {

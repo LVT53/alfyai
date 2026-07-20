@@ -122,7 +122,7 @@ describe("MessageEvidenceDetails", () => {
 		expect(screen.getByText(/2 considered, 1 used/i)).toBeInTheDocument();
 	});
 
-	it("groups items into Used and Set aside by status", async () => {
+	it("groups items into Cited by the answer / Also found / Set aside by status", async () => {
 		render(MessageEvidenceDetails, {
 			evidenceSummary: buildSummary({
 				groups: [
@@ -133,12 +133,18 @@ describe("MessageEvidenceDetails", () => {
 						items: [
 							{
 								id: "evidence-1",
-								title: "Used report",
+								title: "Cited report",
 								sourceType: "document",
 								status: "selected",
 							},
 							{
 								id: "evidence-2",
+								title: "Background draft",
+								sourceType: "document",
+								status: "reference",
+							},
+							{
+								id: "evidence-3",
 								title: "Old draft",
 								sourceType: "document",
 								status: "rejected",
@@ -152,20 +158,106 @@ describe("MessageEvidenceDetails", () => {
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
 		expect(
-			screen.getByRole("heading", { name: /^Used$/i }),
+			screen.getByRole("heading", { name: /Cited by the answer/i }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: /Also found/i }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: /^Set aside$/i }),
 		).toBeInTheDocument();
 
-		const usedGroup = screen.getByRole("group", { name: /^Used$/i });
+		const citedGroup = screen.getByRole("group", {
+			name: /Cited by the answer/i,
+		});
+		const alsoFoundGroup = screen.getByRole("group", { name: /Also found/i });
 		const setAsideGroup = screen.getByRole("group", { name: /^Set aside$/i });
 
-		expect(within(usedGroup).getByText("Used report")).toBeInTheDocument();
+		expect(within(citedGroup).getByText("Cited report")).toBeInTheDocument();
+		expect(
+			within(alsoFoundGroup).getByText("Background draft"),
+		).toBeInTheDocument();
 		expect(within(setAsideGroup).getByText("Old draft")).toBeInTheDocument();
 	});
 
-	it("counts reference items as Used (contextual memory that informed the answer)", async () => {
+	it("shows the cited count in the Cited-by-the-answer heading", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "source-1",
+								title: "first.com",
+								sourceType: "web",
+								status: "selected",
+								url: "https://first.com/a",
+							},
+							{
+								id: "source-2",
+								title: "second.com",
+								sourceType: "web",
+								status: "selected",
+								url: "https://second.com/b",
+							},
+							{
+								id: "source-3",
+								title: "third.com",
+								sourceType: "web",
+								status: "reference",
+								url: "https://third.com/c",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+		// Heading carries the count of cited sources (2), Also found carries 1.
+		expect(
+			screen.getByRole("heading", { name: /Cited by the answer \(2\)/i }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: /Also found \(1\)/i }),
+		).toBeInTheDocument();
+	});
+
+	it("surfaces a web item's reason as its description line", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "source-1",
+								title: "investopedia.com",
+								sourceType: "web",
+								status: "selected",
+								url: "https://example.com/source",
+								reason: "Defines the term the answer quoted.",
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+		expect(
+			screen.getByText("Defines the term the answer quoted."),
+		).toBeInTheDocument();
+	});
+
+	it("splits memory across Cited / Also found / Set aside by status", async () => {
 		render(MessageEvidenceDetails, {
 			evidenceSummary: buildSummary({
 				groups: [
@@ -200,26 +292,34 @@ describe("MessageEvidenceDetails", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
-		// 3 considered total; 1 used row (the two selected/reference memory
-		// items collapse into a single "Memory" entry); the rejected item is
-		// set aside (also collapsed, alone, into its own "Memory" entry).
+		// 3 considered total; 1 used = the single cited (selected) source.
 		expect(screen.getByText(/3 considered, 1 used/i)).toBeInTheDocument();
 
-		const usedGroup = screen.getByRole("group", { name: /^Used$/i });
+		const citedGroup = screen.getByRole("group", {
+			name: /Cited by the answer/i,
+		});
+		const alsoFoundGroup = screen.getByRole("group", { name: /Also found/i });
 		const setAsideGroup = screen.getByRole("group", { name: /^Set aside$/i });
 
-		const usedMemoryRow = within(usedGroup).getByRole("button", {
-			name: /Memory.*2/i,
+		// The selected memory sits under Cited (collapsed into its own Memory
+		// entry); expanding reveals the underlying item.
+		const citedMemoryRow = within(citedGroup).getByRole("button", {
+			name: /Memory.*1/i,
 		});
-		expect(usedMemoryRow).toBeInTheDocument();
-		expect(within(usedGroup).queryByText("Recent task state")).toBeNull();
+		await fireEvent.click(citedMemoryRow);
+		expect(within(citedGroup).getByText("Selected memory")).toBeInTheDocument();
 
-		await fireEvent.click(usedMemoryRow);
+		// The reference memory now lives under Also found, not Cited.
+		expect(within(citedGroup).queryByText("Recent task state")).toBeNull();
+		const alsoFoundMemoryRow = within(alsoFoundGroup).getByRole("button", {
+			name: /Memory.*1/i,
+		});
+		await fireEvent.click(alsoFoundMemoryRow);
 		expect(
-			within(usedGroup).getByText("Recent task state"),
+			within(alsoFoundGroup).getByText("Recent task state"),
 		).toBeInTheDocument();
-		expect(within(usedGroup).getByText("Selected memory")).toBeInTheDocument();
 
+		// The rejected memory is set aside.
 		const asideMemoryRow = within(setAsideGroup).getByRole("button", {
 			name: /Memory.*1/i,
 		});
@@ -284,34 +384,46 @@ describe("MessageEvidenceDetails", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
-		// 5 considered total (4 memory + 1 web); 2 used rows (1 collapsed
-		// memory row + 1 web row) — memory counts as a single used source.
+		// 5 considered total (4 memory + 1 web); 2 used = the two cited
+		// (selected) sources (the selected memory note + the web link).
 		expect(screen.getByText(/5 considered, 2 used/i)).toBeInTheDocument();
 
-		const usedGroup = screen.getByRole("group", { name: /^Used$/i });
-
-		// Exactly one row for memory, showing the count, not one row per item.
-		const memoryRow = within(usedGroup).getByRole("button", {
-			name: /Memory.*4/i,
+		const citedGroup = screen.getByRole("group", {
+			name: /Cited by the answer/i,
 		});
-		expect(memoryRow).toBeInTheDocument();
+		const alsoFoundGroup = screen.getByRole("group", { name: /Also found/i });
+
+		// Cited: the single selected memory collapses into one Memory row, and
+		// the selected web source keeps its own link row.
+		const citedMemoryRow = within(citedGroup).getByRole("button", {
+			name: /Memory.*1/i,
+		});
+		expect(citedMemoryRow).toBeInTheDocument();
 		expect(
-			within(usedGroup).queryByText("Prefers concise summaries"),
+			within(citedGroup).getByRole("link", { name: /investopedia/i }),
+		).toBeInTheDocument();
+
+		// Also found: the three reference memory items collapse into a single
+		// Memory entry (count 3), not one row per item.
+		const alsoFoundMemoryRow = within(alsoFoundGroup).getByRole("button", {
+			name: /Memory.*3/i,
+		});
+		expect(alsoFoundMemoryRow).toBeInTheDocument();
+		expect(
+			within(alsoFoundGroup).queryByText("Prefers concise summaries"),
 		).toBeNull();
-		expect(within(usedGroup).queryByText("Recent task state")).toBeNull();
+		expect(within(alsoFoundGroup).queryByText("Recent task state")).toBeNull();
 
-		// Non-memory sources still render as their own row, unaffected.
+		// The collapsed also-found row is expandable to reveal the items.
+		await fireEvent.click(alsoFoundMemoryRow);
 		expect(
-			within(usedGroup).getByRole("link", { name: /investopedia/i }),
+			within(alsoFoundGroup).getByText("Prefers concise summaries"),
 		).toBeInTheDocument();
 
-		// The collapsed row is expandable to reveal the underlying items.
-		await fireEvent.click(memoryRow);
+		// The selected memory is under Cited, reachable by expanding its row.
+		await fireEvent.click(citedMemoryRow);
 		expect(
-			within(usedGroup).getByText("Prefers concise summaries"),
-		).toBeInTheDocument();
-		expect(
-			within(usedGroup).getByText("Session memory note"),
+			within(citedGroup).getByText("Session memory note"),
 		).toBeInTheDocument();
 	});
 

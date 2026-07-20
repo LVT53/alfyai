@@ -320,6 +320,141 @@ describe("buildAssistantEvidenceSummary", () => {
 		).toBe(true);
 	});
 
+	describe("web evidence citation-driven classification", () => {
+		const webCandidate = (id: string, url: string) => ({
+			id,
+			title: `Title ${id}`,
+			url,
+			snippet: `snippet ${id}`,
+			sourceType: "web" as const,
+			material: true,
+		});
+		const webTool = (
+			candidates: ReturnType<typeof webCandidate>[],
+		) => ({
+			name: "research_web",
+			input: { query: "q" },
+			status: "done" as const,
+			sourceType: "web" as const,
+			candidates,
+		});
+		const fourWebCandidates = () => [
+			webCandidate("a", "https://a.example.com/one"),
+			webCandidate("b", "https://b.example.com/two"),
+			webCandidate("c", "https://c.example.com/three"),
+			webCandidate("d", "https://d.example.com/four"),
+		];
+
+		it("marks only cited web sources as used and demotes a high-rank uncited source to reference", async () => {
+			const summary = await buildAssistantEvidenceSummary({
+				userId: "user-1",
+				message: "compare the frameworks",
+				taskState: null,
+				toolCalls: [webTool(fourWebCandidates())],
+				// The answer cited only the LAST candidate. Under the old
+				// reranker/default logic candidate "a" (first) would be kept as
+				// selected and "d" (last) rejected — the citation signal must flip
+				// that.
+				citedCanonicalWebUrls: new Set(["https://d.example.com/four"]),
+			});
+
+			const web = summary?.groups.find((group) => group.sourceType === "web");
+			expect(web).toBeTruthy();
+			const selectedIds = web?.items
+				.filter((item) => item.status === "selected")
+				.map((item) => item.id);
+			expect(selectedIds).toEqual(["d"]);
+			// A high-default-rank but UNCITED source is demoted to reference, not
+			// marked used.
+			expect(web?.items.find((item) => item.id === "a")?.status).toBe(
+				"reference",
+			);
+			// Uncited candidates become "reference" (also-found), never "rejected".
+			expect(web?.items.some((item) => item.status === "rejected")).toBe(false);
+		});
+
+		it("orders cited web sources before uncited ones", async () => {
+			const summary = await buildAssistantEvidenceSummary({
+				userId: "user-1",
+				message: "compare the frameworks",
+				taskState: null,
+				toolCalls: [webTool(fourWebCandidates())],
+				citedCanonicalWebUrls: new Set([
+					"https://b.example.com/two",
+					"https://d.example.com/four",
+				]),
+			});
+
+			const web = summary?.groups.find((group) => group.sourceType === "web");
+			const order = web?.items.map((item) => item.id) ?? [];
+			expect(order.slice(0, 2).sort()).toEqual(["b", "d"]);
+			expect(web?.items[0]?.status).toBe("selected");
+			expect(web?.items[1]?.status).toBe("selected");
+			expect(web?.items[2]?.status).toBe("reference");
+		});
+
+		it("falls back to reranker/default classification when the answer cited zero web URLs", async () => {
+			const summary = await buildAssistantEvidenceSummary({
+				userId: "user-1",
+				message: "compare the frameworks",
+				taskState: null,
+				toolCalls: [webTool(fourWebCandidates())],
+				// No citedCanonicalWebUrls: the previous reranker/default logic must
+				// still apply so the "used" group is not empty.
+			});
+
+			const web = summary?.groups.find((group) => group.sourceType === "web");
+			expect(
+				web?.items.filter((item) => item.status === "selected").length,
+			).toBeGreaterThan(0);
+			// Fallback classification demotes to "rejected", not "reference".
+			expect(web?.items.some((item) => item.status === "rejected")).toBe(true);
+		});
+
+		it("falls back to reranker classification when cited URLs match no candidate", async () => {
+			const summary = await buildAssistantEvidenceSummary({
+				userId: "user-1",
+				message: "compare the frameworks",
+				taskState: null,
+				toolCalls: [webTool(fourWebCandidates())],
+				// Cited a URL the model was never given -> no candidate match -> must
+				// not blank out the "used" group.
+				citedCanonicalWebUrls: new Set(["https://unrelated.example.net/z"]),
+			});
+
+			const web = summary?.groups.find((group) => group.sourceType === "web");
+			expect(
+				web?.items.filter((item) => item.status === "selected").length,
+			).toBeGreaterThan(0);
+			expect(web?.items.some((item) => item.status === "rejected")).toBe(true);
+		});
+
+		it("matches cited sources through canonicalization (www / trailing slash / utm)", async () => {
+			const summary = await buildAssistantEvidenceSummary({
+				userId: "user-1",
+				message: "compare the frameworks",
+				taskState: null,
+				toolCalls: [
+					webTool([
+						// Candidate URL carries www + trailing slash.
+						webCandidate("a", "https://www.foo.example.com/article/"),
+						webCandidate("b", "https://bar.example.com/x"),
+					]),
+				],
+				// Canonical form of the cited URL (no www, no trailing slash).
+				citedCanonicalWebUrls: new Set(["https://foo.example.com/article"]),
+			});
+
+			const web = summary?.groups.find((group) => group.sourceType === "web");
+			expect(web?.items.find((item) => item.id === "a")?.status).toBe(
+				"selected",
+			);
+			expect(web?.items.find((item) => item.id === "b")?.status).toBe(
+				"reference",
+			);
+		});
+	});
+
 	it("falls back to the aggregate session-memory item when no persona facts are present", async () => {
 		const summary = await buildAssistantEvidenceSummary({
 			userId: "user-7",

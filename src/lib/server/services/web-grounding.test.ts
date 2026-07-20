@@ -3,11 +3,13 @@ import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 import {
 	baseGroundedWebDiagnostics,
 	type GroundedWebResult,
+	MAX_PAYLOAD_SOURCES,
 } from "./parallel-search/types";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
+	extractCitedCanonicalWebUrls,
 	extractGroundedWebCitationSources,
 	summarizeGroundedWebResult,
 } from "./web-grounding";
@@ -141,6 +143,31 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 		}
 	});
 
+	it("createGroundedWebCandidates never exceeds the model's source slice (MAX_PAYLOAD_SOURCES)", () => {
+		const manySources = Array.from({ length: 12 }, (_, index) => ({
+			id: `p${index}`,
+			title: `Source ${index}`,
+			url: `https://example${index}.com/a`,
+			provider: "parallel",
+			authorityClass: "standard",
+			authorityScore: 50,
+			snippet: `snippet ${index}`,
+			highlights: [`highlight ${index}`],
+			providerRank: index,
+			publishedAt: null,
+			updatedAt: null,
+		}));
+		const candidates = createGroundedWebCandidates(
+			fixture({ sources: manySources }),
+		);
+		// The chip/candidate set must never represent a source the model was not
+		// given (the model payload is sliced to MAX_PAYLOAD_SOURCES).
+		expect(candidates.length).toBe(MAX_PAYLOAD_SOURCES);
+		expect(candidates.map((c) => c.id)).toEqual(
+			manySources.slice(0, MAX_PAYLOAD_SOURCES).map((s) => s.id),
+		);
+	});
+
 	it("createGroundedWebMetadata gates evidence", () => {
 		expect(createGroundedWebMetadata(fixture())).toMatchObject({
 			ok: true,
@@ -218,5 +245,21 @@ describe("extractGroundedWebCitationSources", () => {
 			status: "running",
 		} as unknown as ToolCallEntry;
 		expect(extractGroundedWebCitationSources([notDone])).toEqual([]);
+	});
+});
+
+describe("extractCitedCanonicalWebUrls", () => {
+	it("canonicalizes cited URLs from markdown links and bare URLs", () => {
+		const set = extractCitedCanonicalWebUrls(
+			"See [docs](https://www.foo.com/a/?utm_source=x) and https://bar.com/b.",
+		);
+		expect([...set].sort()).toEqual([
+			"https://bar.com/b",
+			"https://foo.com/a",
+		]);
+	});
+
+	it("returns an empty set when the answer cites no URLs", () => {
+		expect(extractCitedCanonicalWebUrls("no links here at all").size).toBe(0);
 	});
 });
