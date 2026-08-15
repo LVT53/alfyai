@@ -40,6 +40,7 @@ failures → retry-cleanup.ts
 | Stream lifecycle, explicit stop handling | `active-streams.ts` |
 | Idempotent cleanup on turn failure | `retry-cleanup.ts` |
 | Shared types | `types.ts` |
+| Interim Thought Step / Thought Step Anchor read model (ADR-0056, P3a) — dormant until P3b emits steps | `thought-steps.ts` |
 
 ## CONVENTIONS
 

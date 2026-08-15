@@ -809,8 +809,12 @@ Provider-exposed or app-extracted reasoning text associated with an assistant re
 _Avoid_: official rationale, proof, answer explanation
 
 **Interim Thought Step**:
-A short status-like sentence or phrase emitted while a response is still being prepared or reasoned through. It should be visually separated from neighboring interim steps while live, removed from the completed answer surface, and remain inspectable later through **Thought** when it was part of the persisted **Thinking Trace**.
+A short status-like sentence or phrase emitted while a response is still being prepared or reasoned through. It should be visually separated from neighboring interim steps while live, removed from the completed answer surface, and remain inspectable later through **Thought** when it was part of the persisted **Thinking Trace**. Per [ADR-0056](adr/0056-interim-thought-steps-are-durable-turn-state.md) a step is durable **Normal Chat Turn Completion** state, not transient UI decoration or a re-rendering of the trace: it is produced deterministically, from a real tool/context event, or by a bounded control-model classification of a reasoning chunk, and it is append-only and traversable in conversation history. Every step carries a **Thought Step Anchor**; a step that cannot name one is not emitted, and a class implying an external action may originate only from a real event, never from reasoning-text classification.
 _Avoid_: final answer sentence, activity event, progress estimate
+
+**Thought Step Anchor**:
+The pointer an **Interim Thought Step** carries to the exact span of the persisted **Thinking Trace** that produced it. It is what makes a step true rather than decorative: selecting a step opens the raw trace scrolled to, and highlighting, the anchored span, so the claim can be checked against the reasoning that actually produced it. An anchor that cannot be revisited later, or that does not resolve to a real span, means the step must not have been emitted; [ADR-0056](adr/0056-interim-thought-steps-are-durable-turn-state.md)'s honesty audit harness exists to catch exactly that.
+_Avoid_: decorative citation, timestamp only, unverifiable claim
 
 **Depth Observability**:
 Operational timing and outcome facts about **Automatic Depth Selection** and the resulting **Depth Profile**, such as classification latency, profile choice, and response-start timing. It supports tuning based on real traces rather than fixed product-timeout guesses.

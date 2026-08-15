@@ -1,0 +1,207 @@
+{
+  "generatedAt": "2026-08-15T23:50:33.823Z",
+  "mode": "synthetic",
+  "turnsSampled": 13,
+  "turnsWithSteps": 13,
+  "summary": {
+    "total": 13,
+    "truthfulCount": 4,
+    "truthfulRate": 0.3076923076923077,
+    "fabricatedActionCount": 4,
+    "unanchoredCount": 4,
+    "unsupportedEntityCount": 1
+  },
+  "enableGate": {
+    "thresholdTruthfulRate": 0.95,
+    "verdict": "fail",
+    "statement": "P3 enable gate (ADR-0056 / architecture-deepening-slices.md § P3a): >95% truthful AND zero fabricated action claims. Verdict: FAIL — 30.8% truthful (4/13), 4 fabricated action claim(s), 4 unanchored step(s)."
+  },
+  "steps": [
+    {
+      "turnId": "truthful-classified-reasoning-active",
+      "conversationId": null,
+      "stepId": "step-1",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": true
+      }
+    },
+    {
+      "turnId": "truthful-classified-with-supported-entity",
+      "conversationId": null,
+      "stepId": "step-2",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": true
+      }
+    },
+    {
+      "turnId": "truthful-event-tool-call-matches",
+      "conversationId": null,
+      "stepId": "step-3",
+      "source": "event",
+      "activityClass": "tool_call:research_web",
+      "impliesExternalAction": true,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": true
+      }
+    },
+    {
+      "turnId": "truthful-deterministic-spine-step",
+      "conversationId": null,
+      "stepId": "step-4",
+      "source": "deterministic",
+      "activityClass": "depth_resolved",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": true
+      }
+    },
+    {
+      "turnId": "fabricated-action-classified-web-search",
+      "conversationId": null,
+      "stepId": "step-5",
+      "source": "classified",
+      "activityClass": "tool_call:research_web",
+      "impliesExternalAction": true,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": true,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "fabricated-action-deterministic-claims-fetch",
+      "conversationId": null,
+      "stepId": "step-6",
+      "source": "deterministic",
+      "activityClass": "tool_call:fetch_url",
+      "impliesExternalAction": true,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": true,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "fabricated-action-event-wrong-tool-call-id",
+      "conversationId": null,
+      "stepId": "step-7",
+      "source": "event",
+      "activityClass": "tool_call:research_web",
+      "impliesExternalAction": true,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": true,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "fabricated-action-event-missing-tool-call-id",
+      "conversationId": null,
+      "stepId": "step-8",
+      "source": "event",
+      "activityClass": "tool_call:research_web",
+      "impliesExternalAction": true,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": true,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "unanchored-no-anchor-object",
+      "conversationId": null,
+      "stepId": "step-9",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": true,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "anchor-out-of-range-end-past-text-length",
+      "conversationId": null,
+      "stepId": "step-10",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": true,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "anchor-out-of-range-start-after-end",
+      "conversationId": null,
+      "stepId": "step-11",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": true,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "anchor-out-of-range-negative-start",
+      "conversationId": null,
+      "stepId": "step-12",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": true,
+        "fabricatedAction": false,
+        "unsupportedEntity": false,
+        "truthful": false
+      }
+    },
+    {
+      "turnId": "unsupported-entity-not-in-anchor-span",
+      "conversationId": null,
+      "stepId": "step-13",
+      "source": "classified",
+      "activityClass": "reasoning_active",
+      "impliesExternalAction": false,
+      "result": {
+        "unanchored": false,
+        "fabricatedAction": false,
+        "unsupportedEntity": true,
+        "truthful": false
+      }
+    }
+  ],
+  "limitations": [
+    "This report was generated with --mode=synthetic: every 'turn' below is one hand-crafted fixture from scripts/eval/thought-step-fixtures.ts (a synthetic thinking-text chunk + a synthetic Interim Thought Step with a KNOWN-CORRECT verdict), not real production data. It exists to prove the report FORMAT and the scorer's defect-detection behavior are correct before any real classifier output exists (P3b is not built yet) — treat its numbers as a scorer self-check, not a production honesty measurement. A --mode=live run against a real database is the production-facing report; see its own limitations note for why that currently finds zero steps.",
+    "The fixture corpus is deliberately small and adversarial (one or two fixtures per required defect category) rather than representative of real turn volume or step-class distribution — its truthful rate is an artifact of how many truthful-vs-defective fixtures were authored, not a claim about real-world step quality."
+  ]
+}

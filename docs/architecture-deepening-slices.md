@@ -1229,6 +1229,25 @@ clean, i18n 0 errors, Playwright `chat.spec.ts`/`streaming.spec.ts`/`conversatio
 - [ ] **Gate for enabling P3 in production: >95% truthful, zero fabricated action claims**
 - [ ] Repeatable; committed to `scripts/eval/results/`
 
+**P3a execution status (2026-08-16). ✅** Branch `thought-steps`. Durable contract (no migration — rides
+the existing free-form `messages.metadataJson`, like `depthMetadata`): `InterimThoughtStep`
+(`source: "deterministic"|"event"|"classified"`, open `activityClass`, `impliesExternalAction`, anchor,
+optional `entity`/`toolCallId`), `ThoughtStepAnchor` (`[start,end)` char offsets into `messages.thinking`),
+in `src/lib/types.ts`; dormant read model `chat-turn/thought-steps.ts` (`parseThoughtSteps`,
+`extractRealToolCallIds` from the existing `messages.toolCalls`, `resolveThoughtStepAnchorSpan`) — nothing
+writes/reads it yet. Pure scorer `scripts/thought-step-scoring.ts`: `isFabricatedActionClaim` (action-implying
+step is fabricated unless `source:"event"` with a `toolCallId` matching a real persisted tool call —
+enforces ADR-0056 "action classes only from real tool events"), `isEntitySupported` (verbatim substring of
+anchor span), `evaluateEnableGate` (→ `not_applicable` at 0 steps, never a vacuous pass; `pass` only at
+>95% truthful AND 0 fabrications). Harness `scripts/audit-thought-step-honesty.ts` (`--mode=live` samples DB
+turns, `--mode=synthetic` runs fixtures; **no model/network calls**, safe anytime); prints the enable-gate
+verdict verbatim. 13 adversarial synthetic fixtures + 45 tests; synthetic run correctly FAILs (30.8% truthful,
+catches 4 fabricated + 4 unanchored) — proving the auditor works. Committed sample report (narrow `.gitignore`
+negation for the stable-named synthetic sample only). CONTEXT.md gained the **Thought Step Anchor** term
+(ADR-0056 Consequences). `.fallowrc` entry added. Gate green: check 0/0 tracked, test **6248** (+45), build 0
+warnings, fallow **50**. **This is the checker; P3b must pass it (>95%/0-fab on real classifier output) before
+the classifier is enabled — a programme HALT condition if it fails.**
+
 **P3b — the classifier.**
 - [ ] The control model **classifies, it does not summarize**: closed activity-class enum +
       optional entity slot + new-step/continuation verdict, strict JSON via

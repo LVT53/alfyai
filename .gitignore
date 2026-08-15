@@ -67,5 +67,17 @@ scripts/prices.json
 # Superpowers brainstorming visual companion artifacts
 .superpowers/
 
-# Live eval harness output (run pre-release on-box; not source)
-scripts/eval/results/
+# Live eval harness output (run pre-release on-box; not source). Matches
+# directory CONTENTS (not the directory itself) so the P3a carve-out below
+# can re-include one stable-named file — a trailing-slash directory match
+# would block that negation, since git never descends into an excluded
+# directory to look for it.
+scripts/eval/results/*
+# P3a (ADR-0056) honesty audit harness: exactly one stable-named synthetic
+# sample IS committed (per architecture-deepening-slices.md § P3a — "commit
+# a sample/synthetic run so the format is reviewable"), so the report format
+# is reviewable before any real classifier output exists. Regenerated,
+# timestamped --mode=live/--mode=synthetic runs stay ignored, same as every
+# other harness's output in this directory.
+!scripts/eval/results/thought-step-honesty-audit-synthetic-sample.md
+!scripts/eval/results/thought-step-honesty-audit-synthetic-sample.json

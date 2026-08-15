@@ -8,6 +8,7 @@
 		"scripts/validate-i18n.ts",
 		"scripts/verify-live-file-production-types.ts",
 		"scripts/evaluate-tool-guidance-ab.ts",
+		"scripts/audit-thought-step-honesty.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],
