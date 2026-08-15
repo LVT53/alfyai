@@ -359,7 +359,7 @@ flat `build/`+`node_modules/` remain at the staging app root (harmless; optional
 
 ---
 
-### D2 — Drain + maintenance page (deploy Phase 2) ⬜
+### D2 — Drain + maintenance page (deploy Phase 2) 🟨
 **Blocked by:** D1.
 
 **What to build.** A `draining` state that makes Stream Admission refuse new streams while
@@ -411,6 +411,39 @@ writing new client code.**
       process is dead, and `interval-job.ts` has no leader election
 
 **Gate:** full gate + `npx playwright test tests/e2e/streaming.spec.ts tests/e2e/chat.spec.ts`
+
+**D2 execution status (2026-08-15).** Repo gate green (105 D2 tests pass; full suite 6048;
+check 0/0 tracked; build 0 warnings; biome finding-set identical to baseline, zero new; fallow
+delta 0). Built:
+- **Draining** (`active-streams.ts`): `setDraining`/`isDraining`; `checkStreamCapacity` refuses new
+  streams with the existing `global_limit` reason (no new stream part names, ADR-0025 intact);
+  in-flight streams untouched; idempotent/reversible; resets on restart.
+- **`/api/health`** now `{ status:"OK", draining, activeStreams }` — legacy `status:"OK"` preserved.
+- **`POST/GET /api/admin/drain`** — authorized by admin session **or** a `timingSafeEqual` bearer ==
+  `ALFYAI_API_SIGNING_KEY` (the deploy path). Added to `PUBLIC_PATHS` so the bearer-only service call
+  isn't redirected to `/login` before the route's own auth runs (mirrors `/api/chat/files/produce`).
+- **Client**: a *fresh* send that hits a capacity/`global_limit` rejection now backs off and retries
+  (bounded 3×, same idiom as the reconnect path) instead of hard-erroring — no runtime restructure
+  (R1-safe). In-app **draining banner** (`ServerDrainingNotice.svelte`, EN/HU) via a self-clearing
+  `/api/health` poll in `+layout.svelte`.
+- **Deploy**: `deploy.sh`/`deploy-dev.sh` gained an identical drain-before-flip block (POST drain,
+  poll `activeStreams`→0, 120s cap, graceful skip if the key is unset). `SHUTDOWN_TIMEOUT=300` on the
+  service unit. ADR-0054 amended with the draining contract + ADR-0041 relationship + why Phase 3
+  (blue/green) is deferred.
+
+**Maintenance page — page built, live Apache wiring DEFERRED to prod cutover.** The page
+(`deploy/maintenance/index.html`, bilingual, inlined CSS, polls `/api/health`, self-reloads) is
+installed at `/var/www/alfyai-maintenance/` and its reference directives are in
+`deploy/apache-site.conf`. **Finding:** the operator-approved `virtualmin --add-directive` path
+**cannot** install it correctly — it strips the `!` from `ProxyPass /alfyai-maintenance !` and
+appends custom directives *after* the auto-generated `ProxyPass /`, but the exclusion MUST precede
+it (else the ErrorDocument subrequest re-proxies to the down backend and recurses). Verified by
+attempt: config-test failed; reverted cleanly (staging never dropped). Since the amended deploy
+model puts **no real users on staging** for the whole programme, the maintenance page only protects
+users at the final prod cutover — so its live vhost wiring is done then, via a Virtualmin
+server-template edit or a reviewed include that guarantees ordering. **Not a halt** — draining +
+fast atomic restart already make deploys graceful; the page is belt-and-suspenders for the down
+window.
 
 ---
 

@@ -144,6 +144,28 @@ npm run db:prepare
 echo -e "${GREEN}✓ Database migrations complete${NC}"
 echo ""
 
+echo -e "${YELLOW}7b. Draining in-flight streams before cutover...${NC}"
+if [ -n "$ALFYAI_API_SIGNING_KEY" ]; then
+  curl -fsS -X POST -H "Authorization: Bearer $ALFYAI_API_SIGNING_KEY" -H "Content-Type: application/json" -d '{"draining":true}' "http://localhost:$HEALTH_PORT/api/admin/drain" >/dev/null 2>&1 || true
+  DRAIN_OK=""
+  for attempt in $(seq 1 60); do
+    ACTIVE_STREAMS=$(curl -fsS "http://localhost:$HEALTH_PORT/api/health" 2>/dev/null | grep -o '"activeStreams":[0-9]*' | sed 's/[^0-9]*//g')
+    if [ -z "$ACTIVE_STREAMS" ] || [ "$ACTIVE_STREAMS" -le 0 ]; then
+      DRAIN_OK=1
+      break
+    fi
+    sleep 2
+  done
+  if [ -n "$DRAIN_OK" ]; then
+    echo -e "${GREEN}✓ Drained: 0 active streams${NC}"
+  else
+    echo -e "${YELLOW}⚠ Drain wait timed out after 120s; proceeding to cutover anyway${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠ ALFYAI_API_SIGNING_KEY not set; skipping drain (graceful shutdown alone covers it)${NC}"
+fi
+echo ""
+
 PREVIOUS_SHA=""
 if [ -L "$APP_DIR/current" ]; then
   PREVIOUS_SHA=$(basename "$(readlink "$APP_DIR/current")")

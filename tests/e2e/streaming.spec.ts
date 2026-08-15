@@ -368,4 +368,95 @@ test.describe("SSE streaming verification", () => {
 			"Queued after error",
 		);
 	});
+
+	// D2 (drain + graceful deploy, ADR-0054 amendment): while the server
+	// drains ahead of a deploy restart, a stream that is already in flight
+	// finishes normally (draining only gates *new* admission), and the next
+	// fresh send that lands on `checkStreamCapacity`'s `global_limit`
+	// rejection retries itself with backoff instead of surfacing a hard
+	// error. This suite has no real backend — every other test here drives
+	// the same behavior purely by intercepting `/api/chat/stream` responses
+	// (see `page.route` above) — so this test simulates the drain window the
+	// same way: the 2nd network call returns the real server's
+	// `CAPACITY_EXCEEDED` / `global_limit` shape (see
+	// `buildChatSendCapacityResponse` in `src/routes/api/chat/send/+server.ts`),
+	// and the 3rd call (the client's automatic retry) succeeds once the
+	// simulated drain window has cleared. There is no test-only toggle for
+	// the real `draining` flag reachable from Playwright's mocked network
+	// layer, so this does not exercise the real `/api/admin/drain` endpoint
+	// or `active-streams.ts` — those are covered by
+	// `src/lib/server/services/chat-turn/active-streams.test.ts` and
+	// `src/routes/api/admin/drain/drain.test.ts`.
+	test("an in-flight stream survives draining and the next send retries a capacity rejection instead of erroring", async ({
+		page,
+	}) => {
+		let callCount = 0;
+
+		await page.route("**/api/chat/stream", async (route) => {
+			callCount += 1;
+
+			if (callCount === 1) {
+				// Already in flight when draining starts — untouched by it.
+				await route.fulfill({
+					status: 200,
+					headers: {
+						"Content-Type": "text/event-stream",
+						"Cache-Control": "no-cache",
+					},
+					body: buildSseBody("First answer completes normally"),
+				});
+				return;
+			}
+
+			if (callCount === 2) {
+				// A brand-new send lands on checkStreamCapacity's draining gate.
+				await route.fulfill({
+					status: 503,
+					headers: {
+						"Content-Type": "application/json",
+						"Retry-After": "10",
+					},
+					body: JSON.stringify({
+						error: "Server at capacity. Please try again later.",
+						code: "CAPACITY_EXCEEDED",
+						reason: "global_limit",
+						retryAfter: 10,
+					}),
+				});
+				return;
+			}
+
+			// The client's bounded backoff (normal-chat-client-turn-runtime.ts)
+			// retries the same send; by now the drain window has cleared.
+			await route.fulfill({
+				status: 200,
+				headers: {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+				},
+				body: buildSseBody("Retried once the drain window cleared"),
+			});
+		});
+
+		await openConversationComposer(page);
+		await page.getByTestId("message-input").fill("First message");
+		await page.getByTestId("send-button").click();
+		await expect(page.getByTestId("assistant-message").first()).toContainText(
+			"First answer completes normally",
+			{ timeout: 20000 },
+		);
+
+		await page.getByTestId("message-input").fill("Second message during drain");
+		await page.getByTestId("send-button").click();
+
+		// The capacity rejection degrades to an automatic retry — no hard
+		// error/manual-retry affordance appears while the client backs off.
+		await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
+
+		await expect(page.getByTestId("assistant-message").nth(1)).toContainText(
+			"Retried once the drain window cleared",
+			{ timeout: 20000 },
+		);
+		expect(callCount).toBe(3);
+	});
 });

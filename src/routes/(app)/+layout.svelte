@@ -6,6 +6,7 @@ import { goto } from "$app/navigation";
 import Header from "$lib/components/layout/Header.svelte";
 import Sidebar from "$lib/components/layout/Sidebar.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
+import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
 import ServerUpdateNotice from "./_components/ServerUpdateNotice.svelte";
 import type { Component } from "svelte";
 import {
@@ -94,6 +95,12 @@ let serverUpdateSuppressedUntil = $state(
 	browser ? readServerUpdateRefreshSuppressedUntil(window.sessionStorage) : 0,
 );
 let serverUpdateSuppressionTimeout: number | null = null;
+// D2 (drain + graceful deploy, ADR-0054 amendment): mirrors serverUpdateAvailable's
+// health-poll path but for the server's process-local draining flag. Unlike the
+// version-mismatch check, this must keep polling while true so the banner clears
+// itself once the deploy's restart completes (see scheduleServerDrainingPoll).
+let serverDraining = $state(false);
+let serverDrainingPollTimeout: number | null = null;
 let activeCampaign: Campaign | null = $state(null);
 let campaignMode: CampaignDisplayMode = $state("auto");
 let campaignSlideIndex = $state(0);
@@ -317,6 +324,47 @@ function isTransientRefreshError(error: unknown): boolean {
 	);
 }
 
+const SERVER_DRAINING_POLL_MS = 3000;
+
+/**
+ * D2 (drain + graceful deploy). Extends the same event-driven check as
+ * checkForServerUpdate() (mount, tab focus, tab visibility) with a fetch of
+ * /api/health's `draining` field, so an already-open tab can show a
+ * non-blocking banner instead of hard-failing sends while the server drains
+ * ahead of a deploy restart. Unlike checkForServerUpdate() this keeps polling
+ * while draining is true — the flag must be able to flip back to false once
+ * the restart completes so the banner clears itself without waiting for the
+ * next focus/visibility event.
+ */
+async function checkServerHealth() {
+	if (!browser) return;
+
+	try {
+		const response = await fetch("/api/health", { cache: "no-store" });
+		if (response.ok) {
+			const data = (await response.json()) as { draining?: unknown };
+			serverDraining = data.draining === true;
+		}
+		// A non-ok response leaves serverDraining at its last known value —
+		// the server may be mid-restart, which is exactly the window
+		// draining exists for. The poll below keeps checking either way.
+	} catch (error) {
+		if (!isTransientRefreshError(error)) {
+			console.warn("Failed to check server health:", error);
+		}
+	}
+
+	if (serverDraining) scheduleServerDrainingPoll();
+}
+
+function scheduleServerDrainingPoll() {
+	if (!browser || serverDrainingPollTimeout !== null) return;
+	serverDrainingPollTimeout = window.setTimeout(() => {
+		serverDrainingPollTimeout = null;
+		void checkServerHealth();
+	}, SERVER_DRAINING_POLL_MS);
+}
+
 function refreshForServerUpdate() {
 	if (!browser) return;
 	markServerUpdateRefreshRequested(window.sessionStorage);
@@ -506,6 +554,7 @@ function handleVisibilityChange() {
 	if (document.visibilityState === "visible") {
 		refreshConversations();
 		void checkForServerUpdate();
+		void checkServerHealth();
 	}
 }
 
@@ -515,6 +564,7 @@ function handleVisibilityChange() {
 function handleWindowFocus() {
 	refreshConversations();
 	void checkForServerUpdate();
+	void checkServerHealth();
 }
 
 onMount(() => {
@@ -540,6 +590,7 @@ onMount(() => {
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 	window.addEventListener("focus", handleWindowFocus);
 	void checkForServerUpdate();
+	void checkServerHealth();
 	void fetchPublicPersonalityProfiles()
 		.then((profiles) => {
 			campaignPersonalityProfiles = profiles;
@@ -569,6 +620,10 @@ onDestroy(() => {
 	if (routeProgressTimeout !== null) {
 		window.clearTimeout(routeProgressTimeout);
 		routeProgressTimeout = null;
+	}
+	if (serverDrainingPollTimeout !== null) {
+		window.clearTimeout(serverDrainingPollTimeout);
+		serverDrainingPollTimeout = null;
 	}
 	document.removeEventListener("visibilitychange", handleVisibilityChange);
 	window.removeEventListener("focus", handleWindowFocus);
@@ -603,6 +658,7 @@ onDestroy(() => {
 			{@render children()}
 		</main>
 	</div>
+	<ServerDrainingNotice visible={serverDraining} />
 	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
 </div>
 

@@ -109,6 +109,48 @@ describe.each([
 		expect(script).toMatch(/if\s+\[\s+!\s+-d\s+"\$SHARED_DIR"\s+\]/);
 		expect(script).toMatch(/exit 1/);
 	});
+
+	// D2 (ADR-0054 amendment): drains in-flight streams before the cutover
+	// restart so no user turn is interrupted. Gated on ALFYAI_API_SIGNING_KEY
+	// (never fails the deploy when it's unset) and capped so a stuck drain
+	// can't hang the deploy forever.
+	describe("D2 drain-before-cutover step", () => {
+		it("drains via POST /api/admin/drain gated on ALFYAI_API_SIGNING_KEY, before the symlink flip", () => {
+			const drainIndex = script.indexOf("/api/admin/drain");
+			const dbPrepareIndex = script.indexOf("npm run db:prepare");
+			const flipIndex = script.indexOf("mv -Tf");
+
+			expect(drainIndex).toBeGreaterThan(-1);
+			expect(drainIndex).toBeGreaterThan(dbPrepareIndex);
+			expect(drainIndex).toBeLessThan(flipIndex);
+			expect(script).toMatch(/if\s+\[\s+-n\s+"\$ALFYAI_API_SIGNING_KEY"\s+\]/);
+			expect(script).toMatch(/Authorization: Bearer \$ALFYAI_API_SIGNING_KEY/);
+			expect(script).toMatch(/"draining":\s*true/);
+		});
+
+		it("polls /api/health's activeStreams down to 0 with a hard cap, using only curl/grep/sed (no jq)", () => {
+			expect(script).toMatch(/http:\/\/localhost:\$HEALTH_PORT\/api\/health/);
+			expect(script).toMatch(/activeStreams/);
+			expect(script).not.toMatch(/\bjq\b/);
+
+			const drainBlockMatch = script.match(
+				/ALFYAI_API_SIGNING_KEY[\s\S]*?(?=\n\n)/,
+			);
+			expect(drainBlockMatch).not.toBeNull();
+			const drainBlock = drainBlockMatch?.[0] ?? "";
+			// 60 attempts * 2s sleep = 120s hard cap.
+			expect(drainBlock).toMatch(/seq 1 60/);
+			expect(drainBlock).toMatch(/sleep 2/);
+		});
+
+		it("never fails the deploy on the drain step (no bare exit 1 inside the drain block)", () => {
+			const startIndex = script.indexOf("ALFYAI_API_SIGNING_KEY");
+			const flipIndex = script.indexOf("mv -Tf");
+			const drainBlock = script.slice(startIndex, flipIndex);
+
+			expect(drainBlock).not.toMatch(/\bexit 1\b/);
+		});
+	});
 });
 
 describe("scripts/deploy-dev.sh mirrors scripts/deploy.sh", () => {

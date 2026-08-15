@@ -135,3 +135,47 @@ restoring the unit and pointing it back at the flat `build/`.
 - Rollback is a symlink flip; the last 3 releases are retained.
 - D2 amends this ADR with the draining contract (drain before the step-7 restart) and states its
   relationship to ADR-0041.
+
+## Amendment — D2: draining and the maintenance page
+
+The atomic flip closes the *build* window; the ~seconds-long *restart* window remains. D2 makes that
+window graceful instead of error-producing.
+
+**Draining is a Stream Admission capacity rejection ([ADR-0041]).** A process-local `draining` flag
+lives beside the active-stream registry (`active-streams.ts`). While `draining` is set,
+`checkStreamCapacity()` refuses *new* streams with the existing `reason: "global_limit"` rejection —
+the same rejection the client already treats as a capacity error and backs off on — **before** the
+`Response` is produced. This is exactly the admission-time capacity rejection ADR-0041 requires; it
+adds no new rejection vocabulary and no new stream part names. In-flight streams are untouched: they
+are already registered, and draining only gates admission. The flag is idempotent and reversible,
+and it does not survive a restart (the new process starts undrained), so a completed deploy needs no
+explicit un-drain.
+
+**The deploy drains before it flips.** Before the cutover, `deploy.sh` sets `draining` on the live
+process, then polls `/api/health` until `activeStreams === 0` (hard cap 120 s), then flips and
+restarts. Restarting with zero in-flight streams means no user turn is interrupted. `/api/health`
+gains `draining` and `activeStreams` fields while keeping the legacy `{ "status": "OK" }` shape that
+`deploy/README.md` documents. Toggling drain is `POST /api/admin/drain`, authorized by **either** an
+admin session (`requireAdmin`, for the admin UI) **or** a bearer token equal to
+`ALFYAI_API_SIGNING_KEY` (the service path the deploy script uses, mirroring the file-production
+service assertion). If that key is unset the deploy skips the pre-drain step and relies on graceful
+shutdown alone — never a hard failure.
+
+**Graceful shutdown gets the stragglers.** `SHUTDOWN_TIMEOUT=300` is set on the unit so adapter-node
+lets a 300 s reasoning stream finish on `SIGTERM` instead of force-closing it at the 30 s default;
+`TimeoutStopSec` (D1) is the outer systemd cap. The existing `sveltekit:shutdown` handler is unchanged.
+
+**Two audiences during a deploy.** Browser tabs that are already open get an in-app banner (an
+extension of the existing `serverUpdateAvailable` health-poll path), not a page swap. Requests that
+arrive while the process is genuinely down get a static **503 + `Retry-After`** maintenance page
+served by Apache from a directory outside the build tree (`/var/www/alfyai-maintenance/`), gated by a
+flag file the deploy toggles. The page is self-contained (inlined CSS), bilingual EN/HU, and polls
+`/api/health` to reload when the server returns. Because the live vhost is Virtualmin-managed, the
+`ErrorDocument 503` + flag-file rewrite lands in a Virtualmin-safe include directory confirmed with
+the operator — never a hand edit to `httpd.conf` that Virtualmin can overwrite.
+
+**Phase 3 (blue/green with two live processes) stays out of scope, deliberately.** `ensureAtlasWorker`
+(`atlas/worker-runner.ts`) recovers *all* running jobs on the assumption the prior process is dead,
+and `interval-job.ts` has no leader election, so two live processes would double-run background work
+(Atlas jobs, schedulers). Blue/green needs leader election first; draining + a fast atomic restart is
+the correct scope until then.

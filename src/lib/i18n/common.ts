@@ -54,6 +54,9 @@ const commonDict = {
 		openingChat: "Opening your new chat...",
 		outputTokens: "Output tokens",
 		promptTokens: "Prompt tokens",
+		"serverDraining.description":
+			"The server is finishing a brief update. Your current conversation keeps working; a new message may take a few extra seconds to start and will retry automatically.",
+		"serverDraining.title": "Update in progress",
 		"serverUpdate.description":
 			"The server was updated. Refresh when you're ready to load the latest version.",
 		"serverUpdate.refresh": "Refresh",
@@ -216,6 +219,9 @@ const commonDict = {
 		openingChat: "Új beszélgetés megnyitása...",
 		outputTokens: "Kimeneti tokenek",
 		promptTokens: "Prompt tokenek",
+		"serverDraining.description":
+			"A szerver egy rövid frissítést fejez be. A jelenlegi beszélgetésed tovább működik; egy új üzenet elindítása néhány másodpercet késhet, és automatikusan újrapróbálkozik.",
+		"serverDraining.title": "Frissítés folyamatban",
 		"serverUpdate.description":
 			"A szerver frissült. Frissítsd az oldalt, amikor készen állsz a legújabb verzió betöltésére.",
 		"serverUpdate.refresh": "Frissítés",

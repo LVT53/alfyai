@@ -18,6 +18,21 @@ type ActiveChatStream = {
 const activeStreams = new Map<string, ActiveChatStream>();
 const pendingStops = new Map<string, ReturnType<typeof setTimeout>>();
 
+// D2 (draining): process-local flag gating admission of *new* streams ahead
+// of a deploy restart. In-flight streams are already registered in
+// `activeStreams` and are untouched by this flag — it only affects
+// `checkStreamCapacity`. Never survives a restart (new process starts
+// undrained), so a completed deploy needs no explicit un-drain.
+let draining = false;
+
+export function setDraining(value: boolean): void {
+	draining = value;
+}
+
+export function isDraining(): boolean {
+	return draining;
+}
+
 // Track per-user stream counts for limit enforcement
 const userStreamCounts = new Map<string, number>();
 
@@ -585,6 +600,16 @@ export function checkStreamCapacity(userId: string): StreamCapacityCheck {
 
 	const currentGlobalCount = activeStreams.size;
 	const currentUserCount = userStreamCounts.get(userId) ?? 0;
+
+	if (draining) {
+		return {
+			allowed: false,
+			reason: "global_limit",
+			retryAfterSeconds: 10,
+			currentGlobalCount,
+			currentUserCount,
+		};
+	}
 
 	if (currentGlobalCount >= maxGlobal) {
 		return {

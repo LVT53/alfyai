@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>AlfyAI — Updating / Frissítés</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100%; padding: 1.5rem;
+    background: #f6f7f9; color: #1f2328;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #14171a; color: #e6e8ea; }
+    .card { background: #1c2024 !important; border-color: #2a2f36 !important; }
+    .muted { color: #9aa4af !important; }
+    .dot { background: #2a2f36 !important; }
+  }
+  .card {
+    width: 100%; max-width: 30rem; background: #fff;
+    border: 1px solid #e4e7eb; border-radius: 16px;
+    padding: 2rem 1.75rem; text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .spinner {
+    width: 34px; height: 34px; margin: 0 auto 1.25rem;
+    border: 3px solid rgba(125,125,125,.25); border-top-color: currentColor;
+    border-radius: 50%; animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  h1 { font-size: 1.15rem; margin: 0 0 .4rem; }
+  h2 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
+  p { margin: .25rem 0; line-height: 1.5; }
+  .muted { color: #5b6570; font-size: .92rem; }
+  .divider { display: flex; align-items: center; gap: .75rem; margin: 1.5rem 0 .25rem; }
+  .dot { flex: 1; height: 1px; background: #e4e7eb; }
+  .lang { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: #8a94a0; }
+</style>
+</head>
+<body>
+  <main class="card" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="lang">English</div>
+    <h1>We're updating AlfyAI</h1>
+    <p class="muted">The service will be back in a moment. This page reloads automatically when it's ready — no need to refresh.</p>
+    <div class="divider"><span class="dot"></span><span class="lang">Magyar</span><span class="dot"></span></div>
+    <h2>Frissítjük az AlfyAI-t</h2>
+    <p class="muted">A szolgáltatás hamarosan visszatér. Ez az oldal automatikusan újratölt, amint kész — nem kell frissítened.</p>
+  </main>
+  <script>
+    // Poll health; reload once the server is back and not draining.
+    var tries = 0;
+    function check() {
+      tries++;
+      fetch('/api/health', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (j && j.status === 'OK' && j.draining !== true) {
+            window.location.replace('/');
+          }
+        })
+        .catch(function () { /* still down; keep polling */ })
+        .finally(function () {
+          // back off gently: 3s, capping at 15s
+          var delay = Math.min(3000 + tries * 1000, 15000);
+          setTimeout(check, delay);
+        });
+    }
+    setTimeout(check, 3000);
+  </script>
+</body>
+</html>

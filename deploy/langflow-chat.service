@@ -9,6 +9,7 @@ Group=alfydesign
 WorkingDirectory=/home/alfydesign/apps/langflow-chat/current
 EnvironmentFile=/home/alfydesign/apps/langflow-chat/current/.env
 Environment=NODE_ENV=production
+Environment=SHUTDOWN_TIMEOUT=300
 ExecStart=/usr/bin/node /home/alfydesign/apps/langflow-chat/current/build/index.js
 Restart=on-failure
 RestartSec=10

@@ -204,6 +204,11 @@ type StartStreamParams = {
 	isReconnect?: boolean;
 	reconnectStreamId?: string;
 	reconnectRetryCount?: number;
+	// D2 (drain + graceful deploy): bounded retry count for a *fresh* send
+	// (not a reconnect) that hit a capacity/global_limit rejection — e.g. the
+	// server is draining ahead of a deploy restart. Mirrors
+	// `reconnectRetryCount`'s backoff idiom below.
+	capacityRetryCount?: number;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
 
@@ -596,6 +601,26 @@ export function createNormalChatClientTurnRuntime(
 								retryCount + 1,
 								params.streamOptions.reasoningDepth,
 							);
+						}, delay);
+						return;
+					}
+				}
+
+				// D2 (drain + graceful deploy): a *fresh* send (not a reconnect) can
+				// also hit a capacity/global_limit rejection — most commonly because
+				// the server is draining ahead of a deploy restart. Degrade the same
+				// way the reconnect path already does: back off and retry the same
+				// stream a bounded number of times instead of surfacing a hard error
+				// on the first rejection. The assistant placeholder is left in place
+				// (still "preparing") for the duration of the backoff so this reads
+				// as "still working on it", not a failure the user has to notice and
+				// manually retry.
+				if (!isBackgroundAbort && !params.isReconnect && isCapacityError(err)) {
+					const retryCount = params.capacityRetryCount ?? 0;
+					if (retryCount < 3) {
+						const delay = 2 ** retryCount * 500;
+						adapters.schedule(() => {
+							startStream({ ...params, capacityRetryCount: retryCount + 1 });
 						}, delay);
 						return;
 					}

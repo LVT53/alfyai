@@ -31,6 +31,12 @@ import { seedDefaultProviders } from "$lib/server/services/providers";
 const PUBLIC_PATHS = [
 	"/login",
 	"/api/auth/login",
+	// D2 (ADR-0054): the deploy script drains via a bearer token equal to
+	// ALFYAI_API_SIGNING_KEY, with no session cookie. The route itself still
+	// requires either an admin session or that bearer token — this only
+	// keeps the global session gate above from redirecting the service call
+	// to /login before the route's own auth check runs.
+	"/api/admin/drain",
 	"/api/chat/files/produce",
 	"/api/health",
 	// Redesign R6 (ADR 0044 Decision 5): the privacy policy's single surface

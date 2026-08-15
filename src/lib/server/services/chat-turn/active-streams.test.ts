@@ -2,15 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	appendToStreamBuffer,
 	broadcastStreamChunk,
+	checkStreamCapacity,
 	clearStreamBuffer,
 	getOrCreateStreamBuffer,
 	getOrphanedStream,
 	getStreamBuffer,
 	getStreamBufferSnapshot,
+	getStreamStats,
+	isDraining,
 	isStreamActive,
 	registerActiveChatStream,
 	requestActiveChatStreamStop,
 	requestActiveChatStreamsStopForUser,
+	setDraining,
 	subscribeToStream,
 	unregisterActiveChatStream,
 	wasActiveChatStreamStopRequested,
@@ -649,5 +653,74 @@ describe("active chat streams registry", () => {
 		]);
 
 		clearStreamBuffer("stream-tool-buffer-dedupe");
+	});
+
+	describe("server draining", () => {
+		afterEach(() => {
+			setDraining(false);
+		});
+
+		it("refuses new streams with the existing global_limit reason while draining", () => {
+			expect(isDraining()).toBe(false);
+			setDraining(true);
+			expect(isDraining()).toBe(true);
+
+			const check = checkStreamCapacity("user-draining-1");
+
+			expect(check).toEqual({
+				allowed: false,
+				reason: "global_limit",
+				retryAfterSeconds: 10,
+				currentGlobalCount: expect.any(Number),
+				currentUserCount: expect.any(Number),
+			});
+		});
+
+		it("leaves already-registered in-flight streams unaffected by draining", () => {
+			const controller = new AbortController();
+			registerActiveChatStream({
+				streamId: "stream-draining-in-flight",
+				userId: "user-draining-2",
+				controller,
+				conversationId: "conversation-draining-in-flight",
+			});
+
+			try {
+				setDraining(true);
+
+				expect(getStreamStats().globalActiveCount).toBe(1);
+				expect(
+					isStreamActive({
+						streamId: "stream-draining-in-flight",
+						userId: "user-draining-2",
+						conversationId: "conversation-draining-in-flight",
+					}),
+				).toBe(true);
+
+				// A second, brand-new stream is refused while draining...
+				expect(checkStreamCapacity("user-draining-3").allowed).toBe(false);
+			} finally {
+				setDraining(false);
+				unregisterActiveChatStream("stream-draining-in-flight", controller);
+			}
+
+			// ...but the in-flight stream unregisters normally once it completes,
+			// reaching 0 like any other stream.
+			expect(getStreamStats().globalActiveCount).toBe(0);
+		});
+
+		it("is idempotent and reversible", () => {
+			expect(isDraining()).toBe(false);
+
+			setDraining(true);
+			setDraining(true);
+			expect(isDraining()).toBe(true);
+			expect(checkStreamCapacity("user-draining-4").allowed).toBe(false);
+
+			setDraining(false);
+			setDraining(false);
+			expect(isDraining()).toBe(false);
+			expect(checkStreamCapacity("user-draining-4").allowed).toBe(true);
+		});
 	});
 });

@@ -1183,6 +1183,101 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	it("retries a fresh send's capacity/global_limit rejection with bounded backoff instead of a hard error", async () => {
+		vi.useFakeTimers();
+		const { adapters, streamInvocations, messages } = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Hello during a drain",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		const setSendErrorCallsBeforeError = vi.mocked(adapters.setSendError).mock
+			.calls.length;
+
+		const capacity = new Error("Server at capacity") as Error & {
+			code?: string;
+		};
+		capacity.code = "CAPACITY_EXCEEDED";
+		streamInvocations[0].callbacks.onError(capacity);
+
+		expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
+		expect(streamInvocations).toHaveLength(1);
+		// No hard error surfaced and the placeholder stays in place while
+		// backing off — this is the "still working on it" degrade, not a
+		// failure the user has to notice and manually retry.
+		expect(vi.mocked(adapters.setSendError).mock.calls.length).toBe(
+			setSendErrorCallsBeforeError,
+		);
+		expect(adapters.removeMessage).not.toHaveBeenCalled();
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
+
+		await vi.runOnlyPendingTimersAsync();
+
+		expect(streamInvocations).toHaveLength(2);
+		expect(streamInvocations[1].message).toBe("Hello during a drain");
+		expect(vi.mocked(adapters.setSendError).mock.calls.length).toBe(
+			setSendErrorCallsBeforeError,
+		);
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
+		vi.useRealTimers();
+	});
+
+	it("gives up after 3 fresh-send capacity retries and surfaces a retryable friendly error", async () => {
+		vi.useFakeTimers();
+		const { adapters, streamInvocations } = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Hello during a long drain",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		function capacityError() {
+			const err = new Error("Server at capacity") as Error & {
+				code?: string;
+			};
+			err.code = "CAPACITY_EXCEEDED";
+			return err;
+		}
+
+		streamInvocations[0].callbacks.onError(capacityError());
+		await vi.runOnlyPendingTimersAsync();
+		streamInvocations[1].callbacks.onError(capacityError());
+		await vi.runOnlyPendingTimersAsync();
+		streamInvocations[2].callbacks.onError(capacityError());
+		await vi.runOnlyPendingTimersAsync();
+		// The 4th rejection exceeds the retryCount < 3 bound, so this one
+		// falls through to the existing hard-error + manual-retry path.
+		streamInvocations[3].callbacks.onError(capacityError());
+
+		expect(streamInvocations).toHaveLength(4);
+		expect(adapters.setSendError).toHaveBeenLastCalledWith(
+			"Server at capacity",
+		);
+		expect(runtime.snapshot()).toMatchObject({
+			canRetry: true,
+			isSending: false,
+			active: false,
+		});
+		vi.useRealTimers();
+	});
+
 	it("reuses the optimistic user message when reconnecting after a background interruption", async () => {
 		let browserHidden = true;
 		let composerDepth: "off" | "max" = "max";
