@@ -817,6 +817,7 @@ function toggleForkDetails() {
 			segments={visibleThinkingSegmentsForDisplay}
 			streaming={markdownIsStreaming}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
+			answerStarted={hasVisibleContent}
 		/>
 		{/if}
 		{#if isUser}

@@ -1,11 +1,12 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ThinkingSegment } from "$lib/types";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 
@@ -1219,6 +1220,147 @@ describe("ThinkingBlock", () => {
 			expect(actionItems).toHaveLength(2);
 			expect(actionItems[0]?.classList.contains("is-failed")).toBe(false);
 			expect(actionItems[1]?.classList.contains("is-failed")).toBe(true);
+		});
+	});
+
+	// P1 (ADR-0056) — the deterministic reasoning-phase spine's live header
+	// state. No model call anywhere in this suite: every assertion below
+	// drives the component with plain lifecycle props (content growth,
+	// elapsed fake time, an answerStarted flag) and reads the rendered text.
+	describe("P1 deterministic reasoning spine (ADR-0056)", () => {
+		it("shows the live Thinking state while reasoning content keeps growing, with no counting-clock prefix", async () => {
+			const { rerender } = render(ThinkingBlock, {
+				props: { content: "Looking at the request", thinkingIsDone: false },
+			});
+
+			const header = screen.getByRole("button", { name: /Thinking/ });
+			expect(header.textContent?.trim()).toBe("Thinking...");
+			// The old stopwatch prefixed the label with an elapsed count
+			// ("12s · Thinking..."); the live spine never does.
+			expect(header.textContent ?? "").not.toMatch(/\d/);
+
+			await rerender({
+				content: "Looking at the request in more depth now",
+				thinkingIsDone: false,
+			});
+
+			expect(
+				screen.getByRole("button", { name: /Thinking/ }).textContent?.trim(),
+			).toBe("Thinking...");
+		});
+
+		// The primary P1 acceptance test: `standard` depth with no tool calls
+		// means DELIBERATION_PASS_PLAN_BY_PROFILE.standard is [] server-side
+		// (no status segments) and there are no tool_call segments either —
+		// segments stays empty for the whole turn, exactly like this fixture.
+		// The rail must still never be empty.
+		it("never renders an empty header for a standard-depth turn with no tool calls and no deliberation passes", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Considering the request",
+					thinkingIsDone: false,
+					segments: [],
+					streaming: true,
+				},
+			});
+
+			const header = screen.getByRole("button", { name: /Thinking/ });
+			expect(header.textContent?.trim().length).toBeGreaterThan(0);
+			expect(header.textContent?.trim()).toBe("Thinking...");
+		});
+
+		it("honestly flips to a still-working state when reasoning growth genuinely stops arriving", async () => {
+			vi.useFakeTimers();
+			try {
+				render(ThinkingBlock, {
+					props: { content: "Looking at the request", thinkingIsDone: false },
+				});
+
+				expect(screen.getByText("Thinking...")).toBeInTheDocument();
+
+				await act(() => {
+					vi.advanceTimersByTime(8000);
+				});
+
+				expect(screen.getByText("Still working...")).toBeInTheDocument();
+				expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+				// Still no digits anywhere in the live label — an honest word,
+				// never a clock.
+				expect(
+					screen.getByRole("button", { name: /Still working/ }).textContent ??
+						"",
+				).not.toMatch(/\d/);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("does not report a stall while a tool call is actively running, even with no new reasoning text", async () => {
+			vi.useFakeTimers();
+			try {
+				render(ThinkingBlock, {
+					props: {
+						content: "Looking at the request",
+						thinkingIsDone: false,
+						segments: [
+							{
+								type: "tool_call",
+								name: "research_web",
+								status: "running",
+								input: { query: "latest pricing" },
+							},
+						],
+					},
+				});
+
+				await act(() => {
+					vi.advanceTimersByTime(8000);
+				});
+
+				expect(screen.getByText("Thinking...")).toBeInTheDocument();
+				expect(screen.queryByText("Still working...")).not.toBeInTheDocument();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("switches to writing-the-answer once the visible answer starts, even after a reasoning stall", async () => {
+			vi.useFakeTimers();
+			try {
+				const { rerender } = render(ThinkingBlock, {
+					props: { content: "Looking at the request", thinkingIsDone: false },
+				});
+
+				await act(() => {
+					vi.advanceTimersByTime(8000);
+				});
+				expect(screen.getByText("Still working...")).toBeInTheDocument();
+
+				await rerender({
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					answerStarted: true,
+				});
+
+				expect(screen.getByText("Writing the answer...")).toBeInTheDocument();
+				expect(screen.queryByText("Still working...")).not.toBeInTheDocument();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("still shows the retrospective Thought-for duration once the turn completes", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: true,
+					thinkingDurationSeconds: 34,
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Thought for 34s" }),
+			).toBeInTheDocument();
 		});
 	});
 });

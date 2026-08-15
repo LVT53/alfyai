@@ -830,6 +830,42 @@ describe("MessageBubble", () => {
 		).not.toBeInTheDocument();
 	});
 
+	// P1 (ADR-0056) — the deterministic reasoning-phase spine's primary
+	// acceptance test: `standard` depth is the common case where the server's
+	// DELIBERATION_PASS_PLAN_BY_PROFILE.standard is [] (no deliberation status
+	// segments) and there are no tool calls either, so nothing but the raw
+	// reasoning trace itself fills the gap. The rail must still never be an
+	// empty surface, and must not fall back to a counting timer. No model
+	// call anywhere in this test — real reasoning text is simulated directly
+	// as message state.
+	it("keeps the reasoning rail non-empty at standard depth with no tool calls and no deliberation passes", () => {
+		const message: ChatMessage = {
+			id: "assistant-standard-spine",
+			renderKey: "assistant-standard-spine",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: true,
+			thinking: "Considering the request in detail.",
+			depthMetadata: {
+				requested: "auto",
+				appliedProfile: "standard",
+				fallback: false,
+			},
+			// No thinkingSegments and no responseActivity deliberation/tool
+			// entries at all — the exact "standard, no tools" shape.
+		};
+
+		render(MessageBubble, { message });
+
+		const header = screen.getByRole("button", { name: /Thinking/ });
+		expect(header).toBeInTheDocument();
+		expect(header.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+		// Never the old counting-stopwatch shape ("12s · Thinking...").
+		expect(header.textContent ?? "").not.toMatch(/\d/);
+	});
+
 	it("copies assistant content without Thought text", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", {

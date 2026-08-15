@@ -76,6 +76,12 @@ const chatDict = {
 		"chat.responseActivity.contextPreparation.web": "Checking web context...",
 		"chat.responseActivity.drafting": "Drafting response...",
 		"chat.responseActivity.finalizing": "Finalizing response...",
+		// P1 (ADR-0056) — deterministic reasoning-phase spine live states.
+		// "stillWorking" is the honest fallback when reasoning-delta arrival
+		// genuinely stalls (never a fake ticking clock); "writingAnswer" marks
+		// the spine's transition from reasoning into visible answer text.
+		"chat.responseActivity.stillWorking": "Still working...",
+		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
 		"chat.retry": "Retry",
 		"chat.retrying": "Retrying...",
@@ -794,6 +800,8 @@ const chatDict = {
 			"Webes kontextus ellenőrzése...",
 		"chat.responseActivity.drafting": "Válasz megfogalmazása...",
 		"chat.responseActivity.finalizing": "Válasz véglegesítése...",
+		"chat.responseActivity.stillWorking": "Még mindig dolgozik...",
+		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		"chat.retry": "Újrapróbálkozás",
 		"chat.retrying": "Újrapróbálkozás...",

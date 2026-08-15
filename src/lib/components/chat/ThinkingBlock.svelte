@@ -1,11 +1,10 @@
 <script lang="ts">
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import type {
 	MessageEvidenceStatus,
 	ThinkingSegment,
 	ToolEvidenceCandidate,
 } from "$lib/types";
-import { untrack } from "svelte";
 import {
 	Check,
 	ChevronDown,
@@ -17,6 +16,10 @@ import {
 	ShieldAlert,
 	XCircle,
 } from "@lucide/svelte";
+import {
+	deriveReasoningSpineState,
+	type ReasoningSpineLiveState,
+} from "$lib/utils/reasoning-spine";
 import {
 	formatConnectionToolAction,
 	getConnectionToolLabelKey,
@@ -43,12 +46,20 @@ let {
 	segments = [],
 	streaming = false,
 	thinkingDurationSeconds = 0,
+	// P1 (ADR-0056) — true once the assistant's visible answer text has
+	// started streaming (MessageBubble's own `hasVisibleContent`). Distinct
+	// from `thinkingIsDone`: the raw reasoning trace can still be arriving
+	// after the visible answer has begun, but once it has begun that is
+	// itself real progress, so the header's spine state moves on from
+	// "reasoning" to "writing the answer" rather than reporting a stall.
+	answerStarted = false,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
 	segments?: ThinkingSegment[];
 	streaming?: boolean;
 	thinkingDurationSeconds?: number;
+	answerStarted?: boolean;
 } = $props();
 
 let expanded = $state(false);
@@ -57,8 +68,18 @@ let prevContentLength = $state(0);
 let contentFresh = $state(false);
 let newCharStart = $state(-1);
 let freshTimeout: ReturnType<typeof setTimeout> | undefined;
-let thinkingSeconds = $state(untrack(() => thinkingDurationSeconds));
-let thinkingTimerInterval: ReturnType<typeof setInterval> | undefined;
+// P1 (ADR-0056) — reasoning-delta liveness watchdog. NOT a free-running
+// clock: this single timeout is (re)scheduled only when real reasoning
+// content/segment growth is observed (the same growth signal that already
+// drives `contentFresh` below), and is cleared on every such event. If it
+// ever fires, that means REASONING_STALL_MS has elapsed with no real
+// growth — an honest "stalled" signal, not a cosmetic tick. Value chosen to
+// sit comfortably above normal inter-chunk gaps (the server batches
+// reasoning text in >=20-char bursts) without flipping to the honest
+// fallback on every brief pause.
+const REASONING_STALL_MS = 8000;
+let reasoningStalled = $state(false);
+let stallTimeout: ReturnType<typeof setTimeout> | undefined;
 
 type FetchedSource = {
 	title: string;
@@ -172,6 +193,13 @@ const hasSegments = $derived(visibleSegments.length > 0);
 const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 const hasVisibleSurface = $derived(
 	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
+);
+// P1 (ADR-0056) — a currently-running tool call is itself real, visible
+// progress (its own pulsing dot already shows that), so it must never be
+// reported as a "stalled" reasoning phase even if raw reasoning text has
+// briefly stopped arriving while the tool runs.
+const anyToolRunning = $derived(
+	visibleTools.some((tool) => tool.status === "running"),
 );
 
 type ToolCallSegment = ThinkingSegment & { type: "tool_call" };
@@ -313,26 +341,53 @@ $effect(() => {
 		}, 500);
 	}
 	prevContentLength = totalLength;
-	return () => {
-		clearTimeout(freshTimeout);
-	};
-});
-
-$effect(() => {
+	// P1 (ADR-0056) — the stall watchdog. Any real signal this effect reacts
+	// to (reasoning/status text growing, OR a tool call segment changing
+	// status — itself a form of progress even with no text growth) proves
+	// the turn is live, so it clears any stalled state and reschedules the
+	// watchdog from now. If NO such signal arrives for REASONING_STALL_MS,
+	// nothing reschedules it and it fires on its own, on the real event
+	// loop — never a fixed/free-running tick unrelated to actual events.
 	if (isActiveThinking) {
-		thinkingTimerInterval = setInterval(() => {
-			thinkingSeconds += 1;
-		}, 1000);
+		reasoningStalled = false;
+		clearTimeout(stallTimeout);
+		stallTimeout = setTimeout(() => {
+			reasoningStalled = true;
+		}, REASONING_STALL_MS);
 	} else {
-		clearInterval(thinkingTimerInterval);
+		clearTimeout(stallTimeout);
 	}
 	return () => {
-		clearInterval(thinkingTimerInterval);
+		clearTimeout(freshTimeout);
+		clearTimeout(stallTimeout);
 	};
 });
 
+// P1 (ADR-0056) — the live reasoning-phase spine state. Pure decision
+// (deriveReasoningSpineState) over real signals only: no free-running clock
+// drives this, unlike the counting-up stopwatch it replaces.
+const reasoningSpineState: ReasoningSpineLiveState = $derived(
+	deriveReasoningSpineState({
+		answerStarted,
+		deltaStalled: reasoningStalled && !anyToolRunning,
+	}),
+);
+
+function reasoningSpineLabelKey(state: ReasoningSpineLiveState): I18nKey {
+	if (state === "writing_answer") return "chat.responseActivity.writingAnswer";
+	if (state === "reasoning_stalled")
+		return "chat.responseActivity.stillWorking";
+	return "chat.thinking";
+}
+
+const liveSpineLabelKey = $derived(reasoningSpineLabelKey(reasoningSpineState));
+
+// Retrospective duration only — computed once the turn is done. The active
+// phase no longer shows any numeric elapsed time (see reasoningSpineState
+// above), only the current live spine label.
 const formattedThinkingTime = $derived.by(() => {
-	const seconds = thinkingIsDone ? thinkingDurationSeconds : thinkingSeconds;
+	if (!thinkingIsDone) return "";
+	const seconds = thinkingDurationSeconds;
 	if (seconds < 60) {
 		return `${seconds}s`;
 	}
@@ -922,15 +977,20 @@ async function toggle() {
 		onclick={toggle}
 		aria-expanded={expanded}
 	>
-		<span class="thinking-label" class:is-active={isActiveThinking}>
-			{#if isActiveThinking && formattedThinkingTime}
-				{formattedThinkingTime} · {$t('chat.thinking')}
-			{:else if thinkingIsDone && formattedThinkingTime}
+		<!--
+			P1 (ADR-0056) — aria-live="polite" here is already rate-limited by
+			construction: this text only changes at coarse spine-state
+			transitions (mount, an honest stall after REASONING_STALL_MS,
+			the answer starting, completion), never per-character or per-tick,
+			because nothing here is driven by a free-running timer.
+		-->
+		<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
+			{#if thinkingIsDone && formattedThinkingTime}
 				{$t('chat.thoughtFor', { time: formattedThinkingTime })}
 			{:else if thinkingIsDone}
 				{$t('chat.thought')}
 			{:else}
-				{$t('chat.thinking')}
+				{$t(liveSpineLabelKey)}
 			{/if}
 		</span>
 		<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />

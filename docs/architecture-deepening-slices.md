@@ -1132,8 +1132,8 @@ model-agnostic seam) · `passIndex` / `passTotal` (`types.ts:74`, **already pres
 - Steps are append-only. Never reorder or rewrite an emitted step.
 - Respect `prefers-reduced-motion`; announce new steps via a rate-limited polite `aria-live`.
 
-### P1 — The deterministic spine, and retire the stopwatch ⬜
-**Blocked by:** M1 (baseline). **No model calls, no new infrastructure — this slice must stand
+### P1 — The deterministic spine, and retire the stopwatch ✅
+**Blocked by:** M1 (baseline) — satisfied. **No model calls, no new infrastructure — this slice must stand
 entirely on its own.**
 
 **This is the load-bearing slice of Wave S.** The spine is what guarantees the rail is never
@@ -1156,8 +1156,27 @@ insert into this sequence where they occur.
 - [ ] Spine is asserted by tests that make **no model call at all**
 - [ ] ADR-0056 status moved toward Accepted as the spine lands
 
+**P1 execution status (2026-08-16).** Branch `thought-steps`. The pre-thinking half of the spine
+(depth resolved → context prepared → drafting) was already deterministic over `data-response-activity`
+(`RESPONSE_ACTIVITY_IDS` in stream-orchestrator); P1 added **zero** new activity ids or stream part names.
+It closes the *live* half (reasoning active → stalled → writing) with a new pure module
+`src/lib/utils/reasoning-spine.ts` (`deriveReasoningSpineState({answerStarted, deltaStalled})` → always a
+truthy state, never empty — the non-empty-rail guarantee). Stopwatch retired: the `setInterval` +
+`thinkingSeconds` are gone from `ThinkingBlock.svelte`; the live header is driven by real signals only —
+a stall **watchdog** (`REASONING_STALL_MS=8000`) reset on every real reasoning-growth/tool-running event
+(never a free-running clock); after 8s of genuine silence it flips honestly to "Still working…"
+(suppressed while a tool runs). `formattedThinkingTime` now computes only when `thinkingIsDone`, so the
+retrospective "Thought for 34s" survives. EN/HU labels `chat.responseActivity.{stillWorking,writingAnswer}`.
+`aria-live="polite"` on the label, rate-limited structurally (coarse transitions only); no new animation so
+prefers-reduced-motion is unaffected. Primary acceptance test proven: at `standard` depth with no tools /
+no deliberation passes / no model call, the header is non-empty and contains no digit
+(`MessageBubble.test.ts` + `ThinkingBlock.test.ts` + pure `reasoning-spine.test.ts`). ADR-0056 gets an
+Implementation-status section but stays **Proposed** (→ Accepted when P3 ships). Durable step persistence /
+Thought Step Anchors / classifier are explicitly P3, not P1. Gate green: check 0/0 tracked (6877 files),
+test **6181** (+12), build 0 warnings, fallow **50**, i18n 0 errors.
+
 ### P2 — Instant acknowledgment ⬜
-**Blocked by:** P1.
+**Blocked by:** P1 (satisfied).
 
 One content-relevant line within ~1s of send, turning an unexplained wait into an explained one.
 
