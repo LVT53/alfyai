@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createNormalChatClientTurnRuntime,
 	type NormalChatClientTurnRuntimeAdapters,
+	type NormalChatMessageListEvent,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
 import type {
@@ -85,13 +86,150 @@ function conversationContextStatusFixture(): ConversationContextStatus {
 	};
 }
 
+// R1 (ADR-0060) — the nine message-list mutations the runtime used to drive
+// through nine separate adapter members now go through one
+// `applyMessageListEvent` dispatch. These sub-spies keep each mutation's own
+// call-recording (and default in-memory list behaviour) intact for
+// assertions and per-test overrides, without reintroducing nine adapter
+// members.
+type MessageListEventHandlers = {
+	appendUserMessage: (message: ChatMessage) => void;
+	appendAssistantPlaceholder: (placeholder: ChatMessage) => void;
+	appendTokenChunk: (placeholderId: string, chunk: string) => void;
+	appendThinkingChunk: (placeholderId: string, chunk: string) => void;
+	applyToolCallUpdate: (
+		placeholderId: string,
+		name: string,
+		input: Record<string, unknown>,
+		status: "running" | "done",
+		details: unknown,
+	) => void;
+	applyResponseActivityUpdate: (placeholderId: string, entry: unknown) => void;
+	setAssistantRuntimePhase: (placeholderId: string, phase: unknown) => void;
+	removeMessage: (messageId: string) => void;
+	finalizeStreamingMessage: (params: {
+		placeholderId: string;
+		clientUserMessageId: string | null;
+		metadata?: StreamMetadata;
+	}) => void;
+};
+
 function makeAdapters(
 	overrides: Partial<NormalChatClientTurnRuntimeAdapters> = {},
+	messageListOverrides: Partial<MessageListEventHandlers> = {},
 ) {
 	const snapshots: NormalChatRuntimeSnapshot[] = [];
 	const streamInvocations: StreamInvocation[] = [];
 	const messages: ChatMessage[] = [];
 	let idSequence = 0;
+
+	const messageListEvents = {
+		appendUserMessage: vi.fn(
+			messageListOverrides.appendUserMessage ??
+				((message: ChatMessage) => {
+					messages.push(message);
+				}),
+		),
+		appendAssistantPlaceholder: vi.fn(
+			messageListOverrides.appendAssistantPlaceholder ??
+				((placeholder: ChatMessage) => {
+					messages.push(placeholder);
+				}),
+		),
+		appendTokenChunk: vi.fn(
+			messageListOverrides.appendTokenChunk ??
+				((placeholderId: string, chunk: string) => {
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message) message.content += chunk;
+				}),
+		),
+		appendThinkingChunk: vi.fn(messageListOverrides.appendThinkingChunk),
+		applyToolCallUpdate: vi.fn(messageListOverrides.applyToolCallUpdate),
+		applyResponseActivityUpdate: vi.fn(
+			messageListOverrides.applyResponseActivityUpdate,
+		),
+		setAssistantRuntimePhase: vi.fn(
+			messageListOverrides.setAssistantRuntimePhase ??
+				((placeholderId: string, phase: unknown) => {
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message)
+						message.runtimePhase = phase as ChatMessage["runtimePhase"];
+				}),
+		),
+		removeMessage: vi.fn(
+			messageListOverrides.removeMessage ??
+				((messageId: string) => {
+					const index = messages.findIndex((item) => item.id === messageId);
+					if (index !== -1) messages.splice(index, 1);
+				}),
+		),
+		finalizeStreamingMessage: vi.fn(
+			messageListOverrides.finalizeStreamingMessage ??
+				(({
+					placeholderId,
+					metadata,
+				}: {
+					placeholderId: string;
+					clientUserMessageId: string | null;
+					metadata?: StreamMetadata;
+				}) => {
+					const message = messages.find((item) => item.id === placeholderId);
+					if (message) {
+						message.id = metadata?.assistantMessageId ?? message.id;
+						message.isStreaming = false;
+						message.runtimePhase = undefined;
+					}
+				}),
+		),
+	} satisfies MessageListEventHandlers;
+
+	const applyMessageListEvent = vi.fn((event: NormalChatMessageListEvent) => {
+		switch (event.type) {
+			case "appendUser":
+				messageListEvents.appendUserMessage(event.message);
+				return;
+			case "appendAssistantPlaceholder":
+				messageListEvents.appendAssistantPlaceholder(event.placeholder);
+				return;
+			case "appendToken":
+				messageListEvents.appendTokenChunk(event.placeholderId, event.chunk);
+				return;
+			case "appendThinking":
+				messageListEvents.appendThinkingChunk(event.placeholderId, event.chunk);
+				return;
+			case "applyToolCall":
+				messageListEvents.applyToolCallUpdate(
+					event.placeholderId,
+					event.name,
+					event.input,
+					event.status,
+					event.details,
+				);
+				return;
+			case "applyResponseActivity":
+				messageListEvents.applyResponseActivityUpdate(
+					event.placeholderId,
+					event.entry,
+				);
+				return;
+			case "setRuntimePhase":
+				messageListEvents.setAssistantRuntimePhase(
+					event.placeholderId,
+					event.phase,
+				);
+				return;
+			case "remove":
+				messageListEvents.removeMessage(event.messageId);
+				return;
+			case "finalize":
+				messageListEvents.finalizeStreamingMessage({
+					placeholderId: event.placeholderId,
+					clientUserMessageId: event.clientUserMessageId,
+					metadata: event.metadata,
+				});
+				return;
+		}
+	});
 
 	const adapters: NormalChatClientTurnRuntimeAdapters = {
 		streamChat: vi.fn((message, conversationId, callbacks, options) => {
@@ -140,42 +278,7 @@ function makeAdapters(
 				ok: true,
 			}),
 		),
-		appendUserMessage: vi.fn((message) => {
-			messages.push(message);
-		}),
-		appendAssistantPlaceholder: vi.fn((placeholder) => {
-			messages.push(placeholder);
-		}),
-		appendTokenChunk: vi.fn((placeholderId, chunk) => {
-			const message = messages.find((item) => item.id === placeholderId);
-			if (message) message.content += chunk;
-		}),
-		appendThinkingChunk: vi.fn(),
-		applyToolCallUpdate: vi.fn(),
-		setAssistantRuntimePhase: vi.fn((placeholderId, phase) => {
-			const message = messages.find((item) => item.id === placeholderId);
-			if (message) message.runtimePhase = phase;
-		}),
-		removeMessage: vi.fn((messageId) => {
-			const index = messages.findIndex((item) => item.id === messageId);
-			if (index !== -1) messages.splice(index, 1);
-		}),
-		finalizeStreamingMessage: vi.fn(
-			({
-				placeholderId,
-				metadata,
-			}: {
-				placeholderId: string;
-				metadata?: StreamMetadata;
-			}) => {
-				const message = messages.find((item) => item.id === placeholderId);
-				if (message) {
-					message.id = metadata?.assistantMessageId ?? message.id;
-					message.isStreaming = false;
-					message.runtimePhase = undefined;
-				}
-			},
-		),
+		applyMessageListEvent,
 		applyStreamMetadata: vi.fn(),
 		attachFileProductionJobsToAssistantMessage: vi.fn(),
 		refreshPendingWrites: vi.fn(),
@@ -214,7 +317,13 @@ function makeAdapters(
 		...overrides,
 	};
 
-	return { adapters, streamInvocations, messages, snapshots };
+	return {
+		adapters,
+		streamInvocations,
+		messages,
+		snapshots,
+		messageListEvents,
+	};
 }
 
 describe("Normal Chat Client Turn Runtime", () => {
@@ -223,7 +332,13 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it("runs a normal send through the browser stream transport callbacks", () => {
-		const { adapters, streamInvocations, messages, snapshots } = makeAdapters();
+		const {
+			adapters,
+			streamInvocations,
+			messages,
+			snapshots,
+			messageListEvents,
+		} = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		expect(runtime.snapshot().phase).toBe("idle");
@@ -284,9 +399,12 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 		streamInvocations[0].callbacks.onEnd("Hi", metadata);
 
-		expect(adapters.appendTokenChunk).toHaveBeenCalledWith("id-2", "Hi");
+		expect(messageListEvents.appendTokenChunk).toHaveBeenCalledWith(
+			"id-2",
+			"Hi",
+		);
 		expect(adapters.applyStreamMetadata).toHaveBeenCalledWith(metadata);
-		expect(adapters.finalizeStreamingMessage).toHaveBeenCalledWith({
+		expect(messageListEvents.finalizeStreamingMessage).toHaveBeenCalledWith({
 			placeholderId: "id-2",
 			clientUserMessageId: "id-1",
 			metadata,
@@ -453,9 +571,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 	it("forwards response activity stream callbacks to the active assistant placeholder", () => {
 		const applyResponseActivityUpdate = vi.fn();
-		const { adapters, streamInvocations } = makeAdapters({
-			applyResponseActivityUpdate,
-		} as Partial<NormalChatClientTurnRuntimeAdapters>);
+		const { adapters, streamInvocations } = makeAdapters(
+			{},
+			{ applyResponseActivityUpdate },
+		);
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		runtime.send({
@@ -869,7 +988,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it("restores stale pending-skill payloads when the stream reports the skill is unavailable", async () => {
-		const { adapters, streamInvocations } = makeAdapters();
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		await runtime.send({
@@ -897,7 +1016,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				pendingSkill: expect.objectContaining({ unavailable: true }),
 			}),
 		);
-		expect(adapters.removeMessage).toHaveBeenCalledWith("id-1");
+		expect(messageListEvents.removeMessage).toHaveBeenCalledWith("id-1");
 		expect(adapters.setSendError).toHaveBeenCalledWith(
 			"pendingSkill.recoveryError",
 		);
@@ -909,7 +1028,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it("restores a queued follow-up to the draft when the browser backgrounds a normal stream", async () => {
-		const { adapters, streamInvocations } = makeAdapters({
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
 			isBrowserHidden: vi.fn(() => true),
 		});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
@@ -932,7 +1051,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 		streamInvocations[0].callbacks.onError(abortError);
 
-		expect(adapters.removeMessage).toHaveBeenCalledWith("id-2");
+		expect(messageListEvents.removeMessage).toHaveBeenCalledWith("id-2");
 		expect(adapters.restorePayloadToDraft).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: queuedPayload.message,
@@ -1016,12 +1135,13 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it("keeps generic stream errors retryable and retries against the previous assistant message", async () => {
-		const { adapters, streamInvocations, messages } = makeAdapters({
-			getSelectedModel: vi.fn(() => "fallback-model" as ModelId),
-			getReasoningDepth: vi.fn((): ReasoningDepth => "off"),
-			getPersonalityProfileId: vi.fn(() => "persona-retry"),
-			getActiveDocumentArtifactId: vi.fn(() => "active-doc-retry"),
-		});
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters({
+				getSelectedModel: vi.fn(() => "fallback-model" as ModelId),
+				getReasoningDepth: vi.fn((): ReasoningDepth => "off"),
+				getPersonalityProfileId: vi.fn(() => "persona-retry"),
+				getActiveDocumentArtifactId: vi.fn(() => "active-doc-retry"),
+			});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		await runtime.send({
@@ -1052,7 +1172,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 		runtime.retry();
 
-		expect(adapters.removeMessage).toHaveBeenCalledWith("assistant-old");
+		expect(messageListEvents.removeMessage).toHaveBeenCalledWith(
+			"assistant-old",
+		);
 		expect(streamInvocations).toHaveLength(2);
 		expect(streamInvocations[1]).toMatchObject({
 			message: "Regenerate this",
@@ -1085,7 +1207,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 	});
 
 	it("reconnects to an orphaned stream and hands waiting state to polling", async () => {
-		const { adapters, streamInvocations } = makeAdapters({
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
 			checkForOrphanedStream: vi.fn(async () => "stream-1"),
 			getStreamBufferInfo: vi.fn(async () => ({
 				exists: true,
@@ -1119,7 +1241,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 		expect(streamInvocations[0].handle.detach).toHaveBeenCalledTimes(1);
 		expect(adapters.pollForCompletion).toHaveBeenCalledWith("id-1", "id-2");
-		expect(adapters.finalizeStreamingMessage).not.toHaveBeenCalled();
+		expect(messageListEvents.finalizeStreamingMessage).not.toHaveBeenCalled();
 		expect(runtime.snapshot()).toMatchObject({
 			active: false,
 			isSending: true,
@@ -1185,9 +1307,10 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 	it("retries a fresh send's capacity/global_limit rejection with bounded backoff instead of a hard error", async () => {
 		vi.useFakeTimers();
-		const { adapters, streamInvocations, messages } = makeAdapters({
-			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
-		});
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters({
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		await runtime.send({
@@ -1214,7 +1337,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(vi.mocked(adapters.setSendError).mock.calls.length).toBe(
 			setSendErrorCallsBeforeError,
 		);
-		expect(adapters.removeMessage).not.toHaveBeenCalled();
+		expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
 		expect(messages.map((message) => message.role)).toEqual([
 			"user",
 			"assistant",
@@ -1278,19 +1401,239 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	// R1 (ADR-0060) defect 1 — a mid-stream network drop used to call
+	// removeMessage unconditionally, deleting the partial answer with no
+	// recovery attempt (only a capacity rejection got the bounded-backoff
+	// treatment). RED before the fix: this exact scenario (onToken then a
+	// plain network Error) hit the unconditional `removeMessage` and never
+	// called `checkForOrphanedStream` at all.
+	it("R1 defect 1 — preserves the partial answer on a mid-stream network drop and attempts automatic reconnect recovery", async () => {
+		vi.useFakeTimers();
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			checkForOrphanedStream: vi.fn(async () => "stream-network-1"),
+			getStreamBufferInfo: vi.fn(async () => ({
+				exists: true,
+				userMessage: "Tell me a story",
+			})),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Tell me a story",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		// Some of the answer is already visible before the connection drops.
+		streamInvocations[0].callbacks.onToken("Once upon a time");
+
+		streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
+
+		// The partial answer must not be deleted immediately — the runtime
+		// preserves it while it attempts to recover the stream, using the
+		// same bounded-backoff idiom as a capacity rejection.
+		expect(messageListEvents.removeMessage).not.toHaveBeenCalled();
+		expect(adapters.schedule).toHaveBeenCalledWith(expect.any(Function), 500);
+
+		await vi.runOnlyPendingTimersAsync();
+
+		// Recovery is attempted automatically — no user action required —
+		// via the same orphaned-stream mechanism that already recovers a
+		// backgrounded tab (the server keeps generating independent of this
+		// dropped client connection).
+		expect(adapters.checkForOrphanedStream).toHaveBeenCalledWith("conv-1");
+		expect(adapters.getStreamBufferInfo).toHaveBeenCalledWith(
+			"stream-network-1",
+			"conv-1",
+		);
+		expect(streamInvocations).toHaveLength(2);
+		expect(streamInvocations[1].options).toMatchObject({
+			reconnectToStreamId: "stream-network-1",
+		});
+		// Only now — immediately before the reconnect replays the answer back
+		// in — does the original placeholder get swapped for the reconnected
+		// one; there is no window where the answer is simply gone.
+		expect(messageListEvents.removeMessage).toHaveBeenCalledWith("id-2");
+
+		streamInvocations[1].callbacks.onEnd("Once upon a time, forever.", {
+			assistantMessageId: "assistant-1",
+		});
+
+		expect(messageListEvents.finalizeStreamingMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				metadata: expect.objectContaining({
+					assistantMessageId: "assistant-1",
+				}),
+			}),
+		);
+		vi.useRealTimers();
+	});
+
+	// R1 (ADR-0060) defect 1, second RED — the network-drop recovery must
+	// extend the *same* bounded reconnect/backoff idiom D2 already added for
+	// fresh-send capacity errors (exponential delay, capped attempts), not
+	// retry forever when no orphaned stream is ever found.
+	it("R1 defect 1 — retries network-drop recovery with the same bounded backoff idiom as capacity errors, then gives up", async () => {
+		vi.useFakeTimers();
+		const { adapters, streamInvocations, messageListEvents } = makeAdapters({
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			checkForOrphanedStream: vi.fn(async () => null),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Tell me a story",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		streamInvocations[0].callbacks.onToken("Once upon a time");
+		streamInvocations[0].callbacks.onError(new Error("Failed to fetch"));
+
+		// Same exponential idiom as the capacity backoff: 500ms, 1000ms, 2000ms.
+		expect(adapters.schedule).toHaveBeenLastCalledWith(
+			expect.any(Function),
+			500,
+		);
+		await vi.runOnlyPendingTimersAsync();
+		expect(adapters.schedule).toHaveBeenLastCalledWith(
+			expect.any(Function),
+			1000,
+		);
+		await vi.runOnlyPendingTimersAsync();
+		expect(adapters.schedule).toHaveBeenLastCalledWith(
+			expect.any(Function),
+			2000,
+		);
+		await vi.runOnlyPendingTimersAsync();
+
+		// No orphaned stream was ever found — after the bounded attempts the
+		// runtime gives up and surfaces a retryable error instead of backing
+		// off forever.
+		expect(messageListEvents.removeMessage).toHaveBeenCalledWith("id-2");
+		expect(adapters.setSendError).toHaveBeenCalledWith("Failed to fetch");
+		expect(runtime.snapshot()).toMatchObject({
+			canRetry: true,
+			isSending: false,
+			active: false,
+		});
+		expect(streamInvocations).toHaveLength(1);
+		vi.useRealTimers();
+	});
+
+	// R1 (ADR-0060) defect 2 — reproduced first (this mechanism was read, not
+	// proven): a mid-stream turn's callbacks read `getConversationId()` fresh
+	// on every call, exactly as the page's adapters read `data.conversation.id`
+	// fresh — so navigating away mid-stream, without anything else changing,
+	// used to let every later callback (onToken, onToolCall, onEnd, evidence
+	// polling, hydration) keep writing under the conversation the runtime was
+	// *started* against, now silently re-targeted at whatever conversation is
+	// current. RED before the fix: none of the assertions below held — every
+	// one of these adapter calls fired using B's current conversation id.
+	it("R1 defect 2 — drops writes for a stream whose conversation is no longer the one displayed", async () => {
+		let currentConversationId = "conv-A";
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters({
+				getConversationId: vi.fn(() => currentConversationId),
+			});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Tell me about A",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		// onToken batches through the rAF-aligned display buffer, so flush it
+		// (via onFinishPart, same as a real "finish" stream part would) to
+		// prove the content that streamed *before* the switch really landed.
+		streamInvocations[0].callbacks.onToken("Streaming A's answer");
+		streamInvocations[0].callbacks.onFinishPart?.({
+			type: "finish",
+			finishReason: "stop",
+		});
+		expect(messages[1]).toMatchObject({ content: "Streaming A's answer" });
+
+		// The user navigates from /chat/A to /chat/B while A is still
+		// streaming — nothing else in this test changes.
+		currentConversationId = "conv-B";
+
+		const appendCallsBeforeSwitch =
+			messageListEvents.appendTokenChunk.mock.calls.length;
+
+		streamInvocations[0].callbacks.onToken(" — more of A's answer");
+		streamInvocations[0].callbacks.onToolCall?.("search", {}, "done");
+		streamInvocations[0].callbacks.onEnd(
+			"Streaming A's answer — more of A's answer",
+			{ assistantMessageId: "assistant-A" },
+		);
+
+		// None of A's post-switch stream output reached page state — it would
+		// otherwise render as B's streamed text, evidence, activity, or
+		// hydration.
+		expect(messageListEvents.appendTokenChunk.mock.calls.length).toBe(
+			appendCallsBeforeSwitch,
+		);
+		expect(messageListEvents.applyToolCallUpdate).not.toHaveBeenCalled();
+		expect(messageListEvents.finalizeStreamingMessage).not.toHaveBeenCalled();
+		expect(adapters.pollMessageEvidence).not.toHaveBeenCalled();
+		expect(adapters.hydrateConversationDetail).not.toHaveBeenCalled();
+		expect(messages[1].content).toBe("Streaming A's answer");
+	});
+
+	// R1 (ADR-0060) defect 2 — the one gap page-level detach alone can never
+	// close: a scheduled retry firing after the conversation switched away.
+	it("R1 defect 2 — drops a scheduled capacity retry if the conversation switched during backoff", async () => {
+		vi.useFakeTimers();
+		let currentConversationId = "conv-A";
+		const { adapters, streamInvocations } = makeAdapters({
+			getConversationId: vi.fn(() => currentConversationId),
+			schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+		});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Hello during a drain",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		const capacity = new Error("Server at capacity") as Error & {
+			code?: string;
+		};
+		capacity.code = "CAPACITY_EXCEEDED";
+		streamInvocations[0].callbacks.onError(capacity);
+
+		// The user switches conversations during the backoff delay.
+		currentConversationId = "conv-B";
+		await vi.runOnlyPendingTimersAsync();
+
+		// The retry never re-dispatched — it would otherwise have posted
+		// A's message into conversation B.
+		expect(streamInvocations).toHaveLength(1);
+		expect(adapters.streamChat).toHaveBeenCalledTimes(1);
+		vi.useRealTimers();
+	});
+
 	it("reuses the optimistic user message when reconnecting after a background interruption", async () => {
 		let browserHidden = true;
 		let composerDepth: "off" | "max" = "max";
-		const { adapters, streamInvocations, messages } = makeAdapters({
-			isBrowserHidden: vi.fn(() => browserHidden),
-			getReasoningDepth: vi.fn((): ReasoningDepth => composerDepth),
-			checkForOrphanedStream: vi.fn(async () => "stream-1"),
-			getStreamBufferInfo: vi.fn(async () => ({
-				exists: true,
-				userMessage: "Resume me",
-				reasoningDepth: "max" as ReasoningDepth,
-			})),
-		});
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters({
+				isBrowserHidden: vi.fn(() => browserHidden),
+				getReasoningDepth: vi.fn((): ReasoningDepth => composerDepth),
+				checkForOrphanedStream: vi.fn(async () => "stream-1"),
+				getStreamBufferInfo: vi.fn(async () => ({
+					exists: true,
+					userMessage: "Resume me",
+					reasoningDepth: "max" as ReasoningDepth,
+				})),
+			});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
 
 		await runtime.send({
@@ -1326,14 +1669,16 @@ describe("Normal Chat Client Turn Runtime", () => {
 			userMessageId: "server-user-1",
 		});
 
-		expect(adapters.finalizeStreamingMessage).toHaveBeenLastCalledWith({
-			placeholderId: "id-3",
-			clientUserMessageId: "id-1",
-			metadata: {
-				assistantMessageId: "assistant-1",
-				userMessageId: "server-user-1",
+		expect(messageListEvents.finalizeStreamingMessage).toHaveBeenLastCalledWith(
+			{
+				placeholderId: "id-3",
+				clientUserMessageId: "id-1",
+				metadata: {
+					assistantMessageId: "assistant-1",
+					userMessageId: "server-user-1",
+				},
 			},
-		});
+		);
 	});
 
 	it("loads persisted conversation detail when a backgrounded stream has no orphan to reconnect", async () => {
@@ -1381,7 +1726,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 
 		it("coalesces multiple token chunks via the buffer and flushes them as one chunk on end", () => {
-			const { adapters, streamInvocations } = makeAdapters();
+			const { adapters, streamInvocations, messageListEvents } = makeAdapters();
 			const runtime = createNormalChatClientTurnRuntime(adapters);
 
 			runtime.send({
@@ -1398,12 +1743,15 @@ describe("Normal Chat Client Turn Runtime", () => {
 				assistantMessageId: "assistant-1",
 			});
 
-			expect(adapters.appendTokenChunk).toHaveBeenCalledTimes(1);
-			expect(adapters.appendTokenChunk).toHaveBeenCalledWith("id-2", "AB");
+			expect(messageListEvents.appendTokenChunk).toHaveBeenCalledTimes(1);
+			expect(messageListEvents.appendTokenChunk).toHaveBeenCalledWith(
+				"id-2",
+				"AB",
+			);
 		});
 
-		it("flushes the token buffer on stream errors so buffered text is not lost", () => {
-			const { adapters, streamInvocations } = makeAdapters();
+		it("flushes the token buffer on stream errors so buffered text is not lost", async () => {
+			const { adapters, streamInvocations, messageListEvents } = makeAdapters();
 			const runtime = createNormalChatClientTurnRuntime(adapters);
 
 			runtime.send({
@@ -1418,12 +1766,22 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 			streamInvocations[0].callbacks.onError(new Error("Network failed"));
 
-			expect(adapters.appendTokenChunk).toHaveBeenCalledTimes(1);
-			expect(adapters.appendTokenChunk).toHaveBeenCalledWith("id-2", "AB");
+			expect(messageListEvents.appendTokenChunk).toHaveBeenCalledTimes(1);
+			expect(messageListEvents.appendTokenChunk).toHaveBeenCalledWith(
+				"id-2",
+				"AB",
+			);
+
+			// R1 (ADR-0060, defect 1) — this error lands the runtime in the new
+			// network-drop-recovery path (content had already streamed), which
+			// schedules further async recovery work. Settle it so it does not
+			// dangle past this test's teardown; the recovery path itself is
+			// covered by its own dedicated tests below.
+			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
 
 		it("does not deliver buffered token text before stream-end or stream-error", () => {
-			const { adapters, streamInvocations } = makeAdapters();
+			const { adapters, streamInvocations, messageListEvents } = makeAdapters();
 			const runtime = createNormalChatClientTurnRuntime(adapters);
 
 			runtime.send({
@@ -1435,11 +1793,11 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 			streamInvocations[0].callbacks.onToken("A");
 
-			expect(adapters.appendTokenChunk).not.toHaveBeenCalled();
+			expect(messageListEvents.appendTokenChunk).not.toHaveBeenCalled();
 		});
 
 		it("coalesces thinking chunks through the buffer and delivers them on end", () => {
-			const { adapters, streamInvocations } = makeAdapters();
+			const { adapters, streamInvocations, messageListEvents } = makeAdapters();
 			const runtime = createNormalChatClientTurnRuntime(adapters);
 
 			runtime.send({
@@ -1456,8 +1814,11 @@ describe("Normal Chat Client Turn Runtime", () => {
 				assistantMessageId: "assistant-1",
 			});
 
-			expect(adapters.appendThinkingChunk).toHaveBeenCalledTimes(1);
-			expect(adapters.appendThinkingChunk).toHaveBeenCalledWith("id-2", "AB");
+			expect(messageListEvents.appendThinkingChunk).toHaveBeenCalledTimes(1);
+			expect(messageListEvents.appendThinkingChunk).toHaveBeenCalledWith(
+				"id-2",
+				"AB",
+			);
 		});
 	});
 });

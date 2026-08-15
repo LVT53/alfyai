@@ -22,6 +22,7 @@ function renderComposerPanel(props: Record<string, unknown> = {}) {
 	return render(ChatComposerPanel, {
 		props: {
 			sendError: null,
+			canRetry: true,
 			onRetry: vi.fn(),
 			onErrorClose: vi.fn(),
 			onSend: vi.fn(),
@@ -158,6 +159,26 @@ describe("ChatComposerPanel", () => {
 			}),
 		);
 		expect(onSend.mock.calls[0]?.[0]).not.toHaveProperty(removedDepthKey);
+	});
+
+	// R1 (ADR-0060) — the composer must not offer a Retry affordance the
+	// runtime has already said it will refuse.
+	it("does not render a retry affordance when canRetry is false", () => {
+		const { queryByRole } = renderComposerPanel({
+			sendError: "Skill session could not be recovered",
+			canRetry: false,
+		});
+
+		expect(queryByRole("button", { name: /retry/i })).toBeNull();
+	});
+
+	it("renders a retry affordance when canRetry is true", () => {
+		const { getByRole } = renderComposerPanel({
+			sendError: "Something went wrong",
+			canRetry: true,
+		});
+
+		expect(getByRole("button", { name: /retry/i })).toBeInTheDocument();
 	});
 
 	it("does not send from a disabled composer", async () => {

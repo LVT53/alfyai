@@ -12,6 +12,7 @@ describe("ErrorMessage", () => {
 		const { getByText } = render(ErrorMessage, {
 			props: {
 				error: errorText,
+				canRetry: true,
 				onRetry: vi.fn(),
 				onClose: vi.fn(),
 			},
@@ -25,6 +26,7 @@ describe("ErrorMessage", () => {
 		const { getByRole } = render(ErrorMessage, {
 			props: {
 				error: "Error occurred",
+				canRetry: true,
 				onRetry,
 				onClose: vi.fn(),
 			},
@@ -39,6 +41,7 @@ describe("ErrorMessage", () => {
 		const { getByRole } = render(ErrorMessage, {
 			props: {
 				error: "Error occurred",
+				canRetry: true,
 				onRetry,
 				onClose: vi.fn(),
 			},
@@ -54,6 +57,7 @@ describe("ErrorMessage", () => {
 		const { container } = render(ErrorMessage, {
 			props: {
 				error: "Error occurred",
+				canRetry: true,
 				onRetry: vi.fn(),
 				onClose: vi.fn(),
 			},
@@ -66,6 +70,7 @@ describe("ErrorMessage", () => {
 		const { container, getByRole } = render(ErrorMessage, {
 			props: {
 				error: "Error occurred",
+				canRetry: true,
 				onRetry: vi.fn(),
 				onClose: vi.fn(),
 			},
@@ -80,6 +85,7 @@ describe("ErrorMessage", () => {
 		const { getByRole } = render(ErrorMessage, {
 			props: {
 				error: "Error occurred",
+				canRetry: true,
 				onRetry: vi.fn(),
 				onClose,
 			},
@@ -88,5 +94,40 @@ describe("ErrorMessage", () => {
 		await fireEvent.click(getByRole("button", { name: /close/i }));
 
 		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	// R1 (ADR-0060) — canRetry crossing the seam. Before this, the runtime's
+	// own canRetry never reached the page at all, so this affordance was
+	// unconditionally offered even when the runtime would silently refuse a
+	// retry() call.
+	it("does not offer a retry affordance when canRetry is false", () => {
+		const onRetry = vi.fn();
+		const { queryByRole, getByRole } = render(ErrorMessage, {
+			props: {
+				error: "Skill session could not be recovered",
+				canRetry: false,
+				onRetry,
+				onClose: vi.fn(),
+			},
+		});
+
+		expect(queryByRole("button", { name: /retry/i })).toBeNull();
+		// The dismiss control must still be offered — only retry is gated.
+		expect(getByRole("button", { name: /close/i })).toBeInTheDocument();
+	});
+
+	it("still shows the error text when canRetry is false", () => {
+		const { getByText } = render(ErrorMessage, {
+			props: {
+				error: "Skill session could not be recovered",
+				canRetry: false,
+				onRetry: vi.fn(),
+				onClose: vi.fn(),
+			},
+		});
+
+		expect(
+			getByText("Skill session could not be recovered"),
+		).toBeInTheDocument();
 	});
 });

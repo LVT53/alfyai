@@ -636,8 +636,12 @@ continuing. This is the second and last scheduled stop in the programme.
 
 ---
 
-### S1 — Sequence repair leaves the read path 🟨
+### S1 — Sequence repair leaves the read path ✅
 **Blocked by:** none. Parallel-safe with G1 and R1.
+
+**Done (2026-08-15, commit `701cc750`).** Gate green (25 new tests, full suite 6069; check 0/0
+tracked; build 0 warnings; biome unchanged; fallow delta 0; conversation + conversation-forks
+Playwright pass). Staging deploy batched with R1 (both independent). See the correction note below.
 
 **⚠️ Classification corrected (2026-08-15, verified in code).** `task-state/continuity.ts:667`
 (`selectProjectFolderSiblingPromotion`) is a **READ**, not a write — the function body has zero
@@ -684,10 +688,76 @@ write; `chatgpt-import` assigns explicit `seq+1` and can't gap.
 
 ---
 
-### R1 — Client turn runtime: fix the defects, shrink the interface ⬜
+### R1 — Client turn runtime: fix the defects, shrink the interface ✅
 **Blocked by:** none. Parallel-safe (client-only files).
 
-**⚠️ ADR-0019 constrains this slice — see §1. Adapters stay. Ownership does not move.**
+**R1 execution status (2026-08-15).** Repo gate green (check 0/0 tracked — only the pre-existing
+6 `scripts/search-bench-v2/` errors remain; build 0 warnings; full suite 6077/6077, +8 over the
+605-test-file baseline for the tests this slice added; touched files biome-clean, zero new
+findings anywhere). Playwright `chat.spec.ts` (10/10), `streaming.spec.ts` (10/10),
+`conversation.spec.ts` (11/11) all pass.
+
+**⚠️ Adapter-count baseline corrected.** This entry's own "82-member" figure does not hold against
+the tree as read for this slice: direct enumeration of `NormalChatClientTurnRuntimeAdapters` at
+the pre-R1 commit gives **59** top-level members, not 82 — re-verified by two independent counts
+(a line-pattern scan and a manual re-read of the interface block) before any edit. The discrepancy
+predates R1 and is not explained by D2's edits to this file (D2 only touched `StartStreamParams`
+and added a comment). Per this programme's own verification-ledger convention, the number actually
+in the tree is recorded here rather than the backlog's stale figure: **59 → 51** (consolidating the
+nine message-list pass-throughs — `appendUserMessage`, `appendAssistantPlaceholder`,
+`appendTokenChunk`, `appendThinkingChunk`, `applyToolCallUpdate`, `applyResponseActivityUpdate`,
+`setAssistantRuntimePhase`, `removeMessage`, `finalizeStreamingMessage` — into one
+`applyMessageListEvent(event)` dispatch, a net −8). Scoped deliberately to *only* the members the
+backlog names ("message-list pass-through adapter members"); other one-off setters
+(`mergeGeneratedFiles`, `setContextCompressionMarkers`, etc.) were left alone as out of scope.
+
+**RED → GREEN, captured by temporarily reverting just the fix under test and re-running (then
+restoring):**
+- **Defect 1** (recoverable drop deletes partial output) — RED: `removeMessage` fired
+  unconditionally and no reconnect was ever attempted for a mid-stream network error (only capacity
+  errors got D2's backoff). GREEN: a drop after content has streamed now gets the same bounded
+  reconnect/backoff idiom (500ms/1000ms/2000ms, capped at 3), discovering the server's own orphaned
+  stream instead of deleting the message; if no orphaned stream is ever found it falls back to the
+  existing retryable-error surface rather than looping forever.
+- **Defect 2** (conversation switch mid-stream cross-writes) — reproduced first, at the runtime
+  level (a `getConversationId()` mock that changes mid-turn, exactly mirroring how the page's real
+  adapters read `data.conversation.id` fresh on every call): RED showed every post-switch write
+  (token append, tool-call update, finalize, evidence poll, hydration) still landing under the
+  stale turn. GREEN: every turn is tagged with the conversation it started in
+  (`turnConversationId`); every write checks it immediately before reaching an adapter and is
+  dropped if the page has moved on — including a scheduled capacity/network-drop retry, the one
+  case page-level detach alone cannot close (a *not-yet-fired* timer isn't touched by `detach()`).
+  The page's reset effect was also fixed (it no longer refuses to run while a turn is active) as
+  belt-and-suspenders — `resetState()` calls `normalChatRuntime.reset()` first, severing the
+  transport immediately on every conversation switch.
+- **canRetry** — RED: `ErrorMessage.svelte` rendered the Retry button unconditionally; the runtime's
+  own `canRetry` never crossed the seam at all (the page's snapshot handler silently dropped it).
+  GREEN: `canRetry` now flows runtime → page (`normalChatRuntimeCanRetry`) → `ChatComposerPanel` →
+  `ErrorMessage`, which gates the button on it.
+
+**Dead fields.** Both verified genuinely write-only (grepped every reference in `src/` before
+deleting): `activeWorkingSet` (page copy — 4 writes, 0 reads) and the page's own
+`queuedContextCompression` mirror (1 write from the snapshot, 0 reads) — the *runtime's* internal
+`queuedContextCompression` is untouched and still exported on the snapshot type.
+
+**ADR-0019 / ADR-0060, both satisfied.** Adapters are still injected (`createBrowserNormalChatClientTurnRuntime`
+unchanged in shape); the page still owns Svelte state, route lifecycle, and UI commands — nothing
+moved into the runtime except the message-*lifetime* decision (remove vs. preserve) that already
+lived there, now corrected, and conversation-scoping of writes (a property of *when* a write may
+land, not new state ownership). No field has two owners: message list content/mutation logic is
+still 100% page-side (via the helpers `applyMessageListEvent`'s cases call into); the runtime only
+decides *whether and when* to call them.
+
+**⚠️ Superseded guidance corrected (2026-08-15).** This line previously read "Adapters stay,
+ownership does not move" — that is the pre-ADR-0060 conservative plan, which **§1 and the accepted
+[ADR-0060] overrode**: the runtime *may* own turn state and the interface *should* shrink
+substantially. The adapter **injection seam stays** (ADR-0019's placement still governs; it remains
+for every concern not yet moved), but ownership of the message lifetime *does* move where it fixes a
+defect by construction. **R1 scope (this pass):** fix both defects, consolidate the message-list
+pass-throughs, delete the two dead fields, record the adapter member count before/after — moving the
+message-*lifetime* ownership into the runtime (defect 1's root cause) while leaving reasoning /
+terminal-outcome ownership for a later incremental pass per ADR-0060 ("one concern at a time; no
+field left with two owners").
 
 **Real surface**
 - `normal-chat-client-turn-runtime.ts:72` — 82-member adapters interface

@@ -19,6 +19,7 @@ import type { DraftChangePayload, SendPayload } from "../_helpers";
 
 let {
 	sendError,
+	canRetry = true,
 	onRetry,
 	onErrorClose,
 	onSend,
@@ -70,6 +71,10 @@ let {
 	children,
 }: {
 	sendError: string | null;
+	// R1 (ADR-0060) — defaults to true so existing callers that never show a
+	// non-retryable error keep today's behaviour; the chat page always
+	// passes the runtime's real value.
+	canRetry?: boolean;
 	onRetry: () => void;
 	onErrorClose: () => void;
 	onSend: (payload: SendPayload) => void;
@@ -157,7 +162,12 @@ let {
 <div class='composer-layer'>
 	<div class='composer-shell mx-auto flex w-full max-w-[780px] flex-col gap-3'>
 		{#if sendError}
-			<ErrorMessage error={sendError} onRetry={onRetry} onClose={onErrorClose} />
+			<ErrorMessage
+				error={sendError}
+				{canRetry}
+				onRetry={onRetry}
+				onClose={onErrorClose}
+			/>
 		{/if}
 
 		{@render children?.()}

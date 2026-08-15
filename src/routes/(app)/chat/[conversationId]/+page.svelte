@@ -205,7 +205,6 @@ const initialContextStatus = getData().contextStatus ?? null;
 const initialTotalCostUsdMicros = getData().totalCostUsdMicros ?? 0;
 const initialTotalTokens = getData().totalTokens ?? 0;
 const initialAttachedArtifacts = getData().attachedArtifacts ?? [];
-const initialActiveWorkingSet = getData().activeWorkingSet ?? [];
 const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
 const initialContextSources = getData().contextSources ?? null;
@@ -305,6 +304,11 @@ let isSending = $state(false);
 let isEditResendPending = $state(false);
 let normalChatRuntimeActive = $state(false);
 let normalChatRuntimePhase = $state<NormalChatRuntimePhase>("idle");
+// R1 (ADR-0060) — canRetry crosses the seam now: the runtime already
+// decides whether a Retry affordance is meaningful (it silently refused
+// retry() before this existed), and the page must not offer one it knows
+// will be refused.
+let normalChatRuntimeCanRetry = $state(false);
 let normalChatRuntimeCanStop = $derived(
 	normalChatRuntimeActive &&
 		(normalChatRuntimePhase === "preparing" ||
@@ -469,7 +473,6 @@ let lastTurnCostUsd = $derived.by(() => {
 	return 0;
 });
 let attachedArtifacts = $state<ArtifactSummary[]>(initialAttachedArtifacts);
-let activeWorkingSet: ArtifactSummary[] = initialActiveWorkingSet;
 let taskState = $state<TaskState | null>(initialTaskState);
 let contextDebug = $state<ContextDebugState | null>(initialContextDebug);
 let contextSources = $state<ContextSourcesState | null>(initialContextSources);
@@ -495,7 +498,6 @@ let writeActionState = $state<
 >({});
 let forkingMessageId = $state<string | null>(null);
 let contextCompressionInFlight = $state(false);
-let queuedContextCompression = $state(false);
 let forkOpening = $state(Boolean(initialForkOrigin));
 let forkOpeningTimeout: ReturnType<typeof setTimeout> | null = null;
 let conversationStatus = $state(initialConversationStatus);
@@ -556,9 +558,9 @@ function markDetailMetadataFreshnessBoundary() {
 function applyNormalChatRuntimeSnapshot(snapshot: NormalChatRuntimeSnapshot) {
 	normalChatRuntimeActive = snapshot.active;
 	normalChatRuntimePhase = snapshot.phase;
+	normalChatRuntimeCanRetry = snapshot.canRetry;
 	isSending = snapshot.isSending;
 	queuedTurn = snapshot.queuedTurn;
-	queuedContextCompression = snapshot.queuedContextCompression;
 }
 
 const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
@@ -643,70 +645,84 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			};
 		}
 	},
-	appendUserMessage: (message) => {
-		messages.update((list) => [...list, message]);
-	},
-	appendAssistantPlaceholder: (placeholder) => {
-		messages.update((list) => appendAssistantPlaceholder(list, placeholder));
-	},
-	appendTokenChunk: (placeholderId, chunk) => {
-		messages.update((list) =>
-			appendTokenChunkToMessageList(list, placeholderId, chunk),
-		);
-	},
-	appendThinkingChunk: (placeholderId, chunk) => {
-		messages.update((list) =>
-			appendThinkingChunkToMessageList(list, placeholderId, chunk),
-		);
-	},
-	applyResponseActivityUpdate: (placeholderId, entry) => {
-		messages.update((list) =>
-			applyResponseActivityEntryToMessageList(list, placeholderId, entry),
-		);
-	},
-	setAssistantRuntimePhase: (placeholderId, phase) => {
-		messages.update((list) =>
-			updateMessageById(list, placeholderId, (message) => ({
-				...message,
-				runtimePhase: phase,
-			})),
-		);
-	},
-	applyToolCallUpdate: (placeholderId, name, input, status, details) => {
-		messages.update((list) =>
-			applyToolCallUpdateToMessageList(list, {
-				placeholderId,
-				name,
-				input,
-				status,
-				details,
-			}),
-		);
+	// R1 (ADR-0060) — one dispatch point for every visible message-list
+	// mutation the runtime drives, replacing nine separate one-line
+	// pass-throughs to the helpers below. The page still owns the list and
+	// still owns exactly how each event mutates it; the runtime just no
+	// longer needs nine differently-shaped adapter members to say so.
+	applyMessageListEvent: (event) => {
+		switch (event.type) {
+			case "appendUser":
+				messages.update((list) => [...list, event.message]);
+				return;
+			case "appendAssistantPlaceholder":
+				messages.update((list) =>
+					appendAssistantPlaceholder(list, event.placeholder),
+				);
+				return;
+			case "appendToken":
+				messages.update((list) =>
+					appendTokenChunkToMessageList(list, event.placeholderId, event.chunk),
+				);
+				return;
+			case "appendThinking":
+				messages.update((list) =>
+					appendThinkingChunkToMessageList(
+						list,
+						event.placeholderId,
+						event.chunk,
+					),
+				);
+				return;
+			case "applyToolCall":
+				messages.update((list) =>
+					applyToolCallUpdateToMessageList(list, {
+						placeholderId: event.placeholderId,
+						name: event.name,
+						input: event.input,
+						status: event.status,
+						details: event.details,
+					}),
+				);
+				return;
+			case "applyResponseActivity":
+				messages.update((list) =>
+					applyResponseActivityEntryToMessageList(
+						list,
+						event.placeholderId,
+						event.entry,
+					),
+				);
+				return;
+			case "setRuntimePhase":
+				messages.update((list) =>
+					updateMessageById(list, event.placeholderId, (message) => ({
+						...message,
+						runtimePhase: event.phase,
+					})),
+				);
+				return;
+			case "remove":
+				messages.update((list) => removeMessageById(list, event.messageId));
+				return;
+			case "finalize":
+				messages.update((list) =>
+					finalizeStreamingMessageList(list, {
+						placeholderId: event.placeholderId,
+						clientUserMessageId: event.clientUserMessageId,
+						metadata: event.metadata,
+					}),
+				);
+				return;
+		}
 	},
 	shouldHydrateFileProductionJobsOnToolCall,
-	removeMessage: (messageId) => {
-		messages.update((list) => removeMessageById(list, messageId));
-	},
-	finalizeStreamingMessage: ({
-		placeholderId,
-		clientUserMessageId,
-		metadata,
-	}) => {
-		messages.update((list) =>
-			finalizeStreamingMessageList(list, {
-				placeholderId,
-				clientUserMessageId,
-				metadata,
-			}),
-		);
-	},
 	applyStreamMetadata: (metadata) => {
 		if (metadata) {
 			markDetailMetadataFreshnessBoundary();
 		}
 		contextStatus = metadata?.contextStatus ?? contextStatus;
 		contextSources = metadata?.contextSources ?? contextSources;
-		activeWorkingSet = metadata?.activeWorkingSet ?? activeWorkingSet;
 		taskState = metadata?.taskState ?? taskState;
 		contextDebug = metadata?.contextDebug ?? contextDebug;
 		totalCostUsdMicros = metadata?.totalCostUsdMicros ?? totalCostUsdMicros;
@@ -1058,7 +1074,6 @@ function resetState() {
 	);
 	contextStatus = data.contextStatus ?? null;
 	attachedArtifacts = data.attachedArtifacts ?? [];
-	activeWorkingSet = data.activeWorkingSet ?? [];
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
 	contextSources = data.contextSources ?? null;
@@ -1107,8 +1122,21 @@ $effect(() => {
 	replaceState(clearChatFocusMessageParam(page.url), page.state);
 });
 
+// R1 (ADR-0060, defect 2) — this used to refuse to run while a turn was
+// active (`|| normalChatRuntimeActive`), which was the hole: navigating
+// `/chat/A` -> `/chat/B` while A was still streaming left A's turn running
+// against this same component instance, its callbacks writing streamed
+// text, evidence, activity, and hydration through `data.conversation.id`,
+// which had already become B's id. The reset must run unconditionally on
+// every conversation switch — `resetState()` calls `normalChatRuntime.reset()`
+// first, which detaches the transport immediately, before anything below
+// swaps in B's fresh state. (The runtime also tags every turn with the
+// conversation it started in and drops any write whose conversation is no
+// longer current — see `isTurnConversationActive` in
+// normal-chat-client-turn-runtime.ts — as a second, independent guard for
+// the same defect.)
 $effect(() => {
-	if (!data?.conversation?.id || normalChatRuntimeActive) {
+	if (!data?.conversation?.id) {
 		return;
 	}
 	if (data.conversation.id !== prevConversationId) {
@@ -1148,7 +1176,6 @@ function applyConversationDetailMetadata(
 	markDetailMetadataFreshnessBoundary();
 	contextStatus = detail.contextStatus ?? contextStatus;
 	contextSources = detail.contextSources ?? contextSources;
-	activeWorkingSet = detail.activeWorkingSet ?? activeWorkingSet;
 	taskState = detail.taskState ?? taskState;
 	contextDebug = detail.contextDebug ?? contextDebug;
 	if (detail.generatedFiles) {
@@ -1403,7 +1430,6 @@ async function hydrateConversationDetail(conversationId: string) {
 		}
 		const metadataIsFresh = requestMetadataEpoch === detailMetadataEpoch;
 		if (metadataIsFresh) {
-			activeWorkingSet = payload.activeWorkingSet ?? activeWorkingSet;
 			contextStatus = payload.contextStatus ?? contextStatus;
 			contextSources = payload.contextSources ?? contextSources;
 			taskState = payload.taskState ?? taskState;
@@ -2586,6 +2612,7 @@ function handleDrop(event: DragEvent) {
 
 			<ChatComposerPanel
 				{sendError}
+				canRetry={normalChatRuntimeCanRetry}
 				onRetry={handleRetry}
 				onErrorClose={handleErrorClose}
 				onSend={handleSend}

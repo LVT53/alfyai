@@ -4,10 +4,16 @@ import { AlertCircle, X } from "@lucide/svelte";
 
 let {
 	error,
+	canRetry,
 	onRetry,
 	onClose,
 }: {
 	error: string;
+	// R1 (ADR-0060) — the runtime's own canRetry, crossed over the seam. The
+	// runtime silently refuses retry() when this is false (e.g. a
+	// pending-skill recovery error, or after an Atlas submission failure);
+	// the button must not be offered in that case at all.
+	canRetry: boolean;
 	onRetry: () => void;
 	onClose: () => void;
 } = $props();
@@ -21,9 +27,11 @@ let {
 		<p class="error-message">{error}</p>
 	</div>
 	<div class="error-actions">
-		<button type="button" class="error-retry" onclick={onRetry}>
-			{$t('common.retry')}
-		</button>
+		{#if canRetry}
+			<button type="button" class="error-retry" onclick={onRetry}>
+				{$t('common.retry')}
+			</button>
+		{/if}
 		<button type="button" class="error-close" onclick={onClose} aria-label={$t('common.close')}>
 			<X size={16} strokeWidth={2} aria-hidden="true" />
 		</button>

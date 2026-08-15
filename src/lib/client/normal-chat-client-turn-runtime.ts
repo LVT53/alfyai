@@ -69,6 +69,49 @@ type PendingSkillSessionResult =
 			restoredPayload?: NormalChatSendPayload | null;
 	  };
 
+// R1 (ADR-0060) — the visible message-list mutations the runtime drives used
+// to be nine separate one-line adapter members (appendUserMessage,
+// appendAssistantPlaceholder, appendTokenChunk, appendThinkingChunk,
+// applyToolCallUpdate, applyResponseActivityUpdate, setAssistantRuntimePhase,
+// removeMessage, finalizeStreamingMessage), each a pass-through to a page-side
+// list helper that already existed. The runtime picked *which* mutation
+// happened and *when*; the page's implementation was always "call the helper
+// with these args and update the store." Consolidated into one typed event +
+// one adapter member (`applyMessageListEvent`) so the interface no longer
+// enumerates every mutation shape — the page still owns the message list and
+// still owns the helpers, it just receives one event instead of nine entry
+// points.
+export type NormalChatMessageListEvent =
+	| { type: "appendUser"; message: ChatMessage }
+	| { type: "appendAssistantPlaceholder"; placeholder: ChatMessage }
+	| { type: "appendToken"; placeholderId: string; chunk: string }
+	| { type: "appendThinking"; placeholderId: string; chunk: string }
+	| {
+			type: "applyToolCall";
+			placeholderId: string;
+			name: string;
+			input: Record<string, unknown>;
+			status: "running" | "done";
+			details?: StreamToolCallDetails;
+	  }
+	| {
+			type: "applyResponseActivity";
+			placeholderId: string;
+			entry: ResponseActivityEntry;
+	  }
+	| {
+			type: "setRuntimePhase";
+			placeholderId: string;
+			phase: NormalChatRuntimePhase;
+	  }
+	| { type: "remove"; messageId: string }
+	| {
+			type: "finalize";
+			placeholderId: string;
+			clientUserMessageId: string | null;
+			metadata?: StreamMetadata;
+	  };
+
 export type NormalChatClientTurnRuntimeAdapters = {
 	streamChat: typeof streamChat;
 	checkForOrphanedStream: typeof checkForOrphanedStream;
@@ -101,35 +144,11 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	startPendingSkillSession: (
 		payload: NormalChatSendPayload,
 	) => Promise<PendingSkillSessionResult>;
-	appendUserMessage: (message: ChatMessage) => void;
-	appendAssistantPlaceholder: (placeholder: ChatMessage) => void;
-	appendTokenChunk: (placeholderId: string, chunk: string) => void;
-	appendThinkingChunk: (placeholderId: string, chunk: string) => void;
-	applyToolCallUpdate: (
-		placeholderId: string,
-		name: string,
-		input: Record<string, unknown>,
-		status: "running" | "done",
-		details?: StreamToolCallDetails,
-	) => void;
-	applyResponseActivityUpdate?: (
-		placeholderId: string,
-		entry: ResponseActivityEntry,
-	) => void;
-	setAssistantRuntimePhase?: (
-		placeholderId: string,
-		phase: NormalChatRuntimePhase,
-	) => void;
+	applyMessageListEvent: (event: NormalChatMessageListEvent) => void;
 	shouldHydrateFileProductionJobsOnToolCall?: (
 		name: string,
 		status: "running" | "done",
 	) => boolean;
-	removeMessage: (messageId: string) => void;
-	finalizeStreamingMessage: (params: {
-		placeholderId: string;
-		clientUserMessageId: string | null;
-		metadata?: StreamMetadata;
-	}) => void;
 	applyStreamMetadata: (metadata?: StreamMetadata) => void;
 	attachFileProductionJobsToAssistantMessage: (
 		assistantMessageId: string,
@@ -201,6 +220,14 @@ type StartStreamParams = {
 	payload?: NormalChatSendPayload;
 	streamOptions: StreamChatOptions;
 	completedUserMessage: string;
+	// R1 (ADR-0060, defect 2) — the conversation this turn was started
+	// against, captured once from `adapters.getConversationId()` at the
+	// moment the turn began (send/retry/reconnect). Every subsequent write
+	// this turn makes is checked against the CURRENT `getConversationId()`
+	// before it reaches an adapter; a page navigation away from this
+	// conversation makes the check fail and the write is dropped rather than
+	// landing on whatever conversation is now displayed.
+	turnConversationId: string;
 	isReconnect?: boolean;
 	reconnectStreamId?: string;
 	reconnectRetryCount?: number;
@@ -209,6 +236,12 @@ type StartStreamParams = {
 	// server is draining ahead of a deploy restart. Mirrors
 	// `reconnectRetryCount`'s backoff idiom below.
 	capacityRetryCount?: number;
+	// R1 (ADR-0060, defect 1): bounded retry count for a *fresh* send whose
+	// connection dropped after content had already streamed. Mirrors
+	// `capacityRetryCount`'s backoff idiom, but recovers via the orphaned
+	// stream (the server keeps generating independent of this dropped
+	// client connection) instead of a brand-new request.
+	networkRetryCount?: number;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
 
@@ -311,6 +344,14 @@ export function createNormalChatClientTurnRuntime(
 		adapters.onStateChange?.(snapshot());
 	}
 
+	// R1 (ADR-0060, defect 2) — true only while `turnConversationId` (the
+	// conversation this turn started against) is still the one the page is
+	// currently showing. Every write a turn makes must pass this check
+	// immediately before it reaches an adapter.
+	function isTurnConversationActive(turnConversationId: string): boolean {
+		return adapters.getConversationId() === turnConversationId;
+	}
+
 	function setActiveStream(nextStream: StreamHandle | null) {
 		activeStream = nextStream;
 		emitState();
@@ -338,7 +379,11 @@ export function createNormalChatClientTurnRuntime(
 		const changed = phase !== nextPhase;
 		phase = nextPhase;
 		if (placeholderId && nextPhase !== "idle") {
-			adapters.setAssistantRuntimePhase?.(placeholderId, nextPhase);
+			adapters.applyMessageListEvent({
+				type: "setRuntimePhase",
+				placeholderId,
+				phase: nextPhase,
+			});
 		}
 		if (changed) {
 			emitState();
@@ -478,34 +523,67 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function buildCallbacks(params: StartStreamParams): StreamCallbacks {
+		// R1 (ADR-0060, defect 2) — the buffer's flush fires from several
+		// places (onFinishPart, onEnd, onError all call `.flush()`
+		// unconditionally before doing anything else, so buffered text is
+		// never lost on a stream transition). The conversation guard belongs
+		// on the *delivery* callback itself rather than at each `.flush()`
+		// call site — otherwise a flush triggered from one of those
+		// unconditional call sites would still deliver a stale turn's
+		// buffered text to the current conversation.
 		const tokenBuffer = new TokenDisplayBuffer((text) => {
-			adapters.appendTokenChunk(params.placeholderId, text);
+			if (!isTurnConversationActive(params.turnConversationId)) return;
+			adapters.applyMessageListEvent({
+				type: "appendToken",
+				placeholderId: params.placeholderId,
+				chunk: text,
+			});
 		});
 		const thinkingBuffer = new TokenDisplayBuffer((text) => {
-			adapters.appendThinkingChunk(params.placeholderId, text);
+			if (!isTurnConversationActive(params.turnConversationId)) return;
+			adapters.applyMessageListEvent({
+				type: "appendThinking",
+				placeholderId: params.placeholderId,
+				chunk: text,
+			});
 		});
 
 		activeTokenBuffer = tokenBuffer;
 		activeThinkingBuffer = thinkingBuffer;
 
+		// R1 (ADR-0060, defect 1) — tracks whether this specific stream
+		// attempt has delivered any visible content yet. Gates the
+		// network-drop recovery branch in onError below: a drop before any
+		// content exists (e.g. an immediate connection failure) has nothing
+		// to preserve and falls through to the existing error surface; a
+		// drop after content exists is the case defect 1 names ("after N
+		// visible tokens").
+		let hasStreamedContent = false;
+
 		return {
 			onToken(chunk) {
+				hasStreamedContent = true;
+				if (!isTurnConversationActive(params.turnConversationId)) return;
 				setPhase("generating", params.placeholderId);
 				tokenBuffer.append(chunk);
 			},
 			onThinking(chunk) {
+				hasStreamedContent = true;
+				if (!isTurnConversationActive(params.turnConversationId)) return;
 				setPhase("generating", params.placeholderId);
 				thinkingBuffer.append(chunk);
 			},
 			onToolCall(name, input, status, details) {
+				if (!isTurnConversationActive(params.turnConversationId)) return;
 				setPhase("generating", params.placeholderId);
-				adapters.applyToolCallUpdate(
-					params.placeholderId,
+				adapters.applyMessageListEvent({
+					type: "applyToolCall",
+					placeholderId: params.placeholderId,
 					name,
 					input,
 					status,
 					details,
-				);
+				});
 				if (
 					adapters.shouldHydrateFileProductionJobsOnToolCall?.(name, status)
 				) {
@@ -513,8 +591,13 @@ export function createNormalChatClientTurnRuntime(
 				}
 			},
 			onResponseActivity(entry) {
+				if (!isTurnConversationActive(params.turnConversationId)) return;
 				setPhase("generating", params.placeholderId);
-				adapters.applyResponseActivityUpdate?.(params.placeholderId, entry);
+				adapters.applyMessageListEvent({
+					type: "applyResponseActivity",
+					placeholderId: params.placeholderId,
+					entry,
+				});
 			},
 			onFinishPart() {
 				if (isPollingForCompletion) {
@@ -522,6 +605,7 @@ export function createNormalChatClientTurnRuntime(
 				}
 				tokenBuffer.flush();
 				thinkingBuffer.flush();
+				if (!isTurnConversationActive(params.turnConversationId)) return;
 				setPhase("finalizing", params.placeholderId);
 			},
 			onTiming(timing) {
@@ -531,12 +615,20 @@ export function createNormalChatClientTurnRuntime(
 				activeStream?.detach();
 				isPollingForCompletion = true;
 				phase = "polling";
-				adapters.setAssistantRuntimePhase?.(params.placeholderId, "polling");
+				if (isTurnConversationActive(params.turnConversationId)) {
+					adapters.applyMessageListEvent({
+						type: "setRuntimePhase",
+						placeholderId: params.placeholderId,
+						phase: "polling",
+					});
+				}
 				setActiveStream(null);
-				adapters.pollForCompletion(
-					params.placeholderId,
-					params.clientUserMessageId,
-				);
+				if (isTurnConversationActive(params.turnConversationId)) {
+					adapters.pollForCompletion(
+						params.placeholderId,
+						params.clientUserMessageId,
+					);
+				}
 			},
 			onEnd(fullText, metadata) {
 				tokenBuffer.flush();
@@ -547,16 +639,22 @@ export function createNormalChatClientTurnRuntime(
 				}
 
 				lastAssistantResponse = fullText;
+				canRetry = false;
+				completeTurn();
+
+				if (!isTurnConversationActive(params.turnConversationId)) {
+					return;
+				}
+
 				const shouldHydrateEventualMetadata =
 					isReceiptOnlyCompletionMetadata(metadata);
 				const serverAssistantId = applyMetadata(metadata);
-				adapters.finalizeStreamingMessage({
+				adapters.applyMessageListEvent({
+					type: "finalize",
 					placeholderId: params.placeholderId,
 					clientUserMessageId: params.clientUserMessageId,
 					metadata,
 				});
-				canRetry = false;
-				completeTurn();
 				if (serverAssistantId) {
 					adapters.pollMessageEvidence(serverAssistantId);
 					if (shouldHydrateEventualMetadata) {
@@ -587,34 +685,55 @@ export function createNormalChatClientTurnRuntime(
 				const err = error instanceof Error ? error : new Error(String(error));
 				const isBackgroundAbort =
 					err.name === "AbortError" && adapters.isBrowserHidden();
+
+				// R1 (ADR-0060, defect 2) — the conversation this turn belongs to
+				// may no longer be the one the page is displaying (the user
+				// navigated `/chat/A` -> `/chat/B` while A was still streaming).
+				// No further write from an abandoned turn may reach page state —
+				// attempting an error surface, a retry, or a reconnect for a
+				// conversation nobody is looking at is itself a cross-write. Drop
+				// the turn here; the page's own reset effect independently
+				// detaches the transport on the same switch (belt and
+				// suspenders — this guard holds even if that has not run yet, or
+				// a callback was already in flight before it did).
+				if (!isTurnConversationActive(params.turnConversationId)) {
+					completeTurn();
+					return;
+				}
+
 				if (!isBackgroundAbort && params.isReconnect && isCapacityError(err)) {
 					const retryCount = params.reconnectRetryCount ?? 0;
 					if (retryCount < 3 && params.reconnectStreamId) {
 						const delay = 2 ** retryCount * 500;
 						const reconnectStreamId = params.reconnectStreamId;
 						completeTurn();
-						adapters.removeMessage(params.placeholderId);
+						adapters.applyMessageListEvent({
+							type: "remove",
+							messageId: params.placeholderId,
+						});
 						adapters.schedule(() => {
 							void reconnectToOrphanedStream(
 								reconnectStreamId,
 								params.message,
 								retryCount + 1,
 								params.streamOptions.reasoningDepth,
+								undefined,
+								params.turnConversationId,
 							);
 						}, delay);
 						return;
 					}
 				}
 
-				// D2 (drain + graceful deploy): a *fresh* send (not a reconnect) can
-				// also hit a capacity/global_limit rejection — most commonly because
-				// the server is draining ahead of a deploy restart. Degrade the same
-				// way the reconnect path already does: back off and retry the same
-				// stream a bounded number of times instead of surfacing a hard error
-				// on the first rejection. The assistant placeholder is left in place
-				// (still "preparing") for the duration of the backoff so this reads
-				// as "still working on it", not a failure the user has to notice and
-				// manually retry.
+				// D2 (drain + graceful deploy): a *fresh* send (not a reconnect)
+				// can also hit a capacity/global_limit rejection — most commonly
+				// because the server is draining ahead of a deploy restart.
+				// Degrade the same way the reconnect path already does: back off
+				// and retry the same stream a bounded number of times instead of
+				// surfacing a hard error on the first rejection. The assistant
+				// placeholder is left in place (still "preparing") for the
+				// duration of the backoff so this reads as "still working on
+				// it", not a failure the user has to notice and manually retry.
 				if (!isBackgroundAbort && !params.isReconnect && isCapacityError(err)) {
 					const retryCount = params.capacityRetryCount ?? 0;
 					if (retryCount < 3) {
@@ -626,7 +745,51 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 
-				adapters.removeMessage(params.placeholderId);
+				const isPendingSkillError = Boolean(
+					params.payload && adapters.isPendingSkillUnavailableError(err),
+				);
+				const isForkedHistoryError = Boolean(
+					params.streamOptions.retryAssistantMessageId &&
+						!params.streamOptions.confirmForkedSourceHistoryMutation &&
+						adapters.isForkedSourceHistoryConfirmationRequired(err),
+				);
+
+				// R1 (ADR-0060, defect 1) — a mid-stream network drop (as opposed
+				// to a capacity rejection, which is always an admission-time
+				// refusal before any content exists) must not simply delete the
+				// partial answer. Once at least one visible token or thinking
+				// chunk has streamed, the runtime owns that message's lifetime
+				// and chooses to preserve it: extend the same bounded
+				// reconnect/backoff idiom used above for capacity errors,
+				// discovering the server's own orphaned stream (generation
+				// continues server-side independent of this dropped client
+				// connection — the same mechanism that already recovers a
+				// backgrounded tab) instead of deleting the message and
+				// requiring the user to notice and manually hit Retry, which
+				// would regenerate an entirely different answer from scratch.
+				if (
+					!isBackgroundAbort &&
+					!params.isReconnect &&
+					hasStreamedContent &&
+					!isCapacityError(err) &&
+					!isPendingSkillError &&
+					!isForkedHistoryError
+				) {
+					const retryCount = params.networkRetryCount ?? 0;
+					if (retryCount < 3) {
+						const delay = 2 ** retryCount * 500;
+						completeTurn();
+						adapters.schedule(() => {
+							void recoverNetworkDroppedStream(params, err, retryCount + 1);
+						}, delay);
+						return;
+					}
+				}
+
+				adapters.applyMessageListEvent({
+					type: "remove",
+					messageId: params.placeholderId,
+				});
 				completeTurn();
 
 				if (isBackgroundAbort) {
@@ -646,9 +809,12 @@ export function createNormalChatClientTurnRuntime(
 					restoreQueuedTurnToDraft();
 				}
 
-				if (params.payload && adapters.isPendingSkillUnavailableError(err)) {
+				if (isPendingSkillError && params.payload) {
 					if (params.clientUserMessageId) {
-						adapters.removeMessage(params.clientUserMessageId);
+						adapters.applyMessageListEvent({
+							type: "remove",
+							messageId: params.clientUserMessageId,
+						});
 					}
 					adapters.restorePayloadToDraft(
 						adapters.markPendingSkillUnavailable(params.payload),
@@ -659,11 +825,7 @@ export function createNormalChatClientTurnRuntime(
 					return;
 				}
 
-				if (
-					params.streamOptions.retryAssistantMessageId &&
-					!params.streamOptions.confirmForkedSourceHistoryMutation &&
-					adapters.isForkedSourceHistoryConfirmationRequired(err)
-				) {
+				if (isForkedHistoryError) {
 					const confirmationCallback =
 						params.onForkedSourceHistoryConfirmationRequired ??
 						adapters.onForkedSourceHistoryConfirmationRequired;
@@ -690,6 +852,16 @@ export function createNormalChatClientTurnRuntime(
 	}
 
 	function startStream(params: StartStreamParams) {
+		// R1 (ADR-0060, defect 2) — covers the one gap page-level detach can
+		// never close: a *scheduled* retry (capacity or network-drop backoff)
+		// firing after the user has already navigated to a different
+		// conversation. Without this, a bounded retry would blindly dispatch
+		// `adapters.streamChat` against whatever conversation is current *at
+		// retry time*, cross-posting the original turn's message into it.
+		if (!isTurnConversationActive(params.turnConversationId)) {
+			completeTurn();
+			return;
+		}
 		const callbacks = buildCallbacks(params);
 		activePlaceholderId = params.placeholderId;
 		setActiveStream(
@@ -702,18 +874,93 @@ export function createNormalChatClientTurnRuntime(
 		);
 	}
 
+	// R1 (ADR-0060, defect 1) — bounded recovery attempt for a fresh send's
+	// mid-stream network drop. Mirrors the capacity-backoff idiom above
+	// (`adapters.schedule`, exponential delay, 3 attempts) but recovers via
+	// the orphaned-stream mechanism instead of a brand-new request, since
+	// content has already streamed and a brand-new request would generate an
+	// unrelated answer that gets appended after the preserved partial text.
+	async function recoverNetworkDroppedStream(
+		params: StartStreamParams,
+		originalError: Error,
+		retryCount: number,
+	) {
+		if (!isTurnConversationActive(params.turnConversationId)) {
+			return;
+		}
+
+		const streamId = await adapters.checkForOrphanedStream(
+			params.turnConversationId,
+		);
+
+		if (!streamId) {
+			if (retryCount < 3) {
+				adapters.schedule(
+					() => {
+						void recoverNetworkDroppedStream(
+							params,
+							originalError,
+							retryCount + 1,
+						);
+					},
+					2 ** retryCount * 500,
+				);
+				return;
+			}
+			if (!isTurnConversationActive(params.turnConversationId)) {
+				return;
+			}
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: params.placeholderId,
+			});
+			completeTurn();
+			adapters.setSendError(adapters.toFriendlySendError(originalError));
+			canRetry = true;
+			emitState();
+			return;
+		}
+
+		const bufferInfo = await adapters.getStreamBufferInfo(
+			streamId,
+			params.turnConversationId,
+		);
+
+		if (!isTurnConversationActive(params.turnConversationId)) {
+			return;
+		}
+
+		// The reconnect below replays the server's own buffered generation
+		// into a fresh placeholder, so the dropped one is superseded rather
+		// than lost — there is no window where the answer is simply gone; at
+		// worst it swaps out for the replayed (equal or more complete) text.
+		adapters.applyMessageListEvent({
+			type: "remove",
+			messageId: params.placeholderId,
+		});
+		await reconnectToOrphanedStream(
+			streamId,
+			bufferInfo?.userMessage ?? params.message,
+			0,
+			bufferInfo?.reasoningDepth ?? params.streamOptions.reasoningDepth,
+			bufferInfo?.createdAt ? Date.now() - bufferInfo.createdAt : undefined,
+			params.turnConversationId,
+		);
+	}
+
 	async function startAtlasTurn(params: {
 		payload: NormalChatSendPayload;
 		placeholderId: string;
 		clientUserMessageId: string | null;
 		completedUserMessage: string;
+		turnConversationId: string;
 	}) {
 		const clientAtlasTurnId =
 			params.payload.clientAtlasTurnId?.trim() || adapters.randomId();
 		try {
 			const result = await adapters.submitAtlasTurn({
 				conversationId:
-					params.payload.conversationId ?? adapters.getConversationId(),
+					params.payload.conversationId ?? params.turnConversationId,
 				message: params.payload.message,
 				attachmentIds: params.payload.attachmentIds ?? [],
 				linkedSources: params.payload.linkedSources ?? [],
@@ -723,11 +970,21 @@ export function createNormalChatClientTurnRuntime(
 				clientAtlasTurnId,
 			});
 
+			if (!isTurnConversationActive(params.turnConversationId)) {
+				completeTurn();
+				return;
+			}
+
 			lastAssistantResponse = result.message;
 			if (result.message) {
-				adapters.appendTokenChunk(params.placeholderId, result.message);
+				adapters.applyMessageListEvent({
+					type: "appendToken",
+					placeholderId: params.placeholderId,
+					chunk: result.message,
+				});
 			}
-			adapters.finalizeStreamingMessage({
+			adapters.applyMessageListEvent({
+				type: "finalize",
 				placeholderId: params.placeholderId,
 				clientUserMessageId: params.clientUserMessageId,
 				metadata: {
@@ -744,9 +1001,19 @@ export function createNormalChatClientTurnRuntime(
 			);
 			void drainPostTurnQueue();
 		} catch (error) {
-			adapters.removeMessage(params.placeholderId);
+			if (!isTurnConversationActive(params.turnConversationId)) {
+				completeTurn();
+				return;
+			}
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: params.placeholderId,
+			});
 			if (params.clientUserMessageId) {
-				adapters.removeMessage(params.clientUserMessageId);
+				adapters.applyMessageListEvent({
+					type: "remove",
+					messageId: params.clientUserMessageId,
+				});
 			}
 			completeTurn();
 			adapters.restorePayloadToDraft(params.payload);
@@ -773,6 +1040,10 @@ export function createNormalChatClientTurnRuntime(
 		) {
 			return;
 		}
+
+		// R1 (ADR-0060, defect 2) — the conversation this turn belongs to,
+		// captured once, up front. See `StartStreamParams.turnConversationId`.
+		const turnConversationId = adapters.getConversationId();
 
 		const modelIdForTurn = payload.modelId ?? adapters.getSelectedModel();
 		const reasoningDepthForTurn =
@@ -823,20 +1094,22 @@ export function createNormalChatClientTurnRuntime(
 		let clientUserMessageId: string | null = null;
 		if (!options.skipUserMessage) {
 			clientUserMessageId = adapters.randomId();
-			adapters.appendUserMessage(
-				createUserMessage({
+			adapters.applyMessageListEvent({
+				type: "appendUser",
+				message: createUserMessage({
 					id: clientUserMessageId,
 					text,
 					attachmentIds: payload.attachmentIds ?? [],
 					attachedArtifacts: sentAttachments,
 				}),
-			);
+			});
 		}
 
 		const placeholderId = adapters.randomId();
-		adapters.appendAssistantPlaceholder(
-			createAssistantPlaceholder(placeholderId),
-		);
+		adapters.applyMessageListEvent({
+			type: "appendAssistantPlaceholder",
+			placeholder: createAssistantPlaceholder(placeholderId),
+		});
 
 		if (payload.atlasMode === true) {
 			await startAtlasTurn({
@@ -844,6 +1117,7 @@ export function createNormalChatClientTurnRuntime(
 				placeholderId,
 				clientUserMessageId,
 				completedUserMessage: text,
+				turnConversationId,
 			});
 			return;
 		}
@@ -854,6 +1128,7 @@ export function createNormalChatClientTurnRuntime(
 			clientUserMessageId,
 			payload,
 			completedUserMessage: text,
+			turnConversationId,
 			onForkedSourceHistoryConfirmationRequired:
 				options.onForkedSourceHistoryConfirmationRequired,
 			streamOptions: {
@@ -884,6 +1159,8 @@ export function createNormalChatClientTurnRuntime(
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
 
+		const turnConversationId = adapters.getConversationId();
+
 		const retryMessages = adapters.getMessages();
 		const lastAssistantMsg = retryMessages.findLast(
 			(message) => message.role === "assistant",
@@ -900,11 +1177,15 @@ export function createNormalChatClientTurnRuntime(
 				? retryMessages[retryAssistantIndex - 1].id
 				: undefined;
 		const placeholderId = adapters.randomId();
-		adapters.appendAssistantPlaceholder(
-			createAssistantPlaceholder(placeholderId),
-		);
+		adapters.applyMessageListEvent({
+			type: "appendAssistantPlaceholder",
+			placeholder: createAssistantPlaceholder(placeholderId),
+		});
 		if (retryAssistantMessageId) {
-			adapters.removeMessage(retryAssistantMessageId);
+			adapters.applyMessageListEvent({
+				type: "remove",
+				messageId: retryAssistantMessageId,
+			});
 		}
 
 		startStream({
@@ -912,6 +1193,7 @@ export function createNormalChatClientTurnRuntime(
 			placeholderId,
 			clientUserMessageId: null,
 			completedUserMessage: lastUserMessage,
+			turnConversationId,
 			streamOptions: {
 				modelId: lastAssistantMsg?.modelId ?? adapters.getSelectedModel(),
 				reasoningDepth: lastReasoningDepth,
@@ -1011,8 +1293,10 @@ export function createNormalChatClientTurnRuntime(
 		retryCount = 0,
 		reasoningDepth?: ReasoningDepth,
 		replayElapsedMs?: number,
+		turnConversationId: string = adapters.getConversationId(),
 	) {
 		if (isSending || activeStream) return false;
+		if (!isTurnConversationActive(turnConversationId)) return false;
 
 		beginTurn();
 		adapters.markHasPersistedMessages?.();
@@ -1020,24 +1304,27 @@ export function createNormalChatClientTurnRuntime(
 		let clientUserMessageId = findExistingReconnectUserMessageId(userMessage);
 		if (!clientUserMessageId && userMessage.trim()) {
 			clientUserMessageId = adapters.randomId();
-			adapters.appendUserMessage(
-				createUserMessage({
+			adapters.applyMessageListEvent({
+				type: "appendUser",
+				message: createUserMessage({
 					id: clientUserMessageId,
 					text: userMessage,
 					attachmentIds: [],
 					attachedArtifacts: [],
 				}),
-			);
+			});
 		}
-		adapters.appendAssistantPlaceholder(
-			createAssistantPlaceholder(placeholderId, replayElapsedMs),
-		);
+		adapters.applyMessageListEvent({
+			type: "appendAssistantPlaceholder",
+			placeholder: createAssistantPlaceholder(placeholderId, replayElapsedMs),
+		});
 
 		startStream({
 			message: userMessage || "",
 			placeholderId,
 			clientUserMessageId,
 			completedUserMessage: userMessage,
+			turnConversationId,
 			isReconnect: true,
 			reconnectStreamId: streamId,
 			reconnectRetryCount: retryCount,
