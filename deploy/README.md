@@ -18,14 +18,57 @@ cp .env.example .env
 ./scripts/deploy.sh
 ```
 
-That script currently does exactly this:
+That script builds each deploy into its own immutable release directory and cuts the live service
+over with a single atomic symlink flip (see "Release layout" below). In order:
 
-1. `git pull origin main`
-2. `npm install`
-3. `npm run build`
-4. `npm run db:prepare`
+1. Fetch the target branch (`git fetch origin main`) and resolve its short SHA.
+2. Materialize a clean, `.git`-less snapshot into `releases/<sha>/` via `git archive | tar -x`.
+3. `npm ci || npm install` inside `releases/<sha>/` (`npm ci` is tried first; the repo falls back to
+   `npm install` if the committed lockfile has drifted).
+4. Symlink `shared/.env` and `shared/data` into `releases/<sha>/`.
+5. `npm run build` inside `releases/<sha>/`.
+6. `npm run check:migrations && npm run db:prepare`, after the build, immediately before cutover.
+7. Atomically flip the `current` symlink to `releases/<sha>/` (`ln -sfn` + `mv -Tf`).
+8. Restart the systemd service and poll `/api/health`; on failure, roll back to the previous
+   release and exit non-zero.
+9. Prune `releases/` to the last 3.
 
-It does **not** restart a running process manager automatically. If you use PM2, systemd, Docker, or another supervisor, restart or reload it yourself after the script completes.
+The script restarts the systemd service itself; it does not need a separate PM2/Docker restart
+step, and it never mutates the previously-live release while the app is serving traffic.
+
+### Release layout
+
+```
+<app root>/
+├── shared/
+│   ├── .env                   # config/secrets — durable, never per-release
+│   └── data/                  # the SQLite DB + uploaded files — durable, never per-release
+├── releases/
+│   ├── <sha-N-1>/              # immutable; data & .env are symlinks into ../../shared
+│   └── <sha-N>/
+└── current -> releases/<sha-N>   # the only path a cutover ever moves
+```
+
+`scripts/deploy.sh` (and `scripts/deploy-dev.sh`) assume this layout **already exists** — they
+refuse to run with a clear error if `shared/` is missing rather than attempting to build it. The
+one-time conversion from a flat checkout to this layout is a separate, service-stopped runbook (see
+[docs/adr/0054-atomic-release-cutover.md](../docs/adr/0054-atomic-release-cutover.md)), run once per
+environment before the first release-based deploy.
+
+**Rollback** is re-pointing `current` at the previous release directory and restarting the service
+(`ln -sfn releases/<previous-sha> current` + `mv -Tf` + restart) — the same atomic flip used for a
+normal deploy, just aimed backward. `scripts/deploy.sh` does this automatically when the
+post-cutover health check fails. The last 3 releases are always retained so a manual rollback target
+is always available.
+
+**Migration ordering — expand/contract.** `db:prepare` runs against the shared database *before*
+the symlink flip, so for the interval between migrating and restarting, the still-running old code
+sees the new schema, and a rollback runs the old code against the already-migrated database. Both
+are only safe when migrations are additive (new nullable columns, new tables that old code ignores).
+A migration that **drops or renames** a column in the same release as the code change that stops
+using it breaks the old process during the flip window and breaks rollback — this is rejected in
+review. Destructive changes ship in a *later* release, once no deployed code references the old
+column.
 
 ## Staging is a required stop before production
 
@@ -70,7 +113,12 @@ The files in this directory can still be used as examples for a more manual host
 - `deploy/apache-site.conf`
 - `deploy/apache-modules.md`
 
-Treat them as optional examples, not the canonical deployment path. The checked-in unit filename is retained for compatibility with existing operator notes, but the sample service account and path use AlfyAI naming and do not imply a Langflow runtime.
+`deploy/langflow-chat.service` matches the real production unit: `WorkingDirectory`,
+`EnvironmentFile`, and `ExecStart` all point at the `current` symlink (never a specific
+`releases/<sha>/` directory), so a cutover only ever re-points the symlink — the unit file itself
+never needs editing or a `daemon-reload` for a normal deploy. The checked-in unit filename is
+retained for compatibility with existing operator notes; the service account and path use AlfyAI
+naming and do not imply a Langflow runtime.
 
 For a host-managed setup where another local process or container must reach the app over the host bridge network, set `HOST=0.0.0.0` and `PORT=3001` in the environment file that systemd loads rather than hardcoding those values into the unit file itself.
 

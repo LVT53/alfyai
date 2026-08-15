@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -202,5 +205,36 @@ describe("app version metadata", () => {
 			full: "1.2.3.4",
 			compact: "v1.2.3",
 		});
+	});
+
+	it("reads package.json through a symlinked working directory (ADR-0054 releases/current layout)", async () => {
+		// Mirrors the atomic-release layout: WorkingDirectory is a symlink
+		// (`current`) pointing at the real release dir (`releases/<sha>`).
+		// process.cwd() resolves the symlink to its physical path, so
+		// readPackageMetadata's resolve(process.cwd(), "package.json") must
+		// still find the release's package.json.
+		const releaseDir = mkdtempSync(
+			join(tmpdir(), "alfyai-app-version-release-"),
+		);
+		const appRootDir = mkdtempSync(join(tmpdir(), "alfyai-app-version-root-"));
+		const currentSymlink = join(appRootDir, "current");
+		writeFileSync(
+			join(releaseDir, "package.json"),
+			JSON.stringify({ version: "9.9.9" }),
+		);
+		symlinkSync(releaseDir, currentSymlink, "dir");
+		const previousCwd = process.cwd();
+
+		try {
+			process.chdir(currentSymlink);
+			await expect(getAppVersionMetadata({ db })).resolves.toEqual({
+				full: "9.9.9",
+				compact: "v9.9.9",
+			});
+		} finally {
+			process.chdir(previousCwd);
+			rmSync(appRootDir, { recursive: true, force: true });
+			rmSync(releaseDir, { recursive: true, force: true });
+		}
 	});
 });

@@ -32,17 +32,29 @@ cp .env.example .env
 ./scripts/deploy.sh
 ```
 
-The deploy script performs these steps in order:
+`scripts/deploy.sh` builds each deploy into its own immutable `releases/<sha>/` directory and cuts
+the live service over with a single atomic symlink flip, so the running process never serves a
+half-rebuilt tree. In order:
 
-1. `git pull origin main`
-2. `npm install`
-3. `npm run db:prepare`
-4. `npm run build`
+1. Fetch the target branch and resolve its short SHA.
+2. Materialize a clean snapshot into `releases/<sha>/` via `git archive`.
+3. `npm ci || npm install` inside `releases/<sha>/`.
+4. Symlink the durable `shared/.env` and `shared/data` into `releases/<sha>/`.
+5. `npm run build`.
+6. `npm run check:migrations && npm run db:prepare`, after the build, immediately before cutover.
+7. Atomically flip the `current` symlink to the new release.
+8. Restart the systemd service and poll `/api/health`; on failure, roll back to the previous
+   release and exit non-zero.
+9. Prune `releases/` to the last 3.
 
 Important caveats:
 
-- `scripts/deploy.sh` restarts the systemd service automatically at the end. The deploy user needs a sudoers entry for that command: `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart langflow-chat.service` (or equivalent).
-- If you deploy through `scripts/deploy.sh`, you should not need a separate manual DB migration step after pulls. The script always runs the idempotent `db:prepare` step so the DB catches up even if the checkout was already updated before the deploy script started.
+- The script assumes the `shared/` + `releases/` + `current` layout already exists — see
+  [deploy/README.md](./deploy/README.md#release-layout) for the layout, one-time migration, and
+  rollback (`ln -sfn releases/<previous-sha> current` + restart, always available since the last 3
+  releases are retained).
+- `scripts/deploy.sh` restarts the systemd service automatically as part of the cutover. The deploy user needs a sudoers entry for that command: `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart langflow-chat.service` (or equivalent).
+- If you deploy through `scripts/deploy.sh`, you should not need a separate manual DB migration step after pulls. The script always runs the idempotent `db:prepare` step so the DB catches up even if a newer release was already fetched before the deploy script started. Migrations must be additive (expand) within the same release as the code that starts using them — see [deploy/README.md](./deploy/README.md#release-layout) for the expand/contract policy; a migration that drops or renames a column in the same release as the code change is rejected in review.
 
 ### Staging is a required stop before production
 
@@ -67,7 +79,7 @@ That script now runs `npm run db:prepare && node build`, so the standard product
 
 Web work runs through the app-owned `research_web` AI SDK tool. It can also enrich selected YouTube video results with transcript evidence for reviews, hands-on comparisons, and other video-backed research. Deploy it this way:
 
-1. Deploy the app code. `scripts/deploy.sh` pulls `origin main`, so merge `dev` to `main` first or use your manual deploy flow if you are testing directly from `dev`.
+1. Deploy the app code. `scripts/deploy.sh` fetches and archives `origin main`, so merge `dev` to `main` first or use your manual deploy flow if you are testing directly from `dev`.
 2. Set `PARALLEL_API_KEY`. Parallel powers web search and page extraction for the `research_web`, `fetch_url`, and Atlas tools. Without it, web search and Atlas report as unavailable.
 3. Set `BRAVE_SEARCH_API_KEY` only when the separate `image_search` tool should be available.
 4. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and `MODEL_1_NAME`, or through Settings > Administration > System. The endpoint must expose an OpenAI-compatible chat-completions surface that the AI SDK provider can call.
@@ -89,7 +101,11 @@ Deploy-script environment variables:
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` which checkout to deploy from | Set it when the script is invoked from outside the app directory | Script-only variable; not read by the app |
+| `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` which app root (containing `shared/`, `releases/`, `current`) to deploy into | Set it when the script is invoked from outside the app directory | Script-only variable; not read by the app |
+| `DEPLOY_BRANCH` | No | `main` (`dev` in `deploy-dev.sh`) | Branch fetched and archived into the new release | Rarely overridden outside the two canonical scripts | Script-only variable |
+| `SERVICE_NAME` | No | `langflow-chat.service` (`langflow-chat-dev.service` in `deploy-dev.sh`) | systemd unit restarted after cutover and polled for rollback | Rarely overridden outside the two canonical scripts | Script-only variable |
+| `HEALTH_PORT` | No | `3001` (`3002` in `deploy-dev.sh`) | Port polled at `/api/health` after cutover to decide rollback | Set it if the app listens on a non-default port | Script-only variable |
+| `RELEASES_TO_KEEP` | No | `3` | How many `releases/<sha>/` directories are retained after a successful deploy | Raise it if you want a deeper rollback history | Script-only variable; older releases are deleted, not archived |
 
 ## Local Development
 
@@ -271,13 +287,13 @@ Notes before the tables:
 | `HOST` | No | `0.0.0.0` in adapter-node, often overridden in deploy env files | Controls the adapter-node listen address | Set it to `0.0.0.0` when a reverse proxy or trusted internal service must reach the app over the host bridge | If you set `127.0.0.1`, other host-managed services cannot reach the app directly |
 | `PORT` | No | `3000` in adapter-node | Controls the adapter-node listen port | Set it to match your reverse proxy or host-managed service expectations | Keep Apache/nginx/other proxy config aligned with the same port |
 | `NODE_ENV` | No | environment dependent | Controls framework/runtime production behavior | Set it to `production` in real deployments | Also affects cookie security behavior |
-| `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` where the app checkout lives | Set it when deploying from outside the repo directory | Deploy-script only |
+| `APP_DIR` | No | current working directory | Tells `scripts/deploy.sh` where the app root (`shared/`, `releases/`, `current`) lives | Set it when deploying from outside the app root | Deploy-script only |
 
 ## Operational Caveats
 
 - If you bypass `scripts/deploy.sh`, run `npm run db:prepare` before starting the production server.
 - The runtime now also contains one bounded SQLite compatibility shim for `users.honcho_peer_version` in case a deploy starts new code against an old schema. That fallback exists only to prevent login lockouts; normal deploys should still rely on `npm run db:prepare`, not on app-start schema mutation.
-- Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive restarts.
+- Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked into every `releases/<sha>/`, so no deploy ever rebuilds or removes it — see [deploy/README.md](./deploy/README.md#release-layout).
 - On Linux/macOS, install `libreoffice` and `imagemagick` so MinerU can normalize Office/image uploads consistently.
 - Knowledge/document uploads currently accept document and image extensions: `.pdf`, `.doc`, `.docx`, `.txt`, `.md`, `.json`, `.csv`, `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.html`, `.htm`, `.jpg`, `.jpeg`, `.jfif`, `.png`, `.gif`, `.bmp`, `.tiff`, `.tif`, `.webp`, `.svg`, `.heic`, `.heif`, `.avif`.
 - For HEIC/HEIF/AVIF uploads, verify ImageMagick delegate support on the host (see AlmaLinux notes below).

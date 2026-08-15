@@ -4,15 +4,15 @@ After=network.target
 
 [Service]
 Type=simple
-User=alfyai
-Group=alfyai
-WorkingDirectory=/opt/alfyai
-EnvironmentFile=/opt/alfyai/.env
+User=alfydesign
+Group=alfydesign
+WorkingDirectory=/home/alfydesign/apps/langflow-chat/current
+EnvironmentFile=/home/alfydesign/apps/langflow-chat/current/.env
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node /opt/alfyai/build/index.js
+ExecStart=/usr/bin/node /home/alfydesign/apps/langflow-chat/current/build/index.js
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=90
+TimeoutStopSec=120
 StandardOutput=journal
 StandardError=journal
 
