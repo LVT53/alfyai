@@ -36,6 +36,23 @@ over with a single atomic symlink flip (see "Release layout" below). In order:
 The script restarts the systemd service itself; it does not need a separate PM2/Docker restart
 step, and it never mutates the previously-live release while the app is serving traffic.
 
+### Obtaining the deploy script itself
+
+Because releases are `git archive` snapshots and the app root is no longer a live working checkout,
+the app root's copy of `scripts/deploy.sh` is not automatically updated by a deploy. Refresh it from
+the target ref **before** running it, so a deploy always runs the latest flow:
+
+```bash
+cd <app root>                 # the dir containing .git, shared/, releases/, current
+git fetch origin main
+git checkout origin/main -- scripts/deploy.sh scripts/deploy-dev.sh
+./scripts/deploy.sh
+```
+
+The app root keeps its `.git` precisely so it can (a) hand the deploy script the ref to archive and
+(b) supply the latest script via the `git checkout` above. On staging, use `origin/dev` and
+`scripts/deploy-dev.sh`.
+
 ### Release layout
 
 ```
