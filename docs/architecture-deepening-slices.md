@@ -455,8 +455,19 @@ window.
 
 ---
 
-### M1 — Persist the stream timeline marks 🟨
+### M1 — Persist the stream timeline marks ✅
 **Blocked by:** none. Parallel-safe with D1/D2 (disjoint files).
+
+**M1 execution status (2026-08-15).** Commit `40f4ab29`. Repo gate green (98 M1 tests, full suite
+6059; check 0/0 tracked; check:migrations passes; build 0 warnings; biome unchanged; fallow delta 0;
+`db:prepare` proven to add the columns on a scratch DB). Additive migration `1777140000085` (3
+nullable int cols on `message_analytics`), server marks threaded through
+`stream-completion → finalize → recordMessageAnalytics` behind guarded readers (ADR-0042 invariant:
+timing never fails/alters a turn), stopped turns record partial marks, ADR-0042 amended, documented
+p50/p95 query. **Deployed + verified on staging** (`releases/40f4ab29`, self-restart): migration
+applied (`__drizzle_migrations` 98→99, 3 columns present), 20 turns populated non-null marks, and
+the p50/p95 query produced the §6 profile below. The instrument works; the real prod baseline is the
+one open item (deferred to prod cutover).
 
 **⚠️ Backlog claim corrected (2026-08-15, verified in code).** The acceptance said "Browser snapshot
 reaches the server through existing terminal metadata." **It does not** — terminal metadata flows
@@ -1072,13 +1083,26 @@ Measured facts — snapshot files kept in the orchestrator scratchpad for per-sl
 
 ### Latency baseline (from M1 — fill before Wave 1)
 
-| Metric | p50 | p95 | notes |
-|---|---|---|---|
-| first byte | | | route admission |
-| first thinking token | | | end of server-side prep — **this is the removable part** |
-| first *answer* token | | | end of model reasoning — the perceived complaint |
-| generation total | | | |
+**⚠️ STAGING profile only** (2026-08-15, `releases/40f4ab29`): 20 synthetic turns, one prompt,
+model **`qwen3-6-27b` on the local vLLM** — **NOT** production's `deepseek` (remote). Server-side
+marks, ms from turn start; no browser/network transit. The real prod baseline (deepseek + 6 users)
+awaits the final prod cutover under the staging-only deploy model.
 
-**Read this before Wave S.** If `first thinking` is a large share of `first answer`, the wait is
-server-side and S1/O1 fix it. If it is small, the wait is genuinely model reasoning and only
-Wave S addresses it. Do not guess — the whole reason M1 exists is that we currently cannot tell.
+| Metric | p50 (ms) | p95 (ms) | notes |
+|---|---|---|---|
+| first byte (first upstream event) | 325 | 329 | route admission + prep + model TTFT |
+| first thinking token | 325 | 329 | end of server-side prep — **the removable part** |
+| first *answer* token | 1611 | 2395 | end of model reasoning — the perceived complaint |
+| generation total | 2504 | 3789 | |
+
+**Derived (p50):** server-side prep ≈ **325 ms** (~20% of the 1611 ms pre-answer wait); model
+**reasoning ≈ 1286 ms** (first-thinking→first-answer, ~80%); answer generation ≈ 893 ms.
+
+**Conclusion — the wait is model reasoning, not server-side work.** `first thinking` (325 ms) is a
+*small* share of `first answer` (1611 ms): only ~20% of the wait before the answer is server-side
+(and most of even that is model TTFT, not our prep). **So S1/O1 cannot meaningfully shorten the
+perceived wait; only Wave S (perception during reasoning) addresses it.** This confirms §0's prior
+analysis. **Caveat that gates the decision:** the *magnitudes* are staging/qwen, not prod/deepseek —
+deepseek's reasoning time (and remote-API latency) will differ, though the *structure* (small prep,
+dominant reasoning) is model-agnostic and expected to hold. The real prod numbers need M1 running on
+prod. **This is the M1 scheduled stop — posted; awaiting the human before Wave 1.**
