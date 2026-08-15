@@ -286,7 +286,7 @@ holds secrets; consider `600`; the backup I made is `600`). The valid vLLM key i
 box already uses; no rotation performed (operator permitted using it as-is).
 
 
-### D1 — Atomic releases (deploy Phase 1) ⬜
+### D1 — Atomic releases (deploy Phase 1) ✅
 **Blocked by:** D0. Prove the release flow on staging before production sees it.
 
 **Why first:** every slice below becomes a deploy, and today a deploy breaks open sessions for
@@ -325,7 +325,39 @@ symlink flip, migration ordering, rollback.
 
 **Gate:** full gate + `npm run db:prepare` + a **dry-run deploy on the remote box** (see §5).
 
-**Rollback:** revert commit; old `deploy.sh` is unchanged in git history.
+**Rollback:** revert commit; old `deploy.sh` is unchanged in git history. **Note:** reverting the
+commit restores the flat `deploy.sh` but does **not** un-migrate a box already on the releases
+layout; to revert a *box*, point the systemd unit back at the flat `build/` (the pre-D1 unit backup
+is kept at `/etc/systemd/system/langflow-chat-dev.service.pre-d1.bak` on staging).
+
+**D1 execution status (2026-08-15).** Commits `9acade30` (implementation) + `addca738`
+(deploy-script bootstrap doc). Repo gate green (check 0/0 tracked, build 0 warnings, 6051 tests,
+fallow delta 0, biome clean on touched files). **Box dry-run done on STAGING and verified:**
+- One-time flat→releases migration performed: `shared/{.env,data}` created, `releases/`, `current`,
+  and the systemd unit repointed at `.../current/` (`WorkingDirectory`/`EnvironmentFile`/`ExecStart`;
+  `TimeoutStopSec=120`). Health OK; a real chat turn completes on the new layout.
+- `deploy-dev.sh` ran the full steady-state flow twice (`releases/9acade30`, `releases/addca738`):
+  `git archive` snapshot → `npm ci||install` → shared symlinks → build → `check:migrations` +
+  `db:prepare` (against the shared DB) → atomic `ln -sfn`+`mv -Tf` flip → prune (kept both).
+- **Rollback exercised:** flipped `current` forward→back→forward across the two releases, restarting
+  each time; the actually-running release (checked via `/proc/PID/cwd`) matched `current` and health
+  stayed OK at every step. Rollback works.
+
+**⚠️ Two follow-ups surfaced (flagged to operator):**
+1. **Staging deploy cannot self-restart.** `deploy-dev.sh`'s restart uses `sudo -n`, which
+   `alfydesign` lacks for `langflow-chat-dev.service`, so the health poll passes on the *old* still-
+   running process and the deploy "succeeds" without switching code — I finish staging restarts via
+   `alfyroot`. Fix: operator adds `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart
+   langflow-chat-dev.service`. Prod's `deploy.sh` restarts correctly (it has the NOPASSWD rule for
+   the prod service), so this is staging-only. (I will not add sudoers rules — a security setting.)
+2. **Deploy-script bootstrap.** In the release model the app root is no longer a live checkout, so
+   `./scripts/deploy.sh` there is stale; refresh it from the target ref first
+   (`git checkout origin/<branch> -- scripts/deploy*.sh`). Documented in `deploy/README.md` (commit
+   `addca738`).
+
+**Production migration is NOT yet done** — the flat→releases migration + unit repoint on prod is the
+gated step (staging soak first; normally bundled into the Wave 0 exit deploy of D1+D2+M1). Vestigial
+flat `build/`+`node_modules/` remain at the staging app root (harmless; optional cleanup).
 
 ---
 
