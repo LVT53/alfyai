@@ -76,6 +76,17 @@ subagents; this section records what was re-verified by hand against the tree.
 | Node | v22.23.1 | fine for adapter-node graceful shutdown |
 | Host | 32 cores, 185G RAM, 2 GPUs | AlfyAI, vLLM and mineru share one box |
 
+**Supervision & access — verified on the box 2026-08-15 during D0 recon (read-only).**
+
+| Fact | Value | Consequence |
+|---|---|---|
+| Staging supervision | `langflow-chat-dev.service` — a **systemd system service**, `User=alfydesign`, `WorkingDirectory=/home/alfydesign/apps/langflow-chat-dev`, `Restart=always`, port 3002, running since 2026-08-07 | Same pattern as prod. The untracked `deploy-dev.sh` on the box references PM2 only in an **unused var** and never restarts anything — it is stale, not the live mechanism |
+| Prod supervision | `langflow-chat.service` — systemd, `User=alfydesign`, `/home/alfydesign/apps/langflow-chat`, `Restart=on-failure`, `RestartSec=10`, **no `TimeoutStopSec`**, **no `SHUTDOWN_TIMEOUT`** | Confirms D1 must set `TimeoutStopSec` explicitly and D2 must add `SHUTDOWN_TIMEOUT=300`. Confirms `deploy/langflow-chat.service` template (`/opt/alfyai`, user `alfyai`, `TimeoutStopSec=90`) is wrong on path+user |
+| **Sudo asymmetry (staging restart blocker)** | `alfydesign` has `NOPASSWD` sudo to restart **`langflow-chat.service` (prod)** and `sweetie.service` — **but NOT `langflow-chat-dev.service` (staging)** | Restarting **staging** requires `alfyroot` (used for D0), or a new sudoers rule the human must add. A structurally-identical `deploy-dev.sh` cannot self-restart staging as `alfydesign`; it must degrade gracefully (attempt `sudo -n`, else print the alfyroot instruction), mirroring `deploy.sh`'s existing "could not restart" branch |
+| Staging DB separation | staging `…/langflow-chat-dev/data/chat.db` (50.6 MB, inode …802, mtime Jul 20) vs prod `…/langflow-chat/data/chat.db` (124 MB, inode …729, written today) | **Definitively separate** — different path, inode, size. D0's "assert own DB, not prod" requirement is satisfied |
+| Disk | apps live on `/home` LV: **3.3 T total, 1.7 T free** (§0's earlier "200G/77G" was the root fs) | Ample headroom for D1 release dirs |
+| `sweetie` app | separate product also on the box (`~/apps/sweetie`, own systemd service, own node proc) | Out of scope; do not touch |
+
 **Scale — this materially downgrades three candidates.**
 
 `users=6 · conversations=607 · messages=2196 · largest conversation=89 messages · chat.db=124M`
@@ -190,7 +201,7 @@ forbidden; one query-*execution* seam is permitted.
 
 Branch: `deploy-cutover`. Nothing else runs during Wave 0.
 
-### D0 — Restore staging as the deploy gate ⬜
+### D0 — Restore staging as the deploy gate ✅
 **Blocked by:** none. **This is now the first slice in the programme.**
 
 **Why first.** A staging environment already exists and is running — it is just 915 commits
@@ -230,6 +241,49 @@ conflict surface. The real risk is the 36 pending migrations — against a **dis
 **If the migration catch-up fails:** staging's DB is disposable. Recreating it from scratch is an
 acceptable resolution and does **not** count as a halt condition. Production data is never
 involved.
+
+**D0 execution status (2026-08-15).**
+
+Done and verified on the box:
+- ✅ `dev` fast-forwarded to `origin/main` (1cdf51a3). Precondition re-verified live: **0 unique
+  commits, 915 behind** — clean `--ff-only`.
+- ✅ Dependency install + migrations. `npm ci` **fails** because the committed `package-lock.json`
+  at `1cdf51a3` is out of sync (`protobufjs@7.6.0` vs `7.6.5`) — a **pre-existing repo condition**;
+  prod's `deploy.sh` uses `npm install` (lenient), which is why prod works. `npm install` succeeds.
+  The 36 "pending" migrations turned out **already applied** — staging's `__drizzle_migrations`
+  was **already at 98** (DB mtime Jul 20), so `db:prepare` is a clean no-op and code+DB are now
+  consistent at 98. Migration path verified honest.
+- ✅ `npm run build` clean (0 warnings) after install.
+- ✅ Service restart (`langflow-chat-dev.service`, via **alfyroot** — `alfydesign` lacks NOPASSWD
+  for the dev service) → boots on the fresh build; **`/api/health` returns `{"status":"OK"}`**
+  both direct on `:3002` and through Apache at `https://ai.dev.alfydesign.com`.
+- ✅ Full request path verified end to end via `scripts/benchmark-live-chat-stream.ts` (seeded a
+  throwaway disposable-DB user): login → conversation create → `/api/chat/stream` → correct error
+  surfacing all work.
+- ✅ Staging DB separation asserted (own path/inode/size; §0 ledger).
+- ✅ `scripts/deploy-dev.sh` brought into the repo, corrected (no PM2; systemd restart of the dev
+  service with graceful sudo-fallback), structurally identical to `deploy.sh`.
+- ✅ README.md + deploy/README.md describe staging as a required stop.
+- ✅ Stale `DocumentRoot` warning **noted** (not fixed — Virtualmin-managed): `httpd -t` emits
+  `AH00112: DocumentRoot [/home/alfydesign/domains/ai.dev.alfydesign.com/apps/langflow-chat-dev]
+  does not exist`. A stale vhost path; the real app is `~/apps/langflow-chat-dev` served via
+  reverse proxy, and the public health check works, so it is cosmetic. Left for the operator since
+  a hand edit to `httpd.conf` can be overwritten by Virtualmin.
+
+✅ **RESOLVED — "one real chat turn completes end to end."** The blocker was a stale staging model
+config: the vLLM at `192.168.1.96:30000` requires auth and returned **401 `Unauthorized`** because
+staging's stored key was invalid *and* its model names (`nemotron-super`/`hermes-4-3-36b`) no longer
+match what the vLLM serves. The vLLM (`vllm-qwen27b-heretic.service`) actually serves **`qwen3-6-27b`
+and `qwen3-8-27b`**. The operator explicitly authorized reusing the system's existing vLLM key; it
+was moved **opaquely** (never printed/logged) from the vLLM process environment into staging's
+`.env` (`MODEL_1_NAME=qwen3-6-27b`, `MODEL_2_NAME=qwen3-8-27b`, valid `MODEL_*_API_KEY`), the
+disposable provider rows were cleared, and `db:prepare` re-seeded them through the app's own
+encryption. After restart, a real turn **completes with a genuine answer** (outcome `ok`, ~476 ms to
+first byte, ~1.3 s total). Staging is now a true chat gate.
+
+**Operator notes (non-blocking):** staging `.env` is mode `644` (a pre-existing hygiene issue — it
+holds secrets; consider `600`; the backup I made is `600`). The valid vLLM key is the same one the
+box already uses; no rotation performed (operator permitted using it as-is).
 
 
 ### D1 — Atomic releases (deploy Phase 1) ⬜
@@ -887,11 +941,36 @@ Record before starting each wave so "no regression" is measurable.
 
 | Wave | `npm test` pass/fail | `npm run check` | Fallow findings | Prompt-cache hit rate |
 |---|---|---|---|---|
-| 0 | | | | |
+| 0 | **6003 pass / 0 fail** (500 files) | tracked code **0/0**; 6 errors only in untracked leftover | `check.total_issues=50` (see snapshot) | n/a (M1 supplies) |
 | 1 | | | | |
 | 2 | | | | |
 | 3 | | | | |
 | S | | | | |
+
+**Wave 0 baseline notes (recorded 2026-08-15, at `deploy-cutover` HEAD `0c29a5f8`, i.e. `main@1cdf51a3` + foundation).**
+
+Measured facts — snapshot files kept in the orchestrator scratchpad for per-slice diffing:
+
+- **`npm test`** — 500 files / 6003 tests pass, exit 0. Green.
+- **`npm run build`** — 0 warnings, exit 0. Green.
+- **`npm run check`** — the **tracked codebase is clean (0 errors / 0 warnings)**. The only 6 errors
+  are in the *untracked, unrelated* leftover `scripts/search-bench-v2/{run-ab.ts,run-maxresults-ab.ts}`
+  (a prior session's search-benchmark WIP; also `docs/tech-analysis.md` leftover). These are **not**
+  part of this programme and are not committed. Per-slice check gate = *tracked code stays 0/0*.
+- **`npm run lint` (biome) is already RED at baseline** — 22 errors + 2 warnings, exit 1, **all in
+  tracked `src/` code and all `FIXABLE`**, across 6 files: `atlas/{assembled-report,pipeline,
+  renderer-output}.ts` + `normal-chat-tools/index.ts` (`assist/source/organizeImports`), and
+  `ThinkingBlock.svelte` + `MessageEvidenceDetails.svelte` (`lint/complexity/useOptionalChain`).
+  **This is pre-existing at `main@1cdf51a3`, unrelated to any slice.** Backlog gate assumed
+  "lint passes / 0 errors"; reality contradicts it. Handled per `AGENTS.md` § Typecheck Gate policy
+  for pre-existing diagnostics: **document exact baseline, introduce no NEW findings**. Several of
+  these files are edited by later slices (`normal-chat-tools/index.ts`→G1, `ThinkingBlock.svelte`→P1,
+  `MessageEvidenceDetails.svelte`→E2) and will be biome-clean as a side effect there; the atlas files
+  are out of scope and left as documented pre-existing. **Not a halt** — no slice shape changes; the
+  gate is measured as *no regression vs. this baseline*, not absolute 0.
+- **Fallow** — `check.total_issues=50` (13 unused files, 25 unused exports, 4 circular deps, 1 dup
+  export, …); health hotspots pre-exist (e.g. `env.ts readConfig` cyclomatic 136). Some of the 50 are
+  contributed by the `search-bench-v2` leftover. Gate = *no new fallow findings vs. baseline*.
 
 ### Latency baseline (from M1 — fill before Wave 1)
 

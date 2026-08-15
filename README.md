@@ -44,6 +44,17 @@ Important caveats:
 - `scripts/deploy.sh` restarts the systemd service automatically at the end. The deploy user needs a sudoers entry for that command: `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart langflow-chat.service` (or equivalent).
 - If you deploy through `scripts/deploy.sh`, you should not need a separate manual DB migration step after pulls. The script always runs the idempotent `db:prepare` step so the DB catches up even if the checkout was already updated before the deploy script started.
 
+### Staging is a required stop before production
+
+Every change deploys to **staging** and is verified there before it reaches production. Staging
+runs the systemd service `langflow-chat-dev.service` on port 3002 (`ai.dev.alfydesign.com`) from
+the `dev` branch, with its own **disposable** database. Deploy it with `scripts/deploy-dev.sh`,
+which is kept structurally identical to `scripts/deploy.sh` (they differ only in the branch pulled
+and the service restarted). Verify staging with `curl -s http://localhost:3002/api/health` and one
+real chat turn, then merge to `main` and deploy production. See
+[deploy/README.md](./deploy/README.md#staging-is-a-required-stop-before-production) for the full
+flow and the staging restart-privilege caveat.
+
 For host-managed `adapter-node` deployments, the standard runtime entrypoint is:
 
 ```bash

@@ -27,6 +27,41 @@ That script currently does exactly this:
 
 It does **not** restart a running process manager automatically. If you use PM2, systemd, Docker, or another supervisor, restart or reload it yourself after the script completes.
 
+## Staging is a required stop before production
+
+There is a live staging environment that mirrors production, and **every change must be
+deployed and verified there before it reaches production**:
+
+| | staging | production |
+|---|---|---|
+| Deploy script | `scripts/deploy-dev.sh` | `scripts/deploy.sh` |
+| Branch pulled | `dev` | `main` |
+| systemd service | `langflow-chat-dev.service` | `langflow-chat.service` |
+| Port | 3002 | 3001 |
+| Public host | `ai.dev.alfydesign.com` | the live site |
+| Database | its own, **disposable** | real user data |
+
+`scripts/deploy-dev.sh` is kept **structurally identical** to `scripts/deploy.sh` — they differ
+only in the branch pulled and the systemd service restarted — so the two flows cannot drift.
+Change one, change both, in the same commit.
+
+Deploy order for any change:
+
+1. Merge the change onto `dev`, run `scripts/deploy-dev.sh` on staging.
+2. Verify staging: `curl -s http://localhost:3002/api/health` returns `{"status":"OK"}`, and one
+   real chat turn completes end to end at `https://ai.dev.alfydesign.com`.
+3. Only then merge to `main` and run `scripts/deploy.sh` on production.
+4. Verify production the same way on port 3001.
+
+A staging failure is expected and cheap — fix it and redeploy staging (its database is
+disposable). A production post-deploy failure means rolling back immediately.
+
+**Restart privileges differ between the two environments.** The application account has a
+passwordless sudoers rule to restart the *production* service but **not** the staging service, so
+`scripts/deploy-dev.sh` attempts a non-interactive restart and, if it is denied, prints the exact
+privileged command to run instead (it does not fail the build). Add a NOPASSWD sudoers rule for
+`langflow-chat-dev.service` if you want fully unattended staging restarts.
+
 ## Optional Advanced Linux Setup
 
 The files in this directory can still be used as examples for a more manual host-managed deployment:
