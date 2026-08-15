@@ -344,12 +344,10 @@ fallow delta 0, biome clean on touched files). **Box dry-run done on STAGING and
   stayed OK at every step. Rollback works.
 
 **⚠️ Two follow-ups surfaced (flagged to operator):**
-1. **Staging deploy cannot self-restart.** `deploy-dev.sh`'s restart uses `sudo -n`, which
-   `alfydesign` lacks for `langflow-chat-dev.service`, so the health poll passes on the *old* still-
-   running process and the deploy "succeeds" without switching code — I finish staging restarts via
-   `alfyroot`. Fix: operator adds `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart
-   langflow-chat-dev.service`. Prod's `deploy.sh` restarts correctly (it has the NOPASSWD rule for
-   the prod service), so this is staging-only. (I will not add sudoers rules — a security setting.)
+1. **Staging deploy cannot self-restart.** ✅ **RESOLVED** — the owner authorized it, and the rule
+   `alfydesign ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart langflow-chat-dev.service` is installed
+   at `/etc/sudoers.d/alfydesign-langflow-dev` (validated with `visudo`). `deploy-dev.sh` now
+   self-restarts staging autonomously (verified). Prod already had its equivalent rule.
 2. **Deploy-script bootstrap.** In the release model the app root is no longer a live checkout, so
    `./scripts/deploy.sh` there is stale; refresh it from the target ref first
    (`git checkout origin/<branch> -- scripts/deploy*.sh`). Documented in `deploy/README.md` (commit
@@ -915,6 +913,14 @@ dashboard with no statistical power.
 § Commit and Push Discipline says *"Never push to any remote branch without explicit user
 request."* That request has been given, **scoped to this programme only**. Nothing here
 authorizes autonomous push or deploy for work outside this backlog.
+
+**Deploy model amended by the owner (2026-08-15): staging-only until the whole programme is done.**
+Every slice is built, deployed, and verified on **staging (`dev`) only** throughout all waves.
+**Production is not touched until the entire plan is finished**, at which point everything proven on
+`dev` is merged to `main` and deployed to production once, as a single gated cutover. This supersedes
+the per-wave "then production" step below for the duration of the programme — the production column
+and rollback rules still describe how that final cutover will run. Consequence for **M1**: real
+prod-traffic latency cannot be collected mid-programme; see M1's note for how the baseline is handled.
 
 **Every deploy goes through staging first. No exceptions.**
 
