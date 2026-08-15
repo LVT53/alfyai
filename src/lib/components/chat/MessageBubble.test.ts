@@ -1649,4 +1649,96 @@ describe("MessageBubble", () => {
 			screen.getByRole("link", { name: "Open fork Renamed second fork" }),
 		).toHaveAttribute("href", "/chat/fork-2");
 	});
+
+	// E2 — surfaces E1's completionWarningCodes (data-stream-metadata /
+	// persisted assistantMetadata), including the empty-body truncation case.
+	describe("completion warnings (E1 completionWarningCodes)", () => {
+		it("shows a localized warning notice even when the message body is empty", () => {
+			const message: ChatMessage = {
+				id: "assistant-truncated",
+				renderKey: "assistant-truncated",
+				role: "assistant",
+				content: "",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				completionWarningCodes: ["output_truncated"],
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.getByText(chatDict.en["chat.completionWarning.outputTruncated"]),
+			).toBeInTheDocument();
+		});
+
+		it("renders one localized row per completion warning code", () => {
+			const message: ChatMessage = {
+				id: "assistant-multi-warning",
+				renderKey: "assistant-multi-warning",
+				role: "assistant",
+				content: "Here is what I could produce.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				completionWarningCodes: [
+					"file_production_failed",
+					"non_standard_finish",
+				],
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.getByText(
+					chatDict.en["chat.completionWarning.fileProductionFailed"],
+				),
+			).toBeInTheDocument();
+			expect(
+				screen.getByText(
+					chatDict.en["chat.completionWarning.nonStandardFinish"],
+				),
+			).toBeInTheDocument();
+		});
+
+		it("does not show the warning notice while the message is still streaming", () => {
+			const message: ChatMessage = {
+				id: "assistant-still-streaming",
+				renderKey: "assistant-still-streaming",
+				role: "assistant",
+				content: "",
+				timestamp: Date.now(),
+				isStreaming: true,
+				isThinkingStreaming: false,
+				// A stale/pre-finalize value should not leak into the live view.
+				completionWarningCodes: ["output_truncated"],
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.queryByText(
+					chatDict.en["chat.completionWarning.outputTruncated"],
+				),
+			).not.toBeInTheDocument();
+		});
+
+		it("shows no warning notice for a normally completed message", () => {
+			const message: ChatMessage = {
+				id: "assistant-clean",
+				renderKey: "assistant-clean",
+				role: "assistant",
+				content: "All good here.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+			};
+
+			const { container } = render(MessageBubble, { message });
+
+			expect(
+				container.querySelector(".completion-warning-notice"),
+			).not.toBeInTheDocument();
+		});
+	});
 });

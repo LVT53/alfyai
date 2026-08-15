@@ -11,6 +11,7 @@ import {
 } from "$lib/server/db/schema";
 import type {
 	ChatMessage,
+	ChatTurnCompletionWarningCode,
 	DepthMetadata,
 	ForkEvidenceSnapshot,
 	MessageEvidenceStatusState,
@@ -35,6 +36,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	depthMetadata?: DepthMetadata;
 	webCitationAudit?: WebCitationAudit | null;
 	wasStopped?: boolean;
+	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
+	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
+	// Projected back here so a reloaded page still shows the warning for a
+	// turn that completed with an empty/truncated body, not just the live
+	// stream.
+	completionWarningCodes?: ChatTurnCompletionWarningCode[];
 	forkCopy?: ChatMessage["forkCopy"];
 	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 };
@@ -205,6 +212,7 @@ function projectMessageMetadata(
 	| "webCitationAudit"
 	| "evidencePending"
 	| "wasStopped"
+	| "completionWarningCodes"
 	| "depthMetadata"
 	| "skillQuestion"
 	| "pendingSkillNoteIntents"
@@ -224,6 +232,9 @@ function projectMessageMetadata(
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
+		completionWarningCodes: Array.isArray(metadata?.completionWarningCodes)
+			? metadata.completionWarningCodes
+			: undefined,
 		depthMetadata: readDepthMetadataFromMetadata(metadata),
 		skillQuestion: metadata?.skillQuestion || undefined,
 		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,

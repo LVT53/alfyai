@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import type { ThinkingSegment } from "$lib/types";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -671,9 +677,7 @@ describe("ThinkingBlock", () => {
 			const chip = document.querySelector(".fetched-source-chip");
 			// Native title tooltip carries both title and reason.
 			expect(chip?.getAttribute("title")).toContain("Cited Source");
-			expect(chip?.getAttribute("title")).toContain(
-				"Why this source matters.",
-			);
+			expect(chip?.getAttribute("title")).toContain("Why this source matters.");
 			// Accessible name stays the clean title (not the reason blob).
 			expect(chip?.getAttribute("aria-label")).toBe("Cited Source");
 
@@ -871,9 +875,7 @@ describe("ThinkingBlock", () => {
 			expect(moreReveal).toBeInTheDocument();
 			const overflow = document.querySelector(".fetched-chip-more");
 			expect(overflow).not.toBeNull();
-			expect(
-				overflow?.querySelectorAll(".fetched-source-chip").length,
-			).toBe(3);
+			expect(overflow?.querySelectorAll(".fetched-source-chip").length).toBe(3);
 		});
 	});
 
@@ -1097,6 +1099,126 @@ describe("ThinkingBlock", () => {
 			expect(document.querySelectorAll(".agenda-row")).toHaveLength(0);
 			expect(document.querySelectorAll(".photo-strip-thumb")).toHaveLength(0);
 			expect(screen.queryByText("Upcoming")).not.toBeInTheDocument();
+		});
+	});
+
+	// E1/E2 — ToolCallEntry/ThinkingSegment's tool_call status widened to
+	// include "failed", a genuine terminal outcome distinct from "done". A
+	// failed call must render with its own visual + localized label, never
+	// the same green check as a successful one.
+	describe("failed tool calls (E1 status widening)", () => {
+		it("renders a failed tool call distinctly from a done one in the stack view", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "web_search",
+					status: "failed",
+					input: { query: "latest pricing" },
+					metadata: { errorCode: "network" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			const row = container.querySelector(".tool-call-row");
+			expect(row).not.toBeNull();
+			expect(row?.classList.contains("is-failed")).toBe(true);
+			expect(row?.classList.contains("is-running")).toBe(false);
+			expect(row?.querySelector(".fail-icon-header")).not.toBeNull();
+			expect(row?.querySelector(".check-icon-header")).toBeNull();
+			expect(row?.querySelector(".tool-dot")).toBeNull();
+			expect(
+				within(row as HTMLElement).getByText("Failed"),
+			).toBeInTheDocument();
+		});
+
+		it("renders a failed tool call distinctly in the expanded interleaved view", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "web_search",
+					status: "failed",
+					input: { query: "latest pricing" },
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const item = document.querySelector(".tool-call-item");
+			expect(item).not.toBeNull();
+			expect(item?.classList.contains("is-failed")).toBe(true);
+			expect(item?.querySelector(".fail-icon")).not.toBeNull();
+			expect(item?.querySelector(".check-icon")).toBeNull();
+			expect(
+				within(item as HTMLElement).getByText("Failed"),
+			).toBeInTheDocument();
+		});
+
+		it("does not mark a done tool call as failed", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "web_search",
+					status: "done",
+					input: { query: "latest pricing" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			const row = container.querySelector(".tool-call-row");
+			expect(row?.classList.contains("is-failed")).toBe(false);
+			expect(row?.querySelector(".check-icon-header")).not.toBeNull();
+			expect(row?.querySelector(".fail-icon-header")).toBeNull();
+			expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+		});
+
+		it("marks a connector group as failed when any call in the group failed", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "done",
+					input: { action: "list_events" },
+				},
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "failed",
+					input: { action: "create_event" },
+					metadata: { errorCode: "provider_error" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			const groupRow = container.querySelector(".tool-call-row");
+			expect(groupRow).not.toBeNull();
+			expect(groupRow?.classList.contains("is-failed")).toBe(true);
+			expect(groupRow?.querySelector(".fail-icon-header")).not.toBeNull();
+			expect(groupRow?.querySelector(".check-icon-header")).toBeNull();
+			// The group-level badge is a direct child of the row (not the one
+			// nested inside the collapsed per-action list further below).
+			expect(
+				groupRow?.querySelector(":scope > .tool-status-badge--failed"),
+			).not.toBeNull();
+
+			// Expanding the group shows exactly which action failed.
+			await fireEvent.click(screen.getByText("Calendar · 2 actions"));
+			const actionItems = document.querySelectorAll(".connector-action-item");
+			expect(actionItems).toHaveLength(2);
+			expect(actionItems[0]?.classList.contains("is-failed")).toBe(false);
+			expect(actionItems[1]?.classList.contains("is-failed")).toBe(true);
 		});
 	});
 });

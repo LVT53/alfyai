@@ -15,6 +15,7 @@ import type {
 	AtlasProfile,
 	ChatAttachment,
 	ChatMessage,
+	ChatTurnCompletionWarningCode,
 	DepthAppliedProfile,
 	DocumentWorkspaceItem,
 	FileProductionJob,
@@ -35,6 +36,7 @@ import SkillDraftCard from "./SkillDraftCard.svelte";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
+	AlertTriangle,
 	Bot,
 	Brain,
 	Check,
@@ -309,6 +311,14 @@ let isGenerating = $derived(
 	),
 );
 let hasVisibleContent = $derived(message.content.trim().length > 0);
+// E2 — surfaced even when hasVisibleContent is false: a truncated/
+// content-filtered turn (E1) can finalize with an empty body, and this is
+// the only thing telling the user why.
+let completionWarningCodes = $derived(
+	!isUser && !message.isStreaming && !message.isThinkingStreaming
+		? (message.completionWarningCodes ?? [])
+		: [],
+);
 let hasAtlasCards = $derived(atlasJobs.length > 0);
 let hasFileProductionCards = $derived(
 	fileProductionJobs.length > 0 && Boolean(conversationId) && !hasAtlasCards,
@@ -530,6 +540,19 @@ function getContextPreparationActivityLabelKey(
 		)[activityClass] ?? "chat.responseActivity.contextPreparing"
 	);
 }
+
+// E2 — localizes E1's ChatTurnCompletionWarningCode (see $lib/types) into
+// user copy. Structured status in, translated copy out — the model/provider
+// never authors this text.
+const COMPLETION_WARNING_LABEL_KEYS = {
+	content_filtered: "chat.completionWarning.contentFiltered",
+	file_production_failed: "chat.completionWarning.fileProductionFailed",
+	non_standard_finish: "chat.completionWarning.nonStandardFinish",
+	output_truncated: "chat.completionWarning.outputTruncated",
+	provider_error: "chat.completionWarning.providerError",
+	stream_closed_without_finish:
+		"chat.completionWarning.streamClosedWithoutFinish",
+} as const satisfies Record<ChatTurnCompletionWarningCode, I18nKey>;
 
 async function copyToClipboard() {
 	try {
@@ -871,6 +894,16 @@ function toggleForkDetails() {
 			/>
 			{/if}
 			</div>
+			{#if completionWarningCodes.length > 0}
+				<div class="completion-warning-notice" role="status">
+					{#each completionWarningCodes as code (code)}
+						<div class="completion-warning-row">
+							<AlertTriangle size={14} strokeWidth={2} aria-hidden="true" />
+							<span>{$t(COMPLETION_WARNING_LABEL_KEYS[code])}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
 			{#if showPreparingStatus}
 				<div class="preparing-status" aria-live="polite">{preparingStatusLabel}</div>
 			{/if}
@@ -1400,6 +1433,36 @@ function toggleForkDetails() {
 		font-size: var(--text-sm);
 		line-height: 1.4;
 		color: var(--text-muted);
+	}
+
+	/* E2 — completion-warning notice (E1's completionWarningCodes). Deliberately
+	   lighter than ErrorMessage.svelte's toast: the turn did complete, just
+	   with a caveat, so this reads as a warning, not a hard failure. */
+	.completion-warning-notice {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-top: var(--space-sm);
+		padding: var(--space-sm) var(--space-md);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--warning) 10%, var(--surface-elevated) 90%);
+		border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--border-default) 68%);
+	}
+
+	.completion-warning-row {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-xs);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		line-height: 1.4;
+		color: var(--text-primary);
+	}
+
+	.completion-warning-row :global(svg) {
+		flex-shrink: 0;
+		margin-top: 2px;
+		color: var(--warning);
 	}
 
 	.fork-origin-marker {

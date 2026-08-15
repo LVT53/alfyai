@@ -32,6 +32,10 @@ export interface StreamMetadata {
 	thinking?: string;
 	wasStopped?: boolean;
 	completionWarning?: string;
+	// E2 — stable codes from E1's completionWarningCodes seam (see
+	// ChatTurnCompletionWarningCode in $lib/types), riding data-stream-metadata.
+	// Localized into copy by the rendering component, not here.
+	completionWarningCodes?: import("$lib/types").ChatTurnCompletionWarningCode[];
 	upstreamFinishReason?: string;
 	upstreamRawFinishReason?: string;
 	streamClosedWithoutFinish?: boolean;
@@ -78,7 +82,10 @@ export interface StreamCallbacks {
 	onToolCall?: (
 		name: string,
 		input: Record<string, unknown>,
-		status: "running" | "done",
+		// E1 — "failed" is a genuine terminal outcome distinct from "done" (see
+		// the ToolCallEntry comment in $lib/types); riding the same
+		// data-tool-call part with metadata.errorCode set.
+		status: "running" | "done" | "failed",
 		details?: {
 			callId?: string;
 			outputSummary?: string | null;
@@ -131,6 +138,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		wasStopped: parsed.wasStopped as StreamMetadata["wasStopped"] | undefined,
 		completionWarning: parsed.completionWarning as
 			| StreamMetadata["completionWarning"]
+			| undefined,
+		completionWarningCodes: parsed.completionWarningCodes as
+			| StreamMetadata["completionWarningCodes"]
 			| undefined,
 		upstreamFinishReason: parsed.upstreamFinishReason as
 			| StreamMetadata["upstreamFinishReason"]
@@ -489,7 +499,7 @@ export function streamChat(
 		callbacks.onToolCall?.(
 			parsed.name as string,
 			(parsed.input as Record<string, unknown> | undefined) ?? {},
-			parsed.status as "running" | "done",
+			parsed.status as "running" | "done" | "failed",
 			{
 				callId: parsed.callId as string | undefined,
 				outputSummary: parsed.outputSummary as string | null | undefined,

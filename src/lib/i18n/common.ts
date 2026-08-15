@@ -20,6 +20,16 @@ const commonDict = {
 		"common.test": "Test",
 		"common.updated": "Updated",
 		english: "English",
+		// E2 — src/routes/+error.svelte, the app-wide SvelteKit error boundary.
+		// Status-driven copy only: never interpolates the thrown error's raw
+		// message, which may be internal/untranslated provider or framework text.
+		"errorPage.goHome": "Go home",
+		"errorPage.message":
+			"An unexpected error occurred. Try reloading the page, or go back home.",
+		"errorPage.notFoundMessage":
+			"The page you're looking for doesn't exist, or may have been moved.",
+		"errorPage.notFoundTitle": "Page not found",
+		"errorPage.title": "Something went wrong",
 		"header.knowledgeBase": "Knowledge base",
 		"header.logout": "Logout",
 		"header.newChat": "New chat",
@@ -185,6 +195,13 @@ const commonDict = {
 		"common.test": "Teszt",
 		"common.updated": "Frissítve",
 		english: "Angol",
+		"errorPage.goHome": "Vissza a főoldalra",
+		"errorPage.message":
+			"Váratlan hiba történt. Próbáld újratölteni az oldalt, vagy térj vissza a főoldalra.",
+		"errorPage.notFoundMessage":
+			"A keresett oldal nem létezik, vagy áthelyezésre került.",
+		"errorPage.notFoundTitle": "Az oldal nem található",
+		"errorPage.title": "Hiba történt",
 		"header.knowledgeBase": "Tudásbázis",
 		"header.logout": "Kijelentkezés",
 		"header.newChat": "Új beszélgetés",

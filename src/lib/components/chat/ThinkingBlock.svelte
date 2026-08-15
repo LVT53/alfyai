@@ -15,6 +15,7 @@ import {
 	Layers,
 	Search,
 	ShieldAlert,
+	XCircle,
 } from "@lucide/svelte";
 import {
 	formatConnectionToolAction,
@@ -397,8 +398,7 @@ function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
 // fall back to a reasoning/description/reason field the server may attach on
 // the candidate's metadata bag.
 function candidateReason(candidate: ToolEvidenceCandidate): string | undefined {
-	if (candidate.snippet && candidate.snippet.trim())
-		return candidate.snippet.trim();
+	if (candidate.snippet?.trim()) return candidate.snippet.trim();
 	const meta = candidate.metadata ?? {};
 	for (const key of ["reason", "reasoning", "description", "summary"]) {
 		const value = meta[key];
@@ -635,6 +635,20 @@ async function toggle() {
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 </script>
 
+{#snippet toolStatusIcon(status: 'running' | 'done' | 'failed', variant: 'header' | 'inline')}
+	{#if status === 'running'}
+		<span class={variant === 'header' ? 'tool-dot' : 'tool-dot-inline'}></span>
+	{:else if status === 'failed'}
+		<XCircle class={variant === 'header' ? 'fail-icon-header' : 'fail-icon'} size={12} strokeWidth={1.5} aria-hidden="true" />
+	{:else}
+		<Check class={variant === 'header' ? 'check-icon-header' : 'check-icon'} size={12} strokeWidth={1.5} aria-hidden="true" />
+	{/if}
+{/snippet}
+
+{#snippet toolFailedBadge()}
+	<span class="tool-status-badge tool-status-badge--failed">{$t('toolCalls.failed')}</span>
+{/snippet}
+
 {#snippet fetchedChip(source: FetchedSource, dimUncited: boolean)}
 	{@const faviconUrl = getFaviconUrl(source.url)}
 	{@const cited = isCitedSource(source)}
@@ -737,13 +751,12 @@ async function toggle() {
 		<summary class={summaryClass}>{connectorGroupSummary(tools[0].name, tools.length)}</summary>
 		<div class="connector-action-list">
 			{#each tools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
-				<div class="connector-action-item">
-					{#if tool.status === 'running'}
-						<span class="tool-dot-inline"></span>
-					{:else}
-						<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-					{/if}
+				<div class="connector-action-item" class:is-failed={tool.status === 'failed'}>
+					{@render toolStatusIcon(tool.status, 'inline')}
 					<span class="tool-item-label">{formatGroupedConnectorAction(tool)}</span>
+					{#if tool.status === 'failed'}
+						{@render toolFailedBadge()}
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -809,45 +822,42 @@ async function toggle() {
 {#snippet singleToolStackRow(tool: ToolCallSegment)}
 	{@const fetchedSources = getFetchedSources(tool)}
 	{#if fetchedSources.length > 0}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-			{#if tool.status === 'running'}
-				<span class="tool-dot"></span>
-			{:else}
-				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{/if}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+			{@render toolStatusIcon(tool.status, 'header')}
 			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search')}
+			{#if tool.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-			{#if tool.status === 'running'}
-				<span class="tool-dot"></span>
-			{:else}
-				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{/if}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+			{@render toolStatusIcon(tool.status, 'header')}
 			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read')}
+			{#if tool.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{:else}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'}>
-			{#if tool.status === 'running'}
-				<span class="tool-dot"></span>
-			{:else}
-				<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{/if}
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+			{@render toolStatusIcon(tool.status, 'header')}
 			<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+			{#if tool.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{/if}
 {/snippet}
 
 {#snippet connectorGroupStackRow(tools: ToolCallSegment[])}
 	{@const anyRunning = tools.some((t) => t.status === 'running')}
-	<div class="tool-call-row" class:is-running={anyRunning}>
-		{#if anyRunning}
-			<span class="tool-dot"></span>
-		{:else}
-			<Check class="check-icon-header" size={12} strokeWidth={1.5} aria-hidden="true" />
-		{/if}
+	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
+	<div class="tool-call-row" class:is-running={anyRunning} class:is-failed={anyFailed}>
+		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'header')}
 		{@render connectorGroupDetails(tools, 'tool-label-text')}
+		{#if anyFailed}
+			{@render toolFailedBadge()}
+		{/if}
 	</div>
 	{#if isCalendarToolName(tools[0].name)}
 		{@const agendaItems = getAgendaCandidates(tools)}
@@ -865,45 +875,42 @@ async function toggle() {
 {#snippet singleToolItem(seg: ToolCallSegment)}
 	{@const fetchedSources = getFetchedSources(seg)}
 	{#if fetchedSources.length > 0}
-		<div class="tool-call-item">
-			{#if seg.status === 'done'}
-				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{:else}
-				<span class="tool-dot-inline"></span>
-			{/if}
+		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
+			{@render toolStatusIcon(seg.status, 'inline')}
 			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search')}
+			{#if seg.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
-		<div class="tool-call-item">
-			{#if seg.status === 'done'}
-				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{:else}
-				<span class="tool-dot-inline"></span>
-			{/if}
+		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
+			{@render toolStatusIcon(seg.status, 'inline')}
 			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read')}
+			{#if seg.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{:else}
-		<div class="tool-call-item">
-			{#if seg.status === 'done'}
-				<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-			{:else}
-				<span class="tool-dot-inline"></span>
-			{/if}
+		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
+			{@render toolStatusIcon(seg.status, 'inline')}
 			<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+			{#if seg.status === 'failed'}
+				{@render toolFailedBadge()}
+			{/if}
 		</div>
 	{/if}
 {/snippet}
 
 {#snippet connectorGroupItem(tools: ToolCallSegment[])}
 	{@const anyRunning = tools.some((t) => t.status === 'running')}
-	<div class="tool-call-item">
-		{#if anyRunning}
-			<span class="tool-dot-inline"></span>
-		{:else}
-			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-		{/if}
+	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
+	<div class="tool-call-item" class:is-failed={anyFailed}>
+		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'inline')}
 		{@render connectorGroupDetails(tools, 'tool-item-label')}
+		{#if anyFailed}
+			{@render toolFailedBadge()}
+		{/if}
 	</div>
 {/snippet}
 
@@ -1135,6 +1142,31 @@ async function toggle() {
 
 	.tool-call-row.is-running {
 		color: var(--text-secondary);
+	}
+
+	/* E1/E2 — a failed tool call is a terminal outcome distinct from "done":
+	   the row keeps the danger color so it reads as an error, not a quiet
+	   success, at a glance. */
+	.tool-call-row.is-failed {
+		color: var(--danger);
+	}
+
+	.tool-status-badge {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 6px;
+		border-radius: 9999px;
+		font-family: var(--font-sans);
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.tool-status-badge--failed {
+		color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 16%, transparent);
 	}
 
 	.tool-dot {
@@ -1387,8 +1419,19 @@ async function toggle() {
 		min-width: 0;
 	}
 
+	.connector-action-item.is-failed {
+		color: var(--danger);
+	}
+
 	.check-icon-header {
 		color: var(--success);
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+	}
+
+	.fail-icon-header {
+		color: var(--danger);
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;
@@ -1536,6 +1579,10 @@ animation: thinkContentFadeIn 300ms ease-out;
 		min-width: 0;
 	}
 
+	.tool-call-item.is-failed {
+		color: var(--danger);
+	}
+
 	.status-step {
 		display: flex;
 		align-items: center;
@@ -1595,6 +1642,13 @@ animation: thinkContentFadeIn 300ms ease-out;
 
 	.check-icon {
 		color: var(--success);
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+	}
+
+	.fail-icon {
+		color: var(--danger);
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;

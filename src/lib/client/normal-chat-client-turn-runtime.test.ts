@@ -101,7 +101,7 @@ type MessageListEventHandlers = {
 		placeholderId: string,
 		name: string,
 		input: Record<string, unknown>,
-		status: "running" | "done",
+		status: "running" | "done" | "failed",
 		details: unknown,
 	) => void;
 	applyResponseActivityUpdate: (placeholderId: string, entry: unknown) => void;

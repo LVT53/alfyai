@@ -12,7 +12,7 @@ const chatDict = {
 		"chat.emptyConversation": "Start a conversation",
 		"chat.emptyHeadline": "How can I help?",
 		"chat.emptyHint": "Type below to start the conversation.",
-		"chat.error.backend": `The model provider returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.`,
+		"chat.error.backend": `The model provider returned an error before a complete response was produced. Retry the message; if it keeps happening, try again in a moment or switch to a different model.`,
 		"chat.error.capacity":
 			"The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
 		"chat.error.fileTooLarge": `The uploaded file is larger than the configured upload limit. Upload a smaller file or raise the limit in admin settings.`,
@@ -20,9 +20,21 @@ const chatDict = {
 			"One of the linked Library documents is no longer available. Remove the missing source or link it again, then retry.",
 		"chat.error.messageTooLong":
 			"That message is longer than the configured model input limit. Shorten it or split the request into smaller parts.",
-		"chat.error.network": `The chat service could not stay connected to the model provider. Check the server connection and retry; if it keeps happening, the provider endpoint may be unavailable.`,
+		"chat.error.network": `The chat service lost its connection to the model provider. Retry the message; if it keeps happening, the provider may be temporarily unavailable.`,
 		"chat.error.providerToolRounds": `The provider needed too many tool-call rounds and the turn was stopped to avoid looping. Retry with a narrower request or fewer required sources.`,
 		"chat.error.timeout": `The model stopped sending updates before it finished. This usually means the provider stream stalled or the request ran too long. Retry the message; if it repeats, try a shorter prompt or another model.`,
+		"chat.completionWarning.contentFiltered":
+			"The response was stopped by content filtering. Try rephrasing your message.",
+		"chat.completionWarning.fileProductionFailed":
+			"The file could not be created. Retry the message, or try again in a moment.",
+		"chat.completionWarning.nonStandardFinish":
+			"The response ended unexpectedly. Retry the message to try again.",
+		"chat.completionWarning.outputTruncated":
+			"The response was cut off before it finished. Retry to get the rest of the answer.",
+		"chat.completionWarning.providerError":
+			"The model provider had a problem while generating this response. Retry the message.",
+		"chat.completionWarning.streamClosedWithoutFinish":
+			"The connection closed before the response finished. Retry the message.",
 		"chat.extractingDocument":
 			"Extracting document text… this can take up to ~10s for scanned PDFs.",
 		"chat.fileSizeExceeded":
@@ -658,6 +670,7 @@ const chatDict = {
 		"modelSelector.speed.ludicrous": "Ludicrous",
 		"modelSelector.speed.normal": "Normal",
 		"toolCalls.createFile": "Create file",
+		"toolCalls.failed": "Failed",
 		"toolCalls.fetchPage": "Fetch page",
 		"toolCalls.generic": "Tool",
 		"toolCalls.imageSearch": "Image search",
@@ -715,16 +728,28 @@ const chatDict = {
 		"chat.emptyConversation": "Kezdj beszélgetést",
 		"chat.emptyHeadline": "Miben segíthetek?",
 		"chat.emptyHint": "Kezdd a beszélgetést az alábbi írómezőben.",
-		"chat.error.backend": `A modellszolgáltató hibát adott vissza, mielőtt teljes válasz készült volna. Próbáld újra az üzenetet; ha ismétlődik, ellenőrizd a modell- és szolgáltatói naplókat.`,
+		"chat.error.backend": `A modellszolgáltató hibát adott vissza, mielőtt teljes válasz készült volna. Próbáld újra az üzenetet; ha ismétlődik, próbáld meg kicsit később, vagy válassz másik modellt.`,
 		"chat.error.capacity":
 			"A chatszolgáltatás már a maximális számú aktív választ kezeli. Várj egy kicsit, majd próbáld újra.",
 		"chat.error.fileTooLarge": `A feltöltött fájl nagyobb a beállított feltöltési korlátnál. Tölts fel kisebb fájlt, vagy növeld a korlátot az admin beállításokban.`,
 		"chat.error.linkedSourceNotFound": `Az egyik kapcsolt könyvtári dokumentum már nem érhető el. Távolítsd el a hiányzó forrást, vagy kapcsold újra, majd próbáld meg ismét.`,
 		"chat.error.messageTooLong":
 			"Az üzenet hosszabb a beállított modellbemeneti korlátnál. Rövidítsd le, vagy bontsd kisebb részekre a kérést.",
-		"chat.error.network": `A chatszolgáltatás nem tudta fenntartani a kapcsolatot a modellszolgáltatóval. Ellenőrizd a szerverkapcsolatot, majd próbáld újra; ha ismétlődik, lehet, hogy a szolgáltatói végpont nem elérhető.`,
+		"chat.error.network": `A chatszolgáltatás elvesztette a kapcsolatot a modellszolgáltatóval. Próbáld újra az üzenetet; ha ismétlődik, előfordulhat, hogy a szolgáltatás átmenetileg nem elérhető.`,
 		"chat.error.providerToolRounds": `A szolgáltatónak túl sok eszközhívási körre volt szüksége, ezért a rendszer leállította a választ, hogy ne fusson végtelen ciklusba. Próbáld újra szűkebb kéréssel vagy kevesebb kötelező forrással.`,
 		"chat.error.timeout": `A modell a befejezés előtt nem küldött több frissítést. Ez általában szolgáltatói stream-elakadást vagy túl hosszú kérést jelez. Próbáld újra az üzenetet; ha megismétlődik, használj rövidebb promptot vagy másik modellt.`,
+		"chat.completionWarning.contentFiltered":
+			"A válaszot a tartalomszűrés leállította. Próbáld átfogalmazni az üzeneted.",
+		"chat.completionWarning.fileProductionFailed":
+			"A fájlt nem sikerült elkészíteni. Próbáld újra az üzenetet, vagy próbáld meg kicsit később.",
+		"chat.completionWarning.nonStandardFinish":
+			"A válasz váratlanul véget ért. Próbáld újra az üzenetet.",
+		"chat.completionWarning.outputTruncated":
+			"A válasz félbeszakadt, mielőtt befejeződött volna. Próbáld újra, hogy megkapd a válasz hátralévő részét.",
+		"chat.completionWarning.providerError":
+			"A modellszolgáltatónál hiba történt a válasz elkészítése közben. Próbáld újra az üzenetet.",
+		"chat.completionWarning.streamClosedWithoutFinish":
+			"A kapcsolat megszakadt, mielőtt a válasz elkészült volna. Próbáld újra az üzenetet.",
 		"chat.extractingDocument":
 			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
 		"chat.fileSizeExceeded":
@@ -1375,6 +1400,7 @@ const chatDict = {
 		"modelSelector.speed.ludicrous": "Extrém",
 		"modelSelector.speed.normal": "Normál",
 		"toolCalls.createFile": "Fájl készítése",
+		"toolCalls.failed": "Sikertelen",
 		"toolCalls.fetchPage": "Oldal lekérése",
 		"toolCalls.generic": "Eszköz",
 		"toolCalls.imageSearch": "Képkeresés",

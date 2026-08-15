@@ -262,6 +262,55 @@ describe("messages metadata", () => {
 		]);
 	});
 
+	// E2 — completionWarningCodes (E1) is persisted alongside wasStopped in the
+	// assistant message's metadataJson (see stream-completion.ts); it must
+	// project back onto ChatMessage on read so a reloaded page still shows the
+	// warning, not just the live stream.
+	it("projects completionWarningCodes from persisted metadata back onto the message", async () => {
+		mockRows.push({
+			id: "assistant-truncated-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "pending",
+				completionWarningCodes: ["output_truncated"],
+				upstreamFinishReason: "length",
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-truncated-1",
+				content: "",
+				completionWarningCodes: ["output_truncated"],
+			}),
+		]);
+	});
+
+	it("omits completionWarningCodes when the persisted metadata has none", async () => {
+		mockRows.push({
+			id: "assistant-clean-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "All good.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "pending" }),
+		});
+
+		const { listMessages } = await import("./messages");
+		const [message] = await listMessages("conv-1");
+
+		expect(message.completionWarningCodes).toBeUndefined();
+	});
+
 	it("falls back to the configured model display name when usage metadata omits one", async () => {
 		mockRows.push({
 			id: "assistant-model-fallback-1",

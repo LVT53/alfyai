@@ -114,6 +114,70 @@ describe("toFriendlySendError", () => {
 			"translated:chat.error.linkedSourceNotFound",
 		);
 	});
+
+	// E2 — every known StreamErrorCode is a plain code -> i18n-key lookup now,
+	// not a re-derivation of the same classification via message text.
+	it.each([
+		["timeout", "chat.error.timeout"],
+		["network", "chat.error.network"],
+		["backend_failure", "chat.error.backend"],
+		["capacity_exceeded", "chat.error.capacity"],
+		["file_too_large", "chat.error.fileTooLarge"],
+		["message_too_long", "chat.error.messageTooLong"],
+		["provider_tool_rounds", "chat.error.providerToolRounds"],
+	] as const)("maps the %s code to %s via a direct lookup", (code, key) => {
+		const error = new Error("irrelevant message text") as Error & {
+			code?: string;
+		};
+		error.code = code;
+
+		expect(toFriendlySendError(error, translate)).toBe(`translated:${key}`);
+	});
+
+	// E2 — the substring fallback (`message.toLowerCase().includes(...)`) is
+	// gone: an error with no recognized `code` no longer gets reclassified by
+	// scanning its message text for keywords like "network"/"capacity"/"file
+	// too large". It always falls through to the generic backend message.
+	it("does not reclassify an uncoded error by scanning its message text", () => {
+		const messages = [
+			"network error while reaching example.com",
+			"server at capacity right now",
+			"file too large for this endpoint",
+			"connection timeout somewhere upstream",
+		];
+
+		for (const message of messages) {
+			expect(toFriendlySendError(new Error(message), translate)).toBe(
+				"translated:chat.error.backend",
+			);
+		}
+	});
+
+	it("classifies a browser fetch() TypeError as a network failure via a structured signal, not message text", () => {
+		// Browsers throw a plain TypeError (never carrying a `.code`) when
+		// fetch() itself fails before reaching the server — this is the one
+		// case still classified without a server-provided code, and it keys
+		// off `instanceof TypeError` (a structured signal), not prose.
+		const error = new TypeError("Failed to fetch");
+
+		expect(toFriendlySendError(error, translate)).toBe(
+			"translated:chat.error.network",
+		);
+	});
+
+	it("never surfaces operator-only instructions in the fallback (no-translate) copy", () => {
+		const backendMessage = toFriendlySendError(
+			new Error("provider down") as Error & { code?: string },
+		);
+		const networkError = new Error("dropped") as Error & { code?: string };
+		networkError.code = "network";
+		const networkMessage = toFriendlySendError(networkError);
+
+		for (const message of [backendMessage, networkMessage]) {
+			expect(message).not.toMatch(/provider logs/i);
+			expect(message).not.toMatch(/server connection/i);
+		}
+	});
 });
 
 describe("workspace presentation helpers", () => {
@@ -360,6 +424,20 @@ describe("file production chat helpers", () => {
 		expect(shouldHydrateFileProductionJobsOnToolCall("files", "running")).toBe(
 			false,
 		);
+	});
+
+	// E1/E2 — "failed" also concludes the call (same as "done"): the
+	// conversation still needs re-hydrating so a failed job/write shows up.
+	it("also hydrates on a failed produce_file or connection tool call", () => {
+		expect(
+			shouldHydrateFileProductionJobsOnToolCall("produce_file", "failed"),
+		).toBe(true);
+		expect(shouldHydrateFileProductionJobsOnToolCall("files", "failed")).toBe(
+			true,
+		);
+		expect(
+			shouldHydrateFileProductionJobsOnToolCall("web_search", "failed"),
+		).toBe(false);
 	});
 
 	it("keeps produce_file events out of visible thinking segments", () => {
@@ -618,6 +696,47 @@ describe("file production chat helpers", () => {
 		]);
 	});
 
+	// E1/E2 — "failed" is a genuine terminal outcome distinct from "done": the
+	// running segment must transition to "failed", not get collapsed into
+	// "done" the way it did before E1 widened ToolCallEntry/ThinkingSegment.
+	it("transitions a running tool call to failed status, distinct from done", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const running = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: { query: "SvelteKit streaming docs" },
+			status: "running",
+			details: { callId: "tool-call-1" },
+		});
+		const failed = applyToolCallUpdateToMessageList(running, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: {},
+			status: "failed",
+			details: {
+				callId: "tool-call-1",
+				metadata: { errorCode: "network" },
+			},
+		});
+
+		expect(failed[0].thinkingSegments).toEqual([
+			expect.objectContaining({
+				callId: "tool-call-1",
+				type: "tool_call",
+				name: "research_web",
+				status: "failed",
+				metadata: { errorCode: "network" },
+			}),
+		]);
+		expect(failed[0].responseActivity).toEqual([
+			expect.objectContaining({
+				id: "tool:tool-call-1",
+				kind: "tool",
+				status: "error",
+			}),
+		]);
+	});
+
 	it("closes stale running tool rows when the stream finalizes", () => {
 		const list = [createAssistantPlaceholder("assistant-1")];
 		const running = applyToolCallUpdateToMessageList(list, {
@@ -640,6 +759,26 @@ describe("file production chat helpers", () => {
 				status: "done",
 			}),
 		]);
+	});
+
+	// E1/E2 — completionWarningCodes ride data-stream-metadata and must land on
+	// the finalized message even when the body is empty (truncation /
+	// content-filter), so MessageBubble has something to show instead of a
+	// silent blank response.
+	it("carries completionWarningCodes onto the finalized message, even with an empty body", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				completionWarningCodes: ["output_truncated"],
+			},
+		});
+
+		expect(finalized[0].content).toBe("");
+		expect(finalized[0].completionWarningCodes).toEqual(["output_truncated"]);
 	});
 
 	it("clears live response activity when the streaming placeholder finalizes", () => {

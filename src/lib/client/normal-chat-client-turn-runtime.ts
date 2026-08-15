@@ -91,7 +91,7 @@ export type NormalChatMessageListEvent =
 			placeholderId: string;
 			name: string;
 			input: Record<string, unknown>;
-			status: "running" | "done";
+			status: "running" | "done" | "failed";
 			details?: StreamToolCallDetails;
 	  }
 	| {
@@ -147,7 +147,7 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	applyMessageListEvent: (event: NormalChatMessageListEvent) => void;
 	shouldHydrateFileProductionJobsOnToolCall?: (
 		name: string,
-		status: "running" | "done",
+		status: "running" | "done" | "failed",
 	) => boolean;
 	applyStreamMetadata: (metadata?: StreamMetadata) => void;
 	attachFileProductionJobsToAssistantMessage: (

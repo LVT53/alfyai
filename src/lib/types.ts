@@ -860,6 +860,12 @@ export interface ChatMessage {
 	webCitationAudit?: WebCitationAudit;
 	evidencePending?: boolean;
 	wasStopped?: boolean;
+	// E2 — client-side projection of E1's completionWarningCodes (see the
+	// ChatTurnCompletionWarningCode comment above). Carried on the message so
+	// a turn that completed with a caveat (e.g. output_truncated, where the
+	// body may be empty) still has something to show the user, even when
+	// `content` alone is blank.
+	completionWarningCodes?: ChatTurnCompletionWarningCode[];
 	depthMetadata?: DepthMetadata;
 	responseActivity?: ResponseActivityEntry[];
 	skillQuestion?: boolean;

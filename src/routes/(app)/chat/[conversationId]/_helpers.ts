@@ -91,6 +91,11 @@ const FRIENDLY_SEND_ERROR_KEYS = {
 	linked_source_not_found: "chat.error.linkedSourceNotFound",
 } as const satisfies Record<string, I18nKey>;
 
+// E2 — user-appropriate fallback copy for when no `translate` function is
+// supplied (e.g. non-Svelte callers, tests). Operator instructions ("check
+// the model and provider logs", "check the server connection") were removed
+// here and from the matching src/lib/i18n/chat.ts entries — a user reading
+// this has no server/provider logs to check.
 const FALLBACK_SEND_ERRORS: Record<
 	keyof typeof FRIENDLY_SEND_ERROR_KEYS,
 	string
@@ -98,9 +103,9 @@ const FALLBACK_SEND_ERRORS: Record<
 	timeout:
 		"The model stopped sending updates before it finished. This usually means the provider stream stalled or the request ran too long. Retry the message; if it repeats, try a shorter prompt or another model.",
 	network:
-		"The chat service could not stay connected to the model provider. Check the server connection and retry; if it keeps happening, the provider endpoint may be unavailable.",
+		"The chat service lost its connection to the model provider. Retry the message; if it keeps happening, the provider may be temporarily unavailable.",
 	backend_failure:
-		"The model provider returned an error before a complete response was produced. Retry the message; if it repeats, check the model and provider logs.",
+		"The model provider returned an error before a complete response was produced. Retry the message; if it keeps happening, try again in a moment or switch to a different model.",
 	capacity_exceeded:
 		"The chat service is already handling the maximum number of active responses. Wait a moment, then retry.",
 	file_too_large:
@@ -122,6 +127,18 @@ function friendlyError(
 	);
 }
 
+function isKnownSendErrorCode(
+	code: unknown,
+): code is keyof typeof FRIENDLY_SEND_ERROR_KEYS {
+	return typeof code === "string" && code in FRIENDLY_SEND_ERROR_KEYS;
+}
+
+// E2 — the send path's failures now all carry a stable errorKey `code` (E1's
+// cause -> code seam: classifyStreamErrorCause / StreamErrorCode on
+// /api/chat/send and the stream's data-stream-error part; see
+// src/lib/server/services/error-cause.ts). This is a straight code -> i18n-key
+// lookup — no more `error.message.toLowerCase().includes(...)` prose
+// scanning, which could misclassify (or echo) unrelated message text.
 export function toFriendlySendError(
 	error: Error,
 	translate?: Translate,
@@ -130,46 +147,17 @@ export function toFriendlySendError(
 	if (errorWithCode.code === "attachment_not_ready") {
 		return error.message;
 	}
-	if (errorWithCode.code === "timeout")
-		return friendlyError("timeout", translate);
-	if (errorWithCode.code === "network")
-		return friendlyError("network", translate);
-	if (errorWithCode.code === "backend_failure")
-		return friendlyError("backend_failure", translate);
-	if (errorWithCode.code === "capacity_exceeded")
-		return friendlyError("capacity_exceeded", translate);
-	if (errorWithCode.code === "file_too_large")
-		return friendlyError("file_too_large", translate);
-	if (errorWithCode.code === "message_too_long")
-		return friendlyError("message_too_long", translate);
-	if (errorWithCode.code === "provider_tool_rounds")
-		return friendlyError("provider_tool_rounds", translate);
-	if (errorWithCode.code === "linked_source_not_found")
-		return friendlyError("linked_source_not_found", translate);
-
-	const message = (error.message ?? "").toLowerCase();
-	if (message.includes("timeout") || message.includes("timed out")) {
-		return friendlyError("timeout", translate);
+	if (isKnownSendErrorCode(errorWithCode.code)) {
+		return friendlyError(errorWithCode.code, translate);
 	}
 
-	if (
-		message.includes("network") ||
-		message.includes("failed to fetch") ||
-		message.includes("fetch") ||
-		message.includes("connection")
-	) {
+	// No recognized code: the browser's own fetch() throws a structured
+	// TypeError (never a string it composed from prose) when the request
+	// never reached the server at all — a genuine client-side network
+	// failure, not a substring match on arbitrary error text.
+	if (error instanceof TypeError) {
 		return friendlyError("network", translate);
 	}
-
-	if (message.includes("capacity") || message.includes("server at capacity"))
-		return friendlyError("capacity_exceeded", translate);
-
-	if (
-		message.includes("file too large") ||
-		message.includes("too large") ||
-		message.includes("maximum size")
-	)
-		return friendlyError("file_too_large", translate);
 
 	return friendlyError("backend_failure", translate);
 }
@@ -196,7 +184,7 @@ export function isConversationReadOnly(conversation: {
 
 export function shouldHydrateFileProductionJobsOnToolCall(
 	name: string,
-	status: "running" | "done",
+	status: "running" | "done" | "failed",
 ): boolean {
 	// Issue 7.5 — also fires for a completed connection tool call (files/
 	// calendar/email/photos), not just produce_file: the runtime's only
@@ -205,8 +193,12 @@ export function shouldHydrateFileProductionJobsOnToolCall(
 	// pending writes — reusing this exact same trigger point means a
 	// "save"/"send"/etc. write proposal's pending-write card can appear
 	// mid-turn without a second, parallel hydration mechanism.
+	//
+	// E2 — "failed" (E1) also concludes the call, same as "done": a failed
+	// produce_file/connection call still needs the conversation re-hydrated
+	// so the (now-failed) job/write shows up rather than looking stuck.
 	return (
-		status === "done" &&
+		status !== "running" &&
 		(isFileProductionToolName(name) || isConnectionWriteToolName(name))
 	);
 }
@@ -450,9 +442,16 @@ export function applyResponseActivityEntryToMessageList(
 }
 
 function toolActivityStatus(
-	status: "running" | "done",
+	status: "running" | "done" | "failed",
 	metadata?: Record<string, string | number | boolean | null>,
 ): ResponseActivityEntry["status"] {
+	// E1's explicit "failed" status is now the primary signal — it replaces
+	// the metadata.ok/error/errorCode heuristics below for calls the server
+	// itself marked failed. The heuristics stay as a fallback for any
+	// "done" call carrying only the older ok/error metadata shape.
+	if (status === "failed") {
+		return "error";
+	}
 	if (
 		status === "done" &&
 		(metadata?.ok === false ||
@@ -483,7 +482,7 @@ function sourceActivityId(params: {
 function buildResponseActivityEntriesForToolCall(params: {
 	name: string;
 	input: Record<string, unknown>;
-	status: "running" | "done";
+	status: "running" | "done" | "failed";
 	details?: StreamToolCallDetails;
 }): ResponseActivityEntry[] {
 	const callId = params.details?.callId;
@@ -527,7 +526,7 @@ export function applyToolCallUpdateToMessageList(
 		placeholderId: string;
 		name: string;
 		input: Record<string, unknown>;
-		status: "running" | "done";
+		status: "running" | "done" | "failed";
 		details?: StreamToolCallDetails;
 	},
 ): ChatMessage[] {
@@ -589,7 +588,10 @@ export function applyToolCallUpdateToMessageList(
 			if (updatedSegment.type === "tool_call") {
 				updatedSegments[lastRunningIndex] = {
 					...updatedSegment,
-					status: "done" as const,
+					// E1 — params.status is "done" | "failed" here (the "running"
+					// case returned above); propagate whichever the server sent
+					// instead of collapsing a failed call into "done".
+					status: params.status as "done" | "failed",
 					...(callId ? { callId } : {}),
 					outputSummary: params.details?.outputSummary ?? null,
 					sourceType: params.details?.sourceType ?? null,
@@ -649,6 +651,12 @@ export function finalizeStreamingMessageList(
 				responseActivity: undefined,
 				evidenceSummary: message.evidenceSummary,
 				evidencePending: Boolean(serverAssistantId),
+				// E2 — surfaces E1's completionWarningCodes even when `content`
+				// stayed empty (truncation/content-filter), instead of the message
+				// finalizing with nothing to explain the blank body.
+				completionWarningCodes:
+					params.metadata?.completionWarningCodes ??
+					message.completionWarningCodes,
 			};
 		}
 

@@ -1037,14 +1037,35 @@ rendering before any prod deploy (staging-only until then); flagged in the ADR a
 
 ---
 
-### E2 — Error seam, client half ⬜
-**Blocked by:** E1 (satisfied), R1.
+### E2 — Error seam, client half ✅
+**Blocked by:** E1 (satisfied), R1 (satisfied).
 
 - [ ] `_helpers.ts:125-174` substring fallback replaced by code lookup
 - [ ] Components render failed tool calls distinctly
 - [ ] A `+error.svelte` exists (there is none today)
 - [ ] User-facing errors localized EN/HU; no raw provider text
 - [ ] Operator-only advice ("check provider logs") removed from user copy
+
+**E2 execution status (2026-08-16).** Branch `deepening-wave-3`. `_helpers.ts`'s `toFriendlySendError`
+is now a straight `code → i18n-key` lookup (`isKnownSendErrorCode` over `FRIENDLY_SEND_ERROR_KEYS`);
+the only non-code branch left is a structured `error instanceof TypeError` (browser fetch-never-reached),
+no `message.toLowerCase().includes(...)` classification anywhere on the client error path. Both send AND
+stream errors localize via `.code` — the runtime routes every error surface through
+`adapters.toFriendlySendError(err)`, so the raw `FRIENDLY_STREAM_ERRORS[code]` message the server still
+attaches as `err.message` is never shown (residual: that server-side default text keeps old phrasing but
+is now dead user-facing — flagged, not user-visible). `completionWarningCodes` plumbed
+streaming.ts → `_helpers` → new `ChatMessage.completionWarningCodes` → `MessageBubble` renders one
+localized `role="status"` row per code, gated on `!isUser && !isStreaming` **not** on visible content, so
+truncation/content-filter warnings show even with an empty body; also projected back from persisted
+`assistantMetadata` in `messages.ts` (additive, `wasStopped` pattern) so it survives a reload. Failed
+tool calls render distinctly in `ThinkingBlock.svelte` (red `XCircle` + localized "Failed"/"Sikertelen"
+badge, `var(--danger)`) across all 4 render sites; `"failed"` threaded through the runtime type chain,
+fixing a bug where the running→terminal transition hardcoded `"done"` (collapsing failed into done). New
+`src/routes/+error.svelte` (status-driven copy, never interpolates `page.error.message`). Operator advice
+removed from `chat.error.backend`/`chat.error.network` (EN+HU) + `FALLBACK_SEND_ERRORS`. i18n keys added
+to `chat.ts`/`common.ts` (EN+HU). TDD (+23 tests). Gate green: check 0/0 tracked (6875 files), test
+**6169** (+23), build 0 warnings (+error compiled), fallow **50**, i18n 0 errors. **E1+E2 now form the
+complete error seam — ready for the batch staging deploy.**
 
 ### T1 — types.ts split ⬜
 **Blocked by:** nothing. **Run alone, in a quiet window, merge same day.**
