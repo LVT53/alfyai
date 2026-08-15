@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { getOlderConversationMessages } from "$lib/server/services/conversation-detail/read-model";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
 import { getConversation } from "$lib/server/services/conversations";
 import { deleteMessages, listMessages } from "$lib/server/services/messages";
@@ -7,6 +8,39 @@ import type { RequestHandler } from "./$types";
 
 const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
 	"forked_source_history_confirmation_required";
+
+// O1 pagination — "load older messages" for a conversation whose initial
+// window (served by GET /api/conversations/[id]) didn't include the full
+// history. A thin auth/HTTP adapter over the read model, matching
+// ADR-0022's boundary: parse/validate query params, delegate assembly to
+// `getOlderConversationMessages`, map a missing conversation to 404.
+export const GET: RequestHandler = async (event) => {
+	requireAuth(event);
+	const user = event.locals.user;
+	if (!user) {
+		return json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	const { id } = event.params;
+	const offsetParam = Number(event.url.searchParams.get("offset"));
+	const limitParam = event.url.searchParams.get("limit");
+	const offset =
+		Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : 0;
+	const limit = limitParam ? Number(limitParam) : undefined;
+
+	const page = await getOlderConversationMessages({
+		userId: user.id,
+		conversationId: id,
+		offset,
+		limit: limit && Number.isFinite(limit) && limit > 0 ? limit : undefined,
+	});
+
+	if (!page) {
+		return json({ error: "Conversation not found" }, { status: 404 });
+	}
+
+	return json(page);
+};
 
 export const DELETE: RequestHandler = async (event) => {
 	try {

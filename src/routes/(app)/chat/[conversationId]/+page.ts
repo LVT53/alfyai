@@ -41,7 +41,16 @@ export const load: PageLoad = async ({
 		(browser && typeof window !== "undefined"
 			? hasPendingConversationMessage(conversationId)
 			: false);
-	const detailView = useBootstrap ? "bootstrap" : "first-render";
+	// O1 — request the fully-assembled detail directly instead of a cheap
+	// "first-render" payload that the page then always followed up with a
+	// second, full client-side fetch (`sidecarPending` was unconditionally
+	// `true` for "first-render"). That made every conversation open read and
+	// re-assemble the conversation detail twice. Requesting "full" here
+	// (now backed by a bounded, not full-history, message window — see
+	// `getConversationDetail`) makes this the only detail read the open
+	// needs. "bootstrap" is untouched: a brand-new conversation with no
+	// persisted messages yet has nothing for "full" to assemble.
+	const detailView = useBootstrap ? "bootstrap" : "full";
 
 	const detailPromise = fetch(
 		`/api/conversations/${conversationId}?view=${detailView}`,
@@ -68,6 +77,7 @@ export const load: PageLoad = async ({
 		...parentData,
 		conversation: detail.conversation,
 		messages: detail.messages,
+		hasMoreMessages: detail.hasMoreMessages ?? false,
 		attachedArtifacts: detail.attachedArtifacts ?? [],
 		activeWorkingSet: detail.activeWorkingSet ?? [],
 		contextStatus: detail.contextStatus ?? null,

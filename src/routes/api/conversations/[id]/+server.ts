@@ -20,10 +20,7 @@ export const GET: RequestHandler = async (event) => {
 	try {
 		const { id } = event.params;
 		const requestedView = event.url.searchParams.get("view");
-		const view =
-			requestedView === "bootstrap" || requestedView === "first-render"
-				? requestedView
-				: "full";
+		const view = requestedView === "bootstrap" ? "bootstrap" : "full";
 
 		const detail = await getConversationDetail({
 			userId: user.id,

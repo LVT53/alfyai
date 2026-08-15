@@ -319,33 +319,36 @@ function compactPersistedMessageMetadata(
 	return next as PersistedMessageMetadata;
 }
 
-export async function listMessages(
-	conversationId: string,
-): Promise<ChatMessage[]> {
-	const [result, attachmentMap] = await Promise.all([
-		db
-			.select({
-				message: messages,
-				model: usageEvents.modelId,
-				legacyModel: messageAnalytics.model,
-				modelDisplayName: usageEvents.modelDisplayName,
-				generationTimeMs: usageEvents.generationTimeMs,
-				costUsdMicros: usageEvents.costUsdMicros,
-				completionTokens: usageEvents.completionTokens,
-				reasoningTokens: usageEvents.reasoningTokens,
-				totalTokens: usageEvents.totalTokens,
-				legacyGenerationTimeMs: messageAnalytics.generationTimeMs,
-			})
-			.from(messages)
-			.leftJoin(usageEvents, eq(messages.id, usageEvents.messageId))
-			.leftJoin(messageAnalytics, eq(messages.id, messageAnalytics.messageId))
-			.where(eq(messages.conversationId, conversationId))
-			.orderBy(...messageOrderAsc()),
-		listMessageAttachments(conversationId),
-	]);
+function messageWindowBaseQuery(conversationId: string) {
+	return db
+		.select({
+			message: messages,
+			model: usageEvents.modelId,
+			legacyModel: messageAnalytics.model,
+			modelDisplayName: usageEvents.modelDisplayName,
+			generationTimeMs: usageEvents.generationTimeMs,
+			costUsdMicros: usageEvents.costUsdMicros,
+			completionTokens: usageEvents.completionTokens,
+			reasoningTokens: usageEvents.reasoningTokens,
+			totalTokens: usageEvents.totalTokens,
+			legacyGenerationTimeMs: messageAnalytics.generationTimeMs,
+		})
+		.from(messages)
+		.leftJoin(usageEvents, eq(messages.id, usageEvents.messageId))
+		.leftJoin(messageAnalytics, eq(messages.id, messageAnalytics.messageId))
+		.where(eq(messages.conversationId, conversationId));
+}
 
-	const uniqueRows = new Map<string, (typeof result)[number]>();
-	for (const row of result) {
+type MessageWindowRow = Awaited<
+	ReturnType<typeof messageWindowBaseQuery>
+>[number];
+
+function mapMessageWindowRows(
+	rows: MessageWindowRow[],
+	attachmentMap: Awaited<ReturnType<typeof listMessageAttachments>>,
+): ChatMessage[] {
+	const uniqueRows = new Map<string, MessageWindowRow>();
+	for (const row of rows) {
 		if (!uniqueRows.has(row.message.id)) {
 			uniqueRows.set(row.message.id, row);
 		}
@@ -369,6 +372,65 @@ export async function listMessages(
 			attachments: attachmentMap.get(row.message.id) ?? [],
 		};
 	});
+}
+
+export async function listMessages(
+	conversationId: string,
+): Promise<ChatMessage[]> {
+	const [result, attachmentMap] = await Promise.all([
+		messageWindowBaseQuery(conversationId).orderBy(...messageOrderAsc()),
+		listMessageAttachments(conversationId),
+	]);
+
+	return mapMessageWindowRows(result, attachmentMap);
+}
+
+/**
+ * O1 — the conversation-open read path does not need the entire message
+ * history: it needs a recent window, plus a signal that older messages
+ * exist so a caller can page backward on demand. Ordered `DESC` (newest
+ * first) so the `LIMIT` bounds the row scan to the window itself rather
+ * than reading the whole table and truncating in memory; the result is
+ * reversed back to the conversation's natural ascending order before
+ * returning. `offset` counts messages already loaded by the caller (from
+ * the newest end), so passing the running total pages strictly older
+ * messages on each call. 100 is chosen as generous headroom over the
+ * production maximum observed at slice O1's measurement time (89
+ * messages/conversation, 2026-08-15) — the bound exists to cap future
+ * growth, not to trim today's conversations.
+ */
+export const CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT = 100;
+
+export interface MessageWindowPage {
+	messages: ChatMessage[];
+	hasMoreBefore: boolean;
+}
+
+export async function listMessageWindow(
+	conversationId: string,
+	options: { limit?: number; offset?: number } = {},
+): Promise<MessageWindowPage> {
+	const limit = Math.max(
+		1,
+		Math.trunc(options.limit ?? CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT),
+	);
+	const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+
+	const [result, attachmentMap] = await Promise.all([
+		messageWindowBaseQuery(conversationId)
+			.orderBy(...messageOrderDesc())
+			.limit(limit + 1)
+			.offset(offset),
+		listMessageAttachments(conversationId),
+	]);
+
+	const hasMoreBefore = result.length > limit;
+	const windowRowsAscending = result.slice(0, limit).reverse();
+
+	return {
+		messages: mapMessageWindowRows(windowRowsAscending, attachmentMap),
+		hasMoreBefore,
+	};
 }
 
 /**

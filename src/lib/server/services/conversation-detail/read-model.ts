@@ -22,7 +22,10 @@ import {
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
-import { listMessages } from "$lib/server/services/messages";
+import {
+	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
+	listMessageWindow,
+} from "$lib/server/services/messages";
 import {
 	getActiveSkillSession,
 	serializePublicSkillSession,
@@ -39,12 +42,30 @@ import type {
 	MessageSourceForks,
 } from "$lib/types";
 
-export type ConversationDetailView = "full" | "bootstrap" | "first-render";
+// O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
+// former "bootstrap"-vs-"first-render"-vs-"full" three-way split existed to
+// make the initial page load cheap by deferring the expensive assembly to a
+// second, client-triggered fetch. In practice that second fetch was
+// unconditional (`sidecarPending` was always `true` for "first-render"), so
+// every conversation open paid for two full read-model invocations instead
+// of one. Folding the initial load into "full" — now backed by a bounded
+// message window rather than the entire history — removes the second read
+// instead of just deferring it. "bootstrap" is unchanged: a brand-new
+// conversation with no persisted messages yet has nothing for "full" to
+// assemble, so skipping straight to a stream is still the cheaper, correct
+// path.
+export type ConversationDetailView = "full" | "bootstrap";
 
 export interface GetConversationDetailInput {
 	userId: string;
 	conversationId: string;
 	view?: ConversationDetailView;
+	/**
+	 * Overrides the default initial message window size
+	 * (`CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT`). Exists for tests that
+	 * need to exercise pagination without seeding hundreds of rows.
+	 */
+	messageWindowLimit?: number;
 }
 
 async function attachSourceForksToAssistantMessages(
@@ -68,6 +89,7 @@ export async function getConversationDetail({
 	userId,
 	conversationId,
 	view = "full",
+	messageWindowLimit = CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 }: GetConversationDetailInput): Promise<ConversationDetail | null> {
 	const conversation = await getConversation(userId, conversationId);
 	if (!conversation) return null;
@@ -102,47 +124,12 @@ export async function getConversationDetail({
 			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: true,
 			sidecarPending: false,
-		};
-	}
-
-	if (view === "first-render") {
-		const [messageHistory, forkOrigin, draft, activeSkillSession] =
-			await Promise.all([
-				listMessages(conversationId),
-				getConversationForkOrigin(conversationId),
-				getConversationDraft(userId, conversationId),
-				getActiveSkillSession(userId, conversationId).catch(() => null),
-			]);
-		const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
-			userId,
-			messageHistory,
-		);
-		return {
-			conversation,
-			messages: messagesWithSourceForks,
-			forkOrigin,
-			attachedArtifacts: [],
-			activeWorkingSet: [],
-			contextStatus: null,
-			contextSources: null,
-			taskState: null,
-			contextDebug: null,
-			draft,
-			generatedFiles: [],
-			fileProductionJobs: [],
-			atlasJobs: [],
-			atlasAvailability,
-			contextCompressionSnapshots: [],
-			activeSkillSession: serializePublicSkillSession(activeSkillSession),
-			bootstrap: false,
-			sidecarPending: true,
-			totalCostUsdMicros: 0,
-			totalTokens: 0,
+			hasMoreMessages: false,
 		};
 	}
 
 	const [
-		messageHistory,
+		messageWindow,
 		forkOrigin,
 		attachedArtifacts,
 		linkedSources,
@@ -159,7 +146,7 @@ export async function getConversationDetail({
 		projectReference,
 		activeSkillSession,
 	] = await Promise.all([
-		listMessages(conversationId),
+		listMessageWindow(conversationId, { limit: messageWindowLimit }),
 		getConversationForkOrigin(conversationId),
 		listConversationArtifacts(userId, conversationId),
 		listConversationLinkedContextSources({ userId, conversationId }).catch(
@@ -186,7 +173,7 @@ export async function getConversationDetail({
 	).catch(() => taskState);
 	const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
 		userId,
-		messageHistory,
+		messageWindow.messages,
 	);
 	const contextSources = buildContextSourcesState({
 		userId,
@@ -219,7 +206,49 @@ export async function getConversationDetail({
 		activeSkillSession: serializePublicSkillSession(activeSkillSession),
 		bootstrap: false,
 		sidecarPending: false,
+		hasMoreMessages: messageWindow.hasMoreBefore,
 		totalCostUsdMicros: costSummary.totalCostUsdMicros,
 		totalTokens: costSummary.totalTokens,
+	};
+}
+
+// O1 pagination — the initial window loaded by `getConversationDetail`
+// covers only the most recent `messageWindowLimit` messages. This is the
+// on-demand path for scrolling further back: it re-runs only the
+// message-window query plus the same child-fork decoration `full` view
+// messages get (so the assembled `ChatMessage[]` shape matches exactly),
+// and does NOT re-run the rest of the ~16-way assembly (context sources,
+// task state, atlas jobs, cost, …) — that state does not change by paging
+// older messages into view, so re-fetching it would be pure waste.
+export interface GetOlderConversationMessagesInput {
+	userId: string;
+	conversationId: string;
+	/** Number of messages already loaded, counted from the newest end. */
+	offset: number;
+	limit?: number;
+}
+
+export interface OlderConversationMessagesPage {
+	messages: ChatMessage[];
+	hasMoreBefore: boolean;
+}
+
+export async function getOlderConversationMessages({
+	userId,
+	conversationId,
+	offset,
+	limit = CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
+}: GetOlderConversationMessagesInput): Promise<OlderConversationMessagesPage | null> {
+	const conversation = await getConversation(userId, conversationId);
+	if (!conversation) return null;
+
+	const page = await listMessageWindow(conversationId, { limit, offset });
+	const messagesWithSourceForks = await attachSourceForksToAssistantMessages(
+		userId,
+		page.messages,
+	);
+	return {
+		messages: messagesWithSourceForks,
+		hasMoreBefore: page.hasMoreBefore,
 	};
 }

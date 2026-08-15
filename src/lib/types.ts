@@ -528,6 +528,13 @@ export interface DocumentWorkspaceItem {
 export interface ConversationDetail {
 	conversation: Conversation;
 	messages: ChatMessage[];
+	/**
+	 * O1 — `messages` is a bounded window of the most recent messages, not
+	 * necessarily the full history. `true` when older messages exist beyond
+	 * this window (see `getOlderConversationMessages` in the conversation
+	 * detail read model for paging them in on demand).
+	 */
+	hasMoreMessages?: boolean;
 	forkOrigin?: ConversationForkOrigin | null;
 	attachedArtifacts?: ArtifactSummary[];
 	activeWorkingSet?: ArtifactSummary[];
