@@ -8,7 +8,7 @@ import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
-import { listMessages } from "$lib/server/services/messages";
+import { getLastMessage } from "$lib/server/services/messages";
 import {
 	resolveSkillPromptContext,
 	skillSessionToPromptContext,
@@ -416,8 +416,9 @@ async function resolveDepthClarificationCarryForward(params: {
 		"reasoningDepth" | "modelId" | "modelDisplayName" | "providerDisplayName"
 	>;
 }): Promise<DepthMetadata | null> {
-	const messages = await listMessages(params.conversationId).catch(() => []);
-	const previousMessage = messages.at(-1);
+	const previousMessage = await getLastMessage(params.conversationId).catch(
+		() => null,
+	);
 	const previousDepthMetadata = previousMessage?.depthMetadata;
 	if (
 		previousMessage?.role !== "assistant" ||

@@ -5,7 +5,6 @@ import { messages } from "$lib/server/db/schema";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
-import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import {
 	findProjectFolderReferenceContextByQuery,
 	getProjectReferenceContext,
@@ -208,7 +207,6 @@ async function listRecentDialogueMessages(params: {
 		eq(messages.conversationId, params.conversationId),
 		inArray(messages.role, ["user", "assistant"]),
 	);
-	repairConversationMessageSequences(params.conversationId);
 
 	const [countRows, rows, attachmentMap] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),

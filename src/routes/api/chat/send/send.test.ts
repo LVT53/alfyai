@@ -82,6 +82,7 @@ vi.mock("$lib/server/services/memory-maintenance", () => ({
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn(),
 	listMessages: vi.fn(async () => []),
+	getLastMessage: vi.fn(async () => null),
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 }));

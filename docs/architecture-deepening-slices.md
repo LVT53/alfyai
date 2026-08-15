@@ -636,8 +636,17 @@ continuing. This is the second and last scheduled stop in the programme.
 
 ---
 
-### S1 — Sequence repair leaves the read path ⬜
+### S1 — Sequence repair leaves the read path 🟨
 **Blocked by:** none. Parallel-safe with G1 and R1.
+
+**⚠️ Classification corrected (2026-08-15, verified in code).** `task-state/continuity.ts:667`
+(`selectProjectFolderSiblingPromotion`) is a **READ**, not a write — the function body has zero
+`db.insert/update/delete`, only `db.select`, and it is called from `context-selection.ts:1242`
+during prompt-context assembly. The repair call there was removed. Also confirmed `knowledge/
+capsules.ts:140,232` are reads (write only `artifacts`, not `messages`) → removed. So **8** read-path
+removals total (the plan's 5 + capsules ×2 + continuity), not 5. Every kept call
+(`messages.ts` executor calls, `conversation-forks.ts:266`, `chat-turn/retry.ts:102`) is a genuine
+write; `chatgpt-import` assigns explicit `seq+1` and can't gap.
 
 **⚠️ Scope corrected:** 11 call sites, not 3. Classify each before touching it.
 
@@ -653,7 +662,7 @@ continuing. This is the second and last scheduled stop in the programme.
 | `memory-context/history.ts:307` | read | **remove** |
 | `knowledge/capsules.ts:140`, `:232` | verify | classify first |
 | `chat-turn/retry.ts:102` | write | keep |
-| `task-state/continuity.ts:667` | write | keep |
+| `task-state/continuity.ts:667` | ~~write~~ **read** (verified) | **remove** |
 | `conversation-forks.ts:266` | write (executor form) | keep |
 
 **TDD**

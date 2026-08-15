@@ -23,11 +23,8 @@ import type {
 	WebCitationAudit,
 } from "$lib/types";
 import { listMessageAttachments } from "./knowledge";
-import { messageOrderAsc } from "./message-ordering";
-import {
-	repairConversationMessageSequences,
-	repairConversationMessageSequencesWithExecutor,
-} from "./message-sequences";
+import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
+import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
@@ -325,8 +322,6 @@ function compactPersistedMessageMetadata(
 export async function listMessages(
 	conversationId: string,
 ): Promise<ChatMessage[]> {
-	repairConversationMessageSequences(conversationId);
-
 	const [result, attachmentMap] = await Promise.all([
 		db
 			.select({
@@ -376,6 +371,28 @@ export async function listMessages(
 	});
 }
 
+/**
+ * Reads only the most recently sequenced message in a conversation, via a
+ * single-row `ORDER BY ... LIMIT 1` query. Unlike `listMessages`, this does
+ * not join usage/analytics data or resolve attachments — callers that only
+ * need the last message's role/content/metadata (e.g. depth-clarification
+ * carry-forward) should use this instead of loading the whole conversation.
+ */
+export async function getLastMessage(
+	conversationId: string,
+): Promise<ChatMessage | null> {
+	const [row] = await db
+		.select()
+		.from(messages)
+		.where(eq(messages.conversationId, conversationId))
+		.orderBy(...messageOrderDesc())
+		.limit(1);
+
+	if (!row) return null;
+
+	return mapRowToChatMessage(row);
+}
+
 export type ConversationExportMessage = {
 	role: MessageRole;
 	content: string;
@@ -387,7 +404,6 @@ export async function listConversationMessagesForExport(params: {
 	limit?: number;
 }): Promise<ConversationExportMessage[]> {
 	const limit = Math.max(1, Math.min(params.limit ?? 120, 200));
-	repairConversationMessageSequences(params.conversationId);
 
 	const rows = await db
 		.select({

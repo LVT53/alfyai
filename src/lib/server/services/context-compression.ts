@@ -10,7 +10,6 @@ import type {
 } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { messageOrderAsc } from "./message-ordering";
-import { repairConversationMessageSequences } from "./message-sequences";
 import { parseModelJsonObject } from "./model-json";
 
 export type ContextCompressionSnapshotTrigger = "manual" | "automatic";
@@ -491,7 +490,6 @@ export async function getLatestValidContextCompressionSnapshot(input: {
 export async function listContextCompressionSourceMessages(
 	conversationId: string,
 ): Promise<ContextCompressionSourceMessage[]> {
-	repairConversationMessageSequences(conversationId);
 	return db
 		.select({
 			id: messages.id,

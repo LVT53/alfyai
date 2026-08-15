@@ -10,7 +10,6 @@ import {
 	messageOrderDesc,
 	messageTimestampOrderDesc,
 } from "$lib/server/services/message-ordering";
-import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 import {
@@ -304,7 +303,6 @@ async function loadHistoryConversationDetail(params: {
 		eq(messages.conversationId, params.historyConversationId),
 		inArray(messages.role, ["user", "assistant"]),
 	);
-	repairConversationMessageSequences(params.historyConversationId);
 	const [countRows, rows, attachmentMap] = await Promise.all([
 		db.select({ messageCount: count() }).from(messages).where(dialogueWhere),
 		db

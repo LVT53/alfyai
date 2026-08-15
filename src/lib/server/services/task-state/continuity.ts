@@ -10,7 +10,6 @@ import {
 	taskCheckpoints,
 } from "$lib/server/db/schema";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
-import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
 import type { TaskCheckpoint, TaskMemoryItem, TaskState } from "$lib/types";
 import { mapTaskCheckpoint, mapTaskState } from "./mappers";
@@ -663,8 +662,6 @@ export async function selectProjectFolderSiblingPromotion(params: {
 
 	const winner = ranked[0];
 	if (!winner) return null;
-
-	repairConversationMessageSequences(winner.conversationId);
 
 	const [messageCountRows, messageRows] = await Promise.all([
 		db

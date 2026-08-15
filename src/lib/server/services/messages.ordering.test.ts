@@ -253,4 +253,79 @@ describe("message ordering", () => {
 			"a-assistant-message",
 		]);
 	});
+
+	describe("getLastMessage", () => {
+		it("returns the same last message listMessages would, without repairing sequences", async () => {
+			seedConversation();
+			seedSameSecondMessagesWithUuidOrderOppositeToInsertion();
+			const { getLastMessage } = await import("./messages");
+
+			const last = await getLastMessage("conv-1");
+
+			expect(last?.id).toBe("a-assistant-message");
+			expect(last?.role).toBe("assistant");
+
+			const { sqlite, db } = openSeedDatabase();
+			try {
+				const rows = db
+					.select({ messageSequence: schema.messages.messageSequence })
+					.from(schema.messages)
+					.all();
+				expect(rows.every((row) => row.messageSequence == null)).toBe(true);
+			} finally {
+				sqlite.close();
+			}
+		});
+
+		it("returns null for a conversation with no messages", async () => {
+			seedConversation();
+			const { getLastMessage } = await import("./messages");
+
+			await expect(getLastMessage("conv-1")).resolves.toBeNull();
+		});
+
+		it("reads a single bounded row instead of loading the whole conversation", async () => {
+			seedConversation();
+			const { sqlite: seedSqlite, db: seedDb } = openSeedDatabase();
+			const base = new Date("2026-06-01T00:00:00.000Z");
+			seedDb
+				.insert(schema.messages)
+				.values(
+					Array.from({ length: 25 }, (_, index) => ({
+						id: `bulk-message-${index + 1}`,
+						conversationId: "conv-1",
+						role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+						content: `Message ${index + 1}`,
+						createdAt: new Date(base.getTime() + index * 1000),
+					})),
+				)
+				.run();
+			seedSqlite.close();
+
+			const probe = new Database(dbPath);
+			const statementPrototype = Object.getPrototypeOf(
+				probe.prepare("SELECT 1"),
+			);
+			probe.close();
+			const allSpy = vi.spyOn(statementPrototype, "all");
+
+			try {
+				const { getLastMessage } = await import("./messages");
+				const last = await getLastMessage("conv-1");
+
+				expect(last?.id).toBe("bulk-message-25");
+
+				const maxRowsReturnedByAnyStatement = allSpy.mock.results.reduce(
+					(max, result) =>
+						result.type === "return" && Array.isArray(result.value)
+							? Math.max(max, result.value.length)
+							: max,
+					0,
+				);
+				expect(maxRowsReturnedByAnyStatement).toBeLessThanOrEqual(1);
+			} finally {
+				allSpy.mockRestore();
+			}
+		});
+	});
 });

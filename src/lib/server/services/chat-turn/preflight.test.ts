@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 	startSkillSession: vi.fn(),
 	resolveEffectiveSkillDefinition: vi.fn(),
 	resolveReasoningDepthSelection: vi.fn(),
-	listMessages: vi.fn(),
+	getLastMessage: vi.fn(),
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -55,7 +55,7 @@ vi.mock("./depth-selection", () => ({
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
-	listMessages: mocks.listMessages,
+	getLastMessage: mocks.getLastMessage,
 }));
 
 function makeRequest(
@@ -160,7 +160,7 @@ function resetPreflightMocks() {
 			providerDisplayName: "Provider One",
 		},
 	});
-	mocks.listMessages.mockResolvedValue([]);
+	mocks.getLastMessage.mockResolvedValue(null);
 }
 
 describe("admitChatTurnStream", () => {
@@ -214,7 +214,7 @@ describe("admitChatTurnStream", () => {
 		expect(mocks.resolveSkillPromptContext).not.toHaveBeenCalled();
 		expect(mocks.startSkillSession).not.toHaveBeenCalled();
 		expect(mocks.resolveReasoningDepthSelection).not.toHaveBeenCalled();
-		expect(mocks.listMessages).not.toHaveBeenCalled();
+		expect(mocks.getLastMessage).not.toHaveBeenCalled();
 	});
 });
 
@@ -293,6 +293,21 @@ describe("preflightChatTurn", () => {
 		});
 	});
 
+	it("reads the last message with a bounded lookup instead of loading the full conversation history", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest(),
+		});
+
+		// `getLastMessage` is the single-row bounded read; `listMessages` (the
+		// full-history loader) is not part of this module's mocked surface at
+		// all, so preflight would throw if it ever fell back to it.
+		expect(mocks.getLastMessage).toHaveBeenCalledTimes(1);
+		expect(mocks.getLastMessage).toHaveBeenCalledWith("conv-1");
+	});
+
 	it("keeps eager turn preparation responsible for skill prompt context", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		const skillPromptContext = makeSkillPromptContext();
@@ -327,7 +342,7 @@ describe("preflightChatTurn", () => {
 
 	it("carries forward explicit Max after a Depth Clarification when the composer depth is unchanged", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.listMessages.mockResolvedValue([
+		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
 				requested: "max",
 				appliedProfile: "maximum",
@@ -344,7 +359,7 @@ describe("preflightChatTurn", () => {
 					language: "en",
 				},
 			}),
-		]);
+		);
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
@@ -380,7 +395,7 @@ describe("preflightChatTurn", () => {
 
 	it("carries forward an Auto-resolved extended profile after a Depth Clarification", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.listMessages.mockResolvedValue([
+		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
 				requested: "auto",
 				appliedProfile: "extended",
@@ -405,7 +420,7 @@ describe("preflightChatTurn", () => {
 					language: "en",
 				},
 			}),
-		]);
+		);
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
@@ -445,7 +460,7 @@ describe("preflightChatTurn", () => {
 
 	it("carries forward an Auto-resolved maximum profile after a Depth Clarification", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.listMessages.mockResolvedValue([
+		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
 				requested: "auto",
 				appliedProfile: "maximum",
@@ -465,7 +480,7 @@ describe("preflightChatTurn", () => {
 					language: "en",
 				},
 			}),
-		]);
+		);
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
@@ -500,7 +515,7 @@ describe("preflightChatTurn", () => {
 
 	it("does not carry forward when the visible composer depth changed", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.listMessages.mockResolvedValue([
+		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
 				requested: "max",
 				appliedProfile: "maximum",
@@ -514,7 +529,7 @@ describe("preflightChatTurn", () => {
 					language: "en",
 				},
 			}),
-		]);
+		);
 
 		const request = makeRequest({ reasoningDepth: "auto" });
 		const result = await preflightChatTurn({
@@ -542,38 +557,21 @@ describe("preflightChatTurn", () => {
 
 	it("consumes carry-forward after one follow-up turn", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.listMessages.mockResolvedValue([
-			makeAssistantClarificationMessage({
+		// The conversation's last message (what a bounded `getLastMessage` read
+		// returns) is the follow-up answer, not the earlier clarification —
+		// carry-forward must not fire once a normal answer has been given.
+		mocks.getLastMessage.mockResolvedValue({
+			id: "assistant-answer-1",
+			role: "assistant",
+			content: "Here is the comparison.",
+			timestamp: Date.now() + 2,
+			depthMetadata: {
 				requested: "auto",
 				appliedProfile: "maximum",
 				fallback: false,
 				classifierSource: "control_model",
-				outcome: "clarification_requested",
-				clarification: {
-					outcome: "ask",
-					reason: "multiple_plausible_targets",
-					language: "en",
-				},
-			}),
-			{
-				id: "user-follow-up-1",
-				role: "user",
-				content: "Use Acme as the target.",
-				timestamp: Date.now() + 1,
 			},
-			{
-				id: "assistant-answer-1",
-				role: "assistant",
-				content: "Here is the comparison.",
-				timestamp: Date.now() + 2,
-				depthMetadata: {
-					requested: "auto",
-					appliedProfile: "maximum",
-					fallback: false,
-					classifierSource: "control_model",
-				},
-			},
-		]);
+		});
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
