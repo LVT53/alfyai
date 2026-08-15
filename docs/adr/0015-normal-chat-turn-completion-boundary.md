@@ -26,3 +26,24 @@ We chose the chat-turn boundary because completion is the second half of a Norma
 - Browser-facing SSE event names and payloads belong in `src/lib/services/stream-protocol.ts`; completion code may supply payload data, but it should not duplicate raw event-string builders.
 - Browser-side send, retry, reconnect, waiting, stop, and queue transitions belong in `src/lib/client/normal-chat-client-turn-runtime.ts`; that runtime applies completion results but must not recreate durable completion sequencing.
 - Response-facing Context Sources changes need completion-boundary tests, not only route tests.
+
+**Amendment (F1, 2026-08-15) — one chat-turn entrypoint for both transports.** The `send`, `stream`,
+and `retry` routes now drive a turn through a single facade, `src/lib/server/services/chat-turn/index.ts`,
+and import chat-turn only from it rather than reaching into individual submodules. This is a facade
+*inside* the chat-turn module directory, not a new top-level `services/*.ts` boundary. **Completion
+ownership is unchanged by this amendment** — the facade re-exports the same `finalizeChatTurn` boundary;
+it does not move any durable completion sequencing into the routes.
+
+Two clarifications the facade makes concrete about how transports adapt without owning completion:
+
+- The former transport-facing mode booleans (persistence strictness, attachment ordering, evidence-wait,
+  projection deferral) are **not** a transport concern to pass in; they are determined by the turn kind
+  (`ChatTurnRoute = "send" | "stream"`) inside `finalize.ts`. Only genuinely per-turn state a transport
+  legitimately knows (a reconnect already persisted the user message; a stopped stream skips the heavier
+  projection) remains a parameter.
+- `finalizeChatTurn` no longer returns unresolved task promises for a transport to schedule. It owns all
+  post-turn scheduling itself. A streaming transport that must interleave its terminal wire frames with
+  the durable receipt supplies an `onDurableReceiptReady(receipt)` callback, which completion invokes and
+  awaits at the correct point; the transport never receives a promise to await or a task-starting function
+  to call. This keeps "durable completion sequencing lives in chat-turn, transports only format payloads"
+  true even for the timing-sensitive stream path.
