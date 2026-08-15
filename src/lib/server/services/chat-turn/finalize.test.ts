@@ -25,6 +25,7 @@ const {
 	mockPersistAssistantTurnState,
 	mockPersistAssistantEvidence,
 	mockRunPostTurnTasks,
+	mockRecordAssistantTurnAnalytics,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -68,6 +69,7 @@ const {
 	mockPersistAssistantTurnState: vi.fn(),
 	mockPersistAssistantEvidence: vi.fn(),
 	mockRunPostTurnTasks: vi.fn(),
+	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -79,6 +81,7 @@ vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
 	persistAssistantTurnState: mockPersistAssistantTurnState,
 	persistAssistantEvidence: mockPersistAssistantEvidence,
 	runPostTurnTasks: mockRunPostTurnTasks,
+	recordAssistantTurnAnalytics: mockRecordAssistantTurnAnalytics,
 }));
 
 vi.mock("$lib/server/services/chat-files", () => ({
@@ -513,6 +516,8 @@ describe("finalizeChatTurn", () => {
 		mockPersistAssistantEvidence.mockResolvedValue(undefined);
 		mockRunPostTurnTasks.mockReset();
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
+		mockRecordAssistantTurnAnalytics.mockReset();
+		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 	});
 
 	it("can return a stream receipt before deferred turn projection resolves", async () => {
@@ -1596,6 +1601,143 @@ describe("finalizeChatTurn", () => {
 		});
 
 		expect(mockRecordMemoryEvent).not.toHaveBeenCalled();
+	});
+
+	// M1 — server stream-timeline marks (firstByteMs/firstThinkingMs/
+	// firstTokenMs) persisted to messageAnalytics. See ADR-0042's amendment.
+	describe("stream-timeline marks analytics (M1)", () => {
+		beforeEach(() => {
+			mockIsConversationIncognito.mockResolvedValue(false);
+		});
+
+		it("threads firstByteMs/firstThinkingMs/firstTokenMs through persistAssistantTurnState into recordMessageAnalytics", async () => {
+			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
+				typeof vi.fn
+			>;
+			const { persistAssistantTurnState } =
+				await vi.importActual<typeof import("./finalize-steps")>(
+					"./finalize-steps",
+				);
+
+			await persistAssistantTurnState({
+				userId: "user-1",
+				conversationId: "conv-1",
+				normalizedMessage: "What is the capital of France?",
+				assistantResponse: "Paris.",
+				attachmentIds: [],
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				userMessageId: "user-message-1",
+				assistantMessageId: "assistant-message-1",
+				analytics: {
+					model: "model-1",
+					firstByteMs: 42,
+					firstThinkingMs: 44,
+					firstTokenMs: 55,
+				},
+			});
+
+			expect(mockRecordMessageAnalytics).toHaveBeenCalledWith(
+				expect.objectContaining({
+					messageId: "assistant-message-1",
+					firstByteMs: 42,
+					firstThinkingMs: 44,
+					firstTokenMs: 55,
+				}),
+			);
+		});
+
+		it("records only the marks a turn reached via recordAssistantTurnAnalytics when turn-state persistence is skipped (e.g. a stopped stream), without invoking the full turn-state projection", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				logPrefix: "[STREAM]",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "partial answer",
+				assistantMetadata: { wasStopped: true },
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: {
+					model: "model-1",
+					firstByteMs: 40,
+					firstThinkingMs: 61,
+					// firstTokenMs never reached — stopped before any visible token.
+				},
+				assistantMirrorContent: "",
+				maintenanceReason: "chat_stream",
+				// Mirrors stream-completion.ts's `persistTurnState: !wasStopped`.
+				persistTurnState: false,
+			});
+
+			expect(mockRecordAssistantTurnAnalytics).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "user-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-message",
+					analytics: expect.objectContaining({
+						firstByteMs: 40,
+						firstThinkingMs: 61,
+					}),
+				}),
+			);
+			// The heavier turn-state projection (working set, task-state
+			// checkpoint, document refinement, ...) is NOT resurrected just to
+			// carry the timing marks — a stopped turn still skips it.
+			expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
+		});
+
+		it("ADR-0042 invariant: a throwing analytics sink does not fail persistAssistantTurnState or the turn's other post-turn work", async () => {
+			const mockRecordMessageAnalytics = recordMessageAnalytics as ReturnType<
+				typeof vi.fn
+			>;
+			mockRecordMessageAnalytics.mockRejectedValueOnce(
+				new Error("analytics sink unavailable"),
+			);
+			const errorSpy = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => undefined);
+			const { persistAssistantTurnState } =
+				await vi.importActual<typeof import("./finalize-steps")>(
+					"./finalize-steps",
+				);
+
+			// Malformed marks (NaN/negative) alongside a throwing sink — neither
+			// should surface as a rejection here.
+			await expect(
+				persistAssistantTurnState({
+					userId: "user-1",
+					conversationId: "conv-1",
+					normalizedMessage: "What is the capital of France?",
+					assistantResponse: "Paris.",
+					attachmentIds: [],
+					contextStatus: null,
+					initialTaskState: null,
+					initialContextDebug: null,
+					userMessageId: "user-message-1",
+					assistantMessageId: "assistant-message-1",
+					analytics: {
+						model: "model-1",
+						firstByteMs: Number.NaN,
+						firstThinkingMs: -5,
+						firstTokenMs: 55,
+					},
+				}),
+			).resolves.toBeDefined();
+
+			expect(mockRecordMessageAnalytics).toHaveBeenCalled();
+			errorSpy.mockRestore();
+		});
 	});
 
 	describe("incognito telemetry suppression", () => {

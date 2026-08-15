@@ -70,34 +70,57 @@ export async function persistUserTurnAttachments(params: {
 	return refreshWorkingSetWithAttachments(params);
 }
 
+// Split out from persistAssistantTurnState (ADR-0042 amendment) so the
+// analytics/timing-marks write does not depend on the full turn-state
+// projection (working set, task-state checkpoint, document refinement, ...)
+// running. finalizeChatTurn calls this directly for turns that skip that
+// heavier projection (e.g. a stopped stream) so partial stream-timeline marks
+// still get persisted. Side-effect-safe by construction: every failure here
+// is caught and logged, never rethrown, per the ADR-0042 invariant that
+// telemetry can never fail or alter a turn.
+export async function recordAssistantTurnAnalytics(params: {
+	userId: string;
+	conversationId: string;
+	assistantMessageId: string;
+	analytics: PersistAssistantTurnStateParams["analytics"];
+}): Promise<void> {
+	const analytics = params.analytics ?? null;
+	if (!analytics) return;
+	// Incognito conversations are saved-but-untracked: skip usage/cost
+	// analytics for this turn while still persisting everything else.
+	const { isConversationIncognito } = await import("../memory-controls");
+	const incognito = await isConversationIncognito(params.conversationId).catch(
+		() => false,
+	);
+	if (incognito) return;
+	await recordMessageAnalytics({
+		messageId: params.assistantMessageId,
+		conversationId: params.conversationId,
+		userId: params.userId,
+		model: analytics.model,
+		modelDisplayName: analytics.modelDisplayName,
+		promptTokens: analytics.promptTokens,
+		completionTokens: analytics.completionTokens,
+		reasoningTokens: analytics.reasoningTokens,
+		generationTimeMs: analytics.generationTimeMs,
+		firstByteMs: analytics.firstByteMs,
+		firstThinkingMs: analytics.firstThinkingMs,
+		firstTokenMs: analytics.firstTokenMs,
+		providerUsage: analytics.providerUsage,
+	}).catch((err) => {
+		console.error("[ANALYTICS] Failed to record message analytics:", err);
+	});
+}
+
 export async function persistAssistantTurnState(
 	params: PersistAssistantTurnStateParams,
 ): Promise<PersistAssistantTurnStateResult> {
-	const analytics = params.analytics ?? null;
-	if (analytics) {
-		// Incognito conversations are saved-but-untracked: skip usage/cost
-		// analytics for this turn while still persisting everything else below.
-		const { isConversationIncognito } = await import("../memory-controls");
-		const incognito = await isConversationIncognito(
-			params.conversationId,
-		).catch(() => false);
-		if (!incognito) {
-			await recordMessageAnalytics({
-				messageId: params.assistantMessageId,
-				conversationId: params.conversationId,
-				userId: params.userId,
-				model: analytics.model,
-				modelDisplayName: analytics.modelDisplayName,
-				promptTokens: analytics.promptTokens,
-				completionTokens: analytics.completionTokens,
-				reasoningTokens: analytics.reasoningTokens,
-				generationTimeMs: analytics.generationTimeMs,
-				providerUsage: analytics.providerUsage,
-			}).catch((err) => {
-				console.error("[ANALYTICS] Failed to record message analytics:", err);
-			});
-		}
-	}
+	await recordAssistantTurnAnalytics({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		assistantMessageId: params.assistantMessageId,
+		analytics: params.analytics,
+	});
 
 	const sourceArtifactIds =
 		params.attachmentIds.length > 0

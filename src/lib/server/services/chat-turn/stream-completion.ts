@@ -4,7 +4,11 @@ import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { getChatFilesForAssistantMessage } from "$lib/server/services/chat-files";
 import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
-import type { StreamTimelineTerminalPayload } from "$lib/services/stream-timeline";
+import {
+	SERVER_STREAM_TIMELINE_MARKS,
+	type ServerStreamTimelineMark,
+	type StreamTimelineTerminalPayload,
+} from "$lib/services/stream-timeline";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -447,6 +451,24 @@ export async function completeStreamTurn(
 				completionTokens: responseTokenCount,
 				reasoningTokens: thinkingTokenCount,
 				generationTimeMs: genTimeMs,
+				// ADR-0042 amendment — server stream-timeline marks, threaded
+				// through to messageAnalytics for observability. firstByteMs
+				// falls back to MODEL_STREAM_REQUEST (the request was sent, even
+				// if no upstream event ever arrived) when FIRST_UPSTREAM_EVENT
+				// was never reached.
+				firstByteMs: readServerTimelineMarkMs(
+					serverTimeline,
+					SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT,
+					SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST,
+				),
+				firstThinkingMs: readServerTimelineMarkMs(
+					serverTimeline,
+					SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING,
+				),
+				firstTokenMs: readServerTimelineMarkMs(
+					serverTimeline,
+					SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN,
+				),
 				providerUsage: latestProviderUsage,
 			},
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
@@ -689,6 +711,39 @@ function appendNotices(response: string, notices: string[]): string {
 	if (notices.length === 0) return response;
 	const suffix = notices.join("\n\n");
 	return response.trim() ? `${response}\n\n${suffix}` : suffix;
+}
+
+// ADR-0042 amendment — reads a server stream-timeline mark (ms elapsed since
+// turn start, measured server-side) for persistence into messageAnalytics.
+// This is observability, not a turn input: any missing/malformed/throwing
+// read degrades to `undefined` rather than failing or altering the turn. The
+// marks in `serverTimeline.server` are already validated finite/non-negative
+// numbers by createTerminalStreamTimelinePayload, but this stays defensive so
+// a future change to that shape can never surface here as a thrown error.
+function readServerTimelineMarkMs(
+	serverTimeline: StreamTimelineTerminalPayload | undefined,
+	mark: ServerStreamTimelineMark,
+	fallbackMark?: ServerStreamTimelineMark,
+): number | undefined {
+	try {
+		const value = serverTimeline?.server?.[mark];
+		if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+			return value;
+		}
+		if (fallbackMark) {
+			const fallbackValue = serverTimeline?.server?.[fallbackMark];
+			if (
+				typeof fallbackValue === "number" &&
+				Number.isFinite(fallbackValue) &&
+				fallbackValue >= 0
+			) {
+				return fallbackValue;
+			}
+		}
+		return undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function buildFileProductionFailureNotice(

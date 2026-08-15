@@ -1430,6 +1430,13 @@ export const messageAnalytics = sqliteTable(
 		completionTokens: integer("completion_tokens"),
 		reasoningTokens: integer("reasoning_tokens"),
 		generationTimeMs: integer("generation_time_ms"),
+		// ADR-0042 amendment (server stream-timeline marks) — ms elapsed since
+		// turn start on the SERVER, not browser-network-inclusive. Nullable: a
+		// turn with no reasoning has no firstThinkingMs, a stopped/errored turn
+		// may only have reached some of these marks.
+		firstByteMs: integer("first_byte_ms"),
+		firstThinkingMs: integer("first_thinking_ms"),
+		firstTokenMs: integer("first_token_ms"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),

@@ -455,8 +455,27 @@ window.
 
 ---
 
-### M1 — Persist the stream timeline marks ⬜
+### M1 — Persist the stream timeline marks 🟨
 **Blocked by:** none. Parallel-safe with D1/D2 (disjoint files).
+
+**⚠️ Backlog claim corrected (2026-08-15, verified in code).** The acceptance said "Browser snapshot
+reaches the server through existing terminal metadata." **It does not** — terminal metadata flows
+server→client only, `reportTiming` delivers browser marks to a client-side `onTiming` callback (→
+`+page.svelte` diagnostics), and there is **no browser→server timing channel** (`/api/chat/send`
+passes `generationTimeMs: undefined`; no beacon/analytics POST). Adding one would need a new channel,
+which conflicts with "no new stream part names." **M1 therefore persists the SERVER marks** the
+orchestrator already computes in `phaseTimingMs` (`FIRST_UPSTREAM_EVENT→first_byte_ms`,
+`FIRST_THINKING→first_thinking_ms`, `FIRST_VISIBLE_TOKEN→first_token_ms`; `END→generation_time_ms`
+already persisted). These are **server-side** timings (ms from turn start) and **fully answer M1's
+question** — server-prep time (`first_thinking_ms`) vs model-reasoning time
+(`first_token_ms − first_thinking_ms`). The browser network-inclusive view is out of scope. This is
+a mechanism correction, not a goal change; raised at the M1 scheduled stop.
+
+**⚠️ Second correction: no real-traffic baseline until prod.** Under the owner's amended deploy
+model (staging-only until programme end), the ≥48h prod-traffic collection and the real §6 table
+(deepseek model, 6 users) cannot happen mid-programme. M1 lands the instrument and a staging latency
+profile; the real baseline waits for the final prod cutover (or an owner decision to deploy M1's
+additive observability to prod early). Raised at the M1 scheduled stop.
 
 **Why this is its own slice.** A real user complaint about speed arrived and we cannot answer
 it with data. The marks are already computed and then discarded — so today nobody can say how

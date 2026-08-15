@@ -716,4 +716,136 @@ describe("analytics dashboard read model", () => {
 		});
 		expect(userResult.system).toBeUndefined();
 	});
+
+	// M1 — server stream-timeline marks persisted to messageAnalytics.
+	// See ADR-0042's amendment: firstByteMs/firstThinkingMs/firstTokenMs are
+	// SERVER-side marks (ms since turn start), never browser-network-inclusive.
+	describe("recordMessageAnalytics timing marks (M1)", () => {
+		function seedMessageForAnalytics() {
+			const { sqlite, database } = openSeedDatabase();
+			const now = new Date("2026-05-01T00:00:00.000Z");
+			database
+				.insert(schema.users)
+				.values({
+					id: "user-1",
+					email: "user@example.com",
+					name: "User One",
+					passwordHash: "hash",
+					role: "user",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			database
+				.insert(schema.conversations)
+				.values({
+					id: "conversation-1",
+					userId: "user-1",
+					title: "Timing marks conversation",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			database
+				.insert(schema.messages)
+				.values({
+					id: "assistant-message-1",
+					conversationId: "conversation-1",
+					role: "assistant",
+					content: "Paris.",
+					createdAt: now,
+				})
+				.run();
+			sqlite.close();
+		}
+
+		function readMessageAnalyticsRow() {
+			return new Database(dbPath)
+				.prepare(
+					"SELECT first_byte_ms, first_thinking_ms, first_token_ms, generation_time_ms FROM message_analytics WHERE message_id = ?",
+				)
+				.get("assistant-message-1") as
+				| {
+						first_byte_ms: number | null;
+						first_thinking_ms: number | null;
+						first_token_ms: number | null;
+						generation_time_ms: number | null;
+				  }
+				| undefined;
+		}
+
+		it("writes non-null firstByteMs/firstThinkingMs/firstTokenMs for a completed turn", async () => {
+			seedMessageForAnalytics();
+			const { recordMessageAnalytics } = await import("./analytics");
+
+			await recordMessageAnalytics({
+				messageId: "assistant-message-1",
+				conversationId: "conversation-1",
+				userId: "user-1",
+				model: "model-1",
+				generationTimeMs: 2200,
+				firstByteMs: 42,
+				firstThinkingMs: 44,
+				firstTokenMs: 55,
+			});
+
+			const row = readMessageAnalyticsRow();
+			expect(row).toMatchObject({
+				first_byte_ms: 42,
+				first_thinking_ms: 44,
+				first_token_ms: 55,
+				generation_time_ms: 2200,
+			});
+		});
+
+		it("records only the marks a stopped/errored turn reached, leaving the rest null, without throwing", async () => {
+			seedMessageForAnalytics();
+			const { recordMessageAnalytics } = await import("./analytics");
+
+			await expect(
+				recordMessageAnalytics({
+					messageId: "assistant-message-1",
+					conversationId: "conversation-1",
+					userId: "user-1",
+					model: "model-1",
+					firstByteMs: 40,
+					firstThinkingMs: 61,
+					// firstTokenMs never reached — the stream was stopped before any
+					// visible token was produced.
+				}),
+			).resolves.toBeUndefined();
+
+			const row = readMessageAnalyticsRow();
+			expect(row).toMatchObject({
+				first_byte_ms: 40,
+				first_thinking_ms: 61,
+				first_token_ms: null,
+			});
+		});
+
+		it("ADR-0042 invariant: malformed timing marks (NaN/negative/non-number) degrade to null instead of throwing", async () => {
+			seedMessageForAnalytics();
+			const { recordMessageAnalytics } = await import("./analytics");
+
+			await expect(
+				recordMessageAnalytics({
+					messageId: "assistant-message-1",
+					conversationId: "conversation-1",
+					userId: "user-1",
+					model: "model-1",
+					firstByteMs: Number.NaN,
+					firstThinkingMs: -12,
+					// biome-ignore lint/suspicious/noExplicitAny: exercising a malformed upstream value on purpose to prove the guard never throws.
+					firstTokenMs: "55" as any,
+				}),
+			).resolves.toBeUndefined();
+
+			const row = readMessageAnalyticsRow();
+			expect(row).toMatchObject({
+				first_byte_ms: null,
+				first_thinking_ms: null,
+				first_token_ms: null,
+			});
+		});
+	});
 });

@@ -33,12 +33,14 @@ const {
 	mockPersistAssistantTurnState,
 	mockPersistAssistantEvidence,
 	mockRunPostTurnTasks,
+	mockRecordAssistantTurnAnalytics,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
 	mockPersistAssistantTurnState: vi.fn(),
 	mockPersistAssistantEvidence: vi.fn(),
 	mockRunPostTurnTasks: vi.fn(),
+	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -53,6 +55,7 @@ vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
 	persistAssistantTurnState: mockPersistAssistantTurnState,
 	persistAssistantEvidence: mockPersistAssistantEvidence,
 	runPostTurnTasks: mockRunPostTurnTasks,
+	recordAssistantTurnAnalytics: mockRecordAssistantTurnAnalytics,
 }));
 
 vi.mock("$lib/server/config-store", () => ({
@@ -229,6 +232,7 @@ describe("completeStreamTurn", () => {
 		mockPersistAssistantTurnState.mockResolvedValue(defaultTurnState);
 		mockPersistAssistantEvidence.mockResolvedValue(undefined);
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
+		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 		mockTouchConversation.mockResolvedValue(undefined);
 		mockGetStreamBuffer.mockReturnValue(null);
 		mockSyncGeneratedFiles.mockResolvedValue(undefined);
@@ -738,6 +742,131 @@ describe("completeStreamTurn", () => {
 				}),
 			}),
 		);
+	});
+
+	// M1 — server stream-timeline marks threaded from `serverTimeline` into
+	// the analytics passed to persistAssistantTurnState. See ADR-0042's
+	// amendment: these are SERVER-side marks (ms since turn start), never
+	// browser-network-inclusive.
+	describe("stream-timeline marks analytics (M1)", () => {
+		it("reads firstByteMs/firstThinkingMs/firstTokenMs from the server timeline", async () => {
+			await completeStreamTurn(defaultParams);
+
+			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+				expect.objectContaining({
+					analytics: expect.objectContaining({
+						firstByteMs: 42, // FIRST_UPSTREAM_EVENT
+						firstThinkingMs: 44, // FIRST_THINKING
+						firstTokenMs: 55, // FIRST_VISIBLE_TOKEN
+					}),
+				}),
+			);
+		});
+
+		it("falls back firstByteMs to MODEL_STREAM_REQUEST when the upstream never produced an event", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				serverTimeline: {
+					version: STREAM_TIMELINE_PAYLOAD_VERSION,
+					server: {
+						[SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST]: 35,
+						// No FIRST_UPSTREAM_EVENT this time.
+					},
+				},
+			});
+
+			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+				expect.objectContaining({
+					analytics: expect.objectContaining({
+						firstByteMs: 35,
+						firstThinkingMs: undefined,
+						firstTokenMs: undefined,
+					}),
+				}),
+			);
+		});
+
+		it("leaves all three marks undefined (never throws) when serverTimeline is absent", async () => {
+			await expect(
+				completeStreamTurn({
+					...defaultParams,
+					serverTimeline: undefined,
+				}),
+			).resolves.toBeUndefined();
+
+			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+				expect.objectContaining({
+					analytics: expect.objectContaining({
+						firstByteMs: undefined,
+						firstThinkingMs: undefined,
+						firstTokenMs: undefined,
+					}),
+				}),
+			);
+		});
+
+		it("ADR-0042 invariant: malformed mark values (NaN/negative/non-number) never fail the turn — they degrade to undefined", async () => {
+			const malformedServerTimeline = {
+				version: STREAM_TIMELINE_PAYLOAD_VERSION,
+				server: {
+					[SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST]: Number.NaN,
+					[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: -5,
+					[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: "44",
+					[SERVER_STREAM_TIMELINE_MARKS.FIRST_VISIBLE_TOKEN]: 55,
+				},
+			} as unknown as StreamTimelineTerminalPayload;
+
+			await expect(
+				completeStreamTurn({
+					...defaultParams,
+					serverTimeline: malformedServerTimeline,
+				}),
+			).resolves.toBeUndefined();
+
+			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+				expect.objectContaining({
+					analytics: expect.objectContaining({
+						// NaN request duration and a negative upstream-event duration
+						// both fail validation, and there is no valid fallback either.
+						firstByteMs: undefined,
+						// A string where a number is expected fails validation too.
+						firstThinkingMs: undefined,
+						// A well-formed value still comes through untouched.
+						firstTokenMs: 55,
+					}),
+				}),
+			);
+		});
+
+		it("records only the marks reached via recordAssistantTurnAnalytics for a stopped stream, without invoking persistAssistantTurnState", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				wasStopped: true,
+				fullResponse: "partial answer",
+				serverTimeline: {
+					version: STREAM_TIMELINE_PAYLOAD_VERSION,
+					server: {
+						[SERVER_STREAM_TIMELINE_MARKS.MODEL_STREAM_REQUEST]: 35,
+						[SERVER_STREAM_TIMELINE_MARKS.FIRST_UPSTREAM_EVENT]: 40,
+						[SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING]: 61,
+						// Stopped before any visible token — no FIRST_VISIBLE_TOKEN mark.
+					},
+				},
+			});
+
+			expect(mockRecordAssistantTurnAnalytics).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "user-1",
+					conversationId: "conv-1",
+					analytics: expect.objectContaining({
+						firstByteMs: 40,
+						firstThinkingMs: 61,
+						firstTokenMs: undefined,
+					}),
+				}),
+			);
+			expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
+		});
 	});
 
 	it("persists assistant evidence after turn state completes", async () => {

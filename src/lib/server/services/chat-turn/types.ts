@@ -152,6 +152,12 @@ export type AssistantAnalytics = {
 	completionTokens?: number;
 	reasoningTokens?: number;
 	generationTimeMs?: number;
+	// ADR-0042 amendment — server stream-timeline marks (ms elapsed since turn
+	// start, server-side only). Optional/absent when the turn never reached
+	// that phase (no reasoning, stopped early, etc).
+	firstByteMs?: number;
+	firstThinkingMs?: number;
+	firstTokenMs?: number;
 	providerUsage?: ProviderUsageSnapshot | null;
 };
 

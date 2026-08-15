@@ -38,6 +38,13 @@ export interface AnalyticsParams {
 	completionTokens?: number;
 	reasoningTokens?: number;
 	generationTimeMs?: number;
+	// ADR-0042 amendment — server stream-timeline marks (ms elapsed since turn
+	// start, measured server-side; NOT browser-network-inclusive). Optional:
+	// a turn with no reasoning has no firstThinkingMs, and a stopped/errored
+	// turn only carries whichever marks it reached before it ended.
+	firstByteMs?: number;
+	firstThinkingMs?: number;
+	firstTokenMs?: number;
 	providerUsage?: ProviderUsageSnapshot | null;
 }
 
@@ -806,6 +813,16 @@ function normalizeCount(value: unknown): number {
 	return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
 }
 
+// ADR-0042 amendment — a stream-timeline mark is observability, never a turn
+// input: any non-finite/negative/non-number value degrades to null (the
+// column is nullable) instead of throwing or coercing to a misleading 0.
+function normalizeTimingMs(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+		return null;
+	}
+	return Math.round(value);
+}
+
 function microsToUsd(value: number): number {
 	return value / 1_000_000;
 }
@@ -1182,6 +1199,11 @@ export async function recordMessageAnalytics(
 			completionTokens: completionTokens || null,
 			reasoningTokens: reasoningTokens || null,
 			generationTimeMs: params.generationTimeMs ?? null,
+			// ADR-0042 amendment — observability only: a missing/invalid mark
+			// degrades to null rather than throwing or blocking this insert.
+			firstByteMs: normalizeTimingMs(params.firstByteMs),
+			firstThinkingMs: normalizeTimingMs(params.firstThinkingMs),
+			firstTokenMs: normalizeTimingMs(params.firstTokenMs),
 		})
 		.onConflictDoNothing();
 

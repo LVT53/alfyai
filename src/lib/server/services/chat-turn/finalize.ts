@@ -41,6 +41,7 @@ import {
 	persistAssistantEvidence,
 	persistAssistantTurnState,
 	persistUserTurnAttachments,
+	recordAssistantTurnAnalytics,
 	runPostTurnTasks,
 } from "./finalize-steps";
 import type {
@@ -603,6 +604,20 @@ export async function finalizeChatTurn(
 				initialTaskState: params.initialTaskState,
 				initialContextDebug: params.initialContextDebug,
 				userMessageId: userMessage?.id ?? null,
+				assistantMessageId: assistantMessage.id,
+				analytics: params.analytics,
+			});
+		} else if (assistantMessage) {
+			// ADR-0042 amendment — a turn that skips the full turn-state
+			// projection (persistTurnState: false, e.g. a stopped stream) still
+			// gets whatever stream-timeline marks + usage it reached recorded.
+			// This is the same lightweight, side-effect-safe write
+			// persistAssistantTurnState uses above, without resurrecting the
+			// heavier working-set/task-state/document projection for a turn
+			// that was cut short.
+			await recordAssistantTurnAnalytics({
+				userId: params.userId,
+				conversationId: params.conversationId,
 				assistantMessageId: assistantMessage.id,
 				analytics: params.analytics,
 			});

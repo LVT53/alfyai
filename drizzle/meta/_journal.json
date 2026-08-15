@@ -687,6 +687,13 @@
       "when": 1777140000084,
       "tag": "1777140000084_retire_todoist",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1777140000085,
+      "tag": "1777140000085_message_analytics_timing_marks",
+      "breakpoints": true
     }
   ]
 }
