@@ -2896,6 +2896,122 @@ describe("createNormalChatTools", () => {
 			);
 		});
 	});
+
+	// G1 (ADR-0055) — the Normal Chat guidance-pack selector (English regex
+	// on the latest message, no HU coverage) is deleted; each core tool's
+	// usage rules (when to call, argument shape, one example, output
+	// handling, failure behaviour) now live directly on its own TOOL_I18N
+	// description, in BOTH languages, unconditionally — tool AVAILABILITY
+	// (not message content) governs whether the model sees this guidance.
+	// RED before the migration: research_web/fetch_url/memory_context/
+	// image_search/produce_file were each a single terse sentence with none
+	// of this content.
+	describe("core tool usage guidance lives in the tool description (G1 / ADR-0055)", () => {
+		const USAGE_RULE_FRAGMENTS: Record<
+			| "research_web"
+			| "fetch_url"
+			| "memory_context"
+			| "image_search"
+			| "produce_file",
+			{ en: string[]; hu: string[] }
+		> = {
+			research_web: {
+				en: [
+					"objective",
+					"searchQueries",
+					"answerBriefMarkdown",
+					"web retrieval is unavailable",
+				],
+				hu: [
+					"objective",
+					"searchQueries",
+					"answerBriefMarkdown",
+					"webes keresés nem elérhető",
+				],
+			},
+			fetch_url: {
+				en: ["never a bare string", "objective", "could not be read"],
+				hu: ["soha nem puszta szövegként", "objective", "nem volt olvasható"],
+			},
+			memory_context: {
+				en: ["`persona`", "`history`", "`project`", "conversationId"],
+				hu: ["`persona`", "`history`", "`project`", "conversationId"],
+			},
+			image_search: {
+				en: ["![alt text](url)", "invisible"],
+				hu: ["![alt szöveg](url)", "láthatatlan"],
+			},
+			produce_file: {
+				en: ["patches", "read_generated_file", "requestTitle"],
+				hu: ["patches", "read_generated_file", "requestTitle"],
+			},
+		};
+
+		it.each(
+			(
+				Object.keys(USAGE_RULE_FRAGMENTS) as Array<
+					keyof typeof USAGE_RULE_FRAGMENTS
+				>
+			).flatMap((toolName) => [
+				{ toolName, lang: "en" as const },
+				{ toolName, lang: "hu" as const },
+			]),
+		)("$toolName carries its usage rules (when to call, argument shape, example, output handling, failure behaviour) in $lang", ({
+			toolName,
+			lang,
+		}) => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: lang,
+			});
+			const description = requireTool(
+				(tools as Record<string, { description: string } | undefined>)[
+					toolName
+				],
+			).description;
+
+			for (const fragment of USAGE_RULE_FRAGMENTS[toolName][lang]) {
+				expect(description).toContain(fragment);
+			}
+		});
+
+		it("image_search carries the markdown-embed-or-invisible rule in hu at real length (not ~6 words)", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "hu",
+			});
+
+			const description = tools.image_search.description ?? "";
+			expect(description).toContain("![alt szöveg](url)");
+			expect(description).toContain("láthatatlan");
+			// Guards against the description regressing back to the ~6-word
+			// stub ("Képkeresés az interneten az aktuális kéréshez.") the
+			// slice's TDD red phase started from.
+			expect(description.split(/\s+/).filter(Boolean).length).toBeGreaterThan(
+				20,
+			);
+		});
+
+		it("image_search carries the markdown-embed-or-invisible rule in en at parity length with hu", () => {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language: "en",
+			});
+
+			const description = tools.image_search.description ?? "";
+			expect(description).toContain("![alt text](url)");
+			expect(description).toContain("invisible");
+			expect(description.split(/\s+/).filter(Boolean).length).toBeGreaterThan(
+				20,
+			);
+		});
+	});
 });
 
 describe("shouldForceProduceFileTool", () => {

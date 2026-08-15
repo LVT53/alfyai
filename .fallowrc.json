@@ -7,6 +7,7 @@
 		"scripts/seed-test-user.ts",
 		"scripts/validate-i18n.ts",
 		"scripts/verify-live-file-production-types.ts",
+		"scripts/evaluate-tool-guidance-ab.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],

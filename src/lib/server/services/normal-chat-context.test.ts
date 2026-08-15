@@ -57,7 +57,6 @@ vi.mock("./chat-turn/proactive-connector-context", () => ({
 
 import {
 	buildOutboundSystemPrompt,
-	planNormalChatGuidancePacks,
 	prepareOutboundChatContext,
 } from "./normal-chat-context";
 import {
@@ -476,20 +475,23 @@ describe("prepareOutboundChatContext", () => {
 		mocks.fetchUrlViaParallel.mockResolvedValue(groundedWebResult);
 	});
 
-	it("describes produce_file using direct AI SDK tool inputs without Langflow-era wording", () => {
+	// G1 (ADR-0055): tool usage guidance (produce_file's requestTitle/
+	// filename/markdown workflow included) moved out of buildOutboundSystemPrompt
+	// and into the tool's own TOOL_I18N description — see
+	// normal-chat-tools/index.test.ts for produce_file's description coverage.
+	// This assembled-prompt guard only needs to prove the deletion held: no
+	// tool-specific text leaks back into the system prompt, and no stale
+	// Langflow-era wording survives.
+	it("no longer carries produce_file (or any other tool's) usage guidance in the assembled system prompt", () => {
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Create a downloadable PDF and CSV.",
 			modelDisplayName: "Provider Model",
 		});
 
-		expect(prompt).toContain(
-			"Prefer `requestTitle`, `outputType`/`filename`, and `markdown`, `content`, or `text` in tool calls.",
-		);
-		expect(prompt).toContain("requestTitle");
-		expect(prompt).toContain("filename");
-		expect(prompt).toContain("markdown");
-		expect(prompt).toContain("produce_file");
+		expect(prompt).toContain("Base system prompt");
+		expect(prompt).not.toContain("produce_file");
+		expect(prompt).not.toContain("requestTitle");
 		expect(prompt).not.toMatch(/Langflow/i);
 		expect(prompt).not.toContain("JSON string containing an array");
 		expect(prompt).not.toContain("JSON-encoded array string");
@@ -532,190 +534,117 @@ describe("prepareOutboundChatContext", () => {
 		});
 	});
 
-	describe("planNormalChatGuidancePacks", () => {
-		it("keeps simple direct prompts compact and estimates savings versus full guidance", () => {
-			const compactPlan = planNormalChatGuidancePacks({
-				message: "Ping!",
-				responseLanguage: "en",
-			});
-
-			expect(compactPlan.mode).toBe("compact");
-			expect(compactPlan.selectedPackIds).toEqual([
-				"runtime-core",
-				"json-formatting",
-				"tool-termination",
-			]);
-			expect(compactPlan.selectedPackTokenEstimate).toBeLessThan(
-				compactPlan.fullPackTokenEstimate,
-			);
-			expect(compactPlan.estimatedTokenSavings).toBeGreaterThan(0);
-		});
-
-		it("keeps standalone Q&A prompts compact", () => {
-			const twoPlusTwoPlan = planNormalChatGuidancePacks({
-				message: "What is 2+2?",
-				responseLanguage: "en",
-			});
-			expect(twoPlusTwoPlan.mode).toBe("compact");
-			expect(twoPlusTwoPlan.selectedPackIds).toEqual([
-				"runtime-core",
-				"json-formatting",
-				"tool-termination",
-			]);
-			expect(twoPlusTwoPlan.selectedPackIds).not.toContain("web-core");
-
-			const whoAreYouPlan = planNormalChatGuidancePacks({
-				message: "Who are you?",
-				responseLanguage: "en",
-			});
-			expect(whoAreYouPlan.mode).toBe("compact");
-			expect(whoAreYouPlan.selectedPackIds).toEqual([
-				"runtime-core",
-				"json-formatting",
-				"tool-termination",
-			]);
-		});
-
-		it("keeps benchmark test prompts with explicit non-tool constraints compact", () => {
-			const plan = planNormalChatGuidancePacks({
-				message:
-					"Reply in one short sentence about safe benchmark prompts. Do not use external tools, web search, or files.",
-				responseLanguage: "en",
-			});
-
-			expect(plan.mode).toBe("compact");
-			expect(plan.selectedPackIds).toEqual([
-				"runtime-core",
-				"json-formatting",
-				"tool-termination",
-			]);
-		});
-
-		it("selects file guidance when a new-file request is detected", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "Can you turn this into a PDF for me?",
-				responseLanguage: "en",
-			});
-
-			expect(plan.mode).toBe("compact");
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["file-core"]),
-			);
-			expect(plan.selectedPackIds).not.toContain("file-detailed");
-		});
-
-		it("omits file guidance from full fallback prompts when file tools are unavailable", () => {
-			const message =
-				"Create a 30-day rollout plan for changing an AI model reasoning-depth setting. Include checkpoints, metrics, risks, rollback criteria, and who should review the data.";
-			const plan = planNormalChatGuidancePacks({
-				message,
-				responseLanguage: "en",
-				fileProductionToolsAvailable: false,
-			});
-
-			expect(plan.mode).toBe("full");
-			expect(plan.selectedPackIds).not.toContain("file-core");
-			expect(plan.selectedPackIds).not.toContain("file-detailed");
-			expect(plan.fullPackIds).not.toContain("file-core");
-			expect(plan.fullPackIds).not.toContain("file-detailed");
-
-			const prompt = buildOutboundSystemPrompt({
+	// G1 (ADR-0055): the guidance-pack selector (English regex on the latest
+	// message, no HU coverage, follow-up turns silently losing packs) is
+	// deleted outright — this is the falsifiable property the whole slice
+	// exists to create. Tool-usage guidance now lives entirely in each
+	// tool's own TOOL_I18N description, whose presence is governed only by
+	// tool AVAILABILITY (see normal-chat-tools/index.ts), never by the
+	// current turn's message content. So the assembled system prompt for a
+	// FIXED conversation (same base prompt, model, connections, depth) must
+	// be byte-identical no matter how the latest message is worded, how
+	// long it is, or what language it's in.
+	describe("assembled system prompt stability (G1 / ADR-0055)", () => {
+		function buildFixedConversationPrompt(inputValue: string) {
+			return buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
-				inputValue: message,
-				responseLanguage: "en",
-				fileProductionToolsAvailable: false,
+				inputValue,
+				modelDisplayName: "Provider Model",
+				fileProductionToolsAvailable: true,
 			});
+		}
 
-			expect(prompt).not.toContain("produce_file");
-			expect(prompt).not.toContain("read_generated_file");
-		});
-
-		it("selects revision guidance for generated-file edits", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "Can you shorten the report we made?",
-				responseLanguage: "en",
-			});
-
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["file-core", "file-detailed"]),
+		it("is byte-identical across EN messages of very different length, wording, and tool intent", () => {
+			const short = buildFixedConversationPrompt("Hi!");
+			const long = buildFixedConversationPrompt(
+				"Can you research the latest SvelteKit release, turn it into a downloadable PDF report, show me some screenshots, and use what you remember about my project folder to tailor the summary?",
 			);
+
+			expect(short).toBe(long);
 		});
 
-		it("selects web packs for source-backed current prompts", () => {
-			const plan = planNormalChatGuidancePacks({
-				message:
+		it("is byte-identical for the identical request phrased in EN vs HU", () => {
+			// Same fixed `responseLanguage` on both calls — this isolates the
+			// property under test (message WORDING/LANGUAGE must not move the
+			// assembled prompt) from the separate, intentional effect of the
+			// `responseLanguage` param itself (see buildResponseLanguageGuard).
+			const en = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue:
 					"Is this still true today? Back it with a source and verify official policy.",
 				responseLanguage: "en",
+				modelDisplayName: "Provider Model",
+				fileProductionToolsAvailable: true,
+			});
+			const hu = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue:
+					"Ez ma is igaz még? Támaszd alá egy forrással, és ellenőrizd a hivatalos szabályzatot.",
+				responseLanguage: "en",
+				modelDisplayName: "Provider Model",
+				fileProductionToolsAvailable: true,
 			});
 
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["web-core", "web-detailed"]),
-			);
+			expect(en).toBe(hu);
 		});
 
-		it("selects web packs for release/freshness prompts", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "What is the latest SvelteKit release?",
-				responseLanguage: "en",
-			});
-
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["web-core", "web-detailed"]),
+		it("is byte-identical for an 8-word-or-fewer prompt vs a 35-word-or-more prompt", () => {
+			const eightWordsOrFewer = buildFixedConversationPrompt(
+				"What is the latest SvelteKit release?",
 			);
-			expect(plan.mode).toBe("compact");
+			const thirtyFiveWordsOrMore = buildFixedConversationPrompt(
+				"Please review the attached legal contract and summarize the financial, policy, and compliance implications, then create a 30-day rollout plan with checkpoints, metrics, risks, and rollback criteria for anyone reviewing this later.",
+			);
+
+			expect(eightWordsOrFewer).toBe(thirtyFiveWordsOrMore);
 		});
 
-		it("selects image guidance for venue image prompts", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "Show me what this venue looks like.",
-				responseLanguage: "en",
-			});
-
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["image-search"]),
+		it("does not vary across a simulated multi-turn conversation (no follow-up pack loss)", () => {
+			// The deleted selector planned packs from `params.message` (the
+			// LATEST message) only — a follow-up turn asking a bare pronoun
+			// question ("And the second one?") after an earlier research-heavy
+			// turn could lose web/file/memory guidance entirely. With guidance
+			// moved to tool descriptions, every turn in the same conversation
+			// gets the identical assembled prompt regardless of turn position.
+			const turnOne = buildFixedConversationPrompt(
+				"Research the current SvelteKit release and produce a PDF summary.",
 			);
-			expect(plan.mode).toBe("compact");
+			const followUp = buildFixedConversationPrompt("And the second one?");
+
+			expect(turnOne).toBe(followUp);
 		});
 
-		it("selects memory guidance for project-folder continuity prompts", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "Use my previous notes from the project folder.",
-				responseLanguage: "en",
-			});
-
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["memory-core"]),
+		it("never reintroduces tool-specific guidance text regardless of message content", () => {
+			const fileIntentPrompt = buildFixedConversationPrompt(
+				"Can you turn this into a PDF for me?",
 			);
-			expect(plan.mode).toBe("compact");
-		});
-
-		it("selects memory guidance for remember prompts", () => {
-			const plan = planNormalChatGuidancePacks({
-				message: "What do you remember about my bike setup?",
-				responseLanguage: "en",
-			});
-
-			expect(plan.selectedPackIds).toEqual(
-				expect.arrayContaining(["memory-core"]),
+			const webIntentPrompt = buildFixedConversationPrompt(
+				"Is this still true today? Back it with a source.",
 			);
-		});
-
-		it("falls back to conservative full guidance for ambiguous and high-stakes prompts", () => {
-			const attachmentPlan = planNormalChatGuidancePacks({
-				message:
-					"Please review the attached legal contract and summarize the financial, policy, and compliance implications.",
-				attachmentIds: ["att-1"],
-				activeDocumentArtifactId: "doc-1",
-				responseLanguage: "en",
-			});
-
-			expect(attachmentPlan.mode).toBe("full");
-			expect(attachmentPlan.fallbackReason).toBe(
-				"full_fallback_attachment_or_activity",
+			const memoryIntentPrompt = buildFixedConversationPrompt(
+				"Use my previous notes from the project folder.",
 			);
-			expect(attachmentPlan.selectedPackIds).toEqual(
-				expect.arrayContaining(["runtime-core", "web-core", "memory-core"]),
+			const imageIntentPrompt = buildFixedConversationPrompt(
+				"Show me what this venue looks like.",
 			);
+
+			for (const prompt of [
+				fileIntentPrompt,
+				webIntentPrompt,
+				memoryIntentPrompt,
+				imageIntentPrompt,
+			]) {
+				expect(prompt).not.toContain("produce_file");
+				expect(prompt).not.toContain("read_generated_file");
+				expect(prompt).not.toContain("research_web");
+				expect(prompt).not.toContain("image_search");
+				expect(prompt).not.toContain("memory_context");
+			}
+			// All four are the SAME prompt: the shared base prompt, date
+			// context, and language guard only — no per-intent branching.
+			expect(fileIntentPrompt).toBe(webIntentPrompt);
+			expect(webIntentPrompt).toBe(memoryIntentPrompt);
+			expect(memoryIntentPrompt).toBe(imageIntentPrompt);
 		});
 	});
 
@@ -1364,13 +1293,15 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.inputValue).toBe(compressedInput);
 		expect(prepared.contextStatus).toBe(compressedStatus);
 		expect(prepared.contextDebug).toBe(compressedDebug);
-		expect(prepared.systemPrompt).toContain("Tool Termination:");
-		expect(prepared.systemPrompt).toContain(
-			"Tool JSON formatting rules — all tool arguments MUST be valid JSON:",
-		);
+		// G1: the system prompt no longer depends on `inputValue` (tool-usage
+		// guidance moved to TOOL_I18N descriptions), so a rebuilt constructed
+		// context after automatic compression does not need to — and no
+		// longer does — rebuild `systemPrompt`. It stays the same base-prompt
+		// assembly regardless of which constructed-context call produced it.
+		expect(prepared.systemPrompt).toContain("Base system prompt");
 	});
 
-	it("returns guidance-pack diagnostics without exposing prompt body", async () => {
+	it("no longer exposes a guidance-pack plan on the prepared context (G1 removes pack selection)", async () => {
 		const prepared = await prepareOutboundChatContext({
 			message: "Ping!",
 			sessionId: "conv-1",
@@ -1384,22 +1315,7 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(prepared.promptPackPlan).toEqual(
-			expect.objectContaining({
-				mode: "compact",
-				selectedPackIds: [
-					"runtime-core",
-					"json-formatting",
-					"tool-termination",
-				],
-				fullPackIds: expect.any(Array),
-				selectedPackTokenEstimate: expect.any(Number),
-				fullPackTokenEstimate: expect.any(Number),
-				estimatedTokenSavings: expect.any(Number),
-				fallbackReason: expect.any(String),
-			}),
-		);
-		expect(prepared.promptPackPlan?.estimatedTokenSavings).toBeGreaterThan(0);
+		expect(prepared).not.toHaveProperty("promptPackPlan");
 	});
 
 	it("prefetches forced web search before the current user message through the neutral Normal Chat context boundary", async () => {
@@ -1430,10 +1346,14 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.inputValue).toContain(
 			"## Current User Message\nWhat changed today?",
 		);
-		expect(prepared.systemPrompt).toContain("Web research workflow:");
-		expect(prepared.systemPrompt).toContain(
-			"Current-turn forced web retrieval:",
-		);
+		// G1: "Web research workflow"/"Current-turn forced web retrieval" were
+		// guidance-pack text; that guidance now lives in research_web's own
+		// TOOL_I18N description (see normal-chat-tools/index.test.ts), not in
+		// the assembled system prompt. The server-prefetched "## Current Web
+		// Research" section injected into `inputValue` above is the turn-level
+		// grounding signal for a forced-search turn.
+		expect(prepared.systemPrompt).toContain("Base system prompt");
+		expect(prepared.systemPrompt).not.toContain("Web research workflow:");
 		expect(prepared.prefetchedToolCalls).toEqual([
 			expect.objectContaining({
 				name: "research_web",
@@ -1750,7 +1670,21 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.prefetchedToolCalls).toEqual([]);
 	});
 
-	it("rebuilds the system prompt after forced prefetch injects web context", async () => {
+	it("does not need to rebuild the system prompt after forced prefetch injects web context (G1)", async () => {
+		// Before G1, a forced prefetch that spliced "## Current Web Research"
+		// into `inputValue` had to rebuild `systemPrompt` because pack
+		// selection read `inputValue`. Guidance no longer depends on
+		// `inputValue` at all, so the prompt built before vs after the
+		// prefetch stage must be identical — proving the rebuild is now
+		// unnecessary rather than merely re-asserting removed guard text.
+		const withoutPrefetch = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "What changed today?",
+			modelDisplayName: modelConfig.displayName,
+			modelName: modelConfig.modelName,
+			forceWebSearch: true,
+		});
+
 		const prepared = await prepareOutboundChatContext({
 			message: "What changed today?",
 			sessionId: "conv-1",
@@ -1765,10 +1699,7 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(prepared.systemPrompt).toContain("Web research workflow:");
-		expect(prepared.systemPrompt).toContain(
-			"Current-turn forced web retrieval:",
-		);
+		expect(prepared.systemPrompt).toBe(withoutPrefetch);
 	});
 
 	it("applies prompt budgeting after forced web prefetch and keeps output token budget fields", async () => {
@@ -1803,7 +1734,13 @@ describe("prepareOutboundChatContext", () => {
 			expect(budgetDiagnostic?.beforeInputTokens).toBeGreaterThan(
 				budgetDiagnostic?.afterInputTokens as number,
 			);
-			expect(prepared.inputValue).not.toContain("## Current Web Research");
+			// G1: the system prompt is smaller now (tool-usage guidance moved out
+			// of it), leaving more of this tiny fixed budget for input — the
+			// prefetched "## Current Web Research" section now fits rather than
+			// being evicted outright. The load-bearing assertions for THIS test
+			// are the budgeting/diagnostic fields above and below, not which
+			// exact section survives truncation.
+			expect(prepared.inputValue).toContain("## Current Web Research");
 			expect(prepared.inputValue).toContain(
 				"## Current User Message\nWhat changed today?",
 			);

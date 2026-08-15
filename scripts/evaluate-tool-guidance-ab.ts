@@ -80,10 +80,7 @@ import { ALFYAI_NEMOTRON_PROMPT, getSystemPrompt } from "$lib/server/prompts";
 // READ-ONLY import of the real prompt-assembly + pack-planning code under
 // test — G1 owns normal-chat-context.ts; this harness only calls its
 // exported functions, never modifies them.
-import {
-	buildOutboundSystemPrompt,
-	planNormalChatGuidancePacks,
-} from "$lib/server/services/normal-chat-context";
+import { buildOutboundSystemPrompt } from "$lib/server/services/normal-chat-context";
 // READ-ONLY imports of each tool's own zod input schema. These are exported
 // from each tool's OWN module (research-web.ts, fetch-url.ts, etc.), not
 // from normal-chat-tools/index.ts itself, so importing them does not touch
@@ -447,8 +444,6 @@ type FixtureResult = {
 	citationHit: boolean | null;
 	imageHit: boolean | null;
 	fileHit: boolean | null;
-	guidancePackMode: "compact" | "full" | "disabled";
-	guidancePackIds: string[];
 };
 
 type DimensionReport = {
@@ -532,12 +527,12 @@ function renderMarkdownReport(report: FullReport): string {
 	lines.push("## Per-fixture results");
 	lines.push("");
 	lines.push(
-		"| id | lang | category | follow-up | expected | called | correct | pack mode |",
+		"| id | lang | category | follow-up | expected | called | correct |",
 	);
-	lines.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+	lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 	for (const r of report.results) {
 		lines.push(
-			`| ${r.fixtureId} | ${r.language} | ${r.category} | ${r.isFollowUp ? "yes" : "no"} | ${r.expectedTool} | ${r.calledTools.join(", ") || "(none)"} | ${r.toolSelectionCorrect ? "✅" : "❌"} | ${r.guidancePackMode} |`,
+			`| ${r.fixtureId} | ${r.language} | ${r.category} | ${r.isFollowUp ? "yes" : "no"} | ${r.expectedTool} | ${r.calledTools.join(", ") || "(none)"} | ${r.toolSelectionCorrect ? "✅" : "❌"} |`,
 		);
 	}
 	lines.push("");
@@ -553,13 +548,6 @@ async function scoreFixture(params: {
 }): Promise<FixtureResult> {
 	const { model, fixture } = params;
 	const generation = await generateForFixture({ model, fixture });
-
-	const latestMessage = fixture.messages[fixture.messages.length - 1];
-	const guidancePlan = planNormalChatGuidancePacks({
-		message: latestMessage.content,
-		responseLanguage: fixture.language,
-		fileProductionToolsAvailable: true,
-	});
 
 	return {
 		fixtureId: fixture.id,
@@ -585,8 +573,6 @@ async function scoreFixture(params: {
 			fixture.expectedSignals?.file === true
 				? fileProduced(generation.toolCalls)
 				: null,
-		guidancePackMode: guidancePlan.mode,
-		guidancePackIds: guidancePlan.selectedPackIds,
 	};
 }
 

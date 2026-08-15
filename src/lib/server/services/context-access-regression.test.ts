@@ -359,21 +359,25 @@ describe("Context Access v1 integrated regression harness", () => {
 	});
 
 	it("keeps the model-facing direct tool contract on memory_context modes only", async () => {
-		const { buildOutboundSystemPrompt } = await import("./normal-chat-context");
-		const prompt = buildOutboundSystemPrompt({
-			basePrompt: "Base system prompt",
-			inputValue: "What do you remember about my bike setup?",
-			modelDisplayName: "Context Harness Model",
+		// G1 (ADR-0055): tool usage guidance now lives on the tool's own
+		// description (TOOL_I18N), not in a message-content-selected system
+		// prompt guard — so this regression check moves to the tool contract
+		// itself, where `memory_context` is registered unconditionally (its
+		// availability does not depend on any connection/capability gate).
+		const { createNormalChatTools } = await import("./normal-chat-tools/index");
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
 		});
+		expect(tools).toHaveProperty("memory_context");
+		const description = tools.memory_context.description ?? "";
 
-		expect(prompt).toContain("Memory context workflow");
-		expect(prompt).toContain("memory_context");
-		expect(prompt).toContain("mode `project`");
-		expect(prompt).toContain("mode `persona`");
-		expect(prompt).toContain("mode `history`");
-		expect(prompt).not.toContain(["project", "context"].join("_"));
+		expect(description).toContain("`project`");
+		expect(description).toContain("`persona`");
+		expect(description).toContain("`history`");
 
 		const legacyToolName = ["project", "context"].join("_");
-		expect(prompt).not.toContain(legacyToolName);
+		expect(description).not.toContain(legacyToolName);
 	});
 });

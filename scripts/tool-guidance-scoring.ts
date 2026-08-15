@@ -22,13 +22,9 @@
 // document that plainly in the report rather than treating a near-zero rate
 // as a defect.
 
-export type ExpectedTool =
-	| "research_web"
-	| "fetch_url"
-	| "image_search"
-	| "produce_file"
-	| "memory_context"
-	| "none";
+// ExpectedTool is defined once in the corpus module and imported here (type-only,
+// no runtime coupling) so the two eval modules don't duplicate-export the type.
+import type { ExpectedTool } from "./eval/tool-guidance-fixtures";
 
 /**
  * Minimal shape the scoring functions need from an AI SDK tool-call part
