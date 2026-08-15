@@ -337,14 +337,25 @@ async function resolveEvalModelSlot(): Promise<ResolvedModelSlot> {
 			`Provider secrets for "${model.providerId}" (model "${model.displayName}") were not found.`,
 		);
 	}
+	// Prefer an explicit env key (mirrors the existing harness's DEEPSEEK_API_KEY
+	// path). The app resolves the provider key from MODEL_*_API_KEY in .env via
+	// config-store at runtime, so the stored DB blob may be encrypted under a
+	// different SESSION_SECRET than this process sees; the env key is the
+	// authoritative one the app actually uses. Fall back to DB decryption.
 	let apiKey: string;
-	try {
-		apiKey = decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv);
-	} catch {
-		throw new Error(
-			"Could not decrypt the stored provider key. Ensure SESSION_SECRET " +
-				"matches the app instance that added this model.",
-		);
+	const envKey = process.env.EVAL_MODEL_API_KEY?.trim();
+	if (envKey) {
+		apiKey = envKey;
+	} else {
+		try {
+			apiKey = decryptApiKey(secrets.apiKeyEncrypted, secrets.apiKeyIv);
+		} catch {
+			throw new Error(
+				"Could not decrypt the stored provider key. Set EVAL_MODEL_API_KEY " +
+					"in the environment, or ensure SESSION_SECRET matches the app " +
+					"instance that added this model.",
+			);
+		}
 	}
 
 	return {
