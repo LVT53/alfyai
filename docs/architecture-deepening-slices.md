@@ -1105,4 +1105,15 @@ perceived wait; only Wave S (perception during reasoning) addresses it.** This c
 analysis. **Caveat that gates the decision:** the *magnitudes* are staging/qwen, not prod/deepseek —
 deepseek's reasoning time (and remote-API latency) will differ, though the *structure* (small prep,
 dominant reasoning) is model-agnostic and expected to hold. The real prod numbers need M1 running on
-prod. **This is the M1 scheduled stop — posted; awaiting the human before Wave 1.**
+prod. **This is the M1 scheduled stop — posted.**
+
+**Owner decision (2026-08-15): deploy Wave 0 to production now** for the real baseline (one-off
+exception to prod-at-end). **Done.** Prod migrated to the atomic-release layout and running
+D0+D1+D2+M1 (`origin/main` @ `ae5ee4a0`; `current → releases/ae5ee4a0`; `shared/{.env,data}`).
+~10s one-time downtime (release built off-side first; migration additive; DB + unit backed up).
+Verified: `Listening on :3001`, public health `{status:OK,draining:false,activeStreams:0}` through
+Apache at `ai.alfydesign.com`, M1 columns present, clean startup. The one post-deploy check I cannot
+self-run is "one real chat turn" — prod forbids test-user writes and I have no real credentials — so
+it is delegated to the owner / organic traffic. **M1 is now collecting the real deepseek/6-user
+latency baseline; the true §6 table can be re-run against prod after some real traffic.** Awaiting
+the human before Wave 1.
