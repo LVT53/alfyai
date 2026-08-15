@@ -196,32 +196,11 @@ describe("GET /api/conversations/[id]", () => {
 		expect(data.bootstrap).toBe(true);
 	});
 
-	it("delegates first-render detail loading when requested", async () => {
-		mockGetConversationDetail.mockResolvedValue({
-			conversation: {
-				id: "conv-1",
-				title: "Quarterly report",
-				projectId: null,
-				sidebarPinned: false,
-				sidebarSortOrder: null,
-				createdAt: 1_777_140_000,
-				updatedAt: 1_777_140_001,
-			},
-			messages: [],
-			attachedArtifacts: [],
-			activeWorkingSet: [],
-			contextStatus: null,
-			contextSources: null,
-			taskState: null,
-			contextDebug: null,
-			draft: null,
-			fileProductionJobs: [],
-			contextCompressionSnapshots: [],
-			activeSkillSession: null,
-			bootstrap: false,
-			sidecarPending: true,
-		});
-
+	// O1 — "first-render" was retired: it was the source of the double read
+	// (the page always followed it with a second, full client-side fetch).
+	// Any view value other than the recognized "bootstrap" now falls back
+	// to "full", so there is exactly one assembled view per open.
+	it("falls back to full detail loading for an unrecognized view value", async () => {
 		const response = await GET(
 			makeEvent(
 				{ id: "user-1" },
@@ -235,9 +214,9 @@ describe("GET /api/conversations/[id]", () => {
 		expect(mockGetConversationDetail).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			view: "first-render",
+			view: "full",
 		});
-		expect(data.sidecarPending).toBe(true);
+		expect(data.bootstrap).toBe(false);
 	});
 
 	it("returns 404 when the read model cannot find the conversation", async () => {

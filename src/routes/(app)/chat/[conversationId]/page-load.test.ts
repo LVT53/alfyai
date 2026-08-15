@@ -102,7 +102,14 @@ function makeLoadEvent(
 }
 
 describe("chat conversation page load", () => {
-	it("starts first-render detail loading before waiting for parent layout data", async () => {
+	// O1 — the load used to request a cheap "first-render" payload and rely
+	// on the page to always follow up with a second, full client-side fetch
+	// (see page-runtime.test.ts's former "first-render sidecar" coverage,
+	// now retired). That made every conversation open read and assemble the
+	// conversation detail twice. The load now requests "full" directly —
+	// still without blocking on the parent layout promise — so there is
+	// exactly one detail read per open.
+	it("starts full detail loading before waiting for parent layout data", async () => {
 		let resolveParent: (
 			data: AppShellData | PromiseLike<AppShellData>,
 		) => void = () => {};
@@ -116,7 +123,7 @@ describe("chat conversation page load", () => {
 			return new Response(
 				JSON.stringify({
 					conversation: conversationFixture("conv-1", {
-						title: "Fast first render",
+						title: "Fast full render",
 					}),
 					messages: [],
 				}),
@@ -132,14 +139,13 @@ describe("chat conversation page load", () => {
 		const loadPromise = load(event);
 		await Promise.resolve();
 
-		expect(fetch).toHaveBeenCalledWith(
-			"/api/conversations/conv-1?view=first-render",
-		);
+		expect(fetch).toHaveBeenCalledWith("/api/conversations/conv-1?view=full");
+		expect(fetch).toHaveBeenCalledTimes(2); // detail + pending-writes only
 		expect(parent).toHaveBeenCalledOnce();
 
 		resolveParent(appShellDataFixture());
 		const data = (await loadPromise) as LoadedPageData;
-		expect(data.conversation.title).toBe("Fast first render");
+		expect(data.conversation.title).toBe("Fast full render");
 	});
 
 	it("registers the conversation detail dependency for targeted reloads", async () => {
@@ -213,6 +219,7 @@ describe("chat conversation page load", () => {
 		const data = (await load(event)) as LoadedPageData;
 
 		expect(data).toMatchObject({
+			hasMoreMessages: false,
 			attachedArtifacts: [],
 			activeWorkingSet: [],
 			contextStatus: null,

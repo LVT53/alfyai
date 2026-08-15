@@ -826,31 +826,144 @@ service — but call this out in review explicitly.
 
 ---
 
-### O1 — Conversation open reads once ⬜
-**Blocked by:** S1 (repair must be off the read path first).
+### O1 — Conversation open reads once ✅
+**Blocked by:** S1 (repair must be off the read path first) — satisfied; S1 landed first on this branch.
 
-**Step 0 — measure, do not assume.** Two claims are unverified. Prove or drop them:
-- payload embedded twice in HTML
-- 60-80 DB round trips per page view
+**Step 0 — measurements (2026-08-15).** Two claims were unverified. Both checked against real
+evidence, not estimated:
 
-**Real surface**
-- `chat/[conversationId]/+page.ts:46-49` — universal load fetching internal HTTP
-- `conversation-detail/read-model.ts:108-190` — first-render vs full; 16-way `Promise.all`
-- `messages.ts:330-348` — no `LIMIT`
-- `+page.svelte:1092-1093` — unconditional re-hydration
-- `MarkdownRenderer.svelte:733-745` — SSR emits empty containers
+1. **"Conversation-detail payload embedded twice in the HTML" — does NOT hold.** Checked by hand:
+   seeded a scratch DB (89-message conversation, matching production's observed max), booted a real
+   dev server against it, logged in via `curl`, and fetched the raw `/chat/[id]` HTML. For a `+page.ts`
+   **universal** load, SvelteKit embeds the raw fetch response exactly once, via one
+   `<script data-sveltekit-fetched data-url="/api/conversations/[id]?view=first-render">` tag — the
+   load function's *return value* (the reshaped `conversation`/`messages`/… object the page actually
+   receives) is **not** separately serialized into the HTML; the client re-runs the same `load()`
+   function during hydration and it transparently reads the cached fetch response instead of
+   re-fetching. Confirmed directly: a per-message marker string planted in assistant content appeared
+   exactly **once** in the raw HTML (inside that one script tag) — assistant content never renders
+   into the SSR DOM at all (see the MarkdownRenderer finding below), so there was nowhere else for a
+   second copy to hide. The claim's mechanism doesn't exist for this route.
+2. **"~60-80 DB round trips per page view" — did not hold as measured, but a related, real problem
+   did: two full detail reads per open.** A query-counter test
+   (`src/lib/server/services/conversation-detail/read-model.query-count.test.ts`, real seeded SQLite,
+   `vi.spyOn(Database.prototype, "prepare")` — the same instrumentation S1 established) measured a
+   single `getConversationDetail()` open, 89-message otherwise-empty conversation:
+   - **One `"full"` read: 25 prepared statements.**
+   - **Before this slice, the page always did two reads** (SSR `"first-render"` + an unconditional
+     client-side `"full"` re-fetch — `sidecarPending` was hardcoded `true` for `"first-render"`,
+     so the second read was not conditional on anything, it always happened): **8 statements
+     (`"first-render"`) + 25 statements (`"full"`) = 33 total**, measured the same way against the
+     pre-O1 code (temporarily restored via `git stash` for the measurement, then reverted — see the
+     commit history on this branch for the throwaway measurement script, not part of the shipped diff).
+   - **Verdict:** the 60–80 estimate does not hold at either 25 or 33; the double-read was real waste
+     (33 → 25, a 24% reduction in statements, and 2 HTTP round trips → 1), just not the number quoted.
+     Honest framing per §0: at 89 messages / 6 users this is waste removal, not a user-perceptible
+     latency fix — 8 extra statements and one extra same-machine HTTP round trip are not where a
+     multi-second wait comes from (see M1's §6 profile: the wait is model reasoning, not server prep).
 
-**ADR-0022 holds:** the read model keeps payload assembly. A bounded range is a *parameter*, not
-a relocation. Do not move assembly into the route or the page.
+**What shipped**
+- `src/lib/server/services/messages.ts` — new `listMessageWindow(conversationId, { limit, offset })`,
+  bounded via `ORDER BY … DESC LIMIT limit+1 OFFSET offset` (existing `messageOrderDesc()`), reversed
+  back to ascending order; returns `{ messages, hasMoreBefore }`. `CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT`
+  = **100** — chosen as headroom over the observed production maximum (89) so the bound is real
+  (provably `LIMIT`-bounded, defends against future growth) without truncating any conversation seen
+  in production today. `listMessages` (the full, unbounded read) is **unchanged** and stays the
+  correct call for its other 2 real call sites (`chat-turn/context-selection.ts`'s model-context
+  assembly, and the messages-deletion route's ownership check) — those need the whole history for
+  reasons unrelated to conversation-open rendering, so their behavior was deliberately left alone
+  rather than silently bounding a shared function.
+- `src/lib/server/services/conversation-detail/read-model.ts` — `getConversationDetail` now takes an
+  optional `messageWindowLimit` and calls `listMessageWindow` instead of `listMessages` for its one
+  remaining assembled view. New `getOlderConversationMessages(...)` (pagination): re-runs only the
+  bounded message-window query plus the same child-fork decoration the initial window gets — it does
+  **not** re-run the other ~15 branches of the `Promise.all` (Context Sources, task state, atlas jobs,
+  cost, …), since paging older messages doesn't change any of that. `ConversationDetailView` narrowed
+  to `"full" | "bootstrap"` — `"first-render"` is retired (see below).
+- `src/lib/types.ts` — `ConversationDetail` gained an additive optional `hasMoreMessages` field.
+- `src/routes/api/conversations/[id]/+server.ts` — view whitelist simplified to `"bootstrap"` or
+  `"full"` (any other/absent value falls back to `"full"`, same as before).
+- `src/routes/api/conversations/[id]/messages/+server.ts` — new `GET` handler (alongside the existing
+  `DELETE`) serving `getOlderConversationMessages` via `?offset=&limit=` — the on-demand pagination
+  path, HTTP-reachable and tested, though no client UI consumes it yet (see leftovers).
+- `src/routes/(app)/chat/[conversationId]/+page.ts` — requests `view=full` directly instead of
+  `view=first-render` for a normal (non-bootstrap) open. `bootstrap` is unchanged.
+- **The double-fetch is gone without touching `+page.svelte`'s hydrate logic at all.** The client's
+  `if (bootstrapMode || sidecarPending) { hydrateConversationDetail(...) }` guard (in `resetState()`)
+  already existed and was already correct — the bug was that the *server* unconditionally set
+  `sidecarPending: true` for `"first-render"`. Once the load stops requesting that view, `sidecarPending`
+  is `false` for every normal open and the guard naturally stops firing. `bootstrapMode` (a genuinely
+  new conversation with no messages yet) still triggers it, unchanged.
+
+**SSR decision — recorded, per the acceptance criteria's either/or.** Checked empirically (same HTML
+capture as the double-embed measurement): `MarkdownRenderer.svelte`'s `blocks` state starts as `[]`
+and is populated only inside a Svelte 5 `$effect`, which — unlike Svelte 4 — **does not run during
+SSR at all**. Confirmed directly: a marker planted in assistant message content appeared **zero**
+times in the server-rendered DOM (only once, inside the JSON `data-sveltekit-fetched` blob) — the
+`<div class="markdown-container">` SSRs genuinely empty for every assistant message, every time.
+**This means there is no markdown-rendering CPU being wasted server-side today** — the acceptance
+criteria's premise ("SSR emits empty containers and the client re-renders anyway") is correct on the
+first half but the "wasted work" is not markdown parsing (none happens). The real, measurable waste
+was structural: full, unbounded message history — up to 89 message bubbles' worth of wrapper markup,
+jump-rail marks, etc. — server-rendered on every open regardless of what's actually visible.
+**Decision: do not build server-side markdown rendering.** Making `renderMarkdown` run synchronously
+during SSR would mean sanitizing/rendering arbitrary HTML in Node on every message of every open —
+real new server CPU cost, a second maintained rendering pipeline, and an XSS/sanitization review
+surface — for content that (a) is invisible until client hydration completes regardless, per Svelte
+5's SSR model, and (b) at 6 users / ≤89-message conversations is not where the measured latency lives
+(M1: model reasoning, not server prep, dominates the wait). **Instead: the bounded message window
+already shipped above *is* the "stop paying for wasted SSR" fix** — it directly cuts the amount of
+structural, non-markdown SSR markup generated per open, with zero new rendering pipeline and zero
+new risk. No further code change needed for this decision beyond the windowing already described.
+
+**TDD**
+- `read-model.query-count.test.ts` (new, real DB) — one bounded `SELECT … LIMIT …` against `messages`
+  per open (not one per message, not a second unbounded scan); records the Step-0 statement count;
+  pagination across three pages (20/20/5 of 45 seeded messages) with correct ordering, `hasMoreBefore`
+  transitions, and assembled-shape parity (child-fork decoration present on both the initial window
+  and paginated pages); ownership check returns `null` for a non-owning user.
+- `page-runtime.test.ts` — new test: mounting an already-populated, non-bootstrap conversation issues
+  **zero** additional `fetchConversationDetail` calls (delta-based, since the mock is shared across
+  the file's tests — same idiom the file's existing stream-completion test uses).
+- `page-load.test.ts` — rewritten: the load requests `?view=full` (not `?view=first-render`) and
+  issues exactly 2 fetches total (detail + pending-writes, in parallel) before waiting on parent data.
+- `read-model.test.ts` / `conversation-detail.test.ts` — `"first-render"`-specific cases retired
+  (the view no longer exists); a fallback-to-`"full"` case added for an unrecognized `?view=` value.
 
 **Acceptance criteria**
-- [ ] Measurements recorded in this file first
-- [ ] `getConversationDetail` accepts a bounded message range; older messages paginate
-- [ ] One detail read per open (assert with a query counter in test)
-- [ ] Decide and record: render markdown on the server, **or** stop paying for message SSR
-- [ ] ADR-0022 amended with the range parameter
+- [x] Measurements recorded in this file first (above)
+- [x] `getConversationDetail` accepts a bounded message range; older messages paginate on demand
+      via `getOlderConversationMessages` / `GET /api/conversations/[id]/messages`
+- [x] One detail read per open — asserted by `page-runtime.test.ts` (client) and
+      `page-load.test.ts` (load issues exactly one detail fetch)
+- [x] Decided and recorded: do **not** render markdown server-side; the bounded window is the
+      "stop paying for wasted SSR" fix (see above)
+- [x] ADR-0022 amended with the bounded-range parameter and the `"first-render"` retirement
 
-**Gate:** full gate + `npx playwright test tests/e2e/conversation.spec.ts tests/e2e/conversation-refresh.spec.ts`
+**Leftovers, explicitly not built (in scope for a later slice if ever needed):**
+- No client UI ("load older messages" / infinite scroll) consumes `hasMoreMessages` /
+  `GET .../messages?offset=&limit=` yet. At 89 messages max and a 100-message window, pagination
+  never actually triggers in production today — the capability is real, tested, and HTTP-reachable,
+  but wiring a scroll-triggered UI for a condition that doesn't yet occur was judged not worth the
+  risk/UI-review surface for this slice. Revisit if/when a conversation legitimately exceeds 100
+  messages.
+
+**Gate:** full gate green. `npm run check` 0/0 (6860 files). `npm run build` 0 warnings. `npm test`
+506/506 files, 6081/6081 tests (0 fail) — includes the new real-DB query-count/pagination suite and
+the page-runtime/page-load rewrites. `npm run lint` (biome): the 15-file pre-existing red baseline in
+this environment (a superset of the 6-file baseline recorded in §6 — likely a local biome-version
+difference; re-verified as present with O1's changes fully reverted, so it predates and is unrelated
+to this slice) is unchanged; all 10 files O1 touched, plus the new test file, are biome-clean.
+Playwright (`tests/e2e/conversation.spec.ts`, `tests/e2e/conversation-refresh.spec.ts`): **not
+runnable in this sandboxed worktree** — diagnosed, not skipped: this worktree's local `node_modules`
+was never populated (Node v26.4.0 here is incompatible with `better-sqlite3@12.8.0`'s engine range,
+so `npm install` aborts before writing anything; ordinary module imports still work via Node's
+directory walk-up to the parent checkout's `node_modules`, but Playwright's `webServer` command and
+`db:prepare`'s `tsx` invocation use hardcoded relative paths that bypass that walk-up). Worked around
+enough to get the dev server booting and the e2e DB migrated, at which point the composer stayed
+disabled because no model provider is configured in this sandbox (no `.env`, no API keys) — orthogonal
+to this slice and to the fix under test. Full gate (check/build/test/lint) plus the two new, targeted,
+real-DB-backed integration tests are the verification actually available here.
 
 **🟢 WAVE 2 EXIT — autonomous.** Gate green → deploy → verify → continue.
 

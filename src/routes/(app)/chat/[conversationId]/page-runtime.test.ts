@@ -355,6 +355,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		...appShellDataFixture(),
 		conversation: conversationFixture("conv-1"),
 		messages: [],
+		hasMoreMessages: false,
 		contextStatus: null,
 		totalCostUsdMicros: 0,
 		totalTokens: 0,
@@ -952,6 +953,51 @@ describe("chat page runtime integration", () => {
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
 		expect(fetchConversationDetail).toHaveBeenCalledTimes(
 			detailCallsBeforeCompletion,
+		);
+	});
+
+	// O1 — opening an already-populated conversation (the overwhelmingly
+	// common case) must read+assemble the conversation detail exactly once.
+	// The load (+page.ts) now requests the "full" view directly instead of a
+	// cheap "first-render" payload the page always followed up with a full
+	// client-side re-fetch, so `sidecarPending`/`bootstrap` are both `false`
+	// on a normal open and the sidecar hydrate path below must not fire.
+	it("does not fetch conversation detail again when mounting an already-populated, non-bootstrap conversation", async () => {
+		// `fetchConversationDetail` is a module-scoped mock shared across this
+		// file's tests, so its call history is cumulative — assert the delta
+		// across this test's mount, the same idiom the stream-completion test
+		// above uses, rather than an absolute zero.
+		const callsBeforeMount = vi.mocked(fetchConversationDetail).mock.calls
+			.length;
+		renderPage(
+			pageData({
+				bootstrap: false,
+				sidecarPending: false,
+				messages: [
+					{
+						id: "assistant-1",
+						role: "assistant",
+						content: "Previous answer",
+						timestamp: 1,
+					},
+				],
+			}),
+		);
+
+		// `resetState()` runs synchronously inside the mount `$effect`, so by
+		// the time the DOM reflects the seeded message the
+		// `bootstrapMode || sidecarPending` hydrate check has already run.
+		// (An earlier version of this test additionally waited one real
+		// `setTimeout(0)` tick here, which under a full-suite run raced
+		// unrelated leftover timers from other tests in this file — e.g.
+		// evidence-poll retries — that don't touch `fetchConversationDetail`
+		// on their own schedule but could still tick during that window.)
+		await waitFor(() => {
+			expect(screen.getByText("Previous answer")).toBeInTheDocument();
+		});
+
+		expect(vi.mocked(fetchConversationDetail).mock.calls.length).toBe(
+			callsBeforeMount,
 		);
 	});
 

@@ -28,7 +28,8 @@ vi.mock("$lib/server/services/skills/sessions", () => ({
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
-	listMessages: vi.fn(),
+	listMessageWindow: vi.fn(),
+	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT: 100,
 }));
 
 vi.mock("$lib/server/services/knowledge", () => ({
@@ -105,7 +106,7 @@ import {
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
-import { listMessages } from "$lib/server/services/messages";
+import { listMessageWindow } from "$lib/server/services/messages";
 import { getActiveSkillSession } from "$lib/server/services/skills/sessions";
 import {
 	attachContinuityToTaskState,
@@ -122,7 +123,7 @@ const mockListChildForksBySourceMessages = vi.mocked(
 	listChildForksBySourceMessages,
 );
 const mockGetActiveSkillSession = vi.mocked(getActiveSkillSession);
-const mockListMessages = vi.mocked(listMessages);
+const mockListMessageWindow = vi.mocked(listMessageWindow);
 const mockListConversationArtifacts = vi.mocked(listConversationArtifacts);
 const mockListConversationLinkedContextSources = vi.mocked(
 	listConversationLinkedContextSources,
@@ -188,7 +189,10 @@ describe("Conversation Detail Read Model", () => {
 			skillDisplayName: "Meeting critic",
 			skillInstructions: "SYSTEM_SENTINEL: hidden system skill instructions",
 		} as never);
-		mockListMessages.mockResolvedValue([]);
+		mockListMessageWindow.mockResolvedValue({
+			messages: [],
+			hasMoreBefore: false,
+		});
 		mockListChildForksBySourceMessages.mockResolvedValue({});
 		mockListConversationArtifacts.mockResolvedValue([]);
 		mockListConversationLinkedContextSources.mockResolvedValue([]);
@@ -221,7 +225,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
 		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith("conv-1");
 		expect(mockGetActiveSkillSession).toHaveBeenCalledWith("user-1", "conv-1");
-		expect(mockListMessages).not.toHaveBeenCalled();
+		expect(mockListMessageWindow).not.toHaveBeenCalled();
 		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
 		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
 		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
@@ -245,6 +249,7 @@ describe("Conversation Detail Read Model", () => {
 			atlasJobs: [],
 			contextCompressionSnapshots: [],
 			bootstrap: true,
+			hasMoreMessages: false,
 		});
 		expect(detail?.draft?.draftText).toBe("Continue from here");
 		expect(detail?.forkOrigin?.sourceTitle).toBe("Source title");
@@ -257,103 +262,19 @@ describe("Conversation Detail Read Model", () => {
 		expect(JSON.stringify(detail)).not.toContain("SYSTEM_SENTINEL");
 	});
 
-	it("returns first-render chat detail without waiting for sidecar depth", async () => {
-		mockListMessages.mockResolvedValue([
-			{
-				id: "user-message-1",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Draft a report",
-				createdAt: 1,
-			},
-			{
-				id: "assistant-message-1",
-				conversationId: "conv-1",
-				role: "assistant",
-				content: "Working on it",
-				createdAt: 2,
-			},
-		] as never);
-		mockListChildForksBySourceMessages.mockResolvedValue({
-			"assistant-message-1": {
-				count: 1,
-				forks: [
-					{
-						conversationId: "fork-1",
-						title: "Forked answer",
-						forkSequence: 1,
-						createdAt: 2,
-					},
-				],
-			},
-		});
-		const detail = await getConversationDetail({
-			userId: "user-1",
-			conversationId: "conv-1",
-			view: "first-render",
-		});
-
-		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
-		expect(mockListChildForksBySourceMessages).toHaveBeenCalledWith("user-1", [
-			"assistant-message-1",
-		]);
-		expect(mockGetConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
-		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith("conv-1");
-		expect(mockGetActiveSkillSession).toHaveBeenCalledWith("user-1", "conv-1");
-		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
-		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
-		expect(mockGetConversationWorkingSet).not.toHaveBeenCalled();
-		expect(mockGetConversationContextStatus).not.toHaveBeenCalled();
-		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
-		expect(mockGetContextDebugState).not.toHaveBeenCalled();
-		expect(mockAttachContinuityToTaskState).not.toHaveBeenCalled();
-		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
-		expect(mockListConversationGeneratedFiles).not.toHaveBeenCalled();
-		expect(mockListConversationFileProductionJobs).not.toHaveBeenCalled();
-		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
-		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
-		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
-		expect(detail).toMatchObject({
-			conversation: {
-				id: "conv-1",
-			},
-			messages: [
-				expect.objectContaining({ id: "user-message-1" }),
-				expect.objectContaining({
-					id: "assistant-message-1",
-					sourceForks: expect.objectContaining({ count: 1 }),
-				}),
-			],
-			attachedArtifacts: [],
-			activeWorkingSet: [],
-			contextStatus: null,
-			contextSources: null,
-			taskState: null,
-			contextDebug: null,
-			fileProductionJobs: [],
-			atlasJobs: [],
-			contextCompressionSnapshots: [],
-			bootstrap: false,
-			sidecarPending: true,
-		});
-		expect(detail?.draft?.draftText).toBe("Continue from here");
-		expect(detail?.activeSkillSession).toMatchObject({
-			id: "skill-session-1",
-			skillDisplayName: "Meeting critic",
-		});
-		expect(JSON.stringify(detail)).not.toContain("SYSTEM_SENTINEL");
-	});
-
 	it("returns full conversation detail payload pieces from read services", async () => {
-		mockListMessages.mockResolvedValue([
-			{
-				id: "user-message-1",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Draft a report",
-				createdAt: 1_777_140_010,
-			},
-		] as never);
+		mockListMessageWindow.mockResolvedValue({
+			messages: [
+				{
+					id: "user-message-1",
+					conversationId: "conv-1",
+					role: "user",
+					content: "Draft a report",
+					createdAt: 1_777_140_010,
+				},
+			] as never,
+			hasMoreBefore: true,
+		});
 		mockListConversationArtifacts.mockResolvedValue([
 			{
 				id: "artifact-attached-1",
@@ -473,7 +394,9 @@ describe("Conversation Detail Read Model", () => {
 			conversationId: "conv-1",
 		});
 
-		expect(mockListMessages).toHaveBeenCalledWith("conv-1");
+		expect(mockListMessageWindow).toHaveBeenCalledWith("conv-1", {
+			limit: 100,
+		});
 		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith("conv-1");
 		expect(mockListConversationAtlasJobs).toHaveBeenCalledWith(
 			"user-1",
@@ -526,35 +449,39 @@ describe("Conversation Detail Read Model", () => {
 				id: "skill-session-1",
 			}),
 			bootstrap: false,
+			hasMoreMessages: true,
 			totalCostUsdMicros: 123_456,
 			totalTokens: 7890,
 		});
 	});
 
 	it("decorates only assistant messages with child fork metadata", async () => {
-		mockListMessages.mockResolvedValue([
-			{
-				id: "user-message-1",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Question",
-				createdAt: 1,
-			},
-			{
-				id: "assistant-message-1",
-				conversationId: "conv-1",
-				role: "assistant",
-				content: "Answer",
-				createdAt: 2,
-				depthMetadata: {
-					requested: "auto",
-					appliedProfile: "standard",
-					fallback: false,
-					modelId: "model1",
-					modelDisplayName: "Model 1",
+		mockListMessageWindow.mockResolvedValue({
+			messages: [
+				{
+					id: "user-message-1",
+					conversationId: "conv-1",
+					role: "user",
+					content: "Question",
+					createdAt: 1,
 				},
-			},
-		] as never);
+				{
+					id: "assistant-message-1",
+					conversationId: "conv-1",
+					role: "assistant",
+					content: "Answer",
+					createdAt: 2,
+					depthMetadata: {
+						requested: "auto",
+						appliedProfile: "standard",
+						fallback: false,
+						modelId: "model1",
+						modelDisplayName: "Model 1",
+					},
+				},
+			] as never,
+			hasMoreBefore: false,
+		});
 		mockListChildForksBySourceMessages.mockResolvedValue({
 			"user-message-1": {
 				count: 1,
