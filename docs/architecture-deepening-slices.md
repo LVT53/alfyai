@@ -359,7 +359,7 @@ flat `build/`+`node_modules/` remain at the staging app root (harmless; optional
 
 ---
 
-### D2 — Drain + maintenance page (deploy Phase 2) 🟨
+### D2 — Drain + maintenance page (deploy Phase 2) ✅
 **Blocked by:** D1.
 
 **What to build.** A `draining` state that makes Stream Admission refuse new streams while
@@ -430,6 +430,14 @@ delta 0). Built:
   poll `activeStreams`→0, 120s cap, graceful skip if the key is unset). `SHUTDOWN_TIMEOUT=300` on the
   service unit. ADR-0054 amended with the draining contract + ADR-0041 relationship + why Phase 3
   (blue/green) is deferred.
+
+**Deployed + verified on staging (releases/36464e39).** `deploy-dev.sh` ran the full flow
+autonomously — the drain block (`✓ Drained: 0 active streams`), atomic flip, and **self-restart via
+the new sudoers rule** (no manual `alfyroot`), health passed on the new release. End-to-end drain
+proof: `POST /api/admin/drain {draining:true}` → health `draining:true` → a real chat turn is
+**refused with `503 CAPACITY_EXCEEDED`** → `{draining:false}` → turns succeed again. Auth matrix
+(no-bearer/wrong-bearer → 401; valid bearer accepted) and JSON validation confirmed. `status:"OK"`
+preserved throughout.
 
 **Maintenance page — page built, live Apache wiring DEFERRED to prod cutover.** The page
 (`deploy/maintenance/index.html`, bilingual, inlined CSS, polls `/api/health`, self-reloads) is
