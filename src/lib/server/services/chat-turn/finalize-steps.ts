@@ -27,13 +27,14 @@ import {
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
-import type {
-	PersistAssistantEvidenceParams,
-	PersistAssistantTurnStateParams,
-	PersistAssistantTurnStateResult,
-	RunPostTurnTasksParams,
-	WorkCapsuleSummary,
-	WorkingSetItem,
+import {
+	type PersistAssistantEvidenceParams,
+	type PersistAssistantTurnStateParams,
+	type PersistAssistantTurnStateResult,
+	type RunPostTurnTasksParams,
+	turnLogPrefix,
+	type WorkCapsuleSummary,
+	type WorkingSetItem,
 } from "./types";
 
 async function refreshWorkingSetWithAttachments(params: {
@@ -284,18 +285,21 @@ export async function persistAssistantEvidence(
 			webCitationAudit.status !== "passed" &&
 			webCitationAudit.status !== "none"
 		) {
-			console.warn(`${params.logPrefix} Web citation audit warning`, {
-				conversationId: params.conversationId,
-				assistantMessageId: params.assistantMessageId,
-				status: webCitationAudit.status,
-				retrievedSourceCount: webCitationAudit.retrievedSourceCount,
-				citedUrlCount: webCitationAudit.citedUrlCount,
-				unsupportedCitationCount: webCitationAudit.unsupportedCitationCount,
-			});
+			console.warn(
+				`${turnLogPrefix(params.turnKind)} Web citation audit warning`,
+				{
+					conversationId: params.conversationId,
+					assistantMessageId: params.assistantMessageId,
+					status: webCitationAudit.status,
+					retrievedSourceCount: webCitationAudit.retrievedSourceCount,
+					citedUrlCount: webCitationAudit.citedUrlCount,
+					unsupportedCitationCount: webCitationAudit.unsupportedCitationCount,
+				},
+			);
 		}
 	} catch (error) {
 		console.error(
-			`${params.logPrefix} Failed to persist assistant evidence summary:`,
+			`${turnLogPrefix(params.turnKind)} Failed to persist assistant evidence summary:`,
 			error,
 		);
 		await updateMessageEvidence(params.assistantMessageId, {
@@ -341,7 +345,7 @@ export async function runPostTurnTasks(
 					startedResetGeneration: params.startedResetGeneration,
 				}).catch((error) =>
 					console.error(
-						`${params.logPrefix} Conversation summary refresh failed:`,
+						`${turnLogPrefix(params.turnKind)} Conversation summary refresh failed:`,
 						error,
 					),
 				)
@@ -354,13 +358,13 @@ export async function runPostTurnTasks(
 			params.maintenanceReason,
 		).catch((error) =>
 			console.error(
-				`${params.logPrefix} Post-turn memory maintenance failed:`,
+				`${turnLogPrefix(params.turnKind)} Post-turn memory maintenance failed:`,
 				error,
 			),
 		);
 	} catch (error) {
 		console.error(
-			`${params.logPrefix} Post-turn memory maintenance failed:`,
+			`${turnLogPrefix(params.turnKind)} Post-turn memory maintenance failed:`,
 			error,
 		);
 	}

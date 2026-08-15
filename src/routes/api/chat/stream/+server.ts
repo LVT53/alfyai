@@ -1,17 +1,15 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
-import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
 import {
 	admitChatTurnStream,
+	checkStreamCapacity,
+	createStreamJsonErrorResponse,
+	parseChatTurnRequest,
 	prepareAdmittedChatTurn,
-} from "$lib/server/services/chat-turn/preflight";
-import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
-import { createStreamJsonErrorResponse } from "$lib/server/services/chat-turn/stream";
-import {
 	runChatStreamOrchestrator,
 	startStartedResetGenerationFact,
-} from "$lib/server/services/chat-turn/stream-orchestrator";
+} from "$lib/server/services/chat-turn";
 import { SERVER_STREAM_TIMELINE_MARKS } from "$lib/services/stream-timeline";
 
 export const POST: RequestHandler = async (event) => {

@@ -406,8 +406,8 @@ export async function completeStreamTurn(
 			streamId,
 			fact: startedResetGenerationFact,
 		});
-		const completion = await finalizeChatTurn({
-			logPrefix: "[STREAM]",
+		await finalizeChatTurn({
+			turnKind: "stream",
 			streamId,
 			userId,
 			conversationId,
@@ -478,11 +478,7 @@ export async function completeStreamTurn(
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			linkedSources,
-			persistenceMode: "best_effort",
-			persistAssistantMessage: true,
 			persistTurnState: !wasStopped,
-			deferPostTurnProjection: true,
-			persistUserAttachmentsBeforeAssistantMessage: false,
 			generatedOutputReconciliation:
 				hadFileProductionToolCall || hadConnectionWriteToolCall
 					? {
@@ -494,59 +490,60 @@ export async function completeStreamTurn(
 							pendingWriteIdsAtStart,
 						}
 					: undefined,
-		});
-		if (
-			!completion.assistantMessage?.id ||
-			(persistUserMessage && !completion.userMessage?.id)
-		) {
-			throw new Error(
-				"Stream finalization completed without required message identities",
-			);
-		}
-		sendEndAndClose(completion.userMessage?.id, completion.assistantMessage.id);
-		const deferredProjectionTask = (async () => {
-			if (hadFileProductionToolCall) {
-				const fileProductionStartSnapshot =
-					await resolveFileProductionJobIdsAtStart({
-						conversationId,
-						streamId,
-						fact: fileProductionJobIdsAtStartFact,
-					});
-				const fileProductionJobIdsAtStart = fileProductionStartSnapshot
-					? await buildEffectiveFileProductionJobIdsAtStart({
-							userId,
+			// finalizeChatTurn owns scheduling the deferred post-turn projection
+			// itself (ADR-0015) — this hook is invoked and awaited once the
+			// durable message identities are known, before that background work
+			// starts, so the terminal SSE frames flush at the right moment. No
+			// promise or task-starting function comes back from finalizeChatTurn
+			// for this transport to separately schedule.
+			onDurableReceiptReady: async (receipt) => {
+				sendEndAndClose(receipt.userMessage?.id, receipt.assistantMessage.id);
+
+				if (!hadFileProductionToolCall) return;
+
+				try {
+					const fileProductionStartSnapshot =
+						await resolveFileProductionJobIdsAtStart({
 							conversationId,
-							snapshot: fileProductionStartSnapshot,
-							toolCallRecords,
-							getFileProductionJobs,
-						})
-					: null;
+							streamId,
+							fact: fileProductionJobIdsAtStartFact,
+						});
+					const fileProductionJobIdsAtStart = fileProductionStartSnapshot
+						? await buildEffectiveFileProductionJobIdsAtStart({
+								userId,
+								conversationId,
+								snapshot: fileProductionStartSnapshot,
+								toolCallRecords,
+								getFileProductionJobs,
+							})
+						: null;
 
-				deferredFileProductionJobIdsAtStart.clear();
-				if (fileProductionJobIdsAtStart) {
-					for (const jobId of fileProductionJobIdsAtStart) {
-						deferredFileProductionJobIdsAtStart.add(jobId);
+					deferredFileProductionJobIdsAtStart.clear();
+					if (fileProductionJobIdsAtStart) {
+						for (const jobId of fileProductionJobIdsAtStart) {
+							deferredFileProductionJobIdsAtStart.add(jobId);
+						}
+						fileProductionReconciliationSkipped = false;
+					} else {
+						fileProductionReconciliationSkipped = true;
 					}
-					fileProductionReconciliationSkipped = false;
-				} else {
+				} catch (error) {
+					// Defensive only — resolveFileProductionJobIdsAtStart and
+					// buildEffectiveFileProductionJobIdsAtStart already catch their
+					// own failures internally. This local catch exists so an
+					// unexpected throw here degrades to "skip reconciliation"
+					// instead of rejecting onDurableReceiptReady, which has already
+					// sent the terminal receipt above and must not fail the turn.
+					console.error(
+						"[CHAT_STREAM] Deferred file-production snapshot resolution failed",
+						{ conversationId, streamId, error },
+					);
 					fileProductionReconciliationSkipped = true;
+				} finally {
+					fileProductionReconciliationReady = true;
 				}
-				fileProductionReconciliationReady = true;
-			}
-
-			await completion.createPostTurnTask();
-		})().catch((error) => {
-			console.error("[CHAT_STREAM] Deferred post-turn projection failed", {
-				conversationId,
-				streamId,
-				assistantMessageId: completion.assistantMessage?.id ?? null,
-				error,
-			});
+			},
 		});
-		await Promise.race([
-			deferredProjectionTask,
-			waitForDeferredProjectionStart(),
-		]);
 		return;
 	} catch (error) {
 		console.error(
@@ -560,12 +557,6 @@ export async function completeStreamTurn(
 		sendErrorAndClose();
 		return;
 	}
-}
-
-function waitForDeferredProjectionStart(): Promise<void> {
-	return new Promise((resolve) => {
-		setTimeout(resolve, 0);
-	});
 }
 
 function resolveCompletionFact<T>(fact: StreamCompletionFact<T>): Promise<T> {

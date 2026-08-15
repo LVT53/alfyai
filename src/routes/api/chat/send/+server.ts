@@ -11,16 +11,16 @@ import {
 	wakeAtlasWorker,
 } from "$lib/server/services/atlas";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
-import { checkStreamCapacity } from "$lib/server/services/chat-turn/active-streams";
-import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
-import { normalizeAssistantOutputWithSkillControl } from "$lib/server/services/chat-turn/normalizer";
-import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
+	checkStreamCapacity,
+	finalizeChatTurn,
+	normalizeAssistantOutputWithSkillControl,
+	type ParsedChatTurnRequest,
+	parseChatTurnRequest,
 	preflightAtlasTurnSources,
 	preflightChatTurn,
-} from "$lib/server/services/chat-turn/preflight";
-import { parseChatTurnRequest } from "$lib/server/services/chat-turn/request";
-import type { ParsedChatTurnRequest } from "$lib/server/services/chat-turn/types";
+	runPlainNormalChatSendModel,
+} from "$lib/server/services/chat-turn";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
@@ -270,7 +270,7 @@ async function runAtlasSendTurn({
 		createdAtlasJobId = intake.job.id;
 
 		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: user.id,
 			conversationId: turn.conversationId,
 			userMessageContent: turn.normalizedMessage,
@@ -310,8 +310,6 @@ async function runAtlasSendTurn({
 			linkedSources: atlasPreflight.value.linkedSources,
 			toolCalls: [],
 			contextTraceSections: [],
-			persistenceMode: "strict",
-			waitForEvidenceBeforePostTurnTasks: false,
 		});
 		if (completion.userMessage?.id) {
 			await snapshotAtlasLinkedSources({
@@ -344,8 +342,6 @@ async function runAtlasSendTurn({
 						return intake.job;
 					})
 				: intake.job;
-		void completion.evidenceTask;
-		void completion.createPostTurnTask();
 		wakeAtlasWorker();
 
 		return json({
@@ -500,7 +496,7 @@ async function runStandardSendTurn({
 	const contextStatus = modelRunResult.contextStatus;
 
 	const completion = await finalizeChatTurn({
-		logPrefix: "[SEND]",
+		turnKind: "send",
 		userId: user.id,
 		conversationId: turn.conversationId,
 		userMessageContent: turn.normalizedMessage,
@@ -540,8 +536,6 @@ async function runStandardSendTurn({
 		linkedSources: turn.linkedSources,
 		toolCalls: modelRunArtifacts.finalToolCalls,
 		contextTraceSections: modelRunResult.contextTraceSections,
-		persistenceMode: "strict",
-		waitForEvidenceBeforePostTurnTasks: false,
 		webCitationAudit: modelRunArtifacts.citationGate.audit,
 		generatedOutputReconciliation: {
 			fileProductionJobIdsAtStart,
@@ -549,8 +543,6 @@ async function runStandardSendTurn({
 		},
 	});
 	await touchConversation(user.id, turn.conversationId).catch(() => undefined);
-	void completion.evidenceTask;
-	void completion.createPostTurnTask();
 
 	return json({
 		response: { text: finalResponseText },

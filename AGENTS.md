@@ -144,13 +144,15 @@ Do not:
     - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
     - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)`.
 - Shared pipeline:
+  - [`src/lib/server/services/chat-turn/index.ts`](./src/lib/server/services/chat-turn/index.ts)
+    - The single entrypoint into chat-turn (F1). The `send`, `stream`, and `retry` routes drive a Normal Chat turn through this facade and import chat-turn only from it, rather than reaching into individual submodules. It is a facade *inside* this module directory, not a new top-level `services/*.ts` boundary. Stream-lifecycle/capacity utilities used by auxiliary routes (`stream/stop|status|buffer`, `admin/drain`, `health`) still import `active-streams` directly.
   - [`src/lib/server/services/chat-turn/request.ts`](./src/lib/server/services/chat-turn/request.ts)
   - [`src/lib/server/services/chat-turn/preflight.ts`](./src/lib/server/services/chat-turn/preflight.ts)
   - [`src/lib/server/services/chat-turn/normalizer.ts`](./src/lib/server/services/chat-turn/normalizer.ts)
     - Canonical assistant-output normalization for send, stream, retry, and title generation.
   - [`src/lib/server/services/chat-turn/stream-orchestrator.ts`](./src/lib/server/services/chat-turn/stream-orchestrator.ts)
     - Orchestrates the full chat-turn streaming pipeline: neutral Normal Chat model-run events, tool-call marker handling, token/thinking framing, stream buffer management.
-    - Imported by: `src/routes/api/chat/stream/+server.ts`, `src/routes/api/chat/retry/+server.ts`
+    - Imported by the `stream` and `retry` routes via the `chat-turn/index.ts` facade (F1).
   - [`src/lib/server/services/chat-turn/stream.ts`](./src/lib/server/services/chat-turn/stream.ts)
     - Re-export hub for stream sub-modules:
       - [`thinking-normalizer.ts`](./src/lib/server/services/chat-turn/thinking-normalizer.ts)

@@ -12,7 +12,6 @@ import type { ChatMessage } from "$lib/types";
 
 const {
 	mockJudgeFinishedTurn,
-	mockIsCurrentMemoryResetGeneration,
 	mockListMessages,
 	mockRefreshConversationSummary,
 	mockResolveWorkingDocumentSelection,
@@ -32,7 +31,6 @@ const {
 			status: "skipped" | "explicit" | "marathon" | "idle";
 		}> => ({ status: "idle" }),
 	),
-	mockIsCurrentMemoryResetGeneration: vi.fn(async () => true),
 	mockListMessages: vi.fn(async () => [] as ChatMessage[]),
 	mockRefreshConversationSummary: vi.fn(async () => undefined),
 	mockSyncGeneratedFilesToMemory: vi.fn(async () => undefined),
@@ -89,10 +87,6 @@ vi.mock("$lib/server/services/chat-files", () => ({
 	getChatFilesForAssistantMessage: vi.fn(async () => []),
 }));
 
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: vi.fn(() => ({ contextDiagnosticsDebug: false })),
-}));
-
 vi.mock("$lib/server/services/analytics", () => ({
 	recordMessageAnalytics: vi.fn(async () => undefined),
 }));
@@ -142,10 +136,6 @@ vi.mock("$lib/server/services/memory-behavior-log", () => ({
 
 vi.mock("$lib/server/services/memory-maintenance", () => ({
 	runUserMemoryMaintenance: mockRunUserMemoryMaintenance,
-}));
-
-vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
-	isCurrentMemoryResetGeneration: mockIsCurrentMemoryResetGeneration,
 }));
 
 vi.mock("$lib/server/services/message-evidence", () => ({
@@ -234,7 +224,6 @@ async function flushMicrotasks(): Promise<void> {
 describe("runPostTurnTasks", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockIsCurrentMemoryResetGeneration.mockResolvedValue(true);
 		mockListMessages.mockResolvedValue([]);
 		mockJudgeFinishedTurn.mockResolvedValue({ status: "idle" });
 	});
@@ -253,7 +242,7 @@ describe("runPostTurnTasks", () => {
 
 		await expect(
 			runPostTurnTasks({
-				logPrefix: "[SEND]",
+				turnKind: "send",
 				userId: "user-1",
 				conversationId: "conv-1",
 				upstreamMessage: "upstream prompt payload",
@@ -294,7 +283,7 @@ describe("runPostTurnTasks", () => {
 			);
 
 		await runPostTurnTasks({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -341,7 +330,7 @@ describe("runPostTurnTasks", () => {
 			);
 
 		await runPostTurnTasks({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -386,7 +375,7 @@ describe("runPostTurnTasks", () => {
 
 		await expect(
 			runPostTurnTasks({
-				logPrefix: "[SEND]",
+				turnKind: "send",
 				userId: "user-1",
 				conversationId: "conv-1",
 				upstreamMessage: "upstream prompt payload",
@@ -425,7 +414,7 @@ describe("runPostTurnTasks", () => {
 
 		let completed = false;
 		const postTurn = runPostTurnTasks({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -465,7 +454,7 @@ describe("runPostTurnTasks", () => {
 			);
 
 		await runPostTurnTasks({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "upstream prompt payload",
@@ -520,7 +509,7 @@ describe("finalizeChatTurn", () => {
 		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
 	});
 
-	it("can return a stream receipt before deferred turn projection resolves", async () => {
+	it("invokes onDurableReceiptReady with message ids before the deferred projection resolves, then keeps running it in the background — no promise or task-starting function comes back to the caller", async () => {
 		const deferredTurnState = createDeferred<{
 			activeWorkingSet: [];
 			taskState: null;
@@ -539,9 +528,11 @@ describe("finalizeChatTurn", () => {
 			getProjectReferenceContext as ReturnType<typeof vi.fn>;
 		const { finalizeChatTurn } = await import("./finalize");
 
-		let receipt: Awaited<ReturnType<typeof finalizeChatTurn>> | undefined;
-		const receiptPromise = finalizeChatTurn({
-			logPrefix: "[STREAM]",
+		let receipt:
+			| { userMessage?: { id: string }; assistantMessage: { id: string } }
+			| undefined;
+		const completion = await finalizeChatTurn({
+			turnKind: "stream",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "user message",
@@ -560,73 +551,52 @@ describe("finalizeChatTurn", () => {
 			analytics: null,
 			assistantMirrorContent: "assistant response",
 			maintenanceReason: "chat_stream",
-			persistenceMode: "best_effort",
-			persistUserAttachmentsBeforeAssistantMessage: false,
-			deferPostTurnProjection: true,
-		}).then((value) => {
-			receipt = value;
-			return value;
+			// finalizeChatTurn invokes and awaits this itself — it never hands the
+			// caller a promise or a task-starting function to schedule.
+			onDurableReceiptReady: (r) => {
+				receipt = r;
+			},
 		});
 
+		// finalize's own returned promise settles once the receipt hook has run
+		// and the (still-blocked) background projection has lost its race
+		// against a single tick — see waitOneTick in finalize.ts.
+		expect(receipt?.userMessage?.id).toBe("user-message");
+		expect(receipt?.assistantMessage.id).toBe("assistant-message");
+		expect(completion.userMessage?.id).toBe("user-message");
+		expect(completion.assistantMessage?.id).toBe("assistant-message");
+		expect(completion.turnState).toBeNull();
+		expect(completion.contextSources.groups).toEqual([]);
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userMessageId: "user-message",
+				assistantMessageId: "assistant-message",
+			}),
+		);
+		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
+		expect(mockRunPostTurnTasks).not.toHaveBeenCalled();
+
+		deferredTurnState.resolve({
+			activeWorkingSet: [],
+			taskState: null,
+			contextDebug: null,
+			workCapsule: undefined,
+		});
 		await flushMicrotasks();
 
-		try {
-			expect(receipt?.userMessage?.id).toBe("user-message");
-			expect(receipt?.assistantMessage?.id).toBe("assistant-message");
-			expect(receipt?.turnState).toBeNull();
-			expect(receipt?.contextSources.groups).toEqual([]);
-			expect(mockPersistAssistantTurnState).not.toHaveBeenCalled();
-			if (!receipt) {
-				throw new Error("Expected deferred finalize receipt");
-			}
-
-			const postTurnTask = receipt.createPostTurnTask();
-			await flushMicrotasks();
-			expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
-				expect.objectContaining({
-					userMessageId: "user-message",
-					assistantMessageId: "assistant-message",
-				}),
-			);
-			expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
-
-			let postTurnSettled = false;
-			void postTurnTask.then(() => {
-				postTurnSettled = true;
-			});
-			await flushMicrotasks();
-			expect(postTurnSettled).toBe(false);
-
-			deferredTurnState.resolve({
-				activeWorkingSet: [],
-				taskState: null,
-				contextDebug: null,
-				workCapsule: undefined,
-			});
-			await postTurnTask;
-
-			expect(mockGetProjectReferenceContext).toHaveBeenCalledWith(
-				expect.objectContaining({
-					userId: "user-1",
-					conversationId: "conv-1",
-				}),
-			);
-			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
-				expect.objectContaining({
-					userId: "user-1",
-					conversationId: "conv-1",
-					assistantMessageId: "assistant-message",
-				}),
-			);
-		} finally {
-			deferredTurnState.resolve({
-				activeWorkingSet: [],
-				taskState: null,
-				contextDebug: null,
-				workCapsule: undefined,
-			});
-			await receiptPromise.catch(() => undefined);
-		}
+		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+			}),
+		);
+		expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-message",
+			}),
+		);
 	});
 
 	it("reconciles new generated outputs during turn completion", async () => {
@@ -647,7 +617,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "Create a report",
@@ -716,7 +686,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "Save this to Nextcloud",
@@ -765,7 +735,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "hi",
@@ -819,7 +789,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -906,7 +876,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[STREAM]",
+			turnKind: "stream",
 			streamId: "stream-1",
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -933,8 +903,6 @@ describe("finalizeChatTurn", () => {
 			},
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
-			persistenceMode: "best_effort",
-			persistUserAttachmentsBeforeAssistantMessage: false,
 		});
 
 		expect(warnSpy).toHaveBeenCalledWith(
@@ -978,7 +946,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[STREAM]",
+			turnKind: "stream",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1004,8 +972,6 @@ describe("finalizeChatTurn", () => {
 			},
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_stream",
-			persistenceMode: "best_effort",
-			persistUserAttachmentsBeforeAssistantMessage: false,
 		});
 
 		expect(callOrder).toEqual([
@@ -1019,7 +985,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1073,7 +1039,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1134,44 +1100,53 @@ describe("finalizeChatTurn", () => {
 		);
 	});
 
-	it("swallows attachment persistence failures in stream mode", async () => {
+	it("swallows attachment persistence failures in stream mode instead of failing the turn", async () => {
 		mockPersistUserTurnAttachments.mockImplementation(async () => {
 			throw new Error("attachment offline");
 		});
 		const { finalizeChatTurn } = await import("./finalize");
 
-		const completion = await finalizeChatTurn({
-			logPrefix: "[STREAM]",
-			userId: "user-1",
-			conversationId: "conv-1",
-			userMessageContent: "normalized user message",
-			persistUserMessage: true,
-			normalizedMessage: "normalized user message",
-			upstreamMessage: "upstream prompt payload",
-			assistantResponse: "visible assistant response",
-			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
-			attachmentIds: ["att-1"],
-			activeDocumentArtifactId: null,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			analytics: {
-				model: "model-1",
-				modelDisplayName: "Model One",
-				promptTokens: 8,
-				completionTokens: 5,
-				generationTimeMs: undefined,
-				providerUsage: null,
-			},
-			assistantMirrorContent: "assistant mirror text",
-			maintenanceReason: "chat_stream",
-			persistenceMode: "best_effort",
-			persistUserAttachmentsBeforeAssistantMessage: false,
-		});
+		// finalize no longer hands back a pending attachmentTask for the caller
+		// to await — attachment persistence is scheduled and swallowed entirely
+		// inside finalize's own background projection. The turn as a whole must
+		// still resolve cleanly despite the attachment failure.
+		await expect(
+			finalizeChatTurn({
+				turnKind: "stream",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "normalized user message",
+				persistUserMessage: true,
+				normalizedMessage: "normalized user message",
+				upstreamMessage: "upstream prompt payload",
+				assistantResponse: "visible assistant response",
+				assistantMetadata: { evidenceStatus: "pending" },
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: ["att-1"],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: {
+					model: "model-1",
+					modelDisplayName: "Model One",
+					promptTokens: 8,
+					completionTokens: 5,
+					generationTimeMs: undefined,
+					providerUsage: null,
+				},
+				assistantMirrorContent: "assistant mirror text",
+				maintenanceReason: "chat_stream",
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				assistantMessage: expect.objectContaining({ id: "assistant-message" }),
+			}),
+		);
+		await flushMicrotasks();
 
-		await expect(completion.attachmentTask).resolves.toBeUndefined();
+		expect(mockPersistUserTurnAttachments).toHaveBeenCalled();
 	});
 
 	it("returns the durable completion result while the follow-up work runs in the background", async () => {
@@ -1203,7 +1178,7 @@ describe("finalizeChatTurn", () => {
 			async () => postTurnDeferred.promise,
 		);
 		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1232,7 +1207,6 @@ describe("finalizeChatTurn", () => {
 			},
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
-			waitForEvidenceBeforePostTurnTasks: false,
 		});
 
 		expect(completion.userMessage).toEqual(
@@ -1243,12 +1217,17 @@ describe("finalizeChatTurn", () => {
 		);
 		expect(mockRunUserMemoryMaintenance).not.toHaveBeenCalled();
 
-		const postTurnTask = completion.createPostTurnTask();
+		// A send turn's tail (memory judge / summary / maintenance) is started by
+		// finalize itself, in the background, right after the eager projection
+		// resolves — the caller gets the durable receipt above and nothing to
+		// separately schedule. waitForEvidenceBeforePostTurnTasks now derives to
+		// false for every send turn, so runPostTurnTasks fires without waiting
+		// for the still-pending evidence write.
 		expect(mockPersistAssistantEvidence).toHaveBeenCalledTimes(1);
 		expect(mockRunPostTurnTasks).toHaveBeenCalledTimes(1);
 		evidenceDeferred.resolve();
 		postTurnDeferred.resolve();
-		await postTurnTask;
+		await flushMicrotasks();
 	});
 
 	it("forwards Atlas-style skip options through finalization without disabling other completion work", async () => {
@@ -1264,8 +1243,8 @@ describe("finalizeChatTurn", () => {
 		});
 		const { finalizeChatTurn } = await import("./finalize");
 
-		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+		await finalizeChatTurn({
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "atlas request",
@@ -1286,8 +1265,10 @@ describe("finalizeChatTurn", () => {
 			maintenanceReason: "chat_send",
 			skipAssistantProseMemoryIntake: true,
 		});
-
-		await completion.createPostTurnTask();
+		// finalize starts the tail (which threads skipAssistantProseMemoryIntake
+		// through to runPostTurnTasks) itself; nothing is returned for the
+		// caller to trigger.
+		await flushMicrotasks();
 
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1309,7 +1290,7 @@ describe("finalizeChatTurn", () => {
 			);
 
 		await runPostTurnTasks({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			upstreamMessage: "atlas request",
@@ -1380,7 +1361,7 @@ describe("finalizeChatTurn", () => {
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
-			logPrefix: "[SEND]",
+			turnKind: "send",
 			userId: "user-1",
 			conversationId: "conv-1",
 			userMessageContent: "normalized user message",
@@ -1652,7 +1633,7 @@ describe("finalizeChatTurn", () => {
 			const { finalizeChatTurn } = await import("./finalize");
 
 			await finalizeChatTurn({
-				logPrefix: "[STREAM]",
+				turnKind: "stream",
 				userId: "user-1",
 				conversationId: "conv-1",
 				userMessageContent: "user message",
@@ -1826,7 +1807,7 @@ describe("finalizeChatTurn", () => {
 			const { finalizeChatTurn } = await import("./finalize");
 
 			const completion = await finalizeChatTurn({
-				logPrefix: "[SEND]",
+				turnKind: "send",
 				userId: "user-1",
 				conversationId: "conv-secret",
 				userMessageContent: "user message",

@@ -44,12 +44,14 @@ import {
 	recordAssistantTurnAnalytics,
 	runPostTurnTasks,
 } from "./finalize-steps";
-import type {
-	PersistAssistantEvidenceParams,
-	PersistAssistantTurnStateParams,
-	PersistAssistantTurnStateResult,
-	RunPostTurnTasksParams,
-	WorkingSetItem,
+import {
+	type ChatTurnRoute,
+	type PersistAssistantEvidenceParams,
+	type PersistAssistantTurnStateParams,
+	type PersistAssistantTurnStateResult,
+	type RunPostTurnTasksParams,
+	turnLogPrefix,
+	type WorkingSetItem,
 } from "./types";
 
 type MessageCreationMode = "strict" | "best_effort";
@@ -98,8 +100,29 @@ export type GeneratedOutputReconciliationParams = {
 	) => Promise<void>;
 };
 
+// The durable identities a completed turn hands back once its user/assistant
+// messages are persisted. This is all a stream transport needs to flush its
+// terminal receipt — see onDurableReceiptReady below. finalize only invokes
+// onDurableReceiptReady after validating the assistant message identity, so
+// assistantMessage is guaranteed present here (unlike the send-path result,
+// which stays defensively optional — see FinalizeChatTurnResult).
+export type FinalizeChatTurnDurableReceipt = {
+	userMessage: { id: string } | undefined;
+	assistantMessage: { id: string };
+};
+
 export type FinalizeChatTurnParams = {
-	logPrefix: "[SEND]" | "[STREAM]";
+	// The turn kinds that actually exist (F1) — every other former mode
+	// boolean (persistAssistantMessage, persistUserAttachmentsBeforeAssistantMessage,
+	// waitForEvidenceBeforePostTurnTasks, deferPostTurnProjection, and the
+	// strict/best_effort persistence mode) is fully determined by turnKind;
+	// see the derivations at the top of finalizeChatTurn below. Only genuine
+	// per-turn facts that vary independently of the kind stay as their own
+	// params: persistUserMessage (a stream reconnect may have already
+	// persisted it), persistTurnState (a stopped stream skips the heavier
+	// projection), and skipAssistantProseMemoryIntake (an orthogonal
+	// per-turn override).
+	turnKind: ChatTurnRoute;
 	streamId?: string | null;
 	userId: string;
 	conversationId: string;
@@ -128,14 +151,20 @@ export type FinalizeChatTurnParams = {
 	toolCalls?: PersistAssistantEvidenceParams["toolCalls"];
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];
-	persistenceMode?: MessageCreationMode;
-	persistAssistantMessage?: boolean;
 	persistTurnState?: boolean;
-	persistUserAttachmentsBeforeAssistantMessage?: boolean;
-	waitForEvidenceBeforePostTurnTasks?: boolean;
-	deferPostTurnProjection?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
+	// Stream-only. finalizeChatTurn owns scheduling every post-turn side
+	// effect itself (ADR-0015) — it never hands a caller a promise or a
+	// task-starting function to manage. For a deferred (stream) turn, the
+	// caller instead supplies this hook: finalize invokes and awaits it
+	// exactly once, right after the durable message identities are known and
+	// before any background projection begins, so the stream transport can
+	// flush its terminal frames at the correct moment. Nothing is returned
+	// for the caller to separately await or schedule.
+	onDurableReceiptReady?: (
+		receipt: FinalizeChatTurnDurableReceipt,
+	) => void | Promise<void>;
 };
 
 function buildSkillControlLogContext(params: {
@@ -158,9 +187,6 @@ export type FinalizeChatTurnResult = {
 	assistantMessage: { id: string } | undefined;
 	turnState: PersistAssistantTurnStateResult | null;
 	contextSources: ContextSourcesState;
-	evidenceTask: Promise<void>;
-	createPostTurnTask: () => Promise<void>;
-	attachmentTask: Promise<WorkingSetItem[] | undefined>;
 	attachedArtifacts?: WorkingSetItem[];
 	generatedFiles: ChatGeneratedFile[];
 };
@@ -257,13 +283,14 @@ async function createTurnMessage(
 }
 
 async function reconcileGeneratedOutputsForAssistantMessage(params: {
-	logPrefix: "[SEND]" | "[STREAM]";
+	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string;
 	assistantResponse: string;
 	reconciliation: GeneratedOutputReconciliationParams;
 }): Promise<ChatGeneratedFile[]> {
+	const logPrefix = turnLogPrefix(params.turnKind);
 	const getFileProductionJobsImpl =
 		params.reconciliation.getFileProductionJobs ??
 		listConversationFileProductionJobs;
@@ -321,7 +348,7 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 				assistantResponse: params.assistantResponse,
 			}).catch((error) => {
 				console.error(
-					`${params.logPrefix} Background generated-file memory sync failed`,
+					`${logPrefix} Background generated-file memory sync failed`,
 					{
 						conversationId: params.conversationId,
 						assistantMessageId: params.assistantMessageId,
@@ -343,7 +370,7 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 
 		return generatedFiles;
 	} catch (error) {
-		console.error(`${params.logPrefix} Failed to reconcile generated outputs`, {
+		console.error(`${logPrefix} Failed to reconcile generated outputs`, {
 			conversationId: params.conversationId,
 			assistantMessageId: params.assistantMessageId,
 			error,
@@ -359,7 +386,7 @@ async function reconcileGeneratedOutputsForAssistantMessage(params: {
 // (the write itself, and its confirm/cancel state, lives entirely in
 // connection_pending_writes independent of whether this stamp ever lands).
 async function reconcilePendingWritesForAssistantMessage(params: {
-	logPrefix: "[SEND]" | "[STREAM]";
+	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string;
@@ -370,6 +397,7 @@ async function reconcilePendingWritesForAssistantMessage(params: {
 		return;
 	}
 
+	const logPrefix = turnLogPrefix(params.turnKind);
 	const getPendingWritesImpl =
 		params.reconciliation.getPendingWrites ?? listPendingWritesForConversation;
 	const assignPendingWritesImpl =
@@ -394,7 +422,7 @@ async function reconcilePendingWritesForAssistantMessage(params: {
 			);
 		}
 	} catch (error) {
-		console.error(`${params.logPrefix} Failed to reconcile pending writes`, {
+		console.error(`${logPrefix} Failed to reconcile pending writes`, {
 			conversationId: params.conversationId,
 			assistantMessageId: params.assistantMessageId,
 			error,
@@ -429,14 +457,30 @@ function toPublicGeneratedFile(file: ChatGeneratedFile): ChatGeneratedFile {
 	};
 }
 
+// A stream turn's background projection races against a single tick so a
+// fast-failing (or fast-succeeding) projection is observable to callers that
+// simply `await finalizeChatTurn(...)` without forcing every stream turn to
+// block on the full post-turn tail (memory judge, maintenance, ...).
+function waitOneTick(): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, 0);
+	});
+}
+
 export async function finalizeChatTurn(
 	params: FinalizeChatTurnParams,
 ): Promise<FinalizeChatTurnResult> {
-	const mode = params.persistenceMode ?? "strict";
-	const persistUserAttachmentsBeforeAssistantMessage =
-		params.persistUserAttachmentsBeforeAssistantMessage ?? true;
-	const waitForEvidenceBeforePostTurnTasks =
-		params.waitForEvidenceBeforePostTurnTasks ?? true;
+	const logPrefix = turnLogPrefix(params.turnKind);
+	const isStream = params.turnKind === "stream";
+	// Every former independently-settable mode boolean besides
+	// persistTurnState now derives from the turn kind: send persists
+	// attachments before the assistant message and runs its post-turn
+	// projection eagerly (strict persistence, no deferral); stream persists
+	// attachments after (deferred, best-effort) and always defers the full
+	// projection until onDurableReceiptReady has run.
+	const mode: MessageCreationMode = isStream ? "best_effort" : "strict";
+	const persistUserAttachmentsBeforeAssistantMessage = !isStream;
+	const waitForEvidenceBeforePostTurnTasks = isStream;
 	const shouldPersistTurnState = params.persistTurnState ?? true;
 	let attachedArtifacts: WorkingSetItem[] | undefined;
 	let attachmentTask: Promise<WorkingSetItem[] | undefined> =
@@ -468,7 +512,6 @@ export async function finalizeChatTurn(
 		});
 	}
 
-	const shouldPersistAssistantMessage = params.persistAssistantMessage ?? true;
 	const depthMetadata = withDepthMetadataModelInfo(
 		(params.assistantMetadata.depthMetadata as DepthMetadata | undefined) ??
 			params.depthMetadata ??
@@ -500,20 +543,20 @@ export async function finalizeChatTurn(
 		...params.assistantMetadata,
 		depthMetadata,
 	};
-	const assistantMessage = shouldPersistAssistantMessage
-		? await createTurnMessage(
-				{
-					conversationId: params.conversationId,
-					role: "assistant",
-					content: params.assistantResponse,
-					thinking: params.assistantThinking,
-					serverSegments: params.serverSegments,
-					metadata: assistantMetadata,
-				},
-				mode,
-				createMessage,
-			)
-		: undefined;
+	// The assistant message is always persisted — no turn kind or caller ever
+	// legitimately skips it, so this is no longer a param to thread.
+	const assistantMessage = await createTurnMessage(
+		{
+			conversationId: params.conversationId,
+			role: "assistant",
+			content: params.assistantResponse,
+			thinking: params.assistantThinking,
+			serverSegments: params.serverSegments,
+			metadata: assistantMetadata,
+		},
+		mode,
+		createMessage,
+	);
 
 	if (
 		!persistUserAttachmentsBeforeAssistantMessage &&
@@ -532,18 +575,13 @@ export async function finalizeChatTurn(
 				return artifacts;
 			})
 			.catch(() => undefined);
-	} else if (!persistUserAttachmentsBeforeAssistantMessage) {
-		attachmentTask = Promise.resolve(undefined);
 	}
-
-	const deferProjection = params.deferPostTurnProjection ?? false;
 
 	// The single ordered post-turn projection, shared by both callers. Each
 	// side effect runs exactly once in a fixed order — skill-control ops →
 	// assistant turn-state → evidence → completion context sources →
 	// generated-output reconciliation — so a new post-turn side effect is added
-	// in exactly one place. `runPostTurnTasks` is the deferred tail step,
-	// invoked separately through `createPostTurnTask`.
+	// in exactly one place.
 	const runPostTurnProjection = async (): Promise<{
 		turnState: PersistAssistantTurnStateResult | null;
 		evidenceTask: Promise<void>;
@@ -561,17 +599,14 @@ export async function finalizeChatTurn(
 					assistantMessageId: assistantMessage.id,
 					operations: params.skillControlOperations,
 				}).catch((error) => {
-					console.warn(
-						`${params.logPrefix} Failed to apply Skill Note Operations`,
-						{
-							...buildSkillControlLogContext({
-								conversationId: params.conversationId,
-								assistantMessageId: assistantMessage.id,
-								streamId: params.streamId,
-							}),
-							error,
-						},
-					);
+					console.warn(`${logPrefix} Failed to apply Skill Note Operations`, {
+						...buildSkillControlLogContext({
+							conversationId: params.conversationId,
+							assistantMessageId: assistantMessage.id,
+							streamId: params.streamId,
+						}),
+						error,
+					});
 				});
 				await applySkillControlOperations({
 					userId: params.userId,
@@ -579,17 +614,14 @@ export async function finalizeChatTurn(
 					assistantMessageId: assistantMessage.id,
 					operations: params.skillControlOperations,
 				}).catch((error) => {
-					console.warn(
-						`${params.logPrefix} Failed to apply Skill Control Envelope`,
-						{
-							...buildSkillControlLogContext({
-								conversationId: params.conversationId,
-								assistantMessageId: assistantMessage.id,
-								streamId: params.streamId,
-							}),
-							error,
-						},
-					);
+					console.warn(`${logPrefix} Failed to apply Skill Control Envelope`, {
+						...buildSkillControlLogContext({
+							conversationId: params.conversationId,
+							assistantMessageId: assistantMessage.id,
+							streamId: params.streamId,
+						}),
+						error,
+					});
 				});
 			}
 
@@ -626,7 +658,7 @@ export async function finalizeChatTurn(
 		const evidenceTask =
 			assistantMessage && turnState
 				? persistAssistantEvidence({
-						logPrefix: params.logPrefix,
+						turnKind: params.turnKind,
 						userId: params.userId,
 						conversationId: params.conversationId,
 						assistantMessageId: assistantMessage.id,
@@ -662,11 +694,11 @@ export async function finalizeChatTurn(
 		// by the time this projection runs in the background, so a
 		// context-source failure there is logged and swallowed. The eager (send)
 		// caller needs the real value in its response body, so it lets it throw.
-		const contextSources = deferProjection
+		const contextSources = isStream
 			? await buildChatTurnCompletionContextSources(contextSourcesParams).catch(
 					(error) => {
 						console.error(
-							`${params.logPrefix} Deferred context-source projection failed`,
+							`${logPrefix} Deferred context-source projection failed`,
 							{
 								conversationId: params.conversationId,
 								assistantMessageId: assistantMessage?.id ?? null,
@@ -684,7 +716,7 @@ export async function finalizeChatTurn(
 		const generatedFiles =
 			assistantMessage && params.generatedOutputReconciliation
 				? await reconcileGeneratedOutputsForAssistantMessage({
-						logPrefix: params.logPrefix,
+						turnKind: params.turnKind,
 						userId: params.userId,
 						conversationId: params.conversationId,
 						assistantMessageId: assistantMessage.id,
@@ -703,8 +735,8 @@ export async function finalizeChatTurn(
 	};
 
 	// The tail step: post-turn memory/summary/maintenance work. Kept out of the
-	// projection so the eager caller can hand back its durable receipt first and
-	// let the caller trigger this in the background.
+	// projection so it can run after the projection's own durable pieces
+	// (turn state, evidence) are settled.
 	const runPostTurnTail = (
 		turnState: PersistAssistantTurnStateResult | null,
 		evidenceTask: Promise<void>,
@@ -712,7 +744,7 @@ export async function finalizeChatTurn(
 		if (!assistantMessage || !turnState) return Promise.resolve();
 		const runTask = () =>
 			runPostTurnTasks({
-				logPrefix: params.logPrefix,
+				turnKind: params.turnKind,
 				userId: params.userId,
 				conversationId: params.conversationId,
 				upstreamMessage: params.upstreamMessage,
@@ -733,28 +765,40 @@ export async function finalizeChatTurn(
 		return runTask();
 	};
 
-	if (deferProjection) {
-		// Stream path: return the terminal receipt immediately and run the whole
-		// ordered projection (plus its tail) in the background when the caller
-		// invokes createPostTurnTask.
-		const createPostTurnTask = () =>
-			(async () => {
-				if (!assistantMessage) {
-					await attachmentTask.catch(() => undefined);
-					return;
-				}
-				const projection = await runPostTurnProjection();
-				await runPostTurnTail(projection.turnState, projection.evidenceTask);
-			})().catch((error) => {
-				console.error(
-					`${params.logPrefix} Deferred post-turn projection failed`,
-					{
-						conversationId: params.conversationId,
-						assistantMessageId: assistantMessage?.id ?? null,
-						error,
-					},
-				);
+	if (isStream) {
+		// Stream path: finalize owns scheduling the background projection
+		// itself. It never hands the caller a promise or a task-starting
+		// function — it invokes the caller's onDurableReceiptReady hook once
+		// the durable identities are known (so the transport can flush its
+		// terminal frames), then races its own background projection against
+		// a single tick before resolving, so a fast failure or completion is
+		// still observable to a plain `await finalizeChatTurn(...)`.
+		if (
+			!assistantMessage?.id ||
+			(params.persistUserMessage && !userMessage?.id)
+		) {
+			throw new Error(
+				"Stream finalization completed without required message identities",
+			);
+		}
+
+		const receipt: FinalizeChatTurnDurableReceipt = {
+			userMessage,
+			assistantMessage,
+		};
+		await params.onDurableReceiptReady?.(receipt);
+
+		const deferredProjection = (async () => {
+			const projection = await runPostTurnProjection();
+			await runPostTurnTail(projection.turnState, projection.evidenceTask);
+		})().catch((error) => {
+			console.error(`${logPrefix} Deferred post-turn projection failed`, {
+				conversationId: params.conversationId,
+				assistantMessageId: assistantMessage?.id ?? null,
+				error,
 			});
+		});
+		await Promise.race([deferredProjection, waitOneTick()]);
 
 		return {
 			userMessage,
@@ -764,9 +808,6 @@ export async function finalizeChatTurn(
 				userId: params.userId,
 				conversationId: params.conversationId,
 			}),
-			evidenceTask: Promise.resolve(),
-			createPostTurnTask,
-			attachmentTask,
 			attachedArtifacts,
 			generatedFiles: [],
 		};
@@ -774,19 +815,25 @@ export async function finalizeChatTurn(
 
 	// Send path: run the projection eagerly so the durable completion result
 	// (turn state, context sources, generated files, evidence) is available in
-	// the response, and hand back the tail as createPostTurnTask.
+	// the response, then let the tail (memory/summary/maintenance) continue in
+	// the background — finalize starts it itself rather than handing the
+	// caller anything to schedule.
 	const projection = await runPostTurnProjection();
-	const createPostTurnTask = () =>
-		runPostTurnTail(projection.turnState, projection.evidenceTask);
+	runPostTurnTail(projection.turnState, projection.evidenceTask).catch(
+		(error) => {
+			console.error(`${logPrefix} Deferred post-turn projection failed`, {
+				conversationId: params.conversationId,
+				assistantMessageId: assistantMessage?.id ?? null,
+				error,
+			});
+		},
+	);
 
 	return {
 		userMessage,
 		assistantMessage,
 		turnState: projection.turnState,
 		contextSources: projection.contextSources,
-		evidenceTask: projection.evidenceTask,
-		createPostTurnTask,
-		attachmentTask,
 		attachedArtifacts: projection.resolvedAttachedArtifacts,
 		generatedFiles: projection.generatedFiles,
 	};

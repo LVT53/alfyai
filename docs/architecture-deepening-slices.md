@@ -795,8 +795,8 @@ field left with two owners").
 
 Branch: `deepening-wave-2`. F1 and O1 may run in parallel.
 
-### F1 — One chat-turn interface for both transports ⬜
-**Blocked by:** G1 (shrinks `normal-chat-context` first, clarifying the turn path).
+### F1 — One chat-turn interface for both transports ✅
+**Blocked by:** G1 (shrinks `normal-chat-context` first, clarifying the turn path) — satisfied.
 
 **Real surface**
 - `src/lib/server/services/chat-turn/` — 70 files, 17 556 non-test lines, **no `index.ts`**
@@ -823,6 +823,26 @@ service — but call this out in review explicitly.
 - [ ] `finalize.test.ts` mock count recorded before/after
 
 **Gate:** full gate + chat/streaming/conversation Playwright.
+
+**F1 execution status (2026-08-15).** Branch `deepening-wave-2`. Turn kinds are the pre-existing
+`ChatTurnRoute = "send" | "stream"` (reused, not invented). Of the 7 mode booleans, 4 were fully
+determined by kind and removed as params (`persistAssistantMessage` [always true → hardcoded],
+`persistUserAttachmentsBeforeAssistantMessage` = `!isStream`, `waitForEvidenceBeforePostTurnTasks` =
+`isStream`, `deferPostTurnProjection` = `isStream`) plus the correlated `persistenceMode`
+(strict/best_effort); 3 genuine per-turn facts stay params (`persistUserMessage` — reconnect may have
+persisted it; `persistTurnState` — stopped stream skips heavier projection; `skipAssistantProseMemoryIntake`
+— orthogonal override). New `chat-turn/index.ts` facade (35 lines, scoped to the 3 driving routes,
+*inside* the module — AGENTS.md updated). `logPrefix` string threading replaced by `turnLogPrefix(turnKind)`
+derived internally. `finalize` returns **no** unresolved promises: the `evidenceTask`/`createPostTurnTask`/
+`attachmentTask` fields are gone; finalize schedules the post-turn tail itself (send: fire-and-forget after
+eager projection; stream: `onDurableReceiptReady(receipt)` hook awaited before the background projection,
+then `Promise.race([projection, waitOneTick()])` relocated from stream-completion). Ordering-sensitive
+file-production snapshot resolution preserved (hook awaited before the projection reads
+`deferredFileProductionJobIdsAtStart`). ADR-0015 preserved (routes stay transport adapters). TDD red-first
+(tsc red on removed params → 4 finalize tests red on removed task fields → rewritten to the receipt-hook
+contract). `finalize.test.ts` mocks 20→18 (2 dead module mocks removed). Gate green: check 0/0 tracked
+(6871 files), full test **6120/6120** (0 regression), build 0 warnings, fallow **50** (baseline),
+biome-clean on all touched files. Playwright deferred to the batch staging deploy + verify.
 
 ---
 

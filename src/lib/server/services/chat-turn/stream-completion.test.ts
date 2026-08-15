@@ -874,7 +874,7 @@ describe("completeStreamTurn", () => {
 
 		expect(mockPersistAssistantEvidence).toHaveBeenCalledWith(
 			expect.objectContaining({
-				logPrefix: "[STREAM]",
+				turnKind: "stream",
 				userId: "user-1",
 				conversationId: "conv-1",
 				assistantMessageId: "asst-msg-1",
@@ -1035,7 +1035,7 @@ describe("completeStreamTurn", () => {
 
 		expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 			expect.objectContaining({
-				logPrefix: "[STREAM]",
+				turnKind: "stream",
 				userId: "user-1",
 				conversationId: "conv-1",
 				maintenanceReason: "chat_stream",

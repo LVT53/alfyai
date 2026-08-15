@@ -18,6 +18,15 @@ import type {
 
 export type ChatTurnRoute = "send" | "stream";
 
+// The turn kinds that actually exist (F1) — reused as the discriminant for
+// Normal Chat Turn Completion (chat-turn/finalize.ts) so completion logging
+// derives its display prefix from the same "send" | "stream" concept the
+// request-parsing route already uses, instead of threading a caller-chosen
+// logPrefix string through the module.
+export function turnLogPrefix(kind: ChatTurnRoute): "[SEND]" | "[STREAM]" {
+	return kind === "stream" ? "[STREAM]" : "[SEND]";
+}
+
 export type { AtlasAction, AtlasProfile } from "$lib/types";
 
 export type ChatTurnRequestError = {
@@ -184,7 +193,7 @@ export type PersistAssistantTurnStateResult = {
 };
 
 export type PersistAssistantEvidenceParams = {
-	logPrefix: "[SEND]" | "[STREAM]";
+	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
 	assistantMessageId: string;
@@ -202,7 +211,7 @@ export type PersistAssistantEvidenceParams = {
 };
 
 export type RunPostTurnTasksParams = {
-	logPrefix: "[SEND]" | "[STREAM]";
+	turnKind: ChatTurnRoute;
 	userId: string;
 	conversationId: string;
 	upstreamMessage: string;
