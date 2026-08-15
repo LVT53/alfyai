@@ -2662,7 +2662,7 @@ _Avoid_: resolver, connection picker, router, provider dispatcher
 ### Relationships
 
 - A **Connection** is stored with its secret encrypted; only **ConnectionPublic** (secret-free) leaves the store, and the plaintext secret has one separate read path used by adapters/executors.
-- A provider's **Connect Method** and **Capability** set live in `PROVIDER_META`; a **Capability**'s backing providers live in `CAPABILITY_META`. The two are cross-checked so the server catalog and client mirror cannot drift (ADR-0051, catalog grouping).
+- A provider's **Connect Method** and **Capability** set live in `PROVIDER_META`; a **Capability**'s backing providers live in `CAPABILITY_META`. The two are cross-checked so the server catalog and client mirror cannot drift (ADR-0058, catalog grouping).
 - A **Connection Adapter** owns health/disconnect; a **Write Executor** owns confirm-time writes. Both are process-local registries a provider registers into at module load; capability reads are dispatched per-tool, not through a registry (deliberate — [ADR-0050](docs/adr/0050-connections-backend-module-seams.md) §Registry Read Dispatch).
 - Every connector mutation flows tool → **Write-Guard** (pure preview/allowlist/idempotency) → **Pending Write / Confirm Chokepoint** (propose, then atomic-claim confirm) → **Write Executor** (provider I/O). The guard runs before any provider is touched; the executor runs at most once per proposal.
 - **Provider HTTP** is the outbound-HTTP floor every fetch-based provider (and the **DAV Toolkit**) builds on; **Host Locality** is the one classifier the SSRF guard and the **Cloud-Connector Warning** share.

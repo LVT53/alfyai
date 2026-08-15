@@ -1,5 +1,8 @@
 # Normal Chat Client Turn Runtime belongs above streamChat
 
+> **Partially superseded by [ADR-0060](0060-client-turn-runtime-owns-turn-state.md) (2026-08-15).** Turn-state ownership moves into the runtime; the injected-page-adapter requirement for visible message updates no longer holds. Everything else below — the runtime's placement above `streamChat`, transport ownership, and the completion boundary — still governs.
+
+
 AlfyAI will treat Normal Chat Client Turn Runtime as an explicit browser-side boundary in `src/lib/client/normal-chat-client-turn-runtime.ts`. The runtime owns send, retry, reconnect, waiting, stop, queued follow-up, queued compaction, and recovery transitions for an active Normal Chat browser turn.
 
 The runtime is a plain TypeScript client module above `streamChat`. It depends on injected page adapters for visible message updates, draft and queue state, metadata fan-out, polling, hydration, and UI-visible side effects. The chat page keeps Svelte state, route lifecycle, document workspace ownership controls, skill/session UI commands, and rendering.

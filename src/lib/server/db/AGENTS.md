@@ -45,6 +45,9 @@ SQLite persistence with Drizzle ORM. Schema definitions and connection bootstrap
 ## Anti-Patterns
 
 - Do NOT add runtime schema mutation here - use `scripts/prepare-db.ts`
-- Do NOT create mini repository wrappers - use services + schema directly
+- Do NOT create mini repository wrappers - use services + schema directly.
+  (Exception, [ADR-0059](../../../../docs/adr/0059-db-execution-seam.md): ONE query-*execution*
+  seam is permitted and is being introduced. Services still compose their own queries against
+  the schema; only how a query runs is owned centrally. Per-table wrappers remain forbidden.)
 - Do NOT read `DATABASE_PATH` directly - use `getDatabasePath()` from `env.ts`
 - Do NOT bypass foreign keys - pragma is enabled

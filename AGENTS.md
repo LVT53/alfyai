@@ -711,7 +711,9 @@ Run these too when relevant:
 - No new raw `sessionStorage` protocol outside `conversation-session.ts`.
 - No direct env reads in override-aware runtime services.
 - No general runtime migrations in app bootstrap. If production safety ever requires a bounded additive compatibility shim, keep it isolated in `src/lib/server/db/compat.ts`, document it in the README, and continue treating `npm run db:prepare` as the real migration path.
-- No duplicate DB repository wrappers.
+- No duplicate DB repository wrappers. (Per-table wrappers stay forbidden. ONE query-execution
+  seam is permitted under [ADR-0059](docs/adr/0059-db-execution-seam.md) — owning *how* a query
+  runs, not *what* is queried.)
 - No stores that also become API clients.
 - No monolithic catch-all service file that mixes unrelated concerns again.
 - No revival of deleted legacy files just because they reappear as untracked leftovers after merges or agentic runs; verify git history before restoring anything outside the tracked graph.

@@ -25,7 +25,7 @@ the database. No `todoist` reference survives anywhere in `src`.
 - [ ] `todoist` removed from the `ConnectionProvider` union (server schema + client mirror).
 - [ ] `grep -ri todoist src` returns nothing; tasks capability still resolves/reads via
       a CalDAV connection.
-- [ ] ADR-0051 records the removal; CONTEXT.md tasks note is CalDAV-only.
+- [ ] ADR-0058 records the removal; CONTEXT.md tasks note is CalDAV-only.
 
 ---
 
@@ -156,19 +156,19 @@ admin-not-configured case reads as a clear message, not a generic failure.
 - [ ] Add-connection list renders a divider between the two groups; Todoist absent.
 - [ ] OwnTracks `not_configured` (409) surfaces "OwnTracks isn't configured on this server".
 - [ ] Verified in a running dev server (preview tools).
-- [ ] ADR-0051 (grouping) extends ADR-0044.
+- [ ] ADR-0058 (grouping) extends ADR-0044.
 
 ---
 
 ## F1 — Doc/ADR/CONTEXT reconciliation + prior-loop audit  ✅
 **Blocked by:** all code slices (A1, B1–B3, C1–C3, D1, E1).
 
-**What to build:** Consolidate ADR-0050/0051, finalize the CONTEXT.md Connections
+**What to build:** Consolidate ADR-0050/0058, finalize the CONTEXT.md Connections
 domain-language section, and confirm the prior deepening #4/#8 loop's docs (ADR-0036,
 deepening-4-8-audit) are current.
 
 **Acceptance criteria:**
-- [ ] ADR-0050 + ADR-0051 complete and internally consistent.
+- [ ] ADR-0050 + ADR-0058 complete and internally consistent.
 - [ ] CONTEXT.md has a full Connections domain section (was absent).
 - [ ] Prior-loop docs verified current; terms added only where a baseline was missing.
 
