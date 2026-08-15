@@ -1396,6 +1396,105 @@ export async function recordParallelUsage(input: {
 	}
 }
 
+// P2 (ADR-0056) — spend for an auxiliary chat-turn control-model call (the
+// instant-acknowledgment classifier; any future classifier sharing this
+// shape, e.g. P3's, reuses this same function). These calls are not the
+// turn's main model run and are not tied to a persisted assistant message,
+// so — mirroring recordParallelUsage above — they get a synthetic,
+// feature-prefixed messageId, unique per call, which can never collide with
+// a real message row or another control-model call under the messageId
+// unique index. Priced through the exact same resolver
+// (findPriceRule/resolveEffectivePriceRule/calculateCostUsdMicros) as every
+// other model call (ADR-0047). Best-effort: pricing/lookup failures are
+// swallowed rather than surfaced, exactly like every other analytics writer
+// here — never let cost accounting fail a turn.
+export async function recordControlModelUsage(params: {
+	userId: string;
+	conversationId?: string | null;
+	/** Cost-attribution tag folded into the synthetic messageId, e.g. "turn_acknowledgment". */
+	feature: string;
+	modelId: string;
+	modelDisplayName?: string | null;
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
+}): Promise<void> {
+	if (!params.userId) return;
+	try {
+		const promptTokens = normalizeCount(params.promptTokens);
+		const completionTokens = normalizeCount(params.completionTokens);
+		const cachedInputTokens = normalizeCount(params.cachedInputTokens);
+		const cacheHitTokens = normalizeCount(params.cacheHitTokens);
+		const cacheMissTokens = normalizeCount(params.cacheMissTokens);
+		const totalTokens =
+			normalizeCount(params.totalTokens) || promptTokens + completionTokens;
+
+		const model = await getModelSnapshot(
+			params.modelId,
+			params.modelDisplayName,
+		);
+		const basePriceRule = await findPriceRule({
+			modelId: params.modelId,
+			providerId: model.providerId,
+			providerModelName: model.providerModelName,
+		});
+		const priceRule = basePriceRule
+			? resolveEffectivePriceRule(
+					basePriceRule,
+					await listPriceWindowsForModel(basePriceRule.id),
+					new Date(),
+				)
+			: basePriceRule;
+		const costUsdMicros = calculateCostUsdMicros(priceRule, {
+			promptTokens,
+			cachedInputTokens,
+			cacheHitTokens,
+			cacheMissTokens,
+			completionTokens,
+			reasoningTokens: 0,
+		});
+
+		const conversationTitle = params.conversationId
+			? (await getConversationSnapshot(params.userId, params.conversationId))
+					.title
+			: null;
+
+		await db
+			.insert(usageEvents)
+			.values({
+				id: crypto.randomUUID(),
+				userId: params.userId,
+				conversationId: params.conversationId ?? "",
+				conversationTitle,
+				messageId: `control:${params.feature}:${crypto.randomUUID()}`,
+				modelId: params.modelId,
+				modelDisplayName: model.modelDisplayName,
+				providerId: model.providerId,
+				providerDisplayName: model.providerDisplayName,
+				providerBaseUrl: model.providerBaseUrl,
+				providerModelName: model.providerModelName,
+				promptTokens,
+				cachedInputTokens,
+				cacheHitTokens,
+				cacheMissTokens,
+				completionTokens,
+				reasoningTokens: 0,
+				totalTokens,
+				usageSource: "provider",
+				generationTimeMs: null,
+				billingMonth: toBillingMonth(),
+				costUsdMicros,
+				priceRuleId: priceRule?.id ?? null,
+			})
+			.onConflictDoNothing();
+	} catch (error) {
+		console.error("[ANALYTICS] Failed to record control-model usage", error);
+	}
+}
+
 export interface ConversationCostSummary {
 	totalCostUsdMicros: number;
 	totalTokens: number;

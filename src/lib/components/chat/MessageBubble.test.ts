@@ -271,6 +271,135 @@ describe("MessageBubble", () => {
 		expect(container).not.toHaveTextContent("first_token_wait_ms=250");
 	});
 
+	// P2 (ADR-0056) — instant turn acknowledgment.
+	it("renders the acknowledgment through the localized with-topic template, filling the verbatim topic", () => {
+		const message: ChatMessage = {
+			id: "assistant-ack-topic",
+			renderKey: "assistant-ack-topic",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.CONTEXT_PREPARING,
+					kind: "context",
+					status: "running",
+				},
+				{
+					id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+					kind: "acknowledgment",
+					status: "running",
+					detail: "research",
+					label: "the weather in Paris",
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		expect(
+			screen.getByText("Looking into the weather in Paris..."),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Preparing context...")).not.toBeInTheDocument();
+	});
+
+	it("falls back to the topic-less template when the topic was dropped (honesty rule)", () => {
+		const message: ChatMessage = {
+			id: "assistant-ack-no-topic",
+			renderKey: "assistant-ack-no-topic",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+					kind: "acknowledgment",
+					status: "running",
+					detail: "code",
+					// No `label` — the server dropped a non-verbatim topic.
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.getByText("Working through it...")).toBeInTheDocument();
+	});
+
+	it("ignores an acknowledgment carrying a class outside the closed enum and falls back silently", () => {
+		const message: ChatMessage = {
+			id: "assistant-ack-invalid-class",
+			renderKey: "assistant-ack-invalid-class",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+					kind: "acknowledgment",
+					status: "running",
+					detail: "shopping",
+					label: "shoes",
+				} as unknown as NonNullable<ChatMessage["responseActivity"]>[number],
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		// No known class → no known label → the generic fallback, exactly as
+		// if the acknowledgment had never fired.
+		expect(screen.getByText("Preparing response...")).toBeInTheDocument();
+		expect(screen.queryByText("shoes")).not.toBeInTheDocument();
+	});
+
+	it("supersedes the acknowledgment once real progress (drafting) is emitted, without any extra bookkeeping", () => {
+		const message: ChatMessage = {
+			id: "assistant-ack-superseded",
+			renderKey: "assistant-ack-superseded",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: false,
+			responseActivity: [
+				{
+					id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+					kind: "acknowledgment",
+					status: "running",
+					detail: "write",
+					label: "a poem about autumn",
+				},
+				{
+					id: RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER,
+					kind: "drafting",
+					status: "running",
+				},
+			],
+		};
+
+		render(MessageBubble, { message });
+
+		expect(screen.getByText("Drafting response...")).toBeInTheDocument();
+		expect(
+			screen.queryByText("Drafting a poem about autumn..."),
+		).not.toBeInTheDocument();
+	});
+
+	it("includes the Hungarian acknowledgment translations", () => {
+		expect(
+			chatDict.hu["chat.responseActivity.acknowledgment.researchTopic"],
+		).toBe("Utánanézek: {topic}...");
+		expect(chatDict.hu["chat.responseActivity.acknowledgment.chat"]).toBe(
+			"Átgondolom...",
+		);
+	});
+
 	it("shows a localized finalizing label for a finalizing assistant response", () => {
 		const message: ChatMessage = {
 			id: "assistant-finalizing",

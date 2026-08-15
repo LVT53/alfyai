@@ -41,6 +41,12 @@ export const RESPONSE_ACTIVITY_IDS = {
 	CONTEXT_PREPARING: "context-preparing",
 	CONTEXT_READY: "context-ready",
 	DRAFTING_ANSWER: "drafting-answer",
+	// P2 (ADR-0056) — instant turn acknowledgment. Rides the existing
+	// data-response-activity part (no new stream part name); the id lets the
+	// client find the one entry that carries the intent class + verbatim
+	// topic even as later activities (context-ready, drafting-answer) are
+	// appended alongside it.
+	TURN_ACKNOWLEDGED: "turn-acknowledged",
 } as const;
 
 export type StaticResponseActivityId =

@@ -51,6 +51,7 @@ import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stre
 import { arbitrateStreamStart } from "$lib/server/services/chat-turn/stream-reconnect-arbiter";
 import { createStreamTerminal } from "$lib/server/services/chat-turn/stream-terminal";
 import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
+import { resolveTurnAcknowledgment } from "$lib/server/services/chat-turn/turn-acknowledgment";
 import type {
 	AdmittedChatTurn,
 	ChatTurnPreflight,
@@ -456,6 +457,22 @@ export function runChatStreamOrchestrator(
 				}
 				isMainStream = true;
 			}
+			// P2 (ADR-0056) — kick off the instant-acknowledgment control call as
+			// early as this main-stream path allows (not for reconnect/close,
+			// which return above without ever running a new turn), and never
+			// await it here. It races the rest of turn setup in the background;
+			// whichever finishes first, the turn's own work is never delayed by
+			// it. `Promise.resolve(...)` guards against a mocked/misbehaving
+			// resolver returning a non-promise. Wired to `emitResponseActivity`
+			// once that closure exists, below.
+			const turnAcknowledgmentPromise = Promise.resolve(
+				resolveTurnAcknowledgment({
+					userId: user.id,
+					conversationId,
+					message: normalizedMessage,
+					signal: downstreamSignal,
+				}),
+			);
 			const wasStopRequested = () =>
 				wasActiveChatStreamStopRequested({
 					streamId,
@@ -513,6 +530,27 @@ export function runChatStreamOrchestrator(
 				}
 				enqueueChunk(streamResponseActivityEvent(activity));
 			};
+			// P2 (ADR-0056) — surface the acknowledgment, if and only if it
+			// arrived. `resolveTurnAcknowledgment` never rejects (it is
+			// best-effort end to end), so a `null` result — cap miss, timeout,
+			// malformed output, dropped topic, or any other failure — silently
+			// means no acknowledgment activity is emitted and the deterministic
+			// spine (context-preparing / drafting-answer, already emitted above
+			// and below) is all the client ever sees, exactly as before this
+			// slice. `.catch` is defense in depth only. Rides the existing
+			// data-response-activity part; introduces no new stream part name.
+			void turnAcknowledgmentPromise
+				.then((acknowledgment) => {
+					if (!acknowledgment) return;
+					emitResponseActivity({
+						id: RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED,
+						kind: "acknowledgment",
+						status: "running",
+						detail: acknowledgment.intentClass,
+						label: acknowledgment.topic,
+					});
+				})
+				.catch(() => {});
 			const emitThinking = (reasoning: string) => {
 				if (reasoning) {
 					recordElapsedPhase(SERVER_STREAM_TIMELINE_MARKS.FIRST_THINKING);

@@ -60,6 +60,15 @@ vi.mock("$lib/server/services/chat-turn/plain-normal-chat-model-run", () => ({
 	runPlainNormalChatSendModel: vi.fn(),
 }));
 
+// P2 — the instant-acknowledgment control call is mocked at this seam so the
+// SSE-contract tests below stay deterministic and never attempt a real
+// control-model call. resetCompletionMocks() below re-establishes the
+// default (null — "no acknowledgment fired") after every vi.resetAllMocks();
+// individual tests override it to exercise the wiring.
+vi.mock("$lib/server/services/chat-turn/turn-acknowledgment", () => ({
+	resolveTurnAcknowledgment: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
 	listConversationMessagesForExport: vi.fn(() => Promise.resolve([])),
@@ -414,6 +423,9 @@ async function resetCompletionMocks() {
 	const { buildSkillSystemPromptAppendix } = await import(
 		"$lib/server/services/skills/prompt-context"
 	);
+	const { resolveTurnAcknowledgment } = await import(
+		"$lib/server/services/chat-turn/turn-acknowledgment"
+	);
 
 	(touchConversation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 	(createMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -462,6 +474,9 @@ async function resetCompletionMocks() {
 	(estimateTokenCount as ReturnType<typeof vi.fn>).mockReturnValue(100);
 	(buildSkillSystemPromptAppendix as ReturnType<typeof vi.fn>).mockReturnValue(
 		undefined,
+	);
+	(resolveTurnAcknowledgment as ReturnType<typeof vi.fn>).mockResolvedValue(
+		null,
 	);
 }
 
@@ -1030,6 +1045,113 @@ describe("stream-orchestrator SSE contract", () => {
 				}),
 			]),
 		);
+	});
+
+	// P2 (ADR-0056) — instant turn acknowledgment.
+	it("emits the instant acknowledgment as a response activity, over the existing data-response-activity part, when it resolves in time", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { resolveTurnAcknowledgment } = await import(
+			"$lib/server/services/chat-turn/turn-acknowledgment"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+		(resolveTurnAcknowledgment as ReturnType<typeof vi.fn>).mockResolvedValue({
+			intentClass: "research",
+			topic: "the weather in Paris",
+		});
+
+		const response = runStream({ conversationId: "ack-conv" });
+		const chunks = await readSseResponse(response);
+		const parts = parseUiStreamParts(chunks);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parts,
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "turn-acknowledged",
+					kind: "acknowledgment",
+					status: "running",
+					detail: "research",
+					label: "the weather in Paris",
+				}),
+			]),
+		);
+		// No new AI SDK UI stream part name: every part type present is still
+		// drawn from the pre-existing closed set.
+		const partTypes = new Set(
+			parts
+				.filter((part): part is Record<string, unknown> => part !== "[DONE]")
+				.map((part) => part.type),
+		);
+		expect(partTypes).toEqual(
+			new Set([
+				"text-start",
+				"text-delta",
+				"text-end",
+				"data-response-activity",
+				"data-stream-metadata",
+				"finish",
+			]),
+		);
+
+		expect(resolveTurnAcknowledgment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "u1",
+				conversationId: "ack-conv",
+				message: "Hello",
+				signal: expect.any(AbortSignal),
+			}),
+		);
+	});
+
+	it("falls back silently to the existing spine when the acknowledgment call rejects — never surfaces an error, the turn still completes", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { resolveTurnAcknowledgment } = await import(
+			"$lib/server/services/chat-turn/turn-acknowledgment"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+		(resolveTurnAcknowledgment as ReturnType<typeof vi.fn>).mockRejectedValue(
+			new Error("control-model timeout"),
+		);
+
+		const response = runStream({ conversationId: "ack-timeout-conv" });
+		const chunks = await readSseResponse(response);
+		const body = chunks.join("\n\n");
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-response-activity",
+		);
+
+		// The turn proceeds and completes exactly as if no acknowledgment had
+		// ever been attempted: no error surfaced, real content still streams.
+		expect(body).toContain("Hi");
+		expect(body).not.toContain("data-stream-error");
+		expect(
+			activityPayloads.some((activity) => activity.id === "turn-acknowledged"),
+		).toBe(false);
+		expect(
+			activityPayloads.some((activity) => activity.id === "context-preparing"),
+		).toBe(true);
 	});
 
 	it("stores the original stream Reasoning depth in the reconnect buffer while running", async () => {

@@ -8,21 +8,23 @@ import {
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
-import type {
-	ArtifactSummary,
-	AtlasAction,
-	AtlasJobCard,
-	AtlasProfile,
-	ChatAttachment,
-	ChatMessage,
-	ChatTurnCompletionWarningCode,
-	DepthAppliedProfile,
-	DocumentWorkspaceItem,
-	FileProductionJob,
-	NormalChatContextPreparationActivityClass,
-	PendingWrite,
-	ResponseActivityEntry,
-	ThinkingSegment,
+import {
+	isTurnAcknowledgmentIntentClass,
+	type ArtifactSummary,
+	type AtlasAction,
+	type AtlasJobCard,
+	type AtlasProfile,
+	type ChatAttachment,
+	type ChatMessage,
+	type ChatTurnCompletionWarningCode,
+	type DepthAppliedProfile,
+	type DocumentWorkspaceItem,
+	type FileProductionJob,
+	type NormalChatContextPreparationActivityClass,
+	type PendingWrite,
+	type ResponseActivityEntry,
+	type ThinkingSegment,
+	type TurnAcknowledgmentIntentClass,
 } from "$lib/types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -427,18 +429,23 @@ let liveDepthProfile = $derived.by(() => {
 let resolvedDepthProfile = $derived(
 	liveDepthProfile ?? message.depthMetadata?.appliedProfile,
 );
-let liveEarlyResponseActivityLabelKey = $derived.by((): I18nKey | null => {
+// P2 (ADR-0056) — this now resolves the final, already-interpolated string
+// (not just an I18nKey) so the instant-acknowledgment case below can fill
+// {topic} from the verbatim substring the server validated. The reverse
+// scan means the LATEST recognized entry always wins: once real progress
+// (drafting-answer) is emitted, it naturally supersedes a stale
+// acknowledgment without any extra bookkeeping — identical to how
+// context-preparing already gets superseded by drafting-answer today.
+let liveEarlyResponseActivityLabel = $derived.by((): string | null => {
 	if (liveDeliberationStatusLabel) return null;
 	for (const entry of [...liveResponseActivityEntries].reverse()) {
-		const labelKey = getKnownEarlyResponseActivityLabelKey(entry);
-		if (labelKey) return labelKey;
+		const label = getKnownEarlyResponseActivityLabel(entry);
+		if (label) return label;
 	}
 	return null;
 });
 let preparingStatusLabel = $derived(
-	liveEarlyResponseActivityLabelKey
-		? $t(liveEarlyResponseActivityLabelKey)
-		: $t("chat.preparingResponse"),
+	liveEarlyResponseActivityLabel ?? $t("chat.preparingResponse"),
 );
 let showPreparingStatus = $derived(
 	!isUser &&
@@ -496,24 +503,77 @@ function getClipboardText(content: string) {
 		.trim();
 }
 
-function getKnownEarlyResponseActivityLabelKey(
+function getKnownEarlyResponseActivityLabel(
 	entry: ResponseActivityEntry,
-): I18nKey | null {
+): string | null {
 	if (
 		entry.id === RESPONSE_ACTIVITY_IDS.CONTEXT_PREPARING &&
 		entry.kind === "context" &&
 		entry.status === "running"
 	) {
-		return getContextPreparationActivityLabelKey(entry);
+		return $t(getContextPreparationActivityLabelKey(entry));
 	}
 	if (
 		entry.id === RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER &&
 		entry.kind === "drafting" &&
 		entry.status === "running"
 	) {
-		return "chat.responseActivity.drafting";
+		return $t("chat.responseActivity.drafting");
 	}
-	return null;
+	return getTurnAcknowledgmentLabel(entry);
+}
+
+// P2 (ADR-0056) — one localized template per closed intent class, each with
+// a with-topic and a topic-less variant. `satisfies Record<...>` keeps this
+// exhaustive against src/lib/types.ts's TURN_ACKNOWLEDGMENT_INTENT_CLASSES —
+// a new class added there fails to compile here until a template is added.
+// The model never authors any of this text; it only ever selects a class
+// and (optionally) supplies a verbatim substring already validated
+// server-side (src/lib/server/services/chat-turn/turn-acknowledgment.ts).
+const TURN_ACKNOWLEDGMENT_LABEL_KEYS = {
+	analyze: {
+		withTopic: "chat.responseActivity.acknowledgment.analyzeTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.analyze",
+	},
+	chat: {
+		withTopic: "chat.responseActivity.acknowledgment.chatTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.chat",
+	},
+	code: {
+		withTopic: "chat.responseActivity.acknowledgment.codeTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.code",
+	},
+	plan: {
+		withTopic: "chat.responseActivity.acknowledgment.planTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.plan",
+	},
+	research: {
+		withTopic: "chat.responseActivity.acknowledgment.researchTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.research",
+	},
+	write: {
+		withTopic: "chat.responseActivity.acknowledgment.writeTopic",
+		withoutTopic: "chat.responseActivity.acknowledgment.write",
+	},
+} as const satisfies Record<
+	TurnAcknowledgmentIntentClass,
+	{ withTopic: I18nKey; withoutTopic: I18nKey }
+>;
+
+function getTurnAcknowledgmentLabel(
+	entry: ResponseActivityEntry,
+): string | null {
+	if (
+		entry.id !== RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED ||
+		entry.kind !== "acknowledgment" ||
+		entry.status !== "running" ||
+		!isTurnAcknowledgmentIntentClass(entry.detail)
+	) {
+		return null;
+	}
+	const keys = TURN_ACKNOWLEDGMENT_LABEL_KEYS[entry.detail];
+	const topic = entry.label?.trim();
+	return topic ? $t(keys.withTopic, { topic }) : $t(keys.withoutTopic);
 }
 
 const CONTEXT_PREPARATION_ACTIVITY_LABEL_KEYS = {

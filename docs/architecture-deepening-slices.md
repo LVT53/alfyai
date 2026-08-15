@@ -1175,18 +1175,49 @@ Implementation-status section but stays **Proposed** (→ Accepted when P3 ships
 Thought Step Anchors / classifier are explicitly P3, not P1. Gate green: check 0/0 tracked (6877 files),
 test **6181** (+12), build 0 warnings, fallow **50**, i18n 0 errors.
 
-### P2 — Instant acknowledgment ⬜
+### P2 — Instant acknowledgment ✅
 **Blocked by:** P1 (satisfied).
 
 One content-relevant line within ~1s of send, turning an unexplained wait into an explained one.
 
-- [ ] Intent class from a closed enum + a topic phrase lifted **verbatim from the user's own
+- [x] Intent class from a closed enum + a topic phrase lifted **verbatim from the user's own
       message** — so the topic is automatically in the user's language
-- [ ] Rendered through a localized template; the model never authors user-facing prose
-- [ ] Depth is already deterministic (ADR-0046), so the expected-effort contract can be stated
+- [x] Rendered through a localized template; the model never authors user-facing prose
+- [x] Depth is already deterministic (ADR-0046), so the expected-effort contract can be stated
       honestly up front
-- [ ] Measured: time-to-first-meaningful-signal < 1s at p95, from M1's marks
-- [ ] Falls back silently to the current behaviour on control-model failure
+- [ ] Measured: time-to-first-meaningful-signal < 1s at p95, from M1's marks — **not measured**;
+      no real traffic mid-programme (same gap M1 recorded). The mechanism enforces the bound
+      structurally (800ms hard timeout, never awaited on the critical path, best-effort), which is
+      not the same as a measured p95. Deferred to prod cutover alongside M1's own baseline.
+- [x] Falls back silently to the current behaviour on control-model failure
+
+**P2 execution status (2026-08-16).** Branch `thought-steps`. Closed intent enum
+`TURN_ACKNOWLEDGMENT_INTENT_CLASSES` (`research | code | write | analyze | plan | chat`) lives in
+`src/lib/types.ts` — one source of truth shared by the server validator and the client's template
+lookup, mirroring the existing `NormalChatContextPreparationActivityClass` precedent. The control
+call (`src/lib/server/services/chat-turn/turn-acknowledgment.ts`, new) asks MODEL_2 for strict JSON
+(`{"intentClass": ..., "topic"?: ...}`) via the existing `sendJsonControlMessage`, `thinkingMode:
+"off"`, 800ms hard timeout (`createRequestAbortSignal`, the same helper `normal-chat-model/index.ts`
+already uses), and a hard **in-process concurrency cap of 2** (a call over the cap returns `null`
+immediately, no network attempt at all — never queues). The topic survives only when it is a
+case-insensitive verbatim substring of the user's own message, re-sliced from the ORIGINAL message
+(never the model's own copy) for byte-for-byte fidelity; a non-substring or invalid-class result is
+dropped entirely. The call is kicked off as early as the main-stream path allows (right after
+stream-start arbitration, before context prep) and never awaited — its `.then()` only fires
+`emitResponseActivity` if and when it resolves, over the **existing** `data-response-activity` part
+(new `RESPONSE_ACTIVITY_IDS.TURN_ACKNOWLEDGED` id + new `"acknowledgment"` `ResponseActivityKind`
+member — an id/enum addition inside an existing part's payload, not a new part name, the same shape
+of change E1 already established as compatible with ADR-0025). Twelve new EN/HU template pairs in
+`chat.ts` (with-topic + topic-less per class); the client (`MessageBubble.svelte`) picks the template
+from the validated class and interpolates the verbatim topic — the model never authors any rendered
+text. Supersession by later real progress (context-ready, drafting-answer) falls out for free from
+the existing reverse-scan-latest-match logic; no extra bookkeeping needed. Spend recorded through a
+new `recordControlModelUsage` in `analytics.ts` (a `usage_events` row with a synthetic
+`control:turn_acknowledgment:<uuid>` messageId, mirroring the existing `recordParallelUsage`
+precedent for non-message model spend) — the fourth ADR-0047 cost-recording path alongside
+message/Atlas/memory, intentionally generic so P3's classifier can reuse it. Gate green: check 0/0
+tracked (6879 files), test **6203** (+22), build 0 warnings, fallow 50 (no new categories), biome
+clean, i18n 0 errors, Playwright `chat.spec.ts`/`streaming.spec.ts`/`conversation.spec.ts` 31/31.
 
 ### P3 — Reasoning-phase classifier + step rail ⬜
 **Blocked by:** P2 **and the honesty audit harness (P3a) existing first.**

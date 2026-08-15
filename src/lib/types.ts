@@ -31,7 +31,13 @@ export type ResponseActivityKind =
 	| "source"
 	| "drafting"
 	| "fallback"
-	| "file";
+	| "file"
+	// P2 (ADR-0056) — instant turn acknowledgment. A one-shot, best-effort
+	// entry carrying a closed intent class (in `detail`) and an optional
+	// verbatim-substring topic (in `label`) lifted from the user's own
+	// message. Never implies an external action (ADR-0056's classifier
+	// constraint) — it only names what the turn is about.
+	| "acknowledgment";
 export type ResponseActivityStatus = "running" | "done" | "error";
 export type ResponseActivitySourceType = "web" | "document" | "memory" | "tool";
 const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES = [
@@ -53,6 +59,34 @@ export function isNormalChatContextPreparationActivityClass(
 		typeof value === "string" &&
 		NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES.includes(
 			value as NormalChatContextPreparationActivityClass,
+		)
+	);
+}
+
+// P2 (ADR-0056) — the instant-acknowledgment closed intent enum. Shared
+// between the server (chat-turn/turn-acknowledgment.ts, which asks the
+// control model to pick exactly one of these and validates the answer
+// against this same array) and the client (MessageBubble.svelte, which maps
+// each class onto a localized template). One source of truth so the two
+// sides cannot drift.
+export const TURN_ACKNOWLEDGMENT_INTENT_CLASSES = [
+	"research",
+	"code",
+	"write",
+	"analyze",
+	"plan",
+	"chat",
+] as const;
+export type TurnAcknowledgmentIntentClass =
+	(typeof TURN_ACKNOWLEDGMENT_INTENT_CLASSES)[number];
+
+export function isTurnAcknowledgmentIntentClass(
+	value: unknown,
+): value is TurnAcknowledgmentIntentClass {
+	return (
+		typeof value === "string" &&
+		TURN_ACKNOWLEDGMENT_INTENT_CLASSES.includes(
+			value as TurnAcknowledgmentIntentClass,
 		)
 	);
 }

@@ -579,6 +579,112 @@ describe("analytics dashboard read model", () => {
 		});
 	});
 
+	describe("recordControlModelUsage", () => {
+		it("records a priced usage_events row with a unique feature-prefixed synthetic message id", async () => {
+			openSeedDatabase().sqlite.close();
+			const { recordControlModelUsage } = await import("./analytics");
+
+			await recordControlModelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				feature: "turn_acknowledgment",
+				modelId: "model2",
+				modelDisplayName: "Model Two",
+				promptTokens: 40,
+				completionTokens: 12,
+				totalTokens: 52,
+			});
+			await recordControlModelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				feature: "turn_acknowledgment",
+				modelId: "model2",
+				modelDisplayName: "Model Two",
+				promptTokens: 30,
+				completionTokens: 10,
+				totalTokens: 40,
+			});
+
+			const rows = new Database(dbPath)
+				.prepare(
+					"SELECT message_id, model_id, model_display_name, prompt_tokens, completion_tokens, total_tokens, usage_source, billing_month FROM usage_events ORDER BY message_id",
+				)
+				.all() as Array<{
+				message_id: string;
+				model_id: string;
+				model_display_name: string;
+				prompt_tokens: number;
+				completion_tokens: number;
+				total_tokens: number;
+				usage_source: string;
+				billing_month: string;
+			}>;
+
+			expect(rows).toHaveLength(2);
+			// Synthetic message ids never collide, so a second call is never
+			// swallowed by the messageId unique index.
+			expect(new Set(rows.map((row) => row.message_id)).size).toBe(2);
+			for (const row of rows) {
+				expect(row.message_id).toMatch(/^control:turn_acknowledgment:/);
+				expect(row.model_id).toBe("model2");
+				expect(row.model_display_name).toBe("Model Two");
+				expect(row.usage_source).toBe("provider");
+				expect(row.billing_month).toBe(new Date().toISOString().slice(0, 7));
+			}
+			const totals = rows.map((row) => row.total_tokens).sort();
+			expect(totals).toEqual([40, 52]);
+		});
+
+		it("records zeroed usage rather than skipping when no usage was reported, so call counts stay accurate", async () => {
+			openSeedDatabase().sqlite.close();
+			const { recordControlModelUsage } = await import("./analytics");
+
+			await recordControlModelUsage({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				feature: "turn_acknowledgment",
+				modelId: "model2",
+			});
+
+			const row = new Database(dbPath)
+				.prepare(
+					"SELECT prompt_tokens, completion_tokens, total_tokens, cost_usd_micros FROM usage_events",
+				)
+				.get() as {
+				prompt_tokens: number;
+				completion_tokens: number;
+				total_tokens: number;
+				cost_usd_micros: number;
+			};
+
+			expect(row).toEqual({
+				prompt_tokens: 0,
+				completion_tokens: 0,
+				total_tokens: 0,
+				cost_usd_micros: 0,
+			});
+		});
+
+		it("skips recording when userId is missing", async () => {
+			openSeedDatabase().sqlite.close();
+			const { recordControlModelUsage } = await import("./analytics");
+
+			await recordControlModelUsage({
+				userId: "",
+				conversationId: "conversation-1",
+				feature: "turn_acknowledgment",
+				modelId: "model2",
+			});
+
+			const count = (
+				new Database(dbPath)
+					.prepare("SELECT COUNT(*) AS n FROM usage_events")
+					.get() as { n: number }
+			).n;
+			expect(count).toBe(0);
+		});
+	});
+
 	describe("parallelBreakdown", () => {
 		function parallelRow(overrides: {
 			id: string;

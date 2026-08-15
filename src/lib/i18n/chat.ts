@@ -61,6 +61,28 @@ const chatDict = {
 		"chat.preparingResponse": "Preparing response...",
 		"chat.queueMessage": "Send follow-up",
 		"chat.queuedNext": "Queued next",
+		// P2 (ADR-0056) — instant turn acknowledgment. The model returns only a
+		// closed intent class + an optional verbatim topic substring; these
+		// templates are the only place any user-facing prose is authored. The
+		// "Topic" variant is used when the topic survived the verbatim-substring
+		// check server-side; otherwise the topic-less variant is used — never a
+		// paraphrase, never model-authored text.
+		"chat.responseActivity.acknowledgment.analyze": "Taking a closer look...",
+		"chat.responseActivity.acknowledgment.analyzeTopic":
+			"Taking a closer look at {topic}...",
+		"chat.responseActivity.acknowledgment.chat": "Thinking this through...",
+		"chat.responseActivity.acknowledgment.chatTopic":
+			"Thinking about {topic}...",
+		"chat.responseActivity.acknowledgment.code": "Working through it...",
+		"chat.responseActivity.acknowledgment.codeTopic":
+			"Working through {topic}...",
+		"chat.responseActivity.acknowledgment.plan": "Mapping this out...",
+		"chat.responseActivity.acknowledgment.planTopic": "Mapping out {topic}...",
+		"chat.responseActivity.acknowledgment.research": "Looking into it...",
+		"chat.responseActivity.acknowledgment.researchTopic":
+			"Looking into {topic}...",
+		"chat.responseActivity.acknowledgment.write": "Drafting a response...",
+		"chat.responseActivity.acknowledgment.writeTopic": "Drafting {topic}...",
 		"chat.responseActivity.contextPreparing": "Preparing context...",
 		"chat.responseActivity.contextPreparation.assembly":
 			"Preparing instructions...",
@@ -783,6 +805,22 @@ const chatDict = {
 		"chat.preparingResponse": "Válasz előkészítése...",
 		"chat.queueMessage": "Következő üzenet küldése",
 		"chat.queuedNext": "Következő üzenet várakozik",
+		"chat.responseActivity.acknowledgment.analyze": "Alaposabban megnézem...",
+		"chat.responseActivity.acknowledgment.analyzeTopic":
+			"Alaposabban megnézem: {topic}...",
+		"chat.responseActivity.acknowledgment.chat": "Átgondolom...",
+		"chat.responseActivity.acknowledgment.chatTopic": "Átgondolom: {topic}...",
+		"chat.responseActivity.acknowledgment.code": "Dolgozom rajta...",
+		"chat.responseActivity.acknowledgment.codeTopic":
+			"Dolgozom rajta: {topic}...",
+		"chat.responseActivity.acknowledgment.plan": "Felvázolom a tervet...",
+		"chat.responseActivity.acknowledgment.planTopic": "Felvázolom: {topic}...",
+		"chat.responseActivity.acknowledgment.research": "Utánanézek...",
+		"chat.responseActivity.acknowledgment.researchTopic":
+			"Utánanézek: {topic}...",
+		"chat.responseActivity.acknowledgment.write": "Megfogalmazom a választ...",
+		"chat.responseActivity.acknowledgment.writeTopic":
+			"Megfogalmazom: {topic}...",
 		"chat.responseActivity.contextPreparing": "Kontextus előkészítése...",
 		"chat.responseActivity.contextPreparation.assembly":
 			"Utasítások előkészítése...",
