@@ -1,3 +1,4 @@
+import { classifyErrorCause } from "$lib/server/services/error-cause";
 import {
 	decodeAiSdkUiStreamPayloads,
 	encodeAiSdkUiStreamDoneFrame,
@@ -84,7 +85,7 @@ export type ServerStreamSegment =
 			callId?: string;
 			name: string;
 			input: Record<string, unknown>;
-			status: "running" | "done";
+			status: "running" | "done" | "failed";
 			outputSummary?: string | null;
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
@@ -225,7 +226,7 @@ export function streamToolCallEvent(data: {
 	callId?: string;
 	name: string;
 	input: Record<string, unknown>;
-	status: "running" | "done";
+	status: "running" | "done" | "failed";
 	outputSummary?: string | null;
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
@@ -434,7 +435,7 @@ export function createServerChunkRuntime({
 	onToolCall?: (
 		name: string,
 		input: Record<string, unknown>,
-		status: "running" | "done",
+		status: "running" | "done" | "failed",
 		outputSummary?: string | null,
 		details?: StreamToolCallDetails,
 	) => void;
@@ -624,7 +625,7 @@ export function createServerChunkRuntime({
 	const emitToolCallEvent = (
 		name: string,
 		input: Record<string, unknown>,
-		status: "running" | "done",
+		status: "running" | "done" | "failed",
 		details?: StreamToolCallDetails,
 	) => {
 		const shouldStoreThinkingSegment = !isFileProductionToolName(name);
@@ -679,7 +680,9 @@ export function createServerChunkRuntime({
 			toolCallAliases.set(rawCallId, record.callId);
 		};
 		const matchesCompletedRecord = (record: ToolCallEntry) =>
-			Boolean(callId) && record.status === "done" && record.callId === callId;
+			Boolean(callId) &&
+			record.status !== "running" &&
+			record.callId === callId;
 
 		if (status === "running") {
 			const duplicateRunningIndex = findRunningRecordIndex({
@@ -700,7 +703,7 @@ export function createServerChunkRuntime({
 			callId &&
 			findRunningRecordIndex({ matchInput: false }) === -1 &&
 			toolCallRecords.some(
-				(record) => record.status === "done" && record.name === name,
+				(record) => record.status !== "running" && record.name === name,
 			)
 		) {
 			return;
@@ -751,7 +754,9 @@ export function createServerChunkRuntime({
 					segment.status === "running" &&
 					(callId ? segment.callId === callId : true)
 				) {
-					segment.status = "done";
+					// `status` here is the terminal value passed in by the caller —
+					// "done" or "failed" — never re-derived as a hardcoded "done".
+					segment.status = status;
 					if (Object.keys(input).length > 0) {
 						segment.input = input;
 					}
@@ -766,24 +771,25 @@ export function createServerChunkRuntime({
 
 		const runningRecordIndex = findRunningRecordIndex({ matchInput: false });
 		if (runningRecordIndex === -1) {
-			const doneRecord: ToolCallEntry = {
+			// `status` is "done" or "failed" here — see the comment above.
+			const terminalRecord: ToolCallEntry = {
 				...(callId ? { callId } : {}),
 				name,
 				input,
-				status: "done",
+				status,
 				outputSummary: details?.outputSummary ?? null,
 				sourceType: details?.sourceType ?? null,
 				candidates: details?.candidates,
 				metadata: details?.metadata,
 			};
-			toolCallRecords.push(doneRecord);
+			toolCallRecords.push(terminalRecord);
 			if (shouldStoreThinkingSegment) {
 				serverSegments.push({
 					type: "tool_call",
 					...(callId ? { callId } : {}),
 					name,
 					input,
-					status: "done",
+					status,
 					outputSummary: details?.outputSummary ?? null,
 					sourceType: details?.sourceType ?? null,
 					candidates: details?.candidates,
@@ -799,7 +805,7 @@ export function createServerChunkRuntime({
 					...toolRecord,
 					...(callId ? { callId } : {}),
 					input: Object.keys(input).length > 0 ? input : toolRecord.input,
-					status: "done",
+					status,
 					outputSummary: details?.outputSummary ?? null,
 					sourceType: details?.sourceType ?? null,
 					candidates: details?.candidates,
@@ -1119,6 +1125,42 @@ export function classifyStreamError(rawMessage: string): StreamErrorCode {
 	}
 
 	return "backend_failure";
+}
+
+// E1 — the seam callers with an actual error/cause (not just a raw string)
+// should use. `classifyErrorCause` (error-cause.ts) checks structured
+// signals first (AI SDK error classes, HTTP status, `.name`, `cause`
+// chains); this only falls through to the legacy text-only
+// `classifyStreamError` for the "unknown" bucket, so the network/timeout
+// wording it already recognizes keeps working for bare `Error(message)`
+// values with no structured signal at all. `classifyStreamError` stays
+// exported for the couple of sites that only ever had a string (an inline
+// upstream `error` event payload) rather than a real Error/cause.
+export function classifyStreamErrorCause(error: unknown): StreamErrorCode {
+	const cause = classifyErrorCause(error);
+	switch (cause) {
+		case "abort":
+		case "timeout":
+			return "timeout";
+		case "network":
+			return "network";
+		case "rate_limit":
+		case "auth":
+		case "invalid_request":
+		case "provider_unavailable":
+		case "premature_completion":
+		case "provider_error":
+			return "backend_failure";
+		case "unknown": {
+			const message =
+				error instanceof Error
+					? error.message
+					: typeof error === "string"
+						? error
+						: "";
+			return classifyStreamError(message);
+		}
+	}
 }
 
 export function formatUpstreamErrorAsAssistantMessage(

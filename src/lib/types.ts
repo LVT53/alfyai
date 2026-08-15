@@ -618,11 +618,16 @@ export interface ToolEvidenceCandidate {
 	metadata?: Record<string, string | number | boolean | null>;
 }
 
+// "failed" (E1) is a genuine terminal outcome distinct from "done" — a tool
+// call that errored is finished (not running) but did not succeed. Before
+// E1, failed calls were reported as "done" with only `metadata.ok === false`
+// hinting at the failure, so callers keying off status alone could not tell
+// a failed call from a successful one.
 export interface ToolCallEntry {
 	callId?: string;
 	name: string;
 	input: Record<string, unknown>;
-	status: "running" | "done";
+	status: "running" | "done" | "failed";
 	outputSummary?: string | null;
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
@@ -645,7 +650,7 @@ export type ThinkingSegment =
 			callId?: string;
 			name: string;
 			input: Record<string, unknown>;
-			status: "running" | "done";
+			status: "running" | "done" | "failed";
 			outputSummary?: string | null;
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
@@ -694,6 +699,21 @@ export interface ForkEvidenceSnapshot {
 	snapshotCreatedAt: string;
 	evidenceSummary: MessageEvidenceSummary;
 }
+
+// E1 — stable codes for a chat turn that completed with a caveat. Before E1
+// these were English sentences ("Note: The model reached its output
+// limit...") concatenated directly into the persisted assistant message
+// body. They now ride as `completionWarningCodes` on the turn's
+// `data-stream-metadata` payload instead; localized copy for each code is
+// an E2 (client) concern, matching the WebCitationAuditStatus precedent
+// just below (structured status, no baked prose).
+export type ChatTurnCompletionWarningCode =
+	| "output_truncated"
+	| "content_filtered"
+	| "provider_error"
+	| "non_standard_finish"
+	| "stream_closed_without_finish"
+	| "file_production_failed";
 
 export type WebCitationAuditStatus =
 	| "none"

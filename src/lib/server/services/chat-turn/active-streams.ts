@@ -54,7 +54,7 @@ export interface StreamTokenBuffer {
 		callId?: string;
 		name: string;
 		input: Record<string, unknown>;
-		status: "running" | "done";
+		status: "running" | "done" | "failed";
 		outputSummary?: string | null;
 		sourceType?: EvidenceSourceType | null;
 		candidates?: ToolEvidenceCandidate[];
@@ -251,7 +251,7 @@ export function appendToStreamBuffer(
 		callId?: string;
 		name?: string;
 		input?: Record<string, unknown>;
-		status?: "running" | "done";
+		status?: "running" | "done" | "failed";
 		outputSummary?: string | null;
 		sourceType?: EvidenceSourceType | null;
 		candidates?: ToolEvidenceCandidate[];

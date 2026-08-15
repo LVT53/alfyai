@@ -23,7 +23,7 @@ import {
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
-	classifyStreamError,
+	classifyStreamErrorCause,
 	createEventStreamResponse,
 	createServerChunkRuntime,
 	createSseHeartbeatComment,
@@ -58,6 +58,7 @@ import type {
 } from "$lib/server/services/chat-turn/types";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
+import { isAbortErrorCause } from "$lib/server/services/error-cause";
 import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
@@ -522,7 +523,7 @@ export function runChatStreamOrchestrator(
 			const emitToolCallEventWithDebug = (
 				name: string,
 				input: Record<string, unknown>,
-				status: "running" | "done",
+				status: "running" | "done" | "failed",
 				details?: {
 					callId?: string;
 					outputSummary?: string | null;
@@ -538,7 +539,7 @@ export function runChatStreamOrchestrator(
 					| Array<{
 							name: string;
 							input: Record<string, unknown>;
-							status: "running" | "done";
+							status: "running" | "done" | "failed";
 							callId?: string;
 							outputSummary?: string | null;
 							sourceType?: import("$lib/types").EvidenceSourceType | null;
@@ -559,7 +560,7 @@ export function runChatStreamOrchestrator(
 			};
 			const emitRecoveredToolCalls = (records: ToolCallEntry[]) => {
 				for (const record of records) {
-					if (record.status === "done") {
+					if (record.status !== "running") {
 						emitToolCallEventWithDebug(
 							record.name,
 							asToolInput(record.input),
@@ -1192,10 +1193,16 @@ export function runChatStreamOrchestrator(
 									fileProductionPostCaptureChars =
 										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
+								// E1 — a failed tool call is a "failed" status, not a fake
+								// "done". `errorCode` rides the same StreamErrorCode
+								// vocabulary `data-stream-error` uses, via the shared
+								// cause -> code seam (classifyStreamErrorCause), so a
+								// failed tool call is never represented as having
+								// succeeded.
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
 									matchingToolCall?.input ?? {},
-									"done",
+									"failed",
 									{
 										callId: upstreamEvent.callId,
 										outputSummary: null,
@@ -1205,6 +1212,9 @@ export function runChatStreamOrchestrator(
 											ok: false,
 											evidenceReady: false,
 											error: upstreamEvent.error,
+											errorCode: classifyStreamErrorCause(
+												new Error(upstreamEvent.error),
+											),
 										},
 									},
 								);
@@ -1238,7 +1248,7 @@ export function runChatStreamOrchestrator(
 									errorMessage,
 								});
 								const upstreamError = new Error(errorMessage);
-								const errorCode = classifyStreamError(errorMessage);
+								const errorCode = classifyStreamErrorCause(upstreamError);
 								const canRecoverWithNonStreamFallback =
 									shouldFallbackOnUpstreamErrorEvent({
 										error: upstreamError,
@@ -1284,12 +1294,7 @@ export function runChatStreamOrchestrator(
 				if (ended) {
 					return;
 				}
-				if (
-					wasStopRequested() &&
-					error instanceof Error &&
-					(error.name === "AbortError" ||
-						error.message.toLowerCase().includes("abort"))
-				) {
+				if (wasStopRequested() && isAbortErrorCause(error)) {
 					await completeSuccess(true);
 					return;
 				}
@@ -1353,11 +1358,7 @@ export function runChatStreamOrchestrator(
 							error instanceof Error ? error.message : String(error),
 					});
 				}
-				failStream(
-					classifyStreamError(
-						error instanceof Error ? error.message : String(error),
-					),
-				);
+				failStream(classifyStreamErrorCause(error));
 			} finally {
 				clearInterval(heartbeatIntervalId);
 				clearTimeout(timeoutId);

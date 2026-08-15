@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { describe, expect, it } from "vitest";
@@ -33,6 +33,72 @@ describe("stream helper retirement", () => {
 
 		expect(streamFacade).not.toMatch(
 			/\b(parseUpstreamEvents|parseEventBlock|parseJsonBlock|parseSseBlock|parseMaybeJson|extractAssistantChunk|toIncrementalChunk|extractErrorMessage)\b/,
+		);
+	});
+});
+
+// ADR-0025 amendment (E1) — error codes (StreamErrorCode, including tool-call
+// failure codes) ride the existing `data-stream-error` / `data-tool-call`
+// parts; this slice adds no new AI SDK UI stream part names. Every
+// `streamDataPartEvent("data-...", ...)` call site under chat-turn/ is
+// scanned and the resulting set of custom `data-*` part names must equal
+// this fixed allow-list exactly — any new call site with an unlisted name
+// fails this test, forcing a conscious update (and ADR reconsideration)
+// instead of a silent new part name slipping onto the wire.
+describe("ADR-0025 amendment (E1) — no new AI SDK UI stream part names", () => {
+	const KNOWN_DATA_PART_NAMES = new Set([
+		"data-stream-metadata",
+		"data-tool-call",
+		"data-response-activity",
+		"data-stream-error",
+		"data-replay-start",
+		"data-replay-end",
+		"data-waiting",
+	]);
+
+	async function collectDataPartNamesUnderChatTurn(): Promise<Set<string>> {
+		const chatTurnDir = join(
+			process.cwd(),
+			"src/lib/server/services/chat-turn",
+		);
+		const entries = await readdir(chatTurnDir);
+		const names = new Set<string>();
+		const callPattern = /streamDataPartEvent\(\s*"(data-[^"]+)"/g;
+
+		for (const entry of entries) {
+			if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
+			const source = await readFile(join(chatTurnDir, entry), "utf8");
+			for (const match of source.matchAll(callPattern)) {
+				names.add(match[1]);
+			}
+		}
+		return names;
+	}
+
+	it("matches the fixed allow-list of custom data-* part names exactly", async () => {
+		const foundNames = await collectDataPartNamesUnderChatTurn();
+		expect(foundNames).toEqual(KNOWN_DATA_PART_NAMES);
+	});
+
+	it("carries the tool-call failure code on the existing data-tool-call part, not a new part type", () => {
+		const failedToolEvent = encodeUiMessageStreamPart({
+			type: "data-tool-call",
+			data: {
+				name: "research_web",
+				input: {},
+				status: "failed",
+				metadata: {
+					ok: false,
+					evidenceReady: false,
+					errorCode: "backend_failure",
+				},
+			},
+			transient: true,
+		});
+		const [decoded] = decodeUiMessageStreamParts(failedToolEvent);
+		expect(decoded).not.toBe("[DONE]");
+		expect(decoded && decoded !== "[DONE]" ? decoded.type : null).toBe(
+			"data-tool-call",
 		);
 	});
 });

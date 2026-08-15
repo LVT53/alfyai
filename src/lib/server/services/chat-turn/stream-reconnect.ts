@@ -19,7 +19,7 @@ export interface ReconnectBuffer {
 		callId?: string;
 		name: string;
 		input: Record<string, unknown>;
-		status: "running" | "done";
+		status: "running" | "done" | "failed";
 		outputSummary?: string | null;
 		sourceType?: import("$lib/types").EvidenceSourceType | null;
 		candidates?: import("$lib/types").ToolEvidenceCandidate[];

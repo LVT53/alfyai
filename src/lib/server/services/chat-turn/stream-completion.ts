@@ -10,6 +10,7 @@ import {
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
 import type {
+	ChatTurnCompletionWarningCode,
 	ContextDebugState,
 	ConversationContextStatus,
 	DepthMetadata,
@@ -36,9 +37,7 @@ import {
 	streamErrorEvent,
 	streamFinishEvent,
 	streamReasoningEndEvent,
-	streamTextDeltaEvent,
 	streamTextEndEvent,
-	streamTextStartEvent,
 } from "./stream";
 
 export type StreamCompletionFact<T> = T | Promise<T>;
@@ -195,46 +194,34 @@ export async function completeStreamTurn(
 		estimateTokenCount,
 	} = params;
 
-	const fileProductionFailureNotice = wasStopped
-		? null
-		: buildFileProductionFailureNotice(toolCallRecords);
-	const completionWarning = wasStopped
-		? null
-		: buildCompletionWarning({
+	// E1 — truncation/content-filter/file-production-failure notices used to
+	// be English sentences appended into `fullResponse` (and therefore into
+	// the persisted assistant message body). They now stay out of the
+	// message body entirely and ride as stable `completionWarningCodes` on
+	// the turn's `data-stream-metadata` payload instead (see
+	// `sendEndAndClose`/assistantMetadata below) — the same "structured
+	// status, no baked prose" shape web-citation-audit.ts already uses for
+	// citation-quality notices.
+	const completionWarningCodes = wasStopped
+		? []
+		: buildCompletionWarningCodes({
+				toolCallRecords,
 				upstreamFinishReason,
 				upstreamRawFinishReason,
 				streamClosedWithoutFinish,
 			});
-	const completionNotices = [
-		fileProductionFailureNotice,
-		completionWarning,
-	].filter((notice): notice is string => Boolean(notice));
-	const responseBeforeCitationNotice = appendNotices(
-		fullResponse,
-		completionNotices,
-	);
 	const citationGate = wasStopped
 		? null
 		: applyWebCitationQualityGate({
-				assistantResponse: responseBeforeCitationNotice,
+				assistantResponse: fullResponse,
 				toolCalls: toolCallRecords,
 			});
-	const finalResponse = citationGate?.response ?? responseBeforeCitationNotice;
+	const finalResponse = citationGate?.response ?? fullResponse;
 	const skillControl = wasStopped
 		? { operations: [] }
 		: skillControlEnabled
 			? parseSkillControlEnvelopePayloads(skillControlEnvelopePayloads)
 			: { operations: [] };
-	if (completionNotices.length > 0) {
-		if (!fullResponse) {
-			enqueueChunk(streamTextStartEvent());
-		}
-		enqueueChunk(
-			streamTextDeltaEvent(
-				`${fullResponse.trim() ? "\n\n" : ""}${completionNotices.join("\n\n")}`,
-			),
-		);
-	}
 	if (citationGate?.appendedNotice) {
 		console.warn(
 			"[CHAT_STREAM] Web citation quality issue detected (notice suppressed from user output)",
@@ -340,9 +327,9 @@ export async function completeStreamTurn(
 				totalTokenCount,
 				thinking: thinkingContent || undefined,
 				wasStopped,
-				...(completionWarning
+				...(completionWarningCodes.length > 0
 					? {
-							completionWarning,
+							completionWarningCodes,
 							upstreamFinishReason,
 							upstreamRawFinishReason: upstreamRawFinishReason ?? undefined,
 						}
@@ -424,9 +411,9 @@ export async function completeStreamTurn(
 				providerDisplayName,
 				providerIconUrl,
 				...(wasStopped ? { wasStopped: true } : {}),
-				...(completionWarning
+				...(completionWarningCodes.length > 0
 					? {
-							completionWarning,
+							completionWarningCodes,
 							upstreamFinishReason,
 							upstreamRawFinishReason: upstreamRawFinishReason ?? undefined,
 						}
@@ -698,12 +685,6 @@ function getSameTurnFileProductionJobIds(
 	return jobIds;
 }
 
-function appendNotices(response: string, notices: string[]): string {
-	if (notices.length === 0) return response;
-	const suffix = notices.join("\n\n");
-	return response.trim() ? `${response}\n\n${suffix}` : suffix;
-}
-
 // ADR-0042 amendment — reads a server stream-timeline mark (ms elapsed since
 // turn start, measured server-side) for persistence into messageAnalytics.
 // This is observability, not a turn input: any missing/malformed/throwing
@@ -737,37 +718,57 @@ function readServerTimelineMarkMs(
 	}
 }
 
-function buildFileProductionFailureNotice(
-	toolCallRecords: ToolCallEntry[],
-): string | null {
-	const hasFailedFileProductionCall = toolCallRecords.some(
-		(record) =>
-			isFileProductionToolName(record.name) &&
-			record.status === "done" &&
-			record.metadata?.ok === false,
-	);
-	return hasFailedFileProductionCall
-		? "Note: File production failed. Check the file card for details or retry the job."
-		: null;
-}
-
-function buildCompletionWarning(params: {
+// E1 — replaces buildFileProductionFailureNotice + buildCompletionWarning
+// (which each returned an English sentence, concatenated into the message
+// body by the caller via appendNotices). Both notices collapse into one
+// array of stable ChatTurnCompletionWarningCode values that ride
+// data-stream-metadata / assistantMetadata instead — E2 (client) owns
+// localizing them into copy.
+function buildCompletionWarningCodes(params: {
+	toolCallRecords: ToolCallEntry[];
 	upstreamFinishReason?: FinishReason | null;
 	upstreamRawFinishReason?: string | null;
 	streamClosedWithoutFinish?: boolean;
-}): string | null {
+}): ChatTurnCompletionWarningCode[] {
+	const codes: ChatTurnCompletionWarningCode[] = [];
+	if (hasFailedFileProductionToolCall(params.toolCallRecords)) {
+		codes.push("file_production_failed");
+	}
+	const finishWarningCode = classifyCompletionFinishWarning(params);
+	if (finishWarningCode) {
+		codes.push(finishWarningCode);
+	}
+	return codes;
+}
+
+function hasFailedFileProductionToolCall(
+	toolCallRecords: ToolCallEntry[],
+): boolean {
+	return toolCallRecords.some(
+		(record) =>
+			isFileProductionToolName(record.name) &&
+			record.status !== "running" &&
+			record.metadata?.ok === false,
+	);
+}
+
+function classifyCompletionFinishWarning(params: {
+	upstreamFinishReason?: FinishReason | null;
+	upstreamRawFinishReason?: string | null;
+	streamClosedWithoutFinish?: boolean;
+}): ChatTurnCompletionWarningCode | null {
 	if (params.streamClosedWithoutFinish) {
-		return "Note: The upstream model stream ended before a normal completion signal, so this answer may be incomplete.";
+		return "stream_closed_without_finish";
 	}
 	switch (params.upstreamFinishReason) {
 		case "length":
-			return "Note: The model reached its output limit, so this answer may be incomplete.";
+			return "output_truncated";
 		case "content-filter":
-			return "Note: The provider stopped part of the response because of a content filter, so this answer may be incomplete.";
+			return "content_filtered";
 		case "error":
-			return "Note: The provider reported an error at the end of the stream, so this answer may be incomplete.";
+			return "provider_error";
 		case "other":
-			return "Note: The provider stopped with a non-standard finish reason, so this answer may be incomplete.";
+			return "non_standard_finish";
 		default:
 			return null;
 	}

@@ -502,10 +502,10 @@ describe("completeStreamTurn", () => {
 		expectModelSafeTerminalError();
 	});
 
-	it("warns and preserves upstream length finish reasons", async () => {
-		const warning =
-			"Note: The model reached its output limit, so this answer may be incomplete.";
-
+	// E1 — truncation/content-filter notices no longer become English
+	// sentences concatenated into the persisted message body; they ride as
+	// stable `completionWarningCodes` on the stream-metadata payload instead.
+	it("leaves the message body untouched and reports a stable code for a truncated (length) finish", async () => {
 		await completeStreamTurn({
 			...defaultParams,
 			upstreamFinishReason: "length",
@@ -515,17 +515,17 @@ describe("completeStreamTurn", () => {
 		const assistantCall = mockCreateMessage.mock.calls.find(
 			(call) => call[1] === "assistant",
 		);
-		expect(assistantCall?.[2]).toBe(`response text\n\n${warning}`);
+		expect(assistantCall?.[2]).toBe("response text");
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assistantResponse: `response text\n\n${warning}`,
+				assistantResponse: "response text",
 			}),
 		);
-		expect(mockEnqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining(warning),
+		expect(mockEnqueueChunk).not.toHaveBeenCalledWith(
+			expect.stringContaining("Note:"),
 		);
 		expect(getLatestEndPayload()).toMatchObject({
-			completionWarning: warning,
+			completionWarningCodes: ["output_truncated"],
 			upstreamFinishReason: "length",
 			upstreamRawFinishReason: "max_tokens",
 		});
@@ -535,10 +535,7 @@ describe("completeStreamTurn", () => {
 		});
 	});
 
-	it("warns when the stream completed after a non-terminal upstream close", async () => {
-		const warning =
-			"Note: The upstream model stream ended before a normal completion signal, so this answer may be incomplete.";
-
+	it("leaves the message body untouched and reports a stable code when the stream closed without finish", async () => {
 		await completeStreamTurn({
 			...defaultParams,
 			streamClosedWithoutFinish: true,
@@ -547,9 +544,9 @@ describe("completeStreamTurn", () => {
 		const assistantCall = mockCreateMessage.mock.calls.find(
 			(call) => call[1] === "assistant",
 		);
-		expect(assistantCall?.[2]).toBe(`response text\n\n${warning}`);
+		expect(assistantCall?.[2]).toBe("response text");
 		expect(getLatestEndPayload()).toMatchObject({
-			completionWarning: warning,
+			completionWarningCodes: ["stream_closed_without_finish"],
 			streamClosedWithoutFinish: true,
 			serverTimeline: defaultServerTimeline,
 		});
@@ -1513,9 +1510,10 @@ describe("completeStreamTurn", () => {
 		expect(data).not.toHaveProperty("fileProductionJobs");
 	});
 
-	it("attaches failed produce_file jobs and emits a visible failure notice", async () => {
-		const warning =
-			"Note: File production failed. Check the file card for details or retry the job.";
+	// E1 — the "file production failed" notice used to be an English sentence
+	// baked into the persisted message body. It is now a stable
+	// `completionWarningCodes` entry; the message body is left untouched.
+	it("attaches failed produce_file jobs and reports a stable code, leaving the message body untouched", async () => {
 		mockGetFileProductionJobs.mockResolvedValue([{ id: "job-new", files: [] }]);
 
 		await completeStreamTurn({
@@ -1538,15 +1536,18 @@ describe("completeStreamTurn", () => {
 		const assistantCall = mockCreateMessage.mock.calls.find(
 			(call) => call[1] === "assistant",
 		);
-		expect(assistantCall?.[2]).toBe(warning);
+		expect(assistantCall?.[2]).toBe("");
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assistantResponse: warning,
+				assistantResponse: "",
 			}),
 		);
-		expect(mockEnqueueChunk).toHaveBeenCalledWith(
-			expect.stringContaining(warning),
+		expect(mockEnqueueChunk).not.toHaveBeenCalledWith(
+			expect.stringContaining("Note:"),
 		);
+		expect(getLatestEndPayload()).toMatchObject({
+			completionWarningCodes: ["file_production_failed"],
+		});
 		expect(mockAssignFileProductionJobs).toHaveBeenCalledWith(
 			"user-1",
 			"conv-1",

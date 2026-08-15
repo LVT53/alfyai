@@ -1,6 +1,12 @@
 import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
+import {
+	classifyErrorCause,
+	isRetryableErrorCause,
+	isTerminalErrorCause,
+	readErrorHttpStatus,
+} from "$lib/server/services/error-cause";
 import type { ModelId } from "$lib/types";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import {
@@ -156,9 +162,18 @@ export function isRetryableNormalChatFallbackError(
 		return true;
 	}
 
+	// E1 — structured non-retryable causes (abort, invalid prompt/request,
+	// auth) short-circuit here instead of the former
+	// `message.includes("prompt")` / `message.includes("abort")` substring
+	// scan. That scan was a landmine: an unrelated error message (or a
+	// provider echoing request content back) could contain either word and
+	// get misclassified as a permanent failure. classifyErrorCause checks
+	// AI SDK error classes, `.name`, and HTTP status first, only falling
+	// back to a narrow, shared technical-term vocabulary that deliberately
+	// excludes "prompt" and "abort".
 	if (
 		error instanceof Error &&
-		isNonRetryableFallbackMessage(error.message.toLowerCase())
+		isTerminalErrorCause(classifyErrorCause(error))
 	) {
 		return false;
 	}
@@ -168,7 +183,7 @@ export function isRetryableNormalChatFallbackError(
 		options.provider,
 	);
 
-	const statusCode = readHttpStatusCode(error);
+	const statusCode = readErrorHttpStatus(error);
 	if (statusCode !== null) {
 		if (statusCode === 401 || statusCode === 403) return false;
 		if (statusCode >= 500) return true;
@@ -182,12 +197,7 @@ export function isRetryableNormalChatFallbackError(
 
 	if (!(error instanceof Error)) return false;
 
-	const message = error.message.toLowerCase();
-	return (
-		isRetryableTransportMessage(message) ||
-		isRetryableUnavailableMessage(message) ||
-		isRetryablePrematureCompletionMessage(message)
-	);
+	return isRetryableErrorCause(classifyErrorCause(error));
 }
 
 export async function resolveNormalChatFallbackTargetModelId(
@@ -222,14 +232,6 @@ export async function resolveNormalChatFallbackTargetModelId(
 		candidateModelId: globalTarget,
 		config,
 	});
-}
-
-function readHttpStatusCode(error: unknown): number | null {
-	if (typeof error !== "object" || error === null) return null;
-	const maybe = error as ModelRateLimitLikeError;
-	if (typeof maybe.statusCode === "number") return maybe.statusCode;
-	if (typeof maybe.status === "number") return maybe.status;
-	return null;
 }
 
 function classifyProviderErrorForFallback(
@@ -284,54 +286,6 @@ function parseStructuredProviderErrorResponseBody(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function isRetryableTransportMessage(message: string): boolean {
-	return (
-		message.includes("connect") ||
-		message.includes("connection") ||
-		message.includes("fetch failed") ||
-		message.includes("socket hang up") ||
-		message.includes("network error") ||
-		message.includes("econnreset") ||
-		message.includes("econnrefused") ||
-		message.includes("eai_again") ||
-		message.includes("request timeout") ||
-		message.includes("read timeout")
-	);
-}
-
-function isRetryableUnavailableMessage(message: string): boolean {
-	return (
-		message.includes("temporarily unavailable") ||
-		message.includes("service unavailable") ||
-		message.includes("overloaded") ||
-		message.includes("overload")
-	);
-}
-
-function isRetryablePrematureCompletionMessage(message: string): boolean {
-	return (
-		message.includes("premature") ||
-		message.includes("before any output") ||
-		message.includes("before usable assistant answer") ||
-		message.includes("stream ended unexpectedly") ||
-		message.includes("stream closed unexpectedly")
-	);
-}
-
-function isNonRetryableFallbackMessage(message: string): boolean {
-	return (
-		message.includes("invalid api key") ||
-		message.includes("authentication") ||
-		message.includes("unauthorized") ||
-		message.includes("forbidden") ||
-		message.includes("prompt") ||
-		message.includes("schema") ||
-		message.includes("response_format") ||
-		message.includes("refusal") ||
-		message.includes("abort")
-	);
 }
 
 function parseCompositeProviderModelId(modelId: string): {

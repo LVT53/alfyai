@@ -558,9 +558,13 @@ describe("isRetryableNormalChatFallbackError", () => {
 				{ provider },
 			),
 		).toBe(false);
+		// E1 — a genuine abort (structured `name: "AbortError"`, the only
+		// reliable signal a real AbortController firing sets) still wins over
+		// an adapter's "retryable" payload classification.
 		expect(
 			isRetryableNormalChatFallbackError(
 				Object.assign(new Error("The operation was aborted"), {
+					name: "AbortError",
 					data: payload,
 				}),
 				{ provider },

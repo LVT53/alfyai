@@ -1,3 +1,7 @@
+import {
+	classifyErrorCause,
+	isAbortErrorCause,
+} from "$lib/server/services/error-cause";
 import { isModelTimeoutError } from "$lib/server/services/normal-chat-failover";
 
 /**
@@ -20,25 +24,32 @@ import { isModelTimeoutError } from "$lib/server/services/normal-chat-failover";
 
 /**
  * Classifies whether an error is a transient stream transport failure that a
- * non-stream provider run could plausibly recover from.
+ * non-stream provider run could plausibly recover from. E1 — delegates to
+ * the shared cause -> code seam (error-cause.ts) instead of re-deriving its
+ * own "abort"/"timed out"/"connection" substring scan over `error.message`.
  */
 export function shouldFallbackToNonStreaming(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
 	}
 
-	const message = error.message.toLowerCase();
+	if (isModelTimeoutError(error) || isAbortErrorCause(error)) {
+		return true;
+	}
 
-	return (
-		isModelTimeoutError(error) ||
-		error.name === "AbortError" ||
-		message.includes("abort") ||
-		message.includes("timed out") ||
-		message.includes("fetch failed") ||
-		message.includes("socket") ||
-		message.includes("connection") ||
-		message.includes("terminated")
-	);
+	// A bare "abort" in the message text (no structured AbortError name)
+	// still counts here. Unlike failover.ts's retryable/non-retryable
+	// classification — where a message-text "prompt"/"abort" match could
+	// wrongly strand a turn as non-retryable — misclassifying here only
+	// costs one extra non-stream retry attempt, so the low-risk text check
+	// stays local to this decision instead of feeding the shared
+	// non-retryable cause vocabulary.
+	if (error.message.toLowerCase().includes("abort")) {
+		return true;
+	}
+
+	const cause = classifyErrorCause(error);
+	return cause === "timeout" || cause === "network";
 }
 
 /**

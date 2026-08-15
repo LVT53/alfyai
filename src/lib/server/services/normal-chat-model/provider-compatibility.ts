@@ -1,4 +1,9 @@
 import type { ModelConfig } from "$lib/server/env";
+import {
+	classifyErrorCause,
+	isRetryableErrorCause,
+	isTerminalErrorCause,
+} from "$lib/server/services/error-cause";
 import type { ThinkingMode } from "$lib/types";
 
 type NormalChatThinkingType = NonNullable<ModelConfig["thinkingType"]>;
@@ -117,36 +122,6 @@ const NON_RETRYABLE_OPENAI_COMPATIBLE_ERROR_TERMS = new Set([
 	"permission_error",
 	"schema_validation_error",
 ]);
-
-const RETRYABLE_OPENAI_COMPATIBLE_ERROR_MESSAGE_TERMS = [
-	"429",
-	"rate limit",
-	"rate_limit",
-	"too many requests",
-	"temporarily unavailable",
-	"service unavailable",
-	"overloaded",
-	"overload",
-	"timed out",
-	"timeout",
-	"read timeout",
-	"internal server error",
-	"server error",
-];
-
-const NON_RETRYABLE_OPENAI_COMPATIBLE_ERROR_MESSAGE_TERMS = [
-	"invalid api key",
-	"authentication",
-	"unauthorized",
-	"forbidden",
-	"prompt",
-	"schema",
-	"response_format",
-	"refusal",
-	"abort",
-	"content policy",
-	"context length",
-];
 
 const PROVIDER_FAMILY_REGISTRY: ProviderFamilyRegistryEntry[] = [
 	{
@@ -568,28 +543,24 @@ function normalizeErrorText(value: unknown): string | null {
 	return typeof value === "string" ? value.toLowerCase().trim() : null;
 }
 
+// E1 — delegates to the shared cause -> code seam (error-cause.ts) instead
+// of a second, near-duplicate copy of failover.ts's retryable/non-retryable
+// term lists. This also drops the same "prompt"/"abort" substring landmine
+// failover.ts had: classifyErrorCause only recognizes those as structured
+// signals (an AI SDK InvalidPromptError instance, a `name: "AbortError"`),
+// never as arbitrary text in a provider's error message.
 function isRetryableOpenAICompatibleErrorMessage(
 	message: string | null,
 ): boolean {
 	if (!message) return false;
-	return messageIncludesAny(
-		message,
-		RETRYABLE_OPENAI_COMPATIBLE_ERROR_MESSAGE_TERMS,
-	);
+	return isRetryableErrorCause(classifyErrorCause(new Error(message)));
 }
 
 function isNonRetryableOpenAICompatibleErrorMessage(
 	message: string | null,
 ): boolean {
 	if (!message) return false;
-	return messageIncludesAny(
-		message,
-		NON_RETRYABLE_OPENAI_COMPATIBLE_ERROR_MESSAGE_TERMS,
-	);
-}
-
-function messageIncludesAny(message: string, terms: string[]): boolean {
-	return terms.some((term) => message.includes(term));
+	return isTerminalErrorCause(classifyErrorCause(new Error(message)));
 }
 
 function providerCompatibilitySignals(

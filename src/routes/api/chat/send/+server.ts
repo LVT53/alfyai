@@ -13,6 +13,7 @@ import {
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
 	checkStreamCapacity,
+	classifyStreamErrorCause,
 	finalizeChatTurn,
 	normalizeAssistantOutputWithSkillControl,
 	type ParsedChatTurnRequest,
@@ -33,6 +34,7 @@ import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-pro
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
+import { FRIENDLY_STREAM_ERRORS } from "$lib/services/stream-protocol";
 import type { LinkedContextSource, ToolCallEntry } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
@@ -122,8 +124,18 @@ export const POST: RequestHandler = async (event) => {
 				{ status: error.status },
 			);
 		}
+		// E1 — a single hard-coded English sentence used to be the only thing
+		// this catch-all returned. `code` is now a stable errorKey drawn from
+		// the same seam the stream path uses (classifyStreamErrorCause /
+		// StreamErrorCode), matching every other error response in this file
+		// (preflight/Atlas/attachment-readiness errors already carry `code`),
+		// instead of inventing a parallel code type. `error` stays the
+		// existing FRIENDLY_STREAM_ERRORS default text for callers that only
+		// read that field today; localizing `code` into final copy is an E2
+		// (client) concern.
+		const errorKey = classifyStreamErrorCause(error);
 		return json(
-			{ error: "Failed to get response from AI. Please try again." },
+			{ error: FRIENDLY_STREAM_ERRORS[errorKey], code: errorKey },
 			{ status: 502 },
 		);
 	}

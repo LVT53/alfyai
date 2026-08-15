@@ -27,7 +27,10 @@ export {
 } from "./preflight";
 export { parseChatTurnRequest } from "./request";
 export { prepareRetryChatTurn } from "./retry";
-export { createStreamJsonErrorResponse } from "./stream";
+export {
+	classifyStreamErrorCause,
+	createStreamJsonErrorResponse,
+} from "./stream";
 export {
 	runChatStreamOrchestrator,
 	startStartedResetGenerationFact,

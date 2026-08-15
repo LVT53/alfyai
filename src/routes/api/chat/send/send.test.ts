@@ -1852,7 +1852,11 @@ describe("POST /api/chat/send", () => {
 		expect(data.error).toMatch(/final prompt bundle/i);
 	});
 
-	it("returns 502 when the model run throws", async () => {
+	it("returns 502 with a stable errorKey when the model run throws", async () => {
+		// E1 — the hard-coded "Failed to get response from AI" sentence is
+		// gone; the response now carries a stable `code` (errorKey) classified
+		// from the actual cause, matching the stream path's StreamErrorCode
+		// vocabulary. Localizing `code` into final copy is an E2 concern.
 		seedConversation(mockGetConversation);
 		mockRunPlainNormalChatSendModel.mockRejectedValue(
 			new Error("Normal chat model run failed"),
@@ -1863,7 +1867,23 @@ describe("POST /api/chat/send", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(502);
-		expect(data.error).toMatch(/failed to get response/i);
+		expect(data.code).toBe("backend_failure");
+		expect(typeof data.error).toBe("string");
+		expect(data.error.length).toBeGreaterThan(0);
+	});
+
+	it("classifies a network-shaped model run failure with the network errorKey", async () => {
+		seedConversation(mockGetConversation);
+		mockRunPlainNormalChatSendModel.mockRejectedValue(
+			new Error("fetch failed: ECONNRESET"),
+		);
+
+		const event = makeEvent({ message: "Hello", conversationId: "conv-1" });
+		const response = await POST(event);
+		const data = await response.json();
+
+		expect(response.status).toBe(502);
+		expect(data.code).toBe("network");
 	});
 
 	it("returns 400 when request body is invalid JSON", async () => {

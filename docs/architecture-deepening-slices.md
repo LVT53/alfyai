@@ -993,8 +993,8 @@ real-DB-backed integration tests are the verification actually available here.
 
 Branch: `deepening-wave-3`. **E1 → E2 sequential. T1 alone. X1 blocked.**
 
-### E1 — Error seam, server half ⬜
-**Blocked by:** F1.
+### E1 — Error seam, server half ✅
+**Blocked by:** F1 — satisfied.
 
 **⚠️ ADR-0025 constraint:** reuse existing `data-stream-error` framing. **Do not add stream part
 names.** This slice maps causes to codes; it does not touch transport grammar.
@@ -1015,8 +1015,30 @@ names.** This slice maps causes to codes; it does not touch transport grammar.
 - [ ] `errorKey` emitted on the chat send/stream path
 - [ ] No new AI SDK UI stream part names — assert in test
 
+**E1 execution status (2026-08-15).** Branch `deepening-wave-3`. New seam `src/lib/server/services/error-cause.ts`
+(`ErrorCause` enum + `classifyErrorCause`/`isRetryableErrorCause`/`isTerminalErrorCause`): structured-first
+(AbortError name, AI SDK `InvalidPromptError`/`LoadAPIKeyError`/`APICallError` classes, HTTP status walking
+`.cause` chains) with a narrow technical-term fallback that **excludes "prompt"/"abort"** — the landmine is gone.
+Four substring classifiers collapsed into it: `failover.ts` (`isNonRetryableFallbackMessage`),
+`stream-fallback-policy.ts`, `stream.ts` `classifyStreamError` (kept as low-level text fallback under the new
+`classifyStreamErrorCause`), and `provider-compatibility.ts` (its prose fallback; its structured OpenAI
+`type`/`code` taxonomy left intact). `failover.ts` + `provider-compatibility.ts` now share one
+`isTerminalErrorCause` predicate instead of duplicate term lists. Failed tool calls carry a genuine
+`status: "failed"` (widened `ToolCallEntry`/`ThinkingSegment` union) + `metadata.errorCode` on the **existing**
+`data-tool-call` part (not a fake `"done"`, and deliberately NOT a live `data-stream-error` which the pre-E2
+client treats as terminal). Truncation/content-filter/file-production-failure notices **left the persisted message
+body** — now `completionWarningCodes: ChatTurnCompletionWarningCode[]` on the existing `data-stream-metadata`.
+`/api/chat/send` JSON gained an `errorKey` `code`. New tests: `error-cause.test.ts` (14), `failover.test.ts` (9),
+a `stream-runtime.test.ts` assertion that the set of `streamDataPartEvent("data-…")` names equals a fixed 7-name
+allow-list (no new part names, ADR-0025), tool-failure-status + body-untouched tests. TDD red-first. ADR-0025
+amended. Gate green: check 0/0 tracked (6874 files), test **6146** (+26), build 0 warnings, fallow **50**.
+**E1/E2 coordination:** the `"failed"` tool status and empty-body-on-truncation must land with E2's client
+rendering before any prod deploy (staging-only until then); flagged in the ADR and E2's prompt.
+
+---
+
 ### E2 — Error seam, client half ⬜
-**Blocked by:** E1, R1.
+**Blocked by:** E1 (satisfied), R1.
 
 - [ ] `_helpers.ts:125-174` substring fallback replaced by code lookup
 - [ ] Components render failed tool calls distinctly

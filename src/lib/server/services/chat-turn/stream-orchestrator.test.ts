@@ -1415,7 +1415,10 @@ describe("stream-orchestrator SSE contract", () => {
 		]);
 	});
 
-	it("emits failed tool events as not evidence-ready", async () => {
+	// E1 — a failed tool call now carries a genuine "failed" status (not a
+	// fake "done"), with a stable `errorCode` riding the same StreamErrorCode
+	// vocabulary `data-stream-error` uses, via classifyStreamErrorCause.
+	it("emits failed tool events with a failed status (not a fake done), as not evidence-ready", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
@@ -1445,17 +1448,26 @@ describe("stream-orchestrator SSE contract", () => {
 
 		const response = runStream();
 		const chunks = await readSseResponse(response);
-		const doneToolPayload = uiDataParts<Record<string, unknown>>(
+		const toolPayloads = uiDataParts<Record<string, unknown>>(
 			parseUiStreamParts(chunks),
 			"data-tool-call",
-		).find((payload) => payload.status === "done");
+		);
+		// No fake "done" payload for the failed call.
+		expect(toolPayloads.some((payload) => payload.status === "done")).toBe(
+			false,
+		);
+		const failedToolPayload = toolPayloads.find(
+			(payload) => payload.status === "failed",
+		);
 
-		expect(doneToolPayload).toEqual(
+		expect(failedToolPayload).toEqual(
 			expect.objectContaining({
+				status: "failed",
 				metadata: {
 					ok: false,
 					evidenceReady: false,
 					error: "Tool failed",
+					errorCode: "backend_failure",
 				},
 			}),
 		);
@@ -1463,10 +1475,11 @@ describe("stream-orchestrator SSE contract", () => {
 			expect.objectContaining({
 				toolCalls: expect.arrayContaining([
 					expect.objectContaining({
-						status: "done",
+						status: "failed",
 						metadata: expect.objectContaining({
 							ok: false,
 							evidenceReady: false,
+							errorCode: "backend_failure",
 						}),
 					}),
 				]),
