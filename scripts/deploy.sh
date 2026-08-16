@@ -120,6 +120,22 @@ ln -sfn "$SHARED_DIR/data" "$RELEASE_DIR/data"
 echo -e "${GREEN}✓ Shared .env and data linked${NC}"
 echo ""
 
+# Keep the Apache-served maintenance page in sync with the repo. Apache's
+# `ErrorDocument 503` points at $MAINTENANCE_DIR/index.html and serves it
+# whenever the proxy is down (the restart window below), so the page must
+# live outside the build tree. Best-effort: the web root is operator-owned
+# and may be absent/read-only, in which case we skip rather than fail.
+echo -e "${YELLOW}4b. Syncing the maintenance page to the web root...${NC}"
+MAINTENANCE_SRC="$RELEASE_DIR/deploy/maintenance/index.html"
+MAINTENANCE_DIR="${MAINTENANCE_DIR:-/var/www/alfyai-maintenance}"
+if [ -f "$MAINTENANCE_SRC" ] && [ -d "$MAINTENANCE_DIR" ] && [ -w "$MAINTENANCE_DIR" ]; then
+  cp -f "$MAINTENANCE_SRC" "$MAINTENANCE_DIR/index.html"
+  echo -e "${GREEN}✓ Maintenance page synced to $MAINTENANCE_DIR${NC}"
+else
+  echo -e "${YELLOW}⚠ Maintenance web root missing or read-only; skipping page sync${NC}"
+fi
+echo ""
+
 if [ -f "$RELEASE_DIR/.env" ]; then
   echo -e "${YELLOW}Loading environment from .env...${NC}"
   set -a

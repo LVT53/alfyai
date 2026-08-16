@@ -6,49 +6,77 @@
 <meta name="robots" content="noindex" />
 <title>AlfyAI — Updating / Frissítés</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: light dark;
+    --paper: #fafaf8;
+    --card: #f4f3ee;
+    --border: rgba(0,0,0,.08);
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #c15f3c;
+    --gold: #c8a882;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1a1a1a;
+      --card: #242424;
+      --border: rgba(255,255,255,.10);
+      --ink: #ececec;
+      --muted: #9a9a95;
+      --accent: #d4836b;
+    }
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     display: flex; align-items: center; justify-content: center;
     min-height: 100%; padding: 1.5rem;
-    background: #f6f7f9; color: #1f2328;
-  }
-  @media (prefers-color-scheme: dark) {
-    body { background: #14171a; color: #e6e8ea; }
-    .card { background: #1c2024 !important; border-color: #2a2f36 !important; }
-    .muted { color: #9aa4af !important; }
-    .dot { background: #2a2f36 !important; }
+    background: var(--paper); color: var(--ink);
   }
   .card {
-    width: 100%; max-width: 30rem; background: #fff;
-    border: 1px solid #e4e7eb; border-radius: 16px;
-    padding: 2rem 1.75rem; text-align: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    width: 100%; max-width: 30rem; background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 2.25rem 1.75rem; text-align: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,.06);
   }
+  .mark { width: 46px; height: 52px; margin: 0 auto .5rem; display: block; }
   .spinner {
-    width: 34px; height: 34px; margin: 0 auto 1.25rem;
-    border: 3px solid rgba(125,125,125,.25); border-top-color: currentColor;
+    width: 30px; height: 30px; margin: 1.25rem auto .25rem;
+    border: 3px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    border-top-color: var(--accent);
     border-radius: 50%; animation: spin 1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-  h1 { font-size: 1.15rem; margin: 0 0 .4rem; }
-  h2 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
-  p { margin: .25rem 0; line-height: 1.5; }
-  .muted { color: #5b6570; font-size: .92rem; }
-  .divider { display: flex; align-items: center; gap: .75rem; margin: 1.5rem 0 .25rem; }
-  .dot { flex: 1; height: 1px; background: #e4e7eb; }
-  .lang { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: #8a94a0; }
+  h1 { font-size: 1.2rem; margin: .75rem 0 .4rem; font-weight: 600; }
+  h2 { font-size: 1.08rem; margin: 1.4rem 0 .4rem; font-weight: 600; }
+  p { margin: .25rem 0; line-height: 1.55; }
+  .muted { color: var(--muted); font-size: .92rem; }
+  .divider { display: flex; align-items: center; gap: .75rem; margin: 1.6rem 0 .25rem; }
+  .dot { flex: 1; height: 1px; background: var(--border); }
+  .lang { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
 </style>
 </head>
 <body>
   <main class="card" role="status" aria-live="polite">
-    <div class="spinner" aria-hidden="true"></div>
+    <!-- AlfyAI logomark -->
+    <svg class="mark" viewBox="0 0 100 112" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g stroke="#c8a882" fill="none" stroke-linecap="round">
+        <path stroke-width="4.2" d="M50 19 C46 40 36 64 24 88"/>
+        <path stroke-width="4.2" d="M50 19 C54 40 64 64 76 88"/>
+        <line x1="27" y1="57" x2="73" y2="57" stroke-width="2.2"/>
+        <line x1="27" y1="52" x2="27" y2="62" stroke-width="1.8" opacity="0.75"/>
+        <line x1="73" y1="52" x2="73" y2="62" stroke-width="1.8" opacity="0.75"/>
+        <line x1="14" y1="90" x2="36" y2="90" stroke-width="3.2"/>
+        <line x1="64" y1="90" x2="86" y2="90" stroke-width="3.2"/>
+      </g>
+      <circle cx="50" cy="19" r="3.5" fill="#c8a882"/>
+    </svg>
     <div class="lang">English</div>
     <h1>We're updating AlfyAI</h1>
     <p class="muted">The service will be back in a moment. This page reloads automatically when it's ready — no need to refresh.</p>
+    <div class="spinner" aria-hidden="true"></div>
     <div class="divider"><span class="dot"></span><span class="lang">Magyar</span><span class="dot"></span></div>
     <h2>Frissítjük az AlfyAI-t</h2>
     <p class="muted">A szolgáltatás hamarosan visszatér. Ez az oldal automatikusan újratölt, amint kész — nem kell frissítened.</p>

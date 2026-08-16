@@ -179,3 +179,30 @@ the operator — never a hand edit to `httpd.conf` that Virtualmin can overwrite
 and `interval-job.ts` has no leader election, so two live processes would double-run background work
 (Atlas jobs, schedulers). Blue/green needs leader election first; draining + a fast atomic restart is
 the correct scope until then.
+
+### Amendment (2026-08-16) — maintenance page wired via `ErrorDocument 503`, no flag file
+
+The flag-file rewrite described above was deferred at first because Virtualmin's `--add-directive`
+appends after the vhost's catch-all `ProxyPass /` and cannot order the `ProxyPass /alfyai-maintenance !`
+exclusion before it. The wiring that shipped drops the flag file entirely and leans on the fact that
+`mod_proxy` already returns **503** whenever the backend is unreachable — which is exactly the restart
+window. The `ai.alfydesign.com` vhost gets a small block placed **before** `ProxyPass /` (via
+Virtualmin → *Edit Directives*, which preserves manual ordering where `--add-directive` cannot):
+
+```apache
+Alias /alfyai-maintenance /var/www/alfyai-maintenance
+ProxyPass /alfyai-maintenance !
+<Directory /var/www/alfyai-maintenance>
+    Require all granted
+</Directory>
+ErrorDocument 503 /alfyai-maintenance/index.html
+Header always set Retry-After "15" "expr=%{REQUEST_STATUS} == 503"
+```
+
+No `deploy.sh` flag toggling is needed: during the restart the proxy 503s and Apache serves the static
+page; when the new process answers, the page's `/api/health` poll reloads to the app. `deploy.sh`
+step 4b syncs `deploy/maintenance/index.html` (version-controlled, AlfyAI-branded) into the
+operator-owned `/var/www/alfyai-maintenance/` on every deploy. A side benefit over the flag design:
+an *unexpected* crash also shows the friendly page instead of a raw 503 (Sentry still records the
+crash). The vhost edit and Apache reload require operator root — outside the deploy user's
+restart-only sudo — so they are a one-time operator step.
