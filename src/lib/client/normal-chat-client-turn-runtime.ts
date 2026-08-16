@@ -376,6 +376,21 @@ export function createNormalChatClientTurnRuntime(
 		activeThinkingBuffer = null;
 	}
 
+	// R1 (ADR-0060, defect 2 amendment) — a stale-turn guard (this turn's
+	// `turnConversationId` is no longer the one displayed) must not blindly
+	// call completeTurn(): completeTurn() resets SHARED runtime state
+	// (isSending/activeStream/activePlaceholderId/buffers), and a different,
+	// currently-active turn may already own that shared state by the time
+	// this stale branch runs — e.g. a raw `adapters.schedule` timer nothing
+	// cancels, firing after the user navigated away and a genuinely new turn
+	// already started. Only reset shared state when this turn (identified by
+	// its own placeholderId) still actually owns it; otherwise this turn's
+	// work is simply dropped, leaving the current turn's state untouched.
+	function completeStaleTurn(placeholderId: string) {
+		if (activePlaceholderId !== placeholderId) return;
+		completeTurn();
+	}
+
 	function setPhase(
 		nextPhase: NormalChatRuntimePhase,
 		placeholderId = activePlaceholderId,
@@ -699,9 +714,12 @@ export function createNormalChatClientTurnRuntime(
 				// the turn here; the page's own reset effect independently
 				// detaches the transport on the same switch (belt and
 				// suspenders — this guard holds even if that has not run yet, or
-				// a callback was already in flight before it did).
+				// a callback was already in flight before it did). Uses the
+				// ownership-checked completeStaleTurn (not completeTurn) — a
+				// different, currently-active turn may already own the shared
+				// runtime state by the time this fires.
 				if (!isTurnConversationActive(params.turnConversationId)) {
-					completeTurn();
+					completeStaleTurn(params.placeholderId);
 					return;
 				}
 
@@ -862,8 +880,12 @@ export function createNormalChatClientTurnRuntime(
 		// conversation. Without this, a bounded retry would blindly dispatch
 		// `adapters.streamChat` against whatever conversation is current *at
 		// retry time*, cross-posting the original turn's message into it.
+		// This is a raw timer nothing cancels, so by the time it fires a
+		// genuinely new turn may already own the shared runtime state —
+		// completeStaleTurn only resets that state if this (stale) turn still
+		// owns it, never clobbering a different turn's live stream.
 		if (!isTurnConversationActive(params.turnConversationId)) {
-			completeTurn();
+			completeStaleTurn(params.placeholderId);
 			return;
 		}
 		const callbacks = buildCallbacks(params);
@@ -975,7 +997,7 @@ export function createNormalChatClientTurnRuntime(
 			});
 
 			if (!isTurnConversationActive(params.turnConversationId)) {
-				completeTurn();
+				completeStaleTurn(params.placeholderId);
 				return;
 			}
 
@@ -1006,7 +1028,7 @@ export function createNormalChatClientTurnRuntime(
 			void drainPostTurnQueue();
 		} catch (error) {
 			if (!isTurnConversationActive(params.turnConversationId)) {
-				completeTurn();
+				completeStaleTurn(params.placeholderId);
 				return;
 			}
 			adapters.applyMessageListEvent({

@@ -498,6 +498,40 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("current legacy external search flows");
 	});
 
+	// R1 defect 5 — G1 deleted the message-content-selected guidance-pack
+	// machinery (correctly) but took the generic, always-applies-to-every-
+	// tool JSON-argument-formatting guidance down with it, landing nowhere.
+	// This guidance is not tool-specific (unlike produce_file's usage
+	// guidance above, which correctly lives on that tool's own
+	// description), so it belongs in the assembled system prompt itself,
+	// gated only on tools being available for this turn.
+	it("carries the generic tool-call JSON-formatting guidance whenever tools are available", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Whatever the user asks, in any wording",
+			modelDisplayName: "Provider Model",
+		});
+
+		expect(prompt).toContain("all tool arguments MUST be valid JSON");
+		expect(prompt).toContain("no trailing punctuation");
+		expect(prompt).toContain(
+			"Do not add comments, markdown fences, or explanatory text inside the JSON argument.",
+		);
+		expect(prompt).toContain(
+			"fix the specific issue, and retry once. Do not repeat the same malformed JSON.",
+		);
+	});
+
+	it("omits the JSON-formatting guidance for the tool-less control-model caller (skipDefaultRuntimeGuidance)", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Classify this",
+			skipDefaultRuntimeGuidance: true,
+		});
+
+		expect(prompt).not.toContain("all tool arguments MUST be valid JSON");
+	});
+
 	describe("Connections framing (Redesign R8)", () => {
 		it("omits the connections framing when hasActiveConnections is not set", () => {
 			const prompt = buildOutboundSystemPrompt({
@@ -1734,13 +1768,15 @@ describe("prepareOutboundChatContext", () => {
 			expect(budgetDiagnostic?.beforeInputTokens).toBeGreaterThan(
 				budgetDiagnostic?.afterInputTokens as number,
 			);
-			// G1: the system prompt is smaller now (tool-usage guidance moved out
-			// of it), leaving more of this tiny fixed budget for input — the
-			// prefetched "## Current Web Research" section now fits rather than
-			// being evicted outright. The load-bearing assertions for THIS test
-			// are the budgeting/diagnostic fields above and below, not which
-			// exact section survives truncation.
-			expect(prepared.inputValue).toContain("## Current Web Research");
+			// R1 defect 5 restored the generic tool-call JSON-formatting guidance
+			// G1 had dropped entirely (a handful of always-on lines, not the
+			// ~747-line guidance-pack machinery G1 correctly deleted), nudging
+			// the system prompt back up against this deliberately tiny fixed
+			// budget — the prefetched "## Current Web Research" section is
+			// evicted again rather than fitting. The load-bearing assertions for
+			// THIS test are the budgeting/diagnostic fields above and below, not
+			// which exact section survives truncation.
+			expect(prepared.inputValue).not.toContain("## Current Web Research");
 			expect(prepared.inputValue).toContain(
 				"## Current User Message\nWhat changed today?",
 			);

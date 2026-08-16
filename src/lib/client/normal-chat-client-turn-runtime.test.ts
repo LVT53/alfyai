@@ -1618,6 +1618,85 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	// R1 defect 2 (retry-race amendment) — a scheduled capacity retry is a raw
+	// timer nothing cancels. If a genuinely new turn (turn2) starts on a
+	// different conversation during the backoff, the stale retry firing later
+	// must not clobber turn2's shared runtime state (isSending/activeStream/
+	// activePlaceholderId) via an unconditional completeTurn() inside the
+	// `!isTurnConversationActive` guard.
+	it("R1 defect 2 — a stale scheduled capacity retry does not clobber a genuinely active turn2 started during the backoff", async () => {
+		vi.useFakeTimers();
+		let currentConversationId = "conv-A";
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters({
+				getConversationId: vi.fn(() => currentConversationId),
+				schedule: vi.fn((callback, delay) => setTimeout(callback, delay)),
+			});
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		// Turn1 sends on conv-A, then hits a capacity rejection that schedules
+		// a bounded backoff retry.
+		await runtime.send({
+			message: "Hello during a drain",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		const capacity = new Error("Server at capacity") as Error & {
+			code?: string;
+		};
+		capacity.code = "CAPACITY_EXCEEDED";
+		streamInvocations[0].callbacks.onError(capacity);
+
+		// The user navigates away entirely (conv-A -> conv-B); the page's
+		// reset effect runs, same as a real navigation.
+		currentConversationId = "conv-B";
+		runtime.reset();
+
+		// A genuine new turn (turn2) starts on conv-B before turn1's backoff
+		// timer fires.
+		await runtime.send({
+			message: "Hello on B",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		expect(streamInvocations).toHaveLength(2);
+		const turn2SnapshotBeforeRetry = runtime.snapshot();
+		expect(turn2SnapshotBeforeRetry.isSending).toBe(true);
+		expect(turn2SnapshotBeforeRetry.active).toBe(true);
+
+		// Turn1's scheduled capacity retry now fires.
+		await vi.runOnlyPendingTimersAsync();
+
+		// The stale retry must not have re-dispatched (it dropped its own
+		// work)...
+		expect(streamInvocations).toHaveLength(2);
+		expect(adapters.streamChat).toHaveBeenCalledTimes(2);
+		// ...and turn2's shared runtime state must be exactly as it was —
+		// not reset to idle by the stale turn's guard.
+		const afterRetrySnapshot = runtime.snapshot();
+		expect(afterRetrySnapshot.isSending).toBe(true);
+		expect(afterRetrySnapshot.active).toBe(true);
+
+		// Turn2's live stream is still fully wired up — proof
+		// activePlaceholderId still points at turn2, not nulled out.
+		streamInvocations[1].callbacks.onToken("Streaming B's answer");
+		streamInvocations[1].callbacks.onFinishPart?.({
+			type: "finish",
+			finishReason: "stop",
+		});
+		expect(messageListEvents.appendTokenChunk).toHaveBeenCalledWith(
+			expect.any(String),
+			"Streaming B's answer",
+		);
+		expect(
+			messages.find((message) => message.content === "Streaming B's answer"),
+		).toBeDefined();
+
+		vi.useRealTimers();
+	});
+
 	it("reuses the optimistic user message when reconnecting after a background interruption", async () => {
 		let browserHidden = true;
 		let composerDepth: "off" | "max" = "max";

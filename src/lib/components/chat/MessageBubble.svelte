@@ -337,7 +337,9 @@ let hasVisibleContent = $derived(message.content.trim().length > 0);
 // the only thing telling the user why.
 let completionWarningCodes = $derived(
 	!isUser && !message.isStreaming && !message.isThinkingStreaming
-		? (message.completionWarningCodes ?? [])
+		? (message.completionWarningCodes ?? []).filter(
+				isKnownCompletionWarningCode,
+			)
 		: [],
 );
 let hasAtlasCards = $derived(atlasJobs.length > 0);
@@ -669,6 +671,26 @@ const COMPLETION_WARNING_LABEL_KEYS = {
 	stream_closed_without_finish:
 		"chat.completionWarning.streamClosedWithoutFinish",
 } as const satisfies Record<ChatTurnCompletionWarningCode, I18nKey>;
+
+// R1 defect 6 — completionWarningCodes reaches this component from
+// server/streaming data (streaming.ts's buildStreamMetadata casts it with a
+// bare type assertion, no runtime allow-list, unlike its sibling
+// isResponseActivityKind/isKnownSendErrorCode guards) or persisted message
+// metadata, either of which can carry a code this client build doesn't know
+// about (e.g. a rolling deploy). Without this guard, an unknown code indexed
+// straight into COMPLETION_WARNING_LABEL_KEYS rendered a blank row.
+function isKnownCompletionWarningCode(
+	code: string,
+): code is ChatTurnCompletionWarningCode {
+	return (
+		code === "content_filtered" ||
+		code === "file_production_failed" ||
+		code === "non_standard_finish" ||
+		code === "output_truncated" ||
+		code === "provider_error" ||
+		code === "stream_closed_without_finish"
+	);
+}
 
 async function copyToClipboard() {
 	try {

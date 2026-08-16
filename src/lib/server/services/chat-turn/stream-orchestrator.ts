@@ -501,6 +501,7 @@ export function runChatStreamOrchestrator(
 						status: "running",
 						detail: step.activityClass,
 						occurredAt: step.createdAt,
+						...(step.entity ? { label: step.entity } : {}),
 					});
 				},
 			});
@@ -697,6 +698,12 @@ export function runChatStreamOrchestrator(
 					return true;
 				}
 
+				// P3b (ADR-0056) — "classification stops hard on the first answer
+				// text-delta" applies here too: the non-stream fallback emits its
+				// answer through this path (not the SSE loop's text_delta branch),
+				// so it must halt the classifier itself or a classified step could
+				// be emitted after the visible answer was already sent.
+				thoughtStepClassifierSession.stop();
 				return emitChunkWithOutputHandling(text);
 			};
 			const hasEmittedStreamOutput = () =>
@@ -712,12 +719,16 @@ export function runChatStreamOrchestrator(
 				);
 			const hasVisibleAssistantAnswerOutput = () =>
 				Boolean(chunkRuntime.fullResponse.trim());
+			// A "failed" tool call is terminal (not running) just like "done" —
+			// it is still persistable content for the purposes of "did this turn
+			// produce anything to save", so both statuses count as completed
+			// here. Only a still-`running` call must not count.
 			const completedToolCallRecords = () =>
 				chunkRuntime.toolCallRecords.filter(
-					(record) => record.status === "done",
+					(record) => record.status !== "running",
 				);
 			const isCompletedFileProductionToolCall = (record: ToolCallEntry) =>
-				isFileProductionToolName(record.name) && record.status === "done";
+				isFileProductionToolName(record.name) && record.status !== "running";
 			const hasCompletedFileProductionToolCall = () =>
 				completedToolCallRecords().some(isCompletedFileProductionToolCall);
 			const hasCompletedNonFileToolCall = () =>

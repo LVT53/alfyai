@@ -170,6 +170,26 @@ const CONNECTIONS_FRAMING_GUARD = [
 	"- If more than one connected account could serve a request (e.g. two calendars), ask the user which one to use, unless the conversation or memory already makes it clear.",
 ].join("\n");
 
+// R1 defect 5 — this generic tool-call-JSON-formatting guidance was dropped
+// entirely by G1 (ADR-0055, which deleted the message-content-selected
+// guidance-pack machinery this used to ride on). It applies to every tool
+// call regardless of which specific tool is used, so — unlike the
+// per-tool when/how/example guidance G1 correctly relocated onto each
+// tool's own TOOL_I18N description — it belongs here as always-on runtime
+// guidance, gated only on tools actually being available (the same
+// `!skipDefaultRuntimeGuidance` gate the other default runtime guidance
+// below uses; the tool-less control-model caller is the only caller that
+// opts out). Deliberately English-only, matching every other guard
+// constant in this file.
+const JSON_FORMATTING_RULES = [
+	"Tool JSON formatting rules — all tool arguments MUST be valid JSON:",
+	"- Pass exactly the JSON object as the argument — no trailing punctuation (no period, comma, or semicolon after the closing `}`). The argument ends at `}`.",
+	"- Within JSON strings, use `\\n` to represent newlines. Do not paste raw multiline text into a JSON string — the parser will reject it.",
+	"- Only include fields listed in the tool's schema. Do not invent extra fields.",
+	"- If a tool call fails with a JSON parse error, read the error message, fix the specific issue, and retry once. Do not repeat the same malformed JSON.",
+	"- Do not add comments, markdown fences, or explanatory text inside the JSON argument.",
+].join("\n");
+
 function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
 	const grounding = effort.grounding.guidance;
@@ -376,7 +396,11 @@ export function buildOutboundSystemPrompt(params: {
 	// depth, active connections, an explicit prompt appendix).
 	const guidanceAdditions: string[] = params.skipDefaultRuntimeGuidance
 		? []
-		: [explicitDateContext, buildResponseLanguageGuard(responseLanguage)];
+		: [
+				explicitDateContext,
+				buildResponseLanguageGuard(responseLanguage),
+				JSON_FORMATTING_RULES,
+			];
 
 	if (!params.skipDefaultRuntimeGuidance && params.reasoningDepthEffort) {
 		guidanceAdditions.push(

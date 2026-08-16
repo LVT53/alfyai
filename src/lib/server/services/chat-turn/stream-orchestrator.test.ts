@@ -1272,6 +1272,73 @@ describe("stream-orchestrator SSE contract", () => {
 		});
 	});
 
+	// R1 defect 4 — the live `onStep` -> `emitResponseActivity` mapping must
+	// forward `step.entity` as `label`, matching the persisted step shape.
+	// The client's live thought-step header (ThinkingBlock's
+	// `liveThoughtStepEntity`, wired from MessageBubble reading
+	// `liveThoughtStepActivity?.label`) reads the entity from `label` — with
+	// it missing on the live emission, the live header could never show the
+	// entity even though the completed/persisted rail does.
+	it("forwards the classified step's verbatim entity as label on the live thought_step response-activity", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const classifiedStepWithEntity = {
+			id: "step-entity-1",
+			source: "classified" as const,
+			activityClass: "understanding-request",
+			impliesExternalAction: false,
+			anchor: { start: 0, end: 10 },
+			entity: "the budget discussion",
+			createdAt: 1000,
+		};
+		let capturedOnReasoningDelta: ((text: string) => void) | undefined;
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockImplementation((params: { onStep?: (step: unknown) => void }) => {
+			capturedOnReasoningDelta = () =>
+				params.onStep?.(classifiedStepWithEntity);
+			return {
+				onReasoningDelta: (text: string) => capturedOnReasoningDelta?.(text),
+				stop: vi.fn(),
+				getSteps: () => [classifiedStepWithEntity],
+			};
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "reasoning_delta",
+					text: "Thinking about the budget discussion. ",
+				},
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({ conversationId: "thought-step-entity-conv" });
+		const chunks = await readSseResponse(response);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "thought-step:step-entity-1",
+					kind: "thought_step",
+					detail: "understanding-request",
+					label: "the budget discussion",
+				}),
+			]),
+		);
+	});
+
 	it("stops the classifier session on the first answer text-delta", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
@@ -1815,6 +1882,72 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// R1 defect 1 — a "failed" tool call is a terminal (non-running) tool call,
+	// not an absence of persistable content. Before the fix,
+	// completedToolCallRecords()/isCompletedFileProductionToolCall() only
+	// recognized status "done", so a produce_file call that ends "failed"
+	// followed by an abrupt upstream close (no finish event, no trailing
+	// text) had nothing to persist and routed to failStream instead of
+	// completing the turn.
+	it("persists the assistant message via completeSuccess when a produce_file tool call fails and the stream then ends abruptly", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { persistAssistantEvidence } = await import(
+			"$lib/server/services/chat-turn/finalize-steps"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "tool_call",
+					callId: "call-produce-failed",
+					toolName: "produce_file",
+					input: { filename: "report.pdf" },
+				},
+				{
+					type: "tool_error",
+					callId: "call-produce-failed",
+					toolName: "produce_file",
+					error: "Render backend unavailable",
+				},
+				// No finish event and no trailing text — the upstream stream
+				// simply ends here (abrupt drop).
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "fix1-conv",
+			streamId: "fix1-stream",
+		});
+		const chunks = await readSseResponse(response);
+		const body = chunks.join("\n\n");
+		const metadataPayload = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-stream-metadata",
+		)[0];
+
+		// Must route through completeSuccess (stream_closed path), not
+		// failStream — the failed tool call counts as persistable content.
+		expect(body).not.toContain("data-stream-error");
+		expect(metadataPayload).toMatchObject({
+			streamClosedWithoutFinish: true,
+		});
+		await vi.waitFor(() => {
+			expect(persistAssistantEvidence).toHaveBeenCalledWith(
+				expect.objectContaining({
+					toolCalls: expect.arrayContaining([
+						expect.objectContaining({
+							name: "produce_file",
+							status: "failed",
+						}),
+					]),
+				}),
+			);
+		});
+	});
+
 	it("recovers with non-stream fallback when a socket terminates after a completed non-file tool", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
@@ -1953,6 +2086,86 @@ describe("stream-orchestrator SSE contract", () => {
 				]),
 			}),
 		);
+	});
+
+	// R1 defect 3 — "classification stops hard on the first answer text-delta"
+	// (ADR-0056) must also hold on the non-stream fallback path. Before the
+	// fix, only the SSE loop's text_delta branch called
+	// thoughtStepClassifierSession.stop() — emitResolvedAssistantText (the
+	// fallback's own answer-emission path) never did, so a step classified
+	// from an in-flight control-model call could still be emitted after the
+	// fallback answer had already been sent.
+	it("stops the classifier session on the non-stream fallback answer path", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { runPlainNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/plain-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const stop = vi.fn();
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockReturnValue({
+			onReasoningDelta: vi.fn(),
+			stop,
+			getSteps: () => [],
+		});
+		const recorderEntry = {
+			callId: "call-research-fix3",
+			name: "research_web",
+			input: { query: "pasted url" },
+			status: "done",
+			outputSummary: "Web research returned 1 source.",
+			sourceType: "web",
+			candidates: [],
+			metadata: { ok: true, evidenceReady: true },
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-research-fix3",
+						toolName: "research_web",
+						input: { query: "pasted url" },
+					},
+					{
+						type: "tool_result",
+						callId: "call-research-fix3",
+						toolName: "research_web",
+						output: { success: true },
+					},
+					{ type: "error", error: "socket terminated" },
+				],
+				{ normalChatToolCalls: [recorderEntry] },
+			),
+		);
+		(runPlainNormalChatSendModel as ReturnType<typeof vi.fn>).mockResolvedValue(
+			{
+				text: "Recovered fallback answer.",
+				contextStatus: null,
+				taskState: null,
+				contextDebug: null,
+				providerUsage: null,
+				normalChatToolCalls: [],
+				modelId: "model1",
+				modelDisplayName: "Model One",
+			},
+		);
+
+		const response = runStream({
+			conversationId: "fix3-conv",
+			streamId: "fix3-stream",
+		});
+		const chunks = await readSseResponse(response);
+
+		expect(chunks.join("\n\n")).toContain("Recovered fallback answer.");
+		expect(stop).toHaveBeenCalled();
 	});
 
 	it("emits provider error events after completed non-file tools without non-stream fallback", async () => {

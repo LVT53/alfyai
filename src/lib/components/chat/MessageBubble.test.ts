@@ -1997,5 +1997,36 @@ describe("MessageBubble", () => {
 				container.querySelector(".completion-warning-notice"),
 			).not.toBeInTheDocument();
 		});
+
+		// R1 defect 6 — an unrecognized completionWarningCode (e.g. one a newer
+		// server/deploy introduced that this client build doesn't know about
+		// yet) must be skipped, not rendered as a blank row.
+		it("skips an unrecognized completion-warning code instead of rendering a blank row, while still rendering known codes", () => {
+			const message = {
+				id: "assistant-unknown-warning",
+				renderKey: "assistant-unknown-warning",
+				role: "assistant",
+				content: "Here is what I could produce.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				// A future server/deploy could introduce a new code before this
+				// client build knows about it — simulate that with a value outside
+				// the closed ChatTurnCompletionWarningCode union.
+				completionWarningCodes: [
+					"output_truncated",
+					"a_future_code_this_build_does_not_know",
+				],
+			} as unknown as ChatMessage;
+
+			const { container } = render(MessageBubble, { message });
+
+			expect(
+				screen.getByText(chatDict.en["chat.completionWarning.outputTruncated"]),
+			).toBeInTheDocument();
+			expect(
+				container.querySelectorAll(".completion-warning-row"),
+			).toHaveLength(1);
+		});
 	});
 });
