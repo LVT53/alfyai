@@ -458,6 +458,49 @@ describe("messages metadata", () => {
 		]);
 	});
 
+	// Amendment (2026-08-16) to ADR-0056 — the entity-grounded `summary`
+	// field is additive on the same persisted shape; this proves it survives
+	// the read model's round trip (parseThoughtSteps -> isInterimThoughtStepArray)
+	// exactly like every other field on a persisted step already does.
+	it("projects the persisted summary field on a thoughtSteps entry", async () => {
+		mockRows.push({
+			id: "assistant-thought-steps-summary-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: "Comparing option A against option B for this case.",
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				thoughtSteps: [
+					{
+						id: "step-summary-1",
+						source: "classified",
+						activityClass: "weighing-options",
+						impliesExternalAction: false,
+						anchor: { start: 0, end: 10 },
+						summary: "Comparing option A against option B",
+						createdAt: 1000,
+					},
+				],
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-thought-steps-summary-1",
+				thoughtSteps: [
+					expect.objectContaining({
+						id: "step-summary-1",
+						summary: "Comparing option A against option B",
+					}),
+				],
+			}),
+		]);
+	});
+
 	it("omits thoughtSteps entirely when no steps were persisted for the turn", async () => {
 		mockRows.push({
 			id: "assistant-no-thought-steps-1",

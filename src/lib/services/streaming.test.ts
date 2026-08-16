@@ -429,6 +429,49 @@ describe("streamChat", () => {
 		});
 	});
 
+	// Amendment (2026-08-16) to ADR-0056 — buildResponseActivityEntry copies
+	// known fields one at a time (not a spread), so a new field added to the
+	// wire payload must be explicitly threaded through here too, or it is
+	// silently stripped before message.responseActivity ever sees it — the
+	// exact same class of bug the "thought_step" kind allow-list gap above
+	// was. Asserts the `summary` field survives the parser intact.
+	it("carries the entity-grounded summary field on a classified thought_step response-activity event", async () => {
+		const onResponseActivity = vi.fn();
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "thought-step:step-2",
+						kind: "thought_step",
+						status: "running",
+						detail: "weighing-options",
+						label: "option A",
+						summary: "Comparing option A against option B",
+						occurredAt: 789,
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "thought-step:step-2",
+			kind: "thought_step",
+			status: "running",
+			detail: "weighing-options",
+			label: "option A",
+			summary: "Comparing option A against option B",
+			occurredAt: 789,
+		});
+	});
+
 	// P2's "acknowledgment" kind had the exact same pre-existing gap — fixed
 	// alongside "thought_step" since it is the identical one-line allow-list.
 	it("maps instant-acknowledgment response-activity events onto the activity callback", async () => {

@@ -544,6 +544,9 @@ describe("completeStreamTurn", () => {
 				activityClass: "understanding-request",
 				impliesExternalAction: false,
 				anchor: { start: 0, end: 12 },
+				// Amendment (2026-08-16) to ADR-0056 — the entity-grounded summary
+				// rides the same object; proves it survives this layer too.
+				summary: "Understanding what is being asked",
 				createdAt: 1000,
 			},
 		];
@@ -577,6 +580,9 @@ describe("completeStreamTurn", () => {
 				activityClass: "understanding-request",
 				impliesExternalAction: false,
 				anchor: { start: 0, end: 12 },
+				// Amendment (2026-08-16) to ADR-0056 — proves the summary rides the
+				// terminal payload too, not just persisted assistantMetadata above.
+				summary: "Understanding what is being asked",
 				createdAt: 1000,
 			},
 		];

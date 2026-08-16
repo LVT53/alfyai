@@ -315,6 +315,14 @@ function buildResponseActivityEntry(
 		...(typeof parsed.occurredAt === "number"
 			? { occurredAt: parsed.occurredAt }
 			: {}),
+		// Amendment (2026-08-16) to ADR-0056 — the entity-grounded summary on a
+		// "thought_step" entry. Same allow-list-by-field-copy discipline as
+		// every other field above: without this, the live payload's `summary`
+		// (see stream-orchestrator.ts's onStep -> emitResponseActivity) would
+		// be silently stripped here before ever reaching message.responseActivity,
+		// exactly the P3c "acknowledgment"/"thought_step" kind bug noted above,
+		// but for a field instead of a kind.
+		...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
 	};
 }
 

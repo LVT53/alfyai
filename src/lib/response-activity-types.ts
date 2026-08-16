@@ -149,6 +149,13 @@ export interface ResponseActivityEntry {
 	passTotal?: number;
 	passKind?: string;
 	occurredAt?: number;
+	// Amendment (2026-08-16) to ADR-0056 — the constrained, entity-grounded
+	// summary for a "thought_step" kind entry (see InterimThoughtStep.summary
+	// below for the full contract). Additive: only ever set alongside
+	// kind === "thought_step", and only when the runtime verbatim-tether
+	// guard kept the model's summary; otherwise absent, exactly like `label`
+	// (entity) already degrades to absent on the same kind.
+	summary?: string;
 }
 
 // ADR-0056 (Interim Thought Steps are durable turn state) / programme slice
@@ -217,6 +224,22 @@ export interface InterimThoughtStep {
 	// ever trustworthy when it is a substring of the anchor's resolved
 	// text — the harness checks exactly that.
 	entity?: string;
+	// Amendment (2026-08-16) to ADR-0056 — "constrained, entity-grounded
+	// summarization supersedes class-only wording". The step's visible
+	// headline: a short, present-tense paraphrase the classifier composes
+	// from the anchored reasoning span. `activityClass` above survives only
+	// as a SECONDARY signal (icon/tag/grouping) once this exists; `entity`
+	// stays as the verbatim subject/tether word. Set ONLY when the runtime
+	// entity-grounding guard confirmed the summary contains at least one
+	// verbatim (case-insensitive) content-word substring of the anchored
+	// span it describes (see `thought-step-classifier.ts`'s
+	// `hasVerbatimContentWordTether`) — a summary that fails that check is
+	// dropped (this field stays `undefined`), never persisted, so the floor
+	// never drops below the pre-amendment class-only behavior. A mechanical
+	// tether is necessary, not sufficient: it is NOT proof the summary is
+	// faithful to the anchored span — that semantic check is the next
+	// slice's offline faithfulness audit, which reads this field.
+	summary?: string;
 	// Present when `source === "event"`: the real tool call this step
 	// reports on. The harness cross-checks it against the turn's actually
 	// persisted tool call ids (the existing `messages.toolCalls` column).
@@ -237,7 +260,8 @@ function isInterimThoughtStep(value: unknown): value is InterimThoughtStep {
 		typeof candidate.impliesExternalAction === "boolean" &&
 		(candidate.anchor === null ||
 			candidate.anchor === undefined ||
-			isThoughtStepAnchor(candidate.anchor))
+			isThoughtStepAnchor(candidate.anchor)) &&
+		(candidate.summary === undefined || typeof candidate.summary === "string")
 	);
 }
 

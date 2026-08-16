@@ -29,16 +29,33 @@ import { extractVerbatimTopic } from "./turn-acknowledgment";
  * and is never imported by, `$lib/utils/reasoning-spine.ts` or
  * `ThinkingBlock.svelte`.
  *
- * The control model CLASSIFIES a fragment of the reasoning trace; it never
- * summarizes and never authors user-facing prose. Every call returns strict
- * JSON via `sendJsonControlMessage`: a closed activity-class enum
- * (THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES, src/lib/types.ts — deliberately
- * containing zero action-implying classes, so "action classes only from
- * events" is structural, not a runtime check that could be bypassed), an
- * optional entity slot (kept only when it is a verbatim substring of the
- * reasoning chunk that produced it — the same discipline
- * turn-acknowledgment.ts's `extractVerbatimTopic` already established for
- * P2, reused verbatim here), and a new-step/continuation verdict.
+ * Amendment (2026-08-16) to ADR-0056 — "constrained, entity-grounded
+ * summarization supersedes class-only wording". The control model still
+ * CLASSIFIES a fragment of the reasoning trace into the closed activity-class
+ * enum (now a SECONDARY signal — icon/tag/grouping), but on a `new_step`
+ * verdict it ALSO composes a short, present-tense `summary` paraphrase of
+ * that fragment — the step's new visible headline. Every call returns strict
+ * JSON via `sendJsonControlMessage`: the closed activity-class enum
+ * (THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES — deliberately containing zero
+ * action-implying classes, so "action classes only from events" is
+ * structural, not a runtime check that could be bypassed), an optional
+ * entity slot (kept only when it is a verbatim substring of the reasoning
+ * chunk that produced it — the same discipline turn-acknowledgment.ts's
+ * `extractVerbatimTopic` already established for P2, reused verbatim here),
+ * the new summary, and a new-step/continuation verdict.
+ *
+ * The summary is NOT trusted as-is. `hasVerbatimContentWordTether` (below)
+ * is the runtime leash the ADR amendment chose: a summary survives only when
+ * it contains at least one verbatim (case-insensitive), non-stop-word
+ * content word copied from the reasoning chunk it describes. A summary that
+ * fails this check is dropped (never persisted, never emitted) — the step
+ * itself is still classified and emitted with its class + entity exactly as
+ * before, so the floor never drops below the pre-amendment class-only
+ * behavior. This mechanical tether is necessary, not sufficient: it cannot
+ * prove the summary is faithful to the span, only that it is not wholly
+ * unmoored from it. The full semantic faithfulness check is the next
+ * slice's offline audit (ADR-0056 amendment, "The honesty contract becomes
+ * semantic").
  *
  * Every emitted step's anchor is validated against the session's own running
  * reasoning-text buffer via `resolveThoughtStepAnchorSpan` — the exact same
@@ -105,7 +122,7 @@ function buildThoughtStepClassifierSystemPrompt(
 	const currentDescription = currentActivityClass
 		? `The step currently in progress is classified as "${currentActivityClass}".`
 		: "No step has been classified yet for this turn — this is the first fragment.";
-	return `You are classifying a short fragment of an AI assistant's PRIVATE internal reasoning trace (never the final answer shown to a user) into one of a small set of activity categories. Respond with strict JSON only, matching exactly: {"verdict": "new_step" | "continuation", "activityClass": one of "understanding-request" | "recalling-context" | "weighing-options" | "working-through-logic" | "checking-details" | "drafting-approach" (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "entity": a short phrase copied verbatim from the fragment, or omit the field}.
+	return `You are classifying a short fragment of an AI assistant's PRIVATE internal reasoning trace (never the final answer shown to a user) into one of a small set of activity categories, and writing a short summary of it. Respond with strict JSON only, matching exactly: {"verdict": "new_step" | "continuation", "activityClass": one of "understanding-request" | "recalling-context" | "weighing-options" | "working-through-logic" | "checking-details" | "drafting-approach" (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "summary": a short present-tense paraphrase of the fragment (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "entity": a short phrase copied verbatim from the fragment, or omit the field}.
 
 ${currentDescription}
 
@@ -120,6 +137,13 @@ activityClass meanings (only used when verdict is "new_step"):
 - working-through-logic: step-by-step reasoning, calculation, or working out a mechanism
 - checking-details: verifying, double-checking, or catching a mistake
 - drafting-approach: planning how to structure or phrase the eventual answer
+
+summary rules (only used when verdict is "new_step"; checked mechanically, not just requested):
+- Write a short, present-tense paraphrase of what THIS fragment is doing — 10 words or fewer.
+- It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. You may paraphrase everything else, but the subject must stay traceable to the fragment's own words.
+- Describe ONLY what the reasoning is doing with content that is actually present in the fragment. Never introduce an entity, fact, claim, or conclusion that is not in the fragment — no outside knowledge, no guessing ahead to the answer.
+- Never state or imply that an external action happened (searching, fetching, browsing, reading a connected account, calling a tool) — this is private reasoning, not an event log; only describe internal thought.
+- Write it in the same language as the fragment.
 
 entity rules (critical — this is checked mechanically, not just requested):
 - Copy it EXACTLY, character for character, from the fragment below. Never translate, paraphrase, summarize, or invent it.
@@ -145,6 +169,7 @@ const THOUGHT_STEP_CLASSIFIER_JSON_SCHEMA: JsonControlResponseSchema = {
 				type: "string",
 				enum: [...THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES],
 			},
+			summary: { type: "string" },
 			entity: { type: "string" },
 		},
 	},
@@ -153,12 +178,14 @@ const THOUGHT_STEP_CLASSIFIER_JSON_SCHEMA: JsonControlResponseSchema = {
 const thoughtStepClassifierResponseSchema = z.object({
 	verdict: z.enum(THOUGHT_STEP_CLASSIFIER_VERDICTS),
 	activityClass: z.enum(THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES).optional(),
+	summary: z.string().optional(),
 	entity: z.string().optional(),
 });
 
 function parseThoughtStepClassifierResponse(rawText: string): {
 	verdict: ThoughtStepClassifierVerdict;
 	activityClass?: ThoughtStepClassifierActivityClass;
+	summary?: string;
 	entity?: string;
 } | null {
 	const data = parseJsonWithEnvelopeExtraction(rawText, "verdict");
@@ -178,12 +205,214 @@ function parseThoughtStepClassifierResponse(rawText: string): {
 	return result.data;
 }
 
+// ── Runtime entity-grounding guard (amendment 2026-08-16 to ADR-0056) ──────
+//
+// The leash the owner chose in place of a per-step faithfulness judge on the
+// reasoning path: a mechanical, cheap, runtime-checkable substitute that
+// catches a summary with NO grounding at all in the text it claims to
+// describe, without the latency/cost of a real judge call. It is necessary,
+// not sufficient — it cannot catch a summary that reuses a real word but
+// still asserts something false; that is the next slice's offline
+// faithfulness audit's job.
+//
+// Small, deliberately conservative English function-word list. The reasoning
+// stream is English regardless of UI language (see the sampling-trigger
+// regex comment above), so this needs no localization. A word must be BOTH
+// absent from this list AND at least 3 characters to count as a "content
+// word" — short words ("a", "is", "to") and pure function words are never
+// treated as a tether on their own, per the ADR amendment's explicit
+// "the/is/a do not count" example.
+const THOUGHT_STEP_SUMMARY_STOP_WORDS = new Set([
+	"a",
+	"an",
+	"the",
+	"and",
+	"or",
+	"but",
+	"if",
+	"then",
+	"so",
+	"because",
+	"as",
+	"of",
+	"in",
+	"on",
+	"at",
+	"for",
+	"with",
+	"by",
+	"to",
+	"from",
+	"into",
+	"onto",
+	"over",
+	"under",
+	"about",
+	"above",
+	"below",
+	"between",
+	"through",
+	"during",
+	"before",
+	"after",
+	"again",
+	"further",
+	"once",
+	"here",
+	"there",
+	"when",
+	"where",
+	"why",
+	"how",
+	"all",
+	"any",
+	"both",
+	"each",
+	"few",
+	"more",
+	"most",
+	"other",
+	"some",
+	"such",
+	"no",
+	"nor",
+	"not",
+	"only",
+	"own",
+	"same",
+	"than",
+	"too",
+	"very",
+	"can",
+	"will",
+	"just",
+	"should",
+	"now",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"being",
+	"have",
+	"has",
+	"had",
+	"having",
+	"do",
+	"does",
+	"did",
+	"doing",
+	"this",
+	"that",
+	"these",
+	"those",
+	"and",
+	"but",
+	"you",
+	"your",
+	"yours",
+	"i",
+	"me",
+	"my",
+	"mine",
+	"he",
+	"she",
+	"it",
+	"we",
+	"they",
+	"him",
+	"her",
+	"us",
+	"them",
+	"his",
+	"its",
+	"our",
+	"their",
+	"what",
+	"which",
+	"who",
+	"whom",
+	"am",
+	"also",
+	"still",
+	"already",
+	"currently",
+	"let",
+	"lets",
+	"let's",
+	"against",
+	"up",
+	"down",
+	"off",
+	"out",
+	"near",
+	"toward",
+	"towards",
+	"upon",
+	"within",
+	"without",
+	"per",
+	"via",
+	"amid",
+	"among",
+	"across",
+	"around",
+	"along",
+]);
+
+/** Tokenizes into word-ish substrings (letters/digits, plus internal
+ * apostrophes/hyphens), lowercased content-word filtering only —
+ * punctuation and whitespace are never tokens. */
+function extractContentWords(text: string): string[] {
+	const tokens = text.match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) ?? [];
+	return tokens.filter((token) => {
+		const lower = token.toLowerCase();
+		return lower.length >= 3 && !THOUGHT_STEP_SUMMARY_STOP_WORDS.has(lower);
+	});
+}
+
+/**
+ * The mechanical check itself: does `summary` contain at least one
+ * substantive (non-stop-word, 3+ character) token that also appears,
+ * case-insensitively, as a substring of `anchoredText` (the same reasoning
+ * chunk the summary is supposed to describe)? Exported for direct unit
+ * testing of the stop-word/content-word boundary.
+ */
+export function hasVerbatimContentWordTether(
+	summary: string,
+	anchoredText: string,
+): boolean {
+	const anchoredLower = anchoredText.toLowerCase();
+	return extractContentWords(summary).some((word) =>
+		anchoredLower.includes(word.toLowerCase()),
+	);
+}
+
+/**
+ * Applies the guard: `candidate` survives only when non-empty AND tethered
+ * to `anchoredText` per `hasVerbatimContentWordTether`. Otherwise `undefined`
+ * — dropping the summary, never the step itself (the caller still emits the
+ * step with its class + entity, exactly as it did before this amendment).
+ */
+function extractGroundedSummary(
+	candidate: string | undefined,
+	anchoredText: string,
+): string | undefined {
+	const trimmed = candidate?.trim();
+	if (!trimmed) return undefined;
+	return hasVerbatimContentWordTether(trimmed, anchoredText)
+		? trimmed
+		: undefined;
+}
+
 export type ThoughtStepClassifierResult =
 	| { verdict: "continuation" }
 	| {
 			verdict: "new_step";
 			activityClass: ThoughtStepClassifierActivityClass;
 			entity?: string;
+			summary?: string;
 	  };
 
 export type ThoughtStepClassifyFn = (params: {
@@ -260,9 +489,18 @@ export async function classifyThoughtStepChunk(params: {
 		// the model's own copy of it) — the exact same function and discipline
 		// P2 uses against the user's message.
 		const entity = extractVerbatimTopic(parsed.entity, params.chunkText);
-		return entity
-			? { verdict: "new_step", activityClass: parsed.activityClass, entity }
-			: { verdict: "new_step", activityClass: parsed.activityClass };
+		// Amendment (2026-08-16) to ADR-0056 — the runtime entity-grounding
+		// guard. A summary with no verbatim content-word tether to the chunk
+		// it describes is dropped (undefined), NOT the step itself: the step
+		// below is still returned with its class + entity regardless, so a
+		// failed tether can only ever remove the headline, never the step.
+		const summary = extractGroundedSummary(parsed.summary, params.chunkText);
+		return {
+			verdict: "new_step",
+			activityClass: parsed.activityClass,
+			...(entity ? { entity } : {}),
+			...(summary ? { summary } : {}),
+		};
 	} catch {
 		return null;
 	} finally {
@@ -370,6 +608,12 @@ export function createThoughtStepClassifierSession(params: {
 			impliesExternalAction: false,
 			anchor,
 			entity: result.entity,
+			// Amendment (2026-08-16) to ADR-0056 — already tether-checked by
+			// `classifyThoughtStepChunk` (or the injected `classify` in tests)
+			// before it ever reaches here; the session trusts whatever
+			// `ThoughtStepClassifierResult` it receives, exactly as it already
+			// does for `entity` above.
+			summary: result.summary,
 			createdAt: nowFn(),
 		};
 		steps.push(step);

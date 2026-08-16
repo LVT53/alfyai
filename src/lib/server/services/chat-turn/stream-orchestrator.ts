@@ -502,6 +502,12 @@ export function runChatStreamOrchestrator(
 						detail: step.activityClass,
 						occurredAt: step.createdAt,
 						...(step.entity ? { label: step.entity } : {}),
+						// Amendment (2026-08-16) to ADR-0056 — the entity-grounded
+						// summary, carried on the SAME existing `thought_step` kind
+						// (no new stream part name). Absent whenever the runtime
+						// tether guard dropped it, exactly like `label` above is
+						// already absent whenever there is no entity.
+						...(step.summary ? { summary: step.summary } : {}),
 					});
 				},
 			});

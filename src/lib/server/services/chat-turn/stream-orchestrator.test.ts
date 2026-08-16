@@ -1339,6 +1339,87 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// Amendment (2026-08-16) to ADR-0056 — the `onStep` -> `emitResponseActivity`
+	// mapping must ALSO forward `step.summary`, on the SAME existing
+	// "thought_step" kind (no new stream part name), and the accumulated
+	// step (summary included) must still round-trip into
+	// assistantMetadata.thoughtSteps for durable persistence.
+	it("forwards the classified step's entity-grounded summary on the live thought_step response-activity, and persists it", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		const classifiedStepWithSummary = {
+			id: "step-summary-1",
+			source: "classified" as const,
+			activityClass: "weighing-options",
+			impliesExternalAction: false,
+			anchor: { start: 0, end: 10 },
+			entity: "option A",
+			summary: "Comparing option A against option B",
+			createdAt: 1000,
+		};
+		let capturedOnReasoningDelta: ((text: string) => void) | undefined;
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockImplementation((params: { onStep?: (step: unknown) => void }) => {
+			capturedOnReasoningDelta = () =>
+				params.onStep?.(classifiedStepWithSummary);
+			return {
+				onReasoningDelta: (text: string) => capturedOnReasoningDelta?.(text),
+				stop: vi.fn(),
+				getSteps: () => [classifiedStepWithSummary],
+			};
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "reasoning_delta",
+					text: "Comparing option A against option B. ",
+				},
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({ conversationId: "thought-step-summary-conv" });
+		const chunks = await readSseResponse(response);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "thought-step:step-summary-1",
+					kind: "thought_step",
+					detail: "weighing-options",
+					label: "option A",
+					summary: "Comparing option A against option B",
+				}),
+			]),
+		);
+
+		await vi.waitFor(() => {
+			expect(createMessage).toHaveBeenCalledWith(
+				"thought-step-summary-conv",
+				"assistant",
+				"Hi",
+				"Comparing option A against option B. ",
+				[{ type: "text", content: "Comparing option A against option B. " }],
+				expect.objectContaining({
+					thoughtSteps: [classifiedStepWithSummary],
+				}),
+			);
+		});
+	});
+
 	it("stops the classifier session on the first answer text-delta", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"

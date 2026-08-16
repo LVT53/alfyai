@@ -163,6 +163,110 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	// Amendment (2026-08-16) to ADR-0056 — "constrained, entity-grounded
+	// summarization supersedes class-only wording". The runtime tether guard.
+	it("keeps a summary that carries at least one verbatim content-word tether to the reasoning chunk", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options","summary":"Comparing option A against option B"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "weighing-options",
+			summary: "Comparing option A against option B",
+		});
+	});
+
+	it("drops a summary with NO verbatim content-word tether to the chunk, but still emits the step's class (floor never drops below class-only)", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options","summary":"Pondering something else entirely"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+		});
+
+		// No `summary` key at all — the step is still classified, exactly the
+		// pre-amendment class-only shape.
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "weighing-options",
+		});
+	});
+
+	it('drops a summary whose only overlap with the chunk is stop words ("the"/"is"/"a" do not count as a tether)', async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"checking-details","summary":"This is a review of that"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "The assistant is double-checking the numbers again.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "checking-details",
+		});
+	});
+
+	it("keeps both a tethered summary and a verbatim entity together on the same new_step result", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"recalling-context","summary":"Recalling the user\'s earlier message","entity":"the user\'s earlier message"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText:
+				"Let me recall the user's earlier message about their preferences.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "recalling-context",
+			entity: "the user's earlier message",
+			summary: "Recalling the user's earlier message",
+		});
+	});
+
 	it("returns a bare continuation verdict, carrying no class or entity", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(
@@ -307,6 +411,58 @@ describe("classifyThoughtStepChunk", () => {
 	});
 });
 
+// Amendment (2026-08-16) to ADR-0056 — direct unit coverage of the runtime
+// entity-grounding guard's content-word/stop-word boundary, independent of
+// the control-model plumbing exercised above.
+describe("hasVerbatimContentWordTether", () => {
+	it("is tethered when a substantive word from the summary appears verbatim in the anchored text", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"Weighing the budget against the timeline",
+				"Comparing the proposed budget with last quarter's numbers.",
+			),
+		).toBe(true);
+	});
+
+	it("is NOT tethered when every word the summary shares with the text is a stop word", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		// "the"/"is"/"a" are the ADR amendment's own named examples of words
+		// that must never count as a tether on their own.
+		expect(
+			hasVerbatimContentWordTether(
+				"This is a summary of that",
+				"The assistant is reviewing the earlier draft again.",
+			),
+		).toBe(false);
+	});
+
+	it("is NOT tethered by trivial (under-3-character) tokens even when they match", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(hasVerbatimContentWordTether("It is ok", "ok, let us proceed")).toBe(
+			false,
+		);
+	});
+
+	it("is case-insensitive", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"WEIGHING the BUDGET carefully",
+				"comparing the proposed budget line by line",
+			),
+		).toBe(true);
+	});
+});
+
 describe("createThoughtStepClassifierSession", () => {
 	beforeEach(() => {
 		resolveThoughtStepAnchorSpanMock.mockClear();
@@ -412,6 +568,41 @@ describe("createThoughtStepClassifierSession", () => {
 		expect(steps[0].anchor).not.toBeNull();
 		expect(steps[0].anchor?.end).toBeGreaterThan(steps[0].anchor?.start ?? 0);
 		expect(onStep).toHaveBeenCalledWith(steps[0]);
+	});
+
+	// Amendment (2026-08-16) to ADR-0056 — the session trusts whatever
+	// `summary` the injected `classify` returns (the tether guard itself is
+	// `classifyThoughtStepChunk`'s job, exercised directly above; this proves
+	// the session carries the field through onto the emitted step unchanged,
+	// exactly like it already does for `entity`).
+	it("carries a classify()-provided summary onto the emitted step", async () => {
+		const {
+			createThoughtStepClassifierSession,
+			THOUGHT_STEP_MIN_SAMPLE_INTERVAL_MS,
+		} = await import("./thought-step-classifier");
+		const onStep = vi.fn();
+		const classify = vi.fn().mockResolvedValue({
+			verdict: "new_step" as const,
+			activityClass: "weighing-options" as const,
+			summary: "Comparing option A against option B",
+		});
+		const clock = fakeClock();
+		const session = createThoughtStepClassifierSession({
+			userId: "u1",
+			conversationId: "conv-1",
+			classify,
+			now: clock.now,
+			onStep,
+		});
+
+		session.onReasoningDelta("Preamble text before anything interesting. ");
+		clock.advance(THOUGHT_STEP_MIN_SAMPLE_INTERVAL_MS + 1);
+		session.onReasoningDelta("Comparing option A against option B now. ");
+		await vi.waitFor(() => expect(onStep).toHaveBeenCalledTimes(1));
+
+		const steps = session.getSteps();
+		expect(steps).toHaveLength(1);
+		expect(steps[0].summary).toBe("Comparing option A against option B");
 	});
 
 	it("extends the current step's anchor on a continuation verdict instead of adding a new step", async () => {
