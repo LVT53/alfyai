@@ -4,6 +4,7 @@ import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import {
 	formatConnectionToolAction,
 	getHumanReadableToolNameKey,
+	getToolCallIconType,
 	isConnectionToolName,
 	isConnectionWriteToolName,
 	isFileProductionToolName,
@@ -58,6 +59,36 @@ describe("tool-calls utils", () => {
 		expect(getHumanReadableToolNameKey("something_else")).toBe(
 			"toolCalls.generic",
 		);
+	});
+
+	// Owner polish pass ("Interim Thought Steps" rail) — icon tags follow the
+	// exact same branch order/predicates as getHumanReadableToolNameKey above
+	// (same classification, second rendering), so every case tested there
+	// gets a matching icon-type assertion here.
+	it("maps tool names to icon types, reusing the same classification as getHumanReadableToolNameKey", () => {
+		expect(getToolCallIconType("research_web")).toBe("web-search");
+		expect(getToolCallIconType("web search")).toBe("web-search");
+		expect(getToolCallIconType("browse")).toBe("fetch-url");
+		expect(getToolCallIconType("fetch_url")).toBe("fetch-url");
+		expect(getToolCallIconType("image_search")).toBe("image-search");
+		expect(getToolCallIconType("memory_context")).toBe("memory");
+		expect(getToolCallIconType("produce_file")).toBe("file-production");
+	});
+
+	it("maps each connection tool to the SAME icon assignment SettingsConnectionsTab's CAPABILITY_ICONS already uses per capability", () => {
+		expect(getToolCallIconType("calendar")).toBe("calendar");
+		expect(getToolCallIconType("Files")).toBe("files");
+		expect(getToolCallIconType("EMAIL")).toBe("email");
+		expect(getToolCallIconType("photos")).toBe("photos");
+		expect(getToolCallIconType("media")).toBe("media");
+		expect(getToolCallIconType("location")).toBe("location");
+		expect(getToolCallIconType("contacts")).toBe("contacts");
+		expect(getToolCallIconType("repos")).toBe("repos");
+		expect(getToolCallIconType("tasks")).toBe("tasks");
+	});
+
+	it("falls back to a generic icon type for an unrecognized tool name", () => {
+		expect(getToolCallIconType("something_else")).toBe("generic");
 	});
 
 	it("identifies connection tool names and humanizes their action verbs", () => {

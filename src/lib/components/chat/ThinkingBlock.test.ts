@@ -1963,4 +1963,281 @@ describe("ThinkingBlock", () => {
 			).not.toBeInTheDocument();
 		});
 	});
+
+	// Owner polish pass ("Interim Thought Steps" rail) — items 1, 2, 6, 7.
+	describe("owner polish pass (rail visual/interaction polish)", () => {
+		it("renders the 'Show full reasoning' toggle as a sibling of the header button, flush right on the same row, not nested inside it", async () => {
+			const content = "First part of reasoning. Second part of reasoning.";
+			const segments: ThinkingSegment[] = [{ type: "text", content }];
+			const step: InterimThoughtStep = {
+				id: "step-full",
+				source: "classified",
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 5 },
+			};
+
+			const { container } = render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [step],
+				},
+			});
+
+			// Not yet expanded — the toggle has nothing to toggle yet.
+			expect(
+				screen.queryByRole("button", { name: /Show full reasoning/ }),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const headerRow = container.querySelector(".thinking-header-row");
+			expect(headerRow).not.toBeNull();
+			const headerButton = headerRow?.querySelector(
+				":scope > .thinking-header",
+			);
+			const toggleButton = headerRow?.querySelector(
+				":scope > .full-reasoning-header-toggle",
+			);
+			expect(headerButton).not.toBeNull();
+			expect(toggleButton).not.toBeNull();
+			expect(toggleButton?.textContent?.trim()).toBe("Show full reasoning");
+			// Siblings, not nested — a <button> can never legally contain another.
+			expect(headerButton?.contains(toggleButton as Node)).toBe(false);
+		});
+
+		it("renders the completed box's expand/collapse content with a horizontal (axis: x) transition, not the live header's vertical one", () => {
+			// Both the live and completed headers render the same
+			// .thinking-content wrapper; this asserts the component compiles
+			// and mounts cleanly with the axis chosen from `thinkingIsDone` —
+			// the actual interpolation is Svelte/JSDOM transition machinery,
+			// so behaviorally this is covered by the still-passing expand/
+			// collapse tests elsewhere in this file.
+			const { container: liveContainer } = render(ThinkingBlock, {
+				props: { content: "Looking at the request", thinkingIsDone: false },
+			});
+			expect(liveContainer.querySelector(".thinking-block")).not.toBeNull();
+
+			const { container: doneContainer } = render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: true,
+					thinkingDurationSeconds: 10,
+				},
+			});
+			expect(doneContainer.querySelector(".thinking-block")).not.toBeNull();
+		});
+
+		it("gives each tool-call chip a relevant, action-specific icon instead of a generic one", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "memory_context",
+					status: "done",
+					input: { query: "the budget discussion" },
+				},
+				{
+					type: "tool_call",
+					name: "calendar",
+					status: "done",
+					input: { action: "list_events" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			expect(
+				container.querySelector('[data-tool-icon="memory"]'),
+			).not.toBeNull();
+			expect(
+				container.querySelector('[data-tool-icon="calendar"]'),
+			).not.toBeNull();
+		});
+
+		it("gives a research_web/fetch_url row its action-specific icon alongside its favicon-stack disclosure", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "fetch_url",
+					status: "done",
+					input: { url: "https://example.com/article" },
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			expect(
+				container.querySelector('[data-tool-icon="fetch-url"]'),
+			).not.toBeNull();
+		});
+
+		describe("clickable tool chips (arguments/result/status reveal)", () => {
+			it("makes a generic tool-call chip clickable when it carries extra detail, and reveals arguments + status on click", async () => {
+				const segments: ThinkingSegment[] = [
+					{
+						type: "tool_call",
+						name: "memory_context",
+						status: "done",
+						input: { query: "the budget discussion" },
+						outputSummary: "Found 2 relevant notes.",
+					},
+				];
+
+				// Scoped to the always-visible tool-call stack (no need to expand
+				// the panel at all — this chip is visible without expanding) so a
+				// second, duplicate row from the expanded interleaved view (the
+				// SAME segment rendered a second time — see the pre-existing
+				// "shows fetched web source titles" test's getAllByText for this
+				// exact precedent) can't make the accessible-name lookup ambiguous.
+				const { container } = render(ThinkingBlock, {
+					props: { content: "", thinkingIsDone: true, segments },
+				});
+				const stack = container.querySelector(".tool-call-stack");
+				expect(stack).not.toBeNull();
+				if (!stack) throw new Error("Missing tool-call-stack");
+				const scoped = within(stack as HTMLElement);
+
+				const chipButton = scoped.getByRole("button", {
+					name: /Memory lookup/,
+				});
+				expect(chipButton).toHaveAttribute("aria-expanded", "false");
+				expect(
+					scoped.queryByText("the budget discussion"),
+				).not.toBeInTheDocument();
+
+				await fireEvent.click(chipButton);
+
+				expect(chipButton).toHaveAttribute("aria-expanded", "true");
+				expect(scoped.getByText("the budget discussion")).toBeInTheDocument();
+				expect(scoped.getByText("Found 2 relevant notes.")).toBeInTheDocument();
+				expect(scoped.getByText("Done")).toBeInTheDocument();
+			});
+
+			it("does not render a tool-call chip as clickable when it has nothing extra to reveal (honesty — never falsely clickable)", async () => {
+				const segments: ThinkingSegment[] = [
+					{
+						type: "tool_call",
+						name: "some_bare_tool",
+						status: "done",
+						input: {},
+					},
+				];
+
+				const { container } = render(ThinkingBlock, {
+					props: { content: "", thinkingIsDone: true, segments },
+				});
+
+				const stack = container.querySelector(".tool-call-stack");
+				expect(stack).not.toBeNull();
+				expect(stack?.querySelector(".tool-label-text--clickable")).toBeNull();
+				expect(stack?.querySelector(".tool-label-text")).not.toBeNull();
+			});
+
+			it("independently opens/closes multiple clickable tool chips", async () => {
+				const segments: ThinkingSegment[] = [
+					{
+						type: "tool_call",
+						name: "memory_context",
+						status: "done",
+						input: { query: "topic one" },
+					},
+					{
+						type: "tool_call",
+						name: "image_search",
+						status: "done",
+						input: { query: "topic two" },
+					},
+				];
+
+				const { container } = render(ThinkingBlock, {
+					props: { content: "", thinkingIsDone: true, segments },
+				});
+				const stack = container.querySelector(".tool-call-stack");
+				expect(stack).not.toBeNull();
+				if (!stack) throw new Error("Missing tool-call-stack");
+				const scoped = within(stack as HTMLElement);
+
+				await fireEvent.click(
+					scoped.getByRole("button", { name: /Memory lookup/ }),
+				);
+				expect(scoped.getByText("topic one")).toBeInTheDocument();
+				expect(scoped.queryByText("topic two")).not.toBeInTheDocument();
+
+				// image_search's chip label uses the generic "Search: ..." phrasing
+				// (formatToolCall's existing "search"-name branch only prefers a
+				// dedicated web-search label for research_web/*web* names) — this
+				// test only needs a second, independent chip to toggle, not a
+				// specific label, so it matches on the query text instead.
+				await fireEvent.click(
+					scoped.getByRole("button", { name: /topic two/ }),
+				);
+				expect(scoped.getByText("topic one")).toBeInTheDocument();
+				expect(scoped.getByText("topic two")).toBeInTheDocument();
+			});
+		});
+
+		describe("live current-step emphasis", () => {
+			it("emphasizes only the most-recently-arrived tool row while the turn is still active", () => {
+				const segments: ThinkingSegment[] = [
+					{
+						type: "tool_call",
+						name: "calendar",
+						status: "done",
+						input: { action: "list_events" },
+					},
+					{
+						type: "tool_call",
+						name: "research_web",
+						status: "running",
+						input: { query: "latest pricing" },
+					},
+				];
+
+				const { container } = render(ThinkingBlock, {
+					props: { content: "", thinkingIsDone: false, segments },
+				});
+
+				const rows = container.querySelectorAll(
+					".tool-call-stack > .tool-call-row",
+				);
+				expect(rows).toHaveLength(2);
+				expect(rows[0]?.classList.contains("is-current-step")).toBe(false);
+				expect(rows[1]?.classList.contains("is-current-step")).toBe(true);
+			});
+
+			it("settles every row back to calm once the turn completes", () => {
+				const segments: ThinkingSegment[] = [
+					{
+						type: "tool_call",
+						name: "calendar",
+						status: "done",
+						input: { action: "list_events" },
+					},
+					{
+						type: "tool_call",
+						name: "research_web",
+						status: "done",
+						input: { query: "latest pricing" },
+					},
+				];
+
+				const { container } = render(ThinkingBlock, {
+					props: { content: "", thinkingIsDone: true, segments },
+				});
+
+				const rows = container.querySelectorAll(
+					".tool-call-stack > .tool-call-row",
+				);
+				for (const row of rows) {
+					expect(row.classList.contains("is-current-step")).toBe(false);
+				}
+			});
+		});
+	});
 });

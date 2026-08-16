@@ -11,21 +11,36 @@ import type {
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import { isThoughtStepClassifierActivityClass } from "$lib/response-activity-types";
 import {
+	Brain,
+	Calendar,
 	Check,
 	ChevronDown,
 	ChevronLeft,
+	Clapperboard,
 	ClipboardCheck,
 	Bot,
+	FileText,
+	Folder,
+	GitBranch,
+	Globe,
 	HelpCircle,
 	History,
+	Image as ImageIcon,
+	Images,
 	Languages,
 	Layers,
+	Link,
 	ListChecks,
+	ListTodo,
+	Mail,
+	MapPin,
 	PenLine,
 	Scale,
 	Search,
 	ShieldAlert,
+	Users,
 	Workflow,
+	Wrench,
 	XCircle,
 } from "@lucide/svelte";
 import {
@@ -39,10 +54,12 @@ import {
 	formatConnectionToolAction,
 	getConnectionToolLabelKey,
 	getHumanReadableToolNameKey,
+	getToolCallIconType,
 	isConnectionToolName,
 	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
+	type ToolCallIconType,
 } from "$lib/utils/tool-calls";
 
 type DeliberationStatusSegment = {
@@ -314,6 +331,21 @@ const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 	});
 	return entries;
 });
+
+// Owner polish pass, item 6 — live current-step emphasis. The LAST entry in
+// toolStackEntries is, by construction, whatever most recently arrived on
+// the real event stream (the array is rebuilt fresh from `segments` on every
+// growth), so "the latest one" needs no timer of its own — it falls straight
+// out of the same real-event-driven array this rail already recomputes.
+// Emphasis only applies while the turn is actually still active
+// (isActiveThinking): once thinkingIsDone, nothing is "in progress" anymore
+// and every row settles to its calm resting state, matching the owner's
+// "completed steps settle back to a calm state".
+const latestToolStackEntryKey = $derived(
+	isActiveThinking && toolStackEntries.length > 0
+		? toolStackEntries[toolStackEntries.length - 1].key
+		: null,
+);
 
 // Interleaved thinking view: group connector calls only within a contiguous
 // run of connector tool_call segments. Any non-connector segment (thinking
@@ -934,6 +966,63 @@ function getToolTitle(name: string, input: Record<string, unknown>): string {
 	return String(Object.values(input)[0] ?? "");
 }
 
+// Owner polish pass, item 7 — clickable tool chips. Mirrors the existing
+// click-to-reveal interaction the reasoning steps already have
+// (selectThoughtStep/selectedStepReveal above): one consistent interaction
+// model, not a second one invented for tools. `openToolDetailKeys` is a Set
+// (not a single id) because, unlike a step reveal (which replaces the whole
+// panel with one focused card), multiple tool-call rows can each be
+// independently expanded in place without disturbing their neighbors.
+let openToolDetailKeys = $state<Set<string>>(new Set());
+
+function toggleToolDetail(key: string): void {
+	const next = new Set(openToolDetailKeys);
+	if (next.has(key)) {
+		next.delete(key);
+	} else {
+		next.add(key);
+	}
+	openToolDetailKeys = next;
+}
+
+// A chip only ever appears clickable (see hasToolDetail below, consumed by
+// the template to decide button-vs-plain-span) when there is something to
+// reveal beyond its own already-visible label: a non-empty argument, a
+// server-provided outputSummary, or extra metadata. This is the "must not
+// appear falsely clickable" guard from the owner's brief.
+function hasToolDetail(segment: {
+	input: Record<string, unknown>;
+	outputSummary?: string | null;
+	metadata?: Record<string, string | number | boolean | null>;
+}): boolean {
+	return (
+		toolDetailArguments(segment.input).length > 0 ||
+		Boolean(segment.outputSummary?.trim()) ||
+		Boolean(segment.metadata && Object.keys(segment.metadata).length > 0)
+	);
+}
+
+// Renders whatever arguments the tool call actually carries — a plain,
+// honest key/value dump of segment.input, the same data source
+// getToolTitle/formatToolCall already read from, just unabridged. Field
+// NAMES are the tool's own parameter identifiers (e.g. "query", "url"), not
+// user-facing prose, so — like the existing metadata.errorCode display
+// elsewhere in this file — they are shown as-is rather than localized.
+function toolDetailArguments(
+	input: Record<string, unknown>,
+): { key: string; value: string }[] {
+	return Object.entries(input ?? {})
+		.map(([key, value]) => [key, String(value ?? "").trim()] as const)
+		.filter(([, value]) => value.length > 0)
+		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
+}
+
+function toolStatusLabel(status: "running" | "done" | "failed"): string {
+	if (status === "failed") return $t("toolCalls.failed");
+	if (status === "running") return $t("toolCalls.statusRunning");
+	return $t("toolCalls.statusDone");
+}
+
 function formatThinkingTextForDisplay(text: string): string {
 	return text.replace(/([a-z0-9)])([.!?])(?=[A-Z](?:[a-z]|\s))/g, "$1$2\n\n");
 }
@@ -1050,11 +1139,38 @@ async function toggle() {
 		}
 	});
 }
+
+// TS2-c relocation (owner polish pass, item 1) — the opt-in "show full
+// reasoning" control now lives flush right on the SAME header row as the
+// "Thought for {time}" label, a sibling of the expand/collapse button
+// rather than a child of it (two <button>s cannot nest). Turning it ON also
+// clears any per-step anchor selection so the full trace is what actually
+// renders next (selectedStepReveal would otherwise take template
+// precedence over showFullReasoning — see the {#if}/{:else if} chain
+// below).
+function toggleFullReasoning(): void {
+	showFullReasoning = !showFullReasoning;
+	if (showFullReasoning) {
+		selectedStepId = null;
+	}
+}
 </script>
 
 <script module>
-	import { slide } from 'svelte/transition';
+	import { fly, slide } from 'svelte/transition';
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
+	import { reducedMotionAware } from '$lib/utils/motion';
+
+	// Owner polish pass, item 3 — every entrance animation this slice adds
+	// (the anchored-span reveal, the full-reasoning block, the "back to
+	// steps" transition, and the tool-chip detail reveal) goes through these
+	// two wrapped transitions rather than the bare svelte/transition
+	// functions, so prefers-reduced-motion is honored everywhere without
+	// repeating the check at each call site. See motion.ts: Svelte's `css`
+	// transitions interpolate styles directly, which the app-wide CSS
+	// reduced-motion override cannot reach, unlike plain :hover transitions.
+	const slideTransition = reducedMotionAware(slide);
+	const flyTransition = reducedMotionAware(fly);
 </script>
 
 {#snippet toolStatusIcon(status: 'running' | 'done' | 'failed', variant: 'header' | 'inline')}
@@ -1265,11 +1381,92 @@ async function toggle() {
 	</div>
 {/snippet}
 
-{#snippet singleToolStackRow(tool: ToolCallSegment)}
+<!--
+	Owner polish pass, item 2 — a relevant, action-specific icon per tool-call
+	chip instead of the previous generic status-only glyph. iconType is a
+	plain string tag out of getToolCallIconType (tool-calls.ts), rendered here
+	via the same if/else-over-a-string-tag idiom this file already uses for
+	getDeliberationStatusIconType/getThoughtStepClassIconType above — no
+	dynamic-component map, to match this file's established shape for "pick
+	one of a few known icons". Connection-tool cases render the exact same
+	Lucide glyph SettingsConnectionsTab's CAPABILITY_ICONS already uses per
+	capability, so a "Calendar" tool call always reads as the same calendar
+	glyph everywhere in the app.
+-->
+{#snippet toolIdentityIcon(iconType: ToolCallIconType)}
+	{#if iconType === 'web-search'}
+		<Globe class="tool-identity-icon" data-tool-icon="web-search" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'fetch-url'}
+		<Link class="tool-identity-icon" data-tool-icon="fetch-url" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'image-search'}
+		<Images class="tool-identity-icon" data-tool-icon="image-search" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'memory'}
+		<Brain class="tool-identity-icon" data-tool-icon="memory" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'file-production'}
+		<FileText class="tool-identity-icon" data-tool-icon="file-production" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'calendar'}
+		<Calendar class="tool-identity-icon" data-tool-icon="calendar" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'contacts'}
+		<Users class="tool-identity-icon" data-tool-icon="contacts" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'email'}
+		<Mail class="tool-identity-icon" data-tool-icon="email" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'files'}
+		<Folder class="tool-identity-icon" data-tool-icon="files" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'location'}
+		<MapPin class="tool-identity-icon" data-tool-icon="location" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'media'}
+		<Clapperboard class="tool-identity-icon" data-tool-icon="media" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'photos'}
+		<ImageIcon class="tool-identity-icon" data-tool-icon="photos" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'repos'}
+		<GitBranch class="tool-identity-icon" data-tool-icon="repos" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'tasks'}
+		<ListTodo class="tool-identity-icon" data-tool-icon="tasks" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else}
+		<Wrench class="tool-identity-icon" data-tool-icon="generic" size={13} strokeWidth={2} aria-hidden="true" />
+	{/if}
+{/snippet}
+
+<!--
+	Owner polish pass, item 7 — a generic tool-call chip's click-to-reveal
+	detail panel: whatever the segment actually carries (arguments,
+	outputSummary, status), never fabricated. Entrance animated via
+	flyTransition (fade+slide), the same primitive the anchored-span/
+	full-reasoning reveals below use, for one consistent feel.
+-->
+{#snippet toolDetailPanel(segment: ToolCallSegment)}
+	{@const args = toolDetailArguments(segment.input)}
+	<div class="tool-detail-panel" in:flyTransition={{ y: 6, duration: 160 }}>
+		{#if args.length > 0}
+			<div class="tool-detail-section">
+				<span class="tool-detail-section-label">{$t('toolCalls.detailArguments')}</span>
+				{#each args as arg (arg.key)}
+					<div class="tool-detail-row">
+						<span class="tool-detail-key">{arg.key}</span>
+						<span class="tool-detail-value">{arg.value}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
+		{#if segment.outputSummary?.trim()}
+			<div class="tool-detail-section">
+				<span class="tool-detail-section-label">{$t('toolCalls.detailResult')}</span>
+				<p class="tool-detail-value tool-detail-result">{segment.outputSummary}</p>
+			</div>
+		{/if}
+		<div class="tool-detail-section">
+			<span class="tool-detail-section-label">{$t('toolCalls.detailStatus')}</span>
+			<span class="tool-detail-value">{toolStatusLabel(segment.status)}</span>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet singleToolStackRow(tool: ToolCallSegment, rowKey: string, isCurrent: boolean)}
 	{@const fetchedSources = getFetchedSources(tool)}
 	{#if fetchedSources.length > 0}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
+			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
 			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search')}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
@@ -1277,29 +1474,45 @@ async function toggle() {
 		</div>
 	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
+			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
 			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read')}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
 	{:else}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'}>
+		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
-			<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
+			{#if hasToolDetail(tool)}
+				<button
+					type="button"
+					class="tool-label-text tool-label-text--clickable"
+					title={getToolTitle(tool.name, tool.input)}
+					aria-expanded={openToolDetailKeys.has(rowKey)}
+					onclick={() => toggleToolDetail(rowKey)}
+				>{formatToolCall(tool.name, tool.input)}</button>
+			{:else}
+				<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
+			{/if}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{#if hasToolDetail(tool) && openToolDetailKeys.has(rowKey)}
+			{@render toolDetailPanel(tool)}
+		{/if}
 	{/if}
 {/snippet}
 
-{#snippet connectorGroupStackRow(tools: ToolCallSegment[])}
+{#snippet connectorGroupStackRow(tools: ToolCallSegment[], isCurrent: boolean)}
 	{@const anyRunning = tools.some((t) => t.status === 'running')}
 	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
-	<div class="tool-call-row" class:is-running={anyRunning} class:is-failed={anyFailed}>
+	<div class="tool-call-row" class:is-running={anyRunning} class:is-failed={anyFailed} class:is-current-step={isCurrent}>
 		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'header')}
+		{@render toolIdentityIcon(getToolCallIconType(tools[0].name))}
 		{@render connectorGroupDetails(tools, 'tool-label-text')}
 		{#if anyFailed}
 			{@render toolFailedBadge()}
@@ -1318,11 +1531,12 @@ async function toggle() {
 	{/if}
 {/snippet}
 
-{#snippet singleToolItem(seg: ToolCallSegment)}
+{#snippet singleToolItem(seg: ToolCallSegment, rowKey: string)}
 	{@const fetchedSources = getFetchedSources(seg)}
 	{#if fetchedSources.length > 0}
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
+			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
 			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search')}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
@@ -1332,6 +1546,7 @@ async function toggle() {
 		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
+			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
 			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read')}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
@@ -1340,11 +1555,25 @@ async function toggle() {
 	{:else}
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
-			<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
+			{#if hasToolDetail(seg)}
+				<button
+					type="button"
+					class="tool-item-label tool-item-label--clickable"
+					title={getToolTitle(seg.name, seg.input)}
+					aria-expanded={openToolDetailKeys.has(rowKey)}
+					onclick={() => toggleToolDetail(rowKey)}
+				>{formatToolCall(seg.name, seg.input)}</button>
+			{:else}
+				<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
+			{/if}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{#if hasToolDetail(seg) && openToolDetailKeys.has(rowKey)}
+			{@render toolDetailPanel(seg)}
+		{/if}
 	{/if}
 {/snippet}
 
@@ -1353,6 +1582,7 @@ async function toggle() {
 	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
 	<div class="tool-call-item" class:is-failed={anyFailed}>
 		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'inline')}
+		{@render toolIdentityIcon(getToolCallIconType(tools[0].name))}
 		{@render connectorGroupDetails(tools, 'tool-item-label')}
 		{#if anyFailed}
 			{@render toolFailedBadge()}
@@ -1440,64 +1670,93 @@ async function toggle() {
 
 {#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
-	<button
-		type="button"
-		class="thinking-header"
-		onclick={toggle}
-		aria-expanded={expanded}
-	>
-		<!--
-			P1 (ADR-0056) — aria-live="polite" here is already rate-limited by
-			construction: this text only changes at coarse spine-state
-			transitions (mount, an honest stall after REASONING_STALL_MS,
-			the answer starting, completion), never per-character or per-tick,
-			because nothing here is driven by a free-running timer. P3c extends
-			this SAME region rather than adding a competing live region: a new
-			classified step is exactly the kind of coarse transition this was
-			already built for (the classifier itself rate-limits to roughly one
-			step per 5-7s). P4 extends it again, same discipline: "pass N of M"
-			and the concluding state are rare, coarse transitions (deliberation
-			passes run on the order of seconds), never a competing live region.
-		-->
-		<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
-			{#if thinkingIsDone && formattedThinkingTime}
-				{$t('chat.thoughtFor', { time: formattedThinkingTime })}
-			{:else if thinkingIsDone}
-				{$t('chat.thought')}
-			{:else if deliberationProgressLabel}
-				{deliberationProgressLabel}
-			{:else if liveThoughtStepHeadline}
-				<!--
-					TS2-c (ADR-0056 amendment) — the closed activityClass is now a
-					SECONDARY signal (a small leading icon), never the headline
-					itself: liveThoughtStepHeadline already resolved to the step's
-					summary, falling back to the phase label, in script.
-				-->
-				{#if liveThoughtStepRecognizedClass}
-					{@render thoughtStepClassIcon(liveThoughtStepRecognizedClass)}
+	<div class="thinking-header-row">
+		<button
+			type="button"
+			class="thinking-header"
+			onclick={toggle}
+			aria-expanded={expanded}
+		>
+			<!--
+				P1 (ADR-0056) — aria-live="polite" here is already rate-limited by
+				construction: this text only changes at coarse spine-state
+				transitions (mount, an honest stall after REASONING_STALL_MS,
+				the answer starting, completion), never per-character or per-tick,
+				because nothing here is driven by a free-running timer. P3c extends
+				this SAME region rather than adding a competing live region: a new
+				classified step is exactly the kind of coarse transition this was
+				already built for (the classifier itself rate-limits to roughly one
+				step per 5-7s). P4 extends it again, same discipline: "pass N of M"
+				and the concluding state are rare, coarse transitions (deliberation
+				passes run on the order of seconds), never a competing live region.
+			-->
+			<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
+				{#if thinkingIsDone && formattedThinkingTime}
+					{$t('chat.thoughtFor', { time: formattedThinkingTime })}
+				{:else if thinkingIsDone}
+					{$t('chat.thought')}
+				{:else if deliberationProgressLabel}
+					{deliberationProgressLabel}
+				{:else if liveThoughtStepHeadline}
+					<!--
+						TS2-c (ADR-0056 amendment) — the closed activityClass is now a
+						SECONDARY signal (a small leading icon), never the headline
+						itself: liveThoughtStepHeadline already resolved to the step's
+						summary, falling back to the phase label, in script.
+					-->
+					{#if liveThoughtStepRecognizedClass}
+						{@render thoughtStepClassIcon(liveThoughtStepRecognizedClass)}
+					{/if}
+					{liveThoughtStepHeadline}
+				{:else}
+					{$t(liveSpineLabelKey)}
 				{/if}
-				{liveThoughtStepHeadline}
-			{:else}
-				{$t(liveSpineLabelKey)}
-			{/if}
-		</span>
-		<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
-	</button>
+			</span>
+			<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
+		</button>
+		<!--
+			Owner polish pass, item 1 — the "Show full reasoning" toggle now
+			lives flush right on this SAME header row (a flex sibling of the
+			expand/collapse button, since two <button>s cannot nest), rather
+			than below the clean list. Only meaningful once a durable step rail
+			exists and the panel is actually open — matches the pre-existing
+			gating anchoredThoughtSteps.length > 0 already used below.
+		-->
+		{#if expanded && anchoredThoughtSteps.length > 0}
+			<button
+				type="button"
+				class="full-reasoning-header-toggle"
+				onclick={toggleFullReasoning}
+				aria-pressed={showFullReasoning}
+			>
+				{$t(showFullReasoning ? 'chat.thoughtStep.hideFullReasoning' : 'chat.thoughtStep.showFullReasoning')}
+			</button>
+		{/if}
+	</div>
 
 	{#if visibleTools.length > 0 || thinkingIsDone}
 		<div class="tool-call-stack" class:fade-out={thinkingIsDone}>
 			{#each toolStackEntries as entry (entry.key)}
 				{#if entry.kind === 'connector-group'}
-					{@render connectorGroupStackRow(entry.tools)}
+					{@render connectorGroupStackRow(entry.tools, entry.key === latestToolStackEntryKey)}
 				{:else}
-					{@render singleToolStackRow(entry.tool)}
+					{@render singleToolStackRow(entry.tool, entry.key, entry.key === latestToolStackEntryKey)}
 				{/if}
 			{/each}
 		</div>
 	{/if}
 
 {#if expanded}
-<div class="thinking-content" class:content-fresh={contentFresh} transition:slide>
+<!--
+	Owner polish pass, item 1 — the completed "Thought for" box's
+	expand/collapse now animates horizontally (axis: 'x'), not the previous
+	top-to-bottom slide; the LIVE ("Thinking...") expand/collapse keeps the
+	original vertical slide, since only the completed box's animation was
+	called out. reducedMotionAware (slideTransition, see <script module>
+	above) collapses this to an instant, zero-duration transition under
+	prefers-reduced-motion.
+-->
+<div class="thinking-content" class:content-fresh={contentFresh} transition:slideTransition={{ axis: thinkingIsDone ? 'x' : 'y', duration: 250 }}>
 			{#if anchoredThoughtSteps.length > 0}
 				<!--
 					TS2-c (ADR-0056 amendment, "Disclosure UX: clean by default,
@@ -1509,10 +1768,14 @@ async function toggle() {
 					continuous raw trace is opt-in (showFullReasoning), off by
 					default. The pre-existing no-thoughtSteps view (the
 					`{:else}` branch at the bottom of this block) is untouched —
-					P1's floor never changes.
+					P1's floor never changes. Owner polish pass, item 3 — each of
+					these three branches gets its own flyTransition (fade+slide)
+					entrance so the swap between them is never instant/jarring,
+					including the "back to steps" direction (the clean-list branch
+					re-entering is just as animated as leaving it).
 				-->
 				{#if selectedStepReveal}
-					<div class="step-anchor-reveal">
+					<div class="step-anchor-reveal" in:flyTransition={{ y: 8, duration: 200 }}>
 						<button type="button" class="raw-trace-back" onclick={closeSelectedStepReveal}>
 							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
 							{$t('chat.thoughtStep.backToSteps')}
@@ -1520,20 +1783,20 @@ async function toggle() {
 						<pre class="thinking-text" bind:this={selectedStepRevealEl}><mark class="thought-step-anchor-highlight">{selectedStepReveal.span}</mark></pre>
 					</div>
 				{:else if showFullReasoning}
-					<div class="full-reasoning-view">
-						<button type="button" class="raw-trace-back" onclick={() => (showFullReasoning = false)}>
+					<div class="full-reasoning-view" in:flyTransition={{ y: 8, duration: 200 }}>
+						<button type="button" class="raw-trace-back" onclick={() => { showFullReasoning = false; }}>
 							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
-							{$t('chat.thoughtStep.hideFullReasoning')}
+							{$t('chat.thoughtStep.backToSteps')}
 						</button>
 						<pre class="thinking-text">{formatThinkingTextForDisplay(content)}</pre>
 					</div>
 				{:else}
-					<div class="thought-step-clean-list">
+					<div class="thought-step-clean-list" in:flyTransition={{ y: 8, duration: 200 }}>
 						{#each cleanRailEntries as entry (entry.key)}
 							{#if entry.kind === 'status'}
 								{@render statusStepEntry(entry.segment)}
 							{:else if entry.kind === 'tool'}
-								<div class="thought-rail-chip">{@render singleToolItem(entry.segment)}</div>
+								<div class="thought-rail-chip">{@render singleToolItem(entry.segment, entry.key)}</div>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
 							{:else}
@@ -1541,22 +1804,21 @@ async function toggle() {
 							{/if}
 						{/each}
 					</div>
-					<button type="button" class="full-reasoning-toggle" onclick={() => (showFullReasoning = true)}>
-						{$t('chat.thoughtStep.showFullReasoning')}
-					</button>
 				{/if}
 			{:else if hasSegments}
+				<div class="interleaved-rail">
 				{#each interleavedEntries as entry (entry.key)}
 				{#if entry.kind === 'text'}
 					<pre class="thinking-text">{formatThinkingTextForDisplay(entry.segment.content)}</pre>
 				{:else if entry.kind === 'status'}
 					{@render statusStepEntry(entry.segment)}
 					{:else if entry.kind === 'tool'}
-						{@render singleToolItem(entry.segment)}
+						{@render singleToolItem(entry.segment, entry.key)}
 					{:else if entry.kind === 'connector-group'}
 						{@render connectorGroupItem(entry.tools)}
 					{/if}
 				{/each}
+				</div>
 		{:else}
 			<pre class="thinking-text">
 				{#if isActiveThinking && newCharStart > 0 && newCharStart < content.length}
@@ -1582,6 +1844,18 @@ async function toggle() {
 		overflow: hidden;
 	}
 
+	/* Owner polish pass, item 1 — the header's own expand/collapse button and
+	   the (conditionally rendered) "Show full reasoning" toggle are now flex
+	   siblings on one row, so the toggle can sit flush right without nesting
+	   a <button> inside a <button>. */
+	.thinking-header-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		width: 100%;
+		min-width: 0;
+	}
+
 	.thinking-header {
 		display: flex;
 		align-items: center;
@@ -1589,10 +1863,22 @@ async function toggle() {
 		padding: var(--space-xs) 0;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		max-width: 100%;
-		width: 100%;
+		flex: 1 1 auto;
 		min-width: 0;
+		transition: color 150ms var(--ease-out);
+	}
+
+	/* Owner polish pass, item 3 — hover feedback on every clickable element in
+	   the rail; the header row was previously silent on hover. */
+	.thinking-header:hover .thinking-label:not(.is-active) {
+		color: var(--text-secondary);
+	}
+
+	.thinking-header:hover .chevron {
+		color: var(--text-secondary);
 	}
 
 	.thinking-header:focus-visible {
@@ -1602,6 +1888,11 @@ async function toggle() {
 	}
 
 	.thinking-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex: 1 1 auto;
+		min-width: 0;
 		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		font-weight: 500;
@@ -1632,9 +1923,17 @@ async function toggle() {
 		animation: thinking-sweep 6s linear infinite;
 	}
 
+	/* Owner polish pass, item 5 — chevron vertical-centering fix. Lucide's
+	   SVG defaults to inline/baseline layout, which sits it low relative to
+	   the label text next to it (worse still once the label can wrap to two
+	   lines): `display: block` removes the inline-baseline quirk entirely,
+	   and `align-self: center` guarantees it centers on the row's cross axis
+	   regardless of how tall the label grows. */
 	.chevron {
+		display: block;
+		align-self: center;
 		color: var(--icon-muted);
-		transition: transform var(--duration-standard) var(--ease-out);
+		transition: transform var(--duration-standard) var(--ease-out), color 150ms var(--ease-out);
 		flex-shrink: 0;
 	}
 
@@ -1663,12 +1962,22 @@ async function toggle() {
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
-		padding: 3px 0;
+		padding: 3px 6px;
+		margin: 0 -6px;
+		border-radius: var(--radius-sm);
 		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		color: var(--text-muted);
-		width: 100%;
+		width: calc(100% + 12px);
 		min-width: 0;
+		transition: background-color 150ms var(--ease-out), box-shadow 300ms var(--ease-out);
+	}
+
+	/* Owner polish pass, item 3 — hover feedback for the always-visible tool
+	   stack row itself (the summary/button children inside it already get
+	   their own hover state below). */
+	.tool-call-row:hover {
+		background: var(--surface-elevated);
 	}
 
 	.tool-call-row.is-running {
@@ -1680,6 +1989,26 @@ async function toggle() {
 	   success, at a glance. */
 	.tool-call-row.is-failed {
 		color: var(--danger);
+	}
+
+	/* Owner polish pass, item 6 — live current-step emphasis. Only the
+	   single most-recently-arrived tool row (see latestToolStackEntryKey in
+	   script — driven purely by real event arrival, no timer) gets the
+	   pulse; every other row stays in its plain resting state. Once the turn
+	   completes, isCurrent is false for every row and this settles away. */
+	@keyframes current-step-pulse {
+		0%, 100% {
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
+			background: color-mix(in srgb, var(--accent) 7%, transparent);
+		}
+		50% {
+			box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 0%, transparent);
+			background: color-mix(in srgb, var(--accent) 12%, transparent);
+		}
+	}
+
+	.tool-call-row.is-current-step {
+		animation: current-step-pulse 1.8s ease-in-out infinite;
 	}
 
 	.tool-status-badge {
@@ -1732,6 +2061,21 @@ async function toggle() {
 	.fetched-source-group summary {
 		cursor: pointer;
 		list-style-position: inside;
+		border-radius: 2px;
+		transition: color 150ms var(--ease-out);
+	}
+
+	/* Owner polish pass, item 3 — hover feedback on every clickable element,
+	   including the native <details><summary> disclosures already in the
+	   rail (fetched-source-group/connector-group/fetched-chip-more). */
+	.fetched-source-group summary:hover,
+	.fetched-source-group summary:focus-visible {
+		color: var(--text-primary);
+	}
+
+	.fetched-source-group summary:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.fetched-source-summary {
@@ -1919,6 +2263,18 @@ async function toggle() {
 		font-family: var(--font-sans);
 		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-muted);
+		transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+	}
+
+	.fetched-chip-more-summary:hover,
+	.fetched-chip-more-summary:focus-visible {
+		color: var(--text-primary);
+		border-color: var(--accent);
+	}
+
+	.fetched-chip-more-summary:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.fetched-chip-more-summary::-webkit-details-marker {
@@ -1934,6 +2290,18 @@ async function toggle() {
 	.connector-group summary {
 		cursor: pointer;
 		list-style-position: inside;
+		border-radius: 2px;
+		transition: color 150ms var(--ease-out);
+	}
+
+	.connector-group summary:hover,
+	.connector-group summary:focus-visible {
+		color: var(--text-primary);
+	}
+
+	.connector-group summary:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.connector-action-list {
@@ -2097,6 +2465,33 @@ animation: thinkContentFadeIn 300ms ease-out;
 		word-break: break-word;
 	}
 
+	/* Owner polish pass, item 4 — the raw/live interleaved trace (used while
+	   streaming, or as the pre-existing fallback when no durable step rail
+	   exists yet) gets the same "each action reads as a distinct unit"
+	   treatment as the clean list: a hairline divider between consecutive
+	   direct children. */
+	.interleaved-rail {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.interleaved-rail > :global(*:not(:last-child)) {
+		border-bottom: 1px solid var(--border-subtle);
+		padding-bottom: 6px;
+		margin-bottom: 4px;
+	}
+
+	/* A tool row immediately followed by its OWN opened detail panel (item 7)
+	   is still one entry, not two — suppress the divider between them so the
+	   detail panel reads as part of the same unit, not a separate action. */
+	.interleaved-rail > :global(.tool-call-item:has(+ .tool-detail-panel)) {
+		border-bottom: none;
+		padding-bottom: 0;
+		margin-bottom: 0;
+	}
+
 	/* Inline tool call rows between thinking text segments */
 	.tool-call-item {
 		display: flex;
@@ -2152,6 +2547,18 @@ animation: thinkContentFadeIn 300ms ease-out;
 		flex-shrink: 0;
 	}
 
+	/* Owner polish pass, item 2 — the tool-call chip's action-specific icon
+	   (toolIdentityIcon), same sizing rhythm as the other small leading
+	   icons in this file (.deliberation-status-icon/.thought-step-class-icon
+	   above/below). */
+	:global(.tool-identity-icon) {
+		color: currentColor;
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+		opacity: 0.85;
+	}
+
 	.tool-dot-inline {
 		width: 6px;
 		height: 6px;
@@ -2187,15 +2594,19 @@ animation: thinkContentFadeIn 300ms ease-out;
 
 	/* P3c (ADR-0056) — a completed classified thought step. Same visual
 	   rhythm as .status-step (icon + label row) but an actual <button>: the
-	   row is the jump-anchor into the raw Thinking Trace. */
+	   row is the jump-anchor into the raw Thinking Trace. Owner polish pass,
+	   item 3 — a subtle background wash on hover/focus, matching every other
+	   interactive row in this file, plus a `background-color` transition so
+	   it settles rather than snapping. */
 	.thought-step-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
 		width: 100%;
 		min-width: 0;
-		margin: var(--space-xs) 0;
-		padding: 0;
+		margin: 0;
+		padding: 5px 6px;
+		border-radius: var(--radius-sm);
 		background: transparent;
 		border: none;
 		font-family: var(--font-sans);
@@ -2203,6 +2614,12 @@ animation: thinkContentFadeIn 300ms ease-out;
 		color: var(--text-muted);
 		text-align: left;
 		cursor: pointer;
+		transition: background-color 150ms var(--ease-out);
+	}
+
+	.thought-step-row:hover,
+	.thought-step-row:focus-visible {
+		background: var(--surface-elevated);
 	}
 
 	.thought-step-row:hover .status-step-label,
@@ -2217,7 +2634,7 @@ animation: thinkContentFadeIn 300ms ease-out;
 	.thought-step-row:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 	}
 
 	/* TS2-c (ADR-0056 amendment) — the closed activity class's secondary
@@ -2241,20 +2658,32 @@ animation: thinkContentFadeIn 300ms ease-out;
 
 	/* TS2-c — the default expanded view once a turn has a durable step rail:
 	   a compact, ordered list (thought-step rows + tool/status rows), no raw
-	   reasoning prose. Same layout rhythm as .raw-trace-view below it. */
+	   reasoning prose. Same layout rhythm as .raw-trace-view below it. Owner
+	   polish pass, item 4 — a hairline divider between consecutive text-style
+	   rows (thought-step-row/status-step) gives each action a clean, distinct
+	   unit instead of a loose stack; chips already read as distinct units via
+	   their own pill border, so they're left alone. */
 	.thought-step-clean-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: 2px;
 		width: 100%;
 		min-width: 0;
+	}
+
+	.thought-step-clean-list > .thought-step-row:not(:last-child),
+	.thought-step-clean-list > .status-step:not(:last-child) {
+		border-bottom: 1px solid var(--border-subtle);
+		padding-bottom: 7px;
+		margin-bottom: 2px;
 	}
 
 	/* TS2-c — wraps a tool/connector-group row inside the clean list so it
 	   reads as a distinct inline chip rather than prose-adjacent text; the
 	   nested .tool-call-item keeps every bit of its existing behavior
 	   (favicons, connector grouping, agenda/photo peeks, failed badges) —
-	   only its outer shape changes here. */
+	   only its outer shape changes here. Owner polish pass, item 3 — a hover
+	   wash so the chip reads as clickable when it wraps a clickable tool row. */
 	.thought-rail-chip {
 		display: inline-flex;
 		align-items: center;
@@ -2264,39 +2693,47 @@ animation: thinkContentFadeIn 300ms ease-out;
 		border-radius: 9999px;
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
+		transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+	}
+
+	.thought-rail-chip:has(.tool-label-text--clickable:hover),
+	.thought-rail-chip:has(.tool-item-label--clickable:hover) {
+		border-color: var(--accent);
 	}
 
 	.thought-rail-chip .tool-call-item {
 		margin: 0;
 	}
 
-	/* TS2-c — the opt-in "show full reasoning" control, off by default. A
-	   plain text-link style so it reads as a secondary, deliberate action,
-	   not another list row. */
-	.full-reasoning-toggle {
-		align-self: flex-start;
-		margin-top: var(--space-xs);
-		padding: 2px 0;
+	/* Owner polish pass, item 1 — the "Show full reasoning" toggle, relocated
+	   flush right onto the header row. A small pill button (matching
+	   .raw-trace-back's shape) so it reads as a deliberate, secondary control
+	   next to the chevron, not a stray text link. Its own label already
+	   switches between "Show"/"Hide" in script (see toggleFullReasoning). */
+	.full-reasoning-header-toggle {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 10px;
+		border-radius: 9999px;
+		border: 1px solid var(--border-default);
 		background: transparent;
-		border: none;
 		font-family: var(--font-sans);
 		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-muted);
-		text-decoration: underline;
-		text-decoration-style: dotted;
-		text-underline-offset: 2px;
 		cursor: pointer;
+		transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out);
 	}
 
-	.full-reasoning-toggle:hover,
-	.full-reasoning-toggle:focus-visible {
-		color: var(--text-secondary);
+	.full-reasoning-header-toggle:hover {
+		color: var(--text-primary);
+		border-color: var(--accent);
+		background: var(--surface-elevated);
 	}
 
-	.full-reasoning-toggle:focus-visible {
+	.full-reasoning-header-toggle:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
-		border-radius: 2px;
 	}
 
 	/* TS2-c — the per-step anchored-span reveal (selecting a step) and the
@@ -2312,6 +2749,17 @@ animation: thinkContentFadeIn 300ms ease-out;
 		min-width: 0;
 	}
 
+	/* Owner polish pass, item 4 — the raw trace reads as its own distinct,
+	   framed unit (border + background) rather than blending into the rest
+	   of the panel. */
+	.step-anchor-reveal .thinking-text,
+	.full-reasoning-view .thinking-text {
+		padding: var(--space-sm);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--surface-elevated);
+	}
+
 	.raw-trace-back {
 		align-self: flex-start;
 		display: inline-flex;
@@ -2325,6 +2773,12 @@ animation: thinkContentFadeIn 300ms ease-out;
 		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-secondary);
 		cursor: pointer;
+		transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+	}
+
+	.raw-trace-back:hover {
+		color: var(--text-primary);
+		border-color: var(--accent);
 	}
 
 	.raw-trace-back:focus-visible {
@@ -2337,6 +2791,101 @@ animation: thinkContentFadeIn 300ms ease-out;
 		color: inherit;
 		border-radius: 3px;
 		padding: 0 1px;
+	}
+
+	/* Owner polish pass, item 7 — a generic tool-call chip's label becomes an
+	   actual <button> only when it has extra detail to reveal (see
+	   hasToolDetail in script); styled to look identical to the plain <span>
+	   it replaces at rest, so only the hover/focus affordance below signals
+	   it's now clickable. */
+	.tool-label-text--clickable,
+	.tool-item-label--clickable {
+		background: transparent;
+		border: none;
+		padding: 0;
+		margin: 0;
+		font: inherit;
+		text-align: left;
+		color: inherit;
+		cursor: pointer;
+		border-radius: 2px;
+		transition: color 150ms var(--ease-out);
+	}
+
+	.tool-label-text--clickable:hover,
+	.tool-label-text--clickable:focus-visible,
+	.tool-item-label--clickable:hover,
+	.tool-item-label--clickable:focus-visible {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+	}
+
+	.tool-label-text--clickable:focus-visible,
+	.tool-item-label--clickable:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* Owner polish pass, item 7 — the tool-call detail panel: arguments,
+	   result, and status, whatever the segment actually carries. */
+	.tool-detail-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		width: 100%;
+		min-width: 0;
+		margin: 4px 0 6px;
+		padding: var(--space-sm);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--surface-elevated);
+	}
+
+	.tool-detail-section {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.tool-detail-section-label {
+		font-family: var(--font-sans);
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--text-muted);
+	}
+
+	.tool-detail-row {
+		display: flex;
+		gap: 6px;
+		min-width: 0;
+		font-family: var(--font-mono, monospace);
+		font-size: var(--text-xs, 0.75rem);
+	}
+
+	.tool-detail-key {
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.tool-detail-key::after {
+		content: ":";
+	}
+
+	.tool-detail-value {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--text-secondary);
+		margin: 0;
+	}
+
+	.tool-detail-result {
+		font-family: var(--font-sans);
 	}
 
 @media (prefers-reduced-motion: reduce) {
@@ -2365,6 +2914,14 @@ animation: thinkContentFadeIn 300ms ease-out;
 	.word-new {
 		animation: none;
 		opacity: 1;
+	}
+
+	/* Owner polish pass, item 6 — live current-step emphasis falls back to a
+	   static highlight, no pulse, under prefers-reduced-motion. */
+	.tool-call-row.is-current-step {
+		animation: none;
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+		box-shadow: none;
 	}
 }
 </style>

@@ -772,6 +772,11 @@ const chatDict = {
 			"Read {count} page{count, plural, one {} other {s}}",
 		"toolCalls.actionsCount": "{count} action{count, plural, one {} other {s}}",
 		"toolCalls.agendaUpcoming": "Upcoming",
+		"toolCalls.detailArguments": "Arguments",
+		"toolCalls.detailResult": "Result",
+		"toolCalls.detailStatus": "Status",
+		"toolCalls.statusDone": "Done",
+		"toolCalls.statusRunning": "Running",
 		"personalityProfile.concise.description":
 			"Terse, answer-first, minimal exposition. Engineer-to-engineer.",
 		"personalityProfile.concise.name": "Concise",
@@ -1537,6 +1542,11 @@ const chatDict = {
 		"toolCalls.readPagesCount": "{count} oldal elolvasva",
 		"toolCalls.actionsCount": "{count} művelet",
 		"toolCalls.agendaUpcoming": "Következő",
+		"toolCalls.detailArguments": "Paraméterek",
+		"toolCalls.detailResult": "Eredmény",
+		"toolCalls.detailStatus": "Állapot",
+		"toolCalls.statusDone": "Kész",
+		"toolCalls.statusRunning": "Folyamatban",
 		"personalityProfile.concise.description":
 			"Rövid, válasz-először szemléletű, minimális magyarázattal. Mérnöktől mérnöknek.",
 		"personalityProfile.concise.name": "Tömör",

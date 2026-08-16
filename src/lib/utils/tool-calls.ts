@@ -160,3 +160,59 @@ export function getHumanReadableToolNameKey(name: string): I18nKey {
 	if (connectionKey) return connectionKey;
 	return "toolCalls.generic";
 }
+
+// Owner polish pass ("Interim Thought Steps" rail) — a closed set of icon
+// tags for tool-call chips, one per distinct action a tool call can
+// represent. A plain string tag (not a Lucide component reference) so this
+// module stays UI-framework-free like the rest of this file; the caller
+// (ThinkingBlock.svelte) owns the actual icon-type -> component render,
+// mirroring this file's own getHumanReadableToolNameKey (a string tag out,
+// never a component in). The branch ORDER and PREDICATES are deliberately
+// identical to getHumanReadableToolNameKey immediately above — this is the
+// same tool classification, reused for a second (icon) rendering rather than
+// re-derived, so a tool can never be labeled as one kind of action and
+// iconified as another. The nine connection-tool cases reuse the exact same
+// icon assignment SettingsConnectionsTab.svelte's CAPABILITY_ICONS already
+// uses per capability (Calendar/Folder/Image/Mail/Clapperboard/MapPin/
+// Users/GitBranch/ListTodo) — the app's one existing tool/capability -> icon
+// mapping — rather than inventing a second, possibly-divergent one.
+export type ToolCallIconType =
+	| "web-search"
+	| "fetch-url"
+	| "image-search"
+	| "memory"
+	| "file-production"
+	| "calendar"
+	| "contacts"
+	| "email"
+	| "files"
+	| "location"
+	| "media"
+	| "photos"
+	| "repos"
+	| "tasks"
+	| "generic";
+
+const CONNECTION_TOOL_ICON_TYPES: Record<string, ToolCallIconType> = {
+	calendar: "calendar",
+	contacts: "contacts",
+	email: "email",
+	files: "files",
+	location: "location",
+	media: "media",
+	photos: "photos",
+	repos: "repos",
+	tasks: "tasks",
+};
+
+export function getToolCallIconType(name: string): ToolCallIconType {
+	const normalized = normalizeToolNameForComparison(name);
+	if (isWebSearchToolName(normalized)) return "web-search";
+	if (normalized === "image_search") return "image-search";
+	if (normalized === "memory_context") return "memory";
+	if (isFetchOrBrowseToolName(normalized)) return "fetch-url";
+	if (isFileProductionToolName(name)) return "file-production";
+	const connectionIconType = CONNECTION_TOOL_ICON_TYPES[normalized];
+	if (connectionIconType) return connectionIconType;
+	return "generic";
+}
