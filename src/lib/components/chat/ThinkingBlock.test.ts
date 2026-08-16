@@ -1401,6 +1401,84 @@ describe("ThinkingBlock", () => {
 			).toBeInTheDocument();
 		});
 
+		// TS2-c (ADR-0056 amendment) — the live header's new precedence: the
+		// step's entity-grounded summary, when present, IS the headline —
+		// ahead of the phase label (and the entity-composed phase label),
+		// which stays as the fallback for when the server dropped the summary.
+		describe("TS2-c live summary headline (ADR-0056 amendment)", () => {
+			it("shows the step's summary in the live header ahead of the phase label", () => {
+				render(ThinkingBlock, {
+					props: {
+						content: "Looking at the request",
+						thinkingIsDone: false,
+						liveThoughtStepClass: "weighing-options",
+						liveThoughtStepSummary: "Comparing the two pricing tiers",
+					},
+				});
+
+				expect(
+					screen.getByRole("button", {
+						name: "Comparing the two pricing tiers",
+					}),
+				).toBeInTheDocument();
+				expect(
+					screen.queryByText("Weighing the options..."),
+				).not.toBeInTheDocument();
+			});
+
+			it("falls back to the phase label when no summary was sent, even with an entity present", () => {
+				render(ThinkingBlock, {
+					props: {
+						content: "Looking at the request",
+						thinkingIsDone: false,
+						liveThoughtStepClass: "recalling-context",
+						liveThoughtStepEntity: "the budget discussion",
+						liveThoughtStepSummary: undefined,
+					},
+				});
+
+				expect(
+					screen.getByText("Recalling context... (the budget discussion)"),
+				).toBeInTheDocument();
+			});
+
+			it("never shows a summary for an unrecognized class, even if one was sent (honesty)", () => {
+				render(ThinkingBlock, {
+					props: {
+						content: "Looking at the request",
+						thinkingIsDone: false,
+						liveThoughtStepClass: "shopping",
+						liveThoughtStepSummary: "Buying new shoes",
+					},
+				});
+
+				expect(screen.getByText("Thinking...")).toBeInTheDocument();
+				expect(screen.queryByText(/shoes/i)).not.toBeInTheDocument();
+			});
+
+			it("renders the closed activity class as a small secondary icon alongside the headline, not as the headline itself", () => {
+				const { container } = render(ThinkingBlock, {
+					props: {
+						content: "Looking at the request",
+						thinkingIsDone: false,
+						liveThoughtStepClass: "weighing-options",
+						liveThoughtStepSummary: "Comparing the two pricing tiers",
+					},
+				});
+
+				expect(
+					container.querySelector(".thought-step-class-icon"),
+				).not.toBeNull();
+				// The icon is aria-hidden, so it never changes the accessible name
+				// — the summary text alone is the headline.
+				expect(
+					screen.getByRole("button", {
+						name: "Comparing the two pricing tiers",
+					}),
+				).toBeInTheDocument();
+			});
+		});
+
 		it("falls back to P1's spine label when no classified step has arrived yet", () => {
 			render(ThinkingBlock, {
 				props: { content: "Looking at the request", thinkingIsDone: false },
@@ -1441,7 +1519,12 @@ describe("ThinkingBlock", () => {
 			).not.toBeInTheDocument();
 		});
 
-		it("interleaves completed classified steps with tool calls and text at the position they actually occurred, in order", async () => {
+		// TS2-c (ADR-0056 amendment) — the redesigned expanded panel: with a
+		// durable step rail present, the default view is the compact clean
+		// list (steps + tool chips, in true arrival order), and the raw
+		// reasoning prose the old "mess" dumped inline is gone from the
+		// default view entirely.
+		it("shows a compact clean list of steps and a distinct tool chip, in the order they actually occurred, with no raw reasoning prose", async () => {
 			const text1 = "First part of reasoning. ";
 			const text2 = "Second part of reasoning.";
 			const content = text1 + text2;
@@ -1481,19 +1564,115 @@ describe("ThinkingBlock", () => {
 
 			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
 
+			// No raw reasoning prose by default — the fix for the "big mess"
+			// complaint this slice exists for.
+			expect(container.querySelector(".thinking-text")).toBeNull();
+			expect(screen.queryByText(/First part of reasoning/)).toBeNull();
+			expect(screen.queryByText(/Second part of reasoning/)).toBeNull();
+
 			const rows = container.querySelectorAll(
-				".thinking-content > .thinking-text, .thinking-content > .tool-call-item, .thinking-content > .thought-step-row",
+				".thought-step-clean-list > .thought-step-row, .thought-step-clean-list > .thought-rail-chip",
 			);
-			expect(rows).toHaveLength(5);
-			expect(rows[0]?.className).toContain("thinking-text");
-			expect(rows[0]?.textContent).toContain("First part of reasoning.");
-			expect(rows[1]?.className).toContain("thought-step-row");
-			expect(rows[1]?.textContent).toContain("Understanding the request...");
-			expect(rows[2]?.className).toContain("tool-call-item");
-			expect(rows[3]?.className).toContain("thinking-text");
-			expect(rows[3]?.textContent).toContain("Second part of reasoning.");
-			expect(rows[4]?.className).toContain("thought-step-row");
-			expect(rows[4]?.textContent).toContain("Weighing the options...");
+			expect(rows).toHaveLength(3);
+			expect(rows[0]?.className).toContain("thought-step-row");
+			expect(rows[0]?.textContent).toContain("Understanding the request...");
+			expect(rows[1]?.className).toContain("thought-rail-chip");
+			expect(rows[1]?.querySelector(".tool-call-item")).not.toBeNull();
+			expect(rows[2]?.className).toContain("thought-step-row");
+			expect(rows[2]?.textContent).toContain("Weighing the options...");
+
+			// The full raw trace stays available, opt-in only.
+			expect(
+				screen.queryByRole("button", { name: /Show full reasoning/ }),
+			).toBeInTheDocument();
+		});
+
+		it("reveals the full continuous raw reasoning only after the opt-in 'Show full reasoning' toggle, off by default", async () => {
+			const content = "First part of reasoning. Second part of reasoning.";
+			const segments: ThinkingSegment[] = [{ type: "text", content }];
+			const step: InterimThoughtStep = {
+				id: "step-full",
+				source: "classified",
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 5 }, // "First"
+			};
+
+			render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [step],
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+			expect(screen.queryByText(content)).toBeNull();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Show full reasoning" }),
+			);
+			expect(screen.getByText(content)).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: /Hide full reasoning/ }),
+			).toBeInTheDocument();
+			// The clean list is replaced, not merely covered, while the full
+			// trace is showing.
+			expect(
+				screen.queryByText("Understanding the request..."),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Hide full reasoning/ }),
+			);
+			expect(screen.queryByText(content)).toBeNull();
+			expect(
+				screen.getByText("Understanding the request..."),
+			).toBeInTheDocument();
+		});
+
+		// TS2-c — a clean-list row's duration is honestly derived only from the
+		// real gap to the NEXT step's own createdAt; the last step (no known
+		// "end of reasoning" timestamp reaches the client) shows no duration
+		// rather than a fabricated one.
+		it("shows each step's own duration, derived from the gap to the next step, and omits it for the last step", async () => {
+			const content = "First part. Second part. Third part.";
+			const segments: ThinkingSegment[] = [{ type: "text", content }];
+			const stepA: InterimThoughtStep = {
+				id: "step-a",
+				source: "classified",
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 5 },
+				createdAt: 1_000,
+			};
+			const stepB: InterimThoughtStep = {
+				id: "step-b",
+				source: "classified",
+				activityClass: "weighing-options",
+				impliesExternalAction: false,
+				anchor: { start: 12, end: 18 },
+				createdAt: 4_500,
+			};
+
+			const { container } = render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [stepA, stepB],
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const rows = container.querySelectorAll(".thought-step-row");
+			expect(rows).toHaveLength(2);
+			expect(
+				rows[0]?.querySelector(".thought-step-duration")?.textContent,
+			).toBe("4s");
+			expect(rows[1]?.querySelector(".thought-step-duration")).toBeNull();
 		});
 
 		it("renders a resolvable classified step but drops one whose anchor does not resolve against the persisted trace (honesty)", async () => {
@@ -1531,7 +1710,12 @@ describe("ThinkingBlock", () => {
 			).not.toBeInTheDocument();
 		});
 
-		it("jumps to and highlights a completed step's exact anchored span in the raw Thinking Trace, and returns via Back to steps", async () => {
+		// TS2-c (ADR-0056 amendment) — "selecting a step reveals only that step's
+		// anchored span... not the whole trace": this is the load-bearing test for
+		// that specific rewording. Pre-amendment, clicking a step opened the FULL
+		// raw Thinking Trace scrolled to a highlight; now only the anchored
+		// substring itself is shown.
+		it("reveals only a selected step's own anchored span, not the surrounding trace, and returns via Back to steps", async () => {
 			const content =
 				"First I read the request carefully. Then I weighed two different options before continuing.";
 			const segments: ThinkingSegment[] = [{ type: "text", content }];
@@ -1567,10 +1751,14 @@ describe("ThinkingBlock", () => {
 			const mark = document.querySelector("mark.thought-step-anchor-highlight");
 			expect(mark).not.toBeNull();
 			expect(mark?.textContent).toBe(anchorText);
+			// Only the anchored span itself is shown — none of the surrounding
+			// trace leaks in alongside it.
+			expect(screen.queryByText(/First I read the request/)).toBeNull();
+			expect(screen.queryByText(/before continuing/)).toBeNull();
 			expect(
 				screen.getByRole("button", { name: /Back to steps/ }),
 			).toBeInTheDocument();
-			// The interleaved step list is replaced, not merely covered.
+			// The step list is replaced, not merely covered.
 			expect(
 				screen.queryByText("Weighing the options..."),
 			).not.toBeInTheDocument();
@@ -1603,11 +1791,19 @@ describe("ThinkingBlock", () => {
 			const header = screen.getByRole("button", { name: /Thinking/ });
 			expect(header.textContent?.trim()).toBe("Thinking...");
 			expect(container.querySelector(".thought-step-row")).toBeNull();
+			expect(container.querySelector(".thought-step-class-icon")).toBeNull();
 
 			await fireEvent.click(header);
 			expect(
 				container.querySelector("mark.thought-step-anchor-highlight"),
 			).toBeNull();
+			// TS2-c — the redesigned clean list / opt-in full-reasoning toggle
+			// only ever appear once a durable step rail exists; with none, the
+			// expanded panel is exactly the pre-existing raw-content fallback.
+			expect(container.querySelector(".thought-step-clean-list")).toBeNull();
+			expect(
+				screen.queryByRole("button", { name: /Show full reasoning/ }),
+			).not.toBeInTheDocument();
 		});
 	});
 

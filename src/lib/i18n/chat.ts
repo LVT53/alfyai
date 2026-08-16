@@ -151,11 +151,17 @@ const chatDict = {
 		"chat.thought": "Thought",
 		"chat.thoughtFor": "Thought for {time}",
 		// P3c (ADR-0056) — the jump-anchor affordance: a completed step's row
-		// is clickable, scrolling the raw Thinking Trace view to (and
-		// highlighting) the exact span that produced it; this pair labels
-		// that control and the way back to the step list.
+		// is clickable, revealing (and highlighting) the exact anchored span
+		// that produced it; this pair labels that control and the way back to
+		// the step list.
 		"chat.thoughtStep.backToSteps": "Back to steps",
 		"chat.thoughtStep.viewInTrace": "View in thinking trace",
+		// TS2-c (ADR-0056 amendment, "Disclosure UX: clean by default,
+		// transparency on demand") — the opt-in, off-by-default control that
+		// reveals the full continuous raw Thinking Trace instead of the
+		// compact step list.
+		"chat.thoughtStep.hideFullReasoning": "Hide full reasoning",
+		"chat.thoughtStep.showFullReasoning": "Show full reasoning",
 		"chat.uploadAllFailed": "Failed to upload {count} file(s).",
 		"chat.uploadAttachmentFailed": "Failed to upload attachment.",
 		"chat.uploadError": "Upload failed",
@@ -909,6 +915,8 @@ const chatDict = {
 		"chat.thoughtFor": "{time}-ig gondolkodott",
 		"chat.thoughtStep.backToSteps": "Vissza a lépésekhez",
 		"chat.thoughtStep.viewInTrace": "Megtekintés a gondolkodási folyamatban",
+		"chat.thoughtStep.hideFullReasoning": "Teljes gondolatmenet elrejtése",
+		"chat.thoughtStep.showFullReasoning": "Teljes gondolatmenet megjelenítése",
 		"chat.uploadAllFailed": "Nem sikerült feltölteni {count} fájlt.",
 		"chat.uploadAttachmentFailed": "A fájl csatolása nem sikerült.",
 		"chat.uploadError": "Feltöltés sikertelen",

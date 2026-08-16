@@ -16,10 +16,16 @@ import {
 	ChevronLeft,
 	ClipboardCheck,
 	Bot,
+	HelpCircle,
+	History,
 	Languages,
 	Layers,
+	ListChecks,
+	PenLine,
+	Scale,
 	Search,
 	ShieldAlert,
+	Workflow,
 	XCircle,
 } from "@lucide/svelte";
 import {
@@ -72,6 +78,16 @@ let {
 	// header falls straight back to the spine label below.
 	liveThoughtStepClass = undefined,
 	liveThoughtStepEntity = undefined,
+	// TS2-c (ADR-0056 amendment, 2026-08-16) — the constrained,
+	// entity-grounded `summary` carried on the SAME latest live "thought_step"
+	// data-response-activity entry `liveThoughtStepClass`/`liveThoughtStepEntity`
+	// already come from (MessageBubble's `liveThoughtStepActivity?.summary`).
+	// Precedence per the amendment: this summary, when present, IS the live
+	// headline; `liveThoughtStepClass`'s phase label is the fallback (the
+	// pre-amendment behavior) when the model's summary failed the runtime
+	// verbatim-tether guard server-side and was dropped. See
+	// `liveThoughtStepHeadline` below.
+	liveThoughtStepSummary = undefined,
 	// P3c (ADR-0056) — the durable, persisted Interim Thought Step rail for
 	// a COMPLETED turn (`ChatMessage.thoughtSteps`). Undefined while
 	// streaming; populated at completion in the same browser session too
@@ -104,6 +120,7 @@ let {
 	answerStarted?: boolean;
 	liveThoughtStepClass?: string;
 	liveThoughtStepEntity?: string;
+	liveThoughtStepSummary?: string;
 	thoughtSteps?: InterimThoughtStep[];
 	livePassIndex?: number;
 	livePassTotal?: number;
@@ -522,15 +539,67 @@ function thoughtStepDisplayLabel(
 		: label;
 }
 
-// P3c — the live header's current classified step, if any has arrived yet
-// this turn. `undefined`/an unrecognized class both resolve to `null`,
-// which is exactly what the header template below treats as "fall back to
-// the spine label" — see the UX contract's precedence in ADR-0056.
-const liveThoughtStepLabel = $derived(
-	liveThoughtStepClass
-		? thoughtStepDisplayLabel(liveThoughtStepClass, liveThoughtStepEntity)
+// P3c — the live header's currently classified step's activity class, only
+// once it has passed the same honesty gate thoughtStepDisplayLabel already
+// enforces (a recognized member of the closed enum). Kept as its own
+// derived (rather than inlining the guard at each call site) so the header
+// icon and the phase-label fallback share one single "is this trustworthy"
+// decision — see thoughtStepClassIcon below, which needs a narrowed
+// ThoughtStepClassifierActivityClass, not a bare string.
+const liveThoughtStepRecognizedClass = $derived(
+	liveThoughtStepClass &&
+		isThoughtStepClassifierActivityClass(liveThoughtStepClass)
+		? liveThoughtStepClass
 		: null,
 );
+
+// P3c — the live header's current classified step's phase-label fallback,
+// if any has arrived yet this turn. `undefined`/an unrecognized class both
+// resolve to `null` — see the UX contract's precedence in ADR-0056.
+const liveThoughtStepLabel = $derived(
+	liveThoughtStepRecognizedClass
+		? thoughtStepDisplayLabel(
+				liveThoughtStepRecognizedClass,
+				liveThoughtStepEntity,
+			)
+		: null,
+);
+
+// TS2-c (ADR-0056 amendment) — the live header's actual headline: the
+// step's entity-grounded `summary` when the server sent one (composed by
+// the classifier from the anchored span, dropped server-side unless it
+// passed the verbatim-tether guard), else the phase-label fallback above
+// (unchanged pre-amendment behavior). `null` whenever the phase label
+// itself would be `null` — a summary is never shown for an unrecognized
+// class, keeping the same honesty floor as before this slice.
+const liveThoughtStepHeadline = $derived(
+	liveThoughtStepLabel
+		? liveThoughtStepSummary?.trim() || liveThoughtStepLabel
+		: null,
+);
+
+// TS2-c — the closed activity-class enum's secondary signal: a small
+// leading icon per class, mirroring the existing
+// getDeliberationStatusIconType/deliberation-status-icon precedent exactly
+// (a plain string tag decided in script, rendered via an if/else chain in
+// the thoughtStepClassIcon snippet below — no dynamic-component map, to
+// match this file's established idiom).
+function getThoughtStepClassIconType(
+	activityClass: ThoughtStepClassifierActivityClass,
+):
+	| "help-circle"
+	| "history"
+	| "scale"
+	| "workflow"
+	| "list-checks"
+	| "pen-line" {
+	if (activityClass === "understanding-request") return "help-circle";
+	if (activityClass === "recalling-context") return "history";
+	if (activityClass === "weighing-options") return "scale";
+	if (activityClass === "working-through-logic") return "workflow";
+	if (activityClass === "checking-details") return "list-checks";
+	return "pen-line"; // "drafting-approach"
+}
 
 // P4 (ADR-0056) — the determinate deliberation-progress state, a pure
 // decision (deriveDeliberationProgressState) over already-computed
@@ -569,18 +638,26 @@ const deliberationProgressLabel = $derived.by(() => {
 	return null;
 });
 
-// Retrospective duration only — computed once the turn is done. The active
-// phase no longer shows any numeric elapsed time (see reasoningSpineState
-// above), only the current live spine label.
-const formattedThinkingTime = $derived.by(() => {
-	if (!thinkingIsDone) return "";
-	const seconds = thinkingDurationSeconds;
+// Shared "Ns" / "Nm Ns" formatter — not itself localized (matches the
+// pre-existing precedent: chat.thoughtFor's "{time}" placeholder already
+// took a preformatted string like this, with no per-unit translation).
+// Extracted so the retrospective total below and each clean-list step row's
+// own duration (see stepDurationLabel further down) share one formatter.
+function formatDurationLabel(seconds: number): string {
 	if (seconds < 60) {
 		return `${seconds}s`;
 	}
 	const minutes = Math.floor(seconds / 60);
 	const remainingSeconds = seconds % 60;
 	return `${minutes}m ${remainingSeconds}s`;
+}
+
+// Retrospective duration only — computed once the turn is done. The active
+// phase no longer shows any numeric elapsed time (see reasoningSpineState
+// above), only the current live spine label.
+const formattedThinkingTime = $derived.by(() => {
+	if (!thinkingIsDone) return "";
+	return formatDurationLabel(thinkingDurationSeconds);
 });
 
 function extractHostname(raw: string): string {
@@ -865,68 +942,112 @@ function getFormattedFreshStart(text: string, rawStart: number): number {
 	return formatThinkingTextForDisplay(text.slice(0, rawStart)).length;
 }
 
-// P3c (ADR-0056) — the jump-anchor: clicking a completed step switches the
-// expanded panel from the interleaved rail to the single continuous raw
-// Thinking Trace view, scrolled to and highlighting exactly the step's
-// anchored span. This is the full disclosure contract, not the minimal
-// "reveal the substring inline" fallback — the ADR explicitly wants one
-// continuous raw view, reached from any step, not a nested dropdown per
-// step (see ADR-0056 "Considered Options": per-step nested disclosure was
-// rejected).
-type RawTraceAnchorState = { start: number; end: number; stepId: string };
-let rawTraceAnchor = $state<RawTraceAnchorState | null>(null);
-let anchorHighlightEl = $state<HTMLElement | undefined>(undefined);
+// TS2-c (ADR-0056 amendment, "Disclosure UX: clean by default, transparency
+// on demand") — clicking a completed step no longer opens the whole raw
+// Thinking Trace scrolled to a highlight; it reveals ONLY that step's own
+// anchored span (resolveThoughtStepAnchorSpan's sliced substring), replacing
+// the clean step list with a single focused card. The full continuous trace
+// moves to the separate, explicit `showFullReasoning` opt-in below — this
+// state is deliberately just an id, not a span: the span itself is derived
+// (selectedStepReveal), so it always reflects the current `content` rather
+// than a snapshot taken at click time.
+let selectedStepId = $state<string | null>(null);
+let selectedStepRevealEl = $state<HTMLElement | undefined>(undefined);
+// TS2-c — the opt-in, off-by-default "show full reasoning" control (ADR-0056
+// amendment). Only meaningful together with anchoredThoughtSteps.length > 0
+// (the clean-list mode); the pre-existing no-thoughtSteps fallback path
+// below never reads this and always shows its own raw content directly, per
+// this ADR's "P1 is the floor" invariant.
+let showFullReasoning = $state(false);
 
-// Precomputed rather than inline `{@const}` in the template: `<pre>` only
-// allows `{@const}` as the immediate child of a block tag, not interleaved
-// with sibling expressions/elements the way the highlight markup below
-// needs. Reuses the exact same formatThinkingTextForDisplay +
-// getFormattedFreshStart pair the "word-new" fresh-content split already
-// uses, so the highlighted substring is exactly the anchor's [start, end)
-// text, re-expressed in the same paragraph-broken display coordinates the
-// rest of this view renders in.
-const rawTraceHighlight = $derived.by(() => {
-	if (!rawTraceAnchor) return null;
-	const formattedContent = formatThinkingTextForDisplay(content);
-	const start = getFormattedFreshStart(content, rawTraceAnchor.start);
-	const end = getFormattedFreshStart(content, rawTraceAnchor.end);
-	return {
-		before: formattedContent.slice(0, start),
-		highlighted: formattedContent.slice(start, end),
-		after: formattedContent.slice(end),
-	};
+// P3c honesty gate, reused: a selection only resolves to a reveal when the
+// step still exists among the anchored (resolvable) steps AND its span still
+// resolves against the current `content` — mirrors anchoredThoughtSteps'
+// own filter, so a selection can never show stale or unresolvable text.
+const selectedStepReveal = $derived.by(() => {
+	if (!selectedStepId) return null;
+	const step = anchoredThoughtSteps.find((s) => s.id === selectedStepId);
+	if (!step) return null;
+	const span = resolveThoughtStepAnchorSpan(step.anchor, content);
+	if (!span) return null;
+	return { step, span };
 });
 
-function jumpToThoughtStepAnchor(step: InterimThoughtStep) {
-	if (!step.anchor) return;
-	// Clicking the already-active step's row is the way back to the step
+function selectThoughtStep(step: InterimThoughtStep) {
+	// Clicking the already-selected step's row is the way back to the step
 	// list — no separate close-only control needed for that path, though
 	// the explicit "Back to steps" button below covers it too.
-	rawTraceAnchor =
-		rawTraceAnchor?.stepId === step.id
-			? null
-			: { start: step.anchor.start, end: step.anchor.end, stepId: step.id };
+	selectedStepId = selectedStepId === step.id ? null : step.id;
 }
 
-function closeRawTrace() {
-	rawTraceAnchor = null;
+function closeSelectedStepReveal() {
+	selectedStepId = null;
 }
 
 $effect(() => {
-	if (!rawTraceAnchor || !anchorHighlightEl) return;
+	if (!selectedStepReveal || !selectedStepRevealEl) return;
 	// Defensive guard (mirrors MessageInput.svelte's identical check):
 	// jsdom's default test environment does not implement scrollIntoView.
-	if (typeof anchorHighlightEl.scrollIntoView !== "function") return;
-	anchorHighlightEl.scrollIntoView({
+	if (typeof selectedStepRevealEl.scrollIntoView !== "function") return;
+	selectedStepRevealEl.scrollIntoView({
 		block: "center",
 		behavior: prefersReducedMotion() ? "auto" : "smooth",
 	});
 });
 
+// TS2-c — the compact, ordered clean-list view's entries: the SAME
+// true-arrival-order merge interleavedEntries already computes (tool calls,
+// deliberation/context status rows, and classified thought steps at the
+// exact position they occurred), just without the raw reasoning `text`
+// entries — those are what made the old always-on view "a big mess" per
+// this slice's owner complaint, and now live only behind the explicit
+// showFullReasoning toggle below. Only meaningful once
+// anchoredThoughtSteps.length > 0; the caller only renders this in that
+// branch.
+const cleanRailEntries = $derived(
+	interleavedEntries.filter(
+		(entry): entry is Exclude<InterleavedEntry, { kind: "text" }> =>
+			entry.kind !== "text",
+	),
+);
+
+// TS2-c — a step's displayed duration: the honest, mechanically-derivable
+// span between this step's own createdAt and the NEXT anchored step's
+// createdAt. Deliberately does not estimate a duration for the last step
+// (no "end of reasoning" timestamp reaches the client) rather than show a
+// fabricated number — silence over a guess, matching this ADR's honesty
+// discipline for step CONTENT extended to step TIMING.
+const nextAnchoredStepCreatedAtById = $derived.by(() => {
+	const map = new Map<string, number>();
+	for (let i = 0; i < anchoredThoughtSteps.length - 1; i += 1) {
+		const current = anchoredThoughtSteps[i];
+		const next = anchoredThoughtSteps[i + 1];
+		if (
+			typeof current.createdAt === "number" &&
+			typeof next.createdAt === "number"
+		) {
+			map.set(current.id, next.createdAt);
+		}
+	}
+	return map;
+});
+
+function stepDurationLabel(step: InterimThoughtStep): string | null {
+	if (typeof step.createdAt !== "number") return null;
+	const nextCreatedAt = nextAnchoredStepCreatedAtById.get(step.id);
+	if (nextCreatedAt === undefined) return null;
+	const deltaMs = nextCreatedAt - step.createdAt;
+	if (!(deltaMs > 0)) return null;
+	return formatDurationLabel(Math.round(deltaMs / 1000));
+}
+
 async function toggle() {
 	await preserveScrollOnToggle(container, expanded, () => {
 		expanded = !expanded;
-		if (!expanded) rawTraceAnchor = null;
+		if (!expanded) {
+			selectedStepId = null;
+			showFullReasoning = false;
+		}
 	});
 }
 </script>
@@ -948,6 +1069,30 @@ async function toggle() {
 
 {#snippet toolFailedBadge()}
 	<span class="tool-status-badge tool-status-badge--failed">{$t('toolCalls.failed')}</span>
+{/snippet}
+
+<!--
+	TS2-c (ADR-0056 amendment) — the closed activity class's secondary
+	signal: a small leading icon, never the headline. Same if/else-over-a-
+	string-tag shape as getDeliberationStatusIconType's icon block above it
+	in this file, deliberately not a dynamic-component map, to match this
+	file's established idiom for "pick one of a few known icons".
+-->
+{#snippet thoughtStepClassIcon(activityClass: ThoughtStepClassifierActivityClass)}
+	{@const iconType = getThoughtStepClassIconType(activityClass)}
+	{#if iconType === 'help-circle'}
+		<HelpCircle class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'history'}
+		<History class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'scale'}
+		<Scale class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'workflow'}
+		<Workflow class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else if iconType === 'list-checks'}
+		<ListChecks class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{:else}
+		<PenLine class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
+	{/if}
 {/snippet}
 
 {#snippet fetchedChip(source: FetchedSource, dimUncited: boolean)}
@@ -1216,26 +1361,79 @@ async function toggle() {
 {/snippet}
 
 <!--
-	P3c (ADR-0056) — a completed classified step, rendered inline in the same
-	rail as tool calls/status steps. Its label is the accessible name (never
-	overridden by aria-label, so a screen reader hears exactly the localized
-	class + entity text); `title` gives sighted users a hover hint for the
-	jump affordance. Honesty: thoughtStepDisplayLabel returns null for an
-	unrecognized class, and the caller renders nothing for it — no blank row,
-	no fabricated label.
+	Extracted (TS2-c) so the same event-derived status row (context
+	preparation / deliberation-pass status) renders identically whether it
+	appears in the pre-existing no-thoughtSteps fallback view below, or in
+	the new clean step list — one markup source, not a fork that could drift.
+-->
+{#snippet statusStepEntry(rawStatusSeg: StatusSegment)}
+	<!-- svelte-check's control-flow narrowing over an if/else chain keyed
+	     off an unrelated {@const} (iconType) below misnarrows this to
+	     `never` in the sibling branches without this cast — mirrors the
+	     pre-existing `entry.segment as any` this snippet was extracted
+	     from, at the original call site. -->
+	{@const statusSeg = rawStatusSeg as any}
+	{@const isDeliberationStatus = isDeliberationStatusSegment(statusSeg)}
+	<div
+		class="status-step"
+		class:status-deliberation={isDeliberationStatus}
+		class:is-running={statusSeg.status === 'running'}
+	>
+		{#if isDeliberationStatus}
+			{@const iconType = getDeliberationStatusIconType(statusSeg)}
+			{#if iconType === 'search'}
+				<Search class="deliberation-status-icon" data-deliberation-icon="search" size={14} strokeWidth={2} aria-hidden="true" />
+			{:else if iconType === 'clipboard-check'}
+				<ClipboardCheck class="deliberation-status-icon" data-deliberation-icon="clipboard-check" size={14} strokeWidth={2} aria-hidden="true" />
+			{:else if iconType === 'shield-alert'}
+				<ShieldAlert class="deliberation-status-icon" data-deliberation-icon="shield-alert" size={14} strokeWidth={2} aria-hidden="true" />
+			{:else if iconType === 'languages'}
+				<Languages class="deliberation-status-icon" data-deliberation-icon="languages" size={14} strokeWidth={2} aria-hidden="true" />
+			{:else if iconType === 'layers'}
+				<Layers class="deliberation-status-icon" data-deliberation-icon="layers" size={14} strokeWidth={2} aria-hidden="true" />
+			{:else}
+				<Bot class="deliberation-status-icon" data-deliberation-icon="bot" size={14} strokeWidth={2} aria-hidden="true" />
+			{/if}
+		{:else if statusSeg.status === 'running'}
+			<span class="tool-dot-inline"></span>
+		{:else}
+			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+		{/if}
+		<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(statusSeg) : statusSeg.label}</span>
+	</div>
+{/snippet}
+
+<!--
+	P3c (ADR-0056) / TS2-c (amendment) — a completed classified step, now
+	rendered ONLY in the clean step list (see cleanRailEntries): phase icon
+	(secondary signal) + headline (summary, falling back to the phase label)
+	+ this step's own duration when honestly derivable. Its label is the
+	accessible name (never overridden by aria-label, so a screen reader
+	hears exactly the localized headline text); `title` gives sighted users
+	a hover hint for the anchored-span reveal. Honesty: thoughtStepDisplayLabel
+	returns null for an unrecognized class, and the caller renders nothing
+	for it — no blank row, no fabricated label — exactly as before this
+	slice.
 -->
 {#snippet thoughtStepEntry(step: InterimThoughtStep)}
-	{@const label = thoughtStepDisplayLabel(step.activityClass, step.entity)}
-	{#if label}
+	{@const phaseLabel = thoughtStepDisplayLabel(step.activityClass, step.entity)}
+	{#if phaseLabel}
+		{@const headline = step.summary?.trim() || phaseLabel}
+		{@const duration = stepDurationLabel(step)}
 		<button
 			type="button"
 			class="thought-step-row"
-			class:is-active={rawTraceAnchor?.stepId === step.id}
-			onclick={() => jumpToThoughtStepAnchor(step)}
+			class:is-active={selectedStepId === step.id}
+			onclick={() => selectThoughtStep(step)}
 			title={$t('chat.thoughtStep.viewInTrace')}
 		>
-			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-			<span class="status-step-label">{label}</span>
+			{#if isThoughtStepClassifierActivityClass(step.activityClass)}
+				{@render thoughtStepClassIcon(step.activityClass)}
+			{/if}
+			<span class="status-step-label">{headline}</span>
+			{#if duration}
+				<span class="thought-step-duration">{duration}</span>
+			{/if}
 		</button>
 	{/if}
 {/snippet}
@@ -1268,8 +1466,17 @@ async function toggle() {
 				{$t('chat.thought')}
 			{:else if deliberationProgressLabel}
 				{deliberationProgressLabel}
-			{:else if liveThoughtStepLabel}
-				{liveThoughtStepLabel}
+			{:else if liveThoughtStepHeadline}
+				<!--
+					TS2-c (ADR-0056 amendment) — the closed activityClass is now a
+					SECONDARY signal (a small leading icon), never the headline
+					itself: liveThoughtStepHeadline already resolved to the step's
+					summary, falling back to the phase label, in script.
+				-->
+				{#if liveThoughtStepRecognizedClass}
+					{@render thoughtStepClassIcon(liveThoughtStepRecognizedClass)}
+				{/if}
+				{liveThoughtStepHeadline}
 			{:else}
 				{$t(liveSpineLabelKey)}
 			{/if}
@@ -1291,99 +1498,62 @@ async function toggle() {
 
 {#if expanded}
 <div class="thinking-content" class:content-fresh={contentFresh} transition:slide>
-			{#if rawTraceAnchor}
-			<!--
-				P3c (ADR-0056) — the jump-anchor's raw-trace view: one continuous
-				view of the SAME raw Thinking Trace (`content`), scrolled to and
-				highlighting exactly the clicked step's anchored span. Reusing
-				formatThinkingTextForDisplay + getFormattedFreshStart (the same
-				pair the fresh-content "word-new" split above already uses) keeps
-				the highlighted substring exactly the anchor's [start, end) text,
-				just re-expressed in the same paragraph-broken display coordinates
-				the rest of this view already renders in.
-			-->
-			<div class="raw-trace-view">
-				<button type="button" class="raw-trace-back" onclick={closeRawTrace}>
-					<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
-					{$t('chat.thoughtStep.backToSteps')}
-				</button>
-				<pre class="thinking-text">{rawTraceHighlight?.before ?? ''}<mark class="thought-step-anchor-highlight" bind:this={anchorHighlightEl}>{rawTraceHighlight?.highlighted ?? ''}</mark>{rawTraceHighlight?.after ?? ''}</pre>
-			</div>
-				{:else if hasSegments}
+			{#if anchoredThoughtSteps.length > 0}
+				<!--
+					TS2-c (ADR-0056 amendment, "Disclosure UX: clean by default,
+					transparency on demand") — once this turn has a durable,
+					honesty-gated step rail, the expanded panel defaults to the
+					compact clean list below rather than dumping the raw,
+					interleaved reasoning text. Selecting a step reveals ONLY that
+					step's own anchored span (selectedStepReveal); the full
+					continuous raw trace is opt-in (showFullReasoning), off by
+					default. The pre-existing no-thoughtSteps view (the
+					`{:else}` branch at the bottom of this block) is untouched —
+					P1's floor never changes.
+				-->
+				{#if selectedStepReveal}
+					<div class="step-anchor-reveal">
+						<button type="button" class="raw-trace-back" onclick={closeSelectedStepReveal}>
+							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
+							{$t('chat.thoughtStep.backToSteps')}
+						</button>
+						<pre class="thinking-text" bind:this={selectedStepRevealEl}><mark class="thought-step-anchor-highlight">{selectedStepReveal.span}</mark></pre>
+					</div>
+				{:else if showFullReasoning}
+					<div class="full-reasoning-view">
+						<button type="button" class="raw-trace-back" onclick={() => (showFullReasoning = false)}>
+							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
+							{$t('chat.thoughtStep.hideFullReasoning')}
+						</button>
+						<pre class="thinking-text">{formatThinkingTextForDisplay(content)}</pre>
+					</div>
+				{:else}
+					<div class="thought-step-clean-list">
+						{#each cleanRailEntries as entry (entry.key)}
+							{#if entry.kind === 'status'}
+								{@render statusStepEntry(entry.segment)}
+							{:else if entry.kind === 'tool'}
+								<div class="thought-rail-chip">{@render singleToolItem(entry.segment)}</div>
+							{:else if entry.kind === 'thought_step'}
+								{@render thoughtStepEntry(entry.step)}
+							{:else}
+								<div class="thought-rail-chip">{@render connectorGroupItem(entry.tools)}</div>
+							{/if}
+						{/each}
+					</div>
+					<button type="button" class="full-reasoning-toggle" onclick={() => (showFullReasoning = true)}>
+						{$t('chat.thoughtStep.showFullReasoning')}
+					</button>
+				{/if}
+			{:else if hasSegments}
 				{#each interleavedEntries as entry (entry.key)}
 				{#if entry.kind === 'text'}
 					<pre class="thinking-text">{formatThinkingTextForDisplay(entry.segment.content)}</pre>
 				{:else if entry.kind === 'status'}
-					{@const statusSeg = entry.segment as any}
-					{@const isDeliberationStatus = isDeliberationStatusSegment(statusSeg)}
-					<div
-						class="status-step"
-						class:status-deliberation={isDeliberationStatus}
-						class:is-running={statusSeg.status === 'running'}
-						>
-								{#if isDeliberationStatus}
-										{@const iconType = getDeliberationStatusIconType(statusSeg)}
-									{#if iconType === 'search'}
-										<Search
-											class="deliberation-status-icon"
-											data-deliberation-icon="search"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{:else if iconType === 'clipboard-check'}
-										<ClipboardCheck
-											class="deliberation-status-icon"
-											data-deliberation-icon="clipboard-check"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{:else if iconType === 'shield-alert'}
-										<ShieldAlert
-											class="deliberation-status-icon"
-											data-deliberation-icon="shield-alert"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{:else if iconType === 'languages'}
-										<Languages
-											class="deliberation-status-icon"
-											data-deliberation-icon="languages"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{:else if iconType === 'layers'}
-										<Layers
-											class="deliberation-status-icon"
-											data-deliberation-icon="layers"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{:else}
-										<Bot
-											class="deliberation-status-icon"
-											data-deliberation-icon="bot"
-											size={14}
-											strokeWidth={2}
-											aria-hidden="true"
-										/>
-									{/if}
-									{:else if statusSeg.status === 'running'}
-										<span class="tool-dot-inline"></span>
-								{:else}
-					<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
-									{/if}
-									<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(statusSeg) : statusSeg.label}</span>
-								</div>
+					{@render statusStepEntry(entry.segment)}
 					{:else if entry.kind === 'tool'}
 						{@render singleToolItem(entry.segment)}
-					{:else if entry.kind === 'thought_step'}
-						{@render thoughtStepEntry(entry.step)}
-					{:else}
+					{:else if entry.kind === 'connector-group'}
 						{@render connectorGroupItem(entry.tools)}
 					{/if}
 				{/each}
@@ -2050,9 +2220,91 @@ animation: thinkContentFadeIn 300ms ease-out;
 		border-radius: 2px;
 	}
 
-	/* P3c — the jump-anchor's raw-trace view: one continuous view of the raw
-	   Thinking Trace, reached from any step, with a single way back. */
-	.raw-trace-view {
+	/* TS2-c (ADR-0056 amendment) — the closed activity class's secondary
+	   signal: a small leading icon on a step row/the live header, never the
+	   headline itself. Mirrors :global(.deliberation-status-icon) below. */
+	:global(.thought-step-class-icon) {
+		color: currentColor;
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+	}
+
+	/* TS2-c — a step row's own honestly-derived duration, right-aligned by
+	   the label's flex:1 1 auto pushing it to the row's trailing edge. */
+	.thought-step-duration {
+		flex-shrink: 0;
+		font-variant-numeric: tabular-nums;
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-muted);
+	}
+
+	/* TS2-c — the default expanded view once a turn has a durable step rail:
+	   a compact, ordered list (thought-step rows + tool/status rows), no raw
+	   reasoning prose. Same layout rhythm as .raw-trace-view below it. */
+	.thought-step-clean-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+		width: 100%;
+		min-width: 0;
+	}
+
+	/* TS2-c — wraps a tool/connector-group row inside the clean list so it
+	   reads as a distinct inline chip rather than prose-adjacent text; the
+	   nested .tool-call-item keeps every bit of its existing behavior
+	   (favicons, connector grouping, agenda/photo peeks, failed badges) —
+	   only its outer shape changes here. */
+	.thought-rail-chip {
+		display: inline-flex;
+		align-items: center;
+		max-width: 100%;
+		margin: 2px 0;
+		padding: 3px 10px;
+		border-radius: 9999px;
+		border: 1px solid var(--border-default);
+		background: var(--surface-elevated);
+	}
+
+	.thought-rail-chip .tool-call-item {
+		margin: 0;
+	}
+
+	/* TS2-c — the opt-in "show full reasoning" control, off by default. A
+	   plain text-link style so it reads as a secondary, deliberate action,
+	   not another list row. */
+	.full-reasoning-toggle {
+		align-self: flex-start;
+		margin-top: var(--space-xs);
+		padding: 2px 0;
+		background: transparent;
+		border: none;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-muted);
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+		cursor: pointer;
+	}
+
+	.full-reasoning-toggle:hover,
+	.full-reasoning-toggle:focus-visible {
+		color: var(--text-secondary);
+	}
+
+	.full-reasoning-toggle:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: 2px;
+	}
+
+	/* TS2-c — the per-step anchored-span reveal (selecting a step) and the
+	   opt-in full-reasoning view share this same "back button + raw text"
+	   shape; P3c's original .raw-trace-view naming survives on the shared
+	   back-button style below since both are the same one-way-back pattern. */
+	.step-anchor-reveal,
+	.full-reasoning-view {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-xs);

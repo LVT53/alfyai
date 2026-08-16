@@ -958,6 +958,7 @@ function toggleForkDetails() {
 			answerStarted={hasVisibleContent}
 			liveThoughtStepClass={liveThoughtStepActivity?.detail}
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
+			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
 			thoughtSteps={message.thoughtSteps}
 			livePassIndex={livePassIndex}
 			livePassTotal={livePassTotal}
