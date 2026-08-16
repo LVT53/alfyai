@@ -1362,8 +1362,11 @@ once text begins). New pure `deliberation-progress.ts`. No new stream part names
 Never delays answer text. EN/HU keys added; reuses P1's aria-live + reduced-motion. Gate green: check 0/0
 tracked (6891 files), test **6314** (+17), build 0 warnings, fallow **50**, i18n 0 errors, Playwright 20/20.
 
-**🟢 WAVE S COMPLETE** (P1✅ P2✅ P3a✅ P3b✅ P3c✅ P3d✅ P4✅) — ready for the Wave-S batch staging deploy +
-live honesty audit (classifier enablement gate).
+**🟢 WAVE S COMPLETE + DEPLOYED + HONESTY-AUDIT PASSED** (P1✅ P2✅ P3a✅ P3b✅ P3c✅ P3d✅ P4✅). Deployed
+to staging `releases/7650ab31`. **Live honesty audit (P3a `--mode=live`) against real staging classifier
+output: PASS — 100.0% truthful (14/14), 0 fabricated action claims, 0 unanchored steps** across 46 sampled
+turns. The classifier's honesty-by-construction (no action classes, `impliesExternalAction` always false,
+anchored-only, verbatim entity) holds empirically → the P3 production-enablement gate is satisfied.
 
 - [ ] `passIndex` / `passTotal` surfaced at `maximum` depth — real progress, already computed
 - [ ] Concluding-phase detection flips the rail to a determinate final state
