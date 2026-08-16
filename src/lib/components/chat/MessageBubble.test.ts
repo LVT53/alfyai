@@ -823,7 +823,12 @@ describe("MessageBubble", () => {
 		expect(screen.getByTestId("reasoning-depth-indicator")).toHaveTextContent(
 			"Max reasoning depth",
 		);
-		expect(screen.getByText(/Thinking/)).toBeInTheDocument();
+		// P4 (ADR-0056) — the ThinkingBlock header now reuses this SAME
+		// passIndex/passTotal for a determinate "Pass 1 of 6" rail state
+		// instead of the generic indeterminate "Thinking..." sweep.
+		expect(
+			screen.getByRole("button", { name: "Pass 1 of 6" }),
+		).toBeInTheDocument();
 		expect(screen.queryByText("Preparing response...")).not.toBeInTheDocument();
 		expect(screen.queryByText("Preparing context")).not.toBeInTheDocument();
 		expect(

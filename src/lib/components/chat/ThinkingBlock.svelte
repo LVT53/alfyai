@@ -24,6 +24,7 @@ import {
 	deriveReasoningSpineState,
 	type ReasoningSpineLiveState,
 } from "$lib/utils/reasoning-spine";
+import { deriveDeliberationProgressState } from "$lib/utils/deliberation-progress";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import { resolveThoughtStepAnchorSpan } from "$lib/utils/thought-step-anchor";
 import {
@@ -76,6 +77,22 @@ let {
 	// `thoughtSteps`, mirroring `completionWarningCodes`), not only after a
 	// reload.
 	thoughtSteps = undefined,
+	// P4 (ADR-0056) — the raw wire values of the latest live "deliberation"
+	// data-response-activity entry (MessageBubble's own reuse of the same
+	// reverse-scan-latest-match pattern P3c already established for
+	// liveThoughtStepClass above). Both already exist on ResponseActivityEntry
+	// ($lib/types) and are already emitted by deliberation-runner.ts — this
+	// slice reuses them, it invents nothing new. See
+	// $lib/utils/deliberation-progress.ts for the pure decision this feeds.
+	livePassIndex = undefined,
+	livePassTotal = undefined,
+	// P4 (ADR-0056) — true once RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER has been
+	// observed this turn (MessageBubble scans the same
+	// message.responseActivity array). Combined with livePassTotal > 1, this
+	// is the concluding-phase signal: deliberation (including its silent
+	// tail passes) has fully resolved and the model has moved into the final
+	// answer-generating call.
+	draftingAnswerReached = false,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -86,6 +103,9 @@ let {
 	liveThoughtStepClass?: string;
 	liveThoughtStepEntity?: string;
 	thoughtSteps?: InterimThoughtStep[];
+	livePassIndex?: number;
+	livePassTotal?: number;
+	draftingAnswerReached?: boolean;
 } = $props();
 
 let expanded = $state(false);
@@ -509,6 +529,43 @@ const liveThoughtStepLabel = $derived(
 		? thoughtStepDisplayLabel(liveThoughtStepClass, liveThoughtStepEntity)
 		: null,
 );
+
+// P4 (ADR-0056) — the determinate deliberation-progress state, a pure
+// decision (deriveDeliberationProgressState) over already-computed
+// passIndex/passTotal plus the deterministic drafting-answer/answer-started
+// facts P1 already tracks. At `standard` depth (empty deliberation plan,
+// livePassTotal never set) this is always `{ kind: "none" }`, so the header
+// falls straight through to liveThoughtStepLabel/the spine label exactly as
+// it did before this slice — P4 is additive, never a branch that can change
+// standard-depth behavior.
+const deliberationProgressState = $derived(
+	deriveDeliberationProgressState({
+		passIndex: livePassIndex,
+		passTotal: livePassTotal,
+		draftingAnswerReached,
+		answerStarted,
+	}),
+);
+
+// Takes precedence over liveThoughtStepLabel: a numeric "pass N of M" or the
+// concluding state is strictly more informative than a qualitative
+// classified-step guess, which is the entire point of this slice — surface
+// determinate progress wherever the system genuinely has it. `null` when
+// there is nothing determinate to show, in which case the header falls back
+// exactly as it did before P4.
+const deliberationProgressLabel = $derived.by(() => {
+	const state = deliberationProgressState;
+	if (state.kind === "pass") {
+		return $t("chat.responseActivity.deliberationPass", {
+			index: state.index,
+			total: state.total,
+		});
+	}
+	if (state.kind === "concluding") {
+		return $t("chat.responseActivity.deliberationFinishing");
+	}
+	return null;
+});
 
 // Retrospective duration only — computed once the turn is done. The active
 // phase no longer shows any numeric elapsed time (see reasoningSpineState
@@ -1198,13 +1255,17 @@ async function toggle() {
 			this SAME region rather than adding a competing live region: a new
 			classified step is exactly the kind of coarse transition this was
 			already built for (the classifier itself rate-limits to roughly one
-			step per 5-7s).
+			step per 5-7s). P4 extends it again, same discipline: "pass N of M"
+			and the concluding state are rare, coarse transitions (deliberation
+			passes run on the order of seconds), never a competing live region.
 		-->
 		<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
 			{#if thinkingIsDone && formattedThinkingTime}
 				{$t('chat.thoughtFor', { time: formattedThinkingTime })}
 			{:else if thinkingIsDone}
 				{$t('chat.thought')}
+			{:else if deliberationProgressLabel}
+				{deliberationProgressLabel}
 			{:else if liveThoughtStepLabel}
 				{liveThoughtStepLabel}
 			{:else}

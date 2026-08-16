@@ -1609,4 +1609,161 @@ describe("ThinkingBlock", () => {
 			).toBeNull();
 		});
 	});
+
+	// P4 (ADR-0056) — determinate progress enrichment on top of P1's spine and
+	// P3c's rail, reusing the already-computed passIndex/passTotal
+	// (deliberation-pass-catalogue.ts) and RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER.
+	// No model call anywhere in this suite: every value arrives as a plain
+	// prop, exactly as it would after MessageBubble's reuse of the same
+	// reverse-scan-latest-match pattern P3c already established.
+	describe("P4 determinate deliberation progress (ADR-0056)", () => {
+		// The primary P4 regression test: `standard` depth never emits a
+		// deliberation activity at all (DELIBERATION_PASS_PLAN_BY_PROFILE.standard
+		// is []), so livePassIndex/livePassTotal are never populated — the new
+		// props simply default to undefined/false and P1's spine label governs
+		// exactly as it did before this slice.
+		it("leaves standard-depth (no deliberation plan) behavior byte-identical to P1 — no new props passed at all", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Considering the request",
+					thinkingIsDone: false,
+					segments: [],
+					streaming: true,
+				},
+			});
+
+			const header = screen.getByRole("button", { name: /Thinking/ });
+			expect(header.textContent?.trim()).toBe("Thinking...");
+		});
+
+		// At `standard` depth, RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER still fires
+		// (it is part of the deterministic spine for every depth — deliberation
+		// is simply a no-op there), but with no multi-pass plan ever observed
+		// this must NOT flip the header to the concluding state. Proves the
+		// concluding signal is gated on a real multi-pass total, not merely on
+		// drafting-answer having been reached.
+		it("does not enter the concluding state at standard depth even once drafting-answer is reached, since no multi-pass plan was ever observed", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Considering the request",
+					thinkingIsDone: false,
+					segments: [],
+					streaming: true,
+					draftingAnswerReached: true,
+				},
+			});
+
+			expect(screen.getByText("Thinking...")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Wrapping up deliberation..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("shows determinate pass N of M while a multi-pass maximum-depth plan is mid-flight", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					livePassIndex: 2,
+					livePassTotal: 6,
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Pass 2 of 6" }),
+			).toBeInTheDocument();
+		});
+
+		it("flips to the determinate concluding state once deliberation has resolved and drafting-answer is reached", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					livePassIndex: 6,
+					livePassTotal: 6,
+					draftingAnswerReached: true,
+				},
+			});
+
+			expect(
+				screen.getByText("Wrapping up deliberation..."),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
+		});
+
+		it("does not show pass N of M for a single-pass plan (extended depth) even once drafting-answer is reached", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					livePassIndex: 1,
+					livePassTotal: 1,
+					draftingAnswerReached: true,
+				},
+			});
+
+			expect(screen.getByText("Thinking...")).toBeInTheDocument();
+			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("Wrapping up deliberation..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("takes precedence over a classified thought-step label — determinate progress beats a qualitative guess", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					livePassIndex: 3,
+					livePassTotal: 6,
+					liveThoughtStepClass: "weighing-options",
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Pass 3 of 6" }),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText("Weighing the options..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("defers to P1's writing-the-answer state once the visible answer has started, even mid-plan with drafting-answer reached", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					livePassTotal: 6,
+					draftingAnswerReached: true,
+					answerStarted: true,
+				},
+			});
+
+			expect(screen.getByText("Writing the answer...")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Wrapping up deliberation..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("never leaks the live pass/concluding state into the completed header, which stays the retrospective duration", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: true,
+					thinkingDurationSeconds: 45,
+					livePassIndex: 6,
+					livePassTotal: 6,
+					draftingAnswerReached: true,
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Thought for 45s" }),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("Wrapping up deliberation..."),
+			).not.toBeInTheDocument();
+		});
+	});
 });

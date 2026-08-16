@@ -1350,8 +1350,20 @@ ignore-all-exports rule), biome clean on touched files, i18n 0 errors, synthetic
 correctly FAILs its adversarial fixtures (30.8% truthful — proving the auditor is unchanged and still
 works), Playwright `chat.spec.ts`/`streaming.spec.ts` 20/20.
 
-### P4 — Determinate progress where it already exists ⬜
-**Blocked by:** P3.
+### P4 — Determinate progress where it already exists ✅
+**Blocked by:** P3 — satisfied. **Client-only slice (zero server changes).** `passIndex`/`passTotal` were
+not unused — a legacy `deliberation-status-line` box already rendered them; the gap was that **P1's rail**
+(ThinkingBlock header) never did. P4 surfaces "Pass N of M" into the header (gated `passTotal>1`, so
+`standard` []-plan and `extended` single-pass are structurally excluded), and a concluding "Wrapping up
+deliberation…" state keyed off the reliable `DRAFTING_ANSWER` activity (emitted only after every — incl.
+silent — pass awaits; 5/6 max passes emit no per-pass status). Header precedence: done → deliberation
+progress → classified step (P3c) → spine (P1); defers to `answerStarted` (P1 `writing_answer` always wins
+once text begins). New pure `deliberation-progress.ts`. No new stream part names (allow-list test intact).
+Never delays answer text. EN/HU keys added; reuses P1's aria-live + reduced-motion. Gate green: check 0/0
+tracked (6891 files), test **6314** (+17), build 0 warnings, fallow **50**, i18n 0 errors, Playwright 20/20.
+
+**🟢 WAVE S COMPLETE** (P1✅ P2✅ P3a✅ P3b✅ P3c✅ P3d✅ P4✅) — ready for the Wave-S batch staging deploy +
+live honesty audit (classifier enablement gate).
 
 - [ ] `passIndex` / `passTotal` surfaced at `maximum` depth — real progress, already computed
 - [ ] Concluding-phase detection flips the rail to a determinate final state

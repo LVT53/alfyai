@@ -96,6 +96,18 @@ const chatDict = {
 		"chat.responseActivity.contextPreparation.retrieval":
 			"Retrieving context...",
 		"chat.responseActivity.contextPreparation.web": "Checking web context...",
+		// P4 (ADR-0056) — determinate progress read straight off the already-
+		// computed passIndex/passTotal (deliberation-pass-catalogue.ts) at
+		// `maximum` depth. "deliberationPass" is a compact numeric label for
+		// the live rail header, distinct from the older `chat.deliberatingProgress`
+		// template (which also embeds the flavor-text pass label elsewhere).
+		// "deliberationFinishing" is the concluding-phase state: shown once all
+		// planned passes have resolved and the model has moved into the final
+		// answer-generating call, but before any visible answer text has
+		// arrived (P1's own "writingAnswer" takes over the instant it does).
+		"chat.responseActivity.deliberationFinishing":
+			"Wrapping up deliberation...",
+		"chat.responseActivity.deliberationPass": "Pass {index} of {total}",
 		"chat.responseActivity.drafting": "Drafting response...",
 		"chat.responseActivity.finalizing": "Finalizing response...",
 		// P1 (ADR-0056) — deterministic reasoning-phase spine live states.
@@ -865,6 +877,8 @@ const chatDict = {
 			"Kontextus lekérése...",
 		"chat.responseActivity.contextPreparation.web":
 			"Webes kontextus ellenőrzése...",
+		"chat.responseActivity.deliberationFinishing": "Mérlegelés lezárása...",
+		"chat.responseActivity.deliberationPass": "{index}. lépés / {total}",
 		"chat.responseActivity.drafting": "Válasz megfogalmazása...",
 		"chat.responseActivity.finalizing": "Válasz véglegesítése...",
 		"chat.responseActivity.stillWorking": "Még mindig dolgozik...",

@@ -376,6 +376,33 @@ let liveDeliberationStatusDisplayLabel = $derived.by(() => {
 	}
 	return label;
 });
+// P4 (ADR-0056) — the same already-computed passIndex/passTotal reused above
+// for the legacy `chat.deliberatingProgress` line, fed instead into
+// ThinkingBlock's live header for the determinate "pass N of M" rail state.
+// Deliberately the SAME source values, not a second computation — see
+// $lib/utils/deliberation-progress.ts for the pure decision.
+let livePassIndex = $derived(
+	deliberationPassIndex(liveDeliberationStatus) ?? undefined,
+);
+let livePassTotal = $derived(
+	typeof liveDeliberationStatus?.passTotal === "number"
+		? liveDeliberationStatus.passTotal
+		: undefined,
+);
+// P4 (ADR-0056) — true once RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER has been
+// observed anywhere in this turn's activity log: every planned deliberation
+// pass (including silent ones — deliberation-runner.ts's isLocalOnlyPass
+// never emits their individual status) has resolved and the model has moved
+// into the final answer-generating call. Unlike liveDeliberationStatus's
+// reverse-scan-latest-MATCH, this only needs presence, not the newest entry,
+// since drafting-answer fires exactly once per turn.
+let liveDraftingAnswerReached = $derived(
+	liveResponseActivityEntries.some(
+		(entry) =>
+			entry.kind === "drafting" &&
+			entry.id === RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER,
+	),
+);
 let liveToolProgressActivityEntries = $derived(
 	markdownIsStreaming
 		? liveResponseActivityEntries.filter(isToolProgressActivity)
@@ -904,6 +931,9 @@ function toggleForkDetails() {
 			liveThoughtStepClass={liveThoughtStepActivity?.detail}
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			thoughtSteps={message.thoughtSteps}
+			livePassIndex={livePassIndex}
+			livePassTotal={livePassTotal}
+			draftingAnswerReached={liveDraftingAnswerReached}
 		/>
 		{/if}
 		{#if isUser}
