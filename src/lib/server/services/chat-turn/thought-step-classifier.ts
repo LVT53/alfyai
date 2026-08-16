@@ -12,6 +12,7 @@ import {
 	type ThoughtStepClassifierVerdict,
 } from "$lib/response-activity-types";
 import { recordControlModelUsage } from "../analytics";
+import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
 import { createRequestAbortSignal } from "./shared-normal-chat-model-run-helpers";
@@ -63,6 +64,24 @@ import { extractVerbatimTopic } from "./turn-acknowledgment";
  * is ever added to `getSteps()`'s result. A step whose anchor does not
  * resolve is silently dropped, never emitted; there is no code path that
  * pushes an unanchored step.
+ *
+ * Follow-up (2026-08-16) to the amendment above — summary LANGUAGE. The
+ * reasoning stream is in English regardless of the conversation's UI/response
+ * language (DeepSeek always reasons in English), so a summary written "in the
+ * same language as the fragment" surfaced English prose in Hungarian chats.
+ * `createThoughtStepClassifierSession` now takes a `targetLanguage`
+ * (threaded from the turn's own deterministic response-language signal —
+ * `detectLanguage`, the SAME function `buildResponseLanguageGuard` already
+ * uses to tell the model itself what language to answer in; see
+ * stream-orchestrator.ts) and the classifier prompt instructs the model to
+ * write the summary in that language while copying technical terms, proper
+ * nouns, identifiers, and numbers VERBATIM from the (possibly English)
+ * fragment. `hasVerbatimContentWordTether` needs no change for this: it
+ * already matches on shared TOKENS regardless of which language surrounds
+ * them, so a Hungarian summary that keeps a verbatim English technical term
+ * still tethers. A summary sharing no verbatim term still falls back to the
+ * plain localized phase label exactly as before — the floor is a Hungarian
+ * phase label, never English prose.
  */
 
 // ── Sampling: discourse-marker regex as a TRIGGER ONLY ─────────────────────
@@ -118,13 +137,23 @@ const THOUGHT_STEP_CLASSIFIER_MAX_TOKENS = 150;
 
 function buildThoughtStepClassifierSystemPrompt(
 	currentActivityClass: ThoughtStepClassifierActivityClass | null,
+	// Amendment (2026-08-16) to ADR-0056, follow-up — the chrome (labels,
+	// buttons, phase names) is already localized EN/HU, but the reasoning
+	// stream itself is in English regardless of UI language (DeepSeek always
+	// reasons in English). The summary must render in the CONVERSATION's
+	// response language, not whichever language the fragment happens to be
+	// in — defaults to English when the caller has no signal at all.
+	targetLanguage: SupportedLanguage = "en",
 ): string {
 	const currentDescription = currentActivityClass
 		? `The step currently in progress is classified as "${currentActivityClass}".`
 		: "No step has been classified yet for this turn — this is the first fragment.";
+	const targetLanguageLabel = targetLanguage === "hu" ? "Hungarian" : "English";
 	return `You are classifying a short fragment of an AI assistant's PRIVATE internal reasoning trace (never the final answer shown to a user) into one of a small set of activity categories, and writing a short summary of it. Respond with strict JSON only, matching exactly: {"verdict": "new_step" | "continuation", "activityClass": one of "understanding-request" | "recalling-context" | "weighing-options" | "working-through-logic" | "checking-details" | "drafting-approach" (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "summary": a short present-tense paraphrase of the fragment (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "entity": a short phrase copied verbatim from the fragment, or omit the field}.
 
 ${currentDescription}
+
+The conversation's response language is ${targetLanguageLabel}. The fragment below may be written in a different language than that (the assistant's private reasoning is not always in the same language as its final answer) — this affects the "summary" field only, per the summary rules below.
 
 verdict meanings:
 - "continuation": the fragment is still doing the SAME kind of work as the step in progress.
@@ -140,10 +169,10 @@ activityClass meanings (only used when verdict is "new_step"):
 
 summary rules (only used when verdict is "new_step"; checked mechanically, not just requested):
 - Write a short, present-tense paraphrase of what THIS fragment is doing — 10 words or fewer.
-- It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. You may paraphrase everything else, but the subject must stay traceable to the fragment's own words.
+- Write the summary in ${targetLanguageLabel} — the conversation's response language — no matter what language the reasoning fragment below is written in.
+- It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. Technical terms, proper nouns, identifiers (API/library/product names, error codes, file names), and numbers are the best choice for this: copy them exactly as written and leave them untranslated. You may paraphrase everything else into ${targetLanguageLabel}, but the subject must stay traceable to the fragment's own words.
 - Describe ONLY what the reasoning is doing with content that is actually present in the fragment. Never introduce an entity, fact, claim, or conclusion that is not in the fragment — no outside knowledge, no guessing ahead to the answer.
 - Never state or imply that an external action happened (searching, fetching, browsing, reading a connected account, calling a tool) — this is private reasoning, not an event log; only describe internal thought.
-- Write it in the same language as the fragment.
 
 entity rules (critical — this is checked mechanically, not just requested):
 - Copy it EXACTLY, character for character, from the fragment below. Never translate, paraphrase, summarize, or invent it.
@@ -524,6 +553,10 @@ export async function classifyThoughtStepChunk(params: {
 	chunkText: string;
 	currentActivityClass: ThoughtStepClassifierActivityClass | null;
 	signal?: AbortSignal;
+	/** The conversation's response language, threaded from the turn (see
+	 * stream-orchestrator.ts, `detectLanguage(normalizedMessage)`) — NOT
+	 * detected here. Defaults to English when the caller has no signal. */
+	targetLanguage?: SupportedLanguage;
 }): Promise<ThoughtStepClassifierResult | null> {
 	if (
 		inFlightThoughtStepClassifierCalls >=
@@ -544,6 +577,7 @@ export async function classifyThoughtStepChunk(params: {
 		const result = await sendJsonControlMessage(params.chunkText, "model2", {
 			systemPrompt: buildThoughtStepClassifierSystemPrompt(
 				params.currentActivityClass,
+				params.targetLanguage,
 			),
 			thinkingMode: "off",
 			temperature: 0,
@@ -630,6 +664,13 @@ export function createThoughtStepClassifierSession(params: {
 	 * sample degrades silently on its own via `classify` returning `null`. */
 	enabled?: boolean;
 	classify?: ThoughtStepClassifyFn;
+	/** The conversation's response language, threaded from the turn (see
+	 * stream-orchestrator.ts, `detectLanguage(normalizedMessage)` — the same
+	 * deterministic signal `buildResponseLanguageGuard` already uses to tell
+	 * the model itself what language to answer in). Fixed for the life of
+	 * the turn, so it is bound once here rather than passed per sample.
+	 * Defaults to English when the caller has no signal. */
+	targetLanguage?: SupportedLanguage;
 	/** Fired once per NEW step (never for a continuation, which extends the
 	 * existing step in place instead). */
 	onStep?: (step: InterimThoughtStep) => void;
@@ -646,6 +687,7 @@ export function createThoughtStepClassifierSession(params: {
 				chunkText: args.chunkText,
 				currentActivityClass: args.currentActivityClass,
 				signal: params.signal,
+				targetLanguage: params.targetLanguage,
 			}));
 
 	let thinkingSoFar = "";

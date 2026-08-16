@@ -72,6 +72,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
+import { detectLanguage } from "$lib/server/services/language";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
@@ -494,6 +495,14 @@ export function runChatStreamOrchestrator(
 				userId: user.id,
 				conversationId,
 				signal: downstreamSignal,
+				// Amendment (2026-08-16) to ADR-0056 — the summary must render in
+				// the conversation's response language, not whatever language the
+				// model happens to reason in (DeepSeek always reasons in English).
+				// `detectLanguage` is the SAME deterministic, model-free signal
+				// `buildResponseLanguageGuard` (normal-chat-context.ts) already uses
+				// to tell the model itself what language to answer in — reused here
+				// rather than inventing a second detection mechanism.
+				targetLanguage: detectLanguage(normalizedMessage),
 				onStep: (step) => {
 					emitResponseActivity({
 						id: `thought-step:${step.id}`,

@@ -425,6 +425,8 @@ You will be given:
 - ANCHORED SPAN: a verbatim excerpt from a model's own raw chain-of-thought reasoning.
 - SUMMARY: a short, present-tense paraphrase composed to describe what the ANCHORED SPAN says.
 
+The SUMMARY and the ANCHORED SPAN may be written in DIFFERENT languages — the SUMMARY is deliberately written in the conversation's response language (e.g. Hungarian) while the ANCHORED SPAN is the model's raw reasoning, which is very often English regardless. This is EXPECTED and is never itself a faithfulness problem. Judge MEANING and ENTAILMENT ACROSS languages, exactly as a bilingual reader would: translate mentally as needed and ask whether the SUMMARY's claims are supported by the SPAN's claims, never whether the two are written in the same language. A correct, faithful translation or paraphrase into another language is faithful. Only judge the SUMMARY unfaithful on the substantive grounds below — a language mismatch by itself is never one of them.
+
 Judge whether the SUMMARY is faithful to the ANCHORED SPAN — i.e. it is ENTAILED by the span:
 - Every claim, entity, and fact in the SUMMARY must be supported by the ANCHORED SPAN.
 - The SUMMARY must introduce NO entity, fact, or claim that is absent from the ANCHORED SPAN (no invented specificity).

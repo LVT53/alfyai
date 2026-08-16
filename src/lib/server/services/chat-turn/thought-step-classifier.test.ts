@@ -216,6 +216,130 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	// Follow-up (2026-08-16) to the amendment above — summary LANGUAGE. The
+	// classifier system prompt must carry the given target language through
+	// to the control-model call, so a Hungarian-conversation turn asks for a
+	// Hungarian summary instead of "the same language as the fragment".
+	it("threads a Hungarian targetLanguage into the classifier system prompt", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		expect(options.systemPrompt).toContain(
+			"The conversation's response language is Hungarian.",
+		);
+		expect(options.systemPrompt).toContain(
+			"Write the summary in Hungarian — the conversation's response language",
+		);
+		expect(options.systemPrompt).not.toContain("response language is English");
+	});
+
+	it("defaults the classifier system prompt to English when no targetLanguage is given", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		expect(options.systemPrompt).toContain(
+			"The conversation's response language is English.",
+		);
+	});
+
+	// A Hungarian summary that keeps a verbatim, language-neutral technical
+	// term from the (English) reasoning chunk must still tether — the
+	// runtime guard matches on shared TOKENS, not on matching languages.
+	it("keeps a HU summary that carries a verbatim technical-term tether to an EN reasoning chunk", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"A Kafka üzenetsor működését vizsgálja át"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "I need to check how the Kafka message queue handles retries.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+			summary: "A Kafka üzenetsor működését vizsgálja át",
+		});
+	});
+
+	// The floor: a HU summary sharing NO verbatim term with the (English)
+	// chunk is dropped exactly like the EN case above — never emitted as
+	// English prose, never emitted as an untethered Hungarian guess. The step
+	// still emits with its class, so the caller falls back to the localized
+	// phase label, never to English.
+	it("drops a HU summary with NO verbatim term shared with the EN chunk, falling back to the class (phase-label floor)", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"Valami egészen másra gondol most"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "I need to check how the Kafka message queue handles retries.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+		});
+	});
+
 	it('drops a summary whose only overlap with the chunk is stop words ("the"/"is"/"a" do not count as a tether)', async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(

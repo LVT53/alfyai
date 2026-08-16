@@ -1272,6 +1272,66 @@ describe("stream-orchestrator SSE contract", () => {
 		});
 	});
 
+	// Follow-up (2026-08-16) to ADR-0056's amendment — summary LANGUAGE. The
+	// classifier session must receive the turn's own deterministic response
+	// language (`detectLanguage(normalizedMessage)`, the SAME signal
+	// `buildResponseLanguageGuard` already uses to tell the model what
+	// language to answer in), not a language guessed at the classifier
+	// call site itself.
+	it("threads the turn's detected response language into the classifier session as targetLanguage", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Szia" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "hu-language-conv",
+			normalizedMessage: "Szia, tudnál segíteni ebben a kérdésben?",
+		});
+		await readSseResponse(response);
+
+		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
+			expect.objectContaining({ targetLanguage: "hu" }),
+		);
+	});
+
+	it("threads English as the target language for an English turn", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "en-language-conv",
+			normalizedMessage: "Could you help me with this question?",
+		});
+		await readSseResponse(response);
+
+		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
+			expect.objectContaining({ targetLanguage: "en" }),
+		);
+	});
+
 	// R1 defect 4 — the live `onStep` -> `emitResponseActivity` mapping must
 	// forward `step.entity` as `label`, matching the persisted step shape.
 	// The client's live thought-step header (ThinkingBlock's
