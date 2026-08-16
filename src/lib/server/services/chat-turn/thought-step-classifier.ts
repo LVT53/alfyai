@@ -169,6 +169,7 @@ activityClass meanings (only used when verdict is "new_step"):
 
 summary rules (only used when verdict is "new_step"; checked mechanically, not just requested):
 - Write a short, present-tense paraphrase of what THIS fragment is doing — 10 words or fewer.
+- Summarize the SUBSTANTIVE thinking, never administrative framing. Do NOT quote or restate the user's request, and do NOT begin the summary with a meta label such as "Latest user request", "The user wants", "The user is asking", "User asked", "User request", or "Task:". If the fragment only restates the request, describe the mental activity itself (e.g. taking the request in) in ${targetLanguageLabel} — never the request text.
 - Write the summary in ${targetLanguageLabel} — the conversation's response language — no matter what language the reasoning fragment below is written in.
 - It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. Technical terms, proper nouns, identifiers (API/library/product names, error codes, file names), and numbers are the best choice for this: copy them exactly as written and leave them untranslated. You may paraphrase everything else into ${targetLanguageLabel}, but the subject must stay traceable to the fragment's own words.
 - Describe ONLY what the reasoning is doing with content that is actually present in the fragment. Never introduce an entity, fact, claim, or conclusion that is not in the fragment — no outside knowledge, no guessing ahead to the answer.
@@ -513,6 +514,20 @@ export function assertsExternalAction(summary: string): boolean {
  * still emits the step with its class + entity, exactly as it did before
  * this amendment).
  */
+// Meta / administrative fragments — the model restating the user's request or
+// quoting its own prompt scaffolding — make weak, non-thinking summaries like
+// "Latest user request: ...". The classifier prompt is told to avoid these; a
+// summary that begins with such a label is dropped to the plain phase-label
+// floor (defense-in-depth) so it is never shown as a thinking step. English
+// only on purpose: the model reasons in English, so these scaffolding labels
+// it echoes are English even in a non-English conversation.
+const META_RESTATEMENT_PREFIX_REGEX =
+	/^(?:latest\s+user\s+request|the\s+user(?:'s)?\s+(?:request|message|prompt)\b|the\s+user\s+(?:wants|is\s+asking|asks|asked|requested|requests)\b|user\s+(?:request|message)\b|the\s+(?:request|prompt)\s+is\b|(?:the\s+)?task\s*[:\-–—])/i;
+
+export function isMetaRestatement(summary: string): boolean {
+	return META_RESTATEMENT_PREFIX_REGEX.test(summary.trim());
+}
+
 function extractGroundedSummary(
 	candidate: string | undefined,
 	anchoredText: string,
@@ -520,6 +535,7 @@ function extractGroundedSummary(
 	const trimmed = candidate?.trim();
 	if (!trimmed) return undefined;
 	if (assertsExternalAction(trimmed)) return undefined;
+	if (isMetaRestatement(trimmed)) return undefined;
 	return hasVerbatimContentWordTether(trimmed, anchoredText)
 		? trimmed
 		: undefined;

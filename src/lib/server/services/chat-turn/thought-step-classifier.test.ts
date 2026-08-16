@@ -740,6 +740,36 @@ describe("hasVerbatimContentWordTether", () => {
 // summary is otherwise perfectly verbatim-tethered, which the tether check
 // alone can never catch (tether only proves a word is genuine, not that it
 // doesn't assert an action).
+describe("isMetaRestatement", () => {
+	it("drops summaries that begin with a meta/administrative label", async () => {
+		const { isMetaRestatement } = await import("./thought-step-classifier");
+		expect(
+			isMetaRestatement("Latest user request: compare the two databases"),
+		).toBe(true);
+		expect(isMetaRestatement("The user wants a leaderboard design")).toBe(true);
+		expect(isMetaRestatement("The user's request about caching")).toBe(true);
+		expect(isMetaRestatement("User request: build a rate limiter")).toBe(true);
+		expect(isMetaRestatement("Task: shard the social graph")).toBe(true);
+		expect(isMetaRestatement("The prompt is ambiguous")).toBe(true);
+	});
+
+	it("keeps genuine thinking summaries, including ones that merely contain 'task'/'prompt' as normal words", async () => {
+		const { isMetaRestatement } = await import("./thought-step-classifier");
+		expect(isMetaRestatement("Weighing Kafka vs RabbitMQ throughput")).toBe(
+			false,
+		);
+		expect(isMetaRestatement("Task management approach for the sprint")).toBe(
+			false,
+		);
+		expect(isMetaRestatement("Mapping the prompt tokens to embeddings")).toBe(
+			false,
+		);
+		expect(
+			isMetaRestatement("Comparing PostgreSQL and MongoDB consistency"),
+		).toBe(false);
+	});
+});
+
 describe("assertsExternalAction", () => {
 	it("matches a plain EN search verb", async () => {
 		const { assertsExternalAction } = await import("./thought-step-classifier");
