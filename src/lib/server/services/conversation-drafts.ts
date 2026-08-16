@@ -1,5 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "$lib/server/db";
+import {
+	type QueryExecutor,
+	queryExecutor,
+} from "$lib/server/db/query-executor";
 import { conversationDrafts } from "$lib/server/db/schema";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ConversationDraft } from "$lib/server/services/conversations";
@@ -123,17 +126,20 @@ function parseAtlasProfile(value: unknown): AtlasProfile | null {
 export async function getConversationDraft(
 	userId: string,
 	conversationId: string,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<ConversationDraft | null> {
-	const [row] = await db
-		.select()
-		.from(conversationDrafts)
-		.where(
-			and(
-				eq(conversationDrafts.userId, userId),
-				eq(conversationDrafts.conversationId, conversationId),
-			),
-		)
-		.limit(1);
+	const [row] = await executor.run("conversationDrafts.get", (db) =>
+		db
+			.select()
+			.from(conversationDrafts)
+			.where(
+				and(
+					eq(conversationDrafts.userId, userId),
+					eq(conversationDrafts.conversationId, conversationId),
+				),
+			)
+			.limit(1),
+	);
 
 	if (!row) return null;
 
@@ -179,17 +185,20 @@ export async function getConversationDraft(
 	};
 }
 
-export async function upsertConversationDraft(params: {
-	userId: string;
-	conversationId: string;
-	draftText: string;
-	selectedAttachmentIds: string[];
-	selectedLinkedSources?: LinkedContextSource[];
-	pendingSkill?: PendingSkillSelection | null;
-	atlasMode?: boolean;
-	atlasProfile?: AtlasProfile | null;
-	clientAtlasTurnId?: string | null;
-}): Promise<ConversationDraft | null> {
+export async function upsertConversationDraft(
+	params: {
+		userId: string;
+		conversationId: string;
+		draftText: string;
+		selectedAttachmentIds: string[];
+		selectedLinkedSources?: LinkedContextSource[];
+		pendingSkill?: PendingSkillSelection | null;
+		atlasMode?: boolean;
+		atlasProfile?: AtlasProfile | null;
+		clientAtlasTurnId?: string | null;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<ConversationDraft | null> {
 	const selectedAttachmentIds = Array.from(
 		new Set(params.selectedAttachmentIds),
 	);
@@ -211,27 +220,19 @@ export async function upsertConversationDraft(params: {
 			atlasMode,
 		)
 	) {
-		await clearConversationDraft(params.userId, params.conversationId);
+		await clearConversationDraft(
+			params.userId,
+			params.conversationId,
+			executor,
+		);
 		return null;
 	}
 
-	await db
-		.insert(conversationDrafts)
-		.values({
-			conversationId: params.conversationId,
-			userId: params.userId,
-			draftText,
-			selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
-			selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
-			pendingSkillJson: JSON.stringify(pendingSkill),
-			atlasMode,
-			atlasProfile,
-			clientAtlasTurnId,
-			updatedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: conversationDrafts.conversationId,
-			set: {
+	await executor.run("conversationDrafts.upsert", (db) =>
+		db
+			.insert(conversationDrafts)
+			.values({
+				conversationId: params.conversationId,
 				userId: params.userId,
 				draftText,
 				selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
@@ -241,22 +242,39 @@ export async function upsertConversationDraft(params: {
 				atlasProfile,
 				clientAtlasTurnId,
 				updatedAt: new Date(),
-			},
-		});
+			})
+			.onConflictDoUpdate({
+				target: conversationDrafts.conversationId,
+				set: {
+					userId: params.userId,
+					draftText,
+					selectedAttachmentIdsJson: JSON.stringify(selectedAttachmentIds),
+					selectedLinkedSourcesJson: JSON.stringify(selectedLinkedSources),
+					pendingSkillJson: JSON.stringify(pendingSkill),
+					atlasMode,
+					atlasProfile,
+					clientAtlasTurnId,
+					updatedAt: new Date(),
+				},
+			}),
+	);
 
-	return getConversationDraft(params.userId, params.conversationId);
+	return getConversationDraft(params.userId, params.conversationId, executor);
 }
 
 export async function clearConversationDraft(
 	userId: string,
 	conversationId: string,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<void> {
-	await db
-		.delete(conversationDrafts)
-		.where(
-			and(
-				eq(conversationDrafts.userId, userId),
-				eq(conversationDrafts.conversationId, conversationId),
+	await executor.run("conversationDrafts.clear", (db) =>
+		db
+			.delete(conversationDrafts)
+			.where(
+				and(
+					eq(conversationDrafts.userId, userId),
+					eq(conversationDrafts.conversationId, conversationId),
+				),
 			),
-		);
+	);
 }

@@ -1090,8 +1090,27 @@ check 0/0 tracked, test **6314**, build 0 warnings, **fallow 49** (below baselin
       their domain
 - [ ] Re-export shim only if needed, and time-boxed
 
-### X1 — DB execution seam ⬜
-**Blocked by:** E1/E2, and ordered **last** in the programme.
+### X1 — DB execution seam ✅
+**Blocked by:** E1/E2 (satisfied), and ordered **last** in the programme.
+
+**X1 execution status (2026-08-16).** Branch `thought-steps`. Strangler, not big-bang. New
+`src/lib/server/db/query-executor.ts` — `QueryExecutor.run(label, compose)` where `compose(db)` returns any
+Drizzle `ExecutableQuery` (native `.execute()`); execution-only (**zero schema symbols** — not a per-table
+wrapper), times every call, records instrumentation, DI via `createQueryExecutor(database)` + a
+`queryExecutor` prod default; migrated fns take an optional trailing `executor = queryExecutor` (non-breaking).
+Required **in-memory adapter** `db/in-memory.ts` (`createInMemoryDatabase()` = `:memory:` + real migrations)
+centralizes the temp-file+env-swap dance 76 suites hand-rolled. **3 DB-booting suites converted → DB-boot
+test files 76→73.** **Instrumentation genuinely in use**: `db/query-instrumentation.ts` (`recordQueryTiming`,
+per-label aggregation, content-free) fires on every migrated call (ok + error paths), asserted by tests.
+Migrated 3 whole modules end-to-end (conversation-drafts, user-admin, browser-push; 20 call sites) — no
+two-path module; `db/index.ts` byte-for-byte untouched. Honest note: a precise re-count found ~578 real
+`db.<verb>(` sites (ADR's 117 undercounts) — 3 modules is ~a few %, squarely "meaningful, not big-bang".
+`user-admin.default-model.test.ts` deliberately NOT converted (config-store.ts ambient-`db` entanglement,
+out of scope). **Auto-stop self-check: both signals present (DB-boot files fell + instrumentation firing) →
+no halt.** Framed as a scaling property, not a latency fix (per ADR-0059). Gate green: check 0/0 tracked,
+test **6320** (+6), build 0 warnings, fallow **49**, biome clean, schema untouched.
+
+**🟢 WAVE 3 COMPLETE (E1✅ E2✅ T1✅ X1✅). ALL PROGRAMME SLICES IMPLEMENTED + GATE-GREEN.**
 
 ADR-0059 accepted; both conventions already amended. Implement as a strangler — see §1.
 

@@ -1,75 +1,68 @@
-import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	createInMemoryDatabase,
+	type InMemoryDatabase,
+} from "$lib/server/db/in-memory";
+import {
+	createQueryExecutor,
+	type QueryExecutor,
+} from "$lib/server/db/query-executor";
 import * as schema from "$lib/server/db/schema";
+import {
+	clearConversationDraft,
+	getConversationDraft,
+	upsertConversationDraft,
+} from "./conversation-drafts";
 
-let dbPath: string;
+let memory: InMemoryDatabase;
+let executor: QueryExecutor;
 
 function seedConversation() {
-	const sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	const db = drizzle(sqlite, { schema });
-	migrate(db, { migrationsFolder: "./drizzle" });
-
-	db.insert(schema.users)
+	memory.db
+		.insert(schema.users)
 		.values({ id: "user-1", email: "user-1@example.com", passwordHash: "hash" })
 		.run();
-	db.insert(schema.conversations)
+	memory.db
+		.insert(schema.conversations)
 		.values({ id: "conv-1", userId: "user-1", title: "Draft test" })
 		.run();
-
-	sqlite.close();
 }
 
 describe("conversation drafts", () => {
 	beforeEach(() => {
-		dbPath = `/tmp/alfyai-conversation-drafts-${randomUUID()}.db`;
-		process.env.DATABASE_PATH = dbPath;
-		vi.resetModules();
+		memory = createInMemoryDatabase();
+		executor = createQueryExecutor(memory.db);
 	});
 
-	afterEach(async () => {
-		try {
-			const { sqlite } = await import("$lib/server/db");
-			sqlite.close();
-		} catch {
-			// The DB module may not have been imported if a test failed early.
-		}
-		try {
-			unlinkSync(dbPath);
-		} catch {
-			// Temporary DB cleanup is best-effort.
-		}
+	afterEach(() => {
+		memory.close();
 	});
 
 	it("round-trips full pending skill selection metadata", async () => {
 		seedConversation();
-		const { getConversationDraft, upsertConversationDraft } = await import(
-			"./conversation-drafts"
+
+		await upsertConversationDraft(
+			{
+				userId: "user-1",
+				conversationId: "conv-1",
+				draftText: "Use this variant later",
+				selectedAttachmentIds: [],
+				selectedLinkedSources: [],
+				pendingSkill: {
+					id: "variant-1",
+					ownership: "user",
+					skillKind: "skill_variant",
+					displayName: "Daily workbook variant",
+					baseSkillId: "system:spreadsheet-builder",
+					baseSkillDisplayName: "Spreadsheet Builder",
+					unavailable: true,
+				},
+			},
+			executor,
 		);
 
-		await upsertConversationDraft({
-			userId: "user-1",
-			conversationId: "conv-1",
-			draftText: "Use this variant later",
-			selectedAttachmentIds: [],
-			selectedLinkedSources: [],
-			pendingSkill: {
-				id: "variant-1",
-				ownership: "user",
-				skillKind: "skill_variant",
-				displayName: "Daily workbook variant",
-				baseSkillId: "system:spreadsheet-builder",
-				baseSkillDisplayName: "Spreadsheet Builder",
-				unavailable: true,
-			},
-		});
-
 		await expect(
-			getConversationDraft("user-1", "conv-1"),
+			getConversationDraft("user-1", "conv-1", executor),
 		).resolves.toMatchObject({
 			pendingSkill: {
 				id: "variant-1",
@@ -81,5 +74,59 @@ describe("conversation drafts", () => {
 				unavailable: true,
 			},
 		});
+	});
+
+	it("clears a draft when the update leaves nothing meaningful behind", async () => {
+		seedConversation();
+
+		await upsertConversationDraft(
+			{
+				userId: "user-1",
+				conversationId: "conv-1",
+				draftText: "Something in progress",
+				selectedAttachmentIds: [],
+			},
+			executor,
+		);
+		await expect(
+			getConversationDraft("user-1", "conv-1", executor),
+		).resolves.not.toBeNull();
+
+		await upsertConversationDraft(
+			{
+				userId: "user-1",
+				conversationId: "conv-1",
+				draftText: "",
+				selectedAttachmentIds: [],
+			},
+			executor,
+		);
+
+		await expect(
+			getConversationDraft("user-1", "conv-1", executor),
+		).resolves.toBeNull();
+	});
+
+	it("clearConversationDraft removes a stored draft", async () => {
+		seedConversation();
+
+		await upsertConversationDraft(
+			{
+				userId: "user-1",
+				conversationId: "conv-1",
+				draftText: "Draft to clear",
+				selectedAttachmentIds: [],
+			},
+			executor,
+		);
+		await expect(
+			getConversationDraft("user-1", "conv-1", executor),
+		).resolves.not.toBeNull();
+
+		await clearConversationDraft("user-1", "conv-1", executor);
+
+		await expect(
+			getConversationDraft("user-1", "conv-1", executor),
+		).resolves.toBeNull();
 	});
 });

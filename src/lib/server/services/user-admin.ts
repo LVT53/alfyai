@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { count, eq, inArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
-import { db } from "$lib/server/db";
+import {
+	type QueryExecutor,
+	queryExecutor,
+} from "$lib/server/db/query-executor";
 import {
 	analyticsConversations,
 	sessions,
@@ -33,37 +36,42 @@ function normalizeName(name: string | null | undefined): string | null {
 	return trimmed ? trimmed : null;
 }
 
-async function getUserById(userId: string) {
-	const [row] = await db
-		.select()
-		.from(users)
-		.where(eq(users.id, userId))
-		.limit(1);
+async function getUserById(executor: QueryExecutor, userId: string) {
+	const [row] = await executor.run("userAdmin.getUserById", (db) =>
+		db.select().from(users).where(eq(users.id, userId)).limit(1),
+	);
 	return row ?? null;
 }
 
-async function countAdmins(): Promise<number> {
-	const rows = await db
-		.select({ count: count(users.id) })
-		.from(users)
-		.where(eq(users.role, "admin"));
+async function countAdmins(executor: QueryExecutor): Promise<number> {
+	const rows = await executor.run("userAdmin.countAdmins", (db) =>
+		db
+			.select({ count: count(users.id) })
+			.from(users)
+			.where(eq(users.role, "admin")),
+	);
 	return Number(rows[0]?.count ?? 0);
 }
 
-async function ensureNotLastAdmin(userId: string): Promise<void> {
-	const user = await getUserById(userId);
+async function ensureNotLastAdmin(
+	executor: QueryExecutor,
+	userId: string,
+): Promise<void> {
+	const user = await getUserById(executor, userId);
 	if (user?.role !== "admin") return;
 
-	const adminCount = await countAdmins();
+	const adminCount = await countAdmins(executor);
 	if (adminCount <= 1) {
 		throw new Error("The last admin account cannot be removed or demoted.");
 	}
 }
 
-export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
-	const userRows = (await db.select().from(users)).filter(
-		(row) => row.id !== DETACHED_SHARED_CONTENT_OWNER_ID,
-	);
+export async function listManagedUsers(
+	executor: QueryExecutor = queryExecutor,
+): Promise<AdminManagedUserSummary[]> {
+	const userRows = (
+		await executor.run("userAdmin.listUsers", (db) => db.select().from(users))
+	).filter((row) => row.id !== DETACHED_SHARED_CONTENT_OWNER_ID);
 
 	if (userRows.length === 0) {
 		return [];
@@ -71,48 +79,64 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 
 	const userIds = userRows.map((row) => row.id);
 
-	const conversationRows = await db
-		.select({
-			userId: analyticsConversations.userId,
-			conversationCount: count(analyticsConversations.id),
-		})
-		.from(analyticsConversations)
-		.where(inArray(analyticsConversations.userId, userIds))
-		.groupBy(analyticsConversations.userId);
+	const conversationRows = await executor.run(
+		"userAdmin.conversationCountsByUser",
+		(db) =>
+			db
+				.select({
+					userId: analyticsConversations.userId,
+					conversationCount: count(analyticsConversations.id),
+				})
+				.from(analyticsConversations)
+				.where(inArray(analyticsConversations.userId, userIds))
+				.groupBy(analyticsConversations.userId),
+	);
 
-	const analyticsRows = await db
-		.select({
-			userId: usageEvents.userId,
-			messageCount: count(usageEvents.id),
-			promptTokens: sql<number>`coalesce(sum(${usageEvents.promptTokens}), 0)`,
-			cachedInputTokens: sql<number>`coalesce(sum(${usageEvents.cachedInputTokens}), 0)`,
-			cacheHitTokens: sql<number>`coalesce(sum(${usageEvents.cacheHitTokens}), 0)`,
-			cacheMissTokens: sql<number>`coalesce(sum(${usageEvents.cacheMissTokens}), 0)`,
-			completionTokens: sql<number>`coalesce(sum(${usageEvents.completionTokens}), 0)`,
-			reasoningTokens: sql<number>`coalesce(sum(${usageEvents.reasoningTokens}), 0)`,
-		})
-		.from(usageEvents)
-		.where(inArray(usageEvents.userId, userIds))
-		.groupBy(usageEvents.userId);
+	const analyticsRows = await executor.run(
+		"userAdmin.usageTotalsByUser",
+		(db) =>
+			db
+				.select({
+					userId: usageEvents.userId,
+					messageCount: count(usageEvents.id),
+					promptTokens: sql<number>`coalesce(sum(${usageEvents.promptTokens}), 0)`,
+					cachedInputTokens: sql<number>`coalesce(sum(${usageEvents.cachedInputTokens}), 0)`,
+					cacheHitTokens: sql<number>`coalesce(sum(${usageEvents.cacheHitTokens}), 0)`,
+					cacheMissTokens: sql<number>`coalesce(sum(${usageEvents.cacheMissTokens}), 0)`,
+					completionTokens: sql<number>`coalesce(sum(${usageEvents.completionTokens}), 0)`,
+					reasoningTokens: sql<number>`coalesce(sum(${usageEvents.reasoningTokens}), 0)`,
+				})
+				.from(usageEvents)
+				.where(inArray(usageEvents.userId, userIds))
+				.groupBy(usageEvents.userId),
+	);
 
-	const favoriteModelRows = await db
-		.select({
-			userId: usageEvents.userId,
-			model: usageEvents.modelId,
-			messageCount: count(usageEvents.id),
-		})
-		.from(usageEvents)
-		.where(inArray(usageEvents.userId, userIds))
-		.groupBy(usageEvents.userId, usageEvents.modelId);
+	const favoriteModelRows = await executor.run(
+		"userAdmin.favoriteModelByUser",
+		(db) =>
+			db
+				.select({
+					userId: usageEvents.userId,
+					model: usageEvents.modelId,
+					messageCount: count(usageEvents.id),
+				})
+				.from(usageEvents)
+				.where(inArray(usageEvents.userId, userIds))
+				.groupBy(usageEvents.userId, usageEvents.modelId),
+	);
 
-	const sessionRows = await db
-		.select({
-			userId: sessions.userId,
-			activeSessionCount: count(sessions.id),
-		})
-		.from(sessions)
-		.where(inArray(sessions.userId, userIds))
-		.groupBy(sessions.userId);
+	const sessionRows = await executor.run(
+		"userAdmin.activeSessionCountsByUser",
+		(db) =>
+			db
+				.select({
+					userId: sessions.userId,
+					activeSessionCount: count(sessions.id),
+				})
+				.from(sessions)
+				.where(inArray(sessions.userId, userIds))
+				.groupBy(sessions.userId),
+	);
 
 	const conversationsByUser = new Map(
 		conversationRows.map((row) => [
@@ -199,6 +223,7 @@ export async function listManagedUsers(): Promise<AdminManagedUserSummary[]> {
 
 export async function createManagedUser(
 	input: CreateManagedUserInput,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<AdminManagedUserSummary> {
 	const email = normalizeEmail(input.email);
 	const password = input.password;
@@ -212,11 +237,13 @@ export async function createManagedUser(
 		throw new Error("Password must be at least 8 characters.");
 	}
 
-	const existing = await db
-		.select({ id: users.id })
-		.from(users)
-		.where(eq(users.email, email))
-		.limit(1);
+	const existing = await executor.run("userAdmin.findByEmail", (db) =>
+		db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, email))
+			.limit(1),
+	);
 	if (existing.length > 0) {
 		throw new Error("A user with that email already exists.");
 	}
@@ -224,18 +251,21 @@ export async function createManagedUser(
 	const modelPreferenceStorage = await modelPreferenceStorageForSystemDefault(
 		getConfig(),
 	);
+	const passwordHash = await bcrypt.hash(password, 12);
 
-	await db.insert(users).values({
-		id: randomUUID(),
-		email,
-		name,
-		passwordHash: await bcrypt.hash(password, 12),
-		...modelPreferenceStorage,
-		role,
-		updatedAt: new Date(),
-	});
+	await executor.run("userAdmin.insertUser", (db) =>
+		db.insert(users).values({
+			id: randomUUID(),
+			email,
+			name,
+			passwordHash,
+			...modelPreferenceStorage,
+			role,
+			updatedAt: new Date(),
+		}),
+	);
 
-	const allUsers = await listManagedUsers();
+	const allUsers = await listManagedUsers(executor);
 	const created = allUsers.find((user) => user.email === email);
 	if (!created) {
 		throw new Error("User was created but could not be reloaded.");
@@ -244,39 +274,44 @@ export async function createManagedUser(
 	return created;
 }
 
-export async function updateManagedUserRole(params: {
-	actorUserId: string;
-	targetUserId: string;
-	role: UserRole;
-}): Promise<AdminManagedUserSummary> {
+export async function updateManagedUserRole(
+	params: {
+		actorUserId: string;
+		targetUserId: string;
+		role: UserRole;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<AdminManagedUserSummary> {
 	if (params.actorUserId === params.targetUserId) {
 		throw new Error(
 			"Use your own account settings to manage your own admin access.",
 		);
 	}
 
-	const target = await getUserById(params.targetUserId);
+	const target = await getUserById(executor, params.targetUserId);
 	if (!target) {
 		throw new Error("User not found.");
 	}
 
 	if (target.role === params.role) {
-		const allUsers = await listManagedUsers();
+		const allUsers = await listManagedUsers(executor);
 		const existing = allUsers.find((user) => user.id === params.targetUserId);
 		if (!existing) throw new Error("User not found.");
 		return existing;
 	}
 
 	if (params.role !== "admin") {
-		await ensureNotLastAdmin(params.targetUserId);
+		await ensureNotLastAdmin(executor, params.targetUserId);
 	}
 
-	await db
-		.update(users)
-		.set({ role: params.role, updatedAt: new Date() })
-		.where(eq(users.id, params.targetUserId));
+	await executor.run("userAdmin.updateRole", (db) =>
+		db
+			.update(users)
+			.set({ role: params.role, updatedAt: new Date() })
+			.where(eq(users.id, params.targetUserId)),
+	);
 
-	const allUsers = await listManagedUsers();
+	const allUsers = await listManagedUsers(executor);
 	const updated = allUsers.find((user) => user.id === params.targetUserId);
 	if (!updated) {
 		throw new Error("User was updated but could not be reloaded.");
@@ -287,31 +322,37 @@ export async function updateManagedUserRole(params: {
 
 export async function revokeManagedUserSessions(
 	targetUserId: string,
+	executor: QueryExecutor = queryExecutor,
 ): Promise<void> {
-	const target = await getUserById(targetUserId);
+	const target = await getUserById(executor, targetUserId);
 	if (!target) {
 		throw new Error("User not found.");
 	}
 
-	await db.delete(sessions).where(eq(sessions.userId, targetUserId));
+	await executor.run("userAdmin.revokeSessions", (db) =>
+		db.delete(sessions).where(eq(sessions.userId, targetUserId)),
+	);
 }
 
-export async function deleteManagedUser(params: {
-	actorUserId: string;
-	targetUserId: string;
-}): Promise<void> {
+export async function deleteManagedUser(
+	params: {
+		actorUserId: string;
+		targetUserId: string;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<void> {
 	if (params.actorUserId === params.targetUserId) {
 		throw new Error(
 			"Use your own account settings to delete your own account.",
 		);
 	}
 
-	const target = await getUserById(params.targetUserId);
+	const target = await getUserById(executor, params.targetUserId);
 	if (!target) {
 		throw new Error("User not found.");
 	}
 
-	await ensureNotLastAdmin(params.targetUserId);
+	await ensureNotLastAdmin(executor, params.targetUserId);
 	await eraseUserAccountAsAdmin(params.targetUserId);
 }
 

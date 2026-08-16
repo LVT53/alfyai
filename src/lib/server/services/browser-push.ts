@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import webPush from "web-push";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
-import { db } from "$lib/server/db";
+import {
+	type QueryExecutor,
+	queryExecutor,
+} from "$lib/server/db/query-executor";
 import { browserPushSubscriptions, users } from "$lib/server/db/schema";
 
 export interface BrowserPushSubscriptionInput {
@@ -52,11 +55,14 @@ export function getBrowserPushCapability(
 	};
 }
 
-export async function upsertBrowserPushSubscription(params: {
-	userId: string;
-	subscription: BrowserPushSubscriptionInput;
-	now?: Date;
-}): Promise<void> {
+export async function upsertBrowserPushSubscription(
+	params: {
+		userId: string;
+		subscription: BrowserPushSubscriptionInput;
+		now?: Date;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<void> {
 	const now = params.now ?? new Date();
 	const endpoint = params.subscription.endpoint.trim();
 	const p256dh = params.subscription.keys.p256dh.trim();
@@ -65,43 +71,50 @@ export async function upsertBrowserPushSubscription(params: {
 		throw new Error("Invalid browser push subscription.");
 	}
 
-	await db
-		.insert(browserPushSubscriptions)
-		.values({
-			id: randomUUID(),
-			userId: params.userId,
-			endpoint,
-			p256dh,
-			auth,
-			userAgent: params.subscription.userAgent?.trim() || null,
-			createdAt: now,
-			updatedAt: now,
-		})
-		.onConflictDoUpdate({
-			target: browserPushSubscriptions.endpoint,
-			set: {
+	await executor.run("browserPush.upsertSubscription", (db) =>
+		db
+			.insert(browserPushSubscriptions)
+			.values({
+				id: randomUUID(),
 				userId: params.userId,
+				endpoint,
 				p256dh,
 				auth,
 				userAgent: params.subscription.userAgent?.trim() || null,
+				createdAt: now,
 				updatedAt: now,
-				lastFailureAt: null,
-			},
-		});
+			})
+			.onConflictDoUpdate({
+				target: browserPushSubscriptions.endpoint,
+				set: {
+					userId: params.userId,
+					p256dh,
+					auth,
+					userAgent: params.subscription.userAgent?.trim() || null,
+					updatedAt: now,
+					lastFailureAt: null,
+				},
+			}),
+	);
 }
 
-export async function deleteBrowserPushSubscription(params: {
-	userId: string;
-	endpoint: string;
-}): Promise<void> {
-	await db
-		.delete(browserPushSubscriptions)
-		.where(
-			and(
-				eq(browserPushSubscriptions.userId, params.userId),
-				eq(browserPushSubscriptions.endpoint, params.endpoint),
+export async function deleteBrowserPushSubscription(
+	params: {
+		userId: string;
+		endpoint: string;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<void> {
+	await executor.run("browserPush.deleteSubscription", (db) =>
+		db
+			.delete(browserPushSubscriptions)
+			.where(
+				and(
+					eq(browserPushSubscriptions.userId, params.userId),
+					eq(browserPushSubscriptions.endpoint, params.endpoint),
+				),
 			),
-		);
+	);
 }
 
 function pushSubscriptionFromRow(
@@ -124,12 +137,15 @@ function isGonePushError(error: unknown): boolean {
 	return statusCode === 404 || statusCode === 410;
 }
 
-export async function sendBrowserPushToUser(params: {
-	userId: string;
-	payload: BrowserPushPayload;
-	config?: RuntimeConfig;
-	now?: Date;
-}): Promise<{
+export async function sendBrowserPushToUser(
+	params: {
+		userId: string;
+		payload: BrowserPushPayload;
+		config?: RuntimeConfig;
+		now?: Date;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<{
 	attempted: number;
 	sent: number;
 	removed: number;
@@ -146,10 +162,12 @@ export async function sendBrowserPushToUser(params: {
 		config.webPushVapidPrivateKey,
 	);
 
-	const rows = await db
-		.select()
-		.from(browserPushSubscriptions)
-		.where(eq(browserPushSubscriptions.userId, params.userId));
+	const rows = await executor.run("browserPush.listForUser", (db) =>
+		db
+			.select()
+			.from(browserPushSubscriptions)
+			.where(eq(browserPushSubscriptions.userId, params.userId)),
+	);
 	let sent = 0;
 	let removed = 0;
 	const now = params.now ?? new Date();
@@ -163,15 +181,19 @@ export async function sendBrowserPushToUser(params: {
 		} catch (error) {
 			if (isGonePushError(error)) {
 				removed += 1;
-				await db
-					.delete(browserPushSubscriptions)
-					.where(eq(browserPushSubscriptions.id, row.id));
+				await executor.run("browserPush.deleteGoneSubscription", (db) =>
+					db
+						.delete(browserPushSubscriptions)
+						.where(eq(browserPushSubscriptions.id, row.id)),
+				);
 				continue;
 			}
-			await db
-				.update(browserPushSubscriptions)
-				.set({ lastFailureAt: now, updatedAt: now })
-				.where(eq(browserPushSubscriptions.id, row.id));
+			await executor.run("browserPush.markFailure", (db) =>
+				db
+					.update(browserPushSubscriptions)
+					.set({ lastFailureAt: now, updatedAt: now })
+					.where(eq(browserPushSubscriptions.id, row.id)),
+			);
 			console.warn("[BROWSER_PUSH] Failed to send notification", {
 				userId: params.userId,
 				error,
@@ -182,31 +204,39 @@ export async function sendBrowserPushToUser(params: {
 	return { attempted: rows.length, sent, removed, skipped: false };
 }
 
-export async function notifyAtlasCompletion(params: {
-	userId: string;
-	conversationId: string;
-	jobId: string;
-	title: string;
-}): Promise<void> {
-	const [user] = await db
-		.select({ uiLanguage: users.uiLanguage })
-		.from(users)
-		.where(eq(users.id, params.userId))
-		.limit(1);
+export async function notifyAtlasCompletion(
+	params: {
+		userId: string;
+		conversationId: string;
+		jobId: string;
+		title: string;
+	},
+	executor: QueryExecutor = queryExecutor,
+): Promise<void> {
+	const [user] = await executor.run("browserPush.getUserLanguage", (db) =>
+		db
+			.select({ uiLanguage: users.uiLanguage })
+			.from(users)
+			.where(eq(users.id, params.userId))
+			.limit(1),
+	);
 	const isHungarian = user?.uiLanguage === "hu";
-	await sendBrowserPushToUser({
-		userId: params.userId,
-		payload: {
-			title: isHungarian ? "Az Atlas elkészült" : "Atlas complete",
-			body:
-				params.title ||
-				(isHungarian
-					? "Az Atlas jelentésed megnyitható."
-					: "Your Atlas report is ready."),
-			url: `/chat/${encodeURIComponent(params.conversationId)}`,
-			tag: `atlas:${params.jobId}`,
+	await sendBrowserPushToUser(
+		{
+			userId: params.userId,
+			payload: {
+				title: isHungarian ? "Az Atlas elkészült" : "Atlas complete",
+				body:
+					params.title ||
+					(isHungarian
+						? "Az Atlas jelentésed megnyitható."
+						: "Your Atlas report is ready."),
+				url: `/chat/${encodeURIComponent(params.conversationId)}`,
+				tag: `atlas:${params.jobId}`,
+			},
 		},
-	}).catch((error) => {
+		executor,
+	).catch((error) => {
 		console.warn("[BROWSER_PUSH] Atlas completion notification failed", {
 			jobId: params.jobId,
 			error,
