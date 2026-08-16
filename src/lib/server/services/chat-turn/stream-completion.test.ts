@@ -567,6 +567,33 @@ describe("completeStreamTurn", () => {
 		expect(assistantCall?.[5]).not.toHaveProperty("thoughtSteps");
 	});
 
+	// P3d (ADR-0056) — thoughtSteps must also ride the terminal
+	// data-stream-metadata payload (not just persisted assistantMetadata),
+	// mirroring completionWarningCodes just above, so a client that just
+	// finished the turn has the completed step-rail without a reload.
+	it("carries thoughtSteps onto the terminal data-stream-metadata payload", async () => {
+		const thoughtSteps = [
+			{
+				id: "step-1",
+				source: "classified" as const,
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 12 },
+				createdAt: 1000,
+			},
+		];
+
+		await completeStreamTurn({ ...defaultParams, thoughtSteps });
+
+		expect(getLatestEndPayload()).toMatchObject({ thoughtSteps });
+	});
+
+	it("omits thoughtSteps entirely from the terminal payload when none were accumulated", async () => {
+		await completeStreamTurn({ ...defaultParams, thoughtSteps: [] });
+
+		expect(getLatestEndPayload()).not.toHaveProperty("thoughtSteps");
+	});
+
 	it("leaves the message body untouched and reports a stable code when the stream closed without finish", async () => {
 		await completeStreamTurn({
 			...defaultParams,

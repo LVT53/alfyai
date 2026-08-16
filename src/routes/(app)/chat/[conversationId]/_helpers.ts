@@ -657,6 +657,11 @@ export function finalizeStreamingMessageList(
 				completionWarningCodes:
 					params.metadata?.completionWarningCodes ??
 					message.completionWarningCodes,
+				// P3d (ADR-0056) — surfaces P3b's thoughtSteps (now riding the
+				// terminal data-stream-metadata frame, mirroring
+				// completionWarningCodes above) so the completed step-rail
+				// populates in the same session, without a reload.
+				thoughtSteps: params.metadata?.thoughtSteps ?? message.thoughtSteps,
 			};
 		}
 

@@ -71,13 +71,10 @@ let {
 	liveThoughtStepEntity = undefined,
 	// P3c (ADR-0056) — the durable, persisted Interim Thought Step rail for
 	// a COMPLETED turn (`ChatMessage.thoughtSteps`). Undefined while
-	// streaming and, today, also right after a turn completes in the same
-	// browser session — the terminal `data-stream-metadata` frame does not
-	// yet carry `thoughtSteps` (only the live per-step activity events do,
-	// and those lack an anchor) — so the rail only shows classified steps
-	// once the conversation has been reloaded from the server. See the P3c
-	// report for this gap; it is a server emission omission, out of this
-	// slice's scope to fix.
+	// streaming; populated at completion in the same browser session too
+	// (P3d wired the terminal `data-stream-metadata` frame to carry
+	// `thoughtSteps`, mirroring `completionWarningCodes`), not only after a
+	// reload.
 	thoughtSteps = undefined,
 }: {
 	content?: string;

@@ -781,6 +781,61 @@ describe("file production chat helpers", () => {
 		expect(finalized[0].completionWarningCodes).toEqual(["output_truncated"]);
 	});
 
+	// P3d (ADR-0056) — the terminal data-stream-metadata frame now also
+	// carries thoughtSteps (mirroring completionWarningCodes above), so the
+	// completed step-rail populates in the same session, without a reload.
+	it("carries thoughtSteps onto the finalized message at completion, without a reload", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		const thoughtSteps = [
+			{
+				id: "step-1",
+				source: "classified" as const,
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 12 },
+				createdAt: 1000,
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				thoughtSteps,
+			},
+		});
+
+		expect(finalized[0].thoughtSteps).toEqual(thoughtSteps);
+	});
+
+	it("falls back to the message's prior thoughtSteps when the terminal frame carries none", () => {
+		const priorThoughtSteps = [
+			{
+				id: "step-1",
+				source: "classified" as const,
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 12 },
+				createdAt: 1000,
+			},
+		];
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				thoughtSteps: priorThoughtSteps,
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].thoughtSteps).toEqual(priorThoughtSteps);
+	});
+
 	it("clears live response activity when the streaming placeholder finalizes", () => {
 		const list = applyResponseActivityEntryToMessageList(
 			[createAssistantPlaceholder("assistant-1")],

@@ -36,6 +36,11 @@ export interface StreamMetadata {
 	// ChatTurnCompletionWarningCode in $lib/types), riding data-stream-metadata.
 	// Localized into copy by the rendering component, not here.
 	completionWarningCodes?: import("$lib/types").ChatTurnCompletionWarningCode[];
+	// P3d (ADR-0056) — the durable Interim Thought Step rail for this turn,
+	// mirroring how completionWarningCodes rides this same terminal
+	// data-stream-metadata payload. Lets the completed step-rail populate in
+	// the same session, without a reload.
+	thoughtSteps?: import("$lib/types").InterimThoughtStep[];
 	upstreamFinishReason?: string;
 	upstreamRawFinishReason?: string;
 	streamClosedWithoutFinish?: boolean;
@@ -141,6 +146,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		completionWarningCodes: parsed.completionWarningCodes as
 			| StreamMetadata["completionWarningCodes"]
+			| undefined,
+		thoughtSteps: parsed.thoughtSteps as
+			| StreamMetadata["thoughtSteps"]
 			| undefined,
 		upstreamFinishReason: parsed.upstreamFinishReason as
 			| StreamMetadata["upstreamFinishReason"]

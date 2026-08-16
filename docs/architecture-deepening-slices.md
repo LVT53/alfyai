@@ -1219,7 +1219,13 @@ message/Atlas/memory, intentionally generic so P3's classifier can reuse it. Gat
 tracked (6879 files), test **6203** (+22), build 0 warnings, fallow 50 (no new categories), biome
 clean, i18n 0 errors, Playwright `chat.spec.ts`/`streaming.spec.ts`/`conversation.spec.ts` 31/31.
 
-### P3 — Reasoning-phase classifier + step rail 🟨
+### P3 — Reasoning-phase classifier + step rail ✅
+**Done as P3a (harness `e44b5c14`) + P3b (server classifier `bc92da89`) + P3c (client rail `d448bcd8`) +
+P3d (terminal-metadata carry). P3c found & fixed a real pre-existing bug: `streaming.ts`'s
+`isResponseActivityKind` allow-list dropped both `thought_step` AND `acknowledgment` live events, so P2's
+acknowledgment never rendered in a real browser — now fixed. Production enablement of the classifier stays
+gated by the P3a honesty audit (>95% truthful / 0 fabricated) run against real staging output.**
+
 **Blocked by:** P2 **and the honesty audit harness (P3a) existing first.**
 
 **Status.** P3a (harness) and P3b (classifier, durable persistence, ADR-0022 projection) are both

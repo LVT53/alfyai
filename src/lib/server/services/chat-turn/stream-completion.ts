@@ -344,6 +344,14 @@ export async function completeStreamTurn(
 					: {}),
 				...(streamClosedWithoutFinish ? { streamClosedWithoutFinish } : {}),
 				...(serverTimeline ? { serverTimeline } : {}),
+				// P3d (ADR-0056) — the same thoughtSteps array already written to
+				// assistantMetadata.thoughtSteps below (for persistence) also rides
+				// the terminal data-stream-metadata payload, mirroring
+				// completionWarningCodes just above. Without this, the same-session
+				// client only ever saw steps after a page reload (the DB read
+				// model); this closes that gap. Omitted entirely when empty,
+				// mirroring completionWarningCodes.
+				...(thoughtSteps.length > 0 ? { thoughtSteps } : {}),
 				userMessageId: userMsgId,
 				assistantMessageId: assistantMsgId,
 				modelId,
