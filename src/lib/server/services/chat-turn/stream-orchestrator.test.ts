@@ -69,6 +69,17 @@ vi.mock("$lib/server/services/chat-turn/turn-acknowledgment", () => ({
 	resolveTurnAcknowledgment: vi.fn(),
 }));
 
+// P3b — the reasoning-phase classifier is mocked at this seam too, mirroring
+// P2's turn-acknowledgment mock above: a real session would attempt a
+// control-model call the SSE-contract tests below must never make.
+// resetCompletionMocks() below establishes the default (a no-op session that
+// samples nothing and returns no steps); individual tests override it via a
+// fresh `await import(...)` to exercise the wiring, exactly like
+// resolveTurnAcknowledgment above.
+vi.mock("$lib/server/services/chat-turn/thought-step-classifier", () => ({
+	createThoughtStepClassifierSession: vi.fn(),
+}));
+
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
 	listConversationMessagesForExport: vi.fn(() => Promise.resolve([])),
@@ -426,6 +437,9 @@ async function resetCompletionMocks() {
 	const { resolveTurnAcknowledgment } = await import(
 		"$lib/server/services/chat-turn/turn-acknowledgment"
 	);
+	const { createThoughtStepClassifierSession } = await import(
+		"$lib/server/services/chat-turn/thought-step-classifier"
+	);
 
 	(touchConversation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 	(createMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -475,6 +489,15 @@ async function resetCompletionMocks() {
 	(buildSkillSystemPromptAppendix as ReturnType<typeof vi.fn>).mockReturnValue(
 		undefined,
 	);
+	// P3b — default no-op session: samples nothing, returns no steps. Tests
+	// that exercise the classifier wiring itself override this per-test.
+	(
+		createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+	).mockReturnValue({
+		onReasoningDelta: vi.fn(),
+		stop: vi.fn(),
+		getSteps: vi.fn(() => []),
+	});
 	(resolveTurnAcknowledgment as ReturnType<typeof vi.fn>).mockResolvedValue(
 		null,
 	);
@@ -1152,6 +1175,189 @@ describe("stream-orchestrator SSE contract", () => {
 		expect(
 			activityPayloads.some((activity) => activity.id === "context-preparing"),
 		).toBe(true);
+	});
+
+	// P3b (ADR-0056) — the reasoning-phase classifier.
+	it("feeds reasoning-delta text to the classifier session, emits a classified step over the existing data-response-activity part (no new stream part names), and persists the accumulated steps", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		const classifiedStep = {
+			id: "step-1",
+			source: "classified" as const,
+			activityClass: "understanding-request",
+			impliesExternalAction: false,
+			anchor: { start: 0, end: 10 },
+			createdAt: 1000,
+		};
+		let capturedOnReasoningDelta: ((text: string) => void) | undefined;
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockImplementation((params: { onStep?: (step: unknown) => void }) => {
+			capturedOnReasoningDelta = () => params.onStep?.(classifiedStep);
+			return {
+				onReasoningDelta: (text: string) => capturedOnReasoningDelta?.(text),
+				stop: vi.fn(),
+				getSteps: () => [classifiedStep],
+			};
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "reasoning_delta", text: "Thinking about the request. " },
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({ conversationId: "thought-step-conv" });
+		const chunks = await readSseResponse(response);
+		const parts = parseUiStreamParts(chunks);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parts,
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "thought-step:step-1",
+					kind: "thought_step",
+					status: "running",
+					detail: "understanding-request",
+				}),
+			]),
+		);
+
+		// No new AI SDK UI stream part name: reasoning content in this turn
+		// additionally exercises the pre-existing reasoning-* parts, but the
+		// closed set of part types present is otherwise unchanged from the
+		// acknowledgment test above.
+		const partTypes = new Set(
+			parts
+				.filter((part): part is Record<string, unknown> => part !== "[DONE]")
+				.map((part) => part.type),
+		);
+		expect(partTypes).toEqual(
+			new Set([
+				"reasoning-start",
+				"reasoning-delta",
+				"reasoning-end",
+				"text-start",
+				"text-delta",
+				"text-end",
+				"data-response-activity",
+				"data-stream-metadata",
+				"finish",
+			]),
+		);
+
+		// Durable persistence: the accumulated step rail rides
+		// assistantMetadata.thoughtSteps into the persisted message, exactly
+		// like turnAcknowledgment's fields ride the same object.
+		await vi.waitFor(() => {
+			expect(createMessage).toHaveBeenCalledWith(
+				"thought-step-conv",
+				"assistant",
+				"Hi",
+				"Thinking about the request. ",
+				[{ type: "text", content: "Thinking about the request. " }],
+				expect.objectContaining({ thoughtSteps: [classifiedStep] }),
+			);
+		});
+	});
+
+	it("stops the classifier session on the first answer text-delta", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		const stop = vi.fn();
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockReturnValue({
+			onReasoningDelta: vi.fn(),
+			stop,
+			getSteps: () => [],
+		});
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "reasoning_delta", text: "Reasoning first. " },
+				{ type: "text_delta", text: "Then the answer." },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({ conversationId: "thought-step-stop-conv" });
+		await readSseResponse(response);
+
+		expect(stop).toHaveBeenCalled();
+	});
+
+	it("keeps the deterministic spine coherent when the classifier session produces no steps at all (disabled/unavailable) — enrichment only, never a separate mode", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createThoughtStepClassifierSession } = await import(
+			"$lib/server/services/chat-turn/thought-step-classifier"
+		);
+		(
+			createThoughtStepClassifierSession as ReturnType<typeof vi.fn>
+		).mockReturnValue({
+			onReasoningDelta: vi.fn(),
+			stop: vi.fn(),
+			getSteps: () => [],
+		});
+		// standard depth, no tools, no deliberation passes — the common turn
+		// P1's spine exists to describe with no model call at all.
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Hi" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({ conversationId: "no-classifier-conv" });
+		const chunks = await readSseResponse(response);
+		const activityPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-response-activity",
+		);
+
+		expect(activityPayloads).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: "depth-selected", kind: "depth" }),
+				expect.objectContaining({
+					id: "context-preparing",
+					kind: "context",
+					status: "running",
+				}),
+				expect.objectContaining({
+					id: "context-ready",
+					kind: "context",
+					status: "done",
+				}),
+				expect.objectContaining({
+					id: "drafting-answer",
+					kind: "drafting",
+					status: "running",
+				}),
+			]),
+		);
+		expect(
+			activityPayloads.some((activity) => activity.kind === "thought_step"),
+		).toBe(false);
 	});
 
 	it("stores the original stream Reasoning depth in the reconnect buffer while running", async () => {

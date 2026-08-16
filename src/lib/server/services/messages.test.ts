@@ -413,6 +413,69 @@ describe("messages metadata", () => {
 		]);
 	});
 
+	// P3b (ADR-0056) — the ADR-0022 read model's projection of the durable
+	// Interim Thought Step rail: `listMessages`/`listMessageWindow` both
+	// funnel through `mapRowToChatMessage`, which is the single point this
+	// exercises.
+	it("projects the persisted thoughtSteps rail when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-thought-steps-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: "Some private reasoning text here.",
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				thoughtSteps: [
+					{
+						id: "step-1",
+						source: "classified",
+						activityClass: "understanding-request",
+						impliesExternalAction: false,
+						anchor: { start: 0, end: 12 },
+						createdAt: 1000,
+					},
+				],
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-thought-steps-1",
+				thoughtSteps: [
+					expect.objectContaining({
+						id: "step-1",
+						source: "classified",
+						activityClass: "understanding-request",
+						impliesExternalAction: false,
+						anchor: { start: 0, end: 12 },
+					}),
+				],
+			}),
+		]);
+	});
+
+	it("omits thoughtSteps entirely when no steps were persisted for the turn", async () => {
+		mockRows.push({
+			id: "assistant-no-thought-steps-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: null,
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.thoughtSteps).toBeUndefined();
+	});
+
 	it("preserves existing metadata when web citation audit is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",

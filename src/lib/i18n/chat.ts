@@ -103,6 +103,23 @@ const chatDict = {
 		// genuinely stalls (never a fake ticking clock); "writingAnswer" marks
 		// the spine's transition from reasoning into visible answer text.
 		"chat.responseActivity.stillWorking": "Still working...",
+		// P3b (ADR-0056) — one localized label per closed classifier activity
+		// class (src/lib/types.ts THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES).
+		// The classifier only ever sends a class id across the wire; this
+		// dictionary is the single place the corresponding user-facing prose
+		// is authored, exactly like the acknowledgment templates above.
+		"chat.responseActivity.thoughtStep.checkingDetails":
+			"Checking the details...",
+		"chat.responseActivity.thoughtStep.draftingApproach":
+			"Planning the approach...",
+		"chat.responseActivity.thoughtStep.recallingContext":
+			"Recalling context...",
+		"chat.responseActivity.thoughtStep.understandingRequest":
+			"Understanding the request...",
+		"chat.responseActivity.thoughtStep.weighingOptions":
+			"Weighing the options...",
+		"chat.responseActivity.thoughtStep.workingThroughLogic":
+			"Working through the logic...",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
 		"chat.retry": "Retry",
@@ -839,6 +856,18 @@ const chatDict = {
 		"chat.responseActivity.drafting": "Válasz megfogalmazása...",
 		"chat.responseActivity.finalizing": "Válasz véglegesítése...",
 		"chat.responseActivity.stillWorking": "Még mindig dolgozik...",
+		"chat.responseActivity.thoughtStep.checkingDetails":
+			"Részletek ellenőrzése...",
+		"chat.responseActivity.thoughtStep.draftingApproach":
+			"Megközelítés megtervezése...",
+		"chat.responseActivity.thoughtStep.recallingContext":
+			"Kontextus felidézése...",
+		"chat.responseActivity.thoughtStep.understandingRequest":
+			"Kérés értelmezése...",
+		"chat.responseActivity.thoughtStep.weighingOptions":
+			"Lehetőségek mérlegelése...",
+		"chat.responseActivity.thoughtStep.workingThroughLogic":
+			"Logika végiggondolása...",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		"chat.retry": "Újrapróbálkozás",

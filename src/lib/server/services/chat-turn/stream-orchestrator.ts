@@ -51,6 +51,7 @@ import { doReconnect as runReconnect } from "$lib/server/services/chat-turn/stre
 import { arbitrateStreamStart } from "$lib/server/services/chat-turn/stream-reconnect-arbiter";
 import { createStreamTerminal } from "$lib/server/services/chat-turn/stream-terminal";
 import { runStreamingNormalChatSendModel } from "$lib/server/services/chat-turn/streaming-normal-chat-model-run";
+import { createThoughtStepClassifierSession } from "$lib/server/services/chat-turn/thought-step-classifier";
 import { resolveTurnAcknowledgment } from "$lib/server/services/chat-turn/turn-acknowledgment";
 import type {
 	AdmittedChatTurn,
@@ -480,6 +481,29 @@ export function runChatStreamOrchestrator(
 				});
 			let emitResponseActivity: (entry: ResponseActivityEntry) => void =
 				() => {};
+			// P3b (ADR-0056) — the reasoning-phase classifier session. Created
+			// once per turn (only ever reached on the main-stream path, exactly
+			// like turnAcknowledgmentPromise above), fed every reasoning-delta
+			// chunk below, and read back at completion time
+			// (runCompleteStreamTurn) for durable persistence. `onStep` uses the
+			// same forward-reference trick as `onResponseActivity` just below —
+			// `emitResponseActivity` is reassigned a few lines down, and this
+			// closure always calls whichever version is current when a step
+			// actually fires.
+			const thoughtStepClassifierSession = createThoughtStepClassifierSession({
+				userId: user.id,
+				conversationId,
+				signal: downstreamSignal,
+				onStep: (step) => {
+					emitResponseActivity({
+						id: `thought-step:${step.id}`,
+						kind: "thought_step",
+						status: "running",
+						detail: step.activityClass,
+						occurredAt: step.createdAt,
+					});
+				},
+			});
 			const chunkRuntime = createServerChunkRuntime({
 				enqueueChunk,
 				skillControlEnabled,
@@ -490,6 +514,13 @@ export function runChatStreamOrchestrator(
 				onThinking: (reasoning) => {
 					if (streamId)
 						appendToStreamBuffer(streamId, "thinking", { text: reasoning });
+					// P3b — fed the SAME text that is about to be appended to
+					// chunkRuntime.thinkingContent (this callback fires from
+					// inside flushPendingThinking, after the same cleaning/
+					// batching this exact chunk just went through), so the
+					// classifier session's running offset stays in lockstep
+					// with what becomes the persisted messages.thinking text.
+					thoughtStepClassifierSession.onReasoningDelta(reasoning);
 				},
 				onToolCall: (name, input, status, outputSummary, details) => {
 					if (streamId) {
@@ -764,6 +795,10 @@ export function runChatStreamOrchestrator(
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,
 					toolCallRecords: chunkRuntime.toolCallRecords,
+					// P3b (ADR-0056) — the durable step rail accumulated this turn,
+					// read back at completion time and persisted into
+					// assistantMetadata.thoughtSteps (see stream-completion.ts).
+					thoughtSteps: thoughtStepClassifierSession.getSteps(),
 					skillControlEnvelopePayloads:
 						chunkRuntime.skillControlEnvelopePayloads,
 					skillControlEnabled,
@@ -1178,8 +1213,17 @@ export function runChatStreamOrchestrator(
 												upstreamEvent.text.length,
 										);
 									}
-								} else if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
-									return;
+								} else {
+									// P3b — "Classification stops hard on the first answer
+									// text-delta" (architecture-deepening-slices.md § P3b).
+									// This branch is real visible-answer output (the
+									// file-production capture branch above is not), so this
+									// is exactly that boundary. Idempotent; called on every
+									// answer chunk rather than tracked separately.
+									thoughtStepClassifierSession.stop();
+									if (!emitChunkWithOutputHandling(upstreamEvent.text)) {
+										return;
+									}
 								}
 								break;
 							case "reasoning_delta":

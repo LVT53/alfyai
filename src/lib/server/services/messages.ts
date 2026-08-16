@@ -14,6 +14,7 @@ import type {
 	ChatTurnCompletionWarningCode,
 	DepthMetadata,
 	ForkEvidenceSnapshot,
+	InterimThoughtStep,
 	MessageEvidenceStatusState,
 	MessageEvidenceSummary,
 	MessageRole,
@@ -23,6 +24,7 @@ import type {
 	ThinkingSegment,
 	WebCitationAudit,
 } from "$lib/types";
+import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
 import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
@@ -35,6 +37,13 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	providerIconUrl?: string | null;
 	depthMetadata?: DepthMetadata;
 	webCitationAudit?: WebCitationAudit | null;
+	// P3b (ADR-0056) — durable Interim Thought Step rail. Not read directly
+	// off this parsed object (see projectMessageMetadata below, which uses
+	// `parseThoughtSteps` against the raw `metadataJson` string so malformed
+	// JSON degrades to `[]` rather than throwing here) — declared on this
+	// type only so it round-trips through `compactPersistedMessageMetadata`
+	// like every other metadata field.
+	thoughtSteps?: InterimThoughtStep[];
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -221,11 +230,18 @@ function projectMessageMetadata(
 	| "forkCopy"
 	| "forkEvidenceSnapshot"
 	| "importSource"
+	| "thoughtSteps"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
 	const evidencePending =
 		metadata?.evidenceStatus === "pending" && !evidenceSummary;
+	// P3b (ADR-0056) — the ADR-0022 read model's projection of the durable
+	// step rail: reads straight off the raw metadataJson string (not the
+	// already-parsed `metadata` object) via the same dormant reader P3a
+	// built and the honesty-audit harness already exercises, so malformed
+	// JSON degrades to `[]` here exactly as it does there.
+	const thoughtSteps = parseThoughtSteps(row.metadataJson);
 
 	return {
 		evidenceSummary,
@@ -245,6 +261,7 @@ function projectMessageMetadata(
 		forkCopy: metadata?.forkCopy,
 		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 		importSource: row.importSource ?? undefined,
+		thoughtSteps: thoughtSteps.length > 0 ? thoughtSteps : undefined,
 	};
 }
 

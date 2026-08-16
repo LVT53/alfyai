@@ -37,7 +37,14 @@ export type ResponseActivityKind =
 	// verbatim-substring topic (in `label`) lifted from the user's own
 	// message. Never implies an external action (ADR-0056's classifier
 	// constraint) — it only names what the turn is about.
-	| "acknowledgment";
+	| "acknowledgment"
+	// P3b (ADR-0056) — a classified Interim Thought Step. One entry per
+	// NEW classified step (never for a continuation verdict, which extends
+	// the existing step's anchor instead of emitting again). `detail`
+	// carries the closed `ThoughtStepClassifierActivityClass`; this kind can
+	// NEVER assert an external action — see THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES
+	// below, whose members are all internal/cognitive by construction.
+	| "thought_step";
 export type ResponseActivityStatus = "running" | "done" | "error";
 export type ResponseActivitySourceType = "web" | "document" | "memory" | "tool";
 const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES = [
@@ -87,6 +94,65 @@ export function isTurnAcknowledgmentIntentClass(
 		typeof value === "string" &&
 		TURN_ACKNOWLEDGMENT_INTENT_CLASSES.includes(
 			value as TurnAcknowledgmentIntentClass,
+		)
+	);
+}
+
+// P3b (ADR-0056) — the reasoning-phase classifier's closed activity-class
+// enum. This is the structural half of "action classes come only from real
+// tool events, never from reasoning-text classification": every member here
+// names an internal/cognitive activity, and NONE of them name or imply an
+// external action (searching, fetching, reading a connected account). The
+// classifier (src/lib/server/services/chat-turn/thought-step-classifier.ts)
+// can therefore never emit an `impliesExternalAction: true` step — there is
+// no class in this array it could pick that would mean one — rather than
+// relying on a runtime check that a bug could bypass. Shared between the
+// server (the classifier, which asks the control model to pick one of these)
+// and the client (the eventual step-rail UI, which maps each to a localized
+// label — see src/lib/i18n/chat.ts's `chat.responseActivity.thoughtStep.*`
+// keys), exactly mirroring TURN_ACKNOWLEDGMENT_INTENT_CLASSES above.
+export const THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES = [
+	"understanding-request",
+	"recalling-context",
+	"weighing-options",
+	"working-through-logic",
+	"checking-details",
+	"drafting-approach",
+] as const;
+export type ThoughtStepClassifierActivityClass =
+	(typeof THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES)[number];
+
+export function isThoughtStepClassifierActivityClass(
+	value: unknown,
+): value is ThoughtStepClassifierActivityClass {
+	return (
+		typeof value === "string" &&
+		THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES.includes(
+			value as ThoughtStepClassifierActivityClass,
+		)
+	);
+}
+
+// P3b (ADR-0056) — the classifier's per-chunk verdict: does this reasoning
+// fragment continue the step already in progress, or start a genuinely new
+// one? A "continuation" verdict extends the current step's anchor; it never
+// creates a new InterimThoughtStep entry (ADR-0056: "Steps are append-only.
+// An emitted step may be extended by a continuation verdict, but never
+// reordered, rewritten, or retracted.").
+export const THOUGHT_STEP_CLASSIFIER_VERDICTS = [
+	"new_step",
+	"continuation",
+] as const;
+export type ThoughtStepClassifierVerdict =
+	(typeof THOUGHT_STEP_CLASSIFIER_VERDICTS)[number];
+
+export function isThoughtStepClassifierVerdict(
+	value: unknown,
+): value is ThoughtStepClassifierVerdict {
+	return (
+		typeof value === "string" &&
+		THOUGHT_STEP_CLASSIFIER_VERDICTS.includes(
+			value as ThoughtStepClassifierVerdict,
 		)
 	);
 }
@@ -1002,6 +1068,15 @@ export interface ChatMessage {
 	completionWarningCodes?: ChatTurnCompletionWarningCode[];
 	depthMetadata?: DepthMetadata;
 	responseActivity?: ResponseActivityEntry[];
+	// P3b (ADR-0056) — the durable, persisted Interim Thought Step rail for
+	// this completed turn (deterministic + event-derived + classified steps,
+	// in emission order), projected from `messages.metadataJson.thoughtSteps`
+	// by the ADR-0022 read model (see `parseThoughtSteps` in
+	// src/lib/server/services/chat-turn/thought-steps.ts, and its call site
+	// in messages.ts's `projectMessageMetadata`). `undefined` — never `[]` —
+	// when the turn has no persisted steps, mirroring every other optional
+	// projection on this type.
+	thoughtSteps?: InterimThoughtStep[];
 	skillQuestion?: boolean;
 	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];

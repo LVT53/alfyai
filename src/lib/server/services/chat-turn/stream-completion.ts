@@ -15,6 +15,7 @@ import type {
 	ConversationContextStatus,
 	DepthMetadata,
 	FileProductionJob,
+	InterimThoughtStep,
 	LinkedContextSource,
 	ReasoningDepth,
 	TaskState,
@@ -94,6 +95,12 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	thinkingContent: string;
 	fullResponse: string;
 	toolCallRecords: ToolCallEntry[];
+	// P3b (ADR-0056) — the durable Interim Thought Step rail accumulated by
+	// the reasoning-phase classifier this turn (possibly empty — a slow,
+	// rejected, or unavailable classifier degrades to zero steps, never a
+	// failed or altered turn). Persisted into assistantMetadata.thoughtSteps
+	// below, exactly like turnAcknowledgment's fields ride assistantMetadata.
+	thoughtSteps?: InterimThoughtStep[];
 	skillControlEnvelopePayloads: string[];
 	skillControlEnabled?: boolean;
 	serverSegments: ThinkingSegment[];
@@ -166,6 +173,7 @@ export async function completeStreamTurn(
 		thinkingContent,
 		fullResponse,
 		toolCallRecords,
+		thoughtSteps = [],
 		skillControlEnvelopePayloads,
 		skillControlEnabled = true,
 		serverSegments,
@@ -419,6 +427,11 @@ export async function completeStreamTurn(
 						}
 					: {}),
 				...(streamClosedWithoutFinish ? { streamClosedWithoutFinish } : {}),
+				// P3b (ADR-0056) — durable turn state, read back by the ADR-0022
+				// read model via parseThoughtSteps (messages.ts's
+				// projectMessageMetadata). Omitted entirely when empty, mirroring
+				// completionWarningCodes just above.
+				...(thoughtSteps.length > 0 ? { thoughtSteps } : {}),
 				...skillControl.metadata,
 			},
 			reasoningDepth,

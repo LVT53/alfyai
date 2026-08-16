@@ -1219,8 +1219,16 @@ message/Atlas/memory, intentionally generic so P3's classifier can reuse it. Gat
 tracked (6879 files), test **6203** (+22), build 0 warnings, fallow 50 (no new categories), biome
 clean, i18n 0 errors, Playwright `chat.spec.ts`/`streaming.spec.ts`/`conversation.spec.ts` 31/31.
 
-### P3 — Reasoning-phase classifier + step rail ⬜
+### P3 — Reasoning-phase classifier + step rail 🟨
 **Blocked by:** P2 **and the honesty audit harness (P3a) existing first.**
+
+**Status.** P3a (harness) and P3b (classifier, durable persistence, ADR-0022 projection) are both
+✅ — see their own execution-status notes below. Left 🟨, not ✅, because the **interactive
+step-rail UI** the "step rail" half of this slice's title names — the live header showing the
+current classified step, and the expandable list with anchor jump-to-highlight into the raw
+Thinking Trace, per the "UX contract (ADR-0056)" section above — was not in scope for either P3a or
+P3b's given acceptance criteria and has not been built. The classifier's output is fully durable,
+projected, and ready for that UI to consume whenever it lands.
 
 **P3a — honesty audit harness (prerequisite, ships before the classifier is enabled).**
 - [ ] Harness samples N completed turns, replays persisted `messages.thinking`, and checks every
@@ -1249,19 +1257,19 @@ warnings, fallow **50**. **This is the checker; P3b must pass it (>95%/0-fab on 
 the classifier is enabled — a programme HALT condition if it fails.**
 
 **P3b — the classifier.**
-- [ ] The control model **classifies, it does not summarize**: closed activity-class enum +
+- [x] The control model **classifies, it does not summarize**: closed activity-class enum +
       optional entity slot + new-step/continuation verdict, strict JSON via
       `sendJsonControlMessage`
-- [ ] Entity slot dropped unless it appears as a **verbatim substring** of the reasoning chunk
-- [ ] **Discourse-marker regex may be used only as a sampling trigger, never as a source of
+- [x] Entity slot dropped unless it appears as a **verbatim substring** of the reasoning chunk
+- [x] **Discourse-marker regex may be used only as a sampling trigger, never as a source of
       user-facing text.** DeepSeek reasons in English regardless of UI language; English regex
       driving user-visible content is the exact failure G1 exists to remove
-- [ ] Rate-limited to roughly one new step per 5-7s; continuation verdicts extend the current step
-- [ ] Classification stops hard on the first answer `text-delta`
-- [ ] Emitted over the existing `data-response-activity` part — **no new stream part names**
+- [x] Rate-limited to roughly one new step per 5-7s; continuation verdicts extend the current step
+- [x] Classification stops hard on the first answer `text-delta`
+- [x] Emitted over the existing `data-response-activity` part — **no new stream part names**
       (ADR-0025); asserted by test
-- [ ] Classifier spend tracked through the ADR-0047 cost path like every other model call
-- [ ] **Concurrency ceiling, verified on the box:** the control model runs on the local vLLM at
+- [x] Classifier spend tracked through the ADR-0047 cost path like every other model call
+- [x] **Concurrency ceiling, verified on the box:** the control model runs on the local vLLM at
       `--max-num-seqs 4`, shared with the memory judge, consolidation, and context summarizer —
       and it is the chat model for one of six users. The default chat model is *remote*
       (`api.deepseek.com`), so there is **no** GPU contention with the main model's reasoning.
@@ -1269,13 +1277,72 @@ the classifier is enabled — a programme HALT condition if it fails.**
       a full instance, and must degrade silently to event-derived steps on rejection or timeout.
       Do not point the classifier at the same slot as a user's active chat model without
       measuring first.
-- [ ] Steps persist as durable turn state and are traversable in history — **ADR-0056 is written
+- [x] Steps persist as durable turn state and are traversable in history — **ADR-0056 is written
       and amends ADR-0015**; implement to that contract
-- [ ] Every emitted step carries a **Thought Step Anchor**; unanchored steps are not emitted
-- [ ] **Classification is enrichment on P1's spine, not a separate mode.** A slow, rejected or
+- [x] Every emitted step carries a **Thought Step Anchor**; unanchored steps are not emitted
+- [x] **Classification is enrichment on P1's spine, not a separate mode.** A slow, rejected or
       unavailable classifier yields a *coarser* rail — never an empty or broken one. Assert this
       with a test that disables the control model entirely and checks the rail is still coherent
       at `standard` depth with no tools.
+
+**P3b execution status (2026-08-16). ✅** Branch `thought-steps`. Closed enum
+`THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES` (`src/lib/types.ts`: `understanding-request |
+recalling-context | weighing-options | working-through-logic | checking-details |
+drafting-approach`) — six internal/cognitive classes, **zero** action-implying, so "action classes
+only from real tool events" holds structurally: the classifier has no enum member it could pick to
+claim an action, not merely a runtime check that could be bypassed; classified steps always set
+`impliesExternalAction: false` by construction. New module
+`src/lib/server/services/chat-turn/thought-step-classifier.ts`: a per-turn session
+(`createThoughtStepClassifierSession`) accumulates reasoning-delta text, gated by a 5s hard floor
+between samples (`THOUGHT_STEP_MIN_SAMPLE_INTERVAL_MS`) AND a discourse-marker regex used
+**exclusively** to decide when to sample — never to build any string a user sees (mirrored comment
+citing G1/ADR-0055 directly at the regex definition); a soft 1200-char fallback cap keeps sampling
+alive even on reasoning that never happens to use a marker. Each sample asks MODEL_2 for strict JSON
+(`verdict: "new_step"|"continuation"`, `activityClass` required only for `new_step`, optional
+`entity`) via `sendJsonControlMessage`, `thinkingMode: "off"`, a 2500ms hard timeout
+(`createRequestAbortSignal`), and a **hard concurrency cap of 1** (deliberately more conservative
+than P2's 2, since this classifier samples repeatedly across a whole reasoning phase rather than
+firing once) — a cap miss returns `null` immediately, no network attempt, matching P2's
+"never queues" contract. Entity survives only via P2's own `extractVerbatimTopic`, reused unmodified,
+checked against the sampled reasoning CHUNK (not the user's message). A `continuation` verdict
+extends the current step's anchor `end` in place (never rewrites `start`, never adds a second
+entry); a `new_step` verdict is validated with `resolveThoughtStepAnchorSpan` — the SAME function
+P3a's read model and honesty harness use — against the session's own running text before it is ever
+added to `getSteps()`'s result, so an unanchored step cannot leave this module. Classification stops
+hard on the turn's first real answer `text_delta` (`session.stop()`, wired in
+`stream-orchestrator.ts`'s existing `case "text_delta"` branch, excluding the pre-existing
+file-production-capture branch which is not visible answer text); any classify call already in
+flight at that point has its result discarded on resolution, never applied. Classified steps ride
+the existing `data-response-activity` part via a new `"thought_step"` `ResponseActivityKind` member
+— an id/enum addition inside an existing part's payload, the same shape of change P2's
+`"acknowledgment"` kind already established as ADR-0025-compatible; asserted directly by a
+part-types-set test (no new part name). Threaded into `chat-turn/finalize` as
+`assistantMetadata.thoughtSteps` (`stream-completion.ts`, omitted entirely when empty like
+`completionWarningCodes`) and projected back out on every reload by `messages.ts`'s
+`mapRowToChatMessage` (the single funnel `listMessages`/`listMessageWindow` — the ADR-0022 read
+model — already share), added to `ChatMessage.thoughtSteps`. Cost tracked through the same generic
+`recordControlModelUsage` P2 built for this purpose (`feature: "thought_step_classifier"`).
+**Enrichment, not a separate mode:** the module has zero import relationship with
+`$lib/utils/reasoning-spine.ts`/`ThinkingBlock.svelte` in either direction; a dedicated unit test
+proves a session whose every sample rejects, or that is created with `enabled: false`, produces zero
+steps without throwing, while exercising P1's `deriveReasoningSpineState` alongside it unaffected;
+three additional orchestrator-level tests prove the same at the SSE level (classifier absent/no-op →
+the P1 spine activities — `depth-selected`/`context-preparing`/`context-ready`/`drafting-answer` —
+are still emitted, coherent, with zero `thought_step` activities). ADR-0056 moved to **Accepted**,
+with a new "Production-enable gate, still open" note: Accepted records that the contract, classifier,
+and audit harness all exist and are correct by construction, NOT that classified steps are live in
+production — `scripts/audit-thought-step-honesty.ts --mode=live` against real staging turns is still
+the orchestrator's required post-deploy step, and a failure there remains a programme HALT. EN/HU
+labels added for all six classes (`chat.responseActivity.thoughtStep.*`) so the eventual step-rail UI
+has localized copy ready; **not built in this slice**: wiring those labels into `ThinkingBlock.svelte`'s
+live header (the interactive step-rail/anchor-jump-to-highlight UI) — no acceptance criterion given to
+this slice named client rendering, and P1's already-shipped spine header carries the "never empty"
+guarantee regardless. Gate green: check 0/0 tracked (6887 files, only the pre-existing 6
+`scripts/search-bench-v2/` errors), test **6271** (+23), build 0 warnings, fallow **50** (no new
+categories — new module/tests are either used or exempted via `src/lib/types.ts`'s existing
+ignore-all-exports rule), biome clean on touched files, i18n 0 errors, synthetic honesty audit still
+correctly FAILs its adversarial fixtures (30.8% truthful — proving the auditor is unchanged and still
+works), Playwright `chat.spec.ts`/`streaming.spec.ts` 20/20.
 
 ### P4 — Determinate progress where it already exists ⬜
 **Blocked by:** P3.
