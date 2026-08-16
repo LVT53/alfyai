@@ -128,10 +128,32 @@ export const MAX_CONCURRENT_THOUGHT_STEP_CLASSIFIER_CALLS = 1;
 
 let inFlightThoughtStepClassifierCalls = 0;
 
+// Throttled visibility for classifier failures. The step rail degrades
+// silently (a failed classify is indistinguishable from "nothing to
+// classify"), which is exactly how a misconfigured control model went
+// unnoticed. Log at most once per minute so a persistently broken classifier
+// surfaces in `[THOUGHT_STEP_CLASSIFIER]` without flooding the stream logs.
+let lastClassifierFailureLogAt = 0;
+const CLASSIFIER_FAILURE_LOG_INTERVAL_MS = 60_000;
+function logClassifierFailure(reason: unknown): void {
+	const now = Date.now();
+	if (now - lastClassifierFailureLogAt < CLASSIFIER_FAILURE_LOG_INTERVAL_MS) {
+		return;
+	}
+	lastClassifierFailureLogAt = now;
+	console.warn("[THOUGHT_STEP_CLASSIFIER] classify call failed", {
+		reason: reason instanceof Error ? reason.message : String(reason),
+	});
+}
+
 /** Never on any critical path (this call is always fire-and-forget), but
  * still bounded so a slow/hung control model can't accumulate in-flight
  * calls against the concurrency cap above. */
-export const THOUGHT_STEP_CLASSIFIER_TIMEOUT_MS = 2500;
+// The control model can share a busy self-hosted endpoint with the main
+// generation, so a very tight budget silently starves the rail (every call
+// times out -> catch -> null -> zero steps, invisibly). 6s gives real
+// headroom under load while staying fire-and-forget.
+export const THOUGHT_STEP_CLASSIFIER_TIMEOUT_MS = 6000;
 
 const THOUGHT_STEP_CLASSIFIER_MAX_TOKENS = 150;
 
@@ -641,7 +663,8 @@ export async function classifyThoughtStepChunk(params: {
 			...(entity ? { entity } : {}),
 			...(summary ? { summary } : {}),
 		};
-	} catch {
+	} catch (error) {
+		logClassifierFailure(error);
 		return null;
 	} finally {
 		inFlightThoughtStepClassifierCalls -= 1;
