@@ -240,6 +240,89 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	// FIX 3 [HIGH] — the runtime external-action denylist guard. A summary
+	// can pass the verbatim-content-word tether (every word genuinely copied
+	// from the chunk) while still ASSERTING that an external action
+	// happened — "Searching flight prices for Paris" is fully tethered to a
+	// chunk that mentions flight prices and Paris, yet it falsely implies a
+	// real search occurred from private reasoning, which is never an event
+	// log. This must be dropped even though it is otherwise well-tethered.
+	it("drops an EN summary asserting an external action, even though it is otherwise verbatim-tethered", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"Searching flight prices for Paris"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText:
+				"I should think through flight prices for Paris before answering.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+		});
+	});
+
+	it("drops a HU summary asserting an external action (keres stem), even though it is otherwise verbatim-tethered", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"Repülőjegyárak keresése Párizsba"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText:
+				"Meg kell gondolnom a repülőjegyárakat Párizsba mielőtt válaszolok.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+		});
+	});
+
+	it("keeps a purely-internal summary that names no external action", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options","summary":"Weighing tradeoffs between caching and recomputation"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText:
+				"There is a tradeoff between caching results and recomputation each time.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "weighing-options",
+			summary: "Weighing tradeoffs between caching and recomputation",
+		});
+	});
+
 	it("keeps both a tethered summary and a verbatim entity together on the same new_step result", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(
@@ -460,6 +543,150 @@ describe("hasVerbatimContentWordTether", () => {
 				"comparing the proposed budget line by line",
 			),
 		).toBe(true);
+	});
+
+	// FIX 1 [HIGH] — the tether must match WHOLE WORDS, not raw substrings.
+	// A short content-word ("cat") that merely nests inside a longer, wholly
+	// unrelated real word ("location") must NOT count as a tether — that
+	// would let a fabricated word sneak past the leash just because it
+	// happens to be a substring of something genuine in the span.
+	it("is NOT tethered when the only overlap is a nested substring, not a whole word (fabricated word smuggled inside a real one)", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		// "cat" is a substring of "location" but never appears as its own word
+		// in the anchored text — a summary claiming "cat" must be rejected.
+		expect(
+			hasVerbatimContentWordTether(
+				"Checking on the cat now",
+				"Figuring out the best location for the meeting.",
+			),
+		).toBe(false);
+	});
+
+	it('is NOT tethered when the only overlap is a nested substring the other direction ("art" inside "start")', async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"Reviewing the art collection",
+				"Deciding when to start the next phase of the plan.",
+			),
+		).toBe(false);
+	});
+
+	it("IS tethered when the shared word is a genuine standalone whole-word match", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"Checking on the cat today",
+				"The cat needs to go to the vet this week.",
+			),
+		).toBe(true);
+	});
+
+	// FIX 4 [MED] — the tokenizer must be Unicode-aware so accented Hungarian
+	// words are not shredded into sub-3-character fragments at the accent
+	// boundary (the ASCII-only regex splits "irány" into "ir" + "ny", both
+	// under the 3-char floor and therefore silently dropped, even though
+	// "irány" is the ONLY substantive word the summary and span truthfully
+	// share — every other shared word here is a stop word or absent, so the
+	// ASCII-only tokenizer has nothing else to fall back on and the tether
+	// fails outright).
+	it("is tethered on a genuine shared accented Hungarian word that the ASCII-only tokenizer would have shredded away", async () => {
+		const { hasVerbatimContentWordTether } = await import(
+			"./thought-step-classifier"
+		);
+		expect(
+			hasVerbatimContentWordTether(
+				"Working through irány carefully",
+				"The current irány needs to be settled before we continue.",
+			),
+		).toBe(true);
+	});
+});
+
+// FIX 3 [HIGH] — direct unit coverage of the runtime external-action
+// denylist guard, independent of the control-model plumbing exercised
+// above. This is defense-in-depth: it catches a summary whose TEXT asserts
+// an external action (searching/fetching/browsing/etc.) even when the
+// summary is otherwise perfectly verbatim-tethered, which the tether check
+// alone can never catch (tether only proves a word is genuine, not that it
+// doesn't assert an action).
+describe("assertsExternalAction", () => {
+	it("matches a plain EN search verb", async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(assertsExternalAction("Searching flight prices for Paris")).toBe(
+			true,
+		);
+	});
+
+	it('matches "look up" but NOT plain "looking at" (internal reasoning uses "looking at" routinely)', async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(assertsExternalAction("Looking up the exact figure")).toBe(true);
+		expect(assertsExternalAction("Looking at the budget numbers again")).toBe(
+			false,
+		);
+	});
+
+	it("matches other EN external-action stems: fetch, browse, retrieve, query, download, google, read the, check online", async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(assertsExternalAction("Fetching the latest exchange rate")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Browsing recent reviews of the hotel")).toBe(
+			true,
+		);
+		expect(
+			assertsExternalAction("Retrieving the current weather forecast"),
+		).toBe(true);
+		expect(assertsExternalAction("Querying the flight database")).toBe(true);
+		expect(assertsExternalAction("Downloading the attached spreadsheet")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Googling the company's founding date")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Reading the linked article now")).toBe(true);
+		expect(assertsExternalAction("Checking online for current prices")).toBe(
+			true,
+		);
+	});
+
+	it("matches HU external-action stems (keres/megkeres/letölt/böngész/lekér)", async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(assertsExternalAction("Repülőjegyárak keresése Párizsba")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Megkeresem a legfrissebb árfolyamot")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("A csatolt fájl letöltése folyamatban")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Böngészem a legutóbbi véleményeket")).toBe(
+			true,
+		);
+		expect(assertsExternalAction("Lekérem a jelenlegi árfolyamot")).toBe(true);
+	});
+
+	it('does NOT false-positive on the unrelated Hungarian word "keresztül" (through), which nests the "keres" stem', async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(
+			assertsExternalAction("A probléma keresztül gondolása most zajlik"),
+		).toBe(false);
+	});
+
+	it("does NOT match a purely-internal summary that names no external action", async () => {
+		const { assertsExternalAction } = await import("./thought-step-classifier");
+		expect(
+			assertsExternalAction(
+				"Weighing tradeoffs between caching and recomputation",
+			),
+		).toBe(false);
 	});
 });
 

@@ -100,7 +100,6 @@ if (!existsSync(dbDir)) {
 	mkdirSync(dbDir, { recursive: true });
 }
 
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText } from "ai";
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
@@ -111,6 +110,12 @@ import {
 	parseThoughtSteps,
 	resolveThoughtStepAnchorSpan,
 } from "$lib/server/services/chat-turn/thought-steps";
+import { parseJsonWithEnvelopeExtraction } from "$lib/server/services/memory-judge/schema";
+import {
+	buildNormalChatModelRunProviderOptions,
+	createOpenAICompatibleProviderForNormalChatModelRun,
+	type NormalChatModelRunProvider,
+} from "$lib/server/services/normal-chat-model";
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	decryptApiKey,
@@ -342,18 +347,69 @@ async function resolveJudgeModelSlot(): Promise<ResolvedJudgeModelSlot> {
 	};
 }
 
-function createJudgeModel(slot: ResolvedJudgeModelSlot) {
-	const provider = createOpenAICompatible({
+// FIX 5 (hardening pass) — a live audit found 6/14 steps came back
+// "unjudged — Judge response was not valid JSON": the local self-hosted
+// qwen judge's THINKING MODE was consuming the entire `maxOutputTokens`
+// budget on chain-of-thought before ever emitting the JSON verdict, leaving
+// an empty completion. This harness used to build its judge model with a
+// bare `createOpenAICompatible(...)` call — bypassing every one of the
+// app's own OpenAI-compatible adapter behaviors, including the qwen
+// thinking-disable transform. `createOpenAICompatibleProviderForNormalChatModelRun`
+// + `buildNormalChatModelRunProviderOptions(provider, "off")` is exactly
+// the seam `normal-chat-control-model.ts`'s `sendJsonControlMessage` already
+// uses for the classifier's own `thinkingMode: "off"` control calls (see
+// thought-step-classifier.ts's `classifyThoughtStepChunk`): it resolves the
+// provider's family (by matching `modelName`/`baseUrl`/`displayName`
+// against known patterns — qwen among them), emits the top-level
+// `enable_thinking: false` DashScope expects, AND mirrors it into
+// `chat_template_kwargs.enable_thinking: false` for a self-hosted
+// vLLM/SGLang qwen server (which ignores the top-level field entirely) —
+// see provider-compatibility.ts's `mirrorQwenThinkingToChatTemplate` for the
+// verified-on-the-box behavior this reuses. Using the app's own provider
+// helper here means the judge gets this transform automatically, for
+// whatever model family JUDGE_MODEL_DISPLAY_NAME resolves to — not just
+// qwen — with zero judge-specific special-casing.
+type ResolvedJudgeModel = {
+	model: ReturnType<
+		ReturnType<typeof createOpenAICompatibleProviderForNormalChatModelRun>
+	>;
+	providerOptions: ReturnType<typeof buildNormalChatModelRunProviderOptions>;
+};
+
+function createJudgeModel(
+	slot: ResolvedJudgeModelSlot,
+	fetchOverride?: typeof fetch,
+): ResolvedJudgeModel {
+	const provider: NormalChatModelRunProvider = {
+		id: "thought-step-faithfulness-judge",
 		name: "thought-step-faithfulness-judge",
+		displayName: slot.displayName,
+		baseUrl: slot.baseURL,
+		modelName: slot.modelName,
 		apiKey: slot.apiKey,
-		baseURL: slot.baseURL,
+	};
+	const openaiCompatible = createOpenAICompatibleProviderForNormalChatModelRun({
+		provider,
+		fetch: fetchOverride,
+		includeUsage: true,
 	});
-	return provider.languageModel(slot.modelName);
+	return {
+		model: openaiCompatible(slot.modelName),
+		// "off" — the judge never needs to think out loud; it only needs to
+		// emit the strict-JSON verdict. See the block comment above for why
+		// this specific call is what fixes the local qwen judge's empty
+		// responses.
+		providerOptions: buildNormalChatModelRunProviderOptions(provider, "off"),
+	};
 }
 
 const FAITHFULNESS_JUDGE_TIMEOUT_MS = 15_000;
 const FAITHFULNESS_JUDGE_TEMPERATURE = 0;
-const FAITHFULNESS_JUDGE_MAX_OUTPUT_TOKENS = 300;
+// Raised modestly from 300 (FIX 5): with thinking now disabled, the whole
+// budget should go to the JSON payload, but a little headroom protects
+// against a provider that only partially honors the thinking-disable
+// transform.
+const FAITHFULNESS_JUDGE_MAX_OUTPUT_TOKENS = 600;
 
 const FAITHFULNESS_CATEGORY_VALUES: ReadonlySet<string> = new Set([
 	"contradiction",
@@ -373,10 +429,11 @@ Judge whether the SUMMARY is faithful to the ANCHORED SPAN — i.e. it is ENTAIL
 - Every claim, entity, and fact in the SUMMARY must be supported by the ANCHORED SPAN.
 - The SUMMARY must introduce NO entity, fact, or claim that is absent from the ANCHORED SPAN (no invented specificity).
 - The SUMMARY must NOT contradict the ANCHORED SPAN (must not state the opposite of what it says).
+- The ANCHORED SPAN is a model's PRIVATE internal reasoning, never an event log. If the SUMMARY states or implies that an external action was actually PERFORMED — searching the web, fetching a page, browsing, downloading, querying a database or tool, reading a connected account — and the ANCHORED SPAN only discusses, plans, or considers doing such a thing (or does not mention it at all) rather than recording that a real tool call actually happened, the SUMMARY is UNFAITHFUL. An action claim with no matching event in the span is exactly the kind of unsupported specificity this audit exists to catch, and it is always a "fabrication" regardless of how closely its other words track the span.
 
 If the SUMMARY is unfaithful, classify why with exactly one category:
 - "contradiction": the SUMMARY asserts something that conflicts with, or is the opposite of, the ANCHORED SPAN.
-- "fabrication": the SUMMARY adds a specific entity, fact, or claim that is not present in the ANCHORED SPAN.
+- "fabrication": the SUMMARY adds a specific entity, fact, or claim that is not present in the ANCHORED SPAN — including an external-action claim (searching/fetching/browsing/downloading/querying/reading an account) that the span never records as having actually happened.
 - "unmoored": the SUMMARY is vague or generic filler that does not clearly correspond to anything specific in the ANCHORED SPAN — neither directly supported, nor a clear contradiction or fabrication, it simply is not grounded in the span.
 
 Respond with ONLY a single JSON object, no markdown, no code fences, no commentary, matching exactly this shape:
@@ -416,30 +473,25 @@ function stripJsonCodeFence(text: string): string {
 	return fenced ? fenced[1].trim() : trimmed;
 }
 
-/** Parses + validates the judge's strict-JSON verdict. Throws on ANYTHING
- * short of a well-formed `FaithfulnessVerdict` — invalid JSON, a non-object,
- * a missing/non-boolean `faithful`, an unrecognized `category`, or a
- * missing/empty `reason` — so the caller's catch-all folds every failure
- * mode into "unjudged", never a silently-accepted malformed "faithful". */
-function parseFaithfulnessVerdict(rawText: string): FaithfulnessVerdict {
-	const stripped = stripJsonCodeFence(rawText);
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(stripped);
-	} catch {
-		throw new Error(
-			`Judge response was not valid JSON: ${truncateForError(rawText)}`,
-		);
-	}
+/** Parses + validates the judge's strict-JSON verdict shape from an
+ * already-parsed JSON value. Throws on ANYTHING short of a well-formed
+ * `FaithfulnessVerdict` — a non-object, a missing/non-boolean `faithful`,
+ * an unrecognized `category`, or a missing/empty `reason` — so the
+ * caller's catch-all folds every failure mode into "unjudged", never a
+ * silently-accepted malformed "faithful". */
+function validateFaithfulnessVerdictShape(
+	parsed: unknown,
+	rawTextForError: string,
+): FaithfulnessVerdict {
 	if (!parsed || typeof parsed !== "object") {
 		throw new Error(
-			`Judge response JSON was not an object: ${truncateForError(rawText)}`,
+			`Judge response JSON was not an object: ${truncateForError(rawTextForError)}`,
 		);
 	}
 	const candidate = parsed as Record<string, unknown>;
 	if (typeof candidate.faithful !== "boolean") {
 		throw new Error(
-			`Judge response is missing a boolean "faithful": ${truncateForError(rawText)}`,
+			`Judge response is missing a boolean "faithful": ${truncateForError(rawTextForError)}`,
 		);
 	}
 	if (
@@ -448,12 +500,12 @@ function parseFaithfulnessVerdict(rawText: string): FaithfulnessVerdict {
 			!FAITHFULNESS_CATEGORY_VALUES.has(candidate.category))
 	) {
 		throw new Error(
-			`Judge response has an invalid "category": ${truncateForError(rawText)}`,
+			`Judge response has an invalid "category": ${truncateForError(rawTextForError)}`,
 		);
 	}
 	if (typeof candidate.reason !== "string" || candidate.reason.length === 0) {
 		throw new Error(
-			`Judge response is missing a non-empty "reason": ${truncateForError(rawText)}`,
+			`Judge response is missing a non-empty "reason": ${truncateForError(rawTextForError)}`,
 		);
 	}
 	return {
@@ -463,31 +515,86 @@ function parseFaithfulnessVerdict(rawText: string): FaithfulnessVerdict {
 	};
 }
 
-/** Calls the judge model once and returns a `FaithfulnessJudgment`. NEVER
+/** Parses + validates the judge's strict-JSON verdict.
+ *
+ * FIX 5 (hardening pass) — parses via `parseJsonWithEnvelopeExtraction`
+ * (the SAME envelope-extraction parser the P3b classifier already uses,
+ * memory-judge/schema.ts) instead of a strict `JSON.parse`: a judge model
+ * that leaks a little chain-of-thought before its JSON envelope, or wraps
+ * it in surrounding prose, still yields a usable verdict instead of an
+ * unnecessary "unjudged". `stripJsonCodeFence` still runs first as cheap,
+ * order-independent tolerance for a fenced response — envelope extraction
+ * then finds the balanced `{"faithful": ...}` object even inside whatever
+ * text remains around it. Throws on anything short of a well-formed
+ * `FaithfulnessVerdict` (see `validateFaithfulnessVerdictShape`) so the
+ * caller's catch-all folds every failure mode into "unjudged", never a
+ * silently-accepted malformed "faithful".
+ */
+function parseFaithfulnessVerdict(rawText: string): FaithfulnessVerdict {
+	const stripped = stripJsonCodeFence(rawText);
+	const parsed = parseJsonWithEnvelopeExtraction(stripped, "faithful");
+	if (parsed === null) {
+		throw new Error(
+			`Judge response was not valid JSON: ${truncateForError(rawText)}`,
+		);
+	}
+	return validateFaithfulnessVerdictShape(parsed, rawText);
+}
+
+/** A single judge call attempt: calls the model once and returns a parsed
+ * verdict, or throws (network error, timeout, empty/malformed response).
+ * The single-attempt primitive `callFaithfulnessJudge` retries around. */
+async function callFaithfulnessJudgeOnce(params: {
+	judgeModel: ResolvedJudgeModel;
+	summary: string;
+	anchoredSpanText: string;
+}): Promise<FaithfulnessVerdict> {
+	const result = await generateText({
+		model: params.judgeModel.model,
+		system: FAITHFULNESS_JUDGE_SYSTEM_PROMPT,
+		messages: [
+			{
+				role: "user",
+				content: buildFaithfulnessJudgeUserMessage(params),
+			},
+		],
+		temperature: FAITHFULNESS_JUDGE_TEMPERATURE,
+		maxOutputTokens: FAITHFULNESS_JUDGE_MAX_OUTPUT_TOKENS,
+		abortSignal: AbortSignal.timeout(FAITHFULNESS_JUDGE_TIMEOUT_MS),
+		providerOptions: params.judgeModel.providerOptions,
+	});
+	return parseFaithfulnessVerdict(result.text);
+}
+
+/** Calls the judge model and returns a `FaithfulnessJudgment`. NEVER
  * throws: a network error, a timeout (bounded by
  * `FAITHFULNESS_JUDGE_TIMEOUT_MS`), or a malformed/unparsable response are
  * all caught here and mapped to `{status: "unjudged", reason}` — the
- * fail-closed contract this whole slice exists to uphold. */
+ * fail-closed contract this whole slice exists to uphold.
+ *
+ * FIX 5 (hardening pass) — ONE retry on any failed attempt (empty/non-JSON
+ * response, network error, timeout, ...). The live audit found the local
+ * qwen judge's thinking mode consuming its whole token budget before
+ * emitting JSON on a meaningful fraction of calls (6/14 steps "unjudged").
+ * Disabling thinking (`createJudgeModel`, above) is the primary fix for
+ * that specific cause, but a single retry additionally recovers from any
+ * remaining transient empty/malformed response without masking a
+ * persistently broken judge — a SECOND failure still stays "unjudged",
+ * exactly the fail-closed contract this slice had before this fix.
+ */
 async function callFaithfulnessJudge(params: {
-	model: ReturnType<typeof createJudgeModel>;
+	judgeModel: ResolvedJudgeModel;
 	summary: string;
 	anchoredSpanText: string;
 }): Promise<FaithfulnessJudgment> {
 	try {
-		const result = await generateText({
-			model: params.model,
-			system: FAITHFULNESS_JUDGE_SYSTEM_PROMPT,
-			messages: [
-				{
-					role: "user",
-					content: buildFaithfulnessJudgeUserMessage(params),
-				},
-			],
-			temperature: FAITHFULNESS_JUDGE_TEMPERATURE,
-			maxOutputTokens: FAITHFULNESS_JUDGE_MAX_OUTPUT_TOKENS,
-			abortSignal: AbortSignal.timeout(FAITHFULNESS_JUDGE_TIMEOUT_MS),
-		});
-		const verdict = parseFaithfulnessVerdict(result.text);
+		const verdict = await callFaithfulnessJudgeOnce(params);
+		return { status: "judged", verdict };
+	} catch {
+		// First attempt failed; fall through to the single retry below.
+	}
+	try {
+		const verdict = await callFaithfulnessJudgeOnce(params);
 		return { status: "judged", verdict };
 	} catch (error) {
 		const reason =
@@ -522,9 +629,9 @@ function createLiveFaithfulnessResolver(): FaithfulnessResolver {
 	}
 	return async ({ step, anchoredSpanText }) => {
 		try {
-			const model = await getModel();
+			const judgeModel = await getModel();
 			return await callFaithfulnessJudge({
-				model,
+				judgeModel,
 				summary: step.summary ?? "",
 				anchoredSpanText,
 			});
@@ -1054,6 +1161,8 @@ export {
 	buildFaithfulnessGateStatement,
 	buildReport,
 	buildSyntheticFaithfulnessExpectations,
+	callFaithfulnessJudge,
+	createJudgeModel,
 	createSyntheticFaithfulnessResolver,
 	parseCliArgs,
 	parseFaithfulnessVerdict,

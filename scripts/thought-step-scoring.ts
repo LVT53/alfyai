@@ -323,13 +323,17 @@ export type FaithfulnessEnableGateVerdict = "pass" | "fail" | "not_applicable";
 
 export type FaithfulnessEnableGateInput = {
 	/** The existing mechanical summary (over ALL audited steps, not just
-	 * summary-bearing ones) — only its `unanchoredCount` /
-	 * `fabricatedActionCount` feed the raised gate, per the raised gate's
-	 * stated condition ("0 unanchored, 0 fabricated action claims").
-	 * `unsupportedEntityCount` is intentionally NOT part of this gate. */
+	 * summary-bearing ones) — its `unanchoredCount`, `fabricatedActionCount`,
+	 * AND `unsupportedEntityCount` all feed the raised gate. ADR-0056 ("What
+	 * makes a step true") requires a surfaced entity to be verbatim in its
+	 * anchored span; `unsupportedEntityCount` (already computed by
+	 * `summarizeThoughtStepAudit`) is exactly the count of steps that violate
+	 * that requirement, so the raised gate must fail closed on it exactly
+	 * like the other two mechanical defects — a non-verbatim entity is no
+	 * less a defect than an unanchored step or a fabricated action claim. */
 	mechanical: Pick<
 		ThoughtStepAuditSummary,
-		"unanchoredCount" | "fabricatedActionCount"
+		"unanchoredCount" | "fabricatedActionCount" | "unsupportedEntityCount"
 	>;
 	faithfulness: FaithfulnessAuditSummary;
 };
@@ -338,16 +342,18 @@ export type FaithfulnessEnableGateInput = {
  * Evaluates the RAISED, Amendment-era P3 enable gate: PASS only when
  * `faithfulRate > 0.95` AND zero contradictions AND zero fabrications AND
  * the existing mechanical checks pass (zero unanchored steps, zero
- * fabricated action claims, across ALL audited steps). NOT_APPLICABLE —
- * never a vacuous pass — when there are zero summary-bearing steps to
- * judge at all; this is the raised gate's OWN applicability condition,
- * independent of how many non-summary steps were mechanically audited (a
- * rail that emits summaries has something new to prove that a class-only
- * rail never had to). FAIL otherwise — which includes the fail-closed case
- * where every summary-bearing step went unjudged (`judgedCount === 0` =>
- * `faithfulRate === null` => never `> threshold`), and the case of a
- * single contradiction or fabrication even at an otherwise-excellent
- * faithful rate.
+ * fabricated action claims, AND zero unsupported-entity steps, across ALL
+ * audited steps). NOT_APPLICABLE — never a vacuous pass — when there are
+ * zero summary-bearing steps to judge at all; this is the raised gate's OWN
+ * applicability condition, independent of how many non-summary steps were
+ * mechanically audited (a rail that emits summaries has something new to
+ * prove that a class-only rail never had to). FAIL otherwise — which
+ * includes the fail-closed case where every summary-bearing step went
+ * unjudged (`judgedCount === 0` => `faithfulRate === null` => never `>
+ * threshold`), the case of a single contradiction or fabrication even at an
+ * otherwise-excellent faithful rate, and the case of a single non-verbatim
+ * entity even at a perfect faithfulness result (FIX 2, hardening pass: this
+ * gate used to ignore `unsupportedEntityCount` entirely).
  */
 export function evaluateFaithfulnessEnableGate(
 	input: FaithfulnessEnableGateInput,
@@ -360,7 +366,9 @@ export function evaluateFaithfulnessEnableGate(
 	const noContradiction = faithfulness.contradictionCount === 0;
 	const noFabrication = faithfulness.fabricationCount === 0;
 	const mechanicalOk =
-		mechanical.unanchoredCount === 0 && mechanical.fabricatedActionCount === 0;
+		mechanical.unanchoredCount === 0 &&
+		mechanical.fabricatedActionCount === 0 &&
+		mechanical.unsupportedEntityCount === 0;
 	// Fail closed on insufficient judge coverage: a PASS must be earned on a
 	// representative sample, not a few judged steps while most went unjudged
 	// (e.g. the judge model was unavailable). summaryBearingCount > 0 is
@@ -368,7 +376,11 @@ export function evaluateFaithfulnessEnableGate(
 	const coverageOk =
 		faithfulness.judgedCount / faithfulness.summaryBearingCount >=
 		FAITHFULNESS_GATE_MIN_JUDGED_COVERAGE;
-	return faithfulOk && coverageOk && noContradiction && noFabrication && mechanicalOk
+	return faithfulOk &&
+		coverageOk &&
+		noContradiction &&
+		noFabrication &&
+		mechanicalOk
 		? "pass"
 		: "fail";
 }

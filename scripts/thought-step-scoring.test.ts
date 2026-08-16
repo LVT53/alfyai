@@ -436,7 +436,11 @@ describe("summarizeFaithfulness", () => {
 });
 
 function baseMechanical() {
-	return { unanchoredCount: 0, fabricatedActionCount: 0 };
+	return {
+		unanchoredCount: 0,
+		fabricatedActionCount: 0,
+		unsupportedEntityCount: 0,
+	};
 }
 
 function baseFaithfulness(
@@ -460,7 +464,11 @@ describe("evaluateFaithfulnessEnableGate", () => {
 	it("returns not_applicable when there are zero summary-bearing steps, regardless of mechanical stats", () => {
 		expect(
 			evaluateFaithfulnessEnableGate({
-				mechanical: { unanchoredCount: 3, fabricatedActionCount: 2 },
+				mechanical: {
+					unanchoredCount: 3,
+					fabricatedActionCount: 2,
+					unsupportedEntityCount: 1,
+				},
 				faithfulness: baseFaithfulness(),
 			}),
 		).toBe("not_applicable");
@@ -481,7 +489,11 @@ describe("evaluateFaithfulnessEnableGate", () => {
 		expect(faithfulness.summaryBearingCount).toBe(100);
 		expect(
 			evaluateFaithfulnessEnableGate({
-				mechanical: { unanchoredCount: 0, fabricatedActionCount: 0 },
+				mechanical: {
+					unanchoredCount: 0,
+					fabricatedActionCount: 0,
+					unsupportedEntityCount: 0,
+				},
 				faithfulness,
 			}),
 		).toBe("fail");
@@ -495,7 +507,11 @@ describe("evaluateFaithfulnessEnableGate", () => {
 		]);
 		expect(
 			evaluateFaithfulnessEnableGate({
-				mechanical: { unanchoredCount: 0, fabricatedActionCount: 0 },
+				mechanical: {
+					unanchoredCount: 0,
+					fabricatedActionCount: 0,
+					unsupportedEntityCount: 0,
+				},
 				faithfulness,
 			}),
 		).toBe("pass");
@@ -576,7 +592,11 @@ describe("evaluateFaithfulnessEnableGate", () => {
 	it("fails when mechanical unanchoredCount > 0 despite a perfect faithfulness summary", () => {
 		expect(
 			evaluateFaithfulnessEnableGate({
-				mechanical: { unanchoredCount: 1, fabricatedActionCount: 0 },
+				mechanical: {
+					unanchoredCount: 1,
+					fabricatedActionCount: 0,
+					unsupportedEntityCount: 0,
+				},
 				faithfulness: baseFaithfulness({
 					summaryBearingCount: 50,
 					judgedCount: 50,
@@ -590,7 +610,11 @@ describe("evaluateFaithfulnessEnableGate", () => {
 	it("fails when mechanical fabricatedActionCount > 0 despite a perfect faithfulness summary", () => {
 		expect(
 			evaluateFaithfulnessEnableGate({
-				mechanical: { unanchoredCount: 0, fabricatedActionCount: 1 },
+				mechanical: {
+					unanchoredCount: 0,
+					fabricatedActionCount: 1,
+					unsupportedEntityCount: 0,
+				},
 				faithfulness: baseFaithfulness({
 					summaryBearingCount: 50,
 					judgedCount: 50,
@@ -610,6 +634,29 @@ describe("evaluateFaithfulnessEnableGate", () => {
 					unjudgedCount: 10,
 					judgedCount: 0,
 					faithfulRate: null,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	// FIX 2 [HIGH] — the gate must not ignore unsupportedEntityCount.
+	// ADR-0056 requires a surfaced entity to be verbatim; a non-verbatim
+	// entity must sink the gate exactly like an unanchored step or a
+	// fabricated action claim would, even when the faithfulness half of the
+	// audit is otherwise perfect (100% faithful, full judged coverage).
+	it("fails when unsupportedEntityCount > 0, even at 100% faithful / 100% judged coverage / zero unanchored / zero fabricated action claims", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: {
+					unanchoredCount: 0,
+					fabricatedActionCount: 0,
+					unsupportedEntityCount: 1,
+				},
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 50,
+					judgedCount: 50,
+					faithfulCount: 50,
+					faithfulRate: 1,
 				}),
 			}),
 		).toBe("fail");

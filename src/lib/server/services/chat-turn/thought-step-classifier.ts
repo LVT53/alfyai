@@ -361,11 +361,21 @@ const THOUGHT_STEP_SUMMARY_STOP_WORDS = new Set([
 	"along",
 ]);
 
-/** Tokenizes into word-ish substrings (letters/digits, plus internal
+/** Tokenizes into word-ish substrings (Unicode letters/digits, plus internal
  * apostrophes/hyphens), lowercased content-word filtering only —
- * punctuation and whitespace are never tokens. */
+ * punctuation and whitespace are never tokens.
+ *
+ * FIX 4 (hardening pass, post-amendment) — Unicode-aware (`\p{L}`/`\p{N}`
+ * with the `u` flag), not `[A-Za-z0-9]`. The ASCII-only class split an
+ * accented word at the accent boundary (e.g. Hungarian "irány" ->
+ * "ir" + "ny"), and both fragments then fell under the 3-character floor
+ * and were silently dropped — a truthful, correctly-tethered Hungarian
+ * summary would lose its only shared content word and be wrongly rejected,
+ * downgraded all the way to the plain class label. `\p{L}`/`\p{N}` cover
+ * accented Latin letters (and any other script) as ordinary word
+ * characters, so this tokenizer no longer shreds non-ASCII words. */
 function extractContentWords(text: string): string[] {
-	const tokens = text.match(/[A-Za-z0-9][A-Za-z0-9'-]*/g) ?? [];
+	const tokens = text.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
 	return tokens.filter((token) => {
 		const lower = token.toLowerCase();
 		return lower.length >= 3 && !THOUGHT_STEP_SUMMARY_STOP_WORDS.has(lower);
@@ -375,25 +385,104 @@ function extractContentWords(text: string): string[] {
 /**
  * The mechanical check itself: does `summary` contain at least one
  * substantive (non-stop-word, 3+ character) token that also appears,
- * case-insensitively, as a substring of `anchoredText` (the same reasoning
+ * case-insensitively, as a WHOLE WORD in `anchoredText` (the same reasoning
  * chunk the summary is supposed to describe)? Exported for direct unit
  * testing of the stop-word/content-word boundary.
+ *
+ * FIX 1 (hardening pass, post-amendment) — this used to check
+ * `anchoredText.toLowerCase().includes(word)`, a raw SUBSTRING check against
+ * the anchored text's own characters rather than its tokenized words. Short
+ * content-words are dense substrings of longer, wholly unrelated words
+ * ("cat" nests inside "location", "art" nests inside "start"), so a
+ * fabricated summary word that merely happens to nest inside a real word
+ * passed the tether — defeating the leash the ADR amendment relies on. The
+ * fix tokenizes `anchoredText` with the SAME `extractContentWords`
+ * tokenizer used on the summary, and requires an exact (case-insensitive)
+ * TOKEN match — membership in the anchored span's own word set — never a
+ * raw substring test.
  */
 export function hasVerbatimContentWordTether(
 	summary: string,
 	anchoredText: string,
 ): boolean {
-	const anchoredLower = anchoredText.toLowerCase();
+	const anchoredWords = new Set(
+		extractContentWords(anchoredText).map((word) => word.toLowerCase()),
+	);
 	return extractContentWords(summary).some((word) =>
-		anchoredLower.includes(word.toLowerCase()),
+		anchoredWords.has(word.toLowerCase()),
+	);
+}
+
+// ── Runtime external-action guard (FIX 3, hardening pass) ──────────────────
+//
+// Only the classifier PROMPT told the model "never imply an external
+// action" — nothing enforced it. A summary like "Searching flight prices
+// for Paris" can pass `hasVerbatimContentWordTether` cleanly (every word in
+// it may be a genuine copy from the chunk: "flight", "prices", "Paris" all
+// really appear there) while still ASSERTING that a real external action
+// happened. `impliesExternalAction` stays hardcoded `false` for every
+// classified step (see the closed activity-class enum's own guarantee
+// below), so a summary like this would reach the user live as a
+// grounded-looking headline that falsely implies a real search occurred —
+// exactly the failure mode ADR-0056 ("Classes that imply an external
+// action... may originate ONLY from event-derived steps") exists to
+// prevent, just smuggled through the summary TEXT instead of the class.
+//
+// This is a cheap, mechanical, defense-in-depth RUNTIME LEASH — a denylist
+// of external-action verb stems, in both EN and HU (the two languages this
+// product's reasoning stream and UI can appear in) — not a substitute for
+// the offline faithfulness judge, which is the semantic backstop
+// (scripts/audit-thought-step-honesty.ts). It can only catch an EXPLICIT
+// action-verb assertion; it cannot catch every way a summary could imply
+// unstated real-world activity without naming a denylisted verb. Like the
+// verbatim tether, failing this check drops only the SUMMARY, never the
+// step: the step still emits with its class + entity, so the floor never
+// drops below pre-summary behavior.
+//
+// EN stems use plain ASCII `\b` word boundaries (fine — no accented
+// characters involved). "look up"/"looking up"/"looked up" is denylisted
+// but bare "look(ing) at" is deliberately NOT — internal reasoning
+// routinely says things like "looking at the tradeoffs", which names no
+// external action at all.
+const EXTERNAL_ACTION_DENYLIST_EN_REGEX =
+	/\b(search(?:ing|es|ed)?|look(?:ing|ed)?\s+up|fetch(?:ing|es|ed)?|brows(?:e|es|ed|ing)|retriev(?:e|es|ed|ing)|quer(?:y|ies|ying|ied)|download(?:ing|s|ed)?|googl(?:e|es|ed|ing)|read(?:ing)?\s+the|check(?:ing)?\s+online)\b/i;
+
+// HU stems: keres (search), megkeres (look up/contact), letölt (download),
+// böngész (browse), lekér (query/fetch). Hungarian is agglutinative, so
+// each stem is followed by an open-ended run of further letters to catch
+// its common inflections (keresés, keresem, letölti, böngészve, lekérdez,
+// ...) rather than hardcoding every inflected form. `keres` alone would
+// also match inside the common, wholly unrelated word "keresztül"
+// ("through") / "kereszt" ("cross") — both start with the literal letters
+// k-e-r-e-s — so `keres` is guarded with `(?!zt)` to exclude exactly that
+// collision without narrowing any genuine search-related inflection (none
+// of which continue with "zt"). Boundaries use `\p{L}\p{N}` lookaround
+// (not `\b`, which is ASCII-only and unreliable around accented letters)
+// so a stem is only matched at a genuine word start.
+const EXTERNAL_ACTION_DENYLIST_HU_REGEX =
+	/(?<![\p{L}\p{N}])(megkeres|keres(?!zt)|letölt|böngész|lekér)[\p{L}]*/iu;
+
+/**
+ * Does `summary`'s TEXT assert or imply that an external action happened
+ * (searching, fetching, browsing, downloading, querying, reading a
+ * connected account, ...)? Exported for direct unit testing of the
+ * denylist's EN/HU boundary behavior, independent of the classifier
+ * plumbing.
+ */
+export function assertsExternalAction(summary: string): boolean {
+	return (
+		EXTERNAL_ACTION_DENYLIST_EN_REGEX.test(summary) ||
+		EXTERNAL_ACTION_DENYLIST_HU_REGEX.test(summary)
 	);
 }
 
 /**
- * Applies the guard: `candidate` survives only when non-empty AND tethered
- * to `anchoredText` per `hasVerbatimContentWordTether`. Otherwise `undefined`
- * — dropping the summary, never the step itself (the caller still emits the
- * step with its class + entity, exactly as it did before this amendment).
+ * Applies both runtime guards: `candidate` survives only when non-empty,
+ * tethered to `anchoredText` per `hasVerbatimContentWordTether`, AND does
+ * NOT assert an external action per `assertsExternalAction`. Otherwise
+ * `undefined` — dropping the summary, never the step itself (the caller
+ * still emits the step with its class + entity, exactly as it did before
+ * this amendment).
  */
 function extractGroundedSummary(
 	candidate: string | undefined,
@@ -401,6 +490,7 @@ function extractGroundedSummary(
 ): string | undefined {
 	const trimmed = candidate?.trim();
 	if (!trimmed) return undefined;
+	if (assertsExternalAction(trimmed)) return undefined;
 	return hasVerbatimContentWordTether(trimmed, anchoredText)
 		? trimmed
 		: undefined;
