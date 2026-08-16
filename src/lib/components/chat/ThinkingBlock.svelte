@@ -1,13 +1,17 @@
 <script lang="ts">
 import { t, type I18nKey } from "$lib/i18n";
 import type {
+	InterimThoughtStep,
 	MessageEvidenceStatus,
 	ThinkingSegment,
+	ThoughtStepClassifierActivityClass,
 	ToolEvidenceCandidate,
 } from "$lib/types";
+import { isThoughtStepClassifierActivityClass } from "$lib/types";
 import {
 	Check,
 	ChevronDown,
+	ChevronLeft,
 	ClipboardCheck,
 	Bot,
 	Languages,
@@ -20,6 +24,8 @@ import {
 	deriveReasoningSpineState,
 	type ReasoningSpineLiveState,
 } from "$lib/utils/reasoning-spine";
+import { prefersReducedMotion } from "$lib/utils/motion";
+import { resolveThoughtStepAnchorSpan } from "$lib/utils/thought-step-anchor";
 import {
 	formatConnectionToolAction,
 	getConnectionToolLabelKey,
@@ -53,6 +59,26 @@ let {
 	// itself real progress, so the header's spine state moves on from
 	// "reasoning" to "writing the answer" rather than reporting a stall.
 	answerStarted = false,
+	// P3c (ADR-0056) — the raw wire values of the latest live "thought_step"
+	// data-response-activity entry (MessageBubble's reverse-scan-latest-match
+	// over message.responseActivity). `liveThoughtStepClass` is the closed
+	// ThoughtStepClassifierActivityClass id; `liveThoughtStepEntity` is the
+	// optional verbatim entity. Enrichment on P1's spine, never a
+	// replacement: when undefined, or when the class is not one of the six
+	// recognized ones (honesty — never render a garbage/legacy class), the
+	// header falls straight back to the spine label below.
+	liveThoughtStepClass = undefined,
+	liveThoughtStepEntity = undefined,
+	// P3c (ADR-0056) — the durable, persisted Interim Thought Step rail for
+	// a COMPLETED turn (`ChatMessage.thoughtSteps`). Undefined while
+	// streaming and, today, also right after a turn completes in the same
+	// browser session — the terminal `data-stream-metadata` frame does not
+	// yet carry `thoughtSteps` (only the live per-step activity events do,
+	// and those lack an anchor) — so the rail only shows classified steps
+	// once the conversation has been reloaded from the server. See the P3c
+	// report for this gap; it is a server emission omission, out of this
+	// slice's scope to fix.
+	thoughtSteps = undefined,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -60,6 +86,9 @@ let {
 	streaming?: boolean;
 	thinkingDurationSeconds?: number;
 	answerStarted?: boolean;
+	liveThoughtStepClass?: string;
+	liveThoughtStepEntity?: string;
+	thoughtSteps?: InterimThoughtStep[];
 } = $props();
 
 let expanded = $state(false);
@@ -263,7 +292,21 @@ type InterleavedEntry =
 			name: string;
 			tools: ToolCallSegment[];
 			key: string;
-	  };
+	  }
+	// P3c (ADR-0056) — a classified Interim Thought Step, interleaved into
+	// the SAME completed rail as tool calls and context-preparation activity
+	// (see the merge in interleavedEntries below), never a separate list.
+	| { kind: "thought_step"; step: InterimThoughtStep; key: string };
+
+// P3c — honesty gate for the completed rail: "only render steps that exist
+// with a resolvable anchor" (ADR-0056). `content` here is `message.thinking`
+// — the exact same flat string every ThoughtStepAnchor's [start, end) span
+// indexes into (guaranteed server-side; see thought-step-classifier.ts).
+const anchoredThoughtSteps = $derived(
+	(thoughtSteps ?? []).filter(
+		(step) => resolveThoughtStepAnchorSpan(step.anchor, content) !== null,
+	),
+);
 
 const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
 	const entries: InterleavedEntry[] = [];
@@ -299,7 +342,46 @@ const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
 			entries.push({ kind: "text", segment: seg, key: `text-${i}` });
 		}
 	});
-	return entries;
+	if (anchoredThoughtSteps.length === 0) return entries;
+	// P3c — merge classified steps into the SAME positions they actually
+	// occurred at. A ThoughtStepAnchor's offsets index into `content`
+	// (message.thinking), which is exactly, invariantly, the concatenation
+	// of only this array's `text`-kind entries in order (tool_call/status
+	// entries never consume any of that offset space — see
+	// stream.ts's flushPendingThinking, which is the single place both are
+	// built from the same chunk). So walking `entries` while tracking a
+	// running text-offset and inserting each step right after the text
+	// entry whose span first reaches its anchor's start reproduces true
+	// arrival order without needing any timestamp on the segments
+	// themselves. Steps are already anchor.start-ordered (append-only,
+	// P3a/P3b), so a single forward pass suffices.
+	const merged: InterleavedEntry[] = [];
+	let textOffset = 0;
+	let stepIndex = 0;
+	const flushStepsUpTo = (offset: number) => {
+		while (
+			stepIndex < anchoredThoughtSteps.length &&
+			(anchoredThoughtSteps[stepIndex].anchor?.start ?? 0) < offset
+		) {
+			const step = anchoredThoughtSteps[stepIndex];
+			merged.push({
+				kind: "thought_step",
+				step,
+				key: `thought-step-${step.id}`,
+			});
+			stepIndex += 1;
+		}
+	};
+	for (const entry of entries) {
+		merged.push(entry);
+		if (entry.kind === "text") textOffset += entry.segment.content.length;
+		flushStepsUpTo(textOffset);
+	}
+	// Any step whose anchor starts at/after all reasoning text seen (e.g. the
+	// very last classified step, whose window can extend to the end of the
+	// trace) goes at the end rather than being silently dropped.
+	flushStepsUpTo(Number.POSITIVE_INFINITY);
+	return merged;
 });
 
 function connectorGroupLabel(name: string): string {
@@ -381,6 +463,55 @@ function reasoningSpineLabelKey(state: ReasoningSpineLiveState): I18nKey {
 }
 
 const liveSpineLabelKey = $derived(reasoningSpineLabelKey(reasoningSpineState));
+
+// P3c (ADR-0056) — one localized label per closed classifier activity class
+// (src/lib/types.ts THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES), reusing the
+// exact keys P3b already added to chat.ts. `satisfies Record<...>` keeps
+// this exhaustive against the closed enum, mirroring
+// TURN_ACKNOWLEDGMENT_LABEL_KEYS's precedent in MessageBubble.svelte.
+const THOUGHT_STEP_CLASS_LABEL_KEYS = {
+	"understanding-request":
+		"chat.responseActivity.thoughtStep.understandingRequest",
+	"recalling-context": "chat.responseActivity.thoughtStep.recallingContext",
+	"weighing-options": "chat.responseActivity.thoughtStep.weighingOptions",
+	"working-through-logic":
+		"chat.responseActivity.thoughtStep.workingThroughLogic",
+	"checking-details": "chat.responseActivity.thoughtStep.checkingDetails",
+	"drafting-approach": "chat.responseActivity.thoughtStep.draftingApproach",
+} as const satisfies Record<ThoughtStepClassifierActivityClass, I18nKey>;
+
+// Honesty gate (ADR-0056): a class outside the closed enum — garbage,
+// future/unknown, or otherwise — never renders anything, live or
+// completed; the caller falls back to whatever it would have shown anyway
+// (the spine label live, nothing in the completed rail). The entity is
+// composed in only when non-empty; it is never re-validated as a verbatim
+// substring here because the server (P3a/P3b) already guarantees that
+// before a step is ever emitted or persisted — this function only decides
+// what to render, never what to trust.
+function thoughtStepDisplayLabel(
+	activityClass: string,
+	entity: string | undefined,
+): string | null {
+	if (!isThoughtStepClassifierActivityClass(activityClass)) return null;
+	const label = $t(THOUGHT_STEP_CLASS_LABEL_KEYS[activityClass]);
+	const trimmedEntity = entity?.trim();
+	return trimmedEntity
+		? $t("chat.responseActivity.thoughtStepEntity", {
+				label,
+				entity: trimmedEntity,
+			})
+		: label;
+}
+
+// P3c — the live header's current classified step, if any has arrived yet
+// this turn. `undefined`/an unrecognized class both resolve to `null`,
+// which is exactly what the header template below treats as "fall back to
+// the spine label" — see the UX contract's precedence in ADR-0056.
+const liveThoughtStepLabel = $derived(
+	liveThoughtStepClass
+		? thoughtStepDisplayLabel(liveThoughtStepClass, liveThoughtStepEntity)
+		: null,
+);
 
 // Retrospective duration only — computed once the turn is done. The active
 // phase no longer shows any numeric elapsed time (see reasoningSpineState
@@ -678,9 +809,68 @@ function getFormattedFreshStart(text: string, rawStart: number): number {
 	return formatThinkingTextForDisplay(text.slice(0, rawStart)).length;
 }
 
+// P3c (ADR-0056) — the jump-anchor: clicking a completed step switches the
+// expanded panel from the interleaved rail to the single continuous raw
+// Thinking Trace view, scrolled to and highlighting exactly the step's
+// anchored span. This is the full disclosure contract, not the minimal
+// "reveal the substring inline" fallback — the ADR explicitly wants one
+// continuous raw view, reached from any step, not a nested dropdown per
+// step (see ADR-0056 "Considered Options": per-step nested disclosure was
+// rejected).
+type RawTraceAnchorState = { start: number; end: number; stepId: string };
+let rawTraceAnchor = $state<RawTraceAnchorState | null>(null);
+let anchorHighlightEl = $state<HTMLElement | undefined>(undefined);
+
+// Precomputed rather than inline `{@const}` in the template: `<pre>` only
+// allows `{@const}` as the immediate child of a block tag, not interleaved
+// with sibling expressions/elements the way the highlight markup below
+// needs. Reuses the exact same formatThinkingTextForDisplay +
+// getFormattedFreshStart pair the "word-new" fresh-content split already
+// uses, so the highlighted substring is exactly the anchor's [start, end)
+// text, re-expressed in the same paragraph-broken display coordinates the
+// rest of this view renders in.
+const rawTraceHighlight = $derived.by(() => {
+	if (!rawTraceAnchor) return null;
+	const formattedContent = formatThinkingTextForDisplay(content);
+	const start = getFormattedFreshStart(content, rawTraceAnchor.start);
+	const end = getFormattedFreshStart(content, rawTraceAnchor.end);
+	return {
+		before: formattedContent.slice(0, start),
+		highlighted: formattedContent.slice(start, end),
+		after: formattedContent.slice(end),
+	};
+});
+
+function jumpToThoughtStepAnchor(step: InterimThoughtStep) {
+	if (!step.anchor) return;
+	// Clicking the already-active step's row is the way back to the step
+	// list — no separate close-only control needed for that path, though
+	// the explicit "Back to steps" button below covers it too.
+	rawTraceAnchor =
+		rawTraceAnchor?.stepId === step.id
+			? null
+			: { start: step.anchor.start, end: step.anchor.end, stepId: step.id };
+}
+
+function closeRawTrace() {
+	rawTraceAnchor = null;
+}
+
+$effect(() => {
+	if (!rawTraceAnchor || !anchorHighlightEl) return;
+	// Defensive guard (mirrors MessageInput.svelte's identical check):
+	// jsdom's default test environment does not implement scrollIntoView.
+	if (typeof anchorHighlightEl.scrollIntoView !== "function") return;
+	anchorHighlightEl.scrollIntoView({
+		block: "center",
+		behavior: prefersReducedMotion() ? "auto" : "smooth",
+	});
+});
+
 async function toggle() {
 	await preserveScrollOnToggle(container, expanded, () => {
 		expanded = !expanded;
+		if (!expanded) rawTraceAnchor = null;
 	});
 }
 </script>
@@ -969,6 +1159,31 @@ async function toggle() {
 	</div>
 {/snippet}
 
+<!--
+	P3c (ADR-0056) — a completed classified step, rendered inline in the same
+	rail as tool calls/status steps. Its label is the accessible name (never
+	overridden by aria-label, so a screen reader hears exactly the localized
+	class + entity text); `title` gives sighted users a hover hint for the
+	jump affordance. Honesty: thoughtStepDisplayLabel returns null for an
+	unrecognized class, and the caller renders nothing for it — no blank row,
+	no fabricated label.
+-->
+{#snippet thoughtStepEntry(step: InterimThoughtStep)}
+	{@const label = thoughtStepDisplayLabel(step.activityClass, step.entity)}
+	{#if label}
+		<button
+			type="button"
+			class="thought-step-row"
+			class:is-active={rawTraceAnchor?.stepId === step.id}
+			onclick={() => jumpToThoughtStepAnchor(step)}
+			title={$t('chat.thoughtStep.viewInTrace')}
+		>
+			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
+			<span class="status-step-label">{label}</span>
+		</button>
+	{/if}
+{/snippet}
+
 {#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
 	<button
@@ -982,13 +1197,19 @@ async function toggle() {
 			construction: this text only changes at coarse spine-state
 			transitions (mount, an honest stall after REASONING_STALL_MS,
 			the answer starting, completion), never per-character or per-tick,
-			because nothing here is driven by a free-running timer.
+			because nothing here is driven by a free-running timer. P3c extends
+			this SAME region rather than adding a competing live region: a new
+			classified step is exactly the kind of coarse transition this was
+			already built for (the classifier itself rate-limits to roughly one
+			step per 5-7s).
 		-->
 		<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
 			{#if thinkingIsDone && formattedThinkingTime}
 				{$t('chat.thoughtFor', { time: formattedThinkingTime })}
 			{:else if thinkingIsDone}
 				{$t('chat.thought')}
+			{:else if liveThoughtStepLabel}
+				{liveThoughtStepLabel}
 			{:else}
 				{$t(liveSpineLabelKey)}
 			{/if}
@@ -1010,7 +1231,25 @@ async function toggle() {
 
 {#if expanded}
 <div class="thinking-content" class:content-fresh={contentFresh} transition:slide>
-				{#if hasSegments}
+			{#if rawTraceAnchor}
+			<!--
+				P3c (ADR-0056) — the jump-anchor's raw-trace view: one continuous
+				view of the SAME raw Thinking Trace (`content`), scrolled to and
+				highlighting exactly the clicked step's anchored span. Reusing
+				formatThinkingTextForDisplay + getFormattedFreshStart (the same
+				pair the fresh-content "word-new" split above already uses) keeps
+				the highlighted substring exactly the anchor's [start, end) text,
+				just re-expressed in the same paragraph-broken display coordinates
+				the rest of this view already renders in.
+			-->
+			<div class="raw-trace-view">
+				<button type="button" class="raw-trace-back" onclick={closeRawTrace}>
+					<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
+					{$t('chat.thoughtStep.backToSteps')}
+				</button>
+				<pre class="thinking-text">{rawTraceHighlight?.before ?? ''}<mark class="thought-step-anchor-highlight" bind:this={anchorHighlightEl}>{rawTraceHighlight?.highlighted ?? ''}</mark>{rawTraceHighlight?.after ?? ''}</pre>
+			</div>
+				{:else if hasSegments}
 				{#each interleavedEntries as entry (entry.key)}
 				{#if entry.kind === 'text'}
 					<pre class="thinking-text">{formatThinkingTextForDisplay(entry.segment.content)}</pre>
@@ -1082,6 +1321,8 @@ async function toggle() {
 								</div>
 					{:else if entry.kind === 'tool'}
 						{@render singleToolItem(entry.segment)}
+					{:else if entry.kind === 'thought_step'}
+						{@render thoughtStepEntry(entry.step)}
 					{:else}
 						{@render connectorGroupItem(entry.tools)}
 					{/if}
@@ -1712,6 +1953,78 @@ animation: thinkContentFadeIn 300ms ease-out;
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;
+	}
+
+	/* P3c (ADR-0056) — a completed classified thought step. Same visual
+	   rhythm as .status-step (icon + label row) but an actual <button>: the
+	   row is the jump-anchor into the raw Thinking Trace. */
+	.thought-step-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+		width: 100%;
+		min-width: 0;
+		margin: var(--space-xs) 0;
+		padding: 0;
+		background: transparent;
+		border: none;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		color: var(--text-muted);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.thought-step-row:hover .status-step-label,
+	.thought-step-row:focus-visible .status-step-label,
+	.thought-step-row.is-active .status-step-label {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+	}
+
+	.thought-step-row:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: 2px;
+	}
+
+	/* P3c — the jump-anchor's raw-trace view: one continuous view of the raw
+	   Thinking Trace, reached from any step, with a single way back. */
+	.raw-trace-view {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+		width: 100%;
+		min-width: 0;
+	}
+
+	.raw-trace-back {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 2px 10px 2px 6px;
+		border-radius: 9999px;
+		border: 1px solid var(--border-default);
+		background: var(--surface-elevated);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs, 0.75rem);
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.raw-trace-back:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	mark.thought-step-anchor-highlight {
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		color: inherit;
+		border-radius: 3px;
+		padding: 0 1px;
 	}
 
 @media (prefers-reduced-motion: reduce) {

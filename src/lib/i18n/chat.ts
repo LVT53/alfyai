@@ -120,6 +120,12 @@ const chatDict = {
 			"Weighing the options...",
 		"chat.responseActivity.thoughtStep.workingThroughLogic":
 			"Working through the logic...",
+		// P3c (ADR-0056) — composes a thought-step's localized class label
+		// with its verbatim entity (when the server sent one) for both the
+		// live header and the completed step rail. The model never authors
+		// any of this text; {label} is one of the six keys above, {entity}
+		// is a substring already verified server-side.
+		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
 		"chat.retry": "Retry",
@@ -132,6 +138,12 @@ const chatDict = {
 		"chat.thinking": "Thinking...",
 		"chat.thought": "Thought",
 		"chat.thoughtFor": "Thought for {time}",
+		// P3c (ADR-0056) — the jump-anchor affordance: a completed step's row
+		// is clickable, scrolling the raw Thinking Trace view to (and
+		// highlighting) the exact span that produced it; this pair labels
+		// that control and the way back to the step list.
+		"chat.thoughtStep.backToSteps": "Back to steps",
+		"chat.thoughtStep.viewInTrace": "View in thinking trace",
 		"chat.uploadAllFailed": "Failed to upload {count} file(s).",
 		"chat.uploadAttachmentFailed": "Failed to upload attachment.",
 		"chat.uploadError": "Upload failed",
@@ -868,6 +880,7 @@ const chatDict = {
 			"Lehetőségek mérlegelése...",
 		"chat.responseActivity.thoughtStep.workingThroughLogic":
 			"Logika végiggondolása...",
+		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
 		"chat.retry": "Újrapróbálkozás",
@@ -880,6 +893,8 @@ const chatDict = {
 		"chat.thinking": "Gondolkodás...",
 		"chat.thought": "Gondolkodott",
 		"chat.thoughtFor": "{time}-ig gondolkodott",
+		"chat.thoughtStep.backToSteps": "Vissza a lépésekhez",
+		"chat.thoughtStep.viewInTrace": "Megtekintés a gondolkodási folyamatban",
 		"chat.uploadAllFailed": "Nem sikerült feltölteni {count} fájlt.",
 		"chat.uploadAttachmentFailed": "A fájl csatolása nem sikerült.",
 		"chat.uploadError": "Feltöltés sikertelen",

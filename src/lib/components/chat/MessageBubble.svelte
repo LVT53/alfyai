@@ -247,6 +247,19 @@ function isDeliberationActivityEntry(
 	return entry?.kind === "deliberation" && Boolean(entry.label?.trim());
 }
 
+// P3c (ADR-0056) — the latest live classified thought-step, if any has
+// arrived. Mirrors liveDeliberationStatus's reverse-scan-latest-match
+// exactly: each new classified step rides its own id
+// (`thought-step:${step.id}`, see stream-orchestrator.ts), so the newest
+// entry in message.responseActivity is always the current step.
+// ThinkingBlock owns the honesty-gated class->label lookup and the
+// fallback-to-spine precedence; this only locates the raw wire entry.
+function isThoughtStepActivityEntry(
+	entry: ResponseActivityEntry,
+): entry is ResponseActivityEntry & { detail: string } {
+	return entry.kind === "thought_step" && Boolean(entry.detail?.trim());
+}
+
 function isToolProgressActivity(
 	entry: ResponseActivityEntry,
 ): entry is ResponseActivityEntry & { label: string } {
@@ -337,6 +350,16 @@ let liveDeliberationStatus = $derived(
 );
 let liveDeliberationStatusLabel = $derived(
 	liveDeliberationStatus?.label?.trim() ?? "",
+);
+// P3c (ADR-0056) — same reverse-scan-latest-match shape as
+// liveDeliberationStatus above, gated identically to markdownIsStreaming so
+// it (like every other live activity) disappears once the turn is done.
+let liveThoughtStepActivity = $derived(
+	markdownIsStreaming
+		? [...liveResponseActivityEntries]
+				.reverse()
+				.find(isThoughtStepActivityEntry)
+		: undefined,
 );
 let liveDeliberationStatusDisplayLabel = $derived.by(() => {
 	const label = liveDeliberationStatusLabel;
@@ -878,6 +901,9 @@ function toggleForkDetails() {
 			streaming={markdownIsStreaming}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
 			answerStarted={hasVisibleContent}
+			liveThoughtStepClass={liveThoughtStepActivity?.detail}
+			liveThoughtStepEntity={liveThoughtStepActivity?.label}
+			thoughtSteps={message.thoughtSteps}
 		/>
 		{/if}
 		{#if isUser}

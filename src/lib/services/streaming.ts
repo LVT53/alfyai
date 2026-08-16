@@ -218,7 +218,20 @@ function isResponseActivityKind(
 		value === "source" ||
 		value === "drafting" ||
 		value === "fallback" ||
-		value === "file"
+		value === "file" ||
+		// P3c (ADR-0056) — "thought_step" (P3b's classified-step kind) was
+		// missing from this allow-list, so every live `thought_step`
+		// data-response-activity event was silently dropped by
+		// buildResponseActivityEntry below before it ever reached
+		// message.responseActivity. Fixed here since the live step rail
+		// depends on it. "acknowledgment" (P2's kind) had the exact same
+		// gap — pre-existing, unrelated to P3c's own scope, but the same
+		// one-line fix in the same allow-list; left broken it would have
+		// meant P2's instant acknowledgment never actually renders in a
+		// real browser session either (its own tests never exercise this
+		// parser — they construct message.responseActivity directly).
+		value === "acknowledgment" ||
+		value === "thought_step"
 	);
 }
 

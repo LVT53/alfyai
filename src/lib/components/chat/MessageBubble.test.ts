@@ -13,6 +13,7 @@ import type {
 	ChatMessage,
 	DocumentWorkspaceItem,
 	FileProductionJob,
+	InterimThoughtStep,
 } from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
 import MessageBubble from "./MessageBubble.svelte";
@@ -993,6 +994,94 @@ describe("MessageBubble", () => {
 		expect(header.textContent?.trim().length ?? 0).toBeGreaterThan(0);
 		// Never the old counting-stopwatch shape ("12s · Thinking...").
 		expect(header.textContent ?? "").not.toMatch(/\d/);
+	});
+
+	// P3c (ADR-0056) — the classified thought-step rail, threaded from
+	// message.responseActivity (live) / message.thoughtSteps (completed)
+	// through MessageBubble into ThinkingBlock's props. ThinkingBlock.test.ts
+	// covers the label composition, interleaving, honesty filtering, and the
+	// jump-anchor exhaustively over plain props; these tests only prove the
+	// threading itself works end to end.
+	describe("P3c classified thought-step rail (ADR-0056)", () => {
+		it("shows the current classified step's label in the live header via a live thought_step response-activity entry", () => {
+			const message: ChatMessage = {
+				id: "assistant-thought-step-live",
+				renderKey: "assistant-thought-step-live",
+				role: "assistant",
+				content: "",
+				timestamp: Date.now(),
+				isStreaming: true,
+				isThinkingStreaming: true,
+				thinking: "Considering the request in detail.",
+				responseActivity: [
+					{
+						id: "thought-step:step-1",
+						kind: "thought_step",
+						status: "running",
+						detail: "weighing-options",
+					},
+				],
+			};
+
+			render(MessageBubble, { message });
+
+			expect(screen.getByText("Weighing the options...")).toBeInTheDocument();
+		});
+
+		it("ignores a thought_step activity carrying a class outside the closed enum and falls back to the spine label (honesty)", () => {
+			const message: ChatMessage = {
+				id: "assistant-thought-step-invalid",
+				renderKey: "assistant-thought-step-invalid",
+				role: "assistant",
+				content: "",
+				timestamp: Date.now(),
+				isStreaming: true,
+				isThinkingStreaming: true,
+				thinking: "Considering the request in detail.",
+				responseActivity: [
+					{
+						id: "thought-step:step-1",
+						kind: "thought_step",
+						status: "running",
+						detail: "shopping",
+					} as unknown as NonNullable<ChatMessage["responseActivity"]>[number],
+				],
+			};
+
+			render(MessageBubble, { message });
+
+			expect(screen.getByText("Thinking...")).toBeInTheDocument();
+			expect(screen.queryByText(/shopping/i)).not.toBeInTheDocument();
+		});
+
+		it("threads the persisted thoughtSteps rail into the completed, expandable Thought disclosure", async () => {
+			const thinking = "First I read the request. Then I weighed the options.";
+			const step: InterimThoughtStep = {
+				id: "step-1",
+				source: "classified",
+				activityClass: "weighing-options",
+				impliesExternalAction: false,
+				anchor: { start: thinking.indexOf("Then"), end: thinking.length },
+			};
+			const message: ChatMessage = {
+				id: "assistant-thought-step-completed",
+				renderKey: "assistant-thought-step-completed",
+				role: "assistant",
+				content: "Final answer.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				thinking,
+				thinkingSegments: [{ type: "text", content: thinking }],
+				thoughtSteps: [step],
+			};
+
+			render(MessageBubble, { message });
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			expect(screen.getByText("Weighing the options...")).toBeInTheDocument();
+		});
 	});
 
 	it("copies assistant content without Thought text", async () => {

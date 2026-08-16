@@ -7,7 +7,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { ThinkingSegment } from "$lib/types";
+import type { InterimThoughtStep, ThinkingSegment } from "$lib/types";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 
 describe("ThinkingBlock", () => {
@@ -1361,6 +1361,252 @@ describe("ThinkingBlock", () => {
 			expect(
 				screen.getByRole("button", { name: "Thought for 34s" }),
 			).toBeInTheDocument();
+		});
+	});
+
+	// P3c (ADR-0056) — the classified thought-step rail: live header
+	// enrichment on P1's spine, the completed interleaved rail, and the
+	// jump-anchor into the raw Thinking Trace. No model call anywhere in this
+	// suite either — every classified step arrives as a plain prop, exactly
+	// as it would after MessageBubble's reverse-scan (live) or from
+	// ChatMessage.thoughtSteps (completed).
+	describe("P3c classified thought-step rail (ADR-0056)", () => {
+		it("shows the current classified step's localized label in the live header, with no click required", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					liveThoughtStepClass: "weighing-options",
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Weighing the options..." }),
+			).toBeInTheDocument();
+		});
+
+		it("composes the verbatim entity into the live label when the server sent one", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					liveThoughtStepClass: "recalling-context",
+					liveThoughtStepEntity: "the budget discussion",
+				},
+			});
+
+			expect(
+				screen.getByText("Recalling context... (the budget discussion)"),
+			).toBeInTheDocument();
+		});
+
+		it("falls back to P1's spine label when no classified step has arrived yet", () => {
+			render(ThinkingBlock, {
+				props: { content: "Looking at the request", thinkingIsDone: false },
+			});
+
+			expect(screen.getByText("Thinking...")).toBeInTheDocument();
+		});
+
+		it("falls back to P1's spine label when the live class is outside the closed enum (honesty)", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: false,
+					liveThoughtStepClass: "shopping",
+					liveThoughtStepEntity: "shoes",
+				},
+			});
+
+			expect(screen.getByText("Thinking...")).toBeInTheDocument();
+			expect(screen.queryByText(/shoes/i)).not.toBeInTheDocument();
+		});
+
+		it("stops showing the classified step once the turn completes, in favor of the retrospective duration", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Looking at the request",
+					thinkingIsDone: true,
+					thinkingDurationSeconds: 12,
+					liveThoughtStepClass: "weighing-options",
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Thought for 12s" }),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText(/Weighing the options/),
+			).not.toBeInTheDocument();
+		});
+
+		it("interleaves completed classified steps with tool calls and text at the position they actually occurred, in order", async () => {
+			const text1 = "First part of reasoning. ";
+			const text2 = "Second part of reasoning.";
+			const content = text1 + text2;
+			const segments: ThinkingSegment[] = [
+				{ type: "text", content: text1 },
+				{
+					type: "tool_call",
+					name: "fetch_url",
+					status: "done",
+					input: { url: "https://example.com" },
+				},
+				{ type: "text", content: text2 },
+			];
+			const stepA: InterimThoughtStep = {
+				id: "step-a",
+				source: "classified",
+				activityClass: "understanding-request",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 5 }, // "First"
+			};
+			const stepB: InterimThoughtStep = {
+				id: "step-b",
+				source: "classified",
+				activityClass: "weighing-options",
+				impliesExternalAction: false,
+				anchor: { start: text1.length, end: text1.length + 6 }, // "Second"
+			};
+
+			const { container } = render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [stepA, stepB],
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const rows = container.querySelectorAll(
+				".thinking-content > .thinking-text, .thinking-content > .tool-call-item, .thinking-content > .thought-step-row",
+			);
+			expect(rows).toHaveLength(5);
+			expect(rows[0]?.className).toContain("thinking-text");
+			expect(rows[0]?.textContent).toContain("First part of reasoning.");
+			expect(rows[1]?.className).toContain("thought-step-row");
+			expect(rows[1]?.textContent).toContain("Understanding the request...");
+			expect(rows[2]?.className).toContain("tool-call-item");
+			expect(rows[3]?.className).toContain("thinking-text");
+			expect(rows[3]?.textContent).toContain("Second part of reasoning.");
+			expect(rows[4]?.className).toContain("thought-step-row");
+			expect(rows[4]?.textContent).toContain("Weighing the options...");
+		});
+
+		it("renders a resolvable classified step but drops one whose anchor does not resolve against the persisted trace (honesty)", async () => {
+			const content = "Short reasoning text.";
+			const segments: ThinkingSegment[] = [{ type: "text", content }];
+			const goodStep: InterimThoughtStep = {
+				id: "step-good",
+				source: "classified",
+				activityClass: "checking-details",
+				impliesExternalAction: false,
+				anchor: { start: 0, end: 5 }, // "Short"
+			};
+			const unanchoredStep: InterimThoughtStep = {
+				id: "step-bad",
+				source: "classified",
+				activityClass: "weighing-options",
+				impliesExternalAction: false,
+				anchor: { start: 1000, end: 1010 }, // out of bounds
+			};
+
+			render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [goodStep, unanchoredStep],
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			expect(screen.getByText("Checking the details...")).toBeInTheDocument();
+			expect(
+				screen.queryByText("Weighing the options..."),
+			).not.toBeInTheDocument();
+		});
+
+		it("jumps to and highlights a completed step's exact anchored span in the raw Thinking Trace, and returns via Back to steps", async () => {
+			const content =
+				"First I read the request carefully. Then I weighed two different options before continuing.";
+			const segments: ThinkingSegment[] = [{ type: "text", content }];
+			const anchorText = "weighed two different options";
+			const start = content.indexOf(anchorText);
+			const end = start + anchorText.length;
+			const step: InterimThoughtStep = {
+				id: "step-jump",
+				source: "classified",
+				activityClass: "weighing-options",
+				impliesExternalAction: false,
+				anchor: { start, end },
+			};
+
+			render(ThinkingBlock, {
+				props: {
+					content,
+					thinkingIsDone: true,
+					segments,
+					thoughtSteps: [step],
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
+
+			const stepRow = screen
+				.getByText("Weighing the options...")
+				.closest("button");
+			expect(stepRow).not.toBeNull();
+			if (!stepRow) throw new Error("Missing step row");
+			await fireEvent.click(stepRow);
+
+			const mark = document.querySelector("mark.thought-step-anchor-highlight");
+			expect(mark).not.toBeNull();
+			expect(mark?.textContent).toBe(anchorText);
+			expect(
+				screen.getByRole("button", { name: /Back to steps/ }),
+			).toBeInTheDocument();
+			// The interleaved step list is replaced, not merely covered.
+			expect(
+				screen.queryByText("Weighing the options..."),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Back to steps/ }),
+			);
+
+			expect(screen.getByText("Weighing the options...")).toBeInTheDocument();
+			expect(
+				document.querySelector("mark.thought-step-anchor-highlight"),
+			).toBeNull();
+		});
+
+		// The load-bearing regression test for this slice: with NO persisted
+		// thoughtSteps and NO live thought_step activity — classifier off,
+		// degraded, or simply not yet arrived — the header/rail must behave
+		// exactly as P1 shipped it: non-empty, driven by the spine label, no
+		// crash, and no thought-step-only DOM (row or highlight) anywhere.
+		it("P1 fallback intact: with no thoughtSteps and no live thought_step activity, the header/rail behaves exactly as P1 shipped", async () => {
+			const { container } = render(ThinkingBlock, {
+				props: {
+					content: "Considering the request",
+					thinkingIsDone: false,
+					segments: [],
+					streaming: true,
+				},
+			});
+
+			const header = screen.getByRole("button", { name: /Thinking/ });
+			expect(header.textContent?.trim()).toBe("Thinking...");
+			expect(container.querySelector(".thought-step-row")).toBeNull();
+
+			await fireEvent.click(header);
+			expect(
+				container.querySelector("mark.thought-step-anchor-highlight"),
+			).toBeNull();
 		});
 	});
 });

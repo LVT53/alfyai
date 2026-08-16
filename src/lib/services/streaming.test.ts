@@ -391,6 +391,79 @@ describe("streamChat", () => {
 		});
 	});
 
+	// P3c (ADR-0056) — "thought_step" (P3b's classified-step kind) was
+	// missing from isResponseActivityKind's allow-list, so every live
+	// classified step was silently dropped here before it ever reached
+	// message.responseActivity. Asserts the fix directly: this event must
+	// now survive the parser intact.
+	it("maps classified thought_step response-activity events onto the activity callback", async () => {
+		const onResponseActivity = vi.fn();
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "thought-step:step-1",
+						kind: "thought_step",
+						status: "running",
+						detail: "weighing-options",
+						occurredAt: 789,
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "thought-step:step-1",
+			kind: "thought_step",
+			status: "running",
+			detail: "weighing-options",
+			occurredAt: 789,
+		});
+	});
+
+	// P2's "acknowledgment" kind had the exact same pre-existing gap — fixed
+	// alongside "thought_step" since it is the identical one-line allow-list.
+	it("maps instant-acknowledgment response-activity events onto the activity callback", async () => {
+		const onResponseActivity = vi.fn();
+		const { done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({
+					type: "data-response-activity",
+					data: {
+						id: "turn-acknowledged",
+						kind: "acknowledgment",
+						status: "running",
+						detail: "research",
+						label: "the weather in Paris",
+					},
+					transient: true,
+				}),
+				uiFrame("[DONE]"),
+			],
+			callbacks: {
+				...makeCallbacks(),
+				onResponseActivity,
+			},
+		});
+		await done;
+
+		expect(onResponseActivity).toHaveBeenCalledWith({
+			id: "turn-acknowledged",
+			kind: "acknowledgment",
+			status: "running",
+			detail: "research",
+			label: "the weather in Paris",
+		});
+	});
+
 	it("maps AI SDK UI stream-error data parts onto onError with code", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [
