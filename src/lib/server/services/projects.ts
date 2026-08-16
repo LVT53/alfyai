@@ -2,7 +2,18 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { conversations, projects } from "$lib/server/db/schema";
-import type { Project } from "$lib/types";
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); this type carries no behavior change, only
+// a new home next to the project service that owns Project CRUD.
+export interface Project {
+	id: string;
+	name: string;
+	color?: string | null;
+	sortOrder: number;
+	createdAt: number; // Unix timestamp
+	updatedAt: number; // Unix timestamp
+}
 
 type SaveProjectSidebarOrderInput = {
 	ids?: string[];

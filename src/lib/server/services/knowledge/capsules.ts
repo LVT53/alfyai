@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts, conversations, messages } from "$lib/server/db/schema";
+import type {
+	Artifact,
+	WorkCapsule,
+} from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { Artifact, WorkCapsule } from "$lib/types";
 import { classifyGeneratedOutputArtifact } from "../evidence-family";
 import {
 	deriveConversationArtifactBaseName,

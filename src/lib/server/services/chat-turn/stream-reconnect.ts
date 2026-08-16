@@ -14,15 +14,17 @@ export interface ReconnectBuffer {
 	createdAt?: number;
 	tokens: string[];
 	thinking: string[];
-	responseActivity: import("$lib/types").ResponseActivityEntry[];
+	responseActivity: import("$lib/response-activity-types").ResponseActivityEntry[];
 	toolCalls: Array<{
 		callId?: string;
 		name: string;
 		input: Record<string, unknown>;
 		status: "running" | "done" | "failed";
 		outputSummary?: string | null;
-		sourceType?: import("$lib/types").EvidenceSourceType | null;
-		candidates?: import("$lib/types").ToolEvidenceCandidate[];
+		sourceType?:
+			| import("$lib/server/services/message-evidence").EvidenceSourceType
+			| null;
+		candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 		metadata?: Record<string, string | number | boolean | null>;
 	}>;
 	eventTimeline?: Array<{

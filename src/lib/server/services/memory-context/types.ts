@@ -1,4 +1,4 @@
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ProjectContextResult } from "./project";
 
 export type MemoryContextMode = "project" | "persona" | "history";

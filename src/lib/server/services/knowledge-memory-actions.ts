@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
-import { db } from "$lib/server/db";
-import { memoryConsolidationReports } from "$lib/server/db/schema";
 import type {
 	MemoryProfileActionPayload,
 	MemoryProfilePublicPayload,
-} from "$lib/types";
+} from "$lib/memory-profile-types";
+import { db } from "$lib/server/db";
+import { memoryConsolidationReports } from "$lib/server/db/schema";
 import {
 	type KnowledgeMemorySummaryPayload,
 	serializeMemoryProfileReadModel,

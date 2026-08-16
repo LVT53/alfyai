@@ -6,7 +6,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MessageEvidenceSummary } from "$lib/types";
+import type { MessageEvidenceSummary } from "$lib/server/services/message-evidence";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 
 const {

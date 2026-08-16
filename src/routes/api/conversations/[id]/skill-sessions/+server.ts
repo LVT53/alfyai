@@ -6,7 +6,7 @@ import {
 	serializePublicSkillSession,
 	startSkillSession,
 } from "$lib/server/services/skills/sessions";
-import type { PendingSkillSelection } from "$lib/types";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { RequestHandler } from "./$types";
 
 function parsePendingSkill(value: unknown): PendingSkillSelection | null {

@@ -6,8 +6,8 @@ import {
 	createArtifact,
 	mapArtifact,
 } from "$lib/server/services/knowledge/store/core";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { Artifact } from "$lib/types";
 import {
 	buildGeneratedDocumentProjection,
 	type GeneratedDocumentSource,

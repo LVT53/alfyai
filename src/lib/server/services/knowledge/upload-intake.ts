@@ -2,7 +2,10 @@ import { getConfig } from "$lib/server/config-store";
 import { getAdapterBodySizeLimitBytes } from "$lib/server/env";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
-import type { Artifact, KnowledgeUploadResponse } from "$lib/types";
+import type {
+	Artifact,
+	KnowledgeUploadResponse,
+} from "$lib/server/services/knowledge/types";
 import {
 	createNormalizedArtifact,
 	resolvePromptAttachmentArtifacts,

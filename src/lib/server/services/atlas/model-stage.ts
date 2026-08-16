@@ -1,4 +1,4 @@
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import { getAtlasProfileRuntimeConfig } from "./config";
 import type { AtlasPipelineStage, AtlasProfile } from "./types";
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { t } from "$lib/i18n";
 import { X } from "@lucide/svelte";
 

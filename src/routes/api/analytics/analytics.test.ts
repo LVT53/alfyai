@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionUser } from "$lib/types";
+import type { SessionUser } from "$lib/server/services/auth-types";
 
 const mocks = vi.hoisted(() => ({
 	getAnalyticsDashboardReadModel: vi.fn(),

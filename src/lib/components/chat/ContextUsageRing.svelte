@@ -3,12 +3,14 @@ import { onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
-	ArtifactSummary,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type {
+	ArtifactSummary,
 	MemoryLayer,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
 
 let {
 	contextStatus = null,

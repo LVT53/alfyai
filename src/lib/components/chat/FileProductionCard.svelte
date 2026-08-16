@@ -4,10 +4,10 @@ import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
 import type {
-	DocumentWorkspaceItem,
 	FileProductionJob,
 	FileProductionJobFile,
-} from "$lib/types";
+} from "$lib/server/services/file-production/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { formatByteSize } from "$lib/utils/format";
 import { formatElapsed, isStaleJob } from "./file-production-helpers";
 

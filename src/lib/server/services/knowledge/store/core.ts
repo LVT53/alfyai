@@ -13,13 +13,13 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { db } from "$lib/server/db";
 import { artifactLinks, artifacts, conversations } from "$lib/server/db/schema";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import type {
 	Artifact,
 	ArtifactLink,
 	ArtifactSummary,
 	ArtifactType,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	getDocumentTokenBudget,
 	getCompactionUiThreshold as getPerModelCompactionThreshold,

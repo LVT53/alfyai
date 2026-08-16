@@ -1,6 +1,6 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { PendingWrite } from "$lib/types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 
 // Issue 7.5 — inline write-confirm card. Mirrors SkillDraftCard's
 // prop/busy/error shape: {busy,error} is OWNED by the caller (keyed per

@@ -1,4 +1,4 @@
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "../config-store";
 import {
 	listEnabledProviderModels,

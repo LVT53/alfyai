@@ -4,11 +4,11 @@ import type { ChatFile } from "$lib/server/services/chat-files";
 import { getArtifactsForUser } from "$lib/server/services/knowledge";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
-import type { ChatMessage } from "$lib/types";
 
 const {
 	mockJudgeFinishedTurn,

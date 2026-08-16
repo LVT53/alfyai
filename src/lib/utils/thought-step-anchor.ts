@@ -13,7 +13,7 @@
 // ("only render steps that exist with a resolvable anchor") and to compute
 // the exact substring highlighted by the raw-trace jump-anchor view. If the
 // server twin's behavior ever changes, this one must change with it.
-import type { ThoughtStepAnchor } from "$lib/types";
+import type { ThoughtStepAnchor } from "$lib/response-activity-types";
 
 export function resolveThoughtStepAnchorSpan(
 	anchor: ThoughtStepAnchor | null | undefined,

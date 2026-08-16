@@ -1,4 +1,21 @@
 import { submitAtlasTurn } from "$lib/client/api/atlas";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
+import type {
+	AtlasAction,
+	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type {
+	ArtifactSummary,
+	PendingAttachment,
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type {
+	ChatMessage,
+	NormalChatRuntimePhase,
+} from "$lib/server/services/messages-types";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import {
 	checkForOrphanedStream,
 	getStreamBufferInfo,
@@ -9,19 +26,6 @@ import {
 	type StreamTimingSnapshot,
 	streamChat,
 } from "$lib/services/streaming";
-import type {
-	ArtifactSummary,
-	AtlasAction,
-	AtlasProfile,
-	ChatMessage,
-	LinkedContextSource,
-	ModelId,
-	NormalChatRuntimePhase,
-	PendingAttachment,
-	PendingSkillSelection,
-	ReasoningDepth,
-	ResponseActivityEntry,
-} from "$lib/types";
 
 type StreamToolCallDetails = Parameters<
 	NonNullable<StreamCallbacks["onToolCall"]>

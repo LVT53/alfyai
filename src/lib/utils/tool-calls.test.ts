@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ThinkingSegment } from "$lib/types";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import {
 	formatConnectionToolAction,
 	getHumanReadableToolNameKey,

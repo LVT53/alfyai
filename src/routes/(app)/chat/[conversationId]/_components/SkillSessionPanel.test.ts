@@ -1,6 +1,6 @@
 import { fireEvent, render } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { SkillSession } from "$lib/types";
+import type { SkillSession } from "$lib/server/services/skills/types";
 import SkillSessionPanel from "./SkillSessionPanel.svelte";
 
 const session: SkillSession = {

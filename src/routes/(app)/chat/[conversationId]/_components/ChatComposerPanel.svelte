@@ -2,19 +2,23 @@
 import type { Snippet } from "svelte";
 import ErrorMessage from "$lib/components/chat/ErrorMessage.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
-	ArtifactSummary,
 	AtlasAvailability,
 	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
-	LinkedContextSource,
-	ModelId,
+} from "$lib/server/services/knowledge/context-types";
+import type {
+	ArtifactSummary,
 	PendingAttachment,
-	PendingSkillSelection,
-	ReasoningDepth,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { DraftChangePayload, SendPayload } from "../_helpers";
 
 let {

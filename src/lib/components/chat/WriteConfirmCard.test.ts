@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import { uiLanguage } from "$lib/stores/settings";
-import type { PendingWrite } from "$lib/types";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
 
 function makeWrite(overrides: Partial<PendingWrite> = {}): PendingWrite {

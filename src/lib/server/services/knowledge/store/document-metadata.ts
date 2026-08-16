@@ -1,10 +1,10 @@
-import { DAY_MS } from "$lib/server/utils/constants";
 import type {
 	Artifact,
 	ArtifactType,
 	WorkingDocumentFamilyStatus,
 	WorkingDocumentMetadata,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import { DAY_MS } from "$lib/server/utils/constants";
 
 function readString(value: unknown): string | null {
 	return typeof value === "string" && value.trim().length > 0

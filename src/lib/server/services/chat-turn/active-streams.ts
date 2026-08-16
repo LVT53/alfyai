@@ -1,10 +1,10 @@
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import type {
 	EvidenceSourceType,
-	ReasoningDepth,
-	ResponseActivityEntry,
 	ToolEvidenceCandidate,
-} from "$lib/types";
+} from "$lib/server/services/message-evidence";
 import { toolCallInputKey } from "$lib/utils/tool-calls";
 
 const STOP_REQUEST_TTL_MS = 30_000;

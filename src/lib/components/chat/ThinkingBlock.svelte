@@ -2,12 +2,14 @@
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	InterimThoughtStep,
-	MessageEvidenceStatus,
-	ThinkingSegment,
 	ThoughtStepClassifierActivityClass,
+} from "$lib/response-activity-types";
+import type {
+	MessageEvidenceStatus,
 	ToolEvidenceCandidate,
-} from "$lib/types";
-import { isThoughtStepClassifierActivityClass } from "$lib/types";
+} from "$lib/server/services/message-evidence";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import { isThoughtStepClassifierActivityClass } from "$lib/response-activity-types";
 import {
 	Check,
 	ChevronDown,
@@ -81,7 +83,7 @@ let {
 	// data-response-activity entry (MessageBubble's own reuse of the same
 	// reverse-scan-latest-match pattern P3c already established for
 	// liveThoughtStepClass above). Both already exist on ResponseActivityEntry
-	// ($lib/types) and are already emitted by deliberation-runner.ts — this
+	// ($lib/response-activity-types) and are already emitted by deliberation-runner.ts — this
 	// slice reuses them, it invents nothing new. See
 	// $lib/utils/deliberation-progress.ts for the pure decision this feeds.
 	livePassIndex = undefined,

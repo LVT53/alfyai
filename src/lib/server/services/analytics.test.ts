@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import type { SessionUser } from "$lib/types";
+import type { SessionUser } from "$lib/server/services/auth-types";
 
 let dbPath: string;
 

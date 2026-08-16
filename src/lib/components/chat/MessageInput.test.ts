@@ -1,8 +1,8 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
-import type { PendingAttachment } from "$lib/types";
 import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
 

@@ -1,3 +1,7 @@
+import type {
+	NormalChatContextPreparationActivityClass,
+	ResponseActivityEntry,
+} from "$lib/response-activity-types";
 import {
 	CONTEXT_PREPARATION_SLOW_STAGE_BUDGET_MS,
 	type ContextPreparationTimelineScope,
@@ -5,12 +9,8 @@ import {
 	RESPONSE_ACTIVITY_IDS,
 	type StreamTimelineContextPreparationSlowStageDiagnostic,
 } from "$lib/services/stream-timeline";
-import type {
-	NormalChatContextPreparationActivityClass,
-	ResponseActivityEntry,
-} from "$lib/types";
 
-export type { NormalChatContextPreparationActivityClass } from "$lib/types";
+export type { NormalChatContextPreparationActivityClass } from "$lib/response-activity-types";
 
 const NORMAL_CHAT_CONTEXT_PREPARATION_STAGE_IDS = [
 	"plan",
@@ -38,7 +38,7 @@ const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASS_BY_STAGE_ID = {
 	// Reuses "context-retrieval" rather than adding a new activity class:
 	// this stage retrieves connector (calendar/email) context, the same
 	// user-facing category as constructed_context, and adding a bespoke
-	// class would mean also updating $lib/types.ts's activity-class union
+	// class would mean also updating response-activity-types.ts's activity-class union
 	// plus the client-side label mapping (streaming.ts/MessageBubble.svelte)
 	// for a distinction the UI doesn't need to draw.
 	proactive_connector_context: "context-retrieval",

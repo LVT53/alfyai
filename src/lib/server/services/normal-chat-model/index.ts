@@ -24,10 +24,11 @@ import {
 	type ModelCapabilityKey,
 	type ModelCapabilitySet,
 } from "$lib/model-capabilities";
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { repairMalformedToolCallJson } from "$lib/server/utils/tool-json-repair";
-import type { ModelId, ThinkingMode } from "$lib/types";
 import type { ProviderUsageSnapshot } from "../analytics";
 import { DEFAULT_MODEL_MAX_RETRIES } from "../normal-chat-model-config";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";

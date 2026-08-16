@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatMessage } from "$lib/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
 
 /**

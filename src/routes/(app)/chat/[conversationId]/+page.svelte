@@ -69,30 +69,38 @@ import {
 } from "$lib/stores/settings";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
-import { isProviderModelId } from "$lib/types";
+import { isProviderModelId } from "$lib/model-types";
+import type { ModelId } from "$lib/model-types";
 import type {
-	ArtifactSummary,
 	AtlasAction,
 	AtlasAvailability,
 	AtlasJobCard,
 	AtlasProfile,
-	ChatGeneratedFile,
-	ChatMessage,
-	ConversationDraft,
-	ConversationForkOrigin,
-	ContextCompressionMarker,
+} from "$lib/server/services/atlas/public-types";
+import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
+import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
+import type { ConversationDraft } from "$lib/server/services/conversations";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type {
+	ArtifactSummary,
 	DocumentWorkspaceItem,
-	FileProductionJob,
+} from "$lib/server/services/knowledge/types";
+import type {
+	ChatMessage,
 	NormalChatRuntimePhase,
-	PendingWrite,
-	SkillSession,
-	ModelId,
+} from "$lib/server/services/messages-types";
+import type { SkillSession } from "$lib/server/services/skills/types";
+import type {
 	TaskState,
 	TaskSteeringPayload,
-} from "$lib/types";
+} from "$lib/server/services/task-state/types";
 import type { I18nKey } from "$lib/i18n";
 import type { PageProps } from "./$types";
 import {
@@ -2441,7 +2449,10 @@ function handleUploadReady(
 }
 
 type UploadFileResult =
-	| { success: true; attachment: import("$lib/types").PendingAttachment }
+	| {
+			success: true;
+			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
+	  }
 	| { success: false; fileName: string; error: string };
 
 async function uploadSingleFile(

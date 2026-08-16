@@ -2,9 +2,10 @@ import { eq } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifacts, conversationTaskStates } from "$lib/server/db/schema";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { mapTaskState } from "$lib/server/services/task-state/mappers";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { Artifact, TaskState } from "$lib/types";
 import {
 	listSemanticEmbeddingsBySubject,
 	needsSemanticEmbeddingRefresh,

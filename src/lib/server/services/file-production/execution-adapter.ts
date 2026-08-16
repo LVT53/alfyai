@@ -1,5 +1,5 @@
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
-import type { Artifact } from "$lib/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import { renderStandardReportDocx } from "./renderers/standard-report-docx";
 import { renderStandardReportHtml } from "./renderers/standard-report-html";

@@ -7,7 +7,8 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { InterimThoughtStep, ThinkingSegment } from "$lib/types";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 
 describe("ThinkingBlock", () => {

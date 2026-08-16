@@ -61,7 +61,7 @@ import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.s
 import SettingsConnectionsTab from "./_components/SettingsConnectionsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
 import { getOAuthErrorReasonKey } from "./oauth-return";
-import type { ModelId, UserModelPreference } from "$lib/types";
+import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { PageProps } from "./$types";
 
 // Extended data interface for admin-specific properties

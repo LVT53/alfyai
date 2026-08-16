@@ -1,24 +1,32 @@
 import type { I18nKey } from "$lib/i18n";
-import type { StreamMetadata } from "$lib/services/streaming";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type {
-	ArtifactSummary,
 	AtlasAction,
 	AtlasJobCard,
 	AtlasProfile,
-	ChatMessage,
-	EvidenceSourceType,
-	FileProductionJob,
-	LinkedContextSource,
-	ModelId,
+} from "$lib/server/services/atlas/public-types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type {
+	ArtifactSummary,
 	PendingAttachment,
-	PendingSkillSelection,
-	PendingWrite,
-	ReasoningDepth,
-	ResponseActivityEntry,
-	SkillDraftProposal,
-	ThinkingSegment,
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type {
+	EvidenceSourceType,
 	ToolEvidenceCandidate,
-} from "$lib/types";
+} from "$lib/server/services/message-evidence";
+import type {
+	ChatMessage,
+	ThinkingSegment,
+} from "$lib/server/services/messages-types";
+import type {
+	PendingSkillSelection,
+	SkillDraftProposal,
+} from "$lib/server/services/skills/types";
+import type { StreamMetadata } from "$lib/services/streaming";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
 import {
 	isConnectionWriteToolName,

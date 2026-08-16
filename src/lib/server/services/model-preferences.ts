@@ -1,8 +1,8 @@
+import type { ModelId } from "$lib/model-types";
 import {
 	normalizeModelSelectionWithProviders,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
-import type { ModelId } from "$lib/types";
 
 export type UserModelPreference = ModelId | null;
 export type UserModelPreferenceMode = "system" | "explicit";

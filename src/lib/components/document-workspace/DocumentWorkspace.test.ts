@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import {
 	makeWorkspaceDocument,
 	renderWorkspace,

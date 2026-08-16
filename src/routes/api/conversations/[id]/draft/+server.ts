@@ -1,17 +1,15 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
+import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import {
 	clearConversationDraft,
 	parsePendingSkillSelection,
 	upsertConversationDraft,
 } from "$lib/server/services/conversation-drafts";
 import { getConversation } from "$lib/server/services/conversations";
-import type {
-	AtlasProfile,
-	LinkedContextSource,
-	PendingSkillSelection,
-} from "$lib/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { RequestHandler } from "./$types";
 
 function parseAttachmentIds(value: unknown): string[] | null {

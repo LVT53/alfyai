@@ -6,21 +6,23 @@ import {
 	conversationContextStatus,
 	conversationWorkingSetItems,
 } from "$lib/server/db/schema";
+import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
+import type {
+	Artifact,
+	ArtifactSummary,
+	MemoryLayer,
+} from "$lib/server/services/knowledge/types";
+import type { CompactionMode } from "$lib/server/services/task-state/types";
+import type {
+	ConversationWorkingSetItem,
+	WorkingSetReasonCode,
+} from "$lib/server/services/working-set";
 import { DAY_MS } from "$lib/server/utils/constants";
 import {
 	applyConversationBoundaryPenalty,
 	isCrossConversationArtifactEligible,
 } from "$lib/server/utils/conversation-boundary-filter";
 import { parseJsonStringArray } from "$lib/server/utils/json";
-import type {
-	Artifact,
-	ArtifactSummary,
-	CompactionMode,
-	ConversationContextStatus,
-	ConversationWorkingSetItem,
-	MemoryLayer,
-	WorkingSetReasonCode,
-} from "$lib/types";
 import { getConfig } from "../../config-store";
 import {
 	getGeneratedDocumentBehaviorKey,

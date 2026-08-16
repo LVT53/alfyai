@@ -43,7 +43,7 @@ if (!existsSync(dbDir)) {
 	mkdirSync(dbDir, { recursive: true });
 }
 
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import { OPTION_A_FIDELITY_FIXTURES } from "./fixtures/option-a-fidelity.fixtures";
 import {
 	buildCompletedResult,

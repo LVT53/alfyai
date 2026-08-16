@@ -5,7 +5,8 @@ import type {
 	SkillPromptLinkedSource,
 	SkillPromptResource,
 } from "$lib/server/services/chat-turn/types";
-import type { LinkedContextSource, SkillSessionInternal } from "$lib/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { SkillSessionInternal } from "$lib/server/services/skills/types";
 import { getActiveSkillSession } from "./sessions";
 import { resolveEffectiveSkillDefinition } from "./user-skills";
 

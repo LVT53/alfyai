@@ -1,4 +1,4 @@
-import type { PendingWrite } from "$lib/types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import { type FetchLike, requestJson } from "./http";
 
 // Issue 7.5 — client wrappers for the explicit-confirm write flow (4.3):

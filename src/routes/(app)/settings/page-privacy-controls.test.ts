@@ -14,7 +14,7 @@ import {
 	downloadAccountDataArchive,
 	saveBlobAsDownload,
 } from "$lib/client/api/settings";
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import SettingsPage from "./+page.svelte";
 import type { PageData, PageProps } from "./$types";
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { SkillDraftProposal } from "$lib/types";
+import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 
 let {
 	draft,

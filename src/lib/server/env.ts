@@ -1,6 +1,6 @@
 // src/lib/server/env.ts
 // Centralized environment configuration module
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import {
 	DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
 	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,

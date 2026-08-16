@@ -6,7 +6,9 @@ import {
 	listContextCompressionSnapshots,
 	serializeContextCompressionSnapshot,
 } from "$lib/server/services/context-compression";
+import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
+import type { MessageSourceForks } from "$lib/server/services/conversation-forks";
 import {
 	getConversationForkOrigin,
 	listChildForksBySourceMessages,
@@ -26,6 +28,7 @@ import {
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 	listMessageWindow,
 } from "$lib/server/services/messages";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
 	getActiveSkillSession,
 	serializePublicSkillSession,
@@ -36,11 +39,6 @@ import {
 	getConversationTaskState,
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
-import type {
-	ChatMessage,
-	ConversationDetail,
-	MessageSourceForks,
-} from "$lib/types";
 
 // O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
 // former "bootstrap"-vs-"first-render"-vs-"full" three-way split existed to

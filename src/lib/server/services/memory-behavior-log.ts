@@ -3,11 +3,6 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryEvents } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type {
-	MemoryBehaviorEvent,
-	MemoryBehaviorEventDomain,
-	MemoryBehaviorEventType,
-} from "$lib/types";
 
 type MemoryBehaviorEventPayload = Record<string, unknown>;
 
@@ -259,4 +254,44 @@ export async function pruneOldMemoryBehaviorEvents(params: {
 	await db.delete(memoryEvents).where(inArray(memoryEvents.id, idsToDelete));
 
 	return { deletedCount: idsToDelete.length };
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the memory-behavior-log service that owns them.
+
+export type MemoryBehaviorEventDomain =
+	| "persona"
+	| "temporal"
+	| "preference"
+	| "task"
+	| "document"
+	| "conversation";
+export type MemoryBehaviorEventType =
+	| "persona_fact_updated"
+	| "deadline_set"
+	| "deadline_extended"
+	| "deadline_completed"
+	| "project_started"
+	| "project_paused"
+	| "project_resumed"
+	| "preference_updated"
+	| "document_opened"
+	| "document_refined"
+	| "document_superseded"
+	| "conversation_fork_created";
+
+export interface MemoryBehaviorEvent {
+	id: string;
+	eventKey: string;
+	userId: string;
+	conversationId: string | null;
+	messageId: string | null;
+	domain: MemoryBehaviorEventDomain;
+	eventType: MemoryBehaviorEventType;
+	subjectId: string | null;
+	relatedId: string | null;
+	observedAt: number;
+	createdAt: number;
+	payload: Record<string, unknown> | null;
 }

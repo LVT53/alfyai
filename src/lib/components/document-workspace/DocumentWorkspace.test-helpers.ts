@@ -1,6 +1,6 @@
 import { render } from "@testing-library/svelte";
 import { vi } from "vitest";
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import DocumentWorkspace from "./DocumentWorkspace.svelte";
 
 type SelectDocumentCallback = (documentId: string) => void;

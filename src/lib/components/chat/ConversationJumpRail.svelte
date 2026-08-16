@@ -20,7 +20,7 @@
  */
 import { t } from "$lib/i18n";
 import { viewportStore } from "$lib/utils/viewport.svelte";
-import type { ChatMessage } from "$lib/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { buildJumpRailTurns, type JumpRailTurn } from "./jump-rail";
 
 let {

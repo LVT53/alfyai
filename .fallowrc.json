@@ -48,10 +48,6 @@
 			"exports": ["*"]
 		},
 		{
-			"file": "src/lib/types.ts",
-			"exports": ["*"]
-		},
-		{
 			"file": "src/lib/utils/markdown-loader.ts",
 			"exports": ["*"]
 		},

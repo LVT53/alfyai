@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { ModelId } from "$lib/model-types";
 import {
 	getAvailableModelsWithProviders,
 	getConfig,
@@ -8,16 +9,13 @@ import { users } from "$lib/server/db/schema";
 import type { AppVersionMetadata } from "$lib/server/services/app-version";
 import { getAppVersionMetadata } from "$lib/server/services/app-version";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
+import type { AtlasAvailability } from "$lib/server/services/atlas/public-types";
+import type { SessionUser } from "$lib/server/services/auth-types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 import { listConversations } from "$lib/server/services/conversations";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
+import type { Project } from "$lib/server/services/projects";
 import { listProjects } from "$lib/server/services/projects";
-import type {
-	AtlasAvailability,
-	ConversationListItem,
-	ModelId,
-	Project,
-	SessionUser,
-} from "$lib/types";
 
 type AvailableShellModel = Awaited<
 	ReturnType<typeof getAvailableModelsWithProviders>

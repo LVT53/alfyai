@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Artifact } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { serializeBudgetedAttachments } from "./prompt-context";
 
 function makeAttachment(): Artifact {

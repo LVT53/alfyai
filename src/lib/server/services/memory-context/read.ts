@@ -1,4 +1,4 @@
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import { getHistoryMemoryContext } from "./history";
 import { getPersonaMemoryContext } from "./persona";
 import {

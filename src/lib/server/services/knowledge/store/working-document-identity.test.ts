@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { KnowledgeDocumentItem } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { resolveWorkingDocumentIdentity } from "./working-document-identity";
 
 function makeDocument(

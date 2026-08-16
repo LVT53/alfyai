@@ -4,17 +4,20 @@ import {
 	persistConversationDraft,
 } from "$lib/client/api/conversations";
 import type { FetchLike } from "$lib/client/api/http";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import {
+	isReasoningDepth,
+	thinkingModeToReasoningDepth,
+} from "$lib/reasoning-depth-types";
+import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import type {
 	ArtifactSummary,
-	AtlasProfile,
-	ConversationDraft,
-	LinkedContextSource,
-	ModelId,
 	PendingAttachment,
-	PendingSkillSelection,
-	ReasoningDepth,
-} from "$lib/types";
-import { isReasoningDepth, thinkingModeToReasoningDepth } from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";

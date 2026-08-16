@@ -9,22 +9,24 @@ import {
 	taskCheckpoints,
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
-import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
-import { parseJsonRecord } from "$lib/server/utils/json";
-import { dedupeById } from "$lib/server/utils/prompt-context";
-import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
+import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type {
 	Artifact,
 	ArtifactType,
-	ContextDebugState,
-	EvidenceSourceType,
+} from "$lib/server/services/knowledge/types";
+import type { EvidenceSourceType } from "$lib/server/services/message-evidence";
+import type {
 	RoutingStage,
 	TaskCheckpoint,
 	TaskEvidenceLink,
 	TaskState,
 	TaskSteeringAction,
 	VerificationStatus,
-} from "$lib/types";
+} from "$lib/server/services/task-state/types";
+import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
+import { parseJsonRecord } from "$lib/server/utils/json";
+import { dedupeById } from "$lib/server/utils/prompt-context";
+import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { computeCrossConversationDecay } from "../utils/artifact-decay";
 import { collapseArtifactsByFamily } from "./evidence-family";

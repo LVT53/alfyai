@@ -2,10 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { semanticEmbeddings } from "$lib/server/db/schema";
-import type {
-	SemanticEmbedding,
-	SemanticEmbeddingSubjectType,
-} from "$lib/types";
 
 export interface SemanticEmbeddingInput {
 	userId: string;
@@ -174,4 +170,28 @@ export function needsSemanticEmbeddingRefresh(params: {
 	if (nextDimensions > 0 && params.current.dimensions !== nextDimensions)
 		return true;
 	return false;
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the semantic-embeddings service that owns them.
+
+export type SemanticEmbeddingSubjectType =
+	| "artifact"
+	| "imported_conversation"
+	| "persona_cluster"
+	| "task_state"
+	| "memory_profile_item";
+
+export interface SemanticEmbedding {
+	id: string;
+	userId: string;
+	subjectType: SemanticEmbeddingSubjectType;
+	subjectId: string;
+	modelName: string;
+	sourceTextHash: string;
+	dimensions: number;
+	embedding: number[];
+	createdAt: number;
+	updatedAt: number;
 }

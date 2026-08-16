@@ -1,10 +1,14 @@
+import type { ModelId } from "$lib/model-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { ReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
 	buildReasoningDepthProviderOptions,
 	withReasoningDepthPreparedBudget,
 } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type {
 	NormalChatModelRunProvider,
 	NormalChatModelRunUsage,
@@ -16,12 +20,6 @@ import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
-import type {
-	DepthMetadata,
-	ModelId,
-	ResponseActivityEntry,
-	ToolCallEntry,
-} from "$lib/types";
 import type { AuthenticatedPromptUser } from "../normal-chat-context";
 import {
 	type DeliberationPassKind,

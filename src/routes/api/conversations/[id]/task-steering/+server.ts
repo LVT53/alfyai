@@ -6,7 +6,7 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
-import type { TaskSteeringAction } from "$lib/types";
+import type { TaskSteeringAction } from "$lib/server/services/task-state/types";
 import type { RequestHandler } from "./$types";
 
 const VALID_ACTIONS = new Set<TaskSteeringAction>([

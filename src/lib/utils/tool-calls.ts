@@ -1,5 +1,5 @@
 import type { I18nKey } from "$lib/i18n";
-import type { ThinkingSegment } from "$lib/types";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 
 const FILE_PRODUCTION_TOOL_IDENTIFIERS = [
 	"produce_file",

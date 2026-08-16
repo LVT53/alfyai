@@ -22,10 +22,10 @@ import {
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyContext,
 } from "$lib/server/services/knowledge/store/document-metadata";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
-import type { Artifact } from "$lib/types";
 import { extractDocumentText } from "./document-extraction";
 
 const chatGeneratedFileSelection = {

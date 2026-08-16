@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DepthMetadata } from "$lib/types";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { ParsedChatTurnRequest, SkillPromptContext } from "./types";
 
 const mocks = vi.hoisted(() => ({

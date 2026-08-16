@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
-import type { LinkedContextSource } from "$lib/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 
 let {
 	sources,

@@ -1,4 +1,4 @@
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 
 const KNOWLEDGE_WORKSPACE_ARTIFACT_PARAM = "open_artifact";
 const KNOWLEDGE_WORKSPACE_FILENAME_PARAM = "open_filename";

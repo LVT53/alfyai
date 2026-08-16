@@ -15,17 +15,14 @@ import {
 	memoryEvents,
 	messages,
 } from "$lib/server/db/schema";
+import type { Artifact } from "$lib/server/services/knowledge/types";
+import type { MessageRole } from "$lib/server/services/messages-types";
+import type { Conversation } from "./conversations";
+import { reconcileStaleFileProductionJobs } from "./file-production";
 import type {
-	Artifact,
-	Conversation,
-	ConversationForkListSummary,
-	ConversationForkOrigin,
-	ForkCopyMetadata,
 	ForkEvidenceSnapshot,
 	MessageEvidenceSummary,
-	MessageSourceForks,
-} from "$lib/types";
-import { reconcileStaleFileProductionJobs } from "./file-production";
+} from "./message-evidence";
 import { messageOrderAsc } from "./message-ordering";
 import {
 	type MessageSequenceExecutor,
@@ -1250,4 +1247,55 @@ export async function getConversationForkSummaries(
 	return new Map(
 		rows.map((row) => [row.forkConversationId, mapForkListSummary(row)]),
 	);
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the conversation-fork service that owns them.
+
+export interface ConversationForkOrigin {
+	forkConversationId: string;
+	sourceConversationId: string;
+	sourceAssistantMessageId: string;
+	sourceConversationIdAvailable: boolean;
+	sourceAssistantMessageIdAvailable: boolean;
+	copiedForkPointMessageId: string;
+	sourceTitle: string;
+	forkSequence: number;
+	createdAt: number;
+}
+
+export interface ConversationForkChildSummary {
+	conversationId: string;
+	title: string;
+	forkSequence: number;
+	createdAt: number;
+}
+
+export interface MessageSourceForks {
+	count: number;
+	forks: ConversationForkChildSummary[];
+}
+
+export interface ConversationForkListSummary {
+	sourceTitle: string;
+	forkSequence: number;
+	sourceConversationId: string;
+	sourceConversationIdAvailable: boolean;
+}
+
+export interface ForkCopyMetadata {
+	sourceMessageId: string;
+	sourceConversationId: string;
+	sourceRole: MessageRole;
+	sourceCreatedAt: string;
+}
+
+export interface ForkContextProvenanceSummary {
+	inheritedMessageCount: number;
+	inheritedTurnCount: number;
+	forkLocalMessageCount: number;
+	sourceConversationIds: string[];
+	sourceMessageIds: string[];
+	copiedForkPointMessageId?: string | null;
 }

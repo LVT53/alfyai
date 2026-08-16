@@ -15,8 +15,8 @@ import type {
 	AtlasAction,
 	AtlasJobCard,
 	AtlasProfile,
-	DocumentWorkspaceItem,
-} from "$lib/types";
+} from "$lib/server/services/atlas/public-types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
 
 let {

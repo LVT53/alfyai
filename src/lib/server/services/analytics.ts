@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { SessionUser } from "$lib/types";
-import { getProviderIdFromModelId, isProviderModelId } from "$lib/types";
+import { getProviderIdFromModelId, isProviderModelId } from "$lib/model-types";
+import type { SessionUser } from "$lib/server/services/auth-types";
 import { getConfig } from "../config-store";
 import { db } from "../db";
 import {

@@ -4,7 +4,7 @@ import type {
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicItem,
-} from "$lib/types";
+} from "$lib/memory-profile-types";
 import { t } from "$lib/i18n";
 import { Check, Loader, Save, Trash2, Undo2, X } from "@lucide/svelte";
 

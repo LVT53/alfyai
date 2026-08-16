@@ -28,19 +28,17 @@ import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
-import type {
-	AtlasProfile,
-	ConversationDetail,
-	ModelId,
-	ReasoningDepth,
-} from "$lib/types";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
+import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
 import { onDestroy, onMount, untrack } from "svelte";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import type {
 	ArtifactSummary,
-	ConversationDraft,
-	LinkedContextSource,
 	PendingAttachment,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 
 function canReuseLandingPreparedConversation(
 	detail: Pick<
@@ -83,7 +81,9 @@ type MessageInputSendPayload = {
 	attachments: ArtifactSummary[];
 	conversationId: string | null;
 	linkedSources?: LinkedContextSource[];
-	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
+	pendingSkill?:
+		| import("$lib/server/services/skills/types").PendingSkillSelection
+		| null;
 	modelId?: ModelId;
 	reasoningDepth?: ReasoningDepth;
 	forceWebSearch?: boolean;
@@ -101,7 +101,9 @@ type MessageInputDraftPayload = {
 	selectedAttachmentIds: string[];
 	selectedAttachments: PendingAttachment[];
 	selectedLinkedSources: LinkedContextSource[];
-	pendingSkill: import("$lib/types").PendingSkillSelection | null;
+	pendingSkill:
+		| import("$lib/server/services/skills/types").PendingSkillSelection
+		| null;
 	atlasMode?: boolean;
 	atlasProfile?: AtlasProfile | null;
 	clientAtlasTurnId?: string | null;
@@ -171,7 +173,10 @@ function handleUploadReady(
 }
 
 type UploadFileResult =
-	| { success: true; attachment: import("$lib/types").PendingAttachment }
+	| {
+			success: true;
+			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
+	  }
 	| { success: false; fileName: string; error: string };
 
 async function uploadSingleFile(

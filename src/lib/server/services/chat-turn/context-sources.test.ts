@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type {
-	ArtifactSummary,
 	ContextDebugState,
 	ConversationContextStatus,
-	LinkedContextSource,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { buildContextSourcesState } from "./context-sources";
 
 describe("buildContextSourcesState", () => {

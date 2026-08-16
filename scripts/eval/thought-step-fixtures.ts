@@ -16,7 +16,10 @@
 // anchor doesn't resolve to a real span of the turn's reasoning — plus the
 // truthful case those checks must NOT flag.
 
-import type { InterimThoughtStep, ThoughtStepAnchor } from "$lib/types";
+import type {
+	InterimThoughtStep,
+	ThoughtStepAnchor,
+} from "$lib/response-activity-types";
 import type { ThoughtStepAuditResult } from "../thought-step-scoring";
 
 /** Computes an anchor from a literal substring of `thinkingText`, instead of

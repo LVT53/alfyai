@@ -6,7 +6,7 @@
  * to derive its per-turn mark model from the raw message list.
  */
 
-import type { ChatMessage } from "$lib/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 
 /** Maximum number of characters kept from an assistant reply for the hover snippet. */
 export const MAX_SNIPPET_LENGTH = 120;

@@ -2,7 +2,8 @@ import {
 	parseWorkingDocumentMetadata,
 	selectLatestGeneratedDocumentCandidatesByFamily,
 } from "$lib/server/services/knowledge/store";
-import type { Artifact, WorkingSetReasonCode } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
+import type { WorkingSetReasonCode } from "$lib/server/services/working-set";
 import { scoreMatch } from "./working-set";
 
 export interface GeneratedDocumentResolution {

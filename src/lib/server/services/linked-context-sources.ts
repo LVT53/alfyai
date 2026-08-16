@@ -12,7 +12,7 @@ import {
 	toCanonicalLinkedContextSource,
 	workingDocumentMatchesLinkedContextSource,
 } from "$lib/server/services/knowledge/store/working-document-identity";
-import type { KnowledgeDocumentItem, LinkedContextSource } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 
 export class LinkedContextSourceError extends Error {
 	constructor(
@@ -189,4 +189,17 @@ export function isLinkedContextSourceError(
 	error: unknown,
 ): error is LinkedContextSourceError {
 	return error instanceof LinkedContextSourceError;
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); this type carries no behavior change, only
+// a new home next to the linked-context-sources service that owns it.
+export interface LinkedContextSource {
+	displayArtifactId: string;
+	promptArtifactId: string | null;
+	familyArtifactIds: string[];
+	name: string;
+	type: "document";
+	mimeType?: string | null;
+	documentOrigin?: KnowledgeDocumentItem["documentOrigin"];
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DepthMetadata } from "$lib/types";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	evaluateDepthClarificationGate,
 	normalizeDepthClarificationClassifierDecision,

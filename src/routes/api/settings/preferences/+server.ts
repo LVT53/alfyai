@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+import type { ModelId } from "$lib/model-types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	getAvailableModelsWithProviders,
@@ -11,7 +12,6 @@ import {
 	modelPreferenceStorageForExplicitChoice,
 	modelPreferenceStorageForSystemDefault,
 } from "$lib/server/services/model-preferences";
-import type { ModelId } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 const VALID_THEMES = ["system", "light", "dark"];

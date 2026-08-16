@@ -20,7 +20,7 @@ import {
 	type WriteOperation,
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";

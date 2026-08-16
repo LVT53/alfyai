@@ -12,7 +12,7 @@ import {
 	dispatchWorkspaceConversationDeleted,
 	removeConversationFromPersistedWorkspaceDocumentState,
 } from "$lib/client/document-workspace-state";
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 
 export const conversations = writable<ConversationListItem[]>([]);
 

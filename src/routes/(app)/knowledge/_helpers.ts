@@ -1,5 +1,8 @@
+import type {
+	DocumentWorkspaceItem,
+	KnowledgeDocumentItem,
+} from "$lib/server/services/knowledge/types";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
-import type { DocumentWorkspaceItem, KnowledgeDocumentItem } from "$lib/types";
 
 export type LibraryModal = "documents" | null;
 

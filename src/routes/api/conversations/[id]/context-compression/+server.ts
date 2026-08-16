@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import type { ModelId } from "$lib/model-types";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getOrphanedStream } from "$lib/server/services/chat-turn/active-streams";
 import {
@@ -9,7 +10,6 @@ import {
 } from "$lib/server/services/context-compression";
 import { getConversation } from "$lib/server/services/conversations";
 import { sendJsonControlMessage } from "$lib/server/services/normal-chat-control-model";
-import type { ModelId } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 function isModelId(value: unknown): value is ModelId {

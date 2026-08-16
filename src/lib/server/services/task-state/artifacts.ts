@@ -1,10 +1,14 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactChunks } from "$lib/server/db/schema";
+import type {
+	Artifact,
+	ArtifactChunk,
+} from "$lib/server/services/knowledge/types";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import { scoreMatch } from "$lib/server/services/working-set";
 import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
 import { clipText } from "$lib/server/utils/text";
-import type { Artifact, ArtifactChunk, TaskState } from "$lib/types";
 import { canUseTeiReranker, rerankItems } from "../tei-reranker";
 import {
 	canUseContextSummarizer,

@@ -1,4 +1,4 @@
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 
 export type WorkspacePresentation = "docked" | "expanded";
 

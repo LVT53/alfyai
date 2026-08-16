@@ -6,10 +6,10 @@ import {
 	getActiveMemoryProfileContext,
 	type MemoryProfileScope,
 } from "$lib/server/services/memory-profile/active-context";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import { getConversationProjectId } from "$lib/server/services/projects";
 import { shortlistSemanticMatchesBySubject } from "$lib/server/services/semantic-ranking";
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { ToolEvidenceCandidate } from "$lib/types";
 import { buildMemoryReadSanitizer } from "./sanitize";
 import {
 	recordMemoryPromptTelemetry,

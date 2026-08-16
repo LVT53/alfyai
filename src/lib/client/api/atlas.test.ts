@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AtlasJobCard } from "$lib/types";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import { cancelAtlasJob, submitAtlasTurn } from "./atlas";
 import type { FetchLike } from "./http";
 

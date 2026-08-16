@@ -7,7 +7,7 @@ import {
 	skillNoteOperations,
 	skillSessions,
 } from "$lib/server/db/schema";
-import type { SkillControlOperation } from "$lib/types";
+import type { SkillControlOperation } from "$lib/server/services/skills/types";
 import {
 	getMutableSkillNoteArtifact,
 	insertSkillNoteArtifactRecord,

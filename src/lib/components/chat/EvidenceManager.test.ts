@@ -1,7 +1,10 @@
 import { render } from "@testing-library/svelte";
 import { afterEach, describe, expect, it } from "vitest";
+import type {
+	ContextDebugState,
+	ContextSourcesState,
+} from "$lib/server/services/knowledge/context-types";
 import { uiLanguage } from "$lib/stores/settings";
-import type { ContextDebugState, ContextSourcesState } from "$lib/types";
 import EvidenceManager from "./EvidenceManager.svelte";
 
 describe("EvidenceManager context source labels", () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArtifactSummary } from "$lib/types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import {
 	cleanupPreparedConversation,
 	consumePendingConversationMessage,

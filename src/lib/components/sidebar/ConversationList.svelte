@@ -47,7 +47,8 @@ import {
 	Plus,
 } from "@lucide/svelte";
 import { countProjectConversations } from "./project-count";
-import type { ConversationListItem, Project } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import ConversationItem from "./ConversationItem.svelte";
 import ProjectItem from "./ProjectItem.svelte";
 import SidebarReorderRow from "./SidebarReorderRow.svelte";

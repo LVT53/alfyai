@@ -1,6 +1,6 @@
 <script lang="ts">
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
-import type { KnowledgeDocumentItem } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { partitionUploadableFiles } from "$lib/utils/file-drag";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";

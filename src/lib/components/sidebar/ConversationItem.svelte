@@ -11,7 +11,8 @@ import {
 	Trash2,
 	X,
 } from "@lucide/svelte";
-import type { ConversationListItem, Project } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import { t } from "$lib/i18n";
 import {
 	portal,

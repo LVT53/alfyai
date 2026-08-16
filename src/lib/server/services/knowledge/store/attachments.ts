@@ -8,7 +8,11 @@ import {
 	artifactLinks,
 	artifacts,
 } from "$lib/server/db/schema";
-import type { Artifact, ArtifactType, ChatAttachment } from "$lib/types";
+import type {
+	Artifact,
+	ArtifactType,
+} from "$lib/server/services/knowledge/types";
+import type { ChatAttachment } from "$lib/server/services/messages-types";
 import {
 	hasMeaningfulAttachmentText,
 	logAttachmentTrace,

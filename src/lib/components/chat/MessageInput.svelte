@@ -46,20 +46,24 @@ import {
 	type ComposerCommandToken,
 } from "./composer-command-parser";
 import { browser } from "$app/environment";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
-	ArtifactSummary,
 	AtlasAvailability,
 	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type {
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type {
+	ArtifactSummary,
 	KnowledgeDocumentItem,
-	LinkedContextSource,
-	ModelId,
 	PendingAttachment,
-	PendingSkillSelection,
-	ReasoningDepth,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 
 type SendPayload = {
 	message: string;

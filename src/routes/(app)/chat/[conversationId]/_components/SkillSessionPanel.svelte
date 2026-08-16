@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
 import { t } from "$lib/i18n";
-import type { SkillSession } from "$lib/types";
+import type { SkillSession } from "$lib/server/services/skills/types";
 
 interface Props {
 	session: SkillSession;

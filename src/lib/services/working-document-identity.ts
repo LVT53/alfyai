@@ -1,4 +1,5 @@
-import type { KnowledgeDocumentItem, LinkedContextSource } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 
 export type WorkingDocumentIdentityInput = Pick<
 	KnowledgeDocumentItem,

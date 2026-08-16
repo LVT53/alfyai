@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCallEntry } from "$lib/types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	applyWebCitationQualityGate,
 	buildWebCitationAudit,

@@ -11,11 +11,11 @@ import type {
 	GeneratedDocumentSourceChip,
 	GeneratedDocumentTableBlock,
 } from "$lib/server/services/file-production/source-schema";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	detectLanguage,
 	type SupportedLanguage,
 } from "$lib/server/services/language";
-import type { FileProductionJob } from "$lib/types";
 import {
 	atlasImageCandidateEvidenceText,
 	atlasImageMeaningfulTokens,
@@ -25,6 +25,7 @@ import { sanitizeSourceTitle } from "./source-title";
 
 // Re-exported for backward compatibility; the canonical home is ./source-title.
 export { sanitizeSourceTitle };
+
 import type {
 	AtlasClaimBasis,
 	AtlasDocumentFamilyMetadata,

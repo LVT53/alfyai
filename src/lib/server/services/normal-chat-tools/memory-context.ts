@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import type { MemoryContextResult } from "$lib/server/services/memory-context";
-import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
 import { sanitizeMetadata, truncateText } from "./shared";
 

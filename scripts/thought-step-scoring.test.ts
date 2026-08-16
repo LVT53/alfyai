@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { InterimThoughtStep } from "$lib/types";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { thoughtStepFixtures } from "./eval/thought-step-fixtures";
 import {
 	ENABLE_GATE_TRUTHFUL_RATE_THRESHOLD,

@@ -1,12 +1,12 @@
 import { inArray } from "drizzle-orm";
-import { db } from "$lib/server/db";
-import { memoryProfileItems } from "$lib/server/db/schema";
 import type {
-	KnowledgeMemoryOverviewPayload,
 	MemoryProfilePublicItem,
 	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
-} from "$lib/types";
+} from "$lib/memory-profile-types";
+import { db } from "$lib/server/db";
+import { memoryProfileItems } from "$lib/server/db/schema";
+import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import {
 	listMemoryConsolidationReports,
 	type MemoryConsolidationReport,

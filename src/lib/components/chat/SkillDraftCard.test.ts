@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import { uiLanguage } from "$lib/stores/settings";
-import type { SkillDraftProposal } from "$lib/types";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 
 function makeDraft(

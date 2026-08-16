@@ -34,7 +34,7 @@ import type {
 	WorkspaceSearchConversationResult,
 	WorkspaceSearchDocumentResult,
 	WorkspaceSearchResponse,
-} from "$lib/types";
+} from "$lib/server/services/workspace-search";
 
 type SearchRow =
 	| {

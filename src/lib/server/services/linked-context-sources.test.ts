@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { KnowledgeDocumentItem, LinkedContextSource } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 
 vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(),

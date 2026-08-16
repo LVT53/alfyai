@@ -1,4 +1,5 @@
 import { getConfig } from "$lib/server/config-store";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { getConversation } from "$lib/server/services/conversations";
 import {
 	assertPromptReadyAttachments,
@@ -15,7 +16,6 @@ import {
 } from "$lib/server/services/skills/prompt-context";
 import { startSkillSession } from "$lib/server/services/skills/sessions";
 import { resolveEffectiveSkillDefinition } from "$lib/server/services/skills/user-skills";
-import type { DepthMetadata } from "$lib/types";
 import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	AdmittedChatTurn,

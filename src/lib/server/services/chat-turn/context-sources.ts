@@ -1,9 +1,4 @@
 import type {
-	ProjectFolderReferenceContext,
-	ProjectReferenceContext,
-} from "$lib/server/services/task-state/continuity";
-import type {
-	ArtifactSummary,
 	ContextDebugEvidenceItem,
 	ContextDebugState,
 	ContextSourceGroup,
@@ -11,10 +6,15 @@ import type {
 	ContextSourceItemState,
 	ContextSourcesState,
 	ConversationContextStatus,
-	EvidenceSourceType,
-	LinkedContextSource,
-	ToolCallEntry,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { EvidenceSourceType } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type {
+	ProjectFolderReferenceContext,
+	ProjectReferenceContext,
+} from "$lib/server/services/task-state/continuity";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 
 export type BuildContextSourcesStateInput = {

@@ -31,8 +31,8 @@
 // `truthful` is the negation of all three — a step is truthful exactly when
 // none of the above defects apply to it.
 
+import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { resolveThoughtStepAnchorSpan } from "$lib/server/services/chat-turn/thought-steps";
-import type { InterimThoughtStep } from "$lib/types";
 
 export type ThoughtStepAuditResult = {
 	unanchored: boolean;

@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { InterimThoughtStep, ThoughtStepAnchor } from "$lib/types";
+import type {
+	InterimThoughtStep,
+	ThoughtStepAnchor,
+} from "$lib/response-activity-types";
 import {
 	isThoughtStepClassifierActivityClass,
 	THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES,
 	THOUGHT_STEP_CLASSIFIER_VERDICTS,
 	type ThoughtStepClassifierActivityClass,
 	type ThoughtStepClassifierVerdict,
-} from "$lib/types";
+} from "$lib/response-activity-types";
 import { recordControlModelUsage } from "../analytics";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";

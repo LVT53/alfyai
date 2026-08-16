@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { ImageSearchResult } from "$lib/server/services/image-search";
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 
 import { shortHash, truncateText } from "./shared";
 

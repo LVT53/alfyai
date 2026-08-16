@@ -9,7 +9,7 @@ import type {
 	MemoryProfileReviewItem,
 	MemoryProfileScope,
 	MemoryTimelineReport,
-} from "$lib/types";
+} from "$lib/memory-profile-types";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
 import {

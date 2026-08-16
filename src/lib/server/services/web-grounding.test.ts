@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	baseGroundedWebDiagnostics,
 	type GroundedWebResult,
@@ -253,10 +254,7 @@ describe("extractCitedCanonicalWebUrls", () => {
 		const set = extractCitedCanonicalWebUrls(
 			"See [docs](https://www.foo.com/a/?utm_source=x) and https://bar.com/b.",
 		);
-		expect([...set].sort()).toEqual([
-			"https://bar.com/b",
-			"https://foo.com/a",
-		]);
+		expect([...set].sort()).toEqual(["https://bar.com/b", "https://foo.com/a"]);
 	});
 
 	it("returns an empty set when the answer cites no URLs", () => {

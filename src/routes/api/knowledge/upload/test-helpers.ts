@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Cookies, RequestEvent } from "@sveltejs/kit";
 import { afterEach, beforeEach, vi } from "vitest";
-import type { SessionUser } from "$lib/types";
+import type { SessionUser } from "$lib/server/services/auth-types";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),

@@ -1,7 +1,9 @@
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	assignPendingWritesToAssistantMessage,
 	listPendingWritesForConversation,
@@ -10,23 +12,23 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
-import { createMessage } from "$lib/server/services/messages";
-import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
-import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
 import type {
-	ArtifactSummary,
-	ChatGeneratedFile,
 	ContextDebugState,
 	ContextSourcesState,
 	ConversationContextStatus,
-	DepthMetadata,
-	LinkedContextSource,
-	ReasoningDepth,
-	SkillControlOperation,
+} from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import { createMessage } from "$lib/server/services/messages";
+import type {
 	ThinkingSegment,
 	ToolCallEntry,
-} from "$lib/types";
+} from "$lib/server/services/messages-types";
+import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
+import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
+import type { SkillControlOperation } from "$lib/server/services/skills/types";
+import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import {

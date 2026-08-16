@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
-import type { ModelId } from "$lib/types";
 import { runNonStreamFallback } from "./stream-fallback";
 
 describe("runNonStreamFallback", () => {

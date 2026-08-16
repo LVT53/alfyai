@@ -1,4 +1,4 @@
-import type { SkillDraftProposal } from "$lib/types";
+import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import { type FetchLike, requestJson, requestVoid } from "./http";
 
 export type SkillDurationPolicy = "next_message" | "session";

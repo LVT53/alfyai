@@ -4,8 +4,8 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES } from "$lib/response-activity-types";
 import * as schema from "$lib/server/db/schema";
-import { THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES } from "$lib/types";
 import { deriveReasoningSpineState } from "$lib/utils/reasoning-spine";
 
 // Same seam turn-acknowledgment.test.ts mocks — every classifier call funnels

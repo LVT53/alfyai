@@ -1,18 +1,12 @@
-import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
-import { clipText } from "$lib/server/utils/text";
 import type {
-	ArtifactSummary,
 	ContextDebugState,
 	ConversationContextStatus,
-	EvidenceChannel,
-	EvidenceSourceType,
-	MessageEvidenceGroup,
-	MessageEvidenceItem,
-	MessageEvidenceSummary,
-	TaskState,
-	ToolCallEntry,
-	ToolEvidenceCandidate,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { TaskState } from "$lib/server/services/task-state/types";
+import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
+import { clipText } from "$lib/server/utils/text";
 import type { LegacyContextTraceSectionInput } from "./chat-turn/context-trace";
 import { resolveArtifactFamilyKeys } from "./evidence-family";
 import { getArtifactsForUser } from "./knowledge";
@@ -541,9 +535,7 @@ async function buildRerankedToolGroup(params: {
 			return false;
 		}
 		const canonical = canonicalizeGroundedWebUrl(url);
-		return canonical
-			? citedCanonicalUrls.has(canonical.canonicalUrl)
-			: false;
+		return canonical ? citedCanonicalUrls.has(canonical.canonicalUrl) : false;
 	};
 	const useCitedClassification = candidateItems.some((candidate) =>
 		isCitedCandidate(candidate.url),
@@ -575,9 +567,7 @@ async function buildRerankedToolGroup(params: {
 	);
 	// Ordering signal: default to the original candidate order; the reranker
 	// overrides it below when it runs with sufficient confidence.
-	let rankById = new Map(
-		candidateItems.map((item, index) => [item.id, index]),
-	);
+	let rankById = new Map(candidateItems.map((item, index) => [item.id, index]));
 	let rerankSelectedIds = new Set(
 		candidateItems.slice(0, defaultKeepCount).map((item) => item.id),
 	);
@@ -620,9 +610,7 @@ async function buildRerankedToolGroup(params: {
 				const confidenceFloor =
 					params.sourceType === "web" ? 40 : RERANK_CONFIDENCE_MIN;
 				if (rerankedResponse.confidence >= confidenceFloor) {
-					const orderedIds = rerankedResponse.items.map(
-						({ item }) => item.id,
-					);
+					const orderedIds = rerankedResponse.items.map(({ item }) => item.id);
 					const rerankKeepCount = Math.min(
 						rerankedResponse.items.length,
 						Math.max(3, Math.ceil(rerankedResponse.items.length / 2)),
@@ -663,7 +651,8 @@ async function buildRerankedToolGroup(params: {
 			return {
 				...candidate,
 				status: isSelected ? ("selected" as const) : unselectedStatus,
-				confidence: isSelected && reranked ? confidence || undefined : undefined,
+				confidence:
+					isSelected && reranked ? confidence || undefined : undefined,
 			};
 		})
 		.sort((a, b) => {
@@ -741,3 +730,72 @@ export async function buildAssistantEvidenceSummary(params: {
 		groups,
 	};
 }
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the message-evidence service that owns them.
+
+export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
+
+export type MessageEvidenceStatus = "selected" | "rejected" | "reference";
+
+export interface ToolEvidenceCandidate {
+	id: string;
+	title: string;
+	url?: string | null;
+	snippet?: string | null;
+	sourceType: EvidenceSourceType;
+	selected?: boolean;
+	material?: boolean;
+	status?: MessageEvidenceStatus;
+	metadata?: Record<string, string | number | boolean | null>;
+}
+
+export type EvidenceChannel =
+	| "attached"
+	| "retrieved"
+	| "tool"
+	| "web"
+	| "memory";
+
+export interface MessageEvidenceItem {
+	id: string;
+	canonicalId?: string;
+	title: string;
+	sourceType: EvidenceSourceType;
+	status: MessageEvidenceStatus;
+	description?: string | null;
+	url?: string | null;
+	artifactId?: string | null;
+	confidence?: number | null;
+	reason?: string | null;
+	currentTurnAttachment?: boolean;
+	channels?: EvidenceChannel[];
+	metadata?: Record<string, string | number | boolean | null>;
+}
+
+export interface MessageEvidenceGroup {
+	sourceType: EvidenceSourceType;
+	label: string;
+	reranked: boolean;
+	confidence?: number | null;
+	items: MessageEvidenceItem[];
+}
+
+export interface MessageEvidenceSummary {
+	structuredWebSearch: boolean;
+	groups: MessageEvidenceGroup[];
+}
+
+export interface ForkEvidenceSnapshot {
+	sourceMessageId: string;
+	sourceConversationId: string;
+	snapshotCreatedAt: string;
+	evidenceSummary: MessageEvidenceSummary;
+}
+
+export type MessageEvidenceStatusState =
+	| "pending"
+	| "ready"
+	| "failed"
+	| "none";

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-workspace-state";
-import type { KnowledgeDocumentItem } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import KnowledgeWorkspaceCoordinator from "./KnowledgeWorkspaceCoordinator.svelte";
 
 const { replaceStateMock } = vi.hoisted(() => ({

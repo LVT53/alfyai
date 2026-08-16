@@ -1,5 +1,5 @@
 import type { I18nKey } from "$lib/i18n";
-import type { ChatMessage } from "$lib/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 
 export const FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE =
 	"forked_source_history_confirmation_required";

@@ -1,10 +1,10 @@
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { ModelConfig } from "$lib/server/env";
 import {
 	classifyErrorCause,
 	isRetryableErrorCause,
 	isTerminalErrorCause,
 } from "$lib/server/services/error-cause";
-import type { ThinkingMode } from "$lib/types";
 
 type NormalChatThinkingType = NonNullable<ModelConfig["thinkingType"]>;
 type JsonValue =

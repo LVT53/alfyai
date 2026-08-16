@@ -13,7 +13,7 @@ import {
 	type WatchEntry,
 } from "$lib/server/services/connections/providers/plex";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
-import type { ToolEvidenceCandidate } from "$lib/types";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage } from "./shared";

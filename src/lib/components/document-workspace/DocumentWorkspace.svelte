@@ -5,7 +5,7 @@ import {
 	computeSideBySideDiff,
 	summarizeTextComparison,
 } from "$lib/utils/text-compare";
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";

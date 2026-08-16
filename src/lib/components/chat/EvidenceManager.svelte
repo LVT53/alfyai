@@ -7,9 +7,11 @@ import type {
 	ContextSourceGroupKind,
 	ContextSourceItem,
 	ContextSourcesState,
+} from "$lib/server/services/knowledge/context-types";
+import type {
 	EvidencePreference,
 	TaskSteeringPayload,
-} from "$lib/types";
+} from "$lib/server/services/task-state/types";
 
 let {
 	open = false,

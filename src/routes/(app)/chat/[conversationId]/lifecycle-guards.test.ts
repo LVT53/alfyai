@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage } from "$lib/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
 	FORKED_SOURCE_HISTORY_CONFIRMATION_REQUIRED_CODE,
 	getForkCreationErrorKey,

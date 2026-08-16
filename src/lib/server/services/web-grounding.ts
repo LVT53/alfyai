@@ -1,9 +1,10 @@
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type GroundedWebResult,
 	MAX_PAYLOAD_EVIDENCE,
 	MAX_PAYLOAD_SOURCES,
 } from "$lib/server/services/parallel-search/types";
-import type { ToolCallEntry, ToolEvidenceCandidate } from "$lib/types";
 
 export type GroundedWebPayloadSource = {
 	id: string;
@@ -120,15 +121,17 @@ export function buildGroundedWebModelPayload(
 			updatedAt: source.updatedAt,
 			...(source.snippet ? { snippet: truncateText(source.snippet, 500) } : {}),
 		}));
-	const evidence = result.evidence.slice(0, MAX_PAYLOAD_EVIDENCE).map((item) => ({
-		id: item.id,
-		sourceId: item.sourceId,
-		title: truncateText(item.title, 180),
-		url: truncateText(item.url, 500),
-		provider: item.provider,
-		quote: truncateText(item.quote, 900),
-		score: item.score,
-	}));
+	const evidence = result.evidence
+		.slice(0, MAX_PAYLOAD_EVIDENCE)
+		.map((item) => ({
+			id: item.id,
+			sourceId: item.sourceId,
+			title: truncateText(item.title, 180),
+			url: truncateText(item.url, 500),
+			provider: item.provider,
+			quote: truncateText(item.quote, 900),
+			score: item.score,
+		}));
 	const evidenceReady = evidence.length > 0;
 
 	return {

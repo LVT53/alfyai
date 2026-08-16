@@ -1,10 +1,8 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type {
-	ChatMessage,
-	DepthAppliedProfile,
-	ReasoningDepth,
-} from "$lib/types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";

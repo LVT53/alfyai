@@ -3,7 +3,7 @@ import { tick } from "svelte";
 import JSZip from "jszip";
 import { t } from "$lib/i18n";
 import { Upload, Check, AlertCircle } from "@lucide/svelte";
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { importChatGPTData } from "$lib/client/api/chatgpt-import";
 

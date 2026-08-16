@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ToolExecutionOptions } from "ai";
 
-import type { ToolCallEntry } from "$lib/types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
 // ── Record helper ──────────────────────────────────────────────
 

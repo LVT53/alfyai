@@ -10,8 +10,11 @@ import {
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyStatus,
 } from "$lib/server/services/knowledge/store";
+import type {
+	Artifact,
+	ArtifactRetrievalClass,
+} from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { Artifact, ArtifactRetrievalClass } from "$lib/types";
 
 const generatedOutputBackfillDone = new Set<string>();
 const generatedOutputBackfillInFlight = new Map<string, Promise<void>>();

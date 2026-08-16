@@ -1,18 +1,22 @@
+import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
+import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
+import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
 import type {
-	AtlasProfile,
-	ChatMessage,
-	ContextCompressionMarker,
-	ContextDebugState,
 	Conversation,
-	ConversationDetail,
-	ConversationForkOrigin,
 	ConversationListItem,
-	LinkedContextSource,
+} from "$lib/server/services/conversations";
+import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type {
 	PendingSkillSelection,
 	SkillSession,
+} from "$lib/server/services/skills/types";
+import type {
 	TaskState,
 	TaskSteeringPayload,
-} from "$lib/types";
+} from "$lib/server/services/task-state/types";
 import { _unwrapList } from "./_utils";
 import {
 	type FetchLike,

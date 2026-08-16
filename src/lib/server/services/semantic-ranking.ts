@@ -1,6 +1,6 @@
 import { getConfig } from "$lib/server/config-store";
+import type { SemanticEmbeddingSubjectType } from "$lib/server/services/semantic-embeddings";
 import { cosineSimilarity } from "$lib/server/utils/math";
-import type { SemanticEmbeddingSubjectType } from "$lib/types";
 import { listSemanticEmbeddingsBySubject } from "./semantic-embeddings";
 import { canUseTeiEmbedder, embedText } from "./tei-embedder";
 import type { SemanticShortlistDiagnostics } from "./tei-observability";

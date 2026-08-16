@@ -30,12 +30,13 @@ import {
 	isAttachmentReadinessError,
 } from "$lib/server/services/knowledge";
 import { detectLanguage } from "$lib/server/services/language";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import { FRIENDLY_STREAM_ERRORS } from "$lib/services/stream-protocol";
-import type { LinkedContextSource, ToolCallEntry } from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { RequestHandler } from "./$types";
 

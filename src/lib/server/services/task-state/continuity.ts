@@ -9,9 +9,13 @@ import {
 	projects,
 	taskCheckpoints,
 } from "$lib/server/db/schema";
+import type { TaskMemoryItem } from "$lib/server/services/memory-types";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
+import type {
+	TaskCheckpoint,
+	TaskState,
+} from "$lib/server/services/task-state/types";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { TaskCheckpoint, TaskMemoryItem, TaskState } from "$lib/types";
 import { mapTaskCheckpoint, mapTaskState } from "./mappers";
 
 const PROJECT_FOLDER_AWARENESS_LIMIT = 5;

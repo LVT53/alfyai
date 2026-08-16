@@ -1,4 +1,4 @@
-import type { ReasoningDepth } from "$lib/types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 
 /**
  * Reconnect / orphan arbiter.

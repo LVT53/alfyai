@@ -1,6 +1,9 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { EvidencePreference, TaskSteeringPayload } from "$lib/types";
+import type {
+	EvidencePreference,
+	TaskSteeringPayload,
+} from "$lib/server/services/task-state/types";
 
 let {
 	artifactId,

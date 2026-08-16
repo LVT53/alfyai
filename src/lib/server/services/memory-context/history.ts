@@ -6,12 +6,13 @@ import {
 } from "$lib/server/db/schema";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import {
 	messageOrderDesc,
 	messageTimestampOrderDesc,
 } from "$lib/server/services/message-ordering";
+import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { clipNullableText, normalizeWhitespace } from "$lib/server/utils/text";
-import type { ChatAttachment, ToolEvidenceCandidate } from "$lib/types";
 import {
 	buildHistoryPolicyContent,
 	listProjectionPolicyBlockedStatements,

@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact, ArtifactChunk } from "$lib/types";
+import type {
+	Artifact,
+	ArtifactChunk,
+} from "$lib/server/services/knowledge/types";
 
 const mockDelete = vi.fn();
 const mockInsert = vi.fn();

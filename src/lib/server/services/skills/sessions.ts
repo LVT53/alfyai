@@ -14,7 +14,7 @@ import type {
 	SkillSessionInternal,
 	SkillSessionMilestone,
 	SkillSessionMilestoneKind,
-} from "$lib/types";
+} from "$lib/server/services/skills/types";
 import { resolveEffectiveSkillDefinition } from "./user-skills";
 
 export class SkillSessionError extends Error {

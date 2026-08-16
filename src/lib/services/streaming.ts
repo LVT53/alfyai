@@ -1,8 +1,8 @@
+import type { ModelId } from "$lib/model-types";
 import {
 	isNormalChatContextPreparationActivityClass,
-	type ModelId,
 	type ResponseActivityEntry,
-} from "$lib/types";
+} from "$lib/response-activity-types";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
@@ -33,33 +33,40 @@ export interface StreamMetadata {
 	wasStopped?: boolean;
 	completionWarning?: string;
 	// E2 — stable codes from E1's completionWarningCodes seam (see
-	// ChatTurnCompletionWarningCode in $lib/types), riding data-stream-metadata.
+	// ChatTurnCompletionWarningCode in server/services/messages-types.ts),
+	// riding data-stream-metadata.
 	// Localized into copy by the rendering component, not here.
-	completionWarningCodes?: import("$lib/types").ChatTurnCompletionWarningCode[];
+	completionWarningCodes?: import("$lib/server/services/messages-types").ChatTurnCompletionWarningCode[];
 	// P3d (ADR-0056) — the durable Interim Thought Step rail for this turn,
 	// mirroring how completionWarningCodes rides this same terminal
 	// data-stream-metadata payload. Lets the completed step-rail populate in
 	// the same session, without a reload.
-	thoughtSteps?: import("$lib/types").InterimThoughtStep[];
+	thoughtSteps?: import("$lib/response-activity-types").InterimThoughtStep[];
 	upstreamFinishReason?: string;
 	upstreamRawFinishReason?: string;
 	streamClosedWithoutFinish?: boolean;
 	userMessageId?: string;
 	assistantMessageId?: string;
-	modelId?: import("$lib/types").ModelId;
+	modelId?: import("$lib/model-types").ModelId;
 	modelDisplayName?: string;
 	providerDisplayName?: string;
 	providerIconUrl?: string;
-	depthMetadata?: import("$lib/types").DepthMetadata;
-	contextStatus?: import("$lib/types").ConversationContextStatus;
-	contextSources?: import("$lib/types").ContextSourcesState | null;
-	activeWorkingSet?: import("$lib/types").ArtifactSummary[];
-	taskState?: import("$lib/types").TaskState | null;
-	contextDebug?: import("$lib/types").ContextDebugState | null;
-	messageEvidence?: import("$lib/types").MessageEvidenceSummary | null;
-	generatedFiles?: import("$lib/types").ChatGeneratedFile[];
-	fileProductionJobs?: import("$lib/types").FileProductionJob[];
-	contextCompressionSnapshots?: import("$lib/types").ContextCompressionMarker[];
+	depthMetadata?: import("$lib/server/services/chat-turn/depth-metadata-types").DepthMetadata;
+	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
+	contextSources?:
+		| import("$lib/server/services/knowledge/context-types").ContextSourcesState
+		| null;
+	activeWorkingSet?: import("$lib/server/services/knowledge/types").ArtifactSummary[];
+	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
+	contextDebug?:
+		| import("$lib/server/services/knowledge/context-types").ContextDebugState
+		| null;
+	messageEvidence?:
+		| import("$lib/server/services/message-evidence").MessageEvidenceSummary
+		| null;
+	generatedFiles?: import("$lib/server/services/file-production/types").ChatGeneratedFile[];
+	fileProductionJobs?: import("$lib/server/services/file-production/types").FileProductionJob[];
+	contextCompressionSnapshots?: import("$lib/server/services/context-compression").ContextCompressionMarker[];
 	generationDurationMs?: number;
 	serverTimeline?: StreamTimelineTerminalPayload;
 }
@@ -88,14 +95,16 @@ export interface StreamCallbacks {
 		name: string,
 		input: Record<string, unknown>,
 		// E1 — "failed" is a genuine terminal outcome distinct from "done" (see
-		// the ToolCallEntry comment in $lib/types); riding the same
+		// the ToolCallEntry comment in server/services/messages-types.ts); riding the same
 		// data-tool-call part with metadata.errorCode set.
 		status: "running" | "done" | "failed",
 		details?: {
 			callId?: string;
 			outputSummary?: string | null;
-			sourceType?: import("$lib/types").EvidenceSourceType | null;
-			candidates?: import("$lib/types").ToolEvidenceCandidate[];
+			sourceType?:
+				| import("$lib/server/services/message-evidence").EvidenceSourceType
+				| null;
+			candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
 		},
 	) => void;
@@ -327,7 +336,7 @@ export async function checkForOrphanedStream(
 export interface StreamBufferInfo {
 	exists: boolean;
 	userMessage?: string;
-	reasoningDepth?: import("$lib/types").ReasoningDepth;
+	reasoningDepth?: import("$lib/reasoning-depth-types").ReasoningDepth;
 	tokenCount?: number;
 	thinkingCount?: number;
 	toolCallCount?: number;
@@ -366,9 +375,11 @@ export type StreamChatOptions = {
 	modelId?: ModelId;
 	skipPersistUserMessage?: boolean;
 	attachmentIds?: string[];
-	linkedSources?: import("$lib/types").LinkedContextSource[];
-	pendingSkill?: import("$lib/types").PendingSkillSelection | null;
-	reasoningDepth?: import("$lib/types").ReasoningDepth;
+	linkedSources?: import("$lib/server/services/linked-context-sources").LinkedContextSource[];
+	pendingSkill?:
+		| import("$lib/server/services/skills/types").PendingSkillSelection
+		| null;
+	reasoningDepth?: import("$lib/reasoning-depth-types").ReasoningDepth;
 	forceWebSearch?: boolean;
 	// Issue 7.2 — composer connection capability selection for this turn.
 	// undefined/omitted means "no client selection" — the server falls back
@@ -525,11 +536,11 @@ export function streamChat(
 				callId: parsed.callId as string | undefined,
 				outputSummary: parsed.outputSummary as string | null | undefined,
 				sourceType: parsed.sourceType as
-					| import("$lib/types").EvidenceSourceType
+					| import("$lib/server/services/message-evidence").EvidenceSourceType
 					| null
 					| undefined,
 				candidates: parsed.candidates as
-					| import("$lib/types").ToolEvidenceCandidate[]
+					| import("$lib/server/services/message-evidence").ToolEvidenceCandidate[]
 					| undefined,
 				metadata: parsed.metadata as
 					| Record<string, string | number | boolean | null>

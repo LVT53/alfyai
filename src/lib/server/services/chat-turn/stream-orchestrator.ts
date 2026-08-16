@@ -1,4 +1,6 @@
 import type { FinishReason } from "ai";
+import type { ModelId } from "$lib/model-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
@@ -21,6 +23,7 @@ import {
 	wasActiveChatStreamStopRequested,
 } from "$lib/server/services/chat-turn/active-streams";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { runPlainNormalChatSendModel } from "$lib/server/services/chat-turn/plain-normal-chat-model-run";
 import {
 	classifyStreamErrorCause,
@@ -65,7 +68,12 @@ import {
 	assignFileProductionJobsToAssistantMessage,
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
+import type {
+	ContextDebugState,
+	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
 import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
@@ -74,6 +82,7 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import type { StreamErrorCode } from "$lib/services/stream-protocol";
 import {
 	createFallbackResponseActivityId,
@@ -85,15 +94,6 @@ import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
-import type {
-	ContextDebugState,
-	ConversationContextStatus,
-	DepthMetadata,
-	ModelId,
-	ResponseActivityEntry,
-	TaskState,
-	ToolCallEntry,
-} from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import type { StreamingNormalChatPreparedContext } from "./streaming-normal-chat-model-run";
@@ -596,8 +596,10 @@ export function runChatStreamOrchestrator(
 				details?: {
 					callId?: string;
 					outputSummary?: string | null;
-					sourceType?: import("$lib/types").EvidenceSourceType | null;
-					candidates?: import("$lib/types").ToolEvidenceCandidate[];
+					sourceType?:
+						| import("$lib/server/services/message-evidence").EvidenceSourceType
+						| null;
+					candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 					metadata?: Record<string, string | number | boolean | null>;
 				},
 			) => {
@@ -611,8 +613,10 @@ export function runChatStreamOrchestrator(
 							status: "running" | "done" | "failed";
 							callId?: string;
 							outputSummary?: string | null;
-							sourceType?: import("$lib/types").EvidenceSourceType | null;
-							candidates?: import("$lib/types").ToolEvidenceCandidate[];
+							sourceType?:
+								| import("$lib/server/services/message-evidence").EvidenceSourceType
+								| null;
+							candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 							metadata?: Record<string, string | number | boolean | null>;
 					  }>
 					| undefined,

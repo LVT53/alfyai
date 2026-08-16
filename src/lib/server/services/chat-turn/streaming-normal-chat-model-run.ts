@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import {
 	appendDeliberationBriefsToInput,
 	sumUsage,
 } from "$lib/server/services/chat-turn/deliberation-runner";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	buildReasoningDepthProviderOptions,
 	withReasoningDepthPreparedBudget,
@@ -24,6 +28,11 @@ import {
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import type { Capability } from "$lib/server/services/connections/registry";
 import { resolveActiveCapabilities } from "$lib/server/services/connections/resolve";
+import type {
+	ContextDebugState,
+	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { AuthenticatedPromptUser } from "$lib/server/services/normal-chat-context";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import {
@@ -31,16 +40,7 @@ import {
 	runStreamingNormalChatModelRun,
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
-import type {
-	ContextDebugState,
-	ConversationContextStatus,
-	DepthMetadata,
-	ModelId,
-	ResponseActivityEntry,
-	TaskState,
-	ThinkingMode,
-	ToolCallEntry,
-} from "$lib/types";
+import type { TaskState } from "$lib/server/services/task-state/types";
 
 export type StreamingNormalChatSendModelParams = {
 	userId: string;

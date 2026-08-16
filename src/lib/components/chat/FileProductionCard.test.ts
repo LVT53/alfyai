@@ -1,7 +1,7 @@
 import { fireEvent, render } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { uiLanguage } from "$lib/stores/settings";
-import type { FileProductionJob } from "$lib/types";
 import FileProductionCard from "./FileProductionCard.svelte";
 
 const { prewarmDocumentPreviewMock } = vi.hoisted(() => ({

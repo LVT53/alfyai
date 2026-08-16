@@ -57,12 +57,9 @@ import {
 } from "$lib/stores/settings";
 import { initTheme, setThemeAndSync, type Theme } from "$lib/stores/theme";
 import { initAvatar } from "$lib/stores/avatar";
-import type {
-	ConversationListItem,
-	ModelId,
-	Project,
-	UserModelPreference,
-} from "$lib/types";
+import type { ModelId, UserModelPreference } from "$lib/model-types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import type { LayoutProps } from "./$types";
 import { resolveActiveConversationTitle } from "./layout-title";
 

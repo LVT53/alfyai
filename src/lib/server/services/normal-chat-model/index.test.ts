@@ -2,7 +2,7 @@ import { generateText, streamText, tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createModelCapabilitySet } from "$lib/model-capabilities";
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import {
 	createFixtureEventStreamResponse,
 	type ProviderStreamFixture,

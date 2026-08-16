@@ -23,14 +23,16 @@ import DocumentsList from "./_components/DocumentsList.svelte";
 // biome-ignore lint/style/useImportType: this component must remain a runtime import for SSR rendering.
 import KnowledgeWorkspaceCoordinatorComponent from "./_components/KnowledgeWorkspaceCoordinator.svelte";
 import type {
-	DocumentWorkspaceItem,
-	KnowledgeDocumentItem,
-	KnowledgeMemoryOverviewPayload,
 	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicPayload,
 	MemoryTimelineReport,
-} from "$lib/types";
+} from "$lib/memory-profile-types";
+import type {
+	DocumentWorkspaceItem,
+	KnowledgeDocumentItem,
+} from "$lib/server/services/knowledge/types";
+import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
 

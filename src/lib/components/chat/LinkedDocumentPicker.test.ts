@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { KnowledgeDocumentItem } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 
 function makeDocument(

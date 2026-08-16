@@ -1,3 +1,5 @@
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import {
@@ -8,6 +10,7 @@ import {
 	type DepthClarificationClassifier,
 	evaluateDepthClarificationGate,
 } from "$lib/server/services/chat-turn/depth-clarification";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	selectNormalChatToolsForRequest,
 	shouldExposeFileProductionTools,
@@ -16,6 +19,7 @@ import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reas
 import type { Capability } from "$lib/server/services/connections/registry";
 import { detectLanguage } from "$lib/server/services/language";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { inferModelContextWindow } from "$lib/server/services/model-context";
 import type { PromptContextLimits } from "$lib/server/services/normal-chat-context";
 import {
@@ -31,12 +35,6 @@ import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
-import type {
-	DepthMetadata,
-	ModelId,
-	ThinkingMode,
-	ToolCallEntry,
-} from "$lib/types";
 import { deriveModelContextBudget } from "./context-budget";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
@@ -199,7 +197,7 @@ export type NormalChatSendModelBaseParams = {
 		typeof createNormalChatContextPreparationActivityHandler
 	>[0]["onContextPreparationActivity"];
 	onResponseActivity?: (
-		entry: import("$lib/types").ResponseActivityEntry,
+		entry: import("$lib/response-activity-types").ResponseActivityEntry,
 	) => void;
 };
 

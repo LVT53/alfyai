@@ -1,4 +1,4 @@
-import type { FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { type FetchLike, requestJson } from "./http";
 
 interface FileProductionJobResponse {

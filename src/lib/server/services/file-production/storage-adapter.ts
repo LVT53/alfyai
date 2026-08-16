@@ -7,8 +7,9 @@ import {
 	storeGeneratedFile as storeChatGeneratedFile,
 	syncGeneratedFilesToMemory as syncChatGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
-import type { Artifact, FileProductionJob } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import type {
 	ParsedFileProductionJobRequest,
 	ProgramExecutionResult,

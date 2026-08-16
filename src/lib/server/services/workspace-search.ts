@@ -6,6 +6,7 @@ import {
 	messages,
 	projects,
 } from "$lib/server/db/schema";
+import type { Conversation } from "$lib/server/services/conversations";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -13,14 +14,12 @@ import {
 	isArtifactCanonicallyOwned,
 	listLogicalDocumentsPage,
 } from "$lib/server/services/knowledge/store";
-import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
 import type {
+	ArtifactType,
 	KnowledgeDocumentItem,
-	WorkspaceSearchConversationResult,
-	WorkspaceSearchDocumentMatchType,
-	WorkspaceSearchDocumentResult,
-	WorkspaceSearchResponse,
-} from "$lib/types";
+	WorkingDocumentFamilyStatus,
+} from "$lib/server/services/knowledge/types";
+import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
 
 const DEFAULT_LIMIT = 3;
 const QUERY_LIMIT = 6;
@@ -760,4 +759,79 @@ export async function searchWorkspace(
 		documentOverflow: documentResults.overflow,
 		knowledgeHref: documentResults.overflow ? buildKnowledgeHref(query) : null,
 	};
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the workspace-search service that owns them.
+
+export type WorkspaceSearchMode = "default" | "query";
+
+export type WorkspaceSearchConversationMatchType =
+	| "recent"
+	| "title"
+	| "project"
+	| "body";
+
+export type WorkspaceSearchDocumentMatchType =
+	| "recent"
+	| "name"
+	| "label"
+	| "role"
+	| "summary"
+	| "content";
+
+export interface WorkspaceSearchConversationResult {
+	id: string;
+	title: string;
+	projectId: string | null;
+	projectName: string | null;
+	status: Conversation["status"];
+	sealedAt: number | null;
+	updatedAt: number;
+	href: string;
+	match: {
+		type: WorkspaceSearchConversationMatchType;
+		snippet: string | null;
+		messageId: string | null;
+		messageRole: string | null;
+	};
+}
+
+export interface WorkspaceSearchDocumentResult {
+	id: string;
+	type?: ArtifactType;
+	displayArtifactId: string;
+	promptArtifactId: string | null;
+	familyArtifactIds: string[];
+	name: string;
+	mimeType: string | null;
+	sizeBytes: number | null;
+	conversationId: string | null;
+	summary: string | null;
+	documentOrigin?: KnowledgeDocumentItem["documentOrigin"];
+	documentFamilyId?: string | null;
+	documentFamilyStatus?: WorkingDocumentFamilyStatus | null;
+	documentLabel?: string | null;
+	documentRole?: string | null;
+	versionNumber?: number | null;
+	originConversationId?: string | null;
+	originAssistantMessageId?: string | null;
+	sourceChatFileId?: string | null;
+	updatedAt: number;
+	href: string;
+	sourceHref: string | null;
+	match: {
+		type: WorkspaceSearchDocumentMatchType;
+		snippet: string | null;
+	};
+}
+
+export interface WorkspaceSearchResponse {
+	query: string;
+	mode: WorkspaceSearchMode;
+	conversations: WorkspaceSearchConversationResult[];
+	documents: WorkspaceSearchDocumentResult[];
+	documentOverflow: boolean;
+	knowledgeHref: string | null;
 }

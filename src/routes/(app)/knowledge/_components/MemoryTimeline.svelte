@@ -1,6 +1,9 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { MemoryTimelineAction, MemoryTimelineReport } from "$lib/types";
+import type {
+	MemoryTimelineAction,
+	MemoryTimelineReport,
+} from "$lib/memory-profile-types";
 import { Moon, RotateCcw } from "@lucide/svelte";
 
 let {

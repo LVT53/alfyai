@@ -7,8 +7,15 @@ import {
 	messages,
 	projects,
 } from "$lib/server/db/schema";
-import type { Conversation, ConversationListItem } from "$lib/types";
+import type {
+	AtlasJobStatus,
+	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type { PendingAttachment } from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import { recordConversationAnalytics } from "./analytics";
+import type { ConversationForkListSummary } from "./conversation-forks";
 import { getConversationForkSummaries } from "./conversation-forks";
 
 type CreateConversationOptions = {
@@ -395,4 +402,57 @@ export async function moveConversationToProject(
 		.returning();
 	if (!conversation) return null;
 	return toConversation(conversation);
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the conversation service that owns them.
+
+// Conversation interface: id, title, createdAt, updatedAt (Unix timestamps)
+export interface Conversation {
+	id: string;
+	title: string;
+	projectId?: string | null;
+	status?: "open" | "sealed";
+	sealedAt?: number | null;
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
+	// Incognito: this conversation is excluded from the memory pipeline both
+	// ways — nothing is learned from it and no memory/project context is
+	// injected into its prompts. Optional in the type (older payloads omit it);
+	// always present at runtime from toConversation(), defaulting to false.
+	memoryIncognito?: boolean;
+	createdAt: number; // Unix timestamp
+	updatedAt: number; // Unix timestamp
+}
+
+// ConversationListItem interface: id, title, updatedAt
+export interface ConversationListItem {
+	id: string;
+	title: string;
+	updatedAt: number; // Unix timestamp
+	projectId?: string | null;
+	sidebarPinned: boolean;
+	sidebarSortOrder: number | null;
+	forkSummary?: ConversationForkListSummary;
+	atlasBadge?: {
+		jobId?: string;
+		status: AtlasJobStatus;
+		label?: string | null;
+		completedAt?: number | null;
+		updatedAt?: number;
+	} | null;
+}
+
+export interface ConversationDraft {
+	conversationId: string;
+	draftText: string;
+	selectedAttachmentIds: string[];
+	selectedAttachments: PendingAttachment[];
+	selectedLinkedSources: LinkedContextSource[];
+	pendingSkill: PendingSkillSelection | null;
+	atlasMode?: boolean;
+	atlasProfile?: AtlasProfile | null;
+	clientAtlasTurnId?: string | null;
+	updatedAt: number;
 }

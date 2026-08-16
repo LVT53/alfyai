@@ -1,4 +1,3 @@
-import { stripCompleteSkillControlEnvelopeBlocks } from "$lib/services/stream-protocol";
 import type {
 	SkillControlMessageMetadata,
 	SkillControlOperation,
@@ -7,7 +6,8 @@ import type {
 	SkillDraftProposal,
 	SkillDraftQuestionPolicy,
 	SkillDraftSourceScope,
-} from "$lib/types";
+} from "$lib/server/services/skills/types";
+import { stripCompleteSkillControlEnvelopeBlocks } from "$lib/services/stream-protocol";
 
 type JsonRecord = Record<string, unknown>;
 

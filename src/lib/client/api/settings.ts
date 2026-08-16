@@ -1,4 +1,5 @@
-import type { UserModelPreference, UserSettings } from "$lib/types";
+import type { UserModelPreference } from "$lib/model-types";
+import type { UserSettings } from "$lib/server/services/auth-types";
 import {
 	ApiError,
 	type FetchLike,

@@ -2,8 +2,8 @@ import type {
 	AtlasAction,
 	AtlasJobCard,
 	AtlasProfile,
-	LinkedContextSource,
-} from "$lib/types";
+} from "$lib/server/services/atlas/public-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { type FetchLike, requestJson } from "./http";
 
 export interface SubmitAtlasTurnPayload {

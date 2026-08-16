@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArtifactSummary, KnowledgeUploadResponse } from "$lib/types";
+import type {
+	ArtifactSummary,
+	KnowledgeUploadResponse,
+} from "$lib/server/services/knowledge/types";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),

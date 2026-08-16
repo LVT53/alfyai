@@ -1,5 +1,6 @@
 <script lang="ts">
-import type { ModelId, UserRole } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
+import type { UserRole } from "$lib/server/services/auth-types";
 import {
 	createAdminUser,
 	deleteAdminUser,

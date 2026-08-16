@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConversationContextStatus } from "$lib/types";
+import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 
 vi.mock("$lib/i18n", () => ({

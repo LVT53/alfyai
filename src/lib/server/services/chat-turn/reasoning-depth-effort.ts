@@ -1,16 +1,16 @@
 import { isModelCapabilityUnsupported } from "$lib/model-capabilities";
-import type { PromptContextLimits } from "$lib/server/services/normal-chat-context";
-import {
-	buildNormalChatModelRunProviderOptions,
-	type NormalChatModelRunProvider,
-} from "$lib/server/services/normal-chat-model";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type {
 	DepthAppliedEffortMetadata,
 	DepthAppliedProfile,
 	DepthMetadata,
 	DepthSelectionSignals,
-	ThinkingMode,
-} from "$lib/types";
+} from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { PromptContextLimits } from "$lib/server/services/normal-chat-context";
+import {
+	buildNormalChatModelRunProviderOptions,
+	type NormalChatModelRunProvider,
+} from "$lib/server/services/normal-chat-model";
 
 type ReasoningEffort = NonNullable<
 	NormalChatModelRunProvider["reasoningEffort"]

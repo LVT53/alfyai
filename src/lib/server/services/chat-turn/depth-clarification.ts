@@ -1,12 +1,12 @@
+import type { UiLanguage } from "$lib/server/services/auth-types";
+import type {
+	DepthClarificationReason,
+	DepthMetadata,
+} from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	detectLanguage,
 	type SupportedLanguage,
 } from "$lib/server/services/language";
-import type {
-	DepthClarificationReason,
-	DepthMetadata,
-	UiLanguage,
-} from "$lib/types";
 
 export type DepthClarificationClassifierDecision = {
 	outcome?: "ask" | "proceed_with_assumption" | "bypass";

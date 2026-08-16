@@ -7,14 +7,12 @@ import {
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import chatDict from "$lib/i18n/chat";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
-import type {
-	AtlasJobCard,
-	ChatMessage,
-	DocumentWorkspaceItem,
-	FileProductionJob,
-	InterimThoughtStep,
-} from "$lib/types";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
 import MessageBubble from "./MessageBubble.svelte";
 

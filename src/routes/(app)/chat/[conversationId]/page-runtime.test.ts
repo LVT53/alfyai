@@ -6,17 +6,17 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
-import type { StreamCallbacks } from "$lib/services/streaming";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
+import type { Conversation } from "$lib/server/services/conversations";
 import type {
-	AtlasJobCard,
 	ContextDebugEvidenceItem,
 	ContextDebugState,
-	Conversation,
 	ConversationContextStatus,
-	ConversationDetail,
-	ModelId,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { StreamCallbacks } from "$lib/services/streaming";
 
 const runtimeHarness = vi.hoisted(() => ({
 	streamInvocations: [] as Array<{

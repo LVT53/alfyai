@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactLinks, artifacts, messages } from "$lib/server/db/schema";
 import { selectWorkingSetArtifactsForPrompt } from "$lib/server/services/knowledge";
-import type { Artifact } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { AtlasLifecycleSeed } from "./types";
 
 export type AtlasLocalSourceAuthority =

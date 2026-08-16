@@ -1,26 +1,23 @@
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth, ThinkingMode } from "$lib/reasoning-depth-types";
+import {
+	isReasoningDepth,
+	reasoningDepthToThinkingMode,
+	thinkingModeToReasoningDepth,
+} from "$lib/reasoning-depth-types";
 import {
 	getMaxMessageLength,
 	normalizeModelSelection,
 	type RuntimeConfig,
 } from "$lib/server/config-store";
 import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	getProviderByName,
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
-import type {
-	LinkedContextSource,
-	ModelId,
-	PendingSkillSelection,
-	ReasoningDepth,
-	ThinkingMode,
-} from "$lib/types";
-import {
-	isReasoningDepth,
-	reasoningDepthToThinkingMode,
-	thinkingModeToReasoningDepth,
-} from "$lib/types";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type {
 	AtlasAction,
 	AtlasProfile,

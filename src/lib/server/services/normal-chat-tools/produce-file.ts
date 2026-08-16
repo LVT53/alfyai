@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
-import type { ToolCallEntry } from "$lib/types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
 

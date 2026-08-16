@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import type { Cookies } from "@sveltejs/kit";
 import * as bcrypt from "bcryptjs";
 import { eq, sql } from "drizzle-orm";
-import type { SessionUser } from "../../types";
+import type { SessionUser } from "$lib/server/services/auth-types";
 import { db } from "../db/index";
 import { sessions, users } from "../db/schema";
 
@@ -61,7 +61,8 @@ export async function validateSession(
 		id: userObj.id,
 		email: userObj.email,
 		displayName: userObj.name ?? userObj.email,
-		role: (userObj.role ?? "user") as import("../../types").UserRole,
+		role: (userObj.role ??
+			"user") as import("$lib/server/services/auth-types").UserRole,
 		profilePicture: userObj.profilePicture ?? null,
 		titleLanguage: (userObj.titleLanguage ?? "auto") as "auto" | "en" | "hu",
 		uiLanguage: (userObj.uiLanguage ?? "en") as "en" | "hu",

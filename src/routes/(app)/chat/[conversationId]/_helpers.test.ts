@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { I18nKey } from "$lib/i18n";
-import type {
-	ChatMessage,
-	FileProductionJob,
-	PendingWrite,
-	SkillDraftProposal,
-} from "$lib/types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import {
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,

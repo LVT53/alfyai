@@ -4,14 +4,14 @@ import type {
 	taskCheckpoints,
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
-import { parseJsonStringArray } from "$lib/server/utils/json";
+import type { ArtifactChunk } from "$lib/server/services/knowledge/types";
 import type {
-	ArtifactChunk,
 	TaskCheckpoint,
 	TaskEvidenceLink,
 	TaskState,
 	VerificationStatus,
-} from "$lib/types";
+} from "$lib/server/services/task-state/types";
+import { parseJsonStringArray } from "$lib/server/utils/json";
 
 export function mapTaskState(
 	row: typeof conversationTaskStates.$inferSelect,

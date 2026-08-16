@@ -1,20 +1,21 @@
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth, ThinkingMode } from "$lib/reasoning-depth-types";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
-import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
 import type {
 	AtlasAction,
 	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type {
 	ContextDebugState,
 	ConversationContextStatus,
-	DepthMetadata,
-	LinkedContextSource,
-	ModelId,
-	PendingSkillSelection,
-	ReasoningDepth,
-	TaskState,
-	ThinkingMode,
-	ToolCallEntry,
-	WebCitationAudit,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import type { TaskState } from "$lib/server/services/task-state/types";
+import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
 
 export type ChatTurnRoute = "send" | "stream";
 
@@ -27,7 +28,10 @@ export function turnLogPrefix(kind: ChatTurnRoute): "[SEND]" | "[STREAM]" {
 	return kind === "stream" ? "[STREAM]" : "[SEND]";
 }
 
-export type { AtlasAction, AtlasProfile } from "$lib/types";
+export type {
+	AtlasAction,
+	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
 
 export type ChatTurnRequestError = {
 	status: number;

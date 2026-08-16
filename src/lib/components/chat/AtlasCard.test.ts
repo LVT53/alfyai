@@ -6,8 +6,11 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import type {
+	AtlasAction,
+	AtlasJobCard,
+} from "$lib/server/services/atlas/public-types";
 import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
-import type { AtlasAction, AtlasJobCard } from "$lib/types";
 import AtlasCard from "./AtlasCard.svelte";
 
 type AtlasJobProgressDetailsWithTitle = AtlasJobProgressDetails & {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 
 const {
 	mockRecordMemoryEvent,

@@ -6,7 +6,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemoryProfilePublicPayload } from "$lib/types";
+import type { MemoryProfilePublicPayload } from "$lib/memory-profile-types";
 import KnowledgeMemoryView from "./KnowledgeMemoryView.svelte";
 
 const { fetchMemoryProfileItemDetailMock } = vi.hoisted(() => ({

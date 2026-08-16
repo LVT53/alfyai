@@ -8,7 +8,7 @@ import {
 import type { Component } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "$lib/client/api/http";
-import type { MemoryProfilePublicPayload } from "$lib/types";
+import type { MemoryProfilePublicPayload } from "$lib/memory-profile-types";
 
 const mockPageState = vi.hoisted(() => ({
 	page: {

@@ -1,3 +1,16 @@
+import type {
+	ForkContextProvenanceSummary,
+	ForkCopyMetadata,
+} from "$lib/server/services/conversation-forks";
+import type {
+	ContextDebugState,
+	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type {
+	Artifact,
+	MemoryLayer,
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import {
 	type BudgetedAttachmentContext,
 	compactContextSections,
@@ -17,15 +30,6 @@ import {
 	detectTopicShift,
 	shouldSuppressCarryover,
 } from "$lib/server/utils/topic-shift-detector";
-import type {
-	Artifact,
-	ContextDebugState,
-	ConversationContextStatus,
-	ForkContextProvenanceSummary,
-	ForkCopyMetadata,
-	LinkedContextSource,
-	MemoryLayer,
-} from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { getConfig } from "../../config-store";
 import {
@@ -983,7 +987,7 @@ async function buildShallowConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	contextStatus: ConversationContextStatus;
-	taskState: import("$lib/types").TaskState | null;
+	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
@@ -1152,7 +1156,7 @@ export async function buildConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	contextStatus: ConversationContextStatus;
-	taskState: import("$lib/types").TaskState | null;
+	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
@@ -1430,7 +1434,9 @@ export async function buildConstructedContext(params: {
 				workingSetArtifacts,
 				relevantArtifacts,
 			}).catch(() => ({
-				taskState: null as import("$lib/types").TaskState | null,
+				taskState: null as
+					| import("$lib/server/services/task-state/types").TaskState
+					| null,
 				routingStage: "deterministic" as const,
 				routingConfidence: 0,
 				verificationStatus: "fallback" as const,

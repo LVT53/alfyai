@@ -5,6 +5,11 @@ import {
 	type NormalChatMessageListEvent,
 	type NormalChatRuntimeSnapshot,
 } from "$lib/client/normal-chat-client-turn-runtime";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import type {
 	StreamCallbacks,
 	StreamChatOptions,
@@ -12,13 +17,6 @@ import type {
 	StreamMetadata,
 	StreamTimingSnapshot,
 } from "$lib/services/streaming";
-import type {
-	AtlasJobCard,
-	ChatMessage,
-	ConversationContextStatus,
-	ModelId,
-	ReasoningDepth,
-} from "$lib/types";
 
 type StreamInvocation = {
 	message: string;

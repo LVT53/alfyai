@@ -9,7 +9,7 @@ import {
 	usageEvents,
 	users,
 } from "$lib/server/db/schema";
-import type { AdminManagedUserSummary, UserRole } from "$lib/types";
+import type { UserRole } from "$lib/server/services/auth-types";
 import { modelPreferenceStorageForSystemDefault } from "./model-preferences";
 import {
 	DETACHED_SHARED_CONTENT_OWNER_ID,
@@ -313,4 +313,28 @@ export async function deleteManagedUser(params: {
 
 	await ensureNotLastAdmin(params.targetUserId);
 	await eraseUserAccountAsAdmin(params.targetUserId);
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); this type carries no behavior change, only
+// a new home next to the admin user-management service that produces it.
+export interface AdminManagedUserSummary {
+	id: string;
+	email: string;
+	name: string | null;
+	role: UserRole;
+	createdAt: number;
+	updatedAt: number;
+	conversationCount: number;
+	messageCount: number;
+	promptTokens: number;
+	cachedInputTokens: number;
+	cacheHitTokens: number;
+	cacheMissTokens: number;
+	completionTokens: number;
+	reasoningTokens: number;
+	totalTokenCount: number;
+	favoriteModel: string | null;
+	activeSessionCount: number;
+	lastActiveAt: number | null;
 }

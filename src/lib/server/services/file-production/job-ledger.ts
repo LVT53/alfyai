@@ -7,7 +7,7 @@ import {
 	fileProductionJobFiles,
 	fileProductionJobs,
 } from "$lib/server/db/schema";
-import type { FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 
 export interface CreateFileProductionJobInput {
 	userId: string;

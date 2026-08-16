@@ -1,7 +1,8 @@
 import { redirect } from "@sveltejs/kit";
 import { browser } from "$app/environment";
 import { hasPendingConversationMessage } from "$lib/client/conversation-session";
-import type { ConversationDetail, PendingWrite } from "$lib/types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
 import type { PageLoad } from "./$types";
 
 // Issue 7.5 — pending writes are NOT part of ConversationDetail (a separate,

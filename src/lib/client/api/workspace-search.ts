@@ -1,4 +1,4 @@
-import type { WorkspaceSearchResponse } from "$lib/types";
+import type { WorkspaceSearchResponse } from "$lib/server/services/workspace-search";
 import { type FetchLike, requestJson } from "./http";
 
 export async function fetchWorkspaceSearch(

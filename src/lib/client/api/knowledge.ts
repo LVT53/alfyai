@@ -1,17 +1,21 @@
 import type {
-	ArtifactSummary,
-	KnowledgeDocumentItem,
-	KnowledgeMemoryOverviewPayload,
-	KnowledgeMemoryPayload,
-	KnowledgeUploadResponse,
 	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItemDetail,
 	MemoryProfilePublicPayload,
 	MemoryTimelinePayload,
 	MemoryV2ActionPayload,
+} from "$lib/memory-profile-types";
+import type {
+	ArtifactSummary,
+	KnowledgeDocumentItem,
+	KnowledgeUploadResponse,
 	WorkCapsule,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type {
+	KnowledgeMemoryOverviewPayload,
+	KnowledgeMemoryPayload,
+} from "$lib/server/services/memory-types";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,

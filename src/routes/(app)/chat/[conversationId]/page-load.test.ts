@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ModelId } from "$lib/model-types";
 import type { AppShellData } from "$lib/server/services/app-shell";
-import type { Conversation, ModelId } from "$lib/types";
+import type { Conversation } from "$lib/server/services/conversations";
 
 vi.mock("$app/environment", () => ({
 	browser: false,

@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { db } from "$lib/server/db";
 import { contextCompressionSnapshots, messages } from "$lib/server/db/schema";
-import type {
-	ContextCompressionMarker,
-	ModelId,
-	ThinkingMode,
-} from "$lib/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { messageOrderAsc } from "./message-ordering";
 import { parseModelJsonObject } from "./model-json";
@@ -1294,4 +1291,34 @@ export async function runContextCompression(
 	throw new Error(
 		"Context compression snapshot disappeared before failure update.",
 	);
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the context-compression service that owns them.
+
+export type ContextCompressionTrigger = "manual" | "automatic";
+export type ContextCompressionStatus = "running" | "valid" | "failed";
+
+export interface ContextCompressionMarker {
+	id: string;
+	trigger: ContextCompressionTrigger;
+	status: ContextCompressionStatus;
+	sourceEndMessageId: string;
+	createdAt: number;
+	updatedAt: number;
+	estimatedTokens?: number;
+	sourceTokenEstimate?: number;
+	/**
+	 * Bounded human-readable excerpt of the compaction summary (goal +
+	 * currentState, optionally an important fact). Present only when the
+	 * snapshot is `valid` and has summary fields. Capped (~400 chars).
+	 */
+	summaryExcerpt?: string;
+	/**
+	 * Authoritative count of compacted source messages, derived from
+	 * `snapshot.sourceCoverage.messageIds.length`. Present only when the
+	 * snapshot is `valid`.
+	 */
+	sourceMessageCount?: number;
 }

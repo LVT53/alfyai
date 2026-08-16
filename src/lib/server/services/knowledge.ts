@@ -6,7 +6,7 @@ import type {
 	ArtifactSummary,
 	KnowledgeDocumentItem,
 	WorkCapsule,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
 import { mapWorkCapsuleFromArtifactRow } from "./knowledge/capsules";
 import {
 	buildArtifactVisibilityCondition,

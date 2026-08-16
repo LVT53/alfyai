@@ -10,22 +10,28 @@ import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import {
 	isTurnAcknowledgmentIntentClass,
-	type ArtifactSummary,
-	type AtlasAction,
-	type AtlasJobCard,
-	type AtlasProfile,
-	type ChatAttachment,
-	type ChatMessage,
-	type ChatTurnCompletionWarningCode,
-	type DepthAppliedProfile,
-	type DocumentWorkspaceItem,
-	type FileProductionJob,
 	type NormalChatContextPreparationActivityClass,
-	type PendingWrite,
 	type ResponseActivityEntry,
-	type ThinkingSegment,
 	type TurnAcknowledgmentIntentClass,
-} from "$lib/types";
+} from "$lib/response-activity-types";
+import type {
+	AtlasAction,
+	AtlasJobCard,
+	AtlasProfile,
+} from "$lib/server/services/atlas/public-types";
+import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type {
+	ArtifactSummary,
+	DocumentWorkspaceItem,
+} from "$lib/server/services/knowledge/types";
+import type {
+	ChatAttachment,
+	ChatMessage,
+	ChatTurnCompletionWarningCode,
+	ThinkingSegment,
+} from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
@@ -54,7 +60,7 @@ import {
 	ShieldAlert,
 	X,
 } from "@lucide/svelte";
-import type { TaskSteeringPayload } from "$lib/types";
+import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 
 let {
 	message,
@@ -651,7 +657,7 @@ function getContextPreparationActivityLabelKey(
 	);
 }
 
-// E2 — localizes E1's ChatTurnCompletionWarningCode (see $lib/types) into
+// E2 — localizes E1's ChatTurnCompletionWarningCode (see server/services/messages-types.ts) into
 // user copy. Structured status in, translated copy out — the model/provider
 // never authors this text.
 const COMPLETION_WARNING_LABEL_KEYS = {

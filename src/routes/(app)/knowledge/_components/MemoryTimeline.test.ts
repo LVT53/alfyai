@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { MemoryTimelineReport } from "$lib/types";
+import type { MemoryTimelineReport } from "$lib/memory-profile-types";
 import MemoryTimeline from "./MemoryTimeline.svelte";
 
 const reports: MemoryTimelineReport[] = [

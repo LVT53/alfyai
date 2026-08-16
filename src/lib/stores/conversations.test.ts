@@ -5,7 +5,10 @@ import {
 	setConversationSidebarPinned,
 } from "$lib/client/api/conversations";
 import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-workspace-state";
-import type { Conversation, ConversationListItem } from "$lib/types";
+import type {
+	Conversation,
+	ConversationListItem,
+} from "$lib/server/services/conversations";
 import {
 	clearConversationStore,
 	conversations,

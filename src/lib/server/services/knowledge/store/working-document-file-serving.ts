@@ -6,7 +6,7 @@ import {
 	parseFileServingRange,
 } from "$lib/server/services/file-serving-response-policy";
 import { resolveGeneratedFileServing } from "$lib/server/services/generated-file-serving";
-import type { Artifact } from "$lib/types";
+import type { Artifact } from "$lib/server/services/knowledge/types";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 import {
 	getArtifactForUser,

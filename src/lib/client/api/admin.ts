@@ -1,4 +1,5 @@
-import type { AdminManagedUserSummary, UserRole } from "$lib/types";
+import type { UserRole } from "$lib/server/services/auth-types";
+import type { AdminManagedUserSummary } from "$lib/server/services/user-admin";
 import { requestJson, requestVoid } from "./http";
 
 interface AdminUsersResponse {

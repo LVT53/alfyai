@@ -28,7 +28,7 @@ import {
 } from "$lib/client/api/campaign-assets";
 import { get } from "svelte/store";
 import { t, type I18nKey } from "$lib/i18n";
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import ProviderForm from "./ProviderForm.svelte";

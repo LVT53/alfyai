@@ -5,7 +5,8 @@ import {
 	NoObjectGeneratedError,
 	Output,
 } from "ai";
-import type { ModelId, ThinkingMode } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig } from "../config-store";
 import { getSystemPrompt } from "../prompts";
 

@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import SettingsPage from "./+page.svelte";
 import type { PageData, PageProps } from "./$types";
 

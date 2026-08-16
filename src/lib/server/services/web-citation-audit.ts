@@ -1,10 +1,4 @@
-import type {
-	ToolCallEntry,
-	WebCitationAudit,
-	WebCitationAuditCitation,
-	WebCitationAuditStatus,
-	WebCitationMatchType,
-} from "$lib/types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	canonicalizeGroundedWebUrl,
 	extractAssistantWebCitationUrls,
@@ -167,4 +161,36 @@ export function applyWebCitationQualityGate(params: {
 		audit: { ...audit, noticeAppended: false },
 		appendedNotice,
 	};
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the web-citation-audit service that owns them.
+
+export type WebCitationAuditStatus =
+	| "none"
+	| "passed"
+	| "missing_citations"
+	| "unsupported_citations";
+
+export type WebCitationMatchType = "exact" | "host" | "none";
+
+export interface WebCitationAuditCitation {
+	url: string;
+	canonicalUrl: string;
+	supported: boolean;
+	matchType: WebCitationMatchType;
+	matchedSourceId?: string | null;
+	matchedSourceTitle?: string | null;
+	matchedSourceUrl?: string | null;
+}
+
+export interface WebCitationAudit {
+	status: WebCitationAuditStatus;
+	retrievedSourceCount: number;
+	citedUrlCount: number;
+	supportedCitationCount: number;
+	unsupportedCitationCount: number;
+	noticeAppended?: boolean;
+	citations: WebCitationAuditCitation[];
 }

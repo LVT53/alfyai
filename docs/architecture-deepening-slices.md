@@ -1067,9 +1067,23 @@ to `chat.ts`/`common.ts` (EN+HU). TDD (+23 tests). Gate green: check 0/0 tracked
 **6169** (+23), build 0 warnings (+error compiled), fallow **50**, i18n 0 errors. **E1+E2 now form the
 complete error seam — ready for the batch staging deploy.**
 
-### T1 — types.ts split ⬜
+### T1 — types.ts split ✅
 **Blocked by:** nothing. **Run alone, in a quiet window, merge same day.**
 266 importers; high volume, trivial content. Any parallel work will conflict.
+
+**T1 execution status (2026-08-16).** Branch `thought-steps`. `src/lib/types.ts` (2005 lines, 195 exports)
+fully decomposed by concept into **24 domain-adjacent files and DELETED — no re-export shim** (nothing imports
+`$lib/types` anymore). Pure relocation, zero semantic change; ~298 files changed (16 new, 1 deleted, 281
+modified) via an automated codemod + manual straggler fixes (relative imports, `scripts/`, re-export lines,
+comments). The 13 functions moved to their domains (`model-types.ts`, `reasoning-depth-types.ts`,
+`response-activity-types.ts`). Client-safe groups live at `src/lib/*-types.ts` (called as values from
+`.svelte`); type-only groups under the owning `services/**`. A boundary-test catch (`ChatGeneratedFile` →
+`file-production/types.ts`, not `chat-files.ts`) was self-corrected. Type-only sibling cycles are erased
+pre-bundle (circular deps stay 4). **Fallow 50→49**: the `ModelId` duplicate resolved (−1); removing the
+stale `.fallowrc` `types.ts` blanket-ignore unmasked 4 pre-existing-dead exports which the orchestrator then
+resolved (deleted 2 truly-dead — `isThoughtStepClassifierVerdict`, `getProviderProviderIdFromModelId`; un-exported
+2 internal-only guards — `isThoughtStepAnchor`, `isInterimThoughtStep`) rather than re-suppress. Gate green:
+check 0/0 tracked, test **6314**, build 0 warnings, **fallow 49** (below baseline), biome clean, i18n 0 errors.
 
 - [ ] Split by concept next to owning modules
 - [ ] The 7 functions (`getProviderIdFromModelId`, `reasoningDepthToThinkingMode`, …) move to

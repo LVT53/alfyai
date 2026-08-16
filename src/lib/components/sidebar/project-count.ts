@@ -1,4 +1,4 @@
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 
 /**
  * Count the conversations that belong to a project folder in the sidebar.

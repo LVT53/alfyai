@@ -1,8 +1,8 @@
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
 	DepthAppliedProfile,
 	DepthMetadata,
-	ReasoningDepth,
-} from "$lib/types";
+} from "$lib/server/services/chat-turn/depth-metadata-types";
 
 export function resolveBaselineDepthProfile(
 	reasoningDepth: ReasoningDepth,

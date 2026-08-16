@@ -1,7 +1,7 @@
 declare global {
 	namespace App {
 		interface Locals {
-			user: import("$lib/types").SessionUser | null;
+			user: import("$lib/server/services/auth-types").SessionUser | null;
 		}
 	}
 }

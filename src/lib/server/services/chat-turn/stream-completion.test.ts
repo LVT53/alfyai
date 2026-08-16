@@ -4,21 +4,19 @@ import {
 	assignPendingWritesToAssistantMessage,
 	listPendingWritesForConversation,
 } from "$lib/server/services/connections/pending-writes";
+import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
+import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
 import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
-import type {
-	ArtifactSummary,
-	ChatMessage,
-	ContextDebugState,
-	TaskState,
-} from "$lib/types";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";

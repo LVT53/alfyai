@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { KnowledgeDocumentItem, DocumentWorkspaceItem } from "$lib/types";
+import type {
+	KnowledgeDocumentItem,
+	DocumentWorkspaceItem,
+} from "$lib/server/services/knowledge/types";
 import { page } from "$app/state";
 import { replaceState } from "$app/navigation";
 import { browser } from "$app/environment";

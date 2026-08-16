@@ -1,11 +1,9 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-	AtlasJobCard,
-	ChatMessage,
-	FileProductionJob,
-	PendingWrite,
-} from "$lib/types";
+import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import MessageArea from "./MessageArea.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type { KnowledgeDocumentItem } from "$lib/types";
+import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import KnowledgeLibraryModal from "./KnowledgeLibraryModal.svelte";
 
 describe("KnowledgeLibraryModal", () => {

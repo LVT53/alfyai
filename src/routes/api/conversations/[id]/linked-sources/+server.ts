@@ -1,11 +1,11 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
-import type { LinkedContextSource } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 function parseLinkedSources(value: unknown): LinkedContextSource[] | null {

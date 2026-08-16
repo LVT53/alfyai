@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DepthMetadata } from "$lib/types";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { resolveReasoningDepthEffort } from "./reasoning-depth-effort";
 
 const baseContextLimits = {

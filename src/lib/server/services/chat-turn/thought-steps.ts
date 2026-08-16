@@ -33,10 +33,10 @@
 
 import type {
 	InterimThoughtStep,
-	ThinkingSegment,
 	ThoughtStepAnchor,
-} from "$lib/types";
-import { isInterimThoughtStepArray } from "$lib/types";
+} from "$lib/response-activity-types";
+import { isInterimThoughtStepArray } from "$lib/response-activity-types";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 
 /**
  * Parses the `thoughtSteps` array out of a message's persisted

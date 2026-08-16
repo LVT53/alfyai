@@ -1,17 +1,17 @@
+import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
-import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
-import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
-	DepthMetadata,
-	ModelId,
-	ResponseActivityEntry,
-	TaskState,
-	ThinkingMode,
-	ToolCallEntry,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
+import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
+import type { TaskState } from "$lib/server/services/task-state/types";
 
 export interface NonStreamFallbackSendParams {
 	runtimeConfig: RuntimeConfig;

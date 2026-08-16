@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 import ProjectItem from "./ProjectItem.svelte";
 
 type TogglePayload = { id: string; expanded: boolean };

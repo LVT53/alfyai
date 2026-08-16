@@ -1,9 +1,9 @@
+import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
 import type {
 	Artifact,
-	ConversationContextStatus,
 	MemoryLayer,
 	WorkCapsule,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
 export type PromptContextSection = {

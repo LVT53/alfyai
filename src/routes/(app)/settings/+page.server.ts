@@ -10,8 +10,8 @@ import {
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { adminConfig, users } from "$lib/server/db/schema";
+import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
-import type { UserSettings } from "$lib/types";
 
 export const load: ServerLoad = async (event) => {
 	if (!event.locals.user) throw redirect(302, "/login");

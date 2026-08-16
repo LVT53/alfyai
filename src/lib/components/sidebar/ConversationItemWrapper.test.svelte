@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 import ConversationItem from "./ConversationItem.svelte";
 
 type SelectPayload = { id: string };

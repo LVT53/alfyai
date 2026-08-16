@@ -1,5 +1,5 @@
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
-import type { AtlasAvailability } from "$lib/types";
+import type { AtlasAvailability } from "$lib/server/services/atlas/public-types";
 
 export function getAtlasAvailability(
 	config: RuntimeConfig = getConfig(),

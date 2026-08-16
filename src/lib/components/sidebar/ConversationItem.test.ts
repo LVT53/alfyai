@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
 
 vi.mock("svelte/transition", () => ({

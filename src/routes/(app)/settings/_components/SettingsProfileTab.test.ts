@@ -7,7 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
-import type { ModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
 
 vi.mock("chart.js/auto", () => {

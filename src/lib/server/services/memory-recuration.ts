@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import type { ModelId } from "$lib/model-types";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -7,7 +8,6 @@ import {
 	memoryReviewItems,
 	users,
 } from "$lib/server/db/schema";
-import type { ModelId } from "$lib/types";
 import { runUserMemoryConsolidation } from "./memory-consolidation/index";
 import { callMemoryControlModel } from "./memory-control-model";
 import { buildJudgeSystemPrompt } from "./memory-judge/prompt";

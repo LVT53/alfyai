@@ -1,16 +1,16 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { conversationDrafts } from "$lib/server/db/schema";
-import { parseJsonStringArray } from "$lib/server/utils/json";
+import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
+import type { ConversationDraft } from "$lib/server/services/conversations";
 import type {
 	Artifact,
 	ArtifactSummary,
-	AtlasProfile,
-	ConversationDraft,
-	LinkedContextSource,
 	PendingAttachment,
-	PendingSkillSelection,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import { parseJsonStringArray } from "$lib/server/utils/json";
 import { resolvePromptAttachmentArtifacts } from "./knowledge";
 
 function toArtifactSummary(artifact: Artifact): ArtifactSummary {

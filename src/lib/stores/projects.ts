@@ -6,7 +6,7 @@ import {
 	renameProject as renameProjectRequest,
 	saveProjectSidebarOrder,
 } from "$lib/client/api/projects";
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 
 export const projects = writable<Project[]>([]);
 

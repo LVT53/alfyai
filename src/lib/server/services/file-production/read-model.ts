@@ -6,9 +6,12 @@ import {
 	fileProductionJobFiles,
 	fileProductionJobs,
 } from "$lib/server/db/schema";
+import type {
+	ChatGeneratedFile,
+	FileProductionJob,
+} from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { ChatGeneratedFile, FileProductionJob } from "$lib/types";
 
 const GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY =
 	"generatedDocumentRenderedChatFileIds";

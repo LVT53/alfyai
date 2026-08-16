@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 import { resolveActiveConversationTitle } from "./layout-title";
 
 function sidebarConversation(id: string, title: string): ConversationListItem {

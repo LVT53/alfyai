@@ -23,11 +23,11 @@ import {
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
-import type { FileProductionJob } from "$lib/types";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,

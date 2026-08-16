@@ -1,7 +1,7 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
 import ImportChatGPTModal from "$lib/components/chat/ImportChatGPTModal.svelte";
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 
 let showImportModal = $state(false);
 let { projects = [] }: { projects?: Project[] } = $props();

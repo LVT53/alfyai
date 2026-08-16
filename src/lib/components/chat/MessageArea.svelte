@@ -15,18 +15,18 @@ import {
 	RotateCw,
 } from "@lucide/svelte";
 import type {
-	ChatMessage,
-	ContextDebugState,
-	ContextCompressionMarker,
 	AtlasAction,
 	AtlasJobCard,
 	AtlasProfile,
-	ConversationForkOrigin,
-	DocumentWorkspaceItem,
-	FileProductionJob,
-	PendingWrite,
-	TaskSteeringPayload,
-} from "$lib/types";
+} from "$lib/server/services/atlas/public-types";
+import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
+import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
+import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";

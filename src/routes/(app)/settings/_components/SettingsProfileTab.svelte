@@ -26,8 +26,8 @@ import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
 import SettingsDataImport from "./SettingsDataImport.svelte";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
-import type { ModelId, UserModelPreference } from "$lib/types";
-import type { Project } from "$lib/types";
+import type { ModelId, UserModelPreference } from "$lib/model-types";
+import type { Project } from "$lib/server/services/projects";
 
 type AvailableModel = {
 	id: ModelId;

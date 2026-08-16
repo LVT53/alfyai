@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	executePersistedFileProductionRequest,
 	type ProgramExecutionResult,

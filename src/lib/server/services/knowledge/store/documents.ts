@@ -2,13 +2,13 @@ import { join } from "node:path";
 import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactLinks, artifacts } from "$lib/server/db/schema";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import type {
 	Artifact,
 	ArtifactSummary,
 	ArtifactType,
 	KnowledgeDocumentItem,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/types";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import { computeDecayScore } from "../../../utils/artifact-decay";
 import { extractDocumentText } from "../../document-extraction";
 import { shortlistSemanticMatchesBySubject } from "../../semantic-ranking";

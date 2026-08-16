@@ -7,6 +7,8 @@ import {
 } from "@testing-library/svelte";
 import { get, readable } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import { conversations } from "$lib/stores/conversations";
 import { clearProjectStore, projects } from "$lib/stores/projects";
 import {
@@ -17,7 +19,6 @@ import {
 	sidebarPinnedExpanded,
 	sidebarProjectsExpanded,
 } from "$lib/stores/ui";
-import type { ConversationListItem, Project } from "$lib/types";
 import ConversationList from "./ConversationList.svelte";
 
 vi.mock("$app/navigation", () => ({

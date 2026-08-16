@@ -1,7 +1,7 @@
 <script lang="ts">
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
-import type { AdminManagedUserSummary } from "$lib/types";
+import type { AdminManagedUserSummary } from "$lib/server/services/user-admin";
 
 type RoleFilter = "all" | "user" | "admin";
 type SortKey = "recent" | "messages" | "conversations" | "tokens";

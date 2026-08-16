@@ -1,5 +1,6 @@
-import type { ModelId, ToolCallEntry } from "$lib/types";
-import { isProviderModelId } from "$lib/types";
+import type { ModelId } from "$lib/model-types";
+import { isProviderModelId } from "$lib/model-types";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	getConfig,
@@ -80,9 +81,11 @@ export type NormalChatContextModelConfig = ModelConfig & {
 export type PreparedOutboundChatContext = {
 	inputValue: string;
 	systemPrompt: string;
-	contextStatus?: import("$lib/types").ConversationContextStatus;
-	taskState?: import("$lib/types").TaskState | null;
-	contextDebug?: import("$lib/types").ContextDebugState | null;
+	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
+	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
+	contextDebug?:
+		| import("$lib/server/services/knowledge/context-types").ContextDebugState
+		| null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls?: ToolCallEntry[];
 	outputTokenBudget?: OutputTokenBudget;
@@ -132,9 +135,11 @@ type AutomaticContextCompressionResult = {
 
 type OutboundChatContextPreparationState = {
 	inputValue: string;
-	contextStatus?: import("$lib/types").ConversationContextStatus;
-	taskState?: import("$lib/types").TaskState | null;
-	contextDebug?: import("$lib/types").ContextDebugState | null;
+	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
+	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
+	contextDebug?:
+		| import("$lib/server/services/knowledge/context-types").ContextDebugState
+		| null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls: ToolCallEntry[];
 	reuseData?: ConstructedContextReuseData;

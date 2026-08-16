@@ -1,7 +1,7 @@
 import {
 	isNormalChatContextPreparationActivityClass,
 	type NormalChatContextPreparationActivityClass,
-} from "$lib/types";
+} from "$lib/response-activity-types";
 
 export const SERVER_STREAM_TIMELINE_MARKS = {
 	ROUTE_PARSE: "route_parse",

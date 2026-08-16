@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lt, sql } from "drizzle-orm";
+import type { ModelId } from "$lib/model-types";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
-import type { ModelId } from "$lib/types";
 import {
 	buildAtlasLifecycleContext,
 	writeAtlasRoundCheckpoint,

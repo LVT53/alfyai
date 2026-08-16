@@ -3,9 +3,9 @@ import MessageInput from "./MessageInput.svelte";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
-	LinkedContextSource,
-	TaskSteeringPayload,
-} from "$lib/types";
+} from "$lib/server/services/knowledge/context-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 
 let {
 	maxLength = 10000,

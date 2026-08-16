@@ -1,8 +1,4 @@
-import type {
-	ArtifactType,
-	WorkingSetReasonCode,
-	WorkingSetState,
-} from "$lib/types";
+import type { ArtifactType } from "$lib/server/services/knowledge/types";
 import { clamp } from "$lib/utils/math";
 import { computeDecayScore } from "../utils/artifact-decay";
 
@@ -136,4 +132,39 @@ export function rankWorkingSetCandidates(
 		selected: selectedIds.has(item.artifactId),
 		state: selectedIds.has(item.artifactId) ? "active" : "cooling",
 	}));
+}
+
+// Relocated out of the former src/lib/types.ts god-module
+// (architecture-deepening T1); these types carry no behavior change, only
+// a new home next to the working-set service that owns them.
+
+export type WorkingSetState = "active" | "cooling";
+
+export type WorkingSetReasonCode =
+	| "attached_this_turn"
+	| "active_document_focus"
+	| "recent_user_correction"
+	| "recently_refined_document_family"
+	| "recent_refinement_behavior"
+	| "recent_document_open"
+	| "current_generated_document"
+	| "recently_used_in_output"
+	| "latest_generated_output"
+	| "matched_current_turn"
+	| "persisted_from_previous_turn"
+	| "preferred_artifact";
+
+export interface ConversationWorkingSetItem {
+	id: string;
+	userId: string;
+	conversationId: string;
+	artifactId: string;
+	artifactType: Exclude<ArtifactType, "work_capsule">;
+	score: number;
+	state: WorkingSetState;
+	reasonCodes: WorkingSetReasonCode[];
+	lastActivatedAt: number | null;
+	lastUsedAt: number | null;
+	createdAt: number;
+	updatedAt: number;
 }

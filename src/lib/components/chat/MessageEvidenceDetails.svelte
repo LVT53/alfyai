@@ -22,12 +22,12 @@ import {
 	submitKnowledgeMemoryAction,
 	submitMemoryV2Action,
 } from "$lib/client/api/knowledge";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type {
-	DocumentWorkspaceItem,
 	EvidenceSourceType,
 	MessageEvidenceItem,
 	MessageEvidenceSummary,
-} from "$lib/types";
+} from "$lib/server/services/message-evidence";
 
 let {
 	evidenceSummary,

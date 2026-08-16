@@ -32,7 +32,9 @@ import {
 	BookOpen,
 	LogOut,
 } from "@lucide/svelte";
-import type { ConversationListItem, SessionUser, Project } from "$lib/types";
+import type { SessionUser } from "$lib/server/services/auth-types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
+import type { Project } from "$lib/server/services/projects";
 import { avatarState } from "$lib/stores/avatar";
 
 let {

@@ -13,7 +13,7 @@ import type {
 	CampaignSetupControl,
 	CampaignSlide,
 } from "$lib/client/api/campaigns";
-import type { ModelId, UserModelPreference } from "$lib/types";
+import type { ModelId, UserModelPreference } from "$lib/model-types";
 
 type Theme = "system" | "light" | "dark";
 type UiLanguage = "en" | "hu";

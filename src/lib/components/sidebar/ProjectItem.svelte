@@ -10,7 +10,7 @@ import {
 	Pencil,
 	Trash2,
 } from "@lucide/svelte";
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 import { t } from "$lib/i18n";
 import {
 	portal,

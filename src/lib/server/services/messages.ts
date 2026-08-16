@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import {
@@ -9,21 +10,24 @@ import {
 	messages,
 	usageEvents,
 } from "$lib/server/db/schema";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type {
+	ForkEvidenceSnapshot,
+	MessageEvidenceStatusState,
+	MessageEvidenceSummary,
+} from "$lib/server/services/message-evidence";
 import type {
 	ChatMessage,
 	ChatTurnCompletionWarningCode,
-	DepthMetadata,
-	ForkEvidenceSnapshot,
-	InterimThoughtStep,
-	MessageEvidenceStatusState,
-	MessageEvidenceSummary,
 	MessageRole,
+	ThinkingSegment,
+} from "$lib/server/services/messages-types";
+import type {
 	SkillControlMessageMetadata,
 	SkillDraftProposal,
 	SkillDraftStatus,
-	ThinkingSegment,
-	WebCitationAudit,
-} from "$lib/types";
+} from "$lib/server/services/skills/types";
+import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";

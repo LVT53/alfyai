@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 
 const fileProductionMocks = vi.hoisted(() => ({
 	drainFileProductionWorker: vi.fn(async () => undefined),

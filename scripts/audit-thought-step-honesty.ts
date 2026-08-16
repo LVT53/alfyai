@@ -62,13 +62,13 @@ if (!existsSync(dbDir)) {
 }
 
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import {
 	extractRealToolCallIds,
 	parseThoughtSteps,
 } from "$lib/server/services/chat-turn/thought-steps";
-import type { InterimThoughtStep } from "$lib/types";
 import { thoughtStepFixtures } from "./eval/thought-step-fixtures";
 import {
 	ENABLE_GATE_TRUTHFUL_RATE_THRESHOLD,

@@ -4,8 +4,8 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
+import type { UserSettings } from "$lib/server/services/auth-types";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
-import type { UserSettings } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {

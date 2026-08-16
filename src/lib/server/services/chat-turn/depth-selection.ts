@@ -1,18 +1,18 @@
 import { performance } from "node:perf_hooks";
 import { eq } from "drizzle-orm";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
-import { messageOrderDesc } from "$lib/server/services/message-ordering";
 import type {
 	DepthAppliedProfile,
 	DepthMetadata,
 	DepthSelectionSignals,
 	DepthSelectionTimingMetadata,
-	LinkedContextSource,
-	ModelId,
-	PendingSkillSelection,
-	ReasoningDepth,
-} from "$lib/types";
+} from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import { messageOrderDesc } from "$lib/server/services/message-ordering";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 
 const SIMPLE_AUTO_FAST_PATH_MAX_CHARS = 180;
 const SIMPLE_AUTO_FAST_PATH_MAX_WORDS = 24;

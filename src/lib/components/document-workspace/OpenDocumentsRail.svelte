@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { DocumentWorkspaceItem } from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import { t } from "$lib/i18n";

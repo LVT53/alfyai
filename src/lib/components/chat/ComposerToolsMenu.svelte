@@ -7,12 +7,12 @@ import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 } from "$lib/utils/personality-profile-labels";
+import type { ModelId } from "$lib/model-types";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
 	AtlasAvailability,
 	AtlasProfile,
-	ModelId,
-	ReasoningDepth,
-} from "$lib/types";
+} from "$lib/server/services/atlas/public-types";
 
 let {
 	canAttach = false,

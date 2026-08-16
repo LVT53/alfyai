@@ -1,27 +1,29 @@
 import type { FinishReason } from "ai";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { getChatFilesForAssistantMessage } from "$lib/server/services/chat-files";
+import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type {
+	ContextDebugState,
+	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type {
+	ChatTurnCompletionWarningCode,
+	ThinkingSegment,
+	ToolCallEntry,
+} from "$lib/server/services/messages-types";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	type ServerStreamTimelineMark,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
-import type {
-	ChatTurnCompletionWarningCode,
-	ContextDebugState,
-	ConversationContextStatus,
-	DepthMetadata,
-	FileProductionJob,
-	InterimThoughtStep,
-	LinkedContextSource,
-	ReasoningDepth,
-	TaskState,
-	ThinkingSegment,
-	ToolCallEntry,
-} from "$lib/types";
 import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,

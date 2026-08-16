@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact, KnowledgeDocumentItem } from "$lib/types";
+import type {
+	Artifact,
+	KnowledgeDocumentItem,
+} from "$lib/server/services/knowledge/types";
 import { buildGeneratedOutputDocumentMetadata } from "./document-metadata";
 import {
 	makeArtifactRow,

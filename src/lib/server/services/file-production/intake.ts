@@ -1,4 +1,4 @@
-import type { FileProductionJob } from "$lib/types";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { validateFileProductionStaticLimits } from "./limits";
 import {
 	type GeneratedDocumentSource,

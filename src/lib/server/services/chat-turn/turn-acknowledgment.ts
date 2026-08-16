@@ -3,7 +3,7 @@ import {
 	isTurnAcknowledgmentIntentClass,
 	TURN_ACKNOWLEDGMENT_INTENT_CLASSES,
 	type TurnAcknowledgmentIntentClass,
-} from "$lib/types";
+} from "$lib/response-activity-types";
 import { recordControlModelUsage } from "../analytics";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";

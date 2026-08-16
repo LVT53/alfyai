@@ -1,9 +1,9 @@
-import type { ReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type {
 	DepthAppliedProfile,
 	DepthSelectionSignals,
-	ResponseActivityEntry,
-} from "$lib/types";
+} from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { ReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 
 export const DELIBERATION_MAX_OUTPUT_TOKENS = 2_400;
 export const DELIBERATION_REPAIR_MAX_OUTPUT_TOKENS = 1_200;

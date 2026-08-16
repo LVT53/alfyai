@@ -11,7 +11,7 @@
 // (deliberation-pass-catalogue.ts) fixes the pass count for `maximum` depth
 // before the turn is even sent to a model, so "pass N of M" is a determinate
 // fact read off already-computed `passIndex`/`passTotal` fields
-// (ResponseActivityEntry, $lib/types) — never a new signal, never a guess.
+// (ResponseActivityEntry, $lib/response-activity-types) — never a new signal, never a guess.
 //
 // Once the LAST planned pass has resolved and the turn has moved past
 // deliberation into the final answer-generating call —

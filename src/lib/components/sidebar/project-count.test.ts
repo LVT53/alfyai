@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationListItem } from "$lib/types";
+import type { ConversationListItem } from "$lib/server/services/conversations";
 import { countProjectConversations } from "./project-count";
 
 const conv = (

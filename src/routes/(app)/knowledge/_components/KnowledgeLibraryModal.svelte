@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { DocumentWorkspaceItem, KnowledgeDocumentItem } from "$lib/types";
+import type {
+	DocumentWorkspaceItem,
+	KnowledgeDocumentItem,
+} from "$lib/server/services/knowledge/types";
 import type { LibraryModal } from "../_helpers";
 import { X } from "@lucide/svelte";
 import {

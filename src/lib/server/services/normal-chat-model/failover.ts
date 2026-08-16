@@ -1,4 +1,5 @@
 import { canUseProviderModelFallback } from "$lib/model-fallback-compatibility";
+import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { getConfig } from "$lib/server/config-store";
 import {
@@ -7,7 +8,6 @@ import {
 	isTerminalErrorCause,
 	readErrorHttpStatus,
 } from "$lib/server/services/error-cause";
-import type { ModelId } from "$lib/types";
 import { normalizeOpenAICompatibleBaseUrl } from "../openai-compatible-url";
 import {
 	getProviderModel,

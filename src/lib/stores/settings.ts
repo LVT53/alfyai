@@ -1,11 +1,10 @@
 import { writable } from "svelte/store";
 import { updateUserPreferences } from "$lib/client/api/settings";
+import type { ModelId, UserModelPreference } from "$lib/model-types";
 import {
-	type ModelId,
 	type ReasoningDepth,
 	thinkingModeToReasoningDepth,
-	type UserModelPreference,
-} from "$lib/types";
+} from "$lib/reasoning-depth-types";
 import { canUseStorage, persist, read } from "./_local-storage";
 
 export type TitleLanguage = "auto" | "en" | "hu";

@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { UserRole } from "$lib/types";
+import type { UserRole } from "$lib/server/services/auth-types";
 import { t } from "$lib/i18n";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import PasswordField from "./PasswordField.svelte";

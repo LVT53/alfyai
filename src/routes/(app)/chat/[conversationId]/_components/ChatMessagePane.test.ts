@@ -1,10 +1,8 @@
 import { fireEvent, render } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
-import type {
-	ChatMessage,
-	DocumentWorkspaceItem,
-	TaskSteeringPayload,
-} from "$lib/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 import ChatMessagePane from "./ChatMessagePane.svelte";
 
 vi.mock("$lib/utils/markdown-loader", () => ({

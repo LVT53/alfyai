@@ -1,4 +1,4 @@
-import type { Project } from "$lib/types";
+import type { Project } from "$lib/server/services/projects";
 import { _unwrapList } from "./_utils";
 import { requestJson } from "./http";
 
