@@ -147,13 +147,11 @@ let {
 let expanded = $state(false);
 let container = $state<HTMLDivElement | undefined>(undefined);
 let prevContentLength = $state(0);
-let contentFresh = $state(false);
 let newCharStart = $state(-1);
-let freshTimeout: ReturnType<typeof setTimeout> | undefined;
 // P1 (ADR-0056) — reasoning-delta liveness watchdog. NOT a free-running
 // clock: this single timeout is (re)scheduled only when real reasoning
 // content/segment growth is observed (the same growth signal that already
-// drives `contentFresh` below), and is cleared on every such event. If it
+// drives `newCharStart` below), and is cleared on every such event. If it
 // ever fires, that means REASONING_STALL_MS has elapsed with no real
 // growth — an honest "stalled" signal, not a cosmetic tick. Value chosen to
 // sit comfortably above normal inter-chunk gaps (the server batches
@@ -482,13 +480,12 @@ $effect(() => {
 				0,
 			)
 		: content.length;
+	// Owner polish pass (visual fixes) — only the newly-arrived tail gets the
+	// .word-new entrance below; the previous whole-panel "content-fresh"
+	// opacity dip re-triggered on every growth burst and read as the panel
+	// flashing to half-transparent mid-stream, so it is gone entirely.
 	if (totalLength > prevContentLength && isActiveThinking) {
-		contentFresh = true;
 		newCharStart = prevContentLength;
-		clearTimeout(freshTimeout);
-		freshTimeout = setTimeout(() => {
-			contentFresh = false;
-		}, 500);
 	}
 	prevContentLength = totalLength;
 	// P1 (ADR-0056) — the stall watchdog. Any real signal this effect reacts
@@ -508,7 +505,6 @@ $effect(() => {
 		clearTimeout(stallTimeout);
 	}
 	return () => {
-		clearTimeout(freshTimeout);
 		clearTimeout(stallTimeout);
 	};
 });
@@ -1690,13 +1686,21 @@ function toggleFullReasoning(): void {
 				and the concluding state are rare, coarse transitions (deliberation
 				passes run on the order of seconds), never a competing live region.
 			-->
+			<!--
+				Owner polish pass (visual fixes) — each branch's TEXT sits in its own
+				.thinking-label-text span so the live sweep gradient (background-clip:
+				text + color: transparent) can never leak onto the leading class icon:
+				Lucide strokes with currentColor, so the old label-level transparent
+				color rendered the icon invisible and left a blank slot on the left of
+				the live headline.
+			-->
 			<span class="thinking-label" class:is-active={isActiveThinking} aria-live="polite">
 				{#if thinkingIsDone && formattedThinkingTime}
-					{$t('chat.thoughtFor', { time: formattedThinkingTime })}
+					<span class="thinking-label-text">{$t('chat.thoughtFor', { time: formattedThinkingTime })}</span>
 				{:else if thinkingIsDone}
-					{$t('chat.thought')}
+					<span class="thinking-label-text">{$t('chat.thought')}</span>
 				{:else if deliberationProgressLabel}
-					{deliberationProgressLabel}
+					<span class="thinking-label-text">{deliberationProgressLabel}</span>
 				{:else if liveThoughtStepHeadline}
 					<!--
 						TS2-c (ADR-0056 amendment) — the closed activityClass is now a
@@ -1707,9 +1711,9 @@ function toggleFullReasoning(): void {
 					{#if liveThoughtStepRecognizedClass}
 						{@render thoughtStepClassIcon(liveThoughtStepRecognizedClass)}
 					{/if}
-					{liveThoughtStepHeadline}
+					<span class="thinking-label-text">{liveThoughtStepHeadline}</span>
 				{:else}
-					{$t(liveSpineLabelKey)}
+					<span class="thinking-label-text">{$t(liveSpineLabelKey)}</span>
 				{/if}
 			</span>
 			<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
@@ -1723,11 +1727,19 @@ function toggleFullReasoning(): void {
 			gating anchoredThoughtSteps.length > 0 already used below.
 		-->
 		{#if expanded && anchoredThoughtSteps.length > 0}
+			<!--
+				Owner polish pass (visual fixes) — the toggle grows in with a
+				horizontal slide (the same wrapped slide primitive as the panel
+				below, on the x axis since this is a width change on a header row)
+				instead of popping in: the chevron beside it glides left as the
+				toggle takes its space rather than jumping.
+			-->
 			<button
 				type="button"
 				class="full-reasoning-header-toggle"
 				onclick={toggleFullReasoning}
 				aria-pressed={showFullReasoning}
+				transition:slideTransition={{ axis: 'x', duration: 200 }}
 			>
 				{$t(showFullReasoning ? 'chat.thoughtStep.hideFullReasoning' : 'chat.thoughtStep.showFullReasoning')}
 			</button>
@@ -1748,15 +1760,16 @@ function toggleFullReasoning(): void {
 
 {#if expanded}
 <!--
-	Owner polish pass, item 1 — the completed "Thought for" box's
-	expand/collapse now animates horizontally (axis: 'x'), not the previous
-	top-to-bottom slide; the LIVE ("Thinking...") expand/collapse keeps the
-	original vertical slide, since only the completed box's animation was
-	called out. reducedMotionAware (slideTransition, see <script module>
-	above) collapses this to an instant, zero-duration transition under
-	prefers-reduced-motion.
+	Owner polish pass (visual fixes) — expand/collapse is a plain vertical
+	slide at the app's standard disclosure duration (CodeBlock's code-body and
+	ConversationList's sections both use slide at 200ms). The previous
+	horizontal (axis: 'x') slide animated WIDTH, so on close the panel's text
+	re-wrapped into a one-word-wide column mid-animation — the "collapses into
+	a 1x1 row" flash. A height slide never re-wraps content.
+	reducedMotionAware (slideTransition, see <script module> above) collapses
+	this to an instant, zero-duration transition under prefers-reduced-motion.
 -->
-<div class="thinking-content" class:content-fresh={contentFresh} transition:slideTransition={{ axis: thinkingIsDone ? 'x' : 'y', duration: 250 }}>
+<div class="thinking-content" transition:slideTransition={{ duration: 200 }}>
 			{#if anchoredThoughtSteps.length > 0}
 				<!--
 					TS2-c (ADR-0056 amendment, "Disclosure UX: clean by default,
@@ -1871,14 +1884,19 @@ function toggleFullReasoning(): void {
 		transition: color 150ms var(--ease-out);
 	}
 
-	/* Owner polish pass, item 3 — hover feedback on every clickable element in
-	   the rail; the header row was previously silent on hover. */
-	.thinking-header:hover .thinking-label:not(.is-active) {
-		color: var(--text-secondary);
+	/* Owner polish pass (visual fixes) — hover matches the app's other
+	   disclosure headers (CodeBlock's .code-toggle:hover): muted -> primary.
+	   The old muted -> secondary shift was invisible in the light theme,
+	   where --text-muted and --text-secondary are the same color. The live
+	   (is-active) sweep label stays untouched on hover. */
+	.thinking-header:hover .thinking-label:not(.is-active),
+	.thinking-header:focus-visible .thinking-label:not(.is-active) {
+		color: var(--text-primary);
 	}
 
-	.thinking-header:hover .chevron {
-		color: var(--text-secondary);
+	.thinking-header:hover .chevron,
+	.thinking-header:focus-visible .chevron {
+		color: var(--icon-primary);
 	}
 
 	.thinking-header:focus-visible {
@@ -1897,6 +1915,12 @@ function toggleFullReasoning(): void {
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-muted);
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.thinking-label-text {
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 
 	@keyframes thinking-sweep {
@@ -1904,7 +1928,11 @@ function toggleFullReasoning(): void {
 		100% { background-position: -250% center; }
 	}
 
-	.thinking-label.is-active {
+	/* Owner polish pass (visual fixes) — the sweep now targets only the inner
+	   text span. Applied at the label level, its `color: transparent` also hit
+	   the leading class icon (Lucide strokes with currentColor), rendering it
+	   invisible and leaving a blank slot on the left of the live headline. */
+	.thinking-label.is-active .thinking-label-text {
 		background: linear-gradient(
 			90deg,
 			var(--text-muted)    0%,
@@ -1941,12 +1969,24 @@ function toggleFullReasoning(): void {
 		transform: rotate(180deg);
 	}
 
-	/* Tool call stack — accumulates all tool rows, visible without expanding */
+	/* Tool call stack — accumulates all tool rows, visible without expanding.
+	   Owner polish pass (visual fixes) — rows are laid out as a left-aligned
+	   column of content-hugging chips (see .tool-call-row below) rather than
+	   full-bleed bars. The fade-out's max-height easing front-loads the drop
+	   so the visible collapse starts immediately instead of the old
+	   999px -> 0 linear ramp, which kept the stack at full height for most of
+	   the transition and then snapped shut in the last few frames. */
 	.tool-call-stack {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
 		padding: var(--space-xs) 0;
 		width: 100%;
 		min-width: 0;
-		transition: opacity 400ms var(--ease-out), max-height 400ms var(--ease-out);
+		transition: opacity var(--duration-emphasis) var(--ease-out),
+			max-height 350ms cubic-bezier(0.2, 0.9, 0.25, 1),
+			padding 350ms cubic-bezier(0.2, 0.9, 0.25, 1);
 		max-height: 999px;
 		overflow: hidden;
 	}
@@ -1958,26 +1998,42 @@ function toggleFullReasoning(): void {
 		pointer-events: none;
 	}
 
+	/* Owner polish pass (visual fixes) — a tool call renders as the SAME chip
+	   in the live stack as in the expanded clean list (.thought-rail-chip
+	   below shares these exact tokens): content-hugging pill, --border-default
+	   hairline, --surface-elevated fill. The old full-bleed bar (negative
+	   margins + width: calc(100% + 12px)) stretched edge to edge and had its
+	   rounded corners clipped by .thinking-block's overflow: hidden — the
+	   "not rounded while running" complaint. */
 	.tool-call-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-xs);
-		padding: 3px 6px;
-		margin: 0 -6px;
-		border-radius: var(--radius-sm);
+		width: fit-content;
+		max-width: 100%;
+		min-width: 0;
+		padding: 3px 10px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--border-default);
+		background: var(--surface-elevated);
 		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		color: var(--text-muted);
-		width: calc(100% + 12px);
-		min-width: 0;
-		transition: background-color 150ms var(--ease-out), box-shadow 300ms var(--ease-out);
+		transition: background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out);
+	}
+
+	/* A chip whose inner disclosure is open grows tall; relax the pill into
+	   the app's card radius so it never reads as a stretched lozenge. */
+	.tool-call-row:has(details[open]) {
+		border-radius: var(--radius-md);
 	}
 
 	/* Owner polish pass, item 3 — hover feedback for the always-visible tool
 	   stack row itself (the summary/button children inside it already get
 	   their own hover state below). */
 	.tool-call-row:hover {
-		background: var(--surface-elevated);
+		background: var(--surface-overlay);
 	}
 
 	.tool-call-row.is-running {
@@ -1989,26 +2045,29 @@ function toggleFullReasoning(): void {
 	   success, at a glance. */
 	.tool-call-row.is-failed {
 		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 	}
 
-	/* Owner polish pass, item 6 — live current-step emphasis. Only the
+	/* Owner polish pass (visual fixes) — live current-step emphasis. Only the
 	   single most-recently-arrived tool row (see latestToolStackEntryKey in
-	   script — driven purely by real event arrival, no timer) gets the
-	   pulse; every other row stays in its plain resting state. Once the turn
-	   completes, isCurrent is false for every row and this settles away. */
+	   script — driven purely by real event arrival, no timer) gets the pulse;
+	   every other row stays in its plain resting state. A slow, gentle
+	   breathing of the chip's own fill between two close accent tints — the
+	   old 1.8s background + box-shadow ring pulse read as flashing. The chip
+	   keeps its border-radius in this state (radius lives on the base rule
+	   above and is never overridden here). */
 	@keyframes current-step-pulse {
 		0%, 100% {
-			box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
-			background: color-mix(in srgb, var(--accent) 7%, transparent);
+			background-color: color-mix(in srgb, var(--accent) 4%, var(--surface-elevated));
 		}
 		50% {
-			box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 0%, transparent);
-			background: color-mix(in srgb, var(--accent) 12%, transparent);
+			background-color: color-mix(in srgb, var(--accent) 11%, var(--surface-elevated));
 		}
 	}
 
 	.tool-call-row.is-current-step {
-		animation: current-step-pulse 1.8s ease-in-out infinite;
+		border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+		animation: current-step-pulse 3.2s ease-in-out infinite;
 	}
 
 	.tool-status-badge {
@@ -2063,6 +2122,15 @@ function toggleFullReasoning(): void {
 		list-style-position: inside;
 		border-radius: 2px;
 		transition: color 150ms var(--ease-out);
+	}
+
+	/* Owner polish pass (visual fixes) — the native disclosure triangle reads
+	   oversized inside the compact chips; mute and shrink it so it sits as a
+	   quiet affordance next to the label rather than a heavy glyph. */
+	.fetched-source-group summary::marker,
+	.connector-group summary::marker {
+		color: var(--icon-muted);
+		font-size: 0.7em;
 	}
 
 	/* Owner polish pass, item 3 — hover feedback on every clickable element,
@@ -2426,19 +2494,14 @@ function toggleFullReasoning(): void {
 		min-width: 0;
 }
 
-.word-new {
-animation: wordFadeIn 300ms ease-out forwards;
-}
+	.word-new {
+		animation: wordFadeIn 300ms ease-out forwards;
+	}
 
-@keyframes wordFadeIn {
-from { opacity: 0; transform: translateY(2px); }
-to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes thinkContentFadeIn {
-from { opacity: 0.5; }
-to   { opacity: 1; }
-}
+	@keyframes wordFadeIn {
+		from { opacity: 0; transform: translateY(2px); }
+		to   { opacity: 1; transform: translateY(0); }
+	}
 
 	@keyframes deliberationStatusFade {
 		from {
@@ -2450,10 +2513,6 @@ to   { opacity: 1; }
 			transform: translateY(0);
 		}
 	}
-
-	.thinking-content.content-fresh {
-animation: thinkContentFadeIn 300ms ease-out;
-}
 
 	.thinking-text {
 		margin: 0;
@@ -2687,13 +2746,29 @@ animation: thinkContentFadeIn 300ms ease-out;
 	.thought-rail-chip {
 		display: inline-flex;
 		align-items: center;
+		width: fit-content;
 		max-width: 100%;
 		margin: 2px 0;
 		padding: 3px 10px;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
-		transition: background-color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+		transition: background-color var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
+	}
+
+	/* Matches .tool-call-row:has(details[open]) above — an expanded inner
+	   disclosure relaxes the pill into the card radius. A click-opened
+	   .tool-detail-panel additionally stacks BELOW its row (the chip's
+	   inline-flex would otherwise lay the panel out beside the label as a
+	   bulging lozenge). */
+	.thought-rail-chip:has(details[open]),
+	.thought-rail-chip:has(.tool-detail-panel) {
+		border-radius: var(--radius-md);
+	}
+
+	.thought-rail-chip:has(.tool-detail-panel) {
+		flex-direction: column;
+		align-items: stretch;
 	}
 
 	.thought-rail-chip:has(.tool-label-text--clickable:hover),
@@ -2701,8 +2776,11 @@ animation: thinkContentFadeIn 300ms ease-out;
 		border-color: var(--accent);
 	}
 
+	/* The inner row keeps every behavior; only its outer sizing changes so the
+	   chip hugs its content instead of stretching into a full-width lozenge. */
 	.thought-rail-chip .tool-call-item {
 		margin: 0;
+		width: auto;
 	}
 
 	/* Owner polish pass, item 1 — the "Show full reasoning" toggle, relocated
@@ -2715,14 +2793,17 @@ animation: thinkContentFadeIn 300ms ease-out;
 		display: inline-flex;
 		align-items: center;
 		padding: 3px 10px;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		border: 1px solid var(--border-default);
 		background: transparent;
 		font-family: var(--font-sans);
 		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-muted);
+		/* Keeps the label on one line while the entrance slide (axis: 'x')
+		   animates the button's width — mid-animation re-wrap would flash. */
+		white-space: nowrap;
 		cursor: pointer;
-		transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+		transition: background-color var(--duration-standard) var(--ease-out), color var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.full-reasoning-header-toggle:hover {
@@ -2843,6 +2924,14 @@ animation: thinkContentFadeIn 300ms ease-out;
 		background: var(--surface-elevated);
 	}
 
+	/* Nested inside a chip card the panel sits on the chip's own elevated
+	   fill, so it steps up to the overlay surface to stay readable as an
+	   inset section. */
+	.thought-rail-chip .tool-detail-panel {
+		margin: 2px 0 4px;
+		background: var(--surface-overlay);
+	}
+
 	.tool-detail-section {
 		display: flex;
 		flex-direction: column;
@@ -2889,7 +2978,7 @@ animation: thinkContentFadeIn 300ms ease-out;
 	}
 
 @media (prefers-reduced-motion: reduce) {
-	.thinking-label.is-active {
+	.thinking-label.is-active .thinking-label-text {
 		color: var(--text-muted);
 		-webkit-text-fill-color: var(--text-muted);
 		background: none;
@@ -2906,22 +2995,16 @@ animation: thinkContentFadeIn 300ms ease-out;
 		opacity: 0.7;
 	}
 
-	.thinking-content.content-fresh {
-		animation: none;
-		opacity: 1;
-	}
-
 	.word-new {
 		animation: none;
 		opacity: 1;
 	}
 
-	/* Owner polish pass, item 6 — live current-step emphasis falls back to a
-	   static highlight, no pulse, under prefers-reduced-motion. */
+	/* Live current-step emphasis falls back to a static highlight, no pulse,
+	   under prefers-reduced-motion — same tint the pulse breathes around. */
 	.tool-call-row.is-current-step {
 		animation: none;
-		background: color-mix(in srgb, var(--accent) 10%, transparent);
-		box-shadow: none;
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated));
 	}
 }
 </style>
