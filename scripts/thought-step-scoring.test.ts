@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
-import { thoughtStepFixtures } from "./eval/thought-step-fixtures";
+import {
+	thoughtStepFaithfulnessFixtures,
+	thoughtStepFixtures,
+} from "./eval/thought-step-fixtures";
 import {
 	ENABLE_GATE_TRUTHFUL_RATE_THRESHOLD,
 	evaluateEnableGate,
+	evaluateFaithfulnessEnableGate,
+	FAITHFULNESS_GATE_RATE_THRESHOLD,
+	type FaithfulnessAuditSummary,
+	type FaithfulnessJudgment,
 	isAnchorResolved,
 	isEntitySupported,
 	isFabricatedActionClaim,
 	scoreThoughtStep,
+	summarizeFaithfulness,
 	summarizeThoughtStepAudit,
 	type ThoughtStepAuditResult,
 } from "./thought-step-scoring";
@@ -320,6 +328,289 @@ describe("evaluateEnableGate", () => {
 				fabricatedActionCount: 0,
 				unanchoredCount: 20,
 				unsupportedEntityCount: 0,
+			}),
+		).toBe("fail");
+	});
+});
+
+// ── Faithfulness audit (ADR-0056 Amendment 2026-08-16) ──────────────────
+
+function faithfulJudgment(): FaithfulnessJudgment {
+	return { status: "judged", verdict: { faithful: true, reason: "matches" } };
+}
+
+function unfaithfulJudgment(
+	category: "contradiction" | "fabrication" | "unmoored",
+): FaithfulnessJudgment {
+	return {
+		status: "judged",
+		verdict: { faithful: false, category, reason: `flagged as ${category}` },
+	};
+}
+
+function unjudgedJudgment(reason = "judge timed out"): FaithfulnessJudgment {
+	return { status: "unjudged", reason };
+}
+
+describe("summarizeFaithfulness", () => {
+	it("returns zeroed stats and null rates for an empty batch", () => {
+		expect(summarizeFaithfulness([])).toEqual({
+			summaryBearingCount: 0,
+			judgedCount: 0,
+			unjudgedCount: 0,
+			faithfulCount: 0,
+			faithfulRate: null,
+			unjudgedRate: null,
+			contradictionCount: 0,
+			fabricationCount: 0,
+			unmooredCount: 0,
+		});
+	});
+
+	it("counts faithful, contradiction, fabrication, and unmoored independently", () => {
+		const judgments: FaithfulnessJudgment[] = [
+			faithfulJudgment(),
+			faithfulJudgment(),
+			unfaithfulJudgment("contradiction"),
+			unfaithfulJudgment("fabrication"),
+			unfaithfulJudgment("unmoored"),
+		];
+		expect(summarizeFaithfulness(judgments)).toEqual({
+			summaryBearingCount: 5,
+			judgedCount: 5,
+			unjudgedCount: 0,
+			faithfulCount: 2,
+			faithfulRate: 0.4,
+			unjudgedRate: 0,
+			contradictionCount: 1,
+			fabricationCount: 1,
+			unmooredCount: 1,
+		});
+	});
+
+	it("excludes unjudged steps from the faithfulRate denominator entirely (never counted faithful, never diluting it either)", () => {
+		const judgments: FaithfulnessJudgment[] = [
+			faithfulJudgment(),
+			faithfulJudgment(),
+			faithfulJudgment(),
+			unjudgedJudgment(),
+		];
+		const summary = summarizeFaithfulness(judgments);
+		expect(summary.summaryBearingCount).toBe(4);
+		expect(summary.judgedCount).toBe(3);
+		expect(summary.unjudgedCount).toBe(1);
+		expect(summary.faithfulCount).toBe(3);
+		// 3/3 judged, NOT 3/4 — an unjudged step is excluded, not counted against.
+		expect(summary.faithfulRate).toBe(1);
+		expect(summary.unjudgedRate).toBe(0.25);
+	});
+
+	it("returns a null faithfulRate (never 0) when every summary-bearing step is unjudged", () => {
+		const summary = summarizeFaithfulness([
+			unjudgedJudgment(),
+			unjudgedJudgment(),
+		]);
+		expect(summary.summaryBearingCount).toBe(2);
+		expect(summary.judgedCount).toBe(0);
+		expect(summary.unjudgedCount).toBe(2);
+		expect(summary.faithfulRate).toBeNull();
+		expect(summary.unjudgedRate).toBe(1);
+	});
+
+	it("proves the actual faithfulness fixture corpus aggregates as expected (integration over real fixture data)", () => {
+		const judgments: FaithfulnessJudgment[] =
+			thoughtStepFaithfulnessFixtures.map((fixture) => ({
+				status: "judged",
+				verdict: fixture.expected,
+			}));
+		const summary = summarizeFaithfulness(judgments);
+		expect(summary.summaryBearingCount).toBe(
+			thoughtStepFaithfulnessFixtures.length,
+		);
+		expect(summary.unjudgedCount).toBe(0);
+		expect(summary.contradictionCount).toBeGreaterThan(0);
+		expect(summary.fabricationCount).toBeGreaterThan(0);
+		expect(summary.unmooredCount).toBeGreaterThan(0);
+		expect(summary.faithfulCount).toBeGreaterThan(0);
+	});
+});
+
+function baseMechanical() {
+	return { unanchoredCount: 0, fabricatedActionCount: 0 };
+}
+
+function baseFaithfulness(
+	overrides: Partial<FaithfulnessAuditSummary> = {},
+): FaithfulnessAuditSummary {
+	return {
+		summaryBearingCount: 0,
+		judgedCount: 0,
+		unjudgedCount: 0,
+		faithfulCount: 0,
+		faithfulRate: null,
+		unjudgedRate: null,
+		contradictionCount: 0,
+		fabricationCount: 0,
+		unmooredCount: 0,
+		...overrides,
+	};
+}
+
+describe("evaluateFaithfulnessEnableGate", () => {
+	it("returns not_applicable when there are zero summary-bearing steps, regardless of mechanical stats", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: { unanchoredCount: 3, fabricatedActionCount: 2 },
+				faithfulness: baseFaithfulness(),
+			}),
+		).toBe("not_applicable");
+	});
+
+	it("fails closed on insufficient judge coverage even when every judged step is faithful", () => {
+		// 3 judged (all faithful) + 97 unjudged = 100 summary-bearing steps.
+		// faithfulRate is 3/3 = 1.0 (> 0.95), but only 3% were actually judged —
+		// a spurious pass on a tiny unrepresentative sample. The coverage guard
+		// must fail this closed.
+		const faithfulness = summarizeFaithfulness([
+			faithfulJudgment(),
+			faithfulJudgment(),
+			faithfulJudgment(),
+			...Array.from({ length: 97 }, () => unjudgedJudgment()),
+		]);
+		expect(faithfulness.faithfulRate).toBe(1);
+		expect(faithfulness.summaryBearingCount).toBe(100);
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: { unanchoredCount: 0, fabricatedActionCount: 0 },
+				faithfulness,
+			}),
+		).toBe("fail");
+	});
+
+	it("passes when judge coverage is adequate and every judged step is faithful", () => {
+		// 19 judged faithful + 1 unjudged = 20 steps -> 95% judged coverage (>= 90%).
+		const faithfulness = summarizeFaithfulness([
+			...Array.from({ length: 19 }, () => faithfulJudgment()),
+			unjudgedJudgment(),
+		]);
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: { unanchoredCount: 0, fabricatedActionCount: 0 },
+				faithfulness,
+			}),
+		).toBe("pass");
+	});
+
+	it("passes when faithful rate is strictly above threshold, zero contradictions/fabrications, and mechanical checks pass", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 100,
+					judgedCount: 100,
+					faithfulCount: 96,
+					faithfulRate: 0.96,
+				}),
+			}),
+		).toBe("pass");
+	});
+
+	it(`fails when the faithful rate is exactly at the ${FAITHFULNESS_GATE_RATE_THRESHOLD} threshold (strictly greater than is required)`, () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 100,
+					judgedCount: 100,
+					faithfulCount: 95,
+					faithfulRate: 0.95,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails when there is even one contradiction, even at a 99% faithful rate", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 100,
+					judgedCount: 100,
+					faithfulCount: 99,
+					faithfulRate: 0.99,
+					contradictionCount: 1,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails when there is even one fabrication, even at a 99% faithful rate", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 100,
+					judgedCount: 100,
+					faithfulCount: 99,
+					faithfulRate: 0.99,
+					fabricationCount: 1,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails when the faithful rate is below threshold even with zero contradictions/fabrications", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 100,
+					judgedCount: 100,
+					faithfulCount: 80,
+					faithfulRate: 0.8,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails when mechanical unanchoredCount > 0 despite a perfect faithfulness summary", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: { unanchoredCount: 1, fabricatedActionCount: 0 },
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 50,
+					judgedCount: 50,
+					faithfulCount: 50,
+					faithfulRate: 1,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails when mechanical fabricatedActionCount > 0 despite a perfect faithfulness summary", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: { unanchoredCount: 0, fabricatedActionCount: 1 },
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 50,
+					judgedCount: 50,
+					faithfulCount: 50,
+					faithfulRate: 1,
+				}),
+			}),
+		).toBe("fail");
+	});
+
+	it("fails closed when every summary-bearing step is unjudged (null faithfulRate never satisfies > threshold)", () => {
+		expect(
+			evaluateFaithfulnessEnableGate({
+				mechanical: baseMechanical(),
+				faithfulness: baseFaithfulness({
+					summaryBearingCount: 10,
+					unjudgedCount: 10,
+					judgedCount: 0,
+					faithfulRate: null,
+				}),
 			}),
 		).toBe("fail");
 	});

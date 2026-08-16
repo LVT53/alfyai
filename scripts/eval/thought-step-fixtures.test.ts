@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	summarizeThoughtStepFaithfulnessFixtureCorpus,
 	summarizeThoughtStepFixtureCorpus,
+	thoughtStepFaithfulnessFixtures,
 	thoughtStepFixtures,
 } from "./thought-step-fixtures";
 
@@ -48,6 +50,63 @@ describe("thoughtStepFixtures corpus shape", () => {
 describe("summarizeThoughtStepFixtureCorpus", () => {
 	it("returns zeroed stats for an empty fixture list", () => {
 		expect(summarizeThoughtStepFixtureCorpus([])).toEqual({
+			total: 0,
+			byCategory: {},
+		});
+	});
+});
+
+// Regression guard for the faithfulness corpus (ADR-0056 Amendment
+// 2026-08-16) — the semantic sibling of the mechanical corpus-shape guard
+// above. Re-derives counts from the actual fixture data every run.
+describe("thoughtStepFaithfulnessFixtures corpus shape", () => {
+	const stats = summarizeThoughtStepFaithfulnessFixtureCorpus(
+		thoughtStepFaithfulnessFixtures,
+	);
+
+	it("covers every required faithfulness category at least once", () => {
+		const requiredCategories = [
+			"faithful",
+			"fabrication",
+			"contradiction",
+			"unmoored",
+		];
+		for (const category of requiredCategories) {
+			expect(stats.byCategory[category] ?? 0, category).toBeGreaterThan(0);
+		}
+	});
+
+	it("has no duplicate fixture ids", () => {
+		const ids = thoughtStepFaithfulnessFixtures.map((f) => f.id);
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	it("category counts sum to the total", () => {
+		const sum = Object.values(stats.byCategory).reduce((a, b) => a + b, 0);
+		expect(sum).toBe(stats.total);
+	});
+
+	it("every fixture's step carries a non-empty summary", () => {
+		for (const fixture of thoughtStepFaithfulnessFixtures) {
+			expect(fixture.step.summary, fixture.id).toBeTruthy();
+		}
+	});
+
+	it("every non-faithful fixture's expected verdict carries a category", () => {
+		for (const fixture of thoughtStepFaithfulnessFixtures) {
+			if (fixture.category === "faithful") {
+				expect(fixture.expected.faithful, fixture.id).toBe(true);
+			} else {
+				expect(fixture.expected.faithful, fixture.id).toBe(false);
+				expect(fixture.expected.category, fixture.id).toBe(fixture.category);
+			}
+		}
+	});
+});
+
+describe("summarizeThoughtStepFaithfulnessFixtureCorpus", () => {
+	it("returns zeroed stats for an empty fixture list", () => {
+		expect(summarizeThoughtStepFaithfulnessFixtureCorpus([])).toEqual({
 			total: 0,
 			byCategory: {},
 		});

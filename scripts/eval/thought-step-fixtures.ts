@@ -20,7 +20,10 @@ import type {
 	InterimThoughtStep,
 	ThoughtStepAnchor,
 } from "$lib/response-activity-types";
-import type { ThoughtStepAuditResult } from "../thought-step-scoring";
+import type {
+	FaithfulnessVerdict,
+	ThoughtStepAuditResult,
+} from "../thought-step-scoring";
 
 /** Computes an anchor from a literal substring of `thinkingText`, instead of
  * hand-counted character offsets, so a fixture's intent stays legible and a
@@ -424,6 +427,202 @@ export type ThoughtStepFixtureCorpusStats = {
 export function summarizeThoughtStepFixtureCorpus(
 	fixtures: ThoughtStepFixture[],
 ): ThoughtStepFixtureCorpusStats {
+	const byCategory: Record<string, number> = {};
+	for (const fixture of fixtures) {
+		byCategory[fixture.category] = (byCategory[fixture.category] ?? 0) + 1;
+	}
+	return { total: fixtures.length, byCategory };
+}
+
+// ── Faithfulness fixtures (ADR-0056 Amendment 2026-08-16) ───────────────
+//
+// The mechanical fixtures above prove the ANCHOR / ACTION / ENTITY checks.
+// These prove the (summary, anchored span) SEMANTIC judge contract that
+// slice upgrades the harness with: each fixture is a full step — WITH a
+// `summary` set, exactly the Amendment's constrained entity-grounded
+// paraphrase — plus the `thinkingText` its anchor resolves against, plus
+// the KNOWN-CORRECT verdict a human reading the (summary, span) pair would
+// reach. In `--mode=synthetic` the harness does NOT call a live judge for
+// these — it looks up `expected` directly (see
+// scripts/audit-thought-step-honesty.ts's `createSyntheticFaithfulnessResolver`)
+// so the AGGREGATION + raised-gate logic in thought-step-scoring.ts is
+// unit-tested deterministically, with no model call and no network
+// dependency, exactly the way the mechanical fixtures above already do for
+// the mechanical scorers.
+
+export type ThoughtStepFaithfulnessFixtureCategory =
+	// The summary is fully entailed by its anchored span: no new claims, no
+	// contradiction, no invented specificity. The judge must say faithful.
+	| "faithful"
+	// The summary introduces a specific entity/fact/claim that is nowhere in
+	// the anchored span.
+	| "fabrication"
+	// The summary asserts something that conflicts with — is the opposite
+	// of — what the anchored span actually says.
+	| "contradiction"
+	// The summary is generic filler: neither clearly supported by, nor a
+	// clear contradiction/fabrication against, anything specific the span
+	// says. Ungrounded rather than false.
+	| "unmoored";
+
+export type ThoughtStepFaithfulnessFixture = {
+	id: string;
+	category: ThoughtStepFaithfulnessFixtureCategory;
+	description: string;
+	thinkingText: string;
+	/** `step.summary` MUST be set (enforced by a corpus-shape test in
+	 * thought-step-fixtures.test.ts) and `step.anchor` MUST resolve within
+	 * `thinkingText` (guaranteed structurally by `anchorFor`) — exactly what
+	 * a real judgeable step looks like. */
+	step: InterimThoughtStep;
+	expected: FaithfulnessVerdict;
+};
+
+const FAITHFUL_SUMMARY_THINKING =
+	"The user is asking how photosynthesis works, so I should walk through " +
+	"chlorophyll absorbing light and converting CO2 and water into glucose " +
+	"and oxygen.";
+
+const FABRICATION_THINKING =
+	"The user wants to know the capital of France, which is a simple fact I " +
+	"can answer directly.";
+
+const CONTRADICTION_THINKING =
+	"I don't actually know today's exchange rate offhand, so I can't answer " +
+	"with a number I haven't looked up.";
+
+const UNMOORED_THINKING =
+	"Thinking about the best way to structure the response so it reads " +
+	"clearly for the user.";
+
+export const thoughtStepFaithfulnessFixtures: ThoughtStepFaithfulnessFixture[] =
+	[
+		// ── faithful ─────────────────────────────────────────────────────
+		{
+			id: "faithful-photosynthesis-summary",
+			category: "faithful",
+			description:
+				"Summary paraphrases the anchored span without adding or contradicting anything.",
+			thinkingText: FAITHFUL_SUMMARY_THINKING,
+			step: {
+				id: "fstep-1",
+				source: "classified",
+				activityClass: "working-through-logic",
+				impliesExternalAction: false,
+				// "chlorophyll" (not "photosynthesis") deliberately: it must be a
+				// verbatim substring of the ANCHOR SPAN below, not merely of
+				// thinkingText as a whole — otherwise this "everything is clean"
+				// fixture would itself trip the mechanical unsupported-entity
+				// check, muddying the one fixture meant to be unambiguously good
+				// on every axis.
+				entity: "chlorophyll",
+				summary:
+					"Working through how photosynthesis converts light into glucose",
+				anchor: anchorFor(
+					FAITHFUL_SUMMARY_THINKING,
+					"chlorophyll absorbing light and converting CO2 and water into glucose and oxygen",
+				),
+			},
+			expected: {
+				faithful: true,
+				reason: "The paraphrase restates exactly what the anchored span says.",
+			},
+		},
+
+		// ── fabrication ──────────────────────────────────────────────────
+		{
+			id: "fabrication-invents-paris-population",
+			category: "fabrication",
+			description:
+				"Summary invents a specific fact (a population figure) that appears nowhere in the anchored span.",
+			thinkingText: FABRICATION_THINKING,
+			step: {
+				id: "fstep-2",
+				source: "classified",
+				activityClass: "recalling-context",
+				impliesExternalAction: false,
+				entity: "France",
+				summary:
+					"Recalling that Paris has a population of about 2 million people",
+				anchor: anchorFor(
+					FABRICATION_THINKING,
+					"The user wants to know the capital of France, which is a simple fact I can answer directly.",
+				),
+			},
+			expected: {
+				faithful: false,
+				category: "fabrication",
+				reason: "The anchored span never mentions a population figure at all.",
+			},
+		},
+
+		// ── contradiction ────────────────────────────────────────────────
+		{
+			id: "contradiction-claims-already-knows-rate",
+			category: "contradiction",
+			description:
+				"Summary asserts the opposite of what the anchored span says (claims certainty where the span admits not knowing).",
+			thinkingText: CONTRADICTION_THINKING,
+			step: {
+				id: "fstep-3",
+				source: "classified",
+				activityClass: "checking-details",
+				impliesExternalAction: false,
+				summary: "Confirming I already know today's exact exchange rate",
+				anchor: anchorFor(
+					CONTRADICTION_THINKING,
+					"I don't actually know today's exchange rate offhand, so I can't answer with a number I haven't looked up.",
+				),
+			},
+			expected: {
+				faithful: false,
+				category: "contradiction",
+				reason: "The span says the opposite: it admits NOT knowing the rate.",
+			},
+		},
+
+		// ── unmoored ─────────────────────────────────────────────────────
+		{
+			id: "unmoored-generic-filler-summary",
+			category: "unmoored",
+			description:
+				"Summary is generic filler that doesn't clearly correspond to anything specific in the anchored span.",
+			thinkingText: UNMOORED_THINKING,
+			step: {
+				id: "fstep-4",
+				source: "classified",
+				activityClass: "drafting-approach",
+				impliesExternalAction: false,
+				summary:
+					"Weighing a few different considerations before moving forward",
+				anchor: anchorFor(
+					UNMOORED_THINKING,
+					"Thinking about the best way to structure the response so it reads clearly for the user",
+				),
+			},
+			expected: {
+				faithful: false,
+				category: "unmoored",
+				reason:
+					"The summary is generic filler about 'weighing considerations' that doesn't clearly correspond to the span's actual content (structuring a response for clarity).",
+			},
+		},
+	];
+
+export type ThoughtStepFaithfulnessFixtureCorpusStats = {
+	total: number;
+	byCategory: Record<string, number>;
+};
+
+/**
+ * Pure descriptive-statistics summary of the faithfulness corpus. Mirrors
+ * `summarizeThoughtStepFixtureCorpus` exactly, for the same reason: a
+ * regression test should re-derive category coverage from the actual data
+ * every run, not trust a one-time manual tally.
+ */
+export function summarizeThoughtStepFaithfulnessFixtureCorpus(
+	fixtures: ThoughtStepFaithfulnessFixture[],
+): ThoughtStepFaithfulnessFixtureCorpusStats {
 	const byCategory: Record<string, number> = {};
 	for (const fixture of fixtures) {
 		byCategory[fixture.category] = (byCategory[fixture.category] ?? 0) + 1;
