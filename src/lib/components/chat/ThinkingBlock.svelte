@@ -1013,12 +1013,6 @@ function toolDetailArguments(
 		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
 }
 
-function toolStatusLabel(status: "running" | "done" | "failed"): string {
-	if (status === "failed") return $t("toolCalls.failed");
-	if (status === "running") return $t("toolCalls.statusRunning");
-	return $t("toolCalls.statusDone");
-}
-
 function formatThinkingTextForDisplay(text: string): string {
 	return text.replace(/([a-z0-9)])([.!?])(?=[A-Z](?:[a-z]|\s))/g, "$1$2\n\n");
 }
@@ -1450,10 +1444,6 @@ function toggleFullReasoning(): void {
 				<p class="tool-detail-value tool-detail-result">{segment.outputSummary}</p>
 			</div>
 		{/if}
-		<div class="tool-detail-section">
-			<span class="tool-detail-section-label">{$t('toolCalls.detailStatus')}</span>
-			<span class="tool-detail-value">{toolStatusLabel(segment.status)}</span>
-		</div>
 	</div>
 {/snippet}
 
@@ -2965,10 +2955,15 @@ function toggleFullReasoning(): void {
 		content: ":";
 	}
 
+	/* One size for every value under a sub-heading: the Arguments rows already
+	   inherit --text-xs from .tool-detail-row, so pinning the same size here
+	   keeps the Result prose visually uniform with them (the mono/sans font
+	   split is deliberate — structured args vs. a prose summary). */
 	.tool-detail-value {
 		flex: 1 1 auto;
 		min-width: 0;
 		overflow-wrap: anywhere;
+		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-secondary);
 		margin: 0;
 	}

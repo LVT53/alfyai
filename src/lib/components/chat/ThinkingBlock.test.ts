@@ -2077,8 +2077,8 @@ describe("ThinkingBlock", () => {
 			).not.toBeNull();
 		});
 
-		describe("clickable tool chips (arguments/result/status reveal)", () => {
-			it("makes a generic tool-call chip clickable when it carries extra detail, and reveals arguments + status on click", async () => {
+		describe("clickable tool chips (arguments/result reveal)", () => {
+			it("makes a generic tool-call chip clickable when it carries extra detail, and reveals arguments + result on click (no redundant status row — progress/done is already shown by the chip itself)", async () => {
 				const segments: ThinkingSegment[] = [
 					{
 						type: "tool_call",
@@ -2116,7 +2116,10 @@ describe("ThinkingBlock", () => {
 				expect(chipButton).toHaveAttribute("aria-expanded", "true");
 				expect(scoped.getByText("the budget discussion")).toBeInTheDocument();
 				expect(scoped.getByText("Found 2 relevant notes.")).toBeInTheDocument();
-				expect(scoped.getByText("Done")).toBeInTheDocument();
+				// The Status sub-section was removed: it only ever said "Running"
+				// or "Done", which the chip's own state already conveys.
+				expect(scoped.queryByText("Status")).not.toBeInTheDocument();
+				expect(scoped.queryByText("Done")).not.toBeInTheDocument();
 			});
 
 			it("does not render a tool-call chip as clickable when it has nothing extra to reveal (honesty — never falsely clickable)", async () => {

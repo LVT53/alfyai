@@ -1,5 +1,6 @@
 <script lang="ts">
 import CodeBlock from "./CodeBlock.svelte";
+import ImageLightbox from "./ImageLightbox.svelte";
 import {
 	collectSourceReferenceCandidates,
 	prepareCodeHighlighting,
@@ -49,6 +50,10 @@ type SourceLinkTooltip = {
 let blocks = $state<MarkdownBlock[]>([]);
 let prevBlockCount = 0;
 let container = $state<HTMLDivElement | null>(null);
+// Lightbox state: the navigable set of embedded content images in this
+// message, and which one (if any) is open. See openImageLightbox.
+let lightboxImages = $state<{ src: string; alt: string }[]>([]);
+let lightboxIndex = $state<number | null>(null);
 let sourceTooltipElement = $state<HTMLDivElement | null>(null);
 let sourceTooltip = $state<SourceLinkTooltip | null>(null);
 let prevWordCount = 0;
@@ -386,13 +391,65 @@ function handleMarkdownClick(event: MouseEvent) {
 	const target = event.target;
 	if (!(target instanceof Element)) return;
 
+	// A link wins over an image click (covers [![alt](img)](href)): follow it.
 	const link = target.closest("a[href]");
-	if (!(link instanceof HTMLAnchorElement)) return;
-	if (!link.href) return;
+	if (link instanceof HTMLAnchorElement && link.href) {
+		event.preventDefault();
+		event.stopPropagation();
+		window.open(link.href, "_blank", "noopener,noreferrer");
+		return;
+	}
 
-	event.preventDefault();
-	event.stopPropagation();
-	window.open(link.href, "_blank", "noopener,noreferrer");
+	// A bare embedded image opens the lightbox.
+	if (target instanceof HTMLImageElement && isMarkdownContentImage(target)) {
+		event.preventDefault();
+		openImageLightbox(target);
+	}
+}
+
+// A content image is a model-embedded picture inside the rendered markdown —
+// i.e. any <img> under .markdown-html that is NOT a source-link favicon.
+function isMarkdownContentImage(image: HTMLImageElement): boolean {
+	return (
+		!image.classList.contains("source-link-chip__favicon") &&
+		image.closest(".markdown-html") !== null
+	);
+}
+
+// The navigable set for the lightbox: every content image in this message
+// that has not failed to load (broken ones are hidden — see below).
+function collectContentImages(): HTMLImageElement[] {
+	if (!container) return [];
+	return Array.from(
+		container.querySelectorAll<HTMLImageElement>(".markdown-html img"),
+	).filter(
+		(image) =>
+			isMarkdownContentImage(image) &&
+			!image.classList.contains("markdown-image--broken"),
+	);
+}
+
+function openImageLightbox(clicked: HTMLImageElement) {
+	const images = collectContentImages();
+	const index = images.indexOf(clicked);
+	if (index === -1) return;
+	lightboxImages = images.map((image) => ({
+		src: image.currentSrc || image.src,
+		alt: image.alt,
+	}));
+	lightboxIndex = index;
+}
+
+// Graceful degradation: when an embedded image fails to load (e.g. a
+// hotlink-protected search result that 403s cross-origin) hide it rather than
+// leaving the browser's broken-image placeholder in the middle of the prose.
+// Runs in the capture phase because "error" events do not bubble.
+function handleContentImageError(event: Event) {
+	const image = event.target;
+	if (!(image instanceof HTMLImageElement)) return;
+	if (image.classList.contains("source-link-chip__favicon")) return;
+	if (!image.closest(".markdown-html")) return;
+	image.classList.add("markdown-image--broken");
 }
 
 function getSourceLink(target: EventTarget | null): HTMLAnchorElement | null {
@@ -622,6 +679,7 @@ onMount(() => {
 	clickContainer?.addEventListener("focusout", handleSourceLinkFocusOut);
 	clickContainer?.addEventListener("keydown", handleSourceLinkKeydown);
 	clickContainer?.addEventListener("error", handleSourceFaviconError, true);
+	clickContainer?.addEventListener("error", handleContentImageError, true);
 
 	if (typeof ResizeObserver !== "undefined") {
 		resizeObserver = new ResizeObserver(() => {
@@ -680,6 +738,7 @@ onMount(() => {
 			handleSourceFaviconError,
 			true,
 		);
+		clickContainer?.removeEventListener("error", handleContentImageError, true);
 	};
 });
 
@@ -743,6 +802,14 @@ $effect(() => {
     {/if}
   {/each}
 </div>
+{#if lightboxIndex !== null}
+  <ImageLightbox
+    images={lightboxImages}
+    index={lightboxIndex}
+    onClose={() => (lightboxIndex = null)}
+    onNavigate={(next) => (lightboxIndex = next)}
+  />
+{/if}
 {#if sourceTooltip}
   <div
     bind:this={sourceTooltipElement}
@@ -769,6 +836,18 @@ $effect(() => {
 
   .markdown-html :global(*:last-child) {
     margin-bottom: 0;
+  }
+
+  /* Embedded content images are clickable to open the lightbox. Favicons in
+     source-link chips are excluded. */
+  .markdown-html :global(img:not(.source-link-chip__favicon)) {
+    cursor: zoom-in;
+  }
+
+  /* An image that failed to load is removed from the flow (graceful
+     degradation) instead of showing the browser's broken-image placeholder. */
+  .markdown-html :global(img.markdown-image--broken) {
+    display: none;
   }
 
   /* Code blocks fade in as a unit when they first appear.
