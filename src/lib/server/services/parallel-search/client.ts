@@ -10,7 +10,13 @@
 // module is intentionally decoupled from env.ts / config-store: it takes a
 // narrow local config type and never reaches for global state.
 
-export type ParallelMode = "turbo" | "basic" | "advanced";
+export type ParallelMode = "turbo" | "fast" | "basic" | "advanced";
+
+// Single source of truth for the Parallel search mode used across the app
+// (research_web, Atlas, and the client default). "fast" is slightly slower than
+// "turbo" but more accurate at the same cost. Callers may still override per
+// request via ParallelSearchRequest.mode.
+export const DEFAULT_PARALLEL_MODE: ParallelMode = "fast";
 
 // Narrow local config: do NOT widen this to import env.ts / config-store.
 // parallelBaseUrl is optional and defaults to the production host; it exists so
@@ -151,7 +157,7 @@ export async function parallelSearch(
 		body: JSON.stringify({
 			objective: req.objective.slice(0, MAX_OBJECTIVE_CHARS),
 			search_queries: clampQueries(req.searchQueries),
-			mode: req.mode ?? "turbo",
+			mode: req.mode ?? DEFAULT_PARALLEL_MODE,
 			...(req.sessionId ? { session_id: req.sessionId } : {}),
 			...(req.maxCharsTotal ? { max_chars_total: req.maxCharsTotal } : {}),
 			...(req.excerptMaxChars

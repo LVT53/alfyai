@@ -1,10 +1,15 @@
-// Parallel-backed web research orchestrator. Calls the Turbo search client and
-// maps its raw results into the frozen GroundedWebResult shape that
-// web-grounding.ts consumes. This is intentionally a thin, pure mapping layer:
-// no fetch/fuse/rerank pipeline (Turbo has none), so most diagnostics fields are
-// synthetic (see baseGroundedWebDiagnostics).
+// Parallel-backed web research orchestrator. Calls the Parallel search client
+// (see DEFAULT_PARALLEL_MODE) and maps its raw results into the frozen
+// GroundedWebResult shape that web-grounding.ts consumes. This is intentionally
+// a thin, pure mapping layer: no fetch/fuse/rerank pipeline (the search API has
+// none), so most diagnostics fields are synthetic (see
+// baseGroundedWebDiagnostics).
 
-import { type ParallelClientConfig, parallelSearch } from "./client";
+import {
+	DEFAULT_PARALLEL_MODE,
+	type ParallelClientConfig,
+	parallelSearch,
+} from "./client";
 import {
 	baseGroundedWebDiagnostics,
 	type GroundedWebEvidence,
@@ -77,7 +82,7 @@ export async function researchWebViaParallel(
 		{
 			objective: req.objective ?? req.query,
 			searchQueries: resolvedQueries,
-			mode: "turbo",
+			mode: DEFAULT_PARALLEL_MODE,
 			sessionId: opts?.sessionId,
 			excerptMaxChars: opts?.excerptMaxChars,
 		},
@@ -132,7 +137,7 @@ export async function researchWebViaParallel(
 			instructions: ANSWER_BRIEF_INSTRUCTIONS,
 		},
 		diagnostics: baseGroundedWebDiagnostics({
-			mode: "turbo",
+			mode: DEFAULT_PARALLEL_MODE,
 			plannedQueryCount: resolvedQueries.length,
 			fetchedSourceCount: results.length,
 			fusedSourceCount: sources.length,

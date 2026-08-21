@@ -144,7 +144,7 @@ describe("researchWebViaParallel", () => {
 			{ fetch: fetchMock as unknown as typeof fetch, config },
 		);
 
-		expect(result.diagnostics.mode).toBe("turbo");
+		expect(result.diagnostics.mode).toBe("fast");
 		expect(result.diagnostics.provider).toBe("parallel");
 		expect(result.diagnostics.plannedQueryCount).toBe(1);
 		expect(result.diagnostics.fetchedSourceCount).toBe(2);
@@ -216,7 +216,7 @@ describe("researchWebViaParallel", () => {
 			"widget price 2026",
 			"widget retail cost",
 		]);
-		expect(capturedBody?.mode).toBe("turbo");
+		expect(capturedBody?.mode).toBe("fast");
 	});
 
 	it("falls back to the raw query for objective and search_queries when omitted", async () => {

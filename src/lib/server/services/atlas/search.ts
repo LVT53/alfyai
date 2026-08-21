@@ -1,5 +1,6 @@
 import { getConfig } from "$lib/server/config-store";
 import {
+	DEFAULT_PARALLEL_MODE,
 	parallelExtract,
 	parallelSearch,
 } from "$lib/server/services/parallel-search/client";
@@ -388,7 +389,7 @@ async function searchParallel(
 	deps: ParallelCallDeps,
 ): Promise<AtlasSearchSource[]> {
 	const results = await parallelSearch(
-		{ objective: query, searchQueries: [query], mode: "turbo" },
+		{ objective: query, searchQueries: [query], mode: DEFAULT_PARALLEL_MODE },
 		{
 			fetch: deps.fetch,
 			config: {

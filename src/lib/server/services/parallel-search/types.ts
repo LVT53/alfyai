@@ -7,6 +7,8 @@
 // this shape are hard-coded in the stream leak-filter (stream-protocol.ts) — do
 // not rename fields here without updating that regex.
 
+import { DEFAULT_PARALLEL_MODE } from "./client";
+
 export interface GroundedWebSource {
 	id: string;
 	title: string;
@@ -83,14 +85,15 @@ export interface GroundedWebResult {
 	diagnostics: GroundedWebDiagnostics;
 }
 
-// Base diagnostics helper: sets the provider/mode defaults (mode "turbo",
-// provider "parallel") and zeroes the synthetic pipeline counters that Turbo has
-// no analog for. Orchestrators override the meaningful ones.
+// Base diagnostics helper: sets the provider/mode defaults (mode
+// DEFAULT_PARALLEL_MODE, provider "parallel") and zeroes the synthetic pipeline
+// counters that the search API has no analog for. Orchestrators override the
+// meaningful ones.
 export function baseGroundedWebDiagnostics(
 	overrides: Partial<GroundedWebDiagnostics> = {},
 ): GroundedWebDiagnostics {
 	return {
-		mode: "turbo",
+		mode: DEFAULT_PARALLEL_MODE,
 		freshness: "auto",
 		sourcePolicy: "general",
 		plannedQueryCount: 0,

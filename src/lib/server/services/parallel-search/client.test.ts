@@ -58,7 +58,7 @@ describe("parallelSearch", () => {
 		expect(body).toEqual({
 			objective: "find the price",
 			search_queries: ["price of widget", "widget cost"],
-			mode: "turbo",
+			mode: "fast",
 		});
 
 		expect(results).toEqual([
@@ -71,7 +71,7 @@ describe("parallelSearch", () => {
 		]);
 	});
 
-	it("defaults mode to turbo and accepts an explicit mode", async () => {
+	it("defaults mode to fast and accepts an explicit mode", async () => {
 		const bodies: unknown[] = [];
 		const fetchMock = vi.fn(
 			async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -89,7 +89,7 @@ describe("parallelSearch", () => {
 			{ fetch: fetchMock as unknown as typeof fetch, config },
 		);
 
-		expect((bodies[0] as { mode: string }).mode).toBe("turbo");
+		expect((bodies[0] as { mode: string }).mode).toBe("fast");
 		expect((bodies[1] as { mode: string }).mode).toBe("basic");
 	});
 
