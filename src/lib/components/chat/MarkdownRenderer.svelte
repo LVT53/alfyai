@@ -15,6 +15,14 @@ import {
 	resolveTableOverflowMode,
 } from "$lib/services/table-layout";
 import type { SourceReferenceCandidate } from "$lib/services/markdown";
+import {
+	SOURCE_TOOLTIP_MARGIN,
+	SOURCE_TOOLTIP_OFFSET,
+	clamp,
+	computeTooltipBoundary,
+	computeTooltipPlacement,
+	resolveTooltipMaxWidth,
+} from "$lib/utils/tooltip-placement";
 import { onMount, tick } from "svelte";
 
 let {
@@ -62,8 +70,6 @@ let resizeFrame = 0;
 let sourceTooltipFrame = 0;
 let postRenderVersion = 0;
 let activeSourceLink: HTMLAnchorElement | null = null;
-const SOURCE_TOOLTIP_MARGIN = 12;
-const SOURCE_TOOLTIP_OFFSET = 6;
 
 // Throttle rendering during streaming so each visual update is large
 // enough that new blocks are perceivable with the fade-in animation.
@@ -470,37 +476,21 @@ function getViewportBounds() {
 	};
 }
 
+// Thin DOM shell: measure the live viewport + chat-column rects and hand them
+// to the pure `computeTooltipBoundary`. All boundary math lives in the module.
 function getTooltipBoundary() {
-	const viewport = getViewportBounds();
-	const viewportBounds = {
-		left: viewport.left + SOURCE_TOOLTIP_MARGIN,
-		right: viewport.left + viewport.width - SOURCE_TOOLTIP_MARGIN,
-		top: viewport.top + SOURCE_TOOLTIP_MARGIN,
-		bottom: viewport.top + viewport.height - SOURCE_TOOLTIP_MARGIN,
-	};
 	const chatBoundsElement = container?.closest(
 		'.chat-main, [data-testid="assistant-message"]',
 	);
-	if (!(chatBoundsElement instanceof HTMLElement)) {
-		return viewportBounds;
-	}
-
-	const chatRect = chatBoundsElement.getBoundingClientRect();
-	const bounds = {
-		left: Math.max(viewportBounds.left, chatRect.left + SOURCE_TOOLTIP_MARGIN),
-		right: Math.min(
-			viewportBounds.right,
-			chatRect.right - SOURCE_TOOLTIP_MARGIN,
-		),
-		top: viewportBounds.top,
-		bottom: viewportBounds.bottom,
-	};
-
-	return bounds.right - bounds.left >= 180 ? bounds : viewportBounds;
-}
-
-function clamp(value: number, min: number, max: number) {
-	return Math.min(Math.max(value, min), max);
+	const chatRect =
+		chatBoundsElement instanceof HTMLElement
+			? chatBoundsElement.getBoundingClientRect()
+			: null;
+	return computeTooltipBoundary(
+		getViewportBounds(),
+		chatRect,
+		SOURCE_TOOLTIP_MARGIN,
+	);
 }
 
 function getTooltipCoordinateOffset() {
@@ -525,37 +515,21 @@ function updateSourceLinkTooltipPosition() {
 		return;
 	}
 
-	const linkRect = activeSourceLink.getBoundingClientRect();
-	const tooltipRect = sourceTooltipElement.getBoundingClientRect();
-	const boundary = getTooltipBoundary();
-	const coordinateOffset = getTooltipCoordinateOffset();
-	const maxWidth = Math.min(352, Math.max(180, boundary.right - boundary.left));
-	const tooltipWidth = Math.min(tooltipRect.width || maxWidth, maxWidth);
-	const tooltipHeight = tooltipRect.height || 48;
-	const left =
-		clamp(linkRect.left, boundary.left, boundary.right - tooltipWidth) -
-		coordinateOffset.left;
-	const spaceBelow = boundary.bottom - linkRect.bottom;
-	const spaceAbove = linkRect.top - boundary.top;
-	const placement =
-		spaceBelow < tooltipHeight + SOURCE_TOOLTIP_OFFSET &&
-		spaceAbove > spaceBelow
-			? "top"
-			: "bottom";
-	const idealTop =
-		placement === "top"
-			? linkRect.top - tooltipHeight - SOURCE_TOOLTIP_OFFSET
-			: linkRect.bottom + SOURCE_TOOLTIP_OFFSET;
-	const top =
-		clamp(idealTop, boundary.top, boundary.bottom - tooltipHeight) -
-		coordinateOffset.top;
+	// Measure the live rects; the pure module resolves the geometry.
+	const resolved = computeTooltipPlacement({
+		linkRect: activeSourceLink.getBoundingClientRect(),
+		tooltipRect: sourceTooltipElement.getBoundingClientRect(),
+		boundary: getTooltipBoundary(),
+		coordinateOffset: getTooltipCoordinateOffset(),
+		offset: SOURCE_TOOLTIP_OFFSET,
+	});
 
 	sourceTooltip = {
 		...sourceTooltip,
-		left,
-		top,
-		maxWidth,
-		placement,
+		left: resolved.left,
+		top: resolved.top,
+		maxWidth: resolved.maxWidth,
+		placement: resolved.placement,
 		ready: true,
 	};
 }
@@ -578,7 +552,7 @@ async function showSourceLinkTooltip(link: HTMLAnchorElement) {
 	const sourceName = label || link.hostname || link.href;
 	const linkRect = link.getBoundingClientRect();
 	const boundary = getTooltipBoundary();
-	const maxWidth = Math.min(352, Math.max(180, boundary.right - boundary.left));
+	const maxWidth = resolveTooltipMaxWidth(boundary);
 	activeSourceLink = link;
 	sourceTooltip = {
 		sourceName,
