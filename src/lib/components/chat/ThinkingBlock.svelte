@@ -4,10 +4,7 @@ import type {
 	InterimThoughtStep,
 	ThoughtStepClassifierActivityClass,
 } from "$lib/response-activity-types";
-import type {
-	MessageEvidenceStatus,
-	ToolEvidenceCandidate,
-} from "$lib/server/services/message-evidence";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import { isThoughtStepClassifierActivityClass } from "$lib/response-activity-types";
 import {
@@ -56,7 +53,6 @@ import {
 import {
 	formatConnectionToolAction,
 	getConnectionToolLabelKey,
-	getHumanReadableToolNameKey,
 	getToolCallIconType,
 	isConnectionToolName,
 	isFileProductionToolName,
@@ -64,6 +60,22 @@ import {
 	isVisibleThinkingToolCall,
 	type ToolCallIconType,
 } from "$lib/utils/tool-calls";
+import {
+	buildFetchedSourceSummary,
+	type FetchedSource,
+	formatToolCall as formatToolCallLabel,
+	getAgendaCandidates,
+	getFaviconUrl,
+	getFetchedSources,
+	getFetchUrlSources,
+	getPhotoCandidates,
+	getToolTitle,
+	immichThumbnailUrl,
+	isCalendarToolName,
+	isCitedSource,
+	isPhotosToolName,
+	type ToolCallSegment,
+} from "$lib/utils/tool-evidence-presentation";
 
 type DeliberationStatusSegment = {
 	type: "status";
@@ -163,17 +175,6 @@ let newCharStart = $state(-1);
 const REASONING_STALL_MS = 8000;
 let reasoningStalled = $state(false);
 let stallTimeout: ReturnType<typeof setTimeout> | undefined;
-
-type FetchedSource = {
-	title: string;
-	url: string;
-	// Citation-driven status from C1: "selected" = the answer cited this
-	// source; "reference"/"rejected" = retrieved but not cited. Absent for
-	// plain read (fetch_url) pages, which have no citation concept.
-	status?: MessageEvidenceStatus;
-	// Compact reason/snippet surfaced in the chip's hover tooltip.
-	reason?: string;
-};
 
 const isActiveThinking = $derived(!thinkingIsDone);
 const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
@@ -285,7 +286,6 @@ const anyToolRunning = $derived(
 	visibleTools.some((tool) => tool.status === "running"),
 );
 
-type ToolCallSegment = ThinkingSegment & { type: "tool_call" };
 type TextSegment = ThinkingSegment & { type: "text" };
 type StatusSegment = ThinkingSegment & { type: "status" };
 
@@ -692,191 +692,17 @@ const formattedThinkingTime = $derived.by(() => {
 	return formatDurationLabel(thinkingDurationSeconds);
 });
 
-function extractHostname(raw: string): string {
-	try {
-		return new URL(raw).hostname.replace(/^www\./, "");
-	} catch {
-		return raw.slice(0, 40);
-	}
-}
-
-function getFaviconUrl(raw: string): string | null {
-	// Privacy proxy (ADR 0043, Slice 12): route the favicon through our own
-	// /api/favicon endpoint so researched domains are no longer leaked to
-	// Google's s2/favicons. The endpoint always returns an image (a globe
-	// fallback when no icon exists), so the `onerror` hide-img path below is
-	// now rarely exercised but retained as a safety net.
-	try {
-		const parsed = new URL(raw);
-		const host = parsed.hostname.replace(/^www\./, "");
-		return `/api/favicon?domain=${encodeURIComponent(host)}`;
-	} catch {
-		return null;
-	}
-}
-
-function isFetchTool(name: string): boolean {
-	const n = name.toLowerCase();
-	return (
-		n.includes("fetch") ||
-		n.includes("url") ||
-		n.includes("web") ||
-		n.includes("browse")
-	);
-}
-
-function toUrlList(value: unknown): string[] {
-	return String(value ?? "")
-		.split(",")
-		.map((part) => part.trim())
-		.filter((part) => {
-			try {
-				new URL(part);
-				return true;
-			} catch {
-				return false;
-			}
-		});
-}
-
-function getFetchUrls(name: string, input: Record<string, unknown>): string[] {
-	if (isFileProductionToolName(name)) return [];
-	if (!isFetchTool(name)) return [];
-	return Object.values(input).flatMap(toUrlList);
-}
-
-// Pull a compact tooltip reason for a web candidate: prefer its snippet, then
-// fall back to a reasoning/description/reason field the server may attach on
-// the candidate's metadata bag.
-function candidateReason(candidate: ToolEvidenceCandidate): string | undefined {
-	if (candidate.snippet?.trim()) return candidate.snippet.trim();
-	const meta = candidate.metadata ?? {};
-	for (const key of ["reason", "reasoning", "description", "summary"]) {
-		const value = meta[key];
-		if (typeof value === "string" && value.trim()) return value.trim();
-	}
-	return undefined;
-}
-
-function isCitedSource(source: FetchedSource): boolean {
-	return source.status === "selected";
-}
-
-// Cited (status "selected") sources lead; everything else keeps its original
-// order behind them. Stable so the collapsed favicon stack and the expanded
-// chip row agree on ordering.
-function orderCitedFirst(sources: FetchedSource[]): FetchedSource[] {
-	const cited = sources.filter(isCitedSource);
-	const rest = sources.filter((source) => !isCitedSource(source));
-	return [...cited, ...rest];
-}
-
-function getFetchedSources(segment: ThinkingSegment): FetchedSource[] {
-	if (segment.type !== "tool_call" || segment.name !== "research_web")
-		return [];
-	return orderCitedFirst(
-		dedupeSourcesByUrl(
-			(segment.candidates ?? [])
-				.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-				.map((candidate) => ({
-					title: candidate.title || extractHostname(candidate.url ?? ""),
-					url: candidate.url as string,
-					status: candidate.status,
-					reason: candidateReason(candidate),
-				})),
-		),
-	);
-}
-
-function getFetchUrlSources(
-	name: string,
-	input: Record<string, unknown>,
-): FetchedSource[] {
-	return dedupeSourcesByUrl(
-		getFetchUrls(name, input).map((url) => ({
-			title: extractHostname(url),
-			url,
-		})),
-	);
-}
-
-function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
-	const indexByUrl = new Map<string, number>();
-	const deduped: FetchedSource[] = [];
-	for (const source of sources) {
-		const existingIndex = indexByUrl.get(source.url);
-		if (existingIndex === undefined) {
-			indexByUrl.set(source.url, deduped.length);
-			deduped.push(source);
-			continue;
-		}
-		// On a URL collision, prefer the cited ("selected") copy so a divergent
-		// status (e.g. the same URL retrieved once as a reference and once as a
-		// citation) never drops the citation. First-occurrence position is kept.
-		const existing = deduped[existingIndex];
-		if (source.status === "selected" && existing.status !== "selected") {
-			deduped[existingIndex] = source;
-		}
-	}
-	return deduped;
-}
-
-function citedCount(sources: FetchedSource[]): number {
-	return sources.filter(isCitedSource).length;
-}
-
+// The search/read source-summary text is one of only two tool-evidence
+// presenters that touch i18n; it stays here as a one-line shell binding the
+// component's `$t` into the pure builder in tool-evidence-presentation.ts.
+// Everything else (source shaping, dedupe, cited-ordering, favicon proxy URL,
+// agenda/photo candidate extraction, immich thumbnail URL, getToolTitle) is
+// imported directly from that module.
 function fetchedSourceSummary(
 	sources: FetchedSource[],
 	kind: "search" | "read",
 ): string {
-	const count = sources.length;
-	if (kind === "read") {
-		return $t("toolCalls.readPagesCount", { count });
-	}
-	const base = `${$t("toolCalls.searchedWeb")} · ${$t("toolCalls.sourcesCount", { count })}`;
-	const cited = citedCount(sources);
-	if (cited > 0) {
-		return `${base} · ${$t("toolCalls.citedCount", { count: cited })}`;
-	}
-	return base;
-}
-
-// Task 11b — agenda peek + photo strip. Both read exclusively from
-// segment.candidates (never modelPayload): candidates are the user's own
-// tool-evidence data, already streamed to the client on every tool_call
-// segment for the Sources tab, so this is a display-only peek reusing that
-// same channel rather than a new server event. Gated on the connector
-// tool's NAME first (calendar/photos always group into a connector-group
-// entry, even for a single call — see toolStackEntries above), so a web or
-// document candidate can never be mistaken for an agenda/photo item even if
-// it happened to carry a similarly-named metadata key.
-const AGENDA_PEEK_MAX = 5;
-const PHOTO_STRIP_MAX = 8;
-
-function isCalendarToolName(name: string): boolean {
-	return name.toLowerCase() === "calendar";
-}
-
-function isPhotosToolName(name: string): boolean {
-	return name.toLowerCase() === "photos";
-}
-
-function getAgendaCandidates(
-	tools: ToolCallSegment[],
-): ToolEvidenceCandidate[] {
-	return tools
-		.flatMap((tool) => tool.candidates ?? [])
-		.filter((candidate) => typeof candidate.metadata?.start === "string")
-		.slice(0, AGENDA_PEEK_MAX);
-}
-
-function getPhotoCandidates(tools: ToolCallSegment[]): ToolEvidenceCandidate[] {
-	return tools
-		.flatMap((tool) => tool.candidates ?? [])
-		.filter(
-			(candidate) => typeof candidate.metadata?.thumbnailPath === "string",
-		)
-		.slice(0, PHOTO_STRIP_MAX);
+	return buildFetchedSourceSummary(sources, kind, $t);
 }
 
 function formatEventTime(iso: string): string {
@@ -888,68 +714,15 @@ function formatEventTime(iso: string): string {
 	}).format(date);
 }
 
-// Maps a photo candidate's server-internal thumbnailPath
-// ("/api/assets/{assetId}/thumbnail" — see photos.ts's toCandidate) to the
-// Task 11a authed per-user proxy route that actually serves the bytes
-// ("/api/connections/immich/thumbnail/{assetId}"). The Immich API key never
-// reaches the client either way — this is purely a URL rewrite.
-function immichThumbnailUrl(thumbnailPath: unknown): string | null {
-	if (typeof thumbnailPath !== "string") return null;
-	const match = thumbnailPath.match(/^\/api\/assets\/([^/]+)\/thumbnail$/);
-	return match ? `/api/connections/immich/thumbnail/${match[1]}` : null;
-}
-
 function hideBrokenThumbnail(event: Event): void {
 	const img = event.currentTarget;
 	if (img instanceof HTMLImageElement) img.style.display = "none";
 }
 
+// The tool-call chip label is the other i18n-coupled presenter: a one-line
+// shell binding `$t` into the pure builder in tool-evidence-presentation.ts.
 function formatToolCall(name: string, input: Record<string, unknown>): string {
-	const n = name.toLowerCase();
-	const firstVal = () => String(Object.values(input)[0] ?? "").slice(0, 200);
-	const toolLabel = $t(getHumanReadableToolNameKey(name));
-	if (isFileProductionToolName(name)) {
-		return toolLabel;
-	}
-	if (n.includes("search") || n.includes("tavily")) {
-		const q = input.query ?? input.q ?? Object.values(input)[0];
-		const label =
-			n === "research_web" || n.includes("web")
-				? toolLabel
-				: $t("toolCalls.search");
-		return `${label}: "${String(q ?? "").slice(0, 200)}"`;
-	}
-	if (isFetchTool(name)) {
-		const raw = String(Object.values(input)[0] ?? "");
-		return `${toolLabel}: ${extractHostname(raw)}`;
-	}
-	// Connection tools ("calendar", "files", ...) label by their capability +
-	// the human-formatted action ("Calendar: list events"), never the raw
-	// "list_events" first-value that read vague to end users.
-	if (isConnectionToolName(name)) {
-		const action =
-			typeof input.action === "string"
-				? formatConnectionToolAction(input.action)
-				: "";
-		return action ? `${toolLabel}: ${action}` : toolLabel;
-	}
-	return firstVal() ? `${toolLabel}: ${firstVal()}` : toolLabel;
-}
-
-function getToolTitle(name: string, input: Record<string, unknown>): string {
-	const n = name.toLowerCase();
-	if (n.includes("search") || n.includes("tavily")) {
-		const q = input.query ?? input.q ?? Object.values(input)[0];
-		return String(q ?? "");
-	}
-	if (isFileProductionToolName(name)) {
-		const title = input.requestTitle ?? input.filename ?? input.documentIntent;
-		return title ? String(title) : "produce_file";
-	}
-	if (isFetchTool(name)) {
-		return String(Object.values(input)[0] ?? "");
-	}
-	return String(Object.values(input)[0] ?? "");
+	return formatToolCallLabel(name, input, $t);
 }
 
 // Owner polish pass, item 7 — clickable tool chips. Mirrors the existing
