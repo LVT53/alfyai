@@ -228,4 +228,16 @@ export type RunPostTurnTasksParams = {
 	maintenanceReason: "chat_send" | "chat_stream";
 	startedResetGeneration?: number;
 	skipAssistantProseMemoryIntake?: boolean;
+	// Fix 1 (data-loss race) — the in-flight evidence write for THIS same
+	// message (updateMessageEvidence + updateMessageWebCitationAudit). Those two
+	// and the rail-summary write (updateMessageRailSummary) are all
+	// unsynchronized SELECT-metadataJson → spread → UPDATE-metadataJson cycles;
+	// if the rail write interleaves with them it can clobber (or be clobbered
+	// by) the evidence/webCitationAudit fields. The stream path already gates
+	// the whole tail behind evidence; the send path runs the tail concurrently.
+	// Passing the evidence task here makes the rail step specifically await it
+	// on BOTH paths — so its metadata write always observes committed evidence,
+	// never races it — without gating the send path's other, independent tail
+	// work. Optional: a caller with no evidence write in flight simply omits it.
+	evidenceWriteBarrier?: Promise<unknown>;
 };

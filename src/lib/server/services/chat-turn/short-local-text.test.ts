@@ -253,6 +253,64 @@ describe("callShortLocalControlModel", () => {
 		for (const release of releases) release();
 		await Promise.all(inFlight);
 	});
+
+	// A2 hardening — the cap counter's `finally` decrement must free the slot
+	// once a call settles, or the feature would permanently wedge after
+	// `maxConcurrent` lifetime calls. Two sequential capped calls (each fully
+	// settled before the next) both reach the network under a cap of 1, proving
+	// the slot is released on completion.
+	it("frees a cap slot after the call settles so a later call goes through (cap recovery)", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: '{"intentClass":"chat"}' }),
+		);
+
+		const first = await callShortLocalControlModel({
+			message: "first",
+			feature: "recovery_feature",
+			userId: "u1",
+			conversationId: "c1",
+			systemPrompt: "s",
+			maxConcurrent: 1,
+		});
+		expect(first?.text).toBe('{"intentClass":"chat"}');
+
+		// Slot freed in the previous call's `finally` — a second call under the
+		// same cap of 1 is admitted, not rejected.
+		const second = await callShortLocalControlModel({
+			message: "second",
+			feature: "recovery_feature",
+			userId: "u1",
+			conversationId: "c1",
+			systemPrompt: "s",
+			maxConcurrent: 1,
+		});
+		expect(second?.text).toBe('{"intentClass":"chat"}');
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(2);
+	});
+
+	// A2 hardening — `timeoutMs` is OPT-IN. When it (and any caller signal) is
+	// omitted, the call must go out with NO abort signal at all, documenting
+	// that the default is untimed (the caller owns the timeout decision).
+	it("passes no abort signal when timeoutMs and signal are both omitted", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: '{"intentClass":"chat"}' }),
+		);
+
+		await callShortLocalControlModel({
+			message: "no timeout",
+			feature: "untimed_feature",
+			userId: "u1",
+			conversationId: "c1",
+			systemPrompt: "s",
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ signal?: AbortSignal },
+		];
+		expect(options.signal).toBeUndefined();
+	});
 });
 
 describe("generateShortLocalText", () => {
@@ -334,6 +392,29 @@ describe("generateShortLocalText", () => {
 		});
 
 		expect(out).toBeNull();
+	});
+
+	// A2 hardening — the `cleanup.normalize` hook runs on the raw model text
+	// BEFORE the plausibility/language checks. Proven by a raw output that is
+	// implausible as-is (over the char bound) but which `normalize` reshapes
+	// into an accepted headline.
+	it("applies cleanup.normalize before the plausibility checks", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: `"Quoted Headline" ${"x".repeat(200)}` }),
+		);
+
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			// Strip the trailing noise + surrounding quotes: without this the raw
+			// text is far over the 100-char plausibility bound and would be
+			// rejected; with it, a clean short headline survives.
+			cleanup: { normalize: (raw) => raw.replace(/^"([^"]+)".*$/s, "$1") },
+		});
+
+		expect(out).toBe("Quoted Headline");
 	});
 
 	it("returns null on a cap miss without a network attempt", async () => {

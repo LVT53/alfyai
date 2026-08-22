@@ -759,6 +759,13 @@ export async function finalizeChatTurn(
 				maintenanceReason: params.maintenanceReason,
 				startedResetGeneration: params.startedResetGeneration,
 				skipAssistantProseMemoryIntake: params.skipAssistantProseMemoryIntake,
+				// Fix 1 (data-loss race) — hand the in-flight evidence write to the
+				// tail so the rail-summary metadata write awaits it (both share the
+				// same unsynchronized metadataJson RMW). On the stream path below the
+				// whole tail already runs after evidence resolves, so this is already
+				// settled; on the send path the tail runs concurrently, so this
+				// barrier is what keeps the rail write from clobbering evidence.
+				evidenceWriteBarrier: evidenceTask,
 			});
 		if (waitForEvidenceBeforePostTurnTasks) {
 			return evidenceTask.then(runTask);

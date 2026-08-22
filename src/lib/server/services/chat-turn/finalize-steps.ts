@@ -27,6 +27,7 @@ import {
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
+import { persistAssistantRailSummary } from "./rail-summary";
 import {
 	type PersistAssistantEvidenceParams,
 	type PersistAssistantTurnStateParams,
@@ -331,6 +332,43 @@ export async function runPostTurnTasks(
 				});
 			})().catch((err) =>
 				console.error("[MEMORY_JUDGE] Post-turn trigger failed:", err),
+			),
+		);
+	}
+
+	// A1 (owner idea) — the durable, LLM-summarized jump-rail headline for this
+	// assistant turn. Fire-and-forget in the deferred post-turn tail: it never
+	// blocks or fails the turn (it skips short replies, is capped + timed, and
+	// degrades to `null` on any failure), so the rail keeps its verbatim
+	// truncation fallback until (or unless) a summary lands. Assistant turns
+	// only (owner decision O-3).
+	if (params.assistantMessageId && params.assistantResponse.trim()) {
+		const railAssistantMessageId = params.assistantMessageId;
+		postTurnTasks.push(
+			(async () => {
+				// Fix 1 (data-loss race) — the rail-summary write shares the
+				// unsynchronized metadataJson RMW with the evidence/webCitationAudit
+				// writes. Observe the evidence write settled first so the rail step's
+				// own write never interleaves with them (it reads their committed
+				// metadata). On the stream path the whole tail already runs after
+				// evidence, so this barrier is already resolved; on the send path,
+				// where the tail runs concurrently, this is what actually orders the
+				// rail write after evidence. Errors in the evidence write are the
+				// evidence step's own to log — here we only need the write ordering,
+				// so a rejected barrier is swallowed and the rail step proceeds.
+				await params.evidenceWriteBarrier?.catch(() => undefined);
+				await persistAssistantRailSummary({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					assistantMessageId: railAssistantMessageId,
+					userMessage: params.userMessage,
+					assistantResponse: params.assistantResponse,
+				});
+			})().catch((error) =>
+				console.error(
+					`${turnLogPrefix(params.turnKind)} Rail summary generation failed:`,
+					error,
+				),
 			),
 		);
 	}

@@ -67,12 +67,33 @@ export function buildJumpRailTurns(messages: ChatMessage[]): JumpRailTurn[] {
 
 		turns.push({
 			id: message.id,
-			snippet: truncate(message.content, MAX_SNIPPET_LENGTH),
+			snippet: railEntryText(message),
 			questionEyebrow,
 			contentLength: message.content.length,
 		});
 	}
 	return turns;
+}
+
+/**
+ * The text shown for a turn on the rail (hover snippet / accessible name).
+ *
+ * A1 (owner idea) — prefer the durable, LLM-summarized `railSummary` computed
+ * in the background after the turn finalizes. Until that summary lands (it is
+ * fire-and-forget and degrades silently), or if it was skipped/rejected, fall
+ * back to the deterministic verbatim truncation of the reply start — the
+ * honest, coarser-but-never-wrong fallback (ADR-0056 pattern). The projection
+ * guarantees `railSummary` is `undefined` (never `""`) when absent, but this
+ * fallback stays independent of that upstream invariant: a missing OR
+ * blank/whitespace summary falls through to the truncation, so a stray empty
+ * string can never surface as an empty rail snippet.
+ */
+export function railEntryText(
+	message: Pick<ChatMessage, "railSummary" | "content">,
+): string {
+	return message.railSummary?.trim()
+		? message.railSummary
+		: truncate(message.content, MAX_SNIPPET_LENGTH);
 }
 
 /** Truncate `text` to `max` characters, appending an ellipsis when shortened. */

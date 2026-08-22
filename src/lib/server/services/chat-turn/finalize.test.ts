@@ -25,6 +25,9 @@ const {
 	mockPersistAssistantEvidence,
 	mockRunPostTurnTasks,
 	mockRecordAssistantTurnAnalytics,
+	mockGenerateShortLocalText,
+	mockResolveShortTextLanguage,
+	mockUpdateMessageRailSummary,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -68,6 +71,13 @@ const {
 	mockPersistAssistantEvidence: vi.fn(),
 	mockRunPostTurnTasks: vi.fn(),
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
+	// A1/Fix 2 — the rail-summary step's control-model seam and its write-back.
+	// Mocking ./short-local-text keeps the real rail-summary.ts + finalize-steps
+	// gate in play (importActual) while the ≥200-char wiring tests below never
+	// reach the real control model — the fragility the reviewer flagged.
+	mockGenerateShortLocalText: vi.fn(async () => null as string | null),
+	mockResolveShortTextLanguage: vi.fn(() => "en" as "en" | "hu"),
+	mockUpdateMessageRailSummary: vi.fn(async () => undefined),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -102,6 +112,20 @@ vi.mock("$lib/server/services/messages", () => ({
 	listMessages: mockListMessages,
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
+	// A1 — runPostTurnTasks (importActual) now transitively reaches the
+	// rail-summary step, which writes back through this seam. The short-reply
+	// tests skip it (below the 200-char threshold); the ≥200-char wiring test
+	// below asserts it actually lands.
+	updateMessageRailSummary: mockUpdateMessageRailSummary,
+}));
+
+// Fix 2 — the rail-summary control-model seam. Mocked so the real
+// rail-summary.ts (reached through importActual("./finalize-steps")) never
+// hits the self-hosted control model in tests. resolveShortTextLanguage is
+// kept trivial; the real one is exercised in short-local-text.test.ts.
+vi.mock("./short-local-text", () => ({
+	generateShortLocalText: mockGenerateShortLocalText,
+	resolveShortTextLanguage: mockResolveShortTextLanguage,
 }));
 
 vi.mock("$lib/server/services/conversation-drafts", () => ({
@@ -226,6 +250,14 @@ describe("runPostTurnTasks", () => {
 		vi.clearAllMocks();
 		mockListMessages.mockResolvedValue([]);
 		mockJudgeFinishedTurn.mockResolvedValue({ status: "idle" });
+		// Rail-summary seam defaults (a test may override per-case). Reset the
+		// implementation too — clearAllMocks only clears call history — so an
+		// mockImplementation/mockResolvedValue set by one case never leaks.
+		mockGenerateShortLocalText.mockReset();
+		mockGenerateShortLocalText.mockResolvedValue(null);
+		mockResolveShortTextLanguage.mockReturnValue("en");
+		mockUpdateMessageRailSummary.mockReset();
+		mockUpdateMessageRailSummary.mockResolvedValue(undefined);
 	});
 
 	it("logs summary refresh failures without rejecting post-turn tasks", async () => {
@@ -474,6 +506,100 @@ describe("runPostTurnTasks", () => {
 		);
 
 		errorSpy.mockRestore();
+	});
+
+	// Fix 2 (coverage) — end-to-end finalize-steps → rail wiring. The existing
+	// cases above all use short replies (< the 200-char skip threshold), so the
+	// real rail-summary.ts returns before ever writing back — the rail path was
+	// never actually exercised through the gate. This drives a ≥200-char reply
+	// through the REAL runPostTurnTasks + rail-summary.ts (control model mocked,
+	// per the reviewer's fragility note) and asserts the summary is generated
+	// and persisted.
+	it("generates and persists a rail summary for a ≥200-char reply through the real finalize-steps gate", async () => {
+		mockGenerateShortLocalText.mockResolvedValue(
+			"Q3 segment performance recap",
+		);
+		// Comfortably above RAIL_SUMMARY_MIN_CONTENT_LENGTH (200) so rail-summary
+		// does NOT take its short-reply skip.
+		const longReply = "S".repeat(250);
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
+
+		await runPostTurnTasks({
+			turnKind: "send",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "upstream prompt payload",
+			userMessage: "How did Q3 segments perform?",
+			userMessageId: "user-message-1",
+			assistantResponse: longReply,
+			assistantMirrorContent: longReply,
+			assistantMessageId: "assistant-message-1",
+			maintenanceReason: "chat_send",
+		});
+
+		// The gate fired the rail task, rail-summary.ts saw a ≥200-char reply (no
+		// skip), asked the mocked control model, and persisted the headline.
+		expect(mockGenerateShortLocalText).toHaveBeenCalledTimes(1);
+		expect(mockUpdateMessageRailSummary).toHaveBeenCalledWith(
+			"assistant-message-1",
+			"Q3 segment performance recap",
+		);
+	});
+
+	// Fix 1 (data-loss race) — locks the ordering invariant at the tail level:
+	// the rail-summary metadata write (an unsynchronized metadataJson RMW, same
+	// as evidence/webCitationAudit) must not run until the evidence write has
+	// committed. Here the evidence write is modeled by evidenceWriteBarrier; the
+	// rail write is proven to land strictly after it releases.
+	it("holds the rail-summary write until the evidence barrier resolves (Fix 1 ordering)", async () => {
+		mockGenerateShortLocalText.mockResolvedValue("Ordered headline");
+		const order: string[] = [];
+		mockUpdateMessageRailSummary.mockImplementation(async () => {
+			order.push("rail");
+		});
+		let releaseEvidence!: () => void;
+		const evidenceWriteBarrier = new Promise<void>((resolve) => {
+			releaseEvidence = () => {
+				order.push("evidence");
+				resolve();
+			};
+		});
+		const longReply = "S".repeat(250);
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
+
+		const done = runPostTurnTasks({
+			turnKind: "send",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "upstream prompt payload",
+			userMessage: "How did Q3 segments perform?",
+			userMessageId: "user-message-1",
+			assistantResponse: longReply,
+			assistantMirrorContent: longReply,
+			assistantMessageId: "assistant-message-1",
+			maintenanceReason: "chat_send",
+			evidenceWriteBarrier,
+		});
+
+		await flushMicrotasks();
+		// The evidence write is still in flight — the rail write must not land.
+		expect(mockUpdateMessageRailSummary).not.toHaveBeenCalled();
+
+		releaseEvidence();
+		await done;
+
+		// Once evidence has committed, the rail write runs — observing it.
+		expect(mockUpdateMessageRailSummary).toHaveBeenCalledWith(
+			"assistant-message-1",
+			"Ordered headline",
+		);
+		expect(order).toEqual(["evidence", "rail"]);
 	});
 });
 
@@ -1228,6 +1354,54 @@ describe("finalizeChatTurn", () => {
 		evidenceDeferred.resolve();
 		postTurnDeferred.resolve();
 		await flushMicrotasks();
+	});
+
+	// Fix 1 (data-loss race) — finalize must hand the tail the SAME in-flight
+	// evidence-write promise it created, so the rail-summary step can await the
+	// real evidence write (not a copy) before its own metadataJson RMW. This is
+	// the send-path wiring that keeps the rail write from clobbering evidence on
+	// the concurrent path.
+	it("threads the in-flight evidence write to runPostTurnTasks as the rail-summary barrier", async () => {
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			turnKind: "send",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "normalized user message",
+			persistUserMessage: true,
+			normalizedMessage: "normalized user message",
+			upstreamMessage: "upstream prompt payload",
+			assistantResponse: "visible assistant response",
+			assistantMetadata: { evidenceStatus: "pending" },
+			skillControlOperations: [],
+			skillControlSessionId: null,
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: {
+				model: "model-1",
+				modelDisplayName: "Model One",
+				promptTokens: 8,
+				completionTokens: 5,
+				generationTimeMs: undefined,
+				providerUsage: null,
+			},
+			assistantMirrorContent: "assistant mirror text",
+			maintenanceReason: "chat_send",
+		});
+
+		expect(mockRunPostTurnTasks).toHaveBeenCalledTimes(1);
+		const [runArgs] = mockRunPostTurnTasks.mock.calls[0] as [
+			{ evidenceWriteBarrier?: Promise<unknown> },
+		];
+		// The barrier is exactly the evidence task finalize created from
+		// persistAssistantEvidence — same promise handle, not a re-wrap.
+		expect(runArgs.evidenceWriteBarrier).toBe(
+			mockPersistAssistantEvidence.mock.results[0]?.value,
+		);
 	});
 
 	it("forwards Atlas-style skip options through finalization without disabling other completion work", async () => {

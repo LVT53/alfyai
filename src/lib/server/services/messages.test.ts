@@ -519,6 +519,116 @@ describe("messages metadata", () => {
 		expect(message.thoughtSteps).toBeUndefined();
 	});
 
+	// A1 (owner idea) — the durable, LLM-summarized jump-rail headline rides
+	// `metadataJson.railSummary` additively, projected onto `ChatMessage`
+	// exactly like `thoughtSteps`: present -> the string, absent -> `undefined`.
+	it("projects the persisted railSummary when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-rail-summary-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is a long answer that the rail would otherwise truncate.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ railSummary: "Segment breakdown for Q3" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-rail-summary-1",
+				railSummary: "Segment breakdown for Q3",
+			}),
+		]);
+	});
+
+	it("omits railSummary entirely when none was persisted for the turn", async () => {
+		mockRows.push({
+			id: "assistant-no-rail-summary-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "none" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.railSummary).toBeUndefined();
+	});
+
+	it('treats an empty-string railSummary as absent (never projects "")', async () => {
+		mockRows.push({
+			id: "assistant-empty-rail-summary-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ railSummary: "   " }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.railSummary).toBeUndefined();
+	});
+
+	it("writes railSummary into metadataJson while preserving existing metadata", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "ready" }),
+		});
+
+		const { updateMessageRailSummary } = await import("./messages");
+
+		await updateMessageRailSummary(
+			"assistant-1",
+			"  Segment breakdown for Q3  ",
+		);
+
+		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
+		expect(metadata.evidenceStatus).toBe("ready");
+		// Trimmed on write.
+		expect(metadata.railSummary).toBe("Segment breakdown for Q3");
+	});
+
+	it("clears a persisted railSummary when written null", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "ready",
+				railSummary: "Old headline",
+			}),
+		});
+
+		const { updateMessageRailSummary } = await import("./messages");
+
+		await updateMessageRailSummary("assistant-1", null);
+
+		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
+		expect(metadata.evidenceStatus).toBe("ready");
+		expect(metadata.railSummary).toBeUndefined();
+	});
+
 	it("preserves existing metadata when web citation audit is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",

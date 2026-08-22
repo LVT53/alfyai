@@ -48,6 +48,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// type only so it round-trips through `compactPersistedMessageMetadata`
 	// like every other metadata field.
 	thoughtSteps?: InterimThoughtStep[];
+	// A1 (owner idea) — the durable, LLM-summarized jump-rail headline for this
+	// assistant turn (see `railSummary` on ChatMessage). Written back
+	// additively by `updateMessageRailSummary` from the post-turn generation
+	// step, and projected out in `projectMessageMetadata` below. Assistant
+	// turns only (owner decision O-3).
+	railSummary?: string;
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -235,6 +241,7 @@ function projectMessageMetadata(
 	| "forkEvidenceSnapshot"
 	| "importSource"
 	| "thoughtSteps"
+	| "railSummary"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -266,6 +273,15 @@ function projectMessageMetadata(
 		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 		importSource: row.importSource ?? undefined,
 		thoughtSteps: thoughtSteps.length > 0 ? thoughtSteps : undefined,
+		// A1 — the durable LLM rail summary, projected exactly like every other
+		// optional metadata field: the string when present and non-blank,
+		// `undefined` otherwise (never `""`), so `railEntryText`'s `??` fallback
+		// to the verbatim truncation only fires on a genuinely absent summary.
+		railSummary:
+			typeof metadata?.railSummary === "string" &&
+			metadata.railSummary.trim().length > 0
+				? metadata.railSummary
+				: undefined,
 	};
 }
 
@@ -716,6 +732,44 @@ export async function updateMessageWebCitationAudit(
 		next.webCitationAudit = webCitationAudit;
 	} else {
 		delete next.webCitationAudit;
+	}
+
+	await db
+		.update(messages)
+		.set({
+			metadataJson: Object.keys(next).length > 0 ? JSON.stringify(next) : null,
+		})
+		.where(eq(messages.id, messageId));
+}
+
+/**
+ * A1 (owner idea) — write the durable, LLM-summarized jump-rail headline for
+ * an assistant turn back into its `metadataJson.railSummary`, additively
+ * (same paved road as `updateMessageWebCitationAudit`; no migration). Called
+ * from the fire-and-forget post-turn generation step. A `null`/blank summary
+ * clears the field (honesty: the rail falls back to the verbatim truncation),
+ * a non-blank one is stored trimmed. Never `""` on disk.
+ */
+export async function updateMessageRailSummary(
+	messageId: string,
+	railSummary: string | null,
+): Promise<void> {
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson })
+		.from(messages)
+		.where(eq(messages.id, messageId))
+		.limit(1);
+
+	if (!row) return;
+
+	const next: PersistedMessageMetadata = {
+		...(parseMetadata(row.metadataJson) ?? {}),
+	};
+	const trimmed = railSummary?.trim();
+	if (trimmed) {
+		next.railSummary = trimmed;
+	} else {
+		delete next.railSummary;
 	}
 
 	await db

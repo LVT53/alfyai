@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import { buildJumpRailTurns, MAX_SNIPPET_LENGTH } from "./jump-rail";
+import {
+	buildJumpRailTurns,
+	MAX_SNIPPET_LENGTH,
+	railEntryText,
+} from "./jump-rail";
 
 /**
  * Minimal factory that only sets the fields the helper reads. Keeps the
@@ -10,6 +14,7 @@ function msg(
 	id: string,
 	role: "user" | "assistant",
 	content: string,
+	railSummary?: string,
 ): ChatMessage {
 	return {
 		id,
@@ -17,6 +22,7 @@ function msg(
 		role,
 		content,
 		timestamp: 0,
+		...(railSummary !== undefined ? { railSummary } : {}),
 	};
 }
 
@@ -193,5 +199,75 @@ describe("buildJumpRailTurns", () => {
 		expect(turns[0].questionEyebrow).toBe('"real question"');
 		// a2 immediately follows a1 (another assistant), so no eyebrow.
 		expect(turns[1].questionEyebrow).toBeNull();
+	});
+
+	// A1 — the LLM-summarized rail entry (owner idea). When a durable
+	// `railSummary` is present on the assistant message, the snippet is the
+	// summary; otherwise it stays the verbatim truncated reply start (the
+	// honest fallback while the summary is pending/failed).
+	it("uses the persisted railSummary as the snippet when present", () => {
+		const messages: ChatMessage[] = [
+			msg("u1", "user", "q1", undefined),
+			msg("a1", "assistant", "y".repeat(200), "Segment breakdown for Q3"),
+			msg("a2", "assistant", "a2"),
+			msg("a3", "assistant", "a3"),
+			msg("a4", "assistant", "a4"),
+			msg("a5", "assistant", "a5"),
+			msg("a6", "assistant", "a6"),
+		];
+
+		const [first] = buildJumpRailTurns(messages);
+
+		expect(first.snippet).toBe("Segment breakdown for Q3");
+		// contentLength still reflects the full raw content, not the summary.
+		expect(first.contentLength).toBe(200);
+	});
+});
+
+describe("railEntryText", () => {
+	it("returns the rail summary when present", () => {
+		expect(
+			railEntryText({
+				railSummary: "A crisp headline",
+				content: "y".repeat(200),
+			}),
+		).toBe("A crisp headline");
+	});
+
+	it("uses the summary verbatim even when the content is short", () => {
+		expect(
+			railEntryText({ railSummary: "Summary wins", content: "short" }),
+		).toBe("Summary wins");
+	});
+
+	it("falls back to the truncated content when no summary is present", () => {
+		const long = "y".repeat(MAX_SNIPPET_LENGTH + 50);
+		expect(railEntryText({ content: long })).toBe(
+			`${"y".repeat(MAX_SNIPPET_LENGTH)}…`,
+		);
+	});
+
+	it("returns the full content untruncated when short and no summary", () => {
+		expect(railEntryText({ content: "Just a short reply." })).toBe(
+			"Just a short reply.",
+		);
+	});
+
+	// Fix 3 (hardening) — the fallback must not depend on the read-model
+	// projection guaranteeing `undefined` (never `""`) for an absent summary: a
+	// blank/whitespace `railSummary` that slips through must still fall back to
+	// the verbatim truncation, never surface as an empty rail snippet.
+	it("falls back to truncation when railSummary is an empty string", () => {
+		const long = "y".repeat(MAX_SNIPPET_LENGTH + 50);
+		expect(railEntryText({ railSummary: "", content: long })).toBe(
+			`${"y".repeat(MAX_SNIPPET_LENGTH)}…`,
+		);
+	});
+
+	it("falls back to truncation when railSummary is only whitespace", () => {
+		const long = "y".repeat(MAX_SNIPPET_LENGTH + 50);
+		expect(railEntryText({ railSummary: "   \n\t ", content: long })).toBe(
+			`${"y".repeat(MAX_SNIPPET_LENGTH)}…`,
+		);
 	});
 });
