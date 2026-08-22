@@ -106,16 +106,6 @@ function sourceTooltip(source: GeneratedDocumentSourceChip): string {
 		.join("\n");
 }
 
-function faviconUrl(url: string | null | undefined): string | null {
-	if (!url) return null;
-	try {
-		const parsed = new URL(url);
-		return `${parsed.origin}/favicon.ico`;
-	} catch {
-		return null;
-	}
-}
-
 function sourceDomain(
 	url: string | null | undefined,
 	chrome = reportChrome("en"),
@@ -146,11 +136,21 @@ function renderGlobeFallback(hidden = false): string {
 	return `<span class="favicon-placeholder" data-favicon-fallback aria-hidden="true"${hidden ? " hidden" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg></span>`;
 }
 
-function renderSourceFavicon(url: string | null | undefined): string {
-	const favicon = faviconUrl(url);
-	if (!favicon)
-		return `<span class="source-favicon">${renderGlobeFallback()}</span>`;
-	return `<span class="source-favicon"><img src="${escapeHtml(favicon)}" alt="" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" />${renderGlobeFallback(true)}</span>`;
+// Privacy: this report is a STANDALONE downloadable file, opened outside the
+// app (frequently from disk via `file://`). Embedding `${origin}/favicon.ico`
+// per cited source made the reader's browser fetch each cited domain's favicon
+// cross-origin on open, leaking which report — and which domains — they viewed.
+// The chat UI avoids this by routing favicons through the same-origin
+// `/api/favicon` proxy (see `sourceFaviconUrl` in `src/lib/services/markdown.ts`),
+// but that root-relative path cannot resolve in a standalone file, and this
+// renderer runs in a detached background worker (`worker-runner.ts`) with no
+// request context and no configured app origin (see `env.ts`) to build an
+// absolute proxy URL from. So we render a neutral, self-contained inline globe
+// for every source — no network fetch to the source domain or anywhere else.
+// This reuses the exact placeholder the report already showed for library
+// sources and favicon load failures, so layout and appearance are unchanged.
+function renderSourceFavicon(): string {
+	return `<span class="source-favicon">${renderGlobeFallback()}</span>`;
 }
 
 function sourceKey(source: GeneratedDocumentSourceChip): string {
@@ -232,7 +232,7 @@ function renderSourceTooltip(
 	const title = escapeHtml(source.title);
 	const reasoning = escapeHtml(compactSourceReasoning(source.reasoning));
 	const domain = escapeHtml(sourceDomain(source.url, chrome));
-	return `<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head">${renderSourceFavicon(source.url)}<strong class="source-tooltip-title">${title}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
+	return `<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head">${renderSourceFavicon()}<strong class="source-tooltip-title">${title}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
 }
 
 function renderSourceChip(
@@ -277,7 +277,7 @@ function renderSourceChip(
 	]
 		.filter((part): part is string => Boolean(part))
 		.join(" ");
-	const content = `${renderSourceFavicon(source.url)}${renderSourceTooltip(source, chrome)}`;
+	const content = `${renderSourceFavicon()}${renderSourceTooltip(source, chrome)}`;
 
 	if (source.url && options.link !== false) {
 		return `<a ${attributes} href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${content}</a>`;
@@ -500,7 +500,7 @@ function renderBasisMarker(
 	if (sourceRefs.length > 0) {
 		const items = sourceRefs
 			.map((ref) => {
-				const favicon = renderSourceFavicon(ref.url);
+				const favicon = renderSourceFavicon();
 				const title = escapeHtml(ref.title);
 				const link = ref.url
 					? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">${title}</a>`

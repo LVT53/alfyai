@@ -228,7 +228,10 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain('class="favicon-placeholder"');
 		expect(html).toContain("data-favicon-fallback");
 		expect(html).toContain("[hidden]{display:none!important;}");
-		expect(html).toContain('onerror="');
+		// Web sources (with a URL) get the same neutral globe as library sources:
+		// no cross-origin favicon fetch and no error-handling <img> at all.
+		expect(html).not.toContain("/favicon.ico");
+		expect(html).not.toMatch(/<span class="source-favicon"><img/);
 		expect(html).toContain('aria-label="Source 1: Example docs"');
 		expect(html).toContain(
 			'aria-label="Source 2: Local library note. You provided these."',
@@ -236,6 +239,47 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("<svg");
 		expect(html).toContain('viewBox="0 0 24 24"');
 		expect(html).toContain('stroke="currentColor"');
+	});
+
+	it("never fetches a cited domain's favicon cross-origin from the standalone report", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Favicon privacy report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Web Sources",
+					sources: [
+						{
+							title: "Example docs",
+							url: "https://example.com/docs",
+							reasoning: "Cited web source.",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		// The leak this guards against: a bare `${origin}/favicon.ico` fetch to
+		// each cited domain, which would tell that domain which report the reader
+		// opened. The standalone file is opened outside the app (often via
+		// file://) with no reliable app origin, so favicons must be inlined as a
+		// self-contained neutral globe instead of fetched from anywhere.
+		expect(html).not.toContain("example.com/favicon.ico");
+		expect(html).not.toContain("/favicon.ico");
+		expect(html).not.toMatch(/<span class="source-favicon"><img/);
+		expect(html).toContain(
+			'<span class="source-favicon"><span class="favicon-placeholder"',
+		);
+		expect(html).toContain("data-favicon-fallback");
 	});
 
 	it("renders compact source reasoning instead of dumping fetched page text", () => {
@@ -546,7 +590,9 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).toContain("positionFloatingTooltips");
 		expect(html).toContain("report-sidebar");
 		expect(html).toContain("source-tooltip-head");
-		expect(html).toContain('<span class="source-favicon"><img');
+		expect(html).toContain(
+			'<span class="source-favicon"><span class="favicon-placeholder"',
+		);
 		expect(html).toContain("source-tooltip-reason");
 	});
 
