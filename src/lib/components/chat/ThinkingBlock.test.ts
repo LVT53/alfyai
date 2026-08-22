@@ -72,6 +72,8 @@ describe("ThinkingBlock", () => {
 		expect(
 			screen.getByText("I checked the relevant source."),
 		).toBeInTheDocument();
+		// Open the read-page disclosure to reveal its result rows.
+		await fireEvent.click(screen.getAllByText("Read 1 page")[0]);
 		const links = screen.getAllByRole("link", { name: "example.com" });
 		expect(links.length).toBeGreaterThan(0);
 		expect(links[0]).toHaveAttribute("href", "https://example.com/article");
@@ -562,11 +564,11 @@ describe("ThinkingBlock", () => {
 		).not.toBeInTheDocument();
 	});
 
-	// C1 cited-first redesign: research_web sources now carry a citation-driven
-	// status. Cited (status "selected") sources lead and are marked; uncited
-	// ("reference") sources follow, dimmed; the collapsed label counts cites.
+	// C1 cited-first redesign, restyled as a line-by-line result list: cited
+	// (status "selected") sources lead and carry the accent check; uncited
+	// ("reference") sources follow, plain; the collapsed label counts cites.
 	describe("cited-aware web sources", () => {
-		it("orders cited sources first and marks them, dimming the uncited", async () => {
+		it("orders cited sources first and marks them", async () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -603,18 +605,22 @@ describe("ThinkingBlock", () => {
 			);
 			await fireEvent.click(summary);
 
-			const chips = document.querySelectorAll(".fetched-source-chip");
-			expect(chips).toHaveLength(2);
+			const results = document.querySelectorAll(".fetched-source-result");
+			expect(results).toHaveLength(2);
 
-			// Cited leads, marked with the accent affordance.
-			expect(chips[0]?.getAttribute("aria-label")).toBe("Cited Source");
-			expect(chips[0]?.classList.contains("is-cited")).toBe(true);
-			expect(chips[0]?.querySelector(".fetched-chip-cited-dot")).not.toBeNull();
+			// Cited leads, marked with the accent check.
+			expect(results[0]?.textContent).toContain("Cited Source");
+			expect(results[0]?.classList.contains("is-cited")).toBe(true);
+			expect(
+				results[0]?.querySelector(".fetched-source-result-cited"),
+			).not.toBeNull();
 
-			// Uncited follows, dimmed.
-			expect(chips[1]?.getAttribute("aria-label")).toBe("Uncited Source");
-			expect(chips[1]?.classList.contains("is-uncited")).toBe(true);
-			expect(chips[1]?.querySelector(".fetched-chip-cited-dot")).toBeNull();
+			// Uncited follows, unmarked.
+			expect(results[1]?.textContent).toContain("Uncited Source");
+			expect(results[1]?.classList.contains("is-cited")).toBe(false);
+			expect(
+				results[1]?.querySelector(".fetched-source-result-cited"),
+			).toBeNull();
 		});
 
 		it("omits the cited suffix when nothing was cited", () => {
@@ -647,7 +653,7 @@ describe("ThinkingBlock", () => {
 			expect(screen.queryByText(/cited/i)).toBeNull();
 		});
 
-		it("exposes the source title and reason in the chip tooltip, marking cited ones", async () => {
+		it("shows the title inline and the reason in the row's native tooltip", async () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -676,20 +682,18 @@ describe("ThinkingBlock", () => {
 				screen.getByText("Searched the web · 1 source · 1 cited"),
 			);
 
-			const chip = document.querySelector(".fetched-source-chip");
-			// Native title tooltip carries both title and reason.
-			expect(chip?.getAttribute("title")).toContain("Cited Source");
-			expect(chip?.getAttribute("title")).toContain("Why this source matters.");
-			// Accessible name stays the clean title (not the reason blob).
-			expect(chip?.getAttribute("aria-label")).toBe("Cited Source");
-
-			// The rich tooltip content is present with the reason + cited marker.
-			const tooltip = chip?.querySelector(".fetched-source-tooltip");
-			expect(tooltip?.textContent).toContain("Why this source matters.");
-			expect(tooltip?.textContent).toContain("Cited");
+			const result = document.querySelector(".fetched-source-result");
+			// The title shows inline on the row (no hover-only card to clip it).
+			expect(result?.textContent).toContain("Cited Source");
+			// The compact reason rides the row's native title tooltip.
+			expect(result?.getAttribute("title")).toContain(
+				"Why this source matters.",
+			);
+			// The row links straight out to the source.
+			expect(result?.getAttribute("href")).toBe("https://cited.example/y");
 		});
 
-		it("does not dim any chip when nothing was cited", async () => {
+		it("marks no row as cited when nothing was cited", async () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -722,16 +726,15 @@ describe("ThinkingBlock", () => {
 
 			await fireEvent.click(screen.getByText("Searched the web · 2 sources"));
 
-			const chips = document.querySelectorAll(".fetched-source-chip");
-			expect(chips).toHaveLength(2);
-			// With zero cited sources, no chip carries the dimmed class — the whole
-			// row renders neutral at full opacity.
-			for (const chip of chips) {
-				expect(chip.classList.contains("is-uncited")).toBe(false);
+			const results = document.querySelectorAll(".fetched-source-result");
+			expect(results).toHaveLength(2);
+			// With zero cited sources, no row carries the cited marker.
+			for (const result of results) {
+				expect(result.classList.contains("is-cited")).toBe(false);
 			}
 		});
 
-		it("does not dim read-page (fetch_url) chips, which have no citation concept", async () => {
+		it("renders read-page (fetch_url) results as plain rows, none cited", async () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -747,10 +750,10 @@ describe("ThinkingBlock", () => {
 
 			await fireEvent.click(screen.getByText("Read 2 pages"));
 
-			const chips = document.querySelectorAll(".fetched-source-chip");
-			expect(chips).toHaveLength(2);
-			for (const chip of chips) {
-				expect(chip.classList.contains("is-uncited")).toBe(false);
+			const results = document.querySelectorAll(".fetched-source-result");
+			expect(results).toHaveLength(2);
+			for (const result of results) {
+				expect(result.classList.contains("is-cited")).toBe(false);
 			}
 		});
 
@@ -790,14 +793,14 @@ describe("ThinkingBlock", () => {
 				screen.getByText("Searched the web · 1 source · 1 cited"),
 			);
 
-			const chips = document.querySelectorAll(".fetched-source-chip");
-			expect(chips).toHaveLength(1);
+			const results = document.querySelectorAll(".fetched-source-result");
+			expect(results).toHaveLength(1);
 			// The surviving copy is the cited one, not the reference dropped first.
-			expect(chips[0]?.getAttribute("aria-label")).toBe("Cited Copy");
-			expect(chips[0]?.classList.contains("is-cited")).toBe(true);
+			expect(results[0]?.textContent).toContain("Cited Copy");
+			expect(results[0]?.classList.contains("is-cited")).toBe(true);
 		});
 
-		it("gives the +N reveal a descriptive accessible name", async () => {
+		it("shows every source as its own row — no '+N' fold even for a long tail", async () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -832,52 +835,11 @@ describe("ThinkingBlock", () => {
 				screen.getByText("Searched the web · 10 sources · 1 cited"),
 			);
 
-			// Visible text stays "+3"; the accessible name describes the reveal.
-			const moreReveal = screen.getByText("+3");
-			expect(moreReveal).toHaveAttribute("aria-label", "3 more sources");
-		});
-
-		it("folds a long tail of uncited sources behind a +N reveal", async () => {
-			const segments: ThinkingSegment[] = [
-				{
-					type: "tool_call",
-					name: "research_web",
-					status: "done",
-					input: { query: "pricing" },
-					sourceType: "web",
-					candidates: [
-						{
-							id: "cited",
-							title: "Cited Source",
-							url: "https://cited.example/",
-							sourceType: "web",
-							status: "selected",
-						},
-						...Array.from({ length: 9 }, (_, i) => ({
-							id: `u${i}`,
-							title: `Uncited ${i}`,
-							url: `https://u${i}.example/`,
-							sourceType: "web" as const,
-							status: "reference" as const,
-						})),
-					],
-				},
-			];
-
-			render(ThinkingBlock, {
-				props: { content: "", thinkingIsDone: true, segments },
-			});
-
-			await fireEvent.click(
-				screen.getByText("Searched the web · 10 sources · 1 cited"),
-			);
-
-			// 9 uncited, first 6 shown inline, remaining 3 fold behind "+3".
-			const moreReveal = screen.getByText("+3");
-			expect(moreReveal).toBeInTheDocument();
-			const overflow = document.querySelector(".fetched-chip-more");
-			expect(overflow).not.toBeNull();
-			expect(overflow?.querySelectorAll(".fetched-source-chip").length).toBe(3);
+			// All 10 render as rows; nothing is folded behind a "+N" reveal.
+			const results = document.querySelectorAll(".fetched-source-result");
+			expect(results).toHaveLength(10);
+			expect(screen.queryByText("+3")).toBeNull();
+			expect(document.querySelector(".fetched-chip-more")).toBeNull();
 		});
 	});
 
@@ -1750,11 +1712,17 @@ describe("ThinkingBlock", () => {
 
 			const mark = document.querySelector("mark.thought-step-anchor-highlight");
 			expect(mark).not.toBeNull();
+			// The highlight is still EXACTLY the anchored span.
 			expect(mark?.textContent).toBe(anchorText);
-			// Only the anchored span itself is shown — none of the surrounding
-			// trace leaks in alongside it.
-			expect(screen.queryByText(/First I read the request/)).toBeNull();
-			expect(screen.queryByText(/before continuing/)).toBeNull();
+			// The reveal now completes the sentence the span sits in, so it no
+			// longer begins/ends mid-sentence: the same-sentence lead-in ("Then
+			// I ") and tail ("before continuing.") surround the highlight...
+			const reveal = mark?.closest("pre");
+			expect(reveal?.textContent).toBe(
+				"Then I weighed two different options before continuing.",
+			);
+			// ...but the PREVIOUS sentence is not pulled in.
+			expect(reveal?.textContent).not.toContain("First I read the request");
 			expect(
 				screen.getByRole("button", { name: /Back to steps/ }),
 			).toBeInTheDocument();

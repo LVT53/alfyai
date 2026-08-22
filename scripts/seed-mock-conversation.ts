@@ -84,6 +84,9 @@ async function main() {
 		content: string;
 		ts: Date;
 		evidence?: object;
+		thinking?: string;
+		thinkingSegments?: object[];
+		thoughtSteps?: object[];
 	};
 	const turn = (q: string, a: string, ai: number): [SeedMsg, SeedMsg] => [
 		{
@@ -120,6 +123,108 @@ async function main() {
 		"Forecasting Q4 based on current trajectory: enterprise likely to reach $3.1M, with SMB recovering slightly to $1.1M. Self-serve remains a wildcard — depends on the holiday campaign performance.",
 		4,
 	);
+	// Give a4 a rich ThinkingBlock: raw reasoning text + a web-search tool call
+	// with a mix of cited/reference sources (exercises the open source-result
+	// list) + classified thought steps whose anchors deliberately fall
+	// mid-sentence (exercises the sentence-context reveal).
+	a4.thinking =
+		"Let me start by understanding what the user is really asking about the Q4 forecast. First I need to recall the Q3 baseline numbers we established earlier in this thread. Then I should weigh the enterprise trajectory against the softer SMB recovery signal. Considering the holiday campaign, self-serve stays the biggest wildcard in this projection. Finally I'll draft the forecast with explicit ranges so it reads as a projection, not a promise.";
+	const webCandidates = [
+		{
+			title: "SaaS Q4 Seasonality Benchmarks 2025 — OpenView",
+			url: "https://openviewpartners.example/saas-q4-seasonality",
+			status: "selected" as const,
+			snippet:
+				"Q4 enterprise close rates run 18–24% above the trailing quarter.",
+		},
+		{
+			title: "Holiday Campaign Attach Rates — Internal Analytics",
+			url: "https://analytics.example/holiday-attach-2025",
+			status: "selected" as const,
+			snippet: "Self-serve holiday conversions swung ±30% year over year.",
+		},
+		{
+			title: "Mid-Market Expansion Playbook (2025) — Bessemer",
+			url: "https://bvp.example/mid-market-expansion",
+			status: "reference" as const,
+		},
+		{
+			title: "Net Revenue Retention Trends — SaaS Capital",
+			url: "https://saas-capital.example/nrr-trends",
+			status: "reference" as const,
+		},
+		{
+			title: "Enterprise Renewal Timing Study — Gainsight",
+			url: "https://gainsight.example/renewal-timing",
+			status: "reference" as const,
+		},
+		{
+			title: "SMB Churn Recovery After a Flat Quarter — ChartMogul",
+			url: "https://chartmogul.example/smb-churn-recovery",
+			status: "reference" as const,
+		},
+		{
+			title: "Forecasting Under Uncertainty — a11y practical guide",
+			url: "https://forecastingguide.example/uncertainty-ranges",
+			status: "reference" as const,
+		},
+	];
+	a4.thinkingSegments = [
+		{ type: "text", content: a4.thinking },
+		{
+			type: "tool_call",
+			callId: "mock-research-web-1",
+			name: "research_web",
+			status: "done",
+			input: {
+				query: "Q4 SaaS enterprise forecast seasonality holiday self-serve",
+			},
+			sourceType: "web",
+			candidates: webCandidates.map((c, i) => ({
+				id: `mock-web-${i}`,
+				title: c.title,
+				url: c.url,
+				sourceType: "web" as const,
+				status: c.status,
+				snippet: c.snippet,
+			})),
+		},
+	];
+	const anchorFor = (needle: string) => {
+		const start = a4.thinking?.indexOf(needle) ?? -1;
+		return { start, end: start + needle.length };
+	};
+	a4.thoughtSteps = [
+		{
+			id: randomUUID(),
+			source: "classified",
+			activityClass: "understanding-request",
+			impliesExternalAction: false,
+			anchor: anchorFor("understanding what the user is really asking"),
+			summary: "Pinning down what the Q4 forecast question is really after",
+			createdAt: baseTs + 4 * 60_000 + 2_000,
+		},
+		{
+			id: randomUUID(),
+			source: "classified",
+			activityClass: "recalling-context",
+			impliesExternalAction: false,
+			anchor: anchorFor("recall the Q3 baseline numbers"),
+			summary: "Recalling the Q3 baseline we established earlier",
+			createdAt: baseTs + 4 * 60_000 + 9_000,
+		},
+		{
+			id: randomUUID(),
+			source: "classified",
+			activityClass: "weighing-options",
+			impliesExternalAction: false,
+			anchor: anchorFor(
+				"weigh the enterprise trajectory against the softer SMB recovery",
+			),
+			summary: "Weighing enterprise momentum against the softer SMB signal",
+			createdAt: baseTs + 4 * 60_000 + 16_000,
+		},
+	];
 	const [u5, a5] = turn(
 		"What's driving the enterprise growth specifically?",
 		"Three factors: (1) the mid-market sales motion we stood up in Q2 is converting, (2) two large renewals expanded their seats, and (3) the new analytics add-on is attaching to ~40% of new deals. Net retention is at 118%.",
@@ -179,8 +284,14 @@ async function main() {
 
 	const seedMsgs = [u1, a1, u2, a2, u3, a3, u4, a4, u5, a5, u6, a6];
 	for (const m of seedMsgs) {
-		const metadataJson = m.evidence
-			? JSON.stringify({ evidenceSummary: m.evidence, evidenceStatus: "ready" })
+		const metadata: Record<string, unknown> = {};
+		if (m.evidence) {
+			metadata.evidenceSummary = m.evidence;
+			metadata.evidenceStatus = "ready";
+		}
+		if (m.thoughtSteps) metadata.thoughtSteps = m.thoughtSteps;
+		const metadataJson = Object.keys(metadata).length
+			? JSON.stringify(metadata)
 			: null;
 		await db.insert(messages).values({
 			id: m.id,
@@ -188,6 +299,10 @@ async function main() {
 			role: m.role,
 			content: m.content,
 			metadataJson,
+			thinking: m.thinking ?? null,
+			// thinkingSegments persist in the tool_calls column (see
+			// readThinkingSegmentsFromRow in messages.ts).
+			toolCalls: m.thinkingSegments ? JSON.stringify(m.thinkingSegments) : null,
 			// leave messageSequence null — auto-repaired on read
 			createdAt: m.ts,
 		});

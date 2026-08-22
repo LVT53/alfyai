@@ -49,7 +49,10 @@ import {
 } from "$lib/utils/reasoning-spine";
 import { deriveDeliberationProgressState } from "$lib/utils/deliberation-progress";
 import { prefersReducedMotion } from "$lib/utils/motion";
-import { resolveThoughtStepAnchorSpan } from "$lib/utils/thought-step-anchor";
+import {
+	resolveThoughtStepAnchorSpan,
+	resolveThoughtStepDisplayContext,
+} from "$lib/utils/thought-step-anchor";
 import {
 	formatConnectionToolAction,
 	getConnectionToolLabelKey,
@@ -817,18 +820,8 @@ function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
 	return deduped;
 }
 
-// Uncited chips beyond this count fold behind a "+N" reveal so a long tail of
-// "also found" sources can't dominate the compact chip row. Cited chips are
-// always shown in full — they're the answer's actual citations (and already
-// capped server-side to MAX_PAYLOAD_SOURCES).
-const UNCITED_CHIP_LIMIT = 6;
-
 function citedCount(sources: FetchedSource[]): number {
 	return sources.filter(isCitedSource).length;
-}
-
-function uncitedSources(sources: FetchedSource[]): FetchedSource[] {
-	return sources.filter((source) => !isCitedSource(source));
 }
 
 function fetchedSourceSummary(
@@ -845,10 +838,6 @@ function fetchedSourceSummary(
 		return `${base} · ${$t("toolCalls.citedCount", { count: cited })}`;
 	}
 	return base;
-}
-
-function chipTooltip(source: FetchedSource): string {
-	return source.reason ? `${source.title}\n${source.reason}` : source.title;
 }
 
 // Task 11b — agenda peek + photo strip. Both read exclusively from
@@ -981,6 +970,24 @@ function toggleToolDetail(key: string): void {
 	openToolDetailKeys = next;
 }
 
+// The search/read source disclosure (the favicon summary row) expands in
+// place with the same click-to-reveal model as the tool-detail panels above.
+// Converted from a native <details> to a controlled open-set so the reveal can
+// carry the app's standard slide transition (a native <details> cannot animate
+// its open/close) and so the revealed result list can break out to the full
+// width of the chip instead of being nested inside the summary's inline flow.
+let openFetchedGroupKeys = $state<Set<string>>(new Set());
+
+function toggleFetchedGroup(key: string): void {
+	const next = new Set(openFetchedGroupKeys);
+	if (next.has(key)) {
+		next.delete(key);
+	} else {
+		next.add(key);
+	}
+	openFetchedGroupKeys = next;
+}
+
 // A chip only ever appears clickable (see hasToolDetail below, consumed by
 // the template to decide button-vs-plain-span) when there is something to
 // reveal beyond its own already-visible label: a non-empty argument, a
@@ -1047,9 +1054,12 @@ const selectedStepReveal = $derived.by(() => {
 	if (!selectedStepId) return null;
 	const step = anchoredThoughtSteps.find((s) => s.id === selectedStepId);
 	if (!step) return null;
-	const span = resolveThoughtStepAnchorSpan(step.anchor, content);
-	if (!span) return null;
-	return { step, span };
+	// Show the anchored span (highlighted) plus enough surrounding text to
+	// complete its own sentence, so the reveal no longer begins/ends
+	// mid-sentence. `before`/`after` are real, un-highlighted context.
+	const reveal = resolveThoughtStepDisplayContext(step.anchor, content);
+	if (!reveal) return null;
+	return { step, ...reveal };
 });
 
 function selectThoughtStep(step: InterimThoughtStep) {
@@ -1201,66 +1211,60 @@ function toggleFullReasoning(): void {
 	{/if}
 {/snippet}
 
-{#snippet fetchedChip(source: FetchedSource, dimUncited: boolean)}
-	{@const faviconUrl = getFaviconUrl(source.url)}
-	{@const cited = isCitedSource(source)}
-	<a
-		class="fetched-source-chip"
-		class:is-cited={cited}
-		class:is-uncited={!cited && dimUncited}
-		href={source.url}
-		target="_blank"
-		rel="noopener noreferrer"
-		title={chipTooltip(source)}
-		aria-label={source.title}
+<!--
+	The search/read source disclosure. Closed: the collapsed favicon stack +
+	summary line (unchanged). Open: a controlled, full-width list of the results
+	one per line (favicon left, page title right), sliding in with the app's
+	standard disclosure transition. `groupKey` keys the open-set so each row's
+	disclosure toggles independently; there is no "+N" fold — a web turn never
+	returns more than a handful of sources, so the whole list is shown.
+-->
+{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string, kind: "search" | "read", groupKey: string)}
+	{@const isOpen = openFetchedGroupKeys.has(groupKey)}
+	<button
+		type="button"
+		class={`${summaryClass} fetched-source-summary-btn`}
+		aria-expanded={isOpen}
+		onclick={() => toggleFetchedGroup(groupKey)}
 	>
-		{#if faviconUrl}
-			<img
-				class="fetched-favicon"
-				src={faviconUrl}
-				alt=""
-				loading="lazy"
-				decoding="async"
-				referrerpolicy="no-referrer"
-				onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-			/>
-		{/if}
-		{#if cited}
-			<span class="fetched-chip-cited-dot" aria-hidden="true"></span>
-		{/if}
-		<span class="fetched-source-tooltip" role="tooltip" aria-hidden="true">
-			<span class="fetched-tooltip-title">
-				{#if cited}
-					<span class="fetched-tooltip-cited">{$t('toolCalls.citedMarker')}</span>
-				{/if}
-				{source.title}
+		<span class="fetched-source-summary">
+			<span class="fetched-favicon-stack" aria-hidden="true">
+				{#each sources as source}
+					{@const faviconUrl = getFaviconUrl(source.url)}
+					{#if faviconUrl}
+						<img
+							class="fetched-favicon-stack-icon"
+							src={faviconUrl}
+							alt=""
+							loading="lazy"
+							decoding="async"
+							referrerpolicy="no-referrer"
+							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+						/>
+					{/if}
+				{/each}
 			</span>
-			{#if source.reason}
-				<span class="fetched-tooltip-reason">{source.reason}</span>
-			{/if}
+			<span class="fetched-source-summary-text">{fetchedSourceSummary(sources, kind)}</span>
 		</span>
-	</a>
-{/snippet}
-
-{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string, kind: "search" | "read")}
-	{@const cited = sources.filter(isCitedSource)}
-	{@const uncited = uncitedSources(sources)}
-	{@const visibleUncited = uncited.slice(0, UNCITED_CHIP_LIMIT)}
-	{@const overflowUncited = uncited.slice(UNCITED_CHIP_LIMIT)}
-	<!-- Only dim uncited chips when there's actually a cited source to contrast
-	     against. In the zero-citation fallback (and for read-page/fetch_url
-	     segments, which have no citation concept), every chip renders neutral at
-	     full opacity instead of a uniformly dimmed row. -->
-	{@const dimUncited = cited.length > 0}
-	<details class="fetched-source-group">
-		<summary class={summaryClass}>
-			<span class="fetched-source-summary">
-				<span class="fetched-favicon-stack" aria-hidden="true">
-					{#each sources as source}
-						{@const faviconUrl = getFaviconUrl(source.url)}
+		<ChevronDown class={`fetched-source-caret${isOpen ? ' expanded' : ''}`} size={13} strokeWidth={2} aria-hidden="true" />
+	</button>
+	{#if isOpen}
+		<div class="fetched-source-results" transition:slideTransition={{ duration: 200 }}>
+			{#each sources as source (source.url)}
+				{@const faviconUrl = getFaviconUrl(source.url)}
+				{@const cited = isCitedSource(source)}
+				<a
+					class="fetched-source-result"
+					class:is-cited={cited}
+					href={source.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					title={source.reason ?? source.title}
+				>
+					<span class="fetched-source-result-favicon" aria-hidden="true">
 						{#if faviconUrl}
 							<img
-								class="fetched-favicon-stack-icon"
+								class="fetched-favicon"
 								src={faviconUrl}
 								alt=""
 								loading="lazy"
@@ -1268,34 +1272,18 @@ function toggleFullReasoning(): void {
 								referrerpolicy="no-referrer"
 								onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
 							/>
+						{:else}
+							<Globe class="fetched-source-result-globe" size={13} strokeWidth={2} aria-hidden="true" />
 						{/if}
-					{/each}
-				</span>
-				<span>{fetchedSourceSummary(sources, kind)}</span>
-			</span>
-		</summary>
-		<div class="fetched-source-chips">
-			{#each cited as source}
-				{@render fetchedChip(source, dimUncited)}
+					</span>
+					<span class="fetched-source-result-title">{source.title}</span>
+					{#if cited}
+						<Check class="fetched-source-result-cited" size={12} strokeWidth={2.2} aria-hidden="true" />
+					{/if}
+				</a>
 			{/each}
-			{#each visibleUncited as source}
-				{@render fetchedChip(source, dimUncited)}
-			{/each}
-			{#if overflowUncited.length > 0}
-				<details class="fetched-chip-more">
-					<summary
-						class="fetched-chip-more-summary"
-						aria-label={$t('toolCalls.moreSourcesLabel', { count: overflowUncited.length })}
-					>{$t('toolCalls.moreSourcesCount', { count: overflowUncited.length })}</summary>
-					<div class="fetched-source-chips fetched-source-chips--overflow">
-						{#each overflowUncited as source}
-							{@render fetchedChip(source, dimUncited)}
-						{/each}
-					</div>
-				</details>
-			{/if}
 		</div>
-	</details>
+	{/if}
 {/snippet}
 
 {#snippet connectorGroupDetails(tools: ToolCallSegment[], summaryClass: string)}
@@ -1453,7 +1441,7 @@ function toggleFullReasoning(): void {
 		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
 			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search')}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search', rowKey)}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
@@ -1463,7 +1451,7 @@ function toggleFullReasoning(): void {
 		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
 			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read')}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read', rowKey)}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
@@ -1523,7 +1511,7 @@ function toggleFullReasoning(): void {
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
 			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search')}
+			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search', rowKey)}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
@@ -1533,7 +1521,7 @@ function toggleFullReasoning(): void {
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
 			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read')}
+			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read', rowKey)}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
@@ -1783,7 +1771,7 @@ function toggleFullReasoning(): void {
 							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
 							{$t('chat.thoughtStep.backToSteps')}
 						</button>
-						<pre class="thinking-text" bind:this={selectedStepRevealEl}><mark class="thought-step-anchor-highlight">{selectedStepReveal.span}</mark></pre>
+						<pre class="thinking-text" bind:this={selectedStepRevealEl}>{selectedStepReveal.before}<mark class="thought-step-anchor-highlight">{selectedStepReveal.span}</mark>{selectedStepReveal.after}</pre>
 					</div>
 				{:else if showFullReasoning}
 					<div class="full-reasoning-view" in:flyTransition={{ y: 8, duration: 200 }}>
@@ -1997,6 +1985,7 @@ function toggleFullReasoning(): void {
 	   "not rounded while running" complaint. */
 	.tool-call-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-xs);
 		width: fit-content;
@@ -2013,9 +2002,14 @@ function toggleFullReasoning(): void {
 			border-color var(--duration-standard) var(--ease-out);
 	}
 
-	/* A chip whose inner disclosure is open grows tall; relax the pill into
-	   the app's card radius so it never reads as a stretched lozenge. */
-	.tool-call-row:has(details[open]) {
+	/* An open source disclosure grows tall and its result list breaks out to a
+	   full-width row (flex-basis: 100% wrapping under the header line). The row
+	   stretches edge-to-edge, relaxes the pill into the app's card radius, and
+	   pins the leading tick/globe to the TOP of the header line rather than
+	   letting them drift to the vertical middle of the now-tall row. */
+	.tool-call-row:has(.fetched-source-results) {
+		align-items: flex-start;
+		width: 100%;
 		border-radius: var(--radius-md);
 	}
 
@@ -2101,39 +2095,42 @@ function toggleFullReasoning(): void {
 		word-break: break-word;
 	}
 
-	.fetched-source-group {
+	/* The collapsed summary is now a real <button> (not a native <summary>) so
+	   the open reveal can slide and break out to full width. It keeps the label
+	   typography passed in via summaryClass (tool-label-text / tool-item-label)
+	   and lays out as: [favicon stack + summary text] ......... [caret]. */
+	.fetched-source-summary-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		flex: 1 1 auto;
 		min-width: 0;
 		max-width: 100%;
-	}
-
-	.fetched-source-group summary {
+		margin: 0;
+		padding: 0;
+		border: none;
+		background: transparent;
+		font: inherit;
+		color: inherit;
+		text-align: left;
 		cursor: pointer;
-		list-style-position: inside;
-		border-radius: 2px;
+		border-radius: 4px;
 		transition: color 150ms var(--ease-out);
 	}
 
-	/* Owner polish pass (visual fixes) — the native disclosure triangle reads
-	   oversized inside the compact chips; mute and shrink it so it sits as a
-	   quiet affordance next to the label rather than a heavy glyph. */
-	.fetched-source-group summary::marker,
-	.connector-group summary::marker {
-		color: var(--icon-muted);
-		font-size: 0.7em;
-	}
-
-	/* Owner polish pass, item 3 — hover feedback on every clickable element,
-	   including the native <details><summary> disclosures already in the
-	   rail (fetched-source-group/connector-group/fetched-chip-more). */
-	.fetched-source-group summary:hover,
-	.fetched-source-group summary:focus-visible {
+	.fetched-source-summary-btn:hover,
+	.fetched-source-summary-btn:focus-visible {
 		color: var(--text-primary);
 	}
 
-	.fetched-source-group summary:focus-visible {
+	.fetched-source-summary-btn:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.connector-group summary::marker {
+		color: var(--icon-muted);
+		font-size: 0.7em;
 	}
 
 	.fetched-source-summary {
@@ -2141,8 +2138,24 @@ function toggleFullReasoning(): void {
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-		max-width: 100%;
+		flex: 1 1 auto;
 		vertical-align: middle;
+	}
+
+	.fetched-source-summary-text {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	/* The trailing disclosure caret; rotates when the result list is open. */
+	:global(.fetched-source-caret) {
+		flex-shrink: 0;
+		color: var(--icon-muted);
+		transition: transform var(--duration-standard) var(--ease-out);
+	}
+
+	:global(.fetched-source-caret.expanded) {
+		transform: rotate(180deg);
 	}
 
 	.fetched-favicon-stack {
@@ -2181,162 +2194,87 @@ function toggleFullReasoning(): void {
 		object-fit: cover;
 	}
 
-	/* Compact cited-first chip row: reuses the 14px favicon circle tokens from
-	   the collapsed stack, wrapping into a tidy grid instead of the old
-	   full-width vertical link list. */
-	.fetched-source-chips {
+	/* The opened result list. flex-basis: 100% makes it wrap onto its own line
+	   under the header inside the wrapping .tool-call-row / .tool-call-item,
+	   so it spans the full left-to-right width of the box. One result per row. */
+	.fetched-source-results {
+		flex: 0 0 100%;
+		width: 100%;
+		min-width: 0;
 		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 6px;
-		margin-top: 6px;
-		padding-left: 16px;
-	}
-
-	.fetched-source-chips--overflow {
-		margin-top: 6px;
-		padding-left: 0;
-	}
-
-	.fetched-source-chip {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 22px;
-		height: 22px;
-		border-radius: 50%;
-		flex: 0 0 auto;
-	}
-
-	.fetched-source-chip .fetched-favicon {
-		width: 14px;
-		height: 14px;
-	}
-
-	/* Cited chips lead and carry a subtle accent ring so the answer's actual
-	   citations read as primary; uncited ("also found") chips sit dimmed. */
-	.fetched-source-chip.is-cited {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-	}
-
-	.fetched-source-chip.is-uncited {
-		opacity: 0.55;
-	}
-
-	.fetched-source-chip.is-uncited:hover,
-	.fetched-source-chip.is-uncited:focus-visible {
-		opacity: 1;
-	}
-
-	.fetched-source-chip:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.fetched-chip-cited-dot {
-		position: absolute;
-		right: -1px;
-		bottom: -1px;
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: var(--accent);
-		border: 1px solid var(--surface-page);
-	}
-
-	/* Hover/focus tooltip: favicon-adjacent card with title (line 1) + compact
-	   reason (line 2). Absolutely positioned within the chip (never fixed), so
-	   it never leaks out of the thinking block's own scroll context. */
-	.fetched-source-tooltip {
-		position: absolute;
-		bottom: calc(100% + 6px);
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 20;
-		display: none;
 		flex-direction: column;
-		gap: 2px;
-		width: max-content;
-		max-width: min(260px, 60vw);
-		padding: 6px 8px;
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		border: 1px solid var(--border-default);
-		box-shadow: 0 4px 14px color-mix(in srgb, var(--shadow-color, #000) 18%, transparent);
-		font-family: var(--font-sans);
-		text-align: left;
-		pointer-events: none;
+		gap: 1px;
+		margin-top: 6px;
 	}
 
-	.fetched-source-chip:hover .fetched-source-tooltip,
-	.fetched-source-chip:focus-visible .fetched-source-tooltip {
+	/* One result: favicon left, page title right, hover wash across the WHOLE
+	   line. The title wraps freely (overflow-wrap: anywhere) — no fixed-size
+	   box to clip or overflow it. */
+	.fetched-source-result {
 		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		width: 100%;
+		min-width: 0;
+		padding: 5px 8px;
+		border-radius: var(--radius-sm);
+		text-decoration: none;
+		color: var(--text-secondary);
+		transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
 	}
 
-	.fetched-tooltip-title {
-		font-size: var(--text-xs, 0.75rem);
-		font-weight: 600;
+	.fetched-source-result:hover,
+	.fetched-source-result:focus-visible {
+		background: var(--surface-overlay);
 		color: var(--text-primary);
-		line-height: 1.3;
-		overflow-wrap: anywhere;
-	}
-
-	.fetched-tooltip-cited {
-		display: inline-block;
-		margin-right: 4px;
-		padding: 0 5px;
-		border-radius: 9999px;
-		font-size: 0.625rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 16%, transparent);
-	}
-
-	.fetched-tooltip-reason {
-		font-size: var(--text-xs, 0.75rem);
-		color: var(--text-muted);
-		line-height: 1.35;
-		overflow-wrap: anywhere;
-	}
-
-	.fetched-chip-more {
-		flex: 0 0 auto;
-	}
-
-	.fetched-chip-more-summary {
-		cursor: pointer;
-		list-style: none;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 22px;
-		height: 22px;
-		padding: 0 6px;
-		border-radius: 9999px;
-		background: var(--surface-elevated);
-		border: 1px solid var(--border-default);
-		font-family: var(--font-sans);
-		font-size: var(--text-xs, 0.75rem);
-		color: var(--text-muted);
-		transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out);
-	}
-
-	.fetched-chip-more-summary:hover,
-	.fetched-chip-more-summary:focus-visible {
-		color: var(--text-primary);
-		border-color: var(--accent);
-	}
-
-	.fetched-chip-more-summary:focus-visible {
 		outline: none;
+	}
+
+	.fetched-source-result:focus-visible {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.fetched-chip-more-summary::-webkit-details-marker {
-		display: none;
+	.fetched-source-result-favicon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		flex-shrink: 0;
+		/* nudge down so it optically aligns with the first line of the title */
+		margin-top: 1px;
+	}
+
+	.fetched-source-result-favicon .fetched-favicon {
+		width: 16px;
+		height: 16px;
+	}
+
+	:global(.fetched-source-result-globe) {
+		color: var(--icon-muted);
+	}
+
+	.fetched-source-result-title {
+		flex: 1 1 auto;
+		min-width: 0;
+		font-size: var(--text-sm);
+		line-height: 1.4;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+
+	/* Cited sources (the answer's actual citations) read a touch stronger and
+	   carry a small accent check, so the citation signal survives the switch
+	   from the old ringed chip to a plain row. */
+	.fetched-source-result.is-cited .fetched-source-result-title {
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	:global(.fetched-source-result-cited) {
+		flex-shrink: 0;
+		margin-top: 2px;
+		color: var(--accent);
 	}
 
 	.connector-group {
@@ -2544,6 +2482,7 @@ function toggleFullReasoning(): void {
 	/* Inline tool call rows between thinking text segments */
 	.tool-call-item {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-xs);
 		font-family: var(--font-sans);
@@ -2552,6 +2491,12 @@ function toggleFullReasoning(): void {
 		margin: var(--space-xs) 0;
 		width: 100%;
 		min-width: 0;
+	}
+
+	/* Same full-width breakout as .tool-call-row: an open source list drops to
+	   its own row and the leading icons pin to the top of the header line. */
+	.tool-call-item:has(.fetched-source-results) {
+		align-items: flex-start;
 	}
 
 	.tool-call-item.is-failed {
@@ -2581,6 +2526,12 @@ function toggleFullReasoning(): void {
 		white-space: normal;
 		overflow-wrap: anywhere;
 		word-break: break-word;
+		/* The label's color/underline lifts on hover in step with the row's own
+		   background wash (.thought-step-row transitions background-color at the
+		   same 150ms) — previously the text snapped instantly while the box
+		   animated, which read as rushed. */
+		transition: color 150ms var(--ease-out),
+			text-decoration-color 150ms var(--ease-out);
 	}
 
 	.status-step.status-deliberation {
@@ -2649,7 +2600,11 @@ function toggleFullReasoning(): void {
 	   it settles rather than snapping. */
 	.thought-step-row {
 		display: flex;
-		align-items: center;
+		/* flex-start, not center: when the headline wraps to a second line the
+		   leading icon and trailing duration pin to the FIRST line and the text
+		   reads as a natural left-aligned block, instead of the whole label
+		   floating to the vertical middle of the row. */
+		align-items: flex-start;
 		gap: var(--space-xs);
 		width: 100%;
 		min-width: 0;
@@ -2664,6 +2619,16 @@ function toggleFullReasoning(): void {
 		text-align: left;
 		cursor: pointer;
 		transition: background-color 150ms var(--ease-out);
+	}
+
+	/* Optically center the small leading icon / trailing duration on the first
+	   line of the headline now that the row aligns to flex-start. */
+	.thought-step-row > :global(.thought-step-class-icon) {
+		margin-top: 3px;
+	}
+
+	.thought-step-row .thought-step-duration {
+		margin-top: 1px;
 	}
 
 	.thought-step-row:hover,
@@ -2746,19 +2711,24 @@ function toggleFullReasoning(): void {
 		transition: background-color var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
 	}
 
-	/* Matches .tool-call-row:has(details[open]) above — an expanded inner
-	   disclosure relaxes the pill into the card radius. A click-opened
-	   .tool-detail-panel additionally stacks BELOW its row (the chip's
-	   inline-flex would otherwise lay the panel out beside the label as a
-	   bulging lozenge). */
-	.thought-rail-chip:has(details[open]),
-	.thought-rail-chip:has(.tool-detail-panel) {
+	/* An expanded inner disclosure (a click-opened .tool-detail-panel, or the
+	   open source-result list) relaxes the pill into the card radius and stacks
+	   its reveal BELOW the header row: the chip goes full width and column, so
+	   the result list can span edge to edge instead of bulging out sideways as
+	   a lozenge beside the label. */
+	.thought-rail-chip:has(.tool-detail-panel),
+	.thought-rail-chip:has(.fetched-source-results) {
 		border-radius: var(--radius-md);
-	}
-
-	.thought-rail-chip:has(.tool-detail-panel) {
+		width: 100%;
 		flex-direction: column;
 		align-items: stretch;
+	}
+
+	/* A connector group still uses a native <details>; open, it only relaxes
+	   the pill radius (its action list lays out inside the summary, so it
+	   doesn't need the full-width column breakout above). */
+	.thought-rail-chip:has(details[open]) {
+		border-radius: var(--radius-md);
 	}
 
 	.thought-rail-chip:has(.tool-label-text--clickable:hover),
