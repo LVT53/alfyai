@@ -201,7 +201,7 @@ const JSON_FORMATTING_RULES = [
 // every other guard constant here.
 const RICH_BLOCK_SYNTAX_GUIDE = [
 	"Rich answer blocks — the chat UI renders these natively. EMIT them directly when they help; do NOT dump structured content into a generic ``` code fence:",
-	"- Checklists: GFM task lists — `- [ ] todo` and `- [x] done` render as interactive, tickable checkboxes. Use for steps and to-dos.",
+	"- Checklists: write the task list directly in the message text, each item on its own line as `- [ ] todo` or `- [x] done`. The `- ` before the box is REQUIRED, and the list must NOT be inside a ``` code fence — `[ ] item` on its own or a fenced block renders as dead monospaced text instead of tickable checkboxes. Use for steps and to-dos.",
 	"- Collapsible sections: `<details><summary>Title</summary> …markdown… </details>` renders as an accordion. Use to tuck away long optional detail.",
 	"- Tables: standard GFM pipe tables render as first-class scrollable tables. Use for structured comparisons.",
 	"- Callouts: `> [!NOTE] Title` (also TIP, WARNING, IMPORTANT) renders as a highlighted callout.",

@@ -335,6 +335,91 @@ describe("loadMarkdownBlocks (chat block model)", () => {
 			{ checked: true, task: true, text: "done" },
 		]);
 	});
+
+	it("rescues a checklist the model wrapped in a bare code fence (no `- ` markers)", async () => {
+		const mod = await import("./markdown");
+		// The exact failure mode seen in production: bare ``` fence, `[ ]` items
+		// with no list marker. It must become an interactive checklist, not code.
+		const blocks = await mod.loadMarkdownBlocks(
+			"```\n[ ] Confirm the flight time\n[x] Book the coach\n[ ] Pack the bags\n```",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual(["checklist"]);
+		const [block] = blocks;
+		if (block.kind !== "checklist") throw new Error("expected checklist");
+		expect(block.items).toEqual([
+			{ checked: false, task: true, text: "Confirm the flight time" },
+			{ checked: true, task: true, text: "Book the coach" },
+			{ checked: false, task: true, text: "Pack the bags" },
+		]);
+	});
+
+	it("rescues an INDENTED fenced checklist into real checkboxes, not indented code", async () => {
+		const mod = await import("./markdown");
+		// A whole checklist indented 4 spaces inside the fence: the normalizer must
+		// dedent it, or the injected `- [ ]` markers would re-lex as a code block.
+		const blocks = await mod.loadMarkdownBlocks(
+			"```\n    [ ] Confirm the flight\n    [ ] Check in\n    [ ] Drop bags\n```",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual(["checklist"]);
+		const [block] = blocks;
+		if (block.kind !== "checklist") throw new Error("expected checklist");
+		expect(block.items.map((item) => item.text)).toEqual([
+			"Confirm the flight",
+			"Check in",
+			"Drop bags",
+		]);
+	});
+
+	it("rescues a fenced checklist whose items are indented under a flush label", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"```\nChecklist:\n    [ ] a\n    [ ] b\n```",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual(["html", "checklist"]);
+	});
+
+	it("rescues a multi-section fenced checklist, keeping section labels as prose", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"```\nBefore you fly\n[ ] Confirm the flight\n[ ] Check in\n\nAt the airport\n[ ] Drop bags\n```",
+		);
+
+		// Labels become prose; each checkbox run becomes its own interactive list.
+		expect(blocks.map((b) => b.kind)).toEqual([
+			"html",
+			"checklist",
+			"html",
+			"checklist",
+		]);
+	});
+
+	it("leaves a genuine code fence untouched", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"```js\nconst x = arr[0];\nif (x) run();\nreturn x;\n```",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual(["code"]);
+	});
+
+	it("does not rescue a fence tagged as markdown source", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"```markdown\n[ ] one\n[ ] two\n```",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual(["code"]);
+	});
+
+	it("does not rescue an unterminated (streaming) fence mid-stream", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks("```\n[ ] one\n[ ] two");
+
+		expect(blocks.map((b) => b.kind)).toEqual(["code"]);
+	});
 });
 
 describe("renderInlineMarkdown (checklist item bodies)", () => {

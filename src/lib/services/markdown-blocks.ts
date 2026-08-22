@@ -129,7 +129,7 @@ const FENCE_LINE_PATTERN = /^[ \t]*(?:`{3,}|~{3,})[ \t]*$/;
  * `raw` ends with a line that is nothing but fence characters. We use this to
  * keep a partial diagram fence in the safe `code` lane until it closes.
  */
-function isFenceClosed(raw: string): boolean {
+export function isFenceClosed(raw: string): boolean {
 	const lines = raw.replace(/\s+$/, "").split("\n");
 	if (lines.length < 2) return false;
 	return FENCE_LINE_PATTERN.test(lines[lines.length - 1]);
@@ -138,6 +138,91 @@ function isFenceClosed(raw: string): boolean {
 /** The bare fence language keyword, lower-cased (drops any info-string tail). */
 function fenceLanguageKeyword(lang: string | undefined): string {
 	return (lang ?? "").trim().toLowerCase().split(/\s+/)[0] ?? "";
+}
+
+// A checklist line the model wrote inside a fence: an optional list marker, a
+// `[ ]`/`[x]` box, then item text. The `- `/`* ` marker is optional precisely
+// because the common failure mode is writing `[ ] item` WITHOUT it.
+const CHECKLIST_FENCE_ITEM = /^(\s*)(?:[-*]\s+)?\[([ xX])\]\s+(\S.*)$/;
+
+// Fence languages that signal checklist INTENT (promoted alongside bare fences).
+const CHECKLIST_INTENT_LANGS = new Set(["checklist", "todo", "task", "tasks"]);
+
+/**
+ * A code fence the model MEANT as a checklist but that renders as a dead
+ * monospaced block. Local Qwen models habitually emit checklists as `[ ] item`
+ * lines wrapped in a bare ``` fence — no `- ` marker (so it is not valid GFM)
+ * and inside a code fence (so it never becomes interactive). Detect that shape
+ * so the loader can rescue it into a real task list. Deliberately conservative:
+ * needs >=2 checkbox lines AND them being >=50% of the non-blank lines, so an
+ * ordinary code sample — which practically never starts lines with `[ ]` — is
+ * left untouched.
+ */
+export function isChecklistLikeFenceBody(text: string): boolean {
+	const nonBlank = text.split("\n").filter((line) => line.trim().length > 0);
+	if (nonBlank.length < 2) return false;
+	const checkbox = nonBlank.filter((line) =>
+		CHECKLIST_FENCE_ITEM.test(line),
+	).length;
+	return checkbox >= 2 && checkbox / nonBlank.length >= 0.5;
+}
+
+/**
+ * Whether a fence is eligible for the checklist rescue by its language tag: a
+ * bare fence (no language) or an explicit checklist-intent tag. A fence tagged
+ * with a real language (including `md`/`markdown`, which means "show the source")
+ * is never rescued.
+ */
+export function isPromotableChecklistFence(lang: string | undefined): boolean {
+	const keyword = fenceLanguageKeyword(lang);
+	return keyword === "" || CHECKLIST_INTENT_LANGS.has(keyword);
+}
+
+/** The leading-whitespace string common to every non-blank line (may be ""). */
+function commonLeadingWhitespace(lines: string[]): string {
+	const indents = lines
+		.filter((line) => line.trim().length > 0)
+		.map((line) => line.match(/^[ \t]*/)?.[0] ?? "");
+	if (indents.length === 0) return "";
+	let common = indents[0];
+	for (const indent of indents.slice(1)) {
+		let i = 0;
+		while (i < common.length && i < indent.length && common[i] === indent[i]) {
+			i++;
+		}
+		common = common.slice(0, i);
+		if (common === "") break;
+	}
+	return common;
+}
+
+/**
+ * Rewrite bare `[ ]`/`[x]` checklist lines to GFM task-list items (`- [ ] …`),
+ * leaving every other line (section labels, blanks) as written so a re-lex turns
+ * labels into prose and the checkbox runs into interactive lists.
+ *
+ * Two indentation hazards are handled so the re-lex actually yields a task list
+ * rather than an indented code block: (1) any indent common to the whole body is
+ * stripped, and (2) each emitted checkbox item is anchored at column 0. Without
+ * this, an indented fence body (`    [ ] a`) would be rewritten to `    - [ ] a`,
+ * which marked lexes as code — silently defeating the rescue AND injecting `- `
+ * markers into content that stays monospaced.
+ */
+export function normalizeChecklistFenceBody(text: string): string {
+	const lines = text.split("\n");
+	const common = commonLeadingWhitespace(lines);
+	return lines
+		.map((line) => {
+			const dedented =
+				common !== "" && line.startsWith(common)
+					? line.slice(common.length)
+					: line;
+			const match = dedented.match(CHECKLIST_FENCE_ITEM);
+			if (!match) return dedented;
+			const checked = match[2].toLowerCase() === "x" ? "x" : " ";
+			return `- [${checked}] ${match[3]}`;
+		})
+		.join("\n");
 }
 
 function countMatches(source: string, pattern: RegExp): number {

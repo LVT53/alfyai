@@ -4,7 +4,10 @@ import {
 	BLOCK_RENDER_STRATEGIES,
 	classifyMarkdownBlocks,
 	DIAGRAM_FENCE_KINDS,
+	isChecklistLikeFenceBody,
+	isPromotableChecklistFence,
 	type MarkdownBlock,
+	normalizeChecklistFenceBody,
 	resolveBlockRenderStrategy,
 } from "./markdown-blocks";
 
@@ -260,5 +263,63 @@ describe("block renderer registry", () => {
 		expect(resolveBlockRenderStrategy("callout")).toBe("prose");
 		expect(resolveBlockRenderStrategy("accordion")).toBe("prose");
 		expect(resolveBlockRenderStrategy("html")).toBe("prose");
+	});
+});
+
+describe("checklist-fence rescue helpers", () => {
+	it("recognises a body that is mostly checkbox lines", () => {
+		expect(
+			isChecklistLikeFenceBody("[ ] one\n[x] two\n[ ] three"),
+		).toBe(true);
+		// bare `[ ]` items OR proper `- [ ]` items both count as checklist lines
+		expect(isChecklistLikeFenceBody("- [ ] one\n- [x] two")).toBe(true);
+		// a section label mixed in is still a majority-checkbox body
+		expect(
+			isChecklistLikeFenceBody("Before you go\n[ ] one\n[ ] two"),
+		).toBe(true);
+	});
+
+	it("rejects ordinary code and sparse checkbox content", () => {
+		expect(isChecklistLikeFenceBody("const x = arr[0];\nreturn x;")).toBe(
+			false,
+		);
+		// a single checkbox line is not enough signal
+		expect(isChecklistLikeFenceBody("[ ] lonely")).toBe(false);
+		// checkboxes are a minority of the body
+		expect(
+			isChecklistLikeFenceBody("line a\nline b\nline c\n[ ] one"),
+		).toBe(false);
+	});
+
+	it("promotes only bare or checklist-intent fences, never a language fence", () => {
+		expect(isPromotableChecklistFence(undefined)).toBe(true);
+		expect(isPromotableChecklistFence("")).toBe(true);
+		expect(isPromotableChecklistFence("checklist")).toBe(true);
+		expect(isPromotableChecklistFence("todo")).toBe(true);
+		expect(isPromotableChecklistFence("js")).toBe(false);
+		expect(isPromotableChecklistFence("markdown")).toBe(false);
+		expect(isPromotableChecklistFence("md")).toBe(false);
+	});
+
+	it("normalizes bare checkbox lines to GFM task-list items, preserving other lines", () => {
+		expect(
+			normalizeChecklistFenceBody("Header\n[ ] one\n[X] two\n- [ ] three"),
+		).toBe("Header\n- [ ] one\n- [x] two\n- [ ] three");
+	});
+
+	it("dedents a uniformly-indented body and anchors checkbox items at column 0", () => {
+		// A wholly-indented body would otherwise re-lex as an indented code block.
+		expect(normalizeChecklistFenceBody("    [ ] a\n    [ ] b")).toBe(
+			"- [ ] a\n- [ ] b",
+		);
+		// Tabs behave the same.
+		expect(normalizeChecklistFenceBody("\t[ ] a\n\t[ ] b")).toBe(
+			"- [ ] a\n- [ ] b",
+		);
+		// Label flush at column 0 with items indented deeper: items still land at
+		// column 0 (never re-injected with an indent that turns them into code).
+		expect(normalizeChecklistFenceBody("Header\n    [ ] a")).toBe(
+			"Header\n- [ ] a",
+		);
 	});
 });

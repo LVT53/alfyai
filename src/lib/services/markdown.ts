@@ -1,8 +1,16 @@
 import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
-import { classifyMarkdownBlocks, type MarkdownBlock } from "./markdown-blocks";
+import {
+	classifyMarkdownBlocks,
+	isChecklistLikeFenceBody,
+	isFenceClosed,
+	isPromotableChecklistFence,
+	type MarkdownBlock,
+	normalizeChecklistFenceBody,
+} from "./markdown-blocks";
 import { stripPlainSourceReferenceMarkers } from "./stream-protocol";
 
 type MarkedModule = typeof import("marked");
+type MarkedToken = ReturnType<MarkedModule["marked"]["lexer"]>[number];
 type Highlighter = Awaited<
 	ReturnType<
 		ReturnType<typeof import("shiki/core")["createBundledHighlighter"]>
@@ -276,11 +284,39 @@ async function loadMarkdownBlocks(content: string): Promise<MarkdownBlock[]> {
 	await initMarkdownParser();
 	const marked = getMarked();
 	const normalized = normalizeMarkdownContent(content);
-	const tokens = marked.lexer(normalized, {
-		breaks: true,
-		gfm: true,
-	});
-	return classifyMarkdownBlocks(tokens);
+	const lex = (source: string): MarkedToken[] =>
+		marked.lexer(source, { breaks: true, gfm: true });
+	return classifyMarkdownBlocks(rescueChecklistFences(lex(normalized), lex));
+}
+
+/**
+ * Rescue checklists the model buried in a bare code fence. A closed, promotable
+ * fence whose body reads as a checklist is normalized (bare `[ ]` → `- [ ]`) and
+ * re-lexed in place, so its section labels become prose and its checkbox runs
+ * become interactive task lists instead of a dead monospaced block. Every other
+ * token passes through untouched. See markdown-blocks.ts for the shape checks.
+ */
+function rescueChecklistFences(
+	tokens: MarkedToken[],
+	lex: (source: string) => MarkedToken[],
+): MarkedToken[] {
+	const out: MarkedToken[] = [];
+	for (const token of tokens) {
+		if (
+			token.type === "code" &&
+			isFenceClosed(token.raw ?? "") &&
+			isPromotableChecklistFence((token as { lang?: string }).lang) &&
+			isChecklistLikeFenceBody((token as { text?: string }).text ?? "")
+		) {
+			const body = normalizeChecklistFenceBody(
+				(token as { text?: string }).text ?? "",
+			);
+			out.push(...lex(body));
+			continue;
+		}
+		out.push(token);
+	}
+	return out;
 }
 
 /**
