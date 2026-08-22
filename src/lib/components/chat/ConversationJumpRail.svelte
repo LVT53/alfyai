@@ -22,6 +22,8 @@ import { t } from "$lib/i18n";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { buildJumpRailTurns, type JumpRailTurn } from "./jump-rail";
+import { List, X } from "@lucide/svelte";
+import { fade, fly } from "svelte/transition";
 
 let {
 	messages,
@@ -119,7 +121,82 @@ function waveScale(index: number): number {
 	const boost = [0.5, 0.35, 0.2, 0.08][distance] ?? 0;
 	return 1 + boost;
 }
+
+// --- Mobile "jump to turn" affordance (C5, ADR-0043 O-6) ---
+// The desktop wave-rail is hidden on the phone tier (no room for a floating
+// left rail). In its place, phones get a compact floating button that opens a
+// bottom sheet listing the same turns (reusing buildJumpRailTurns + the snippet
+// text), tappable to scroll to a turn. Desktop is untouched.
+let mobileSheetOpen = $state(false);
+
+// Refs for focus management on the aria-modal sheet. The FAB is the trigger we
+// return focus to on close; the sheet container is focused on open (it carries
+// tabindex="-1") and scoped for the Tab trap.
+let mobileFabRef = $state<HTMLButtonElement | null>(null);
+let mobileSheetRef = $state<HTMLDivElement | null>(null);
+
+function openMobileSheet() {
+	mobileSheetOpen = true;
+}
+
+function closeMobileSheet() {
+	mobileSheetOpen = false;
+	// Return focus to the trigger FAB on every close path (Escape, backdrop
+	// tap, the close button, or an entry tap) so focus is never left on the
+	// now-removed dialog.
+	mobileFabRef?.focus();
+}
+
+function jumpFromMobile(id: string) {
+	scrollToMessage(id);
+	closeMobileSheet();
+}
+
+// Focus-in on open: move focus INTO the dialog once the sheet mounts. Paired
+// with the return-focus in closeMobileSheet, this is the aria-modal focus
+// contract. Runs when the sheet opens and its element is bound.
+$effect(() => {
+	if (mobileSheetOpen && mobileSheetRef) {
+		mobileSheetRef.focus();
+	}
+});
+
+// Escape-to-close + Tab focus trap, active only while the sheet is open. The
+// window binding is torn down when the component unmounts; the open guard makes
+// it inert whenever the sheet is closed (so it can't hijack app-wide keys).
+function handleSheetKeydown(event: KeyboardEvent) {
+	if (!mobileSheetOpen) return;
+
+	if (event.key === "Escape") {
+		event.preventDefault();
+		closeMobileSheet();
+		return;
+	}
+
+	if (event.key === "Tab" && mobileSheetRef) {
+		const focusables = mobileSheetRef.querySelectorAll<HTMLElement>(
+			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+		);
+		if (focusables.length === 0) return;
+		const first = focusables[0];
+		const last = focusables[focusables.length - 1];
+		const active = document.activeElement;
+		if (event.shiftKey) {
+			// Wrap backward from the first focusable (or the container itself).
+			if (active === first || active === mobileSheetRef) {
+				last.focus();
+				event.preventDefault();
+			}
+		} else if (active === last) {
+			// Wrap forward from the last focusable.
+			first.focus();
+			event.preventDefault();
+		}
+	}
+}
 </script>
+
+<svelte:window onkeydown={handleSheetKeydown} />
 
 {#if turns.length >= 6}
 	<nav
@@ -164,6 +241,76 @@ function waveScale(index: number): number {
 			</div>
 		{/each}
 	</nav>
+{/if}
+
+<!-- Mobile jump-to-turn affordance (C5): only on the phone tier, in place of
+     the hidden desktop rail. A floating button opens a bottom sheet of turns. -->
+{#if turns.length >= 6 && isPhone}
+	<button
+		type="button"
+		data-testid="jump-rail-mobile-button"
+		class="jr-mobile-fab"
+		bind:this={mobileFabRef}
+		aria-label={$t("chat.jumpRailMobileOpen")}
+		aria-haspopup="dialog"
+		aria-expanded={mobileSheetOpen}
+		onclick={openMobileSheet}
+	>
+		<List size={20} strokeWidth={2} aria-hidden="true" />
+	</button>
+
+	{#if mobileSheetOpen}
+		<div
+			class="jr-mobile-backdrop"
+			data-testid="jump-rail-mobile-backdrop"
+			transition:fade={{ duration: reducedMotion ? 0 : 150 }}
+			onclick={closeMobileSheet}
+			role="presentation"
+		></div>
+		<div
+			class="jr-mobile-sheet"
+			data-testid="jump-rail-mobile-sheet"
+			bind:this={mobileSheetRef}
+			role="dialog"
+			aria-modal="true"
+			aria-label={$t("chat.jumpRailMobileTitle")}
+			tabindex="-1"
+			transition:fly={{
+				y: reducedMotion ? 0 : 240,
+				duration: reducedMotion ? 0 : 220,
+			}}
+		>
+			<div class="jr-mobile-sheet-header">
+				<span class="jr-mobile-sheet-title">{$t("chat.jumpRailMobileTitle")}</span>
+				<button
+					type="button"
+					class="jr-mobile-sheet-close"
+					aria-label={$t("common.close")}
+					onclick={closeMobileSheet}
+				>
+					<X size={18} strokeWidth={2} aria-hidden="true" />
+				</button>
+			</div>
+			<ul class="jr-mobile-list">
+				{#each turns as turn (turn.id)}
+					<li>
+						<button
+							type="button"
+							data-testid="jump-rail-mobile-entry"
+							class="jr-mobile-entry"
+							class:jr-mobile-entry--active={turn.id === activeId}
+							onclick={() => jumpFromMobile(turn.id)}
+						>
+							{#if turn.questionEyebrow}
+								<span class="jr-mobile-entry-eyebrow">{turn.questionEyebrow}</span>
+							{/if}
+							<span class="jr-mobile-entry-body">{turn.snippet}</span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 {/if}
 
 <style>
@@ -333,5 +480,141 @@ function waveScale(index: number): number {
 		50% {
 			opacity: 1;
 		}
+	}
+
+	/* --- Mobile jump-to-turn affordance (C5) --- */
+	.jr-mobile-fab {
+		position: fixed;
+		right: var(--space-md);
+		bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + 4.75rem);
+		z-index: 40;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--surface-elevated);
+		color: var(--text-secondary);
+		box-shadow: var(--shadow-md);
+		cursor: pointer;
+	}
+
+	.jr-mobile-fab:active {
+		background: var(--surface-page);
+	}
+
+	.jr-mobile-fab:focus-visible {
+		outline: none;
+		box-shadow:
+			var(--shadow-md),
+			0 0 0 2px var(--focus-ring);
+	}
+
+	.jr-mobile-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 50;
+		background: color-mix(in srgb, var(--text-primary) 45%, transparent);
+	}
+
+	.jr-mobile-sheet {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 51;
+		display: flex;
+		flex-direction: column;
+		max-height: 70vh;
+		padding: var(--space-sm) var(--space-md)
+			calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
+		border-top-left-radius: var(--radius-lg, 1rem);
+		border-top-right-radius: var(--radius-lg, 1rem);
+		background: var(--surface-elevated);
+		box-shadow: var(--shadow-lg);
+	}
+
+	.jr-mobile-sheet-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--space-xs) 0 var(--space-sm);
+	}
+
+	.jr-mobile-sheet-title {
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.jr-mobile-sheet-close {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		border: none;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.jr-mobile-sheet-close:active {
+		background: var(--surface-page);
+	}
+
+	.jr-mobile-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.jr-mobile-entry {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		width: 100%;
+		min-height: 44px;
+		padding: var(--space-sm) var(--space-xs);
+		border: none;
+		border-bottom: 1px solid var(--border-subtle, var(--border-default));
+		background: transparent;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.jr-mobile-entry:active {
+		background: var(--surface-page);
+	}
+
+	.jr-mobile-entry--active {
+		box-shadow: inset 3px 0 0 var(--accent);
+	}
+
+	.jr-mobile-entry-eyebrow {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		color: var(--text-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.jr-mobile-entry-body {
+		font-family: var(--font-serif);
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 </style>

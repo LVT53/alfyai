@@ -604,10 +604,17 @@ function inlineSourceReferenceMapFromCandidates(
 	return references;
 }
 
+// Privacy proxy (ADR-0043): route source-chip favicons through the app's own
+// same-origin `/api/favicon` endpoint instead of a third-party favicon service.
+// The previous `www.google.com/s2/favicons` URL leaked every cited domain to
+// Google on render; this mirrors `getFaviconUrl` in ThinkingBlock.svelte /
+// MessageEvidenceDetails.svelte (strip a leading `www.`, encode the host).
+// Preserves the null-on-parse-failure contract for non-web hrefs.
 function sourceFaviconUrl(href: string): string | null {
 	const parsedHref = parseExternalHref(href);
 	if (!parsedHref) return null;
-	return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsedHref.hostname)}&sz=32`;
+	const host = parsedHref.hostname.replace(/^www\./i, "");
+	return `/api/favicon?domain=${encodeURIComponent(host)}`;
 }
 
 function renderSourceLinkChip(params: { href: string; sourceName: string }) {
@@ -723,6 +730,22 @@ function createMarkdownRenderer(
 		);
 		return `<div class="markdown-table-wrap">${tableHtml}</div>`;
 	};
+	// Embedded images (C4): wrap every rendered image in a skeleton frame so a
+	// slow (not broken) image shows a shimmer placeholder and reserves space
+	// instead of flashing layout-shift when it finally loads. The frame starts in
+	// the `--loading` state; MarkdownRenderer flips it to `--loaded` on the image's
+	// load event (and `--broken` via the existing error handler). Data-attributes
+	// are stripped by DOMPurify, so the loading state rides on CSS classes. Href
+	// scheme safety is handled downstream by sanitizeHtml (unsafe schemes stripped).
+	renderer.image = ({ href, title, text }) => {
+		const altText = escapeHtml(text ?? "");
+		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
+		return [
+			'<span class="markdown-image-frame markdown-image-frame--loading">',
+			`<img class="markdown-image" src="${escapeHtml(href)}" alt="${altText}"${titleAttribute} loading="lazy" decoding="async">`,
+			"</span>",
+		].join("");
+	};
 	renderer.link = ({ href, title, tokens }) => {
 		const text = renderLinkText(tokens);
 		const parsedHref = parseExternalHref(href);
@@ -777,4 +800,5 @@ export {
 	renderInlineMarkdown,
 	renderMarkdown,
 	type SourceReferenceCandidate,
+	sourceFaviconUrl,
 };

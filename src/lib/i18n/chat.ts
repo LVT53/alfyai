@@ -52,6 +52,8 @@ const chatDict = {
 		"chat.incognitoTurnOff": "Turn off",
 		"chat.jumpRailA11yLabel": "Conversation navigation",
 		"chat.jumpRailMarkLabel": "Jump to reply: {label}",
+		"chat.jumpRailMobileOpen": "Jump to a turn",
+		"chat.jumpRailMobileTitle": "Jump to turn",
 		"chat.loading": "Loading messages...",
 		"chat.messagePlaceholder": "Type a message...",
 		"chat.messageWillSendAutomatically":
@@ -301,6 +303,8 @@ const chatDict = {
 		"codeBlock.copied": "Copied!",
 		"codeBlock.copyCode": "Copy code",
 		"codeBlock.expand": "Expand code block",
+		"codeBlock.showLess": "Show less",
+		"codeBlock.showMoreLines": "Show {count} more lines",
 		"diagram.chartError":
 			"This chart could not be rendered. Showing the source instead.",
 		"diagram.loading": "Rendering diagram…",
@@ -855,6 +859,8 @@ const chatDict = {
 		"chat.incognitoTurnOff": "Kikapcsolás",
 		"chat.jumpRailA11yLabel": "Beszélgetés navigáció",
 		"chat.jumpRailMarkLabel": "Ugrás a válaszhoz: {label}",
+		"chat.jumpRailMobileOpen": "Ugrás egy válaszra",
+		"chat.jumpRailMobileTitle": "Ugrás válaszra",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
@@ -1069,6 +1075,8 @@ const chatDict = {
 		"codeBlock.copied": "Másolva!",
 		"codeBlock.copyCode": "Kód másolása",
 		"codeBlock.expand": "Kódblokk kibontása",
+		"codeBlock.showLess": "Kevesebb megjelenítése",
+		"codeBlock.showMoreLines": "Még {count} sor megjelenítése",
 		"diagram.chartError":
 			"Ezt a diagramot nem sikerült megjeleníteni. A forrás látható helyette.",
 		"diagram.loading": "Ábra megjelenítése…",

@@ -71,6 +71,61 @@ describe("CodeBlock", () => {
 		expect(screen.getByText(chatDict.en["codeBlock.copied"])).toBeTruthy();
 	});
 
+	describe("long-block line collapse (C2)", () => {
+		const longCode = Array.from(
+			{ length: 40 },
+			(_, i) => `const line${i} = ${i};`,
+		).join("\n");
+		const shortCode = Array.from(
+			{ length: 10 },
+			(_, i) => `const line${i} = ${i};`,
+		).join("\n");
+
+		it("renders a >30-line block collapsed with a working expand toggle", async () => {
+			render(CodeBlock, {
+				props: { code: longCode, language: "javascript" },
+			});
+
+			const toggle = screen.getByTestId("code-lines-toggle");
+			expect(toggle).toBeTruthy();
+			// Starts collapsed: the clamp wrapper is present and the toggle offers
+			// to reveal the hidden lines (40 total − 15 visible = 25 hidden).
+			expect(toggle.getAttribute("aria-expanded")).toBe("false");
+			expect(toggle.textContent).toContain("25");
+			expect(document.querySelector(".code-clip--clamped")).toBeTruthy();
+
+			// Expanding removes the clamp and flips the toggle to "Show less".
+			await fireEvent.click(toggle);
+			expect(toggle.getAttribute("aria-expanded")).toBe("true");
+			expect(toggle.textContent).toContain("Show less");
+			expect(document.querySelector(".code-clip--clamped")).toBeNull();
+
+			// Collapsing again re-applies the clamp.
+			await fireEvent.click(toggle);
+			expect(toggle.getAttribute("aria-expanded")).toBe("false");
+			expect(document.querySelector(".code-clip--clamped")).toBeTruthy();
+		});
+
+		it("renders a short block fully with no collapse toggle", () => {
+			render(CodeBlock, {
+				props: { code: shortCode, language: "javascript" },
+			});
+
+			expect(screen.queryByTestId("code-lines-toggle")).toBeNull();
+			expect(document.querySelector(".code-clip--clamped")).toBeNull();
+		});
+
+		it("keeps the copy button and language label intact on a long block", () => {
+			render(CodeBlock, {
+				props: { code: longCode, language: "python" },
+			});
+
+			expect(screen.getByText("python")).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
+			expect(screen.getByTestId("code-lines-toggle")).toBeTruthy();
+		});
+	});
+
 	it("meets the ≥44px touch-target minimum on the copy button", () => {
 		// ADR-0043: interactive affordances on touch devices must be ≥44px.
 		// The size classes are present in the markup so touch users always get

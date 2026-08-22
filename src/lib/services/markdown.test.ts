@@ -62,12 +62,63 @@ describe("Markdown Rendering Service", () => {
 			'class="source-link-chip__label">Example Source</span>',
 		);
 		expect(html).toContain('class="source-link-chip__favicon"');
-		expect(html).toContain(
-			'src="https://www.google.com/s2/favicons?domain=example.com&amp;sz=32"',
-		);
+		// Privacy (C1): the favicon must be served from the app's same-origin
+		// /api/favicon proxy, never leaked to a third-party favicon service.
+		expect(html).toContain('src="/api/favicon?domain=example.com"');
+		expect(html).not.toContain("google.com");
 		expect(html).toContain('alt=""');
 		expect(html).toContain('class="source-link-chip__icon"');
 		expect(html).not.toContain(">Example Source</a>");
+	});
+
+	describe("image loading skeleton (C4)", () => {
+		it("wraps an embedded image in a loading skeleton frame", async () => {
+			const mod = await import("./markdown");
+			const html = await mod.renderMarkdown(
+				"![a diagram](https://example.com/diagram.png)",
+				false,
+			);
+
+			// The image is wrapped in a skeleton frame that starts in the loading
+			// state, so a slow image reserves space + shimmers instead of shifting.
+			expect(html).toContain(
+				'class="markdown-image-frame markdown-image-frame--loading"',
+			);
+			expect(html).toContain('class="markdown-image"');
+			expect(html).toContain('src="https://example.com/diagram.png"');
+			expect(html).toContain('alt="a diagram"');
+			// Lazy/async decoding hints stay on the image.
+			expect(html).toContain('loading="lazy"');
+		});
+	});
+
+	describe("sourceFaviconUrl (C1 — favicon privacy)", () => {
+		it("routes through the same-origin /api/favicon proxy, never google.com", async () => {
+			const { sourceFaviconUrl } = await import("./markdown");
+			const url = sourceFaviconUrl("https://example.com/page");
+			expect(url).toBe("/api/favicon?domain=example.com");
+			expect(url).not.toContain("google.com");
+		});
+
+		it("strips a leading www. from the host (mirrors getFaviconUrl)", async () => {
+			const { sourceFaviconUrl } = await import("./markdown");
+			expect(sourceFaviconUrl("https://www.nytimes.com/x")).toBe(
+				"/api/favicon?domain=nytimes.com",
+			);
+		});
+
+		it("encodes non-ASCII / punycode-eligible hosts safely", async () => {
+			const { sourceFaviconUrl } = await import("./markdown");
+			const url = sourceFaviconUrl("https://sub.example.co.uk/path?q=1");
+			expect(url).toBe("/api/favicon?domain=sub.example.co.uk");
+		});
+
+		it("returns null on a non-web / unparseable href (contract preserved)", async () => {
+			const { sourceFaviconUrl } = await import("./markdown");
+			expect(sourceFaviconUrl("not a url")).toBeNull();
+			expect(sourceFaviconUrl("javascript:alert(1)")).toBeNull();
+			expect(sourceFaviconUrl("")).toBeNull();
+		});
 	});
 
 	it("renders compact source chips with a hidden globe favicon fallback", async () => {

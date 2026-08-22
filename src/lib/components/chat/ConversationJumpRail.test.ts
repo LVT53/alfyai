@@ -142,4 +142,145 @@ describe("ConversationJumpRail", () => {
 		expect(rail.getAttribute("aria-hidden")).not.toBe("true");
 		expect(rail.className).not.toContain("is-phone");
 	});
+
+	describe("mobile jump-to-turn affordance (C5)", () => {
+		it("does NOT render the mobile affordance on desktop", () => {
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			expect(
+				screen.queryByTestId("jump-rail-mobile-button"),
+			).not.toBeInTheDocument();
+		});
+
+		it("renders the mobile affordance on phone while the desktop wave-rail is not presented", () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			// The compact mobile button is present…
+			expect(screen.getByTestId("jump-rail-mobile-button")).toBeInTheDocument();
+			// …and the desktop wave-rail is not presented to the user (hidden).
+			const rail = screen.queryByTestId("conversation-jump-rail");
+			if (rail) {
+				expect(rail.getAttribute("aria-hidden")).toBe("true");
+				expect(rail.className).toContain("is-phone");
+			}
+		});
+
+		it("opens a bottom sheet listing every turn", async () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			// Sheet is closed initially.
+			expect(
+				screen.queryByTestId("jump-rail-mobile-sheet"),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(screen.getByTestId("jump-rail-mobile-button"));
+
+			expect(screen.getByTestId("jump-rail-mobile-sheet")).toBeInTheDocument();
+			const entries = screen.getAllByTestId("jump-rail-mobile-entry");
+			expect(entries).toHaveLength(6);
+		});
+
+		it("scrolls to the turn and closes the sheet when an entry is tapped", async () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			await fireEvent.click(screen.getByTestId("jump-rail-mobile-button"));
+			const entries = screen.getAllByTestId("jump-rail-mobile-entry");
+			// The second entry corresponds to turn "a2".
+			await fireEvent.click(entries[1]);
+
+			expect(scrollToMessage).toHaveBeenCalledTimes(1);
+			expect(scrollToMessage).toHaveBeenCalledWith("a2");
+			// Tapping an entry dismisses the sheet: the trigger's expanded state
+			// returns to false immediately (the visual outro is transition-gated,
+			// but the closed state is deterministic).
+			expect(
+				screen
+					.getByTestId("jump-rail-mobile-button")
+					.getAttribute("aria-expanded"),
+			).toBe("false");
+		});
+
+		it("closes the sheet when Escape is pressed while it is open", async () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			const trigger = screen.getByTestId("jump-rail-mobile-button");
+			await fireEvent.click(trigger);
+			expect(screen.getByTestId("jump-rail-mobile-sheet")).toBeInTheDocument();
+			expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+			// Escape closes the sheet — asserted via the trigger's expanded state,
+			// which returns to false immediately (the visual outro is
+			// transition-gated, but the closed state is deterministic).
+			await fireEvent.keyDown(screen.getByTestId("jump-rail-mobile-sheet"), {
+				key: "Escape",
+			});
+
+			expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		});
+
+		it("moves focus into the dialog on open and returns it to the FAB on close", async () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			const trigger = screen.getByTestId("jump-rail-mobile-button");
+			await fireEvent.click(trigger);
+
+			// On open, focus is moved INTO the aria-modal dialog (the sheet
+			// container itself is focusable via tabindex="-1").
+			const sheet = screen.getByTestId("jump-rail-mobile-sheet");
+			expect(sheet.contains(document.activeElement)).toBe(true);
+
+			// On close, focus returns to the trigger FAB.
+			await fireEvent.keyDown(sheet, { key: "Escape" });
+			expect(document.activeElement).toBe(trigger);
+		});
+
+		it("traps Tab focus within the dialog while it is open", async () => {
+			mockViewportStore.tier = "phone";
+			const scrollToMessage = vi.fn();
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage },
+			});
+
+			await fireEvent.click(screen.getByTestId("jump-rail-mobile-button"));
+			const sheet = screen.getByTestId("jump-rail-mobile-sheet");
+			const focusables = sheet.querySelectorAll<HTMLElement>(
+				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+			);
+			const first = focusables[0];
+			const last = focusables[focusables.length - 1];
+
+			// Tab from the last focusable wraps to the first.
+			last.focus();
+			await fireEvent.keyDown(sheet, { key: "Tab" });
+			expect(document.activeElement).toBe(first);
+
+			// Shift+Tab from the first focusable wraps to the last.
+			first.focus();
+			await fireEvent.keyDown(sheet, { key: "Tab", shiftKey: true });
+			expect(document.activeElement).toBe(last);
+		});
+	});
 });

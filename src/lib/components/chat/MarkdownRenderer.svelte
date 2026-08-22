@@ -23,6 +23,7 @@ import {
 	computeTooltipPlacement,
 	resolveTooltipMaxWidth,
 } from "$lib/utils/tooltip-placement";
+import { shouldAnimateWords, wrapNewWords } from "./stream-word-wrap";
 import { onMount, tick } from "svelte";
 
 let {
@@ -271,66 +272,9 @@ $effect(() => {
 	void renderContent(nextContent, darkMode, streaming, compactLinks);
 });
 
-// Walk the last html block's DOM and wrap newly arrived words in animated spans.
-// Words at index < startIndex are already rendered; only wrap words >= startIndex.
-// Returns the total word count after processing.
-function wrapNewWords(element: HTMLElement, startIndex: number): number {
-	let wordIndex = 0;
-
-	function processNode(node: Node): void {
-		if (node.nodeType === Node.TEXT_NODE) {
-			const text = node.textContent ?? "";
-			const parts = text.split(/(\s+)/);
-
-			// Fast path: check if any word in this text node is new
-			let tempCount = wordIndex;
-			let nodeHasNew = false;
-			for (const part of parts) {
-				if (part.trim()) {
-					if (tempCount >= startIndex) {
-						nodeHasNew = true;
-						break;
-					}
-					tempCount++;
-				}
-			}
-
-			if (!nodeHasNew) {
-				for (const part of parts) {
-					if (part.trim()) wordIndex++;
-				}
-				return;
-			}
-
-			const fragment = document.createDocumentFragment();
-			for (const part of parts) {
-				if (!part.trim()) {
-					fragment.appendChild(document.createTextNode(part));
-				} else {
-					if (wordIndex >= startIndex) {
-						const span = document.createElement("span");
-						span.className = "word-new";
-						span.textContent = part;
-						fragment.appendChild(span);
-					} else {
-						fragment.appendChild(document.createTextNode(part));
-					}
-					wordIndex++;
-				}
-			}
-			node.parentNode?.replaceChild(fragment, node);
-		} else if (node.nodeType === Node.ELEMENT_NODE) {
-			const element = node as Element;
-			const tagName = element.tagName;
-			if (tagName === "SCRIPT" || tagName === "STYLE") return;
-			if (element.matches(".source-link-chip")) return;
-			Array.from(node.childNodes).forEach(processNode);
-		}
-	}
-
-	Array.from(element.childNodes).forEach(processNode);
-	return wordIndex;
-}
+// The newly-streamed-word wrapping lives in ./stream-word-wrap (C3): a pure DOM
+// walk plus the length threshold + per-tick cap that keep it bounded on long,
+// fast answers. See runPostRenderEffects for how they are applied.
 
 function applyBalancedTableLayout(table: HTMLTableElement) {
 	const columnCount = getTableColumnCount(table);
@@ -457,6 +401,27 @@ function handleContentImageError(event: Event) {
 	if (image.classList.contains("source-link-chip__favicon")) return;
 	if (!image.closest(".markdown-html")) return;
 	image.classList.add("markdown-image--broken");
+	// Collapse the C4 skeleton frame so a broken image leaves no dangling
+	// shimmer placeholder behind the (now hidden) broken img.
+	const frame = image.closest(".markdown-image-frame");
+	if (frame instanceof HTMLElement) {
+		frame.classList.remove("markdown-image-frame--loading");
+		frame.classList.add("markdown-image-frame--broken");
+	}
+}
+
+// Reveal a slow content image once it loads (C4): swap the skeleton frame out of
+// its loading state so the shimmer stops and the reserved neutral box releases.
+// Capture phase because "load" does not bubble.
+function handleContentImageLoad(event: Event) {
+	const image = event.target;
+	if (!(image instanceof HTMLImageElement)) return;
+	if (!image.classList.contains("markdown-image")) return;
+	const frame = image.closest(".markdown-image-frame");
+	if (frame instanceof HTMLElement) {
+		frame.classList.remove("markdown-image-frame--loading");
+		frame.classList.add("markdown-image-frame--loaded");
+	}
 }
 
 function getSourceLink(target: EventTarget | null): HTMLAnchorElement | null {
@@ -655,6 +620,7 @@ onMount(() => {
 	clickContainer?.addEventListener("keydown", handleSourceLinkKeydown);
 	clickContainer?.addEventListener("error", handleSourceFaviconError, true);
 	clickContainer?.addEventListener("error", handleContentImageError, true);
+	clickContainer?.addEventListener("load", handleContentImageLoad, true);
 
 	if (typeof ResizeObserver !== "undefined") {
 		resizeObserver = new ResizeObserver(() => {
@@ -714,6 +680,7 @@ onMount(() => {
 			true,
 		);
 		clickContainer?.removeEventListener("error", handleContentImageError, true);
+		clickContainer?.removeEventListener("load", handleContentImageLoad, true);
 	};
 });
 
@@ -726,9 +693,9 @@ async function runPostRenderEffects(version: number) {
 	scheduleTableEnhancement();
 	scheduleSourceTooltipPosition();
 
-	const shouldAnimateWords = isStreaming || wasStreaming;
+	const animateWords = isStreaming || wasStreaming;
 	wasStreaming = isStreaming;
-	if (!shouldAnimateWords) return;
+	if (!animateWords) return;
 
 	const blockEls = container.querySelectorAll<HTMLElement>(
 		":scope > .markdown-html",
@@ -741,7 +708,12 @@ async function runPostRenderEffects(version: number) {
 		prevLastBlockEl = lastBlockEl;
 	}
 
-	prevWordCount = wrapNewWords(lastBlockEl, prevWordCount);
+	// C3: on a very long answer, skip per-word wrapping entirely and let the
+	// whole-block fade-in carry the reveal — the wrapping (bounded per tick by
+	// the cap inside wrapNewWords) is preserved for normal-length answers.
+	if (shouldAnimateWords(content.length)) {
+		prevWordCount = wrapNewWords(lastBlockEl, prevWordCount);
+	}
 
 	// Reset word tracking after the final batch when streaming has ended
 	if (!isStreaming) {
@@ -825,6 +797,67 @@ $effect(() => {
      degradation) instead of showing the browser's broken-image placeholder. */
   .markdown-html :global(img.markdown-image--broken) {
     display: none;
+  }
+
+  /* Image loading skeleton (C4). The frame reserves a neutral box and shows a
+     shimmer while the image is loading, so a slow (not broken) image no longer
+     flashes layout-shift when it finally paints. Once loaded (JS toggles
+     --loaded) or broken (--broken) the reserved box + shimmer collapse. The img
+     is a child painted on top, so a loaded image naturally covers the shimmer
+     even before the class flips — the JS reveal just releases the reserved
+     space and stops the animation. */
+  .markdown-html :global(.markdown-image-frame) {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: var(--radius-sm, 0.375rem);
+    line-height: 0;
+    vertical-align: bottom;
+  }
+
+  .markdown-html :global(.markdown-image-frame--loading) {
+    min-width: 12rem;
+    min-height: 8rem;
+    background-color: color-mix(in srgb, var(--text-muted) 12%, transparent);
+    background-image: linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--text-muted) 14%, transparent) 40%,
+      color-mix(in srgb, var(--text-muted) 14%, transparent) 60%,
+      transparent 80%
+    );
+    background-size: 200% 100%;
+    animation: markdownImageShimmer 1.4s ease-in-out infinite;
+  }
+
+  .markdown-html :global(.markdown-image-frame--loaded),
+  .markdown-html :global(.markdown-image-frame--broken) {
+    min-width: 0;
+    min-height: 0;
+    background: none;
+    animation: none;
+  }
+
+  .markdown-html :global(.markdown-image) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  @keyframes markdownImageShimmer {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -50% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .markdown-html :global(.markdown-image-frame--loading) {
+      animation: none;
+    }
   }
 
   /* Code blocks fade in as a unit when they first appear.

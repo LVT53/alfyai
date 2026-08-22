@@ -199,6 +199,103 @@ describe("MarkdownRenderer — diagram lanes dispatch through the registry", () 
 	}, 20000);
 });
 
+describe("MarkdownRenderer — streaming word animation (C3)", () => {
+	it("wraps newly-streamed words in .word-new spans on a normal-length answer", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: {
+				content: "The quick brown fox jumps over the lazy dog.",
+				isStreaming: true,
+			},
+		});
+
+		await waitFor(
+			() => {
+				const wrapped = container.querySelectorAll(".word-new");
+				expect(wrapped.length).toBeGreaterThan(0);
+			},
+			{ timeout: 15000 },
+		);
+	}, 20000);
+
+	it("does not wrap per-word once the message exceeds the length threshold (falls back to block reveal)", async () => {
+		// Well past WORD_ANIMATION_MAX_CHARS (12k): the whole-block fade-in carries
+		// the reveal, so no per-word spans are created for the long answer.
+		const longContent = `${"word ".repeat(6000)}end`; // ~30k chars
+		const { container } = render(MarkdownRenderer, {
+			props: { content: longContent, isStreaming: true },
+		});
+
+		// Give the throttled render + post-render effect time to run.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		expect(container.querySelector(".markdown-html")).toBeTruthy();
+		expect(container.querySelectorAll(".word-new")).toHaveLength(0);
+	}, 20000);
+});
+
+describe("MarkdownRenderer — image loading skeleton (C4)", () => {
+	it("renders a skeleton frame before load and reveals the image on load", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: { content: "![a photo](https://example.com/photo.png)" },
+		});
+
+		let img: HTMLImageElement | null = null;
+		await waitFor(
+			() => {
+				const frame = container.querySelector(".markdown-image-frame");
+				expect(frame).toBeTruthy();
+				// Starts in the loading (shimmer + reserved-space) state.
+				expect(frame?.classList.contains("markdown-image-frame--loading")).toBe(
+					true,
+				);
+				img = container.querySelector<HTMLImageElement>(".markdown-image");
+				expect(img).toBeTruthy();
+				expect(img?.getAttribute("src")).toBe("https://example.com/photo.png");
+			},
+			{ timeout: 15000 },
+		);
+
+		// Simulate the image finishing loading: the frame leaves the loading state.
+		const image = img as unknown as HTMLImageElement;
+		image.dispatchEvent(new Event("load"));
+
+		const frame = container.querySelector(".markdown-image-frame");
+		expect(frame?.classList.contains("markdown-image-frame--loading")).toBe(
+			false,
+		);
+		expect(frame?.classList.contains("markdown-image-frame--loaded")).toBe(
+			true,
+		);
+	}, 20000);
+
+	it("marks a broken image and collapses its skeleton frame on error", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: { content: "![broken](https://example.com/gone.png)" },
+		});
+
+		let img: HTMLImageElement | null = null;
+		await waitFor(
+			() => {
+				img = container.querySelector<HTMLImageElement>(".markdown-image");
+				expect(img).toBeTruthy();
+			},
+			{ timeout: 15000 },
+		);
+
+		const image = img as unknown as HTMLImageElement;
+		image.dispatchEvent(new Event("error"));
+
+		expect(image.classList.contains("markdown-image--broken")).toBe(true);
+		const frame = container.querySelector(".markdown-image-frame");
+		expect(frame?.classList.contains("markdown-image-frame--broken")).toBe(
+			true,
+		);
+		expect(frame?.classList.contains("markdown-image-frame--loading")).toBe(
+			false,
+		);
+	}, 20000);
+});
+
 describe("MarkdownRenderer — accordion (details) rendering", () => {
 	it("renders a <details><summary> accordion with its title and collapsible body, and can be expanded", async () => {
 		const content = [
