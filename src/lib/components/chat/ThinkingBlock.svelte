@@ -292,7 +292,8 @@ type StatusSegment = ThinkingSegment & { type: "status" };
 // Connector tool calls (calendar/contacts/email/files/location/media/photos)
 // can fire dozens of times per turn. Collapse repeated calls to the same
 // capability into a single expandable group instead of spamming one row per
-// call — mirrors the existing fetchedSourceGroup collapse precedent below.
+// call — mirrors the existing fetched-source disclosure collapse precedent
+// below (fetchedSourceSummaryButton + fetchedSourceResultsPanel).
 type ToolStackEntry =
 	| { kind: "tool"; tool: ToolCallSegment; key: string }
 	| {
@@ -1212,14 +1213,18 @@ function toggleFullReasoning(): void {
 {/snippet}
 
 <!--
-	The search/read source disclosure. Closed: the collapsed favicon stack +
-	summary line (unchanged). Open: a controlled, full-width list of the results
-	one per line (favicon left, page title right), sliding in with the app's
-	standard disclosure transition. `groupKey` keys the open-set so each row's
-	disclosure toggles independently; there is no "+N" fold — a web turn never
-	returns more than a handful of sources, so the whole list is shown.
+	Tier 0 (chat-experience-elevation §3) — the search/read source disclosure,
+	split into two snippets so the opened result list can render as a full-width
+	SIBLING panel BELOW the pill rather than wrapping inside it. This is what
+	keeps the header line (tick + favicon summary + caret) a stable single line:
+	the pill's width never changes on toggle, so the tick stays vertically
+	centered and does not jump when the panel opens/closes.
+
+	`fetchedSourceSummaryButton` is just the collapsed header button: the
+	favicon stack + summary text + disclosure caret. `groupKey` keys the
+	open-set so each row toggles independently.
 -->
-{#snippet fetchedSourceGroup(sources: FetchedSource[], summaryClass: string, kind: "search" | "read", groupKey: string)}
+{#snippet fetchedSourceSummaryButton(sources: FetchedSource[], summaryClass: string, kind: "search" | "read", groupKey: string)}
 	{@const isOpen = openFetchedGroupKeys.has(groupKey)}
 	<button
 		type="button"
@@ -1248,11 +1253,24 @@ function toggleFullReasoning(): void {
 		</span>
 		<ChevronDown class={`fetched-source-caret${isOpen ? ' expanded' : ''}`} size={13} strokeWidth={2} aria-hidden="true" />
 	</button>
-	{#if isOpen}
+{/snippet}
+
+<!--
+	Tier 0 — the opened result list, a full-width sibling panel rendered AFTER
+	the pill row (never a child of it). One result per line (favicon left, page
+	title right), sliding in with the app's standard height transition. There is
+	no "+N" fold — a web turn returns only a handful of sources, so the whole
+	list is shown. Each row re-exposes its full excerpt in an un-clipped hover
+	popover (Fix D): title + reason, sized to content, wraps freely, never
+	truncated; the native `title` attr stays as the non-hover / a11y fallback.
+-->
+{#snippet fetchedSourceResultsPanel(sources: FetchedSource[], groupKey: string)}
+	{#if openFetchedGroupKeys.has(groupKey)}
 		<div class="fetched-source-results" transition:slideTransition={{ duration: 200 }}>
 			{#each sources as source (source.url)}
 				{@const faviconUrl = getFaviconUrl(source.url)}
 				{@const cited = isCitedSource(source)}
+				{@const reason = source.reason?.trim()}
 				<a
 					class="fetched-source-result"
 					class:is-cited={cited}
@@ -1279,6 +1297,12 @@ function toggleFullReasoning(): void {
 					<span class="fetched-source-result-title">{source.title}</span>
 					{#if cited}
 						<Check class="fetched-source-result-cited" size={12} strokeWidth={2.2} aria-hidden="true" />
+					{/if}
+					{#if reason}
+						<span class="fetched-source-popover" role="tooltip" aria-hidden="true">
+							<span class="fetched-source-popover-title">{source.title}</span>
+							<span class="fetched-source-popover-reason">{reason}</span>
+						</span>
 					{/if}
 				</a>
 			{/each}
@@ -1438,24 +1462,27 @@ function toggleFullReasoning(): void {
 {#snippet singleToolStackRow(tool: ToolCallSegment, rowKey: string, isCurrent: boolean)}
 	{@const fetchedSources = getFetchedSources(tool)}
 	{#if fetchedSources.length > 0}
+		<!-- Tier 0 Fix A — no toolIdentityIcon here; the summary text names the
+		     tool. Fix B — the results panel is a full-width sibling AFTER the
+		     pill row, so the row stays a stable single line. -->
 		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
-			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-label-text', 'search', rowKey)}
+			{@render fetchedSourceSummaryButton(fetchedSources, 'tool-label-text', 'search', rowKey)}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{@render fetchedSourceResultsPanel(fetchedSources, rowKey)}
 	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
 		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
-			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-label-text', 'read', rowKey)}
+			{@render fetchedSourceSummaryButton(fetchUrlSources, 'tool-label-text', 'read', rowKey)}
 			{#if tool.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{@render fetchedSourceResultsPanel(fetchUrlSources, rowKey)}
 	{:else}
 		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
 			{@render toolStatusIcon(tool.status, 'header')}
@@ -1508,24 +1535,26 @@ function toggleFullReasoning(): void {
 {#snippet singleToolItem(seg: ToolCallSegment, rowKey: string)}
 	{@const fetchedSources = getFetchedSources(seg)}
 	{#if fetchedSources.length > 0}
+		<!-- Tier 0 Fix A/B — no identity icon; results panel is a sibling AFTER
+		     the .tool-call-item header line. -->
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
-			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
-			{@render fetchedSourceGroup(fetchedSources, 'tool-item-label', 'search', rowKey)}
+			{@render fetchedSourceSummaryButton(fetchedSources, 'tool-item-label', 'search', rowKey)}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{@render fetchedSourceResultsPanel(fetchedSources, rowKey)}
 	{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
 		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
-			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
-			{@render fetchedSourceGroup(fetchUrlSources, 'tool-item-label', 'read', rowKey)}
+			{@render fetchedSourceSummaryButton(fetchUrlSources, 'tool-item-label', 'read', rowKey)}
 			{#if seg.status === 'failed'}
 				{@render toolFailedBadge()}
 			{/if}
 		</div>
+		{@render fetchedSourceResultsPanel(fetchUrlSources, rowKey)}
 	{:else}
 		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
 			{@render toolStatusIcon(seg.status, 'inline')}
@@ -1832,7 +1861,14 @@ function toggleFullReasoning(): void {
 		width: 100%;
 		min-width: 0;
 		max-width: 100%;
-		overflow: hidden;
+		/* Tier 0 Fix D — the per-result hover popover (position: absolute) must
+		   never be clipped. An `overflow: hidden` here would trap it (its
+		   containing block, .fetched-source-result, is a descendant), so the
+		   block no longer clips: the old reason for it (edge-clipping the
+		   full-bleed tool bars) is obsolete now that every child is a
+		   content-hugging pill and all text wraps (min-width: 0 + word-break),
+		   so nothing overflows horizontally to need clipping. */
+		overflow: visible;
 	}
 
 	/* Owner polish pass, item 1 — the header's own expand/collapse button and
@@ -1966,13 +2002,17 @@ function toggleFullReasoning(): void {
 			max-height 350ms cubic-bezier(0.2, 0.9, 0.25, 1),
 			padding 350ms cubic-bezier(0.2, 0.9, 0.25, 1);
 		max-height: 999px;
-		overflow: hidden;
+		/* Tier 0 Fix D — no `overflow: hidden` at rest, so a result row's hover
+		   popover can extend below the stack without being clipped. The clip is
+		   only needed while the stack collapses on completion, so it moves onto
+		   .fade-out below (no hover happens during that teardown). */
 	}
 
 	.tool-call-stack.fade-out {
 		opacity: 0;
 		max-height: 0;
 		padding: 0;
+		overflow: hidden;
 		pointer-events: none;
 	}
 
@@ -1985,7 +2025,6 @@ function toggleFullReasoning(): void {
 	   "not rounded while running" complaint. */
 	.tool-call-row {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-xs);
 		width: fit-content;
@@ -2002,16 +2041,12 @@ function toggleFullReasoning(): void {
 			border-color var(--duration-standard) var(--ease-out);
 	}
 
-	/* An open source disclosure grows tall and its result list breaks out to a
-	   full-width row (flex-basis: 100% wrapping under the header line). The row
-	   stretches edge-to-edge, relaxes the pill into the app's card radius, and
-	   pins the leading tick/globe to the TOP of the header line rather than
-	   letting them drift to the vertical middle of the now-tall row. */
-	.tool-call-row:has(.fetched-source-results) {
-		align-items: flex-start;
-		width: 100%;
-		border-radius: var(--radius-md);
-	}
+	/* Tier 0 Fix B/C — the pill is a stable single line at its natural
+	   fit-content width. The opened result list is a full-width SIBLING panel
+	   below it (.fetched-source-results, rendered after this row), so the row
+	   never grows, the tick stays vertically centered, and its width never
+	   snaps on open/close. (The previous flex-wrap + flex-basis:100% breakout
+	   and the align-items:flex-start-on-open override are gone.) */
 
 	/* Owner polish pass, item 3 — hover feedback for the always-visible tool
 	   stack row itself (the summary/button children inside it already get
@@ -2194,11 +2229,15 @@ function toggleFullReasoning(): void {
 		object-fit: cover;
 	}
 
-	/* The opened result list. flex-basis: 100% makes it wrap onto its own line
-	   under the header inside the wrapping .tool-call-row / .tool-call-item,
-	   so it spans the full left-to-right width of the box. One result per row. */
+	/* Tier 0 Fix B — the opened result list is a full-width SIBLING panel that
+	   sits below the pill (it is a sibling of .tool-call-row / .tool-call-item
+	   now, not a wrapped child). It stretches full width wherever it lands: in
+	   the tool-call-stack (a flex column, align-items: flex-start) and the
+	   interleaved rail its own width: 100% pins it edge to edge; in the
+	   clean-list chip the chip switches to a stretch column (see
+	   .thought-rail-chip:has(.fetched-source-results) below). One result per
+	   row, sliding open on height only — the pill's width never changes. */
 	.fetched-source-results {
-		flex: 0 0 100%;
 		width: 100%;
 		min-width: 0;
 		display: flex;
@@ -2209,8 +2248,10 @@ function toggleFullReasoning(): void {
 
 	/* One result: favicon left, page title right, hover wash across the WHOLE
 	   line. The title wraps freely (overflow-wrap: anywhere) — no fixed-size
-	   box to clip or overflow it. */
+	   box to clip or overflow it. position: relative anchors the Fix D hover
+	   excerpt popover below. */
 	.fetched-source-result {
+		position: relative;
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
@@ -2275,6 +2316,65 @@ function toggleFullReasoning(): void {
 		flex-shrink: 0;
 		margin-top: 2px;
 		color: var(--accent);
+	}
+
+	/* Tier 0 Fix D — the per-result hover excerpt popover, reinstated and
+	   fixed. Anchored to the row (which is position: relative), it opens just
+	   below the row and clamps its width, wrapping the full title + excerpt
+	   with NO fixed height and NO clipping on any side — the old bug was a
+	   hard-limited box that cut the text off. pointer-events: none so it never
+	   eats the row's own whole-line hover wash; the native `title` attr stays
+	   as the non-hover / a11y fallback. Clip-safety note: .thinking-block and
+	   .tool-call-stack were relaxed above, but the real scroll ancestor is
+	   .scroll-container in MessageArea.svelte (overflow-x: hidden;
+	   overflow-y: auto), which was NOT relaxed. This popover stays inside it
+	   only because it is left-anchored (left: 0) and width-capped at
+	   min(360px, 90vw) — a future right-anchored or wider popover would need
+	   care to avoid being clipped by .scroll-container. */
+	.fetched-source-popover {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		width: max-content;
+		max-width: min(360px, 90vw);
+		padding: 8px 10px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-default);
+		background: var(--surface-overlay);
+		box-shadow: var(--shadow-md, 0 8px 24px -8px rgba(0, 0, 0, 0.35));
+		white-space: normal;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+		pointer-events: none;
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity 120ms var(--ease-out);
+	}
+
+	.fetched-source-result:hover .fetched-source-popover,
+	.fetched-source-result:focus-within .fetched-source-popover,
+	.fetched-source-result:focus-visible .fetched-source-popover {
+		opacity: 1;
+		visibility: visible;
+	}
+
+	.fetched-source-popover-title {
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		line-height: 1.35;
+		color: var(--text-primary);
+	}
+
+	.fetched-source-popover-reason {
+		font-family: var(--font-sans);
+		font-size: var(--text-xs, 0.75rem);
+		line-height: 1.45;
+		color: var(--text-secondary);
 	}
 
 	.connector-group {
@@ -2470,19 +2570,23 @@ function toggleFullReasoning(): void {
 		margin-bottom: 4px;
 	}
 
-	/* A tool row immediately followed by its OWN opened detail panel (item 7)
-	   is still one entry, not two — suppress the divider between them so the
-	   detail panel reads as part of the same unit, not a separate action. */
-	.interleaved-rail > :global(.tool-call-item:has(+ .tool-detail-panel)) {
+	/* A tool row immediately followed by its OWN opened reveal (the click-opened
+	   detail panel, item 7, OR the Tier 0 sibling source-results panel) is still
+	   one entry, not two — suppress the divider between them so the reveal reads
+	   as part of the same unit, not a separate action. */
+	.interleaved-rail > :global(.tool-call-item:has(+ .tool-detail-panel)),
+	.interleaved-rail > :global(.tool-call-item:has(+ .fetched-source-results)) {
 		border-bottom: none;
 		padding-bottom: 0;
 		margin-bottom: 0;
 	}
 
-	/* Inline tool call rows between thinking text segments */
+	/* Inline tool call rows between thinking text segments. Tier 0 Fix B — a
+	   stable single-line pill at fit-content width; its opened source list is a
+	   full-width sibling panel below it, never a wrapped child, so this row
+	   keeps align-items: center and never grows on toggle. */
 	.tool-call-item {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-xs);
 		font-family: var(--font-sans);
@@ -2490,13 +2594,8 @@ function toggleFullReasoning(): void {
 		color: var(--text-muted);
 		margin: var(--space-xs) 0;
 		width: 100%;
+		max-width: 100%;
 		min-width: 0;
-	}
-
-	/* Same full-width breakout as .tool-call-row: an open source list drops to
-	   its own row and the leading icons pin to the top of the header line. */
-	.tool-call-item:has(.fetched-source-results) {
-		align-items: flex-start;
 	}
 
 	.tool-call-item.is-failed {

@@ -843,6 +843,134 @@ describe("ThinkingBlock", () => {
 		});
 	});
 
+	// Tier 0 (2026-08-22 chat-experience-elevation plan §3) — corrections to
+	// the research_web open-dropdown shipped in 875506fc: the tool identity
+	// icon is dropped (the summary text already names the tool), the opened
+	// results list is a full-width SIBLING panel below the pill (never wrapped
+	// inside the row, so the tick can't jump on toggle), and each result row
+	// re-exposes its full excerpt in an un-clipped hover popover.
+	describe("Tier 0 research_web open-dropdown corrections", () => {
+		it("renders no web-search identity icon on a research_web row, keeping the status tick", () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "s1",
+							title: "Source One",
+							url: "https://one.example/",
+							sourceType: "web",
+							status: "selected",
+						},
+					],
+				},
+			];
+
+			const { container } = render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			const row = container.querySelector(".tool-call-stack > .tool-call-row");
+			expect(row).not.toBeNull();
+			// Fix A — the Globe identity icon is gone from web-search rows.
+			expect(row?.querySelector('[data-tool-icon="web-search"]')).toBeNull();
+			// ...but the status tick (done → check) is still there.
+			expect(row?.querySelector(".check-icon-header")).not.toBeNull();
+		});
+
+		it("renders the opened results panel as a sibling of the tool-call-row, not a descendant", async () => {
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "s1",
+							title: "Source One",
+							url: "https://one.example/",
+							sourceType: "web",
+							status: "selected",
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(
+				screen.getByText("Searched the web · 1 source · 1 cited"),
+			);
+
+			// Fix B — the panel exists in the document...
+			expect(document.querySelector(".fetched-source-results")).not.toBeNull();
+			// ...but is NOT nested inside the pill row: it's a full-width sibling
+			// rendered after .tool-call-row, so the row (and its tick) stays a
+			// stable single line and never grows/moves on toggle.
+			expect(
+				document
+					.querySelector(".tool-call-row")
+					?.querySelector(".fetched-source-results"),
+			).toBeNull();
+		});
+
+		it("exposes each result's full excerpt in a hover popover, untruncated", async () => {
+			const longReason =
+				"This retailer lists the current pricing tiers in detail, including the enterprise plan and the per-seat monthly cost, which is exactly what the question asked about, spelled out in full without any elision.";
+			const segments: ThinkingSegment[] = [
+				{
+					type: "tool_call",
+					name: "research_web",
+					status: "done",
+					input: { query: "pricing" },
+					sourceType: "web",
+					candidates: [
+						{
+							id: "s1",
+							title: "Pricing Page",
+							url: "https://shop.example/pricing",
+							sourceType: "web",
+							status: "selected",
+							snippet: longReason,
+						},
+					],
+				},
+			];
+
+			render(ThinkingBlock, {
+				props: { content: "", thinkingIsDone: true, segments },
+			});
+
+			await fireEvent.click(
+				screen.getByText("Searched the web · 1 source · 1 cited"),
+			);
+
+			const result = document.querySelector(".fetched-source-result");
+			expect(result).not.toBeNull();
+			// Fix D — a per-row popover element carries the title + full excerpt.
+			const popover = result?.querySelector(".fetched-source-popover");
+			expect(popover).not.toBeNull();
+			expect(popover?.textContent).toContain("Pricing Page");
+			// The excerpt is present in full — never truncated by the popover.
+			expect(popover?.textContent).toContain(longReason);
+			// a11y: the visual popover is hidden from the accessibility tree so its
+			// excerpt never pollutes the link's accessible name (it opens on
+			// :focus-within / :focus-visible). The native `title` attr is the sole
+			// a11y channel for the reason.
+			expect(popover?.getAttribute("aria-hidden")).toBe("true");
+			// The native title attr stays as the non-hover / a11y fallback.
+			expect(result?.getAttribute("title")).toContain(longReason);
+		});
+	});
+
 	// Task 11b — the agenda peek + photo strip. Both render from the SAME
 	// candidates channel every other tool_call segment already streams
 	// (segment.candidates), never modelPayload — this is a display-only
@@ -2026,7 +2154,7 @@ describe("ThinkingBlock", () => {
 			).not.toBeNull();
 		});
 
-		it("gives a research_web/fetch_url row its action-specific icon alongside its favicon-stack disclosure", () => {
+		it("no longer renders the fetch-url identity icon on a fetch_url row (Tier 0), keeping only the status tick", () => {
 			const segments: ThinkingSegment[] = [
 				{
 					type: "tool_call",
@@ -2040,9 +2168,13 @@ describe("ThinkingBlock", () => {
 				props: { content: "", thinkingIsDone: true, segments },
 			});
 
-			expect(
-				container.querySelector('[data-tool-icon="fetch-url"]'),
-			).not.toBeNull();
+			const row = container.querySelector(".tool-call-stack > .tool-call-row");
+			expect(row).not.toBeNull();
+			// Tier 0 / O-2 — the Link identity icon is dropped from read-page rows
+			// too (symmetry with the web-search globe removal).
+			expect(row?.querySelector('[data-tool-icon="fetch-url"]')).toBeNull();
+			// The status tick remains the row's only leading glyph.
+			expect(row?.querySelector(".check-icon-header")).not.toBeNull();
 		});
 
 		describe("clickable tool chips (arguments/result reveal)", () => {
