@@ -111,13 +111,13 @@ describe("MarkdownRenderer — real registry dispatch across every lane", () => 
 				// code → CodeBlock component (its root wrapper class).
 				expect(container.querySelector(".code-block")).toBeTruthy();
 
-				// checklist → enabled, tick-able checkboxes (not marked's disabled default).
+				// checklist → read-only checkboxes mirroring the model's state.
 				const boxes = container.querySelectorAll<HTMLInputElement>(
 					'.markdown-checklist input[type="checkbox"]',
 				);
 				expect(boxes.length).toBe(2);
 				for (const box of boxes) {
-					expect(box.disabled).toBe(false);
+					expect(box.disabled).toBe(true);
 				}
 
 				// accordion → native <details> element.

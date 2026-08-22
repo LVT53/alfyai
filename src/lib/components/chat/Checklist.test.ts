@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 import Checklist from "./Checklist.svelte";
 
 describe("Checklist", () => {
-	it("renders GFM task items as ENABLED, tick-able checkboxes", () => {
+	it("renders GFM task items as READ-ONLY checkboxes mirroring the model's state", () => {
 		render(Checklist, {
 			props: {
 				items: [
@@ -15,17 +15,20 @@ describe("Checklist", () => {
 
 		const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
 		expect(boxes).toHaveLength(2);
-		// Interactive: NOT disabled (the old renderer emitted disabled checkboxes).
+		// Read-only: every checkbox is disabled (not a false 'it saved' affordance).
 		for (const box of boxes) {
-			expect(box.disabled).toBe(false);
-			expect(box.hasAttribute("disabled")).toBe(false);
+			expect(box.disabled).toBe(true);
+			expect(box.hasAttribute("disabled")).toBe(true);
 		}
-		// Initial checked state reflects the parsed markdown.
+		// The rendered state reflects the parsed markdown [ ] / [x].
 		expect(boxes[0].checked).toBe(false);
 		expect(boxes[1].checked).toBe(true);
 	});
 
-	it("toggles an item's checked state on click (ephemeral, no persistence)", async () => {
+	it("marks the checkbox disabled — the read-only guard that blocks interaction", () => {
+		// The `disabled` attribute is what makes the box read-only in a real
+		// browser (jsdom's fireEvent does not enforce activation-blocking, so we
+		// assert the mechanism rather than simulate a browser-blocked click).
 		render(Checklist, {
 			props: {
 				items: [{ checked: false, task: true, html: "buy milk" }],
@@ -33,12 +36,7 @@ describe("Checklist", () => {
 		});
 
 		const box = screen.getByRole("checkbox") as HTMLInputElement;
-		expect(box.checked).toBe(false);
-
-		await fireEvent.click(box);
-		expect(box.checked).toBe(true);
-
-		await fireEvent.click(box);
+		expect(box.disabled).toBe(true);
 		expect(box.checked).toBe(false);
 	});
 
@@ -82,44 +80,18 @@ describe("Checklist", () => {
 		expect(screen.getByText("a plain bullet")).toBeTruthy();
 	});
 
-	it("preserves prior items' checked state when a new item is appended (streaming, Fix 3)", async () => {
+	it("always mirrors the model's checked state across re-renders (streaming append)", async () => {
 		const { rerender } = render(Checklist, {
 			props: {
 				items: [{ checked: false, task: true, html: "first" }],
 			},
 		});
 
-		// User ticks the first (and only) item.
 		const first = screen.getByRole("checkbox") as HTMLInputElement;
 		expect(first.checked).toBe(false);
-		await fireEvent.click(first);
-		expect(first.checked).toBe(true);
 
-		// A second task streams in: the block grows by one item. The prior tick
-		// must survive — only the newly-appended item is seeded from its markdown.
-		await rerender({
-			items: [
-				{ checked: false, task: true, html: "first" },
-				{ checked: false, task: true, html: "second" },
-			],
-		});
-
-		const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-		expect(boxes).toHaveLength(2);
-		expect(boxes[0].checked).toBe(true); // preserved
-		expect(boxes[1].checked).toBe(false); // newly seeded
-	});
-
-	it("seeds a newly-appended item from its own parsed checked state", async () => {
-		const { rerender } = render(Checklist, {
-			props: {
-				items: [{ checked: false, task: true, html: "first" }],
-			},
-		});
-
-		await fireEvent.click(screen.getByRole("checkbox"));
-
-		// The appended item arrives already-done in the markdown (`- [x]`).
+		// A second task streams in already-done (`- [x]`). Each box reflects its
+		// own parsed state directly — there is no user-tick state to preserve.
 		await rerender({
 			items: [
 				{ checked: false, task: true, html: "first" },
@@ -128,7 +100,8 @@ describe("Checklist", () => {
 		});
 
 		const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-		expect(boxes[0].checked).toBe(true); // preserved user tick
-		expect(boxes[1].checked).toBe(true); // seeded from markdown [x]
+		expect(boxes).toHaveLength(2);
+		expect(boxes[0].checked).toBe(false);
+		expect(boxes[1].checked).toBe(true);
 	});
 });

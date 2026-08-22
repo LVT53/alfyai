@@ -1,10 +1,11 @@
 <script lang="ts">
-// A3 interactive checklist block. GFM task lists ("- [ ] item") render here as
-// ENABLED, tick-able checkboxes (marked's default renders them `disabled`).
-// The tick state is local, ephemeral UI state only — display-only
-// interactivity, deliberately NOT persisted. `html` is the item body rendered
-// as BLOCK-LEVEL markdown (it may contain a nested sub-list, fenced code, or
-// several paragraphs), already sanitized by the block renderer upstream.
+// A3 checklist block. GFM task lists ("- [ ] item") render here as READ-ONLY
+// checkboxes that faithfully mirror the model's `[ ]`/`[x]` state. They are
+// deliberately NOT interactive: the content belongs to the assistant's reply,
+// and an editable tick that silently resets on refresh is a false affordance
+// (owner decision). `html` is the item body rendered as BLOCK-LEVEL markdown
+// (it may contain a nested sub-list, fenced code, or several paragraphs),
+// already sanitized by the block renderer upstream.
 type ChecklistItem = { checked: boolean; task: boolean; html: string };
 
 let { items = [] }: { items?: ChecklistItem[] } = $props();
@@ -12,37 +13,6 @@ let { items = [] }: { items?: ChecklistItem[] } = $props();
 // Stable per-instance id base so each checkbox can be associated with its body
 // via aria-labelledby without colliding across multiple checklists on a page.
 const uid = $props.id();
-
-// Local mirror of each item's checked state. When a streaming answer APPENDS a
-// task the item count grows: we must preserve the existing items' tick state
-// (an in-progress user tick must survive) and only seed the newly-appended
-// items from their parsed markdown state. Merging by index (not re-seeding the
-// whole array) is what keeps a tick from being clobbered mid-stream. State is
-// per-component-instance, so there is no cross-message bleed. Seeding runs in a
-// pre-effect (flushed before first paint) to reflect the parsed checked state
-// on initial render without referencing the reactive prop in a plain
-// initializer.
-let checked = $state<boolean[]>([]);
-let syncedLength = $state(0);
-
-$effect.pre(() => {
-	const count = items.length;
-	if (count === syncedLength) return;
-
-	if (count > syncedLength) {
-		// Grew (initial render or an appended task): keep existing ticks, seed
-		// only the new tail indices from their own parsed checked state.
-		const next = checked.slice(0, syncedLength);
-		for (let index = syncedLength; index < count; index += 1) {
-			next[index] = items[index].checked;
-		}
-		checked = next;
-	} else {
-		// Shrank (message replaced/rewound): drop the trailing entries.
-		checked = checked.slice(0, count);
-	}
-	syncedLength = count;
-});
 </script>
 
 <ul class="markdown-checklist">
@@ -57,13 +27,14 @@ $effect.pre(() => {
         <input
           type="checkbox"
           class="markdown-checklist__box"
-          bind:checked={checked[index]}
+          checked={item.checked}
+          disabled
           aria-labelledby={`${uid}-item-${index}`}
         />
         <div
           id={`${uid}-item-${index}`}
           class="markdown-checklist__text"
-          class:markdown-checklist__text--done={checked[index]}
+          class:markdown-checklist__text--done={item.checked}
         >{@html item.html}</div>
       </li>
     {:else}
@@ -107,20 +78,18 @@ $effect.pre(() => {
     color: var(--text-muted);
   }
 
+  /* Read-only: the box reflects the model's state and is not clickable. Keep it
+     at full opacity and a default cursor so it reads as a rendered mark, not a
+     greyed-out disabled control. */
   .markdown-checklist__box {
     margin: 0;
     margin-top: 0.2em;
     width: 1em;
     height: 1em;
     flex-shrink: 0;
-    cursor: pointer;
+    cursor: default;
+    opacity: 1;
     accent-color: var(--accent);
-  }
-
-  .markdown-checklist__box:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 55%, transparent);
-    border-radius: 3px;
   }
 
   .markdown-checklist__text {
