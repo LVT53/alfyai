@@ -6,10 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the component resolves to this mock.
 const constructed: Array<{ canvas: unknown; config: unknown }> = [];
 const destroy = vi.fn();
+// When true, the mocked Chart.js constructor throws — standing in for a runtime
+// error on a valid `type` but a bad dataset shape.
+let throwOnConstruct = false;
 
 vi.mock("chart.js/auto", () => ({
 	default: class {
 		constructor(canvas: unknown, config: unknown) {
+			if (throwOnConstruct) throw new Error("bad dataset shape");
 			constructed.push({ canvas, config });
 		}
 		destroy = destroy;
@@ -22,6 +26,7 @@ describe("Chart", () => {
 	beforeEach(() => {
 		constructed.length = 0;
 		destroy.mockClear();
+		throwOnConstruct = false;
 	});
 	afterEach(() => {
 		vi.clearAllMocks();
@@ -70,6 +75,46 @@ describe("Chart", () => {
 		expect(container.querySelector(".markdown-diagram-error")).toBeTruthy();
 		await Promise.resolve();
 		expect(constructed).toHaveLength(0);
+	});
+
+	it("degrades an unsupported chart type (e.g. gantt) to the raw fallback, never a blank canvas", async () => {
+		const { container } = render(Chart, {
+			props: {
+				code: JSON.stringify({
+					type: "gantt",
+					data: { labels: ["W1"], datasets: [{ label: "A", data: [[0, 1]] }] },
+				}),
+			},
+		});
+
+		// gantt is not a Chart.js controller: no canvas, show the source + note,
+		// and never hand it to Chart.js (which would throw and blank the canvas).
+		expect(container.querySelector("canvas")).toBeNull();
+		expect(container.querySelector(".markdown-diagram-error")).toBeTruthy();
+		expect(container.querySelector(".markdown-diagram-source")?.textContent).toContain(
+			"gantt",
+		);
+		await Promise.resolve();
+		expect(constructed).toHaveLength(0);
+	});
+
+	it("falls back to the source when Chart.js throws at runtime (no silent blank canvas)", async () => {
+		throwOnConstruct = true;
+		const { container } = render(Chart, {
+			props: {
+				code: JSON.stringify({
+					type: "bar",
+					data: { labels: ["A"], datasets: [{ label: "X", data: [1] }] },
+				}),
+			},
+		});
+
+		// The type is valid so a canvas mounts and Chart.js is attempted, but the
+		// constructor throws — the component must surface the fallback, not a blank.
+		await waitFor(() =>
+			expect(container.querySelector(".markdown-diagram-error")).toBeTruthy(),
+		);
+		expect(container.querySelector("canvas")).toBeNull();
 	});
 
 	it("re-instantiates the chart when the config changes at the same index (unkeyed reconcile)", async () => {

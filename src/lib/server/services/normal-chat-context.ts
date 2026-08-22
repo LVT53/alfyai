@@ -201,12 +201,12 @@ const JSON_FORMATTING_RULES = [
 // every other guard constant here.
 const RICH_BLOCK_SYNTAX_GUIDE = [
 	"Rich answer blocks — the chat UI renders these natively. EMIT them directly when they help; do NOT dump structured content into a generic ``` code fence:",
-	"- Checklists: write the task list directly in the message text, each item on its own line as `- [ ] todo` or `- [x] done`. The `- ` before the box is REQUIRED, and the list must NOT be inside a ``` code fence — `[ ] item` on its own or a fenced block renders as dead monospaced text instead of tickable checkboxes. Use for steps and to-dos.",
+	"- Checklists: write the task list directly in the message text, each item on its own line as `- [ ] todo` or `- [x] done`. The `- ` before the box is REQUIRED, and the list must NOT be inside a ``` code fence — `[ ] item` on its own, or a fenced block, renders as dead monospaced text instead of a clean checklist. Use for steps and to-dos.",
 	"- Collapsible sections: `<details><summary>Title</summary> …markdown… </details>` renders as an accordion. Use to tuck away long optional detail.",
 	"- Tables: standard GFM pipe tables render as first-class scrollable tables. Use for structured comparisons.",
 	"- Callouts: `> [!NOTE] Title` (also TIP, WARNING, IMPORTANT) renders as a highlighted callout.",
 	"- Diagrams: a fenced ```mermaid block renders as a real diagram (flowchart, sequence, class, state, gantt, etc.). Use mermaid for processes, relationships, and timelines.",
-	'- Charts: a fenced ```chart block whose body is a JSON Chart.js config renders as a chart, e.g. {"type":"bar","data":{"labels":["A","B"],"datasets":[{"label":"X","data":[1,2]}]}}. Use for quantitative comparisons.',
+	'- Charts: a fenced ```chart block whose body is a JSON Chart.js config renders as a chart, e.g. {"type":"bar","data":{"labels":["A","B"],"datasets":[{"label":"X","data":[1,2]}]}}. Use for quantitative comparisons. `type` MUST be one of bar, line, scatter, bubble, pie, doughnut, polarArea, radar — no other value renders. For a timeline/schedule use a ```mermaid gantt, NOT a chart.',
 	"- CSV tables: a fenced ```csv block (first row is the header) renders as a table. Use for quick tabular data.",
 	"A ```mermaid / ```chart / ```csv block MUST contain complete, valid source and be properly closed, or it falls back to plain code. Prefer prose for simple answers — do not over-format.",
 ].join("\n");

@@ -17,9 +17,29 @@ let { code = "" }: { code?: string } = $props();
 
 type ChartInstance = { destroy: () => void };
 
+// The chart types Chart.js/auto actually registers. The model sometimes invents
+// unsupported types (e.g. "gantt"), which pass a naive `typeof type === string`
+// check but then throw "not a registered controller" at instantiation — leaving
+// a silent blank canvas. Gating on this set up front degrades those to the
+// honest raw-source fallback instead. (A timeline is better asked for as a
+// ```mermaid gantt.) Compared case-insensitively; Chart.js gets the original.
+const SUPPORTED_CHART_TYPES = new Set([
+	"bar",
+	"line",
+	"scatter",
+	"bubble",
+	"pie",
+	"doughnut",
+	"polararea",
+	"radar",
+]);
+
 let canvas = $state<HTMLCanvasElement | null>(null);
 let chartInstance: ChartInstance | null = null;
 let mounted = $state(false);
+// Set when Chart.js throws at runtime (a valid type but a bad dataset shape) so
+// the template can fall back to the source instead of leaving a blank canvas.
+let renderFailed = $state(false);
 // Guards against overlapping async instantiations (the dynamic import is async):
 // a newer config change bumps the token so a stale in-flight build bails out.
 let renderToken = 0;
@@ -35,6 +55,9 @@ const parsed = $derived.by(
 			}
 			const record = value as Record<string, unknown>;
 			if (typeof record.type !== "string") return { ok: false };
+			if (!SUPPORTED_CHART_TYPES.has(record.type.trim().toLowerCase())) {
+				return { ok: false };
+			}
 			if (!record.data || typeof record.data !== "object") return { ok: false };
 			return { ok: true, config: value };
 		} catch {
@@ -45,10 +68,13 @@ const parsed = $derived.by(
 
 async function instantiate(config: unknown) {
 	const token = ++renderToken;
-	if (!canvas) return;
+	// NB: do NOT read `canvas` synchronously here. This runs inside the render
+	// $effect, so a synchronous `canvas` read would make the effect depend on the
+	// canvas — and toggling `renderFailed` mounts/unmounts the canvas, which would
+	// then re-run the effect in an infinite loop. Read it only after the await.
 	try {
 		const { default: Chart } = await import("chart.js/auto");
-		if (token !== renderToken || !canvas) return; // superseded / unmounted
+		if (token !== renderToken || !canvas) return; // superseded / unmounted / unbound
 		chartInstance?.destroy();
 		chartInstance = new Chart(
 			canvas,
@@ -58,9 +84,10 @@ async function instantiate(config: unknown) {
 		) as unknown as ChartInstance;
 	} catch {
 		// A Chart.js runtime error (bad dataset shape, etc.) must not crash the
-		// message — leave the placeholder canvas in place silently.
+		// message. Surface the raw-source fallback rather than a silent blank canvas.
 		if (token !== renderToken) return;
 		chartInstance = null;
+		renderFailed = true;
 	}
 }
 
@@ -86,6 +113,9 @@ onMount(() => {
 $effect(() => {
 	if (!mounted) return;
 	if (parsed.ok) {
+		// A fresh config is a fresh attempt: clear any prior runtime-failure flag
+		// so a config that now parses/renders recovers from the fallback.
+		renderFailed = false;
 		void instantiate(parsed.config);
 	} else {
 		teardown();
@@ -93,7 +123,7 @@ $effect(() => {
 });
 </script>
 
-{#if parsed.ok}
+{#if parsed.ok && !renderFailed}
   <div class="markdown-chart">
     <canvas bind:this={canvas}></canvas>
   </div>
