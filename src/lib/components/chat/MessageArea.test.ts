@@ -9,9 +9,12 @@ import MessageArea from "./MessageArea.svelte";
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
 	prepareCodeHighlighting: async () => undefined,
+	parseMarkdownBlocks: async (content: string) =>
+		content.trim() ? [{ kind: "html", raw: content }] : [],
 	renderCodeBlock: async (content: string) =>
 		`<pre><code>${content}</code></pre>`,
 	renderHighlightedText: async (content: string) => content,
+	renderInlineMarkdown: async (content: string) => content,
 	renderMarkdown: async (content: string) =>
 		content.replace(/\*\*(.*?)\*\*/g, "$1"),
 }));

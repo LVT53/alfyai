@@ -2,6 +2,7 @@ import type {
 	RenderMarkdownOptions,
 	SourceReferenceCandidate,
 } from "$lib/services/markdown";
+import type { MarkdownBlock } from "$lib/services/markdown-blocks";
 
 /**
  * Shared markdown module loader with lazy caching.
@@ -71,4 +72,28 @@ export async function renderCodeBlock(
 export async function prepareCodeHighlighting(content: string): Promise<void> {
 	const { prepareCodeHighlighting: fn } = await getMarkdownModule();
 	await fn(content);
+}
+
+/**
+ * Parse a markdown source string into the typed block model (Tier A3). The
+ * single parse/split step for the chat renderer — replaces the line-scanning
+ * fence splitter that used to live in MarkdownRenderer.svelte.
+ */
+export async function parseMarkdownBlocks(
+	content: string,
+): Promise<MarkdownBlock[]> {
+	const { loadMarkdownBlocks: fn } = await getMarkdownModule();
+	return fn(content);
+}
+
+/**
+ * Render a short inline markdown fragment (checklist item body) to sanitized
+ * HTML with no wrapping block element.
+ */
+export async function renderInlineMarkdown(
+	content: string,
+	isDark: boolean,
+): Promise<string> {
+	const { renderInlineMarkdown: fn } = await getMarkdownModule();
+	return fn(content, isDark);
 }

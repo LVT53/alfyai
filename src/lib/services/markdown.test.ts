@@ -229,4 +229,80 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain("style=");
 		expect(html).toContain("echo");
 	});
+
+	it("wraps tables as a first-class block from the renderer (not a post-process)", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"| Name | Value |\n| --- | --- |\n| Alpha | 1 |",
+			false,
+		);
+
+		expect(html).toContain('class="markdown-table-wrap"');
+		expect(html).toContain('class="markdown-table"');
+		expect(html).toContain("<th>Name</th>");
+		expect(html).toContain("<td>Alpha</td>");
+		expect(html).toMatch(/<\/table>\s*<\/div>/);
+	});
+});
+
+describe("loadMarkdownBlocks (chat block model)", () => {
+	it("produces typed blocks for a mixed document in source order", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"intro\n\n```js\ncode();\n```\n\n- [ ] a\n- [x] b\n\n| A |\n| - |\n| 1 |",
+		);
+
+		expect(blocks.map((b) => b.kind)).toEqual([
+			"html",
+			"code",
+			"checklist",
+			"table",
+		]);
+	});
+
+	it("strips a leading [Translation unavailable] marker before splitting", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks(
+			"[Translation unavailable] plain answer",
+		);
+
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0].kind).toBe("html");
+		expect(blocks[0].raw).not.toContain("[Translation unavailable]");
+		expect(blocks[0].raw).toContain("plain answer");
+	});
+
+	it("exposes checklist items with their checked/task state", async () => {
+		const mod = await import("./markdown");
+		const blocks = await mod.loadMarkdownBlocks("- [ ] todo\n- [x] done");
+		const [block] = blocks;
+
+		expect(block.kind).toBe("checklist");
+		if (block.kind !== "checklist") throw new Error("expected checklist");
+		expect(block.items).toEqual([
+			{ checked: false, task: true, text: "todo" },
+			{ checked: true, task: true, text: "done" },
+		]);
+	});
+});
+
+describe("renderInlineMarkdown (checklist item bodies)", () => {
+	it("renders inline emphasis without wrapping block tags", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderInlineMarkdown("buy **milk**", false);
+
+		expect(html).toContain("<strong>milk</strong>");
+		expect(html).not.toContain("<p>");
+	});
+
+	it("renders inline links as external new-tab links", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderInlineMarkdown(
+			"call [bob](https://example.com)",
+			false,
+		);
+
+		expect(html).toContain('href="https://example.com"');
+		expect(html).toContain('target="_blank"');
+	});
 });

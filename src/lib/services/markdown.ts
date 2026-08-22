@@ -1,4 +1,5 @@
 import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
+import { classifyMarkdownBlocks, type MarkdownBlock } from "./markdown-blocks";
 import { stripPlainSourceReferenceMarkers } from "./stream-protocol";
 
 type MarkedModule = typeof import("marked");
@@ -260,9 +261,46 @@ async function renderMarkdown(
 	const html = marked.parse(sourceDisplayContent, parseOptions);
 
 	return sanitizeHtml(
-		`${frontmatter.html}${transformCalloutHtml(wrapMarkdownTables(html as string))}`,
+		`${frontmatter.html}${transformCalloutHtml(html as string)}`,
 		{ allowStyleAttributes: true },
 	);
+}
+
+/**
+ * Parse a markdown source string into the typed block model used by the chat
+ * renderer. This is the single parse/split step (Tier A3 / B3): it owns fence
+ * and block detection so `MarkdownRenderer.svelte` no longer re-scans for
+ * fences. The caller renders each block through the registry.
+ */
+async function loadMarkdownBlocks(content: string): Promise<MarkdownBlock[]> {
+	await initMarkdownParser();
+	const marked = getMarked();
+	const normalized = normalizeMarkdownContent(content);
+	const tokens = marked.lexer(normalized, {
+		breaks: true,
+		gfm: true,
+	});
+	return classifyMarkdownBlocks(tokens);
+}
+
+/**
+ * Render a short inline markdown fragment (no wrapping block element) to
+ * sanitized HTML. Used for interactive-checklist item bodies, whose text may
+ * contain inline emphasis, code, or links.
+ */
+async function renderInlineMarkdown(
+	content: string,
+	isDark: boolean,
+): Promise<string> {
+	await initMarkdownParser();
+	const marked = getMarked();
+	const renderer = createMarkdownRenderer(isDark, {});
+	const html = marked.parseInline(content, {
+		renderer,
+		breaks: true,
+		gfm: true,
+	} as Parameters<typeof marked.parseInline>[1]);
+	return sanitizeHtml(html as string);
 }
 
 function renderCodeBlock(
@@ -292,15 +330,6 @@ function normalizeMarkdownContent(content: string): string {
 	}
 
 	return content;
-}
-
-function wrapMarkdownTables(html: string): string {
-	return html
-		.replace(
-			/<table>/g,
-			'<div class="markdown-table-wrap"><table class="markdown-table">',
-		)
-		.replace(/<\/table>/g, "</table></div>");
 }
 
 async function extractFrontmatter(
@@ -682,6 +711,18 @@ function createMarkdownRenderer(
 	}
 
 	renderer.code = ({ text, lang = "" }) => renderCodeBlock(text, lang, isDark);
+	// First-class table block: wrap the rendered table in the scroll container
+	// (`markdown-table-wrap`) directly from the renderer instead of a regex
+	// post-process over the whole document (Tier A3 / B3). Keeps the existing
+	// overflow/scroll behaviour driven by MarkdownRenderer.enhanceRenderedTables.
+	const defaultTableRenderer = renderer.table.bind(renderer);
+	renderer.table = (token) => {
+		const tableHtml = defaultTableRenderer(token).replace(
+			"<table>",
+			'<table class="markdown-table">',
+		);
+		return `<div class="markdown-table-wrap">${tableHtml}</div>`;
+	};
 	renderer.link = ({ href, title, tokens }) => {
 		const text = renderLinkText(tokens);
 		const parsedHref = parseExternalHref(href);
@@ -728,10 +769,12 @@ function createMarkdownRenderer(
 export {
 	collectSourceReferenceCandidates,
 	initHighlighter,
+	loadMarkdownBlocks,
 	prepareCodeHighlighting,
 	type RenderMarkdownOptions,
 	renderCodeBlock,
 	renderHighlightedText,
+	renderInlineMarkdown,
 	renderMarkdown,
 	type SourceReferenceCandidate,
 };

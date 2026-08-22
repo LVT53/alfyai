@@ -10,7 +10,15 @@ export function sanitizeHtml(
 		USE_PROFILES: { html: true },
 		FORBID_TAGS: options.allowStyleTags ? ["script"] : ["script", "style"],
 		FORBID_ATTR: options.allowStyleAttributes ? [] : ["style"],
-		ADD_TAGS: options.allowStyleTags ? ["style"] : [],
+		// A3 rich blocks: <details>/<summary> back the accordion block (raw-HTML
+		// passthrough syntax). They are part of DOMPurify's default HTML profile,
+		// but listing them explicitly makes the rich-block contract intentional
+		// and immune to a future default-profile change. No wildcards — every
+		// rich-block tag is named. DOMPurify still strips event handlers,
+		// javascript: URLs, and (unless opted in) style on these tags.
+		ADD_TAGS: options.allowStyleTags
+			? ["style", "details", "summary"]
+			: ["details", "summary"],
 		ADD_ATTR: ["target", "rel"],
 		ALLOW_DATA_ATTR: false,
 		ALLOW_UNKNOWN_PROTOCOLS: false,

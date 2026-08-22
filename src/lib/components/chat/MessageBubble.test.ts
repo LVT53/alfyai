@@ -60,9 +60,15 @@ function buildAtlasJob(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 vi.mock("$lib/utils/markdown-loader", () => ({
 	collectSourceReferenceCandidates: async () => [],
 	prepareCodeHighlighting: async () => undefined,
+	// The A3 block model: for these prose-only fixtures each message is a single
+	// html block whose raw is the full content, so MarkdownRenderer still routes
+	// it through the mocked renderMarkdown (which strips ** for assertions).
+	parseMarkdownBlocks: async (content: string) =>
+		content.trim() ? [{ kind: "html", raw: content }] : [],
 	renderCodeBlock: async (content: string) =>
 		`<pre><code>${content}</code></pre>`,
 	renderHighlightedText: async (content: string) => content,
+	renderInlineMarkdown: async (content: string) => content,
 	renderMarkdown: markdownLoaderMock.renderMarkdown,
 }));
 

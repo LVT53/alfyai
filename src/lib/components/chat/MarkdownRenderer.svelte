@@ -1,8 +1,10 @@
 <script lang="ts">
+import Checklist from "./Checklist.svelte";
 import CodeBlock from "./CodeBlock.svelte";
 import ImageLightbox from "./ImageLightbox.svelte";
 import {
 	collectSourceReferenceCandidates,
+	parseMarkdownBlocks,
 	prepareCodeHighlighting,
 	renderCodeBlock,
 	renderMarkdown,
@@ -28,12 +30,21 @@ let {
 	compactExternalLinks?: boolean;
 } = $props();
 
+// Display blocks are the render-ready output of the A3 block model: the typed
+// blocks from parseMarkdownBlocks, each rendered through its registry strategy
+// (code → CodeBlock, checklist → Checklist, everything else → prose {@html}).
+type ChecklistDisplayItem = { checked: boolean; task: boolean; html: string };
 type MarkdownBlock =
-	| { type: "html"; html: string; isNew?: boolean }
 	| {
-			type: "code";
+			kind: "code";
 			code: string;
 			language?: string;
+			html: string;
+			isNew?: boolean;
+	  }
+	| { kind: "checklist"; items: ChecklistDisplayItem[]; isNew?: boolean }
+	| {
+			kind: "table" | "callout" | "accordion" | "html";
 			html: string;
 			isNew?: boolean;
 	  };
@@ -107,7 +118,10 @@ function scheduleRender(
 	}, STREAM_THROTTLE_MS);
 }
 
-async function splitMarkdownBlocks(
+// The single parse/split step (A3): parseMarkdownBlocks owns fence + block
+// detection, then each typed block is rendered through the registry. This
+// replaces the old line-scanning fence splitter (folds B3 — one fence grammar).
+async function buildDisplayBlocks(
 	source: string,
 	darkMode: boolean,
 	compactLinks: boolean,
@@ -119,68 +133,65 @@ async function splitMarkdownBlocks(
 		normalizedSource,
 		compactLinks,
 	);
-	const lines = normalizedSource.split("\n");
+	const typedBlocks = await parseMarkdownBlocks(normalizedSource);
 	const nextBlocks: MarkdownBlock[] = [];
-	const textLines: string[] = [];
-	const codeLines: string[] = [];
-	let language: string | undefined;
-	let inCodeBlock = false;
 
-	const flushText = async () => {
-		if (!textLines.length) return;
+	for (const block of typedBlocks) {
+		if (block.kind === "code") {
+			nextBlocks.push({
+				kind: "code",
+				code: block.code,
+				language: block.language,
+				html: await renderCodeBlock(block.code, block.language, darkMode),
+			});
+			continue;
+		}
 
-		const html = await renderMarkdown(textLines.join("\n"), darkMode, {
+		if (block.kind === "checklist") {
+			// Item bodies are BLOCK-LEVEL markdown (a checklist item can hold a
+			// nested sub-list, a fenced code block, multiple paragraphs, a
+			// blockquote). Render each through the FULL block renderer — same
+			// options as the surrounding prose — so links become source-link chips,
+			// bare source markers are stripped, and block content is not flattened.
+			const items = await Promise.all(
+				block.items.map(async (item) => ({
+					checked: item.checked,
+					task: item.task,
+					html: await renderMarkdown(item.text, darkMode, {
+						compactExternalLinks: compactLinks,
+						sourceReferences,
+					}),
+				})),
+			);
+			nextBlocks.push({ kind: "checklist", items });
+			continue;
+		}
+
+		// table | callout | accordion | html — the prose {@html} registry lane.
+		const html = await renderMarkdown(block.raw, darkMode, {
 			compactExternalLinks: compactLinks,
 			sourceReferences,
 		});
 		if (html.trim()) {
-			nextBlocks.push({ type: "html", html });
+			nextBlocks.push({ kind: block.kind, html });
 		}
-		textLines.length = 0;
-	};
-
-	const flushCode = async () => {
-		nextBlocks.push({
-			type: "code",
-			code: codeLines.join("\n"),
-			language,
-			html: await renderCodeBlock(codeLines.join("\n"), language, darkMode),
-		});
-		codeLines.length = 0;
-		language = undefined;
-	};
-
-	for (const line of lines) {
-		const openingFenceMatch = line.match(/^\s*```\s*([^\s`]*)\s*$/);
-		const closingFenceMatch = line.match(/^\s*```\s*$/);
-
-		if (!inCodeBlock && openingFenceMatch) {
-			await flushText();
-			inCodeBlock = true;
-			language = openingFenceMatch[1] || undefined;
-			continue;
-		}
-
-		if (inCodeBlock && closingFenceMatch) {
-			await flushCode();
-			inCodeBlock = false;
-			continue;
-		}
-
-		if (inCodeBlock) {
-			codeLines.push(line);
-		} else {
-			textLines.push(line);
-		}
-	}
-
-	await flushText();
-
-	if (inCodeBlock) {
-		await flushCode();
 	}
 
 	return nextBlocks;
+}
+
+function sameDisplayBlock(a: MarkdownBlock, b: MarkdownBlock): boolean {
+	if (a.kind !== b.kind) return false;
+	if (a.kind === "checklist" && b.kind === "checklist") {
+		if (a.items.length !== b.items.length) return false;
+		return a.items.every(
+			(item, i) =>
+				item.checked === b.items[i].checked &&
+				item.task === b.items[i].task &&
+				item.html === b.items[i].html,
+		);
+	}
+	return "html" in a && "html" in b && a.html === b.html;
 }
 
 async function renderContent(
@@ -193,36 +204,22 @@ async function renderContent(
 	if (src.includes("```")) {
 		await prepareCodeHighlighting(src);
 	}
-	const newBlocks = await splitMarkdownBlocks(src, darkMode, compactLinks);
+	const newBlocks = await buildDisplayBlocks(src, darkMode, compactLinks);
 	if (currentRender !== renderVersion) return;
 
 	if (streaming && blocks.length > 0 && newBlocks.length === blocks.length) {
-		// Same block count during streaming: update the last block's HTML
-		// in-place to avoid tearing down and recreating the entire {#each}
-		// list, which causes screen flicker.
+		// Same block count during streaming: update the last block in place to
+		// avoid tearing down and recreating the entire {#each} list, which
+		// causes screen flicker (and would reset a Checklist's local tick state).
 		const lastIdx = newBlocks.length - 1;
 		const updated = newBlocks[lastIdx];
 		const oldLast = blocks[lastIdx];
-		if (
-			updated.type === "html" &&
-			oldLast.type === "html" &&
-			updated.html === oldLast.html
-		) {
+		if (sameDisplayBlock(updated, oldLast)) {
 			// Content unchanged — skip entirely
 			return;
 		}
 		blocks = blocks.map((b, i) =>
-			i === lastIdx
-				? updated.type === "html"
-					? { type: "html", html: updated.html, isNew: b.isNew }
-					: {
-							type: "code",
-							code: updated.code,
-							language: updated.language,
-							html: updated.html,
-							isNew: b.isNew,
-						}
-				: b,
+			i === lastIdx ? { ...updated, isNew: b.isNew } : b,
 		);
 		return;
 	}
@@ -791,13 +788,17 @@ $effect(() => {
 
 <div class="markdown-container" bind:this={container} aria-hidden="false">
   {#each blocks as block}
-    {#if block.type === 'html'}
-      <div class="prose max-w-none dark:prose-invert markdown-html">
-        {@html block.html}
-      </div>
-    {:else}
+    {#if block.kind === 'code'}
       <div class:block-fade-in={block.isNew}>
         <CodeBlock code={block.code} language={block.language} contentHtml={block.html} />
+      </div>
+    {:else if block.kind === 'checklist'}
+      <div class="markdown-checklist-block" class:block-fade-in={block.isNew}>
+        <Checklist items={block.items} />
+      </div>
+    {:else}
+      <div class="prose max-w-none dark:prose-invert markdown-html">
+        {@html block.html}
       </div>
     {/if}
   {/each}
