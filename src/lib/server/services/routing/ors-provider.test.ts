@@ -10,7 +10,7 @@ function jsonResponse(body: unknown, init?: { status?: number }): Response {
 }
 
 const ORS_BASE = "http://ors.local/ors";
-const GEOCODER_BASE = "http://photon.local";
+const GEOCODER_BASE = "http://nominatim.local";
 
 describe("createOrsProvider", () => {
 	describe("configuration flags", () => {
@@ -292,70 +292,101 @@ describe("createOrsProvider", () => {
 		});
 	});
 
-	describe("geocode (Photon)", () => {
-		it("maps Photon GeoJSON features into geocode matches with lat/lng from [lng,lat]", async () => {
+	describe("geocode (Nominatim)", () => {
+		it("maps a Nominatim jsonv2 array into matches (lat/lon strings → numbers, importance → confidence)", async () => {
 			const fetchMock = vi.fn().mockResolvedValue(
-				jsonResponse({
-					features: [
-						{
-							geometry: { coordinates: [13.377, 52.516] },
-							properties: {
-								name: "Brandenburg Gate",
-								city: "Berlin",
-								country: "Germany",
-								type: "attraction",
-							},
-						},
-					],
-				}),
+				jsonResponse([
+					{
+						lat: "52.516",
+						lon: "13.377",
+						display_name: "Brandenburger Tor, Berlin, Germany",
+						name: "Brandenburger Tor",
+						type: "attraction",
+						class: "tourism",
+						importance: 0.7,
+					},
+				]),
 			);
 			const provider = createOrsProvider(
 				{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
 				{ fetch: fetchMock },
 			);
 
-			const outcome = await provider.geocode({ query: "Brandenburg Gate" });
+			const outcome = await provider.geocode({ query: "Brandenburger Tor" });
 
 			expect(outcome.ok).toBe(true);
 			if (!outcome.ok) return;
 			expect(outcome.data.results).toEqual([
 				{
-					name: "Brandenburg Gate, Berlin, Germany",
+					name: "Brandenburger Tor, Berlin, Germany",
 					lat: 52.516,
 					lng: 13.377,
 					type: "attraction",
+					confidence: 0.7,
 				},
 			]);
 
-			const [url] = fetchMock.mock.calls[0];
-			expect(String(url)).toContain(`${GEOCODER_BASE}/api?`);
-			expect(String(url)).toContain("q=Brandenburg+Gate");
+			// Nominatim /search endpoint + jsonv2 + encoded query + no addressdetails.
+			const [url, init] = fetchMock.mock.calls[0];
+			expect(String(url)).toContain(`${GEOCODER_BASE}/search?`);
+			expect(String(url)).toContain("q=Brandenburger+Tor");
+			expect(String(url)).toContain("format=jsonv2");
+			expect(String(url)).toContain("addressdetails=0");
+			// Nominatim's usage policy asks callers to identify themselves.
+			const headers = (init as RequestInit).headers as Record<string, string>;
+			expect(headers["user-agent"]).toBeTruthy();
 		});
 
-		it("passes a `near` bias as lat/lon query params", async () => {
-			const fetchMock = vi.fn().mockResolvedValue(
-				jsonResponse({
-					features: [
-						{
-							geometry: { coordinates: [1, 2] },
-							properties: { name: "Cafe" },
-						},
-					],
-				}),
-			);
+		it("falls back to `name` without display_name and omits confidence without importance", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(
+					jsonResponse([
+						{ lat: "1.5", lon: "2.5", name: "Cafe", type: "cafe" },
+					]),
+				);
 			const provider = createOrsProvider(
 				{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
 				{ fetch: fetchMock },
 			);
 
-			await provider.geocode({
-				query: "cafe",
-				near: { lat: 52.5, lng: 13.4 },
-			});
+			const outcome = await provider.geocode({ query: "cafe" });
+
+			expect(outcome.ok).toBe(true);
+			if (!outcome.ok) return;
+			expect(outcome.data.results).toEqual([
+				{ name: "Cafe", lat: 1.5, lng: 2.5, type: "cafe" },
+			]);
+		});
+
+		it("biases with viewbox + bounded=1 when `near` is provided", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(
+					jsonResponse([{ lat: "2", lon: "1", display_name: "Cafe" }]),
+				);
+			const provider = createOrsProvider(
+				{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+				{ fetch: fetchMock },
+			);
+
+			await provider.geocode({ query: "cafe", near: { lat: 52.5, lng: 13.4 } });
 
 			const [url] = fetchMock.mock.calls[0];
-			expect(String(url)).toContain("lat=52.5");
-			expect(String(url)).toContain("lon=13.4");
+			const parsed = new URL(String(url));
+			expect(parsed.searchParams.get("bounded")).toBe("1");
+			const viewbox = parsed.searchParams
+				.get("viewbox")
+				?.split(",")
+				.map(Number);
+			expect(viewbox).toHaveLength(4);
+			if (!viewbox) return;
+			// viewbox = <minLon>,<minLat>,<maxLon>,<maxLat> straddling the near point.
+			const [minLon, minLat, maxLon, maxLat] = viewbox;
+			expect(minLon).toBeLessThan(13.4);
+			expect(maxLon).toBeGreaterThan(13.4);
+			expect(minLat).toBeLessThan(52.5);
+			expect(maxLat).toBeGreaterThan(52.5);
 		});
 
 		it("returns geocoder_unconfigured (no fetch) when GEOCODER_BASE_URL is empty", async () => {
@@ -375,10 +406,8 @@ describe("createOrsProvider", () => {
 			expect(fetchMock).not.toHaveBeenCalled();
 		});
 
-		it("returns not_found when the geocoder yields no features", async () => {
-			const fetchMock = vi
-				.fn()
-				.mockResolvedValue(jsonResponse({ features: [] }));
+		it("returns not_found when Nominatim yields an empty array", async () => {
+			const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
 			const provider = createOrsProvider(
 				{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
 				{ fetch: fetchMock },
@@ -387,6 +416,20 @@ describe("createOrsProvider", () => {
 			const outcome = await provider.geocode({ query: "nowhere-xyz" });
 
 			expect(outcome).toMatchObject({ ok: false, reason: "not_found" });
+		});
+
+		it("maps a non-2xx geocoder response to a provider_error (never fabricated)", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response("boom", { status: 500 }));
+			const provider = createOrsProvider(
+				{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+				{ fetch: fetchMock },
+			);
+
+			const outcome = await provider.geocode({ query: "Berlin" });
+
+			expect(outcome).toMatchObject({ ok: false, reason: "provider_error" });
 		});
 	});
 });

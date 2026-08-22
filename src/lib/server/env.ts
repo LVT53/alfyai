@@ -113,7 +113,7 @@ interface Config {
 	// supplies this. Empty => the routing tool degrades to "unavailable" and is
 	// not registered. Self-hosted, so nothing leaves the box.
 	orsBaseUrl: string;
-	// Optional geocoder base URL (Photon-compatible JSON API) for resolving
+	// Optional geocoder base URL (Nominatim `/search` JSON API) for resolving
 	// place-name strings to coordinates. ORS core ships no geocoder, so this is
 	// a separate service. Empty => geocoding degrades ("pass coordinates").
 	geocoderBaseUrl: string;
