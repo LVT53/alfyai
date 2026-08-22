@@ -19,6 +19,7 @@ if (!process.env.SESSION_SECRET)
 if (!process.env.DATABASE_PATH) process.env.DATABASE_PATH = "./data/chat.db";
 
 import { asc, eq } from "drizzle-orm";
+import { refreshConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db/index";
 import { conversations, messages, users } from "$lib/server/db/schema";
 import { persistAssistantRailSummary } from "$lib/server/services/chat-turn/rail-summary";
@@ -36,6 +37,10 @@ function hasRailSummary(metadataJson: string | null): boolean {
 }
 
 async function main() {
+	// Merge admin_config over env (the control-model key/endpoint live in
+	// admin_config, DB-wins) exactly as the live app does at startup — without
+	// this the control call authenticates with the stale env placeholder key.
+	await refreshConfig();
 	const args = process.argv.slice(2);
 	const dryRun = args.includes("--dry-run");
 	const limitArg = args.find((a) => a.startsWith("--limit="));
