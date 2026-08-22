@@ -12,6 +12,7 @@
 // sanitizer involvement is needed.
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
+import { parseJsonLenient } from "$lib/utils/lenient-json";
 
 let { code = "" }: { code?: string } = $props();
 
@@ -48,21 +49,20 @@ let renderToken = 0;
 // this is a renderable chart or the raw-source fallback.
 const parsed = $derived.by(
 	(): { ok: true; config: unknown } | { ok: false } => {
-		try {
-			const value: unknown = JSON.parse(code);
-			if (!value || typeof value !== "object" || Array.isArray(value)) {
-				return { ok: false };
-			}
-			const record = value as Record<string, unknown>;
-			if (typeof record.type !== "string") return { ok: false };
-			if (!SUPPORTED_CHART_TYPES.has(record.type.trim().toLowerCase())) {
-				return { ok: false };
-			}
-			if (!record.data || typeof record.data !== "object") return { ok: false };
-			return { ok: true, config: value };
-		} catch {
+		// Lenient parse: strict first, then a conservative brace/comma repair so a
+		// config that is merely one closing brace short (the common local-model
+		// defect) still renders instead of falling back to raw source.
+		const value = parseJsonLenient(code);
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
 			return { ok: false };
 		}
+		const record = value as Record<string, unknown>;
+		if (typeof record.type !== "string") return { ok: false };
+		if (!SUPPORTED_CHART_TYPES.has(record.type.trim().toLowerCase())) {
+			return { ok: false };
+		}
+		if (!record.data || typeof record.data !== "object") return { ok: false };
+		return { ok: true, config: value };
 	},
 );
 

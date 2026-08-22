@@ -98,6 +98,20 @@ describe("Chart", () => {
 		expect(constructed).toHaveLength(0);
 	});
 
+	it("recovers a chart whose JSON is one closing brace short (lenient parse)", async () => {
+		// The production failure: a valid config missing its top-level `}`.
+		const missingBrace =
+			'{"type":"bar","data":{"labels":["A","B"],"datasets":[{"label":"X","data":[1,2]}]}';
+		const { container } = render(Chart, { props: { code: missingBrace } });
+
+		expect(container.querySelector("canvas")).toBeTruthy();
+		await waitFor(() => expect(constructed).toHaveLength(1));
+		expect(container.querySelector(".markdown-diagram-error")).toBeNull();
+		expect(
+			(constructed[0].config as { type: string }).type,
+		).toBe("bar");
+	});
+
 	it("falls back to the source when Chart.js throws at runtime (no silent blank canvas)", async () => {
 		throwOnConstruct = true;
 		const { container } = render(Chart, {
