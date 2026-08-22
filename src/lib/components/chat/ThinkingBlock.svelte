@@ -76,16 +76,17 @@ import {
 	isPhotosToolName,
 	type ToolCallSegment,
 } from "$lib/utils/tool-evidence-presentation";
-
-type DeliberationStatusSegment = {
-	type: "status";
-	id: string;
-	label: string;
-	status: "running" | "done" | "error";
-	passIndex?: number;
-	passTotal?: number;
-	passKind?: string;
-};
+import {
+	type DeliberationIconType,
+	type DeliberationStatusThinkingSegment,
+	deliberationIconTypeForPassIndex,
+	deliberationIconTypeForPassKind,
+	formatDeliberationProgressLabel,
+	isDeliberationStatusSegment,
+	parseDeliberationPassIndex,
+	resolveDeliberationPassIndex,
+	thoughtStepIconTypeForClass,
+} from "$lib/utils/activity-presentation";
 
 let {
 	content = "",
@@ -179,73 +180,35 @@ let stallTimeout: ReturnType<typeof setTimeout> | undefined;
 const isActiveThinking = $derived(!thinkingIsDone);
 const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
 
-function isDeliberationStatusSegment(
-	segment: ThinkingSegment,
-): segment is DeliberationStatusSegment {
+// Tier B2 — the deliberation-status predicate, pass-index parsing, pass-kind
+// -> icon mapping, and progress-label assembly now live in the shared pure
+// `activity-presentation.ts` (consumed identically by MessageBubble), so the
+// two rails cannot drift. These are the only component-local shells left: the
+// icon wrapper threads this file's icon-TYPE switch (below); the label shell
+// threads this file's `$t`. Both preserve the exact pre-extraction behaviour —
+// the pass-kind icon wins, else the id-derived pass-index fallback (default
+// pass 1); the label always has a current (id fallback -> 1), so it renders
+// the "N/M" progress form whenever a positive total is present.
+function deliberationStatusIconType(
+	segment: DeliberationStatusThinkingSegment,
+): DeliberationIconType {
 	return (
-		segment.type === "status" &&
-		segment.id.startsWith("deliberation-pass-") &&
-		segment.label.trim().length > 0
+		deliberationIconTypeForPassKind(segment.passKind) ??
+		deliberationIconTypeForPassIndex(
+			parseDeliberationPassIndex(segment.id) ?? 1,
+		)
 	);
 }
 
-function getDeliberationPassIndex(segmentId: string): number {
-	const match = segmentId.match(/deliberation-pass-(\d+)/i);
-	const parsed = match ? Number.parseInt(match[1], 10) : NaN;
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
-}
-
-function getDeliberationStatusIconType(
-	segment: DeliberationStatusSegment,
-):
-	| "search"
-	| "clipboard-check"
-	| "shield-alert"
-	| "languages"
-	| "layers"
-	| "bot" {
-	if (segment.type !== "status") return "search";
-	const passKind = segment.passKind;
-	if (
-		passKind === "context_source_gap_review" ||
-		passKind === "evidence_gap_review" ||
-		passKind === "source_reconciliation"
-	)
-		return "search";
-	if (
-		passKind === "missed_user_need_check" ||
-		passKind === "answer_plan_critique" ||
-		passKind === "final_format_style_check"
-	)
-		return "clipboard-check";
-	if (
-		passKind === "contradiction_risk_check" ||
-		passKind === "adversarial_edge_case_check"
-	)
-		return "shield-alert";
-	if (passKind === "hungarian_parity_check") return "languages";
-	if (passKind === "workspace_synthesis") return "layers";
-	if (passKind === "viable_alternatives_preservation") return "bot";
-	const pass = getDeliberationPassIndex(segment.id);
-	if (pass === 1) return "search";
-	if (pass === 2) return "clipboard-check";
-	return "shield-alert";
-}
-
 function formatDeliberationStatusLabel(
-	segment: DeliberationStatusSegment,
+	segment: DeliberationStatusThinkingSegment,
 ): string {
-	const label = segment.label.trim();
-	if (!label) return "";
-	const current =
-		typeof segment.passIndex === "number" && Number.isInteger(segment.passIndex)
-			? segment.passIndex
-			: getDeliberationPassIndex(segment.id);
-	const total = segment.passTotal;
-	if (typeof total === "number" && Number.isInteger(total) && total > 0) {
-		return $t("chat.deliberatingProgress", { current, total, label });
-	}
-	return label;
+	return formatDeliberationProgressLabel(
+		segment.label,
+		resolveDeliberationPassIndex(segment) ?? 1,
+		segment.passTotal,
+		$t,
+	);
 }
 
 const latestDeliberationStatusSegment = $derived.by(() => {
@@ -610,28 +573,12 @@ const liveThoughtStepHeadline = $derived(
 		: null,
 );
 
-// TS2-c — the closed activity-class enum's secondary signal: a small
-// leading icon per class, mirroring the existing
-// getDeliberationStatusIconType/deliberation-status-icon precedent exactly
-// (a plain string tag decided in script, rendered via an if/else chain in
-// the thoughtStepClassIcon snippet below — no dynamic-component map, to
-// match this file's established idiom).
-function getThoughtStepClassIconType(
-	activityClass: ThoughtStepClassifierActivityClass,
-):
-	| "help-circle"
-	| "history"
-	| "scale"
-	| "workflow"
-	| "list-checks"
-	| "pen-line" {
-	if (activityClass === "understanding-request") return "help-circle";
-	if (activityClass === "recalling-context") return "history";
-	if (activityClass === "weighing-options") return "scale";
-	if (activityClass === "working-through-logic") return "workflow";
-	if (activityClass === "checking-details") return "list-checks";
-	return "pen-line"; // "drafting-approach"
-}
+// TS2-c — the closed activity-class enum's secondary signal: a small leading
+// icon per class. The mapping (thoughtStepIconTypeForClass) now lives in the
+// shared activity-presentation.ts; this file keeps only the icon-TYPE ->
+// Lucide switch in the thoughtStepClassIcon snippet below (a plain string tag
+// rendered via an if/else chain — no dynamic-component map, to match this
+// file's established idiom).
 
 // P4 (ADR-0056) — the determinate deliberation-progress state, a pure
 // decision (deriveDeliberationProgressState) over already-computed
@@ -964,12 +911,12 @@ function toggleFullReasoning(): void {
 <!--
 	TS2-c (ADR-0056 amendment) — the closed activity class's secondary
 	signal: a small leading icon, never the headline. Same if/else-over-a-
-	string-tag shape as getDeliberationStatusIconType's icon block above it
-	in this file, deliberately not a dynamic-component map, to match this
-	file's established idiom for "pick one of a few known icons".
+	string-tag shape as the deliberation-status-icon block below it in this
+	file, deliberately not a dynamic-component map, to match this file's
+	established idiom for "pick one of a few known icons".
 -->
 {#snippet thoughtStepClassIcon(activityClass: ThoughtStepClassifierActivityClass)}
-	{@const iconType = getThoughtStepClassIconType(activityClass)}
+	{@const iconType = thoughtStepIconTypeForClass(activityClass)}
 	{#if iconType === 'help-circle'}
 		<HelpCircle class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
 	{:else if iconType === 'history'}
@@ -1161,7 +1108,7 @@ function toggleFullReasoning(): void {
 	chip instead of the previous generic status-only glyph. iconType is a
 	plain string tag out of getToolCallIconType (tool-calls.ts), rendered here
 	via the same if/else-over-a-string-tag idiom this file already uses for
-	getDeliberationStatusIconType/getThoughtStepClassIconType above — no
+	the deliberation-status and thought-step-class icon blocks above — no
 	dynamic-component map, to match this file's established shape for "pick
 	one of a few known icons". Connection-tool cases render the exact same
 	Lucide glyph SettingsConnectionsTab's CAPABILITY_ICONS already uses per
@@ -1386,7 +1333,7 @@ function toggleFullReasoning(): void {
 		class:is-running={statusSeg.status === 'running'}
 	>
 		{#if isDeliberationStatus}
-			{@const iconType = getDeliberationStatusIconType(statusSeg)}
+			{@const iconType = deliberationStatusIconType(statusSeg)}
 			{#if iconType === 'search'}
 				<Search class="deliberation-status-icon" data-deliberation-icon="search" size={14} strokeWidth={2} aria-hidden="true" />
 			{:else if iconType === 'clipboard-check'}

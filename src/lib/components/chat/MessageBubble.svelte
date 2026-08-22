@@ -14,6 +14,15 @@ import {
 	type ResponseActivityEntry,
 	type TurnAcknowledgmentIntentClass,
 } from "$lib/response-activity-types";
+import {
+	deliberationIconTypeForPassKind,
+	formatDeliberationProgressLabel,
+	isDeliberationActivityEntry,
+	isDeliberationStatusSegment,
+	isThoughtStepActivityEntry,
+	isToolProgressActivity,
+	resolveDeliberationPassIndex,
+} from "$lib/utils/activity-presentation";
 import type {
 	AtlasAction,
 	AtlasJobCard,
@@ -30,7 +39,6 @@ import type {
 	ChatAttachment,
 	ChatMessage,
 	ChatTurnCompletionWarningCode,
-	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -227,57 +235,20 @@ let liveResponseActivityEntries = $derived(
 	!isUser && markdownIsStreaming ? (message.responseActivity ?? []) : [],
 );
 let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
-type DeliberationThinkingStatus = Extract<ThinkingSegment, { type: "status" }>;
-type DeliberationActivityEntry = Extract<
-	ResponseActivityEntry,
-	{ kind: "deliberation" }
->;
-type DeliberationStatusEntry =
-	| DeliberationThinkingStatus
-	| DeliberationActivityEntry;
+// Tier B2 — the deliberation / thought-step / tool-progress classification
+// predicates (isDeliberationStatusSegment, isDeliberationActivityEntry,
+// isThoughtStepActivityEntry, isToolProgressActivity), the passKind -> icon
+// mapping, the pass-index resolution, and the "Deliberating: N/M · label"
+// assembly now live in the shared pure `activity-presentation.ts`, consumed
+// identically by ThinkingBlock, so the two rails cannot drift.
 type AttachmentArtifactSummary = ArtifactSummary & { artifactId: string };
-
-function isDeliberationThinkingStatus(
-	segment: ThinkingSegment,
-): segment is DeliberationThinkingStatus {
-	return (
-		segment.type === "status" &&
-		segment.id.startsWith("deliberation-pass-") &&
-		segment.label?.trim().length > 0
-	);
-}
-
-function isDeliberationActivityEntry(
-	entry: ResponseActivityEntry | undefined,
-): entry is DeliberationActivityEntry {
-	return entry?.kind === "deliberation" && Boolean(entry.label?.trim());
-}
-
-// P3c (ADR-0056) — the latest live classified thought-step, if any has
-// arrived. Mirrors liveDeliberationStatus's reverse-scan-latest-match
-// exactly: each new classified step rides its own id
-// (`thought-step:${step.id}`, see stream-orchestrator.ts), so the newest
-// entry in message.responseActivity is always the current step.
-// ThinkingBlock owns the honesty-gated class->label lookup and the
-// fallback-to-spine precedence; this only locates the raw wire entry.
-function isThoughtStepActivityEntry(
-	entry: ResponseActivityEntry,
-): entry is ResponseActivityEntry & { detail: string } {
-	return entry.kind === "thought_step" && Boolean(entry.detail?.trim());
-}
-
-function isToolProgressActivity(
-	entry: ResponseActivityEntry,
-): entry is ResponseActivityEntry & { label: string } {
-	return entry.id.startsWith("tool-progress:") && Boolean(entry.label?.trim());
-}
 
 let visibleThinkingSegmentsForDisplay = $derived(
 	markdownIsStreaming
 		? (() => {
 				const latestDeliberationStatus = [...thinkingSegmentsForDisplay]
 					.reverse()
-					.find(isDeliberationThinkingStatus);
+					.find(isDeliberationStatusSegment);
 				if (!latestDeliberationStatus) {
 					return thinkingSegmentsForDisplay;
 				}
@@ -292,7 +263,7 @@ let visibleThinkingSegmentsForDisplay = $derived(
 		: thinkingSegmentsForDisplay,
 );
 let deliberationThinkingStatus = $derived(
-	[...thinkingSegmentsForDisplay].reverse().find(isDeliberationThinkingStatus),
+	[...thinkingSegmentsForDisplay].reverse().find(isDeliberationStatusSegment),
 );
 let hasVisibleThinkingSegments = $derived(
 	thinkingSegmentsForDisplay.some(isVisibleThinkingSegment),
@@ -369,28 +340,29 @@ let liveThoughtStepActivity = $derived(
 				.find(isThoughtStepActivityEntry)
 		: undefined,
 );
-let liveDeliberationStatusDisplayLabel = $derived.by(() => {
-	const label = liveDeliberationStatusLabel;
-	if (!label) return "";
-	const current = deliberationPassIndex(liveDeliberationStatus);
-	const total = liveDeliberationStatus?.passTotal;
-	if (
-		current &&
-		typeof total === "number" &&
-		Number.isInteger(total) &&
-		total > 0
-	) {
-		return $t("chat.deliberatingProgress", { current, total, label });
-	}
-	return label;
-});
+// Tier B2 — the "Deliberating: N/M · label" assembly is now the shared
+// `formatDeliberationProgressLabel` (consumed identically by ThinkingBlock).
+// The per-component "what counts as a determinate current pass" rule stays
+// here as the adapter: MessageBubble only showed the progress form for a
+// TRUTHY pass number, so a falsy pass index (0) collapses to `null` (`|| null`)
+// and the bare label shows — exactly the pre-extraction `if (current && …)`.
+let liveDeliberationStatusDisplayLabel = $derived(
+	formatDeliberationProgressLabel(
+		liveDeliberationStatusLabel,
+		resolveDeliberationPassIndex(liveDeliberationStatus) || null,
+		liveDeliberationStatus?.passTotal,
+		$t,
+	),
+);
 // P4 (ADR-0056) — the same already-computed passIndex/passTotal reused above
 // for the legacy `chat.deliberatingProgress` line, fed instead into
 // ThinkingBlock's live header for the determinate "pass N of M" rail state.
 // Deliberately the SAME source values, not a second computation — see
-// $lib/utils/deliberation-progress.ts for the pure decision.
+// $lib/utils/deliberation-progress.ts for the pure decision. Keeps the raw
+// resolved index (not the `|| null` display rule above), so an explicit pass 0
+// is passed through unchanged.
 let livePassIndex = $derived(
-	deliberationPassIndex(liveDeliberationStatus) ?? undefined,
+	resolveDeliberationPassIndex(liveDeliberationStatus) ?? undefined,
 );
 let livePassTotal = $derived(
 	typeof liveDeliberationStatus?.passTotal === "number"
@@ -416,59 +388,13 @@ let liveToolProgressActivityEntries = $derived(
 		? liveResponseActivityEntries.filter(isToolProgressActivity)
 		: [],
 );
-const liveDeliberationStatusIconType = $derived.by(() => {
-	if (!liveDeliberationStatus) {
-		return "search";
-	}
-	return deliberationIconType(liveDeliberationStatus.passKind);
-});
-
-function deliberationPassIndex(
-	status: DeliberationStatusEntry | undefined,
-): number | null {
-	if (!status) return null;
-	if (
-		typeof status.passIndex === "number" &&
-		Number.isInteger(status.passIndex)
-	) {
-		return status.passIndex;
-	}
-	const match = /deliberation-pass-(\d+)/i.exec(status.id);
-	const parsed = match ? Number.parseInt(match[1], 10) : NaN;
-	return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function deliberationIconType(
-	passKind: string | undefined,
-):
-	| "search"
-	| "clipboard-check"
-	| "shield-alert"
-	| "languages"
-	| "layers"
-	| "bot" {
-	if (
-		passKind === "context_source_gap_review" ||
-		passKind === "evidence_gap_review" ||
-		passKind === "source_reconciliation"
-	)
-		return "search";
-	if (
-		passKind === "missed_user_need_check" ||
-		passKind === "answer_plan_critique" ||
-		passKind === "final_format_style_check"
-	)
-		return "clipboard-check";
-	if (
-		passKind === "contradiction_risk_check" ||
-		passKind === "adversarial_edge_case_check"
-	)
-		return "shield-alert";
-	if (passKind === "hungarian_parity_check") return "languages";
-	if (passKind === "workspace_synthesis") return "layers";
-	if (passKind === "viable_alternatives_preservation") return "bot";
-	return "search";
-}
+// Tier B2 — the passKind -> icon mapping is now shared
+// (deliberationIconTypeForPassKind, consumed identically by ThinkingBlock).
+// MessageBubble's adapter is a flat "search" default for an unknown / absent
+// pass kind (ThinkingBlock instead falls back to a pass-index heuristic).
+const liveDeliberationStatusIconType = $derived(
+	deliberationIconTypeForPassKind(liveDeliberationStatus?.passKind) ?? "search",
+);
 function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
 	return (
 		value === "off" ||
