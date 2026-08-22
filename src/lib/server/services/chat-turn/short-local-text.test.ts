@@ -25,6 +25,7 @@ import {
 	isPlausibleShortText,
 	isReasoningLeak,
 	resolveShortTextLanguage,
+	unwrapJsonControlText,
 } from "./short-local-text";
 
 function controlResult(overrides: {
@@ -313,10 +314,64 @@ describe("callShortLocalControlModel", () => {
 	});
 });
 
+describe("unwrapJsonControlText", () => {
+	it("extracts the string from a JSON-wrapped control result", () => {
+		expect(unwrapJsonControlText('{"headline": "FlightLink Dublin Checklist"}')).toBe(
+			"FlightLink Dublin Checklist",
+		);
+		expect(unwrapJsonControlText('{\n  "title": "Buy DD1 First"\n}')).toBe(
+			"Buy DD1 First",
+		);
+		// Prefers a known text key, then the first non-empty string value.
+		expect(unwrapJsonControlText('{"foo": "", "bar": "Fallback value"}')).toBe(
+			"Fallback value",
+		);
+	});
+
+	it("peels a ```json fence before parsing", () => {
+		expect(
+			unwrapJsonControlText('```json\n{"headline": "Fenced Headline"}\n```'),
+		).toBe("Fenced Headline");
+	});
+
+	it("leaves genuine plain text and non-object JSON untouched", () => {
+		expect(unwrapJsonControlText("A Short Headline")).toBe("A Short Headline");
+		expect(unwrapJsonControlText("Cost is $5 { per unit }")).toBe(
+			"Cost is $5 { per unit }",
+		);
+		// Malformed JSON object: return the raw text rather than throwing.
+		expect(unwrapJsonControlText('{"headline": broken')).toBe(
+			'{"headline": broken',
+		);
+		// A JSON object with no string value: leave it as-is.
+		expect(unwrapJsonControlText('{"count": 3}')).toBe('{"count": 3}');
+	});
+});
+
 describe("generateShortLocalText", () => {
 	beforeEach(() => {
 		sendJsonControlMessageMock.mockReset();
 		recordControlModelUsageMock.mockClear();
+	});
+
+	it("unwraps a JSON-wrapped control result into plain text", async () => {
+		// The transport forces JSON output, so a schemaless call returns
+		// `{"headline":"…"}` — the seam must store the headline, not the JSON.
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: '{"headline": "Limerick to Dublin fares"}' }),
+		);
+
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			systemPrompt: "Write a short headline.",
+			maxTokens: 40,
+			cleanup: { maxChars: 100, maxWords: 14 },
+		});
+
+		expect(out).toBe("Limerick to Dublin fares");
 	});
 
 	it("returns cleaned text and records spend on success", async () => {

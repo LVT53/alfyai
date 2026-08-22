@@ -219,6 +219,54 @@ export async function callShortLocalControlModel(
 	}
 }
 
+// The shared control transport (`sendJsonControlMessage`) forces JSON output
+// even when no schema is supplied (`buildOutput` returns `Output.json`), so a
+// "plain text" request comes back wrapped as a JSON object like
+// `{"headline":"…"}` — the model invents a key from the prompt wording. These
+// are the keys such answers wrap under, tried in order before falling back to
+// the object's first non-empty string value.
+const JSON_TEXT_WRAPPER_KEYS = [
+	"headline",
+	"title",
+	"text",
+	"summary",
+	"answer",
+	"value",
+	"label",
+	"response",
+];
+
+/**
+ * Unwrap the single string carried by a JSON object the control transport
+ * returned for a schemaless "plain text" call. Leaves genuinely-plain text (and
+ * anything that does not parse as a JSON object holding a string) untouched, so
+ * it is safe to run on every short-text result. A ```json … ``` fence, if
+ * present, is peeled first.
+ */
+export function unwrapJsonControlText(raw: string): string {
+	let text = raw.trim();
+	const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+	if (fenced) text = fenced[1].trim();
+	if (!text.startsWith("{") || !text.endsWith("}")) return raw;
+	try {
+		const parsed = JSON.parse(text) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return raw;
+		}
+		const record = parsed as Record<string, unknown>;
+		for (const key of JSON_TEXT_WRAPPER_KEYS) {
+			const value = record[key];
+			if (typeof value === "string" && value.trim()) return value;
+		}
+		const firstString = Object.values(record).find(
+			(value) => typeof value === "string" && value.trim(),
+		);
+		return typeof firstString === "string" ? firstString : raw;
+	} catch {
+		return raw;
+	}
+}
+
 // --- plain-text convenience -------------------------------------------------
 
 export type ShortTextCleanup = {
@@ -288,7 +336,10 @@ function cleanShortLocalText(
 	params: GenerateShortLocalTextParams,
 ): string | null {
 	const cleanup = params.cleanup ?? {};
-	let text = raw ?? "";
+	// The transport forces JSON output, so a schemaless short-text call comes back
+	// as `{"headline":"…"}` — unwrap to the underlying string before any cleanup,
+	// or the rail/title/ack surfaces would show literal JSON.
+	let text = unwrapJsonControlText(raw ?? "");
 	if (cleanup.normalize) text = cleanup.normalize(text);
 	text = text.trim();
 	if (!text) return null;
