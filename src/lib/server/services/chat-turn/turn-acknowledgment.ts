@@ -4,10 +4,9 @@ import {
 	TURN_ACKNOWLEDGMENT_INTENT_CLASSES,
 	type TurnAcknowledgmentIntentClass,
 } from "$lib/response-activity-types";
-import { recordControlModelUsage } from "../analytics";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
-import { createRequestAbortSignal } from "./shared-normal-chat-model-run-helpers";
+import { callShortLocalControlModel } from "./short-local-text";
 
 /**
  * P2 (ADR-0056) — instant turn acknowledgment.
@@ -48,8 +47,6 @@ const TURN_ACKNOWLEDGMENT_MAX_TOKENS = 150;
 // slot. Kept small (well under the instance's total capacity) so this
 // enrichment can never itself become the contention it exists to avoid.
 export const MAX_CONCURRENT_TURN_ACKNOWLEDGMENT_CALLS = 2;
-
-let inFlightTurnAcknowledgmentCalls = 0;
 
 const TURN_ACKNOWLEDGMENT_SYSTEM_PROMPT = `Classify the user's message and, if possible, extract its topic. Respond with strict JSON only, matching exactly: {"intentClass": one of "research" | "code" | "write" | "analyze" | "plan" | "chat", "topic": a short phrase, or omit the field}.
 
@@ -146,59 +143,33 @@ export async function resolveTurnAcknowledgment(
 ): Promise<TurnAcknowledgment | null> {
 	const message = params.message.trim();
 	if (!message) return null;
-	if (
-		inFlightTurnAcknowledgmentCalls >= MAX_CONCURRENT_TURN_ACKNOWLEDGMENT_CALLS
-	) {
-		return null;
-	}
 
-	inFlightTurnAcknowledgmentCalls += 1;
-	try {
-		const { sendJsonControlMessage } = await import(
-			"../normal-chat-control-model"
-		);
-		const signal = createRequestAbortSignal(
-			TURN_ACKNOWLEDGMENT_TIMEOUT_MS,
-			params.signal,
-		);
-		const result = await sendJsonControlMessage(message, "model2", {
-			systemPrompt: TURN_ACKNOWLEDGMENT_SYSTEM_PROMPT,
-			thinkingMode: "off",
-			temperature: 0,
-			maxTokens: TURN_ACKNOWLEDGMENT_MAX_TOKENS,
-			jsonSchema: TURN_ACKNOWLEDGMENT_JSON_SCHEMA,
-			signal,
-		});
+	// The control-model call, its ADR-0047 cost accounting, the hard timeout,
+	// and the concurrency cap all live in the shared short-local-text seam now.
+	// This path keeps only its own contract: the JSON classification schema and
+	// the verbatim-topic honesty rule.
+	const result = await callShortLocalControlModel({
+		message,
+		modelId: "model2",
+		feature: "turn_acknowledgment",
+		userId: params.userId,
+		conversationId: params.conversationId,
+		systemPrompt: TURN_ACKNOWLEDGMENT_SYSTEM_PROMPT,
+		thinkingMode: "off",
+		temperature: 0,
+		maxTokens: TURN_ACKNOWLEDGMENT_MAX_TOKENS,
+		jsonSchema: TURN_ACKNOWLEDGMENT_JSON_SCHEMA,
+		timeoutMs: TURN_ACKNOWLEDGMENT_TIMEOUT_MS,
+		maxConcurrent: MAX_CONCURRENT_TURN_ACKNOWLEDGMENT_CALLS,
+		signal: params.signal,
+	});
+	if (!result) return null;
 
-		// ADR-0047 — track this control call's spend like every other model
-		// call. Best-effort inside recordControlModelUsage itself; awaited here
-		// only so tests can assert on it deterministically, never so a slow
-		// cost write could delay anything downstream (the acknowledgment has
-		// already been computed by this point).
-		await recordControlModelUsage({
-			userId: params.userId,
-			conversationId: params.conversationId,
-			feature: "turn_acknowledgment",
-			modelId: result.modelId,
-			modelDisplayName: result.modelDisplayName,
-			promptTokens: result.usage?.promptTokens,
-			completionTokens: result.usage?.completionTokens,
-			totalTokens: result.usage?.totalTokens,
-			cachedInputTokens: result.usage?.cachedInputTokens,
-			cacheHitTokens: result.usage?.cacheHitTokens,
-			cacheMissTokens: result.usage?.cacheMissTokens,
-		});
+	const parsed = parseTurnAcknowledgmentResponse(result.text);
+	if (!parsed) return null;
 
-		const parsed = parseTurnAcknowledgmentResponse(result.text);
-		if (!parsed) return null;
-
-		const topic = extractVerbatimTopic(parsed.topic, message);
-		return topic
-			? { intentClass: parsed.intentClass, topic }
-			: { intentClass: parsed.intentClass };
-	} catch {
-		return null;
-	} finally {
-		inFlightTurnAcknowledgmentCalls -= 1;
-	}
+	const topic = extractVerbatimTopic(parsed.topic, message);
+	return topic
+		? { intentClass: parsed.intentClass, topic }
+		: { intentClass: parsed.intentClass };
 }

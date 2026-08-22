@@ -2,7 +2,11 @@
 import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
-import { detectLanguage } from "./language";
+import {
+	isHungarianText,
+	isPlausibleShortText,
+	resolveShortTextLanguage,
+} from "./chat-turn/short-local-text";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
 import {
 	DEFAULT_MODEL_MAX_RETRIES,
@@ -167,44 +171,6 @@ const CODE_PATTERNS = [
 	/\b(html|css|javascript|python|java|typescript|react|vue|svelte)\b/i,
 ];
 
-// Thinking/chain-of-thought patterns that indicate the model leaked its
-// reasoning process into the visible output. When a model does not respect
-// `enable_thinking: false`, it may output planning text such as
-// "Here's a thinking process: 1. **Analyze User Input:** ..." as plain
-// text in the content field.  These patterns never describe valid titles.
-const THINKING_LEAK_RE =
-	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to (think|determine)|The user (is asking|asks|asked)|This (looks like|seems like|is a)|Hmm,? let me|Alright,? let me)/i;
-
-function detectTitleLanguage(text: string): "en" | "hu" {
-	return detectLanguage(text);
-}
-
-const TITLE_HUNGARIAN_CHARS = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
-const TITLE_STRONG_HUNGARIAN_WORDS =
-	/\b(és|hogy|nem|van|meg|ez|egy|kell|azt|volt)\b/i;
-
-function isTitleHungarian(text: string): boolean {
-	if (TITLE_HUNGARIAN_CHARS.test(text)) return true;
-	const matches = text.match(TITLE_STRONG_HUNGARIAN_WORDS);
-	return (matches?.length ?? 0) >= 2;
-}
-
-const EXPLICIT_ENGLISH_HINT_RE =
-	/\b(in english|english title|respond in english|answer in english)\b|angolul/i;
-const EXPLICIT_HUNGARIAN_HINT_RE =
-	/\b(in hungarian|hungarian title|respond in hungarian|answer in hungarian)\b|magyarul/i;
-
-function resolveTitleLanguage(
-	userMessage: string,
-	userPreference?: "auto" | "en" | "hu",
-): "en" | "hu" {
-	if (userPreference === "en") return "en";
-	if (userPreference === "hu") return "hu";
-	if (EXPLICIT_ENGLISH_HINT_RE.test(userMessage)) return "en";
-	if (EXPLICIT_HUNGARIAN_HINT_RE.test(userMessage)) return "hu";
-	return detectTitleLanguage(userMessage);
-}
-
 /**
  * Check if the conversation is code-related
  * @param userMessage The user's message
@@ -297,23 +263,6 @@ function cleanTitle(title: string): string {
 	cleaned = correctSpelling(cleaned);
 
 	return cleaned;
-}
-
-/**
- * Detect whether the raw text looks like leaked thinking/reasoning content
- * rather than a genuine title.  Some models do not respect
- * `enable_thinking: false` and emit their chain-of-thought as plain text.
- */
-function isThinkingLeak(text: string): boolean {
-	return THINKING_LEAK_RE.test(text.trim());
-}
-
-function isPlausibleTitle(text: string): boolean {
-	const normalized = text.replace(/\s+/g, " ").trim();
-	if (!normalized) return false;
-	if (normalized.length > 100) return false;
-	if (normalized.split(" ").filter(Boolean).length > 12) return false;
-	return !isThinkingLeak(normalized);
 }
 
 /**
@@ -473,7 +422,7 @@ export async function generateTitle(
 	titleLanguage?: "auto" | "en" | "hu",
 ): Promise<string> {
 	const config = getConfig();
-	const language = resolveTitleLanguage(userMessage, titleLanguage);
+	const language = resolveShortTextLanguage(userMessage, titleLanguage);
 	const codeRelated = isCodeRelated(userMessage, assistantResponse);
 	const systemPrompt = resolveConfiguredTitleSystemPrompt(
 		language,
@@ -497,16 +446,16 @@ export async function generateTitle(
 
 	const rawTitle = await generateTitleWithAiSdk(config, aiMessages);
 
-	if (!rawTitle || !isPlausibleTitle(rawTitle)) {
+	if (!rawTitle || !isPlausibleShortText(rawTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty rawTitle or thinking leak");
 		return fallbackTitle(userMessage);
 	}
 	const cleanedTitle = cleanTitle(rawTitle);
-	if (!isPlausibleTitle(cleanedTitle)) {
+	if (!isPlausibleShortText(cleanedTitle)) {
 		console.info("[TITLE_GENERATE] Fallback: empty cleanedTitle");
 		return fallbackTitle(userMessage);
 	}
-	const titleIsHungarian = isTitleHungarian(cleanedTitle);
+	const titleIsHungarian = isHungarianText(cleanedTitle);
 	if (titleIsHungarian !== (language === "hu")) {
 		console.info("[TITLE_GENERATE] Fallback: language mismatch", {
 			expected: language,
