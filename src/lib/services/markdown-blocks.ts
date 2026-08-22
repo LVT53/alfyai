@@ -21,20 +21,26 @@ export type MarkdownBlockKind =
 	| "callout"
 	| "checklist"
 	| "accordion"
+	| "mermaid"
+	| "chart"
+	| "csv"
 	| "html";
 
 /**
- * Stage 2 (diagrams) will add mermaid / chart / csv block kinds. Their fences
- * are currently classified as plain `code` blocks (grey code). The names are
- * reserved here so Stage 2 is a purely additive change (one registry entry +
- * one renderer per kind). They are intentionally NOT produced or registered
- * yet.
+ * The diagram fence languages (Stage 2). A fenced block whose info string is one
+ * of these — AND whose fence is actually CLOSED — is promoted from a plain `code`
+ * block to its own typed diagram kind, so the registry can dispatch it to a real
+ * visual renderer instead of grey code. An UNTERMINATED diagram fence (mid-stream,
+ * closing ``` not yet arrived) stays a `code` block: we never hand a partial
+ * source to chart.js / mermaid — the code/placeholder shows until the fence
+ * closes, mirroring how code blocks flush during streaming.
  */
-export const RESERVED_STAGE2_KINDS = ["mermaid", "chart", "csv"] as const;
-export type ReservedStage2Kind = (typeof RESERVED_STAGE2_KINDS)[number];
+export const DIAGRAM_FENCE_KINDS = ["mermaid", "chart", "csv"] as const;
+export type DiagramFenceKind = (typeof DIAGRAM_FENCE_KINDS)[number];
+const DIAGRAM_FENCE_LANGS = new Set<string>(DIAGRAM_FENCE_KINDS);
 
 /**
- * Block source-syntax contract (Stage 2 teaches these to the Normal Chat model):
+ * Block source-syntax contract (the Normal Chat model is taught these):
  * - checklist → GFM task list: `- [ ] todo` / `- [x] done` (rendered as
  *   enabled, tick-able checkboxes by the Checklist component).
  * - accordion → raw HTML passthrough: `<details><summary>Title</summary> …body
@@ -43,6 +49,13 @@ export type ReservedStage2Kind = (typeof RESERVED_STAGE2_KINDS)[number];
  *   are fine — the classifier re-joins the split tokens into one accordion.
  * - table    → standard GFM pipe tables (wrapped as a first-class scroll block).
  * - callout  → Obsidian blockquote callouts: `> [!NOTE] Title`.
+ * - mermaid  → a ```mermaid fence whose body is mermaid diagram source
+ *   (flowchart / sequence / etc.), rendered to sanitized SVG client-side.
+ * - chart    → a ```chart fence whose body is a JSON Chart.js config
+ *   (`{ "type": "bar", "data": { "labels": [...], "datasets": [...] } }`),
+ *   rendered to a <canvas> client-side.
+ * - csv      → a ```csv fence whose body is comma-separated rows (first row is
+ *   the header), rendered as a first-class scrollable table.
  */
 export type MarkdownChecklistItem = {
 	checked: boolean;
@@ -56,24 +69,42 @@ export type MarkdownBlock =
 	| { kind: "table"; raw: string }
 	| { kind: "callout"; raw: string }
 	| { kind: "accordion"; raw: string }
+	| { kind: "mermaid"; raw: string; code: string }
+	| { kind: "chart"; raw: string; code: string }
+	| { kind: "csv"; raw: string; code: string }
 	| { kind: "html"; raw: string };
 
-/** How a block kind is rendered by the component-side registry. */
-export type BlockRenderStrategy = "code" | "checklist" | "prose";
-
 /**
- * The renderer registry: block kind → render strategy.
- * - `code`      → the `CodeBlock` Svelte component.
- * - `checklist` → the interactive `Checklist` Svelte component.
+ * How a block kind is rendered. This is the SINGLE source of truth for
+ * dispatch: `MarkdownRenderer.svelte` maps each strategy to a concrete Svelte
+ * component (or the prose `{@html}` lane) via the component registry, so the
+ * template holds no per-kind switch — adding a block kind is one entry here +
+ * one component, no template edits.
+ * - `code`      → the `CodeBlock` component.
+ * - `checklist` → the interactive `Checklist` component.
+ * - `chart`     → the `Chart` component (Chart.js on a <canvas>).
+ * - `csv`       → the `CsvTable` component (a first-class scrollable table).
+ * - `mermaid`   → the `Mermaid` component (lazy mermaid → sanitized SVG).
  * - `prose`     → the sanitized `{@html}` markdown surface (table, callout,
  *                 accordion `<details>`, and generic prose all render here).
  */
+export type BlockRenderStrategy =
+	| "code"
+	| "checklist"
+	| "chart"
+	| "csv"
+	| "mermaid"
+	| "prose";
+
 export const BLOCK_RENDER_STRATEGIES: Record<
 	MarkdownBlockKind,
 	BlockRenderStrategy
 > = {
 	code: "code",
 	checklist: "checklist",
+	chart: "chart",
+	csv: "csv",
+	mermaid: "mermaid",
 	table: "prose",
 	callout: "prose",
 	accordion: "prose",
@@ -89,6 +120,25 @@ export function resolveBlockRenderStrategy(
 const CALLOUT_PATTERN = /^\s*>\s*\[!([A-Za-z][\w-]*)\]/;
 const DETAILS_OPEN_PATTERN = /<details(?=[\s>])/gi;
 const DETAILS_CLOSE_PATTERN = /<\/details\s*>/gi;
+const FENCE_LINE_PATTERN = /^[ \t]*(?:`{3,}|~{3,})[ \t]*$/;
+
+/**
+ * Is a fenced code token's source actually terminated? marked emits a `code`
+ * token for an unterminated fence too (mid-stream, before the closing ``` has
+ * streamed in) — its `raw` simply lacks the closing fence line. A closed fence's
+ * `raw` ends with a line that is nothing but fence characters. We use this to
+ * keep a partial diagram fence in the safe `code` lane until it closes.
+ */
+function isFenceClosed(raw: string): boolean {
+	const lines = raw.replace(/\s+$/, "").split("\n");
+	if (lines.length < 2) return false;
+	return FENCE_LINE_PATTERN.test(lines[lines.length - 1]);
+}
+
+/** The bare fence language keyword, lower-cased (drops any info-string tail). */
+function fenceLanguageKeyword(lang: string | undefined): string {
+	return (lang ?? "").trim().toLowerCase().split(/\s+/)[0] ?? "";
+}
 
 function countMatches(source: string, pattern: RegExp): number {
 	const matches = source.match(pattern);
@@ -191,11 +241,20 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 		if (token.type === "code") {
 			flushProse();
 			const codeToken = token as Tokens.Code;
+			const code = codeToken.text ?? "";
+			const keyword = fenceLanguageKeyword(codeToken.lang);
+			// A CLOSED diagram fence is promoted to its own visual kind. An
+			// unterminated one (mid-stream) falls through to the code lane below,
+			// so partial/invalid diagram source is never handed to the renderer.
+			if (DIAGRAM_FENCE_LANGS.has(keyword) && isFenceClosed(raw)) {
+				blocks.push({ kind: keyword as DiagramFenceKind, raw, code });
+				continue;
+			}
 			const language = codeToken.lang?.trim() ? codeToken.lang : undefined;
 			blocks.push({
 				kind: "code",
 				raw,
-				code: codeToken.text ?? "",
+				code,
 				language,
 			});
 			continue;

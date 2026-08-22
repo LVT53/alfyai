@@ -532,6 +532,42 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("all tool arguments MUST be valid JSON");
 	});
 
+	// A3 (Tier A3, prompt coupling — REQUIRED): the renderer supports rich blocks
+	// (checklists, accordions, tables, callouts, and mermaid/chart/csv diagrams),
+	// but without teaching the model the syntax it keeps code-dumping. The
+	// assembled system prompt must carry that block-syntax teaching so the two
+	// ship together.
+	it("teaches the model the supported rich-block syntax so it emits blocks instead of code-dumping", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Explain the release process",
+			modelDisplayName: "Provider Model",
+		});
+
+		expect(prompt).toContain("Rich answer blocks");
+		// GFM task list / checklist.
+		expect(prompt).toContain("- [ ] todo");
+		// Accordion.
+		expect(prompt).toContain("<details><summary>");
+		// Callout.
+		expect(prompt).toContain("> [!NOTE]");
+		// Diagram fences, with the chart config shape.
+		expect(prompt).toContain("```mermaid");
+		expect(prompt).toContain("```chart");
+		expect(prompt).toContain('{"type":"bar"');
+		expect(prompt).toContain("```csv");
+	});
+
+	it("omits the rich-block syntax teaching for the tool-less control-model caller (skipDefaultRuntimeGuidance)", () => {
+		const prompt = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Classify this",
+			skipDefaultRuntimeGuidance: true,
+		});
+
+		expect(prompt).not.toContain("Rich answer blocks");
+	});
+
 	describe("Connections framing (Redesign R8)", () => {
 		it("omits the connections framing when hasActiveConnections is not set", () => {
 			const prompt = buildOutboundSystemPrompt({

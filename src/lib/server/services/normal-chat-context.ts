@@ -190,6 +190,27 @@ const JSON_FORMATTING_RULES = [
 	"- Do not add comments, markdown fences, or explanatory text inside the JSON argument.",
 ].join("\n");
 
+// A3 (Tier A3, prompt coupling — REQUIRED): the chat UI renders a set of rich
+// markdown blocks natively (interactive checklists, accordions, tables,
+// callouts, and mermaid/chart/csv diagrams). Without teaching the model this
+// syntax it keeps dumping structured content into generic grey code fences, so
+// the renderer support is invisible. This is always-on answer-formatting
+// guidance (not tool- or message-specific), gated only on the same
+// `!skipDefaultRuntimeGuidance` flag as the other default runtime guidance so
+// the tool-less control-model caller does not pay for it. English-only, like
+// every other guard constant here.
+const RICH_BLOCK_SYNTAX_GUIDE = [
+	"Rich answer blocks — the chat UI renders these natively. EMIT them directly when they help; do NOT dump structured content into a generic ``` code fence:",
+	"- Checklists: GFM task lists — `- [ ] todo` and `- [x] done` render as interactive, tickable checkboxes. Use for steps and to-dos.",
+	"- Collapsible sections: `<details><summary>Title</summary> …markdown… </details>` renders as an accordion. Use to tuck away long optional detail.",
+	"- Tables: standard GFM pipe tables render as first-class scrollable tables. Use for structured comparisons.",
+	"- Callouts: `> [!NOTE] Title` (also TIP, WARNING, IMPORTANT) renders as a highlighted callout.",
+	"- Diagrams: a fenced ```mermaid block renders as a real diagram (flowchart, sequence, class, state, gantt, etc.). Use mermaid for processes, relationships, and timelines.",
+	'- Charts: a fenced ```chart block whose body is a JSON Chart.js config renders as a chart, e.g. {"type":"bar","data":{"labels":["A","B"],"datasets":[{"label":"X","data":[1,2]}]}}. Use for quantitative comparisons.',
+	"- CSV tables: a fenced ```csv block (first row is the header) renders as a table. Use for quick tabular data.",
+	"A ```mermaid / ```chart / ```csv block MUST contain complete, valid source and be properly closed, or it falls back to plain code. Prefer prose for simple answers — do not over-format.",
+].join("\n");
+
 function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
 	const grounding = effort.grounding.guidance;
@@ -400,6 +421,7 @@ export function buildOutboundSystemPrompt(params: {
 				explicitDateContext,
 				buildResponseLanguageGuard(responseLanguage),
 				JSON_FORMATTING_RULES,
+				RICH_BLOCK_SYNTAX_GUIDE,
 			];
 
 	if (!params.skipDefaultRuntimeGuidance && params.reasoningDepthEffort) {

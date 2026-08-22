@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
 	BLOCK_RENDER_STRATEGIES,
 	classifyMarkdownBlocks,
+	DIAGRAM_FENCE_KINDS,
 	type MarkdownBlock,
-	RESERVED_STAGE2_KINDS,
 	resolveBlockRenderStrategy,
 } from "./markdown-blocks";
 
@@ -173,12 +173,69 @@ describe("classifyMarkdownBlocks", () => {
 		const blocks = parse("```js\na\n```\n\n\n```js\nb\n```");
 		expect(blocks.map((b) => b.kind)).toEqual(["code", "code"]);
 	});
+
+	it("classifies a closed ```mermaid fence as a mermaid diagram block", () => {
+		const blocks = parse("```mermaid\ngraph TD\nA-->B\n```");
+		expect(blocks).toHaveLength(1);
+		const [block] = blocks;
+		expect(block.kind).toBe("mermaid");
+		if (block.kind !== "mermaid") throw new Error("expected mermaid block");
+		expect(block.code).toBe("graph TD\nA-->B");
+	});
+
+	it("classifies a closed ```chart fence as a chart block", () => {
+		const blocks = parse('```chart\n{"type":"bar"}\n```');
+		expect(blocks).toHaveLength(1);
+		const [block] = blocks;
+		expect(block.kind).toBe("chart");
+		if (block.kind !== "chart") throw new Error("expected chart block");
+		expect(block.code).toBe('{"type":"bar"}');
+	});
+
+	it("classifies a closed ```csv fence as a csv block", () => {
+		const blocks = parse("```csv\nname,value\nalpha,1\n```");
+		expect(blocks).toHaveLength(1);
+		const [block] = blocks;
+		expect(block.kind).toBe("csv");
+		if (block.kind !== "csv") throw new Error("expected csv block");
+		expect(block.code).toBe("name,value\nalpha,1");
+	});
+
+	it("keeps an UNTERMINATED diagram fence (mid-stream) in the safe code lane, not the diagram lane", () => {
+		// Streaming safety: the closing ``` has not arrived yet, so mermaid/chart/csv
+		// must NOT receive partial source — it renders as grey code until the fence
+		// closes (mirrors how code blocks flush during streaming).
+		for (const lang of ["mermaid", "chart", "csv"]) {
+			const blocks = parse(`intro\n\n\`\`\`${lang}\npartial source`);
+			expect(blocks.map((b) => b.kind)).toEqual(["html", "code"]);
+			const code = blocks[1];
+			if (code.kind !== "code") throw new Error("expected code block");
+			expect(code.language).toBe(lang);
+		}
+	});
+
+	it("promotes a diagram fence to its diagram kind once the closing fence streams in", () => {
+		const open = parse("```mermaid\ngraph TD\nA-->B");
+		expect(open[0].kind).toBe("code");
+		const closed = parse("```mermaid\ngraph TD\nA-->B\n```");
+		expect(closed[0].kind).toBe("mermaid");
+	});
 });
 
 describe("block renderer registry", () => {
 	it("maps every block kind to a render strategy", () => {
 		expect(Object.keys(BLOCK_RENDER_STRATEGIES).sort()).toEqual(
-			["accordion", "callout", "checklist", "code", "html", "table"].sort(),
+			[
+				"accordion",
+				"callout",
+				"chart",
+				"checklist",
+				"code",
+				"csv",
+				"html",
+				"mermaid",
+				"table",
+			].sort(),
 		);
 	});
 
@@ -187,18 +244,21 @@ describe("block renderer registry", () => {
 		expect(resolveBlockRenderStrategy("checklist")).toBe("checklist");
 	});
 
+	it("routes each diagram kind to its own render strategy (now implemented)", () => {
+		expect(resolveBlockRenderStrategy("chart")).toBe("chart");
+		expect(resolveBlockRenderStrategy("csv")).toBe("csv");
+		expect(resolveBlockRenderStrategy("mermaid")).toBe("mermaid");
+		// Every diagram fence kind is a real, dispatchable strategy now.
+		for (const kind of DIAGRAM_FENCE_KINDS) {
+			expect(kind in BLOCK_RENDER_STRATEGIES).toBe(true);
+			expect(resolveBlockRenderStrategy(kind)).toBe(kind);
+		}
+	});
+
 	it("routes table, callout, accordion and html through the prose renderer", () => {
 		expect(resolveBlockRenderStrategy("table")).toBe("prose");
 		expect(resolveBlockRenderStrategy("callout")).toBe("prose");
 		expect(resolveBlockRenderStrategy("accordion")).toBe("prose");
 		expect(resolveBlockRenderStrategy("html")).toBe("prose");
-	});
-
-	it("reserves the Stage 2 diagram kinds without implementing them", () => {
-		expect(RESERVED_STAGE2_KINDS).toEqual(["mermaid", "chart", "csv"]);
-		// Reserved names must NOT yet be produced or registered as Stage 1 kinds.
-		for (const reserved of RESERVED_STAGE2_KINDS) {
-			expect(reserved in BLOCK_RENDER_STRATEGIES).toBe(false);
-		}
 	});
 });

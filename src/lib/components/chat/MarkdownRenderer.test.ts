@@ -131,6 +131,74 @@ describe("MarkdownRenderer — real registry dispatch across every lane", () => 
 	}, 20000);
 });
 
+describe("MarkdownRenderer — diagram lanes dispatch through the registry", () => {
+	it("routes a closed ```csv fence to a first-class table (CsvTable component)", async () => {
+		const content = ["```csv", "name,value", "alpha,1", "beta,2", "```"].join(
+			"\n",
+		);
+
+		const { container } = render(MarkdownRenderer, { props: { content } });
+
+		await waitFor(
+			() => {
+				const wrap = container.querySelector(".markdown-table-wrap");
+				expect(wrap).toBeTruthy();
+				const headers = Array.from(container.querySelectorAll("thead th")).map(
+					(th) => th.textContent,
+				);
+				expect(headers).toEqual(["name", "value"]);
+				expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+				// It must NOT fall back to a grey code block.
+				expect(container.querySelector(".code-block")).toBeNull();
+			},
+			{ timeout: 15000 },
+		);
+	}, 20000);
+
+	it("routes a closed ```mermaid fence to the Mermaid lane (placeholder while it renders), not a code block", async () => {
+		const content = ["```mermaid", "graph TD", "A-->B", "```"].join("\n");
+
+		const { container } = render(MarkdownRenderer, { props: { content } });
+
+		await waitFor(
+			() => {
+				// The mermaid lane renders (a placeholder or the SVG), never a grey
+				// code block. Real mermaid can't measure text in jsdom, so it stays on
+				// the source placeholder / error note — either way it is the Mermaid
+				// component, not CodeBlock.
+				const isMermaidLane =
+					container.querySelector(".markdown-mermaid-placeholder") !== null ||
+					container.querySelector(".markdown-mermaid") !== null ||
+					container.querySelector(".markdown-diagram-error") !== null;
+				expect(isMermaidLane).toBe(true);
+				expect(container.querySelector(".code-block")).toBeNull();
+			},
+			{ timeout: 15000 },
+		);
+	}, 20000);
+
+	it("keeps an UNTERMINATED diagram fence as a code block (streaming safety), not a diagram", async () => {
+		// No closing ``` yet: the mermaid source must render as grey code, never be
+		// handed to the mermaid renderer.
+		const content = "intro\n\n```mermaid\ngraph TD\nA-->B";
+
+		const { container } = render(MarkdownRenderer, {
+			props: { content, isStreaming: true },
+		});
+
+		await waitFor(
+			() => {
+				expect(container.querySelector(".code-block")).toBeTruthy();
+				expect(container.querySelector(".markdown-mermaid")).toBeNull();
+				expect(
+					container.querySelector(".markdown-mermaid-placeholder"),
+				).toBeNull();
+			},
+			{ timeout: 15000 },
+		);
+	}, 20000);
+});
+
 describe("MarkdownRenderer — accordion (details) rendering", () => {
 	it("renders a <details><summary> accordion with its title and collapsible body, and can be expanded", async () => {
 		const content = [

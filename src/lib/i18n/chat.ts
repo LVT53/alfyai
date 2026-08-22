@@ -301,6 +301,11 @@ const chatDict = {
 		"codeBlock.copied": "Copied!",
 		"codeBlock.copyCode": "Copy code",
 		"codeBlock.expand": "Expand code block",
+		"diagram.chartError":
+			"This chart could not be rendered. Showing the source instead.",
+		"diagram.loading": "Rendering diagram…",
+		"diagram.mermaidError":
+			"This diagram could not be rendered. Showing the source instead.",
 		"composerCommands.activeAnnouncement": "Active command: {token} {label}",
 		"composerCommands.attach.description":
 			"Open the existing file attachment flow.",
@@ -1064,6 +1069,11 @@ const chatDict = {
 		"codeBlock.copied": "Másolva!",
 		"codeBlock.copyCode": "Kód másolása",
 		"codeBlock.expand": "Kódblokk kibontása",
+		"diagram.chartError":
+			"Ezt a diagramot nem sikerült megjeleníteni. A forrás látható helyette.",
+		"diagram.loading": "Ábra megjelenítése…",
+		"diagram.mermaidError":
+			"Ezt az ábrát nem sikerült megjeleníteni. A forrás látható helyette.",
 		"composerCommands.activeAnnouncement": "Aktív parancs: {token} {label}",
 		"composerCommands.attach.description":
 			"Megnyitja a meglévő fájlcsatolási folyamatot.",

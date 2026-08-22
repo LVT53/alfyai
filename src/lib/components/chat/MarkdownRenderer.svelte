@@ -1,6 +1,5 @@
 <script lang="ts">
-import Checklist from "./Checklist.svelte";
-import CodeBlock from "./CodeBlock.svelte";
+import { blockRenderer, type DisplayBlock } from "./block-render-registry";
 import ImageLightbox from "./ImageLightbox.svelte";
 import {
 	collectSourceReferenceCandidates,
@@ -31,23 +30,10 @@ let {
 } = $props();
 
 // Display blocks are the render-ready output of the A3 block model: the typed
-// blocks from parseMarkdownBlocks, each rendered through its registry strategy
-// (code → CodeBlock, checklist → Checklist, everything else → prose {@html}).
-type ChecklistDisplayItem = { checked: boolean; task: boolean; html: string };
-type MarkdownBlock =
-	| {
-			kind: "code";
-			code: string;
-			language?: string;
-			html: string;
-			isNew?: boolean;
-	  }
-	| { kind: "checklist"; items: ChecklistDisplayItem[]; isNew?: boolean }
-	| {
-			kind: "table" | "callout" | "accordion" | "html";
-			html: string;
-			isNew?: boolean;
-	  };
+// blocks from parseMarkdownBlocks, each dispatched through the render registry
+// (block-render-registry.ts) — component lanes (code, checklist, chart, csv,
+// mermaid) instantiate their component; the prose lane renders sanitized {@html}.
+type MarkdownBlock = DisplayBlock;
 type SourceLinkTooltip = {
 	sourceName: string;
 	url: string;
@@ -147,6 +133,19 @@ async function buildDisplayBlocks(
 			continue;
 		}
 
+		// Diagram lanes (chart / csv / mermaid): pass the raw fence body straight
+		// to their component — no markdown render, no {@html}. The classifier only
+		// promotes a CLOSED diagram fence to these kinds, so `code` is always a
+		// complete source (never mid-stream partial).
+		if (
+			block.kind === "chart" ||
+			block.kind === "csv" ||
+			block.kind === "mermaid"
+		) {
+			nextBlocks.push({ kind: block.kind, code: block.code });
+			continue;
+		}
+
 		if (block.kind === "checklist") {
 			// Item bodies are BLOCK-LEVEL markdown (a checklist item can hold a
 			// nested sub-list, a fenced code block, multiple paragraphs, a
@@ -190,6 +189,11 @@ function sameDisplayBlock(a: MarkdownBlock, b: MarkdownBlock): boolean {
 				item.task === b.items[i].task &&
 				item.html === b.items[i].html,
 		);
+	}
+	// Diagram lanes carry raw `code`, not pre-rendered `html`: compare the source
+	// so an unchanged diagram is not needlessly re-instantiated during streaming.
+	if ("code" in a && "code" in b && !("html" in a)) {
+		return a.code === b.code;
 	}
 	return "html" in a && "html" in b && a.html === b.html;
 }
@@ -788,15 +792,13 @@ $effect(() => {
 
 <div class="markdown-container" bind:this={container} aria-hidden="false">
   {#each blocks as block}
-    {#if block.kind === 'code'}
-      <div class:block-fade-in={block.isNew}>
-        <CodeBlock code={block.code} language={block.language} contentHtml={block.html} />
+    {@const entry = blockRenderer(block.kind)}
+    {#if entry}
+      {@const Renderer = entry.component}
+      <div class={entry.wrapperClass ?? ''} class:block-fade-in={block.isNew}>
+        <Renderer {...entry.props(block)} />
       </div>
-    {:else if block.kind === 'checklist'}
-      <div class="markdown-checklist-block" class:block-fade-in={block.isNew}>
-        <Checklist items={block.items} />
-      </div>
-    {:else}
+    {:else if 'html' in block}
       <div class="prose max-w-none dark:prose-invert markdown-html">
         {@html block.html}
       </div>
