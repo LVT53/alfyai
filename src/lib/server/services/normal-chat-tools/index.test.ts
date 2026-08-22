@@ -1241,6 +1241,38 @@ describe("createNormalChatTools", () => {
 		expect(tools).not.toHaveProperty("fetch_url");
 	});
 
+	it("omits map_route when ORS is not configured", () => {
+		// Default getConfig mock supplies no orsBaseUrl, so the ORS-backed routing
+		// tool is ABSENT — the model then follows the prompt's "routing
+		// unavailable" guidance instead of calling a dead tool.
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		expect(tools).not.toHaveProperty("map_route");
+	});
+
+	it("registers map_route when ORS_BASE_URL is configured", () => {
+		getConfigMock.mockReturnValueOnce({
+			parallelApiKey: "parallel-key",
+			parallelBaseUrl: "https://api.parallel.ai",
+			orsBaseUrl: "http://127.0.0.1:8080/ors",
+			geocoderBaseUrl: "http://127.0.0.1:2322",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		} as unknown as ReturnType<typeof getConfig>);
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		expect(tools).toHaveProperty("map_route");
+	});
+
 	it("fetch_url calls Parallel-backed page fetch and records compact web candidates", async () => {
 		fetchUrlViaParallelMock.mockResolvedValue({
 			query: "https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling",

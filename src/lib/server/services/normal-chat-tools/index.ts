@@ -14,6 +14,8 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
+import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
+import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -106,6 +108,11 @@ import {
 	sanitizeResearchWebInput,
 } from "./research-web";
 import {
+	routingToolInputSchema,
+	runRoutingTool,
+	sanitizeRoutingToolInput,
+} from "./routing";
+import {
 	createToolCallRecorder,
 	executeToolWithEnvelope,
 	modelSafeToolError,
@@ -181,6 +188,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				'Fetch and read one or more specific web pages by URL, returning citation-ready page content. Use it when the user pastes a link, or when search snippets do not expose the exact detail, spec, or value you need from a specific page. Pass {"urls": ["https://example.com"]} — always an array of strings, even for a single link, never a bare string — plus an optional `objective` describing what to extract. Example: {"urls": ["https://example.com/pricing"], "objective": "the current Pro plan monthly price"}. The tool returns `evidence` snippets and an `answerBriefMarkdown` for the fetched page(s); extract the exact value from that evidence and cite the source with a markdown link using the returned title and URL, and say plainly when the fetched page does not contain the value rather than guessing. Never paste raw tool output, JSON, or field names into your visible answer. If a fetch fails, say the page could not be read rather than answering from memory.',
 			errorPrefix: "Fetch URL failed",
+		},
+		map_route: {
+			description:
+				'Reason about real-world geography on OpenStreetMap data: geocode place names to coordinates, compute a route (distance + ETA + turn summary), build a distance/ETA matrix across many points, or compute reachability (isochrone) polygons. Pass a single `action` plus its fields: `geocode` {"action":"geocode","query":"Brandenburg Gate","near"?:{lat,lng},"limit"?:5}; `route` {"action":"route","origin":<place>,"destination":<place>,"waypoints"?:[<place>],"mode":"drive|walk|bike"}; `matrix` {"action":"matrix","origins":[<place>],"destinations":[<place>],"mode":...}; `isochrone` {"action":"isochrone","origin":<place>,"ranges_s":[300,600],"mode":...}. A `<place>` is EITHER explicit coordinates {"lat":52.52,"lng":13.4} OR a place-name string (auto-resolved when a geocoder is configured). This tool NEVER knows the user\'s own location — if you need where the user is, call the `location` tool first and pass the returned coordinates in here. `mode` defaults to `drive`. The result is STRUCTURED (distance_m, duration_s, legs, polyline, matrix arrays, or polygons) — narrate it in your own words (e.g. "about 12 km, ~15 min by car") and ALWAYS include the attribution string it returns ("© OpenStreetMap contributors") on any user-facing routing answer. If the tool reports routing or geocoding is unavailable, say so plainly and do NOT estimate a distance, ETA, or route from memory.',
+			errorPrefix: "Routing failed",
 		},
 		memory_context: {
 			description:
@@ -258,6 +270,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				'Egy vagy több konkrét weboldal letöltése és elolvasása URL alapján, hivatkozásra kész oldaltartalommal. Akkor használd, ha a felhasználó egy linket ad meg, vagy ha a keresési részletek nem tartalmazzák a szükséges pontos adatot, specifikációt vagy értéket egy adott oldalról. Add meg: {"urls": ["https://example.com"]} — mindig szövegek tömbjeként, egyetlen link esetén is, soha nem puszta szövegként —, opcionálisan az `objective` mezővel, amely leírja, mit szeretnél kinyerni. Példa: {"urls": ["https://example.com/pricing"], "objective": "a jelenlegi Pro csomag havi ára"}. Az eszköz `evidence` részleteket és egy `answerBriefMarkdown` összefoglalót ad vissza a letöltött oldal(ak)ról; a pontos értéket ebből az evidence-ből nyerd ki, hivatkozz a forrásra Markdown linkkel a visszaadott cím és URL alapján, és mondd ki egyértelműen, ha a letöltött oldal nem tartalmazza az értéket, ahelyett hogy találgatnál. Soha ne illessz be nyers eszközkimenetet, JSON-t vagy mezőneveket a látható válaszba. Ha a letöltés sikertelen, mondd ki, hogy az oldal nem volt olvasható, ahelyett hogy emlékezetből válaszolnál.',
 			errorPrefix: "Az URL letöltése sikertelen",
+		},
+		map_route: {
+			description:
+				'Valós földrajzi elemzés OpenStreetMap adatokon: helynevek geokódolása koordinátákká, útvonal számítása (távolság + menetidő + fordulók összegzése), távolság/menetidő mátrix több pont között, vagy elérhetőségi (izokron) poligonok. Egyetlen `action` mezőt adj meg a hozzá tartozó adatokkal: `geocode` {"action":"geocode","query":"Brandenburgi kapu","near"?:{lat,lng},"limit"?:5}; `route` {"action":"route","origin":<hely>,"destination":<hely>,"waypoints"?:[<hely>],"mode":"drive|walk|bike"}; `matrix` {"action":"matrix","origins":[<hely>],"destinations":[<hely>],"mode":...}; `isochrone` {"action":"isochrone","origin":<hely>,"ranges_s":[300,600],"mode":...}. Egy `<hely>` VAGY explicit koordináta {"lat":52.52,"lng":13.4}, VAGY egy helynév szöveg (automatikusan feloldva, ha be van állítva geokódoló). Ez az eszköz SOHA nem ismeri a felhasználó saját helyzetét — ha arra van szükséged, előbb hívd meg a `location` eszközt, és add át ide a kapott koordinátákat. A `mode` alapértéke `drive`. Az eredmény STRUKTURÁLT (distance_m, duration_s, legs, polyline, mátrix tömbök vagy poligonok) — a saját szavaiddal fogalmazd meg (pl. „kb. 12 km, ~15 perc autóval”), és MINDIG tüntesd fel a visszaadott forrásmegjelölést ("© OpenStreetMap contributors") minden felhasználónak szóló útvonal-válaszban. Ha az eszköz azt jelzi, hogy az útvonaltervezés vagy a geokódolás nem elérhető, mondd ki egyértelműen, és NE becsüld meg emlékezetből a távolságot, menetidőt vagy útvonalat.',
+			errorPrefix: "Az útvonaltervezés sikertelen",
 		},
 		memory_context: {
 			description:
@@ -342,7 +359,16 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// `parallelConfigured = Boolean(config.parallelApiKey.trim())`. The execute
 	// closures below already read getConfig() at call time; reading it once here
 	// for the registration gate matches that existing dependency.
-	const parallelConfigured = Boolean(getConfig().parallelApiKey?.trim());
+	// Read runtime config ONCE for the registration gates (the execute closures
+	// below re-read getConfig() at call time). Capturing a single snapshot keeps
+	// both the Parallel gate and the ORS gate reading the same config object.
+	const registrationConfig = getConfig();
+	const parallelConfigured = Boolean(registrationConfig.parallelApiKey?.trim());
+	// map_route is ORS-backed: register it ONLY when ORS_BASE_URL is configured,
+	// so an unconfigured deployment omits it entirely (mirrors the Parallel gate).
+	// The tool ALSO degrades in-band (returns "routing unavailable") if a call
+	// fails, but the gate keeps it out of the tool set when there's no server.
+	const orsConfigured = Boolean(registrationConfig.orsBaseUrl?.trim());
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);
@@ -1697,6 +1723,97 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "tasks",
+												input: safeInput,
+												status: "done",
+												outputSummary: message,
+												sourceType: "tool",
+												candidates: [],
+												metadata: {
+													ok: false,
+													evidenceReady: false,
+													error: message,
+												},
+											},
+										};
+									},
+								});
+							},
+						}),
+					),
+				}
+			: {}),
+		// map_route is ORS-backed (self-hosted OpenRouteService + optional
+		// geocoder). Register it ONLY when ORS_BASE_URL is configured, so an
+		// unconfigured deployment omits it and the model follows the prompt's
+		// "routing unavailable" guidance instead of calling a dead tool.
+		...(orsConfigured
+			? {
+					map_route: asExecutableTool(
+						tool({
+							description: i18n.map_route.description,
+							inputSchema: routingToolInputSchema,
+							execute: async (
+								input: z.infer<typeof routingToolInputSchema>,
+								options: ToolExecutionOptions,
+							) => {
+								const safeInput = sanitizeRoutingToolInput(input);
+								return executeToolWithEnvelope({
+									toolName: "map_route",
+									timeoutMs: TOOL_TIMEOUTS_MS.map_route,
+									options,
+									recorder,
+									run: async (abortSignal) => {
+										const { orsBaseUrl, geocoderBaseUrl } = getConfig();
+										const provider = createOrsProvider(
+											{ orsBaseUrl, geocoderBaseUrl },
+											{
+												fetch,
+												signal: abortSignal,
+												timeoutMs: TOOL_TIMEOUTS_MS.map_route,
+											},
+										);
+										const { modelPayload, candidates } = await runRoutingTool(
+											safeInput,
+											{ provider },
+										);
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "map_route",
+												input: safeInput,
+												status: "done",
+												outputSummary: modelPayload.message,
+												sourceType: "tool",
+												candidates,
+												metadata: {
+													ok: modelPayload.success,
+													evidenceReady:
+														modelPayload.success && candidates.length > 0,
+													action: modelPayload.action,
+													attribution: modelPayload.attribution,
+												},
+											},
+										};
+									},
+									onError: (error) => {
+										const message = modelSafeToolError(
+											error,
+											i18n.map_route.errorPrefix,
+										);
+										const modelPayload = {
+											success: false as const,
+											name: "map_route" as const,
+											sourceType: "tool" as const,
+											action: safeInput.action,
+											message,
+											attribution: OSM_ATTRIBUTION,
+										};
+										return {
+											modelPayload,
+											entry: {
+												callId: options.toolCallId,
+												name: "map_route",
 												input: safeInput,
 												status: "done",
 												outputSummary: message,

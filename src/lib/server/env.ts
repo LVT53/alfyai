@@ -108,6 +108,15 @@ interface Config {
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
 	parallelBaseUrl: string;
+	// On-box OpenRouteService (ORS) v2 API base URL for the map_route tool
+	// (e.g. http://127.0.0.1:8080/ors). Admin config only — the user never
+	// supplies this. Empty => the routing tool degrades to "unavailable" and is
+	// not registered. Self-hosted, so nothing leaves the box.
+	orsBaseUrl: string;
+	// Optional geocoder base URL (Photon-compatible JSON API) for resolving
+	// place-name strings to coordinates. ORS core ships no geocoder, so this is
+	// a separate service. Empty => geocoding degrades ("pass coordinates").
+	geocoderBaseUrl: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -542,6 +551,8 @@ function readConfig(): Config {
 		owntracksRecorderPass: process.env.OWNTRACKS_RECORDER_PASS || "",
 		parallelApiKey: process.env.PARALLEL_API_KEY || "",
 		parallelBaseUrl: process.env.PARALLEL_BASE_URL || "https://api.parallel.ai",
+		orsBaseUrl: process.env.ORS_BASE_URL || "",
+		geocoderBaseUrl: process.env.GEOCODER_BASE_URL || "",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",

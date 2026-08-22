@@ -81,6 +81,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"OWNTRACKS_RECORDER_PASS",
 	"PARALLEL_API_KEY",
 	"PARALLEL_BASE_URL",
+	"ORS_BASE_URL",
+	"GEOCODER_BASE_URL",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -206,6 +208,8 @@ export interface RuntimeConfig {
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
 	parallelBaseUrl: string;
+	orsBaseUrl: string;
+	geocoderBaseUrl: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -669,6 +673,12 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	PARALLEL_BASE_URL: (config, value) => {
 		config.parallelBaseUrl = value.trim() || "https://api.parallel.ai";
+	},
+	ORS_BASE_URL: (config, value) => {
+		config.orsBaseUrl = value.trim();
+	},
+	GEOCODER_BASE_URL: (config, value) => {
+		config.geocoderBaseUrl = value.trim();
 	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
@@ -1139,6 +1149,8 @@ export function getResolvedAdminConfigValues(
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		PARALLEL_API_KEY: config.parallelApiKey,
 		PARALLEL_BASE_URL: config.parallelBaseUrl,
+		ORS_BASE_URL: config.orsBaseUrl,
+		GEOCODER_BASE_URL: config.geocoderBaseUrl,
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",
