@@ -22,6 +22,7 @@ import {
 	isCitedSource,
 	isPhotosToolName,
 	orderCitedFirst,
+	stripToPlainText,
 	type ToolCallSegment,
 	type Translate,
 } from "./tool-evidence-presentation";
@@ -63,6 +64,55 @@ function webSegment(
 ): ThinkingSegment {
 	return { type: "tool_call", name, status: "done", input: {}, candidates };
 }
+
+describe("stripToPlainText", () => {
+	it("strips HTML tags and decodes common entities", () => {
+		expect(stripToPlainText("Q4 <b>close rates</b> &amp; margins")).toBe(
+			"Q4 close rates & margins",
+		);
+		expect(stripToPlainText('a <a href="x">link</a> here')).toBe("a link here");
+	});
+	it("strips markdown emphasis, code, links and images to plain text", () => {
+		expect(stripToPlainText("**bold** and _italic_ and `code`")).toBe(
+			"bold and italic and code",
+		);
+		expect(stripToPlainText("see [the report](https://x.example/r) now")).toBe(
+			"see the report now",
+		);
+		expect(stripToPlainText("![chart](https://x/c.png) caption")).toBe(
+			"chart caption",
+		);
+		expect(stripToPlainText("~~gone~~ text")).toBe("gone text");
+	});
+	it("strips leading heading/quote/list markers and collapses whitespace", () => {
+		expect(stripToPlainText("# Heading\n\n> quote\n- item")).toBe(
+			"Heading quote item",
+		);
+	});
+	it("leaves unpaired * / _ and plain prose intact", () => {
+		expect(stripToPlainText("rate 18-24% up, snake_case a*b")).toBe(
+			"rate 18-24% up, snake_case a*b",
+		);
+	});
+});
+
+describe("getFetchedSources — plain-text title/excerpt", () => {
+	it("strips markdown/HTML from the title and reason", () => {
+		const sources = getFetchedSources(
+			webSegment([
+				candidate({
+					id: "w1",
+					title: "**Q3** <i>Report</i>",
+					url: "https://ex.example/r",
+					status: "selected",
+					snippet: "Close rates run <b>18-24%</b> above [trailing](http://x).",
+				}),
+			]),
+		);
+		expect(sources[0]?.title).toBe("Q3 Report");
+		expect(sources[0]?.reason).toBe("Close rates run 18-24% above trailing.");
+	});
+});
 
 describe("extractHostname", () => {
 	it("strips a leading www.", () => {

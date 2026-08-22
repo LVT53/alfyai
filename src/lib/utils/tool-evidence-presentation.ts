@@ -130,6 +130,32 @@ export function getFetchUrls(
 	return Object.values(input).flatMap(toUrlList);
 }
 
+// Reduce a web title/excerpt to clean, readable plain text for the hover
+// tooltip: strip HTML tags + common entities and markdown syntax (emphasis,
+// inline code, links/images, heading/quote/list markers), then collapse
+// whitespace — so the popover never surfaces raw <tags> or **markdown** noise
+// from a search provider's snippet. Unpaired `*`/`_` are left alone so prose
+// and identifiers aren't mangled.
+export function stripToPlainText(raw: string): string {
+	return raw
+		.replace(/<[^>]*>/g, " ") // HTML tags
+		.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1") // ![alt](url) -> alt
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // [text](url) -> text
+		.replace(/(\*\*|__)(.+?)\1/g, "$2") // **bold** / __bold__
+		.replace(/(\*|_)(.+?)\1/g, "$2") // *italic* / _italic_
+		.replace(/~~(.+?)~~/g, "$1") // ~~strike~~
+		.replace(/`([^`]+)`/g, "$1") // `code`
+		.replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+\.\s+)/gm, "") // block markers
+		.replace(/&nbsp;/gi, " ")
+		.replace(/&amp;/gi, "&")
+		.replace(/&lt;/gi, "<")
+		.replace(/&gt;/gi, ">")
+		.replace(/&quot;/gi, '"')
+		.replace(/&#0*39;|&apos;/gi, "'")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 // Pull a compact tooltip reason for a web candidate: prefer its snippet, then
 // fall back to a reasoning/description/reason field the server may attach on
 // the candidate's metadata bag.
@@ -186,12 +212,18 @@ export function getFetchedSources(segment: ThinkingSegment): FetchedSource[] {
 		dedupeSourcesByUrl(
 			(segment.candidates ?? [])
 				.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-				.map((candidate) => ({
-					title: candidate.title || extractHostname(candidate.url ?? ""),
-					url: candidate.url as string,
-					status: candidate.status,
-					reason: candidateReason(candidate),
-				})),
+				.map((candidate) => {
+					const reason = candidateReason(candidate);
+					return {
+						title: stripToPlainText(
+							candidate.title || extractHostname(candidate.url ?? ""),
+						),
+						url: candidate.url as string,
+						status: candidate.status,
+						// Clean plain text for the hover excerpt — no raw markdown/HTML.
+						reason: reason ? stripToPlainText(reason) : undefined,
+					};
+				}),
 		),
 	);
 }
