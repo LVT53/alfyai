@@ -795,7 +795,7 @@ function placeholderFor(key: string): string {
 						adminConfig.MODEL_TIMEOUT_FAILOVER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
 					}}
 				/>
-				<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+				<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
 			</label>
 		</div>
 		<div class="mt-3 grid gap-3 md:grid-cols-2">
@@ -881,7 +881,7 @@ function placeholderFor(key: string): string {
 					adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED = event.currentTarget.checked ? 'true' : 'false';
 				}}
 			/>
-			<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+			<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
 		</label>
 	</div>
 </section>
@@ -1058,7 +1058,7 @@ function placeholderFor(key: string): string {
 						adminConfig.ATLAS_WORKER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
 					}}
 				/>
-				<div class="peer h-6 w-11 rounded-full bg-surface-secondary after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
+				<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
 			</label>
 		</div>
 
