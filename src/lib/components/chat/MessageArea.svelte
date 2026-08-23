@@ -1,11 +1,12 @@
 <script lang="ts">
 import { tick } from "svelte";
-import { fly } from "svelte/transition";
+import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import {
 	AlertCircle,
+	ChevronDown,
 	Download,
 	GitBranch,
 	Layers,
@@ -142,10 +143,22 @@ let {
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
+const fadeAware = reducedMotionAware(fade);
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
 let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
-let shouldAutoScroll = true;
+// B2 — $state (not a plain let) so the "jump to latest" button's visibility
+// can react to it directly; see queueActiveJumpRailTurnUpdate for how it
+// stays in sync with both scroll events and content-only changes (streaming
+// growth without a scroll event).
+let shouldAutoScroll = $state(true);
+// B2 — actual measured distance (px) from the bottom of the scrollable
+// content, refreshed alongside shouldAutoScroll. Needed in addition to
+// shouldAutoScroll because a couple of call sites (fork-boundary alignment,
+// jump-rail scrollToMessage) force shouldAutoScroll to false unconditionally
+// even when they land exactly at the live edge — this is the real signal for
+// "is there actually anything below the viewport to jump to".
+let distanceToBottomPx = $state(0);
 let lastMessageCount = 0;
 let lastFileProductionJobCount = 0;
 let lastAtlasJobUpdateKey = "";
@@ -193,12 +206,28 @@ $effect(() => {
 	return () => window.removeEventListener("beforeunload", saveScroll);
 });
 
+// Distance-to-bottom (px) under which the view counts as "at the live edge" —
+// shared by the auto-scroll-follow decision and the B2 jump-to-latest
+// button's visibility gate below.
+const AUTO_SCROLL_EDGE_PX = 50;
+
 function handleScroll() {
 	if (!scrollContainer) return;
 	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
 	const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-	shouldAutoScroll = distanceToBottom < 50;
+	shouldAutoScroll = distanceToBottom < AUTO_SCROLL_EDGE_PX;
+	distanceToBottomPx = distanceToBottom;
 	queueActiveJumpRailTurnUpdate();
+}
+
+// B2 — re-measures distanceToBottomPx from the live DOM. Called from
+// updateActiveJumpRailTurn so it also refreshes on content-only changes
+// (e.g. streaming growth) that don't fire a scroll event, not just from
+// handleScroll.
+function measureScrollMetrics() {
+	if (!scrollContainer) return;
+	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+	distanceToBottomPx = scrollHeight - scrollTop - clientHeight;
 }
 
 /**
@@ -221,6 +250,7 @@ const JUMP_RAIL_EDGE_SLOP_PX = 2;
 
 function updateActiveJumpRailTurn() {
 	if (!scrollContainer) return;
+	measureScrollMetrics();
 	const turns = buildJumpRailTurns(dedupedMessages);
 	if (turns.length === 0) {
 		activeJumpRailTurnId = null;
@@ -412,6 +442,23 @@ let dedupedMessages = $derived(
 		{ seen: new Set<string>(), list: [] as ChatMessage[] },
 	).list,
 );
+
+// B2 — floating "jump to latest" control. Shown only once the user has
+// scrolled away from the live edge (shouldAutoScroll false) AND there is
+// actually content below the viewport to jump back to (distanceToBottomPx
+// clears the same edge threshold used for auto-scroll-follow) — see the
+// distanceToBottomPx declaration above for why both checks are needed.
+let showJumpToLatestButton = $derived(
+	dedupedMessages.length > 0 &&
+		!shouldAutoScroll &&
+		distanceToBottomPx > AUTO_SCROLL_EDGE_PX,
+);
+
+function handleJumpToLatestClick() {
+	instantScrollToBottom();
+	shouldAutoScroll = true;
+	measureScrollMetrics();
+}
 
 let currentStreamingAssistantMessageId = $derived(
 	[...dedupedMessages]
@@ -844,6 +891,19 @@ async function scrollToMessage(messageId: string) {
 		{scrollToMessage}
 		activeTurnId={activeJumpRailTurnId}
 	/>
+	{#if showJumpToLatestButton}
+		<button
+			type="button"
+			data-testid="jump-to-latest-button"
+			class="jump-to-latest-button"
+			aria-label={$t('chat.jumpToLatest')}
+			title={$t('chat.jumpToLatest')}
+			onclick={handleJumpToLatestClick}
+			transition:fadeAware={{ duration: 150 }}
+		>
+			<ChevronDown size={18} strokeWidth={2} aria-hidden="true" />
+		</button>
+	{/if}
 </div>
 
 <style>
@@ -870,6 +930,44 @@ async function scrollToMessage(messageId: string) {
 
 	.scroll-clearance-active-skill {
 		height: calc(var(--scroll-clearance-base) + var(--active-skill-session-height, 0px));
+	}
+
+	/* B2 — floating "jump to latest" control. Anchored to the message area's
+	   own box (not the viewport), bottom-right, above the floating composer
+	   overlay — deliberately independent of --scroll-clearance-base (that var
+	   is tuned for reserving scroll room, not for sizing a small floating
+	   affordance) but in the same ballpark so it clears the composer at any
+	   viewport width. Sits on the opposite edge from the jump-rail (left) so
+	   the two can never collide. */
+	.jump-to-latest-button {
+		position: absolute;
+		right: var(--space-md);
+		bottom: 8rem;
+		z-index: 6;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--surface-elevated);
+		color: var(--text-secondary);
+		box-shadow: var(--shadow-md);
+		cursor: pointer;
+	}
+
+	.jump-to-latest-button:hover,
+	.jump-to-latest-button:focus-visible {
+		color: var(--text-primary);
+		background: var(--surface-page);
+	}
+
+	.jump-to-latest-button:focus-visible {
+		outline: none;
+		box-shadow:
+			var(--shadow-md),
+			0 0 0 2px var(--focus-ring);
 	}
 
 	.conversation-empty-state {
@@ -1192,6 +1290,10 @@ async function scrollToMessage(messageId: string) {
 	@media (min-width: 768px) {
 		.scroll-clearance {
 			--scroll-clearance-base: 9.5rem;
+		}
+
+		.jump-to-latest-button {
+			bottom: 7rem;
 		}
 	}
 </style>

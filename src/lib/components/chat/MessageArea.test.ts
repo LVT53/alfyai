@@ -1751,4 +1751,126 @@ describe("MessageArea", () => {
 			expect(onCancelWrite).toHaveBeenCalledWith(write.id);
 		});
 	});
+
+	// B2 — floating "jump to latest" control, shown only once the user has
+	// scrolled away from the live edge AND there is actually content below the
+	// viewport to jump back to.
+	describe('"jump to latest" control (B2)', () => {
+		function twoTurnMessages(): ChatMessage[] {
+			return [
+				{
+					id: "user-1",
+					role: "user",
+					content: "Question",
+					timestamp: Date.now(),
+				},
+				{
+					id: "assistant-1",
+					role: "assistant",
+					content: "Answer",
+					timestamp: Date.now(),
+					isStreaming: false,
+					isThinkingStreaming: false,
+				},
+			];
+		}
+
+		function mockScrollMetrics(
+			scrollContainer: HTMLDivElement,
+			{
+				clientHeight,
+				scrollHeight,
+			}: { clientHeight: number; scrollHeight: number },
+		) {
+			Object.defineProperty(scrollContainer, "clientHeight", {
+				configurable: true,
+				value: clientHeight,
+			});
+			Object.defineProperty(scrollContainer, "scrollHeight", {
+				configurable: true,
+				value: scrollHeight,
+			});
+		}
+
+		it('shows the "jump to latest" button once scrolled away with content below, and clicking it jumps back to the live edge', async () => {
+			const { container, getByTestId, rerender } = render(MessageArea, {
+				messages: twoTurnMessages(),
+				conversationId: "conv-jump-to-latest",
+				isThinkingActive: false,
+			});
+
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+			let scrollHeight = 1200;
+			Object.defineProperty(scrollContainer, "clientHeight", {
+				configurable: true,
+				value: 400,
+			});
+			Object.defineProperty(scrollContainer, "scrollHeight", {
+				configurable: true,
+				get: () => scrollHeight,
+			});
+
+			scrollContainer.scrollTop = 0;
+			await fireEvent.scroll(scrollContainer);
+
+			const button = await waitFor(() => getByTestId("jump-to-latest-button"));
+			expect(button).toBeInTheDocument();
+
+			await fireEvent.click(button);
+
+			// Click re-aligns to the live edge (instantScrollToBottom) ...
+			expect(scrollContainer.scrollTop).toBe(1200);
+
+			// ... and re-enables follow: simulate more content arriving below
+			// (scrollHeight grows) while thinking is active — the auto-follow
+			// branch only fires when shouldAutoScroll is true, so scrollTop
+			// tracking the new bottom proves the click re-enabled it. Deliberately
+			// not asserting the button's own DOM removal here: it plays a fade
+			// outro (transition:fadeAware), and jsdom + this file's synchronous
+			// requestAnimationFrame mock never let that outro settle, so waiting
+			// on it would hang instead of asserting anything meaningful.
+			scrollHeight = 1600;
+			await rerender({
+				messages: twoTurnMessages(),
+				conversationId: "conv-jump-to-latest",
+				isThinkingActive: true,
+			});
+
+			await waitFor(() => {
+				expect(scrollContainer.scrollTop).toBe(1600);
+			});
+		});
+
+		it('hides the "jump to latest" button at the live edge', async () => {
+			const { container, queryByTestId } = render(MessageArea, {
+				messages: twoTurnMessages(),
+				conversationId: "conv-jump-to-latest-edge",
+			});
+
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+			mockScrollMetrics(scrollContainer, {
+				clientHeight: 400,
+				scrollHeight: 1200,
+			});
+
+			// Within 50px of the bottom — the live edge.
+			scrollContainer.scrollTop = 1160;
+			await fireEvent.scroll(scrollContainer);
+
+			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
+		});
+
+		it('does not show the "jump to latest" button before any scroll has happened', () => {
+			const { queryByTestId } = render(MessageArea, {
+				messages: twoTurnMessages(),
+				conversationId: "conv-jump-to-latest-initial",
+			});
+
+			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
+		});
+	});
 });

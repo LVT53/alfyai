@@ -54,6 +54,7 @@ const chatDict = {
 		"chat.jumpRailMarkLabel": "Jump to reply: {label}",
 		"chat.jumpRailMobileOpen": "Jump to a turn",
 		"chat.jumpRailMobileTitle": "Jump to turn",
+		"chat.jumpToLatest": "Jump to latest",
 		"chat.loading": "Loading messages...",
 		"chat.messagePlaceholder": "Type a message...",
 		"chat.messageWillSendAutomatically":
@@ -864,6 +865,7 @@ const chatDict = {
 		"chat.jumpRailMarkLabel": "Ugrás a válaszhoz: {label}",
 		"chat.jumpRailMobileOpen": "Ugrás egy válaszra",
 		"chat.jumpRailMobileTitle": "Ugrás válaszra",
+		"chat.jumpToLatest": "Ugrás a legújabbhoz",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
