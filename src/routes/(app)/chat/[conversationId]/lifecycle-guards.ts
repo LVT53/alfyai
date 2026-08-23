@@ -29,6 +29,33 @@ export function hasForkedAssistantInRange(
 		);
 }
 
+/**
+ * Number of messages that follow `assistantIdx` in `messages` — i.e. how
+ * many later turns a destructive regenerate at that index would discard.
+ * Returns 0 when `assistantIdx` is the last message (or out of range).
+ */
+export function laterTurnCount(
+	messages: ChatMessage[],
+	assistantIdx: number,
+): number {
+	if (assistantIdx < 0 || assistantIdx >= messages.length) return 0;
+	return messages.length - 1 - assistantIdx;
+}
+
+/**
+ * Whether regenerating the assistant message at `assistantIdx` would drop
+ * later turns from the conversation (B1). Deliberately fork-agnostic: when
+ * `hasForkedAssistantInRange` is also true for the same range, callers
+ * should show only the fork warning and skip prompting via this helper —
+ * a fork in range implies later turns exist, so one confirmation suffices.
+ */
+export function regenerateDropsLaterTurns(
+	messages: ChatMessage[],
+	assistantIdx: number,
+): boolean {
+	return laterTurnCount(messages, assistantIdx) > 0;
+}
+
 export function getForkCreationErrorKey(code: unknown): I18nKey | null {
 	return typeof code === "string"
 		? (forkCreationErrorKeys[code] ?? null)

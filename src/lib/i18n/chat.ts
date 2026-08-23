@@ -143,6 +143,8 @@ const chatDict = {
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
+		"chat.regenerateLaterTurnsWarning":
+			"This removes {count} later turn{count, plural, one {} other {s}} in this conversation. Continue?",
 		"chat.retry": "Retry",
 		"chat.retrying": "Retrying...",
 		"chat.sendMessage": "Send message",
@@ -923,6 +925,8 @@ const chatDict = {
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
+		"chat.regenerateLaterTurnsWarning":
+			"Ez eltávolítja a beszélgetés {count} későbbi körét. Folytatod?",
 		"chat.retry": "Újrapróbálkozás",
 		"chat.retrying": "Újrapróbálkozás...",
 		"chat.sendMessage": "Üzenet küldése",
