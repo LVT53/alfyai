@@ -2,10 +2,28 @@ import { render, waitFor } from "@testing-library/svelte";
 import { createRawSnippet, tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DialogShell, {
+	backdropFade,
 	deregisterDialog,
 	isTopmostDialog,
+	panelScale,
 	registerDialog,
 } from "./DialogShell.svelte";
+
+function stubMatchMedia(matches: boolean) {
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn((query: string) => ({
+			matches,
+			media: query,
+			onchange: null,
+			addListener: () => undefined,
+			removeListener: () => undefined,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined,
+			dispatchEvent: () => false,
+		})),
+	);
+}
 
 function childrenWith(html: string) {
 	return createRawSnippet(() => ({
@@ -286,5 +304,44 @@ describe("DialogShell Tab focus trap", () => {
 		expect(parentFocusSpy).not.toHaveBeenCalled();
 		expect(document.activeElement).toBe(nestedFirst());
 		expect(nestedDialog.contains(document.activeElement)).toBe(true);
+	});
+});
+
+describe("DialogShell reduced-motion transitions", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("collapses the backdrop and panel transitions to instant under prefers-reduced-motion", () => {
+		stubMatchMedia(true);
+
+		const backdropConfig = backdropFade(document.createElement("div"), {
+			duration: 150,
+		});
+		const panelConfig = panelScale(document.createElement("div"), {
+			duration: 150,
+			start: 0.95,
+		});
+
+		expect(backdropConfig).toEqual({ duration: 0 });
+		expect(panelConfig).toEqual({ duration: 0 });
+	});
+
+	it("retains the full fade/scale motion when reduced motion is not requested", () => {
+		stubMatchMedia(false);
+
+		const backdropConfig = backdropFade(document.createElement("div"), {
+			duration: 150,
+		});
+		const panelConfig = panelScale(document.createElement("div"), {
+			duration: 150,
+			start: 0.95,
+		});
+
+		// Real svelte/transition configs, not the reduced-motion shortcut.
+		expect(backdropConfig.duration).toBe(150);
+		expect(typeof backdropConfig.css).toBe("function");
+		expect(panelConfig.duration).toBe(150);
+		expect(typeof panelConfig.css).toBe("function");
 	});
 });

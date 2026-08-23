@@ -5,6 +5,7 @@ import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
+import { reducedMotionAware } from "$lib/utils/motion";
 import {
 	ChevronRight,
 	ExternalLink,
@@ -35,6 +36,10 @@ import type {
 	WorkspaceSearchDocumentResult,
 	WorkspaceSearchResponse,
 } from "$lib/server/services/workspace-search";
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const backdropFade = reducedMotionAware(fade);
 
 type SearchRow =
 	| {
@@ -501,7 +506,7 @@ onDestroy(() => {
 		use:portal
 		class="search-portal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4"
 		onclick={handleBackdropClick}
-		transition:fade={{ duration: 150 }}
+		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
 			bind:this={modalRef}

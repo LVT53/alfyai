@@ -1,4 +1,17 @@
 <script module lang="ts">
+import { fade, scale } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
+
+// Backdrop/panel transitions, wrapped once per module (not per instance) so
+// every DialogShell shares the same reduced-motion-aware functions — mirrors
+// MessageArea/ThinkingBlock/Toast. Exported so DialogShell.test.ts can assert
+// directly that they collapse to an instant, zero-duration transition under
+// prefers-reduced-motion instead of only inferring it from rendered markup.
+// See motion.ts: Svelte's `css` transitions interpolate styles directly,
+// which the app-wide CSS reduced-motion override (app.css) cannot reach.
+export const backdropFade = reducedMotionAware(fade);
+export const panelScale = reducedMotionAware(scale);
+
 // Mount-order stack of currently-open DialogShell instances. The topmost
 // dialog is whichever registered last. Nested dialogs (e.g. a ConfirmDialog
 // rendered as a DOM *sibling* of its parent modal) each mount their own
@@ -28,7 +41,6 @@ export function isTopmostDialog(id: symbol): boolean {
 
 <script lang="ts">
 import { onMount, onDestroy } from "svelte";
-import { fade, scale } from "svelte/transition";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
 
@@ -166,7 +178,7 @@ onDestroy(() => {
 
 <div
   class={`fixed inset-0 ${zIndexClass} flex items-center justify-center ${fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
-  transition:fade={{ duration: 150 }}
+  transition:backdropFade={{ duration: 150 }}
   style={`padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
 >
   <button
@@ -184,7 +196,7 @@ onDestroy(() => {
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
     class={`relative w-full ${dialogSizeClass} border-border bg-surface-page p-lg shadow-lg`}
-    transition:scale={{ duration: 150, start: 0.95 }}
+    transition:panelScale={{ duration: 150, start: 0.95 }}
     style={fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
     <h2 id="dialog-shell-title" class="mb-sm text-xl font-semibold text-text-primary">{title}</h2>

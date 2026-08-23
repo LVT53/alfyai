@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
 import { fade, scale } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { uploadAvatar } from "$lib/client/api/settings";
 import {
 	Upload,
@@ -18,6 +19,11 @@ let {
 	onClose?: (() => void) | undefined;
 	onUploaded?: (() => void) | undefined;
 } = $props();
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach these
+// JS-driven transitions (see motion.ts), so wrap them explicitly.
+const backdropFade = reducedMotionAware(fade);
+const panelScale = reducedMotionAware(scale);
 
 // ── State ──────────────────────────────────────────────────────────────────
 type Step = "drop" | "edit" | "uploading";
@@ -409,7 +415,7 @@ onDestroy(() => {
 
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center p-md"
-	transition:fade={{ duration: 150 }}
+	transition:backdropFade={{ duration: 150 }}
 >
 	<!-- Backdrop -->
 	<button
@@ -427,7 +433,7 @@ onDestroy(() => {
 		aria-labelledby="pic-editor-title"
 		tabindex="-1"
 		class="relative w-full max-w-[520px] rounded-lg border border-border bg-surface-page p-lg shadow-lg"
-		transition:scale={{ duration: 150, start: 0.95 }}
+		transition:panelScale={{ duration: 150, start: 0.95 }}
 	>
 		<h2 id="pic-editor-title" class="mb-md text-xl font-semibold text-text-primary">
 			Upload Profile Photo

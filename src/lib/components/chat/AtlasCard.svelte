@@ -12,6 +12,7 @@ import {
 } from "@lucide/svelte";
 import { onDestroy } from "svelte";
 import { fade } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	AtlasAction,
@@ -137,6 +138,10 @@ const copyStatusMessage = $derived(getCopyStatusMessage(copyStatus));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
 const PROGRESS_MESSAGE_FADE_MS = 220;
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const progressFade = reducedMotionAware(fade);
 
 const STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	decompose: "atlas.stage.decompose",
@@ -635,7 +640,7 @@ function submitLifecycleAction() {
 					{#key progressMessage}
 						<span
 							class="atlas-card__status-message"
-							transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}
+							transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}
 						>
 							{progressMessage}
 						</span>
@@ -652,11 +657,11 @@ function submitLifecycleAction() {
 				</button>
 			</div>
 			{#if job.status === "queued"}
-				<p class="atlas-card__kickoff-note" transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>{$t("atlas.kickoffNote")}</p>
+				<p class="atlas-card__kickoff-note" transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>{$t("atlas.kickoffNote")}</p>
 			{/if}
 			{#if progressItems.length > 0}
 				{#key progressMessageStage}
-					<div class="atlas-card__queries" aria-label={progressItemsLabel} transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>
+					<div class="atlas-card__queries" aria-label={progressItemsLabel} transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>
 						<div class="atlas-card__queries-title">{progressItemsTitle}</div>
 						<ul>
 							{#each progressItems as item}

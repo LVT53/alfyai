@@ -1,6 +1,7 @@
 <script lang="ts">
 import { goto } from "$app/navigation";
 import { fade, fly } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import {
 	cleanupPreparedConversation,
 	consumePreviousConversationId,
@@ -39,6 +40,11 @@ import type {
 	PendingAttachment,
 } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const statusFade = reducedMotionAware(fade);
+const greetingFade = reducedMotionAware(fade);
 
 function canReuseLandingPreparedConversation(
 	detail: Pick<
@@ -467,7 +473,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		>
 			<div class="mx-auto flex w-full max-w-[780px] flex-col gap-4 px-1">
 				{#if !hasStarted}
-					<div class="intro-copy px-2 text-center" in:fade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
+					<div class="intro-copy px-2 text-center" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
 						<h1
 							class="text-balance text-[2rem] font-serif font-medium tracking-[-0.05em] md:text-[3rem]"
 							style="color: color-mix(in srgb, var(--text-primary) 60%, var(--accent) 40%); font-weight: 500;"
@@ -478,7 +484,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 				{/if}
 
 				{#if creating && pendingMessagePreview}
-					<div class="pending-message-preview" transition:fade={{ duration: 150 }}>
+					<div class="pending-message-preview" transition:statusFade={{ duration: 150 }}>
 						<div class="pending-message-label">{$t('startingConversation')}</div>
 						<p class="pending-message-body">{pendingMessagePreview}</p>
 					</div>
@@ -491,7 +497,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 				{/if}
 
 				{#if creating}
-					<div class="creating-indicator" transition:fade={{ duration: 150 }}>
+					<div class="creating-indicator" transition:statusFade={{ duration: 150 }}>
 						<div class="spinner"></div>
 						<span class="text-sm text-text-muted">{$t('openingChat')}</span>
 					</div>

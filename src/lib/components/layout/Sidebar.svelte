@@ -17,6 +17,7 @@ import { viewportStore } from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
 import { fade } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { markPreviousConversationId } from "$lib/client/conversation-session";
 import ConversationList from "../sidebar/ConversationList.svelte";
 import SearchModal from "../search/SearchModal.svelte";
@@ -54,6 +55,10 @@ let {
 	appVersion?: { compact: string; full: string } | null;
 	onAppVersionClick?: (() => void) | undefined;
 } = $props();
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const overlayFade = reducedMotionAware(fade);
 
 const isDesktop = $derived(viewportStore.tier === "desktop");
 let showSearchModal = $state(false);
@@ -224,7 +229,7 @@ onMount(() => {
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="mobile-overlay fixed inset-0 z-40 bg-surface-overlay/50 backdrop-blur-sm"
-		transition:fade={{ duration: 250 }}
+		transition:overlayFade={{ duration: 250 }}
 		onclick={() => sidebarOpen.set(false)}
 	></div>
 {/if}

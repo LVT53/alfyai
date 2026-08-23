@@ -1,6 +1,7 @@
 <script lang="ts">
 import { get } from "svelte/store";
 import { slide } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
 import { t } from "$lib/i18n";
 import { showToast } from "$lib/stores/toast";
@@ -25,6 +26,10 @@ let {
 const COLLAPSE_THRESHOLD_LINES = 30;
 const COLLAPSED_VISIBLE_LINES = 15;
 const LINE_HEIGHT_EM = 1.5;
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const bodySlide = reducedMotionAware(slide);
 
 let copied = $state(false);
 let collapsed = $state(false);
@@ -102,7 +107,7 @@ async function copyToClipboard() {
 	</div>
 
 	{#if !collapsed}
-		<div class="code-body" transition:slide={{ duration: 200 }}>
+		<div class="code-body" transition:bodySlide={{ duration: 200 }}>
 			<div
 				class="code-clip"
 				class:code-clip--clamped={isClamped}
