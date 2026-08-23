@@ -1127,7 +1127,7 @@ describe("MessageInput", () => {
 		expect(input.value).toBe("");
 	});
 
-	it("dispatches send event from the current textarea value on Enter", async () => {
+	it("does not send on plain Enter, but dispatches send from the current textarea value on Ctrl+Enter", async () => {
 		const mockSend = vi.fn();
 		const { getByPlaceholderText } = render(MessageInputWrapper, {
 			onSend: mockSend,
@@ -1137,7 +1137,19 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		input.value = "Hello from plain Enter";
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		const notPrevented = await fireEvent.keyDown(input, {
+			key: "Enter",
+			shiftKey: false,
+		});
+
+		// A plain Enter keydown must fall through to the textarea's own
+		// newline-insertion default — so the (cancelable) event must NOT be
+		// prevented, and send must not be called.
+		expect(notPrevented).toBe(true);
+		expect(mockSend).not.toHaveBeenCalled();
+		expect(input.value).toBe("Hello from plain Enter");
+
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
 		expect(mockSend).toHaveBeenCalledTimes(1);
 		expect(mockSend).toHaveBeenCalledWith("Hello from plain Enter");
@@ -2593,10 +2605,10 @@ describe("MessageInput send gate (beforeSend contract)", () => {
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
 		expect(beforeSend).toHaveBeenCalledTimes(1);
 
-		// A second send via Enter (not blocked by the Send button's native
+		// A second send via Ctrl+Enter (not blocked by the Send button's native
 		// `disabled` the way a click would be) while the first gate call is
 		// still unresolved must be a complete no-op.
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		await fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 		await tick();
 
 		expect(beforeSend).toHaveBeenCalledTimes(1);

@@ -931,10 +931,7 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (
-		event.key === "Enter" &&
-		(event.metaKey || event.ctrlKey || !event.shiftKey)
-	) {
+	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
 		event.preventDefault();
 		const currentTextareaValue = textarea?.value ?? message;
 		if (textarea) {
