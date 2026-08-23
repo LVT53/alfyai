@@ -639,6 +639,11 @@ export function finalizeStreamingMessageList(
 				content: params.metadata?.wasStopped
 					? message.content || "Stopped"
 					: message.content,
+				// stopped-marker — carry wasStopped onto the finalized client
+				// message so the LIVE session can render the "stopped early" chip
+				// immediately, not just after a reload (server persistence already
+				// round-trips this field; this closes the same-tab gap).
+				wasStopped: params.metadata?.wasStopped ? true : message.wasStopped,
 				isStreaming: false,
 				runtimePhase: undefined,
 				thinking: params.metadata?.thinking ?? message.thinking,

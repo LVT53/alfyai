@@ -2035,4 +2035,64 @@ describe("MessageBubble", () => {
 			).toHaveLength(1);
 		});
 	});
+
+	// stopped-marker — a stopped response otherwise looks identical to a
+	// normally completed one; this quiet chip is the only visible signal.
+	describe("stopped-early marker", () => {
+		it("renders the stopped-early chip for a completed message marked wasStopped", () => {
+			const message: ChatMessage = {
+				id: "assistant-stopped",
+				renderKey: "assistant-stopped",
+				role: "assistant",
+				content: "Here is what I had so far.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				wasStopped: true,
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.getByText(chatDict.en["chat.stoppedEarly"]),
+			).toBeInTheDocument();
+		});
+
+		it("does not render the stopped-early chip when wasStopped is absent", () => {
+			const message: ChatMessage = {
+				id: "assistant-clean-2",
+				renderKey: "assistant-clean-2",
+				role: "assistant",
+				content: "All good here.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.queryByText(chatDict.en["chat.stoppedEarly"]),
+			).not.toBeInTheDocument();
+		});
+
+		it("does not render the stopped-early chip while the message is still streaming", () => {
+			const message: ChatMessage = {
+				id: "assistant-stopped-streaming",
+				renderKey: "assistant-stopped-streaming",
+				role: "assistant",
+				content: "Partial answer",
+				timestamp: Date.now(),
+				isStreaming: true,
+				isThinkingStreaming: false,
+				wasStopped: true,
+			};
+
+			render(MessageBubble, { message });
+
+			expect(
+				screen.queryByText(chatDict.en["chat.stoppedEarly"]),
+			).not.toBeInTheDocument();
+		});
+	});
 });

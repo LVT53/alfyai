@@ -1097,6 +1097,12 @@ function toggleForkDetails() {
 
 	</div>
 
+	{#if !isUser && message.wasStopped && !isStreaming}
+		<div class="stopped-early-chip" data-testid="stopped-early-chip" role="status">
+			{$t('chat.stoppedEarly')}
+		</div>
+	{/if}
+
 	{#if !message.isStreaming && !isEditing && !hasAtlasCards}
 		<div
 			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
@@ -1535,6 +1541,24 @@ function toggleForkDetails() {
 		flex-shrink: 0;
 		margin-top: 2px;
 		color: var(--warning);
+	}
+
+	/* stopped-marker — quiet inline chip, deliberately much lower-key than the
+	   completion-warning notice above: a stopped response isn't an error, just
+	   a fact worth noting near the action row. */
+	.stopped-early-chip {
+		display: inline-flex;
+		align-self: flex-start;
+		align-items: center;
+		margin-top: var(--space-xs);
+		padding: 0.2rem 0.55rem;
+		border: 1px solid var(--border-subtle, var(--border-default));
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--surface-elevated) 92%, var(--text-muted) 8%);
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 500;
+		color: var(--text-muted);
 	}
 
 	.fork-origin-marker {
