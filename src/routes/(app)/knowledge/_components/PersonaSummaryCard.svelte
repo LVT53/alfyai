@@ -119,7 +119,7 @@ let paragraphs = $derived.by<string[]>(() => {
 			</button>
 			<button
 				type="button"
-				class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
+				class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
 				onclick={save}
 				disabled={busy || draft.trim().length === 0}
 				aria-label={$t("memoryProfile.saveSummary")}

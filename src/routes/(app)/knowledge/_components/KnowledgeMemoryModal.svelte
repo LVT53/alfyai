@@ -273,7 +273,7 @@ onDestroy(() => {
 					{/if}
 					<button
 						type="button"
-						class="btn-icon inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
+						class="btn-icon inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitEdit}
 						disabled={!canSave || isSaving}
 						aria-label={$t("memoryProfile.saveMemoryItem")}
