@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { readable } from "svelte/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sidebarCollapsed } from "$lib/stores/ui";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { currentConversationId, sidebarCollapsed } from "$lib/stores/ui";
 import Sidebar from "./Sidebar.svelte";
 
 // Deterministic desktop/non-touch viewport so the expanded search pill (and
@@ -134,5 +134,102 @@ describe("Sidebar — Cmd/Ctrl+K Workspace Search shortcut (Task 6 / A3)", () =>
 				Object.defineProperty(window.navigator, "platform", originalDescriptor);
 			}
 		}
+	});
+});
+
+describe("Sidebar — collapsed-rail active-conversation indicator (Task 11 / A4, ADR-0043 #3)", () => {
+	beforeEach(() => {
+		// Force desktop tier so `isCollapsed` can be driven purely by
+		// `sidebarCollapsed` (precedent: viewport.test.ts's tier stubbing).
+		mockViewportStore.tier = "desktop";
+	});
+
+	afterEach(() => {
+		sidebarCollapsed.set(false);
+		currentConversationId.set(null);
+	});
+
+	it("shows a decorative corner dot on the LogoMark/expand-toggle when collapsed with an active conversation", () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set("conversation-123");
+
+		render(Sidebar, { open: true });
+
+		const indicator = screen.getByTestId("active-conversation-indicator");
+		expect(indicator).toBeInTheDocument();
+		// The dot is decorative: no live region, no separate label. It gets
+		// re-mounted on every hasActiveConversation toggle, so a role="status"
+		// here would fire spurious announcements on ordinary navigation.
+		expect(indicator).toHaveAttribute("aria-hidden", "true");
+		expect(indicator).not.toHaveAttribute("role");
+		expect(indicator).not.toHaveAttribute("aria-label");
+
+		// Anchored on the logo/expand-toggle button — the sidebar-identity
+		// element — not on New Chat. The button itself (a stable node, not
+		// remounted on toggle) conveys the active-conversation state via its
+		// label instead.
+		const logoButton = screen.getByTestId("sidebar-logo");
+		expect(logoButton.tagName).toBe("BUTTON");
+		expect(logoButton).toContainElement(indicator);
+		expect(logoButton).toHaveAttribute(
+			"aria-label",
+			"Expand sidebar — Active conversation open",
+		);
+		expect(logoButton).toHaveAttribute(
+			"title",
+			"Expand sidebar — Active conversation open",
+		);
+	});
+
+	it("does not show the indicator when collapsed with no active conversation", () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set(null);
+
+		render(Sidebar, { open: true });
+
+		expect(
+			screen.queryByTestId("active-conversation-indicator"),
+		).not.toBeInTheDocument();
+		// No active conversation: the logo/expand-toggle button keeps its
+		// plain expand-sidebar label.
+		const logoButton = screen.getByTestId("sidebar-logo");
+		expect(logoButton).toHaveAttribute("aria-label", "Expand sidebar");
+		expect(logoButton).toHaveAttribute("title", "Expand sidebar");
+	});
+
+	it("does not show the indicator (or reintroduce it as a border) on the New Chat button", () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set("conversation-123");
+
+		render(Sidebar, { open: true });
+
+		const newChatButton = screen.getByTestId("new-conversation");
+		expect(
+			within(newChatButton).queryByTestId("active-conversation-indicator"),
+		).not.toBeInTheDocument();
+		expect(newChatButton).not.toHaveClass("active-conversation-dot");
+	});
+
+	it("still does not render the conversation list when collapsed", () => {
+		sidebarCollapsed.set(true);
+		currentConversationId.set("conversation-123");
+
+		render(Sidebar, { open: true, conversationsData: [] });
+
+		// The "Chats" section header is unconditionally rendered by
+		// ConversationList (ADR-0043 #3: "the Chats header never vanishes"),
+		// so its absence proves the list itself isn't mounted.
+		expect(screen.queryByText("Chats")).not.toBeInTheDocument();
+	});
+
+	it("does not show the corner dot when expanded, even with an active conversation", () => {
+		sidebarCollapsed.set(false);
+		currentConversationId.set("conversation-123");
+
+		render(Sidebar, { open: true });
+
+		expect(
+			screen.queryByTestId("active-conversation-indicator"),
+		).not.toBeInTheDocument();
 	});
 });

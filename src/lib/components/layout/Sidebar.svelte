@@ -70,9 +70,25 @@ const isCollapsed = $derived(isDesktop && $sidebarCollapsed);
 const knowledgePending = $derived(
 	$navigating?.to?.url.pathname === "/knowledge",
 );
-// Collapsed-rail active-conversation indicator: removed (the accent bar read
-// as a left border on the New Chat button); the open-conversation state is
-// already obvious from the chat surface itself.
+// Collapsed-rail active-conversation indicator (ADR-0043 #3): a previous
+// version read as a left border on the New Chat button and was removed. This
+// one is anchored on the LogoMark/expand-toggle button instead — the
+// sidebar-identity element, away from New Chat — as a small corner dot.
+// `currentConversationId` is the same store ConversationList already reads
+// to highlight the active row, so this stays in sync for free.
+const hasActiveConversation = $derived($currentConversationId !== null);
+
+// The dot itself is decorative (aria-hidden) — it's re-mounted on every
+// `hasActiveConversation` toggle, which would make a live region (role, now
+// removed) fire spurious announcements on ordinary chat navigation. The
+// state is instead conveyed on this stable parent button's label, composed
+// with the button's normal expand-sidebar label so it's still announced on
+// focus/hover without a live region.
+const logoButtonLabel = $derived(
+	hasActiveConversation
+		? `${$t("sidebar.expandSidebar")} — ${$t("sidebar.activeConversationIndicator")}`
+		: $t("sidebar.expandSidebar"),
+);
 
 async function handleNewConversation() {
 	markPreviousConversationId($currentConversationId);
@@ -276,12 +292,19 @@ onMount(() => {
 			<button
 				type="button"
 				data-testid="sidebar-logo"
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 				onclick={toggleCollapse}
-				aria-label={$t('sidebar.expandSidebar')}
-				title={$t('sidebar.expandSidebar')}
+				aria-label={logoButtonLabel}
+				title={logoButtonLabel}
 			>
 				<LogoMark size={20} />
+				{#if hasActiveConversation}
+					<span
+						class="active-conversation-dot"
+						data-testid="active-conversation-indicator"
+						aria-hidden="true"
+					></span>
+				{/if}
 			</button>
 		{/if}
 
@@ -564,6 +587,21 @@ onMount(() => {
 	.search-shortcut-hint {
 		background: color-mix(in srgb, var(--border-default) 14%, transparent 86%);
 		line-height: 1.4;
+	}
+
+	/* Collapsed-rail active-conversation indicator (ADR-0043 #3): a small
+	   corner dot on the LogoMark/expand-toggle button — distinct from a
+	   border/strip so it never reads as an accent on New Chat. */
+	.active-conversation-dot {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		width: 7px;
+		height: 7px;
+		border-radius: 9999px;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px var(--surface-overlay);
+		pointer-events: none;
 	}
 
 	.compose-btn {
