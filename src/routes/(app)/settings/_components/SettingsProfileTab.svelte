@@ -50,8 +50,6 @@ let {
 	name = $bindable(""),
 	email = $bindable(""),
 	profileSaving = false,
-	profileMessage = "",
-	profileError = "",
 	onSaveProfile,
 	currentPassword = $bindable(""),
 	newPassword = $bindable(""),
@@ -60,8 +58,6 @@ let {
 	showNewPw = $bindable(false),
 	showConfirmPw = $bindable(false),
 	passwordSaving = false,
-	passwordMessage = "",
-	passwordError = "",
 	onSavePassword,
 	availableModels,
 	selectedModel,
@@ -114,8 +110,6 @@ let {
 	name: string;
 	email: string;
 	profileSaving?: boolean;
-	profileMessage?: string;
-	profileError?: string;
 	onSaveProfile: () => void | Promise<void>;
 	currentPassword: string;
 	newPassword: string;
@@ -124,8 +118,6 @@ let {
 	showNewPw: boolean;
 	showConfirmPw: boolean;
 	passwordSaving?: boolean;
-	passwordMessage?: string;
-	passwordError?: string;
 	onSavePassword: () => void | Promise<void>;
 	availableModels: AvailableModel[];
 	selectedModel: UserModelPreference;
@@ -281,12 +273,6 @@ onMount(() => {
 				placeholder={$t('settings_emailExample')}
 			/>
 		</div>
-		{#if profileMessage}
-			<p class="text-sm text-success">{profileMessage}</p>
-		{/if}
-		{#if profileError}
-			<p class="text-sm text-danger">{profileError}</p>
-		{/if}
 		<button class="btn-primary self-start" onclick={onSaveProfile} disabled={profileSaving}>
 			{profileSaving ? $t('settings_saving') : $t('settings_save')}
 		</button>
@@ -317,12 +303,6 @@ onMount(() => {
 			bind:shown={showConfirmPw}
 			autocomplete="new-password"
 		/>
-		{#if passwordMessage}
-			<p class="text-sm text-success">{passwordMessage}</p>
-		{/if}
-		{#if passwordError}
-			<p class="text-sm text-danger">{passwordError}</p>
-		{/if}
 		<button class="btn-primary self-start" onclick={onSavePassword} disabled={passwordSaving}>
 			{passwordSaving ? $t('settings_saving') : $t('settings_changePassword')}
 		</button>

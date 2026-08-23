@@ -1,7 +1,9 @@
 <script lang="ts">
+import { get } from "svelte/store";
 import { slide } from "svelte/transition";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
 import { t } from "$lib/i18n";
+import { showToast } from "$lib/stores/toast";
 import { ChevronDown, Copy } from "@lucide/svelte";
 
 let {
@@ -60,8 +62,10 @@ async function copyToClipboard() {
 		copyTimeout = setTimeout(() => {
 			copied = false;
 		}, 2000);
+		showToast({ type: "success", message: get(t)("codeBlock.copySuccess") });
 	} catch (err) {
 		console.error("Failed to copy code: ", err);
+		showToast({ type: "error", message: get(t)("codeBlock.copyError") });
 	}
 }
 </script>

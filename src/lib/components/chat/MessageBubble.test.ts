@@ -5,7 +5,8 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import chatDict from "$lib/i18n/chat";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
@@ -13,6 +14,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
 import MessageBubble from "./MessageBubble.svelte";
 
@@ -75,6 +77,7 @@ vi.mock("$lib/utils/markdown-loader", () => ({
 describe("MessageBubble", () => {
 	beforeEach(() => {
 		markdownLoaderMock.renderMarkdown.mockClear();
+		clearToasts();
 		Object.defineProperty(window, "matchMedia", {
 			writable: true,
 			value: vi.fn().mockImplementation((query: string) => ({
@@ -86,6 +89,10 @@ describe("MessageBubble", () => {
 				dispatchEvent: vi.fn(),
 			})),
 		});
+	});
+
+	afterEach(() => {
+		clearToasts();
 	});
 
 	it("shows a lightweight preparation status for an empty streaming assistant response", () => {
@@ -1115,6 +1122,62 @@ describe("MessageBubble", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
 
 		expect(writeText).toHaveBeenCalledWith("Visible answer.");
+	});
+
+	it("shows a success toast when the copy succeeds", async () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const message: ChatMessage = {
+			id: "assistant-copy-success",
+			renderKey: "assistant-copy-success",
+			role: "assistant",
+			content: "Visible answer.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, { message });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+		const entries = get(toasts);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			type: "success",
+			message: chatDict.en["messageBubble.copySuccess"],
+		});
+	});
+
+	it("shows a failure toast instead of silently swallowing a clipboard error (B3)", async () => {
+		const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const message: ChatMessage = {
+			id: "assistant-copy-error",
+			renderKey: "assistant-copy-error",
+			role: "assistant",
+			content: "Visible answer.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+		};
+
+		render(MessageBubble, { message });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+		const entries = get(toasts);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			type: "error",
+			message: chatDict.en["messageBubble.copyError"],
+		});
 	});
 
 	it("renders plain URLs in sent user messages as highlighted links", () => {

@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import chatDict from "$lib/i18n/chat";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import CodeBlock from "./CodeBlock.svelte";
 
 Object.assign(navigator, {
@@ -12,6 +14,11 @@ Object.assign(navigator, {
 describe("CodeBlock", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		clearToasts();
+	});
+
+	afterEach(() => {
+		clearToasts();
 	});
 
 	it("renders correctly with language", () => {
@@ -69,6 +76,39 @@ describe("CodeBlock", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
 
 		expect(screen.getByText(chatDict.en["codeBlock.copied"])).toBeTruthy();
+	});
+
+	it("shows a success toast when the copy succeeds", async () => {
+		render(CodeBlock, {
+			props: { code: "const a = 1;" },
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+
+		const entries = get(toasts);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			type: "success",
+			message: chatDict.en["codeBlock.copySuccess"],
+		});
+	});
+
+	it("shows a failure toast instead of silently swallowing a clipboard error (B3)", async () => {
+		const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+		Object.assign(navigator, { clipboard: { writeText } });
+
+		render(CodeBlock, {
+			props: { code: "const a = 1;" },
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+
+		const entries = get(toasts);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			type: "error",
+			message: chatDict.en["codeBlock.copyError"],
+		});
 	});
 
 	describe("long-block line collapse (C2)", () => {

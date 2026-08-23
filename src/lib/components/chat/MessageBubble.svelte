@@ -1,5 +1,7 @@
 <script lang="ts">
+import { get } from "svelte/store";
 import { isDark } from "$lib/stores/theme";
+import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
 import {
 	isVisibleThinkingSegment,
@@ -626,8 +628,13 @@ async function copyToClipboard() {
 		copyTimeout = setTimeout(() => {
 			copied = false;
 		}, 2000);
+		showToast({
+			type: "success",
+			message: get(t)("messageBubble.copySuccess"),
+		});
 	} catch (err) {
 		console.error("Failed to copy text: ", err);
+		showToast({ type: "error", message: get(t)("messageBubble.copyError") });
 	}
 }
 
