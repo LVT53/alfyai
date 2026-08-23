@@ -938,7 +938,9 @@ async function scrollToMessage(messageId: string) {
 	   is tuned for reserving scroll room, not for sizing a small floating
 	   affordance) but in the same ballpark so it clears the composer at any
 	   viewport width. Sits on the opposite edge from the jump-rail (left) so
-	   the two can never collide. */
+	   the two can never collide. On phones (<640px) it shares the right edge
+	   with ConversationJumpRail's .jr-mobile-fab, so the phone-tier media
+	   query below raises it clear of that button — see comment there. */
 	.jump-to-latest-button {
 		position: absolute;
 		right: var(--space-md);
@@ -1285,6 +1287,17 @@ async function scrollToMessage(messageId: string) {
 		font-weight: 600;
 		color: var(--text-secondary);
 		white-space: nowrap;
+	}
+
+	@media (max-width: 640px) {
+		/* Clear ConversationJumpRail's .jr-mobile-fab, which occupies a band
+		   from calc(--space-md + safe-area-inset-bottom + 4.75rem) up to that
+		   plus its own 44px height. Stack this button above that band with a
+		   comfortable gap, tracking the same safe-area inset so the gap holds
+		   on notched/home-indicator devices too. */
+		.jump-to-latest-button {
+			bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px) + 4.75rem + 44px + var(--space-sm));
+		}
 	}
 
 	@media (min-width: 768px) {
