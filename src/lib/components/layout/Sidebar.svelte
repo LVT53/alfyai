@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { browser } from "$app/environment";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
@@ -10,6 +11,7 @@ import {
 	clampSidebarWidth,
 	SIDEBAR_DEFAULT_WIDTH,
 	currentConversationId,
+	searchModalOpenRequested,
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import { goto, invalidateAll } from "$app/navigation";
@@ -82,6 +84,54 @@ function openSearchModal() {
 
 function closeSearchModal() {
 	showSearchModal = false;
+}
+
+// Drains cross-component open requests (e.g. Header's mobile menu Search
+// row, which has no direct access to this component's local modal state).
+$effect(() => {
+	if ($searchModalOpenRequested) {
+		searchModalOpenRequested.set(false);
+		openSearchModal();
+	}
+});
+
+function isMacPlatform(): boolean {
+	if (!browser) return false;
+	const nav = navigator as Navigator & {
+		userAgentData?: { platform?: string };
+	};
+	const platform = nav.userAgentData?.platform ?? nav.platform ?? "";
+	return /mac/i.test(platform);
+}
+
+// Displayed as a static hint chip in the search pill (~:296-304); computed
+// once since the platform doesn't change during a session.
+const searchShortcutHint = isMacPlatform() ? "⌘K" : "Ctrl+K";
+
+/**
+ * Global ⌘K (mac) / Ctrl+K shortcut for Workspace Search (Task 6 / A3).
+ *
+ * Reuses the guard idiom from the `/` shortcut in MessageInput.svelte: only
+ * fires when focus isn't already inside a text-entry surface, so it never
+ * hijacks typing elsewhere in the app. Also no-ops while the search modal is
+ * already open — cross-modal stacking is out of scope; this only guards
+ * SearchModal's own open state.
+ */
+function handleSearchShortcut(event: KeyboardEvent) {
+	const isSearchShortcut =
+		(event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+	if (!isSearchShortcut) return;
+	if (showSearchModal) return;
+	const target = event.target as Element | null;
+	if (
+		target instanceof HTMLInputElement ||
+		target instanceof HTMLTextAreaElement ||
+		(target instanceof HTMLElement && target.isContentEditable)
+	) {
+		return;
+	}
+	event.preventDefault();
+	openSearchModal();
 }
 
 function toggleCollapse() {
@@ -165,6 +215,8 @@ onMount(() => {
 	});
 });
 </script>
+
+<svelte:window onkeydown={handleSearchShortcut} />
 
 <!-- Mobile Overlay -->
 {#if open}
@@ -301,6 +353,11 @@ onMount(() => {
 			>
 				<Search size={15} strokeWidth={2.1} class="shrink-0 text-icon-muted" aria-hidden="true" />
 					<span class="flex-1 truncate">{$t('sidebar.search')}</span>
+					<kbd
+						class="search-shortcut-hint shrink-0 rounded border border-border px-1.5 py-0.5 font-sans text-[11px] text-text-muted"
+						data-testid="search-shortcut-hint"
+						aria-hidden="true"
+					>{searchShortcutHint}</kbd>
 				</button>
 				<!-- New chat compose button -->
 				<button
@@ -497,6 +554,11 @@ onMount(() => {
 
 	.search-pill:hover {
 		background: var(--surface-page);
+	}
+
+	.search-shortcut-hint {
+		background: color-mix(in srgb, var(--border-default) 14%, transparent 86%);
+		line-height: 1.4;
 	}
 
 	.compose-btn {

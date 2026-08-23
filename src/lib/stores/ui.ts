@@ -86,6 +86,22 @@ export function initUIListeners(): () => void {
 // Tracks the currently active conversation
 export const currentConversationId = writable<string | null>(null);
 
+/**
+ * One-shot signal requesting that the Workspace Search modal open.
+ *
+ * The modal's actual open/close state (`showSearchModal`) is owned locally
+ * by `Sidebar.svelte` (it also mounts `<SearchModal>`), so call sites that
+ * don't have direct access to Sidebar's local state — e.g. Header's mobile
+ * menu — use `requestSearchModalOpen()` instead of reaching into Sidebar
+ * directly. Sidebar drains the flag (resets it to `false`) as soon as it
+ * acts on it.
+ */
+export const searchModalOpenRequested = writable<boolean>(false);
+
+export function requestSearchModalOpen(): void {
+	searchModalOpenRequested.set(true);
+}
+
 // Tracks whether the desktop sidebar is collapsed to icon-only mode
 const initialSidebarCollapsedValue = browser
 	? read("sidebarCollapsed", "true", isValidBool)

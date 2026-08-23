@@ -46,10 +46,10 @@ ui/
 
 | Component | Store | Imports Used |
 |-----------|-------|-------------|
-| `Sidebar.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId` |
+| `Sidebar.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `searchModalOpenRequested` (drains Header's Ctrl+K/mobile-menu open requests — see Task 6) |
 | `Sidebar.svelte` | `avatar` | `avatarState` |
 | `AvatarCircle.svelte` | props | `src` prop passed from parent; no store dependency |
-| `Header.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId` |
+| `Header.svelte` | `ui` | `sidebarOpen`, `sidebarCollapsed`, `currentConversationId`, `requestSearchModalOpen()` (mobile menu Search row) |
 | `ConversationList.svelte` | `conversations` | `conversations`, CRUD actions |
 | `ConversationList.svelte` | `projects` | `projects`, CRUD actions |
 | `ConversationList.svelte` | `ui` | `currentConversationId`, `sidebarOpen` |

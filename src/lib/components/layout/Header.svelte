@@ -4,7 +4,7 @@ import { onMount } from "svelte";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
-import { BookOpen, Menu, User, Plus, LogOut } from "@lucide/svelte";
+import { BookOpen, Menu, User, Plus, Search, LogOut } from "@lucide/svelte";
 import { markPreviousConversationId } from "$lib/client/conversation-session";
 import {
 	portal,
@@ -16,6 +16,7 @@ import {
 	sidebarOpen,
 	sidebarCollapsed,
 	currentConversationId,
+	requestSearchModalOpen,
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
@@ -72,6 +73,14 @@ async function handleNewConversation() {
 async function handleOpenKnowledge() {
 	mobileMenuOpen = false;
 	await goto("/knowledge");
+}
+
+function handleOpenSearch() {
+	mobileMenuOpen = false;
+	// Sidebar owns the actual Workspace Search modal state and isn't a
+	// parent/child of Header, so route the request through the shared `ui`
+	// store instead of reaching into Sidebar directly (see Task 6 / A3).
+	requestSearchModalOpen();
 }
 
 function doUpdatePosition() {
@@ -177,6 +186,15 @@ onMount(() => {
 						<Plus size={18} strokeWidth={2.1} aria-hidden="true" />
 					</span>
 						<span>{$t('header.newChat')}</span>
+					</button>
+					<button
+						class="header-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
+						onclick={handleOpenSearch}
+					>
+						<span class="header-option-icon">
+						<Search size={18} strokeWidth={2.1} aria-hidden="true" />
+					</span>
+						<span>{$t('header.search')}</span>
 					</button>
 					<button
 						class="header-option flex min-h-[38px] w-full items-center px-[3px] py-[3px] text-left text-sm font-sans text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
