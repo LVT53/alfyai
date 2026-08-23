@@ -177,6 +177,10 @@ const chatDict = {
 		"atlas.action.continue": "Continue Atlas",
 		"atlas.action.continueTooltip":
 			"Go deeper into this research. Builds on the same evidence and sources to expand the report.",
+		"atlas.action.copy": "Copy Atlas",
+		"atlas.action.copyClipboardError": "Couldn't copy to clipboard",
+		"atlas.action.copyFetchError": "Couldn't load the report to copy",
+		"atlas.action.copySuccess": "Copied to clipboard",
 		"atlas.action.download": "Download Atlas",
 		"atlas.action.downloadHtml": "Download HTML",
 		"atlas.action.downloadMarkdown": "Download Markdown",
@@ -952,6 +956,11 @@ const chatDict = {
 		"atlas.action.continue": "Atlas folytatása",
 		"atlas.action.continueTooltip":
 			"Mélyebb kutatás ugyanebben a témában. A meglévő bizonyítékokra és forrásokra építve bővíti a jelentést.",
+		"atlas.action.copy": "Atlas másolása",
+		"atlas.action.copyClipboardError": "Nem sikerült a vágólapra másolni",
+		"atlas.action.copyFetchError":
+			"Nem sikerült betölteni a jelentést a másoláshoz",
+		"atlas.action.copySuccess": "Vágólapra másolva",
 		"atlas.action.download": "Atlas letöltése",
 		"atlas.action.downloadHtml": "HTML letöltése",
 		"atlas.action.downloadMarkdown": "Markdown letöltése",

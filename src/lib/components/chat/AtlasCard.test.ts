@@ -5,7 +5,7 @@ import {
 	screen,
 	within,
 } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	AtlasAction,
 	AtlasJobCard,
@@ -16,6 +16,12 @@ import AtlasCard from "./AtlasCard.svelte";
 type AtlasJobProgressDetailsWithTitle = AtlasJobProgressDetails & {
 	generatedTitle: string;
 };
+
+Object.assign(navigator, {
+	clipboard: {
+		writeText: vi.fn().mockImplementation(() => Promise.resolve()),
+	},
+});
 
 function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 	return {
@@ -379,6 +385,105 @@ describe("AtlasCard", () => {
 			action,
 			message: "Add source-quality detail",
 			profile: "in-depth",
+		});
+	});
+
+	describe("Copy control", () => {
+		beforeEach(() => {
+			vi.clearAllMocks();
+		});
+
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("fetches the markdown output and writes it to the clipboard", async () => {
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				text: () => Promise.resolve("# Report\n\nBody text."),
+			});
+			vi.stubGlobal("fetch", fetchMock);
+
+			render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Copy Atlas" }));
+			await act(() => Promise.resolve());
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/chat/files/md-file-1/download",
+			);
+			expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+				"# Report\n\nBody text.",
+			);
+		});
+
+		it("surfaces a fetch error distinctly, without a silent success", async () => {
+			const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+			vi.stubGlobal("fetch", fetchMock);
+
+			render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Copy Atlas" }));
+			await act(() => Promise.resolve());
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/chat/files/md-file-1/download",
+			);
+			expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+			expect(
+				screen.getByText("Couldn't load the report to copy"),
+			).toBeInTheDocument();
+		});
+
+		it("surfaces a clipboard-write error distinctly from a fetch error", async () => {
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				text: () => Promise.resolve("# Report\n\nBody text."),
+			});
+			vi.stubGlobal("fetch", fetchMock);
+			vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(
+				new Error("denied"),
+			);
+
+			render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Copy Atlas" }));
+			await act(() => Promise.resolve());
+
+			expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+				"# Report\n\nBody text.",
+			);
+			expect(
+				screen.getByText("Couldn't copy to clipboard"),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText("Couldn't load the report to copy"),
+			).not.toBeInTheDocument();
+		});
+
+		it("does not render a Copy control when no markdown output exists", () => {
+			render(AtlasCard, {
+				job: atlasJobFixture({
+					status: "succeeded",
+					completedAt: 121,
+					outputs: {
+						fileProductionJobId: "file-job-1",
+						htmlChatGeneratedFileId: "html-file-1",
+						pdfChatGeneratedFileId: "pdf-file-1",
+						markdownChatGeneratedFileId: null,
+					},
+				}),
+			});
+
+			expect(
+				screen.queryByRole("button", { name: "Copy Atlas" }),
+			).not.toBeInTheDocument();
 		});
 	});
 });
