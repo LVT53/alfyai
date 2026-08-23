@@ -2090,6 +2090,39 @@ describe("MessageInput", () => {
 		});
 	});
 
+	it("shows an always-visible over-length counter once the message exceeds maxLength (ADR-0043 14f)", async () => {
+		const mockSend = vi.fn();
+		const { getByPlaceholderText, getByTestId, getByLabelText } = render(
+			MessageInputWrapper,
+			{ maxLength: 10000, onSend: mockSend },
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const button = getByLabelText("Send message") as HTMLButtonElement;
+
+		await fireEvent.input(input, { target: { value: "a".repeat(12043) } });
+
+		expect(getByTestId("over-length-counter")).toHaveTextContent(
+			"12,043 / 10,000 — too long to send",
+		);
+		expect(button.disabled).toBe(true);
+	});
+
+	it("hides the over-length counter when the message is within maxLength", async () => {
+		const { getByPlaceholderText, queryByTestId } = render(
+			MessageInputWrapper,
+			{ maxLength: 10000 },
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "Well within range" } });
+
+		expect(queryByTestId("over-length-counter")).toBeNull();
+	});
+
 	it("hides the disabled-send hint when send is enabled", async () => {
 		const { getByPlaceholderText, queryByTestId } = render(MessageInput);
 		const input = getByPlaceholderText(

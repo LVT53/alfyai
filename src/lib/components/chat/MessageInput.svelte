@@ -2353,6 +2353,17 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
+	{#if isOverMaxLength}
+		<div class="mt-1 flex justify-end px-2">
+			<span class="text-[12px] font-sans text-danger" data-testid="over-length-counter">
+				{$t('chat.overLengthCounter', {
+					current: message.length.toLocaleString(),
+					max: maxLength.toLocaleString(),
+				})}
+			</span>
+		</div>
+	{/if}
+
 	{#if showSlashHint}
 		<div class="mt-1 flex justify-end px-2">
 			<span class="text-[12px] font-sans text-text-muted" data-testid="slash-shortcut-hint">
