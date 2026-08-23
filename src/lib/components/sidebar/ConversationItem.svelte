@@ -570,15 +570,19 @@ onMount(() => {
 
 	.conversation-option:hover,
 	.conversation-option:focus-visible {
-		background: rgba(194, 166, 106, 0.24) !important;
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
+	/* !important: these persistent-state backgrounds must outrank the plain
+	   :hover rule above even though it has higher selector specificity
+	   (class + :hover vs. a single class) — without it, hovering an
+	   already-active/current menu item would flash the plain hover tint. */
 	.conversation-option-active {
-		background: rgba(194, 166, 106, 0.18) !important;
+		background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
 	}
 
 	.conversation-option-current {
-		background: rgba(194, 166, 106, 0.15) !important;
+		background: color-mix(in srgb, var(--accent) 15%, transparent) !important;
 	}
 
 	.atlas-completed-badge {
@@ -592,7 +596,7 @@ onMount(() => {
 
 	.conversation-option-danger:hover,
 	.conversation-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.14) !important;
+		background: color-mix(in srgb, var(--danger) 14%, transparent);
 	}
 
 	.conversation-option-icon {
@@ -606,16 +610,16 @@ onMount(() => {
 
 	:global(.dark) .conversation-option:hover,
 	:global(.dark) .conversation-option:focus-visible {
-		background: rgba(194, 166, 106, 0.3) !important;
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .conversation-option-active {
-		background: rgba(194, 166, 106, 0.25) !important;
+		background: color-mix(in srgb, var(--accent) 25%, transparent) !important;
 	}
 
 	:global(.dark) .conversation-option-danger:hover,
 	:global(.dark) .conversation-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.22) !important;
+		background: color-mix(in srgb, var(--danger) 22%, transparent);
 	}
 
 	:global(.dark) .conversation-option-icon,

@@ -452,12 +452,12 @@ function createConversation(e: MouseEvent) {
 
 	.project-option:hover,
 	.project-option:focus-visible {
-		background: rgba(194, 166, 106, 0.24) !important;
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	.project-option-danger:hover,
 	.project-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.14) !important;
+		background: color-mix(in srgb, var(--danger) 14%, transparent);
 	}
 
 	.project-option-icon {
@@ -471,12 +471,12 @@ function createConversation(e: MouseEvent) {
 
 	:global(.dark) .project-option:hover,
 	:global(.dark) .project-option:focus-visible {
-		background: rgba(194, 166, 106, 0.3) !important;
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .project-option-danger:hover,
 	:global(.dark) .project-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.22) !important;
+		background: color-mix(in srgb, var(--danger) 22%, transparent);
 	}
 
 	:global(.dark) .project-option-icon,

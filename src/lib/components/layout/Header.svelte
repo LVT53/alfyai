@@ -269,17 +269,17 @@ onMount(() => {
 
 	.header-option:hover,
 	.header-option:focus-visible {
-		background: rgba(194, 166, 106, 0.24) !important;
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	.header-option-accent:hover,
 	.header-option-accent:focus-visible {
-		background: rgba(194, 166, 106, 0.28) !important;
+		background: color-mix(in srgb, var(--accent) 28%, transparent);
 	}
 
 	.header-option-danger:hover,
 	.header-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.14) !important;
+		background: color-mix(in srgb, var(--danger) 14%, transparent);
 	}
 
 	.header-option-icon {
@@ -297,17 +297,17 @@ onMount(() => {
 
 	:global(.dark) .header-option:hover,
 	:global(.dark) .header-option:focus-visible {
-		background: rgba(194, 166, 106, 0.3) !important;
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .header-option-accent:hover,
 	:global(.dark) .header-option-accent:focus-visible {
-		background: rgba(194, 166, 106, 0.3) !important;
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .header-option-danger:hover,
 	:global(.dark) .header-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.22) !important;
+		background: color-mix(in srgb, var(--danger) 22%, transparent);
 	}
 
 	:global(.dark) .header-option-icon,

@@ -92,11 +92,11 @@ $effect(() => {
 	@keyframes shimmer-in {
 		0% {
 			color: var(--accent);
-			text-shadow: 0 0 8px rgba(194, 166, 106, 0.6);
+			text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
 		}
 		50% {
 			color: color-mix(in srgb, var(--accent) 70%, var(--text-primary) 30%);
-			text-shadow: 0 0 4px rgba(194, 166, 106, 0.3);
+			text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
 		}
 		100% {
 			color: var(--text-primary);
