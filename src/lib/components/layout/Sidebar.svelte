@@ -23,6 +23,7 @@ import ConversationList from "../sidebar/ConversationList.svelte";
 import SearchModal from "../search/SearchModal.svelte";
 import AvatarCircle from "../ui/AvatarCircle.svelte";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+import Spinner from "../ui/Spinner.svelte";
 import LogoMark from "../chat/LogoMark.svelte";
 import AppVersionBadge from "./AppVersionBadge.svelte";
 import {
@@ -31,7 +32,6 @@ import {
 	X,
 	FilePen,
 	Search,
-	Loader,
 	BookOpen,
 	LogOut,
 } from "@lucide/svelte";
@@ -363,7 +363,7 @@ onMount(() => {
 					aria-busy={knowledgePending}
 				>
 				{#if knowledgePending}
-					<Loader class="animate-spin" size={18} strokeWidth={2.1} aria-hidden="true" />
+					<Spinner size={18} />
 					{:else}
 					<BookOpen size={19} strokeWidth={2.1} aria-hidden="true" />
 				{/if}
@@ -406,7 +406,7 @@ onMount(() => {
 					aria-busy={knowledgePending}
 				>
 			{#if knowledgePending}
-					<Loader class="animate-spin" size={18} strokeWidth={2.1} aria-hidden="true" />
+					<Spinner size={18} />
 				{:else}
 					<BookOpen size={18} strokeWidth={2.1} aria-hidden="true" />
 				{/if}

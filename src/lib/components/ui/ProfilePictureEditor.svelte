@@ -3,14 +3,8 @@ import { onDestroy, onMount } from "svelte";
 import { fade, scale } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { uploadAvatar } from "$lib/client/api/settings";
-import {
-	Upload,
-	Loader,
-	RotateCcw,
-	RotateCw,
-	ZoomOut,
-	ZoomIn,
-} from "@lucide/svelte";
+import { Upload, RotateCcw, RotateCw, ZoomOut, ZoomIn } from "@lucide/svelte";
+import Spinner from "./Spinner.svelte";
 
 let {
 	onClose = undefined,
@@ -493,7 +487,7 @@ onDestroy(() => {
 						<div
 							class="absolute inset-0 flex items-center justify-center rounded-md bg-surface-page/60 backdrop-blur-sm"
 						>
-						<Loader class="animate-spin text-accent" size={32} strokeWidth={2} aria-hidden="true" />
+						<Spinner class="text-accent" size={32} />
 						</div>
 					{/if}
 				</div>

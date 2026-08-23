@@ -13,7 +13,6 @@ import {
 	FileUp,
 	Folder,
 	Library,
-	Loader,
 	MessageSquare,
 	NotebookText,
 	Search,
@@ -21,6 +20,7 @@ import {
 	TextSearch,
 	X,
 } from "@lucide/svelte";
+import Spinner from "../ui/Spinner.svelte";
 import {
 	buildChatSourceMessageHref,
 	buildKnowledgeWorkspaceHref,
@@ -546,7 +546,7 @@ onDestroy(() => {
 						class="h-8 w-full bg-transparent text-[14px] font-sans text-text-primary outline-none placeholder:text-text-muted"
 					/>
 					{#if searchLoading}
-						<Loader class="animate-spin text-icon-muted" size={15} strokeWidth={2} aria-hidden="true" />
+						<Spinner class="text-icon-muted" size={15} />
 					{:else if searchQuery}
 						<button
 							type="button"
@@ -574,7 +574,7 @@ onDestroy(() => {
 				{:else if searchLoading && !hasResults}
 					<div class="flex flex-col items-center justify-center px-4 py-12 text-center">
 						<div class="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated">
-							<Loader class="animate-spin" size={17} strokeWidth={2} aria-hidden="true" />
+							<Spinner size={17} />
 						</div>
 						<h3 class="text-[13px] font-sans text-text-primary">{$t('searchModal.loading')}</h3>
 					</div>

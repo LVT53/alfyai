@@ -6,7 +6,8 @@ import type {
 	MemoryProfilePublicItem,
 } from "$lib/memory-profile-types";
 import { t } from "$lib/i18n";
-import { Check, Loader, Save, Trash2, Undo2, X } from "@lucide/svelte";
+import { Check, Save, Trash2, Undo2, X } from "@lucide/svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 
 type OptionalItemDetail = MemoryProfilePublicItem & {
 	whyRemembered?: string | null;
@@ -265,7 +266,7 @@ onDestroy(() => {
 							title={$t("memoryProfile.delete")}
 						>
 							{#if isDeleting}
-								<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+								<Spinner size={18} />
 							{:else}
 								<Trash2 size={18} strokeWidth={2.1} aria-hidden="true" />
 							{/if}
@@ -280,7 +281,7 @@ onDestroy(() => {
 						title={$t("memoryProfile.save")}
 					>
 						{#if isSaving}
-							<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+							<Spinner size={18} />
 						{:else if canSave}
 							<Save size={18} strokeWidth={2.1} aria-hidden="true" />
 						{:else}
