@@ -82,12 +82,27 @@ let dialogSizeClass = $derived(
 		: `${maxWidthClass} rounded-lg border`,
 );
 
+// A focusable element counts for the trap only if it is actually rendered.
+// The selector matches by attribute alone, so a display:none focusable — e.g.
+// ImportChatGPTModal's hidden `<input type="file">` upload proxy — would be
+// counted as the "last" element the Tab-wrap keys on, letting focus escape the
+// dialog for one press. getClientRects() is the ideal browser signal (empty for
+// display:none / detached elements), but jsdom has no layout engine and reports
+// an empty list for *every* element, so fall back to a computed-style check
+// there: it flags display:none / visibility:hidden (and the [hidden] attribute)
+// in both real browsers and jsdom.
+function isRendered(el: HTMLElement): boolean {
+	if (el.getClientRects().length > 0) return true;
+	const style = getComputedStyle(el);
+	return style.display !== "none" && style.visibility !== "hidden";
+}
+
 function getFocusableElements(): HTMLElement[] {
 	return Array.from(
 		dialogRef?.querySelectorAll<HTMLElement>(
 			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
 		) ?? [],
-	);
+	).filter(isRendered);
 }
 
 function trapTabNavigation(e: KeyboardEvent) {
@@ -152,8 +167,15 @@ function handleKeydown(e: KeyboardEvent) {
 
 onMount(() => {
 	previousFocus = document.activeElement as HTMLElement;
-	document.body.style.overflow = "hidden";
 	registerDialog(dialogId);
+	// Ref-count the body-scroll lock against the open-dialog stack: only the
+	// FIRST dialog locks the page. A nested dialog registers while the page is
+	// already locked, so re-setting overflow here would be redundant — and,
+	// paired with the "last out unlocks" check in onDestroy, this stops a nested
+	// dialog's close from clearing the lock while its parent is still open.
+	if (openDialogStack.length === 1) {
+		document.body.style.overflow = "hidden";
+	}
 	// Move focus into the dialog on open so keyboard/Escape/Tab act on it
 	// immediately instead of the trigger behind the backdrop. Deferred a tick
 	// so the dialog content (and any focusable child) is mounted first. Skip if
@@ -170,7 +192,11 @@ onDestroy(() => {
 	if (focusTimer !== null) clearTimeout(focusTimer);
 	deregisterDialog(dialogId);
 	if (previousFocus) previousFocus.focus();
-	document.body.style.overflow = "";
+	// Release the lock only once the LAST dialog closes. A nested dialog closing
+	// while its parent is still open must leave the page locked behind the parent.
+	if (openDialogStack.length === 0) {
+		document.body.style.overflow = "";
+	}
 });
 </script>
 

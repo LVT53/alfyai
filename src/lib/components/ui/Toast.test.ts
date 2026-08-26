@@ -21,6 +21,14 @@ describe("Toast", () => {
 		expect(screen.queryByTestId("toast-entry")).not.toBeInTheDocument();
 	});
 
+	it("renders its region above the modal z-index band so it's never hidden behind a dialog", () => {
+		render(Toast);
+
+		// App modals top out at z-[10000] (see ConversationItem's conversation-menu);
+		// the toast region must render strictly above that band.
+		expect(screen.getByTestId("toast-region")).toHaveClass("z-[10100]");
+	});
+
 	it("renders a pushed success toast with an accessible status role", async () => {
 		render(Toast);
 

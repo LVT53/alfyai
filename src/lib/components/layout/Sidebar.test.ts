@@ -61,7 +61,11 @@ describe("Sidebar — Cmd/Ctrl+K Workspace Search shortcut (Task 6 / A3)", () =>
 		).toBeInTheDocument();
 	});
 
-	it("does not open when a text input is focused", async () => {
+	it("opens Workspace Search on Ctrl+K even when a text input is focused", async () => {
+		// A modifier chord never collides with ordinary typing, unlike the bare
+		// `/` shortcut — the chat composer textarea is the primary focus target
+		// on this page, so ⌘K/Ctrl+K must still fire from inside it (Slack,
+		// Linear, Notion, VS Code all open their palette from a focused input).
 		render(Sidebar, { open: true });
 		const input = document.createElement("input");
 		document.body.appendChild(input);
@@ -69,16 +73,18 @@ describe("Sidebar — Cmd/Ctrl+K Workspace Search shortcut (Task 6 / A3)", () =>
 
 		await fireEvent.keyDown(input, { key: "k", ctrlKey: true });
 
-		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("dialog", { name: "Search workspace" }),
+		).toBeInTheDocument();
 		document.body.removeChild(input);
 	});
 
-	it("does not open when focus is inside a contenteditable element", async () => {
+	it("opens Workspace Search on Ctrl+K even when focus is inside a contenteditable element", async () => {
 		render(Sidebar, { open: true });
 		const editable = document.createElement("div");
 		// jsdom doesn't implement the contenteditable editing spec (setting the
 		// `contentEditable` attribute never makes `isContentEditable` true), so
-		// the getter is stubbed directly to exercise that exact guard branch.
+		// the getter is stubbed directly to exercise that exact branch.
 		Object.defineProperty(editable, "isContentEditable", {
 			value: true,
 			configurable: true,
@@ -88,7 +94,9 @@ describe("Sidebar — Cmd/Ctrl+K Workspace Search shortcut (Task 6 / A3)", () =>
 
 		await fireEvent.keyDown(editable, { key: "k", ctrlKey: true });
 
-		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("dialog", { name: "Search workspace" }),
+		).toBeInTheDocument();
 		document.body.removeChild(editable);
 	});
 

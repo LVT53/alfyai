@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import DocumentsList from "./DocumentsList.svelte";
@@ -241,6 +241,48 @@ describe("DocumentsList", () => {
 			expect(onUpload).toHaveBeenCalledWith([
 				expect.objectContaining({ name: "new-upload.pdf" }),
 			]);
+		});
+
+		it("shows the shared Spinner primitive, not a bespoke CSS ring, while an upload is in flight", async () => {
+			let resolveUpload!: () => void;
+			const onUpload = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						resolveUpload = resolve;
+					}),
+			);
+
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					onUpload,
+				},
+			});
+
+			const dropSurface = screen.getByRole("region", {
+				name: /documents/i,
+			});
+			const file = new File(["hello"], "new-upload.pdf", {
+				type: "application/pdf",
+			});
+
+			await fireEvent.drop(dropSurface, {
+				dataTransfer: { files: [file], types: ["Files"] },
+			});
+
+			const uploadButton = screen.getByRole("button", { name: "Upload" });
+			expect(
+				uploadButton.querySelector('[data-testid="spinner"]'),
+			).not.toBeNull();
+			// Regression guard: the earlier bespoke CSS-ring spinner must not come back.
+			expect(uploadButton.querySelector(".upload-spinner")).toBeNull();
+
+			resolveUpload();
+			await waitFor(() => {
+				expect(
+					uploadButton.querySelector('[data-testid="spinner"]'),
+				).toBeNull();
+			});
 		});
 
 		it("surfaces an error and does not upload when dropping only unsupported files", async () => {

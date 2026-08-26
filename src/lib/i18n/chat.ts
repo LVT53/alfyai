@@ -144,8 +144,12 @@ const chatDict = {
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "Writing the answer...",
 		"chat.regenerate": "Regenerate",
+		// laterTurnCount counts individual MESSAGES (a Q&A exchange is 2), so the
+		// copy says "message(s)" rather than "turn(s)" — the count over-labels
+		// on the "turn" wording (never hides a destructive slice, but reads
+		// oddly) even though the underlying guard logic is correct.
 		"chat.regenerateLaterTurnsWarning":
-			"This removes {count} later turn{count, plural, one {} other {s}} in this conversation. Continue?",
+			"This removes {count} later message{count, plural, one {} other {s}} in this conversation. Continue?",
 		"chat.retry": "Retry",
 		"chat.retrying": "Retrying...",
 		"chat.sendMessage": "Send message",
@@ -873,7 +877,7 @@ const chatDict = {
 		"chat.jumpRailMarkLabel": "Ugrás a válaszhoz: {label}",
 		"chat.jumpRailMobileOpen": "Ugrás egy válaszra",
 		"chat.jumpRailMobileTitle": "Ugrás válaszra",
-		"chat.jumpToLatest": "Ugrás a legújabbhoz",
+		"chat.jumpToLatest": "Ugrás a legutóbbi üzenethez",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
@@ -935,8 +939,11 @@ const chatDict = {
 		"chat.responseActivity.thoughtStepEntity": "{label} ({entity})",
 		"chat.responseActivity.writingAnswer": "A válasz írása...",
 		"chat.regenerate": "Válasz újragenerálása",
+		// Hungarian doesn't inflect the noun for plural after a numeral (e.g.
+		// "3 üzenet", never "3 üzenetek"), so — unlike the EN ICU form — this
+		// stays a single singular form regardless of {count}.
 		"chat.regenerateLaterTurnsWarning":
-			"Ez eltávolítja a beszélgetés {count} későbbi körét. Folytatod?",
+			"Ez eltávolítja a beszélgetés {count} későbbi üzenetét. Folytatod?",
 		"chat.retry": "Újrapróbálkozás",
 		"chat.retrying": "Újrapróbálkozás...",
 		"chat.sendMessage": "Üzenet küldése",

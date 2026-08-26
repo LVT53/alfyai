@@ -2028,3 +2028,187 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		);
 	});
 });
+
+// The "gates Regenerate" tests above (cloud-connector warning gate describe)
+// use a single-turn fixture where the assistant is last, so they never
+// exercise the B1 later-turns confirm — regeneratreDropsLaterTurns()/
+// laterTurnCount() are covered by pure-helper unit tests in
+// lifecycle-guards.test.ts, but the actual wiring (window.confirm + the
+// single-prompt interaction with the fork warning) had no end-to-end
+// coverage. This describe block renders the real page with a MULTI-turn
+// conversation so the non-latest-assistant branch actually runs.
+describe("chat page regenerate — later-turns confirm integration (B1)", () => {
+	afterEach(() => {
+		clearAnimationFrameMockTimers();
+		vi.restoreAllMocks();
+	});
+
+	beforeEach(() => {
+		runtimeHarness.streamInvocations.length = 0;
+		runtimeHarness.atlasSubmissions.length = 0;
+		vi.mocked(fetchConversationDetail).mockResolvedValue(
+			conversationDetailFixture(),
+		);
+		vi.mocked(fetchMessageEvidence).mockReset();
+		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		checkCloudWarningMock.mockReset();
+		ackCloudConnectorMock.mockReset();
+		setLocalDistillMock.mockReset();
+		window.sessionStorage.clear();
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: false,
+				media: query,
+				onchange: null,
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+		installAnimationFrameMock();
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+	});
+
+	// Two full Q&A exchanges — regenerating assistant-1 (non-latest) should
+	// warn that it drops the 2 later messages (user-2, assistant-2).
+	function multiTurnConversationFixture() {
+		return [
+			{
+				id: "user-1",
+				role: "user" as const,
+				content: "First question",
+				timestamp: 1,
+			},
+			{
+				id: "assistant-1",
+				role: "assistant" as const,
+				content: "First answer",
+				timestamp: 2,
+			},
+			{
+				id: "user-2",
+				role: "user" as const,
+				content: "Follow-up question",
+				timestamp: 3,
+			},
+			{
+				id: "assistant-2",
+				role: "assistant" as const,
+				content: "Second answer",
+				timestamp: 4,
+			},
+		];
+	}
+
+	// The Regenerate button's aria-label ("Regenerate response") is identical
+	// on every non-user message, so scope to the Nth rendered assistant bubble
+	// rather than relying on uniqueness across the whole page. The hover
+	// action row (Regenerate/Fork/etc.) is a DOM sibling of the
+	// data-testid="assistant-message" node, not a child of it — same
+	// structure as the "gates Edit-then-resend" test's userMessageGroup —
+	// so scope to their shared ".group" wrapper.
+	function regenerateButtonForAssistant(index: number) {
+		const assistantMessages = screen.getAllByTestId("assistant-message");
+		const group = assistantMessages[index].parentElement as HTMLElement;
+		return within(group).getByRole("button", {
+			name: "Regenerate response",
+		});
+	}
+
+	it("(a) calls window.confirm with the later-turns warning when regenerating a non-latest assistant message", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+		renderPage(pageData({ messages: multiTurnConversationFixture() }));
+		// Markdown content renders through an async pipeline — wait for it so
+		// the click below lands on a fully-settled page.
+		await screen.findByText("First answer");
+
+		await fireEvent.click(regenerateButtonForAssistant(0));
+
+		await waitFor(() => {
+			expect(confirmSpy).toHaveBeenCalledWith(
+				"This removes 2 later messages in this conversation. Continue?",
+			);
+		});
+	});
+
+	it("(b) leaves the message list unchanged (no truncation) when the later-turns confirm is declined", async () => {
+		vi.spyOn(window, "confirm").mockReturnValue(false);
+		renderPage(pageData({ messages: multiTurnConversationFixture() }));
+		await screen.findByText("First answer");
+
+		await fireEvent.click(regenerateButtonForAssistant(0));
+		await waitFor(() => {
+			expect(window.confirm).toHaveBeenCalled();
+		});
+
+		expect(screen.getByText("First answer")).toBeInTheDocument();
+		expect(screen.getByText("Follow-up question")).toBeInTheDocument();
+		expect(screen.getByText("Second answer")).toBeInTheDocument();
+		expect(runtimeHarness.streamInvocations).toHaveLength(0);
+	});
+
+	it("(c) proceeds with the regenerate, dropping later turns, once the confirm is accepted", async () => {
+		vi.spyOn(window, "confirm").mockReturnValue(true);
+		renderPage(pageData({ messages: multiTurnConversationFixture() }));
+		await screen.findByText("First answer");
+
+		await fireEvent.click(regenerateButtonForAssistant(0));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(runtimeHarness.streamInvocations[0].message).toBe("First question");
+		// The regenerated assistant turn AND everything after it are gone —
+		// this is the destructive slice the confirm was warning about.
+		expect(screen.queryByText("First answer")).not.toBeInTheDocument();
+		expect(screen.queryByText("Follow-up question")).not.toBeInTheDocument();
+		expect(screen.queryByText("Second answer")).not.toBeInTheDocument();
+	});
+
+	it("(d) prompts exactly once — the fork warning, not also the later-turns warning — when a forked assistant is in range", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+		// assistant-2 (a later turn, not the message being regenerated) carries
+		// the fork — hasForkedAssistantInRange looks at the whole slice from
+		// assistantIdx onward, not just the target message.
+		const forkedMessages = multiTurnConversationFixture().map((message) =>
+			message.id === "assistant-2"
+				? {
+						...message,
+						sourceForks: {
+							count: 1,
+							forks: [
+								{
+									conversationId: "fork-1",
+									title: "First question (fork 1)",
+									forkSequence: 1,
+									createdAt: 5,
+								},
+							],
+						},
+					}
+				: message,
+		);
+		renderPage(pageData({ messages: forkedMessages }));
+		await screen.findByText("First answer");
+
+		await fireEvent.click(regenerateButtonForAssistant(0));
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		});
+		expect(confirmSpy).toHaveBeenCalledTimes(1);
+		expect(confirmSpy).toHaveBeenCalledWith(
+			"Regenerating this response will replace source history that already has forks. Existing forks stay unchanged. Continue?",
+		);
+	});
+});

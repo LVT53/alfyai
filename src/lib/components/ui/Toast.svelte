@@ -13,7 +13,7 @@ const flyIn = reducedMotionAware(fly);
 </script>
 
 <div
-	class="pointer-events-none fixed right-md top-md z-[150] flex w-full max-w-[360px] flex-col gap-sm"
+	class="pointer-events-none fixed right-md top-md z-[10100] flex w-full max-w-[360px] flex-col gap-sm"
 	data-testid="toast-region"
 >
 	{#each $toasts as toast (toast.id)}

@@ -893,7 +893,7 @@ async function handleBulkDelete(): Promise<boolean> {
 					onclick={handleUploadClick}
 				>
 					{#if isUploading}
-						<span class="upload-spinner"></span>
+						<Spinner size={16} />
 					{:else}
 						<Upload size={18} strokeWidth={1.5} aria-hidden="true" />
 					{/if}
@@ -1428,22 +1428,6 @@ async function handleBulkDelete(): Promise<boolean> {
 	.upload-btn:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
-	}
-
-	.upload-spinner {
-		display: inline-block;
-		width: 16px;
-		height: 16px;
-		border: 2px solid var(--border-default);
-		border-top-color: var(--icon-primary);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 
 	.table-container {
