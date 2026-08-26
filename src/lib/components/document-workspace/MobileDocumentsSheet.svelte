@@ -105,6 +105,18 @@ function selectDocument(documentId: string) {
 		color: var(--icon-muted);
 	}
 
+	/* Touch devices: grow the hit area to the ≥44px accessible minimum
+	 * (including the destructive close-document control) without changing
+	 * the icon's visual size. The query mirrors isTouchDevice() (hover: none
+	 * + pointer: coarse), matching the pattern in CodeBlock.svelte. */
+	@media (hover: none) and (pointer: coarse) {
+		.mobile-documents-sheet-close,
+		.mobile-documents-close-document {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
 	.mobile-documents-list {
 		display: flex;
 		max-height: 42vh;
