@@ -3,6 +3,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/svelte";
 import { get } from "svelte/store";
@@ -487,6 +488,118 @@ describe("AtlasCard", () => {
 			expect(entries[0].message).not.toBe(
 				chatDict.en["atlas.action.copyFetchError"],
 			);
+		});
+
+		it("issues only one fetch and one success toast on a rapid double-click", async () => {
+			let resolveFetch:
+				| ((value: { ok: boolean; text: () => Promise<string> }) => void)
+				| undefined;
+			const fetchMock = vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveFetch = resolve;
+					}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+
+			render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			const button = screen.getByRole("button", { name: "Copy Atlas" });
+			// Both clicks land while the first click's fetch is still in flight —
+			// the second must be a no-op (isCopying guard), not a duplicate fetch.
+			await fireEvent.click(button);
+			await fireEvent.click(button);
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			resolveFetch?.({
+				ok: true,
+				text: () => Promise.resolve("# Report\n\nBody text."),
+			});
+
+			await waitFor(() => {
+				expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+			});
+			expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+				"# Report\n\nBody text.",
+			);
+
+			const entries = get(toasts);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({
+				type: "success",
+				message: chatDict.en["atlas.action.copySuccess"],
+			});
+		});
+
+		it("reflects a busy state on the Copy button while the copy is in flight", async () => {
+			let resolveFetch:
+				| ((value: { ok: boolean; text: () => Promise<string> }) => void)
+				| undefined;
+			const fetchMock = vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveFetch = resolve;
+					}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+
+			render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			const button = screen.getByRole("button", { name: "Copy Atlas" });
+			expect(button).toHaveAttribute("aria-busy", "false");
+
+			await fireEvent.click(button);
+			expect(button).toHaveAttribute("aria-busy", "true");
+
+			resolveFetch?.({
+				ok: true,
+				text: () => Promise.resolve("# Report\n\nBody text."),
+			});
+
+			await waitFor(() => {
+				expect(button).toHaveAttribute("aria-busy", "false");
+			});
+		});
+
+		it("does not show a toast or write the clipboard if the component is destroyed while the fetch is in flight", async () => {
+			let resolveFetch:
+				| ((value: { ok: boolean; text: () => Promise<string> }) => void)
+				| undefined;
+			const fetchMock = vi.fn().mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						resolveFetch = resolve;
+					}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+
+			const { unmount } = render(AtlasCard, {
+				job: atlasJobFixture({ status: "succeeded", completedAt: 121 }),
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Copy Atlas" }));
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			// Torn down (e.g. the user switched conversations) while the fetch is
+			// still in flight — the eventual resolution must not resurrect state
+			// or fire a toast on whatever screen the user has navigated to.
+			unmount();
+
+			resolveFetch?.({
+				ok: true,
+				text: () => Promise.resolve("# Report\n\nBody text."),
+			});
+			await act(() => Promise.resolve());
+			await act(() => Promise.resolve());
+			await act(() => Promise.resolve());
+
+			expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+			expect(get(toasts)).toHaveLength(0);
 		});
 
 		it("does not render a Copy control, or push any toast, when no markdown output exists", () => {

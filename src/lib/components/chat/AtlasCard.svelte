@@ -66,8 +66,18 @@ let lastProgressMessageStage = $state("");
 // transient Check-icon confirmation, mirroring MessageBubble/CodeBlock.
 let copied = $state(false);
 let copyTimeout: ReturnType<typeof setTimeout> | undefined;
+// Guards against two races on the async fetch-then-copy below: (a) a rapid
+// second click before the first click's awaits resolve, which would fire a
+// duplicate fetch + clipboard write + success toast; (b) the component being
+// destroyed mid-flight (e.g. the user switches conversations while the fetch
+// is in flight), which would otherwise resolve on a torn-down instance and
+// show a toast on whatever screen the user navigated to, or arm a timeout
+// `onDestroy` already ran.
+let isCopying = $state(false);
+let destroyed = false;
 
 onDestroy(() => {
+	destroyed = true;
 	if (copyTimeout) {
 		clearTimeout(copyTimeout);
 	}
@@ -456,36 +466,47 @@ function getDownloadOptions(
 }
 
 async function copyMarkdownToClipboard() {
+	if (isCopying) return;
 	const url = markdownDownloadUrl;
 	if (!url) return;
 
-	let markdown: string;
+	isCopying = true;
 	try {
-		const response = await fetch(url);
-		if (!response.ok) {
-			throw new Error(`Unexpected status ${response.status}`);
+		let markdown: string;
+		try {
+			const response = await fetch(url);
+			if (destroyed) return;
+			if (!response.ok) {
+				throw new Error(`Unexpected status ${response.status}`);
+			}
+			markdown = await response.text();
+			if (destroyed) return;
+		} catch (err) {
+			if (destroyed) return;
+			console.error("Failed to fetch Atlas markdown for copy: ", err);
+			showToast({ type: "error", message: $t("atlas.action.copyFetchError") });
+			return;
 		}
-		markdown = await response.text();
-	} catch (err) {
-		console.error("Failed to fetch Atlas markdown for copy: ", err);
-		showToast({ type: "error", message: $t("atlas.action.copyFetchError") });
-		return;
-	}
 
-	try {
-		await navigator.clipboard.writeText(markdown);
-		copied = true;
-		clearTimeout(copyTimeout);
-		copyTimeout = setTimeout(() => {
-			copied = false;
-		}, 2000);
-		showToast({ type: "success", message: $t("atlas.action.copySuccess") });
-	} catch (err) {
-		console.error("Failed to copy Atlas markdown to clipboard: ", err);
-		showToast({
-			type: "error",
-			message: $t("atlas.action.copyClipboardError"),
-		});
+		try {
+			await navigator.clipboard.writeText(markdown);
+			if (destroyed) return;
+			copied = true;
+			clearTimeout(copyTimeout);
+			copyTimeout = setTimeout(() => {
+				copied = false;
+			}, 2000);
+			showToast({ type: "success", message: $t("atlas.action.copySuccess") });
+		} catch (err) {
+			if (destroyed) return;
+			console.error("Failed to copy Atlas markdown to clipboard: ", err);
+			showToast({
+				type: "error",
+				message: $t("atlas.action.copyClipboardError"),
+			});
+		}
+	} finally {
+		isCopying = false;
 	}
 }
 
@@ -720,6 +741,7 @@ function submitLifecycleAction() {
 						onclick={copyMarkdownToClipboard}
 						aria-label={$t("atlas.action.copy")}
 						aria-describedby="atlas-copy-tooltip"
+						aria-busy={isCopying}
 					>
 						{#if copied}
 							<Check size={16} strokeWidth={2} aria-hidden="true" />
