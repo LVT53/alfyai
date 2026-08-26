@@ -82,12 +82,27 @@ let dialogSizeClass = $derived(
 		: `${maxWidthClass} rounded-lg border`,
 );
 
+// A focusable element counts for the trap only if it is actually rendered.
+// The selector matches by attribute alone, so a display:none focusable — e.g.
+// ImportChatGPTModal's hidden `<input type="file">` upload proxy — would be
+// counted as the "last" element the Tab-wrap keys on, letting focus escape the
+// dialog for one press. getClientRects() is the ideal browser signal (empty for
+// display:none / detached elements), but jsdom has no layout engine and reports
+// an empty list for *every* element, so fall back to a computed-style check
+// there: it flags display:none / visibility:hidden (and the [hidden] attribute)
+// in both real browsers and jsdom.
+function isRendered(el: HTMLElement): boolean {
+	if (el.getClientRects().length > 0) return true;
+	const style = getComputedStyle(el);
+	return style.display !== "none" && style.visibility !== "hidden";
+}
+
 function getFocusableElements(): HTMLElement[] {
 	return Array.from(
 		dialogRef?.querySelectorAll<HTMLElement>(
 			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
 		) ?? [],
-	);
+	).filter(isRendered);
 }
 
 function trapTabNavigation(e: KeyboardEvent) {

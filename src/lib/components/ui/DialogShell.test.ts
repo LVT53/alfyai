@@ -338,6 +338,46 @@ describe("DialogShell Tab focus trap", () => {
 		expect(document.activeElement).toBe(nestedFirst());
 		expect(nestedDialog.contains(document.activeElement)).toBe(true);
 	});
+
+	it("wraps Tab past a non-rendered trailing focusable back to the first visible element", async () => {
+		// The last element in the DOM is a display:none <input type="file"> — the
+		// hidden upload proxy pattern (e.g. ImportChatGPTModal). It matches the
+		// focusable selector but is not actually rendered, so it must NOT anchor the
+		// Tab-wrap logic as the "last" element; otherwise Tab from the last VISIBLE
+		// control escapes the dialog for one press.
+		render(DialogShell, {
+			props: {
+				title: "Hidden trailing focusable",
+				onClose: vi.fn(),
+				children: childrenWith(
+					`<div>` +
+						`<button type="button" data-testid="wrap-first">First</button>` +
+						`<button type="button" data-testid="wrap-last">Last</button>` +
+						`<input type="file" data-testid="wrap-hidden" style="display: none" />` +
+						`</div>`,
+				),
+			},
+		});
+
+		const first = () =>
+			document.querySelector<HTMLElement>('[data-testid="wrap-first"]');
+		const lastVisible = () =>
+			document.querySelector<HTMLElement>('[data-testid="wrap-last"]');
+
+		// Let focus-on-open settle on the first visible control.
+		await waitFor(() => {
+			expect(document.activeElement).toBe(first());
+		});
+
+		// From the last VISIBLE control, Tab forward must wrap to the first visible
+		// control — the hidden input is filtered out of the focus trap.
+		lastVisible()?.focus();
+		expect(document.activeElement).toBe(lastVisible());
+
+		pressTab();
+
+		expect(document.activeElement).toBe(first());
+	});
 });
 
 describe("DialogShell reduced-motion transitions", () => {
