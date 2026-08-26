@@ -11,6 +11,7 @@ import {
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import { t } from "$lib/i18n";
+import { prefersReducedMotion } from "$lib/utils/motion";
 import {
 	fetchUserSkills,
 	fetchUserSkillVariants,
@@ -206,6 +207,37 @@ async function loadSkillsSummary() {
 onMount(() => {
 	void loadSkillsSummary();
 });
+
+// --- Task 14: sticky in-page section navigation (settings-nav) ---
+// One chip per group label below; ids live on the `<p class="settings-group-
+// label">` elements themselves (no wrapper elements added — a group spans
+// multiple sibling <section>s, so wrapping would be content restructuring).
+const sectionNavItems = [
+	{ id: "settings-section-account", labelKey: "settings_sectionAccount" },
+	{
+		id: "settings-section-preferences",
+		labelKey: "settings_sectionPreferences",
+	},
+	{ id: "settings-section-assistant", labelKey: "settings_sectionAssistant" },
+	{
+		id: "settings-section-data-privacy",
+		labelKey: "settings_sectionDataPrivacy",
+	},
+	{
+		id: "settings-section-your-activity",
+		labelKey: "settings_sectionYourActivity",
+	},
+] as const;
+
+function scrollToSection(event: MouseEvent, id: string) {
+	const target = document.getElementById(id);
+	if (!target) return;
+	event.preventDefault();
+	target.scrollIntoView({
+		behavior: prefersReducedMotion() ? "auto" : "smooth",
+		block: "start",
+	});
+}
 </script>
 
 <!-- ============================================================= -->
@@ -217,8 +249,20 @@ onMount(() => {
 <!-- 18c adds the 5th "Your Activity" section. Do NOT do that here. -->
 <!-- ============================================================= -->
 
+<!-- Task 14: sticky row of anchor chips — one per group below, jumping to -->
+<!-- that group's <p class="settings-group-label"> id. Reduced-motion aware. -->
+<nav class="settings-section-nav" aria-label={$t('settings_sectionNavA11yLabel')}>
+	{#each sectionNavItems as item (item.id)}
+		<a
+			href={`#${item.id}`}
+			class="settings-section-nav-chip"
+			onclick={(event) => scrollToSection(event, item.id)}
+		>{$t(item.labelKey)}</a>
+	{/each}
+</nav>
+
 <!-- ================= GROUP 1: ACCOUNT ================= -->
-<p class="settings-group-label">{$t('settings_sectionAccount')}</p>
+<p class="settings-group-label" id="settings-section-account">{$t('settings_sectionAccount')}</p>
 <section class="settings-card mb-4">
 	<h2 class="settings-section-title">{$t('settings_avatar')}</h2>
 	<div class="flex items-center gap-4">
@@ -313,7 +357,7 @@ onMount(() => {
 <SettingsDataImport {projects} />
 
 <!-- ================= GROUP 2: PREFERENCES ================= -->
-<p class="settings-group-label">{$t('settings_sectionPreferences')}</p>
+<p class="settings-group-label" id="settings-section-preferences">{$t('settings_sectionPreferences')}</p>
 <section class="settings-card mb-4">
 	<div class="flex flex-col gap-5">
 		<div>
@@ -458,7 +502,7 @@ onMount(() => {
 <!-- ADR-0043 slice 18b: the inline Skills editor is promoted to a summary card -->
 <!-- that opens a dedicated full-screen manager. The UserSkillsSettingsSurface -->
 <!-- is re-homed (rendered unchanged) inside the manager below — not duplicated. -->
-<p class="settings-group-label">{$t('settings_sectionAssistant')}</p>
+<p class="settings-group-label" id="settings-section-assistant">{$t('settings_sectionAssistant')}</p>
 <section class="settings-card mb-4">
 	{#if skillsEnabled}
 		<!-- Summary card: label + one-line status + ChevronRight open affordance. -->
@@ -509,7 +553,7 @@ onMount(() => {
 {/if}
 
 <!-- ================= GROUP 4: DATA & PRIVACY ================= -->
-<p class="settings-group-label">{$t('settings_sectionDataPrivacy')}</p>
+<p class="settings-group-label" id="settings-section-data-privacy">{$t('settings_sectionDataPrivacy')}</p>
 <section class="settings-card mb-4">
 	<p class="mb-4 text-sm text-text-secondary">
 		{$t('settings_privacyControlsDescription')}
@@ -599,7 +643,7 @@ onMount(() => {
 <!-- section. PERSONAL ONLY (the user's own usage); system analytics stays -->
 <!-- admin-gated under Administration. 18a/18b sections above are untouched. -->
 <!-- The group label serves as the section heading (no redundant inner h2). -->
-<p class="settings-group-label">{$t('settings_sectionYourActivity')}</p>
+<p class="settings-group-label" id="settings-section-your-activity">{$t('settings_sectionYourActivity')}</p>
 <section class="settings-card mb-4">
 	<SettingsPersonalAnalytics
 		analyticsData={personalAnalyticsData}
@@ -615,6 +659,50 @@ onMount(() => {
 </section>
 
 <style>
+	/* Task 14: sticky row of anchor chips jumping between the 5 groups below.
+	   Single-row horizontal-scroll strip (not flex-wrap): the sticky nav's
+	   height must stay constant for the fixed scroll-margin-top below to
+	   reliably clear it on anchor-jump, at any viewport width or locale. */
+	.settings-section-nav {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		display: flex;
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		gap: 0.5rem;
+		padding: 0.625rem 0;
+		margin-bottom: var(--space-sm);
+		background: var(--surface-page);
+	}
+
+	.settings-section-nav-chip {
+		flex: none;
+		padding: 0.375rem 0.875rem;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--border-default);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		background: var(--surface-overlay);
+		text-decoration: none;
+		white-space: nowrap;
+		transition: all var(--duration-standard);
+	}
+
+	.settings-section-nav-chip:hover,
+	.settings-section-nav-chip:focus-visible {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.settings-section-nav-chip {
+			transition: none;
+		}
+	}
+
 	/* Section group label: uppercase, letter-spaced, muted, semibold (per mockup). */
 	.settings-group-label {
 		font-size: 0.6875rem;
@@ -623,12 +711,18 @@ onMount(() => {
 		letter-spacing: 0.08em;
 		color: var(--text-muted);
 		margin: var(--space-lg) 0 var(--space-sm) 0;
+		/* Clears the sticky .settings-section-nav above on anchor-jump so its own
+		   heading isn't hidden underneath it (native or scrollIntoView jumps).
+		   Nav is now a fixed-height single row (see .settings-section-nav above),
+		   so this stays a safe static value: measured nav height is ~50px with
+		   no horizontal scrollbar, ~60px when the chip strip overflows and shows
+		   one (narrow/mobile widths) — 4rem (64px) covers both with headroom. */
+		scroll-margin-top: 4rem;
 	}
 
-	/* First group label sits flush at the top (no top margin). */
-	.settings-group-label:first-child {
-		margin-top: 0;
-	}
+	/* Task 14: .settings-section-nav is now the true first child (it sits above
+	   Group 1's label), so the label keeps its normal top margin as breathing
+	   room below the nav row — no more "flush at the very top" special case. */
 
 	.settings-help-text {
 		font-size: 0.75rem;
