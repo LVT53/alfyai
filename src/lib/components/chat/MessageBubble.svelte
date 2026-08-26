@@ -1105,7 +1105,7 @@ function toggleForkDetails() {
 	</div>
 
 	{#if !isUser && message.wasStopped && !isStreaming}
-		<div class="stopped-early-chip" data-testid="stopped-early-chip" role="status">
+		<div class="stopped-early-chip" data-testid="stopped-early-chip">
 			{$t('chat.stoppedEarly')}
 		</div>
 	{/if}

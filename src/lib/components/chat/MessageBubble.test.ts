@@ -2116,9 +2116,13 @@ describe("MessageBubble", () => {
 
 			render(MessageBubble, { message });
 
-			expect(
-				screen.getByText(chatDict.en["chat.stoppedEarly"]),
-			).toBeInTheDocument();
+			const chip = screen.getByTestId("stopped-early-chip");
+			expect(chip).toHaveTextContent(chatDict.en["chat.stoppedEarly"]);
+			// The chip is a static label, not a live status. It renders for every
+			// historical stopped reply, so a polite live region here would trigger
+			// spurious announcements when a conversation is loaded/re-rendered.
+			expect(chip).not.toHaveAttribute("role", "status");
+			expect(chip).not.toHaveAttribute("aria-live");
 		});
 
 		it("does not render the stopped-early chip when wasStopped is absent", () => {
