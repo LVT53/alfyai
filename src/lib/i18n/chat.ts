@@ -873,7 +873,7 @@ const chatDict = {
 		"chat.jumpRailMarkLabel": "Ugrás a válaszhoz: {label}",
 		"chat.jumpRailMobileOpen": "Ugrás egy válaszra",
 		"chat.jumpRailMobileTitle": "Ugrás válaszra",
-		"chat.jumpToLatest": "Ugrás a legújabbhoz",
+		"chat.jumpToLatest": "Ugrás a legutóbbi üzenethez",
 		"chat.loading": "Üzenetek betöltése...",
 		"chat.messagePlaceholder": "Írj üzenetet...",
 		"chat.messageWillSendAutomatically":
