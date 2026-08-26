@@ -1,5 +1,6 @@
 <script lang="ts">
 import { fade, slide } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/stores";
@@ -67,6 +68,11 @@ let {
 	initialConversations?: SidebarConversationListItem[];
 	initialProjects?: SidebarProject[];
 } = $props();
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach these
+// JS-driven transitions (see motion.ts), so wrap them explicitly.
+const sectionSlide = reducedMotionAware(slide);
+const rowFade = reducedMotionAware(fade);
 
 let projectsStoreReady = $state(false);
 let conversationsStoreReady = $state(false);
@@ -729,7 +735,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 				</button>
 			</div>
 			{#if pinnedSectionExpanded}
-				<div class="flex flex-col gap-0 px-1" transition:slide={{ duration: 200 }}>
+				<div class="flex flex-col gap-0 px-1" transition:sectionSlide={{ duration: 200 }}>
 					{#each pinnedConversations as conversation (conversation.id)}
 						<SidebarReorderRow
 							id={conversation.id}
@@ -795,7 +801,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 
 			<!-- Project list -->
 			{#if projectsSectionExpanded}
-				<div transition:slide={{ duration: 200 }}>
+				<div transition:sectionSlide={{ duration: 200 }}>
 				<!-- New project input -->
 				{#if isCreatingProject}
 					<div class="px-1 pb-1">
@@ -910,10 +916,10 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 							<div
 								data-testid={`project-conversations-${project.id}`}
 								class="overflow-hidden"
-								transition:slide={{ duration: 200 }}
+								transition:sectionSlide={{ duration: 200 }}
 							>
 								{#each conversationsByProject.byProject[project.id] ?? [] as conversation, i (conversation.id)}
-									<div class="pl-4" in:fade={{ duration: 150, delay: i * 35 }}>
+									<div class="pl-4" in:rowFade={{ duration: 150, delay: i * 35 }}>
 										<ConversationItem
 											{conversation}
 											active={$currentConversationId === conversation.id}
@@ -976,7 +982,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 			</button>
 		</div>
 		{#if projectsSectionExpanded}
-			<div transition:slide={{ duration: 200 }}>
+			<div transition:sectionSlide={{ duration: 200 }}>
 				{#if isCreatingProject}
 					<div class="px-1 pb-1">
 						<input
@@ -1057,7 +1063,7 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 				</div>
 		{/if}
 		{#if chatsSectionExpanded}
-			<div transition:slide={{ duration: 200 }}>
+			<div transition:sectionSlide={{ duration: 200 }}>
 				{#if visibleConversations.length === 0}
 					<div class="flex h-20 items-center justify-center p-4 text-sm text-text-muted">
 						{$t('sidebar.noConversationsYet')}

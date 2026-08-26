@@ -1,5 +1,13 @@
 <script lang="ts">
 import { fade } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly. The
+// char-by-char reveal timing itself is JS-driven (setTimeout below), not
+// this transition, so collapsing it to instant doesn't affect the typing
+// cadence — just the fade-in of each already-scheduled character.
+const charFade = reducedMotionAware(fade);
 
 let {
 	text,
@@ -65,7 +73,7 @@ $effect(() => {
 <span class="typewriter-text" class:animating={isAnimating}>
 	{#each displayedChars as char, i (`${animationKey}-${i}`)}
 		<span
-			in:fade={{
+			in:charFade={{
 				duration: 20,
 				delay: delay + (i * speed)
 			}}
@@ -92,11 +100,11 @@ $effect(() => {
 	@keyframes shimmer-in {
 		0% {
 			color: var(--accent);
-			text-shadow: 0 0 8px rgba(194, 166, 106, 0.6);
+			text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
 		}
 		50% {
 			color: color-mix(in srgb, var(--accent) 70%, var(--text-primary) 30%);
-			text-shadow: 0 0 4px rgba(194, 166, 106, 0.3);
+			text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
 		}
 		100% {
 			color: var(--text-primary);

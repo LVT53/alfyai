@@ -14,6 +14,12 @@ import { ChevronLeft, ChevronRight, X } from "@lucide/svelte";
 import { fade, scale } from "svelte/transition";
 import { portal } from "$lib/actions/portal";
 import { t } from "$lib/i18n";
+import { reducedMotionAware } from "$lib/utils/motion";
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach these
+// JS-driven transitions (see motion.ts), so wrap them explicitly.
+const backdropFade = reducedMotionAware(fade);
+const figureScale = reducedMotionAware(scale);
 
 let {
 	images,
@@ -86,7 +92,7 @@ $effect(() => {
 		aria-modal="true"
 		aria-label={$t('imageLightbox.label')}
 		tabindex="-1"
-		transition:fade={{ duration: 150 }}
+		transition:backdropFade={{ duration: 150 }}
 		onclick={handleBackdropClick}
 	>
 		<button
@@ -112,7 +118,7 @@ $effect(() => {
 			</button>
 		{/if}
 
-		<figure class="image-lightbox-figure" transition:scale={{ duration: 150, start: 0.96 }}>
+		<figure class="image-lightbox-figure" transition:figureScale={{ duration: 150, start: 0.96 }}>
 			<img class="image-lightbox-image" src={current.src} alt={current.alt} />
 			{#if current.alt.trim()}
 				<figcaption class="image-lightbox-caption">{current.alt}</figcaption>

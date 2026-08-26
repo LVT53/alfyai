@@ -5,6 +5,7 @@ import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import Header from "$lib/components/layout/Header.svelte";
 import Sidebar from "$lib/components/layout/Sidebar.svelte";
+import Toast from "$lib/components/ui/Toast.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
 import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
 import ServerUpdateNotice from "./_components/ServerUpdateNotice.svelte";
@@ -658,6 +659,9 @@ onDestroy(() => {
 	<ServerDrainingNotice visible={serverDraining} />
 	<ServerUpdateNotice visible={serverUpdateAvailable} onRefresh={refreshForServerUpdate} />
 </div>
+
+<!-- B3: single shared toast mount point for the whole app shell. -->
+<Toast />
 
 {#if activeCampaign}
 	<CampaignModal

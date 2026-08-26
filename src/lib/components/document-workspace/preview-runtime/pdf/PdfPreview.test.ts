@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import * as pdfjsLib from "pdfjs-dist";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PdfPreview from "./PdfPreview.svelte";
+
+const componentDir = dirname(fileURLToPath(import.meta.url));
 
 type PdfRenderOptions = {
 	canvasContext: CanvasRenderingContext2D;
@@ -455,6 +460,40 @@ describe("PdfPreview", () => {
 		resolveSecondPage();
 	});
 
+	it("shows the shared Spinner primitive (not the old CSS-ring spinner) while the document is loading", async () => {
+		let resolveDocument: (doc: unknown) => void = () => undefined;
+		const pendingDocumentPromise = new Promise((resolve) => {
+			resolveDocument = resolve;
+		});
+		vi.mocked(pdfjsLibMock.getDocument).mockReturnValueOnce({
+			promise: pendingDocumentPromise,
+			destroy: vi.fn(async () => undefined),
+		} as unknown as ReturnType<typeof pdfjsLib.getDocument>);
+
+		render(PdfPreview, {
+			props: {
+				blob: new Blob(["%PDF-1.7 loading"], { type: "application/pdf" }),
+				filename: "loading.pdf",
+			},
+		});
+
+		await waitFor(() => {
+			expect(
+				document.querySelector(".pdf-rendering-overlay"),
+			).toBeInTheDocument();
+		});
+		const spinner = screen.getByTestId("spinner");
+		expect(spinner).toHaveClass("animate-spin");
+		expect(document.querySelector(".spinner-sm")).not.toBeInTheDocument();
+
+		resolveDocument({ numPages: 1, getPage: mockPdfGetPage });
+		await waitFor(() => {
+			expect(
+				document.querySelector(".pdf-rendering-overlay"),
+			).not.toBeInTheDocument();
+		});
+	});
+
 	it("uses a non-passive touchmove listener so pinch zoom can prevent browser scrolling", async () => {
 		const addEventListenerSpy = vi.spyOn(
 			HTMLElement.prototype,
@@ -619,5 +658,21 @@ describe("PdfPreview", () => {
 		await waitFor(() => {
 			expect(screen.getByTestId("preview-page-input")).toHaveDisplayValue("2");
 		});
+	});
+});
+
+// Regression guard for Task 12 (spinners): the bespoke `.spinner-sm`
+// border-ring CSS spinner was replaced with the shared Spinner primitive.
+// This asserts directly against source text so the keyframes/class can't
+// silently creep back in alongside the runtime check above.
+describe("PdfPreview no longer defines the old CSS-ring spinner", () => {
+	it("does not declare .spinner-sm or its keyframes", () => {
+		const source = readFileSync(
+			join(componentDir, "PdfPreview.svelte"),
+			"utf-8",
+		);
+
+		expect(source).not.toContain(".spinner-sm");
+		expect(source).not.toContain("@keyframes spin");
 	});
 });

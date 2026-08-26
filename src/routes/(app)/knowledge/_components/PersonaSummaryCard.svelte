@@ -1,8 +1,9 @@
 <script lang="ts">
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
-import { Check, Loader, Pencil, X } from "@lucide/svelte";
+import { Check, Pencil, X } from "@lucide/svelte";
 
 let {
 	summary,
@@ -119,14 +120,14 @@ let paragraphs = $derived.by<string[]>(() => {
 			</button>
 			<button
 				type="button"
-				class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
+				class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
 				onclick={save}
 				disabled={busy || draft.trim().length === 0}
 				aria-label={$t("memoryProfile.saveSummary")}
 				title={$t("memoryProfile.save")}
 			>
 				{#if busy}
-					<Loader size={18} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+					<Spinner size={18} />
 				{:else}
 					<Check size={18} strokeWidth={2.1} aria-hidden="true" />
 				{/if}

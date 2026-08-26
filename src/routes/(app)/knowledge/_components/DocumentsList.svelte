@@ -15,12 +15,12 @@ import {
 	File as FileIcon,
 	FileText,
 	Image,
-	Loader,
 	Monitor,
 	Table,
 	Trash2,
 	Upload,
 } from "@lucide/svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -878,7 +878,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				/>
 				{#if loading}
 					<span class="search-spinner" aria-hidden="true">
-						<Loader size={15} strokeWidth={2} class="animate-spin" aria-hidden="true" />
+						<Spinner size={15} />
 					</span>
 				{/if}
 			</div>
@@ -1113,9 +1113,7 @@ async function handleBulkDelete(): Promise<boolean> {
 											</div>
 											{#if content?.loading}
 												<div class="ai-version-loading">
-													<span class="ai-version-spinner">
-														<Loader size={16} strokeWidth={2} aria-hidden="true" />
-													</span>
+													<Spinner size={16} />
 													{$t('knowledge.aiVersionLoading')}
 												</div>
 											{:else if content?.error}
@@ -1765,10 +1763,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		gap: var(--space-sm);
 		font-size: 0.8125rem;
 		color: var(--text-muted);
-	}
-
-	.ai-version-spinner {
-		animation: spin 1s linear infinite;
 	}
 
 	.ai-version-error {

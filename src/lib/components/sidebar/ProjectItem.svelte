@@ -5,7 +5,6 @@ import {
 	EllipsisVertical,
 	Folder,
 	FolderOpen,
-	Loader,
 	MessageSquarePlus,
 	Pencil,
 	Trash2,
@@ -18,6 +17,7 @@ import {
 	setupMenuSync,
 } from "$lib/utils/popup-menu";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+import Spinner from "../ui/Spinner.svelte";
 
 let {
 	project,
@@ -286,9 +286,7 @@ function createConversation(e: MouseEvent) {
 			title={$t('sidebar.newChatInProject')}
 		>
 			{#if creatingConversation}
-			<span class="project-action-spinner">
-				<Loader size={16} strokeWidth={2.2} aria-hidden="true" />
-			</span>
+			<Spinner size={16} />
 			{:else}
 			<MessageSquarePlus size={16} strokeWidth={2.1} aria-hidden="true" />
 			{/if}
@@ -338,8 +336,8 @@ function createConversation(e: MouseEvent) {
 				aria-busy={creatingConversation}
 			>
 				{#if creatingConversation}
-				<span class="project-option-icon project-action-spinner">
-					<Loader size={15} strokeWidth={2.2} aria-hidden="true" />
+				<span class="project-option-icon">
+					<Spinner size={15} />
 				</span>
 				{:else}
 				<span class="project-option-icon">
@@ -414,16 +412,6 @@ function createConversation(e: MouseEvent) {
 		opacity: 0.82;
 	}
 
-	.project-action-spinner {
-		animation: project-action-spin 0.8s linear infinite;
-	}
-
-	@keyframes project-action-spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
 	.project-menu {
 		background: var(--project-menu-bg, var(--surface-elevated));
 		border-color: color-mix(in srgb, var(--border-default) 76%, var(--surface-page) 24%);
@@ -452,12 +440,12 @@ function createConversation(e: MouseEvent) {
 
 	.project-option:hover,
 	.project-option:focus-visible {
-		background: rgba(194, 166, 106, 0.24) !important;
+		background: color-mix(in srgb, var(--accent) 24%, transparent);
 	}
 
 	.project-option-danger:hover,
 	.project-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.14) !important;
+		background: color-mix(in srgb, var(--danger) 14%, transparent);
 	}
 
 	.project-option-icon {
@@ -471,12 +459,12 @@ function createConversation(e: MouseEvent) {
 
 	:global(.dark) .project-option:hover,
 	:global(.dark) .project-option:focus-visible {
-		background: rgba(194, 166, 106, 0.3) !important;
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
 	}
 
 	:global(.dark) .project-option-danger:hover,
 	:global(.dark) .project-option-danger:focus-visible {
-		background: rgba(186, 77, 77, 0.22) !important;
+		background: color-mix(in srgb, var(--danger) 22%, transparent);
 	}
 
 	:global(.dark) .project-option-icon,

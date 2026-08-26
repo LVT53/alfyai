@@ -137,6 +137,17 @@ describe("PersonaSummaryCard", () => {
 		expect(screen.getByRole("button", { name: "Save summary" })).toBeDisabled();
 	});
 
+	it("shows the shared Spinner primitive on the Save button while busy", async () => {
+		renderCard({ busy: true });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+
+		const spinner = screen.getByTestId("spinner");
+		expect(spinner.tagName).toBe("svg");
+		expect(spinner).toHaveClass("animate-spin");
+		expect(spinner).toHaveAttribute("stroke-width", "2");
+	});
+
 	it("exposes an info tooltip explaining what the summary is used for", async () => {
 		renderCard();
 

@@ -1574,6 +1574,18 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		outline-offset: 0.16rem;
 	}
 
+	/* Touch devices: grow the hit area to the ≥44px accessible minimum
+	 * without changing the icon's visual size. The query mirrors
+	 * isTouchDevice() (hover: none + pointer: coarse), matching the pattern
+	 * in CodeBlock.svelte. Applies in both the mobile and desktop shell
+	 * branches since it targets the shared .workspace-compare-toggle class. */
+	@media (hover: none) and (pointer: coarse) {
+		.workspace-compare-toggle {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
 	.workspace-status-badge {
 		display: inline-flex;
 		align-items: center;

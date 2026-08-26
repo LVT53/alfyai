@@ -884,6 +884,38 @@ describe("file production chat helpers", () => {
 		});
 	});
 
+	// stopped-marker — a stopped response must carry wasStopped into the LIVE
+	// session's finalized message, not just after a reload (server persistence
+	// already round-trips it; this closes the gap for the current tab).
+	it("marks the finalized message as wasStopped when the terminal metadata says the stream stopped early", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				wasStopped: true,
+			},
+		});
+
+		expect(finalized[0].wasStopped).toBe(true);
+	});
+
+	it("leaves wasStopped unset on the finalized message for a normally completed stream", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+			},
+		});
+
+		expect(finalized[0].wasStopped).toBeUndefined();
+	});
+
 	it("keeps newly produced files attached when the streaming placeholder becomes the server assistant message", () => {
 		const jobs = [
 			makeUnassignedJob("job-new"),

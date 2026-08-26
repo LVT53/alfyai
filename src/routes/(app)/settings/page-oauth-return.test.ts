@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelId } from "$lib/model-types";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import SettingsPage from "./+page.svelte";
 import type { PageData, PageProps } from "./$types";
 
@@ -69,30 +71,42 @@ describe("settings page OAuth return handling", () => {
 		vi.clearAllMocks();
 		mockFetchConnections.mockResolvedValue([]);
 		window.history.pushState(null, "", "/settings");
+		clearToasts();
 	});
 
-	it("switches to the Connections tab, refetches, shows success, and clears the query params on ?connected=", async () => {
+	afterEach(() => {
+		clearToasts();
+	});
+
+	it("switches to the Connections tab, refetches, shows a success toast (no inline duplicate), and clears the query params on ?connected=", async () => {
 		renderAt("/settings?section=connections&connected=google");
 
 		await waitFor(() => {
-			expect(screen.getByText("Connected to Google.")).toBeInTheDocument();
+			expect(get(toasts)).toContainEqual(
+				expect.objectContaining({
+					type: "success",
+					message: "Connected to Google.",
+				}),
+			);
 		});
 		await waitFor(() => {
 			expect(mockFetchConnections).toHaveBeenCalled();
 		});
 		expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
+		expect(screen.queryByText("Connected to Google.")).not.toBeInTheDocument();
 		expect(window.location.search).toBe("");
 	});
 
-	it("switches to the Connections tab and shows a translated error on ?error=", async () => {
+	it("switches to the Connections tab and shows a translated error toast on ?error=", async () => {
 		renderAt("/settings?section=connections&error=google_oauth_denied");
 
 		await waitFor(() => {
-			expect(
-				screen.getByText(
-					"Couldn't connect: You declined the Google permission request.",
-				),
-			).toBeInTheDocument();
+			expect(get(toasts)).toContainEqual(
+				expect.objectContaining({
+					type: "error",
+					message: "Couldn't connect: You declined the Google permission request.",
+				}),
+			);
 		});
 		expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
 		expect(window.location.search).toBe("");
@@ -102,9 +116,12 @@ describe("settings page OAuth return handling", () => {
 		renderAt("/settings?section=connections&error=something_weird");
 
 		await waitFor(() => {
-			expect(
-				screen.getByText("Couldn't connect: Please try again."),
-			).toBeInTheDocument();
+			expect(get(toasts)).toContainEqual(
+				expect.objectContaining({
+					type: "error",
+					message: "Couldn't connect: Please try again.",
+				}),
+			);
 		});
 	});
 
@@ -114,7 +131,12 @@ describe("settings page OAuth return handling", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByText("Connected to Google.")).toBeInTheDocument();
+			expect(get(toasts)).toContainEqual(
+				expect.objectContaining({
+					type: "success",
+					message: "Connected to Google.",
+				}),
+			);
 		});
 
 		const params = new URLSearchParams(window.location.search);
@@ -131,6 +153,6 @@ describe("settings page OAuth return handling", () => {
 		await waitFor(() => {
 			expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
 		});
-		expect(screen.queryByText("Connected to Google.")).not.toBeInTheDocument();
+		expect(get(toasts)).toHaveLength(0);
 	});
 });

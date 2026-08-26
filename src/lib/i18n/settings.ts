@@ -628,6 +628,8 @@ const settingsDict = {
 		settings_sectionAccount: "Account",
 		settings_sectionAssistant: "Assistant",
 		settings_sectionDataPrivacy: "Data & privacy",
+		// Task 14: sticky in-page nav landmark label (jumps between the groups).
+		settings_sectionNavA11yLabel: "Profile sections",
 		settings_sectionPreferences: "Preferences",
 		// ADR-0043 slice 18c: 5th Profile section (personal analytics merged in).
 		settings_sectionYourActivity: "Your Activity",
@@ -1363,6 +1365,8 @@ const settingsDict = {
 		settings_sectionAccount: "Fiók",
 		settings_sectionAssistant: "Asszisztens",
 		settings_sectionDataPrivacy: "Adatok és adatvédelem",
+		// Task 14: sticky in-page nav landmark label (jumps between the groups).
+		settings_sectionNavA11yLabel: "Profil szakaszai",
 		settings_sectionPreferences: "Beállítások",
 		// ADR-0043 slice 18c: 5th Profile section (personal analytics merged in).
 		settings_sectionYourActivity: "A tevékenységed",

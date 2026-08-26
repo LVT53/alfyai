@@ -931,10 +931,7 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		}
 	}
-	if (
-		event.key === "Enter" &&
-		(event.metaKey || event.ctrlKey || !event.shiftKey)
-	) {
+	if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
 		event.preventDefault();
 		const currentTextareaValue = textarea?.value ?? message;
 		if (textarea) {
@@ -2352,6 +2349,17 @@ async function emitDraftChange(force = false) {
 				{:else}
 					{$t('chat.extractingDocument')}
 				{/if}
+			</span>
+		</div>
+	{/if}
+
+	{#if isOverMaxLength}
+		<div class="mt-1 flex justify-end px-2">
+			<span class="text-[12px] font-sans text-danger" data-testid="over-length-counter">
+				{$t('chat.overLengthCounter', {
+					current: message.length.toLocaleString(),
+					max: maxLength.toLocaleString(),
+				})}
 			</span>
 		</div>
 	{/if}

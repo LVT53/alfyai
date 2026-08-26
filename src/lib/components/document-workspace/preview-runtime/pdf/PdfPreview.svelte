@@ -17,6 +17,7 @@ import { browser } from "$app/environment";
 import { t } from "$lib/i18n";
 import { tick } from "svelte";
 import DocumentPreviewToolbar from "../../DocumentPreviewToolbar.svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 
 type PdfRenderTask = {
 	promise: Promise<void>;
@@ -636,7 +637,7 @@ function setupPageObserver() {
 	>
 		{#if isRendering}
 			<div class="pdf-rendering-overlay">
-				<div class="spinner-sm"></div>
+				<Spinner class="text-accent" size={24} />
 			</div>
 		{/if}
 		<div class="pdf-pages-scroll">
@@ -733,18 +734,4 @@ function setupPageObserver() {
 		background: rgb(255 255 255 / 80%);
 	}
 
-	.spinner-sm {
-		width: 24px;
-		height: 24px;
-		border: 2px solid color-mix(in srgb, var(--border-default) 50%, transparent);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 </style>

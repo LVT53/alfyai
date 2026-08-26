@@ -27,6 +27,7 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 | Markdown dark mode | `theme` | `MessageBubble.svelte` |
 | Draft/scroll state | `ui` | `MessageInput.svelte` |
 | Workspace Search | `ui` for shell state only | `SearchModal.svelte` delegates search to the server-backed Workspace Search API |
+| Workspace Search open request | `ui.searchModalOpenRequested` | `Header.svelte` sets it (`requestSearchModalOpen()`) from the mobile menu; `Sidebar.svelte` drains it — the modal's actual open/close state stays local to `Sidebar.svelte` (also wired to Ctrl+K/Cmd+K, Task 6) |
 ## Conventions
 
 - **Legacy writable pattern**: All stores use `writable()` from `svelte/store`. Not yet migrated to Svelte 5 runes.

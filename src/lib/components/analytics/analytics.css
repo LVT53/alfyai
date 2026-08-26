@@ -91,6 +91,17 @@
 	cursor: default;
 }
 
+/* Touch devices: grow the hit area to the ≥44px accessible minimum without
+ * changing the icon's visual size. The query mirrors isTouchDevice() (hover:
+ * none + pointer: coarse), matching the pattern in CodeBlock.svelte. This
+ * plain CSS file has no existing touch media query to reuse. */
+@media (hover: none) and (pointer: coarse) {
+	.month-nav-btn {
+		width: 44px;
+		height: 44px;
+	}
+}
+
 .month-alltime-btn {
 	margin-left: 0.5rem;
 	font-size: 0.72rem;

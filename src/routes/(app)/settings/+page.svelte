@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { get } from "svelte/store";
 import { goto, invalidate } from "$app/navigation";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import ProfilePictureEditor from "$lib/components/ui/ProfilePictureEditor.svelte";
@@ -51,6 +52,7 @@ import {
 	type UiLanguage,
 } from "$lib/stores/settings";
 import { setThemeAndSync } from "$lib/stores/theme";
+import { showToast } from "$lib/stores/toast";
 import { currentConversationId } from "$lib/stores/ui";
 import { t, type I18nKey } from "$lib/i18n";
 import ConnectWizardModal from "./_components/ConnectWizardModal.svelte";
@@ -146,15 +148,11 @@ let activeTab = $state<Tab>("profile");
 let name = $state(initialUserSettings.name ?? "");
 let email = $state(initialUserSettings.email);
 let profileSaving = $state(false);
-let profileMessage = $state("");
-let profileError = $state("");
 
 let currentPassword = $state("");
 let newPassword = $state("");
 let confirmPassword = $state("");
 let passwordSaving = $state(false);
-let passwordMessage = $state("");
-let passwordError = $state("");
 let showCurrentPw = $state(false);
 let showNewPw = $state(false);
 let showConfirmPw = $state(false);
@@ -202,19 +200,16 @@ let adminSaving = $state(false);
 let adminMessage = $state("");
 let adminError = $state("");
 
-// Auto-dismiss success messages after 4 seconds
+// Auto-dismiss success messages after 4 seconds.
+// B3: profile/password success+failure now route through the shared toast
+// (see saveProfile/savePassword below) instead of this local field — the
+// admin config pane is explicitly out of scope for that migration and keeps
+// its own inline adminMessage/adminError feedback.
 let messageTimers: ReturnType<typeof setTimeout>[] = [];
-function showMessage(
-	field: "profileMessage" | "passwordMessage" | "adminMessage",
-	text: string,
-) {
-	if (field === "profileMessage") profileMessage = text;
-	else if (field === "passwordMessage") passwordMessage = text;
-	else adminMessage = text;
+function showAdminMessage(text: string) {
+	adminMessage = text;
 	const timer = setTimeout(() => {
-		if (field === "profileMessage") profileMessage = "";
-		else if (field === "passwordMessage") passwordMessage = "";
-		else adminMessage = "";
+		adminMessage = "";
 	}, 4000);
 	messageTimers.push(timer);
 }
@@ -257,22 +252,28 @@ const reconnectConnectionRecord = $derived(
 		? (connections.find((conn) => conn.id === reconnectConnectionId) ?? null)
 		: null,
 );
-// Issue 7.3 — transient banner shown above the Connections tab after the
-// Google OAuth callback redirects back here (?connected=<provider> /
-// ?error=<code>; see the onMount handler below and
+// Issue 7.3 — transient notice shown after the Google OAuth callback
+// redirects back here (?connected=<provider> / ?error=<code>; see the
+// onMount handler below and
 // src/routes/api/oauth/google/callback/+server.ts).
-let connectionsNotice = $state<{
+// B3: routed through the shared toast only (previously also rendered an
+// inline banner above the Connections tab, which duplicated the message).
+function showConnectionsNotice(notice: {
 	type: "success" | "error";
 	provider?: string;
 	reasonKey?: I18nKey;
-} | null>(null);
-
-function showConnectionsNotice(notice: NonNullable<typeof connectionsNotice>) {
-	connectionsNotice = notice;
-	const timer = setTimeout(() => {
-		connectionsNotice = null;
-	}, 6000);
-	messageTimers.push(timer);
+}) {
+	const message =
+		notice.type === "success"
+			? get(t)("connections.oauthReturn.success", {
+					provider: getProviderCatalogEntry(notice.provider ?? "").displayName,
+				})
+			: get(t)("connections.oauthReturn.error", {
+					reason: get(t)(
+						notice.reasonKey ?? "connections.oauthReturn.reason.generic",
+					),
+				});
+	showToast({ type: notice.type, message });
 }
 
 function parseExcludedUserIds(): string[] {
@@ -383,38 +384,37 @@ async function removePhoto() {
 
 async function saveProfile() {
 	profileSaving = true;
-	profileMessage = "";
-	profileError = "";
 	try {
 		await updateProfile({ name: name.trim() || null, email });
-		showMessage("profileMessage", "Profile updated.");
+		showToast({ type: "success", message: "Profile updated." });
 	} catch (error: unknown) {
-		profileError = errorMessage(error);
+		showToast({ type: "error", message: errorMessage(error) });
 	} finally {
 		profileSaving = false;
 	}
 }
 
 async function savePassword() {
-	passwordError = "";
-	passwordMessage = "";
 	if (newPassword !== confirmPassword) {
-		passwordError = "New passwords do not match.";
+		showToast({ type: "error", message: "New passwords do not match." });
 		return;
 	}
 	if (newPassword.length < 8) {
-		passwordError = "Password must be at least 8 characters.";
+		showToast({
+			type: "error",
+			message: "Password must be at least 8 characters.",
+		});
 		return;
 	}
 	passwordSaving = true;
 	try {
 		await updatePassword({ currentPassword, newPassword });
-		showMessage("passwordMessage", "Password changed.");
+		showToast({ type: "success", message: "Password changed." });
 		currentPassword = "";
 		newPassword = "";
 		confirmPassword = "";
 	} catch (error: unknown) {
-		passwordError = errorMessage(error);
+		showToast({ type: "error", message: errorMessage(error) });
 	} finally {
 		passwordSaving = false;
 	}
@@ -762,7 +762,7 @@ async function saveAdminConfig() {
 		}
 		await updateAdminConfig(configToSave);
 		await invalidate("app:shell");
-		showMessage("adminMessage", "Configuration saved.");
+		showAdminMessage("Configuration saved.");
 	} catch (error: unknown) {
 		adminError = errorMessage(error);
 	} finally {
@@ -854,8 +854,6 @@ $effect(() => {
 				bind:name
 				bind:email
 				{profileSaving}
-				{profileMessage}
-				{profileError}
 				onSaveProfile={saveProfile}
 				bind:currentPassword
 				bind:newPassword
@@ -864,8 +862,6 @@ $effect(() => {
 				bind:showNewPw
 				bind:showConfirmPw
 				{passwordSaving}
-				{passwordMessage}
-				{passwordError}
 				onSavePassword={savePassword}
 				availableModels={profileAvailableModels}
 				{selectedModel}
@@ -908,17 +904,6 @@ $effect(() => {
 		{/if}
 
 		{#if activeTab === 'connections'}
-			{#if connectionsNotice}
-				<div
-					class="settings-card mb-4 connections-notice"
-					class:connections-notice-error={connectionsNotice.type === 'error'}
-					role="status"
-				>
-					{connectionsNotice.type === 'success'
-						? $t('connections.oauthReturn.success', { provider: getProviderCatalogEntry(connectionsNotice.provider ?? '').displayName })
-						: $t('connections.oauthReturn.error', { reason: $t(connectionsNotice.reasonKey ?? 'connections.oauthReturn.reason.generic') })}
-				</div>
-			{/if}
 			<SettingsConnectionsTab
 				{connections}
 				loading={connectionsLoading && !connectionsLoaded}
@@ -1065,19 +1050,6 @@ $effect(() => {
 	:global(.settings-card-highlight) {
 		box-shadow: 0 0 0 2px var(--accent);
 		transition: box-shadow var(--duration-standard) var(--ease-out);
-	}
-
-	/* Issue 7.3 — OAuth-return banner (success/error) above the Connections
-	   tab; see connectionsNotice in the script above. */
-	.connections-notice {
-		font-size: 0.8125rem;
-		color: var(--success);
-		border-color: color-mix(in srgb, var(--success) 40%, transparent);
-	}
-
-	.connections-notice-error {
-		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
 
 	:global(.toggle-btn) {

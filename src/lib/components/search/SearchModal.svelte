@@ -5,6 +5,7 @@ import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
+import { reducedMotionAware } from "$lib/utils/motion";
 import {
 	ChevronRight,
 	ExternalLink,
@@ -12,7 +13,6 @@ import {
 	FileUp,
 	Folder,
 	Library,
-	Loader,
 	MessageSquare,
 	NotebookText,
 	Search,
@@ -20,6 +20,7 @@ import {
 	TextSearch,
 	X,
 } from "@lucide/svelte";
+import Spinner from "../ui/Spinner.svelte";
 import {
 	buildChatSourceMessageHref,
 	buildKnowledgeWorkspaceHref,
@@ -35,6 +36,10 @@ import type {
 	WorkspaceSearchDocumentResult,
 	WorkspaceSearchResponse,
 } from "$lib/server/services/workspace-search";
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const backdropFade = reducedMotionAware(fade);
 
 type SearchRow =
 	| {
@@ -501,7 +506,7 @@ onDestroy(() => {
 		use:portal
 		class="search-portal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4"
 		onclick={handleBackdropClick}
-		transition:fade={{ duration: 150 }}
+		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
 			bind:this={modalRef}
@@ -541,7 +546,7 @@ onDestroy(() => {
 						class="h-8 w-full bg-transparent text-[14px] font-sans text-text-primary outline-none placeholder:text-text-muted"
 					/>
 					{#if searchLoading}
-						<Loader class="animate-spin text-icon-muted" size={15} strokeWidth={2} aria-hidden="true" />
+						<Spinner class="text-icon-muted" size={15} />
 					{:else if searchQuery}
 						<button
 							type="button"
@@ -569,7 +574,7 @@ onDestroy(() => {
 				{:else if searchLoading && !hasResults}
 					<div class="flex flex-col items-center justify-center px-4 py-12 text-center">
 						<div class="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-elevated">
-							<Loader class="animate-spin" size={17} strokeWidth={2} aria-hidden="true" />
+							<Spinner size={17} />
 						</div>
 						<h3 class="text-[13px] font-sans text-text-primary">{$t('searchModal.loading')}</h3>
 					</div>

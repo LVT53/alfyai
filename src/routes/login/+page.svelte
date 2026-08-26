@@ -3,7 +3,8 @@ import { goto, invalidateAll } from "$app/navigation";
 import { login } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
-import { Eye, EyeOff, Loader } from "@lucide/svelte";
+import { Eye, EyeOff } from "@lucide/svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 
 let email = $state("");
 let password = $state("");
@@ -141,7 +142,7 @@ function handleFormKeydown(event: KeyboardEvent) {
 		class="btn-primary btn-lg mt-lg flex w-full cursor-pointer items-center justify-center disabled:cursor-not-allowed disabled:opacity-70"
       >
         {#if loading}
-          <Loader class="animate-spin -ml-1 mr-2 h-4 w-4" size={16} strokeWidth={4} aria-hidden="true" />
+          <Spinner class="-ml-1 mr-2" size={16} />
           {$t('login.signingIn')}
         {:else}
           {$t('login.signIn')}

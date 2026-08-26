@@ -5,7 +5,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import type { ModelId } from "$lib/model-types";
 import SettingsProfileTab from "./SettingsProfileTab.svelte";
@@ -98,10 +98,14 @@ describe("SettingsProfileTab grouped sections (ADR-0043 slice 18a)", () => {
 	it("renders the 4 grouped section labels in order", () => {
 		renderTab();
 
-		const account = screen.getByText("Account");
-		const preferences = screen.getByText("Preferences");
-		const assistant = screen.getByText("Assistant");
-		const dataPrivacy = screen.getByText("Data & privacy");
+		// Scoped to the group-label <p> itself: Task 14 added a sticky nav chip
+		// with the same visible text above each group, so plain getByText would
+		// now match twice per label.
+		const groupLabelSelector = { selector: "p.settings-group-label" };
+		const account = screen.getByText("Account", groupLabelSelector);
+		const preferences = screen.getByText("Preferences", groupLabelSelector);
+		const assistant = screen.getByText("Assistant", groupLabelSelector);
+		const dataPrivacy = screen.getByText("Data & privacy", groupLabelSelector);
 
 		// All present.
 		expect(account).toBeInTheDocument();
@@ -511,9 +515,13 @@ describe("SettingsProfileTab Your Activity section (ADR-0043 slice 18c)", () => 
 	it("renders the 5th 'Your Activity' section label after Data & privacy", () => {
 		renderTab({ personalAnalyticsData });
 
-		const account = screen.getByText("Account");
-		const dataPrivacy = screen.getByText("Data & privacy");
-		const yourActivity = screen.getByText("Your Activity");
+		// Scoped to the group-label <p> itself: Task 14 added a sticky nav chip
+		// with the same visible text above each group, so plain getByText would
+		// now match twice per label.
+		const groupLabelSelector = { selector: "p.settings-group-label" };
+		const account = screen.getByText("Account", groupLabelSelector);
+		const dataPrivacy = screen.getByText("Data & privacy", groupLabelSelector);
+		const yourActivity = screen.getByText("Your Activity", groupLabelSelector);
 
 		expect(yourActivity).toBeInTheDocument();
 		// In order: Data & privacy < Your Activity.
@@ -540,11 +548,23 @@ describe("SettingsProfileTab Your Activity section (ADR-0043 slice 18c)", () => 
 	it("still renders all 4 prior section labels alongside the new 5th section", () => {
 		renderTab({ personalAnalyticsData });
 
-		expect(screen.getByText("Account")).toBeInTheDocument();
-		expect(screen.getByText("Preferences")).toBeInTheDocument();
-		expect(screen.getByText("Assistant")).toBeInTheDocument();
-		expect(screen.getByText("Data & privacy")).toBeInTheDocument();
-		expect(screen.getByText("Your Activity")).toBeInTheDocument();
+		// Scoped to the group-label <p> itself: Task 14 added a sticky nav chip
+		// with the same visible text above each group, so plain getByText would
+		// now match twice per label.
+		const groupLabelSelector = { selector: "p.settings-group-label" };
+		expect(screen.getByText("Account", groupLabelSelector)).toBeInTheDocument();
+		expect(
+			screen.getByText("Preferences", groupLabelSelector),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Assistant", groupLabelSelector),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Data & privacy", groupLabelSelector),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Your Activity", groupLabelSelector),
+		).toBeInTheDocument();
 	});
 
 	it("does NOT render system-level analytics in the Profile Your Activity section", () => {
@@ -593,5 +613,105 @@ describe("SettingsProfileTab memory toggle", () => {
 			"aria-checked",
 			"false",
 		);
+	});
+});
+
+describe("SettingsProfileTab section navigation (Task 14 — settings-nav)", () => {
+	function stubMatchMedia(matches: boolean) {
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn((query: string) => ({
+				matches,
+				media: query,
+				onchange: null,
+				addListener: () => undefined,
+				removeListener: () => undefined,
+				addEventListener: () => undefined,
+				removeEventListener: () => undefined,
+				dispatchEvent: () => false,
+			})),
+		);
+	}
+
+	function spyOnScrollIntoView() {
+		const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+		if (!originalScrollIntoView) {
+			Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+				configurable: true,
+				value: vi.fn(),
+			});
+		}
+		const spy = vi
+			.spyOn(HTMLElement.prototype, "scrollIntoView")
+			.mockImplementation(() => undefined);
+		return {
+			spy,
+			restore() {
+				spy.mockRestore();
+				if (!originalScrollIntoView) {
+					Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+				}
+			},
+		};
+	}
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const expectedSections = [
+		{ label: "Account", id: "settings-section-account" },
+		{ label: "Preferences", id: "settings-section-preferences" },
+		{ label: "Assistant", id: "settings-section-assistant" },
+		{ label: "Data & privacy", id: "settings-section-data-privacy" },
+		{ label: "Your Activity", id: "settings-section-your-activity" },
+	];
+
+	it("renders one anchor chip per group, in order, each targeting the matching section-label id", () => {
+		renderTab();
+
+		const nav = screen.getByRole("navigation", { name: "Profile sections" });
+		const chips = within(nav).getAllByRole("link");
+		expect(chips).toHaveLength(expectedSections.length);
+
+		expectedSections.forEach(({ label, id }, index) => {
+			const chip = chips[index];
+			expect(chip).toHaveTextContent(label);
+			expect(chip).toHaveAttribute("href", `#${id}`);
+
+			const target = document.getElementById(id);
+			expect(target).not.toBeNull();
+			expect(target).toHaveClass("settings-group-label");
+			expect(target).toHaveTextContent(label);
+		});
+	});
+
+	it("smooth-scrolls the matching section into view on chip click", async () => {
+		const { spy, restore } = spyOnScrollIntoView();
+		renderTab();
+
+		const nav = screen.getByRole("navigation", { name: "Profile sections" });
+		const chip = within(nav).getByRole("link", { name: "Assistant" });
+		await fireEvent.click(chip);
+
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({ behavior: "smooth" }),
+		);
+		restore();
+	});
+
+	it("scrolls instantly instead of smoothly when the user prefers reduced motion", async () => {
+		stubMatchMedia(true);
+		const { spy, restore } = spyOnScrollIntoView();
+		renderTab();
+
+		const nav = screen.getByRole("navigation", { name: "Profile sections" });
+		const chip = within(nav).getByRole("link", { name: "Assistant" });
+		await fireEvent.click(chip);
+
+		expect(spy).toHaveBeenCalledWith(
+			expect.objectContaining({ behavior: "auto" }),
+		);
+		restore();
 	});
 });

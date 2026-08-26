@@ -12,19 +12,11 @@ import type {
 } from "$lib/memory-profile-types";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
-import {
-	Archive,
-	Check,
-	Eye,
-	EyeOff,
-	Loader,
-	Pencil,
-	Trash2,
-	X,
-} from "@lucide/svelte";
+import { Archive, Check, Eye, EyeOff, Pencil, Trash2, X } from "@lucide/svelte";
 import KnowledgeMemoryModal from "./KnowledgeMemoryModal.svelte";
 import MemoryTimeline from "./MemoryTimeline.svelte";
 import PersonaSummaryCard from "./PersonaSummaryCard.svelte";
+import Spinner from "$lib/components/ui/Spinner.svelte";
 
 type CategoryDefinition = {
 	category: MemoryProfileCategory;
@@ -489,7 +481,7 @@ $effect(() => {
 				aria-live="polite"
 			>
 				<div class="flex items-center gap-2">
-					<Loader size={15} strokeWidth={2.1} class="shrink-0 animate-spin" aria-hidden="true" />
+					<Spinner class="shrink-0" size={15} />
 					<span class="text-xs font-sans leading-[1.4]">
 						{processing.pendingCount > 1
 							? $t("memoryProfile.processingNoticeCount", {
@@ -678,7 +670,7 @@ $effect(() => {
 										title={$t("memoryProfile.remember")}
 									>
 										{#if pendingActionKey === actionKey(item.id, "accept")}
-											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+											<Spinner size={17} />
 										{:else}
 											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
 										{/if}
@@ -779,7 +771,7 @@ $effect(() => {
 										title={$t("memoryProfile.remember")}
 									>
 										{#if pendingActionKey === actionKey(item.id, "accept")}
-											<Loader size={17} strokeWidth={2.1} class="animate-spin" aria-hidden="true" />
+											<Spinner size={17} />
 										{:else}
 											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
 										{/if}
@@ -1087,7 +1079,7 @@ $effect(() => {
 					</button>
 					<button
 						type="button"
-						class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-primary text-white disabled:cursor-not-allowed disabled:opacity-50"
+						class="btn-icon h-11 w-11 cursor-pointer rounded-full bg-accent text-white disabled:cursor-not-allowed disabled:opacity-50"
 						onclick={submitReviewEdit}
 						disabled={reviewStatement.trim().length === 0}
 						aria-label={$t("memoryProfile.saveReviewItem")}

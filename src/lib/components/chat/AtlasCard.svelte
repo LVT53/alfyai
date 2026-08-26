@@ -1,6 +1,7 @@
 <script lang="ts">
 import {
 	Check,
+	Copy,
 	Download,
 	FileText,
 	MessagesSquare,
@@ -9,7 +10,9 @@ import {
 	Split,
 	Square,
 } from "@lucide/svelte";
+import { onDestroy } from "svelte";
 import { fade } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { t, type I18nKey } from "$lib/i18n";
 import type {
 	AtlasAction,
@@ -52,6 +55,22 @@ let downloadMenuElement: HTMLDivElement | null = $state(null);
 let lifecycleMessage = $state("");
 let progressMessageIndex = $state(0);
 let lastProgressMessageStage = $state("");
+
+// Atlas-copy: report text lives only in the downloadable markdown file
+// (message.content is empty for an Atlas turn), so "Copy" is an async
+// fetch-then-copy rather than a reuse of MessageBubble's synchronous
+// getClipboardText. Fetch failure (can't load the report) and clipboard
+// failure (can't write it) are surfaced as distinct states so the user
+// knows which step to retry.
+type CopyStatus = "idle" | "copied" | "fetch-error" | "clipboard-error";
+let copyStatus = $state<CopyStatus>("idle");
+let copyStatusTimeout: ReturnType<typeof setTimeout> | undefined;
+
+onDestroy(() => {
+	if (copyStatusTimeout) {
+		clearTimeout(copyStatusTimeout);
+	}
+});
 
 const isActive = $derived(job.status === "queued" || job.status === "running");
 const isComplete = $derived(job.status === "succeeded");
@@ -109,9 +128,20 @@ let orbitAngle = 0;
 let orbitSpeed = 360 / 3750;
 const displayTitle = $derived(getProgressTitle(job));
 const downloadOptions = $derived(getDownloadOptions(job.outputs));
+// Mirrors the Download menu's own per-format gating (downloadUrl(...) above)
+// rather than downloadOptions.length, so Copy only appears when a markdown
+// output specifically exists.
+const markdownDownloadUrl = $derived(
+	downloadUrl(job.outputs.markdownChatGeneratedFileId),
+);
+const copyStatusMessage = $derived(getCopyStatusMessage(copyStatus));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
 const PROGRESS_MESSAGE_FADE_MS = 220;
+
+// prefers-reduced-motion: the CSS reset in app.css cannot reach this
+// JS-driven transition (see motion.ts), so wrap it explicitly.
+const progressFade = reducedMotionAware(fade);
 
 const STAGE_LABEL_KEYS: Record<string, I18nKey> = {
 	decompose: "atlas.stage.decompose",
@@ -425,6 +455,49 @@ function getDownloadOptions(
 	return options;
 }
 
+function getCopyStatusMessage(status: CopyStatus): string {
+	if (status === "copied") return $t("atlas.action.copySuccess");
+	if (status === "fetch-error") return $t("atlas.action.copyFetchError");
+	if (status === "clipboard-error")
+		return $t("atlas.action.copyClipboardError");
+	return "";
+}
+
+function scheduleCopyStatusReset() {
+	clearTimeout(copyStatusTimeout);
+	copyStatusTimeout = setTimeout(() => {
+		copyStatus = "idle";
+	}, 2600);
+}
+
+async function copyMarkdownToClipboard() {
+	const url = markdownDownloadUrl;
+	if (!url) return;
+
+	let markdown: string;
+	try {
+		const response = await fetch(url);
+		if (!response.ok) {
+			throw new Error(`Unexpected status ${response.status}`);
+		}
+		markdown = await response.text();
+	} catch (err) {
+		console.error("Failed to fetch Atlas markdown for copy: ", err);
+		copyStatus = "fetch-error";
+		scheduleCopyStatusReset();
+		return;
+	}
+
+	try {
+		await navigator.clipboard.writeText(markdown);
+		copyStatus = "copied";
+	} catch (err) {
+		console.error("Failed to copy Atlas markdown to clipboard: ", err);
+		copyStatus = "clipboard-error";
+	}
+	scheduleCopyStatusReset();
+}
+
 function lifecycleActionLabel(action: AtlasAction): string {
 	if (action === "fork") return $t("atlas.action.fork");
 	if (action === "revise") return $t("atlas.action.revise");
@@ -567,7 +640,7 @@ function submitLifecycleAction() {
 					{#key progressMessage}
 						<span
 							class="atlas-card__status-message"
-							transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}
+							transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}
 						>
 							{progressMessage}
 						</span>
@@ -584,11 +657,11 @@ function submitLifecycleAction() {
 				</button>
 			</div>
 			{#if job.status === "queued"}
-				<p class="atlas-card__kickoff-note" transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>{$t("atlas.kickoffNote")}</p>
+				<p class="atlas-card__kickoff-note" transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>{$t("atlas.kickoffNote")}</p>
 			{/if}
 			{#if progressItems.length > 0}
 				{#key progressMessageStage}
-					<div class="atlas-card__queries" aria-label={progressItemsLabel} transition:fade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>
+					<div class="atlas-card__queries" aria-label={progressItemsLabel} transition:progressFade={{ duration: PROGRESS_MESSAGE_FADE_MS }}>
 						<div class="atlas-card__queries-title">{progressItemsTitle}</div>
 						<ul>
 							{#each progressItems as item}
@@ -648,6 +721,28 @@ function submitLifecycleAction() {
 					{/if}
 				</div>
 			{/if}
+			{#if markdownDownloadUrl}
+				<div class="atlas-card__action-tooltip-container">
+					<button
+						type="button"
+						class="atlas-card__icon-action"
+						onclick={copyMarkdownToClipboard}
+						aria-label={$t("atlas.action.copy")}
+						aria-describedby="atlas-copy-tooltip"
+					>
+						{#if copyStatus === "copied"}
+							<Check size={16} strokeWidth={2} aria-hidden="true" />
+						{:else}
+							<Copy size={16} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+					<div id="atlas-copy-tooltip" class="atlas-card__action-tooltip" role="tooltip">
+						<div class="atlas-card__tooltip-content">
+							<span class="atlas-card__tooltip-label">{$t("atlas.action.copy")}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
 		<div class="atlas-card__action-tooltip-container">
 			<button
 				type="button"
@@ -700,6 +795,16 @@ function submitLifecycleAction() {
 			</div>
 		</div>
 	</div>
+
+		{#if copyStatusMessage}
+			<p
+				class="atlas-card__copy-status"
+				class:atlas-card__copy-status--error={copyStatus !== "copied"}
+				aria-live="polite"
+			>
+				{copyStatusMessage}
+			</p>
+		{/if}
 
 		{#if activePanel}
 			<section class="atlas-card__panel" aria-label={lifecyclePanelLabel}>
@@ -1096,6 +1201,17 @@ function submitLifecycleAction() {
 
 	.atlas-card__panel-actions {
 		justify-content: flex-end;
+	}
+
+	.atlas-card__copy-status {
+		margin: 0;
+		color: var(--success, #2f8f5b);
+		font-size: var(--text-xs);
+		line-height: 1.35;
+	}
+
+	.atlas-card__copy-status--error {
+		color: var(--danger);
 	}
 
 	.atlas-card__terminal {

@@ -131,6 +131,8 @@ import {
 	getForkCreationErrorKey,
 	hasForkedAssistantInRange,
 	isForkedSourceHistoryConfirmationRequired,
+	laterTurnCount,
+	regenerateDropsLaterTurns,
 } from "./lifecycle-guards";
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
@@ -2149,6 +2151,23 @@ async function handleRegenerate(
 		hasKnownForks &&
 		!confirmForkedSourceHistoryMutation &&
 		!window.confirm(get(t)("fork.regenerateWarning"))
+	) {
+		return;
+	}
+
+	// B1 — regenerating a non-latest assistant message silently discarded
+	// every later turn. Warn before that destructive slice, unless the fork
+	// guard above already covered this range: a fork in range implies later
+	// turns exist, so one confirmation suffices (no double-prompt).
+	if (
+		!hasKnownForks &&
+		!confirmForkedSourceHistoryMutation &&
+		regenerateDropsLaterTurns(msgs, assistantIdx) &&
+		!window.confirm(
+			get(t)("chat.regenerateLaterTurnsWarning", {
+				count: laterTurnCount(msgs, assistantIdx),
+			}),
+		)
 	) {
 		return;
 	}
