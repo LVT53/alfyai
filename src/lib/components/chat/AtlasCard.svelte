@@ -21,6 +21,7 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
+import { showToast } from "$lib/stores/toast";
 
 let {
 	job,
@@ -60,15 +61,15 @@ let lastProgressMessageStage = $state("");
 // (message.content is empty for an Atlas turn), so "Copy" is an async
 // fetch-then-copy rather than a reuse of MessageBubble's synchronous
 // getClipboardText. Fetch failure (can't load the report) and clipboard
-// failure (can't write it) are surfaced as distinct states so the user
-// knows which step to retry.
-type CopyStatus = "idle" | "copied" | "fetch-error" | "clipboard-error";
-let copyStatus = $state<CopyStatus>("idle");
-let copyStatusTimeout: ReturnType<typeof setTimeout> | undefined;
+// failure (can't write it) are surfaced as distinct toast messages so the
+// user knows which step to retry; `copied` only drives the button's own
+// transient Check-icon confirmation, mirroring MessageBubble/CodeBlock.
+let copied = $state(false);
+let copyTimeout: ReturnType<typeof setTimeout> | undefined;
 
 onDestroy(() => {
-	if (copyStatusTimeout) {
-		clearTimeout(copyStatusTimeout);
+	if (copyTimeout) {
+		clearTimeout(copyTimeout);
 	}
 });
 
@@ -134,7 +135,6 @@ const downloadOptions = $derived(getDownloadOptions(job.outputs));
 const markdownDownloadUrl = $derived(
 	downloadUrl(job.outputs.markdownChatGeneratedFileId),
 );
-const copyStatusMessage = $derived(getCopyStatusMessage(copyStatus));
 
 const PROGRESS_MESSAGE_INTERVAL_MS = 4200;
 const PROGRESS_MESSAGE_FADE_MS = 220;
@@ -455,21 +455,6 @@ function getDownloadOptions(
 	return options;
 }
 
-function getCopyStatusMessage(status: CopyStatus): string {
-	if (status === "copied") return $t("atlas.action.copySuccess");
-	if (status === "fetch-error") return $t("atlas.action.copyFetchError");
-	if (status === "clipboard-error")
-		return $t("atlas.action.copyClipboardError");
-	return "";
-}
-
-function scheduleCopyStatusReset() {
-	clearTimeout(copyStatusTimeout);
-	copyStatusTimeout = setTimeout(() => {
-		copyStatus = "idle";
-	}, 2600);
-}
-
 async function copyMarkdownToClipboard() {
 	const url = markdownDownloadUrl;
 	if (!url) return;
@@ -483,19 +468,25 @@ async function copyMarkdownToClipboard() {
 		markdown = await response.text();
 	} catch (err) {
 		console.error("Failed to fetch Atlas markdown for copy: ", err);
-		copyStatus = "fetch-error";
-		scheduleCopyStatusReset();
+		showToast({ type: "error", message: $t("atlas.action.copyFetchError") });
 		return;
 	}
 
 	try {
 		await navigator.clipboard.writeText(markdown);
-		copyStatus = "copied";
+		copied = true;
+		clearTimeout(copyTimeout);
+		copyTimeout = setTimeout(() => {
+			copied = false;
+		}, 2000);
+		showToast({ type: "success", message: $t("atlas.action.copySuccess") });
 	} catch (err) {
 		console.error("Failed to copy Atlas markdown to clipboard: ", err);
-		copyStatus = "clipboard-error";
+		showToast({
+			type: "error",
+			message: $t("atlas.action.copyClipboardError"),
+		});
 	}
-	scheduleCopyStatusReset();
 }
 
 function lifecycleActionLabel(action: AtlasAction): string {
@@ -730,7 +721,7 @@ function submitLifecycleAction() {
 						aria-label={$t("atlas.action.copy")}
 						aria-describedby="atlas-copy-tooltip"
 					>
-						{#if copyStatus === "copied"}
+						{#if copied}
 							<Check size={16} strokeWidth={2} aria-hidden="true" />
 						{:else}
 							<Copy size={16} strokeWidth={2} aria-hidden="true" />
@@ -795,16 +786,6 @@ function submitLifecycleAction() {
 			</div>
 		</div>
 	</div>
-
-		{#if copyStatusMessage}
-			<p
-				class="atlas-card__copy-status"
-				class:atlas-card__copy-status--error={copyStatus !== "copied"}
-				aria-live="polite"
-			>
-				{copyStatusMessage}
-			</p>
-		{/if}
 
 		{#if activePanel}
 			<section class="atlas-card__panel" aria-label={lifecyclePanelLabel}>
@@ -1201,17 +1182,6 @@ function submitLifecycleAction() {
 
 	.atlas-card__panel-actions {
 		justify-content: flex-end;
-	}
-
-	.atlas-card__copy-status {
-		margin: 0;
-		color: var(--success, #2f8f5b);
-		font-size: var(--text-xs);
-		line-height: 1.35;
-	}
-
-	.atlas-card__copy-status--error {
-		color: var(--danger);
 	}
 
 	.atlas-card__terminal {

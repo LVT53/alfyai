@@ -5,12 +5,15 @@ import {
 	screen,
 	within,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import chatDict from "$lib/i18n/chat";
 import type {
 	AtlasAction,
 	AtlasJobCard,
 } from "$lib/server/services/atlas/public-types";
 import type { AtlasJobProgressDetails } from "$lib/server/services/atlas/types";
+import { clearToasts, toasts } from "$lib/stores/toast";
 import AtlasCard from "./AtlasCard.svelte";
 
 type AtlasJobProgressDetailsWithTitle = AtlasJobProgressDetails & {
@@ -391,13 +394,15 @@ describe("AtlasCard", () => {
 	describe("Copy control", () => {
 		beforeEach(() => {
 			vi.clearAllMocks();
+			clearToasts();
 		});
 
 		afterEach(() => {
 			vi.unstubAllGlobals();
+			clearToasts();
 		});
 
-		it("fetches the markdown output and writes it to the clipboard", async () => {
+		it("fetches the markdown output, writes it to the clipboard, and shows a success toast", async () => {
 			const fetchMock = vi.fn().mockResolvedValue({
 				ok: true,
 				text: () => Promise.resolve("# Report\n\nBody text."),
@@ -417,9 +422,18 @@ describe("AtlasCard", () => {
 			expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
 				"# Report\n\nBody text.",
 			);
+
+			// Feedback now routes through the shared toast, the same primitive
+			// MessageBubble/CodeBlock copy uses, rather than an inline status line.
+			const entries = get(toasts);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({
+				type: "success",
+				message: chatDict.en["atlas.action.copySuccess"],
+			});
 		});
 
-		it("surfaces a fetch error distinctly, without a silent success", async () => {
+		it("surfaces a fetch error distinctly via the toast, without a silent success", async () => {
 			const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
 			vi.stubGlobal("fetch", fetchMock);
 
@@ -434,12 +448,16 @@ describe("AtlasCard", () => {
 				"/api/chat/files/md-file-1/download",
 			);
 			expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
-			expect(
-				screen.getByText("Couldn't load the report to copy"),
-			).toBeInTheDocument();
+
+			const entries = get(toasts);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({
+				type: "error",
+				message: chatDict.en["atlas.action.copyFetchError"],
+			});
 		});
 
-		it("surfaces a clipboard-write error distinctly from a fetch error", async () => {
+		it("surfaces a clipboard-write error distinctly from a fetch error via the toast", async () => {
 			const fetchMock = vi.fn().mockResolvedValue({
 				ok: true,
 				text: () => Promise.resolve("# Report\n\nBody text."),
@@ -459,15 +477,19 @@ describe("AtlasCard", () => {
 			expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
 				"# Report\n\nBody text.",
 			);
-			expect(
-				screen.getByText("Couldn't copy to clipboard"),
-			).toBeInTheDocument();
-			expect(
-				screen.queryByText("Couldn't load the report to copy"),
-			).not.toBeInTheDocument();
+
+			const entries = get(toasts);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({
+				type: "error",
+				message: chatDict.en["atlas.action.copyClipboardError"],
+			});
+			expect(entries[0].message).not.toBe(
+				chatDict.en["atlas.action.copyFetchError"],
+			);
 		});
 
-		it("does not render a Copy control when no markdown output exists", () => {
+		it("does not render a Copy control, or push any toast, when no markdown output exists", () => {
 			render(AtlasCard, {
 				job: atlasJobFixture({
 					status: "succeeded",
@@ -484,6 +506,7 @@ describe("AtlasCard", () => {
 			expect(
 				screen.queryByRole("button", { name: "Copy Atlas" }),
 			).not.toBeInTheDocument();
+			expect(get(toasts)).toHaveLength(0);
 		});
 	});
 });
