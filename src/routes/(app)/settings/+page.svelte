@@ -386,7 +386,7 @@ async function saveProfile() {
 	profileSaving = true;
 	try {
 		await updateProfile({ name: name.trim() || null, email });
-		showToast({ type: "success", message: "Profile updated." });
+		showToast({ type: "success", message: $t("settings_profileUpdated") });
 	} catch (error: unknown) {
 		showToast({ type: "error", message: errorMessage(error) });
 	} finally {
@@ -396,20 +396,20 @@ async function saveProfile() {
 
 async function savePassword() {
 	if (newPassword !== confirmPassword) {
-		showToast({ type: "error", message: "New passwords do not match." });
+		showToast({ type: "error", message: $t("settings_passwordMismatch") });
 		return;
 	}
 	if (newPassword.length < 8) {
 		showToast({
 			type: "error",
-			message: "Password must be at least 8 characters.",
+			message: $t("settings_passwordTooShort"),
 		});
 		return;
 	}
 	passwordSaving = true;
 	try {
 		await updatePassword({ currentPassword, newPassword });
-		showToast({ type: "success", message: "Password changed." });
+		showToast({ type: "success", message: $t("settings_passwordChanged") });
 		currentPassword = "";
 		newPassword = "";
 		confirmPassword = "";
