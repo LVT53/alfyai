@@ -132,9 +132,12 @@ const searchShortcutHint = isMacPlatform() ? "⌘K" : "Ctrl+K";
 /**
  * Global ⌘K (mac) / Ctrl+K shortcut for Workspace Search (Task 6 / A3).
  *
- * Reuses the guard idiom from the `/` shortcut in MessageInput.svelte: only
- * fires when focus isn't already inside a text-entry surface, so it never
- * hijacks typing elsewhere in the app. Also no-ops while the search modal is
+ * Unlike the bare `/` shortcut in MessageInput.svelte, this is a modifier
+ * chord — it never collides with ordinary typing — so it must fire even
+ * when focus is inside a text input/textarea/contenteditable (the chat
+ * composer textarea is the primary focus target on this page, and every
+ * comparable app — Slack, Linear, Notion, VS Code — opens its Cmd/Ctrl+K
+ * palette from inside a text field). Only no-ops while the search modal is
  * already open — cross-modal stacking is out of scope; this only guards
  * SearchModal's own open state.
  */
@@ -143,14 +146,6 @@ function handleSearchShortcut(event: KeyboardEvent) {
 		(event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
 	if (!isSearchShortcut) return;
 	if (showSearchModal) return;
-	const target = event.target as Element | null;
-	if (
-		target instanceof HTMLInputElement ||
-		target instanceof HTMLTextAreaElement ||
-		(target instanceof HTMLElement && target.isContentEditable)
-	) {
-		return;
-	}
 	event.preventDefault();
 	openSearchModal();
 }
