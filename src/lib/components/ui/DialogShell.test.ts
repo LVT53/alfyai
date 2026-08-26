@@ -212,6 +212,39 @@ describe("DialogShell topmost mount-order stack", () => {
 	});
 });
 
+describe("DialogShell body-scroll lock", () => {
+	afterEach(() => {
+		// Safety net: never leak a lock into a sibling test if an assertion throws.
+		document.body.style.overflow = "";
+	});
+
+	it("keeps the page locked while a parent stays open after a nested dialog closes", async () => {
+		// Parent mounts first (locks the page); the nested dialog mounts second
+		// while the page is already locked — mirrors ConnectionDetailModal rendering
+		// a DialogShell then a sibling ConfirmDialog.
+		const parent = render(DialogShell, {
+			props: { title: "Parent", onClose: vi.fn(), children: inertChildren },
+		});
+		const nested = render(DialogShell, {
+			props: { title: "Nested", onClose: vi.fn(), children: inertChildren },
+		});
+		await tick();
+
+		expect(document.body.style.overflow).toBe("hidden");
+
+		// The nested dialog closes while the parent is still open. Its onDestroy
+		// must NOT unlock the page — the parent modal is still covering it.
+		nested.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("hidden");
+
+		// Only once the last dialog closes is the lock released.
+		parent.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("");
+	});
+});
+
 describe("DialogShell Tab focus trap", () => {
 	const appended: HTMLElement[] = [];
 

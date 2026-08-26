@@ -152,8 +152,15 @@ function handleKeydown(e: KeyboardEvent) {
 
 onMount(() => {
 	previousFocus = document.activeElement as HTMLElement;
-	document.body.style.overflow = "hidden";
 	registerDialog(dialogId);
+	// Ref-count the body-scroll lock against the open-dialog stack: only the
+	// FIRST dialog locks the page. A nested dialog registers while the page is
+	// already locked, so re-setting overflow here would be redundant — and,
+	// paired with the "last out unlocks" check in onDestroy, this stops a nested
+	// dialog's close from clearing the lock while its parent is still open.
+	if (openDialogStack.length === 1) {
+		document.body.style.overflow = "hidden";
+	}
 	// Move focus into the dialog on open so keyboard/Escape/Tab act on it
 	// immediately instead of the trigger behind the backdrop. Deferred a tick
 	// so the dialog content (and any focusable child) is mounted first. Skip if
@@ -170,7 +177,11 @@ onDestroy(() => {
 	if (focusTimer !== null) clearTimeout(focusTimer);
 	deregisterDialog(dialogId);
 	if (previousFocus) previousFocus.focus();
-	document.body.style.overflow = "";
+	// Release the lock only once the LAST dialog closes. A nested dialog closing
+	// while its parent is still open must leave the page locked behind the parent.
+	if (openDialogStack.length === 0) {
+		document.body.style.overflow = "";
+	}
 });
 </script>
 
