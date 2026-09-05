@@ -39,7 +39,13 @@ CREATE TABLE `__new_conversation_context_status` (
 -- Existing rows only ever held the pre-request packet estimate, so seed
 -- prompt_tokens from estimated_tokens as an 'estimated' value.
 INSERT INTO `__new_conversation_context_status` (`conversation_id`, `user_id`, `estimated_tokens`, `prompt_tokens`, `prompt_tokens_source`, `max_context_tokens`, `threshold_tokens`, `target_tokens`, `compaction_applied`, `compaction_mode`, `routing_stage`, `routing_confidence`, `verification_status`, `layers_used_json`, `working_set_count`, `working_set_artifact_ids_json`, `working_set_applied`, `task_state_applied`, `prompt_artifact_count`, `recent_turn_count`, `summary`, `updated_at`)
-SELECT `conversation_id`, `user_id`, `estimated_tokens`, `estimated_tokens`, 'estimated', `max_context_tokens`, `threshold_tokens`, `target_tokens`, `compaction_applied`, `compaction_mode`, `routing_stage`, `routing_confidence`, `verification_status`, `layers_used_json`, `working_set_count`, `working_set_artifact_ids_json`, `working_set_applied`, `task_state_applied`, `prompt_artifact_count`, `recent_turn_count`, `summary`, `updated_at` FROM `conversation_context_status`;
+SELECT `conversation_id`, `user_id`, `estimated_tokens`, `estimated_tokens`, 'estimated', `max_context_tokens`, `threshold_tokens`, `target_tokens`, `compaction_applied`, `compaction_mode`, `routing_stage`, `routing_confidence`, `verification_status`, `layers_used_json`, `working_set_count`, `working_set_artifact_ids_json`, `working_set_applied`, `task_state_applied`, `prompt_artifact_count`, `recent_turn_count`, `summary`, `updated_at` FROM `conversation_context_status`
+-- The migrator runs this inside a transaction, where PRAGMA foreign_keys is a
+-- no-op, so the copy is checked against the foreign keys. Status rows whose
+-- conversation or user is already gone are orphans (nothing reads them) and
+-- would fail that check, so they are dropped here instead of copied.
+WHERE `conversation_id` IN (SELECT `id` FROM `conversations`)
+  AND `user_id` IN (SELECT `id` FROM `users`);
 --> statement-breakpoint
 DROP TABLE `conversation_context_status`;
 --> statement-breakpoint

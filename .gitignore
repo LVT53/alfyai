@@ -81,3 +81,4 @@ scripts/eval/results/*
 # other harness's output in this directory.
 !scripts/eval/results/thought-step-honesty-audit-synthetic-sample.md
 !scripts/eval/results/thought-step-honesty-audit-synthetic-sample.json
+.claude/settings.local.json
