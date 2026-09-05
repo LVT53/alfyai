@@ -2948,22 +2948,17 @@ describe("createNormalChatTools", () => {
 			{ en: string[]; hu: string[] }
 		> = {
 			research_web: {
-				en: [
-					"objective",
-					"searchQueries",
-					"answerBriefMarkdown",
-					"web retrieval is unavailable",
-				],
-				hu: [
-					"objective",
-					"searchQueries",
-					"answerBriefMarkdown",
-					"webes keresés nem elérhető",
-				],
+				// P2 prompt diet — the citation-formatting and "if unavailable
+				// say so" sentences were removed as duplicates of the base
+				// prompt's `## Tools` policy and reliability rules; this tool's
+				// description now carries only its own parameter contract,
+				// example, and output-handling behaviour.
+				en: ["objective", "searchQueries", "answerBriefMarkdown"],
+				hu: ["objective", "searchQueries", "answerBriefMarkdown"],
 			},
 			fetch_url: {
-				en: ["never a bare string", "objective", "could not be read"],
-				hu: ["soha nem puszta szövegként", "objective", "nem volt olvasható"],
+				en: ["objective", "answerBriefMarkdown"],
+				hu: ["objective", "answerBriefMarkdown"],
 			},
 			memory_context: {
 				en: ["`persona`", "`history`", "`project`", "conversationId"],
