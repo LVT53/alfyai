@@ -417,3 +417,24 @@ describe("bar-column table rescue", () => {
 		expect(blocks[0].raw).toContain("| Riverstone | €24.25 |");
 	});
 });
+
+describe("bar-column table rescue — several numeric columns", () => {
+	it("charts the column the bars were scaled to, not the first numeric one", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const markdown = [
+			"| Usage / Band | Annual | Monthly | Scale (1 █ ≈ €20) |",
+			"|---|---:|---:|---|",
+			"| 10/day, low band | €1,452 | €121 | `██████` |",
+			"| 10/day, high band | €2,604 | €217 | `███████████` |",
+			"| 20/day, low band | €2,916 | €243 | `████████████` |",
+			"| 20/day, high band | €4,884 | €407 | `████████████████████` |",
+		].join("\n");
+		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
+		expect(blocks.map((block) => block.kind)).toEqual(["table", "chart"]);
+		const chart = blocks[1];
+		if (chart.kind !== "chart") throw new Error("expected chart");
+		const config = JSON.parse(chart.code);
+		expect(config.data.datasets[0].label).toBe("Monthly (€)");
+		expect(config.data.datasets[0].data).toEqual([121, 217, 243, 407]);
+	});
+});

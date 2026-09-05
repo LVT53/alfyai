@@ -80,6 +80,70 @@ export function hasBarChars(value: unknown): boolean {
 	return typeof value === "string" && BAR_CHARS_RE.test(value);
 }
 
+// Filled bar length of a cell: "████░░" → 4.
+export function barFillLength(value: unknown): number {
+	return typeof value === "string"
+		? (value.match(/[█▓▒■▪]/gu) ?? []).length
+		: 0;
+}
+
+// "Scale (1 █ ≈ €20)", "each block = 2.5", "1 bar ≈ €2": the value one
+// filled block stands for, read from a legend or a column header.
+export function legendPerBlock(text: unknown): number | null {
+	if (typeof text !== "string") return null;
+	const match =
+		/(?:one|1|each|every)?\s*(?:block|bar|[█▓▒░■□▪▫])\s*(?:=|≈|~|:)\s*(?<value>[~≈]?\s*[€$£¥]?\s*-?\d[\d ,.]*\s*(?:%|[A-Za-z€$£¥]{0,6}))/iu.exec(
+			text,
+		);
+	const parsed = match?.groups?.value
+		? parseNumericCell(match.groups.value.replace(/[)\]]+$/, ""))
+		: null;
+	return parsed && parsed.value > 0 ? parsed.value : null;
+}
+
+// Which numeric column were the bars drawn from? With a legend ("1 █ ≈ €20")
+// it is the column whose value-per-block matches. Otherwise it is the column
+// whose values are (nearly) proportional to the bar lengths; exact ties (an
+// "Annual" column that is 12× "Monthly") go to the first candidate, so
+// callers list candidates nearest to the bar column first.
+export function pickBarMatchedColumn<T>(
+	barLengths: number[],
+	candidates: Array<{ id: T; values: number[] }>,
+	perBlock: number | null = null,
+): T | null {
+	if (candidates.length === 0) return null;
+	if (candidates.length === 1) return candidates[0].id;
+	const scored = candidates.flatMap((candidate) => {
+		const ratios: number[] = [];
+		barLengths.forEach((length, index) => {
+			const value = candidate.values[index];
+			if (length > 0 && typeof value === "number" && value > 0) {
+				ratios.push(value / length);
+			}
+		});
+		if (ratios.length < 2) return [];
+		const sorted = [...ratios].sort((a, b) => a - b);
+		const median = sorted[Math.floor(sorted.length / 2)];
+		const spread = sorted[sorted.length - 1] / sorted[0];
+		return [{ id: candidate.id, median, spread }];
+	});
+	if (scored.length === 0) return candidates[0].id;
+	if (perBlock) {
+		const closest = scored.reduce((best, entry) =>
+			Math.abs(entry.median - perBlock) < Math.abs(best.median - perBlock)
+				? entry
+				: best,
+		);
+		if (Math.abs(closest.median - perBlock) / perBlock <= 0.5) {
+			return closest.id;
+		}
+	}
+	const best = scored.reduce((current, entry) =>
+		entry.spread < current.spread * 0.98 ? entry : current,
+	);
+	return best.spread <= 1.6 ? best.id : candidates[0].id;
+}
+
 export function parseAsciiBarChart(text: string): AsciiBarChart | null {
 	const lines = text
 		.split(/\r?\n/)

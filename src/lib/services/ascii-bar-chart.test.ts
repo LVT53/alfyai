@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
 	asciiBarChartToChartJs,
+	barFillLength,
 	hasBarChars,
 	isBarOnlyCell,
+	legendPerBlock,
 	parseAsciiBarChart,
 	parseNumericCell,
+	pickBarMatchedColumn,
 } from "./ascii-bar-chart";
 
 describe("parseAsciiBarChart", () => {
@@ -185,5 +188,38 @@ describe("parseNumericCell / bar cell helpers", () => {
 		expect(isBarOnlyCell("€121 ███")).toBe(false);
 		expect(hasBarChars("€121 ███")).toBe(true);
 		expect(hasBarChars("€121")).toBe(false);
+	});
+});
+
+describe("pickBarMatchedColumn / barFillLength", () => {
+	it("counts filled bar characters only", () => {
+		expect(barFillLength("████░░░░")).toBe(4);
+		expect(barFillLength("`██████`")).toBe(6);
+		expect(barFillLength("€121")).toBe(0);
+	});
+
+	it("chooses the column proportional to the bars, using the legend on ties", () => {
+		const bars = [6, 11, 12, 20];
+		const annual = { id: "annual", values: [1452, 2604, 2916, 4884] };
+		const monthly = { id: "monthly", values: [121, 217, 243, 407] };
+		const noise = { id: "noise", values: [5, 900, 3, 77] };
+		// Annual is exactly 12× monthly: a tie, resolved by the legend.
+		expect(pickBarMatchedColumn(bars, [annual, monthly], 20)).toBe("monthly");
+		expect(pickBarMatchedColumn(bars, [monthly, annual], 240)).toBe("annual");
+		// No legend: the tie goes to the first (nearest) candidate.
+		expect(pickBarMatchedColumn(bars, [annual, monthly])).toBe("annual");
+		// A clearly non-proportional column loses to a proportional one.
+		expect(pickBarMatchedColumn(bars, [noise, monthly])).toBe("monthly");
+		expect(
+			pickBarMatchedColumn(bars, [{ id: "only", values: [1, 2, 3, 4] }]),
+		).toBe("only");
+		expect(pickBarMatchedColumn(bars, [])).toBeNull();
+	});
+
+	it("reads the value per block from a legend or column header", () => {
+		expect(legendPerBlock("Scale (1 █ ≈ €20)")).toBe(20);
+		expect(legendPerBlock("each block = 2.5")).toBe(2.5);
+		expect(legendPerBlock("Relative Scale")).toBeNull();
+		expect(legendPerBlock(42)).toBeNull();
 	});
 });

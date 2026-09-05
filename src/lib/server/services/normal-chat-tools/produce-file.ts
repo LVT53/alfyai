@@ -4,10 +4,13 @@ import type { FileProductionIntakeResult } from "$lib/server/services/file-produ
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AsciiBarChart,
+	barFillLength,
 	hasBarChars,
 	isBarOnlyCell,
+	legendPerBlock,
 	parseAsciiBarChart,
 	parseNumericCell,
+	pickBarMatchedColumn,
 } from "$lib/services/ascii-bar-chart";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
@@ -1405,7 +1408,34 @@ function repairTableBlock(
 		(column) => !numericColumns.includes(column),
 	);
 	const labelKey = labelColumn ? columnKey(labelColumn) : null;
-	const valueColumn = numericColumns.length === 1 ? numericColumns[0] : null;
+	const barKey = columnKey(barColumns[0]);
+	const barLengths = rows.map((row) =>
+		barKey ? barFillLength(row[barKey]) : 0,
+	);
+	const barIndex = columns.indexOf(barColumns[0]);
+	const valueColumn = pickBarMatchedColumn(
+		barLengths,
+		[...numericColumns]
+			.sort(
+				(a, b) =>
+					Math.abs(columns.indexOf(a) - barIndex) -
+					Math.abs(columns.indexOf(b) - barIndex),
+			)
+			.flatMap((column) => {
+				const key = columnKey(column);
+				return key
+					? [
+							{
+								id: column,
+								values: rows.map(
+									(row) => parseNumericCell(row[key])?.value ?? 0,
+								),
+							},
+						]
+					: [];
+			}),
+		legendPerBlock(barColumns[0].label),
+	);
 	const valueKey = valueColumn ? columnKey(valueColumn) : null;
 	if (!labelKey || !valueKey || !labelColumn || !valueColumn) return [table];
 

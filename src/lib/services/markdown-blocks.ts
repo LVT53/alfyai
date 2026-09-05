@@ -1,10 +1,13 @@
 import type { Token, Tokens } from "marked";
 import {
 	asciiBarChartToChartJs,
+	barFillLength,
 	hasBarChars,
 	isBarOnlyCell,
+	legendPerBlock,
 	parseAsciiBarChart,
 	parseNumericCell,
+	pickBarMatchedColumn,
 } from "./ascii-bar-chart";
 
 /**
@@ -459,9 +462,26 @@ export function rescueBarColumnTable(token: Tokens.Table): TableRescue | null {
 		rows.every((row) => parseNumericCell(tableCellText(row[i])) !== null),
 	);
 	const labelIndex = kept.find((i) => !numericColumns.includes(i));
+	const firstBarColumn = [...barColumns][0];
+	const barLengths = rows.map((row) =>
+		barFillLength(tableCellText(row[firstBarColumn])),
+	);
+	const valueIndex = pickBarMatchedColumn(
+		barLengths,
+		[...numericColumns]
+			.sort(
+				(a, b) => Math.abs(a - firstBarColumn) - Math.abs(b - firstBarColumn),
+			)
+			.map((i) => ({
+				id: i,
+				values: rows.map(
+					(row) => parseNumericCell(tableCellText(row[i]))?.value ?? 0,
+				),
+			})),
+		legendPerBlock(tableCellText(header[firstBarColumn])),
+	);
 	let chart: string | undefined;
-	if (labelIndex !== undefined && numericColumns.length === 1) {
-		const valueIndex = numericColumns[0];
+	if (labelIndex !== undefined && valueIndex !== null) {
 		let units: string | undefined;
 		const data = rows.map((row) => {
 			const parsed = parseNumericCell(tableCellText(row[valueIndex]));
