@@ -88,6 +88,7 @@ const requiredExistingTables = [
 	"personality_profiles",
 	"user_connections",
 	"connection_pending_writes",
+	"routing_regions",
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
