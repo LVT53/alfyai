@@ -28,6 +28,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 mkdir -p "$REGIONS_DIR"
+mkdir -p /home/services/nominatim/postgres /home/services/nominatim/flatnode
 chown "$APP_USER:$APP_USER" "$REGIONS_DIR"
 chmod 775 "$REGIONS_DIR"
 
