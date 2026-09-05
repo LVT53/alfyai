@@ -25,6 +25,7 @@ import {
 	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
 import { t } from "$lib/i18n";
+import DegradedCapabilitiesBanner from "$lib/components/chat/DegradedCapabilitiesBanner.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
@@ -502,6 +503,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						<span class="text-sm text-text-muted">{$t('openingChat')}</span>
 					</div>
 				{/if}
+
+				<DegradedCapabilitiesBanner isAdmin={data.user?.role === 'admin'} />
 
 				<MessageInput
 					onSend={handleSend}

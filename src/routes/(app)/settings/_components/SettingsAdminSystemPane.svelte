@@ -26,6 +26,15 @@ import {
 	type CampaignAsset,
 	type CampaignAssetCropGeometry,
 } from "$lib/client/api/campaign-assets";
+import {
+	fetchAdminEffectiveConfig,
+	fetchAdminToolHealth,
+	type BuiltinModelResolution,
+	type EffectiveConfigReport,
+	type EffectiveConfigSource,
+	type ToolHealthSnapshot,
+	type ToolHealthStatus,
+} from "$lib/client/api/admin-system-health";
 import { get } from "svelte/store";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
@@ -691,6 +700,109 @@ $effect(() => {
 
 $effect(() => {
 	void loadSystemSkills();
+});
+
+// --- Tool health + effective configuration (read-only diagnostics) ---------
+
+let toolHealth: ToolHealthSnapshot | null = $state(null);
+let toolHealthLoading = $state(false);
+let toolHealthRefreshing = $state(false);
+let toolHealthError = $state("");
+let effectiveConfig: EffectiveConfigReport | null = $state(null);
+let effectiveConfigLoading = $state(false);
+let effectiveConfigError = $state("");
+let effectiveConfigFilter = $state("");
+
+const TOOL_HEALTH_STATUS_LABEL: Record<ToolHealthStatus, I18nKey> = {
+	healthy: "admin.toolHealth.status.healthy",
+	degraded: "admin.toolHealth.status.degraded",
+	unconfigured: "admin.toolHealth.status.unconfigured",
+};
+
+const TOOL_HEALTH_STATUS_CLASS: Record<ToolHealthStatus, string> = {
+	healthy: "border-success/40 bg-success/10 text-success",
+	degraded: "border-danger/40 bg-danger/10 text-danger",
+	unconfigured: "border-border bg-surface-page text-text-muted",
+};
+
+const EFFECTIVE_CONFIG_SOURCE_LABEL: Record<EffectiveConfigSource, I18nKey> = {
+	admin_config: "admin.effectiveConfig.source.admin_config",
+	env: "admin.effectiveConfig.source.env",
+	default: "admin.effectiveConfig.source.default",
+};
+
+const EFFECTIVE_CONFIG_RESOLVED_FROM_LABEL: Record<
+	BuiltinModelResolution["resolvedFrom"],
+	I18nKey
+> = {
+	providers_table: "admin.effectiveConfig.models.resolvedFrom.providers_table",
+	admin_config_env:
+		"admin.effectiveConfig.models.resolvedFrom.admin_config_env",
+	unresolved: "admin.effectiveConfig.models.resolvedFrom.unresolved",
+};
+
+async function loadToolHealth(refresh = false) {
+	if (refresh) toolHealthRefreshing = true;
+	else toolHealthLoading = true;
+	toolHealthError = "";
+	try {
+		toolHealth = await fetchAdminToolHealth({ refresh });
+	} catch (error: unknown) {
+		toolHealthError = errorMessage(error, $t("admin.toolHealth.errors.load"));
+	} finally {
+		toolHealthLoading = false;
+		toolHealthRefreshing = false;
+	}
+}
+
+async function loadEffectiveConfig() {
+	effectiveConfigLoading = true;
+	effectiveConfigError = "";
+	try {
+		effectiveConfig = await fetchAdminEffectiveConfig();
+	} catch (error: unknown) {
+		effectiveConfigError = errorMessage(
+			error,
+			$t("admin.effectiveConfig.errors.load"),
+		);
+	} finally {
+		effectiveConfigLoading = false;
+	}
+}
+
+$effect(() => {
+	void loadToolHealth();
+});
+
+$effect(() => {
+	void loadEffectiveConfig();
+});
+
+function formatCheckedAt(iso: string): string {
+	if (!iso) return "";
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	return date.toLocaleTimeString(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+}
+
+function formatLatency(latencyMs: number | null): string {
+	return latencyMs === null ? "—" : `${Math.round(latencyMs)} ms`;
+}
+
+const filteredEffectiveConfig = $derived.by(() => {
+	const entries = effectiveConfig?.entries ?? [];
+	const needle = effectiveConfigFilter.trim().toLowerCase();
+	if (!needle) return entries;
+	return entries.filter(
+		(entry) =>
+			entry.key.toLowerCase().includes(needle) ||
+			entry.effectiveValue.toLowerCase().includes(needle) ||
+			(entry.adminOverride ?? "").toLowerCase().includes(needle),
+	);
 });
 
 function configLabelKey(key: string): I18nKey {
@@ -1384,6 +1496,168 @@ function placeholderFor(key: string): string {
 	</div>
 </section>
 
+
+<!-- Tool health -->
+<section class="settings-card mb-4" id="settings-tool-health-card" data-testid="tool-health-section">
+	<div class="mb-3 flex items-center justify-between gap-3">
+		<div>
+			<h2 class="settings-section-title mb-0">{$t('admin.toolHealth.title')}</h2>
+			<p class="text-xs text-text-tertiary">{$t('admin.toolHealth.description')}</p>
+		</div>
+		<button
+			class="btn-sm"
+			onclick={() => loadToolHealth(true)}
+			disabled={toolHealthLoading || toolHealthRefreshing}
+		>
+			{toolHealthRefreshing ? $t('admin.toolHealth.refreshing') : $t('admin.toolHealth.refresh')}
+		</button>
+	</div>
+
+	{#if toolHealthLoading && !toolHealth}
+		<p class="text-sm text-text-secondary">{$t('admin.toolHealth.loading')}</p>
+	{:else if toolHealthError}
+		<p class="text-sm text-danger" role="alert">{toolHealthError}</p>
+	{:else if !toolHealth || toolHealth.tools.length === 0}
+		<p class="text-sm text-text-muted">{$t('admin.toolHealth.empty')}</p>
+	{:else}
+		<p class="mb-2 text-xs text-text-muted">
+			{$t('admin.toolHealth.lastChecked', { time: formatCheckedAt(toolHealth.checkedAt) })}
+		</p>
+		<div class="overflow-x-auto">
+			<table class="w-full text-left text-sm" data-testid="tool-health-table">
+				<thead>
+					<tr class="border-b border-border text-xs text-text-muted">
+						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.tool')}</th>
+						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.backend')}</th>
+						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.status')}</th>
+						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.latency')}</th>
+						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.detail')}</th>
+						<th class="py-2 font-medium">{$t('admin.toolHealth.columns.checked')}</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each toolHealth.tools as tool (tool.id)}
+						<tr class="border-b border-border/60 align-top" data-testid={`tool-health-row-${tool.id}`}>
+							<td class="py-2 pr-3 font-mono text-xs text-text-primary">{tool.tool}</td>
+							<td class="py-2 pr-3 text-text-secondary">{tool.backend}</td>
+							<td class="py-2 pr-3">
+								<span
+									class={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${TOOL_HEALTH_STATUS_CLASS[tool.status]}`}
+									data-status={tool.status}
+								>
+									{$t(TOOL_HEALTH_STATUS_LABEL[tool.status])}
+								</span>
+							</td>
+							<td class="py-2 pr-3 tabular-nums text-text-secondary">{formatLatency(tool.latencyMs)}</td>
+							<td class="max-w-[28rem] break-words py-2 pr-3 text-xs text-text-muted">{tool.detail ?? '—'}</td>
+							<td class="py-2 tabular-nums text-xs text-text-muted">{formatCheckedAt(tool.checkedAt)}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+</section>
+
+<!-- Effective configuration -->
+<section class="settings-card mb-4" data-testid="effective-config-section">
+	<div class="mb-3 flex items-center justify-between gap-3">
+		<div>
+			<h2 class="settings-section-title mb-0">{$t('admin.effectiveConfig.title')}</h2>
+			<p class="text-xs text-text-tertiary">{$t('admin.effectiveConfig.description')}</p>
+		</div>
+		<button class="btn-sm" onclick={() => loadEffectiveConfig()} disabled={effectiveConfigLoading}>
+			{$t('admin.effectiveConfig.refresh')}
+		</button>
+	</div>
+
+	{#if effectiveConfigLoading && !effectiveConfig}
+		<p class="text-sm text-text-secondary">{$t('admin.effectiveConfig.loading')}</p>
+	{:else if effectiveConfigError}
+		<p class="text-sm text-danger" role="alert">{effectiveConfigError}</p>
+	{:else if effectiveConfig}
+		{#if effectiveConfig.models.length > 0}
+			<div class="mb-4 rounded-md border border-border bg-surface-page px-3 py-2">
+				<h3 class="text-sm font-medium text-text-primary">{$t('admin.effectiveConfig.models.title')}</h3>
+				<ul class="mt-1 flex flex-col gap-1 text-xs text-text-secondary">
+					{#each effectiveConfig.models as model (model.key)}
+						<li data-testid={`effective-config-model-${model.key}`}>
+							<span class="font-mono text-text-primary">{model.key}</span>
+							<span class="mx-1">·</span>
+							<span>
+								{model.providerRowFound
+									? model.providerEnabled
+										? $t('admin.effectiveConfig.models.enabled')
+										: $t('admin.effectiveConfig.models.disabled')
+									: $t('admin.effectiveConfig.models.missing')}
+							</span>
+							<span class="mx-1">·</span>
+							<span>{$t(EFFECTIVE_CONFIG_RESOLVED_FROM_LABEL[model.resolvedFrom])}</span>
+							{#if model.resolvedModelId}
+								<span class="mx-1">·</span>
+								<span>{$t('admin.effectiveConfig.models.resolvesTo', { model: model.resolvedModelId })}</span>
+							{/if}
+							{#if model.shadowedOverrides.length > 0}
+								<p class="mt-0.5 text-[var(--warning)]">
+									{$t('admin.effectiveConfig.models.shadowed', { keys: model.shadowedOverrides.join(', ') })}
+								</p>
+							{/if}
+							{#if model.error}
+								<p class="mt-0.5 text-danger">{model.error}</p>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
+		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+			<input
+				class="settings-input max-w-xs"
+				type="search"
+				placeholder={$t('admin.effectiveConfig.filter')}
+				aria-label={$t('admin.effectiveConfig.filterA11y')}
+				bind:value={effectiveConfigFilter}
+			/>
+			<span class="text-xs text-text-muted">
+				{$t('admin.effectiveConfig.generatedAt', { time: formatCheckedAt(effectiveConfig.generatedAt) })}
+			</span>
+		</div>
+
+		{#if filteredEffectiveConfig.length === 0}
+			<p class="text-sm text-text-muted">{$t('admin.effectiveConfig.empty')}</p>
+		{:else}
+			<div class="max-h-[32rem] overflow-auto">
+				<table class="w-full text-left text-sm" data-testid="effective-config-table">
+					<thead>
+						<tr class="border-b border-border text-xs text-text-muted">
+							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.key')}</th>
+							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.value')}</th>
+							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.source')}</th>
+							<th class="py-2 font-medium">{$t('admin.effectiveConfig.columns.override')}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each filteredEffectiveConfig as entry (entry.key)}
+							<tr class="border-b border-border/60 align-top" data-testid={`effective-config-row-${entry.key}`}>
+								<td class="py-1.5 pr-3 font-mono text-xs text-text-primary">{entry.key}</td>
+								<td class="max-w-[28rem] break-all py-1.5 pr-3 font-mono text-xs text-text-secondary">
+									{entry.effectiveValue === '' ? $t('admin.effectiveConfig.notSet') : entry.effectiveValue}
+								</td>
+								<td class="py-1.5 pr-3 text-xs text-text-muted" data-source={entry.source}>
+									{$t(EFFECTIVE_CONFIG_SOURCE_LABEL[entry.source])}
+								</td>
+								<td class="max-w-[16rem] break-all py-1.5 font-mono text-xs text-text-muted">
+									{entry.adminOverride ?? '—'}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
+</section>
 
 {#if showProviderForm}
 	<ProviderForm
