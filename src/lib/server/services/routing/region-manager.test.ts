@@ -382,3 +382,56 @@ describe("routing region manager", () => {
 		).toBe("ready");
 	});
 });
+
+describe("routing region manager — legacy seed backfill", () => {
+	it("backfills the legacy region name from the index on a later start", async () => {
+		const memory = createInMemoryDatabase();
+		const dir = mkdtempSync(join(tmpdir(), "alfyai-regions-"));
+		const docker = fakeDocker();
+		try {
+			const base = {
+				db: memory.db,
+				docker,
+				fetch: fakeFetch(docker) as typeof fetch,
+				now: () => 1_700_000_000_000,
+				log: () => undefined,
+			};
+			const cfg: RoutingRegionManagerConfig = {
+				enabled: true,
+				regionsDir: dir,
+				orsImage: "img",
+				xmx: "4g",
+				portRange: { start: 8300, end: 8301 },
+				hostIp: "127.0.0.1",
+				idleMinutes: 60,
+				maxPbfBytes: 10 * 1048576,
+				buildTimeoutMs: 1000,
+				startTimeoutMs: 1000,
+				geocoderImportContainer: "",
+				geocoderRegionsMount: "/regions",
+				legacy: { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" },
+			};
+			// First start: index unavailable → name falls back to the id.
+			const first = createRoutingRegionManager(cfg, {
+				...base,
+				loadIndex: async () => {
+					throw new Error("offline");
+				},
+			});
+			expect((await first.listRegions()).map((r) => r.name)).toEqual([
+				"hungary",
+			]);
+			// Second start: index available → name is backfilled.
+			const second = createRoutingRegionManager(cfg, {
+				...base,
+				loadIndex: async () => index,
+			});
+			expect((await second.listRegions()).map((r) => r.name)).toEqual([
+				"Hungary",
+			]);
+		} finally {
+			memory.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});

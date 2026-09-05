@@ -147,6 +147,9 @@ export function createRoutingRegionManager(
 		if (!indexPromise) {
 			indexPromise = deps.loadIndex().catch((error) => {
 				indexPromise = null;
+				log("geofabrik index load failed", {
+					error: error instanceof Error ? error.message : String(error),
+				});
 				throw error;
 			});
 		}
@@ -160,10 +163,25 @@ export function createRoutingRegionManager(
 		const { id, baseUrl } = config.legacy;
 		const existing = await getRow(id);
 		if (existing) {
-			if (existing.baseUrl !== baseUrl || existing.status !== "ready") {
+			// Backfill the display name if an earlier seed ran without the index
+			// (e.g. the cache directory did not exist yet on that start).
+			let name = existing.name;
+			if (name === existing.id) {
+				try {
+					name = (await getIndex()).byId.get(id)?.name ?? name;
+				} catch {
+					// Still optional; the next start will try again.
+				}
+			}
+			if (
+				existing.baseUrl !== baseUrl ||
+				existing.status !== "ready" ||
+				name !== existing.name
+			) {
 				await db
 					.update(routingRegions)
 					.set({
+						name,
 						baseUrl,
 						status: "ready",
 						managed: false,
@@ -183,8 +201,12 @@ export function createRoutingRegionManager(
 				name = region.name;
 				pbfUrl = region.pbfUrl;
 			}
-		} catch {
-			// The index is optional for seeding the legacy row.
+		} catch (error) {
+			// The index is optional for seeding the legacy row, but a failure here
+			// also means on-demand lookups will fail, so make it visible.
+			log("geofabrik index unavailable while seeding legacy region", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 		await db.insert(routingRegions).values({
 			id,
