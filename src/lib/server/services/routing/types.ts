@@ -111,6 +111,14 @@ export type RoutingFailureReason =
 	| "geocoder_unconfigured"
 	// The geocoder ran but returned no match for the query.
 	| "not_found"
+	// The routing engine could not snap a coordinate to its road network —
+	// the point lies outside the loaded map extract (or far from any road).
+	// Distinct from provider_error so the tool can say "outside coverage"
+	// instead of "service unavailable".
+	| "out_of_coverage"
+	// Both points snapped, but no path exists between them in the graph
+	// (islands, disconnected components, profile restrictions).
+	| "no_route"
 	// Network error, non-2xx, malformed body, or timeout from the upstream.
 	| "provider_error";
 
@@ -139,6 +147,10 @@ export interface RoutingProvider {
 	routingConfigured(): boolean;
 	// Whether a geocoder is configured (GEOCODER_BASE_URL present).
 	geocoderConfigured(): boolean;
+	// Optional human-readable description of the region the routing graph
+	// covers (e.g. "Hungary"). Surfaced to the model in the tool description
+	// and in out_of_coverage failures so it can explain the limit honestly.
+	coverageLabel?(): string;
 
 	geocode(input: {
 		query: string;

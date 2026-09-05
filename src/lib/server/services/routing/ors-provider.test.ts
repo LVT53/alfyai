@@ -433,3 +433,117 @@ describe("createOrsProvider", () => {
 		});
 	});
 });
+
+describe("createOrsProvider — ORS error classification", () => {
+	function orsError(code: number, message: string): Response {
+		return jsonResponse({ error: { code, message } }, { status: 404 });
+	}
+
+	it("maps a 'point not found' (xx10) error to out_of_coverage, never provider_error", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				orsError(
+					2010,
+					"Could not find routable point within a radius of 2000.0 meters of specified coordinate 0: -6.2474000 53.4269000.",
+				),
+			);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+			{ fetch: fetchMock },
+		);
+		const outcome = await provider.route({
+			origin: { lat: 53.4269, lng: -6.2474 },
+			destination: { lat: 53.42829, lng: -6.24278 },
+			mode: "walk",
+		});
+		expect(outcome.ok).toBe(false);
+		if (outcome.ok) return;
+		expect(outcome.reason).toBe("out_of_coverage");
+		expect(outcome.message).toContain("routable point");
+	});
+
+	it("maps a 'route could not be found' (xx09) error to no_route", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				orsError(
+					2009,
+					"Route could not be found - Unable to find a route between points 1 (19.04 47.49) and 2 (19.05 47.50).",
+				),
+			);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+			{ fetch: fetchMock },
+		);
+		const outcome = await provider.route({
+			origin: { lat: 47.49, lng: 19.04 },
+			destination: { lat: 47.5, lng: 19.05 },
+			mode: "drive",
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "no_route" });
+	});
+
+	it("classifies matrix (6xxx) and isochrone (3xxx) point-not-found codes the same way", async () => {
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+			{
+				fetch: vi
+					.fn()
+					.mockResolvedValueOnce(orsError(6010, "Point not found"))
+					.mockResolvedValueOnce(orsError(3010, "Point not found")),
+			},
+		);
+		const matrix = await provider.matrix({
+			origins: [{ lat: 1, lng: 2 }],
+			destinations: [{ lat: 3, lng: 4 }],
+			mode: "drive",
+		});
+		expect(matrix).toMatchObject({ ok: false, reason: "out_of_coverage" });
+		const iso = await provider.isochrone({
+			origin: { lat: 1, lng: 2 },
+			mode: "drive",
+			rangesS: [300],
+		});
+		expect(iso).toMatchObject({ ok: false, reason: "out_of_coverage" });
+	});
+
+	it("keeps other ORS error codes and non-JSON bodies as provider_error", async () => {
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE, geocoderBaseUrl: GEOCODER_BASE },
+			{
+				fetch: vi
+					.fn()
+					.mockResolvedValueOnce(orsError(2004, "Request exceeds limits"))
+					.mockResolvedValueOnce(
+						new Response("<html>502</html>", { status: 502 }),
+					),
+			},
+		);
+		const first = await provider.route({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+			mode: "drive",
+		});
+		expect(first).toMatchObject({ ok: false, reason: "provider_error" });
+		const second = await provider.route({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+			mode: "drive",
+		});
+		expect(second).toMatchObject({ ok: false, reason: "provider_error" });
+	});
+
+	it("exposes the configured coverage label (trimmed) and empty when unset", () => {
+		const withLabel = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE, coverageLabel: "  Hungary " },
+			{ fetch: vi.fn() },
+		);
+		expect(withLabel.coverageLabel?.()).toBe("Hungary");
+		const without = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: vi.fn() },
+		);
+		expect(without.coverageLabel?.()).toBe("");
+	});
+});

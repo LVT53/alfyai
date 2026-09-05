@@ -117,6 +117,10 @@ interface Config {
 	// place-name strings to coordinates. ORS core ships no geocoder, so this is
 	// a separate service. Empty => geocoding degrades ("pass coordinates").
 	geocoderBaseUrl: string;
+	// Optional label for the region the ORS graph covers (e.g. "Hungary").
+	// Shown to the model in the map_route description and in out-of-coverage
+	// failures so it can explain the limit instead of calling the tool "down".
+	orsCoverageLabel: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -553,6 +557,7 @@ function readConfig(): Config {
 		parallelBaseUrl: process.env.PARALLEL_BASE_URL || "https://api.parallel.ai",
 		orsBaseUrl: process.env.ORS_BASE_URL || "",
 		geocoderBaseUrl: process.env.GEOCODER_BASE_URL || "",
+		orsCoverageLabel: process.env.ORS_COVERAGE_LABEL || "",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",

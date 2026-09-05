@@ -183,6 +183,28 @@ function missingInput(
 const UNCONFIGURED_MESSAGE =
 	"Routing is unavailable — the mapping service is not configured on this server. Say routing is unavailable rather than estimating a route.";
 
+// Turn a failed provider outcome into a message the model can relay honestly.
+// A coverage miss is NOT an outage: the engine is up, it just has no map data
+// for that point, so the model should say "outside the routing coverage
+// (<region>)" rather than "the service is down" — and still never estimate.
+function providerFailureMessage(
+	what: string,
+	outcome: { reason: string; message: string },
+	provider: RoutingProvider,
+): string {
+	const coverage = provider.coverageLabel?.()?.trim();
+	const coverageNote = coverage
+		? ` The routing data on this server covers ${coverage} only.`
+		: " The routing data on this server does not cover that area.";
+	if (outcome.reason === "out_of_coverage") {
+		return `I couldn't compute ${what}: at least one point is outside the routing coverage (${outcome.message}).${coverageNote} Say the location is outside the routing coverage; do NOT estimate a distance, ETA, or route from memory.`;
+	}
+	if (outcome.reason === "no_route") {
+		return `I couldn't compute ${what}: the routing engine found no path between those points (${outcome.message}). Say no route could be found; do NOT estimate one from memory.`;
+	}
+	return `I couldn't compute ${what} right now — the routing service is unavailable.`;
+}
+
 // Map a resolved place to a Sources-tab candidate so the user can see what a
 // place string resolved to.
 function placeCandidate(
@@ -356,7 +378,7 @@ export async function runRoutingTool(
 		if (!outcome.ok) {
 			return failure(
 				"route",
-				"I couldn't compute a route right now — the routing service is unavailable.",
+				providerFailureMessage("a route", outcome, provider),
 			);
 		}
 		const data = outcome.data;
@@ -398,7 +420,7 @@ export async function runRoutingTool(
 		if (!outcome.ok) {
 			return failure(
 				"matrix",
-				"I couldn't compute the distance/ETA matrix right now — the routing service is unavailable.",
+				providerFailureMessage("the distance/ETA matrix", outcome, provider),
 			);
 		}
 		return buildPayload({
@@ -430,7 +452,7 @@ export async function runRoutingTool(
 	if (!outcome.ok) {
 		return failure(
 			"isochrone",
-			"I couldn't compute reachability right now — the routing service is unavailable.",
+			providerFailureMessage("reachability", outcome, provider),
 		);
 	}
 	return buildPayload({

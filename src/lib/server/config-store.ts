@@ -83,6 +83,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"PARALLEL_BASE_URL",
 	"ORS_BASE_URL",
 	"GEOCODER_BASE_URL",
+	"ORS_COVERAGE_LABEL",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -210,6 +211,7 @@ export interface RuntimeConfig {
 	parallelBaseUrl: string;
 	orsBaseUrl: string;
 	geocoderBaseUrl: string;
+	orsCoverageLabel: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -679,6 +681,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	GEOCODER_BASE_URL: (config, value) => {
 		config.geocoderBaseUrl = value.trim();
+	},
+	ORS_COVERAGE_LABEL: (config, value) => {
+		config.orsCoverageLabel = value.trim();
 	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
@@ -1151,6 +1156,7 @@ export function getResolvedAdminConfigValues(
 		PARALLEL_BASE_URL: config.parallelBaseUrl,
 		ORS_BASE_URL: config.orsBaseUrl,
 		GEOCODER_BASE_URL: config.geocoderBaseUrl,
+		ORS_COVERAGE_LABEL: config.orsCoverageLabel,
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",

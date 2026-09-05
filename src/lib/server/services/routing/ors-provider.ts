@@ -29,6 +29,7 @@ import {
 	type RouteLeg,
 	type RouteOutcome,
 	type RouteStep,
+	type RoutingFailureReason,
 	type RoutingMode,
 	type RoutingProvider,
 	type RoutingProviderDeps,
@@ -41,6 +42,10 @@ export type OrsProviderConfig = {
 	// Nominatim geocoder base, e.g. "http://127.0.0.1:8081". Empty/undefined =>
 	// geocode degrades to "geocoder_unconfigured".
 	geocoderBaseUrl?: string;
+	// Region the loaded ORS graph covers (ORS_COVERAGE_LABEL, e.g. "Hungary").
+	// Purely descriptive: it never gates a call, it only makes coverage misses
+	// explainable.
+	coverageLabel?: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -66,6 +71,52 @@ function toOrsCoord(point: LatLng): [number, number] {
 async function readErrorBody(res: Response): Promise<string> {
 	const text = await res.text().catch(() => "");
 	return text.slice(0, ERROR_BODY_CHARS).trim();
+}
+
+// ORS error bodies look like {"error":{"code":2010,"message":"..."}}. The
+// last two digits of the code are shared across the directions (2xxx),
+// isochrones (3xxx) and matrix (6xxx) endpoints: xx09 = "route could not be
+// found", xx10 = "point not found" (could not snap within the snapping
+// radius — in practice: outside the loaded extract). We match on both the
+// code and the message so a coverage miss is never reported as an outage.
+function extractOrsError(text: string): { code?: number; message: string } {
+	try {
+		const parsed = JSON.parse(text) as {
+			error?: { code?: unknown; message?: unknown } | string;
+		};
+		if (typeof parsed?.error === "string") {
+			return { message: parsed.error };
+		}
+		const code =
+			typeof parsed?.error?.code === "number" ? parsed.error.code : undefined;
+		const message =
+			typeof parsed?.error?.message === "string" ? parsed.error.message : text;
+		return { ...(code !== undefined ? { code } : {}), message };
+	} catch {
+		return { message: text };
+	}
+}
+
+export function classifyOrsFailure(error: {
+	code?: number;
+	message: string;
+}): RoutingFailureReason {
+	const sub = error.code !== undefined ? error.code % 1000 : undefined;
+	if (
+		sub === 10 ||
+		/routable point|point not found|could not find point/i.test(error.message)
+	) {
+		return "out_of_coverage";
+	}
+	if (
+		sub === 9 ||
+		/route could not be found|could not find a route|no route found/i.test(
+			error.message,
+		)
+	) {
+		return "no_route";
+	}
+	return "provider_error";
 }
 
 // Race an upstream fetch against a timeout, chaining the caller's abort signal.
@@ -256,6 +307,7 @@ export function createOrsProvider(
 
 	const routingConfigured = () => orsBase.length > 0;
 	const geocoderConfigured = () => geocoderBase.length > 0;
+	const coverageLabel = () => (config.coverageLabel ?? "").trim();
 
 	function providerError(message: string): {
 		ok: false;
@@ -265,10 +317,32 @@ export function createOrsProvider(
 		return { ok: false, reason: "provider_error", message };
 	}
 
+	// Map a failed ORS call to the most specific failure reason we can prove
+	// from the response. Only a parsed ORS error body can yield out_of_coverage
+	// / no_route; transport errors stay provider_error.
+	function orsFailure(result: {
+		message: string;
+		orsError?: { code?: number; message: string };
+	}): { ok: false; reason: RoutingFailureReason; message: string } {
+		if (!result.orsError) return providerError(result.message);
+		return {
+			ok: false,
+			reason: classifyOrsFailure(result.orsError),
+			message: result.orsError.message,
+		};
+	}
+
 	async function postOrs<T>(
 		path: string,
 		payload: unknown,
-	): Promise<{ ok: true; body: T } | { ok: false; message: string }> {
+	): Promise<
+		| { ok: true; body: T }
+		| {
+				ok: false;
+				message: string;
+				orsError?: { code?: number; message: string };
+		  }
+	> {
 		try {
 			const res = await fetchWithTimeout(
 				`${orsBase}${path}`,
@@ -285,6 +359,7 @@ export function createOrsProvider(
 					ok: false,
 					message:
 						`ORS ${path} failed: ${res.status} ${res.statusText} ${detail}`.trim(),
+					orsError: extractOrsError(detail),
 				};
 			}
 			const body = (await res.json()) as T;
@@ -385,7 +460,7 @@ export function createOrsProvider(
 			`/v2/directions/${profile}`,
 			{ coordinates },
 		);
-		if (!result.ok) return providerError(result.message);
+		if (!result.ok) return orsFailure(result);
 		const data = mapDirectionsResponse(result.body, {
 			origin: input.origin,
 			destination: input.destination,
@@ -423,7 +498,7 @@ export function createOrsProvider(
 			destinations,
 			metrics: ["distance", "duration"],
 		});
-		if (!result.ok) return providerError(result.message);
+		if (!result.ok) return orsFailure(result);
 		const data: MatrixData = {
 			durations_s: Array.isArray(result.body.durations)
 				? result.body.durations
@@ -456,7 +531,7 @@ export function createOrsProvider(
 				range_type: "time",
 			},
 		);
-		if (!result.ok) return providerError(result.message);
+		if (!result.ok) return orsFailure(result);
 		const features = Array.isArray(result.body.features)
 			? result.body.features
 			: [];
@@ -473,6 +548,7 @@ export function createOrsProvider(
 	return {
 		routingConfigured,
 		geocoderConfigured,
+		coverageLabel,
 		geocode,
 		route,
 		matrix,

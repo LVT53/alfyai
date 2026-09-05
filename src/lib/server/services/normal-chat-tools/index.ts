@@ -369,6 +369,16 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// The tool ALSO degrades in-band (returns "routing unavailable") if a call
 	// fails, but the gate keeps it out of the tool set when there's no server.
 	const orsConfigured = Boolean(registrationConfig.orsBaseUrl?.trim());
+	// Tell the model up front which region the self-hosted graph covers, so it
+	// does not burn tool steps routing outside it (and can explain why).
+	const orsCoverageLabel = registrationConfig.orsCoverageLabel?.trim() ?? "";
+	const mapRouteDescription = orsCoverageLabel
+		? `${i18n.map_route.description} ${
+				lang === "hu"
+					? `FONTOS: az útvonaltervező térképadatai CSAK ezt a régiót fedik le: ${orsCoverageLabel}. Ezen kívüli helyekre ne hívd útvonalhoz/mátrixhoz/izokronhoz — mondd ki, hogy a hely kívül esik az útvonaltervezés lefedettségén, és ne becsülj.`
+					: `IMPORTANT: the routing map data on this server covers ONLY ${orsCoverageLabel}. Do not call route/matrix/isochrone for places outside it — say the location is outside the routing coverage instead, and do not estimate.`
+			}`
+		: i18n.map_route.description;
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);
@@ -1750,7 +1760,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 			? {
 					map_route: asExecutableTool(
 						tool({
-							description: i18n.map_route.description,
+							description: mapRouteDescription,
 							inputSchema: routingToolInputSchema,
 							execute: async (
 								input: z.infer<typeof routingToolInputSchema>,
@@ -1763,9 +1773,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async (abortSignal) => {
-										const { orsBaseUrl, geocoderBaseUrl } = getConfig();
+										const { orsBaseUrl, geocoderBaseUrl, orsCoverageLabel } =
+											getConfig();
 										const provider = createOrsProvider(
-											{ orsBaseUrl, geocoderBaseUrl },
+											{
+												orsBaseUrl,
+												geocoderBaseUrl,
+												coverageLabel: orsCoverageLabel,
+											},
 											{
 												fetch,
 												signal: abortSignal,

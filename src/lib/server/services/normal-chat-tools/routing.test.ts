@@ -466,3 +466,74 @@ describe("runRoutingTool — isochrone", () => {
 		expect(outcome.modelPayload.isochrone).toBeUndefined();
 	});
 });
+
+describe("runRoutingTool — coverage-aware failures", () => {
+	it("reports out_of_coverage as a coverage limit (with the region), not an outage, and forbids estimating", async () => {
+		const { provider } = makeProvider({
+			route: {
+				ok: false,
+				reason: "out_of_coverage",
+				message:
+					"Could not find routable point within a radius of 2000.0 meters of specified coordinate 0: -6.2474000 53.4269000.",
+			},
+		});
+		provider.coverageLabel = () => "Hungary";
+		const outcome = await runRoutingTool(
+			{
+				action: "route",
+				origin: { lat: 53.4269, lng: -6.2474 },
+				destination: { lat: 53.42829, lng: -6.24278 },
+				mode: "walk",
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.route).toBeUndefined();
+		const message = outcome.modelPayload.message;
+		expect(message).toContain("outside the routing coverage");
+		expect(message).toContain("covers Hungary only");
+		expect(message).toContain("-6.2474000 53.4269000");
+		expect(message.toLowerCase()).not.toContain("service is unavailable");
+		expect(message).toContain("do NOT estimate");
+	});
+
+	it("reports no_route as 'no path found', never as unavailable", async () => {
+		const { provider } = makeProvider({
+			matrix: {
+				ok: false,
+				reason: "no_route",
+				message: "Route could not be found",
+			},
+		});
+		const outcome = await runRoutingTool(
+			{
+				action: "matrix",
+				origins: [{ lat: 1, lng: 2 }],
+				destinations: [{ lat: 3, lng: 4 }],
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"no path between those points",
+		);
+		expect(outcome.modelPayload.message.toLowerCase()).not.toContain(
+			"unavailable",
+		);
+	});
+
+	it("falls back to a generic coverage note when no label is configured", async () => {
+		const { provider } = makeProvider({
+			isochrone: {
+				ok: false,
+				reason: "out_of_coverage",
+				message: "Point not found",
+			},
+		});
+		const outcome = await runRoutingTool(
+			{ action: "isochrone", origin: { lat: 1, lng: 2 }, ranges_s: [300] },
+			{ provider },
+		);
+		expect(outcome.modelPayload.message).toContain("does not cover that area");
+	});
+});
