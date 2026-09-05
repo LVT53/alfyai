@@ -610,3 +610,73 @@ export async function savePriceWindows(
 	);
 	return response.windows;
 }
+
+// ── Routing regions (on-demand map coverage) ──────────────────
+
+export type RoutingRegionSummary = {
+	id: string;
+	name: string;
+	slug: string;
+	pbfUrl: string;
+	status: string;
+	managed: boolean;
+	baseUrl: string | null;
+	hostPort: number | null;
+	containerName: string | null;
+	pbfSizeBytes: number | null;
+	geocoderStatus: string;
+	error: string | null;
+	requestedBy: string | null;
+	createdAt: string;
+	updatedAt: string;
+	lastUsedAt: string | null;
+	readyAt: string | null;
+};
+
+type RoutingRegionsResponse = {
+	configured: boolean;
+	regions: RoutingRegionSummary[];
+};
+
+export async function fetchRoutingRegions(): Promise<RoutingRegionsResponse> {
+	const response = await requestJson<RoutingRegionsResponse>(
+		"/api/admin/routing-regions",
+		undefined,
+		"Failed to load routing regions",
+	);
+	return {
+		configured: Boolean(response.configured),
+		regions: Array.isArray(response.regions) ? response.regions : [],
+	};
+}
+
+export async function requestRoutingRegion(
+	input: { id: string } | { lat: number; lng: number },
+): Promise<{ kind: string }> {
+	const response = await requestJson<{ outcome: { kind: string } }>(
+		"/api/admin/routing-regions",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(input),
+		},
+		"Failed to request routing region",
+	);
+	return response.outcome;
+}
+
+export async function retryRoutingRegion(id: string): Promise<void> {
+	await requestJson<{ region: unknown }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{ method: "POST" },
+		"Failed to retry routing region",
+	);
+}
+
+export async function removeRoutingRegion(id: string): Promise<void> {
+	await requestJson<{ ok: boolean }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{ method: "DELETE" },
+		"Failed to remove routing region",
+	);
+}

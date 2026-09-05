@@ -1,15 +1,15 @@
 import type { SupportedLanguage } from "$lib/server/services/language";
 import type { AtlasReportShapeDiagnostics } from "./report-shape-diagnostics";
+import {
+	PROMPT_INSTRUCTION_HEADING_PATTERN,
+	SAFE_REPORT_HEADING_LABELS,
+} from "./report-shape-primitives";
 import type {
 	AtlasAssemblyMetadata,
 	AtlasEvidencePack,
 	AtlasSectionBrief,
 	AtlasSectionBriefSourceAssociation,
 } from "./types";
-import {
-	PROMPT_INSTRUCTION_HEADING_PATTERN,
-	SAFE_REPORT_HEADING_LABELS,
-} from "./report-shape-primitives";
 import { ATLAS_ASSEMBLY_SCHEMA_VERSION } from "./types";
 
 // ---------------------------------------------------------------------------

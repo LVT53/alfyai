@@ -268,15 +268,13 @@ describe("block renderer registry", () => {
 
 describe("checklist-fence rescue helpers", () => {
 	it("recognises a body that is mostly checkbox lines", () => {
-		expect(
-			isChecklistLikeFenceBody("[ ] one\n[x] two\n[ ] three"),
-		).toBe(true);
+		expect(isChecklistLikeFenceBody("[ ] one\n[x] two\n[ ] three")).toBe(true);
 		// bare `[ ]` items OR proper `- [ ]` items both count as checklist lines
 		expect(isChecklistLikeFenceBody("- [ ] one\n- [x] two")).toBe(true);
 		// a section label mixed in is still a majority-checkbox body
-		expect(
-			isChecklistLikeFenceBody("Before you go\n[ ] one\n[ ] two"),
-		).toBe(true);
+		expect(isChecklistLikeFenceBody("Before you go\n[ ] one\n[ ] two")).toBe(
+			true,
+		);
 	});
 
 	it("rejects ordinary code and sparse checkbox content", () => {
@@ -286,9 +284,9 @@ describe("checklist-fence rescue helpers", () => {
 		// a single checkbox line is not enough signal
 		expect(isChecklistLikeFenceBody("[ ] lonely")).toBe(false);
 		// checkboxes are a minority of the body
-		expect(
-			isChecklistLikeFenceBody("line a\nline b\nline c\n[ ] one"),
-		).toBe(false);
+		expect(isChecklistLikeFenceBody("line a\nline b\nline c\n[ ] one")).toBe(
+			false,
+		);
 	});
 
 	it("promotes only bare or checklist-intent fences, never a language fence", () => {

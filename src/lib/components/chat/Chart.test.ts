@@ -91,9 +91,9 @@ describe("Chart", () => {
 		// and never hand it to Chart.js (which would throw and blank the canvas).
 		expect(container.querySelector("canvas")).toBeNull();
 		expect(container.querySelector(".markdown-diagram-error")).toBeTruthy();
-		expect(container.querySelector(".markdown-diagram-source")?.textContent).toContain(
-			"gantt",
-		);
+		expect(
+			container.querySelector(".markdown-diagram-source")?.textContent,
+		).toContain("gantt");
 		await Promise.resolve();
 		expect(constructed).toHaveLength(0);
 	});
@@ -107,9 +107,7 @@ describe("Chart", () => {
 		expect(container.querySelector("canvas")).toBeTruthy();
 		await waitFor(() => expect(constructed).toHaveLength(1));
 		expect(container.querySelector(".markdown-diagram-error")).toBeNull();
-		expect(
-			(constructed[0].config as { type: string }).type,
-		).toBe("bar");
+		expect((constructed[0].config as { type: string }).type).toBe("bar");
 	});
 
 	it("falls back to the source when Chart.js throws at runtime (no silent blank canvas)", async () => {

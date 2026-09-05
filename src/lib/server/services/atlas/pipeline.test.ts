@@ -7642,7 +7642,9 @@ describe("Atlas guard functions", () => {
 
 	describe("looksLikeMalformedAssembledReport", () => {
 		it("returns false for a well-formed report with 4 substantive headings including Limitations", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7653,7 +7655,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false for a single scalar heading (below threshold of 2)", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## 8B parameters\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7664,7 +7668,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when scalar heading count >= 2", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\ntext\n\n## 8 GB\n\ntext\n\n## 16 GB\n\ntext`;
 			const result = looksLikeMalformedAssembledReport({
 				markdown,
@@ -7674,7 +7680,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when envelope heading count >= 2", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Date 2026-06-21\n\n${goodReportBody(40)}\n\n## Profile overview\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7685,7 +7693,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false when source-title-matching heading count is 2 (below threshold of 3)", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Evidence from performance benchmarks\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7699,7 +7709,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when source-title-matching heading count >= 3", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Hybrid retrieval enterprise SaaS\n\n${goodReportBody(40)}\n\n## Performance benchmarks latency\n\n${goodReportBody(40)}\n\n## Scalability analysis cloud deployment\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7714,7 +7726,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns true when envelope heading + envelope scalar lines >= 3", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Profile overview\n\n${goodReportBody(40)}\n\n**Date:** 2026-06-21\n\n${goodReportBody(40)}\n\n**Status:** final\n\n${goodReportBody(40)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7725,7 +7739,9 @@ describe("Atlas guard functions", () => {
 		});
 
 		it("returns false for a good report with 5 substantive headings including Limitations", async () => {
-			const { looksLikeMalformedAssembledReport } = await import("./assembled-report");
+			const { looksLikeMalformedAssembledReport } = await import(
+				"./assembled-report"
+			);
 			const markdown = `## Executive Summary\n\n${goodReportBody(60)}\n\n## Analysis\n\n${goodReportBody(60)}\n\n## Key Findings\n\n${goodReportBody(60)}\n\n## Limitations\n\n${goodReportBody(50)}\n\n## Recommendations\n\n${goodReportBody(60)}`;
 			expect(
 				looksLikeMalformedAssembledReport({
@@ -7782,31 +7798,41 @@ describe("Atlas guard functions", () => {
 
 	describe("isLikelySentenceClaimHeading", () => {
 		it("returns false for a topical heading with trailing period but no claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
+			const { isLikelySentenceClaimHeading } = await import(
+				"./assembled-report"
+			);
 			expect(isLikelySentenceClaimHeading("Top Self-Hosted Models.")).toBe(
 				false,
 			);
 		});
 
 		it("returns true for a sentence heading with trailing period and claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
+			const { isLikelySentenceClaimHeading } = await import(
+				"./assembled-report"
+			);
 			expect(
 				isLikelySentenceClaimHeading("This model outperforms competitors."),
 			).toBe(true);
 		});
 
 		it("returns false for a short heading without trailing period", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
+			const { isLikelySentenceClaimHeading } = await import(
+				"./assembled-report"
+			);
 			expect(isLikelySentenceClaimHeading("Key Findings")).toBe(false);
 		});
 
 		it("returns false for a Hungarian topical heading with period but no claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
+			const { isLikelySentenceClaimHeading } = await import(
+				"./assembled-report"
+			);
 			expect(isLikelySentenceClaimHeading("Legjobb modellek.")).toBe(false);
 		});
 
 		it("returns true for a Hungarian sentence heading with period and claim verb", async () => {
-			const { isLikelySentenceClaimHeading } = await import("./assembled-report");
+			const { isLikelySentenceClaimHeading } = await import(
+				"./assembled-report"
+			);
 			expect(
 				isLikelySentenceClaimHeading("A modell támogatja a gyors keresést."),
 			).toBe(true);

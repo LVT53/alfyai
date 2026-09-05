@@ -420,7 +420,10 @@ describe("parallelExtractWithErrors", () => {
 			jsonResponse({
 				results: [],
 				errors: [
-					{ url: "https://example.com/m", message: "first line\n\tsecond   line" },
+					{
+						url: "https://example.com/m",
+						message: "first line\n\tsecond   line",
+					},
 					"bare\nstring\nreason",
 				],
 			}),

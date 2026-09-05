@@ -329,9 +329,7 @@ describe("buildAssistantEvidenceSummary", () => {
 			sourceType: "web" as const,
 			material: true,
 		});
-		const webTool = (
-			candidates: ReturnType<typeof webCandidate>[],
-		) => ({
+		const webTool = (candidates: ReturnType<typeof webCandidate>[]) => ({
 			name: "research_web",
 			input: { query: "q" },
 			status: "done" as const,

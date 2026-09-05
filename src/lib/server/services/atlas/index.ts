@@ -166,4 +166,3 @@ export async function ensureAtlasWorker(
 	const { ensureAtlasWorker } = await loadWorkerRunner();
 	return ensureAtlasWorker(...args);
 }
-

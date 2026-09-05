@@ -213,7 +213,8 @@ function parseExtractErrors(raw: unknown): ParallelExtractUrlError[] {
 				record.detail ??
 				record.code;
 			const reason =
-				typeof reasonCandidate === "string" && collapseWhitespace(reasonCandidate)
+				typeof reasonCandidate === "string" &&
+				collapseWhitespace(reasonCandidate)
 					? collapseWhitespace(reasonCandidate)
 					: "unknown error";
 			out.push({ url, reason });

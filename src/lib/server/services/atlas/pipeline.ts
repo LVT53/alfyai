@@ -5,6 +5,18 @@ import {
 	type SupportedLanguage,
 } from "$lib/server/services/language";
 import {
+	appendAdditionalLimitations,
+	buildHonestEvidenceFallbackReport,
+	finalizeAssembledReport,
+	finalReportQualityFailures,
+	hasLimitationsHeading,
+	looksLikeProcessOnlyReport,
+	needsAssemblyRepair,
+	normalizeAtlasReportTitleCasing,
+	sanitizeMalformedWriterHeadings,
+	stripAtlasPromptInstructionTail,
+} from "./assembled-report";
+import {
 	type AtlasProfileRuntimeConfig,
 	getAtlasProfileRuntimeConfig,
 } from "./config";
@@ -16,18 +28,6 @@ import {
 	type BuildAtlasEvidencePacksResult,
 	buildAtlasEvidencePacks,
 } from "./evidence-packs";
-import {
-	appendAdditionalLimitations,
-	buildHonestEvidenceFallbackReport,
-	finalReportQualityFailures,
-	finalizeAssembledReport,
-	hasLimitationsHeading,
-	looksLikeProcessOnlyReport,
-	needsAssemblyRepair,
-	normalizeAtlasReportTitleCasing,
-	sanitizeMalformedWriterHeadings,
-	stripAtlasPromptInstructionTail,
-} from "./assembled-report";
 import { parseJsonFromText } from "./json-extract";
 import {
 	type AtlasOutputIds,
@@ -41,6 +41,7 @@ import {
 	diagnoseAtlasReportShape,
 } from "./report-shape-diagnostics";
 import { canonicalSourceUrlKey } from "./source-url";
+import { makeAtlasStageRunner } from "./stage-runner";
 import type {
 	AtlasAssemblyDiagnostics,
 	AtlasAssemblyMetadata,
@@ -77,7 +78,6 @@ import {
 	buildAtlasWriterEvidenceCards,
 	routeAtlasWriterEvidenceCards,
 } from "./writer-evidence-cards";
-import { makeAtlasStageRunner } from "./stage-runner";
 
 type ModelStage = Exclude<AtlasPipelineStage, "search" | "audit" | "render">;
 
@@ -1025,9 +1025,7 @@ function convergeGapFillWebSources(input: {
 	const acceptedNewSources: AtlasPipelineWebSource[] = [];
 	const roundRejectedSources: AtlasPipelineRejectedWebSource[] = [];
 	const seenUrlKeys = new Set(
-		input.existingWebSources.map((source) =>
-			canonicalSourceUrlKey(source.url),
-		),
+		input.existingWebSources.map((source) => canonicalSourceUrlKey(source.url)),
 	);
 	const seenMaterialKeys = new Set(
 		input.existingWebSources

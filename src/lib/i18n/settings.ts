@@ -503,6 +503,30 @@ const settingsDict = {
 			"Create accounts, manage admin access, revoke sessions, and remove users when needed.",
 		"admin.usersRole": "Users",
 		"admin.validationFailed": "Validation failed: {error}",
+		"admin.routingRegions.title": "Routing coverage",
+		"admin.routingRegions.description":
+			"Map regions available to the map_route tool. Regions are downloaded from Geofabrik and built into their own OpenRouteService container the first time a route needs them; idle regions are stopped and restart on demand.",
+		"admin.routingRegions.notConfigured":
+			"Routing is not configured (set ORS_BASE_URL or ROUTING_ON_DEMAND_ENABLED).",
+		"admin.routingRegions.refresh": "Refresh",
+		"admin.routingRegions.request": "Prepare region",
+		"admin.routingRegions.requested": "Region queued for download and build.",
+		"admin.routingRegions.unknownId": "Unknown Geofabrik region id.",
+		"admin.routingRegions.idPlaceholder":
+			"Geofabrik id, e.g. austria or bayern",
+		"admin.routingRegions.catalogue": "Region catalogue",
+		"admin.routingRegions.colRegion": "Region",
+		"admin.routingRegions.colStatus": "Status",
+		"admin.routingRegions.colGeocoder": "Geocoder",
+		"admin.routingRegions.colSize": "Extract",
+		"admin.routingRegions.colEndpoint": "Endpoint",
+		"admin.routingRegions.colLastUsed": "Last used",
+		"admin.routingRegions.legacy": "fixed instance",
+		"admin.routingRegions.retry": "Retry",
+		"admin.routingRegions.remove": "Remove",
+		"admin.routingRegions.confirmRemove":
+			"Remove this region? Its container and downloaded data will be deleted.",
+		"admin.routingRegions.empty": "No regions yet.",
 		"admin.webResearch": "Web Research",
 		"admin.webResearchDescription":
 			"Server-owned web search and research keys. Parallel powers web search and page research; Brave is used separately for image search.",
@@ -1240,6 +1264,31 @@ const settingsDict = {
 		"admin.usersDescription": `Fiókok létrehozása, adminisztrátori hozzáférés kezelése, munkamenetek visszavonása és felhasználók eltávolítása szükség esetén.`,
 		"admin.usersRole": "Felhasználók",
 		"admin.validationFailed": "Az ellenőrzés sikertelen: {error}",
+		"admin.routingRegions.title": "Útvonaltervezési lefedettség",
+		"admin.routingRegions.description":
+			"A map_route eszköz számára elérhető térképrégiók. A régiókat a szerver a Geofabrikról tölti le, és első használatkor saját OpenRouteService konténerben építi fel; a tétlen régiók leállnak, és igény szerint újraindulnak.",
+		"admin.routingRegions.notConfigured":
+			"Az útvonaltervezés nincs beállítva (ORS_BASE_URL vagy ROUTING_ON_DEMAND_ENABLED szükséges).",
+		"admin.routingRegions.refresh": "Frissítés",
+		"admin.routingRegions.request": "Régió előkészítése",
+		"admin.routingRegions.requested":
+			"A régió letöltése és felépítése sorba került.",
+		"admin.routingRegions.unknownId": "Ismeretlen Geofabrik régióazonosító.",
+		"admin.routingRegions.idPlaceholder":
+			"Geofabrik azonosító, pl. austria vagy bayern",
+		"admin.routingRegions.catalogue": "Régiókatalógus",
+		"admin.routingRegions.colRegion": "Régió",
+		"admin.routingRegions.colStatus": "Állapot",
+		"admin.routingRegions.colGeocoder": "Geokódoló",
+		"admin.routingRegions.colSize": "Kivonat",
+		"admin.routingRegions.colEndpoint": "Végpont",
+		"admin.routingRegions.colLastUsed": "Utoljára használva",
+		"admin.routingRegions.legacy": "rögzített példány",
+		"admin.routingRegions.retry": "Újra",
+		"admin.routingRegions.remove": "Eltávolítás",
+		"admin.routingRegions.confirmRemove":
+			"Eltávolítod ezt a régiót? A konténere és a letöltött adatai törlődnek.",
+		"admin.routingRegions.empty": "Még nincs régió.",
 		"admin.webResearch": "Webes kutatás",
 		"admin.webResearchDescription":
 			"Szerveroldali webes keresési és kutatási kulcsok. A Parallel végzi a webes keresést és oldalkutatást; a Brave külön a képkereséshez használatos.",

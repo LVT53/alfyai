@@ -12,6 +12,7 @@ import { t } from "$lib/i18n";
 import CreateUserModal from "./CreateUserModal.svelte";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
 import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
+import SettingsAdminRoutingRegions from "./SettingsAdminRoutingRegions.svelte";
 import SettingsAdminUsersPane from "./SettingsAdminUsersPane.svelte";
 import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
@@ -268,6 +269,7 @@ async function handleDeleteUser(userId: string) {
 		{adminError}
 		{onSaveAdminConfig}
 	/>
+	<SettingsAdminRoutingRegions />
 {:else if activePane === 'users'}
 	<SettingsAdminUsersPane
 		{currentUserId}

@@ -104,7 +104,8 @@ describe("settings page OAuth return handling", () => {
 			expect(get(toasts)).toContainEqual(
 				expect.objectContaining({
 					type: "error",
-					message: "Couldn't connect: You declined the Google permission request.",
+					message:
+						"Couldn't connect: You declined the Google permission request.",
 				}),
 			);
 		});

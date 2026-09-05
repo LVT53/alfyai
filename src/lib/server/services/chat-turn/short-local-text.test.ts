@@ -316,9 +316,9 @@ describe("callShortLocalControlModel", () => {
 
 describe("unwrapJsonControlText", () => {
 	it("extracts the string from a JSON-wrapped control result", () => {
-		expect(unwrapJsonControlText('{"headline": "FlightLink Dublin Checklist"}')).toBe(
-			"FlightLink Dublin Checklist",
-		);
+		expect(
+			unwrapJsonControlText('{"headline": "FlightLink Dublin Checklist"}'),
+		).toBe("FlightLink Dublin Checklist");
 		expect(unwrapJsonControlText('{\n  "title": "Buy DD1 First"\n}')).toBe(
 			"Buy DD1 First",
 		);

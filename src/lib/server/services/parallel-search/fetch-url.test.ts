@@ -363,7 +363,10 @@ describe("fetchUrlViaParallel", () => {
 	it("bounds the failure note: overflow line, reason truncation, and null-url rendering", async () => {
 		const errors: Array<Record<string, unknown>> = Array.from(
 			{ length: 12 },
-			(_, i) => ({ url: `https://example.com/fail-${i}`, message: `error ${i}` }),
+			(_, i) => ({
+				url: `https://example.com/fail-${i}`,
+				message: `error ${i}`,
+			}),
 		);
 		// One error with no url reported (renders as "(url not reported)").
 		errors[0] = { message: "no url here" };
@@ -427,7 +430,8 @@ describe("fetchUrlViaParallel", () => {
 		expect(result.answerBrief.markdown).toContain(
 			"- https://example.com/x — line one line two more",
 		);
-		const noteSection = result.answerBrief.markdown.split("## Could not read")[1];
+		const noteSection =
+			result.answerBrief.markdown.split("## Could not read")[1];
 		expect(noteSection).not.toContain("line one\n");
 	});
 
