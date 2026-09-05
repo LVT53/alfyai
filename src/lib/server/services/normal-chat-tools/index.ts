@@ -18,6 +18,7 @@ import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
+import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
@@ -126,6 +127,10 @@ import {
 	sanitizeTasksToolInput,
 	tasksToolInputSchema,
 } from "./tasks";
+import {
+	applyDegradedToolHints,
+	collectDegradedToolHints,
+} from "./tool-health-hints";
 
 // Per-result excerpt budget (chars) requested from Parallel for research_web.
 // Keeps each source's excerpt short enough to fit several sources into the
@@ -1899,8 +1904,16 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		}),
 	};
 
-	return {
+	// Honest degradation: a backend the health registry currently reports as
+	// failing stays registered but its description warns the model, so a
+	// failure is narrated instead of hidden (cached snapshot only, no probes).
+	const hintedTools = applyDegradedToolHints(
 		tools,
+		collectDegradedToolHints(getCachedToolHealthSnapshot(), lang),
+	);
+
+	return {
+		tools: hintedTools,
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 	};
