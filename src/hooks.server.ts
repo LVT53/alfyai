@@ -27,6 +27,10 @@ import {
 	stopMemoryMaintenanceScheduler,
 } from "$lib/server/services/memory-maintenance";
 import { seedDefaultProviders } from "$lib/server/services/providers";
+import {
+	ensureRoutingRegionScheduler,
+	stopRoutingRegionScheduler,
+} from "$lib/server/services/routing/region-runtime";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -118,6 +122,7 @@ export const init: ServerInit = async () => {
 	);
 	ensureMemoryMaintenanceScheduler();
 	ensureMemoryConsolidationScheduler();
+	ensureRoutingRegionScheduler();
 	prewarmSandboxImageInBackground();
 	ensureFileProductionWorker().catch((error) =>
 		console.error("Failed to start file production worker:", error),
@@ -135,6 +140,7 @@ export const init: ServerInit = async () => {
 		console.log("[SHUTDOWN] Server closed, stopping background workers");
 		stopMemoryMaintenanceScheduler();
 		stopMemoryConsolidationScheduler();
+		stopRoutingRegionScheduler();
 		stopMemoryJudgeRunner();
 		// Give in-flight work (Atlas jobs, active responses) a grace period
 		// to complete naturally. systemd TimeoutStopSec=90 is the hard cap.

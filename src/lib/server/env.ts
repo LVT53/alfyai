@@ -121,6 +121,17 @@ interface Config {
 	// Shown to the model in the map_route description and in out-of-coverage
 	// failures so it can explain the limit instead of calling the tool "down".
 	orsCoverageLabel: string;
+	// On-demand routing coverage (region manager). See routing/region-manager.ts.
+	routingOnDemandEnabled: boolean;
+	routingRegionsDir: string;
+	routingOrsImage: string;
+	routingRegionXmx: string;
+	routingRegionPortRange: string;
+	routingRegionHostIp: string;
+	routingRegionIdleMinutes: number;
+	routingRegionMaxPbfMb: number;
+	routingGeocoderImportContainer: string;
+	routingLegacyRegionId: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -558,6 +569,27 @@ function readConfig(): Config {
 		orsBaseUrl: process.env.ORS_BASE_URL || "",
 		geocoderBaseUrl: process.env.GEOCODER_BASE_URL || "",
 		orsCoverageLabel: process.env.ORS_COVERAGE_LABEL || "",
+		routingOnDemandEnabled: process.env.ROUTING_ON_DEMAND_ENABLED === "true",
+		routingRegionsDir:
+			process.env.ROUTING_REGIONS_DIR || "./data/routing-regions",
+		routingOrsImage:
+			process.env.ROUTING_ORS_IMAGE ||
+			"openrouteservice/openrouteservice:latest",
+		routingRegionXmx: process.env.ROUTING_REGION_XMX || "12g",
+		routingRegionPortRange:
+			process.env.ROUTING_REGION_PORT_RANGE || "8300-8399",
+		routingRegionHostIp: process.env.ROUTING_REGION_HOST_IP || "127.0.0.1",
+		routingRegionIdleMinutes: Math.max(
+			5,
+			parseInt(process.env.ROUTING_REGION_IDLE_MINUTES || "180", 10) || 180,
+		),
+		routingRegionMaxPbfMb: Math.max(
+			50,
+			parseInt(process.env.ROUTING_REGION_MAX_PBF_MB || "2500", 10) || 2500,
+		),
+		routingGeocoderImportContainer:
+			process.env.ROUTING_GEOCODER_IMPORT_CONTAINER || "",
+		routingLegacyRegionId: process.env.ROUTING_LEGACY_REGION_ID || "hungary",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",

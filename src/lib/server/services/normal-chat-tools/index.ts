@@ -15,6 +15,8 @@ import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
+import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
+import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
 import {
 	buildGroundedWebModelPayload,
@@ -171,6 +173,10 @@ export interface CreateNormalChatToolsContext {
 	// hasLocalDistillEnabled(userId)). Falls back to "model1" (local) when
 	// omitted, which matches today's behavior for callers not yet updated.
 	modelId?: string;
+	// Names of the routing regions currently ready (on-demand coverage), used
+	// in the map_route description. Computed upstream (createToolPack) because
+	// tool construction is synchronous; omitted when on-demand routing is off.
+	routingCoverageLabel?: string;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -368,15 +374,24 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// so an unconfigured deployment omits it entirely (mirrors the Parallel gate).
 	// The tool ALSO degrades in-band (returns "routing unavailable") if a call
 	// fails, but the gate keeps it out of the tool set when there's no server.
-	const orsConfigured = Boolean(registrationConfig.orsBaseUrl?.trim());
-	// Tell the model up front which region the self-hosted graph covers, so it
-	// does not burn tool steps routing outside it (and can explain why).
-	const orsCoverageLabel = registrationConfig.orsCoverageLabel?.trim() ?? "";
+	const orsConfigured =
+		Boolean(registrationConfig.orsBaseUrl?.trim()) ||
+		registrationConfig.routingOnDemandEnabled;
+	// Tell the model up front which regions the self-hosted graphs cover (and
+	// whether others are prepared on demand), so it does not burn tool steps
+	// routing outside coverage and can explain a "preparing" answer.
+	const orsCoverageLabel = registrationConfig.routingOnDemandEnabled
+		? (ctx.routingCoverageLabel?.trim() ?? "")
+		: (registrationConfig.orsCoverageLabel?.trim() ?? "");
 	const mapRouteDescription = orsCoverageLabel
 		? `${i18n.map_route.description} ${
-				lang === "hu"
-					? `FONTOS: az útvonaltervező térképadatai CSAK ezt a régiót fedik le: ${orsCoverageLabel}. Ezen kívüli helyekre ne hívd útvonalhoz/mátrixhoz/izokronhoz — mondd ki, hogy a hely kívül esik az útvonaltervezés lefedettségén, és ne becsülj.`
-					: `IMPORTANT: the routing map data on this server covers ONLY ${orsCoverageLabel}. Do not call route/matrix/isochrone for places outside it — say the location is outside the routing coverage instead, and do not estimate.`
+				registrationConfig.routingOnDemandEnabled
+					? lang === "hu"
+						? `LEFEDETTSÉG: jelenleg betöltött régiók: ${orsCoverageLabel}. Más régiók térképadatát a szerver első használatkor igény szerint letölti és felépíti (10–40 perc); ha az eszköz azt jelzi, hogy egy régió előkészítés alatt áll, mondd el a felhasználónak, hogy kérdezzen rá később, és ne becsülj.`
+						: `COVERAGE: regions loaded right now: ${orsCoverageLabel}. Other regions are downloaded and built on demand the first time they are needed (10–40 minutes); if the tool reports a region is being prepared, tell the user to ask again later and do not estimate.`
+					: lang === "hu"
+						? `FONTOS: az útvonaltervező térképadatai CSAK ezt a régiót fedik le: ${orsCoverageLabel}. Ezen kívüli helyekre ne hívd útvonalhoz/mátrixhoz/izokronhoz — mondd ki, hogy a hely kívül esik az útvonaltervezés lefedettségén, és ne becsülj.`
+						: `IMPORTANT: the routing map data on this server covers ONLY ${orsCoverageLabel}. Do not call route/matrix/isochrone for places outside it — say the location is outside the routing coverage instead, and do not estimate.`
 			}`
 		: i18n.map_route.description;
 	const includeFilesTool = Boolean(
@@ -1773,20 +1788,45 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async (abortSignal) => {
-										const { orsBaseUrl, geocoderBaseUrl, orsCoverageLabel } =
-											getConfig();
-										const provider = createOrsProvider(
-											{
-												orsBaseUrl,
-												geocoderBaseUrl,
-												coverageLabel: orsCoverageLabel,
-											},
-											{
-												fetch,
-												signal: abortSignal,
-												timeoutMs: TOOL_TIMEOUTS_MS.map_route,
-											},
-										);
+										const {
+											orsBaseUrl,
+											geocoderBaseUrl,
+											orsCoverageLabel,
+											routingOnDemandEnabled,
+										} = getConfig();
+										const providerDeps = {
+											fetch,
+											signal: abortSignal,
+											timeoutMs: TOOL_TIMEOUTS_MS.map_route,
+										};
+										const provider = routingOnDemandEnabled
+											? await (async () => {
+													const manager = getRoutingRegionManager();
+													const ready = await manager.listReadyRegions();
+													return createRegionalRoutingProvider({
+														manager,
+														onDemandEnabled: true,
+														requestedBy: ctx.userId ?? null,
+														readyRegionNames: ready.map((row) => row.name),
+														geocoder: createOrsProvider(
+															{ orsBaseUrl, geocoderBaseUrl },
+															providerDeps,
+														),
+														createProvider: (baseUrl) =>
+															createOrsProvider(
+																{ orsBaseUrl: baseUrl, geocoderBaseUrl },
+																providerDeps,
+															),
+													});
+												})()
+											: createOrsProvider(
+													{
+														orsBaseUrl,
+														geocoderBaseUrl,
+														coverageLabel: orsCoverageLabel,
+													},
+													providerDeps,
+												);
 										const { modelPayload, candidates } = await runRoutingTool(
 											safeInput,
 											{ provider },

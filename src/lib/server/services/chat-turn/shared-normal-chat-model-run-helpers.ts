@@ -1,6 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import type { RuntimeConfig } from "$lib/server/config-store";
+import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import {
 	runNormalChatDeliberationPasses,
@@ -334,6 +334,23 @@ export async function prepareOutboundContext(
 	});
 }
 
+// Ready on-demand routing regions, for the map_route description. Fails open
+// (no label) so a region-manager hiccup never blocks a turn.
+async function resolveRoutingCoverageLabel(): Promise<string | null> {
+	if (!getConfig().routingOnDemandEnabled) return null;
+	try {
+		const { getRoutingRegionManager } = await import(
+			"$lib/server/services/routing/region-runtime"
+		);
+		const ready = await getRoutingRegionManager().listReadyRegions();
+		return ready.length > 0
+			? ready.map((row) => row.name).join(", ")
+			: "none yet";
+	} catch {
+		return null;
+	}
+}
+
 export async function createToolPack(
 	params: NormalChatSendModelBaseParams,
 	turnId: string,
@@ -341,6 +358,7 @@ export async function createToolPack(
 	modelId: ModelId,
 	enabledConnectionCapabilities: Set<Capability>,
 ): Promise<ToolPack> {
+	const routingCoverageLabel = await resolveRoutingCoverageLabel();
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -348,6 +366,7 @@ export async function createToolPack(
 		language: detectLanguage(params.message),
 		enabledConnectionCapabilities,
 		modelId,
+		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

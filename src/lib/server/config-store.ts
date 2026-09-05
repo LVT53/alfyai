@@ -84,6 +84,16 @@ export const ADMIN_CONFIG_KEYS = [
 	"ORS_BASE_URL",
 	"GEOCODER_BASE_URL",
 	"ORS_COVERAGE_LABEL",
+	"ROUTING_ON_DEMAND_ENABLED",
+	"ROUTING_REGIONS_DIR",
+	"ROUTING_ORS_IMAGE",
+	"ROUTING_REGION_XMX",
+	"ROUTING_REGION_PORT_RANGE",
+	"ROUTING_REGION_HOST_IP",
+	"ROUTING_REGION_IDLE_MINUTES",
+	"ROUTING_REGION_MAX_PBF_MB",
+	"ROUTING_GEOCODER_IMPORT_CONTAINER",
+	"ROUTING_LEGACY_REGION_ID",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -212,6 +222,16 @@ export interface RuntimeConfig {
 	orsBaseUrl: string;
 	geocoderBaseUrl: string;
 	orsCoverageLabel: string;
+	routingOnDemandEnabled: boolean;
+	routingRegionsDir: string;
+	routingOrsImage: string;
+	routingRegionXmx: string;
+	routingRegionPortRange: string;
+	routingRegionHostIp: string;
+	routingRegionIdleMinutes: number;
+	routingRegionMaxPbfMb: number;
+	routingGeocoderImportContainer: string;
+	routingLegacyRegionId: string;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -685,6 +705,43 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	ORS_COVERAGE_LABEL: (config, value) => {
 		config.orsCoverageLabel = value.trim();
 	},
+	ROUTING_ON_DEMAND_ENABLED: (config, value) => {
+		config.routingOnDemandEnabled = value.trim() === "true";
+	},
+	ROUTING_REGIONS_DIR: (config, value) => {
+		config.routingRegionsDir = value.trim() || "./data/routing-regions";
+	},
+	ROUTING_ORS_IMAGE: (config, value) => {
+		config.routingOrsImage =
+			value.trim() || "openrouteservice/openrouteservice:latest";
+	},
+	ROUTING_REGION_XMX: (config, value) => {
+		config.routingRegionXmx = value.trim() || "12g";
+	},
+	ROUTING_REGION_PORT_RANGE: (config, value) => {
+		config.routingRegionPortRange = value.trim() || "8300-8399";
+	},
+	ROUTING_REGION_HOST_IP: (config, value) => {
+		config.routingRegionHostIp = value.trim() || "127.0.0.1";
+	},
+	ROUTING_REGION_IDLE_MINUTES: (config, value) => {
+		const parsed = parseInt(value, 10);
+		if (Number.isFinite(parsed) && parsed >= 5) {
+			config.routingRegionIdleMinutes = parsed;
+		}
+	},
+	ROUTING_REGION_MAX_PBF_MB: (config, value) => {
+		const parsed = parseInt(value, 10);
+		if (Number.isFinite(parsed) && parsed >= 50) {
+			config.routingRegionMaxPbfMb = parsed;
+		}
+	},
+	ROUTING_GEOCODER_IMPORT_CONTAINER: (config, value) => {
+		config.routingGeocoderImportContainer = value.trim();
+	},
+	ROUTING_LEGACY_REGION_ID: (config, value) => {
+		config.routingLegacyRegionId = value.trim() || "hungary";
+	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
 	},
@@ -1157,6 +1214,16 @@ export function getResolvedAdminConfigValues(
 		ORS_BASE_URL: config.orsBaseUrl,
 		GEOCODER_BASE_URL: config.geocoderBaseUrl,
 		ORS_COVERAGE_LABEL: config.orsCoverageLabel,
+		ROUTING_ON_DEMAND_ENABLED: config.routingOnDemandEnabled ? "true" : "false",
+		ROUTING_REGIONS_DIR: config.routingRegionsDir,
+		ROUTING_ORS_IMAGE: config.routingOrsImage,
+		ROUTING_REGION_XMX: config.routingRegionXmx,
+		ROUTING_REGION_PORT_RANGE: config.routingRegionPortRange,
+		ROUTING_REGION_HOST_IP: config.routingRegionHostIp,
+		ROUTING_REGION_IDLE_MINUTES: String(config.routingRegionIdleMinutes),
+		ROUTING_REGION_MAX_PBF_MB: String(config.routingRegionMaxPbfMb),
+		ROUTING_GEOCODER_IMPORT_CONTAINER: config.routingGeocoderImportContainer,
+		ROUTING_LEGACY_REGION_ID: config.routingLegacyRegionId,
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",

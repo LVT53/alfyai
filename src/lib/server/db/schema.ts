@@ -2295,3 +2295,41 @@ export const connectionPendingWrites = sqliteTable(
 		).on(table.assistantMessageId, table.createdAt),
 	}),
 );
+
+// On-demand routing coverage (map_route). One row per Geofabrik extract the
+// region manager knows about: the legacy fixed ORS instance (managed = false,
+// never started/stopped by the app) and every region downloaded and built on
+// demand into its own OpenRouteService container.
+export const routingRegions = sqliteTable(
+	"routing_regions",
+	{
+		// Geofabrik region id, e.g. "hungary" or "bayern".
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		slug: text("slug").notNull(),
+		pbfUrl: text("pbf_url").notNull(),
+		// queued | downloading | building | ready | error
+		status: text("status").notNull().default("queued"),
+		managed: integer("managed", { mode: "boolean" }).notNull().default(true),
+		baseUrl: text("base_url"),
+		hostPort: integer("host_port"),
+		containerName: text("container_name"),
+		pbfSizeBytes: integer("pbf_size_bytes"),
+		// none | queued | importing | ready | error
+		geocoderStatus: text("geocoder_status").notNull().default("none"),
+		error: text("error"),
+		requestedBy: text("requested_by"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+		readyAt: integer("ready_at", { mode: "timestamp" }),
+	},
+	(table) => [
+		uniqueIndex("routing_regions_slug_unique").on(table.slug),
+		index("routing_regions_status_idx").on(table.status),
+	],
+);

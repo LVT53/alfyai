@@ -1,0 +1,36 @@
+# Filtered Docker API for the AlfyAI app user.
+#
+# The file-production sandbox and the routing region manager need to create,
+# start, stop, exec into and remove containers and pull images. Instead of
+# putting the app user in the docker group (root-equivalent), this proxy
+# exposes only those API sections on 127.0.0.1:2375; the app reaches it via
+# DOCKER_HOST=tcp://127.0.0.1:2375 in shared/.env. Everything else (volumes,
+# networks, swarm, system, build …) is denied by the proxy.
+[Unit]
+Description=AlfyAI Docker socket proxy (127.0.0.1:2375, filtered API for the app user)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f alfyai-docker-proxy
+ExecStart=/usr/bin/docker run --rm --name alfyai-docker-proxy \
+  --log-driver=none --cap-drop=ALL \
+  -p 127.0.0.1:2375:2375 \
+  -e LOG_LEVEL=warning \
+  -e PING=1 -e VERSION=1 -e INFO=1 \
+  -e CONTAINERS=1 -e IMAGES=1 -e EXEC=1 -e POST=1 -e DELETE=1 \
+  -e ALLOW_START=1 -e ALLOW_STOP=1 -e ALLOW_RESTARTS=1 \
+  -e NETWORKS=0 -e VOLUMES=0 -e SERVICES=0 -e SWARM=0 -e SYSTEM=0 -e BUILD=0 \
+  -e COMMIT=0 -e CONFIGS=0 -e NODES=0 -e PLUGINS=0 -e SECRETS=0 -e TASKS=0 \
+  -e AUTH=0 -e DISTRIBUTION=0 -e SESSION=0 \
+  --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock,ro \
+  --tmpfs=/var/lib/haproxy:rw,noexec,nosuid,size=128m \
+  --tmpfs=/run:rw,noexec,nosuid,size=128m \
+  ghcr.io/tecnativa/docker-socket-proxy:v0.5.0
+ExecStop=-/usr/bin/docker rm -f alfyai-docker-proxy
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -202,6 +202,15 @@ function providerFailureMessage(
 	if (outcome.reason === "no_route") {
 		return `I couldn't compute ${what}: the routing engine found no path between those points (${outcome.message}). Say no route could be found; do NOT estimate one from memory.`;
 	}
+	if (outcome.reason === "region_preparing") {
+		return `I couldn't compute ${what} yet: ${outcome.message} Tell the user the routing data for that area is being prepared on this server and to ask again later; do NOT estimate a distance, ETA, or route from memory.`;
+	}
+	if (outcome.reason === "multi_region") {
+		return `I couldn't compute ${what}: ${outcome.message} Say that cross-region routing is not supported here; do NOT estimate.`;
+	}
+	if (outcome.reason === "region_unavailable") {
+		return `I couldn't compute ${what}: ${outcome.message} Say the location is outside the routing coverage; do NOT estimate.`;
+	}
 	return `I couldn't compute ${what} right now — the routing service is unavailable.`;
 }
 

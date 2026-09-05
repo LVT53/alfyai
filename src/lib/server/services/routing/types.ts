@@ -119,6 +119,14 @@ export type RoutingFailureReason =
 	// Both points snapped, but no path exists between them in the graph
 	// (islands, disconnected components, profile restrictions).
 	| "no_route"
+	// On-demand coverage: the region covering the points is still being
+	// downloaded / built / started. Not an outage — ask again later.
+	| "region_preparing"
+	// The points span more than one map region; single-region routing only.
+	| "multi_region"
+	// The region cannot be served (too large for the cap, on-demand disabled,
+	// or its build failed).
+	| "region_unavailable"
 	// Network error, non-2xx, malformed body, or timeout from the upstream.
 	| "provider_error";
 

@@ -1,0 +1,33 @@
+# Self-hosted Nominatim geocoder for the map_route tool (GEOCODER_BASE_URL).
+#
+# First start imports the extract in PBF_PATH (Hungary here; 20-60 minutes),
+# later starts reuse the database in the nominatim-data volume. The routing
+# regions directory is mounted read-only at /regions so the app can
+# `nominatim add-data` each on-demand region into the same database
+# (ROUTING_GEOCODER_IMPORT_CONTAINER=nominatim).
+[Unit]
+Description=Nominatim geocoder (self-hosted, 127.0.0.1:8089) for AlfyAI map_route
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f nominatim
+ExecStart=/usr/bin/docker run --rm --name nominatim \
+  -p 127.0.0.1:8089:8080 \
+  -e PBF_PATH=/nominatim/data/hungary-latest.osm.pbf \
+  -e IMPORT_WIKIPEDIA=false \
+  -e THREADS=8 \
+  -e NOMINATIM_PASSWORD=alfyai-nominatim-local \
+  -v /opt/openrouteservice/files/hungary-latest.osm.pbf:/nominatim/data/hungary-latest.osm.pbf:ro \
+  -v /home/services/routing-regions:/regions:ro \
+  -v nominatim-data:/var/lib/postgresql/16/main \
+  -v nominatim-flatnode:/nominatim/flatnode \
+  --shm-size=2g \
+  mediagis/nominatim:5.1
+ExecStop=-/usr/bin/docker rm -f nominatim
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
