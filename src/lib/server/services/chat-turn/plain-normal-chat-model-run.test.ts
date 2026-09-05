@@ -474,11 +474,6 @@ describe("runPlainNormalChatSendModel", () => {
 				thinkingMode: "on",
 				reasoningEffort: "medium",
 			},
-			outputTokens: {
-				effectiveMaxTokens: 1900,
-				outputReserve: 1900,
-				clamped: true,
-			},
 			tools: {
 				maxToolSteps: 22,
 				maxWebSources: 8,

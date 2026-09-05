@@ -33,6 +33,11 @@ export interface DepthSelectionSignals {
 	toolUse?: DepthToolUse;
 }
 
+// A depth profile only shapes provider reasoning and the tool/source budget.
+// Messages persisted before that simplification may still carry the retired
+// `outputTokens` / `context` blocks (and "output_room" / "context_room"
+// entries in `dimensions`); readers must treat every block here as optional
+// and ignore unknown keys rather than assume the old shape.
 export interface DepthAppliedEffortMetadata {
 	dimensions: string[];
 	providerReasoning?: {
@@ -40,19 +45,6 @@ export interface DepthAppliedEffortMetadata {
 		reasoningEffort?: string;
 		supported: boolean;
 		constrained: boolean;
-	};
-	outputTokens?: {
-		configuredMaxTokens: number | null;
-		targetMaxTokens: number | null;
-		effectiveMaxTokens?: number | null;
-		outputReserve?: number;
-		clamped: boolean;
-	};
-	context?: {
-		maxModelContext: number;
-		configuredTargetConstructedContext: number;
-		targetConstructedContext: number;
-		clamped: boolean;
 	};
 	tools?: {
 		maxToolSteps: number;

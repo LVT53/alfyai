@@ -93,20 +93,12 @@ function effort(
 			appliedEffort: {
 				dimensions: [
 					"provider_reasoning",
-					"output_room",
-					"context_room",
 					"grounding_guidance",
 					"tool_steps",
 					"source_budget",
 				],
 			},
 		},
-		contextLimits: {
-			maxModelContext: 10_000,
-			targetConstructedContext: 8_000,
-			compactionUiThreshold: 7_000,
-		},
-		modelMaxOutputTokens: 4096,
 		providerReasoning: {
 			thinkingMode: "on",
 			supported: true,

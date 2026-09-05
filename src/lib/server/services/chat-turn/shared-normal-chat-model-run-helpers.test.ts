@@ -1,15 +1,48 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
-import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type {
+	DepthAppliedProfile,
+	DepthMetadata,
+} from "$lib/server/services/chat-turn/depth-metadata-types";
+import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
+
+const mocks = vi.hoisted(() => ({
+	prepareOutboundChatContext: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/normal-chat-context")
+		>();
+	return {
+		...actual,
+		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+	};
+});
+
 import {
 	type ClarificationDecision,
 	type DepthEffort,
 	evaluateClarification,
+	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolvePromptContextLimits,
+	resolveProviderRuntime,
 } from "./shared-normal-chat-model-run-helpers";
 
 const runtimeConfig = {
+	systemPrompt: "",
+	model1: {
+		baseUrl: "https://openai-compatible.example/v1",
+		apiKey: "model-1-secret",
+		modelName: "gpt-4.1",
+		displayName: "Model One",
+		systemPrompt: "You are a helpful assistant.",
+		maxTokens: 2048,
+		reasoningEffort: "high",
+		thinkingType: null,
+	},
 	model1MaxModelContext: 1_000_000,
 	model1CompactionUiThreshold: 800_000,
 	model1TargetConstructedContext: 900_000,
@@ -73,15 +106,13 @@ const baseDepthMetadata: DepthMetadata = {
 // as long as the types line up; cast through unknown to satisfy the type.
 const sampleDepthEffort = {
 	depthMetadata: baseDepthMetadata,
-	contextLimits: {
-		maxModelContext: 100_000,
-		compactionUiThreshold: 80_000,
-		targetConstructedContext: 90_000,
-	},
-	modelMaxOutputTokens: 4096,
 	webSourceBudget: { maxSources: 12, sourceExpansion: true },
 	maxToolSteps: 28,
-	depthProfile: { outputTokens: {}, grounding: {}, tools: {} },
+	grounding: {
+		guidance: "strict",
+		externalEvidence: "required",
+		forceWebSearch: false,
+	},
 } as unknown as NonNullable<DepthEffort>;
 
 describe("resolveActiveDepthEffort", () => {
@@ -102,7 +133,7 @@ describe("resolveActiveDepthEffort", () => {
 		const result = resolveActiveDepthEffort(sampleDepthEffort, clarification);
 		expect(result).not.toBeNull();
 		expect(result?.depthMetadata.appliedProfile).toBe("extended");
-		expect(result?.modelMaxOutputTokens).toBe(4096);
+		expect(result?.maxToolSteps).toBe(28);
 		expect(result?.webSourceBudget).toEqual({
 			maxSources: 12,
 			sourceExpansion: true,
@@ -165,5 +196,116 @@ describe("evaluateClarification", () => {
 		if (decision.action === "ask") {
 			expect(decision.text).toContain(askQuestion);
 		}
+	});
+});
+
+// --- Depth profiles must not touch per-model budgets ---
+//
+// A reasoning-depth profile controls provider reasoning and the tool/source
+// budget only. The constructed-context target and the model's max output
+// tokens handed to context preparation are fixed per model and must be
+// byte-identical across all four profiles (and independent of the breadth /
+// output-room signals the classifier attaches).
+
+describe("depth profiles keep per-model context and output budgets fixed", () => {
+	const overrideProvider: NormalChatModelRunProvider = {
+		id: "provider-1",
+		name: "fireworks",
+		displayName: "Fireworks",
+		baseUrl: "https://api.fireworks.ai/inference/v1",
+		modelName: "gpt-4.1",
+		apiKey: "provider-secret",
+		maxOutputTokens: 4096,
+		maxModelContext: 200_000,
+		reasoningEffort: "high",
+	};
+	const profiles: DepthAppliedProfile[] = [
+		"off",
+		"standard",
+		"extended",
+		"maximum",
+	];
+
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+	});
+
+	it("passes identical context limits and max output tokens to context prep for every profile", async () => {
+		const seen: Array<{
+			profile: DepthAppliedProfile;
+			maxTokens: number | null | undefined;
+			contextLimits: unknown;
+			maxToolSteps: number;
+		}> = [];
+
+		for (const profile of profiles) {
+			const params = {
+				userId: "user-1",
+				runtimeConfig,
+				message: "Compare every option and write a full report.",
+				conversationId: "conv-1",
+				modelId: "provider:provider-1:gpt-4.1" as const,
+				overrideProvider,
+				depthMetadata: {
+					requested: profile === "maximum" ? "max" : "auto",
+					appliedProfile: profile,
+					fallback: false,
+					signals: {
+						groundingNeed: "required",
+						contextBreadth: profile === "off" ? "narrow" : "broad",
+						outputRoom: profile === "off" ? "concise" : "expanded",
+						toolUse: "source_heavy",
+					},
+				} satisfies DepthMetadata,
+			};
+			const runtime = await resolveProviderRuntime(params);
+			const activeDepthEffort = resolveActiveDepthEffort(runtime.depthEffort, {
+				action: "proceed",
+				depthMetadata: params.depthMetadata,
+			});
+			expect(activeDepthEffort).not.toBeNull();
+			if (!activeDepthEffort) throw new Error("expected active depth effort");
+
+			await prepareOutboundContext(
+				params,
+				runtime,
+				activeDepthEffort,
+				new Set(),
+			);
+			const call = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+			seen.push({
+				profile,
+				maxTokens: call.modelConfig.maxTokens,
+				contextLimits: call.contextLimits,
+				maxToolSteps: call.reasoningDepthEffort.maxToolSteps,
+			});
+		}
+
+		const expectedContextLimits = resolvePromptContextLimits({
+			modelId: "provider:provider-1:gpt-4.1",
+			provider: overrideProvider,
+			runtimeConfig,
+		});
+		for (const entry of seen) {
+			expect(entry.maxTokens).toBe(4096);
+			expect(entry.contextLimits).toEqual(expectedContextLimits);
+		}
+		expect(new Set(seen.map((entry) => entry.maxTokens)).size).toBe(1);
+		expect(
+			new Set(seen.map((entry) => JSON.stringify(entry.contextLimits))).size,
+		).toBe(1);
+		// Depth still reaches context prep through the tool budget.
+		expect(seen.map((entry) => entry.maxToolSteps)).toEqual(
+			[...seen.map((entry) => entry.maxToolSteps)].sort((a, b) => a - b),
+		);
+		expect(seen[0]?.maxToolSteps).toBeLessThan(seen.at(-1)?.maxToolSteps ?? 0);
 	});
 });

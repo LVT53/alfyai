@@ -1,12 +1,10 @@
 import { isModelCapabilityUnsupported } from "$lib/model-capabilities";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type {
-	DepthAppliedEffortMetadata,
 	DepthAppliedProfile,
 	DepthMetadata,
 	DepthSelectionSignals,
 } from "$lib/server/services/chat-turn/depth-metadata-types";
-import type { PromptContextLimits } from "$lib/server/services/normal-chat-context";
 import {
 	buildNormalChatModelRunProviderOptions,
 	type NormalChatModelRunProvider,
@@ -35,10 +33,16 @@ export type ReasoningDepthWebSourceBudget = {
 	sourceExpansion: boolean;
 };
 
+// A depth profile controls exactly two things: how hard the provider reasons
+// (thinking mode / reasoning effort) and how much tool work the turn may do
+// (tool steps + web-source budget, plus the grounding guidance that shapes
+// it). It deliberately does NOT touch the constructed-context target or the
+// output-token reserve — those are fixed per model (resolvePromptContextLimits
+// / modelConfig.maxTokens, subject only to the hard clamps in
+// normal-chat-context.ts and context-budget.ts) and identical across all four
+// profiles.
 export type ReasoningDepthEffort = {
 	depthMetadata: DepthMetadata;
-	contextLimits: PromptContextLimits;
-	modelMaxOutputTokens: number | null;
 	providerReasoning: ReasoningDepthProviderReasoning;
 	maxToolSteps: number;
 	webSourceBudget: ReasoningDepthWebSourceBudget;
@@ -59,20 +63,6 @@ const REASONING_EFFORT_ORDER: ReasoningEffort[] = [
 	"xhigh",
 ];
 
-const PROFILE_OUTPUT_RATIO: Record<DepthAppliedProfile, number> = {
-	off: 0.45,
-	standard: 0.7,
-	extended: 0.9,
-	maximum: 1,
-};
-
-const PROFILE_CONTEXT_RATIO: Record<DepthAppliedProfile, number> = {
-	off: 0.55,
-	standard: 0.7,
-	extended: 0.9,
-	maximum: 1,
-};
-
 const PROFILE_TOOL_STEPS: Record<DepthAppliedProfile, number> = {
 	off: 8,
 	standard: 14,
@@ -90,8 +80,6 @@ const BASE_WEB_SOURCE_BUDGET: Record<DepthAppliedProfile, number> = {
 export function resolveReasoningDepthEffort(params: {
 	depthMetadata: DepthMetadata;
 	provider: NormalChatModelRunProvider;
-	baseContextLimits: PromptContextLimits;
-	configuredMaxOutputTokens?: number | null;
 	forceWebSearch?: boolean;
 }): ReasoningDepthEffort {
 	const profile = params.depthMetadata.appliedProfile;
@@ -108,16 +96,6 @@ export function resolveReasoningDepthEffort(params: {
 		externalEvidence !== "none";
 	const webSourceBudget = resolveWebSourceBudget(profile, sourceExpansion);
 	const maxToolSteps = PROFILE_TOOL_STEPS[profile] + (sourceExpansion ? 4 : 0);
-	const modelMaxOutputTokens = resolveModelMaxOutputTokens({
-		profile,
-		signals,
-		configuredMaxOutputTokens: params.configuredMaxOutputTokens,
-	});
-	const contextLimits = resolveContextLimits({
-		profile,
-		signals,
-		baseContextLimits: params.baseContextLimits,
-	});
 	const providerReasoning = resolveProviderReasoning({
 		profile,
 		provider: params.provider,
@@ -125,8 +103,6 @@ export function resolveReasoningDepthEffort(params: {
 	});
 	const dimensions = [
 		"provider_reasoning",
-		"output_room",
-		"context_room",
 		"grounding_guidance",
 		"tool_steps",
 		"source_budget",
@@ -138,22 +114,6 @@ export function resolveReasoningDepthEffort(params: {
 			appliedEffort: {
 				dimensions,
 				providerReasoning,
-				outputTokens: {
-					configuredMaxTokens: normalizeConfiguredMaxTokens(
-						params.configuredMaxOutputTokens,
-					),
-					targetMaxTokens: modelMaxOutputTokens,
-					clamped: false,
-				},
-				context: {
-					maxModelContext: params.baseContextLimits.maxModelContext,
-					configuredTargetConstructedContext:
-						params.baseContextLimits.targetConstructedContext,
-					targetConstructedContext: contextLimits.targetConstructedContext,
-					clamped:
-						contextLimits.targetConstructedContext !==
-						params.baseContextLimits.targetConstructedContext,
-				},
 				tools: {
 					maxToolSteps,
 					maxWebSources: webSourceBudget.maxSources,
@@ -168,8 +128,6 @@ export function resolveReasoningDepthEffort(params: {
 				...(clamps.length > 0 ? { clamps } : {}),
 			},
 		},
-		contextLimits,
-		modelMaxOutputTokens,
 		providerReasoning,
 		maxToolSteps,
 		webSourceBudget,
@@ -197,40 +155,6 @@ export function buildReasoningDepthProviderOptions(
 		effectiveProvider,
 		effort.providerReasoning.thinkingMode,
 	);
-}
-
-export function withReasoningDepthPreparedBudget(
-	effort: ReasoningDepthEffort,
-	outputTokenBudget?: {
-		effectiveMaxTokens: number | null;
-		outputReserve: number;
-		outputReserveClamped: boolean;
-	},
-): DepthMetadata {
-	const appliedEffort = effort.depthMetadata.appliedEffort;
-	if (!appliedEffort?.outputTokens || !outputTokenBudget) {
-		return effort.depthMetadata;
-	}
-	const clamps = mergeUnique(
-		appliedEffort.clamps,
-		outputTokenBudget.outputReserveClamped
-			? ["output_reserve_clamped_to_context"]
-			: [],
-	);
-	const nextAppliedEffort: DepthAppliedEffortMetadata = {
-		...appliedEffort,
-		outputTokens: {
-			...appliedEffort.outputTokens,
-			effectiveMaxTokens: outputTokenBudget.effectiveMaxTokens,
-			outputReserve: outputTokenBudget.outputReserve,
-			clamped: outputTokenBudget.outputReserveClamped,
-		},
-		...(clamps.length > 0 ? { clamps } : {}),
-	};
-	return {
-		...effort.depthMetadata,
-		appliedEffort: nextAppliedEffort,
-	};
 }
 
 function resolveExternalEvidence(params: {
@@ -278,52 +202,6 @@ function resolveWebSourceBudget(
 	return {
 		maxSources: BASE_WEB_SOURCE_BUDGET[profile],
 		sourceExpansion: false,
-	};
-}
-
-function resolveModelMaxOutputTokens(params: {
-	profile: DepthAppliedProfile;
-	signals: DepthSelectionSignals;
-	configuredMaxOutputTokens?: number | null;
-}): number | null {
-	const configured = normalizeConfiguredMaxTokens(
-		params.configuredMaxOutputTokens,
-	);
-	if (configured === null) return null;
-	const ratio = clampRatio(
-		PROFILE_OUTPUT_RATIO[params.profile] +
-			(params.signals.outputRoom === "expanded"
-				? 0.1
-				: params.signals.outputRoom === "concise"
-					? -0.15
-					: 0),
-	);
-	return Math.max(1, Math.min(configured, Math.floor(configured * ratio)));
-}
-
-function resolveContextLimits(params: {
-	profile: DepthAppliedProfile;
-	signals: DepthSelectionSignals;
-	baseContextLimits: PromptContextLimits;
-}): PromptContextLimits {
-	const ratio = clampRatio(
-		PROFILE_CONTEXT_RATIO[params.profile] +
-			(params.signals.contextBreadth === "broad"
-				? 0.1
-				: params.signals.contextBreadth === "narrow"
-					? -0.15
-					: 0),
-	);
-	const targetConstructedContext = Math.max(
-		1,
-		Math.min(
-			params.baseContextLimits.targetConstructedContext,
-			Math.floor(params.baseContextLimits.targetConstructedContext * ratio),
-		),
-	);
-	return {
-		...params.baseContextLimits,
-		targetConstructedContext,
 	};
 }
 
@@ -405,21 +283,4 @@ function requestedReasoningEffort(
 
 function reasoningEffortRank(effort: ReasoningEffort): number {
 	return Math.max(0, REASONING_EFFORT_ORDER.indexOf(effort));
-}
-
-function normalizeConfiguredMaxTokens(value: number | null | undefined) {
-	return typeof value === "number" && Number.isFinite(value) && value >= 1
-		? Math.floor(value)
-		: null;
-}
-
-function clampRatio(value: number): number {
-	return Math.max(0.1, Math.min(1, value));
-}
-
-function mergeUnique(
-	existing: string[] | undefined,
-	additions: string[],
-): string[] {
-	return Array.from(new Set([...(existing ?? []), ...additions]));
 }

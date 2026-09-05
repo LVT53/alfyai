@@ -8,10 +8,7 @@ import {
 	verifyAndRepairDeliberatedFinalAnswer,
 } from "$lib/server/services/chat-turn/deliberation-runner";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
-import {
-	buildReasoningDepthProviderOptions,
-	withReasoningDepthPreparedBudget,
-} from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import { buildReasoningDepthProviderOptions } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
 	type ActiveDepthEffort,
 	type ClarificationDecision,
@@ -338,14 +335,7 @@ function buildRunResult(
 		modelDisplayName: result.model.displayName,
 		resolvedProviderId: result.model.providerId,
 		depthMetadata: activeDepthEffort
-			? withReasoningDepthPreparedBudget(
-					{
-						...activeDepthEffort,
-						depthMetadata:
-							deliberation?.depthMetadata ?? activeDepthEffort.depthMetadata,
-					},
-					prepared.outputTokenBudget,
-				)
+			? (deliberation?.depthMetadata ?? activeDepthEffort.depthMetadata)
 			: clarification.depthMetadata,
 	};
 }

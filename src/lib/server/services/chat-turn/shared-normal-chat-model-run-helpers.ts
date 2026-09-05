@@ -256,8 +256,6 @@ export async function resolveProviderRuntime(
 		? resolveReasoningDepthEffort({
 				depthMetadata: params.depthMetadata,
 				provider,
-				baseContextLimits,
-				configuredMaxOutputTokens: modelConfig.maxTokens,
 				forceWebSearch: params.forceWebSearch,
 			})
 		: null;
@@ -301,15 +299,14 @@ export async function prepareOutboundContext(
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
 ): Promise<PreparedModelContext> {
+	// The model's configured max output tokens and context limits are passed
+	// through untouched: reasoning depth never shrinks the output reserve or
+	// the constructed-context target (those are fixed per model). Depth only
+	// reaches context prep via `reasoningDepthEffort` (guidance + tool budget).
 	return prepareOutboundChatContext({
 		message: params.message,
 		sessionId: params.conversationId,
-		modelConfig: activeDepthEffort
-			? {
-					...runtime.modelConfig,
-					maxTokens: activeDepthEffort.modelMaxOutputTokens,
-				}
-			: runtime.modelConfig,
+		modelConfig: runtime.modelConfig,
 		user: params.user,
 		attachmentIds: params.attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
@@ -324,8 +321,7 @@ export async function prepareOutboundContext(
 				forceProduceFileTool: params.forceProduceFileTool,
 			}),
 		modelId: runtime.modelId,
-		contextLimits:
-			activeDepthEffort?.contextLimits ?? runtime.baseContextLimits,
+		contextLimits: runtime.baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		onContextPreparationActivity:
