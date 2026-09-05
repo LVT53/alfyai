@@ -435,3 +435,65 @@ describe("routing region manager — legacy seed backfill", () => {
 		}
 	});
 });
+
+describe("routing region manager — download retries", () => {
+	it("retries a transient 5xx and then succeeds", async () => {
+		const memory = createInMemoryDatabase();
+		const dir = mkdtempSync(join(tmpdir(), "alfyai-regions-"));
+		const docker = fakeDocker();
+		const good = fakeFetch(docker);
+		let failures = 2;
+		const flaky = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				const url = String(input);
+				if (
+					url.endsWith(".osm.pbf") &&
+					init?.method !== "HEAD" &&
+					failures > 0
+				) {
+					failures -= 1;
+					return new Response("bad gateway", { status: 502 });
+				}
+				return good(input, init);
+			},
+		);
+		try {
+			const m = createRoutingRegionManager(
+				{
+					enabled: true,
+					regionsDir: dir,
+					orsImage: "img",
+					xmx: "4g",
+					portRange: { start: 8300, end: 8301 },
+					hostIp: "127.0.0.1",
+					idleMinutes: 60,
+					maxPbfBytes: 10 * 1048576,
+					buildTimeoutMs: 60_000,
+					startTimeoutMs: 1000,
+					geocoderImportContainer: "",
+					geocoderRegionsMount: "/regions",
+					legacy: null,
+				},
+				{
+					db: memory.db,
+					docker,
+					fetch: flaky as unknown as typeof fetch,
+					loadIndex: async () => index,
+					now: () => 1_700_000_000_000,
+					sleep: async () => undefined,
+					log: () => undefined,
+				},
+			);
+			await m.ensureRegionForPoints([DUBLIN]);
+			await m.drain();
+			const row = (await m.listRegions()).find(
+				(r) => r.id === "ireland-and-northern-ireland",
+			);
+			expect(row?.status).toBe("ready");
+			expect(failures).toBe(0);
+		} finally {
+			memory.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});

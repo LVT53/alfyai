@@ -602,14 +602,44 @@ export function createRoutingRegionManager(
 		}
 	}
 
+	// Geofabrik's mirrors occasionally answer 5xx or drop a connection; retry
+	// transient failures with backoff before giving the region up as error.
+	async function fetchExtractWithRetry(url: string): Promise<Response> {
+		const delays = [5_000, 15_000, 45_000];
+		let lastError: Error = new Error("extract download failed");
+		for (let attempt = 0; attempt <= delays.length; attempt++) {
+			try {
+				const res = await deps.fetch(url, {
+					headers: { "user-agent": "AlfyAI" },
+				});
+				if (res.ok && res.body) return res;
+				lastError = new Error(
+					`extract download failed: ${res.status} ${res.statusText}`,
+				);
+				// Client errors are permanent (wrong URL, gone); do not retry.
+				if (res.status < 500 && res.status !== 429) throw lastError;
+			} catch (error) {
+				lastError = error instanceof Error ? error : new Error(String(error));
+				if (/download failed: 4\d\d/.test(lastError.message)) throw lastError;
+			}
+			if (attempt < delays.length) {
+				log("extract download retry", {
+					url,
+					attempt: attempt + 1,
+					error: lastError.message,
+				});
+				await sleep(delays[attempt]);
+			}
+		}
+		throw lastError;
+	}
+
 	async function downloadPbf(url: string, target: string): Promise<number> {
 		const part = `${target}.part`;
 		await rm(part, { force: true });
-		const res = await deps.fetch(url, { headers: { "user-agent": "AlfyAI" } });
-		if (!res.ok || !res.body) {
-			throw new Error(
-				`extract download failed: ${res.status} ${res.statusText}`,
-			);
+		const res = await fetchExtractWithRetry(url);
+		if (!res.body) {
+			throw new Error("extract download failed: empty body");
 		}
 		const expectedLength = Number(res.headers.get("content-length"));
 		if (
