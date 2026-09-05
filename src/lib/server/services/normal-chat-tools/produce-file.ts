@@ -4,7 +4,10 @@ import type { FileProductionIntakeResult } from "$lib/server/services/file-produ
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AsciiBarChart,
+	hasBarChars,
+	isBarOnlyCell,
 	parseAsciiBarChart,
+	parseNumericCell,
 } from "$lib/services/ascii-bar-chart";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
@@ -354,23 +357,32 @@ function normalizeDocumentSourceEnvelope(
 						text: `Generated file request: ${requestTitle}`,
 					},
 				];
-	const title =
+	const explicitTitle =
 		typeof documentSource.title === "string" &&
 		documentSource.title.trim().length > 0
-			? documentSource.title
-			: requestTitle;
-	const repaired = blocksSource.flatMap(repairDocumentSourceBlock);
+			? documentSource.title.trim()
+			: null;
+	const repaired = dedupeAdjacentCharts(
+		blocksSource.flatMap(repairDocumentSourceBlock),
+	);
 	// The report template already prints the document title; a leading H1 that
-	// repeats it would render the title twice.
+	// repeats it (or the request title) would render the title twice. When the
+	// model gave no title at all, the leading H1 IS the title.
 	const first = repaired[0];
-	const blocks =
+	const leadingH1 =
 		first &&
 		first.type === "heading" &&
 		Number(first.level) === 1 &&
 		typeof first.text === "string" &&
-		first.text.trim().toLowerCase() === title.trim().toLowerCase()
-			? repaired.slice(1)
-			: repaired;
+		first.text.trim().length > 0
+			? first.text.trim()
+			: null;
+	const title = explicitTitle ?? leadingH1 ?? requestTitle;
+	const dropLeadingH1 =
+		leadingH1 !== null &&
+		(titleKey(leadingH1) === titleKey(title) ||
+			titleKey(leadingH1) === titleKey(requestTitle));
+	const blocks = dropLeadingH1 ? repaired.slice(1) : repaired;
 	return {
 		...documentSource,
 		version: 1,
@@ -378,6 +390,40 @@ function normalizeDocumentSourceEnvelope(
 		title,
 		blocks,
 	};
+}
+
+// A bar-column table yields a chart, and the model's own ASCII copy of the
+// same numbers right after it yields another: keep one.
+function dedupeAdjacentCharts(
+	blocks: Record<string, unknown>[],
+): Record<string, unknown>[] {
+	const signature = (block: Record<string, unknown>): string | null => {
+		if (block.type !== "chart" || !Array.isArray(block.data)) return null;
+		const rows = block.data.filter(isRecord);
+		if (rows.length === 0) return null;
+		return JSON.stringify(
+			rows.map((row) => Object.values(row).map((value) => String(value))),
+		);
+	};
+	const result: Record<string, unknown>[] = [];
+	for (const block of blocks) {
+		const sig = signature(block);
+		if (
+			sig &&
+			result.slice(-2).some((previous) => signature(previous) === sig)
+		) {
+			continue;
+		}
+		result.push(block);
+	}
+	return result;
+}
+
+function titleKey(value: string): string {
+	return value
+		.normalize("NFKD")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 // Model-authored `documentSource` blocks are hand-built JSON, and small local
@@ -388,8 +434,12 @@ function normalizeDocumentSourceEnvelope(
 // — reconstructing the structure the model clearly intended instead of letting
 // it render as a run-on paragraph. Non-paragraph blocks (and paragraphs with
 // nothing to repair) pass through untouched.
-function repairDocumentSourceBlock(block: unknown): Record<string, unknown>[] {
-	if (!isRecord(block)) return [block as Record<string, unknown>];
+function repairDocumentSourceBlock(raw: unknown): Record<string, unknown>[] {
+	if (!isRecord(raw)) return [raw as Record<string, unknown>];
+	const block = coerceDocumentBlockShape(raw);
+	if (block.type === "table") return repairTableBlock(block);
+	if (block.type === "chart") return [fillChartBlockDefaults(block)];
+	if (block.type === "code") return repairCodeBlock(block);
 	if (block.type !== "paragraph" || typeof block.text !== "string")
 		return [block];
 	const text = block.text;
@@ -1079,6 +1129,338 @@ function asciiBarChartToBlock(chart: AsciiBarChart): Record<string, unknown> {
 			value: point.value,
 		})),
 	};
+}
+
+// ── Block shape repair (model-authored documentSource) ───────────
+
+const KNOWN_BLOCK_TYPES = new Set([
+	"heading",
+	"paragraph",
+	"list",
+	"sourceChips",
+	"callout",
+	"confidenceMarker",
+	"basisMarker",
+	"code",
+	"quote",
+	"divider",
+	"table",
+	"chart",
+	"image",
+	"pageBreak",
+]);
+
+const NESTED_BLOCK_KEYS = [
+	"chart",
+	"table",
+	"callout",
+	"code",
+	"list",
+	"heading",
+	"paragraph",
+] as const;
+
+// Models drop `type`, invent aliases ("h2", "bullets", "bar_chart"), or nest
+// the block under its own name ({ "chart": { ... } }). Recover the intended
+// block instead of failing the whole document with unsupported_document_block.
+function coerceDocumentBlockShape(
+	block: Record<string, unknown>,
+): Record<string, unknown> {
+	if (typeof block.type === "string" && KNOWN_BLOCK_TYPES.has(block.type)) {
+		return block;
+	}
+	const keys = Object.keys(block).filter((key) => key !== "type");
+	for (const key of NESTED_BLOCK_KEYS) {
+		if (keys.length === 1 && keys[0] === key && isRecord(block[key])) {
+			return coerceDocumentBlockShape({
+				type: key,
+				...(block[key] as Record<string, unknown>),
+			});
+		}
+	}
+	const alias =
+		typeof block.type === "string" ? block.type.trim().toLowerCase() : "";
+	const headingLevel = /^h([1-6])$/.exec(alias);
+	if (headingLevel) {
+		return { ...block, type: "heading", level: Number(headingLevel[1]) };
+	}
+	switch (alias) {
+		case "header":
+		case "title":
+		case "subheading":
+			return { ...block, type: "heading", level: block.level ?? 2 };
+		case "text":
+		case "p":
+		case "para":
+		case "body":
+			return { ...block, type: "paragraph" };
+		case "bullets":
+		case "bullet_list":
+		case "bulletlist":
+		case "ul":
+			return { ...block, type: "list", style: "bullet" };
+		case "ol":
+		case "numbered":
+		case "numbered_list":
+		case "numberedlist":
+			return { ...block, type: "list", style: "numbered" };
+		case "graph":
+		case "barchart":
+		case "bar_chart":
+		case "bar":
+		case "linechart":
+		case "line_chart":
+		case "piechart":
+		case "pie_chart":
+			return {
+				...block,
+				type: "chart",
+				chartType:
+					block.chartType ??
+					(alias.startsWith("line")
+						? "line"
+						: alias.startsWith("pie")
+							? "pie"
+							: "bar"),
+			};
+		case "hr":
+		case "rule":
+		case "separator":
+			return { type: "divider" };
+		case "note":
+		case "tip":
+		case "warning":
+		case "info":
+		case "important":
+			return { ...block, type: "callout", tone: block.tone ?? alias };
+		case "codeblock":
+		case "code_block":
+		case "pre":
+			return { ...block, type: "code" };
+		case "blockquote":
+			return { ...block, type: "quote" };
+		default:
+			break;
+	}
+	// No usable type: infer from shape.
+	if (Array.isArray(block.columns) && Array.isArray(block.rows)) {
+		return { ...block, type: "table" };
+	}
+	if (
+		typeof block.chartType === "string" ||
+		(isRecord(block.data) && Array.isArray(block.data.datasets)) ||
+		(Array.isArray(block.data) &&
+			(typeof block.xKey === "string" || typeof block.labelKey === "string"))
+	) {
+		return { ...block, type: "chart" };
+	}
+	if (Array.isArray(block.items)) return { ...block, type: "list" };
+	if (typeof block.text === "string") {
+		if (typeof block.level === "number") return { ...block, type: "heading" };
+		if (typeof block.language === "string") return { ...block, type: "code" };
+		if (typeof block.tone === "string") return { ...block, type: "callout" };
+		return { ...block, type: "paragraph" };
+	}
+	return block;
+}
+
+const CHART_TYPE_ALIASES: Record<string, string> = {
+	bar: "bar",
+	column: "bar",
+	horizontalbar: "bar",
+	stackedbar: "stackedBar",
+	stacked: "stackedBar",
+	line: "line",
+	area: "area",
+	pie: "pie",
+	donut: "donut",
+	doughnut: "donut",
+	scatter: "scatter",
+};
+
+function cleanString(value: unknown): string | null {
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+// The schema insists on title, caption, altText, units and the axis keys.
+// A model that just wrote {chartType, title, data:[{label,value}]} clearly
+// meant a chart; fill the boilerplate instead of rejecting the document.
+function fillChartBlockDefaults(
+	block: Record<string, unknown>,
+): Record<string, unknown> {
+	const rawType =
+		typeof block.chartType === "string"
+			? block.chartType.trim().toLowerCase()
+			: typeof block.type === "string" && block.type !== "chart"
+				? block.type.trim().toLowerCase()
+				: "bar";
+	const chartType = CHART_TYPE_ALIASES[rawType] ?? rawType;
+	const title = cleanString(block.title) ?? "Chart";
+	const isPie = chartType === "pie" || chartType === "donut";
+	const chartJsForm =
+		isRecord(block.data) && Array.isArray(block.data.datasets);
+	const rows = Array.isArray(block.data) ? block.data.filter(isRecord) : [];
+
+	let labelKey = cleanString(block.labelKey) ?? cleanString(block.xKey);
+	let valueKey = cleanString(block.valueKey) ?? cleanString(block.yKey);
+	let units = cleanString(block.units);
+	let data: unknown = block.data;
+
+	if (!chartJsForm && rows.length > 0) {
+		const keys = Object.keys(rows[0]);
+		const numericKeys = keys.filter((key) =>
+			rows.every((row) => parseNumericCell(row[key]) !== null),
+		);
+		const textKeys = keys.filter((key) => !numericKeys.includes(key));
+		if (!labelKey || !keys.includes(labelKey)) labelKey = textKeys[0] ?? null;
+		if (!valueKey || !keys.includes(valueKey)) {
+			valueKey = numericKeys.find((key) => key !== labelKey) ?? null;
+		}
+		if (valueKey) {
+			// "€24.25" / "13%" strings → numbers, remembering the unit.
+			const resolvedValueKey = valueKey;
+			data = rows.map((row) => {
+				const parsed = parseNumericCell(row[resolvedValueKey]);
+				if (parsed && typeof row[resolvedValueKey] !== "number") {
+					if (!units && parsed.units) units = parsed.units;
+					return { ...row, [resolvedValueKey]: parsed.value };
+				}
+				return row;
+			});
+		}
+	}
+
+	const axisKeys = isPie
+		? {
+				labelKey: labelKey ?? block.labelKey ?? null,
+				valueKey: valueKey ?? block.valueKey ?? null,
+			}
+		: {
+				xKey: labelKey ?? block.xKey ?? null,
+				yKey: valueKey ?? block.yKey ?? null,
+			};
+
+	return {
+		...block,
+		type: "chart",
+		chartType,
+		title,
+		caption: cleanString(block.caption) ?? title,
+		altText: cleanString(block.altText) ?? `${title} (${chartType} chart).`,
+		units: units ?? (chartJsForm ? block.units : "value"),
+		...axisKeys,
+		data,
+	};
+}
+
+// A table whose column is nothing but block-character bars ("Relative
+// Scale": ██████) is a chart drawn into a table. Drop the decorative column
+// and, when exactly one numeric column remains next to a label column, add
+// the real chart the bars were standing in for.
+function repairTableBlock(
+	block: Record<string, unknown>,
+): Record<string, unknown>[] {
+	const columns = Array.isArray(block.columns)
+		? block.columns.filter(isRecord)
+		: [];
+	const rows = Array.isArray(block.rows) ? block.rows.filter(isRecord) : [];
+	if (columns.length === 0 || rows.length === 0) return [block];
+
+	const columnKey = (column: Record<string, unknown>): string | null =>
+		typeof column.key === "string" ? column.key : null;
+	const barColumns = columns.filter((column) => {
+		const key = columnKey(column);
+		if (!key) return false;
+		const cells = rows.map((row) => row[key]);
+		return (
+			cells.some(hasBarChars) &&
+			cells.every(
+				(cell) =>
+					cell === null ||
+					cell === undefined ||
+					cell === "" ||
+					isBarOnlyCell(cell),
+			)
+		);
+	});
+	if (barColumns.length === 0) return [block];
+
+	const keptColumns = columns.filter((column) => !barColumns.includes(column));
+	if (keptColumns.length === 0) return [block];
+	const keptKeys = keptColumns
+		.map(columnKey)
+		.filter((key): key is string => key !== null);
+	const keptRows = rows.map((row) =>
+		Object.fromEntries(keptKeys.map((key) => [key, row[key]])),
+	);
+	const table = { ...block, columns: keptColumns, rows: keptRows };
+
+	const numericColumns = keptColumns.filter((column) => {
+		const key = columnKey(column);
+		return (
+			key !== null && rows.every((row) => parseNumericCell(row[key]) !== null)
+		);
+	});
+	const labelColumn = keptColumns.find(
+		(column) => !numericColumns.includes(column),
+	);
+	const labelKey = labelColumn ? columnKey(labelColumn) : null;
+	const valueColumn = numericColumns.length === 1 ? numericColumns[0] : null;
+	const valueKey = valueColumn ? columnKey(valueColumn) : null;
+	if (!labelKey || !valueKey || !labelColumn || !valueColumn) return [table];
+
+	let units: string | null = null;
+	const data = rows.map((row) => {
+		const parsed = parseNumericCell(row[valueKey]);
+		if (!units && parsed?.units) units = parsed.units;
+		return { label: String(row[labelKey] ?? ""), value: parsed?.value ?? 0 };
+	});
+	const valueLabel = cleanString(valueColumn.label) ?? "Value";
+	const labelLabel = cleanString(labelColumn.label) ?? "Item";
+	const title = cleanString(block.title) ?? `${valueLabel} by ${labelLabel}`;
+	return [
+		table,
+		{
+			type: "chart",
+			chartType: "bar",
+			title,
+			caption: `${valueLabel} by ${labelLabel}.`,
+			altText: `${title}: bar chart with ${data.length} items.`,
+			xKey: "label",
+			yKey: "value",
+			units: units ?? "value",
+			data,
+		},
+	];
+}
+
+const PLAIN_CODE_LANGS = new Set([
+	"",
+	"text",
+	"txt",
+	"plain",
+	"plaintext",
+	"ascii",
+	"console",
+]);
+
+// A ```text code block that is really an ASCII bar chart.
+function repairCodeBlock(
+	block: Record<string, unknown>,
+): Record<string, unknown>[] {
+	const language =
+		typeof block.language === "string"
+			? block.language.trim().toLowerCase()
+			: "";
+	const text = typeof block.text === "string" ? block.text : "";
+	if (!PLAIN_CODE_LANGS.has(language) || !BLOCK_BAR_RUN_RE.test(text)) {
+		return [block];
+	}
+	const source = text.includes("\n")
+		? text
+		: (reconstructAsciiChartLines(text) ?? text);
+	const ascii = parseAsciiBarChart(source);
+	return ascii ? [asciiBarChartToBlock(ascii)] : [block];
 }
 
 const BLOCK_BAR_RUN_RE = /[█▓▒░■□▪▫]{2,}/;

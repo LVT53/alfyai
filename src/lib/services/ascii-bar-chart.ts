@@ -24,8 +24,13 @@ const BAR_LINE = new RegExp(
 // "$1,200", "~€13", "13%". The first number in the tail wins.
 const NUMBER =
 	/(?<prefix>[~≈]?\s*[€$£¥]?)\s*(?<num>-?\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?)\s*(?<suffix>%|[A-Za-z€$£¥]{0,6})/u;
+// "one block = €20", "Scale: each █ ≈ €2.5", "1 bar = 10 kg".
 const LEGEND_LINE =
-	/(?:one|1)\s+(?:block|bar|█|■)\s*(?:=|≈)\s*(?<unit>[^\s]+)/i;
+	/(?:one|1|each|every)\s+(?:block|bar|[█▓▒░■□▪▫])\s*(?:=|≈|~|:)\s*(?<unit>\S+)/i;
+// "Riverstone  €24.25 █████": the value printed BEFORE the bar, so it ends up
+// at the tail of the label group instead of in the tail group.
+const TRAILING_NUMBER =
+	/^(?<label>.+?)\s+(?<prefix>[~≈]?\s*[€$£¥]?)\s*(?<num>-?\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?)\s*(?<suffix>%|[A-Za-z€$£¥]{0,6})$/u;
 
 function parseNumber(raw: string): number | null {
 	const cleaned = raw.replace(/\s/g, "");
@@ -35,6 +40,44 @@ function parseNumber(raw: string): number | null {
 		: cleaned.replace(/,/g, "");
 	const value = Number(normalized);
 	return Number.isFinite(value) ? value : null;
+}
+
+// A table/CSV cell that holds one number with an optional currency or unit:
+// "€24.25", "24,5 kg", "1,200", "13%", "~€13". Returns the number and the
+// unit token (prefix or suffix) when present.
+export function parseNumericCell(
+	value: unknown,
+): { value: number; units?: string } | null {
+	if (typeof value === "number") {
+		return Number.isFinite(value) ? { value } : null;
+	}
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const match =
+		/^(?<prefix>[~≈]?\s*[€$£¥]?)\s*(?<num>-?\d{1,3}(?:[ ,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?)\s*(?<suffix>%|[A-Za-z€$£¥]{0,6})$/u.exec(
+			trimmed,
+		);
+	if (!match?.groups?.num) return null;
+	const parsed = parseNumber(match.groups.num);
+	if (parsed === null) return null;
+	const prefix = match.groups.prefix?.replace(/[~≈\s]/g, "") ?? "";
+	const suffix = match.groups.suffix?.trim() ?? "";
+	const units = prefix || suffix || undefined;
+	return units ? { value: parsed, units } : { value: parsed };
+}
+
+// Block-character "bars" only (optionally wrapped in backticks/quotes): the
+// decorative "Relative Scale" column models add next to a numeric column.
+const BAR_ONLY_CELL_RE = /^[\s`'"]*[█▓▒░■□▪▫]+[\s`'"]*$/u;
+const BAR_CHARS_RE = /[█▓▒░■□▪▫]/u;
+
+export function isBarOnlyCell(value: unknown): boolean {
+	return typeof value === "string" && BAR_ONLY_CELL_RE.test(value);
+}
+
+export function hasBarChars(value: unknown): boolean {
+	return typeof value === "string" && BAR_CHARS_RE.test(value);
 }
 
 export function parseAsciiBarChart(text: string): AsciiBarChart | null {
@@ -54,7 +97,9 @@ export function parseAsciiBarChart(text: string): AsciiBarChart | null {
 		if (!match?.groups) {
 			const legend = LEGEND_LINE.exec(line);
 			if (legend?.groups?.unit) {
-				units = legend.groups.unit;
+				// "€20" → "€", "kg" → "kg"; a bare number carries no unit.
+				const unit = legend.groups.unit.replace(/[\d.,\s()]/g, "");
+				if (unit && !units) units = unit;
 				continue;
 			}
 			// A leading caption line is allowed; anything else counts against it.
@@ -65,8 +110,18 @@ export function parseAsciiBarChart(text: string): AsciiBarChart | null {
 			nonBarLines += 1;
 			continue;
 		}
-		const label = match.groups.label.trim().replace(/[:：]\s*$/, "");
-		const numberMatch = NUMBER.exec(match.groups.tail ?? "");
+		let label = match.groups.label.trim().replace(/[:：]\s*$/, "");
+		let numberMatch: RegExpExecArray | null = NUMBER.exec(
+			match.groups.tail ?? "",
+		);
+		if (!numberMatch?.groups?.num) {
+			// Value before the bar: "10/day, low    €121 ██████".
+			const leading = TRAILING_NUMBER.exec(label);
+			if (leading?.groups?.num && leading.groups.label.trim()) {
+				numberMatch = leading;
+				label = leading.groups.label.trim().replace(/[:：]\s*$/, "");
+			}
+		}
 		const value = numberMatch?.groups?.num
 			? parseNumber(numberMatch.groups.num)
 			: null;

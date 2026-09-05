@@ -1,5 +1,11 @@
 import type { Token, Tokens } from "marked";
-import { asciiBarChartToChartJs, parseAsciiBarChart } from "./ascii-bar-chart";
+import {
+	asciiBarChartToChartJs,
+	hasBarChars,
+	isBarOnlyCell,
+	parseAsciiBarChart,
+	parseNumericCell,
+} from "./ascii-bar-chart";
 
 /**
  * Typed rich-block markdown model (Tier A3).
@@ -345,11 +351,12 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 			) {
 				const asciiChart = parseAsciiBarChart(code);
 				if (asciiChart) {
-					blocks.push({
-						kind: "chart",
-						raw,
-						code: JSON.stringify(asciiBarChartToChartJs(asciiChart)),
-					});
+					const chartCode = JSON.stringify(asciiBarChartToChartJs(asciiChart));
+					// A table above often already produced this exact chart (see the
+					// bar-column table rescue); don't render the same data twice.
+					if (!isDuplicateChart(blocks, chartCode)) {
+						blocks.push({ kind: "chart", raw, code: chartCode });
+					}
 					continue;
 				}
 			}
@@ -365,7 +372,13 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 
 		if (token.type === "table") {
 			flushProse();
-			blocks.push({ kind: "table", raw });
+			// A column of nothing but block-character bars is a chart drawn into
+			// the table: drop it and render the chart it stood in for.
+			const rescued = rescueBarColumnTable(token as Tokens.Table);
+			blocks.push({ kind: "table", raw: rescued?.raw ?? raw });
+			if (rescued?.chart && !isDuplicateChart(blocks, rescued.chart)) {
+				blocks.push({ kind: "chart", raw, code: rescued.chart });
+			}
 			continue;
 		}
 
@@ -388,4 +401,109 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 	flushAccordion();
 
 	return blocks;
+}
+
+// ── Bar-column table rescue ────────────────────────────────────────
+
+type TableRescue = { raw: string; chart?: string };
+
+function tableCellText(cell: Tokens.TableCell | undefined): string {
+	return (cell?.text ?? "").trim();
+}
+
+/**
+ * A GFM table with a column that holds only block-character bars
+ * ("Relative Scale": `██████`) is a chart drawn into a table. Rebuild the
+ * table without that column and, when exactly one numeric column sits next to
+ * a label column, return the Chart.js config the bars were standing in for.
+ */
+export function rescueBarColumnTable(token: Tokens.Table): TableRescue | null {
+	const header = token.header ?? [];
+	const rows = token.rows ?? [];
+	if (header.length === 0 || rows.length === 0) return null;
+
+	const barColumns = new Set<number>();
+	header.forEach((_, index) => {
+		const cells = rows.map((row) => tableCellText(row[index]));
+		if (
+			cells.some(hasBarChars) &&
+			cells.every((cell) => cell === "" || isBarOnlyCell(cell))
+		) {
+			barColumns.add(index);
+		}
+	});
+	if (barColumns.size === 0 || barColumns.size === header.length) return null;
+
+	const kept = header
+		.map((_, index) => index)
+		.filter((i) => !barColumns.has(i));
+	const escapeCell = (text: string) => text.replace(/\|/g, "\\|");
+	const separator = (align: string | null | undefined) =>
+		align === "center"
+			? ":---:"
+			: align === "right"
+				? "---:"
+				: align === "left"
+					? ":---"
+					: "---";
+	const lines = [
+		`| ${kept.map((i) => escapeCell(tableCellText(header[i]))).join(" | ")} |`,
+		`| ${kept.map((i) => separator(token.align?.[i])).join(" | ")} |`,
+		...rows.map(
+			(row) =>
+				`| ${kept.map((i) => escapeCell(tableCellText(row[i]))).join(" | ")} |`,
+		),
+	];
+
+	const numericColumns = kept.filter((i) =>
+		rows.every((row) => parseNumericCell(tableCellText(row[i])) !== null),
+	);
+	const labelIndex = kept.find((i) => !numericColumns.includes(i));
+	let chart: string | undefined;
+	if (labelIndex !== undefined && numericColumns.length === 1) {
+		const valueIndex = numericColumns[0];
+		let units: string | undefined;
+		const data = rows.map((row) => {
+			const parsed = parseNumericCell(tableCellText(row[valueIndex]));
+			if (!units && parsed?.units) units = parsed.units;
+			return parsed?.value ?? 0;
+		});
+		const valueLabel = tableCellText(header[valueIndex]) || "Value";
+		chart = JSON.stringify({
+			type: "bar",
+			data: {
+				labels: rows.map((row) => tableCellText(row[labelIndex])),
+				datasets: [
+					{ label: units ? `${valueLabel} (${units})` : valueLabel, data },
+				],
+			},
+		});
+	}
+	return { raw: `${lines.join("\n")}\n`, chart };
+}
+
+function chartSignature(code: string): string | null {
+	try {
+		const config = JSON.parse(code) as {
+			data?: { labels?: unknown[]; datasets?: Array<{ data?: unknown[] }> };
+		};
+		const labels = config.data?.labels ?? [];
+		const values = config.data?.datasets?.[0]?.data ?? [];
+		return labels.length > 0 ? JSON.stringify([labels, values]) : null;
+	} catch {
+		return null;
+	}
+}
+
+// True when one of the last two blocks is a chart with the same labels and
+// values — a table-derived chart followed by the model's own text-art copy.
+function isDuplicateChart(blocks: MarkdownBlock[], code: string): boolean {
+	const signature = chartSignature(code);
+	if (!signature) return false;
+	return blocks
+		.slice(-2)
+		.some(
+			(block) =>
+				block.kind === "chart" && chartSignature(block.code) === signature,
+		);
 }

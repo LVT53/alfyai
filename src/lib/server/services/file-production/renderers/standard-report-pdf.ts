@@ -1809,7 +1809,15 @@ export async function renderStandardReportPdf(
 	}
 
 	const imageLoader = options.imageLoader ?? loadGeneratedDocumentImage;
-	for (const block of source.blocks) {
+	// The title is already drawn above; a leading heading that repeats it would
+	// print it twice (same rule as the HTML renderer).
+	const titleKey = normalizeTitleKey(source.title);
+	const visibleBlocks =
+		source.blocks[0]?.type === "heading" &&
+		normalizeTitleKey(source.blocks[0].text) === titleKey
+			? source.blocks.slice(1)
+			: source.blocks;
+	for (const block of visibleBlocks) {
 		switch (block.type) {
 			case "heading":
 				layout.drawHeading(block.level, block.text);
@@ -1902,4 +1910,11 @@ export async function renderStandardReportPdf(
 			charts: layout.getChartDiagnostics(),
 		},
 	};
+}
+
+function normalizeTitleKey(text: string): string {
+	return text
+		.normalize("NFKD")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, "");
 }

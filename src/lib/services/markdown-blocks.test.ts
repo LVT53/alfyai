@@ -357,3 +357,63 @@ describe("ASCII bar chart rescue", () => {
 		expect(blocks.map((block) => block.kind)).toEqual(["code"]);
 	});
 });
+
+describe("bar-column table rescue", () => {
+	it("drops a bar-only column, adds one chart, and skips the model's duplicate text-art chart", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const markdown = [
+			"## Monthly Tobacco Costs",
+			"",
+			"| Usage / Band | Monthly Cost | Relative Scale |",
+			"|---|---:|---|",
+			"| 10/day, low band | €121 | `██████` |",
+			"| 20/day, high band | €407 | `████████████████████` |",
+			"",
+			"```text",
+			"Monthly cost",
+			"Scale: each █ ≈ €20",
+			"",
+			"10/day, low band    €121 ██████",
+			"20/day, high band   €407 ████████████████████",
+			"```",
+			"",
+			"Done.",
+		].join("\n");
+		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
+		expect(blocks.map((block) => block.kind)).toEqual([
+			"html",
+			"table",
+			"chart",
+			"html",
+		]);
+		const table = blocks[1];
+		if (table.kind !== "table") throw new Error("expected table");
+		expect(table.raw).not.toContain("Relative Scale");
+		expect(table.raw).not.toContain("█");
+		expect(table.raw).toContain("| 10/day, low band | €121 |");
+		expect(table.raw).toContain("| --- | ---: |");
+		const chart = blocks[2];
+		if (chart.kind !== "chart") throw new Error("expected chart");
+		const config = JSON.parse(chart.code);
+		expect(config.type).toBe("bar");
+		expect(config.data.labels).toEqual([
+			"10/day, low band",
+			"20/day, high band",
+		]);
+		expect(config.data.datasets[0].data).toEqual([121, 407]);
+		expect(config.data.datasets[0].label).toBe("Monthly Cost (€)");
+	});
+
+	it("leaves ordinary tables untouched", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const markdown = [
+			"| Brand | Price |",
+			"|---|---|",
+			"| Riverstone | €24.25 |",
+		].join("\n");
+		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
+		expect(blocks.map((block) => block.kind)).toEqual(["table"]);
+		if (blocks[0].kind !== "table") throw new Error("expected table");
+		expect(blocks[0].raw).toContain("| Riverstone | €24.25 |");
+	});
+});

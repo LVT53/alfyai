@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
+
 import {
 	type NormalizedProduceFileInput,
 	normalizeProduceFileInput,
@@ -260,5 +262,180 @@ describe("document source repair — title, dividers, escapes", () => {
 			"paragraph",
 		]);
 		expect(blocks[0]?.text).toBe("* 30g yields 40–60 sticks.");
+	});
+});
+
+describe("document source repair — model-shaped blocks", () => {
+	it("infers missing block types, flattens nested chart blocks and fills chart defaults", () => {
+		const blocks = documentBlocks({
+			requestTitle: "Tobacco Cost Visualisation",
+			documentSource: {
+				blocks: [
+					{ level: 1, text: "Tobacco Cost Visualisation" },
+					{ text: "A simple visual summary." },
+					{ level: 2, text: "Monthly Tobacco Costs" },
+					{
+						columns: [
+							{ key: "scenario", label: "Usage / Band" },
+							{ key: "cost", label: "Monthly Cost (€)" },
+						],
+						rows: [
+							{ scenario: "10/day, low band", cost: "121" },
+							{ scenario: "20/day, high band", cost: "407" },
+						],
+					},
+					{
+						chart: {
+							chartType: "bar",
+							title: "Monthly Tobacco Costs",
+							labelKey: "scenario",
+							valueKey: "cost",
+							data: [
+								{ scenario: "10/day, low", cost: 121 },
+								{ scenario: "20/day, high", cost: 407 },
+							],
+						},
+					},
+					{ style: "bullet", items: ["Riverstone is cheapest."] },
+				],
+			},
+		});
+		expect(blocks.map((block) => block.type)).toEqual([
+			"paragraph",
+			"heading",
+			"table",
+			"chart",
+			"list",
+		]);
+		const chart = blocks[3];
+		expect(chart.xKey).toBe("scenario");
+		expect(chart.yKey).toBe("cost");
+		expect(chart.caption).toBeTruthy();
+		expect(chart.altText).toBeTruthy();
+		expect(chart.units).toBeTruthy();
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Tobacco Cost Visualisation",
+			blocks,
+		});
+		expect(validation.ok).toBe(true);
+	});
+
+	it("converts currency strings in chart data to numbers and records the unit", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				blocks: [
+					{
+						type: "chart",
+						chartType: "doughnut",
+						title: "Pouch prices",
+						data: [
+							{ brand: "Riverstone", price: "€24.25" },
+							{ brand: "Amber Leaf", price: "€27.10" },
+						],
+					},
+				],
+			},
+		});
+		const chart = blocks[0];
+		expect(chart.chartType).toBe("donut");
+		expect(chart.labelKey).toBe("brand");
+		expect(chart.valueKey).toBe("price");
+		expect(chart.units).toBe("€");
+		expect(chart.data).toEqual([
+			{ brand: "Riverstone", price: 24.25 },
+			{ brand: "Amber Leaf", price: 27.1 },
+		]);
+	});
+
+	it("drops a bar-only table column and adds the chart it stood in for, once", () => {
+		const blocks = documentBlocks({
+			requestTitle: "Tobacco Cost Visualisation",
+			documentSource: {
+				title: "Tobacco Cost Visualisation",
+				blocks: [
+					{ type: "heading", level: 1, text: "Tobacco Cost Visualisation" },
+					{
+						type: "table",
+						columns: [
+							{ key: "usage_band", label: "Usage / Band" },
+							{ key: "monthly_cost", label: "Monthly Cost" },
+							{ key: "relative_scale", label: "Relative Scale" },
+						],
+						rows: [
+							{
+								usage_band: "10/day, low band",
+								monthly_cost: "€121",
+								relative_scale: "██████",
+							},
+							{
+								usage_band: "20/day, high band",
+								monthly_cost: "€407",
+								relative_scale: "████████████████████",
+							},
+						],
+					},
+					{
+						type: "code",
+						language: "text",
+						text: "Monthly cost\nScale: each █ ≈ €20\n\n10/day, low band    €121 ██████\n20/day, high band   €407 ████████████████████",
+					},
+					{ type: "heading", level: 2, text: "Key Observations" },
+				],
+			},
+		});
+		expect(blocks.map((block) => block.type)).toEqual([
+			"table",
+			"chart",
+			"heading",
+		]);
+		const table = blocks[0];
+		expect((table.columns as Array<{ key: string }>).map((c) => c.key)).toEqual(
+			["usage_band", "monthly_cost"],
+		);
+		expect((table.rows as Array<Record<string, unknown>>)[0]).toEqual({
+			usage_band: "10/day, low band",
+			monthly_cost: "€121",
+		});
+		const chart = blocks[1];
+		expect(chart.chartType).toBe("bar");
+		expect(chart.units).toBe("€");
+		expect(chart.data).toEqual([
+			{ label: "10/day, low band", value: 121 },
+			{ label: "20/day, high band", value: 407 },
+		]);
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Tobacco Cost Visualisation",
+			blocks,
+		});
+		expect(validation.ok).toBe(true);
+	});
+
+	it("promotes a leading H1 to the title when the model gave none, and matches titles loosely", () => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "tobacco-cost-visualisation",
+			sourceMode: "document_source",
+			documentSource: {
+				blocks: [
+					{ type: "heading", level: 1, text: "Tobacco Cost Visualisation" },
+					{
+						type: "paragraph",
+						text: "Enough substantive content to pass the size checks for this document.",
+					},
+				],
+			},
+		});
+		if (!result.ok) throw new Error(result.error);
+		const documentSource = (result.input as NormalizedProduceFileInput)
+			.documentSource as Record<string, unknown>;
+		expect(documentSource.title).toBe("Tobacco Cost Visualisation");
+		expect(
+			(documentSource.blocks as Array<Record<string, unknown>>).map(
+				(b) => b.type,
+			),
+		).toEqual(["paragraph"]);
 	});
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { asciiBarChartToChartJs, parseAsciiBarChart } from "./ascii-bar-chart";
+import {
+	asciiBarChartToChartJs,
+	hasBarChars,
+	isBarOnlyCell,
+	parseAsciiBarChart,
+	parseNumericCell,
+} from "./ascii-bar-chart";
 
 describe("parseAsciiBarChart", () => {
 	it("parses euro-prefixed values with decimal points", () => {
@@ -45,7 +51,7 @@ describe("parseAsciiBarChart", () => {
 		);
 
 		expect(chart).not.toBeNull();
-		expect(chart?.units).toBe("€20");
+		expect(chart?.units).toBe("€");
 		expect(chart?.points).toEqual([
 			{ label: "Riverstone", value: 480 },
 			{ label: "Cutters Choice", value: 510 },
@@ -123,5 +129,61 @@ describe("parseAsciiBarChart", () => {
 		expect(chartJs.options).toEqual({
 			plugins: { title: { display: true, text: "Price per 30g pouch" } },
 		});
+	});
+});
+
+describe("parseAsciiBarChart — value before the bar and scale legends", () => {
+	it("parses lines where the value is printed before the bar", () => {
+		const chart = parseAsciiBarChart(
+			[
+				"Monthly cost",
+				"Scale: each █ ≈ €20",
+				"",
+				"10/day, low    €121 ██████",
+				"10/day, high   €217 ███████████",
+				"20/day, low    €243 ████████████",
+				"20/day, high   €407 ████████████████████",
+			].join("\n"),
+		);
+		expect(chart).not.toBeNull();
+		expect(chart?.title).toBe("Monthly cost");
+		expect(chart?.units).toBe("€");
+		expect(chart?.points).toEqual([
+			{ label: "10/day, low", value: 121 },
+			{ label: "10/day, high", value: 217 },
+			{ label: "20/day, low", value: 243 },
+			{ label: "20/day, high", value: 407 },
+		]);
+	});
+
+	it("takes the unit from an 'each block = kg' legend without the number", () => {
+		const chart = parseAsciiBarChart(
+			["one block = 10 kg", "Alpha ████ 40", "Beta ██ 20"].join("\n"),
+		);
+		expect(chart?.units).toBeUndefined();
+		const chart2 = parseAsciiBarChart(
+			["each ■ ≈ kg", "Alpha ■■■■ 40", "Beta ■■ 20"].join("\n"),
+		);
+		expect(chart2?.units).toBe("kg");
+	});
+});
+
+describe("parseNumericCell / bar cell helpers", () => {
+	it("parses currency, percent, thousands and decimal-comma cells", () => {
+		expect(parseNumericCell("€24.25")).toEqual({ value: 24.25, units: "€" });
+		expect(parseNumericCell("13%")).toEqual({ value: 13, units: "%" });
+		expect(parseNumericCell("1,200")).toEqual({ value: 1200 });
+		expect(parseNumericCell("24,5 kg")).toEqual({ value: 24.5, units: "kg" });
+		expect(parseNumericCell(7)).toEqual({ value: 7 });
+		expect(parseNumericCell("10/day, low band")).toBeNull();
+		expect(parseNumericCell("")).toBeNull();
+	});
+
+	it("recognises bar-only cells, with or without backticks", () => {
+		expect(isBarOnlyCell("`██████`")).toBe(true);
+		expect(isBarOnlyCell("███")).toBe(true);
+		expect(isBarOnlyCell("€121 ███")).toBe(false);
+		expect(hasBarChars("€121 ███")).toBe(true);
+		expect(hasBarChars("€121")).toBe(false);
 	});
 });
