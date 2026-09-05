@@ -32,6 +32,7 @@ const {
 	mockPersistAssistantEvidence,
 	mockRunPostTurnTasks,
 	mockRecordAssistantTurnAnalytics,
+	mockRecordCompletedTurnContextUsage,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
@@ -39,6 +40,14 @@ const {
 	mockPersistAssistantEvidence: vi.fn(),
 	mockRunPostTurnTasks: vi.fn(),
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
+	mockRecordCompletedTurnContextUsage: vi.fn(),
+}));
+
+// Post-turn prompt usage write (context usage ring). Seamed so the glue
+// tests can assert what completion hands it and what it carries back onto
+// the terminal metadata / finalize without a database.
+vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
+	recordCompletedTurnContextUsage: mockRecordCompletedTurnContextUsage,
 }));
 
 vi.mock("$lib/server/services/messages", () => ({
@@ -246,6 +255,81 @@ describe("completeStreamTurn", () => {
 			totalTokens: 0,
 		});
 		mockGetProjectReferenceContext.mockResolvedValue(null);
+		mockRecordCompletedTurnContextUsage.mockImplementation(
+			async (params: { contextStatus: unknown }) => params.contextStatus,
+		);
+	});
+
+	it("records the completed turn's prompt usage and carries the refreshed context status to finalize and the terminal metadata", async () => {
+		const preparedStatus = {
+			conversationId: "conv-1",
+			userId: "user-1",
+			estimatedTokens: 4_000,
+			promptTokens: 4_000,
+			promptTokensSource: "estimated" as const,
+			maxContextTokens: 200_000,
+			thresholdTokens: 160_000,
+			targetTokens: 180_000,
+			compactionApplied: false,
+			compactionMode: "none" as const,
+			routingStage: "deterministic" as const,
+			routingConfidence: 1,
+			verificationStatus: "skipped" as const,
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 2,
+			summary: null,
+			updatedAt: 1,
+		};
+		const refreshedStatus = {
+			...preparedStatus,
+			promptTokens: 12_345,
+			promptTokensSource: "provider" as const,
+		};
+		mockRecordCompletedTurnContextUsage.mockResolvedValue(refreshedStatus);
+		const providerUsage = {
+			promptTokens: 20_000,
+			lastStepPromptTokens: 12_345,
+			completionTokens: 300,
+			source: "provider" as const,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			preparedContext: {
+				contextStatus: preparedStatus,
+				taskState: null,
+				contextDebug: null,
+				contextTraceSections: defaultLatestContextTraceSections,
+				estimatedPromptTokens: 9_000,
+			},
+			latestProviderUsage: providerUsage,
+		});
+
+		expect(mockRecordCompletedTurnContextUsage).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			contextStatus: preparedStatus,
+			providerUsage,
+			estimatedPromptTokens: 9_000,
+			logPrefix: "[CHAT_STREAM]",
+		});
+		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
+			expect.objectContaining({ contextStatus: refreshedStatus }),
+		);
+		expect(getLatestEndPayload()).toEqual(
+			expect.objectContaining({ contextStatus: refreshedStatus }),
+		);
+	});
+
+	it("omits contextStatus from the terminal metadata when the turn never had one", async () => {
+		await completeStreamTurn(defaultParams);
+
+		expect(getLatestEndPayload()).not.toHaveProperty("contextStatus");
 	});
 
 	const defaultParams = {
@@ -647,7 +731,13 @@ describe("completeStreamTurn", () => {
 			...defaultParams,
 			attachmentIds: [],
 		});
-		await Promise.resolve();
+		// Completion awaits a few pre-persist facts (reset generation, prompt
+		// usage) before the user-message write starts; wait for that write to
+		// be pending rather than assuming a fixed number of microtask ticks.
+		for (let tick = 0; tick < 50 && !resolveUserMessage; tick += 1) {
+			await Promise.resolve();
+		}
+		expect(resolveUserMessage).toBeDefined();
 
 		resolveUserMessage?.();
 		await completion;

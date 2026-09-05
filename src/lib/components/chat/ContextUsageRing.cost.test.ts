@@ -87,7 +87,10 @@ describe("ContextUsageRing cost display", () => {
 		renderRing({
 			contextStatus: {
 				estimatedTokens: 5000,
-				targetTokens: 157286,
+				promptTokens: 5000,
+				promptTokensSource: "estimated",
+				maxContextTokens: 262144,
+				targetTokens: 235929,
 				thresholdTokens: 209715,
 				compactionMode: "none",
 				routingStage: "deterministic",
@@ -124,7 +127,10 @@ describe("ContextUsageRing cost display", () => {
 		renderRing({
 			contextStatus: {
 				estimatedTokens: 5000,
-				targetTokens: 157286,
+				promptTokens: 5000,
+				promptTokensSource: "estimated",
+				maxContextTokens: 262144,
+				targetTokens: 235929,
 				thresholdTokens: 209715,
 				compactionMode: "none",
 				routingStage: "deterministic",
@@ -191,15 +197,18 @@ describe("ContextUsageRing cost display", () => {
 
 describe("ContextUsageRing humanized popover", () => {
 	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
-		// targetTokens drives the ratio (estimatedTokens / targetTokens).
-		const targetTokens = 100000;
+		// The ring's ratio is promptTokens / maxContextTokens (the model's real
+		// context window); estimatedTokens / targetTokens only feed compaction.
+		const maxContextTokens = 200000;
 		return {
 			conversationId: "conversation-1",
 			userId: "user-1",
-			estimatedTokens: Math.round(targetTokens * ratio),
-			maxContextTokens: 200000,
-			thresholdTokens: 209715,
-			targetTokens,
+			estimatedTokens: 1000,
+			promptTokens: Math.round(maxContextTokens * ratio),
+			promptTokensSource: "provider",
+			maxContextTokens,
+			thresholdTokens: 160000,
+			targetTokens: 180000,
 			compactionApplied: false,
 			compactionMode: "none",
 			routingStage: "deterministic",
@@ -240,7 +249,7 @@ describe("ContextUsageRing humanized popover", () => {
 		expect(document.querySelector(".popover-context-room")).toBeTruthy();
 	});
 
-	it("shows the near-trigger heads-up note when ratio >= 0.78", () => {
+	it("shows the near-trigger heads-up note when ratio >= 0.75", () => {
 		renderRing({
 			contextStatus: contextStatusAtRatio(0.8),
 		});
@@ -272,14 +281,16 @@ describe("ContextUsageRing humanized popover", () => {
 
 describe("ContextUsageRing last-turn cost line", () => {
 	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
-		const targetTokens = 100000;
+		const maxContextTokens = 200000;
 		return {
 			conversationId: "conversation-1",
 			userId: "user-1",
-			estimatedTokens: Math.round(targetTokens * ratio),
-			maxContextTokens: 200000,
-			thresholdTokens: 209715,
-			targetTokens,
+			estimatedTokens: 1000,
+			promptTokens: Math.round(maxContextTokens * ratio),
+			promptTokensSource: "provider",
+			maxContextTokens,
+			thresholdTokens: 160000,
+			targetTokens: 180000,
 			compactionApplied: false,
 			compactionMode: "none",
 			routingStage: "deterministic",
@@ -331,14 +342,16 @@ describe("ContextUsageRing last-turn cost line", () => {
 
 describe("ContextUsageRing humanized stat labels", () => {
 	function contextStatusAtRatio(ratio: number): ConversationContextStatus {
-		const targetTokens = 100000;
+		const maxContextTokens = 200000;
 		return {
 			conversationId: "conversation-1",
 			userId: "user-1",
-			estimatedTokens: Math.round(targetTokens * ratio),
-			maxContextTokens: 200000,
-			thresholdTokens: 209715,
-			targetTokens,
+			estimatedTokens: 1000,
+			promptTokens: Math.round(maxContextTokens * ratio),
+			promptTokensSource: "provider",
+			maxContextTokens,
+			thresholdTokens: 160000,
+			targetTokens: 180000,
 			compactionApplied: false,
 			compactionMode: "none",
 			routingStage: "deterministic",

@@ -139,13 +139,23 @@ let lastTurnCostText = $derived(
 	showLastTurnCost ? formatCostUsd(lastTurnCostUsd) : "",
 );
 
-let promptBudget = $derived(
-	contextStatus ? Math.max(contextStatus.targetTokens, 1) : 1,
+// The ring reports the best-known prompt size of the last completed turn
+// (provider-reported input tokens when available, otherwise a full-prompt
+// estimate) against the model's real context window. estimatedTokens /
+// targetTokens remain the compaction inputs and are not shown here.
+let contextWindow = $derived(
+	contextStatus ? Math.max(contextStatus.maxContextTokens, 1) : 1,
+);
+let promptTokens = $derived(
+	contextStatus ? Math.max(0, contextStatus.promptTokens) : 0,
 );
 let ratio = $derived(
-	contextStatus
-		? Math.max(0, Math.min(1, contextStatus.estimatedTokens / promptBudget))
-		: 0,
+	contextStatus ? Math.max(0, Math.min(1, promptTokens / contextWindow)) : 0,
+);
+let promptTokensSourceText = $derived(
+	contextStatus?.promptTokensSource === "provider"
+		? $t("contextUsageRing.promptTokensSource.provider")
+		: $t("contextUsageRing.promptTokensSource.estimated"),
 );
 let dashOffset = $derived(circumference * (1 - ratio));
 let percent = $derived(Math.round(ratio * 100));
@@ -174,11 +184,12 @@ let toneClass = $derived(
 						: "ring-button--normal",
 );
 
-// Near-trigger heads-up: context is filling up and compaction may run soon.
+// Near-trigger heads-up: the prompt is filling the real context window and
+// compaction may run soon. Shares the 0.75 warning band with toneClass.
 // Only when not already compacted/reduced (those states already handled).
 let isNearTrigger = $derived(
 	contextStatus !== null &&
-		ratio >= 0.78 &&
+		ratio >= 0.75 &&
 		!contextSources?.compacted &&
 		!contextSources?.reduced &&
 		contextStatus.compactionMode === "none",
@@ -193,9 +204,10 @@ let isNearTrigger = $derived(
 		type="button"
 		class={`ring-button ${toneClass}`}
 		aria-label={contextStatus
-			? $t('contextUsageRing.promptBudgetUsage', {
+			? $t('contextUsageRing.contextWindowUsage', {
 				percent,
-				tokens: contextStatus.estimatedTokens.toLocaleString(),
+				tokens: promptTokens.toLocaleString(),
+				max: contextWindow.toLocaleString(),
 			})
 			: $t('contextUsageRing.noContext')}
 		aria-expanded={isOpen}
@@ -265,8 +277,9 @@ let isNearTrigger = $derived(
 						<p class="popover-near-trigger">{$t('contextUsageRing.nearTriggerNote')}</p>
 					{/if}
 					<div class="popover-context-room-tooltip" role="tooltip">
-						<span class="popover-context-room-tooltip-label">{$t('contextUsageRing.promptBudget')}</span>
-						<span class="popover-context-room-tooltip-value">{contextStatus.estimatedTokens.toLocaleString()} / {contextStatus.targetTokens.toLocaleString()}</span>
+						<span class="popover-context-room-tooltip-label">{$t('contextUsageRing.contextWindow')}</span>
+						<span class="popover-context-room-tooltip-value">{promptTokens.toLocaleString()} / {contextWindow.toLocaleString()}</span>
+						<span class="popover-context-room-tooltip-source">{promptTokensSourceText}</span>
 					</div>
 				</div>
 				<div class="popover-stat">
@@ -530,9 +543,9 @@ let isNearTrigger = $derived(
 
 	/* Context room bar — the bar communicates remaining capacity, so the old
 	   "plenty left" sub-text is removed; the percent speaks for itself. Sits
-	   directly under the "Context" subtitle; the exact estimated/target token
-	   figures (formerly a separate "Prompt budget" line) now live in a hover
-	   tooltip instead of taking up a permanent row. */
+	   directly under the "Context" subtitle; the exact prompt-tokens /
+	   context-window figures and their source (provider-reported or
+	   estimated) live in a hover tooltip instead of a permanent row. */
 	.popover-context-room {
 		position: relative;
 		margin-top: 0.55rem;
@@ -585,6 +598,11 @@ let isNearTrigger = $derived(
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-primary);
+	}
+
+	.popover-context-room-tooltip-source {
+		font-size: var(--text-2xs);
+		color: var(--text-muted);
 	}
 
 	.popover-context-room--near {

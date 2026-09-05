@@ -4,6 +4,7 @@ import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { getChatFilesForAssistantMessage } from "$lib/server/services/chat-files";
+import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -54,6 +55,10 @@ export type PreparedContextSnapshot = {
 	taskState: TaskState | null | undefined;
 	contextDebug: ContextDebugState | null | undefined;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
+	// Full-prompt estimate (system prompt + final packet + tool schemas) from
+	// the model-run wrapper. Fallback for the context usage ring when the
+	// provider reported no input tokens.
+	estimatedPromptTokens?: number;
 };
 
 export type FileProductionStartSnapshot =
@@ -305,6 +310,12 @@ export async function completeStreamTurn(
 			userMessageToPersist = buffer.userMessage;
 		}
 	}
+	// Refreshed after the turn's prompt usage is recorded (see below), so the
+	// terminal metadata and the persisted turn state both carry the real
+	// prompt size against the model's context window rather than the
+	// pre-request packet estimate.
+	let completedContextStatus: ConversationContextStatus | null | undefined =
+		preparedContext.contextStatus;
 	const sendEndAndClose = (
 		userMsgId: string | undefined,
 		assistantMsgId: string,
@@ -362,6 +373,12 @@ export async function completeStreamTurn(
 				providerIconUrl,
 				depthMetadata: streamDepthMetadata,
 				generationDurationMs: genTimeMs,
+				// The post-turn context status (prompt tokens against the real
+				// context window) rides the terminal payload so the header ring
+				// updates in the same session, without a reload.
+				...(completedContextStatus
+					? { contextStatus: completedContextStatus }
+					: {}),
 			}),
 		);
 		enqueueChunk(
@@ -411,6 +428,18 @@ export async function completeStreamTurn(
 			streamId,
 			fact: startedResetGenerationFact,
 		});
+		// Fold the completed turn's prompt usage (provider-reported input
+		// tokens, else the wrapper's full-prompt estimate) into the context
+		// status before finalize persists it and the terminal frames flush.
+		// Never throws; degrades to the pre-request status.
+		completedContextStatus = await recordCompletedTurnContextUsage({
+			userId,
+			conversationId,
+			contextStatus: preparedContext.contextStatus,
+			providerUsage: latestProviderUsage,
+			estimatedPromptTokens: preparedContext.estimatedPromptTokens,
+			logPrefix: "[CHAT_STREAM]",
+		});
 		await finalizeChatTurn({
 			turnKind: "stream",
 			streamId,
@@ -450,8 +479,7 @@ export async function completeStreamTurn(
 			skillControlSessionId: activeSkillSessionId ?? null,
 			attachmentIds,
 			activeDocumentArtifactId,
-			contextStatus:
-				preparedContext.contextStatus as ConversationContextStatus | null,
+			contextStatus: completedContextStatus ?? null,
 			initialTaskState: preparedContext.taskState,
 			initialContextDebug: preparedContext.contextDebug,
 			analytics: {

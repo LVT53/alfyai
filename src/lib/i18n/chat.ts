@@ -473,9 +473,12 @@ const chatDict = {
 		"contextUsageRing.pinned": "Pinned",
 		"contextUsageRing.placeholder":
 			"Leave empty to infer from your next message",
-		"contextUsageRing.promptBudget": "Prompt budget",
-		"contextUsageRing.promptBudgetUsage":
-			"Prompt budget usage {percent}% ({tokens} tokens)",
+		"contextUsageRing.contextWindow": "Context window",
+		"contextUsageRing.contextWindowUsage":
+			"Context window usage {percent}% ({tokens} of {max} tokens)",
+		"contextUsageRing.promptTokensSource.provider":
+			"Reported by the model provider",
+		"contextUsageRing.promptTokensSource.estimated": "Estimated",
 		"contextUsageRing.recentTurns": "Recent turns",
 		"contextUsageRing.selectedEvidence": "Selected evidence",
 		"contextUsageRing.start": "Start",
@@ -1266,9 +1269,12 @@ const chatDict = {
 		"contextUsageRing.pinned": "Rögzített",
 		"contextUsageRing.placeholder":
 			"Hagyd üresen, ha a következő üzenetből kell következtetni",
-		"contextUsageRing.promptBudget": "Promptkeret",
-		"contextUsageRing.promptBudgetUsage":
-			"Promptkeret-használat: {percent}% ({tokens} token)",
+		"contextUsageRing.contextWindow": "Kontextusablak",
+		"contextUsageRing.contextWindowUsage":
+			"Kontextusablak-használat: {percent}% ({tokens} / {max} token)",
+		"contextUsageRing.promptTokensSource.provider":
+			"A modellszolgáltató jelentése",
+		"contextUsageRing.promptTokensSource.estimated": "Becsült",
 		"contextUsageRing.recentTurns": "Legutóbbi körök",
 		"contextUsageRing.selectedEvidence": "Kijelölt bizonyíték",
 		"contextUsageRing.start": "Indítás",

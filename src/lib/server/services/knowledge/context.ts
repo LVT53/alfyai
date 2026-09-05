@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
 	conversationContextStatus,
 	conversationWorkingSetItems,
 } from "$lib/server/db/schema";
-import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
+import type {
+	ContextPromptTokensSource,
+	ConversationContextStatus,
+} from "$lib/server/services/knowledge/context-types";
 import type {
 	Artifact,
 	ArtifactSummary,
@@ -55,6 +58,16 @@ import {
 	mapArtifactSummary,
 } from "./store";
 
+function normalizePromptTokensSource(
+	value: string | null | undefined,
+): ContextPromptTokensSource {
+	return value === "provider" ? "provider" : "estimated";
+}
+
+function normalizePromptTokens(value: number): number {
+	return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
 function mapContextStatus(
 	row: typeof conversationContextStatus.$inferSelect,
 ): ConversationContextStatus {
@@ -62,6 +75,8 @@ function mapContextStatus(
 		conversationId: row.conversationId,
 		userId: row.userId,
 		estimatedTokens: row.estimatedTokens,
+		promptTokens: row.promptTokens ?? row.estimatedTokens,
+		promptTokensSource: normalizePromptTokensSource(row.promptTokensSource),
 		maxContextTokens: row.maxContextTokens,
 		thresholdTokens: row.thresholdTokens,
 		targetTokens: row.targetTokens,
@@ -542,6 +557,11 @@ export async function updateConversationContextStatus(params: {
 		compactionUiThreshold: number;
 		targetConstructedContext: number;
 	};
+	// Pre-request best guess for the prompt size. Defaults to the packet
+	// estimate so the ring shows something during the first turn; the real
+	// value lands via recordConversationPromptUsage once the turn completes.
+	promptTokens?: number;
+	promptTokensSource?: ContextPromptTokensSource;
 }): Promise<ConversationContextStatus> {
 	const maxContextTokens =
 		params.contextLimits?.maxModelContext ?? getMaxModelContext();
@@ -550,12 +570,31 @@ export async function updateConversationContextStatus(params: {
 	const targetTokens =
 		params.contextLimits?.targetConstructedContext ??
 		getTargetConstructedContext();
+	const promptTokens = normalizePromptTokens(
+		params.promptTokens ?? params.estimatedTokens,
+	);
+	const promptTokensSource: ContextPromptTokensSource =
+		params.promptTokensSource ?? "estimated";
+	// The pre-request write only knows the packet estimate. When the row
+	// already holds a provider-reported prompt size from the previous turn,
+	// keep it (it is a far better proxy for this turn's prompt than the
+	// packet-only figure) until recordConversationPromptUsage lands the real
+	// value for this turn. An explicit promptTokens param always wins.
+	const hasExplicitPromptTokens = typeof params.promptTokens === "number";
+	const conflictPromptTokens = hasExplicitPromptTokens
+		? promptTokens
+		: sql`CASE WHEN ${conversationContextStatus.promptTokensSource} = 'provider' THEN ${conversationContextStatus.promptTokens} ELSE ${promptTokens} END`;
+	const conflictPromptTokensSource = hasExplicitPromptTokens
+		? promptTokensSource
+		: sql`CASE WHEN ${conversationContextStatus.promptTokensSource} = 'provider' THEN 'provider' ELSE ${promptTokensSource} END`;
 	const [row] = await db
 		.insert(conversationContextStatus)
 		.values({
 			conversationId: params.conversationId,
 			userId: params.userId,
 			estimatedTokens: params.estimatedTokens,
+			promptTokens,
+			promptTokensSource,
 			maxContextTokens,
 			thresholdTokens,
 			targetTokens,
@@ -581,6 +620,8 @@ export async function updateConversationContextStatus(params: {
 			set: {
 				userId: params.userId,
 				estimatedTokens: params.estimatedTokens,
+				promptTokens: conflictPromptTokens,
+				promptTokensSource: conflictPromptTokensSource,
 				maxContextTokens,
 				thresholdTokens,
 				targetTokens,
@@ -605,6 +646,43 @@ export async function updateConversationContextStatus(params: {
 		.returning();
 
 	return mapContextStatus(row);
+}
+
+/**
+ * Post-turn prompt usage write. Updates the best-known prompt size for the
+ * conversation's last completed turn without touching the pre-request
+ * compaction fields (estimatedTokens/targetTokens/thresholdTokens). Returns
+ * the refreshed status, or null when the conversation has no status row yet
+ * (the pre-request write never happened, e.g. a turn that failed before
+ * context construction).
+ */
+export async function recordConversationPromptUsage(params: {
+	conversationId: string;
+	userId: string;
+	promptTokens: number;
+	promptTokensSource: ContextPromptTokensSource;
+	maxContextTokens?: number;
+}): Promise<ConversationContextStatus | null> {
+	const [row] = await db
+		.update(conversationContextStatus)
+		.set({
+			promptTokens: normalizePromptTokens(params.promptTokens),
+			promptTokensSource: params.promptTokensSource,
+			...(typeof params.maxContextTokens === "number" &&
+			Number.isFinite(params.maxContextTokens) &&
+			params.maxContextTokens >= 1
+				? { maxContextTokens: Math.floor(params.maxContextTokens) }
+				: {}),
+			updatedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(conversationContextStatus.userId, params.userId),
+				eq(conversationContextStatus.conversationId, params.conversationId),
+			),
+		)
+		.returning();
+	return row ? mapContextStatus(row) : null;
 }
 
 export async function getConversationContextStatus(

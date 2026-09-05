@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import { resolvePromptContextLimits } from "$lib/server/services/normal-chat-context";
 import {
 	type ClarificationDecision,
 	type DepthEffort,
 	evaluateClarification,
 	resolveActiveDepthEffort,
-	resolvePromptContextLimits,
 } from "./shared-normal-chat-model-run-helpers";
 
 const runtimeConfig = {

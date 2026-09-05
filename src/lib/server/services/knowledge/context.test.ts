@@ -665,3 +665,171 @@ describe("knowledge context retrieval", () => {
 		expect(mockDbInsert).not.toHaveBeenCalled();
 	});
 });
+
+describe("conversation context status prompt usage", () => {
+	const statusRow = {
+		conversationId: "conv-1",
+		userId: "user-1",
+		estimatedTokens: 4_000,
+		promptTokens: 12_345,
+		promptTokensSource: "provider",
+		maxContextTokens: 200_000,
+		thresholdTokens: 160_000,
+		targetTokens: 180_000,
+		compactionApplied: 0,
+		compactionMode: "none",
+		routingStage: "deterministic",
+		routingConfidence: 1,
+		verificationStatus: "skipped",
+		layersUsedJson: null,
+		workingSetCount: 0,
+		workingSetArtifactIdsJson: null,
+		workingSetApplied: 0,
+		taskStateApplied: 0,
+		promptArtifactCount: 0,
+		recentTurnCount: 2,
+		summary: null,
+		updatedAt: new Date("2026-04-01T10:00:00Z"),
+	};
+
+	beforeEach(() => {
+		mockDbInsert.mockClear();
+		mockDbInsertValues.mockClear();
+		mockDbUpdate.mockClear();
+		mockDbUpdateSet.mockClear();
+	});
+
+	it("recordConversationPromptUsage updates only the prompt usage fields and maps the refreshed row", async () => {
+		const where = vi.fn(() => ({ returning: vi.fn(async () => [statusRow]) }));
+		(mockDbUpdateSet as ReturnType<typeof vi.fn>).mockImplementationOnce(
+			() => ({ where }),
+		);
+		const { recordConversationPromptUsage } = await import("./context");
+
+		const status = await recordConversationPromptUsage({
+			userId: "user-1",
+			conversationId: "conv-1",
+			promptTokens: 12_345.4,
+			promptTokensSource: "provider",
+		});
+
+		expect(mockDbUpdateSet).toHaveBeenCalledWith({
+			promptTokens: 12_345,
+			promptTokensSource: "provider",
+			updatedAt: expect.any(Date),
+		});
+		expect(status).toMatchObject({
+			conversationId: "conv-1",
+			promptTokens: 12_345,
+			promptTokensSource: "provider",
+			maxContextTokens: 200_000,
+			estimatedTokens: 4_000,
+		});
+	});
+
+	it("recordConversationPromptUsage returns null when the conversation has no status row", async () => {
+		(mockDbUpdateSet as ReturnType<typeof vi.fn>).mockImplementationOnce(
+			() => ({
+				where: vi.fn(() => ({ returning: vi.fn(async () => []) })),
+			}),
+		);
+		const { recordConversationPromptUsage } = await import("./context");
+
+		await expect(
+			recordConversationPromptUsage({
+				userId: "user-1",
+				conversationId: "conv-missing",
+				promptTokens: 10,
+				promptTokensSource: "estimated",
+			}),
+		).resolves.toBeNull();
+	});
+
+	it("updateConversationContextStatus seeds prompt usage from the packet estimate but keeps a provider-reported value on conflict", async () => {
+		const onConflictDoUpdate = vi.fn(
+			(_args: { set: Record<string, unknown> }) => ({
+				returning: vi.fn(async () => [statusRow]),
+			}),
+		);
+		(mockDbInsertValues as ReturnType<typeof vi.fn>).mockImplementationOnce(
+			() => ({ onConflictDoUpdate }),
+		);
+		const { updateConversationContextStatus } = await import("./context");
+
+		const status = await updateConversationContextStatus({
+			conversationId: "conv-1",
+			userId: "user-1",
+			estimatedTokens: 4_000,
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 2,
+			summary: null,
+		});
+
+		expect(mockDbInsertValues).toHaveBeenCalledWith(
+			expect.objectContaining({
+				estimatedTokens: 4_000,
+				promptTokens: 4_000,
+				promptTokensSource: "estimated",
+			}),
+		);
+		const conflictSet = onConflictDoUpdate.mock.calls[0]?.[0].set ?? {};
+		// The conflict update is a SQL CASE keeping an existing provider value.
+		expect(typeof conflictSet.promptTokens).toBe("object");
+		expect(typeof conflictSet.promptTokensSource).toBe("object");
+		expect(status).toMatchObject({
+			promptTokens: 12_345,
+			promptTokensSource: "provider",
+		});
+	});
+
+	it("updateConversationContextStatus writes an explicit prompt usage unconditionally", async () => {
+		const onConflictDoUpdate = vi.fn(
+			(_args: { set: Record<string, unknown> }) => ({
+				returning: vi.fn(async () => [statusRow]),
+			}),
+		);
+		(mockDbInsertValues as ReturnType<typeof vi.fn>).mockImplementationOnce(
+			() => ({ onConflictDoUpdate }),
+		);
+		const { updateConversationContextStatus } = await import("./context");
+
+		await updateConversationContextStatus({
+			conversationId: "conv-1",
+			userId: "user-1",
+			estimatedTokens: 4_000,
+			promptTokens: 9_000,
+			promptTokensSource: "estimated",
+			compactionApplied: false,
+			compactionMode: "none",
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "skipped",
+			layersUsed: [],
+			workingSetCount: 0,
+			workingSetArtifactIds: [],
+			workingSetApplied: false,
+			taskStateApplied: false,
+			promptArtifactCount: 0,
+			recentTurnCount: 2,
+			summary: null,
+		});
+
+		const conflictSet = onConflictDoUpdate.mock.calls[0]?.[0].set ?? {};
+		expect(conflictSet).toEqual(
+			expect.objectContaining({
+				promptTokens: 9_000,
+				promptTokensSource: "estimated",
+			}),
+		);
+	});
+});

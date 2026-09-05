@@ -820,6 +820,50 @@ describe("deliberation prompt helpers", () => {
 			totalTokens: 530,
 		});
 	});
+
+	it("keeps the later run's last-step input count instead of summing it", () => {
+		expect(
+			sumUsage(
+				{
+					inputTokens: 100,
+					outputTokens: 40,
+					totalTokens: 140,
+					lastStepInputTokens: 100,
+				},
+				{
+					inputTokens: 300,
+					outputTokens: 90,
+					totalTokens: 390,
+					lastStepInputTokens: 250,
+				},
+			),
+		).toEqual({
+			inputTokens: 400,
+			outputTokens: 130,
+			totalTokens: 530,
+			lastStepInputTokens: 250,
+		});
+		expect(
+			sumUsage(
+				{
+					inputTokens: 100,
+					outputTokens: 40,
+					totalTokens: 140,
+					lastStepInputTokens: 100,
+				},
+				{
+					inputTokens: undefined,
+					outputTokens: undefined,
+					totalTokens: undefined,
+				},
+			),
+		).toEqual({
+			inputTokens: 100,
+			outputTokens: 40,
+			totalTokens: 140,
+			lastStepInputTokens: 100,
+		});
+	});
 });
 
 describe("createDeliberationTools memory master-gate", () => {

@@ -1227,10 +1227,16 @@ export function sumUsage(
 	left: NormalChatModelRunUsage,
 	right: NormalChatModelRunUsage,
 ): NormalChatModelRunUsage {
+	// The last-step input count is not additive: the later (right) run's
+	// final prompt wins, so folding deliberation usage into the main run's
+	// usage keeps the main run's last prompt size.
+	const lastStepInputTokens =
+		right.lastStepInputTokens ?? left.lastStepInputTokens;
 	return {
 		inputTokens: sumOptional(left.inputTokens, right.inputTokens),
 		outputTokens: sumOptional(left.outputTokens, right.outputTokens),
 		totalTokens: sumOptional(left.totalTokens, right.totalTokens),
+		...(lastStepInputTokens !== undefined ? { lastStepInputTokens } : {}),
 	};
 }
 

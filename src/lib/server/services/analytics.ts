@@ -25,6 +25,11 @@ export interface ProviderUsageSnapshot {
 	completionTokens?: number;
 	reasoningTokens?: number;
 	totalTokens?: number;
+	// Input tokens of the LAST model step only (promptTokens sums every step
+	// of a multi-step tool loop plus deliberation passes). This is the size
+	// of the prompt the model actually saw at the end of the turn, which is
+	// what the context usage ring reports. Not billed separately.
+	lastStepPromptTokens?: number;
 	source?: UsageSource;
 }
 
@@ -1183,9 +1188,23 @@ export async function recordMessageAnalytics(
 	const reasoningTokens = normalizeCount(
 		providerUsage?.reasoningTokens ?? params.reasoningTokens,
 	);
+	// Provider-reported completion tokens already include reasoning: the AI
+	// SDK's `usage.outputTokens` is "the number of total output (completion)
+	// tokens" and `outputTokenDetails.reasoningTokens` is a breakdown of that
+	// figure (normal-chat-model/index.ts maps outputTokens -> completionTokens
+	// and never reports reasoningTokens separately). So when the provider gave
+	// a completion count, total = prompt + completion. Reasoning is only added
+	// on top when completionTokens is our own visible-text estimate, which
+	// excludes the thinking stream (stream-completion.ts counts the two
+	// separately), or when the provider explicitly reported reasoning tokens
+	// alongside an estimated completion count.
+	const completionIncludesReasoning =
+		typeof providerUsage?.completionTokens === "number";
 	const totalTokens =
 		normalizeCount(providerUsage?.totalTokens) ||
-		promptTokens + completionTokens + reasoningTokens;
+		promptTokens +
+			completionTokens +
+			(completionIncludesReasoning ? 0 : reasoningTokens);
 	const usageSource: UsageSource = providerUsage?.source ?? "estimated";
 
 	await db

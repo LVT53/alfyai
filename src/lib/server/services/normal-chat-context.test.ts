@@ -57,7 +57,10 @@ vi.mock("./chat-turn/proactive-connector-context", () => ({
 
 import {
 	buildOutboundSystemPrompt,
+	estimateOutboundPromptTokenTotal,
+	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
 	prepareOutboundChatContext,
+	resolvePromptContextLimits,
 } from "./normal-chat-context";
 import {
 	evaluateNormalChatContextPreparationSlowStageBudgets,
@@ -2098,5 +2101,122 @@ describe("prepareOutboundChatContext", () => {
 
 			expect(prepared.systemPrompt).not.toContain("Connected Accounts:");
 		});
+	});
+});
+
+describe("resolvePromptContextLimits", () => {
+	const runtimeConfig = {
+		model1MaxModelContext: 1_000_000,
+		model1CompactionUiThreshold: 800_000,
+		model1TargetConstructedContext: 900_000,
+		model2MaxModelContext: 250_000,
+		model2CompactionUiThreshold: 200_000,
+		model2TargetConstructedContext: 225_000,
+	} as import("$lib/server/config-store").RuntimeConfig;
+
+	it("returns explicit context limits untouched", () => {
+		expect(
+			resolvePromptContextLimits({
+				modelId: "provider:provider-1:model-1",
+				runtimeConfig,
+				contextLimits: compactContextLimits,
+				provider: { maxModelContext: 200_000 },
+			}),
+		).toEqual(compactContextLimits);
+	});
+
+	it("derives provider-model limits from the provider row", () => {
+		expect(
+			resolvePromptContextLimits({
+				modelId: "provider:provider-1:model-1",
+				runtimeConfig,
+				provider: { maxModelContext: 200_000 },
+			}),
+		).toEqual({
+			maxModelContext: 200_000,
+			compactionUiThreshold: 160_000,
+			targetConstructedContext: 180_000,
+		});
+	});
+
+	it("falls back to the single unknown-provider window when the provider row has no context size", () => {
+		expect(
+			resolvePromptContextLimits({
+				modelId: "provider:provider-1:model-1",
+				runtimeConfig,
+				provider: { modelName: "totally-unknown-model" },
+			}),
+		).toEqual({
+			maxModelContext: 150_000,
+			compactionUiThreshold: 120_000,
+			targetConstructedContext: 135_000,
+		});
+	});
+
+	it("uses the built-in runtime config for model1/model2 and unknown ids", () => {
+		expect(
+			resolvePromptContextLimits({ modelId: "model2", runtimeConfig }),
+		).toEqual({
+			maxModelContext: 250_000,
+			compactionUiThreshold: 200_000,
+			targetConstructedContext: 225_000,
+		});
+		expect(
+			resolvePromptContextLimits({
+				modelId: "model1",
+				runtimeConfig,
+				provider: { maxModelContext: 200_000 },
+			}),
+		).toEqual({
+			maxModelContext: 1_000_000,
+			compactionUiThreshold: 800_000,
+			targetConstructedContext: 900_000,
+		});
+		expect(
+			resolvePromptContextLimits({ modelId: undefined, runtimeConfig }),
+		).toEqual({
+			maxModelContext: 1_000_000,
+			compactionUiThreshold: 800_000,
+			targetConstructedContext: 900_000,
+		});
+	});
+});
+
+describe("estimateOutboundPromptTokenTotal", () => {
+	it("adds the system prompt, the packet and a per-tool schema overhead", () => {
+		const systemPrompt = "You are a helpful assistant. ".repeat(40);
+		const inputValue = "## Current User Message\nSummarize the report. ".repeat(
+			20,
+		);
+		const withoutTools = estimateOutboundPromptTokenTotal({
+			systemPrompt,
+			inputValue,
+		});
+		const systemOnly = estimateOutboundPromptTokenTotal({
+			systemPrompt,
+			inputValue: "",
+		});
+		const packetOnly = estimateOutboundPromptTokenTotal({
+			systemPrompt: "",
+			inputValue,
+		});
+
+		expect(systemOnly).toBeGreaterThan(0);
+		expect(packetOnly).toBeGreaterThan(0);
+		expect(withoutTools).toBe(systemOnly + packetOnly);
+		expect(
+			estimateOutboundPromptTokenTotal({
+				systemPrompt,
+				inputValue,
+				toolCount: 4,
+			}),
+		).toBe(withoutTools + 4 * NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL);
+		expect(
+			estimateOutboundPromptTokenTotal({
+				systemPrompt,
+				inputValue,
+				toolCount: -3,
+			}),
+		).toBe(withoutTools);
 	});
 });

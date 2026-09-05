@@ -776,6 +776,7 @@ export function runChatStreamOrchestrator(
 			let latestContextTraceSections:
 				| LegacyContextTraceSectionInput[]
 				| undefined;
+			let latestEstimatedPromptTokens: number | undefined;
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
@@ -851,6 +852,7 @@ export function runChatStreamOrchestrator(
 						taskState: latestTaskState,
 						contextDebug: latestContextDebug,
 						contextTraceSections: latestContextTraceSections,
+						estimatedPromptTokens: latestEstimatedPromptTokens,
 					},
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
@@ -1033,6 +1035,9 @@ export function runChatStreamOrchestrator(
 					onProviderUsage: (usage) => {
 						latestProviderUsage = usage;
 					},
+					onEstimatedPromptTokens: (estimatedPromptTokens) => {
+						latestEstimatedPromptTokens = estimatedPromptTokens;
+					},
 					onResolvedModel: (resolvedModelId, displayName) => {
 						latestModelId = resolvedModelId;
 						latestModelDisplayName = displayName;
@@ -1193,6 +1198,7 @@ export function runChatStreamOrchestrator(
 				});
 				emitPrefetchedToolCalls(modelRun.prefetchedToolCalls);
 				latestContextStatus = prepared.contextStatus;
+				latestEstimatedPromptTokens = prepared.estimatedPromptTokens;
 				latestTaskState =
 					prepared.taskState ??
 					(await getConversationTaskState(user.id, conversationId).catch(

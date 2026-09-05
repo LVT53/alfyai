@@ -20,11 +20,12 @@ import type { Capability } from "$lib/server/services/connections/registry";
 import { detectLanguage } from "$lib/server/services/language";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
-import { inferModelContextWindow } from "$lib/server/services/model-context";
-import type { PromptContextLimits } from "$lib/server/services/normal-chat-context";
 import {
 	type AuthenticatedPromptUser,
+	estimateOutboundPromptTokenTotal,
+	type PromptContextLimits,
 	prepareOutboundChatContext,
+	resolvePromptContextLimits,
 } from "$lib/server/services/normal-chat-context";
 import { createNormalChatContextPreparationActivityHandler } from "$lib/server/services/normal-chat-context-preparation";
 import {
@@ -35,9 +36,6 @@ import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
-import { deriveModelContextBudget } from "./context-budget";
-
-const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
 
 export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
 	return (
@@ -97,60 +95,30 @@ export function resolvePromptModelConfig(params: {
 	};
 }
 
-export function resolvePromptContextLimits(params: {
-	modelId: ModelId;
-	provider: {
-		modelName?: string | null;
-		maxModelContext?: number;
-		compactionUiThreshold?: number;
-		targetConstructedContext?: number;
-	};
-	runtimeConfig: RuntimeConfig;
-}): PromptContextLimits {
-	if (
-		params.modelId !== "model1" &&
-		params.modelId !== "model2" &&
-		params.modelId !== undefined
-	) {
-		const providerBudget = deriveModelContextBudget({
-			maxModelContext:
-				params.provider.maxModelContext ??
-				inferModelContextWindow(params.provider.modelName) ??
-				UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK,
-			compactionUiThreshold: params.provider.compactionUiThreshold,
-			targetConstructedContext: params.provider.targetConstructedContext,
-		});
-		return {
-			maxModelContext: providerBudget.maxModelContext,
-			compactionUiThreshold: providerBudget.compactionUiThreshold,
-			targetConstructedContext: providerBudget.targetConstructedContext,
-		};
-	}
+/**
+ * Count of tool schemas that will ride the provider request. Feeds the
+ * fallback prompt-size estimate used by the context usage ring when the
+ * provider reports no input tokens.
+ */
+export function countToolPackTools(tools: ToolPack["tools"]): number {
+	return tools ? Object.keys(tools).length : 0;
+}
 
-	if (params.modelId === "model1") {
-		return {
-			maxModelContext: params.runtimeConfig.model1MaxModelContext,
-			compactionUiThreshold: params.runtimeConfig.model1CompactionUiThreshold,
-			targetConstructedContext:
-				params.runtimeConfig.model1TargetConstructedContext,
-		};
-	}
-
-	if (params.modelId === "model2") {
-		return {
-			maxModelContext: params.runtimeConfig.model2MaxModelContext,
-			compactionUiThreshold: params.runtimeConfig.model2CompactionUiThreshold,
-			targetConstructedContext:
-				params.runtimeConfig.model2TargetConstructedContext,
-		};
-	}
-
-	return {
-		maxModelContext: params.runtimeConfig.model1MaxModelContext,
-		compactionUiThreshold: params.runtimeConfig.model1CompactionUiThreshold,
-		targetConstructedContext:
-			params.runtimeConfig.model1TargetConstructedContext,
-	};
+/**
+ * Full-prompt estimate for a turn (system prompt + final outbound packet +
+ * tool schemas). Computed once the outbound context and tool pack are final,
+ * so it reflects everything the provider actually receives that we can see.
+ */
+export function estimateTurnPromptTokens(params: {
+	prepared: PreparedModelContext;
+	inputValue: string;
+	tools: ToolPack["tools"];
+}): number {
+	return estimateOutboundPromptTokenTotal({
+		systemPrompt: params.prepared.systemPrompt,
+		inputValue: params.inputValue,
+		toolCount: countToolPackTools(params.tools),
+	});
 }
 
 // --- Shared send-model param type and helpers (plain + streaming) ---
@@ -221,7 +189,7 @@ export type ProviderRuntime = {
 	modelId: ModelId;
 	provider: NormalChatModelRunProvider;
 	modelConfig: ReturnType<typeof resolvePromptModelConfig>;
-	baseContextLimits: NonNullable<ReturnType<typeof resolvePromptContextLimits>>;
+	baseContextLimits: PromptContextLimits;
 	depthEffort: DepthEffort;
 };
 

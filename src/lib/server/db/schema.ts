@@ -420,9 +420,17 @@ export const conversationContextStatus = sqliteTable(
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		estimatedTokens: integer("estimated_tokens").notNull().default(0),
+		// Best-known prompt size for the last completed turn: the provider's
+		// reported input tokens when available, otherwise a system-prompt +
+		// packet + tool-schema estimate (see chat-turn/context-usage.ts).
+		promptTokens: integer("prompt_tokens").notNull().default(0),
+		promptTokensSource: text("prompt_tokens_source")
+			.notNull()
+			.default("estimated"),
 		maxContextTokens: integer("max_context_tokens").notNull().default(262144),
 		thresholdTokens: integer("threshold_tokens").notNull().default(209715),
-		targetTokens: integer("target_tokens").notNull().default(157286),
+		// 0.9 x 262144 — matches DEFAULT_TARGET_CONSTRUCTED_CONTEXT_RATIO.
+		targetTokens: integer("target_tokens").notNull().default(235929),
 		compactionApplied: integer("compaction_applied").notNull().default(0),
 		compactionMode: text("compaction_mode").notNull().default("none"),
 		routingStage: text("routing_stage").notNull().default("deterministic"),

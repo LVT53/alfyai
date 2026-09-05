@@ -106,6 +106,7 @@ vi.mock("$lib/server/services/knowledge", () => ({
 		);
 	}),
 	listConversationSourceArtifactIds: vi.fn(async () => []),
+	recordConversationPromptUsage: vi.fn(async () => null),
 	refreshConversationWorkingSet: vi.fn(async () => []),
 	upsertWorkCapsule: vi.fn(async () => null),
 }));

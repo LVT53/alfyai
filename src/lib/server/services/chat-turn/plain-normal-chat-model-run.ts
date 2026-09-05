@@ -17,6 +17,7 @@ import {
 	type ClarificationDecision,
 	createRequestAbortSignal,
 	createToolPack,
+	estimateTurnPromptTokens,
 	evaluateClarification,
 	isEvidenceReadyToolCall,
 	type NormalChatSendModelBaseParams,
@@ -59,6 +60,9 @@ export type PlainNormalChatSendModelResult = {
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
 	providerUsage?: ProviderUsageSnapshot | null;
+	// Full-prompt estimate (system prompt + final packet + tool schemas) for
+	// the context usage ring when the provider reports no input tokens.
+	estimatedPromptTokens?: number;
 	prefetchedToolCalls?: ToolCallEntry[];
 	normalChatToolCalls?: ToolCallEntry[];
 	toolCalls?: ToolCallEntry[];
@@ -324,13 +328,27 @@ function buildRunResult(
 		providerUsage: mapNormalChatModelRunUsageToProviderSnapshot(
 			sumUsage(
 				sumUsage(deliberationUsage, result.usage),
-				finalAnswerRepair?.usage ?? {
-					inputTokens: undefined,
-					outputTokens: undefined,
-					totalTokens: undefined,
+				// The final-answer repair is a separate, smaller request; the
+				// main run's last prompt is the conversation prompt the ring
+				// reports, so its last-step count is pinned after the sum.
+				{
+					...(finalAnswerRepair?.usage ?? {
+						inputTokens: undefined,
+						outputTokens: undefined,
+						totalTokens: undefined,
+					}),
+					lastStepInputTokens: result.usage.lastStepInputTokens,
 				},
 			),
 		),
+		estimatedPromptTokens: estimateTurnPromptTokens({
+			prepared,
+			inputValue: appendDeliberationBriefsToInput(
+				prepared.inputValue,
+				deliberation?.briefs ?? [],
+			),
+			tools: toolPack.tools,
+		}),
 		prefetchedToolCalls: prepared.prefetchedToolCalls,
 		normalChatToolCalls,
 		toolCalls,
