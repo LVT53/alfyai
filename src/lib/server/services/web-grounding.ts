@@ -187,33 +187,42 @@ export function createGroundedWebMetadata(
 	result: GroundedWebResult,
 ): GroundedWebMetadata {
 	const hasGroundingEvidence = result.evidence.length > 0;
-	const diagnostics = result.diagnostics;
-	const fallbackReasons = diagnostics.fallbackReasons.slice(0, 8).join("; ");
+	// Diagnostics are operational telemetry; a partial or missing block must
+	// never break the turn (the forced web prefetch swallows throws here).
+	const diagnostics = (result.diagnostics ?? {}) as Partial<
+		GroundedWebResult["diagnostics"]
+	>;
+	const extraction: Partial<
+		NonNullable<GroundedWebResult["diagnostics"]>["pageExtraction"]
+	> = diagnostics.pageExtraction ?? {};
+	const fallbackReasons = (diagnostics.fallbackReasons ?? [])
+		.slice(0, 8)
+		.join("; ");
 	return {
 		ok: true,
 		evidenceReady: hasGroundingEvidence,
 		sourceCount: result.sources.length,
 		evidenceCount: result.evidence.length,
-		mode: diagnostics.mode,
-		freshness: diagnostics.freshness,
-		sourcePolicy: diagnostics.sourcePolicy,
-		plannedQueryCount: diagnostics.plannedQueryCount,
-		directUrlCount: diagnostics.directUrlCount,
-		fetchedSourceCount: diagnostics.fetchedSourceCount,
-		fusedSourceCount: diagnostics.fusedSourceCount,
-		selectedSourceCount: diagnostics.selectedSourceCount,
-		openedPageCount: diagnostics.openedPageCount,
-		pageExtractionAttemptedCount: diagnostics.pageExtraction.attemptedCount,
-		pageExtractionSucceededCount: diagnostics.pageExtraction.succeededCount,
-		pageExtractionCacheHitCount: diagnostics.pageExtraction.cacheHitCount,
-		pageExtractionLowQualityCount: diagnostics.pageExtraction.lowQualityCount,
-		pageExtractionBlockedCount: diagnostics.pageExtraction.blockedCount,
-		pageExtractionFailedCount: diagnostics.pageExtraction.failedCount,
-		pageExtractionTotalLatencyMs: diagnostics.pageExtraction.totalLatencyMs,
-		evidenceCandidateCount: diagnostics.evidenceCandidateCount,
-		exactEvidenceCandidateCount: diagnostics.exactEvidenceCandidateCount,
-		reranked: diagnostics.reranked,
-		sourceReranked: diagnostics.sourceReranked,
+		mode: diagnostics.mode ?? "unknown",
+		freshness: diagnostics.freshness ?? "unknown",
+		sourcePolicy: diagnostics.sourcePolicy ?? "unknown",
+		plannedQueryCount: diagnostics.plannedQueryCount ?? 0,
+		directUrlCount: diagnostics.directUrlCount ?? 0,
+		fetchedSourceCount: diagnostics.fetchedSourceCount ?? 0,
+		fusedSourceCount: diagnostics.fusedSourceCount ?? 0,
+		selectedSourceCount: diagnostics.selectedSourceCount ?? 0,
+		openedPageCount: diagnostics.openedPageCount ?? 0,
+		pageExtractionAttemptedCount: extraction.attemptedCount ?? 0,
+		pageExtractionSucceededCount: extraction.succeededCount ?? 0,
+		pageExtractionCacheHitCount: extraction.cacheHitCount ?? 0,
+		pageExtractionLowQualityCount: extraction.lowQualityCount ?? 0,
+		pageExtractionBlockedCount: extraction.blockedCount ?? 0,
+		pageExtractionFailedCount: extraction.failedCount ?? 0,
+		pageExtractionTotalLatencyMs: extraction.totalLatencyMs ?? 0,
+		evidenceCandidateCount: diagnostics.evidenceCandidateCount ?? 0,
+		exactEvidenceCandidateCount: diagnostics.exactEvidenceCandidateCount ?? 0,
+		reranked: diagnostics.reranked ?? false,
+		sourceReranked: diagnostics.sourceReranked ?? false,
 		...(fallbackReasons ? { fallbackReasons } : {}),
 	};
 }
