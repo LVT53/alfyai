@@ -473,6 +473,18 @@ onMount(() => {
 		return;
 	}
 
+	if (section === "tool-health" && isAdmin) {
+		void handleTabChange("administration");
+		requestAnimationFrame(() => {
+			const card = document.getElementById("settings-tool-health-card");
+			if (!card) return;
+			card.scrollIntoView({ behavior: "smooth", block: "start" });
+			card.classList.add("settings-card-highlight");
+			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+		});
+		return;
+	}
+
 	if (section !== "connections") return;
 	activeTab = "connections";
 

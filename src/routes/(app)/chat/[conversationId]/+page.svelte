@@ -135,6 +135,7 @@ import {
 	regenerateDropsLaterTurns,
 } from "./lifecycle-guards";
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
+import DegradedCapabilitiesBanner from "$lib/components/chat/DegradedCapabilitiesBanner.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
@@ -2593,6 +2594,8 @@ function handleDrop(event: DragEvent) {
 					</span>
 				</h1>
 			</div>
+
+			<DegradedCapabilitiesBanner isAdmin={data.user?.role === 'admin'} />
 
 			<div class="chat-messages flex flex-1 flex-col overflow-hidden">
 				{#if showInitialLoading}
