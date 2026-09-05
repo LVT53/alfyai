@@ -63,6 +63,74 @@ export function noMatchingConnectionMessage(
 	return `You have these ${capabilityLabel} accounts: ${listed}. I couldn't match "${selector}" — which one did you mean?`;
 }
 
+// ── Model payload compaction ────────────────────────────────────
+//
+// Every successful tool `modelPayload` is run through this before it reaches
+// the model (see `executeToolWithEnvelope` below): drop keys whose value
+// carries no information (undefined/null, empty arrays, empty objects, empty
+// strings) so the model isn't billed tokens for placeholders like
+// `omittedSiblingCount: []` or `snippet: ""`. A short allow-list of envelope
+// keys is kept even when empty/falsy, because their ABSENCE (not their value)
+// is what a caller or the model keys off of — e.g. `success: false` must
+// never be dropped for being falsy, and `name`/`sourceType`/`mode` identify
+// the payload's shape. Recurses exactly one level into plain-object values
+// (e.g. `answerBrief: { sourceCount, evidenceCount }`) so a nested empty key
+// is also dropped; array items are left untouched — an array is a list of
+// records the model should see whole, not a bag of optional fields.
+const NEVER_DROP_MODEL_PAYLOAD_KEYS = new Set([
+	"success",
+	"name",
+	"action",
+	"message",
+	"mode",
+	"sourceType",
+]);
+
+function isEmptyModelPayloadValue(value: unknown): boolean {
+	if (value === undefined || value === null) return true;
+	if (typeof value === "string") return value.length === 0;
+	if (Array.isArray(value)) return value.length === 0;
+	if (isRecord(value)) return Object.keys(value).length === 0;
+	return false;
+}
+
+function compactModelPayloadShallow(
+	record: Record<string, unknown>,
+): Record<string, unknown> {
+	const compacted: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(record)) {
+		if (
+			!NEVER_DROP_MODEL_PAYLOAD_KEYS.has(key) &&
+			isEmptyModelPayloadValue(value)
+		) {
+			continue;
+		}
+		compacted[key] = value;
+	}
+	return compacted;
+}
+
+export function compactModelPayload<T>(payload: T): T {
+	if (!isRecord(payload)) return payload;
+	const compacted: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(payload)) {
+		// One level of recursion: a nested plain object gets its own empty keys
+		// stripped, but we don't descend further (a grandchild object is left
+		// as-is once its parent has been compacted once).
+		const compactedValue = isRecord(value)
+			? compactModelPayloadShallow(value)
+			: value;
+		if (
+			!NEVER_DROP_MODEL_PAYLOAD_KEYS.has(key) &&
+			isEmptyModelPayloadValue(compactedValue)
+		) {
+			continue;
+		}
+		compacted[key] = compactedValue;
+	}
+	return compacted as T;
+}
+
 // ── Metadata ───────────────────────────────────────────────────
 
 export function sanitizeMetadata(
@@ -266,13 +334,16 @@ export async function executeToolWithEnvelope<
 			if (timer) clearTimeout(timer);
 			removeAbortListener?.();
 		});
+		// Strip empty/placeholder keys from the payload before it reaches the
+		// model — see compactModelPayload above.
+		const modelPayload = compactModelPayload(result.modelPayload);
 		// Persist a compact digest of what the model received so later turns
 		// can replay this call as a native tool result (conversation-history.ts).
 		if (result.entry.resultDigest == null) {
-			result.entry.resultDigest = deriveToolResultDigest(result.modelPayload);
+			result.entry.resultDigest = deriveToolResultDigest(modelPayload);
 		}
 		params.recorder.record(result.entry);
-		return result.modelPayload;
+		return modelPayload;
 	} catch (error) {
 		const failure = params.onError(error);
 		params.recorder.record(failure.entry);

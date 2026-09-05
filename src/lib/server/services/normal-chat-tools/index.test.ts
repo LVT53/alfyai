@@ -186,19 +186,6 @@ function makeNextcloudConnection(
 	};
 }
 
-function hasInstructions(
-	result:
-		| { instructions: string }
-		| { success: false; error: string }
-		| AsyncIterable<
-				{ instructions: string } | { success: false; error: string }
-		  >,
-): result is { instructions: string } {
-	return (
-		typeof result === "object" && result !== null && "instructions" in result
-	);
-}
-
 function makeFileProductionJob(
 	overrides: Partial<FileProductionJob>,
 ): FileProductionJob {
@@ -1010,8 +997,21 @@ describe("createNormalChatTools", () => {
 					mode: "turbo",
 					freshness: "auto",
 					sourcePolicy: "general",
+					plannedQueryCount: 1,
+					directUrlCount: 0,
+					fetchedSourceCount: 1,
+					fusedSourceCount: 1,
 					selectedSourceCount: 1,
 					openedPageCount: 0,
+					pageExtractionAttemptedCount: 0,
+					pageExtractionSucceededCount: 0,
+					pageExtractionCacheHitCount: 0,
+					pageExtractionLowQualityCount: 0,
+					pageExtractionBlockedCount: 0,
+					pageExtractionFailedCount: 0,
+					pageExtractionTotalLatencyMs: 0,
+					evidenceCandidateCount: 1,
+					exactEvidenceCandidateCount: 0,
 					reranked: false,
 					sourceReranked: false,
 				},
@@ -1081,17 +1081,11 @@ describe("createNormalChatTools", () => {
 				sourceCount: 0,
 				evidenceCount: 0,
 			},
-			diagnostics: {
-				directUrlCount: 1,
-				openedPageCount: 0,
-				fallbackReasons: ["page_open_failed", "direct_url_open_failed"],
-			},
 		});
-		if (hasInstructions(result)) {
-			expect(result.instructions).toContain(
-				"No citation-ready evidence was returned",
-			);
-		}
+		// P4 hygiene: diagnostics and the caution string no longer ride on the
+		// MODEL payload — they live only in the recorded tool-call metadata.
+		expect(result).not.toHaveProperty("diagnostics");
+		expect(result).not.toHaveProperty("instructions");
 		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-research",
@@ -1106,6 +1100,8 @@ describe("createNormalChatTools", () => {
 					evidenceCount: 0,
 					selectedSourceCount: 0,
 					openedPageCount: 0,
+					directUrlCount: 1,
+					fallbackReasons: "page_open_failed; direct_url_open_failed",
 				}),
 			}),
 		]);
@@ -1705,6 +1701,14 @@ describe("createNormalChatTools", () => {
 		expect(JSON.stringify(result)).not.toContain(
 			"SHOULD BE OMITTED BY MAX SIBLINGS",
 		);
+		// P4 hygiene: the model payload carries only the requested mode's keys
+		// (here project) plus the envelope — no persona/history keys, no
+		// `source`, and no per-call caution string.
+		expect(result).not.toHaveProperty("content");
+		expect(result).not.toHaveProperty("conversations");
+		expect(result).not.toHaveProperty("selectedConversation");
+		expect(result).not.toHaveProperty("source");
+		expect(result).not.toHaveProperty("instructions");
 		expect(withoutResultDigest(getToolCalls())).toEqual([
 			{
 				callId: "call-memory",

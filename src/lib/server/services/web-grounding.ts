@@ -35,39 +35,12 @@ export type GroundedWebModelPayload = {
 	query: string;
 	queries: string[];
 	answerBrief: {
-		instructions: string[];
 		sourceCount: number;
 		evidenceCount: number;
 	};
 	answerBriefMarkdown: string;
 	sources: GroundedWebPayloadSource[];
 	evidence: GroundedWebPayloadEvidence[];
-	diagnostics: {
-		mode: string;
-		freshness: string;
-		sourcePolicy: string;
-		plannedQueryCount: number;
-		directUrlCount: number;
-		fetchedSourceCount: number;
-		fusedSourceCount: number;
-		selectedSourceCount: number;
-		openedPageCount: number;
-		pageExtraction: {
-			attemptedCount: number;
-			succeededCount: number;
-			cacheHitCount: number;
-			lowQualityCount: number;
-			blockedCount: number;
-			failedCount: number;
-			totalLatencyMs: number;
-		};
-		evidenceCandidateCount: number;
-		exactEvidenceCandidateCount: number;
-		reranked: boolean;
-		sourceReranked: boolean;
-		fallbackReasons: string[];
-	};
-	instructions: string;
 };
 
 export type GroundedWebMetadata = NonNullable<ToolCallEntry["metadata"]>;
@@ -99,15 +72,30 @@ function optionalScalarMetadata(
 	return value === undefined ? undefined : value;
 }
 
-// Default cap on the answer-brief markdown emitted to the model. Callers that
-// have sized the brief to a model-aware budget (e.g. fetch_url) pass a larger
-// maxMarkdownChars so the brief isn't re-truncated below that budget.
-const DEFAULT_ANSWER_BRIEF_MARKDOWN_CHARS = 30_000;
+// Default cap on the answer-brief markdown emitted to the model. Only
+// research_web relies on this default — fetch_url always passes an explicit
+// maxMarkdownChars sized to the model's context window, so this constant is
+// its fallback only (e.g. a caller that forgets to pass one).
+const DEFAULT_RESEARCH_WEB_BRIEF_MAX_CHARS = 12_000;
+const FETCH_URL_BRIEF_MARKDOWN_CHARS_FALLBACK = 30_000;
+
+// research_web has no model-context-aware sizing of its own (unlike fetch_url,
+// which derives maxCharsTotal from the selected model), so its brief cap is a
+// flat, operator-tunable knob. Read directly from process.env (not env.ts/
+// config-store) so this stays a narrow, local knob.
+function resolveWebResearchBriefMaxChars(): number {
+	const raw = process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
+	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+	return Number.isFinite(parsed) && parsed > 0
+		? parsed
+		: DEFAULT_RESEARCH_WEB_BRIEF_MAX_CHARS;
+}
 
 export function buildGroundedWebModelPayload(
 	result: GroundedWebResult,
 	opts?: { maxMarkdownChars?: number; name?: "research_web" | "fetch_url" },
 ): GroundedWebModelPayload {
+	const name = opts?.name ?? "research_web";
 	const sources = result.sources
 		.slice(0, MAX_PAYLOAD_SOURCES)
 		.map((source) => ({
@@ -133,47 +121,28 @@ export function buildGroundedWebModelPayload(
 			score: item.score,
 		}));
 	const evidenceReady = evidence.length > 0;
+	const maxMarkdownChars =
+		opts?.maxMarkdownChars ??
+		(name === "research_web"
+			? resolveWebResearchBriefMaxChars()
+			: FETCH_URL_BRIEF_MARKDOWN_CHARS_FALLBACK);
 
 	return {
 		success: evidenceReady,
-		name: opts?.name ?? "research_web",
+		name,
 		sourceType: "web",
 		query: result.query,
 		queries: result.queries.slice(0, 6).map((query) => query.query),
 		answerBrief: {
-			instructions: result.answerBrief.instructions
-				.slice(0, 8)
-				.map((instruction) => truncateText(instruction, 240)),
 			sourceCount: sources.length,
 			evidenceCount: evidence.length,
 		},
 		answerBriefMarkdown: truncateText(
 			result.answerBrief.markdown,
-			opts?.maxMarkdownChars ?? DEFAULT_ANSWER_BRIEF_MARKDOWN_CHARS,
+			maxMarkdownChars,
 		),
 		sources,
 		evidence,
-		diagnostics: {
-			mode: result.diagnostics.mode,
-			freshness: result.diagnostics.freshness,
-			sourcePolicy: result.diagnostics.sourcePolicy,
-			plannedQueryCount: result.diagnostics.plannedQueryCount,
-			directUrlCount: result.diagnostics.directUrlCount,
-			fetchedSourceCount: result.diagnostics.fetchedSourceCount,
-			fusedSourceCount: result.diagnostics.fusedSourceCount,
-			selectedSourceCount: result.diagnostics.selectedSourceCount,
-			openedPageCount: result.diagnostics.openedPageCount,
-			pageExtraction: result.diagnostics.pageExtraction,
-			evidenceCandidateCount: result.diagnostics.evidenceCandidateCount,
-			exactEvidenceCandidateCount:
-				result.diagnostics.exactEvidenceCandidateCount,
-			reranked: result.diagnostics.reranked,
-			sourceReranked: result.diagnostics.sourceReranked,
-			fallbackReasons: result.diagnostics.fallbackReasons.slice(0, 8),
-		},
-		instructions: evidenceReady
-			? "Answer only from the returned answer brief, sources, and evidence. Use markdown links with returned source URLs, and never cite URLs outside the returned source list."
-			: "No citation-ready evidence was returned. Say you could not find the information in the results; do not infer facts or answer from memory.",
 	};
 }
 
@@ -209,22 +178,43 @@ export function createGroundedWebCandidates(
 	}));
 }
 
+// The model payload no longer carries `diagnostics` (P4 hygiene) — this is
+// now the ONLY place the full diagnostics survive, for the admin tool-call
+// view. `ToolCallEntry["metadata"]` is a flat scalar map, so nested counters
+// (pageExtraction.*) are flattened with a prefix and the string[] reason list
+// is joined into one string.
 export function createGroundedWebMetadata(
 	result: GroundedWebResult,
 ): GroundedWebMetadata {
 	const hasGroundingEvidence = result.evidence.length > 0;
+	const diagnostics = result.diagnostics;
+	const fallbackReasons = diagnostics.fallbackReasons.slice(0, 8).join("; ");
 	return {
 		ok: true,
 		evidenceReady: hasGroundingEvidence,
 		sourceCount: result.sources.length,
 		evidenceCount: result.evidence.length,
-		mode: result.diagnostics.mode,
-		freshness: result.diagnostics.freshness,
-		sourcePolicy: result.diagnostics.sourcePolicy,
-		selectedSourceCount: result.diagnostics.selectedSourceCount,
-		openedPageCount: result.diagnostics.openedPageCount,
-		reranked: result.diagnostics.reranked,
-		sourceReranked: result.diagnostics.sourceReranked,
+		mode: diagnostics.mode,
+		freshness: diagnostics.freshness,
+		sourcePolicy: diagnostics.sourcePolicy,
+		plannedQueryCount: diagnostics.plannedQueryCount,
+		directUrlCount: diagnostics.directUrlCount,
+		fetchedSourceCount: diagnostics.fetchedSourceCount,
+		fusedSourceCount: diagnostics.fusedSourceCount,
+		selectedSourceCount: diagnostics.selectedSourceCount,
+		openedPageCount: diagnostics.openedPageCount,
+		pageExtractionAttemptedCount: diagnostics.pageExtraction.attemptedCount,
+		pageExtractionSucceededCount: diagnostics.pageExtraction.succeededCount,
+		pageExtractionCacheHitCount: diagnostics.pageExtraction.cacheHitCount,
+		pageExtractionLowQualityCount: diagnostics.pageExtraction.lowQualityCount,
+		pageExtractionBlockedCount: diagnostics.pageExtraction.blockedCount,
+		pageExtractionFailedCount: diagnostics.pageExtraction.failedCount,
+		pageExtractionTotalLatencyMs: diagnostics.pageExtraction.totalLatencyMs,
+		evidenceCandidateCount: diagnostics.evidenceCandidateCount,
+		exactEvidenceCandidateCount: diagnostics.exactEvidenceCandidateCount,
+		reranked: diagnostics.reranked,
+		sourceReranked: diagnostics.sourceReranked,
+		...(fallbackReasons ? { fallbackReasons } : {}),
 	};
 }
 
