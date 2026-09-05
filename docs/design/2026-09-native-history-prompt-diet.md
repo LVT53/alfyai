@@ -149,3 +149,22 @@ Decisions taken in response, superseding the sections above where they differ:
 8. **Caps**: the 12,000-char brief cap applies to `research_web` only; `fetch_url` keeps `resolveFetchContentCharCap` (20k floor, model-scaled).
 9. **memory_context** keeps the common envelope keys (`success`, `name`, `sourceType`, `mode`) and existing key names; it drops the per-call caution string and empty keys, and only includes the keys of the requested mode.
 10. **Tests to update deliberately**: `prompts.test.ts` legacy-migration fixture, `web-grounding.test.ts` frozen payload keys and the 30,000 default, `normal-chat-tools/index.test.ts` memory_context shape, `normal-chat-tool-gating.test.ts` produce_file gating.
+
+## Results (staging verification, 2026-09-05 evening)
+
+Scripted three-turn conversation against staging (`langflow-chat-dev`, same vLLM as production), before and after the three packages:
+
+| Measure | Before (release e5cf15fc) | P1+P4 (13bee467) | P1+P2+P4 (4dfa7797) |
+|---|---|---|---|
+| System prompt tokens (estimate) | n/a (old prompt) | 4,758 | 3,778 |
+| Turn 1 (web research, 3 steps): prompt tokens summed | n/a | 26,452 | 23,371 |
+| Turn 1 first visible token | 17.1 s (tried nonexistent `search`, failed) | 15.2 s | 9.3 s |
+| Turn 2 (follow-up): outbound shape | 1 flattened user message | user, assistant+2 tool calls, tool results, user | same |
+| Turn 2: tools called | image_search (irrelevant) | none — answered from prior results | none |
+| Turn 2: prompt tokens | n/a | 10,825 | 9,760 |
+| Turn 3 (arithmetic) | called phantom `evaluate_expression`, failed | no tool, correct | no tool, correct |
+| Tool-call `resultDigest` persisted | no | yes (1,500 chars each) | yes |
+
+Prefix-cache reuse could not be demonstrated on the current model server: two byte-identical 4,057-token requests sent directly to vLLM produced zero `prefix_cache_hits`. The server runs Qwen3.8-Flash-Next (hybrid attention/Mamba) with "Mamba cache mode align" and a 1,600-token attention block, and in this build it does not reuse cached prefixes across requests. The outbound message prefix is byte-stable turn to turn (verified from the shape logs), so the app side of the cache goal is complete; realising it needs a server-side change (a vLLM build with working hybrid prefix caching, or a dense model for the control path) and is tracked as an ops follow-up.
+
+Follow-up worth measuring once the server caches: the current turn's user message is the constructed packet while its history entry is the raw text, so the reusable prefix ends one message earlier than it could; rendering the raw text first and the packet after it (or sending the packet as a separate trailing message) would extend the cacheable prefix through the previous turn's user message.
