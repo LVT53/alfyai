@@ -13,6 +13,7 @@ export default defineConfig({
     ],
     exclude: ['tests/e2e/**'],
     globals: true,
+    globalSetup: ['./src/vitest-global-setup.ts'],
     setupFiles: ['./src/vitest-setup.ts']
   },
   resolve: {

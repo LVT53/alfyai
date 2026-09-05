@@ -148,8 +148,12 @@ vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({
 	isCurrentMemoryResetGeneration: vi.fn(async () => true),
 }));
 
-vi.mock("$lib/server/env", () => ({
-	getDatabasePath: () => "./data/test.db",
+vi.mock("$lib/server/env", async (importOriginal) => ({
+	// Keep the real resolver so the db singleton opens the migrated throwaway
+	// database provisioned by the vitest global setup, not a hard-coded ./data
+	// path (gitignored local state, absent on a fresh clone).
+	getDatabasePath: (await importOriginal<typeof import("$lib/server/env")>())
+		.getDatabasePath,
 	config: {
 		maxMessageLength: 10000,
 		model1MaxMessageLength: 10000,

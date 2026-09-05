@@ -265,8 +265,9 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		expect(getByText("OpenAI")).toBeInTheDocument();
 		// 591 appears in both the model row and the pinned total row.
 		expect(getAllByText("591").length).toBeGreaterThan(0);
-		// SortableTable formats USD with the Intl currency formatter (2 dp).
-		expect(getAllByText("US$1.23").length).toBeGreaterThan(0);
+		// SortableTable formats USD with a locale-pinned (en-US) Intl currency
+		// formatter (2 dp), so the output is the same on every machine.
+		expect(getAllByText("$1.23").length).toBeGreaterThan(0);
 	});
 
 	it("shows an empty state when byModel is empty on the Usage by model tab", async () => {

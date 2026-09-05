@@ -78,6 +78,7 @@
 // "point 1b" describe block below.
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -130,7 +131,7 @@ function seedUser() {
 }
 
 beforeEach(() => {
-	dbPath = `./data/test-cross-cutting-write-safety-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-cross-cutting-write-safety-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });
