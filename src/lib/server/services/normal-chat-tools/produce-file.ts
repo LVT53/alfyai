@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import {
+	type AsciiBarChart,
+	parseAsciiBarChart,
+} from "$lib/services/ascii-bar-chart";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
 
@@ -341,25 +345,116 @@ function normalizeDocumentSourceEnvelope(
 	documentSource: Record<string, unknown>,
 	requestTitle: string,
 ): Record<string, unknown> {
+	const blocksSource =
+		Array.isArray(documentSource.blocks) && documentSource.blocks.length > 0
+			? documentSource.blocks
+			: [
+					{
+						type: "paragraph",
+						text: `Generated file request: ${requestTitle}`,
+					},
+				];
+	const title =
+		typeof documentSource.title === "string" &&
+		documentSource.title.trim().length > 0
+			? documentSource.title
+			: requestTitle;
+	const repaired = blocksSource.flatMap(repairDocumentSourceBlock);
+	// The report template already prints the document title; a leading H1 that
+	// repeats it would render the title twice.
+	const first = repaired[0];
+	const blocks =
+		first &&
+		first.type === "heading" &&
+		Number(first.level) === 1 &&
+		typeof first.text === "string" &&
+		first.text.trim().toLowerCase() === title.trim().toLowerCase()
+			? repaired.slice(1)
+			: repaired;
 	return {
 		...documentSource,
 		version: 1,
 		template: "alfyai_standard_report",
-		title:
-			typeof documentSource.title === "string" &&
-			documentSource.title.trim().length > 0
-				? documentSource.title
-				: requestTitle,
-		blocks:
-			Array.isArray(documentSource.blocks) && documentSource.blocks.length > 0
-				? documentSource.blocks
-				: [
-						{
-							type: "paragraph",
-							text: `Generated file request: ${requestTitle}`,
-						},
-					],
+		title,
+		blocks,
 	};
+}
+
+// Model-authored `documentSource` blocks are hand-built JSON, and small local
+// models routinely botch the paragraph block: a GFM pipe table or an ASCII bar
+// chart flattened onto a single line (no newlines survive whatever produced
+// the tool call), sometimes wrapped in a stray code-fence/backtick pair. This
+// repairs a paragraph block IN PLACE before it reaches `validateGeneratedDocumentSource`
+// — reconstructing the structure the model clearly intended instead of letting
+// it render as a run-on paragraph. Non-paragraph blocks (and paragraphs with
+// nothing to repair) pass through untouched.
+function repairDocumentSourceBlock(block: unknown): Record<string, unknown>[] {
+	if (!isRecord(block)) return [block as Record<string, unknown>];
+	if (block.type !== "paragraph" || typeof block.text !== "string")
+		return [block];
+	const text = block.text;
+
+	// (b) A fenced or backtick-wrapped paragraph: a ```chart / ```csv fence, or
+	// an ASCII bar chart (with or without a fence) flattened onto one line.
+	const fenced = unwrapFencedParagraph(text);
+	if (fenced) {
+		if (fenced.lang === "chart") {
+			const chartBlock = chartJsFenceToBlock(fenced.content);
+			if (chartBlock) return [chartBlock];
+		} else if (fenced.lang === "csv") {
+			const tableBlock = csvFenceToTableBlock(fenced.content);
+			if (tableBlock) return [tableBlock];
+		}
+		const asciiSource = fenced.content.includes("\n")
+			? fenced.content
+			: (reconstructAsciiChartLines(fenced.content) ?? fenced.content);
+		const ascii = parseAsciiBarChart(asciiSource);
+		if (ascii) return [asciiBarChartToBlock(ascii)];
+		return [
+			{
+				type: "code",
+				...(fenced.lang ? { language: fenced.lang } : {}),
+				text: fenced.content.trim(),
+			},
+		];
+	}
+
+	// A bare (unwrapped) ASCII bar chart, still flattened onto one line.
+	const bareAsciiSource = text.includes("\n")
+		? text
+		: reconstructAsciiChartLines(text);
+	if (bareAsciiSource) {
+		const ascii = parseAsciiBarChart(bareAsciiSource);
+		if (ascii) return [asciiBarChartToBlock(ascii)];
+	}
+
+	// (a) A GFM pipe table crammed onto a single line: reconstruct the row
+	// boundaries (each original line started/ended with "|", so joined lines
+	// leave a telltale "| |" seam) and re-run the table parser.
+	if (!text.includes("\n") && /\|\s*:?-{2,}:?\s*\|/.test(text)) {
+		const rebuilt = reconstructPipeTableParagraph(text);
+		if (rebuilt) {
+			const blocks = markdownishTextToBlocks(rebuilt);
+			if (blocks.length > 0) return blocks;
+		}
+	}
+
+	// (c) Markdown structure (headings/bullets/tables) embedded with real
+	// newlines inside one paragraph's text instead of being split into blocks.
+	if (
+		text.includes("\n") &&
+		/(^|\n)\s*(#{1,3}\s|[-*]\s|\d+\.\s|>\s*\[!|\|.*\||(?:---|\*\*\*|___)\s*(?:\n|$)|```)/.test(
+			text,
+		)
+	) {
+		const blocks = markdownishTextToBlocks(text);
+		if (blocks.length > 0) return blocks;
+	}
+
+	// Plain paragraph: still unescape markdown punctuation the model escaped
+	// (\*, \_, \#) so it does not print literally.
+	const unescaped = stripInlineMarkdown(text);
+	return [unescaped === text ? block : { ...block, text: unescaped }];
 }
 
 function normalizeToolRequestedOutputs(
@@ -514,23 +609,37 @@ function buildDocumentSourceFromText(params: {
 }
 
 function stripInlineMarkdown(text: string): string {
-	return text
-		.replace(/\*\*([^*]+)\*\*/g, "$1")
-		.replace(/__([^_]+)__/g, "$1")
-		.replace(/\*([^*]+)\*/g, "$1")
-		.replace(/_([^_]+)_/g, "$1")
-		.replace(/~~([^~]+)~~/g, "$1")
-		.replace(/`([^`]+)`/g, "$1")
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
+	return (
+		text
+			// Escaped markdown punctuation (\*, \_, \#, \|) is meant literally.
+			.replace(/\\([*_#|`~[\]()>-])/g, "$1")
+			.replace(/\*\*([^*]+)\*\*/g, "$1")
+			.replace(/__([^_]+)__/g, "$1")
+			.replace(/\*([^*]+)\*/g, "$1")
+			.replace(/_([^_]+)_/g, "$1")
+			.replace(/~~([^~]+)~~/g, "$1")
+			.replace(/`([^`]+)`/g, "$1")
+			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+			.replace(/\s+/g, " ")
+			.trim()
+	);
 }
+
+const NUMBERED_LIST_ITEM_RE = /^\d+[.)]\s+(.+)$/;
+const BULLET_LIST_ITEM_RE = /^[-*]\s+(.+)$/;
+const HEADING_RE = /^(#{1,3})\s+(.+)$/;
+const FENCE_OPEN_RE = /^(`{3,}|~{3,})\s*(\S.*)?$/;
+const CALLOUT_START_RE = /^>\s*\[!([A-Za-z]+)\]\s*(.*)$/;
+const PIPE_ROW_HINT_RE = /\|/;
 
 function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 	const blocks: Array<Record<string, unknown>> = [];
+	const lines = text.split(/\r?\n/);
 	const paragraph: string[] = [];
 	let listItems: string[] = [];
+	let listStyle: "bullet" | "numbered" = "bullet";
+
 	const flushParagraph = () => {
 		if (paragraph.length === 0) return;
 		blocks.push({
@@ -543,19 +652,75 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 		if (listItems.length === 0) return;
 		blocks.push({
 			type: "list",
-			style: "bullet",
+			style: listStyle,
 			items: listItems.map(stripInlineMarkdown),
 		});
 		listItems = [];
+		listStyle = "bullet";
 	};
-	for (const rawLine of text.split(/\r?\n/)) {
-		const line = rawLine.trim();
+
+	let i = 0;
+	while (i < lines.length) {
+		const line = lines[i].trim();
+
 		if (!line) {
 			flushParagraph();
 			flushList();
+			i++;
 			continue;
 		}
-		const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+
+		const fenceOpen = FENCE_OPEN_RE.exec(line);
+		if (fenceOpen) {
+			flushParagraph();
+			flushList();
+			const fenceChar = fenceOpen[1][0];
+			const fenceLen = fenceOpen[1].length;
+			const info = fenceOpen[2]?.trim() ?? "";
+			const closeRe = new RegExp(
+				`^${fenceChar === "`" ? "`" : "~"}{${fenceLen},}\\s*$`,
+			);
+			let j = i + 1;
+			const bodyLines: string[] = [];
+			while (j < lines.length && !closeRe.test(lines[j].trim())) {
+				bodyLines.push(lines[j]);
+				j++;
+			}
+			blocks.push(fenceToBlock(info, bodyLines.join("\n")));
+			i = j + 1;
+			continue;
+		}
+
+		if (
+			PIPE_ROW_HINT_RE.test(line) &&
+			i + 1 < lines.length &&
+			isPipeSeparatorRow(lines[i + 1])
+		) {
+			flushParagraph();
+			flushList();
+			const parsed = parsePipeTable(lines, i);
+			blocks.push(parsed.block);
+			i = parsed.nextIndex;
+			continue;
+		}
+
+		if (CALLOUT_START_RE.test(line)) {
+			flushParagraph();
+			flushList();
+			const parsed = parseCalloutLines(lines, i);
+			blocks.push(parsed.block);
+			i = parsed.nextIndex;
+			continue;
+		}
+
+		if (/^(?:---|\*\*\*|___)\s*$/.test(line)) {
+			flushParagraph();
+			flushList();
+			blocks.push({ type: "divider" });
+			i++;
+			continue;
+		}
+		const heading = HEADING_RE.exec(line);
 		if (heading) {
 			flushParagraph();
 			flushList();
@@ -564,20 +729,402 @@ function markdownishTextToBlocks(text: string): Array<Record<string, unknown>> {
 				level: Math.min(3, Math.max(1, heading[1].length)),
 				text: stripInlineMarkdown(heading[2].trim()),
 			});
+			i++;
 			continue;
 		}
-		const bullet = /^[-*]\s+(.+)$/.exec(line);
+
+		const numbered = NUMBERED_LIST_ITEM_RE.exec(line);
+		if (numbered) {
+			flushParagraph();
+			if (listStyle !== "numbered") flushList();
+			listStyle = "numbered";
+			listItems.push(numbered[1].trim());
+			i++;
+			continue;
+		}
+
+		const bullet = BULLET_LIST_ITEM_RE.exec(line);
 		if (bullet) {
 			flushParagraph();
+			if (listStyle !== "bullet") flushList();
+			listStyle = "bullet";
 			listItems.push(bullet[1].trim());
+			i++;
 			continue;
 		}
+
 		flushList();
 		paragraph.push(line);
+		i++;
 	}
 	flushParagraph();
 	flushList();
 	return blocks;
+}
+
+// ── GFM pipe tables ─────────────────────────────────────────────
+
+function splitPipeRow(line: string): string[] {
+	let trimmed = line.trim();
+	if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+	if (trimmed.endsWith("|") && !trimmed.endsWith("\\|"))
+		trimmed = trimmed.slice(0, -1);
+	return trimmed
+		.split(/(?<!\\)\|/)
+		.map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function isPipeSeparatorRow(line: string): boolean {
+	const trimmed = line.trim();
+	if (!trimmed.includes("|") && !trimmed.includes("-")) return false;
+	const cells = splitPipeRow(trimmed);
+	if (cells.length === 0) return false;
+	return cells.every((cell) => /^:?-{1,}:?$/.test(cell.trim()));
+}
+
+function slugifyKey(label: string, usedKeys: Set<string>): string {
+	const base =
+		label
+			.normalize("NFD")
+			.replace(/[̀-ͯ]/g, "")
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "_")
+			.replace(/^_+|_+$/g, "") || "col";
+	let key = base;
+	let suffix = 2;
+	while (usedKeys.has(key)) {
+		key = `${base}_${suffix}`;
+		suffix += 1;
+	}
+	usedKeys.add(key);
+	return key;
+}
+
+function parsePipeTable(
+	lines: string[],
+	startIndex: number,
+): { block: Record<string, unknown>; nextIndex: number } {
+	const headerCells = splitPipeRow(lines[startIndex]);
+	const usedKeys = new Set<string>();
+	const columns = headerCells.map((label, index) => ({
+		key: slugifyKey(label || `col_${index + 1}`, usedKeys),
+		label: stripInlineMarkdown(label) || `Column ${index + 1}`,
+	}));
+
+	let i = startIndex + 2;
+	const rows: Record<string, unknown>[] = [];
+	while (
+		i < lines.length &&
+		lines[i].trim() &&
+		PIPE_ROW_HINT_RE.test(lines[i])
+	) {
+		const cells = splitPipeRow(lines[i]);
+		const row: Record<string, unknown> = {};
+		columns.forEach((column, index) => {
+			row[column.key] = stripInlineMarkdown(cells[index] ?? "");
+		});
+		rows.push(row);
+		i++;
+	}
+
+	return { block: { type: "table", columns, rows }, nextIndex: i };
+}
+
+// A single-line paragraph the model produced by joining table rows with a
+// space: each original line started and ended with "|", so the join leaves a
+// "| |" seam right at the row boundary (and before/after the separator row).
+// Splitting on that seam reconstructs the original line breaks.
+function reconstructPipeTableParagraph(text: string): string | null {
+	if (!text.includes("|")) return null;
+	const rebuilt = text.replace(/\|\s+\|/g, "|\n|").trim();
+	return rebuilt.includes("\n") ? rebuilt : null;
+}
+
+// ── Callouts (`> [!TIP] ...`) ───────────────────────────────────
+
+const CALLOUT_TONE_MAP: Record<string, "info" | "warning" | "tip" | "note"> = {
+	tip: "tip",
+	hint: "tip",
+	success: "tip",
+	check: "tip",
+	warning: "warning",
+	caution: "warning",
+	danger: "warning",
+	important: "warning",
+	info: "info",
+	note: "note",
+};
+
+function calloutTone(tag: string): "info" | "warning" | "tip" | "note" {
+	return CALLOUT_TONE_MAP[tag.toLowerCase()] ?? "note";
+}
+
+function parseCalloutLines(
+	lines: string[],
+	startIndex: number,
+): { block: Record<string, unknown>; nextIndex: number } {
+	const startMatch = CALLOUT_START_RE.exec(lines[startIndex].trim());
+	const tag = startMatch?.[1] ?? "note";
+	const inlineText = startMatch?.[2]?.trim() ?? "";
+
+	let i = startIndex + 1;
+	const bodyLines: string[] = [];
+	while (i < lines.length && /^>\s?/.test(lines[i])) {
+		bodyLines.push(lines[i].replace(/^>\s?/, ""));
+		i++;
+	}
+
+	const tone = calloutTone(tag);
+	const bodyText = bodyLines.join(" ").trim();
+	const title = bodyText && inlineText ? stripInlineMarkdown(inlineText) : null;
+	const text = stripInlineMarkdown(bodyText || inlineText || tag);
+
+	return {
+		block: {
+			type: "callout",
+			tone,
+			...(title ? { title } : {}),
+			text,
+		},
+		nextIndex: i,
+	};
+}
+
+// ── Fenced code blocks (```chart / ```csv / generic) ────────────
+
+function fenceToBlock(info: string, body: string): Record<string, unknown> {
+	const keyword = info.trim().toLowerCase().split(/\s+/)[0] ?? "";
+
+	if (keyword === "chart") {
+		const chartBlock = chartJsFenceToBlock(body);
+		if (chartBlock) return chartBlock;
+		return { type: "code", language: "json", text: body.trim() };
+	}
+
+	if (keyword === "csv") {
+		const tableBlock = csvFenceToTableBlock(body);
+		if (tableBlock) return tableBlock;
+		return { type: "code", language: "csv", text: body.trim() };
+	}
+
+	if (keyword === "" || keyword === "text" || keyword === "txt") {
+		const ascii = parseAsciiBarChart(body);
+		if (ascii) return asciiBarChartToBlock(ascii);
+	}
+
+	return {
+		type: "code",
+		...(info.trim() ? { language: info.trim() } : {}),
+		text: body.trim(),
+	};
+}
+
+function parseCsvLine(line: string): string[] {
+	const result: string[] = [];
+	let current = "";
+	let inQuotes = false;
+	for (let index = 0; index < line.length; index++) {
+		const char = line[index];
+		if (inQuotes) {
+			if (char === '"') {
+				if (line[index + 1] === '"') {
+					current += '"';
+					index++;
+				} else {
+					inQuotes = false;
+				}
+			} else {
+				current += char;
+			}
+			continue;
+		}
+		if (char === '"') {
+			inQuotes = true;
+		} else if (char === ",") {
+			result.push(current);
+			current = "";
+		} else {
+			current += char;
+		}
+	}
+	result.push(current);
+	return result;
+}
+
+function csvFenceToTableBlock(body: string): Record<string, unknown> | null {
+	const lines = body.split(/\r?\n/).filter((line) => line.trim().length > 0);
+	if (lines.length < 2) return null;
+	const header = parseCsvLine(lines[0]).map((cell) => cell.trim());
+	if (header.length === 0 || header.every((cell) => !cell)) return null;
+
+	const usedKeys = new Set<string>();
+	const columns = header.map((label, index) => ({
+		key: slugifyKey(label || `col_${index + 1}`, usedKeys),
+		label: label || `Column ${index + 1}`,
+	}));
+
+	const rows = lines.slice(1).map((line) => {
+		const cells = parseCsvLine(line);
+		const row: Record<string, unknown> = {};
+		columns.forEach((column, index) => {
+			row[column.key] = (cells[index] ?? "").trim();
+		});
+		return row;
+	});
+
+	return { type: "table", columns, rows };
+}
+
+// ── Chart.js fences (```chart) ───────────────────────────────────
+
+const CHART_JS_TYPE_MAP: Record<string, string> = {
+	bar: "bar",
+	line: "line",
+	pie: "pie",
+	doughnut: "donut",
+	scatter: "scatter",
+};
+
+function chartConfigTitle(config: Record<string, unknown>): string | null {
+	const options = isRecord(config.options) ? config.options : null;
+	const plugins = options && isRecord(options.plugins) ? options.plugins : null;
+	const titleConfig = plugins && isRecord(plugins.title) ? plugins.title : null;
+	const text = titleConfig?.text;
+	return typeof text === "string" && text.trim() ? text.trim() : null;
+}
+
+function chartJsFenceToBlock(body: string): Record<string, unknown> | null {
+	let config: unknown;
+	try {
+		config = JSON.parse(body);
+	} catch {
+		return null;
+	}
+	if (!isRecord(config) || !isRecord(config.data)) return null;
+
+	const chartJsType =
+		typeof config.type === "string" ? config.type.toLowerCase() : "";
+	const title = chartConfigTitle(config);
+	const mapped = CHART_JS_TYPE_MAP[chartJsType];
+
+	if (mapped) {
+		const resolvedTitle = title ?? "Chart";
+		return {
+			type: "chart",
+			chartType: mapped,
+			title: resolvedTitle,
+			caption: `Generated ${chartJsType} chart.`,
+			altText: `${resolvedTitle} (${mapped} chart).`,
+			data: config.data,
+		};
+	}
+
+	return chartJsConfigToTableBlock(config, title);
+}
+
+function chartJsConfigToTableBlock(
+	config: Record<string, unknown>,
+	title: string | null,
+): Record<string, unknown> | null {
+	const data = config.data as Record<string, unknown>;
+	const labels = Array.isArray(data.labels) ? data.labels : [];
+	const datasets = Array.isArray(data.datasets)
+		? data.datasets.filter(isRecord)
+		: [];
+	if (labels.length === 0 || datasets.length === 0) return null;
+
+	const usedKeys = new Set<string>();
+	const labelKey = slugifyKey("label", usedKeys);
+	const columns: Array<Record<string, unknown>> = [
+		{ key: labelKey, label: "Label" },
+	];
+	const datasetKeys = datasets.map((dataset, index) => {
+		const label =
+			typeof dataset.label === "string" && dataset.label.trim()
+				? dataset.label.trim()
+				: `Series ${index + 1}`;
+		const key = slugifyKey(label, usedKeys);
+		columns.push({ key, label });
+		return key;
+	});
+
+	const rows = labels.map((label, index) => {
+		const row: Record<string, unknown> = { [labelKey]: String(label) };
+		datasets.forEach((dataset, datasetIndex) => {
+			const values = Array.isArray(dataset.data) ? dataset.data : [];
+			row[datasetKeys[datasetIndex]] = values[index] ?? null;
+		});
+		return row;
+	});
+
+	return { type: "table", ...(title ? { title } : {}), columns, rows };
+}
+
+// ── ASCII bar charts ─────────────────────────────────────────────
+
+function asciiBarChartToBlock(chart: AsciiBarChart): Record<string, unknown> {
+	const title = chart.title ?? "Bar chart";
+	const units = chart.units ?? "value";
+	return {
+		type: "chart",
+		chartType: "bar",
+		title,
+		caption: `Extracted from an ASCII bar chart (${chart.points.length} items).`,
+		altText: `${title}: bar chart with ${chart.points.length} items, values in ${units}.`,
+		xKey: "label",
+		yKey: "value",
+		units,
+		data: chart.points.map((point) => ({
+			label: point.label,
+			value: point.value,
+		})),
+	};
+}
+
+const BLOCK_BAR_RUN_RE = /[█▓▒░■□▪▫]{2,}/;
+const ASCII_CHART_ENTRY_RE =
+	/([A-Za-zÀ-ÖØ-öø-ÿ][\w' .()-]*?)\s+([█▓▒░■□▪▫]{2,})\s*([\s\S]*?)(?=[A-Za-zÀ-ÖØ-öø-ÿ][\w' .()-]*?\s+[█▓▒░■□▪▫]{2,}|$)/g;
+
+// A model sometimes flattens an ASCII bar chart onto a single line (no
+// newlines survived). Re-derive the original per-item lines by finding each
+// "label + bar-run + value" entry and splitting right before it, so the
+// result can be handed to `parseAsciiBarChart` as if it were never flattened.
+function reconstructAsciiChartLines(text: string): string | null {
+	if (!BLOCK_BAR_RUN_RE.test(text)) return null;
+	const entryRe = new RegExp(ASCII_CHART_ENTRY_RE);
+	const entries: string[] = [];
+	let firstIndex: number | null = null;
+	let match: RegExpExecArray | null = entryRe.exec(text);
+	while (match) {
+		if (firstIndex === null) firstIndex = match.index;
+		const [, label, bars, tail] = match;
+		entries.push(`${label.trim()} ${bars} ${tail.trim()}`.trim());
+		if (entryRe.lastIndex === match.index) entryRe.lastIndex += 1;
+		match = entryRe.exec(text);
+	}
+	if (entries.length < 2 || firstIndex === null) return null;
+	const prefix = text.slice(0, firstIndex).trim();
+	return (prefix ? [prefix, ...entries] : entries).join("\n");
+}
+
+// ── Fenced / backtick-wrapped paragraph text ─────────────────────
+
+function unwrapFencedParagraph(
+	text: string,
+): { content: string; lang: string | null } | null {
+	const trimmed = text.trim();
+	const fenceMatch = /^(`{3,}|~{3,})([^\n]*)\n?([\s\S]*?)\n?\1\s*$/.exec(
+		trimmed,
+	);
+	if (fenceMatch) {
+		const lang = fenceMatch[2].trim().toLowerCase().split(/\s+/)[0] || null;
+		return { content: fenceMatch[3], lang };
+	}
+	const backtickMatch = /^(`{1,2})([\s\S]*)\1$/.exec(trimmed);
+	if (backtickMatch && backtickMatch[2].trim().length > 0) {
+		return { content: backtickMatch[2].trim(), lang: null };
+	}
+	return null;
 }
 
 // ── Content validation ─────────────────────────────────────────

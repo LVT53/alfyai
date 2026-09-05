@@ -321,3 +321,39 @@ describe("checklist-fence rescue helpers", () => {
 		);
 	});
 });
+
+describe("ASCII bar chart rescue", () => {
+	it("promotes a closed bare fence of block-character bars to a chart block", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const markdown = [
+			"## Prices",
+			"```",
+			"Riverstone       ████████████████████░░░░░░░  €24.25",
+			"Cutters Choice   █████████████████████░░░░░░  €25.75",
+			"Golden Virginia  ███████████████████████░░░░  €27.00",
+			"```",
+			"Done.",
+		].join("\n");
+		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
+		const chart = blocks.find((block) => block.kind === "chart");
+		expect(chart).toBeDefined();
+		if (!chart || chart.kind !== "chart") throw new Error("expected chart");
+		const config = JSON.parse(chart.code);
+		expect(config.type).toBe("bar");
+		expect(config.data.labels).toEqual([
+			"Riverstone",
+			"Cutters Choice",
+			"Golden Virginia",
+		]);
+		expect(config.data.datasets[0].data).toEqual([24.25, 25.75, 27]);
+		expect(blocks.some((block) => block.kind === "code")).toBe(false);
+	});
+
+	it("leaves ordinary code fences alone", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const blocks = classifyMarkdownBlocks(
+			marked.lexer("```\nconst a = 1;\nconst b = 2;\n```"),
+		);
+		expect(blocks.map((block) => block.kind)).toEqual(["code"]);
+	});
+});

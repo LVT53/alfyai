@@ -1,4 +1,5 @@
 import type { Token, Tokens } from "marked";
+import { asciiBarChartToChartJs, parseAsciiBarChart } from "./ascii-bar-chart";
 
 /**
  * Typed rich-block markdown model (Tier A3).
@@ -334,6 +335,23 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 			if (DIAGRAM_FENCE_LANGS.has(keyword) && isFenceClosed(raw)) {
 				blocks.push({ kind: keyword as DiagramFenceKind, raw, code });
 				continue;
+			}
+			// Chart rescue: models like to draw bar charts with block characters
+			// inside a bare fence. A closed bare/text fence that parses as an
+			// ASCII bar chart renders as a real chart instead of monospaced art.
+			if (
+				isFenceClosed(raw) &&
+				(keyword === "" || keyword === "text" || keyword === "txt")
+			) {
+				const asciiChart = parseAsciiBarChart(code);
+				if (asciiChart) {
+					blocks.push({
+						kind: "chart",
+						raw,
+						code: JSON.stringify(asciiBarChartToChartJs(asciiChart)),
+					});
+					continue;
+				}
 			}
 			const language = codeToken.lang?.trim() ? codeToken.lang : undefined;
 			blocks.push({

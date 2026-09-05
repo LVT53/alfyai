@@ -97,6 +97,10 @@ import {
 } from "$lib/services/stream-timeline";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
+import {
+	createFileProductionCapture,
+	looksLikeFileProductionLeak,
+} from "./file-production-capture";
 import type { StreamingNormalChatPreparedContext } from "./streaming-normal-chat-model-run";
 
 function getStreamTimeoutMs(): number {
@@ -1224,9 +1228,21 @@ export function runChatStreamOrchestrator(
 				});
 
 				idleTimeout.schedule(attempt);
-				let fileProductionActive = false;
+				// Text written while a produce_file call is in flight (and a short
+				// window after it) is buffered and classified once: leaked document
+				// JSON / repair narration goes to the thinking lane, real answer text
+				// stays visible (file-production-capture.ts).
+				const fileProductionCapture = createFileProductionCapture();
 				const FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS = 300;
-				let fileProductionPostCaptureChars = 0;
+				const flushFileProductionCapture = (): boolean => {
+					const captured = fileProductionCapture.buffer;
+					fileProductionCapture.buffer = "";
+					fileProductionCapture.postWindowChars = 0;
+					if (!captured) return true;
+					return looksLikeFileProductionLeak(captured)
+						? emitThinking(captured)
+						: emitChunkWithOutputHandling(captured);
+				};
 				try {
 					for await (const upstreamEvent of modelRun.stream) {
 						recordElapsedPhase(
@@ -1236,21 +1252,22 @@ export function runChatStreamOrchestrator(
 						switch (upstreamEvent.type) {
 							case "text_delta":
 								if (
-									fileProductionActive ||
-									fileProductionPostCaptureChars > 0
+									fileProductionCapture.active ||
+									fileProductionCapture.postWindowChars > 0
 								) {
-									if (!emitThinking(upstreamEvent.text)) {
-										return;
-									}
-									if (
-										!fileProductionActive &&
-										fileProductionPostCaptureChars > 0
-									) {
-										fileProductionPostCaptureChars = Math.max(
+									fileProductionCapture.buffer += upstreamEvent.text;
+									if (!fileProductionCapture.active) {
+										fileProductionCapture.postWindowChars = Math.max(
 											0,
-											fileProductionPostCaptureChars -
+											fileProductionCapture.postWindowChars -
 												upstreamEvent.text.length,
 										);
+										if (
+											fileProductionCapture.postWindowChars === 0 &&
+											!flushFileProductionCapture()
+										) {
+											return;
+										}
 									}
 								} else {
 									// P3b — "Classification stops hard on the first answer
@@ -1272,8 +1289,8 @@ export function runChatStreamOrchestrator(
 								break;
 							case "tool_call":
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionActive = true;
-									fileProductionPostCaptureChars = 0;
+									fileProductionCapture.active = true;
+									fileProductionCapture.postWindowChars = 0;
 								}
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
@@ -1287,8 +1304,11 @@ export function runChatStreamOrchestrator(
 									.getNormalChatToolCalls()
 									.find((record) => record.callId === upstreamEvent.callId);
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionActive = false;
-									fileProductionPostCaptureChars =
+									fileProductionCapture.active = false;
+									if (!flushFileProductionCapture()) {
+										return;
+									}
+									fileProductionCapture.postWindowChars =
 										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
 								emitToolCallEventWithDebug(
@@ -1311,8 +1331,11 @@ export function runChatStreamOrchestrator(
 									.getNormalChatToolCalls()
 									.find((record) => record.callId === upstreamEvent.callId);
 								if (isFileProductionToolName(upstreamEvent.toolName)) {
-									fileProductionActive = false;
-									fileProductionPostCaptureChars =
+									fileProductionCapture.active = false;
+									if (!flushFileProductionCapture()) {
+										return;
+									}
+									fileProductionCapture.postWindowChars =
 										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
 								// E1 — a failed tool call is a "failed" status, not a fake
@@ -1350,6 +1373,9 @@ export function runChatStreamOrchestrator(
 								break;
 							}
 							case "finish":
+								if (!flushFileProductionCapture()) {
+									return;
+								}
 								latestModelId =
 									(upstreamEvent.model.modelId as ModelId | undefined) ??
 									latestModelId;
