@@ -535,33 +535,24 @@ describe("prepareOutboundChatContext", () => {
 		expect(prompt).not.toContain("all tool arguments MUST be valid JSON");
 	});
 
-	// A3 (Tier A3, prompt coupling — REQUIRED): the renderer supports rich blocks
-	// (checklists, accordions, tables, callouts, and mermaid/chart/csv diagrams),
-	// but without teaching the model the syntax it keeps code-dumping. The
-	// assembled system prompt must carry that block-syntax teaching so the two
-	// ship together.
-	it("teaches the model the supported rich-block syntax so it emits blocks instead of code-dumping", () => {
+	// P2 prompt diet: the rich-block syntax guide (checklists, accordions,
+	// tables, callouts, and mermaid/chart/csv diagrams) moved out of runtime
+	// guidance and into the base prompt's merged `## Formatting` section
+	// (see prompts.test.ts for coverage of the actual teaching text). This
+	// assembled-prompt guard only needs to prove the guide never leaks back
+	// into the caller-supplied runtime guidance, regardless of the stub
+	// `basePrompt` used here.
+	it("no longer carries the rich-block syntax guide in the assembled runtime guidance", () => {
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Explain the release process",
 			modelDisplayName: "Provider Model",
 		});
 
-		expect(prompt).toContain("Rich answer blocks");
-		// GFM task list / checklist.
-		expect(prompt).toContain("- [ ] todo");
-		// Accordion.
-		expect(prompt).toContain("<details><summary>");
-		// Callout.
-		expect(prompt).toContain("> [!NOTE]");
-		// Diagram fences, with the chart config shape.
-		expect(prompt).toContain("```mermaid");
-		expect(prompt).toContain("```chart");
-		expect(prompt).toContain('{"type":"bar"');
-		expect(prompt).toContain("```csv");
+		expect(prompt).not.toContain("Rich answer blocks");
 	});
 
-	it("omits the rich-block syntax teaching for the tool-less control-model caller (skipDefaultRuntimeGuidance)", () => {
+	it("omits the JSON-formatting guidance for the tool-less control-model caller and never adds rich-block text either way", () => {
 		const prompt = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Classify this",
@@ -718,6 +709,103 @@ describe("prepareOutboundChatContext", () => {
 			expect(fileIntentPrompt).toBe(webIntentPrompt);
 			expect(webIntentPrompt).toBe(memoryIntentPrompt);
 			expect(memoryIntentPrompt).toBe(imageIntentPrompt);
+		});
+
+		// P2 prompt diet, review outcome 1 — prefix stability is a property of
+		// the whole system message, so two turns of the SAME conversation
+		// (same base prompt, model, connections, depth, personality, and
+		// explicit responseLanguage) must produce a byte-identical system
+		// prompt no matter how the current user message is worded, and the
+		// trailing section order (Runtime Guidance, then Response Style last)
+		// must not move around.
+		it("is byte-identical for two calls differing only in the user message, with the trailing section order unchanged", () => {
+			const buildForMessage = (inputValue: string) =>
+				buildOutboundSystemPrompt({
+					basePrompt: "Base system prompt",
+					inputValue,
+					responseLanguage: "en",
+					modelDisplayName: "Provider Model",
+					fileProductionToolsAvailable: true,
+					hasActiveConnections: true,
+					personalityPrompt: "Be extremely concise and upbeat.",
+					reasoningDepthEffort: {
+						depthMetadata: {
+							requested: "auto",
+							appliedProfile: "standard",
+							fallback: false,
+						},
+						webSourceBudget: { maxSources: 6, sourceExpansion: false },
+						maxToolSteps: 12,
+						grounding: {
+							guidance: "standard",
+							externalEvidence: "optional",
+							forceWebSearch: false,
+						},
+					} as never,
+				});
+
+			const first = buildForMessage("What's the weather like tomorrow?");
+			const second = buildForMessage(
+				"Could you draft a detailed multi-paragraph project plan with milestones, owners, and risks for the next quarter?",
+			);
+
+			expect(first).toBe(second);
+
+			// Trailing section order: Runtime Guidance precedes Response Style,
+			// and Response Style is the last section in the assembled prompt.
+			const runtimeGuidanceIndex = first.indexOf("## Runtime Guidance");
+			const responseStyleIndex = first.indexOf("## Response Style");
+			expect(runtimeGuidanceIndex).toBeGreaterThan(-1);
+			expect(responseStyleIndex).toBeGreaterThan(runtimeGuidanceIndex);
+			expect(first.trimEnd().endsWith("Be extremely concise and upbeat.")).toBe(
+				true,
+			);
+		});
+	});
+
+	describe("personality prompt cap", () => {
+		it("caps an oversized personality prompt at 1,500 chars with an ellipsis marker", () => {
+			const oversizedPersonality = "x".repeat(2_000);
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "Hello",
+				responseLanguage: "en",
+				personalityPrompt: oversizedPersonality,
+			});
+
+			const styleSectionIndex = prompt.indexOf("## Response Style");
+			expect(styleSectionIndex).toBeGreaterThan(-1);
+			const styleSection = prompt.slice(styleSectionIndex);
+
+			expect(styleSection).not.toContain(oversizedPersonality);
+			expect(styleSection).toContain("… [truncated]");
+			// The embedded (possibly truncated) personality text itself must
+			// not exceed the 1,500 char cap.
+			const personalityStart = styleSection.lastIndexOf(
+				"an explicit user instruction in the current message.",
+			);
+			const embeddedPersonality = styleSection
+				.slice(
+					personalityStart +
+						"an explicit user instruction in the current message.".length,
+				)
+				.replace(/^\n+/, "");
+			expect(embeddedPersonality.length).toBeLessThanOrEqual(1_500);
+		});
+
+		it("leaves a personality prompt at or under 1,500 chars untouched", () => {
+			const personality = "Be warm and encouraging. ".repeat(50).trim();
+			expect(personality.length).toBeLessThanOrEqual(1_500);
+
+			const prompt = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "Hello",
+				responseLanguage: "en",
+				personalityPrompt: personality,
+			});
+
+			expect(prompt).toContain(personality);
+			expect(prompt).not.toContain("[truncated]");
 		});
 	});
 
