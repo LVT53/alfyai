@@ -53,6 +53,8 @@ const baseContextStatus = {
 	conversationId: "conv-1",
 	userId: "user-1",
 	estimatedTokens: 5000,
+	promptTokens: 5000,
+	promptTokensSource: "estimated",
 	maxContextTokens: 262144,
 	thresholdTokens: 209715,
 	targetTokens: 157286,

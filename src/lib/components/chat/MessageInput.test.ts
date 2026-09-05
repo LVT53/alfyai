@@ -1223,6 +1223,8 @@ describe("MessageInput", () => {
 					conversationId: "conv-1",
 					userId: "user-1",
 					estimatedTokens: 1200,
+					promptTokens: 1200,
+					promptTokensSource: "estimated",
 					maxContextTokens: 262144,
 					thresholdTokens: 209715,
 					targetTokens: 157286,
@@ -1256,7 +1258,7 @@ describe("MessageInput", () => {
 			},
 		);
 
-		await fireEvent.click(getByLabelText(/prompt budget usage/i));
+		await fireEvent.click(getByLabelText(/context window usage/i));
 
 		expect(queryByText("Current task")).toBeNull();
 		expect(queryByRole("button", { name: "Lock task" })).toBeNull();
@@ -1272,6 +1274,8 @@ describe("MessageInput", () => {
 				conversationId: "conv-1",
 				userId: "user-1",
 				estimatedTokens: 1200,
+				promptTokens: 1200,
+				promptTokensSource: "estimated",
 				maxContextTokens: 262144,
 				thresholdTokens: 209715,
 				targetTokens: 157286,
@@ -1304,7 +1308,7 @@ describe("MessageInput", () => {
 			},
 		});
 
-		await fireEvent.click(getByLabelText(/prompt budget usage/i));
+		await fireEvent.click(getByLabelText(/context window usage/i));
 		await fireEvent.click(
 			getByRole("button", { name: "Manage context sources" }),
 		);

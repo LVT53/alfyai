@@ -953,5 +953,72 @@ describe("analytics dashboard read model", () => {
 				first_token_ms: null,
 			});
 		});
+
+		function readUsageEventTotals() {
+			return new Database(dbPath)
+				.prepare(
+					"SELECT prompt_tokens, completion_tokens, reasoning_tokens, total_tokens, usage_source FROM usage_events WHERE message_id = ?",
+				)
+				.get("assistant-message-1") as
+				| {
+						prompt_tokens: number;
+						completion_tokens: number;
+						reasoning_tokens: number;
+						total_tokens: number;
+						usage_source: string;
+				  }
+				| undefined;
+		}
+
+		it("does not add reasoning on top of provider completion tokens (which already include it)", async () => {
+			seedMessageForAnalytics();
+			const { recordMessageAnalytics } = await import("./analytics");
+
+			await recordMessageAnalytics({
+				messageId: "assistant-message-1",
+				conversationId: "conversation-1",
+				userId: "user-1",
+				model: "model-1",
+				promptTokens: 1,
+				completionTokens: 1,
+				reasoningTokens: 300,
+				providerUsage: {
+					promptTokens: 1_000,
+					completionTokens: 500,
+					source: "provider",
+				},
+			});
+
+			expect(readUsageEventTotals()).toMatchObject({
+				prompt_tokens: 1_000,
+				completion_tokens: 500,
+				reasoning_tokens: 300,
+				total_tokens: 1_500,
+				usage_source: "provider",
+			});
+		});
+
+		it("adds estimated reasoning tokens when the completion count is our own visible-text estimate", async () => {
+			seedMessageForAnalytics();
+			const { recordMessageAnalytics } = await import("./analytics");
+
+			await recordMessageAnalytics({
+				messageId: "assistant-message-1",
+				conversationId: "conversation-1",
+				userId: "user-1",
+				model: "model-1",
+				promptTokens: 1_000,
+				completionTokens: 200,
+				reasoningTokens: 300,
+			});
+
+			expect(readUsageEventTotals()).toMatchObject({
+				prompt_tokens: 1_000,
+				completion_tokens: 200,
+				reasoning_tokens: 300,
+				total_tokens: 1_500,
+				usage_source: "estimated",
+			});
+		});
 	});
 });

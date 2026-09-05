@@ -696,6 +696,13 @@
       "breakpoints": true
     },
     {
+      "idx": 99,
+      "version": "7",
+      "when": 1777140000086,
+      "tag": "1777140000086_context_status_prompt_usage",
+      "breakpoints": true
+    },
+    {
       "idx": 100,
       "version": "7",
       "when": 1777140000087,

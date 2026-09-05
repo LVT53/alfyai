@@ -20,9 +20,18 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 	resolveActiveCapabilities: mocks.resolveActiveCapabilities,
 }));
 
-vi.mock("$lib/server/services/normal-chat-context", () => ({
-	prepareOutboundChatContext: mocks.prepareOutboundChatContext,
-}));
+// Partial mock: the shared run helpers also take resolvePromptContextLimits
+// and estimateOutboundPromptTokenTotal from this module, and those stay real.
+vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("$lib/server/services/normal-chat-context")
+		>();
+	return {
+		...actual,
+		prepareOutboundChatContext: mocks.prepareOutboundChatContext,
+	};
+});
 
 vi.mock("$lib/server/services/normal-chat-model", async (importOriginal) => {
 	const actual =

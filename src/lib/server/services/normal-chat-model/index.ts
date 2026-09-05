@@ -246,11 +246,7 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 export type PlainNormalChatModelRunResult = {
 	text: string;
 	finishReason: FinishReason;
-	usage: {
-		inputTokens: number | undefined;
-		outputTokens: number | undefined;
-		totalTokens: number | undefined;
-	};
+	usage: NormalChatModelRunUsage;
 	model: {
 		modelId: string;
 		providerId: string;
@@ -268,6 +264,10 @@ export type NormalChatModelRunUsage = {
 	cachedInputTokens?: number;
 	cacheHitTokens?: number;
 	cacheMissTokens?: number;
+	// Input tokens of the last model step only. inputTokens sums every step
+	// of a tool loop (and, after the run wrappers fold deliberation usage in,
+	// every deliberation pass); this stays the size of the final prompt.
+	lastStepInputTokens?: number;
 };
 
 export type NormalChatModelRunModelMetadata = {
@@ -950,6 +950,7 @@ export function mapNormalChatModelRunUsageToProviderSnapshot(
 		cachedInputTokens: usage.cachedInputTokens,
 		cacheHitTokens: usage.cacheHitTokens,
 		cacheMissTokens: usage.cacheMissTokens,
+		lastStepPromptTokens: usage.lastStepInputTokens,
 		source: "provider",
 	};
 }
@@ -1284,7 +1285,16 @@ async function runPlainNormalChatModelRunAttempt(
 	return {
 		text: result.text || extractDoneToolSummary(result) || "",
 		finishReason: result.finishReason,
-		usage: mapUsage(result.usage, result.providerMetadata),
+		usage: {
+			// generateText's `usage` is already the LAST step's usage (its
+			// `totalUsage` is the all-steps sum), so the last-step input count
+			// is the same figure here; it is carried separately so it survives
+			// the deliberation/repair summation in the run wrappers.
+			...mapUsage(result.usage, result.providerMetadata),
+			...(typeof result.usage.inputTokens === "number"
+				? { lastStepInputTokens: result.usage.inputTokens }
+				: {}),
+		},
 		model: modelMetadata(
 			params.provider,
 			result.response.modelId,
@@ -1560,6 +1570,10 @@ async function* streamStreamingNormalChatModelRunAttempt(
 	const yieldStreamEvents = async function* (
 		fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
 	): AsyncGenerator<StreamingNormalChatModelRunAttemptEvent, void, undefined> {
+		// `finish.totalUsage` sums input tokens across every step of a tool
+		// loop; the last step's own input count is the real size of the final
+		// prompt, which the context usage ring reports.
+		let lastStepInputTokens: number | undefined;
 		for await (const part of fullStream) {
 			switch (part.type) {
 				case "text-delta":
@@ -1631,16 +1645,24 @@ async function* streamStreamingNormalChatModelRunAttempt(
 					) {
 						responseModelName = part.response.modelId;
 					}
+					if (typeof part.usage?.inputTokens === "number") {
+						lastStepInputTokens = part.usage.inputTokens;
+					}
 					break;
 				case "finish":
 					yield {
 						type: "usage",
-						usage: mapUsage(
-							part.totalUsage,
-							"providerMetadata" in part
-								? (part as { providerMetadata?: unknown }).providerMetadata
-								: undefined,
-						),
+						usage: {
+							...mapUsage(
+								part.totalUsage,
+								"providerMetadata" in part
+									? (part as { providerMetadata?: unknown }).providerMetadata
+									: undefined,
+							),
+							...(lastStepInputTokens !== undefined
+								? { lastStepInputTokens }
+								: {}),
+						},
 					};
 					yield {
 						type: "finish",

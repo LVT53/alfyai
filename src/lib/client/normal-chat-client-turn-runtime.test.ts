@@ -64,6 +64,8 @@ function conversationContextStatusFixture(): ConversationContextStatus {
 		conversationId: "conv-1",
 		userId: "user-1",
 		estimatedTokens: 5_000,
+		promptTokens: 5_000,
+		promptTokensSource: "estimated",
 		maxContextTokens: 10_000,
 		thresholdTokens: 12_000,
 		targetTokens: 10_000,

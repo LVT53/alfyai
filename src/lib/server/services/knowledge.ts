@@ -31,6 +31,7 @@ export {
 	findRelevantKnowledgeArtifacts,
 	getConversationContextStatus,
 	getConversationWorkingSet,
+	recordConversationPromptUsage,
 	refreshConversationWorkingSet,
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,

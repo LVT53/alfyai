@@ -19,10 +19,19 @@ import type {
 	VerificationStatus,
 } from "$lib/server/services/task-state/types";
 
+export type ContextPromptTokensSource = "provider" | "estimated";
+
 export interface ConversationContextStatus {
 	conversationId: string;
 	userId: string;
+	// Pre-request packet estimate (user-message packet only); drives the
+	// compaction logic together with targetTokens/thresholdTokens.
 	estimatedTokens: number;
+	// Best-known prompt size for the last completed turn against
+	// maxContextTokens (the model's real context window). "provider" when the
+	// provider reported input tokens, "estimated" otherwise.
+	promptTokens: number;
+	promptTokensSource: ContextPromptTokensSource;
 	maxContextTokens: number;
 	thresholdTokens: number;
 	targetTokens: number;

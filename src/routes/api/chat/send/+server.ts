@@ -22,6 +22,7 @@ import {
 	preflightChatTurn,
 	runPlainNormalChatSendModel,
 } from "$lib/server/services/chat-turn";
+import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
 import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
 import { touchConversation } from "$lib/server/services/conversations";
 import { listConversationFileProductionJobs } from "$lib/server/services/file-production";
@@ -506,7 +507,18 @@ async function runStandardSendTurn({
 	});
 	const finalResponseText =
 		modelRunArtifacts.citationGate.response ?? modelRunArtifacts.responseText;
-	const contextStatus = modelRunResult.contextStatus;
+	// Post-turn prompt usage (provider-reported input tokens, else the
+	// wrapper's full-prompt estimate) so the response's contextStatus reports
+	// the real prompt size against the model's context window.
+	const contextStatus =
+		(await recordCompletedTurnContextUsage({
+			userId: user.id,
+			conversationId: turn.conversationId,
+			contextStatus: modelRunResult.contextStatus,
+			providerUsage: modelRunResult.providerUsage,
+			estimatedPromptTokens: modelRunResult.estimatedPromptTokens,
+			logPrefix: "[CHAT_SEND]",
+		})) ?? null;
 
 	const completion = await finalizeChatTurn({
 		turnKind: "send",

@@ -65,6 +65,8 @@ function conversationContextStatusFixture(
 		conversationId: "conv-1",
 		userId: "user-1",
 		estimatedTokens: 5_000,
+		promptTokens: 5_000,
+		promptTokensSource: "estimated",
 		maxContextTokens: 10_000,
 		thresholdTokens: 12_000,
 		targetTokens: 10_000,
@@ -873,7 +875,7 @@ describe("chat page runtime integration", () => {
 			expect(screen.getByText("Done")).toBeInTheDocument();
 		});
 		await fireEvent.click(
-			screen.getByRole("button", { name: /Prompt budget usage/i }),
+			screen.getByRole("button", { name: /Context window usage/i }),
 		);
 
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
@@ -1353,7 +1355,7 @@ describe("chat page runtime integration", () => {
 			expect(screen.getByText("Finished while hidden")).toBeInTheDocument();
 		});
 		await fireEvent.click(
-			screen.getByRole("button", { name: /Prompt budget usage/i }),
+			screen.getByRole("button", { name: /Context window usage/i }),
 		);
 
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();

@@ -101,6 +101,15 @@ vi.mock("$lib/server/services/task-state", () => ({
 // The post-turn side effects now live in ./finalize-steps, which finalize.ts
 // (kept real here) calls in its single ordered sequence. Seam at that module
 // boundary rather than injecting overrides through completeStreamTurn params.
+// Post-turn prompt usage write for the context usage ring. Passthrough
+// here: the orchestrator contract tests only care that the prepared context
+// status reaches finalize and the terminal payload, not the DB write.
+vi.mock("$lib/server/services/chat-turn/context-usage", () => ({
+	recordCompletedTurnContextUsage: vi.fn(
+		async (params: { contextStatus: unknown }) => params.contextStatus,
+	),
+}));
+
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
 	persistAssistantEvidence: vi.fn(() => Promise.resolve()),
 	persistAssistantTurnState: vi.fn(() =>
@@ -1876,7 +1885,11 @@ describe("stream-orchestrator SSE contract", () => {
 				initialContextDebug: prepared.contextDebug,
 			}),
 		);
-		expect(endPayload).not.toHaveProperty("contextStatus");
+		// The (post-turn) context status rides the terminal payload so the
+		// header ring updates in the same session.
+		expect(endPayload).toEqual(
+			expect.objectContaining({ contextStatus: prepared.contextStatus }),
+		);
 	});
 
 	it("maps AI SDK tool call and result events to recorder-backed tool_call SSE metadata", async () => {

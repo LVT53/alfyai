@@ -486,33 +486,88 @@ export function resolveProviderPromptContextLimits(provider: {
 	};
 }
 
-export function resolvePromptContextLimits(
-	modelId: ModelId | string | undefined,
-	modelConfig: NormalChatContextModelConfig,
-	config: RuntimeConfig,
-): PromptContextLimits {
-	if (modelConfig.contextLimits) {
-		return modelConfig.contextLimits;
+/**
+ * Single source of truth for a turn's prompt-context limits (the model's real
+ * context window plus the compaction threshold/target derived from it).
+ *
+ * Precedence: explicit `contextLimits` (already resolved upstream, e.g. a
+ * reasoning-depth adjusted budget) > provider-model limits derived from the
+ * provider row (`provider:*` model ids with a provider) > the built-in
+ * model1/model2 runtime config.
+ */
+export function resolvePromptContextLimits(params: {
+	modelId: ModelId | string | undefined;
+	runtimeConfig: RuntimeConfig;
+	contextLimits?: PromptContextLimits | null;
+	provider?: {
+		modelName?: string | null;
+		maxModelContext?: number | null;
+		compactionUiThreshold?: number | null;
+		targetConstructedContext?: number | null;
+	} | null;
+}): PromptContextLimits {
+	if (params.contextLimits) {
+		return params.contextLimits;
+	}
+
+	const { modelId, runtimeConfig } = params;
+	if (
+		params.provider &&
+		modelId !== undefined &&
+		modelId !== "model1" &&
+		modelId !== "model2"
+	) {
+		return resolveProviderPromptContextLimits({
+			modelName: params.provider.modelName,
+			maxModelContext: params.provider.maxModelContext ?? null,
+			compactionUiThreshold: params.provider.compactionUiThreshold,
+			targetConstructedContext: params.provider.targetConstructedContext,
+		});
 	}
 
 	if (modelId === "model2") {
 		return {
-			maxModelContext: config.model2MaxModelContext,
-			compactionUiThreshold: config.model2CompactionUiThreshold,
-			targetConstructedContext: config.model2TargetConstructedContext,
+			maxModelContext: runtimeConfig.model2MaxModelContext,
+			compactionUiThreshold: runtimeConfig.model2CompactionUiThreshold,
+			targetConstructedContext: runtimeConfig.model2TargetConstructedContext,
 		};
 	}
 
 	return {
-		maxModelContext: config.model1MaxModelContext,
-		compactionUiThreshold: config.model1CompactionUiThreshold,
-		targetConstructedContext: config.model1TargetConstructedContext,
+		maxModelContext: runtimeConfig.model1MaxModelContext,
+		compactionUiThreshold: runtimeConfig.model1CompactionUiThreshold,
+		targetConstructedContext: runtimeConfig.model1TargetConstructedContext,
 	};
 }
 
 function estimateOutboundPromptTokens(text: string): number {
 	return Math.ceil(
 		estimateTokenCount(text) * NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR,
+	);
+}
+
+// Rough per-tool cost of a JSON tool schema (name + description + parameter
+// schema) as serialized into the prompt by the provider. Tool schemas are
+// not part of the outbound text, so they can only be estimated here.
+export const NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL = 250;
+
+/**
+ * Best-effort estimate of the full prompt a provider receives for a turn:
+ * system prompt + the assembled user-message packet (with the same outbound
+ * safety factor the budgeting uses) + a per-tool schema overhead. Used for
+ * the context usage ring only when the provider did not report input
+ * tokens.
+ */
+export function estimateOutboundPromptTokenTotal(params: {
+	systemPrompt: string;
+	inputValue: string;
+	toolCount?: number;
+}): number {
+	const toolCount = Math.max(0, Math.floor(params.toolCount ?? 0));
+	return (
+		estimateOutboundPromptTokens(params.systemPrompt) +
+		estimateOutboundPromptTokens(params.inputValue) +
+		toolCount * NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL
 	);
 }
 
@@ -1499,11 +1554,11 @@ export async function prepareOutboundChatContext(
 	};
 	const contextLimits =
 		params.contextLimits ??
-		resolvePromptContextLimits(
-			params.modelId ?? "model1",
-			params.modelConfig,
-			getPreparationConfig(),
-		);
+		resolvePromptContextLimits({
+			modelId: params.modelId ?? "model1",
+			contextLimits: params.modelConfig.contextLimits,
+			runtimeConfig: getPreparationConfig(),
+		});
 	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
 			{

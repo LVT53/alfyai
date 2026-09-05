@@ -12,7 +12,6 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 | `math.ts` | Numeric helpers such as cosine similarity |
 | `markdown-parser.ts` | Frontmatter + markdown body splitting |
 | `prompt-context.ts` | Context section building, compaction, serialization to token budget |
-| `token-budget.ts` | Context window budget management with compaction thresholds |
 | `artifact-decay.ts` | Time-based salience decay for artifact retrieval |
 | `conversation-boundary-filter.ts` | Detects conversation boundaries for context splitting |
 | `extractive-compression.ts` | Text summarization without LLM |
@@ -24,9 +23,8 @@ Low-level utilities consumed across server services. Pure functions, no side eff
 |------|---------|
 | `json.ts` | `task-state/`, `knowledge/` |
 | `text.ts` | `task-state/`, `messages.ts` |
-| `$lib/utils/tokens.ts` | `prompt-context.ts`, `token-budget.ts`, chat/title/token accounting services |
+| `$lib/utils/tokens.ts` | `prompt-context.ts`, chat/title/token accounting services |
 | `prompt-context.ts` | `context-selection.ts`, `task-state.ts` |
-| `token-budget.ts` | Context compaction decisions |
 | `artifact-decay.ts` | Knowledge retrieval ranking |
 | `conversation-boundary-filter.ts` | Chat context assembly |
 | `topic-shift-detector.ts` | Memory event emission |

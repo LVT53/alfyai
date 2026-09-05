@@ -4,6 +4,7 @@ import type {
 	DepthAppliedProfile,
 	DepthMetadata,
 } from "$lib/server/services/chat-turn/depth-metadata-types";
+import { resolvePromptContextLimits } from "$lib/server/services/normal-chat-context";
 import type { NormalChatModelRunProvider } from "$lib/server/services/normal-chat-model";
 
 const mocks = vi.hoisted(() => ({
@@ -27,7 +28,6 @@ import {
 	evaluateClarification,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
-	resolvePromptContextLimits,
 	resolveProviderRuntime,
 } from "./shared-normal-chat-model-run-helpers";
 

@@ -33,6 +33,7 @@ export interface NonStreamFallbackResponse {
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
 	providerUsage?: ProviderUsageSnapshot | null;
+	estimatedPromptTokens?: number;
 	normalChatToolCalls?: ToolCallEntry[];
 	toolCalls?: ToolCallEntry[];
 	modelId?: ModelId;
@@ -82,6 +83,7 @@ export interface NonStreamFallbackDeps {
 	onTaskState: (state: TaskState | null) => void;
 	onContextDebug: (debug: ContextDebugState | null) => void;
 	onProviderUsage: (usage: ProviderUsageSnapshot | null) => void;
+	onEstimatedPromptTokens?: (estimatedPromptTokens: number | undefined) => void;
 	onResolvedModel?: (modelId: ModelId, displayName: string) => void;
 	onDepthMetadata?: (metadata: DepthMetadata) => void;
 	onRecoveredToolCalls?: (toolCalls: ToolCallEntry[]) => void;
@@ -200,6 +202,7 @@ function applyFallbackModelSideEffects(
 		onTaskState,
 		onContextDebug,
 		onProviderUsage,
+		onEstimatedPromptTokens,
 		onResolvedModel,
 		onDepthMetadata,
 		onRecoveredToolCalls,
@@ -219,6 +222,7 @@ function applyFallbackModelSideEffects(
 			onTaskState(taskState);
 			onContextDebug(response.contextDebug ?? null);
 			onProviderUsage(response.providerUsage ?? null);
+			onEstimatedPromptTokens?.(response.estimatedPromptTokens);
 			if (response.modelId && response.modelDisplayName) {
 				onResolvedModel?.(response.modelId, response.modelDisplayName);
 			}

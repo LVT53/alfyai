@@ -14,6 +14,7 @@ import {
 	type ActiveDepthEffort,
 	createRequestAbortSignal,
 	createToolPack,
+	estimateTurnPromptTokens,
 	evaluateClarification,
 	isEvidenceReadyToolCall,
 	type NormalChatSendModelBaseParams,
@@ -75,6 +76,9 @@ export type StreamingNormalChatPreparedContext = {
 	contextDebug?: ContextDebugState | null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
+	// Full-prompt estimate (system prompt + final packet + tool schemas) for
+	// the context usage ring when the provider reports no input tokens.
+	estimatedPromptTokens?: number;
 };
 
 export type StreamingNormalChatSendModelResult = {
@@ -224,6 +228,11 @@ export async function runStreamingNormalChatSendModel(
 			contextDebug: prepared.contextDebug,
 			contextTraceSections: prepared.contextTraceSections,
 			contextPreparationTimings: prepared.contextPreparationTimings,
+			estimatedPromptTokens: estimateTurnPromptTokens({
+				prepared,
+				inputValue: finalInputValue,
+				tools: toolPack.tools,
+			}),
 		},
 		modelId: runtime.modelId,
 		modelDisplayName: runtime.provider.displayName,

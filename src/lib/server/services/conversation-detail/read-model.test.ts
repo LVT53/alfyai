@@ -560,6 +560,8 @@ describe("Conversation Detail Read Model", () => {
 			conversationId: "conv-1",
 			userId: "user-1",
 			estimatedTokens: 70_000,
+			promptTokens: 70_000,
+			promptTokensSource: "estimated",
 			maxContextTokens: 100_000,
 			thresholdTokens: 80_000,
 			targetTokens: 90_000,
