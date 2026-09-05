@@ -84,6 +84,10 @@ function fixture(
 	};
 }
 
+// P4 tool-result hygiene: `diagnostics`, `answerBrief.instructions` and the
+// trailing `instructions` string are gone from the MODEL payload — diagnostics
+// now live only in the recorder `metadata` via createGroundedWebMetadata (see
+// the "diagnostics move to recorder metadata" tests below).
 const FROZEN_PAYLOAD_KEYS = [
 	"success",
 	"name",
@@ -94,8 +98,6 @@ const FROZEN_PAYLOAD_KEYS = [
 	"answerBriefMarkdown",
 	"sources",
 	"evidence",
-	"diagnostics",
-	"instructions",
 ];
 
 describe("web-grounding contract guard (GroundedWebResult)", () => {
@@ -110,7 +112,9 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 		expect(payload.query).toBe("what is the capital of france");
 		expect(payload.queries).toEqual(["what is the capital of france"]);
 		expect(payload.answerBriefMarkdown).toContain("Web research brief");
-		expect(typeof payload.instructions).toBe("string");
+		expect(payload).not.toHaveProperty("diagnostics");
+		expect(payload).not.toHaveProperty("instructions");
+		expect(payload.answerBrief).not.toHaveProperty("instructions");
 	});
 
 	it("source and evidence entries carry the frozen field names", () => {
@@ -179,6 +183,24 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 		expect(noEvidence.evidenceReady).toBe(false);
 	});
 
+	it("createGroundedWebMetadata carries the diagnostics dropped from the model payload", () => {
+		const metadata = createGroundedWebMetadata(fixture());
+		expect(metadata).toMatchObject({
+			mode: "turbo",
+			fetchedSourceCount: 2,
+			fusedSourceCount: 2,
+			selectedSourceCount: 2,
+			evidenceCandidateCount: 2,
+			pageExtractionAttemptedCount: 0,
+			pageExtractionSucceededCount: 0,
+		});
+		// Every metadata value must be a flat scalar (or null) — the recorder
+		// entry's `metadata` field rejects nested objects/arrays.
+		for (const value of Object.values(metadata)) {
+			expect(["string", "number", "boolean"]).toContain(typeof value);
+		}
+	});
+
 	it("empty evidence makes the payload not evidence-ready", () => {
 		const payload = buildGroundedWebModelPayload(fixture({ evidence: [] }));
 		expect(payload.success).toBe(false);
@@ -190,18 +212,53 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 			answerBrief: { markdown: longMarkdown, instructions: [] },
 		};
 
-		// Default caps the brief at 30000 chars (plus a truncation ellipsis).
+		// Default (research_web, no opts) caps the brief at the
+		// WEB_RESEARCH_BRIEF_MAX_CHARS default of 12000 chars (plus ellipsis).
 		const defaultPayload = buildGroundedWebModelPayload(fixture(briefOverride));
 		expect(defaultPayload.answerBriefMarkdown.length).toBeLessThanOrEqual(
-			30003,
+			12003,
 		);
-		expect(defaultPayload.answerBriefMarkdown.length).toBeGreaterThan(29000);
+		expect(defaultPayload.answerBriefMarkdown.length).toBeGreaterThan(11000);
 
-		// A larger maxMarkdownChars lets the full brief through untruncated.
+		// A larger maxMarkdownChars (e.g. fetch_url's model-aware cap) lets the
+		// full brief through untruncated.
 		const raisedPayload = buildGroundedWebModelPayload(fixture(briefOverride), {
 			maxMarkdownChars: 50000,
 		});
 		expect(raisedPayload.answerBriefMarkdown.length).toBe(45000);
+	});
+
+	it("WEB_RESEARCH_BRIEF_MAX_CHARS env override changes the research_web default", () => {
+		const longMarkdown = "x".repeat(20000);
+		const briefOverride = {
+			answerBrief: { markdown: longMarkdown, instructions: [] },
+		};
+		const previous = process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
+		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "5000";
+		try {
+			const payload = buildGroundedWebModelPayload(fixture(briefOverride));
+			expect(payload.answerBriefMarkdown.length).toBeLessThanOrEqual(5003);
+			expect(payload.answerBriefMarkdown.length).toBeGreaterThan(4000);
+		} finally {
+			if (previous === undefined) {
+				delete process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
+			} else {
+				process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = previous;
+			}
+		}
+	});
+
+	it("fetch_url is unaffected by the research_web default cap when it passes its own", () => {
+		const longMarkdown = "x".repeat(20000);
+		const briefOverride = {
+			answerBrief: { markdown: longMarkdown, instructions: [] },
+		};
+		const payload = buildGroundedWebModelPayload(fixture(briefOverride), {
+			name: "fetch_url",
+			maxMarkdownChars: 60000,
+		});
+		expect(payload.name).toBe("fetch_url");
+		expect(payload.answerBriefMarkdown.length).toBe(20000);
 	});
 
 	it("summarizeGroundedWebResult reports the counts", () => {

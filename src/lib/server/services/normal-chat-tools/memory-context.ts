@@ -162,38 +162,53 @@ export function compactMemoryContextCandidates(
 	}));
 }
 
+// One payload shape per mode: only the keys the requested mode's result
+// actually carries are included (the per-call "use this only as memory
+// context" caution string is removed — that rule now lives in the base
+// prompt, once, instead of on every call). `executeToolWithEnvelope` drops
+// any of these that still end up empty/null (e.g. `selectedSibling: null`),
+// so defaults here don't need to dodge that — they just need to stay
+// confined to the fields their own mode actually has.
 export function compactMemoryContextModelPayload(
 	result: MemoryContextResult,
 	evidenceCandidates: ToolEvidenceCandidate[],
 ) {
-	return {
+	const envelope = {
 		success: true as const,
-		name: "memory_context",
-		sourceType: "memory",
+		name: "memory_context" as const,
+		sourceType: "memory" as const,
 		mode: result.mode,
 		status: "status" in result ? result.status : undefined,
-		hasProjectContext:
-			"hasProjectContext" in result ? result.hasProjectContext : false,
-		source: result.source,
-		content: "content" in result ? result.content : undefined,
-		project: "project" in result ? result.project : undefined,
-		siblings: "siblings" in result ? result.siblings : [],
-		reportSiblings: "reportSiblings" in result ? result.reportSiblings : [],
-		selectedSibling:
-			"selectedSibling" in result ? result.selectedSibling : null,
-		omittedSiblingCount:
-			"omittedSiblingCount" in result ? result.omittedSiblingCount : 0,
-		conversations: "conversations" in result ? result.conversations : [],
-		selectedConversation:
-			"selectedConversation" in result ? result.selectedConversation : null,
-		omittedConversationCount:
-			"omittedConversationCount" in result
-				? result.omittedConversationCount
-				: 0,
+	};
+
+	if (result.mode === "persona") {
+		return {
+			...envelope,
+			content: result.content,
+			audit: result.audit,
+			evidenceCandidates,
+		};
+	}
+
+	if (result.mode === "history") {
+		return {
+			...envelope,
+			conversations: result.conversations,
+			selectedConversation: result.selectedConversation,
+			omittedConversationCount: result.omittedConversationCount,
+			evidenceCandidates,
+		};
+	}
+
+	return {
+		...envelope,
+		project: result.project,
+		siblings: result.siblings,
+		reportSiblings: result.reportSiblings ?? [],
+		selectedSibling: result.selectedSibling ?? null,
+		omittedSiblingCount: result.omittedSiblingCount,
+		hasProjectContext: result.hasProjectContext,
 		evidenceCandidates,
-		audit: result.audit,
-		instructions:
-			"Use this as memory context only. Do not claim details that are not present in the returned payload.",
 	};
 }
 
