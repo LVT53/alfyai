@@ -45,6 +45,10 @@ export interface ToolCallEntry {
 	input: Record<string, unknown>;
 	status: "running" | "done" | "failed";
 	outputSummary?: string | null;
+	// Compact excerpt (≤ 1,500 chars) of what the model actually received from
+	// the tool, so later turns can replay the call as a native tool result
+	// instead of a one-line summary. Never rendered to the user.
+	resultDigest?: string | null;
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
@@ -68,6 +72,7 @@ export type ThinkingSegment =
 			input: Record<string, unknown>;
 			status: "running" | "done" | "failed";
 			outputSummary?: string | null;
+			resultDigest?: string | null;
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;

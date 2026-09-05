@@ -119,9 +119,13 @@ describe("Context Assembly Integration Tests", () => {
 
 		expect(result.inputValue).toContain("## Context Compression Snapshot");
 		expect(result.inputValue).toContain("Compressed fact from old turns.");
-		expect(result.inputValue).toContain("NEW_RAW_RECENT_CONTENT");
-		expect(result.inputValue).not.toContain("OLD_RAW_SECRET_USER_CONTENT");
-		expect(result.inputValue).not.toContain("OLD_RAW_SECRET_ASSISTANT_CONTENT");
+		// Raw turns after the snapshot travel as native history messages, not
+		// inside the packet; turns the snapshot covers appear nowhere.
+		const outbound = `${result.inputValue}\n${JSON.stringify(result.historyMessages)}`;
+		expect(outbound).toContain("NEW_RAW_RECENT_CONTENT");
+		expect(result.inputValue).not.toContain("NEW_RAW_RECENT_CONTENT");
+		expect(outbound).not.toContain("OLD_RAW_SECRET_USER_CONTENT");
+		expect(outbound).not.toContain("OLD_RAW_SECRET_ASSISTANT_CONTENT");
 	});
 
 	afterAll(async () => {

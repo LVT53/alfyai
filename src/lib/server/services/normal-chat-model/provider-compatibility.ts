@@ -49,6 +49,7 @@ export type OpenAICompatibleProviderAdapterProfile = {
 	family: OpenAICompatibleProviderFamily;
 	usesMaxCompletionTokens: boolean;
 	replaysReasoningContentForToolCalls: boolean;
+	historyToolMessages: "native" | "flatten";
 	classifyProviderError: (
 		error: unknown,
 	) => OpenAICompatibleProviderErrorClassification;
@@ -74,6 +75,12 @@ type AdapterBehavior = {
 	addsGlmToolStream?: boolean;
 	addsReasoningSplit?: boolean;
 	usesChatTemplateThinking?: boolean;
+	// How prior turns' tool activity is replayed in the message history:
+	// "native" sends assistant tool-call parts plus tool-result messages (every
+	// OpenAI-compatible provider in use accepts them without a `tools` param);
+	// "flatten" folds them into assistant text for a provider that rejects
+	// tool messages. Defaults to native.
+	historyToolMessages?: "native" | "flatten";
 };
 
 type ProviderAdapterProfileDefinition =
@@ -294,6 +301,7 @@ function createProviderAdapterProfile(
 		usesMaxCompletionTokens: behavior.usesMaxCompletionTokens === true,
 		replaysReasoningContentForToolCalls:
 			behavior.replaysReasoningContentForToolCalls === true,
+		historyToolMessages: behavior.historyToolMessages ?? "native",
 		classifyProviderError: classifyOpenAICompatibleProviderError,
 		buildProviderOptions: (provider, thinkingMode) =>
 			buildProviderOptionsForProfile(provider, thinkingMode, behavior),
@@ -822,4 +830,12 @@ function isGpt5ReasoningModel(modelName: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+// Resolve how a provider wants prior-turn tool activity replayed.
+export function resolveHistoryToolMessagesMode(
+	provider: NormalChatModelRunCompatibilityProvider,
+): "native" | "flatten" {
+	return resolveOpenAICompatibleProviderAdapterProfile(provider)
+		.historyToolMessages;
 }

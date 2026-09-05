@@ -1,14 +1,17 @@
 import type { createNormalChatTools } from "$lib/server/services/normal-chat-tools";
-import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 
 type NormalChatToolSet = ReturnType<typeof createNormalChatTools>["tools"];
 
-export function shouldExposeFileProductionTools(params: {
+// File-production tools are registered on every turn. They used to be gated
+// by a message-pattern match, which made the tool set (and therefore the
+// cached prompt prefix) change from turn to turn; the description now
+// carries the "only when the user asks for a downloadable file" rule.
+// `forceProduceFileTool` is kept for callers that force tool choice.
+export function shouldExposeFileProductionTools(_params: {
 	message: string;
 	forceProduceFileTool?: boolean;
 }): boolean {
-	if (params.forceProduceFileTool === true) return true;
-	return isProduceFileRequest(params.message);
+	return true;
 }
 
 export function selectNormalChatToolsForRequest(
@@ -25,18 +28,7 @@ export function selectNormalChatToolsForRequest(
 		memoryActive?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
-	const selected: Partial<NormalChatToolSet> = shouldExposeFileProductionTools(
-		params,
-	)
-		? { ...tools }
-		: (() => {
-				const {
-					produce_file: _produceFile,
-					read_generated_file: _readGeneratedFile,
-					...chatTools
-				} = tools;
-				return chatTools;
-			})();
+	const selected: Partial<NormalChatToolSet> = { ...tools };
 	if (params.memoryActive === false) {
 		delete selected.memory_context;
 	}

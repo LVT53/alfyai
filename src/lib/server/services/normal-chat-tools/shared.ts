@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ToolExecutionOptions } from "ai";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { deriveToolResultDigest } from "./tool-result-digest";
 
 // ── Record helper ──────────────────────────────────────────────
 
@@ -265,6 +266,11 @@ export async function executeToolWithEnvelope<
 			if (timer) clearTimeout(timer);
 			removeAbortListener?.();
 		});
+		// Persist a compact digest of what the model received so later turns
+		// can replay this call as a native tool result (conversation-history.ts).
+		if (result.entry.resultDigest == null) {
+			result.entry.resultDigest = deriveToolResultDigest(result.modelPayload);
+		}
 		params.recorder.record(result.entry);
 		return result.modelPayload;
 	} catch (error) {

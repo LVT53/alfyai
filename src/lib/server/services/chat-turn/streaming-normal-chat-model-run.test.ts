@@ -493,7 +493,7 @@ describe("runStreamingNormalChatSendModel", () => {
 		expect(toolsArg).not.toHaveProperty("calendar");
 	});
 
-	it("hides file-production tools for ordinary prose streaming requests", async () => {
+	it("keeps file-production tools registered for ordinary prose streaming requests (stable tool set)", async () => {
 		const tools = {
 			research_web: { __testTool: true },
 			memory_context: { __testTool: true },
@@ -516,7 +516,7 @@ describe("runStreamingNormalChatSendModel", () => {
 
 		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
 			expect.objectContaining({
-				fileProductionToolsAvailable: false,
+				fileProductionToolsAvailable: true,
 			}),
 		);
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
@@ -524,6 +524,8 @@ describe("runStreamingNormalChatSendModel", () => {
 				tools: {
 					research_web: { __testTool: true },
 					memory_context: { __testTool: true },
+					produce_file: { __testTool: true },
+					read_generated_file: { __testTool: true },
 				},
 			}),
 		);

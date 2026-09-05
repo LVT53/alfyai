@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import type {
 	ForkContextProvenanceSummary,
 	ForkCopyMetadata,
@@ -11,6 +12,10 @@ import type {
 	MemoryLayer,
 } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import type {
+	ChatAttachment,
+	ThinkingSegment,
+} from "$lib/server/services/messages-types";
 import {
 	type BudgetedAttachmentContext,
 	compactContextSections,
@@ -99,6 +104,10 @@ import type {
 	ContextTraceSource,
 	LegacyContextTraceSectionInput,
 } from "./context-trace";
+import {
+	buildHistoryModelMessages,
+	type HistoryToolMessagesMode,
+} from "./conversation-history";
 
 const SESSION_HISTORY_CONTEXT_TOKENS = 2_000;
 const ATTACHMENT_PROMPT_TOKEN_BUDGET = 6_000;
@@ -110,7 +119,60 @@ type PromptContextMessage = {
 	createdAt: number;
 	messageSequence?: number;
 	forkCopy?: ForkCopyMetadata;
+	// Native history replays prior tool use from these (see
+	// conversation-history.ts); text segments are reasoning and never replayed.
+	thinkingSegments?: ThinkingSegment[];
+	attachments?: Pick<ChatAttachment, "name">[];
 };
+
+// Build the prior turns as native model messages (user / assistant / tool)
+// within the session history budget. Returns no messages when the feature
+// flag is off, in which case the caller keeps the flattened "Session
+// Context" section.
+function buildNativeHistory(params: {
+	turns: Array<{ messages: PromptContextMessage[] }>;
+	maxTokens: number;
+	toolMessages: HistoryToolMessagesMode;
+}): {
+	enabled: boolean;
+	messages: ModelMessage[];
+	includedTurnCount: number;
+	omittedTurnCount: number;
+	estimatedTokens: number;
+} {
+	if (!getConfig().nativeHistoryEnabled) {
+		return {
+			enabled: false,
+			messages: [],
+			includedTurnCount: 0,
+			omittedTurnCount: 0,
+			estimatedTokens: 0,
+		};
+	}
+	const built = buildHistoryModelMessages({
+		turns: params.turns.map((turn) => ({
+			messages: turn.messages.map((message) => {
+				const forkCopy = getPromptMessageForkCopy(message);
+				return {
+					id: message.id,
+					role: message.role,
+					content: message.content,
+					attachments: message.attachments,
+					thinkingSegments: message.thinkingSegments,
+					...(forkCopy
+						? {
+								contentPrefix: `[Inherited copied turn from source conversation ${forkCopy.sourceConversationId}; source message ${forkCopy.sourceMessageId}]`,
+							}
+						: {}),
+				};
+			}),
+		})),
+		maxTokens: params.maxTokens,
+		toolMessages: params.toolMessages,
+		estimateTokens: estimateTokenCount,
+	});
+	return { enabled: true, ...built };
+}
 const ATTACHMENT_TASK_PER_ATTACHMENT_TOKEN_BUDGET = 2_400;
 const ATTACHMENT_EXCERPT_PER_ATTACHMENT_TOKEN_BUDGET = 600;
 const RECENT_TURN_COUNT = 3;
@@ -855,6 +917,10 @@ async function loadSessionPromptContext(params: {
 			createdAt: message.timestamp,
 			messageSequence: sequenceByMessageId.get(message.id),
 			forkCopy: message.forkCopy,
+			thinkingSegments: message.thinkingSegments,
+			attachments: message.attachments?.map((attachment) => ({
+				name: attachment.name,
+			})),
 		}))
 		.sort((a, b) => a.createdAt - b.createdAt);
 
@@ -984,8 +1050,10 @@ async function buildShallowConstructedContext(params: {
 	targetBudget: number;
 	compactionThreshold: number;
 	maxModelContext: number;
+	historyToolMessages: HistoryToolMessagesMode;
 }): Promise<{
 	inputValue: string;
+	historyMessages: ModelMessage[];
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
@@ -1049,12 +1117,25 @@ async function buildShallowConstructedContext(params: {
 		(message) => message.role,
 		promptSessionMessages.length,
 	);
-	const sessionTurnContext = serializeBudgetedRoleTurns({
+	const nativeHistory = buildNativeHistory({
 		turns: allTurns,
-		resolveRole: (message) => message.role,
-		resolveContent: serializePromptMessageContent,
 		maxTokens: params.sessionHistoryBudget.totalBudget,
+		toolMessages: params.historyToolMessages,
 	});
+	const sessionTurnContext = nativeHistory.enabled
+		? {
+				body: "",
+				includedTurnCount: nativeHistory.includedTurnCount,
+				omittedTurnCount: nativeHistory.omittedTurnCount,
+				trimmed: nativeHistory.omittedTurnCount > 0,
+				estimatedTokens: nativeHistory.estimatedTokens,
+			}
+		: serializeBudgetedRoleTurns({
+				turns: allTurns,
+				resolveRole: (message) => message.role,
+				resolveContent: serializePromptMessageContent,
+				maxTokens: params.sessionHistoryBudget.totalBudget,
+			});
 	const sections: PromptContextSection[] = [];
 
 	if (contextCompressionPromptSnapshot) {
@@ -1130,6 +1211,7 @@ async function buildShallowConstructedContext(params: {
 
 	return {
 		inputValue: selectedPromptContext.inputValue,
+		historyMessages: nativeHistory.messages,
 		contextStatus: status,
 		taskState: null,
 		contextDebug: buildMinimalContextDebugState({
@@ -1153,14 +1235,18 @@ export async function buildConstructedContext(params: {
 		targetConstructedContext: number;
 	};
 	reuseFrom?: ConstructedContextReuseData;
+	// How prior-turn tool activity is replayed (provider capability).
+	historyToolMessages?: HistoryToolMessagesMode;
 }): Promise<{
 	inputValue: string;
+	historyMessages: ModelMessage[];
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
 	contextTraceSections: LegacyContextTraceSectionInput[];
 	_reuseData?: ConstructedContextReuseData;
 }> {
+	const historyToolMessages = params.historyToolMessages ?? "native";
 	const attachmentIds = params.attachmentIds ?? [];
 	const targetBudget =
 		params.contextLimits?.targetConstructedContext ??
@@ -1196,6 +1282,7 @@ export async function buildConstructedContext(params: {
 			targetBudget,
 			compactionThreshold,
 			maxModelContext,
+			historyToolMessages,
 		});
 	}
 	const [
@@ -1508,12 +1595,25 @@ export async function buildConstructedContext(params: {
 		promptSessionMessages.length,
 	);
 
-	const sessionTurnContext = serializeBudgetedRoleTurns({
+	const nativeHistory = buildNativeHistory({
 		turns: allTurns,
-		resolveRole: (message) => message.role,
-		resolveContent: serializePromptMessageContent,
 		maxTokens: sessionHistoryBudget.totalBudget,
+		toolMessages: historyToolMessages,
 	});
+	const sessionTurnContext = nativeHistory.enabled
+		? {
+				body: "",
+				includedTurnCount: nativeHistory.includedTurnCount,
+				omittedTurnCount: nativeHistory.omittedTurnCount,
+				trimmed: nativeHistory.omittedTurnCount > 0,
+				estimatedTokens: nativeHistory.estimatedTokens,
+			}
+		: serializeBudgetedRoleTurns({
+				turns: allTurns,
+				resolveRole: (message) => message.role,
+				resolveContent: serializePromptMessageContent,
+				maxTokens: sessionHistoryBudget.totalBudget,
+			});
 	const recentTurnCount = sessionTurnContext.includedTurnCount;
 	const sections: PromptContextSection[] = [];
 	const projectFolderSection =
@@ -1848,6 +1948,7 @@ export async function buildConstructedContext(params: {
 
 	return {
 		inputValue: selectedPromptContext.inputValue,
+		historyMessages: nativeHistory.messages,
 		contextStatus: status,
 		taskState,
 		contextDebug: await getContextDebugState(

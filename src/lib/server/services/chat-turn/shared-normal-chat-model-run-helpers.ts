@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
@@ -32,10 +33,16 @@ import {
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
+import { resolveHistoryToolMessagesMode } from "$lib/server/services/normal-chat-model/provider-compatibility";
 import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
+import { estimateTokenCount } from "$lib/utils/tokens";
+import {
+	estimateHistoryMessagesTokens,
+	renderHistoryAsText,
+} from "./conversation-history";
 
 export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
 	return (
@@ -114,11 +121,17 @@ export function estimateTurnPromptTokens(params: {
 	inputValue: string;
 	tools: ToolPack["tools"];
 }): number {
-	return estimateOutboundPromptTokenTotal({
-		systemPrompt: params.prepared.systemPrompt,
-		inputValue: params.inputValue,
-		toolCount: countToolPackTools(params.tools),
-	});
+	return (
+		estimateOutboundPromptTokenTotal({
+			systemPrompt: params.prepared.systemPrompt,
+			inputValue: params.inputValue,
+			toolCount: countToolPackTools(params.tools),
+		}) +
+		estimateHistoryMessagesTokens(
+			params.prepared.historyMessages ?? [],
+			estimateTokenCount,
+		)
+	);
 }
 
 // --- Shared send-model param type and helpers (plain + streaming) ---
@@ -148,6 +161,9 @@ export type NormalChatSendModelBaseParams = {
 	activeDocumentArtifactId?: string;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
+	// Messages appended after the current user turn (a non-streaming
+	// continuation replays the interrupted attempt's tool calls/results here).
+	continuationMessages?: ModelMessage[];
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;
@@ -292,10 +308,23 @@ export async function prepareOutboundContext(
 		contextLimits: runtime.baseContextLimits,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
+		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
 	});
+}
+
+// Deliberation passes are JSON control calls that take a single string; give
+// them the native history as flat text so their briefs see the conversation.
+function withHistoryForControlCalls(prepared: PreparedModelContext): string {
+	const history = prepared.historyMessages ?? [];
+	if (history.length === 0) return prepared.inputValue;
+	return [
+		"## Conversation so far",
+		renderHistoryAsText(history),
+		prepared.inputValue,
+	].join("\n\n");
 }
 
 // Ready on-demand routing regions, for the map_route description. Fails open
@@ -376,7 +405,7 @@ export async function runDeliberationIfNeeded(
 		runtimeConfig: params.runtimeConfig,
 		provider: runtime.provider,
 		depthEffort: activeDepthEffort,
-		preparedInputValue: prepared.inputValue,
+		preparedInputValue: withHistoryForControlCalls(prepared),
 		preparedSystemPrompt: prepared.systemPrompt,
 		user: params.user,
 		language: detectLanguage(params.message),

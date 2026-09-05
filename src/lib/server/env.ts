@@ -132,6 +132,12 @@ interface Config {
 	routingRegionMaxPbfMb: number;
 	routingGeocoderImportContainer: string;
 	routingLegacyRegionId: string;
+	// Send prior turns as native chat messages (with tool parts) instead of a
+	// flattened "Session Context" block. Default on; the flag is the rollback.
+	nativeHistoryEnabled: boolean;
+	// Log the outbound message shape (roles, part types, token estimates —
+	// never content) for each model call. Verification aid; off by default.
+	normalChatDebugOutbound: boolean;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -590,6 +596,8 @@ function readConfig(): Config {
 		routingGeocoderImportContainer:
 			process.env.ROUTING_GEOCODER_IMPORT_CONTAINER || "",
 		routingLegacyRegionId: process.env.ROUTING_LEGACY_REGION_ID || "hungary",
+		nativeHistoryEnabled: process.env.NATIVE_HISTORY_ENABLED !== "false",
+		normalChatDebugOutbound: process.env.NORMAL_CHAT_DEBUG_OUTBOUND === "1",
 		systemPrompt:
 			process.env.DEFAULT_SYSTEM_PROMPT || process.env.SYSTEM_PROMPT || "",
 		braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",

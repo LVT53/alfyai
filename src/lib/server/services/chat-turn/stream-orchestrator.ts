@@ -612,6 +612,7 @@ export function runChatStreamOrchestrator(
 				details?: {
 					callId?: string;
 					outputSummary?: string | null;
+					resultDigest?: string | null;
 					sourceType?:
 						| import("$lib/server/services/message-evidence").EvidenceSourceType
 						| null;
@@ -629,6 +630,7 @@ export function runChatStreamOrchestrator(
 							status: "running" | "done" | "failed";
 							callId?: string;
 							outputSummary?: string | null;
+							resultDigest?: string | null;
 							sourceType?:
 								| import("$lib/server/services/message-evidence").EvidenceSourceType
 								| null;
@@ -1056,6 +1058,7 @@ export function runChatStreamOrchestrator(
 					completedToolCallContext: buildCompletedToolCallFallbackContext(
 						chunkRuntime.toolCallRecords,
 					),
+					completedToolCalls: chunkRuntime.toolCallRecords,
 				});
 				if (!recovered && !ended) {
 					emitResponseActivity({
@@ -1295,6 +1298,7 @@ export function runChatStreamOrchestrator(
 									{
 										callId: upstreamEvent.callId,
 										outputSummary: matchingToolCall?.outputSummary ?? null,
+										resultDigest: matchingToolCall?.resultDigest ?? null,
 										sourceType: matchingToolCall?.sourceType ?? null,
 										candidates: matchingToolCall?.candidates ?? [],
 										metadata: matchingToolCall?.metadata ?? {},

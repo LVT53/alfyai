@@ -343,7 +343,7 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
-	it("hides file-production tools for ordinary prose plain requests", async () => {
+	it("keeps file-production tools registered for ordinary prose plain requests (stable tool set)", async () => {
 		const tools = {
 			research_web: { __testTool: true },
 			memory_context: { __testTool: true },
@@ -362,7 +362,7 @@ describe("runPlainNormalChatSendModel", () => {
 
 		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
 			expect.objectContaining({
-				fileProductionToolsAvailable: false,
+				fileProductionToolsAvailable: true,
 			}),
 		);
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
@@ -370,6 +370,8 @@ describe("runPlainNormalChatSendModel", () => {
 				tools: {
 					research_web: { __testTool: true },
 					memory_context: { __testTool: true },
+					produce_file: { __testTool: true },
+					read_generated_file: { __testTool: true },
 				},
 			}),
 		);

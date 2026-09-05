@@ -258,6 +258,15 @@ function emptyGroundedFetchResult(query: string) {
 	};
 }
 
+// The tool envelope derives a compact `resultDigest` from every successful
+// payload (for native history replay); these contracts pin the rest of the
+// recorded entry, so strip the derived field before comparing.
+function withoutResultDigest<T extends { resultDigest?: string | null }>(
+	entries: T[],
+): Omit<T, "resultDigest">[] {
+	return entries.map(({ resultDigest: _digest, ...rest }) => rest);
+}
+
 describe("createNormalChatTools", () => {
 	type SubmitIntakeBodyShape = {
 		body: {
@@ -488,7 +497,7 @@ describe("createNormalChatTools", () => {
 			error:
 				"documentSource must contain substantive content when sourceMode is document_source",
 		});
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "tool-call-empty-doc",
 				name: "produce_file",
@@ -612,7 +621,7 @@ describe("createNormalChatTools", () => {
 			jobStatus: "queued",
 			reused: true,
 		});
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-first",
 				name: "produce_file",
@@ -669,7 +678,7 @@ describe("createNormalChatTools", () => {
 			messages: [],
 		});
 
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			{
 				callId: "call-entry",
 				name: "produce_file",
@@ -965,7 +974,7 @@ describe("createNormalChatTools", () => {
 				},
 			],
 		});
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			{
 				callId: "call-research",
 				name: "research_web",
@@ -1083,7 +1092,7 @@ describe("createNormalChatTools", () => {
 				"No citation-ready evidence was returned",
 			);
 		}
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-research",
 				name: "research_web",
@@ -1391,7 +1400,7 @@ describe("createNormalChatTools", () => {
 				},
 			],
 		});
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-fetch",
 				name: "fetch_url",
@@ -1546,7 +1555,7 @@ describe("createNormalChatTools", () => {
 			error: "fetch unavailable",
 		});
 
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-fetch-failed",
 				name: "fetch_url",
@@ -1585,7 +1594,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-fetch-aborted",
 				name: "fetch_url",
@@ -1696,7 +1705,7 @@ describe("createNormalChatTools", () => {
 		expect(JSON.stringify(result)).not.toContain(
 			"SHOULD BE OMITTED BY MAX SIBLINGS",
 		);
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			{
 				callId: "call-memory",
 				name: "memory_context",
@@ -1788,7 +1797,7 @@ describe("createNormalChatTools", () => {
 				},
 			],
 		});
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			{
 				callId: "call-images",
 				name: "image_search",
@@ -1875,7 +1884,7 @@ describe("createNormalChatTools", () => {
 			error: "image search unavailable",
 		});
 
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-research-failed",
 				name: "research_web",
@@ -1935,7 +1944,7 @@ describe("createNormalChatTools", () => {
 				success: false,
 				error: "research_web timed out after 60000ms",
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-research-timeout",
 					name: "research_web",
@@ -1977,7 +1986,7 @@ describe("createNormalChatTools", () => {
 		});
 
 		expect(researchWebViaParallelMock).not.toHaveBeenCalled();
-		expect(getToolCalls()).toEqual([
+		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-research-aborted",
 				name: "research_web",
@@ -2068,7 +2077,7 @@ describe("createNormalChatTools", () => {
 					},
 				],
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-files-search",
 					name: "files",
@@ -2227,7 +2236,7 @@ describe("createNormalChatTools", () => {
 					},
 				],
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-calendar-list",
 					name: "calendar",
@@ -2400,7 +2409,7 @@ describe("createNormalChatTools", () => {
 				success: true,
 				citations: [{ label: "beach.jpg", url: "" }],
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-photos-search",
 					name: "photos",
@@ -2593,7 +2602,7 @@ describe("createNormalChatTools", () => {
 				],
 				citations: [{ label: "Zsombor Kovács", url: "" }],
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-contacts-lookup",
 					name: "contacts",
@@ -2752,7 +2761,7 @@ describe("createNormalChatTools", () => {
 				success: true,
 				repos: [expect.objectContaining({ fullName: "octocat/alfyai" })],
 			});
-			expect(getToolCalls()).toEqual([
+			expect(withoutResultDigest(getToolCalls())).toEqual([
 				expect.objectContaining({
 					callId: "call-repos-list",
 					name: "repos",

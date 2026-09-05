@@ -94,6 +94,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_REGION_MAX_PBF_MB",
 	"ROUTING_GEOCODER_IMPORT_CONTAINER",
 	"ROUTING_LEGACY_REGION_ID",
+	"NATIVE_HISTORY_ENABLED",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
 	"SYSTEM_PROMPT",
@@ -232,6 +233,8 @@ export interface RuntimeConfig {
 	routingRegionMaxPbfMb: number;
 	routingGeocoderImportContainer: string;
 	routingLegacyRegionId: string;
+	nativeHistoryEnabled: boolean;
+	normalChatDebugOutbound: boolean;
 	braveSearchApiKey: string;
 	googleOauthClientId: string;
 	googleOauthClientSecret: string;
@@ -742,6 +745,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	ROUTING_LEGACY_REGION_ID: (config, value) => {
 		config.routingLegacyRegionId = value.trim() || "hungary";
 	},
+	NATIVE_HISTORY_ENABLED: (config, value) => {
+		config.nativeHistoryEnabled = value.trim() !== "false";
+	},
 	BRAVE_SEARCH_API_KEY: (config, value) => {
 		config.braveSearchApiKey = value;
 	},
@@ -1224,6 +1230,7 @@ export function getResolvedAdminConfigValues(
 		ROUTING_REGION_MAX_PBF_MB: String(config.routingRegionMaxPbfMb),
 		ROUTING_GEOCODER_IMPORT_CONTAINER: config.routingGeocoderImportContainer,
 		ROUTING_LEGACY_REGION_ID: config.routingLegacyRegionId,
+		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
 		GOOGLE_OAUTH_CLIENT_SECRET: config.googleOauthClientSecret ? "[set]" : "",

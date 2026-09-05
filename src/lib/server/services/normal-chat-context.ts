@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import { isProviderModelId } from "$lib/model-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
@@ -80,6 +81,9 @@ export type NormalChatContextModelConfig = ModelConfig & {
 
 export type PreparedOutboundChatContext = {
 	inputValue: string;
+	// Prior turns as native model messages (empty when NATIVE_HISTORY_ENABLED
+	// is off, in which case they are inside inputValue as "Session Context").
+	historyMessages: ModelMessage[];
 	systemPrompt: string;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
@@ -135,6 +139,7 @@ type AutomaticContextCompressionResult = {
 
 type OutboundChatContextPreparationState = {
 	inputValue: string;
+	historyMessages?: ModelMessage[];
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug?:
@@ -1307,6 +1312,9 @@ type PrepareOutboundChatContextParams = {
 	// (older/partial call sites) is treated the same as an empty set — the
 	// stage simply injects nothing, never fails the turn.
 	activeConnectionCapabilities?: ReadonlySet<Capability>;
+	// How prior-turn tool activity is replayed in the history (provider
+	// capability, resolved by the caller). Defaults to native.
+	historyToolMessages?: "native" | "flatten";
 	logLabel: string;
 };
 
@@ -1317,6 +1325,7 @@ function applyConstructedContextToPreparationState(
 	return {
 		...state,
 		inputValue: constructed.inputValue,
+		historyMessages: constructed.historyMessages,
 		contextStatus: constructed.contextStatus,
 		taskState: constructed.taskState,
 		contextDebug: constructed.contextDebug,
@@ -1584,6 +1593,7 @@ export async function prepareOutboundChatContext(
 							attachmentTraceId: params.attachmentTraceId,
 							modelId: params.modelId,
 							contextLimits,
+							historyToolMessages: params.historyToolMessages,
 						});
 						return applyConstructedContextToPreparationState(
 							currentState,
@@ -1694,6 +1704,7 @@ export async function prepareOutboundChatContext(
 
 	return {
 		inputValue: state.inputValue,
+		historyMessages: state.historyMessages ?? [],
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
 		contextStatus: state.contextStatus,
 		taskState: state.taskState,

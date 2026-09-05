@@ -1,3 +1,4 @@
+import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
@@ -12,6 +13,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import { isProduceFileRequest } from "$lib/server/services/normal-chat-tools";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { renderHistoryTurn } from "./conversation-history";
 
 export interface NonStreamFallbackSendParams {
 	runtimeConfig: RuntimeConfig;
@@ -54,6 +56,7 @@ export interface NonStreamFallbackDeps {
 		activeDocumentArtifactId?: string;
 		attachmentTraceId?: string;
 		systemPromptAppendix?: string;
+		continuationMessages?: ModelMessage[];
 		personalityPrompt?: string;
 		thinkingMode?: ThinkingMode;
 		depthMetadata?: DepthMetadata;
@@ -92,6 +95,10 @@ export interface NonStreamFallbackDeps {
 		attempt: number,
 	) => void;
 	completedToolCallContext?: string | null;
+	// The interrupted attempt's completed tool calls, replayed to the
+	// continuation as native assistant tool-call parts plus tool results so it
+	// can use them without re-executing anything.
+	completedToolCalls?: ToolCallEntry[];
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 }
 
@@ -115,6 +122,7 @@ interface FallbackAttemptContext {
 	personalityPrompt: string | undefined;
 	sendSignal: AbortSignal;
 	completedToolCallContext: string | null;
+	completedToolCalls: ToolCallEntry[];
 	shouldAllowForcedFileTool: boolean;
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
 }
@@ -128,6 +136,31 @@ function parseSendTurnFailureMetadata(error: unknown) {
 
 function selectFallbackToolCalls(response: NonStreamFallbackResponse) {
 	return response.normalChatToolCalls ?? response.toolCalls ?? [];
+}
+
+// Replay the interrupted attempt's completed tool calls as native messages
+// appended after the user turn: an assistant message carrying the tool-call
+// parts and a tool message carrying their result digests.
+function buildContinuationMessages(
+	completedToolCalls: ToolCallEntry[],
+): ModelMessage[] | undefined {
+	if (completedToolCalls.length === 0) return undefined;
+	return renderHistoryTurn(
+		{
+			messages: [
+				{
+					id: "fallback-continuation",
+					role: "assistant",
+					content: "",
+					thinkingSegments: completedToolCalls.map((toolCall) => ({
+						type: "tool_call" as const,
+						...toolCall,
+					})),
+				},
+			],
+		},
+		"native",
+	);
 }
 
 function buildFallbackAttemptSystemPrompt(
@@ -180,6 +213,7 @@ function buildFallbackAttemptParams(
 		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
+		continuationMessages: buildContinuationMessages(context.completedToolCalls),
 		personalityPrompt,
 		thinkingMode: sendParams.thinkingMode,
 		depthMetadata: sendParams.depthMetadata,
@@ -276,6 +310,9 @@ export async function runNonStreamFallback(
 			personalityPrompt: deps.personalityPrompt,
 			sendSignal: deps.signal,
 			completedToolCallContext: deps.completedToolCallContext?.trim() ?? null,
+			completedToolCalls: (deps.completedToolCalls ?? []).filter(
+				(toolCall) => toolCall.status === "done",
+			),
 			shouldAllowForcedFileTool:
 				Boolean(deps.completedToolCallContext?.trim()) &&
 				isProduceFileRequest(deps.sendParams.upstreamMessage),

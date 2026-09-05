@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
@@ -39,6 +40,7 @@ import {
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { logOutboundMessageShape } from "./outbound-debug";
 
 export type StreamingNormalChatSendModelParams = {
 	userId: string;
@@ -192,6 +194,17 @@ export async function runStreamingNormalChatSendModel(
 		prepared.inputValue,
 		deliberation?.briefs ?? [],
 	);
+	const outboundMessages: ModelMessage[] = [
+		...(prepared.historyMessages ?? []),
+		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+	];
+	logOutboundMessageShape({
+		label: "stream",
+		systemPrompt: prepared.systemPrompt,
+		messages: outboundMessages,
+		toolCount: toolPack.tools ? Object.keys(toolPack.tools).length : 0,
+	});
+
 	const stream = runStreamingNormalChatModelRun({
 		provider: runtime.provider,
 		modelId: runtime.modelId,
@@ -212,12 +225,7 @@ export async function runStreamingNormalChatSendModel(
 		tools: toolPack.tools,
 		toolChoice: undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
-		messages: [
-			{
-				role: "user",
-				content: [{ type: "text", text: finalInputValue }],
-			},
-		],
+		messages: outboundMessages,
 		deliberationElapsedMs,
 	});
 

@@ -38,6 +38,7 @@ const baseRuntimeConfig = {
 
 const basePreparedContext: PreparedContext = {
 	inputValue: "Prepared user prompt",
+	historyMessages: [],
 	systemPrompt: "Prepared system prompt",
 	contextStatus: undefined,
 	taskState: null,

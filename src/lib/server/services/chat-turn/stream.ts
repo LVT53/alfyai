@@ -87,6 +87,7 @@ export type ServerStreamSegment =
 			input: Record<string, unknown>;
 			status: "running" | "done" | "failed";
 			outputSummary?: string | null;
+			resultDigest?: string | null;
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
@@ -114,6 +115,7 @@ type NativeToolCallAccumulator = {
 type StreamToolCallDetails = {
 	callId?: string;
 	outputSummary?: string | null;
+	resultDigest?: string | null;
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
@@ -761,6 +763,7 @@ export function createServerChunkRuntime({
 						segment.input = input;
 					}
 					segment.outputSummary = details?.outputSummary ?? null;
+					segment.resultDigest = details?.resultDigest ?? null;
 					segment.sourceType = details?.sourceType ?? null;
 					segment.candidates = details?.candidates;
 					segment.metadata = details?.metadata;
@@ -778,6 +781,7 @@ export function createServerChunkRuntime({
 				input,
 				status,
 				outputSummary: details?.outputSummary ?? null,
+				resultDigest: details?.resultDigest ?? null,
 				sourceType: details?.sourceType ?? null,
 				candidates: details?.candidates,
 				metadata: details?.metadata,
@@ -791,6 +795,7 @@ export function createServerChunkRuntime({
 					input,
 					status,
 					outputSummary: details?.outputSummary ?? null,
+					resultDigest: details?.resultDigest ?? null,
 					sourceType: details?.sourceType ?? null,
 					candidates: details?.candidates,
 					metadata: details?.metadata,

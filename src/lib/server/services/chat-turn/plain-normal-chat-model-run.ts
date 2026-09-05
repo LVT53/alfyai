@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
@@ -42,6 +43,7 @@ import {
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import { logOutboundMessageShape } from "./outbound-debug";
 
 export type PlainNormalChatSendModelParams = NormalChatSendModelBaseParams & {
 	// disableTools / forceProduceFileTool are inherited from the base type;
@@ -220,6 +222,18 @@ async function runPlainModelRun(params: ModelRunParams) {
 		prepared.inputValue,
 		deliberation?.briefs ?? [],
 	);
+	const outboundMessages: ModelMessage[] = [
+		...(prepared.historyMessages ?? []),
+		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+		...(modelRunParams.continuationMessages ?? []),
+	];
+	logOutboundMessageShape({
+		label: "plain",
+		systemPrompt: prepared.systemPrompt,
+		messages: outboundMessages,
+		toolCount: tools ? Object.keys(tools).length : 0,
+	});
+
 	const toolChoice = modelRunParams.forceProduceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)
 		: undefined;
@@ -244,12 +258,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 		tools,
 		toolChoice: tools ? toolChoice : undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
-		messages: [
-			{
-				role: "user",
-				content: [{ type: "text", text: finalInputValue }],
-			},
-		],
+		messages: outboundMessages,
 	});
 }
 
