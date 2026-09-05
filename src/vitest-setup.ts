@@ -1,7 +1,13 @@
-import { vi } from "vitest";
+import { inject, vi } from "vitest";
 import "@testing-library/jest-dom";
 
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-secret";
+
+// Always point the shared `db` singleton (src/lib/server/db/index.ts) at the
+// fully migrated throwaway database provisioned by src/vitest-global-setup.ts.
+// This is unconditional on purpose: the suite must never open a developer's
+// real ./data/chat.db, whatever DATABASE_PATH happens to be in the shell.
+process.env.DATABASE_PATH = inject("alfyaiTestDatabasePath");
 
 if (!Element.prototype.animate) {
 	Object.defineProperty(Element.prototype, "animate", {

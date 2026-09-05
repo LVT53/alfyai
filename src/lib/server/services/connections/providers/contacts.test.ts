@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -39,7 +40,7 @@ beforeEach(() => {
 	process.env.GOOGLE_OAUTH_CLIENT_ID = "test-client-id";
 	process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-client-secret";
 
-	dbPath = `./data/test-connections-contacts-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-connections-contacts-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });

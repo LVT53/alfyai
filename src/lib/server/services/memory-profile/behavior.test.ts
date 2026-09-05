@@ -217,8 +217,14 @@ describe("memory profile foundation", () => {
 			status: "review_needed",
 		});
 
-		const statedExpiry = new Date("2026-09-01T00:00:00.000Z");
-		const reviewExpiry = new Date("2026-08-06T00:00:00.000Z");
+		// Expiry must stay in the future relative to the wall clock: the read
+		// model sweeps `expiresAt < now` rows into "expired" before listing, so a
+		// hard-coded calendar date would silently drop the items once it passes.
+		// Whole seconds only: SQLite timestamp columns round-trip at that grain.
+		const DAY_MS = 24 * 60 * 60 * 1000;
+		const nowSeconds = Math.floor(Date.now() / 1000) * 1000;
+		const statedExpiry = new Date(nowSeconds + 60 * DAY_MS);
+		const reviewExpiry = new Date(nowSeconds + 30 * DAY_MS);
 		const { sqlite, db } = openSeedDatabase();
 		db.update(schema.memoryProfileItems)
 			.set({

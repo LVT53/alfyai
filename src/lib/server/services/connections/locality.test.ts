@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -58,7 +59,7 @@ function providerWithBaseUrl(baseUrl: string) {
 }
 
 beforeEach(() => {
-	dbPath = `./data/test-connections-locality-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-connections-locality-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });

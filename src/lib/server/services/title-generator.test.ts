@@ -1,21 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../env", () => ({
-	getDatabasePath: () => "./data/test.db",
-	config: {
-		titleGenUrl: "http://localhost:30001/v1",
-		titleGenApiKey: "",
-		titleGenModel: "nemotron-nano",
-		titleGenSystemPromptEn: "",
-		titleGenSystemPromptHu: "",
-		titleGenSystemPromptCodeAppendixEn: "",
-		titleGenSystemPromptCodeAppendixHu: "",
-		requestTimeoutMs: 5000,
-		maxMessageLength: 10000,
-		sessionSecret: "test-secret",
-		databasePath: "./data/test.db",
-	},
-}));
+// Every env mock below keeps the real `getDatabasePath`: the db singleton opens
+// that path at import time, and the real resolver points at the migrated
+// throwaway database provisioned by src/vitest-global-setup.ts rather than a
+// hard-coded ./data path (gitignored local state, absent on a fresh clone).
+type EnvModule = typeof import("../env");
+
+vi.mock("../env", async (importOriginal) => {
+	const { getDatabasePath } = await importOriginal<EnvModule>();
+	return {
+		getDatabasePath,
+		config: {
+			titleGenUrl: "http://localhost:30001/v1",
+			titleGenApiKey: "",
+			titleGenModel: "nemotron-nano",
+			titleGenSystemPromptEn: "",
+			titleGenSystemPromptHu: "",
+			titleGenSystemPromptCodeAppendixEn: "",
+			titleGenSystemPromptCodeAppendixHu: "",
+			requestTimeoutMs: 5000,
+			maxMessageLength: 10000,
+			sessionSecret: "test-secret",
+			databasePath: getDatabasePath(),
+		},
+	};
+});
 
 import { generateTitle } from "./title-generator";
 
@@ -79,22 +88,25 @@ describe("generateTitle", () => {
 	});
 
 	it("sends bearer auth when a title gen api key is configured", async () => {
-		vi.doMock("../env", () => ({
-			getDatabasePath: () => "./data/test.db",
-			config: {
-				titleGenUrl: "http://localhost:30001/v1",
-				titleGenApiKey: "secret-key",
-				titleGenModel: "nemotron-nano",
-				titleGenSystemPromptEn: "Write titles only.",
-				titleGenSystemPromptHu: "",
-				titleGenSystemPromptCodeAppendixEn: "",
-				titleGenSystemPromptCodeAppendixHu: "",
-				requestTimeoutMs: 5000,
-				maxMessageLength: 10000,
-				sessionSecret: "test-secret",
-				databasePath: "./data/test.db",
-			},
-		}));
+		vi.doMock("../env", async (importOriginal) => {
+			const { getDatabasePath } = await importOriginal<EnvModule>();
+			return {
+				getDatabasePath,
+				config: {
+					titleGenUrl: "http://localhost:30001/v1",
+					titleGenApiKey: "secret-key",
+					titleGenModel: "nemotron-nano",
+					titleGenSystemPromptEn: "Write titles only.",
+					titleGenSystemPromptHu: "",
+					titleGenSystemPromptCodeAppendixEn: "",
+					titleGenSystemPromptCodeAppendixHu: "",
+					requestTimeoutMs: 5000,
+					maxMessageLength: 10000,
+					sessionSecret: "test-secret",
+					databasePath: getDatabasePath(),
+				},
+			};
+		});
 
 		vi.resetModules();
 		const { generateTitle: generateTitleWithAuth } = await import(
@@ -374,23 +386,27 @@ describe("generateTitle", () => {
 	});
 
 	it("uses the configured language-specific title generation system prompt when present", async () => {
-		vi.doMock("../env", () => ({
-			getDatabasePath: () => "./data/test.db",
-			config: {
-				titleGenUrl: "http://localhost:30001/v1",
-				titleGenApiKey: "",
-				titleGenModel: "nemotron-nano",
-				titleGenSystemPromptEn: "Return terse, descriptive titles only.",
-				titleGenSystemPromptHu: "Adj vissza rovid cimket.",
-				titleGenSystemPromptCodeAppendixEn:
-					"Mention the language or framework when known.",
-				titleGenSystemPromptCodeAppendixHu: "Emlitsd a technológiát ha ismert.",
-				requestTimeoutMs: 5000,
-				maxMessageLength: 10000,
-				sessionSecret: "test-secret",
-				databasePath: "./data/test.db",
-			},
-		}));
+		vi.doMock("../env", async (importOriginal) => {
+			const { getDatabasePath } = await importOriginal<EnvModule>();
+			return {
+				getDatabasePath,
+				config: {
+					titleGenUrl: "http://localhost:30001/v1",
+					titleGenApiKey: "",
+					titleGenModel: "nemotron-nano",
+					titleGenSystemPromptEn: "Return terse, descriptive titles only.",
+					titleGenSystemPromptHu: "Adj vissza rovid cimket.",
+					titleGenSystemPromptCodeAppendixEn:
+						"Mention the language or framework when known.",
+					titleGenSystemPromptCodeAppendixHu:
+						"Emlitsd a technológiát ha ismert.",
+					requestTimeoutMs: 5000,
+					maxMessageLength: 10000,
+					sessionSecret: "test-secret",
+					databasePath: getDatabasePath(),
+				},
+			};
+		});
 
 		vi.resetModules();
 		const { generateTitle: generateTitleWithConfiguredPrompt } = await import(

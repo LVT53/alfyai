@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -29,7 +30,7 @@ function seedUser(userId: string) {
 }
 
 beforeEach(() => {
-	dbPath = `./data/test-user-connections-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-user-connections-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(db(), { migrationsFolder: "./drizzle" });

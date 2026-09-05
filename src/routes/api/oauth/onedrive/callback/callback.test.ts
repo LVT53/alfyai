@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isRedirect } from "@sveltejs/kit";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -57,7 +58,7 @@ beforeEach(() => {
 	vi.unstubAllGlobals();
 	for (const key of ENV_KEYS) delete process.env[key];
 
-	dbPath = `./data/test-oauth-onedrive-callback-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-oauth-onedrive-callback-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });

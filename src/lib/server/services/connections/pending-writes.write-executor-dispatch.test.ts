@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -24,7 +25,7 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 beforeEach(() => {
-	dbPath = `./data/test-pending-writes-dispatch-${randomUUID()}.db`;
+	dbPath = `${tmpdir()}/alfyai-test-pending-writes-dispatch-${randomUUID()}.db`;
 	sqlite = new Database(dbPath);
 	sqlite.pragma("foreign_keys = ON");
 	migrate(drizzle(sqlite, { schema }), { migrationsFolder: "./drizzle" });

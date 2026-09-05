@@ -116,9 +116,11 @@ function formatUsd(value: number): string {
 	return `$${Number(value ?? 0).toFixed(4)}`;
 }
 
+const numberFmt = new Intl.NumberFormat("en-US");
+
 function formatNum(value: number): string {
 	if (!value) return "0";
-	return value.toLocaleString();
+	return numberFmt.format(value);
 }
 
 function formatMonthShort(ym: string): string {

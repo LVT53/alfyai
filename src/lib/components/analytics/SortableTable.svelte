@@ -79,8 +79,11 @@ function alignClass(align: TableColumn["align"]): string {
 	return "text-left";
 }
 
-const numberFmt = new Intl.NumberFormat();
-const usdFmt = new Intl.NumberFormat(undefined, {
+// Pin the locale: cost figures are USD everywhere else in the app (rendered as
+// "$0.0042"), and a host-locale formatter would print "US$1.23" on en-GB/en-AU
+// machines, which makes the output (and tests) machine-dependent.
+const numberFmt = new Intl.NumberFormat("en-US");
+const usdFmt = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
 });
