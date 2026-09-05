@@ -4,7 +4,9 @@
 # The extract is mounted OUTSIDE /nominatim because the image's entrypoint
 # chowns that tree and a read-only bind mount there aborts the start.
 # later starts reuse the database under /home/services/nominatim (bind
-# mounts on the large /home filesystem; Docker's data root on / is too small). The routing
+# mounts on the large /home filesystem; Docker's data root on / is too small).
+# No flat-node file: osm2pgsql memory-maps it and dies with SIGBUS on this
+# host's XFS bind mount; country-sized imports are fine without it. The routing
 # regions directory is mounted read-only at /regions so the app can
 # `nominatim add-data` each on-demand region into the same database
 # (ROUTING_GEOCODER_IMPORT_CONTAINER=nominatim).
@@ -25,7 +27,6 @@ ExecStart=/usr/bin/docker run --rm --name nominatim \
   -v /opt/openrouteservice/files/hungary-latest.osm.pbf:/extracts/hungary-latest.osm.pbf:ro \
   -v /home/services/routing-regions:/regions:ro \
   -v /home/services/nominatim/postgres:/var/lib/postgresql/16/main \
-  -v /home/services/nominatim/flatnode:/nominatim/flatnode \
   --shm-size=2g \
   mediagis/nominatim:5.1
 ExecStop=-/usr/bin/docker rm -f nominatim
