@@ -173,3 +173,36 @@ You can still override it explicitly:
 - a higher value if your deployment needs more headroom
 
 Keep it at or above the application’s current 100MB upload cap so multipart requests are not rejected at the transport layer first.
+
+## Routing coverage + sandbox infrastructure
+
+Two extra host services back the `map_route` tool and the file-production sandbox. They are
+installed once, as root, from a checkout of this repo:
+
+```bash
+sudo bash deploy/install-routing-infra.sh
+```
+
+- `alfyai-docker-proxy.service` — a filtered Docker API (tecnativa docker-socket-proxy) on
+  `127.0.0.1:2375`. The app talks to it via `DOCKER_HOST=tcp://127.0.0.1:2375`, so the app user
+  never needs docker-group (root-equivalent) access. Only containers/images/exec/start/stop/delete
+  are allowed; volumes, networks, swarm, system and build are denied.
+- `nominatim.service` — a self-hosted Nominatim geocoder on `127.0.0.1:8089`. The first start
+  imports the Hungary extract (20–60 minutes); the routing regions directory is mounted at
+  `/regions` so on-demand regions are added to the same database.
+
+After the script finishes, add to `shared/.env` and deploy (or restart the app):
+
+```
+DOCKER_HOST=tcp://127.0.0.1:2375
+GEOCODER_BASE_URL=http://127.0.0.1:8089
+ROUTING_ON_DEMAND_ENABLED=true
+ROUTING_REGIONS_DIR=/home/services/routing-regions
+ROUTING_GEOCODER_IMPORT_CONTAINER=nominatim
+ROUTING_LEGACY_REGION_ID=hungary
+```
+
+On-demand regions are managed from Settings → Administration → Routing coverage, or via
+`/api/admin/routing-regions`. Each region runs in its own `alfyai-ors-<region>` container
+(published on `127.0.0.1:8300-8399`), is stopped after `ROUTING_REGION_IDLE_MINUTES` without use
+and restarted on demand.
