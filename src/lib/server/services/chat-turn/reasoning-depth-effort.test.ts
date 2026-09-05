@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
+import type {
+	DepthAppliedProfile,
+	DepthMetadata,
+} from "$lib/server/services/chat-turn/depth-metadata-types";
 import { resolveReasoningDepthEffort } from "./reasoning-depth-effort";
-
-const baseContextLimits = {
-	maxModelContext: 100_000,
-	targetConstructedContext: 80_000,
-	compactionUiThreshold: 70_000,
-};
 
 const provider = {
 	id: "provider-1",
@@ -18,8 +15,15 @@ const provider = {
 	reasoningEffort: "high" as const,
 };
 
+const PROFILES: DepthAppliedProfile[] = [
+	"off",
+	"standard",
+	"extended",
+	"maximum",
+];
+
 describe("resolveReasoningDepthEffort", () => {
-	it("applies maximum depth to provider reasoning, output/context room, source budgets, and metadata", () => {
+	it("applies maximum depth to provider reasoning, source budgets, grounding, and metadata", () => {
 		const depthMetadata: DepthMetadata = {
 			requested: "auto",
 			appliedProfile: "maximum",
@@ -35,8 +39,6 @@ describe("resolveReasoningDepthEffort", () => {
 		const effort = resolveReasoningDepthEffort({
 			depthMetadata,
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 
@@ -46,38 +48,23 @@ describe("resolveReasoningDepthEffort", () => {
 			constrained: false,
 			supported: true,
 		});
-		expect(effort.modelMaxOutputTokens).toBe(10_000);
-		expect(effort.contextLimits).toEqual(baseContextLimits);
 		expect(effort.maxToolSteps).toBeGreaterThan(20);
 		expect(effort.webSourceBudget).toEqual({
 			maxSources: 12,
 			sourceExpansion: true,
 		});
-		expect(effort.depthMetadata.appliedEffort).toMatchObject({
-			dimensions: expect.arrayContaining([
+		expect(effort.depthMetadata.appliedEffort).toEqual({
+			dimensions: [
 				"provider_reasoning",
-				"output_room",
-				"context_room",
 				"grounding_guidance",
 				"tool_steps",
 				"source_budget",
-			]),
+			],
 			providerReasoning: {
 				thinkingMode: "on",
 				reasoningEffort: "high",
 				supported: true,
 				constrained: false,
-			},
-			outputTokens: {
-				configuredMaxTokens: 10_000,
-				targetMaxTokens: 10_000,
-				clamped: false,
-			},
-			context: {
-				maxModelContext: 100_000,
-				configuredTargetConstructedContext: 80_000,
-				targetConstructedContext: 80_000,
-				clamped: false,
 			},
 			tools: {
 				maxToolSteps: effort.maxToolSteps,
@@ -92,6 +79,31 @@ describe("resolveReasoningDepthEffort", () => {
 		});
 	});
 
+	it("does not carry output-token or context-room dimensions in any profile", () => {
+		for (const profile of PROFILES) {
+			const effort = resolveReasoningDepthEffort({
+				depthMetadata: {
+					requested: profile === "maximum" ? "max" : "auto",
+					appliedProfile: profile,
+					fallback: false,
+					signals: {
+						contextBreadth: "narrow",
+						outputRoom: "concise",
+					},
+				},
+				provider,
+				forceWebSearch: false,
+			});
+			const appliedEffort = effort.depthMetadata.appliedEffort;
+			expect(appliedEffort?.dimensions).not.toContain("output_room");
+			expect(appliedEffort?.dimensions).not.toContain("context_room");
+			expect(appliedEffort).not.toHaveProperty("outputTokens");
+			expect(appliedEffort).not.toHaveProperty("context");
+			expect(effort).not.toHaveProperty("contextLimits");
+			expect(effort).not.toHaveProperty("modelMaxOutputTokens");
+		}
+	});
+
 	it("scales the profile ladder while keeping source expansion conditional on evidence signals", () => {
 		const off = resolveReasoningDepthEffort({
 			depthMetadata: {
@@ -100,8 +112,6 @@ describe("resolveReasoningDepthEffort", () => {
 				fallback: false,
 			},
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 		const standard = resolveReasoningDepthEffort({
@@ -111,8 +121,6 @@ describe("resolveReasoningDepthEffort", () => {
 				fallback: false,
 			},
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 		const extendedWithoutEvidence = resolveReasoningDepthEffort({
@@ -122,8 +130,6 @@ describe("resolveReasoningDepthEffort", () => {
 				fallback: false,
 			},
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 		const extendedWithEvidence = resolveReasoningDepthEffort({
@@ -137,8 +143,6 @@ describe("resolveReasoningDepthEffort", () => {
 				},
 			},
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 		const maximumWithoutEvidence = resolveReasoningDepthEffort({
@@ -148,8 +152,6 @@ describe("resolveReasoningDepthEffort", () => {
 				fallback: false,
 			},
 			provider,
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 
@@ -166,26 +168,16 @@ describe("resolveReasoningDepthEffort", () => {
 			thinkingMode: "on",
 			reasoningEffort: "high",
 		});
-		expect(off.modelMaxOutputTokens).toBeLessThan(
-			standard.modelMaxOutputTokens ?? 0,
+		expect(off.maxToolSteps).toBeLessThan(standard.maxToolSteps);
+		expect(standard.maxToolSteps).toBeLessThan(
+			extendedWithoutEvidence.maxToolSteps,
 		);
-		expect(standard.modelMaxOutputTokens).toBeLessThan(
-			extendedWithoutEvidence.modelMaxOutputTokens ?? 0,
+		expect(extendedWithoutEvidence.maxToolSteps).toBeLessThan(
+			maximumWithoutEvidence.maxToolSteps,
 		);
-		expect(extendedWithoutEvidence.modelMaxOutputTokens).toBeLessThan(
-			maximumWithoutEvidence.modelMaxOutputTokens ?? 0,
-		);
-		expect(off.contextLimits.targetConstructedContext).toBeLessThan(
-			standard.contextLimits.targetConstructedContext,
-		);
-		expect(standard.contextLimits.targetConstructedContext).toBeLessThan(
-			extendedWithoutEvidence.contextLimits.targetConstructedContext,
-		);
-		expect(
-			extendedWithoutEvidence.contextLimits.targetConstructedContext,
-		).toBeLessThan(
-			maximumWithoutEvidence.contextLimits.targetConstructedContext,
-		);
+		expect(off.grounding.guidance).toBe("minimal");
+		expect(standard.grounding.guidance).toBe("standard");
+		expect(maximumWithoutEvidence.grounding.guidance).toBe("careful");
 		expect(extendedWithoutEvidence.webSourceBudget).toEqual({
 			maxSources: 6,
 			sourceExpansion: false,
@@ -211,8 +203,6 @@ describe("resolveReasoningDepthEffort", () => {
 				...provider,
 				reasoningEffort: "low",
 			},
-			baseContextLimits,
-			configuredMaxOutputTokens: 10_000,
 			forceWebSearch: false,
 		});
 

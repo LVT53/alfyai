@@ -586,11 +586,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			fireworks: { reasoningEffort: "medium" },
 		});
 		expect(result.depthMetadata?.appliedEffort).toMatchObject({
-			outputTokens: {
-				effectiveMaxTokens: 3500,
-				outputReserve: 3500,
-				clamped: true,
-			},
 			grounding: {
 				guidance: "strict",
 				externalEvidence: "required",

@@ -608,19 +608,17 @@ describe("POST /api/chat/send", () => {
 				modelId: "provider:local:model-a",
 				modelDisplayName: "Provider Model A",
 				appliedEffort: {
-					dimensions: ["provider_reasoning", "output_room"],
+					dimensions: ["provider_reasoning", "tool_steps"],
 					providerReasoning: {
 						thinkingMode: "on",
 						reasoningEffort: "medium",
 						supported: true,
 						constrained: false,
 					},
-					outputTokens: {
-						configuredMaxTokens: 4096,
-						targetMaxTokens: 3500,
-						effectiveMaxTokens: 3200,
-						outputReserve: 3200,
-						clamped: true,
+					tools: {
+						maxToolSteps: 18,
+						maxWebSources: 6,
+						sourceExpansion: false,
 					},
 				},
 			},
@@ -653,9 +651,9 @@ describe("POST /api/chat/send", () => {
 						providerReasoning: expect.objectContaining({
 							reasoningEffort: "medium",
 						}),
-						outputTokens: expect.objectContaining({
-							effectiveMaxTokens: 3200,
-							clamped: true,
+						tools: expect.objectContaining({
+							maxToolSteps: 18,
+							maxWebSources: 6,
 						}),
 					}),
 				},

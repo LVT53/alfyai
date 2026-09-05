@@ -3,10 +3,7 @@ import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { ReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
-import {
-	buildReasoningDepthProviderOptions,
-	withReasoningDepthPreparedBudget,
-} from "$lib/server/services/chat-turn/reasoning-depth-effort";
+import { buildReasoningDepthProviderOptions } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type {
@@ -1971,7 +1968,7 @@ function withDeliberationMetadata(params: {
 	completedPasses: number;
 	constraints: string[];
 }): ReasoningDepthEffort["depthMetadata"] {
-	const base = withReasoningDepthPreparedBudget(params.effort);
+	const base = params.effort.depthMetadata;
 	const appliedEffort = base.appliedEffort;
 	if (!appliedEffort) return base;
 	const constraints = mergeUnique(
