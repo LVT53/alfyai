@@ -5,6 +5,7 @@ import type { SessionUser } from "$lib/server/services/auth-types";
 import { getConfig } from "../config-store";
 import { db } from "../db";
 import {
+	activityEvents,
 	analyticsConversations,
 	conversations,
 	messageAnalytics,
@@ -67,7 +68,22 @@ export interface AnalyticsDashboardReadParams {
 	systemMonth?: string | null;
 	timeline?: string | null;
 	excludedUserIds?: string[];
+	// Analytics overhaul (backend half) — admin-only narrowing filters over
+	// the system/tools/commandsAndSkills/latencyByPromptBucket sections.
+	// Ignored for a non-admin caller (only their own personal section is ever
+	// returned regardless).
+	userId?: string | null;
+	modelId?: string | null;
+	providerId?: string | null;
 }
+
+// A modelId that no longer resolves to an enabled providers/provider_models
+// pair — the model was deleted (or its provider was) since the calls that
+// reference it were recorded — surfaces as "removed" rather than silently
+// dropping from the breakdown. "disabled" is a model/provider that still
+// exists but is turned off. Built-in "model1"/"model2" are always "active"
+// (they're config-driven, not rows in provider_models).
+export type ModelAvailability = "active" | "disabled" | "removed";
 
 interface AnalyticsByModelRow {
 	model: string;
@@ -80,6 +96,56 @@ interface AnalyticsByModelRow {
 	reasoningTokens?: number;
 	totalTokens?: number;
 	totalCostUsd: number;
+	// Analytics overhaul (backend half) — resolved against the CURRENT
+	// providers/provider_models tables at read time, so an admin can tell a
+	// still-billable model apart from one that only appears because of
+	// historical usage_events rows.
+	availability?: ModelAvailability;
+	// Average reasoning-token count and first-token/generation-time
+	// percentiles for this model's messages, joined from message_analytics
+	// by message_id. Undefined fields mean no message_analytics rows joined
+	// (e.g. every call predates the ADR-0042 timing marks); a present field
+	// with value `null` means rows joined but none carried that mark.
+	avgReasoningTokens?: number;
+	firstTokenP50Ms?: number | null;
+	firstTokenP90Ms?: number | null;
+	generationP50Ms?: number | null;
+}
+
+export interface ToolActivitySummary {
+	name: string;
+	calls: number;
+	failed: number;
+	cached: number;
+	p50DurationMs: number | null;
+}
+
+export type CommandOrSkillActivityKind = Exclude<
+	(typeof activityEvents.$inferSelect)["kind"],
+	"tool_call"
+>;
+
+export interface CommandOrSkillActivitySummary {
+	kind: CommandOrSkillActivityKind;
+	name: string;
+	count: number;
+}
+
+export const PROMPT_TOKEN_BUCKETS = [
+	"<10k",
+	"10-30k",
+	"30-60k",
+	"60-120k",
+	">120k",
+] as const;
+export type PromptTokenBucket = (typeof PROMPT_TOKEN_BUCKETS)[number];
+
+export interface LatencyPromptBucketSummary {
+	bucket: PromptTokenBucket;
+	n: number;
+	firstTokenP50Ms: number | null;
+	firstTokenP90Ms: number | null;
+	reasoningTokensMedian: number | null;
 }
 
 interface AnalyticsByProviderRow {
@@ -184,6 +250,12 @@ export interface AnalyticsDashboardReadModel {
 	systemAvailableMonths?: string[];
 	timeline?: Array<{ label: string; tokens: number }>;
 	analyticsUsers?: AnalyticsUserSummary[];
+	// Analytics overhaul (backend half) — admin-only, alongside `system`.
+	// Honour the same month/userId/modelId/providerId/excludedUserIds
+	// filters as `system` does.
+	tools?: ToolActivitySummary[];
+	commandsAndSkills?: CommandOrSkillActivitySummary[];
+	latencyByPromptBucket?: LatencyPromptBucketSummary[];
 }
 
 const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
@@ -333,6 +405,94 @@ function average(values: number[]): number {
 	return present.reduce((sum, value) => sum + value, 0) / present.length;
 }
 
+// Nearest-rank percentile over an ALREADY ascending-sorted array. Returns
+// null for an empty input (no data to report) rather than 0, which would
+// misleadingly read as "measured, and it's instant".
+function percentile(sortedAscending: number[], p: number): number | null {
+	if (sortedAscending.length === 0) return null;
+	const rank = Math.ceil((p / 100) * sortedAscending.length);
+	const index = Math.min(sortedAscending.length - 1, Math.max(0, rank - 1));
+	return sortedAscending[index];
+}
+
+function sortedNumbers(values: number[]): number[] {
+	return [...values].sort((left, right) => left - right);
+}
+
+// Parses the provider/model ids out of a "provider:<providerId>:<modelUuid>"
+// (current) or legacy "provider:<providerId>" modelId. Distinct from
+// model-types.ts's getProviderIdFromModelId, which — despite its name —
+// returns the MODEL uuid (parts[2]) for the 3-part form; this helper is the
+// one both availability resolution and providerId filtering need.
+function parseProviderModelId(
+	modelId: string,
+): { providerId: string; modelUuid: string | null } | null {
+	if (!modelId.startsWith("provider:")) return null;
+	const parts = modelId.slice("provider:".length).split(":");
+	if (parts.length >= 2 && parts[0] && parts[1]) {
+		return { providerId: parts[0], modelUuid: parts[1] };
+	}
+	if (parts.length === 1 && parts[0]) {
+		return { providerId: parts[0], modelUuid: null };
+	}
+	return null;
+}
+
+interface AvailabilityContext {
+	providersById: Map<string, typeof providers.$inferSelect>;
+	providerModelsById: Map<string, typeof providerModels.$inferSelect>;
+}
+
+async function loadAvailabilityContext(): Promise<AvailabilityContext> {
+	const [providerRows, providerModelRows] = await Promise.all([
+		db.select().from(providers),
+		db.select().from(providerModels),
+	]);
+	return {
+		providersById: new Map(providerRows.map((row) => [row.id, row])),
+		providerModelsById: new Map(providerModelRows.map((row) => [row.id, row])),
+	};
+}
+
+function resolveModelAvailability(
+	modelId: string,
+	context: AvailabilityContext,
+): ModelAvailability {
+	if (modelId === "model1" || modelId === "model2") return "active";
+	const parsed = parseProviderModelId(modelId);
+	if (!parsed) return "active";
+
+	if (parsed.modelUuid) {
+		const modelRow = context.providerModelsById.get(parsed.modelUuid);
+		if (!modelRow) return "removed";
+		const providerRow = context.providersById.get(parsed.providerId);
+		if (!providerRow || providerRow.enabled !== 1 || modelRow.enabled !== 1) {
+			return "disabled";
+		}
+		return "active";
+	}
+
+	// Legacy 2-part id, predating per-model rows: only the provider can be
+	// checked.
+	const providerRow = context.providersById.get(parsed.providerId);
+	if (!providerRow) return "removed";
+	return providerRow.enabled === 1 ? "active" : "disabled";
+}
+
+type MessageAnalyticsRow = typeof messageAnalytics.$inferSelect;
+
+async function loadMessageAnalyticsById(): Promise<
+	Map<string, MessageAnalyticsRow>
+> {
+	const rows = await db.select().from(messageAnalytics);
+	return new Map(rows.map((row) => [row.messageId, row]));
+}
+
+interface AnalyticsQueryContext {
+	messageAnalyticsById: Map<string, MessageAnalyticsRow>;
+	availability: AvailabilityContext;
+}
+
 type UsageAccumulator = {
 	promptTokens: number;
 	cachedInputTokens: number;
@@ -374,7 +534,10 @@ function materializeUsageBreakdown<T extends { totalCostMicros: number }>(
 		.sort(sort);
 }
 
-async function modelBreakdown(rows: UsageRow[]) {
+async function modelBreakdown(
+	rows: UsageRow[],
+	context: AnalyticsQueryContext,
+) {
 	const grouped = new Map<
 		string,
 		{
@@ -432,10 +595,60 @@ async function modelBreakdown(rows: UsageRow[]) {
 		grouped.set(key, current);
 	}
 
+	// Analytics overhaul (backend half) — availability + latency/reasoning
+	// stats, joined by message_id from message_analytics and batched per
+	// model rather than per row.
+	const latencyByModel = new Map<
+		string,
+		{
+			firstTokenMs: number[];
+			generationMs: number[];
+			reasoningTokens: number[];
+		}
+	>();
+	for (const row of rows) {
+		const messageAnalyticsRow = context.messageAnalyticsById.get(row.messageId);
+		if (!messageAnalyticsRow) continue;
+		const bucket = latencyByModel.get(row.modelId) ?? {
+			firstTokenMs: [],
+			generationMs: [],
+			reasoningTokens: [],
+		};
+		if (typeof messageAnalyticsRow.firstTokenMs === "number") {
+			bucket.firstTokenMs.push(messageAnalyticsRow.firstTokenMs);
+		}
+		if (typeof messageAnalyticsRow.generationTimeMs === "number") {
+			bucket.generationMs.push(messageAnalyticsRow.generationTimeMs);
+		}
+		if (typeof messageAnalyticsRow.reasoningTokens === "number") {
+			bucket.reasoningTokens.push(messageAnalyticsRow.reasoningTokens);
+		}
+		latencyByModel.set(row.modelId, bucket);
+	}
+
 	return materializeUsageBreakdown(
 		grouped,
 		(left, right) => right.msgCount - left.msgCount,
-	);
+	).map((entry) => {
+		const latency = latencyByModel.get(entry.model);
+		return {
+			...entry,
+			availability: resolveModelAvailability(entry.model, context.availability),
+			avgReasoningTokens: average(latency?.reasoningTokens ?? []),
+			firstTokenP50Ms: percentile(
+				sortedNumbers(latency?.firstTokenMs ?? []),
+				50,
+			),
+			firstTokenP90Ms: percentile(
+				sortedNumbers(latency?.firstTokenMs ?? []),
+				90,
+			),
+			generationP50Ms: percentile(
+				sortedNumbers(latency?.generationMs ?? []),
+				50,
+			),
+		};
+	});
 }
 
 async function providerBreakdown(rows: UsageRow[]) {
@@ -614,9 +827,10 @@ function computeTimeline(rows: UsageRow[], granularity: string) {
 async function summarize(
 	rows: UsageRow[],
 	conversations: ConversationRow[],
+	context: AnalyticsQueryContext,
 ): Promise<PersonalAnalytics> {
 	const [byModel, byProvider] = await Promise.all([
-		modelBreakdown(rows),
+		modelBreakdown(rows, context),
 		providerBreakdown(rows),
 	]);
 	const promptTokens = rows.reduce((sum, row) => sum + row.promptTokens, 0);
@@ -649,6 +863,144 @@ async function summarize(
 	};
 }
 
+type ActivityEventRow = typeof activityEvents.$inferSelect;
+
+// Analytics overhaul (backend half) — per-tool call/failure/cache counts and
+// duration percentile, from activity_events rows already narrowed to the
+// caller's filters.
+function buildToolsSummary(rows: ActivityEventRow[]): ToolActivitySummary[] {
+	const grouped = new Map<
+		string,
+		{ calls: number; failed: number; cached: number; durations: number[] }
+	>();
+	for (const row of rows) {
+		if (row.kind !== "tool_call") continue;
+		const current = grouped.get(row.name) ?? {
+			calls: 0,
+			failed: 0,
+			cached: 0,
+			durations: [],
+		};
+		current.calls += 1;
+		if (row.status === "failed") current.failed += 1;
+		if (row.status === "cached") current.cached += 1;
+		if (typeof row.durationMs === "number")
+			current.durations.push(row.durationMs);
+		grouped.set(row.name, current);
+	}
+	return [...grouped.entries()]
+		.map(([name, stats]) => ({
+			name,
+			calls: stats.calls,
+			failed: stats.failed,
+			cached: stats.cached,
+			p50DurationMs: percentile(sortedNumbers(stats.durations), 50),
+		}))
+		.sort((left, right) => right.calls - left.calls);
+}
+
+// Analytics overhaul (backend half) — per (kind, name) counts for every
+// non-tool-call activity kind (skill_use, composer_command, follow_up_click,
+// answer_now).
+function buildCommandsAndSkillsSummary(
+	rows: ActivityEventRow[],
+): CommandOrSkillActivitySummary[] {
+	const grouped = new Map<
+		string,
+		{ kind: CommandOrSkillActivityKind; name: string; count: number }
+	>();
+	for (const row of rows) {
+		if (row.kind === "tool_call") continue;
+		const kind = row.kind as CommandOrSkillActivityKind;
+		const key = `${kind}:${row.name}`;
+		const current = grouped.get(key) ?? { kind, name: row.name, count: 0 };
+		current.count += 1;
+		grouped.set(key, current);
+	}
+	return [...grouped.values()].sort((left, right) => right.count - left.count);
+}
+
+const PROMPT_TOKEN_BUCKET_BOUNDS: Array<{
+	bucket: PromptTokenBucket;
+	min: number;
+	max: number | null;
+}> = [
+	{ bucket: "<10k", min: 0, max: 10_000 },
+	{ bucket: "10-30k", min: 10_000, max: 30_000 },
+	{ bucket: "30-60k", min: 30_000, max: 60_000 },
+	{ bucket: "60-120k", min: 60_000, max: 120_000 },
+	{ bucket: ">120k", min: 120_000, max: null },
+];
+
+function promptTokenBucketFor(promptTokens: number): PromptTokenBucket {
+	for (const bound of PROMPT_TOKEN_BUCKET_BOUNDS) {
+		if (
+			promptTokens >= bound.min &&
+			(bound.max === null || promptTokens < bound.max)
+		) {
+			return bound.bucket;
+		}
+	}
+	return PROMPT_TOKEN_BUCKET_BOUNDS[PROMPT_TOKEN_BUCKET_BOUNDS.length - 1]
+		.bucket;
+}
+
+// Analytics overhaul (backend half) — latency/reasoning stats bucketed by
+// each message's prompt-token count (from message_analytics), for the
+// usage_events rows the caller has already filtered down to.
+function buildLatencyByPromptBucket(
+	usageRows: UsageRow[],
+	messageAnalyticsById: Map<string, MessageAnalyticsRow>,
+): LatencyPromptBucketSummary[] {
+	const buckets = new Map<
+		PromptTokenBucket,
+		{ n: number; firstTokenMs: number[]; reasoningTokens: number[] }
+	>();
+	for (const row of usageRows) {
+		const messageAnalyticsRow = messageAnalyticsById.get(row.messageId);
+		if (
+			!messageAnalyticsRow ||
+			typeof messageAnalyticsRow.promptTokens !== "number"
+		) {
+			continue;
+		}
+		const bucketId = promptTokenBucketFor(messageAnalyticsRow.promptTokens);
+		const bucket = buckets.get(bucketId) ?? {
+			n: 0,
+			firstTokenMs: [],
+			reasoningTokens: [],
+		};
+		bucket.n += 1;
+		if (typeof messageAnalyticsRow.firstTokenMs === "number") {
+			bucket.firstTokenMs.push(messageAnalyticsRow.firstTokenMs);
+		}
+		if (typeof messageAnalyticsRow.reasoningTokens === "number") {
+			bucket.reasoningTokens.push(messageAnalyticsRow.reasoningTokens);
+		}
+		buckets.set(bucketId, bucket);
+	}
+
+	return PROMPT_TOKEN_BUCKET_BOUNDS.map(({ bucket: bucketId }) => {
+		const bucket = buckets.get(bucketId);
+		return {
+			bucket: bucketId,
+			n: bucket?.n ?? 0,
+			firstTokenP50Ms: percentile(
+				sortedNumbers(bucket?.firstTokenMs ?? []),
+				50,
+			),
+			firstTokenP90Ms: percentile(
+				sortedNumbers(bucket?.firstTokenMs ?? []),
+				90,
+			),
+			reasoningTokensMedian: percentile(
+				sortedNumbers(bucket?.reasoningTokens ?? []),
+				50,
+			),
+		};
+	});
+}
+
 export async function getAnalyticsDashboardReadModel({
 	user,
 	mock = false,
@@ -656,6 +1008,9 @@ export async function getAnalyticsDashboardReadModel({
 	systemMonth = null,
 	timeline = null,
 	excludedUserIds = [],
+	userId: userIdFilter = null,
+	modelId: modelIdFilter = null,
+	providerId: providerIdFilter = null,
 }: AnalyticsDashboardReadParams): Promise<AnalyticsDashboardReadModel> {
 	const isAdmin = user.role === "admin";
 
@@ -663,10 +1018,18 @@ export async function getAnalyticsDashboardReadModel({
 		return isAdmin ? MOCK_ANALYTICS : { personal: MOCK_ANALYTICS.personal };
 	}
 
-	const [usageRows, conversationRows] = await Promise.all([
-		db.select().from(usageEvents),
-		db.select().from(analyticsConversations),
-	]);
+	const [usageRows, conversationRows, activityRows, queryContext] =
+		await Promise.all([
+			db.select().from(usageEvents),
+			db.select().from(analyticsConversations),
+			db.select().from(activityEvents),
+			Promise.all([loadMessageAnalyticsById(), loadAvailabilityContext()]).then(
+				([messageAnalyticsById, availability]) => ({
+					messageAnalyticsById,
+					availability,
+				}),
+			),
+		]);
 
 	const systemMonthParam = isAdmin ? (systemMonth ?? month) : null;
 
@@ -694,6 +1057,16 @@ export async function getAnalyticsDashboardReadModel({
 	let systemFilteredConversations = systemMonthParam
 		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
 		: conversationRows;
+	let systemFilteredActivity = systemMonthParam
+		? activityRows.filter(
+				(row) =>
+					toBillingMonth(
+						row.createdAt instanceof Date
+							? row.createdAt
+							: new Date(row.createdAt),
+					) === systemMonthParam,
+			)
+		: activityRows;
 
 	if (isAdmin && excludedSet.size > 0) {
 		systemFilteredUsage = systemFilteredUsage.filter(
@@ -702,12 +1075,52 @@ export async function getAnalyticsDashboardReadModel({
 		systemFilteredConversations = systemFilteredConversations.filter(
 			(row) => !excludedSet.has(row.userId),
 		);
+		systemFilteredActivity = systemFilteredActivity.filter(
+			(row) => !excludedSet.has(row.userId),
+		);
+	}
+
+	// Admin-only narrowing filters (Analytics overhaul, backend half). A
+	// non-admin caller never sees the system/tools/commandsAndSkills/
+	// latencyByPromptBucket sections at all, so these are no-ops for them.
+	if (isAdmin && userIdFilter) {
+		systemFilteredUsage = systemFilteredUsage.filter(
+			(row) => row.userId === userIdFilter,
+		);
+		systemFilteredConversations = systemFilteredConversations.filter(
+			(row) => row.userId === userIdFilter,
+		);
+		systemFilteredActivity = systemFilteredActivity.filter(
+			(row) => row.userId === userIdFilter,
+		);
+	}
+	if (isAdmin && modelIdFilter) {
+		systemFilteredUsage = systemFilteredUsage.filter(
+			(row) => row.modelId === modelIdFilter,
+		);
+		systemFilteredActivity = systemFilteredActivity.filter(
+			(row) => row.modelId === modelIdFilter,
+		);
+	}
+	if (isAdmin && providerIdFilter) {
+		systemFilteredUsage = systemFilteredUsage.filter(
+			(row) => row.providerId === providerIdFilter,
+		);
+		systemFilteredActivity = systemFilteredActivity.filter(
+			(row) =>
+				parseProviderModelId(row.modelId ?? "")?.providerId ===
+				providerIdFilter,
+		);
 	}
 
 	const systemAvailableMonths = isAdmin
 		? monthlyBreakdown(usageRows).map((row) => row.month)
 		: undefined;
-	const personal = await summarize(personalUsageRows, personalConversationRows);
+	const personal = await summarize(
+		personalUsageRows,
+		personalConversationRows,
+		queryContext,
+	);
 	let timelineRows: Array<{ label: string; tokens: number }> | null = null;
 
 	if (timeline && personalUsageRows.length > 0) {
@@ -725,6 +1138,7 @@ export async function getAnalyticsDashboardReadModel({
 	const systemSummary = await summarize(
 		systemFilteredUsage,
 		systemFilteredConversations,
+		queryContext,
 	);
 	const system: SystemAnalytics = {
 		...systemSummary,
@@ -737,6 +1151,14 @@ export async function getAnalyticsDashboardReadModel({
 		).size,
 		parallel: parallelBreakdown(systemFilteredUsage),
 	};
+	const tools = buildToolsSummary(systemFilteredActivity);
+	const commandsAndSkills = buildCommandsAndSkillsSummary(
+		systemFilteredActivity,
+	);
+	const latencyByPromptBucket = buildLatencyByPromptBucket(
+		systemFilteredUsage,
+		queryContext.messageAnalyticsById,
+	);
 
 	const userIds = new Set([
 		...systemFilteredUsage.map((row) => row.userId),
@@ -757,7 +1179,11 @@ export async function getAnalyticsDashboardReadModel({
 				const conversationRowsForUser = systemFilteredConversations.filter(
 					(row) => row.userId === userId,
 				);
-				const summary = await summarize(rows, conversationRowsForUser);
+				const summary = await summarize(
+					rows,
+					conversationRowsForUser,
+					queryContext,
+				);
 				const identity = userIdentities.get(userId) ?? null;
 				return {
 					userId,
@@ -805,6 +1231,9 @@ export async function getAnalyticsDashboardReadModel({
 		availableMonths,
 		systemAvailableMonths,
 		analyticsUsers: isAdmin ? analyticsUsers : undefined,
+		tools,
+		commandsAndSkills,
+		latencyByPromptBucket,
 		...(timelineRows ? { timeline: timelineRows } : {}),
 	};
 }
