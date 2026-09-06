@@ -81,6 +81,10 @@ export type NormalChatContextModelConfig = ModelConfig & {
 
 export type PreparedOutboundChatContext = {
 	inputValue: string;
+	// Per-turn guidance (date, response language, reasoning contract) that
+	// the run appends AFTER the current user message, so the system message
+	// plus tool catalogue stays a cacheable prefix (see buildTurnGuidance).
+	turnGuidance: string;
 	// Prior turns as native model messages (empty when NATIVE_HISTORY_ENABLED
 	// is off, in which case they are inside inputValue as "Session Context").
 	historyMessages: ModelMessage[];
@@ -399,38 +403,17 @@ export function buildOutboundSystemPrompt(params: {
 	const basePrompt = [modelHeader, promptPreamble, normalizedBasePromptBody]
 		.filter(Boolean)
 		.join("\n\n");
-	const todayStr = new Date().toLocaleDateString("en-US", {
-		weekday: "long",
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-	});
-	const explicitDateContext = `[SYSTEM TIME CONTEXT: Today is ${todayStr}. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]`;
-	const responseLanguage =
-		params.responseLanguage ?? detectLanguage(params.inputValue);
-
-	// Tool usage guidance (when to call a tool, its argument shape, output
-	// handling, failure behaviour) lives in each tool's own TOOL_I18N
-	// description now (normal-chat-tools/index.ts) — tool AVAILABILITY
-	// already determines whether that guidance reaches the model, so it no
-	// longer needs a separate, message-content-driven selector here. See
-	// ADR-0055. What remains below is genuinely TURN-scoped, not
-	// tool-scoped: it does not vary with the latest message's wording or
-	// language, only with turn-level signals (response language, reasoning
-	// depth, active connections, an explicit prompt appendix).
+	// Only text that is identical from turn to turn belongs in the system
+	// message: the provider's prefix cache reuses prefill work only while the
+	// request is byte-for-byte the same as an earlier one, and the tool
+	// catalogue (thousands of tokens) is rendered right after this message.
+	// Anything that changes per turn — today's date, the response-language
+	// guard derived from the latest message, the reasoning-depth contract —
+	// goes into the user packet instead (buildTurnGuidance). Tool usage
+	// guidance lives in each tool's own description (ADR-0055).
 	const guidanceAdditions: string[] = params.skipDefaultRuntimeGuidance
 		? []
-		: [
-				explicitDateContext,
-				buildResponseLanguageGuard(responseLanguage),
-				JSON_FORMATTING_RULES,
-			];
-
-	if (!params.skipDefaultRuntimeGuidance && params.reasoningDepthEffort) {
-		guidanceAdditions.push(
-			buildReasoningDepthEffortGuard(params.reasoningDepthEffort),
-		);
-	}
+		: [JSON_FORMATTING_RULES];
 
 	if (params.hasActiveConnections) {
 		guidanceAdditions.push(CONNECTIONS_FRAMING_GUARD);
@@ -465,6 +448,48 @@ export function buildOutboundSystemPrompt(params: {
 	}
 
 	return stripDeprecatedPromptSections(sections.join("\n\n"));
+}
+
+const TURN_GUIDANCE_HEADING = "## Turn Guidance";
+
+// Per-turn guidance that used to sit in the system message. It is appended
+// to the user packet (see prepareOutboundChatContext) so the system message
+// plus tool catalogue stays a stable, cacheable prefix across turns.
+export function buildTurnGuidance(params: {
+	message: string;
+	responseLanguage?: SupportedLanguage;
+	reasoningDepthEffort?: ReasoningDepthEffort;
+	skipDefaultRuntimeGuidance?: boolean;
+}): string {
+	if (params.skipDefaultRuntimeGuidance) return "";
+	const todayStr = new Date().toLocaleDateString("en-US", {
+		weekday: "long",
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+	});
+	const explicitDateContext = `[SYSTEM TIME CONTEXT: Today is ${todayStr}. Use this exact date as your current temporal anchor for relative timeframes. Call a date/time tool only when exact current time, timezone, or freshness-sensitive tool behavior materially depends on it.]`;
+	const responseLanguage =
+		params.responseLanguage ?? detectLanguage(params.message);
+	const sections = [
+		explicitDateContext,
+		buildResponseLanguageGuard(responseLanguage),
+		...(params.reasoningDepthEffort
+			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
+			: []),
+	];
+	return `${TURN_GUIDANCE_HEADING}\n${sections.join("\n\n")}`;
+}
+
+// Appended after the current user message: last in the prompt, where the
+// language and depth instructions are followed most reliably, and outside
+// everything the prefix cache can reuse.
+export function appendTurnGuidance(
+	inputValue: string,
+	turnGuidance: string | undefined,
+): string {
+	if (!turnGuidance?.trim()) return inputValue;
+	return `${inputValue.trimEnd()}\n\n${turnGuidance.trim()}`;
 }
 
 export function resolveProviderPromptContextLimits(provider: {
@@ -1701,6 +1726,12 @@ export async function prepareOutboundChatContext(
 
 	return {
 		inputValue: state.inputValue,
+		turnGuidance: buildTurnGuidance({
+			message: params.message,
+			responseLanguage: detectLanguage(params.message),
+			reasoningDepthEffort: params.reasoningDepthEffort,
+			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
+		}),
 		historyMessages: state.historyMessages ?? [],
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
 		contextStatus: state.contextStatus,

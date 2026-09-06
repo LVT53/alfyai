@@ -33,6 +33,7 @@ import type {
 } from "$lib/server/services/knowledge/context-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { AuthenticatedPromptUser } from "$lib/server/services/normal-chat-context";
+import { appendTurnGuidance } from "$lib/server/services/normal-chat-context";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import {
 	buildNormalChatModelRunProviderOptions,
@@ -190,9 +191,12 @@ export async function runStreamingNormalChatSendModel(
 		outputTokens: undefined,
 		totalTokens: undefined,
 	};
-	const finalInputValue = appendDeliberationBriefsToInput(
-		prepared.inputValue,
-		deliberation?.briefs ?? [],
+	const finalInputValue = appendTurnGuidance(
+		appendDeliberationBriefsToInput(
+			prepared.inputValue,
+			deliberation?.briefs ?? [],
+		),
+		prepared.turnGuidance,
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),

@@ -35,6 +35,7 @@ import type {
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import { appendTurnGuidance } from "$lib/server/services/normal-chat-context";
 import type { NormalChatContextPreparationStageTiming } from "$lib/server/services/normal-chat-context-preparation";
 import {
 	buildNormalChatModelRunProviderOptions,
@@ -218,9 +219,12 @@ async function runPlainModelRun(params: ModelRunParams) {
 		tools,
 	} = params;
 
-	const finalInputValue = appendDeliberationBriefsToInput(
-		prepared.inputValue,
-		deliberation?.briefs ?? [],
+	const finalInputValue = appendTurnGuidance(
+		appendDeliberationBriefsToInput(
+			prepared.inputValue,
+			deliberation?.briefs ?? [],
+		),
+		prepared.turnGuidance,
 	);
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
@@ -349,9 +353,12 @@ function buildRunResult(
 		),
 		estimatedPromptTokens: estimateTurnPromptTokens({
 			prepared,
-			inputValue: appendDeliberationBriefsToInput(
-				prepared.inputValue,
-				deliberation?.briefs ?? [],
+			inputValue: appendTurnGuidance(
+				appendDeliberationBriefsToInput(
+					prepared.inputValue,
+					deliberation?.briefs ?? [],
+				),
+				prepared.turnGuidance,
 			),
 			tools: toolPack.tools,
 		}),

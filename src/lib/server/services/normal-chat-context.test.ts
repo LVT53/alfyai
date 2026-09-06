@@ -56,7 +56,9 @@ vi.mock("./chat-turn/proactive-connector-context", () => ({
 }));
 
 import {
+	appendTurnGuidance,
 	buildOutboundSystemPrompt,
+	buildTurnGuidance,
 	estimateOutboundPromptTokenTotal,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
 	prepareOutboundChatContext,
@@ -810,11 +812,8 @@ describe("prepareOutboundChatContext", () => {
 	});
 
 	it("adds depth grounding guidance without forcing web search", () => {
-		const prompt = buildOutboundSystemPrompt({
-			basePrompt: "Base system prompt",
-			inputValue: "Compare current release options.",
-			modelDisplayName: "Provider Model",
-			forceWebSearch: false,
+		const prompt = buildTurnGuidance({
+			message: "Compare current release options.",
 			reasoningDepthEffort: {
 				depthMetadata: {
 					requested: "auto",
@@ -946,7 +945,33 @@ describe("prepareOutboundChatContext", () => {
 
 		expect(prompt).toMatch(/^Reasoning:\s*high/im);
 		expect(prompt).not.toMatch(/^Reasoning:\s*low/im);
-		expect(prompt).toContain("Applied Normal Chat profile: maximum");
+		// The depth contract itself now travels in the per-turn guidance, not
+		// the (cacheable) system message.
+		expect(prompt).not.toContain("Applied Normal Chat profile: maximum");
+	});
+
+	it("keeps per-turn guidance out of the system message and returns it separately", () => {
+		const system = buildOutboundSystemPrompt({
+			basePrompt: "Base system prompt",
+			inputValue: "Mi a helyzet ma?",
+			responseLanguage: "hu",
+		});
+		expect(system).not.toContain("SYSTEM TIME CONTEXT");
+		expect(system).not.toContain("Response language policy");
+		const guidance = buildTurnGuidance({
+			message: "Mi a helyzet ma?",
+			responseLanguage: "hu",
+		});
+		expect(guidance.startsWith("## Turn Guidance")).toBe(true);
+		expect(guidance).toContain("SYSTEM TIME CONTEXT");
+		expect(guidance).toContain("MUST respond in Hungarian");
+		expect(
+			buildTurnGuidance({ message: "x", skipDefaultRuntimeGuidance: true }),
+		).toBe("");
+		expect(appendTurnGuidance("## Current User Message\nHello", guidance)).toBe(
+			`## Current User Message\nHello\n\n${guidance}`,
+		);
+		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
 	});
 
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {
@@ -1879,7 +1904,14 @@ describe("prepareOutboundChatContext", () => {
 				modelConfig: budgetConstrainedModelConfig,
 				forceWebSearch: true,
 				modelId: "model1",
-				contextLimits: compactContextLimits,
+				// Tighter than compactContextLimits: the per-turn guidance (date,
+				// language, depth contract) no longer sits in the system prompt,
+				// so the shared limit no longer overflows here.
+				contextLimits: {
+					maxModelContext: 600,
+					compactionUiThreshold: 480,
+					targetConstructedContext: 540,
+				},
 				logLabel: "provider request",
 			});
 
