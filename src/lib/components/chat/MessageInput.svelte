@@ -1731,17 +1731,30 @@ async function exportConversationCommand() {
 	}
 }
 
+// Analytics is reported once, at the point a command actually RUNS — never
+// on selection alone: a confirm-cancelled /clear, a /remember with no note,
+// and a selection whose token could not be consumed are all no-ops and must
+// not be counted. `postActivityEvent` drops an event with no conversation
+// id, so the id has to be threaded through every call site (the composer's
+// own prop wins, with the resolved id as the landing-page fallback — the
+// same pair /export uses).
+function recordCommandRun(commandName: string) {
+	recordComposerCommandUsed(
+		commandName,
+		conversationId ?? resolvedConversationId,
+	);
+}
+
 function selectCommand(command: CommandTrayRow) {
 	if (command.skill) {
 		selectSkill(command.skill);
-		recordComposerCommandUsed("skill");
+		recordCommandRun("skill");
 		return;
 	}
 	if (command.disabled) {
 		commandTrayMessage = command.statusKey ? $t(command.statusKey) : "";
 		return;
 	}
-	recordComposerCommandUsed(command.id, resolvedConversationId);
 
 	if (command.id === "clear") {
 		const nextMessage = getMessageWithoutActiveCommandToken()?.text ?? message;
@@ -1749,7 +1762,7 @@ function selectCommand(command: CommandTrayRow) {
 		const consumed = consumeActiveCommandToken();
 		finishCommandTrayClose();
 		if (consumed) {
-			recordComposerCommandUsed(command.id);
+			recordCommandRun(command.id);
 			clearComposerAfterSubmit();
 		}
 		return;
@@ -1760,7 +1773,7 @@ function selectCommand(command: CommandTrayRow) {
 	// in place) and the tray reopens against it, matching typing "$" by hand.
 	if (command.id === "skill") {
 		const consumed = consumeActiveCommandToken("$");
-		if (consumed) recordComposerCommandUsed(command.id);
+		if (consumed) recordCommandRun(command.id);
 		return;
 	}
 
@@ -1777,7 +1790,7 @@ function selectCommand(command: CommandTrayRow) {
 	const consumed = consumeActiveCommandToken();
 	finishCommandTrayClose();
 	if (!consumed) return;
-	recordComposerCommandUsed(command.id);
+	recordCommandRun(command.id);
 
 	switch (command.id) {
 		case "model":

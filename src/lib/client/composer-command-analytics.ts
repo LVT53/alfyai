@@ -6,6 +6,13 @@
 // recorded server-side instead (see $lib/server/services/activity-events.ts).
 import type { FetchLike } from "./api/http";
 
+// Mirrors ACTIVITY_EVENT_NAME_MAX_LENGTH in
+// $lib/server/services/activity-events.ts (not imported — that module is
+// server-only). `POST /api/analytics/activity` rejects a longer `name` with
+// a 400, and this reporter swallows failures, so an over-long follow-up
+// question would otherwise be silently dropped instead of recorded.
+const ACTIVITY_EVENT_NAME_MAX_LENGTH = 64;
+
 export type ActivityClientKind =
 	| "composer_command"
 	| "follow_up_click"
@@ -21,13 +28,16 @@ function postActivityEvent(params: {
 	if (typeof window === "undefined") return;
 	if (!params.conversationId) return;
 
+	const name = params.name.trim().slice(0, ACTIVITY_EVENT_NAME_MAX_LENGTH);
+	if (!name) return;
+
 	const fetchImpl = params.fetchImpl ?? fetch;
 	void fetchImpl("/api/analytics/activity", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			kind: params.kind,
-			name: params.name,
+			name,
 			conversationId: params.conversationId,
 			...(params.messageId ? { messageId: params.messageId } : {}),
 		}),

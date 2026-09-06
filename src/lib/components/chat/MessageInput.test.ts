@@ -67,6 +67,7 @@ const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
 const addMemoryNoteMock = vi.hoisted(() => vi.fn());
 const saveBlobAsDownloadMock = vi.hoisted(() => vi.fn());
 const gotoMock = vi.hoisted(() => vi.fn());
+const recordComposerCommandUsedMock = vi.hoisted(() => vi.fn());
 // Baked-in default (not just a per-test mockResolvedValue) so every describe
 // block in this file gets a resolved value even without its own setup —
 // vi.clearAllMocks() clears call history but not a mockImplementation set at
@@ -117,6 +118,10 @@ vi.mock("$lib/client/api/settings", () => ({
 
 vi.mock("$app/navigation", () => ({
 	goto: gotoMock,
+}));
+
+vi.mock("$lib/client/composer-command-analytics", () => ({
+	recordComposerCommandUsed: recordComposerCommandUsedMock,
 }));
 
 describe("MessageInput", () => {
@@ -584,6 +589,50 @@ describe("MessageInput", () => {
 				"conversation.md",
 			);
 		});
+	});
+
+	it("reports a command to analytics once, with the conversation id, only when it runs", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			conversationId: "conv-1",
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		// A required-argument no-op is never counted.
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		await fireEvent.click(getByRole("option", { name: /\/remember/i }));
+		expect(recordComposerCommandUsedMock).not.toHaveBeenCalled();
+
+		await fireEvent.input(input, {
+			target: { value: "/remember I prefer dark mode" },
+		});
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledTimes(1);
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledWith(
+			"remember",
+			"conv-1",
+		);
+	});
+
+	it("reports /skill discovery to analytics with the conversation id", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			conversationId: "conv-1",
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/skill" } });
+		await fireEvent.click(getByRole("option", { name: /\/skill/i }));
+
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledWith(
+			"skill",
+			"conv-1",
+		);
 	});
 
 	it("shows the /document and /remember argument placeholders in the tray", async () => {

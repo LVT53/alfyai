@@ -1,5 +1,9 @@
 <script lang="ts">
 import { get } from "svelte/store";
+import {
+	recordAnswerNowClicked,
+	recordFollowUpClicked,
+} from "$lib/client/composer-command-analytics";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
@@ -763,6 +767,7 @@ function toggleForkDetails() {
 // handleRegenerate in +page.svelte). No separate onAnswerNow prop needed on
 // this component.
 function handleAnswerNow() {
+	recordAnswerNowClicked(conversationId, message.id);
 	onRegenerate?.({ messageId: message.id, reasoningDepthOverride: "quick" });
 }
 
@@ -785,6 +790,7 @@ const followUpChips = $derived(
 );
 
 function sendFollowUp(question: string) {
+	recordFollowUpClicked(question, conversationId, message.id);
 	onSendFollowUp?.({ text: question });
 }
 </script>
