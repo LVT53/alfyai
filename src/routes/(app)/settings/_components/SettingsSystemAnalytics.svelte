@@ -337,13 +337,17 @@ const retiredModelRows = $derived(
 	allModelRows.filter((row) => row.status === "removed"),
 );
 
+// Totalled over EVERY model in scope, retired ones included, so the pinned
+// Total row and the stat row above it describe the same set — a retired
+// model's spend must not silently disappear from the card's arithmetic just
+// because its rows moved into the collapsed group below.
 const modelTotalRow = $derived<TableRow>({
 	model: $t("analytics.total"),
 	provider: "",
 	status: "",
-	calls: activeModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
-	tokens: activeModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
-	cost: activeModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
+	calls: allModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
+	tokens: allModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
+	cost: allModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
 });
 
 function formatMs(value: number | null | undefined): string {

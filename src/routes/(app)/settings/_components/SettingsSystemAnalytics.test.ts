@@ -258,6 +258,42 @@ function systemWithToolsAndLatencyFixture(): AnalyticsResponse {
 	};
 }
 
+// A month whose usage includes a model that no longer resolves: the system
+// totals (as the server computes them) cover every model in scope, retired
+// ones included.
+function systemWithRetiredSpendFixture(): AnalyticsResponse {
+	const base = systemFixture();
+	const system = base.system;
+	if (!system) throw new Error("systemFixture() must include system");
+	return {
+		...base,
+		system: {
+			...system,
+			totalMessages: 30,
+			totalTokens: 3_000,
+			totalCostUsd: 6,
+			byModel: [
+				{
+					model: "model-live",
+					displayName: "Model Live",
+					msgCount: 20,
+					totalTokens: 2_000,
+					totalCostUsd: 4,
+					availability: "active",
+				},
+				{
+					model: "model-gone",
+					displayName: "Model Gone",
+					msgCount: 10,
+					totalTokens: 1_000,
+					totalCostUsd: 2,
+					availability: "removed",
+				},
+			],
+		},
+	};
+}
+
 function systemWithParallelFixture(): AnalyticsResponse {
 	const base = systemFixture();
 	const system = base.system;
@@ -639,5 +675,39 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 			expect(queryByText("tool_10")).not.toBeInTheDocument();
 		});
+	});
+
+	// The stat row and the table's pinned Total row sit inside the SAME card,
+	// so they must describe the same set of models: a retired model's spend
+	// must not disappear from the card's arithmetic just because its row moved
+	// into the collapsed group below.
+	it("totals every model in scope in the pinned Total row, retired included", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithRetiredSpendFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+
+		const statValues = [...container.querySelectorAll("[class*=stat-value]")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" ");
+		expect(statValues).toContain("$6.0000");
+		expect(statValues).toContain("30");
+		expect(statValues).toContain("3,000");
+
+		const totalRow = [...container.querySelectorAll("table tbody tr")]
+			.at(-1)
+			?.textContent?.replace(/\s+/g, " ");
+		expect(totalRow).toContain("Total");
+		expect(totalRow).toContain("$6.00");
+		expect(totalRow).toContain("30");
+		expect(totalRow).toContain("3,000");
 	});
 });
