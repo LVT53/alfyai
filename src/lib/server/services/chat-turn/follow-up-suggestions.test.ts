@@ -141,6 +141,25 @@ describe("generateFollowUpSuggestions", () => {
 		expect(result).toEqual(["First one?", "Second one?"]);
 	});
 
+	it("drops duplicate suggestions (case-insensitively) before capping", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: ["Same one?", "same one?", "Different one?"],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "hi",
+			assistantResponse: LONG_REPLY,
+		});
+
+		expect(result).toEqual(["Same one?", "Different one?"]);
+	});
+
 	it("drops implausible candidates but keeps the plausible ones", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(

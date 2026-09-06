@@ -124,9 +124,18 @@ function parseFollowUpSuggestions(rawText: string): string[] | null {
 	const result = followUpSuggestionsResponseSchema.safeParse(data);
 	if (!result.success || !result.data.followUps) return null;
 
+	const seen = new Set<string>();
 	const cleaned = result.data.followUps
 		.map((question) => question.replace(/\s+/g, " ").trim())
 		.filter(isPlausibleFollowUpSuggestion)
+		.filter((question) => {
+			// The client keys chips by text; a repeated suggestion must never
+			// reach the persisted array.
+			const key = question.toLowerCase();
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		})
 		.slice(0, FOLLOW_UP_SUGGESTIONS_COUNT);
 
 	return cleaned.length > 0 ? cleaned : null;
