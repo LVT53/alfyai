@@ -707,12 +707,16 @@ The maximum generated response size reserved for a model call.
 _Avoid_: model context, context length, prompt budget
 
 **Reasoning Depth**:
-A user-facing Normal Chat composer setting that expresses how much extra answer effort AlfyAI should apply for the next turn, including provider-native reasoning effort when supported and broader Normal Chat effort such as context breadth or web grounding. It is a cost and latency preference, not a guarantee of a better answer or a request to expose private reasoning.
-_Avoid_: chain-of-thought toggle, quality mode, spinner time
+_(ladder retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_ Now a single user-facing **Thinking Toggle** — `thorough` (the default) or `quick` — rather than the former `Off`/`Auto`/`Max` ladder. `thorough` applies the standard-depth reasoning contract with provider-native reasoning on where supported; `quick` only turns that reasoning off, it does not reduce the tool-step or web-source budget. It remains a cost/latency preference, not a guarantee of a better answer or a request to expose private reasoning.
+_Avoid_: chain-of-thought toggle, quality mode, spinner time, three-way ladder
 
-**Automatic Depth Selection**:
-The pre-turn decision used when **Reasoning Depth** is Auto. It may choose standard, extended, or maximum Normal Chat effort from the user's request and lightweight turn context, but it must not choose reasoning-off behavior; disabling reasoning remains an explicit user choice. It should reserve maximum effort for clearly hard or high-value turns and fall back to standard effort if the decision cannot be completed.
-_Avoid_: hidden off switch, mid-answer escalation, hardcoded keyword mode
+**Thinking Toggle**:
+The composer icon-button control (a `Brain` icon next to the incognito and connections toggles) that sets **Reasoning Depth** to `thorough` or `quick`. Introduced by [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md) to replace the retired depth picker. It is not rendered when the selected **Provider Model**'s capabilities explicitly mark reasoning controls unsupported.
+_Avoid_: three-option picker, reasoning-depth dropdown, per-conversation setting
+
+**Automatic Depth Selection** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the pre-turn decision used when **Reasoning Depth** was Auto, resolving standard/extended/maximum Normal Chat effort via a deterministic keyword/regex rules classifier (see the now-also-retired **Depth Classifier Model** below). The **Thinking Toggle** maps directly to an applied profile with no classification step: `quick` → `off`, `thorough` → `standard`. `extended`/`maximum` are no longer reachable from a fresh turn; the code that computes them still exists for old persisted messages and the **Depth Clarification Carry-forward** path.
+_Avoid_: hidden off switch, mid-answer escalation, hardcoded keyword mode, live classifier
 
 **Depth Clarification**:
 A concise localized user-facing question asked as a **Normal Chat** response before high-cost **Depth Profiles** begin when multiple plausible answer targets would materially change expensive work. It asks at most one scoping question, may offer concrete interpretations plus an open-ended alternative, must not expose cost, token, pass-count, or deliberation internals, should use app-owned localized wording rather than model-authored user-facing prose, and should not create a paused or resumable turn state in v1.
@@ -734,30 +738,30 @@ _Avoid_: hidden assumption, gate explanation, verbose preamble, weak guess
 The one-follow-up preservation of the high-cost **Depth Profile** that caused a **Depth Clarification**, so the clarified next turn can still receive the intended effort. It is not a paused turn, a durable preference, or a guarantee that the same effort applies after the user changes the visible composer depth.
 _Avoid_: paused turn resume, sticky depth preference, hidden Max mode
 
-**Depth Classifier Model** _(retired 2026-07-10 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md))_:
-Formerly the model used for **Automatic Depth Selection**, optionally an admin-configured one. Automatic Depth Selection no longer makes any model call — it resolves `standard`/`extended`/`maximum` with a deterministic keyword/regex rules classifier — so there is no configurable depth classifier model. Retained only so references to the old term resolve.
+**Depth Classifier Model** _(retired 2026-07-10, and moot since 2026-09-06 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md) and [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the model used for **Automatic Depth Selection**, optionally an admin-configured one. Automatic Depth Selection itself is now also retired — the **Thinking Toggle** maps directly to an applied profile with no classification step of any kind. Retained only so references to the old term resolve.
 
-**Depth Classifier Resilience** _(retired 2026-07-10 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md))_:
-Formerly the property that **Automatic Depth Selection** degraded through progressively cheaper fallbacks when the classifier model failed (retry on token exhaustion, schema-in-prompt lenient parsing, keyword fallback). The deterministic rules classifier makes no model call, so there is no classifier failure to degrade from; this resilience ladder no longer exists.
+**Depth Classifier Resilience** _(retired 2026-07-10, and moot since 2026-09-06 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md) and [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the property that **Automatic Depth Selection** degraded through progressively cheaper fallbacks when the classifier model failed. There has been no classifier of any kind — deterministic or model-backed — to fail since ADR-0061; this resilience ladder no longer exists.
 
-**Explicit Depth Selection**:
-A user-selected non-Auto **Reasoning Depth**, such as Off or Max, that applies directly to the next Normal Chat turn without running **Automatic Depth Selection**.
+**Explicit Depth Selection** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a user-selected non-Auto **Reasoning Depth** (Off or Max) applied directly without running **Automatic Depth Selection**. With Automatic Depth Selection itself retired, every **Thinking Toggle** value is applied directly — the "explicit vs. auto" distinction no longer exists.
 _Avoid_: model override, classifier suggestion, hidden escalation
 
-**Off Reasoning Depth**:
-The user-selected **Reasoning Depth** that asks AlfyAI to avoid extra reasoning depth and disable provider-native thinking where supported. It should use the leanest Normal Chat effort profile, but it must not block explicitly requested tools, required freshness grounding, or evidence needed for the user's task.
-_Avoid_: no-tools mode, no-search mode, unsafe shortcut
+**Off Reasoning Depth** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the user-selected **Reasoning Depth** that disabled provider-native thinking and ran a smaller Normal Chat effort profile (fewer tool steps, a smaller web-source budget). The `quick` **Thinking Toggle** value replaces it and disables provider-native thinking the same way, but deliberately keeps the same tool-step and web-source budget as `thorough` — the old budget cut was removed as part of the redesign, not carried over under a new name.
+_Avoid_: no-tools mode, no-search mode, unsafe shortcut, reduced-budget quick
 
-**Depth Classification Context**:
-The small, capped set of inputs used only for **Automatic Depth Selection**: the current user request plus bounded metadata about selected sources, attachments, active documents, model capability, and user-visible composer state. Since 2026-07-10 (see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md)) these inputs are scored by a deterministic keyword/regex rules classifier rather than fed to a model preflight. It is separate from full **Prompt Context**, does not include raw large document bodies, and does not trigger retrieval or a model call by itself.
+**Depth Classification Context** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the small, capped set of inputs scored by **Automatic Depth Selection**'s deterministic keyword/regex rules classifier. With that classifier retired, no inputs are scored to choose an applied profile — the **Thinking Toggle** value determines it directly.
 _Avoid_: full prompt context, retrieval result set, hidden document dump, model preflight call
 
 **Depth Profile**:
 The resolved effort profile applied to a Normal Chat turn after **Reasoning Depth** and **Automatic Depth Selection** are evaluated. Some profiles may be internal, such as a middle extended profile, and should appear only in post-response metadata or diagnostics rather than as additional composer choices. Higher profiles should mainly give the model more room to reason through edge cases, implicit user needs, difficult constraints, and key details; broader grounding is added when the task benefits from external or current evidence.
 _Avoid_: visible mode list, provider tier, model name
 
-**Max Signal Gap**:
-The absence of **Depth Selection Signals** when Max bypasses **Automatic Depth Selection** via deterministic bypass. Without signals, the signal-aware deliberation planner falls back to a baseline all-local pass plan, causing Max to produce fewer model-calling deliberation passes than Auto resolved to Extended with signals. The gap is closed by assigning conservative default signals to Max or by reusing the previous turn's classifier signals when available.
+**Max Signal Gap** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the absence of **Depth Selection Signals** when Max bypassed **Automatic Depth Selection**, closed by reusing the previous turn's classifier signals when available. Depth selection no longer computes or reuses signals at all — the **Thinking Toggle** mapping produces no signals for either value — so there is no gap left to close.
 _Avoid_: Max missing signals, deliberation planner default, local-only Max
 
 **Normal Chat Deliberation Pass**:
@@ -792,9 +796,9 @@ _Avoid_: hidden prompt, chain-of-thought, freeform classifier note
 The rule that a higher **Depth Profile** should increase reasoning care and completeness, not automatically make the final answer longer. The final response should still follow the user's requested style, length, and format.
 _Avoid_: long answer mode, verbosity slider, always detailed
 
-**Max Reasoning Depth**:
-The highest user-selectable **Reasoning Depth** for **Normal Chat**. It raises bounded Normal Chat effort, strengthens grounding guidance, and may broaden context or web source budgets when useful, but only within the selected **Provider Model** limits. It does not guarantee web search for every turn and does not start retired background research mode.
-_Avoid_: Deep mode, automatic research job
+**Max Reasoning Depth** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the highest user-selectable **Reasoning Depth**, raising Normal Chat effort beyond standard. There is no longer a "higher than default" toggle value — `thorough` (provider-native reasoning on, the standard-depth contract) is both the only "on" state and the default; `quick` only turns reasoning off.
+_Avoid_: Deep mode, automatic research job, escalated toggle state
 
 **Depth Metadata**:
 The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level, including whether higher-depth deliberation was constrained or degraded. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
