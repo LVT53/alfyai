@@ -30,6 +30,28 @@ import type { RequestHandler } from "./$types";
 // e.g. "512.png" and is split here rather than via a second route segment.
 const Y_SEGMENT_RE = /^(\d+)\.png$/;
 
+// Every tile response — cached or freshly proxied — is served under a
+// hardcoded image/png. `nosniff` stops a browser second-guessing that, and
+// isImageResponse below makes sure the claim is true in the first place.
+const TILE_RESPONSE_HEADERS = {
+	"Content-Type": "image/png",
+	"Cache-Control": "public, max-age=86400",
+	"X-Content-Type-Options": "nosniff",
+} as const;
+
+// `fetch` follows redirects, so a 200 from the upstream is not by itself
+// proof that a tile came back: a hijacked, proxied or misconfigured upstream
+// can answer with a captive-portal or error page instead. Those bytes would
+// otherwise be written into the 30-day disk cache and re-served under the
+// image/png above, pinning attacker-chosen content at a tile URL for every
+// user of the deployment — so anything that isn't an image is refused before
+// it reaches the cache.
+function isImageResponse(response: Response): boolean {
+	const contentType = response.headers.get("Content-Type");
+	if (!contentType) return false;
+	return contentType.trim().toLowerCase().startsWith("image/");
+}
+
 function buildUserAgent(): string {
 	const contact = config.mapTileContact.trim();
 	return contact ? `AlfyAI (contact: ${contact})` : "AlfyAI";
@@ -59,11 +81,7 @@ export const GET: RequestHandler = async (event) => {
 		// return type otherwise fails to structurally match Response's
 		// BodyInit even though a directly-inlined `readFile()` result does.
 		return new Response(new Uint8Array(cached), {
-			headers: {
-				"Content-Type": "image/png",
-				"Cache-Control": "public, max-age=86400",
-				"X-Tile-Cache": "hit",
-			},
+			headers: { ...TILE_RESPONSE_HEADERS, "X-Tile-Cache": "hit" },
 		});
 	}
 
@@ -87,6 +105,9 @@ export const GET: RequestHandler = async (event) => {
 	if (!upstreamResponse.ok) {
 		throw error(502, "Tile upstream error");
 	}
+	if (!isImageResponse(upstreamResponse)) {
+		throw error(502, "Tile upstream returned a non-image response");
+	}
 
 	const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
 	// Cache best-effort: a disk write failure must not fail the response the
@@ -100,10 +121,6 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	return new Response(buffer, {
-		headers: {
-			"Content-Type": "image/png",
-			"Cache-Control": "public, max-age=86400",
-			"X-Tile-Cache": "miss",
-		},
+		headers: { ...TILE_RESPONSE_HEADERS, "X-Tile-Cache": "miss" },
 	});
 };

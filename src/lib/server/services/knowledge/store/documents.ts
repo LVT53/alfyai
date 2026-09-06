@@ -360,6 +360,7 @@ export async function createNormalizedArtifact(params: {
 
 	await updateArtifactMetadata({
 		artifactId: params.sourceArtifactId,
+		userId: params.userId,
 		patch: comfortMetadataPatch,
 	});
 

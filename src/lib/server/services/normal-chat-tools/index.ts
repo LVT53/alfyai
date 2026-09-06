@@ -614,11 +614,16 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												}
 											}
 
-											setCachedToolResult(cacheKey, {
-												result,
-												pages,
-												pageCandidates,
-											});
+											// Same discipline as fetch_url below: a search that came
+											// back with no sources found nothing and is worth
+											// re-running, so it is never pinned for the TTL.
+											if (result.sources.length > 0) {
+												setCachedToolResult(cacheKey, {
+													result,
+													pages,
+													pageCandidates,
+												});
+											}
 										}
 
 										const modelPayload = {
@@ -727,7 +732,18 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												},
 												{ sessionId: ctx.turnId, maxCharsTotal },
 											);
-											setCachedToolResult(cacheKey, result);
+											// Only a result that actually carries a page is
+											// cacheable. Parallel Extract reports a per-URL failure
+											// (404, paywall, timeout, transient upstream error) in
+											// the RESPONSE BODY — fetchUrlViaParallel returns
+											// normally with zero sources and a "## Could not read"
+											// brief instead of throwing (see
+											// parallel-search/fetch-url.ts). Caching that soft
+											// failure would pin it for the full TTL, leaving the
+											// model no way to retry the URL in this conversation.
+											if (result.sources.length > 0) {
+												setCachedToolResult(cacheKey, result);
+											}
 											// Fire-and-forget Parallel Extract usage tracking; never
 											// block or alter the tool result on analytics failure.
 											// Skipped entirely on a cache hit above — a repeated
@@ -1180,9 +1196,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async () => {
+							// stdout/stderr only: run_python never delivers files (the
+							// description tells the model to use produce_file for that),
+							// so skip the /output inspection, archive pull, and the 1.5s
+							// re-inspection wait that would otherwise run on every
+							// successful scratch call.
 							const execution = await executeSandboxCode(
 								safeInput.code,
 								"python",
+								{ collectFiles: false },
 							);
 							const modelPayload = buildRunPythonModelPayload(execution);
 							return {

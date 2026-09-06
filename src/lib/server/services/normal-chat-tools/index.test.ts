@@ -891,9 +891,14 @@ describe("createNormalChatTools", () => {
 				{ toolCallId: "call-run-python", messages: [] },
 			);
 
+			// collectFiles:false — run_python only ever surfaces stdout/stderr, so
+			// it must not pay for /output collection (an in-container inspect, a
+			// tar pull, and the 1.5s re-inspection wait that a file-less script
+			// always triggers) on every successful call.
 			expect(executeSandboxCodeMock).toHaveBeenCalledWith(
 				"print(6 * 7)",
 				"python",
+				{ collectFiles: false },
 			);
 			expect(result).toEqual({
 				success: true,
@@ -1459,9 +1464,37 @@ describe("createNormalChatTools", () => {
 			};
 		}
 
+		// A result that actually carries a page. Only these are cacheable: a
+		// zero-source result means the search/extract came back with nothing —
+		// Parallel reports per-URL extract failures in the response body rather
+		// than throwing — and pinning that for the whole TTL would make an
+		// in-conversation retry impossible.
+		function groundedWebResultWithSource(query: string) {
+			const base = emptyGroundedWebResult(query);
+			return {
+				...base,
+				sources: [
+					{
+						id: "p0",
+						title: "Result",
+						url: "https://example.com/page",
+						provider: "parallel" as const,
+						authorityClass: "standard" as const,
+						authorityScore: 50,
+						snippet: "A snippet.",
+						highlights: ["A snippet."],
+						providerRank: 0,
+						publishedAt: null,
+						updatedAt: null,
+					},
+				],
+				answerBrief: { ...base.answerBrief, markdown: "# Result\n\nBody." },
+			};
+		}
+
 		it("serves a repeated identical research_web call from cache without calling Parallel or billing again", async () => {
 			researchWebViaParallelMock.mockResolvedValue(
-				emptyGroundedWebResult("current docs"),
+				groundedWebResultWithSource("current docs"),
 			);
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
@@ -1491,7 +1524,7 @@ describe("createNormalChatTools", () => {
 
 		it("misses the cache for a different query, and for the same query in a different conversation", async () => {
 			researchWebViaParallelMock.mockImplementation((input) =>
-				Promise.resolve(emptyGroundedWebResult(input.query)),
+				Promise.resolve(groundedWebResultWithSource(input.query)),
 			);
 			const { tools: toolsA } = createNormalChatTools({
 				userId: "user-1",
@@ -1523,7 +1556,7 @@ describe("createNormalChatTools", () => {
 
 		it("serves a repeated identical fetch_url call (same URL set) from cache without calling Parallel or billing again", async () => {
 			fetchUrlViaParallelMock.mockResolvedValue(
-				emptyGroundedWebResult("https://example.com"),
+				groundedWebResultWithSource("https://example.com"),
 			);
 			const { tools } = createNormalChatTools({
 				userId: "user-1",
@@ -1574,6 +1607,64 @@ describe("createNormalChatTools", () => {
 			// The failed first attempt must not have been cached — the retry hits
 			// Parallel again instead of replaying the failure or serving nothing.
 			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(2);
+		});
+
+		// Parallel Extract reports a per-URL failure (404, paywall, timeout) in
+		// the RESPONSE BODY — fetchUrlViaParallel returns normally with zero
+		// sources and a "## Could not read" brief instead of throwing. Caching
+		// that soft failure would pin it for the full 30-minute TTL, so the
+		// model could never retry the URL inside the same conversation.
+		it("does not cache a fetch_url result whose pages all failed to extract", async () => {
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				emptyGroundedWebResult("https://example.com/flaky"),
+			);
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				groundedWebResultWithSource("https://example.com/flaky"),
+			);
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-soft-fail",
+				turnId: "turn-1",
+			});
+
+			const first = await requireTool(tools.fetch_url).execute(
+				{ urls: ["https://example.com/flaky"] },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			const second = await requireTool(tools.fetch_url).execute(
+				{ urls: ["https://example.com/flaky"] },
+				{ toolCallId: "call-2", messages: [] },
+			);
+
+			expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(2);
+			expect(first).not.toHaveProperty("cached");
+			expect(second).not.toHaveProperty("cached");
+		});
+
+		it("does not cache a research_web result that came back with no sources", async () => {
+			researchWebViaParallelMock.mockResolvedValueOnce(
+				emptyGroundedWebResult("obscure query"),
+			);
+			researchWebViaParallelMock.mockResolvedValueOnce(
+				groundedWebResultWithSource("obscure query"),
+			);
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-empty-search",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.research_web).execute(
+				{ query: "obscure query" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			const second = await requireTool(tools.research_web).execute(
+				{ query: "obscure query" },
+				{ toolCallId: "call-2", messages: [] },
+			);
+
+			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(2);
+			expect(second).not.toHaveProperty("cached");
 		});
 	});
 

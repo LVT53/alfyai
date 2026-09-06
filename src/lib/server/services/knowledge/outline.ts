@@ -38,6 +38,43 @@ interface HeadingCandidate {
 	bodyStart: number;
 }
 
+// One source line plus its real character positions in the original text.
+// `offset` is where the line starts and `bodyStart` where the NEXT line
+// starts, both measured against `text` itself. Line endings are measured
+// rather than assumed to be one character: plain .txt/.md uploads bypass
+// MinerU and are read straight off disk (see ../document-extraction.ts), so
+// a Windows-authored file arrives with CRLF endings, and charging every
+// separator a single character would drift every offset and preview further
+// out of alignment with each line consumed.
+interface SourceLine {
+	text: string;
+	offset: number;
+	bodyStart: number;
+}
+
+function splitSourceLines(text: string): SourceLine[] {
+	const lines: SourceLine[] = [];
+	const separator = /\r\n|\r|\n/g;
+	let start = 0;
+	let match = separator.exec(text);
+	while (match !== null) {
+		const bodyStart = match.index + match[0].length;
+		lines.push({
+			text: text.slice(start, match.index),
+			offset: start,
+			bodyStart,
+		});
+		start = bodyStart;
+		match = separator.exec(text);
+	}
+	lines.push({
+		text: text.slice(start),
+		offset: start,
+		bodyStart: text.length,
+	});
+	return lines;
+}
+
 function numberedHeadingLevel(numbering: string): number {
 	return Math.min(6, numbering.split(".").length);
 }
@@ -68,39 +105,33 @@ export function extractDocumentOutline(
 ): DocumentOutlineEntry[] {
 	if (!text?.trim()) return [];
 
-	const lines = text.split(/\r\n|\r|\n/);
+	const lines = splitSourceLines(text);
 	const structuredCandidates: HeadingCandidate[] = [];
 
-	let offset = 0;
-	for (let index = 0; index < lines.length; index++) {
-		const line = lines[index];
+	for (const { text: line, offset, bodyStart } of lines) {
 		const trimmed = line.trim();
-		const lineLength = line.length + 1; // account for the stripped newline
-		const bodyStart = offset + lineLength;
+		if (!trimmed) continue;
 
-		if (trimmed) {
-			const mdMatch = MARKDOWN_HEADING_RE.exec(trimmed);
-			if (mdMatch) {
-				structuredCandidates.push({
-					level: mdMatch[1].length,
-					title: mdMatch[2].trim(),
-					offset,
-					bodyStart,
-				});
-			} else {
-				const numberedMatch = NUMBERED_HEADING_RE.exec(trimmed);
-				if (numberedMatch) {
-					structuredCandidates.push({
-						level: numberedHeadingLevel(numberedMatch[1]),
-						title: trimmed,
-						offset,
-						bodyStart,
-					});
-				}
-			}
+		const mdMatch = MARKDOWN_HEADING_RE.exec(trimmed);
+		if (mdMatch) {
+			structuredCandidates.push({
+				level: mdMatch[1].length,
+				title: mdMatch[2].trim(),
+				offset,
+				bodyStart,
+			});
+			continue;
 		}
 
-		offset = bodyStart;
+		const numberedMatch = NUMBERED_HEADING_RE.exec(trimmed);
+		if (numberedMatch) {
+			structuredCandidates.push({
+				level: numberedHeadingLevel(numberedMatch[1]),
+				title: trimmed,
+				offset,
+				bodyStart,
+			});
+		}
 	}
 
 	let candidates = structuredCandidates;
@@ -109,13 +140,10 @@ export function extractDocumentOutline(
 		// Fallback: a short Title-Case line immediately followed by a
 		// non-blank paragraph line reads as an unmarked heading.
 		const fallbackCandidates: HeadingCandidate[] = [];
-		offset = 0;
 		for (let index = 0; index < lines.length; index++) {
-			const line = lines[index];
+			const { text: line, offset, bodyStart } = lines[index];
 			const trimmed = line.trim();
-			const lineLength = line.length + 1;
-			const bodyStart = offset + lineLength;
-			const nextLine = lines[index + 1]?.trim() ?? "";
+			const nextLine = lines[index + 1]?.text.trim() ?? "";
 
 			if (
 				trimmed &&
@@ -130,8 +158,6 @@ export function extractDocumentOutline(
 					bodyStart,
 				});
 			}
-
-			offset = bodyStart;
 		}
 		candidates = fallbackCandidates;
 	}

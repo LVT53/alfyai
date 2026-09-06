@@ -799,14 +799,20 @@ async function maybePrefetchWebSearch(params: {
 		// sessionId). This is write-only: the prefetch itself always fetches
 		// fresh (it never reads this cache), so its own maxCharsTotal
 		// sizing — done once, right above — always reflects THIS turn's model.
-		setCachedToolResult(
-			buildToolResultCacheKey({
-				conversationId: params.sessionId,
-				toolName: "fetch_url",
-				input: sanitizeFetchUrlInput({ urls: pastedUrls }),
-			}),
-			result,
-		);
+		// Only a result that actually carries a page is cached, matching the
+		// fetch_url tool's own guard: Parallel reports a per-URL extract
+		// failure in the response body rather than throwing, and pinning that
+		// soft failure would leave the model unable to retry the URL.
+		if (result.sources.length > 0) {
+			setCachedToolResult(
+				buildToolResultCacheKey({
+					conversationId: params.sessionId,
+					toolName: "fetch_url",
+					input: sanitizeFetchUrlInput({ urls: pastedUrls }),
+				}),
+				result,
+			);
+		}
 		const sourceCandidates = createGroundedWebCandidates(result);
 		const metadata = {
 			...createGroundedWebMetadata(result),

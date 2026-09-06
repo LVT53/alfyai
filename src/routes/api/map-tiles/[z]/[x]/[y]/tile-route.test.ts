@@ -113,7 +113,10 @@ describe("GET /api/map-tiles/[z]/[x]/[y]", () => {
 		mockReadCachedTile.mockResolvedValue(null);
 		const upstreamBytes = new Uint8Array([9, 9]);
 		(fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-			new Response(upstreamBytes, { status: 200 }),
+			new Response(upstreamBytes, {
+				status: 200,
+				headers: { "Content-Type": "image/png" },
+			}),
 		);
 
 		const response = await GET(makeEvent({ z: "5", x: "3", y: "2.png" }));
@@ -126,6 +129,52 @@ describe("GET /api/map-tiles/[z]/[x]/[y]", () => {
 		expect(mockWriteCachedTile).toHaveBeenCalledTimes(1);
 		const [, , writtenBytes] = mockWriteCachedTile.mock.calls[0];
 		expect(Array.from(writtenBytes as Uint8Array)).toEqual([9, 9]);
+	});
+
+	// `fetch` follows redirects, so a hijacked or misconfigured upstream can
+	// answer 200 with an HTML page (a captive portal, an error page, an ISP
+	// interstitial). Writing that into the 30-day disk cache and re-serving it
+	// under a hardcoded "Content-Type: image/png" would pin attacker-chosen
+	// bytes at a tile URL for every user of this deployment.
+	it("refuses a 200 upstream response that is not an image, and does not cache it", async () => {
+		mockSanitizeTileCoords.mockReturnValue({ z: 5, x: 3, y: 2 });
+		mockReadCachedTile.mockResolvedValue(null);
+		(fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+			new Response("<html>Sign in to continue</html>", {
+				status: 200,
+				headers: { "Content-Type": "text/html" },
+			}),
+		);
+
+		await expect(
+			GET(makeEvent({ z: "5", x: "3", y: "2.png" })),
+		).rejects.toMatchObject({ status: 502 });
+		expect(mockWriteCachedTile).not.toHaveBeenCalled();
+	});
+
+	it("accepts an upstream image response whose Content-Type carries parameters", async () => {
+		mockSanitizeTileCoords.mockReturnValue({ z: 5, x: 3, y: 2 });
+		mockReadCachedTile.mockResolvedValue(null);
+		(fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+			new Response(new Uint8Array([1, 2]), {
+				status: 200,
+				headers: { "Content-Type": "image/png; charset=binary" },
+			}),
+		);
+
+		const response = await GET(makeEvent({ z: "5", x: "3", y: "2.png" }));
+
+		expect(response.headers.get("X-Tile-Cache")).toBe("miss");
+		expect(mockWriteCachedTile).toHaveBeenCalledTimes(1);
+	});
+
+	it("sets nosniff on served tiles", async () => {
+		mockSanitizeTileCoords.mockReturnValue({ z: 5, x: 3, y: 2 });
+		mockReadCachedTile.mockResolvedValue(new Uint8Array([7]));
+
+		const response = await GET(makeEvent({ z: "5", x: "3", y: "2.png" }));
+
+		expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
 	});
 
 	it("passes through a 404 from upstream instead of caching or erroring loudly", async () => {
@@ -171,7 +220,10 @@ describe("GET /api/map-tiles/[z]/[x]/[y]", () => {
 		mockReadCachedTile.mockResolvedValue(null);
 		mockShouldPrune.mockReturnValue(true);
 		(fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-			new Response(new Uint8Array([1]), { status: 200 }),
+			new Response(new Uint8Array([1]), {
+				status: 200,
+				headers: { "Content-Type": "image/png" },
+			}),
 		);
 
 		await GET(makeEvent({ z: "5", x: "3", y: "2.png" }));

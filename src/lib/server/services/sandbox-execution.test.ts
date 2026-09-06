@@ -264,6 +264,72 @@ describe("sandbox-execution", () => {
 			expect(mockSandbox.destroy).toHaveBeenCalled();
 		});
 
+		// run_python only surfaces stdout/stderr. Collecting /output for it costs
+		// an in-container inspect, a tar pull, and — since a scratch script
+		// writes no files, so the "succeeded but collected nothing" branch always
+		// fires — a further 1.5s wait plus a second inspect, all discarded.
+		it("skips output collection entirely when collectFiles is false", async () => {
+			const mockResult: SandboxResult = {
+				stdout: "42",
+				stderr: "",
+				exitCode: 0,
+			};
+			mockSandbox.execute.mockResolvedValue(mockResult);
+			mockContainer.getArchive.mockResolvedValue(createEmptyOutputArchive());
+
+			const result = await executeCode("print(6 * 7)", "python", {
+				collectFiles: false,
+			});
+
+			expect(result).toEqual({
+				files: [],
+				stdout: "42",
+				stderr: "",
+				exitCode: 0,
+				error: undefined,
+			});
+			expect(mockContainer.getArchive).not.toHaveBeenCalled();
+			// inspectOutputDirectory (both the first pass and the delayed
+			// re-inspection) runs through executeSandboxCommand.
+			expect(mockExecuteSandboxCommand).not.toHaveBeenCalled();
+			expect(mockSandbox.destroy).toHaveBeenCalled();
+		});
+
+		it("still diagnoses a crashed script when collectFiles is false", async () => {
+			mockSandbox.execute.mockResolvedValue({
+				stdout: "",
+				stderr: "SyntaxError: invalid syntax",
+				exitCode: 1,
+			} satisfies SandboxResult);
+
+			const result = await executeCode("print(", "python", {
+				collectFiles: false,
+			});
+
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toBe("SyntaxError: invalid syntax");
+			expect(result.error).toBeDefined();
+		});
+
+		it("collects output files by default (produce_file's program mode)", async () => {
+			mockSandbox.execute.mockResolvedValue({
+				stdout: "",
+				stderr: "",
+				exitCode: 0,
+			} satisfies SandboxResult);
+			mockContainer.getArchive.mockResolvedValue(
+				Readable.from(
+					createTarArchive([
+						{ name: "output/report.pdf", content: Buffer.from("PDF") },
+					]),
+				),
+			);
+
+			const result = await executeCode('print("test")', "python");
+
+			expect(result.files.map((file) => file.filename)).toEqual(["report.pdf"]);
+		});
+
 		it("assigns previewable MIME types to generated code artifacts", async () => {
 			const mockResult: SandboxResult = {
 				stdout: "Code files generated",

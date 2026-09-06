@@ -116,6 +116,48 @@ describe("tool health registry", () => {
 		}
 	});
 
+	it("pings the Parallel API once for research_web and fetch_url together", async () => {
+		const deps = makeDeps(healthyHandler);
+		const snapshot = await checkToolHealth(deps);
+		const tools = byId(snapshot);
+
+		const searchCalls = deps.fetch.mock.calls.filter(([input]) =>
+			String(input).includes("/v1/search"),
+		);
+		expect(searchCalls).toHaveLength(1);
+		expect(tools.research_web.status).toBe("healthy");
+		expect(tools.fetch_url.status).toBe("healthy");
+	});
+
+	it("probes a shared backend once per snapshot and reports it on every entry", async () => {
+		const deps = makeDeps(healthyHandler);
+		const snapshot = await checkToolHealth(deps);
+		const tools = byId(snapshot);
+
+		// produce_file and run_python are two entries on one Docker daemon.
+		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
+		expect(tools.produce_file.probed).toBe(true);
+		expect(tools.run_python.probed).toBe(true);
+		expect(tools.produce_file.status).toBe("healthy");
+		expect(tools.run_python.status).toBe("healthy");
+		expect(tools.run_python.detail).toBe(tools.produce_file.detail);
+	});
+
+	it("marks every entry sharing a failed probe degraded from the single run", async () => {
+		const deps = makeDeps(healthyHandler, {
+			dockerPing: vi.fn(async () => {
+				throw new Error("Cannot connect to the Docker daemon");
+			}),
+		});
+		const snapshot = await checkToolHealth(deps);
+		const tools = byId(snapshot);
+
+		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
+		expect(tools.produce_file.status).toBe("degraded");
+		expect(tools.run_python.status).toBe("degraded");
+		expect(tools.run_python.detail).toContain("Cannot connect");
+	});
+
 	it("reports every configured backend healthy when probes succeed", async () => {
 		const deps = makeDeps(healthyHandler);
 		const snapshot = await checkToolHealth(deps);
@@ -182,10 +224,9 @@ describe("tool health registry", () => {
 		expect(
 			(owntracks?.[1].headers as Record<string, string>).Authorization,
 		).toBe(`Basic ${Buffer.from("alfy:secret").toString("base64")}`);
-		// Two registry entries (produce_file, run_python) share the Docker
-		// sandbox probe — each is probed independently, so dockerPing is called
-		// once per entry, not deduped across them.
-		expect(deps.dockerPing).toHaveBeenCalledTimes(2);
+		// produce_file and run_python sit on the same Docker daemon and share a
+		// probeKey, so one snapshot pings it once, not once per entry.
+		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
 	});
 
 	it("marks configured backends degraded when probes fail, with a detail", async () => {
@@ -353,8 +394,7 @@ describe("tool health registry", () => {
 			runToolHealthChecks(deps),
 		]);
 		expect(a).toBe(b);
-		// One run, but two registry entries (produce_file, run_python) each
-		// probe Docker independently.
-		expect(deps.dockerPing).toHaveBeenCalledTimes(2);
+		// One run, and one Docker ping shared by produce_file and run_python.
+		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
 	});
 });
