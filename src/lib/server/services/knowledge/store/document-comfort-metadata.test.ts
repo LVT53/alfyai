@@ -134,6 +134,9 @@ describe("createNormalizedArtifact — long-document comfort metadata", () => {
 		expect(mockUpdateArtifactMetadata).toHaveBeenCalledTimes(1);
 		const patchCall = mockUpdateArtifactMetadata.mock.calls[0][0];
 		expect(patchCall.artifactId).toBe("source-1");
+		// The patch must be scoped to the ingesting user, never to the
+		// artifact id alone (see updateArtifactMetadata's ownership scope).
+		expect(patchCall.userId).toBe("user-1");
 		expect(patchCall.patch.tokenEstimate).toBe(
 			createArtifactCall.metadata.tokenEstimate,
 		);

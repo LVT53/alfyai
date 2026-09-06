@@ -315,16 +315,31 @@ export async function updateArtifactBinaryHash(
  * per key). Used at ingestion to attach long-document comfort fields
  * (tokenEstimate/pageCount/outline) onto the source artifact after
  * extraction completes, without disturbing the rest of its metadata
- * (uploadSource, renamed, etc). */
+ * (uploadSource, renamed, etc).
+ *
+ * `userId` is required and scopes both the read and the write: an artifact id
+ * alone is guessable/enumerable, so an id-only UPDATE would let one user's
+ * ingestion patch metadata onto another user's artifact. Callers must pass the
+ * server-derived owner id, never one taken from a request body. A mismatch is
+ * a silent no-op (the same shape a missing artifact already had). */
 export async function updateArtifactMetadata(params: {
 	artifactId: string;
+	userId: string;
 	patch: Record<string, unknown>;
 }): Promise<void> {
+	const scope = and(
+		eq(artifacts.id, params.artifactId),
+		eq(artifacts.userId, params.userId),
+	);
+
 	const rows = await db
 		.select({ metadataJson: artifacts.metadataJson })
 		.from(artifacts)
-		.where(eq(artifacts.id, params.artifactId))
+		.where(scope)
 		.limit(1);
+
+	// No row for this (id, owner) pair — nothing this user may patch.
+	if (rows.length === 0) return;
 
 	const existing = parseJsonRecord(rows[0]?.metadataJson ?? null) ?? {};
 	const merged = { ...existing, ...params.patch };
@@ -335,7 +350,7 @@ export async function updateArtifactMetadata(params: {
 			metadataJson: JSON.stringify(merged),
 			updatedAt: new Date(),
 		})
-		.where(eq(artifacts.id, params.artifactId));
+		.where(scope);
 }
 
 export async function getNormalizedArtifactForSource(
