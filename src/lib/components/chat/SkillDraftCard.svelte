@@ -4,20 +4,16 @@ import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 
 let {
 	draft,
-	canPublishSystem = false,
 	busy = false,
 	actionError = null,
 	onSave = undefined,
 	onDismiss = undefined,
-	onPublish = undefined,
 }: {
 	draft: SkillDraftProposal;
-	canPublishSystem?: boolean;
 	busy?: boolean;
 	actionError?: string | null;
 	onSave?: ((draftId: string) => void | Promise<void>) | undefined;
 	onDismiss?: ((draftId: string) => void | Promise<void>) | undefined;
-	onPublish?: ((draftId: string) => void | Promise<void>) | undefined;
 } = $props();
 
 let isFinal = $derived(draft.status !== "proposed");
@@ -102,11 +98,6 @@ let warnings = $derived([
 			<button type="button" class="skill-draft-card__secondary" disabled={busy} onclick={() => onDismiss?.(draft.id)}>
 				{$t('skillDrafts.dismiss')}
 			</button>
-			{#if canPublishSystem}
-				<button type="button" class="skill-draft-card__secondary" disabled={busy} onclick={() => onPublish?.(draft.id)}>
-					{$t('skillDrafts.publish')}
-				</button>
-			{/if}
 		</div>
 	{/if}
 </article>

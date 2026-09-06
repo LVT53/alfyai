@@ -70,14 +70,6 @@ export type NormalChatRuntimeSnapshot = {
 	lastAssistantResponse: string;
 };
 
-type PendingSkillSessionResult =
-	| { ok: true }
-	| {
-			ok: false;
-			errorMessage: string;
-			restoredPayload?: NormalChatSendPayload | null;
-	  };
-
 // R1 (ADR-0060) — the visible message-list mutations the runtime drives used
 // to be nine separate one-line adapter members (appendUserMessage,
 // appendAssistantPlaceholder, appendTokenChunk, appendThinkingChunk,
@@ -150,9 +142,6 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	deleteDraft?: () => void;
 	clearAttachedArtifacts: () => ArtifactSummary[];
 	recordConversationActivity: () => void;
-	startPendingSkillSession: (
-		payload: NormalChatSendPayload,
-	) => Promise<PendingSkillSessionResult>;
 	applyMessageListEvent: (event: NormalChatMessageListEvent) => void;
 	shouldHydrateFileProductionJobsOnToolCall?: (
 		name: string,
@@ -220,7 +209,6 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	isForkedSourceHistoryConfirmationRequired: (error: unknown) => boolean;
 	toFriendlySendError: (error: Error) => string;
 	setSendError: (message: string | null) => void;
-	setSkillSessionError: (message: string | null) => void;
 	onBackgroundInterrupted: () => void;
 	onBackgroundVisibilityRestore?: () => void;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
@@ -1138,21 +1126,6 @@ export function createNormalChatClientTurnRuntime(
 			payload.personalityProfileId !== undefined
 				? payload.personalityProfileId
 				: adapters.getPersonalityProfileId();
-
-		if (payload.pendingSkill) {
-			beginTurn();
-			const result = await adapters.startPendingSkillSession(payload);
-			if (!result.ok) {
-				if (result.restoredPayload) {
-					adapters.restorePayloadToDraft(result.restoredPayload);
-				}
-				adapters.setSkillSessionError(result.errorMessage);
-				adapters.setSendError(result.errorMessage);
-				canRetry = false;
-				completeTurn();
-				return;
-			}
-		}
 
 		adapters.setSendError(null);
 		beginTurn();

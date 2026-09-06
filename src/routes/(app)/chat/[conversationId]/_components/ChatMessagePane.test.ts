@@ -36,7 +36,6 @@ describe("ChatMessagePane", () => {
 	it("forwards assistant Skill Draft card actions to the chat page callbacks", async () => {
 		const onSaveSkillDraft = vi.fn();
 		const onDismissSkillDraft = vi.fn();
-		const onPublishSkillDraft = vi.fn();
 		const messages: ChatMessage[] = [
 			{
 				id: "assistant-1",
@@ -65,29 +64,22 @@ describe("ChatMessagePane", () => {
 			conversationId: "conv-1",
 			isThinkingActive: false,
 			contextDebug: null,
-			canPublishSkillDrafts: true,
 			onOpenDocument: vi.fn<(document: DocumentWorkspaceItem) => void>(),
 			onRegenerate: vi.fn(),
 			onEdit: vi.fn(),
 			onSteer: vi.fn<(payload: TaskSteeringPayload) => void>(),
 			onSaveSkillDraft,
 			onDismissSkillDraft,
-			onPublishSkillDraft,
 		});
 
 		await fireEvent.click(getByRole("button", { name: "Save private skill" }));
 		await fireEvent.click(getByRole("button", { name: "Dismiss draft" }));
-		await fireEvent.click(getByRole("button", { name: "Publish skill" }));
 
 		expect(onSaveSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});
 		expect(onDismissSkillDraft).toHaveBeenCalledWith({
-			messageId: "assistant-1",
-			draftId: "draft-1",
-		});
-		expect(onPublishSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});

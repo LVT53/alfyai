@@ -83,11 +83,9 @@ let {
 	onDismissFileProductionJob = undefined,
 	onCancelAtlasJob = undefined,
 	onAtlasLifecycleAction = undefined,
-	canPublishSkillDrafts = false,
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
 	onDismissSkillDraft = undefined,
-	onPublishSkillDraft = undefined,
 	writeActionState = {},
 	onConfirmWrite = undefined,
 	onCancelWrite = undefined,
@@ -132,7 +130,6 @@ let {
 				profile: AtlasProfile;
 		  }) => void)
 		| undefined;
-	canPublishSkillDrafts?: boolean;
 	skillDraftActionState?: Record<
 		string,
 		{ busy?: boolean; error?: string | null }
@@ -144,12 +141,6 @@ let {
 		  }) => void | Promise<void>)
 		| undefined;
 	onDismissSkillDraft?:
-		| ((payload: {
-				messageId: string;
-				draftId: string;
-		  }) => void | Promise<void>)
-		| undefined;
-	onPublishSkillDraft?:
 		| ((payload: {
 				messageId: string;
 				draftId: string;
@@ -839,12 +830,10 @@ function toggleForkDetails() {
 						{@const actionState = skillDraftState(draft.id)}
 						<SkillDraftCard
 							{draft}
-							canPublishSystem={canPublishSkillDrafts}
 							busy={Boolean(actionState.busy)}
 							actionError={actionState.error ?? null}
 							onSave={(draftId) => onSaveSkillDraft?.(skillDraftPayload(draftId))}
 							onDismiss={(draftId) => onDismissSkillDraft?.(skillDraftPayload(draftId))}
-							onPublish={(draftId) => onPublishSkillDraft?.(skillDraftPayload(draftId))}
 						/>
 					{/each}
 				</div>

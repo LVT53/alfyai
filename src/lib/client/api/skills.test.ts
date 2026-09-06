@@ -11,7 +11,6 @@ import {
 	fetchSystemSkillSummaries,
 	fetchUserSkills,
 	fetchUserSkillVariants,
-	publishSkillDraft,
 	saveSkillDraft,
 	updateUserSkill,
 	updateUserSkillVariant,
@@ -297,13 +296,12 @@ describe("skills client API", () => {
 		);
 	});
 
-	it("saves, dismisses, and publishes assistant Skill Drafts through conversation-scoped endpoints", async () => {
+	it("saves and dismisses assistant Skill Drafts through conversation-scoped endpoints", async () => {
 		const fetchMock = vi.fn(
 			async () =>
 				new Response(
 					JSON.stringify({
 						skill: { id: "skill-1" },
-						systemSkill: { id: "system:skill-1" },
 						draft: { id: "draft-1", status: "saved" },
 					}),
 					{ status: 200, headers: { "Content-Type": "application/json" } },
@@ -312,13 +310,6 @@ describe("skills client API", () => {
 
 		await saveSkillDraft("conv 1", "msg/1", "draft 1", fetchMock);
 		await dismissSkillDraft("conv 1", "msg/1", "draft 1", fetchMock);
-		await publishSkillDraft(
-			"conv 1",
-			"msg/1",
-			"draft 1",
-			"system:skill-1",
-			fetchMock,
-		);
 
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
@@ -329,15 +320,6 @@ describe("skills client API", () => {
 			2,
 			"/api/conversations/conv%201/messages/msg%2F1/skill-drafts/draft%201",
 			{ method: "DELETE" },
-		);
-		expect(fetchMock).toHaveBeenNthCalledWith(
-			3,
-			"/api/conversations/conv%201/messages/msg%2F1/skill-drafts/draft%201/publish",
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ systemSkillId: "system:skill-1" }),
-			},
 		);
 	});
 
@@ -360,20 +342,12 @@ describe("skills client API", () => {
 		});
 	});
 
-	it("preserves API error keys from failed assistant Skill Draft save, dismiss, and publish actions", async () => {
+	it("preserves API error keys from failed assistant Skill Draft save and dismiss actions", async () => {
 		const actions: Array<(fetchMock: FetchLike) => Promise<unknown>> = [
 			(fetchMock) =>
 				saveSkillDraft("conv-1", "assistant-1", "draft-1", fetchMock),
 			(fetchMock) =>
 				dismissSkillDraft("conv-1", "assistant-1", "draft-1", fetchMock),
-			(fetchMock) =>
-				publishSkillDraft(
-					"conv-1",
-					"assistant-1",
-					"draft-1",
-					undefined,
-					fetchMock,
-				),
 		];
 
 		for (const action of actions) {

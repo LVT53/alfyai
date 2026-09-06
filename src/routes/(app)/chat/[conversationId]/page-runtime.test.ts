@@ -221,7 +221,6 @@ function conversationDetailFixture(
 		fileProductionJobs: [],
 		atlasJobs: [],
 		contextCompressionSnapshots: [],
-		activeSkillSession: null,
 		totalCostUsdMicros: 0,
 		totalTokens: 0,
 		sidecarPending: false,
@@ -261,12 +260,10 @@ vi.mock("$lib/client/api/conversations", () => ({
 	deletePreparedConversation: vi.fn(async () => undefined),
 	deleteConversationDraft: vi.fn(),
 	deleteConversationMessages: vi.fn(),
-	endConversationSkillSession: vi.fn(),
 	fetchConversationDetail: vi.fn(async () => conversationDetailFixture()),
 	fetchMessageEvidence: vi.fn(),
 	generateConversationTitle: vi.fn(),
 	runConversationContextCompression: vi.fn(),
-	startConversationSkillSession: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/file-production", () => ({
@@ -376,7 +373,6 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		fileProductionJobs: [],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
-		activeSkillSession: null,
 		atlasJobs: [],
 		atlasAvailability: { enabled: true, configured: true, reason: null },
 		sidecarPending: false,

@@ -9,10 +9,7 @@ import type {
 import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import type {
-	PendingSkillSelection,
-	SkillSession,
-} from "$lib/server/services/skills/types";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type {
 	TaskState,
 	TaskSteeringPayload,
@@ -309,49 +306,6 @@ export async function persistConversationLinkedSources(
 		fetchImpl,
 	);
 	return Array.isArray(result.linkedSources) ? result.linkedSources : [];
-}
-
-export async function startConversationSkillSession(
-	conversationId: string,
-	pendingSkill: PendingSkillSelection,
-	fetchImpl: FetchLike = fetch,
-): Promise<SkillSession> {
-	const result = await requestJson<{ activeSkillSession?: SkillSession }>(
-		`/api/conversations/${conversationId}/skill-sessions`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ pendingSkill }),
-		},
-		"Failed to start skill session",
-		fetchImpl,
-	);
-	if (!result.activeSkillSession) {
-		throw new Error("The server returned unexpected skill session data.");
-	}
-	return result.activeSkillSession;
-}
-
-export async function endConversationSkillSession(
-	conversationId: string,
-	reason: "ended" | "dismissed" = "ended",
-	fetchImpl: FetchLike = fetch,
-): Promise<SkillSession | null> {
-	const result = await requestJson<{ endedSkillSession?: SkillSession | null }>(
-		`/api/conversations/${conversationId}/skill-sessions`,
-		{
-			method: "DELETE",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ reason }),
-		},
-		"Failed to end skill session",
-		fetchImpl,
-	);
-	return result.endedSkillSession ?? null;
 }
 
 export async function deleteConversationDraft(

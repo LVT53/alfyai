@@ -381,7 +381,7 @@ function skillDraftUrl(
 	conversationId: string,
 	messageId: string,
 	draftId: string,
-	action?: "save" | "publish",
+	action?: "save",
 ): string {
 	const base = `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(
 		messageId,
@@ -413,26 +413,6 @@ export async function dismissSkillDraft(
 		skillDraftUrl(conversationId, messageId, draftId),
 		{ method: "DELETE" },
 		"Failed to dismiss skill draft",
-		fetchImpl,
-	);
-}
-
-export async function publishSkillDraft(
-	conversationId: string,
-	messageId: string,
-	draftId: string,
-	systemSkillId?: string,
-	fetchImpl?: FetchLike,
-): Promise<SkillDraftActionResponse> {
-	const body = systemSkillId ? { systemSkillId } : {};
-	return requestJson<SkillDraftActionResponse>(
-		skillDraftUrl(conversationId, messageId, draftId, "publish"),
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-		},
-		"Failed to publish skill draft",
 		fetchImpl,
 	);
 }

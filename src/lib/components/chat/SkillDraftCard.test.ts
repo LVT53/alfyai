@@ -31,14 +31,11 @@ describe("SkillDraftCard", () => {
 	it("renders review details, broader-capability warnings, and action callbacks", async () => {
 		const onSave = vi.fn();
 		const onDismiss = vi.fn();
-		const onPublish = vi.fn();
 
 		render(SkillDraftCard, {
 			draft: makeDraft(),
-			canPublishSystem: true,
 			onSave,
 			onDismiss,
-			onPublish,
 		});
 
 		expect(
@@ -63,9 +60,9 @@ describe("SkillDraftCard", () => {
 		expect(screen.getByRole("button", { name: "Dismiss draft" })).toHaveClass(
 			"skill-draft-card__secondary",
 		);
-		expect(screen.getByRole("button", { name: "Publish skill" })).toHaveClass(
-			"skill-draft-card__secondary",
-		);
+		expect(
+			screen.queryByRole("button", { name: "Publish skill" }),
+		).not.toBeInTheDocument();
 
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Save private skill" }),
@@ -73,13 +70,9 @@ describe("SkillDraftCard", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Dismiss draft" }),
 		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Publish skill" }),
-		);
 
 		expect(onSave).toHaveBeenCalledWith("draft-1");
 		expect(onDismiss).toHaveBeenCalledWith("draft-1");
-		expect(onPublish).toHaveBeenCalledWith("draft-1");
 	});
 
 	it("uses Hungarian labels for card actions", () => {
@@ -90,10 +83,8 @@ describe("SkillDraftCard", () => {
 				notesPolicy: "none",
 				sourceScope: "selected_sources_only",
 			}),
-			canPublishSystem: true,
 			onSave: vi.fn(),
 			onDismiss: vi.fn(),
-			onPublish: vi.fn(),
 		});
 
 		expect(
@@ -102,26 +93,6 @@ describe("SkillDraftCard", () => {
 		expect(
 			screen.getByRole("button", { name: "Vázlat elvetése" }),
 		).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: "Skill publikálása" }),
-		).toBeInTheDocument();
-	});
-
-	it("hides the publish action when system publishing is unavailable", () => {
-		render(SkillDraftCard, {
-			draft: makeDraft(),
-			canPublishSystem: false,
-			onSave: vi.fn(),
-			onDismiss: vi.fn(),
-			onPublish: vi.fn(),
-		});
-
-		expect(
-			screen.getByRole("button", { name: "Save private skill" }),
-		).toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: "Publish skill" }),
-		).not.toBeInTheDocument();
 	});
 
 	it("renders a localized draft action error and disables actions while busy", () => {
