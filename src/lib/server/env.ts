@@ -132,6 +132,18 @@ interface Config {
 	routingRegionMaxPbfMb: number;
 	routingGeocoderImportContainer: string;
 	routingLegacyRegionId: string;
+	// Tile proxy for the inline map_route card (GET /api/map-tiles/[z]/[x]/[y]).
+	// There is no self-hosted tile server yet, so this proxies+caches OSM's
+	// standard raster tiles. Swapping to a self-hosted server later is a
+	// one-line change: point mapTileUpstreamBaseUrl at it instead.
+	mapTileUpstreamBaseUrl: string;
+	// Contact appended to the tile proxy's User-Agent, per OSM's tile usage
+	// policy ("identify with a valid User-Agent... include a way to contact
+	// you"), e.g. an email or URL. Empty => the header identifies only the
+	// app name.
+	mapTileContact: string;
+	// Disk cache directory for proxied tiles.
+	mapTilesDir: string;
 	// Send prior turns as native chat messages (with tool parts) instead of a
 	// flattened "Session Context" block. Default on; the flag is the rollback.
 	nativeHistoryEnabled: boolean;
@@ -596,6 +608,11 @@ function readConfig(): Config {
 		routingGeocoderImportContainer:
 			process.env.ROUTING_GEOCODER_IMPORT_CONTAINER || "",
 		routingLegacyRegionId: process.env.ROUTING_LEGACY_REGION_ID || "hungary",
+		mapTileUpstreamBaseUrl:
+			process.env.MAP_TILE_UPSTREAM_BASE_URL ||
+			"https://tile.openstreetmap.org",
+		mapTileContact: process.env.MAP_TILE_CONTACT || "",
+		mapTilesDir: process.env.MAP_TILES_DIR || "./data/map-tiles",
 		nativeHistoryEnabled: process.env.NATIVE_HISTORY_ENABLED !== "false",
 		normalChatDebugOutbound: process.env.NORMAL_CHAT_DEBUG_OUTBOUND === "1",
 		systemPrompt:
