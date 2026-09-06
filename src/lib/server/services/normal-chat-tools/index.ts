@@ -2215,6 +2215,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											error: message,
 											skillId: null,
 											skillOwnership: null,
+											skillDisplayName: null,
 										},
 									},
 								};
@@ -2274,6 +2275,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										error: message,
 										skillId: null,
 										skillOwnership: null,
+										skillDisplayName: null,
 									},
 								},
 							};

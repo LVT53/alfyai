@@ -43,7 +43,7 @@ function postActivityEvent(params: {
  */
 export function recordComposerCommandUsed(
 	commandName: string,
-	conversationId: string | null | undefined,
+	conversationId?: string | null,
 	fetchImpl?: FetchLike,
 ): void {
 	postActivityEvent({
