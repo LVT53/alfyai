@@ -162,7 +162,7 @@ describe("skills/prompt-context", () => {
 			expect(block).toContain("Custom Skill — A user-authored skill.");
 		});
 
-		it("caps the catalogue at 15 lines and ~600 characters, truncating descriptions not names", () => {
+		it("caps the catalogue at 15 lines and ~1,400 characters, truncating descriptions not names", () => {
 			const manySkills = Array.from({ length: 20 }, (_, index) => ({
 				id: `skill-${index}`,
 				ownership: "user" as const,
@@ -178,7 +178,7 @@ describe("skills/prompt-context", () => {
 			const lines = block.split("\n");
 			// heading + at most 15 skill lines
 			expect(lines.length).toBeLessThanOrEqual(16);
-			expect(block.length).toBeLessThanOrEqual(700);
+			expect(block.length).toBeLessThanOrEqual(1500);
 			// Every included skill's name survives in full (only descriptions
 			// are truncated).
 			for (const line of lines.slice(1)) {

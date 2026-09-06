@@ -25,7 +25,7 @@ import {
 import type { PendingSkillSelection } from "./types";
 
 const MAX_CATALOGUE_LINES = 15;
-const MAX_CATALOGUE_CHARS = 600;
+const MAX_CATALOGUE_CHARS = 1400;
 const MAX_PROMPT_RESOURCES = 3;
 const MAX_RESOURCE_CONTENT_LENGTH = 700;
 
