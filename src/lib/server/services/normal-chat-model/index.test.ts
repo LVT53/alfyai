@@ -4245,6 +4245,76 @@ describe("Streaming Normal Chat Model Run", () => {
 		);
 	});
 
+	it("keeps generating after a premature done call until answer text exists", async () => {
+		// Step 1: the model calls `done` before writing anything (no text).
+		// Step 2: after the nudge result, it writes the answer and stops.
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{
+						toolCalls: [
+							{
+								id: "call-done-early",
+								name: "done",
+								arguments: JSON.stringify({ summary: "Finished." }),
+							},
+						],
+					},
+					{
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
+			)
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{ content: "Here is the actual answer." },
+					{
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 20,
+							completion_tokens: 6,
+							total_tokens: 26,
+						},
+					},
+				]),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: doneToolSchema,
+					execute: async () => ({ acknowledged: true }),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "Here is the actual answer.",
+		});
+	});
+
 	it("suppresses done tool summary text and neutral tool events in streaming runs", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
 			createStreamResponse([

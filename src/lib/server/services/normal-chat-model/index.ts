@@ -3,7 +3,6 @@ import {
 	APICallError,
 	type FinishReason,
 	generateText,
-	hasToolCall,
 	type InvalidToolInputError,
 	type LanguageModelUsage,
 	type ModelMessage,
@@ -123,19 +122,37 @@ function stagnantProgress(): StopCondition<ToolSet> {
 	};
 }
 
+// `done` ends the loop only once the visible answer exists. Models sometimes
+// call it right after a tool result, before writing anything; ending there
+// leaves the turn with no answer, the stream is reported as "ended before
+// final assistant answer", and the orchestrator falls back to a full
+// non-streaming re-run — a whole second generation. A premature `done` now
+// returns a nudge (see the tool's execute) and the loop continues; a second
+// premature `done` in a row still stops, so a model that insists cannot loop.
+function doneAfterAnswer(): StopCondition<ToolSet> {
+	return ({ steps }) => {
+		const isDoneStep = (step: (typeof steps)[number]) =>
+			step.toolCalls?.some((call) => call.toolName === DONE_TOOL_NAME) ?? false;
+		const last = steps.at(-1);
+		if (!last || !isDoneStep(last)) return false;
+		const hasAnswerText = steps.some(
+			(step) => (step.text ?? "").trim().length > 0,
+		);
+		if (hasAnswerText) return true;
+		const prematureDoneSteps = steps.filter(isDoneStep).length;
+		return prematureDoneSteps >= 2;
+	};
+}
+
 function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
-	return [
-		hasToolCall(DONE_TOOL_NAME),
-		stagnantProgress(),
-		stepCountIs(maxToolSteps),
-	];
+	return [doneAfterAnswer(), stagnantProgress(), stepCountIs(maxToolSteps)];
 }
 
 // Forces a specific tool choice on the FIRST model step only (stepNumber is
 // 0-indexed), leaving every later step's tool choice automatic. Used for a
 // forced-web-search turn: the model must call research_web on step 1 (so it
 // can't answer from parametric memory instead), but forcing it on every step
-// would loop forever once stopWhen's hasToolCall(DONE_TOOL_NAME) never fires
+// would loop forever once stopWhen's done-after-answer condition never fires
 // because the model is never allowed to call anything else. Returns
 // `undefined` when no tool choice needs forcing, so callers can pass this
 // straight through to `prepareStep` without a null check.

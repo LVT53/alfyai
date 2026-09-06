@@ -2284,6 +2284,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 			inputSchema: z.object({
 				summary: z.string().describe("One line on what was accomplished"),
 			}),
+			// The loop stops on `done` only once answer text exists (see
+			// normal-chat-model's doneAfterAnswer). When the model calls it
+			// before writing anything, this result is what it reads next.
+			execute: async () => ({
+				acknowledged: true,
+				note: "If the final answer has not been written yet, write it now in full; otherwise you are finished.",
+			}),
 		}),
 	};
 
