@@ -267,9 +267,17 @@ describe("routing region manager", () => {
 		expect(row?.status).toBe("error");
 		expect(row?.error).toContain("checksum");
 		expect(docker.createContainer).not.toHaveBeenCalled();
-		// Retry re-queues.
+		// Retry re-queues and kicks the job loop again. Drain it before the test
+		// ends, otherwise the retried download is still writing into the temp
+		// directory while afterEach deletes it (ENOTEMPTY under suite load).
 		const retried = await m.retryRegion("ireland-and-northern-ireland");
 		expect(retried?.status).toBe("queued");
+		await m.drain();
+		const afterRetry = (await m.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		expect(afterRetry?.status).toBe("error");
+		expect(afterRetry?.error).toContain("checksum");
 	});
 
 	it("refuses extracts above the size cap and reports which regions were too large", async () => {
