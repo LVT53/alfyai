@@ -60,6 +60,7 @@ import {
 	buildOutboundSystemPrompt,
 	buildTurnGuidance,
 	estimateOutboundPromptTokenTotal,
+	extractPastedUrls,
 	NORMAL_CHAT_TOOL_SCHEMA_OVERHEAD_TOKENS_PER_TOOL,
 	prepareOutboundChatContext,
 	resolvePromptContextLimits,
@@ -2387,5 +2388,24 @@ describe("estimateOutboundPromptTokenTotal", () => {
 				toolCount: -3,
 			}),
 		).toBe(withoutTools);
+	});
+});
+
+describe("extractPastedUrls", () => {
+	it("keeps balanced parentheses and strips wrappers and trailing punctuation", () => {
+		expect(
+			extractPastedUrls(
+				"Summarise https://en.wikipedia.org/wiki/Cork_(city) in five bullets.",
+			),
+		).toEqual(["https://en.wikipedia.org/wiki/Cork_(city)"]);
+		expect(
+			extractPastedUrls(
+				"see [this](https://example.com/a_(b)) and (https://example.com/c).",
+			),
+		).toEqual(["https://example.com/a_(b)", "https://example.com/c"]);
+		expect(
+			extractPastedUrls("Look: https://example.com/x?y=1, thanks!"),
+		).toEqual(["https://example.com/x?y=1"]);
+		expect(extractPastedUrls("no links here")).toEqual([]);
 	});
 });

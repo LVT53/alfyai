@@ -120,10 +120,22 @@ function containsDirectHttpUrl(value: string): boolean {
 	return DIRECT_HTTP_URL_RE.test(value);
 }
 
-function extractPastedUrls(value: string): string[] {
-	const matches = value.match(/https?:\/\/[^\s<>)\]]+/gi) ?? [];
+// Wikipedia-style URLs contain parentheses ("/Cork_(city)"), so a ")" only
+// ends the URL when it is unbalanced — a markdown "[text](url)" wrapper or a
+// parenthetical around the link. Trailing sentence punctuation is dropped.
+export function extractPastedUrls(value: string): string[] {
+	const matches = value.match(/https?:\/\/[^\s<>\]"']+/gi) ?? [];
 	return matches
-		.map((url) => url.replace(/[.,;:!?]+$/, ""))
+		.map((raw) => {
+			let url = raw.replace(/[.,;:!?]+$/, "");
+			while (
+				url.endsWith(")") &&
+				(url.match(/\(/g) ?? []).length < (url.match(/\)/g) ?? []).length
+			) {
+				url = url.slice(0, -1).replace(/[.,;:!?]+$/, "");
+			}
+			return url;
+		})
 		.filter((url) => url.length > 0)
 		.slice(0, 5);
 }
@@ -171,7 +183,7 @@ type OutboundChatContextPreparationState = {
 // Used by maybePrefetchWebSearch (server-side pasted-URL prefetch — a
 // distinct feature from tool-usage guidance text, and NOT part of what G1
 // removed) to detect a pasted URL in the latest user message.
-const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>)\]]+/i;
+const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>\]"']+/i;
 
 // Redesign R8 — concise holistic framing for the connection tools
 // (calendar/files/email/photos/media/location/contacts). Only spliced into
