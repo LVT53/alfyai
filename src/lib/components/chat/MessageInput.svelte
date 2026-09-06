@@ -201,7 +201,7 @@ let {
 	draftVersion?: number;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
-	onStop?: (() => void) | undefined;
+	onStop?: (() => void | Promise<void>) | undefined;
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
 	onCompact?: (() => void) | undefined;
@@ -1175,16 +1175,20 @@ function queue(nextMessage: string = message) {
 	clearComposerAfterSubmit();
 }
 
-function stop() {
+// Returns the host's stop promise (the page awaits its runtime going idle)
+// so callers that must not race the in-flight turn — `/new`, which navigates
+// away straight after — can await it. The Stop button ignores the result.
+function stop(): void | Promise<void> {
 	if (isComposerDisabled) return;
 	if (!canStop) return;
-	onStop?.();
+	const stopped = onStop?.();
 	showToolsMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isMobile()) {
 		textarea?.blur();
 	}
+	return stopped;
 }
 
 onMount(() => {
@@ -1356,7 +1360,7 @@ type CommandTrayRow = Omit<
 	tokenLabel?: string;
 	label?: string;
 	description?: string;
-	argumentPlaceholder?: string;
+	argumentPlaceholderKey?: I18nKey;
 };
 
 // Commands that accept `/id rest of line` free text (currently /document's
@@ -1430,7 +1434,9 @@ function getCommandTrayRows(
 				: command.id === "attach" && !canAttach
 					? "composerCommands.unavailable"
 					: undefined,
-		argumentPlaceholder: command.argument?.placeholder,
+		argumentPlaceholderKey: command.argument
+			? asI18nKey(command.argument.placeholderKey)
+			: undefined,
 	}));
 
 	// ADR-0061's `/depth` -> `/think` rename kept `/depth` working as a
@@ -1454,7 +1460,9 @@ function getCommandTrayRows(
 					aliasedCommand.availability !== "available"
 						? "composerCommands.comingSoon"
 						: undefined,
-				argumentPlaceholder: aliasedCommand.argument?.placeholder,
+				argumentPlaceholderKey: aliasedCommand.argument
+					? asI18nKey(aliasedCommand.argument.placeholderKey)
+					: undefined,
 			});
 		}
 	}
@@ -1691,6 +1699,11 @@ function toggleThinking() {
 // handleNewConversation: stash the outgoing conversation id (so a landing
 // draft can find its way back to it) then hand the user a blank composer.
 async function startNewConversationFromCommand() {
+	// `/new` fired mid-turn used to navigate away with the stream still
+	// running. Interrupt it first through the very same path the Stop button
+	// uses, awaited so the abort has actually settled before the route
+	// changes (the host resolves it once its runtime reports idle).
+	await stop();
 	markPreviousConversationId($currentConversationId);
 	currentConversationId.set(null);
 	await goto("/");
@@ -1731,17 +1744,30 @@ async function exportConversationCommand() {
 	}
 }
 
+// Analytics is reported once, at the point a command actually RUNS — never
+// on selection alone: a confirm-cancelled /clear, a /remember with no note,
+// and a selection whose token could not be consumed are all no-ops and must
+// not be counted. `postActivityEvent` drops an event with no conversation
+// id, so the id has to be threaded through every call site (the composer's
+// own prop wins, with the resolved id as the landing-page fallback — the
+// same pair /export uses).
+function recordCommandRun(commandName: string) {
+	recordComposerCommandUsed(
+		commandName,
+		conversationId ?? resolvedConversationId,
+	);
+}
+
 function selectCommand(command: CommandTrayRow) {
 	if (command.skill) {
 		selectSkill(command.skill);
-		recordComposerCommandUsed("skill");
+		recordCommandRun("skill");
 		return;
 	}
 	if (command.disabled) {
 		commandTrayMessage = command.statusKey ? $t(command.statusKey) : "";
 		return;
 	}
-	recordComposerCommandUsed(command.id, resolvedConversationId);
 
 	if (command.id === "clear") {
 		const nextMessage = getMessageWithoutActiveCommandToken()?.text ?? message;
@@ -1749,7 +1775,7 @@ function selectCommand(command: CommandTrayRow) {
 		const consumed = consumeActiveCommandToken();
 		finishCommandTrayClose();
 		if (consumed) {
-			recordComposerCommandUsed(command.id);
+			recordCommandRun(command.id);
 			clearComposerAfterSubmit();
 		}
 		return;
@@ -1760,7 +1786,7 @@ function selectCommand(command: CommandTrayRow) {
 	// in place) and the tray reopens against it, matching typing "$" by hand.
 	if (command.id === "skill") {
 		const consumed = consumeActiveCommandToken("$");
-		if (consumed) recordComposerCommandUsed(command.id);
+		if (consumed) recordCommandRun(command.id);
 		return;
 	}
 
@@ -1777,7 +1803,7 @@ function selectCommand(command: CommandTrayRow) {
 	const consumed = consumeActiveCommandToken();
 	finishCommandTrayClose();
 	if (!consumed) return;
-	recordComposerCommandUsed(command.id);
+	recordCommandRun(command.id);
 
 	switch (command.id) {
 		case "model":
@@ -2200,8 +2226,8 @@ async function emitDraftChange(force = false) {
 							<span class="command-label">{command.label ?? $t(command.labelKey)}</span>
 							<span class="command-description">{command.description ?? $t(command.descriptionKey)}</span>
 						</span>
-						{#if command.argumentPlaceholder}
-							<span class="command-argument-hint">{command.argumentPlaceholder}</span>
+						{#if command.argumentPlaceholderKey}
+							<span class="command-argument-hint">{$t(command.argumentPlaceholderKey)}</span>
 						{/if}
 						{#if command.statusKey}
 							<span class="command-status">{$t(command.statusKey)}</span>

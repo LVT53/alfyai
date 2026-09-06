@@ -26,6 +26,13 @@ const markdownLoaderMock = vi.hoisted(() => ({
 
 const atlasKickoffText = "";
 
+const analyticsMock = vi.hoisted(() => ({
+	recordAnswerNowClicked: vi.fn(),
+	recordFollowUpClicked: vi.fn(),
+}));
+
+vi.mock("$lib/client/composer-command-analytics", () => analyticsMock);
+
 function buildAtlasJob(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 	return {
 		id: "atlas-job-1",
@@ -77,6 +84,8 @@ vi.mock("$lib/utils/markdown-loader", () => ({
 describe("MessageBubble", () => {
 	beforeEach(() => {
 		markdownLoaderMock.renderMarkdown.mockClear();
+		analyticsMock.recordAnswerNowClicked.mockClear();
+		analyticsMock.recordFollowUpClicked.mockClear();
 		clearToasts();
 		Object.defineProperty(window, "matchMedia", {
 			writable: true,
@@ -2099,6 +2108,23 @@ describe("MessageBubble", () => {
 			});
 		});
 
+		it("reports the click to activity analytics", async () => {
+			render(MessageBubble, {
+				message: streamingAssistantMessage,
+				conversationId: "conv-1",
+				onRegenerate: vi.fn(),
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			);
+
+			expect(analyticsMock.recordAnswerNowClicked).toHaveBeenCalledWith(
+				"conv-1",
+				"assistant-answer-now",
+			);
+		});
+
 		it("is not shown when the caller has no onRegenerate handler", () => {
 			render(MessageBubble, { message: streamingAssistantMessage });
 
@@ -2242,6 +2268,24 @@ describe("MessageBubble", () => {
 			expect(container.querySelector(".follow-up-divider")).toBeNull();
 		});
 
+		it("renders a single chip when the control model repeats a suggestion", () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage({
+					followUps: ["What about the sequel?", "What about the sequel?"],
+				}),
+				isLast: true,
+			});
+
+			expect(
+				screen.getAllByRole("button", {
+					name: chatDict.en["messageBubble.followUpAriaLabel"].replace(
+						"{question}",
+						"What about the sequel?",
+					),
+				}),
+			).toHaveLength(1);
+		});
+
 		it("sends the chip's text as the next user message when clicked", async () => {
 			const onSendFollowUp = vi.fn();
 			render(MessageBubble, {
@@ -2255,6 +2299,23 @@ describe("MessageBubble", () => {
 			expect(onSendFollowUp).toHaveBeenCalledWith({
 				text: "What about the sequel?",
 			});
+		});
+
+		it("reports the click to activity analytics", async () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				conversationId: "conv-1",
+				isLast: true,
+				onSendFollowUp: vi.fn(),
+			});
+
+			await fireEvent.click(screen.getByText("What about the sequel?"));
+
+			expect(analyticsMock.recordFollowUpClicked).toHaveBeenCalledWith(
+				"What about the sequel?",
+				"conv-1",
+				"assistant-follow-ups",
+			);
 		});
 	});
 });

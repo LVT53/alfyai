@@ -350,6 +350,7 @@ const chatDict = {
 		"composerCommands.compact.label": "Compact",
 		"composerCommands.document.description":
 			"Link a Library document as context.",
+		"composerCommands.document.argumentPlaceholder": "Search library documents",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
 		"composerCommands.export.description":
@@ -364,6 +365,7 @@ const chatDict = {
 		"composerCommands.new.label": "New chat",
 		"composerCommands.quick.description": "Turn thinking off for replies.",
 		"composerCommands.quick.label": "Quick",
+		"composerCommands.remember.argumentPlaceholder": "What should I remember?",
 		"composerCommands.remember.description": "Save a note to durable memory.",
 		"composerCommands.remember.error": "Could not save that note.",
 		"composerCommands.remember.label": "Remember",
@@ -1186,6 +1188,8 @@ const chatDict = {
 		"composerCommands.compact.label": "Tömörítés",
 		"composerCommands.document.description":
 			"Könyvtári dokumentum kapcsolása kontextusként.",
+		"composerCommands.document.argumentPlaceholder":
+			"Keresés a könyvtári dokumentumok között",
 		"composerCommands.document.label": "Dokumentum",
 		"composerCommands.empty": "Nincs egyező parancs.",
 		"composerCommands.export.description":
@@ -1201,6 +1205,7 @@ const chatDict = {
 		"composerCommands.quick.description":
 			"Kikapcsolja a gondolkodást a válaszokhoz.",
 		"composerCommands.quick.label": "Gyors",
+		"composerCommands.remember.argumentPlaceholder": "Mire emlékezzek?",
 		"composerCommands.remember.description":
 			"Jegyzet mentése a tartós memóriába.",
 		"composerCommands.remember.error": "Nem sikerült elmenteni a jegyzetet.",

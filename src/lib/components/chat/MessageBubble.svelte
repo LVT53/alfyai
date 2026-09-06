@@ -1,5 +1,9 @@
 <script lang="ts">
 import { get } from "svelte/store";
+import {
+	recordAnswerNowClicked,
+	recordFollowUpClicked,
+} from "$lib/client/composer-command-analytics";
 import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
@@ -763,6 +767,7 @@ function toggleForkDetails() {
 // handleRegenerate in +page.svelte). No separate onAnswerNow prop needed on
 // this component.
 function handleAnswerNow() {
+	recordAnswerNowClicked(conversationId, message.id);
 	onRegenerate?.({ messageId: message.id, reasoningDepthOverride: "quick" });
 }
 
@@ -771,11 +776,21 @@ function handleAnswerNow() {
 // agnostic icon buttons, but gated further: older messages never show
 // chips, matching the mockup). readOnly conversations never offer a way to
 // send a new message at all, so chips are hidden there too.
+//
+// De-duplicated before slicing: the chips are keyed by their own text (the
+// only stable identity a suggestion has), and the control model that
+// produces them (chat-turn/follow-up-suggestions.ts) is prompted for two
+// "genuinely different" questions but never actually deduped server-side —
+// a repeated suggestion would otherwise crash this block with Svelte's
+// `each_key_duplicate`, taking the whole message down with it.
 const followUpChips = $derived(
-	!isUser && isLast && !readOnly ? (message.followUps ?? []).slice(0, 2) : [],
+	!isUser && isLast && !readOnly
+		? Array.from(new Set(message.followUps ?? [])).slice(0, 2)
+		: [],
 );
 
 function sendFollowUp(question: string) {
+	recordFollowUpClicked(question, conversationId, message.id);
 	onSendFollowUp?.({ text: question });
 }
 </script>
@@ -1730,6 +1745,30 @@ function sendFollowUp(question: string) {
 	.follow-up-chip:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* Narrow viewports only: two chips plus the icon buttons overflow a 360px
+	   screen while the row cannot wrap. Let it wrap and turn the divider into
+	   a zero-height full-width break, so the chips drop onto their own line
+	   under the icons and shrink to fit. Desktop keeps the approved mockup —
+	   chips inline on the action row — untouched. */
+	@media (max-width: 480px) {
+		.copy-action-row {
+			flex-wrap: wrap;
+		}
+
+		.follow-up-divider {
+			flex-basis: 100%;
+			width: 100%;
+			height: 0;
+			margin: 0;
+			background: transparent;
+		}
+
+		.follow-up-chip {
+			flex-shrink: 1;
+			max-width: 100%;
+		}
 	}
 
 	.timestamp-label {

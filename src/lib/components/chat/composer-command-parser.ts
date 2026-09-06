@@ -18,6 +18,17 @@ function isTokenTerminator(char: string | undefined): boolean {
 	return char === undefined || /\s/.test(char);
 }
 
+/**
+ * A `/` command is only a command when it opens the composer text (leading
+ * whitespace aside). Typing "I want /remember to be a feature" is ordinary
+ * prose: the tray must stay shut so Enter sends the sentence instead of
+ * running the command. `$` skill mentions are deliberately unaffected —
+ * they are designed to be dropped mid-sentence.
+ */
+function isAtComposerStart(text: string, start: number): boolean {
+	return /^\s*$/.test(text.slice(0, start));
+}
+
 export function findActiveComposerCommandToken(
 	text: string,
 	cursor: number,
@@ -32,6 +43,7 @@ export function findActiveComposerCommandToken(
 	const prefix = text[start] as ComposerCommandPrefix | undefined;
 	if (!prefix || !PREFIXES.has(prefix)) return null;
 	if (!isTokenBoundary(text[start - 1])) return null;
+	if (prefix === "/" && !isAtComposerStart(text, start)) return null;
 
 	let end = safeCursor;
 	while (end < text.length && !isTokenTerminator(text[end])) {
@@ -86,8 +98,9 @@ function escapeRegExp(value: string): string {
  * `/<commandId> rest of line` for any command id in `commandIds`, capturing
  * everything after the command name (up to the cursor, on the same line) as
  * its `argument`. Unlike `findActiveComposerCommandToken`, this only matches
- * a token that is anchored at the START of the active `/word...` run — it
- * does not match `$` tokens or bare command names outside `commandIds`.
+ * a token that is anchored at the START of the composer text (leading
+ * whitespace aside) — it does not match `$` tokens, bare command names
+ * outside `commandIds`, or a slash typed mid-sentence.
  */
 export function findActiveComposerCommandTokenWithArgument(
 	text: string,
@@ -99,7 +112,7 @@ export function findActiveComposerCommandTokenWithArgument(
 	const safeCursor = Math.max(0, Math.min(cursor, text.length));
 	const beforeCursor = text.slice(0, safeCursor);
 	const alternation = commandIds.map(escapeRegExp).join("|");
-	const pattern = new RegExp(`(^|\\s)/(${alternation})(?:\\s+([^\\n\\r]*))?$`);
+	const pattern = new RegExp(`^(\\s*)/(${alternation})(?:\\s+([^\\n\\r]*))?$`);
 	const match = pattern.exec(beforeCursor);
 	if (!match) return null;
 

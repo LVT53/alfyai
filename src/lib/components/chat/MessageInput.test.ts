@@ -67,6 +67,7 @@ const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
 const addMemoryNoteMock = vi.hoisted(() => vi.fn());
 const saveBlobAsDownloadMock = vi.hoisted(() => vi.fn());
 const gotoMock = vi.hoisted(() => vi.fn());
+const recordComposerCommandUsedMock = vi.hoisted(() => vi.fn());
 // Baked-in default (not just a per-test mockResolvedValue) so every describe
 // block in this file gets a resolved value even without its own setup —
 // vi.clearAllMocks() clears call history but not a mockImplementation set at
@@ -117,6 +118,10 @@ vi.mock("$lib/client/api/settings", () => ({
 
 vi.mock("$app/navigation", () => ({
 	goto: gotoMock,
+}));
+
+vi.mock("$lib/client/composer-command-analytics", () => ({
+	recordComposerCommandUsed: recordComposerCommandUsedMock,
 }));
 
 describe("MessageInput", () => {
@@ -536,6 +541,63 @@ describe("MessageInput", () => {
 		});
 	});
 
+	// Reviewer report — "I want /remember to be a feature" opened the command
+	// tray, and Enter then saved a memory note instead of sending the
+	// sentence. A slash only starts a command at the very start of the
+	// composer text.
+	it("treats a slash command typed mid-sentence as ordinary text", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByRole } = render(
+			MessageInput,
+			{
+				composerCommandRegistryEnabled: true,
+				onSend: sendSpy,
+			},
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, {
+			target: { value: "I want /remember to be a feature" },
+		});
+
+		expect(queryByRole("listbox", { name: "Composer commands" })).toBeNull();
+
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(addMemoryNoteMock).not.toHaveBeenCalled();
+		expect(input.value).toBe("I want /remember to be a feature");
+
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "I want /remember to be a feature",
+			}),
+		);
+	});
+
+	it("still opens the tray for a slash command that opens the composer text", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/remember oat milk" } });
+
+		expect(
+			getByRole("listbox", { name: "Composer commands" }),
+		).toBeInTheDocument();
+
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(input.value).toBe("");
+		await waitFor(() => {
+			expect(addMemoryNoteMock).toHaveBeenCalledWith("oat milk");
+		});
+	});
+
 	it("saves a note via /remember and prompts for text when none is typed", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
@@ -586,6 +648,50 @@ describe("MessageInput", () => {
 		});
 	});
 
+	it("reports a command to analytics once, with the conversation id, only when it runs", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			conversationId: "conv-1",
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		// A required-argument no-op is never counted.
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		await fireEvent.click(getByRole("option", { name: /\/remember/i }));
+		expect(recordComposerCommandUsedMock).not.toHaveBeenCalled();
+
+		await fireEvent.input(input, {
+			target: { value: "/remember I prefer dark mode" },
+		});
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledTimes(1);
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledWith(
+			"remember",
+			"conv-1",
+		);
+	});
+
+	it("reports /skill discovery to analytics with the conversation id", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			conversationId: "conv-1",
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/skill" } });
+		await fireEvent.click(getByRole("option", { name: /\/skill/i }));
+
+		expect(recordComposerCommandUsedMock).toHaveBeenCalledWith(
+			"skill",
+			"conv-1",
+		);
+	});
+
 	it("shows the /document and /remember argument placeholders in the tray", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
@@ -602,6 +708,19 @@ describe("MessageInput", () => {
 		await fireEvent.input(input, { target: { value: "/remember" } });
 		expect(getByRole("option", { name: /\/remember/i })).toHaveTextContent(
 			"What should I remember?",
+		);
+	});
+
+	it("localizes the argument placeholders with the rest of the tray", async () => {
+		uiLanguage.set("hu");
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText("Írj üzenetet...");
+
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		expect(getByRole("option", { name: /\/remember/i })).toHaveTextContent(
+			"Mire emlékezzek?",
 		);
 	});
 
@@ -724,12 +843,12 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		await fireEvent.input(input, {
-			target: { value: "Please /web now" },
+			target: { value: "/web now please" },
 		});
-		input.setSelectionRange(11, 11);
+		input.setSelectionRange(4, 4);
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
-		expect(input.value).toBe("Please  now");
+		expect(input.value).toBe(" now please");
 	});
 
 	it("opens dollar skill discovery without triggering on prices", async () => {
@@ -1115,15 +1234,16 @@ describe("MessageInput", () => {
 
 		expect(await findByText("clear-attachment.pdf")).toBeInTheDocument();
 		await fireEvent.input(input, {
-			target: { value: "Keep this draft /clear" },
+			target: { value: "/clear Keep this draft" },
 		});
-		input.setSelectionRange(input.value.length, input.value.length);
+		input.setSelectionRange("/clear".length, "/clear".length);
+		await fireEvent.select(input);
 		await fireEvent.click(getByRole("option", { name: /\/clear/i }));
 
 		expect(confirmSpy).toHaveBeenCalledWith(
 			"Clear the current draft and pending composer selections?",
 		);
-		expect(input.value).toBe("Keep this draft /clear");
+		expect(input.value).toBe("/clear Keep this draft");
 		expect(getByText("clear-attachment.pdf")).toBeInTheDocument();
 		expect(getByText("Clear source.md")).toBeInTheDocument();
 		expect(getByText("Clear Skill")).toBeInTheDocument();
@@ -1173,9 +1293,10 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		await fireEvent.input(input, {
-			target: { value: "Remove this draft /clear" },
+			target: { value: "/clear Remove this draft" },
 		});
-		input.setSelectionRange(input.value.length, input.value.length);
+		input.setSelectionRange("/clear".length, "/clear".length);
+		await fireEvent.select(input);
 		await fireEvent.click(getByRole("option", { name: /\/clear/i }));
 
 		expect(confirmSpy).toHaveBeenCalledWith(

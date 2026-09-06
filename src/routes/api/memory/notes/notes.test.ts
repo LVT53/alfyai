@@ -6,6 +6,7 @@ vi.mock("$lib/server/services/memory-profile/projection-store", () => ({
 	addMemoryProfileItemProvenance: vi.fn(),
 }));
 
+import { _resetMemoryNoteRateLimitForTests } from "$lib/server/services/memory-profile/note-rate-limit";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
@@ -37,6 +38,7 @@ function makeEvent(
 describe("POST /api/memory/notes", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		_resetMemoryNoteRateLimitForTests();
 		mockCreate.mockResolvedValue({
 			id: "item-1",
 			itemKey: "key-1",
@@ -104,6 +106,34 @@ describe("POST /api/memory/notes", () => {
 		expect(response.status).toBe(400);
 		expect(data.error).toContain("2000 characters or fewer");
 		expect(mockCreate).not.toHaveBeenCalled();
+	});
+
+	// Reviewer report — the endpoint had no throttle at all, so a stuck
+	// client could flood the memory profile projection with notes.
+	it("returns 429 once the per-user rate limit is exceeded", async () => {
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			const allowed = await POST(makeEvent({ text: `Note ${attempt}` }));
+			expect(allowed.status).toBe(200);
+		}
+
+		const response = await POST(makeEvent({ text: "One too many" }));
+		const data = await response.json();
+
+		expect(response.status).toBe(429);
+		expect(data.error).toBe("Too many requests");
+		expect(mockCreate).toHaveBeenCalledTimes(20);
+	});
+
+	it("scopes the rate limit to a single user", async () => {
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			await POST(makeEvent({ text: `Note ${attempt}` }));
+		}
+
+		const otherUser = await POST(
+			makeEvent({ text: "Different user" }, { id: "user-2" }),
+		);
+
+		expect(otherUser.status).toBe(200);
 	});
 
 	it("rejects a missing text field", async () => {

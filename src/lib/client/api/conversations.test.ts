@@ -4,6 +4,7 @@ import {
 	createConversationFork,
 	deleteConversationMessages,
 	fetchConversationDetail,
+	fetchConversationMarkdownExport,
 	persistConversationLinkedSources,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
@@ -290,5 +291,43 @@ describe("linked-source persistence API", () => {
 			},
 		);
 		expect(result).toEqual([linkedSource]);
+	});
+});
+
+describe("fetchConversationMarkdownExport", () => {
+	// The server sends both Content-Disposition filename forms; the RFC 5987
+	// one is the only one that survives a Hungarian conversation title.
+	it("prefers the RFC 5987 filename over the ASCII fallback", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response("# Árvíztűrő tükörfúrógép", {
+					status: 200,
+					headers: {
+						"Content-Disposition": `attachment; filename="Arvizturo-tukorfurogep.md"; filename*=UTF-8''${encodeURIComponent("Árvíztűrő-tükörfúrógép.md")}`,
+					},
+				}),
+		);
+
+		await expect(
+			fetchConversationMarkdownExport("conv-1", fetchMock),
+		).resolves.toMatchObject({
+			filename: "Árvíztűrő-tükörfúrógép.md",
+		});
+	});
+
+	it("falls back to the ASCII filename when no RFC 5987 form is sent", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response("# Notes", {
+					status: 200,
+					headers: {
+						"Content-Disposition": 'attachment; filename="Notes.md"',
+					},
+				}),
+		);
+
+		await expect(
+			fetchConversationMarkdownExport("conv-1", fetchMock),
+		).resolves.toMatchObject({ filename: "Notes.md" });
 	});
 });
