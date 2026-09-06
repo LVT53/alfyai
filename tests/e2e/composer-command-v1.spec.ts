@@ -145,39 +145,6 @@ async function mockComposerCommandRoutes(
 		});
 	});
 
-	await page.route("**/api/conversations/**/skill-sessions", async (route) => {
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				activeSkillSession: {
-					id: "session-e2e",
-					userId: "user-e2e",
-					conversationId: "conv-e2e",
-					skillId: "skill-interview",
-					skillOwnership: "user",
-					status: "active",
-					pauseReason: null,
-					endReason: null,
-					skillDisplayName: "Interview coach",
-					skillDescription: "Practice interview answers.",
-					activationExamples: ["interview me"],
-					durationPolicy: "session",
-					questionPolicy: "ask_when_needed",
-					notesPolicy: "none",
-					sourceScope: "selected_sources_only",
-					skillVersion: 1,
-					startedFrom: "pending_skill",
-					startedAt: Date.now(),
-					updatedAt: Date.now(),
-					pausedAt: null,
-					endedAt: null,
-					milestones: [],
-				},
-			}),
-		});
-	});
-
 	await page.route("**/api/chat/stream", async (route) => {
 		capture.streamBody = JSON.parse(
 			route.request().postData() ?? "{}",
@@ -227,43 +194,6 @@ async function mockVariantComposerRoutes(
 		});
 	});
 
-	await page.route("**/api/conversations/**/skill-sessions", async (route) => {
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				activeSkillSession: {
-					id: "session-variant-e2e",
-					userId: "user-e2e",
-					conversationId: "conv-e2e",
-					skillId: "variant-research-concise",
-					skillOwnership: "user",
-					skillKind: "skill_variant",
-					baseSkillId: "system:research",
-					baseSkillDisplayName: "Research Pack",
-					status: "active",
-					pauseReason: null,
-					endReason: null,
-					skillDisplayName: "Research Pack, concise",
-					skillDescription: "Use concise answers.",
-					activationExamples: ["research concise"],
-					durationPolicy: "session",
-					questionPolicy: "ask_when_needed",
-					notesPolicy: "none",
-					sourceScope: "selected_sources_only",
-					skillVersion: 2,
-					baseSkillVersion: 4,
-					startedFrom: "pending_skill",
-					startedAt: Date.now(),
-					updatedAt: Date.now(),
-					pausedAt: null,
-					endedAt: null,
-					milestones: [],
-				},
-			}),
-		});
-	});
-
 	await page.route("**/api/chat/stream", async (route) => {
 		capture.streamBody = JSON.parse(
 			route.request().postData() ?? "{}",
@@ -293,8 +223,10 @@ test.describe("Composer Command V1", () => {
 			page.getByRole("listbox", { name: "Composer commands" }),
 		).toBeHidden();
 
+		// The registry shell route is gone; skill discovery is the surface the
+		// flag still gates (it is also what the tray calls).
 		const discovery = await page.evaluate(async () => {
-			const result = await fetch("/api/composer-commands");
+			const result = await fetch("/api/skills/discovery");
 			return { status: result.status, body: await result.json() };
 		});
 		expect(discovery.status).toBe(404);
@@ -434,18 +366,9 @@ test.describe("Composer Command V1", () => {
 				timeout: 15000,
 			},
 		);
-		const activeSkill = page.getByRole("region", { name: "Skill session" });
-		await expect(activeSkill).toContainText("Interview coach");
-		await expect(
-			activeSkill.getByRole("button", { name: "Stop skill" }),
-		).toBeVisible();
-		const panelBox = await activeSkill.boundingBox();
-		const composerBox = await page.locator(".message-composer").boundingBox();
-		if (!panelBox || !composerBox) {
-			throw new Error("Active skill panel or composer box was not measurable.");
-		}
-		expect(panelBox.width).toBeLessThan(composerBox.width);
-		expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(composerBox.y + 4);
+		// On-demand skill loading has no durable session, so no Skill Session
+		// Panel survives the send: the selected skill only rides this turn's
+		// request (asserted on capture.streamBody below).
 
 		await typeComposerCommand(page, "/");
 		const activeTray = page.getByRole("listbox", { name: "Composer commands" });
