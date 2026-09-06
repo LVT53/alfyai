@@ -273,7 +273,9 @@ async function resolveAppliedSkill(
 			skillOwnership: resolved.skillOwnership,
 			skillKind: resolved.skillKind,
 			skillDisplayName: resolved.displayName,
-			instructionsEnvelope: resolved.envelope,
+			// The user picked this skill with `$`; say so, or the model reads
+			// the catalogue line and calls use_skill for the same skill again.
+			instructionsEnvelope: `Skill "${resolved.displayName}" was selected by the user and is already loaded for this turn — do not call use_skill for it.\n\n${resolved.envelope}`,
 		},
 	};
 }

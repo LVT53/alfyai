@@ -221,6 +221,39 @@ describe("skills/prompt-context", () => {
 			expect(result.envelope).toContain('Skill "Meeting Recap" instructions');
 		});
 
+		it("matches slug-style names and the id tail the model tends to write", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { resolveSkillInstructionsForUse } = await import(
+				"./prompt-context"
+			);
+			await createUserSkillDefinition("user-1", {
+				displayName: "Plan Critic",
+				description: "d",
+				instructions: "i",
+				enabled: true,
+			});
+			for (const name of [
+				"plan-critic",
+				"plan_critic",
+				"PLAN CRITIC",
+				"plancritic",
+			]) {
+				const result = await resolveSkillInstructionsForUse({
+					userId: "user-1",
+					name,
+					requestText: "",
+				});
+				expect(result.ok, name).toBe(true);
+			}
+			const miss = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "plan-critique",
+				requestText: "",
+			});
+			expect(miss.ok).toBe(false);
+		});
+
 		it("matches case-insensitively by id as well as display name", async () => {
 			seedUsers();
 			const { createUserSkillDefinition } = await import("./user-skills");

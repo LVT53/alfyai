@@ -183,13 +183,29 @@ async function resolveSkillByName(
 ): Promise<SkillDiscoverySummary | null> {
 	const normalized = name.trim().toLowerCase();
 	if (!normalized) return null;
+	// Models write the name in several shapes — "Plan Critic", "plan-critic",
+	// "plan_critic", the id "system:grill-with-docs" or its tail
+	// "grill-with-docs" — so compare on a letters-and-digits key as well.
+	const key = (value: string) =>
+		value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+	const wanted = key(normalized);
 	const summaries = await discoverSkillSummaries(userId);
 	return (
 		summaries.find(
 			(summary) =>
 				summary.displayName.trim().toLowerCase() === normalized ||
 				summary.id.trim().toLowerCase() === normalized,
-		) ?? null
+		) ??
+		summaries.find((summary) => {
+			const id = summary.id.trim().toLowerCase();
+			const idTail = id.includes(":") ? id.slice(id.indexOf(":") + 1) : id;
+			return (
+				key(summary.displayName) === wanted ||
+				key(id) === wanted ||
+				key(idTail) === wanted
+			);
+		}) ??
+		null
 	);
 }
 
