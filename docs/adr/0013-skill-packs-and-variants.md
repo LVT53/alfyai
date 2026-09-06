@@ -1,5 +1,7 @@
 # Skill packs and variants
 
+> **Amended, 2026-09-06 (on-demand skill loading).** Packs and overlay-only variants are unchanged, but there is no **Skill Session** to snapshot effective instructions any more: every load resolves the current pack plus the variant overlay for that one turn, so a pack update takes effect on the next turn rather than on the next activation. The "session started before a pack update keeps its captured instructions" scenario below no longer applies.
+
 AlfyAI will model reusable admin-maintained skill guidance as **Skill Packs** and user personalization as **Skill Variants**, not as copied private skill definitions.
 
 A **Skill Pack** is the shared base guidance for a system or admin-managed skill. It may include internal admin/system resources that help keep high-quality built-in skills consistent. A **Skill Variant** is a user-owned overlay that references the current pack and stores only the user's customization.
