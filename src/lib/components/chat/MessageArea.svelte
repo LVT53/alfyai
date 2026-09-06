@@ -49,6 +49,7 @@ let {
 	forkingMessageId = null,
 	readOnly = false,
 	onRegenerate = undefined,
+	onSendFollowUp = undefined,
 	onEdit = undefined,
 	onFork = undefined,
 	onSteer = undefined,
@@ -83,6 +84,7 @@ let {
 	forkingMessageId?: string | null;
 	readOnly?: boolean;
 	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
+	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
 	onEdit?:
 		| ((payload: { messageId: string; newText: string }) => void)
 		| undefined;
@@ -755,6 +757,7 @@ async function scrollToMessage(messageId: string) {
 					{conversationId}
 					{readOnly}
 					{onRegenerate}
+					{onSendFollowUp}
 					{onEdit}
 					{onFork}
 					forkBusy={forkingMessageId === message.id}

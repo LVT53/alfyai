@@ -923,6 +923,45 @@ describe("file production chat helpers", () => {
 		expect(finalized[0].thoughtSteps).toEqual(priorThoughtSteps);
 	});
 
+	// Owner idea (variant A) — the terminal data-stream-metadata frame also
+	// carries followUps (mirroring thoughtSteps above), so the action row's
+	// chips populate in the same session, without a reload.
+	it("carries followUps onto the finalized message at completion, without a reload", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				followUps: ["What about the sequel?", "Any similar examples?"],
+			},
+		});
+
+		expect(finalized[0].followUps).toEqual([
+			"What about the sequel?",
+			"Any similar examples?",
+		]);
+	});
+
+	it("falls back to the message's prior followUps when the terminal frame carries none", () => {
+		const priorFollowUps = ["What about the sequel?"];
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				followUps: priorFollowUps,
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].followUps).toEqual(priorFollowUps);
+	});
+
 	it("clears live response activity when the streaming placeholder finalizes", () => {
 		const list = applyResponseActivityEntryToMessageList(
 			[createAssistantPlaceholder("assistant-1")],

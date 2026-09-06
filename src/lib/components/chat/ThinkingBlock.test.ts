@@ -2073,4 +2073,92 @@ describe("ThinkingBlock", () => {
 			});
 		});
 	});
+
+	describe("Answer now", () => {
+		it("shows the button while reasoning is live and no answer has started", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Working through the request.",
+					thinkingIsDone: false,
+					answerStarted: false,
+					onAnswerNow: vi.fn(),
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Answer now" }),
+			).toBeInTheDocument();
+		});
+
+		it("does not render the button when no onAnswerNow handler is supplied", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Working through the request.",
+					thinkingIsDone: false,
+					answerStarted: false,
+				},
+			});
+
+			expect(
+				screen.queryByRole("button", { name: "Answer now" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("hides the button once the visible answer has started", async () => {
+			const { rerender } = render(ThinkingBlock, {
+				props: {
+					content: "Working through the request.",
+					thinkingIsDone: false,
+					answerStarted: false,
+					onAnswerNow: vi.fn(),
+				},
+			});
+
+			expect(
+				screen.getByRole("button", { name: "Answer now" }),
+			).toBeInTheDocument();
+
+			await rerender({
+				content: "Working through the request.",
+				thinkingIsDone: false,
+				answerStarted: true,
+				onAnswerNow: vi.fn(),
+			});
+
+			expect(
+				screen.queryByRole("button", { name: "Answer now" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("hides the button once the message has completed", () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "Working through the request.",
+					thinkingIsDone: true,
+					answerStarted: false,
+					onAnswerNow: vi.fn(),
+				},
+			});
+
+			expect(
+				screen.queryByRole("button", { name: "Answer now" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("calls onAnswerNow when clicked", async () => {
+			const onAnswerNow = vi.fn();
+			render(ThinkingBlock, {
+				props: {
+					content: "Working through the request.",
+					thinkingIsDone: false,
+					answerStarted: false,
+					onAnswerNow,
+				},
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Answer now" }));
+
+			expect(onAnswerNow).toHaveBeenCalledTimes(1);
+		});
+	});
 });

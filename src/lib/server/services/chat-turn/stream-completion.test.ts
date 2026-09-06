@@ -33,6 +33,7 @@ const {
 	mockRunPostTurnTasks,
 	mockRecordAssistantTurnAnalytics,
 	mockRecordCompletedTurnContextUsage,
+	mockGenerateFollowUpSuggestions,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
@@ -41,6 +42,15 @@ const {
 	mockRunPostTurnTasks: vi.fn(),
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 	mockRecordCompletedTurnContextUsage: vi.fn(),
+	mockGenerateFollowUpSuggestions: vi.fn(),
+}));
+
+// Owner idea (variant A) — seamed exactly like the other control-model-backed
+// post-turn steps in this file (finalize-steps etc.): the glue tests below
+// assert what completeStreamTurn hands this seam and what it does with the
+// result, never the real control model.
+vi.mock("./follow-up-suggestions", () => ({
+	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
 }));
 
 // Post-turn prompt usage write (context usage ring). Seamed so the glue
@@ -258,6 +268,10 @@ describe("completeStreamTurn", () => {
 		mockRecordCompletedTurnContextUsage.mockImplementation(
 			async (params: { contextStatus: unknown }) => params.contextStatus,
 		);
+		// Default: no follow-ups (mirrors the control model degrading silently
+		// on any skip/failure) — individual tests below override this to assert
+		// the emit/persist path.
+		mockGenerateFollowUpSuggestions.mockResolvedValue(null);
 	});
 
 	it("records the completed turn's prompt usage and carries the refreshed context status to finalize and the terminal metadata", async () => {
@@ -2126,6 +2140,94 @@ describe("completeStreamTurn", () => {
 				"asst-msg-1",
 				["pw-new"],
 			);
+		});
+	});
+
+	describe("follow-up suggestions (owner idea, variant A)", () => {
+		function getPersistedAssistantMetadata(): Record<string, unknown> {
+			// createTurnMessage (finalize.ts) calls createMessage(conversationId,
+			// role, content, thinking, serverSegments, metadata) for the
+			// assistant message — the second createMessage call this turn makes
+			// (the first persists the user message).
+			const assistantCall = mockCreateMessage.mock.calls[1];
+			return (assistantCall?.[5] ?? {}) as Record<string, unknown>;
+		}
+
+		it("asks the control model and emits + persists the result on a normal completed turn", async () => {
+			mockGenerateFollowUpSuggestions.mockResolvedValue([
+				"What about the sequel?",
+				"Any other examples?",
+			]);
+
+			await completeStreamTurn(defaultParams);
+
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessage: "user message",
+				assistantResponse: "response text",
+			});
+			expect(getLatestEndPayload()).toMatchObject({
+				followUps: ["What about the sequel?", "Any other examples?"],
+			});
+			expect(getPersistedAssistantMetadata()).toMatchObject({
+				followUps: ["What about the sequel?", "Any other examples?"],
+			});
+		});
+
+		it("skips the control-model call and omits followUps when the turn was stopped early", async () => {
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expect(mockGenerateFollowUpSuggestions).not.toHaveBeenCalled();
+			expect(getLatestEndPayload()).not.toHaveProperty("followUps");
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty("followUps");
+		});
+
+		it("skips the control-model call while a tool call is still running", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				toolCallRecords: [{ name: "web_search", input: {}, status: "running" }],
+			});
+
+			expect(mockGenerateFollowUpSuggestions).not.toHaveBeenCalled();
+			expect(getLatestEndPayload()).not.toHaveProperty("followUps");
+		});
+
+		it("skips the control-model call when there is no finished answer to base suggestions on", async () => {
+			await completeStreamTurn({ ...defaultParams, fullResponse: "   " });
+
+			expect(mockGenerateFollowUpSuggestions).not.toHaveBeenCalled();
+		});
+
+		it("omits followUps from the terminal frame and persisted metadata when the control model fails silently", async () => {
+			mockGenerateFollowUpSuggestions.mockResolvedValue(null);
+
+			await completeStreamTurn(defaultParams);
+
+			expect(getLatestEndPayload()).not.toHaveProperty("followUps");
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty("followUps");
+		});
+
+		it("never fails the turn when the follow-up seam itself throws", async () => {
+			mockGenerateFollowUpSuggestions.mockRejectedValue(new Error("boom"));
+			const errorSpy = vi
+				.spyOn(console, "error")
+				.mockImplementation(() => undefined);
+
+			try {
+				await completeStreamTurn(defaultParams);
+
+				expect(getLatestEndPayload()).toMatchObject({
+					assistantMessageId: "asst-msg-1",
+				});
+				expect(getLatestEndPayload()).not.toHaveProperty("followUps");
+				expect(getLatestFinishPayload()).toMatchObject({
+					type: "finish",
+					finishReason: "stop",
+				});
+			} finally {
+				errorSpy.mockRestore();
+			}
 		});
 	});
 });

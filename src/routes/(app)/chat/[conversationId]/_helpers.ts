@@ -65,6 +65,14 @@ export type MessageEditPayload = {
 
 export type MessageRegeneratePayload = {
 	messageId: string;
+	// "Answer now" (ADR — reasoning-depth quick-answer escape hatch) — set only
+	// by the ThinkingBlock header's "Answer now" button, wired through
+	// MessageBubble's existing onRegenerate prop (no new prop needed — see
+	// MessageBubble.svelte). When present, the regenerated turn is sent with
+	// this reasoning depth for THIS turn only; the user's own toggle setting
+	// (adapters.getReasoningDepth()) is never mutated. Absent for every other
+	// regenerate path (the toolbar button), which keeps the user's own depth.
+	reasoningDepthOverride?: ReasoningDepth;
 };
 
 export type DraftChangePayload = {
@@ -731,6 +739,10 @@ export function finalizeStreamingMessageList(
 				// completionWarningCodes above) so the completed step-rail
 				// populates in the same session, without a reload.
 				thoughtSteps: params.metadata?.thoughtSteps ?? message.thoughtSteps,
+				// Owner idea (variant A) — surfaces the terminal frame's follow-up
+				// suggestions the same way thoughtSteps does, so the action row's
+				// chips populate in the same session without a reload.
+				followUps: params.metadata?.followUps ?? message.followUps,
 			};
 		}
 

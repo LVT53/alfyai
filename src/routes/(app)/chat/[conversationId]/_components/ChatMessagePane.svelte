@@ -32,6 +32,7 @@ let {
 	readOnly = false,
 	onOpenDocument,
 	onRegenerate,
+	onSendFollowUp,
 	onEdit,
 	onFork,
 	onSteer,
@@ -65,6 +66,7 @@ let {
 	readOnly?: boolean;
 	onOpenDocument: (document: DocumentWorkspaceItem) => void;
 	onRegenerate: (payload: MessageRegeneratePayload) => void;
+	onSendFollowUp?: (payload: { text: string }) => void;
 	onEdit: (payload: MessageEditPayload) => void;
 	onFork?: (payload: { messageId: string }) => void | Promise<void>;
 	onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
@@ -123,6 +125,7 @@ let {
 		{readOnly}
 		{onOpenDocument}
 		{onRegenerate}
+		{onSendFollowUp}
 		{onEdit}
 		{onFork}
 		{onSteer}
