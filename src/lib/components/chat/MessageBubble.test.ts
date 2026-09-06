@@ -2242,6 +2242,24 @@ describe("MessageBubble", () => {
 			expect(container.querySelector(".follow-up-divider")).toBeNull();
 		});
 
+		it("renders a single chip when the control model repeats a suggestion", () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage({
+					followUps: ["What about the sequel?", "What about the sequel?"],
+				}),
+				isLast: true,
+			});
+
+			expect(
+				screen.getAllByRole("button", {
+					name: chatDict.en["messageBubble.followUpAriaLabel"].replace(
+						"{question}",
+						"What about the sequel?",
+					),
+				}),
+			).toHaveLength(1);
+		});
+
 		it("sends the chip's text as the next user message when clicked", async () => {
 			const onSendFollowUp = vi.fn();
 			render(MessageBubble, {

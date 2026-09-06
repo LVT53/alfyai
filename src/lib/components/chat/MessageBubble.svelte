@@ -771,8 +771,17 @@ function handleAnswerNow() {
 // agnostic icon buttons, but gated further: older messages never show
 // chips, matching the mockup). readOnly conversations never offer a way to
 // send a new message at all, so chips are hidden there too.
+//
+// De-duplicated before slicing: the chips are keyed by their own text (the
+// only stable identity a suggestion has), and the control model that
+// produces them (chat-turn/follow-up-suggestions.ts) is prompted for two
+// "genuinely different" questions but never actually deduped server-side —
+// a repeated suggestion would otherwise crash this block with Svelte's
+// `each_key_duplicate`, taking the whole message down with it.
 const followUpChips = $derived(
-	!isUser && isLast && !readOnly ? (message.followUps ?? []).slice(0, 2) : [],
+	!isUser && isLast && !readOnly
+		? Array.from(new Set(message.followUps ?? [])).slice(0, 2)
+		: [],
 );
 
 function sendFollowUp(question: string) {
