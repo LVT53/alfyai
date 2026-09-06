@@ -21,14 +21,10 @@ const skillsDict = {
 		"skillDrafts.dismiss": "Dismiss draft",
 		"skillDrafts.dismissError": "Failed to dismiss skill draft.",
 		"skillDrafts.dismissed": "Dismissed",
-		"skillDrafts.duration.nextMessage": "Next message",
-		"skillDrafts.duration.session": "Session",
 		"skillDrafts.eyebrow": "Skill draft",
 		"skillDrafts.inheritedCopyBlocked":
 			"Inherited skill drafts from copied fork history cannot be changed.",
 		"skillDrafts.notFound": "Skill draft not found.",
-		"skillDrafts.notes.createPrivate": "Private notes",
-		"skillDrafts.notes.none": "No notes",
 		"skillDrafts.policyTitle": "Review before saving",
 		"skillDrafts.published": "Published",
 		"skillDrafts.question.askWhenNeeded": "Ask when needed",
@@ -40,7 +36,6 @@ const skillsDict = {
 		"skillDrafts.source.selectedSourcesOnly": "Selected sources only",
 		"skillDrafts.warning.currentConversation":
 			"Can use broad current-conversation context.",
-		"skillDrafts.warning.notes": "Can write private Skill Notes.",
 		"skillDrafts.warning.selectedSources":
 			"Uses only selected linked sources when sources are needed.",
 		"skills.activationExamples": "Activation examples",
@@ -59,9 +54,6 @@ const skillsDict = {
 		"skills.displayName": "Display name",
 		"skills.displayNamePlaceholder": "Meeting critic",
 		"skills.duplicateWarning": "A skill with this display name already exists.",
-		"skills.duration.nextMessage": "Next message",
-		"skills.duration.session": "Session",
-		"skills.durationPolicy": "Duration policy",
 		"skills.edit": "Edit",
 		"skills.editA11y": "Edit {name}",
 		"skills.empty": "No private skills yet.",
@@ -79,9 +71,6 @@ const skillsDict = {
 		"skills.loading": "Loading skills...",
 		"skills.newSkill": "New skill",
 		"skills.notFound": "Skill not found.",
-		"skills.notes.createPrivate": "Private notes",
-		"skills.notes.none": "No notes",
-		"skills.notesPolicy": "Notes policy",
 		"skills.question.askWhenNeeded": "Ask when needed",
 		"skills.question.none": "No questions",
 		"skills.questionPolicy": "Question policy",
@@ -99,7 +88,7 @@ const skillsDict = {
 		"skills.variant.basedOn": "Based on {name}",
 		"skills.variant.deleteConfirm": "Delete variant {name}?",
 		"skills.variant.inheritedPolicies":
-			"Inherits activation policy, source scope, and notes behavior from the selected Skill Pack.",
+			"Inherits activation policy and source scope from the selected Skill Pack.",
 		"skills.variant.inheritedPolicyCopy":
 			"Policy controls are inherited from the selected Skill Pack and cannot be edited on variants.",
 		"skills.variant.new": "New variant",
@@ -133,14 +122,10 @@ const skillsDict = {
 		"skillDrafts.dismiss": "Vázlat elvetése",
 		"skillDrafts.dismissError": "Nem sikerült elvetni a skill vázlatot.",
 		"skillDrafts.dismissed": "Elvetve",
-		"skillDrafts.duration.nextMessage": "Következő üzenet",
-		"skillDrafts.duration.session": "Munkamenet",
 		"skillDrafts.eyebrow": "Skill vázlat",
 		"skillDrafts.inheritedCopyBlocked":
 			"A fork másolt előzményeiből örökölt skill vázlatok nem módosíthatók.",
 		"skillDrafts.notFound": "A skill vázlat nem található.",
-		"skillDrafts.notes.createPrivate": "Privát jegyzetek",
-		"skillDrafts.notes.none": "Nincs jegyzet",
 		"skillDrafts.policyTitle": "Áttekintés mentés előtt",
 		"skillDrafts.published": "Publikálva",
 		"skillDrafts.question.askWhenNeeded": "Kérdezhet, ha szükséges",
@@ -152,7 +137,6 @@ const skillsDict = {
 		"skillDrafts.source.selectedSourcesOnly": "Csak kijelölt források",
 		"skillDrafts.warning.currentConversation":
 			"Tág aktuális beszélgetési kontextust használhat.",
-		"skillDrafts.warning.notes": "Privát Skill jegyzeteket írhat.",
 		"skillDrafts.warning.selectedSources":
 			"Csak a kijelölt kapcsolt forrásokat használja, ha forrásokra van szükség.",
 		"skills.activationExamples": "Aktiválási példák",
@@ -172,9 +156,6 @@ const skillsDict = {
 		"skills.displayNamePlaceholder": "Értekezletkritikus",
 		"skills.duplicateWarning":
 			"Már létezik skill ezzel a megjelenített névvel.",
-		"skills.duration.nextMessage": "Következő üzenet",
-		"skills.duration.session": "Munkamenet",
-		"skills.durationPolicy": "Időtartam-szabály",
 		"skills.edit": "Szerkesztés",
 		"skills.editA11y": "{name} szerkesztése",
 		"skills.empty": "Még nincsenek privát skillek.",
@@ -192,9 +173,6 @@ const skillsDict = {
 		"skills.loading": "Skillek betöltése...",
 		"skills.newSkill": "Új skill",
 		"skills.notFound": "A skill nem található.",
-		"skills.notes.createPrivate": "Privát jegyzetek",
-		"skills.notes.none": "Nincs jegyzet",
-		"skills.notesPolicy": "Jegyzet-szabály",
 		"skills.question.askWhenNeeded": "Kérdezzen, ha szükséges",
 		"skills.question.none": "Nincs kérdés",
 		"skills.questionPolicy": "Kérdés-szabály",
@@ -212,7 +190,7 @@ const skillsDict = {
 		"skills.variant.basedOn": "{name} alapján",
 		"skills.variant.deleteConfirm": "Törlöd ezt a változatot: {name}?",
 		"skills.variant.inheritedPolicies":
-			"Az aktiválási szabályt, forráskört és jegyzetviselkedést a kiválasztott skill csomagtól örökli.",
+			"Az aktiválási szabályt és a forráskört a kiválasztott skill csomagtól örökli.",
 		"skills.variant.inheritedPolicyCopy":
 			"A szabályvezérlők a kiválasztott skill csomagtól öröklődnek, változatokon nem szerkeszthetők.",
 		"skills.variant.new": "Új változat",
