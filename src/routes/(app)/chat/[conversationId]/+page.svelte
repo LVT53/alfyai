@@ -2121,8 +2121,19 @@ async function handleRegenerate(
 	if (!proceed) return;
 	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
-	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
+	// A still-streaming assistant message is keyed by the CLIENT placeholder
+	// id the runtime minted for it; a stopped turn is persisted server-side
+	// and its terminal frame carries the real assistantMessageId, which
+	// finalizeStreamingMessageList swaps in (keeping `renderKey` pinned to
+	// the placeholder id). "Answer now" captures the id at click time, so by
+	// the time the stop above has settled, `messageId` may only match the
+	// finalized message's renderKey — match either, or the whole action
+	// silently no-ops.
+	const assistantIdx = msgs.findIndex(
+		(m) => m.id === messageId || m.renderKey === messageId,
+	);
 	if (assistantIdx === -1) return;
+	const assistantMessageId = msgs[assistantIdx].id;
 	const hasKnownForks = hasForkedAssistantInRange(msgs, assistantIdx);
 	if (
 		hasKnownForks &&
@@ -2191,7 +2202,7 @@ async function handleRegenerate(
 		true,
 		true,
 		true,
-		messageId,
+		assistantMessageId,
 		msgs[userIdx].id,
 		confirmForkedSourceHistoryMutation || hasKnownForks,
 		() => {
