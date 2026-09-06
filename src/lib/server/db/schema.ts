@@ -1363,6 +1363,61 @@ export const usageEvents = sqliteTable(
 	}),
 );
 
+// Analytics overhaul (backend half) — one row per user-visible "activity":
+// a tool call, a skill applied (forced `$` selection or an active skill
+// session), a composer command chosen, or a follow-up/"Answer now" click.
+// Recorded at turn completion for the first two kinds (server-observed) and
+// via POST /api/analytics/activity for the client-observed last three.
+// Deliberately separate from usage_events (billed model calls) and
+// message_analytics (per-message latency marks) — this table has no cost
+// and is never joined into pricing.
+export const activityEvents = sqliteTable(
+	"activity_events",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		messageId: text("message_id").references(() => messages.id, {
+			onDelete: "cascade",
+		}),
+		kind: text("kind", {
+			enum: [
+				"tool_call",
+				"skill_use",
+				"composer_command",
+				"follow_up_click",
+				"answer_now",
+			],
+		}).notNull(),
+		// Tool/skill/command name. Client-submitted kinds cap this at 64 chars
+		// at the API boundary (src/routes/api/analytics/activity/+server.ts).
+		name: text("name").notNull(),
+		status: text("status", { enum: ["done", "failed", "cached"] })
+			.notNull()
+			.default("done"),
+		durationMs: integer("duration_ms"),
+		modelId: text("model_id"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userCreatedIdx: index("activity_events_user_created_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+		kindNameCreatedIdx: index("activity_events_kind_name_created_idx").on(
+			table.kind,
+			table.name,
+			table.createdAt,
+		),
+	}),
+);
+
 export const chatGeneratedFiles = sqliteTable(
 	"chat_generated_files",
 	{

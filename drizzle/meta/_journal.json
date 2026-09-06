@@ -715,6 +715,13 @@
       "when": 1777140000088,
       "tag": "1777140000088_drop_skill_sessions_and_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1777140000089,
+      "tag": "1777140000089_activity_events",
+      "breakpoints": true
     }
   ]
 }

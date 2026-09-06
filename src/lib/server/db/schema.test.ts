@@ -773,4 +773,138 @@ describe("schema core tables", () => {
 			);
 		});
 	});
+
+	// Analytics overhaul (backend half) — activity_events table + migration.
+	// This block exercising the table through the same migrated `db` that
+	// beforeAll built from ./drizzle + its journal is the migration-journal
+	// test: a malformed journal entry or SQL file would already have failed
+	// beforeAll for every test in this file.
+	describe("activity_events table", () => {
+		it("has the expected columns and nullability", () => {
+			const columns = sqlite
+				.prepare("PRAGMA table_info(activity_events)")
+				.all() as {
+				name: string;
+				notnull: number;
+				dflt_value: string | null;
+			}[];
+
+			const byName = new Map(columns.map((column) => [column.name, column]));
+			expect(byName.get("id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("user_id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("conversation_id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("message_id")).toMatchObject({ notnull: 0 });
+			expect(byName.get("kind")).toMatchObject({ notnull: 1 });
+			expect(byName.get("name")).toMatchObject({ notnull: 1 });
+			expect(byName.get("status")).toMatchObject({ notnull: 1 });
+			expect(byName.get("duration_ms")).toMatchObject({ notnull: 0 });
+			expect(byName.get("model_id")).toMatchObject({ notnull: 0 });
+			expect(byName.get("created_at")).toMatchObject({ notnull: 1 });
+		});
+
+		it("has the (user_id, created_at) and (kind, name, created_at) indexes", () => {
+			const indexes = sqlite
+				.prepare("PRAGMA index_list(activity_events)")
+				.all() as { name: string }[];
+			const indexNames = indexes.map((index) => index.name);
+
+			expect(indexNames).toContain("activity_events_user_created_idx");
+			expect(indexNames).toContain("activity_events_kind_name_created_idx");
+
+			const userCreatedColumns = sqlite
+				.prepare("PRAGMA index_info(activity_events_user_created_idx)")
+				.all() as { name: string }[];
+			expect(userCreatedColumns.map((column) => column.name)).toEqual([
+				"user_id",
+				"created_at",
+			]);
+
+			const kindNameCreatedColumns = sqlite
+				.prepare("PRAGMA index_info(activity_events_kind_name_created_idx)")
+				.all() as { name: string }[];
+			expect(kindNameCreatedColumns.map((column) => column.name)).toEqual([
+				"kind",
+				"name",
+				"created_at",
+			]);
+		});
+
+		it("round-trips an inserted row through Drizzle, defaulting status to done", () => {
+			const userId = "activity-events-user";
+			const conversationId = "activity-events-conversation";
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: "activity-events@example.com",
+					passwordHash: "hash",
+				})
+				.run();
+			db.insert(schema.conversations)
+				.values({ id: conversationId, userId, title: "Activity events" })
+				.run();
+
+			db.insert(schema.activityEvents)
+				.values({
+					id: "activity-event-1",
+					userId,
+					conversationId,
+					kind: "composer_command",
+					name: "model",
+				})
+				.run();
+
+			const row = db
+				.select()
+				.from(schema.activityEvents)
+				.where(eq(schema.activityEvents.id, "activity-event-1"))
+				.get();
+
+			expect(row).toMatchObject({
+				userId,
+				conversationId,
+				messageId: null,
+				kind: "composer_command",
+				name: "model",
+				status: "done",
+				durationMs: null,
+				modelId: null,
+			});
+		});
+
+		it("cascades delete when the owning conversation is deleted", () => {
+			const userId = "activity-events-cascade-user";
+			const conversationId = "activity-events-cascade-conversation";
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: "activity-events-cascade@example.com",
+					passwordHash: "hash",
+				})
+				.run();
+			db.insert(schema.conversations)
+				.values({ id: conversationId, userId, title: "Cascade" })
+				.run();
+			db.insert(schema.activityEvents)
+				.values({
+					id: "activity-event-cascade",
+					userId,
+					conversationId,
+					kind: "tool_call",
+					name: "research_web",
+					status: "failed",
+				})
+				.run();
+
+			db.delete(schema.conversations)
+				.where(eq(schema.conversations.id, conversationId))
+				.run();
+
+			const row = db
+				.select()
+				.from(schema.activityEvents)
+				.where(eq(schema.activityEvents.id, "activity-event-cascade"))
+				.get();
+			expect(row).toBeUndefined();
+		});
+	});
 });

@@ -1,5 +1,6 @@
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import {
+	activityEvents,
 	analyticsConversations,
 	announcementCampaignEvents,
 	announcementCampaignUserStates,
@@ -328,6 +329,18 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "message_analytics",
 		table: messageAnalytics,
 		userColumn: messageAnalytics.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// Analytics overhaul (backend half) — tool calls/skill use/composer
+	// commands/follow-up clicks/"Answer now", one row per activity. Same
+	// treatment as message_analytics/usage_events: historical activity
+	// survives a memory/workspace reset, and only full erasure removes it
+	// (via the real `ON DELETE CASCADE` to `users.id`).
+	{
+		name: "activity_events",
+		table: activityEvents,
+		userColumn: activityEvents.userId,
 		erasure: "cascade",
 		resets: [],
 	},
