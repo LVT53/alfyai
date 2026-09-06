@@ -21,6 +21,7 @@ import {
 	type NormalChatSendModelBaseParams,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
+	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
 	runDeliberationIfNeeded,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
@@ -201,6 +202,7 @@ export async function runStreamingNormalChatSendModel(
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
 		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+		...(prepared.prefetchedToolMessages ?? []),
 	];
 	logOutboundMessageShape({
 		label: "stream",
@@ -228,6 +230,10 @@ export async function runStreamingNormalChatSendModel(
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools: toolPack.tools,
 		toolChoice: undefined,
+		firstStepToolChoice: resolveForcedResearchWebFirstStepToolChoice({
+			forceWebSearch: params.forceWebSearch,
+			tools: toolPack.tools,
+		}),
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
 		deliberationElapsedMs,

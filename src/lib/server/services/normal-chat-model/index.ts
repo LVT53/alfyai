@@ -9,6 +9,7 @@ import {
 	type ModelMessage,
 	NoSuchToolError,
 	type OnStepFinishEvent,
+	type PrepareStepFunction,
 	type StopCondition,
 	stepCountIs,
 	streamText,
@@ -130,6 +131,21 @@ function buildToolStopWhen(maxToolSteps: number): StopCondition<ToolSet>[] {
 	];
 }
 
+// Forces a specific tool choice on the FIRST model step only (stepNumber is
+// 0-indexed), leaving every later step's tool choice automatic. Used for a
+// forced-web-search turn: the model must call research_web on step 1 (so it
+// can't answer from parametric memory instead), but forcing it on every step
+// would loop forever once stopWhen's hasToolCall(DONE_TOOL_NAME) never fires
+// because the model is never allowed to call anything else. Returns
+// `undefined` when no tool choice needs forcing, so callers can pass this
+// straight through to `prepareStep` without a null check.
+function buildFirstStepOnlyPrepareStep(
+	toolChoice: ToolChoice<ToolSet> | undefined,
+): PrepareStepFunction<ToolSet> | undefined {
+	if (!toolChoice) return undefined;
+	return ({ stepNumber }) => (stepNumber === 0 ? { toolChoice } : {});
+}
+
 function readDoneToolSummary(input: unknown): string | null {
 	if (!input || typeof input !== "object" || Array.isArray(input)) return null;
 	const summary = (input as Record<string, unknown>).summary;
@@ -230,6 +246,11 @@ export type NormalChatModelRunBaseParams = {
 export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	tools?: ToolSet;
 	toolChoice?: ToolChoice<ToolSet>;
+	// Forces this tool choice on the first model step only (see
+	// buildFirstStepOnlyPrepareStep); every later step's tool choice stays
+	// automatic. Distinct from `toolChoice`, which (when set) applies to
+	// every step for the run's whole lifetime.
+	firstStepToolChoice?: ToolChoice<ToolSet>;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 };
@@ -237,6 +258,8 @@ export type PlainNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	tools?: ToolSet;
 	toolChoice?: ToolChoice<ToolSet>;
+	// See PlainNormalChatModelRunParams.firstStepToolChoice.
+	firstStepToolChoice?: ToolChoice<ToolSet>;
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 	firstOutputTimeoutMs?: number | null;
@@ -1231,6 +1254,9 @@ async function runPlainNormalChatModelRunAttempt(
 		(params.tools
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
+	const prepareStep = params.tools
+		? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
+		: undefined;
 
 	const request = {
 		model: provider(params.provider.modelName),
@@ -1239,6 +1265,7 @@ async function runPlainNormalChatModelRunAttempt(
 		tools: params.tools,
 		toolChoice: params.toolChoice,
 		stopWhen,
+		prepareStep,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),
@@ -1279,6 +1306,7 @@ async function runPlainNormalChatModelRunAttempt(
 			...request,
 			tools: undefined,
 			stopWhen: undefined,
+			prepareStep: undefined,
 		});
 	}
 
@@ -1543,6 +1571,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		tools,
 		toolChoice: params.toolChoice,
 		stopWhen: toolStopWhen,
+		prepareStep: tools
+			? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
+			: undefined,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),

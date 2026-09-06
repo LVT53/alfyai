@@ -139,17 +139,18 @@ describe("resolveFetchContentCharCap", () => {
 
 	it("clamps a huge context window down to the ceiling", () => {
 		// 1M tokens -> 1.6M chars, above the 200k ceiling.
-		expect(resolveFetchContentCharCap(1_000_000)).toBe(200_000);
+		expect(resolveFetchContentCharCap(1_000_000)).toBe(48_000);
 	});
 
 	it("scales linearly for a mid-range context window", () => {
 		// 64k tokens -> 64000 * 4 * 0.4 = 102400 chars, between the bounds.
-		expect(resolveFetchContentCharCap(64_000)).toBe(102_400);
+		expect(resolveFetchContentCharCap(64_000)).toBe(48_000);
+		expect(resolveFetchContentCharCap(24_000)).toBe(38_400);
 	});
 
 	it("falls back to a safe default when the capacity is unknown", () => {
-		expect(resolveFetchContentCharCap(undefined)).toBe(60_000);
-		expect(resolveFetchContentCharCap(null)).toBe(60_000);
-		expect(resolveFetchContentCharCap(0)).toBe(60_000);
+		expect(resolveFetchContentCharCap(undefined)).toBe(32_000);
+		expect(resolveFetchContentCharCap(null)).toBe(32_000);
+		expect(resolveFetchContentCharCap(0)).toBe(32_000);
 	});
 });

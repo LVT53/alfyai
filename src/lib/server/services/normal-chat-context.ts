@@ -96,6 +96,14 @@ export type PreparedOutboundChatContext = {
 		| null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls?: ToolCallEntry[];
+	// Native tool-call/tool-result message pair for a server-prefetched
+	// pasted-URL fetch (see maybePrefetchWebSearch), placed AFTER the current
+	// user message so the model sees a completed fetch_url exchange instead
+	// of re-issuing the call itself. Empty when there was nothing to
+	// prefetch, or when historyToolMessages is "flatten" (a provider that
+	// can't take tool messages instead gets the old text splice back into
+	// inputValue).
+	prefetchedToolMessages?: ModelMessage[];
 	outputTokenBudget?: OutputTokenBudget;
 	contextLimits: PromptContextLimits;
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
@@ -151,6 +159,7 @@ type OutboundChatContextPreparationState = {
 		| null;
 	contextTraceSections?: LegacyContextTraceSectionInput[];
 	prefetchedToolCalls: ToolCallEntry[];
+	prefetchedToolMessages: ModelMessage[];
 	reuseData?: ConstructedContextReuseData;
 	baseSystemPrompt?: string;
 	systemPrompt?: string;
@@ -159,9 +168,9 @@ type OutboundChatContextPreparationState = {
 	outputTokenBudget?: OutputTokenBudget;
 };
 
-// Used by maybePrefetchWebSearch (server-side pasted-URL / forced-search
-// prefetch — a distinct feature from tool-usage guidance text, and NOT part
-// of what G1 removed) to detect a pasted URL in the latest user message.
+// Used by maybePrefetchWebSearch (server-side pasted-URL prefetch — a
+// distinct feature from tool-usage guidance text, and NOT part of what G1
+// removed) to detect a pasted URL in the latest user message.
 const DIRECT_HTTP_URL_RE = /https?:\/\/[^\s<>)\]]+/i;
 
 // Redesign R8 — concise holistic framing for the connection tools
@@ -644,27 +653,45 @@ function insertContextBeforeCurrentMessage(
 		.join("\n\n");
 }
 
+type WebPrefetchResult = {
+	inputValue: string;
+	prefetchedToolCalls: ToolCallEntry[];
+	prefetchedToolMessages: ModelMessage[];
+};
+
+function emptyWebPrefetchResult(inputValue: string): WebPrefetchResult {
+	return { inputValue, prefetchedToolCalls: [], prefetchedToolMessages: [] };
+}
+
+// Server-side pasted-URL prefetch: when the latest user message contains a
+// direct http(s) URL, fetch it via Parallel Extract BEFORE the model runs and
+// hand the model a completed fetch_url exchange instead of leaving it to call
+// the tool itself (which re-does the same fetch and burns a tool-call round
+// trip). Forced web search (`forceWebSearch`) is handled separately — see
+// resolveForcedResearchWebFirstStepToolChoice in
+// chat-turn/shared-normal-chat-model-run-helpers.ts — which forces the
+// model's FIRST tool-call step to research_web instead of prefetching, so a
+// forced-search turn always uses the model's own (possibly refined) query
+// rather than the raw pasted message.
 async function maybePrefetchWebSearch(params: {
 	inputValue: string;
 	message: string;
-	forceWebSearch?: boolean;
 	sessionId: string;
 	modelId: ModelId | string | undefined;
-}): Promise<{ inputValue: string; prefetchedToolCalls: ToolCallEntry[] }> {
-	const prefetchReason = params.forceWebSearch
-		? "forced_search"
-		: containsDirectHttpUrl(params.message)
-			? "pasted_url"
-			: null;
-	if (!prefetchReason) {
-		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+	historyToolMessages?: "native" | "flatten";
+}): Promise<WebPrefetchResult> {
+	const pastedUrls = containsDirectHttpUrl(params.message)
+		? extractPastedUrls(params.message)
+		: [];
+	if (pastedUrls.length === 0) {
+		return emptyWebPrefetchResult(params.inputValue);
 	}
 
 	// Pre-gate on Parallel being configured, mirroring the index.ts tool gate:
 	// without an API key every Parallel call 401s, so skip issuing a doomed
 	// request (and starting a timer) and degrade to no prefetched context.
 	if (!getConfig().parallelApiKey?.trim()) {
-		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+		return emptyWebPrefetchResult(params.inputValue);
 	}
 
 	// Bound the prefetch: create a signal that fires after PREFETCH_TIMEOUT_MS and
@@ -689,76 +716,111 @@ async function maybePrefetchWebSearch(params: {
 			signal: abortController.signal,
 		};
 		const {
+			buildGroundedWebModelPayload,
 			createGroundedWebCandidates,
 			createGroundedWebMetadata,
 			summarizeGroundedWebResult,
 		} = await import("./web-grounding");
-		const pastedUrls =
-			prefetchReason === "pasted_url" ? extractPastedUrls(params.message) : [];
-		let result: GroundedWebResult;
-		if (prefetchReason === "pasted_url" && pastedUrls.length > 0) {
-			const { fetchUrlViaParallel } = await import(
-				"./parallel-search/fetch-url"
-			);
-			// Size the fetched-page brief to the selected model's context window the
-			// same way the fetch_url tool does, instead of the flat 60k default.
-			const maxCharsTotal = resolveFetchContentCharCap(
-				await resolveModelContextTokens(params.modelId),
-			);
-			result = await fetchUrlViaParallel({ urls: pastedUrls }, deps, {
-				maxCharsTotal,
-			});
-		} else {
-			const { researchWebViaParallel } = await import(
-				"./parallel-search/research"
-			);
-			result = await researchWebViaParallel({ query: params.message }, deps);
-		}
+		const { compactModelPayload } = await import("./normal-chat-tools/shared");
+		const { fetchUrlViaParallel } = await import("./parallel-search/fetch-url");
+		// Size the fetched-page brief to the selected model's context window the
+		// same way the fetch_url tool does, instead of the flat 60k default.
+		const maxCharsTotal = resolveFetchContentCharCap(
+			await resolveModelContextTokens(params.modelId),
+		);
+		const result: GroundedWebResult = await fetchUrlViaParallel(
+			{ urls: pastedUrls },
+			deps,
+			{ maxCharsTotal },
+		);
 		const sourceCandidates = createGroundedWebCandidates(result);
 		const metadata = {
 			...createGroundedWebMetadata(result),
 			serverPrefetched: true,
-			prefetchReason,
+			prefetchReason: "pasted_url" as const,
 		};
-		const webContext = [
-			"## Current Web Research",
-			prefetchReason === "pasted_url"
-				? "Server-prefetched page content for the pasted URL; use it as retrieved evidence."
-				: "Server-prefetched web context for this forced-search turn. Use it as retrieved evidence. Do not expose raw source dumps, diagnostics, JSON, or search-result internals.",
-			result.answerBrief.markdown,
-		].join("\n\n");
+		const toolCallId = `server-prefetch:fetch_url:${Date.now().toString(36)}`;
+		const toolCallEntry: ToolCallEntry = {
+			callId: toolCallId,
+			name: "fetch_url",
+			input: { urls: pastedUrls },
+			status: "done",
+			outputSummary: summarizeGroundedWebResult(result),
+			sourceType: "web",
+			candidates: sourceCandidates,
+			metadata,
+		};
+
+		// A provider that cannot take native tool messages still gets the old
+		// text splice into the user packet.
+		if (params.historyToolMessages === "flatten") {
+			const webContext = [
+				"## Current Web Research",
+				"Server-prefetched page content for the pasted URL; use it as retrieved evidence.",
+				result.answerBrief.markdown,
+			].join("\n\n");
+			return {
+				inputValue: insertContextBeforeCurrentMessage(
+					params.inputValue,
+					params.message,
+					webContext,
+				),
+				prefetchedToolCalls: [toolCallEntry],
+				prefetchedToolMessages: [],
+			};
+		}
+
+		// Native mode: hand the model a completed fetch_url tool-call/result
+		// exchange — the SAME compact payload the real fetch_url tool would
+		// have returned (buildGroundedWebModelPayload + compactModelPayload,
+		// mirrored from normal-chat-tools/index.ts's fetch_url execute path) —
+		// instead of splicing text. The model then sees a structural signal
+		// that the fetch already happened and has no reason to call fetch_url
+		// again for the same URL(s).
+		const modelPayload = compactModelPayload(
+			buildGroundedWebModelPayload(result, {
+				maxMarkdownChars: maxCharsTotal,
+				name: "fetch_url",
+			}),
+		);
+		const prefetchedToolMessages: ModelMessage[] = [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId,
+						toolName: "fetch_url",
+						input: { urls: pastedUrls },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId,
+						toolName: "fetch_url",
+						output: { type: "json", value: modelPayload },
+					},
+				],
+			},
+		];
 
 		return {
-			inputValue: insertContextBeforeCurrentMessage(
-				params.inputValue,
-				params.message,
-				webContext,
-			),
-			prefetchedToolCalls: [
-				{
-					callId: `server-prefetch:research_web:${Date.now().toString(36)}`,
-					name: "research_web",
-					input: {
-						query: params.message,
-						source: "server_prefetch",
-						prefetchReason,
-					},
-					status: "done",
-					outputSummary: summarizeGroundedWebResult(result),
-					sourceType: "web",
-					candidates: sourceCandidates,
-					metadata,
-				},
-			],
+			inputValue: params.inputValue,
+			prefetchedToolCalls: [toolCallEntry],
+			prefetchedToolMessages,
 		};
 	} catch (error) {
 		console.warn(`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Web prefetch failed`, {
 			sessionId: params.sessionId,
 			modelId: params.modelId ?? "model1",
-			prefetchReason,
+			prefetchReason: "pasted_url",
 			error: error instanceof Error ? error.message : String(error),
 		});
-		return { inputValue: params.inputValue, prefetchedToolCalls: [] };
+		return emptyWebPrefetchResult(params.inputValue);
 	} finally {
 		clearTimeout(prefetchTimeout);
 	}
@@ -1469,19 +1531,20 @@ async function runForcedWebPrefetchStage(input: {
 }): Promise<
 	Pick<
 		OutboundChatContextPreparationState,
-		"inputValue" | "prefetchedToolCalls"
+		"inputValue" | "prefetchedToolCalls" | "prefetchedToolMessages"
 	>
 > {
-	const forcedWebPrefetch = await maybePrefetchWebSearch({
+	const webPrefetch = await maybePrefetchWebSearch({
 		inputValue: input.state.inputValue,
 		message: input.params.message,
-		forceWebSearch: input.params.forceWebSearch,
 		sessionId: input.params.sessionId,
 		modelId: input.params.modelId,
+		historyToolMessages: input.params.historyToolMessages,
 	});
 	return {
-		inputValue: forcedWebPrefetch.inputValue,
-		prefetchedToolCalls: forcedWebPrefetch.prefetchedToolCalls,
+		inputValue: webPrefetch.inputValue,
+		prefetchedToolCalls: webPrefetch.prefetchedToolCalls,
+		prefetchedToolMessages: webPrefetch.prefetchedToolMessages,
 	};
 }
 
@@ -1597,6 +1660,7 @@ export async function prepareOutboundChatContext(
 				initialState: {
 					inputValue: params.message,
 					prefetchedToolCalls: [],
+					prefetchedToolMessages: [],
 					contextLimits,
 				} satisfies OutboundChatContextPreparationState,
 				handlers: {
@@ -1739,6 +1803,7 @@ export async function prepareOutboundChatContext(
 		contextDebug: state.contextDebug,
 		contextTraceSections: state.contextTraceSections,
 		prefetchedToolCalls: state.prefetchedToolCalls,
+		prefetchedToolMessages: state.prefetchedToolMessages,
 		outputTokenBudget: requirePreparationValue(
 			state.outputTokenBudget,
 			"outputTokenBudget",

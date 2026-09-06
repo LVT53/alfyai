@@ -343,6 +343,94 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	it("appends prefetchedToolMessages after the current user message and before continuationMessages", async () => {
+		const prefetchedToolMessages = [
+			{
+				role: "assistant" as const,
+				content: [
+					{
+						type: "tool-call" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						input: { urls: ["https://example.com/source"] },
+					},
+				],
+			},
+			{
+				role: "tool" as const,
+				content: [
+					{
+						type: "tool-result" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						output: { type: "json" as const, value: { success: true } },
+					},
+				],
+			},
+		];
+		const continuationMessages = [
+			{ role: "assistant" as const, content: "continuation" },
+		];
+		mocks.prepareOutboundChatContext.mockResolvedValue(
+			createPlainNormalChatPreparedContext({ prefetchedToolMessages }),
+		);
+
+		await runSubject({
+			message: "What does this page say? https://example.com/source",
+			continuationMessages,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: "Prepared user prompt" }],
+					},
+					...prefetchedToolMessages,
+					...continuationMessages,
+				],
+			}),
+		);
+	});
+
+	it("forces the first tool-call step to research_web when forceWebSearch is true and research_web is available", async () => {
+		await runSubject({
+			message: "What changed today?",
+			forceWebSearch: true,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				firstStepToolChoice: { type: "tool", toolName: "research_web" },
+			}),
+		);
+	});
+
+	it("does not force a first-step tool choice when forceWebSearch is false", async () => {
+		await runSubject({ message: "What changed today?" });
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({ firstStepToolChoice: undefined }),
+		);
+	});
+
+	it("prefers forcing produce_file over a forced-search first-step tool choice when both are requested", async () => {
+		await runSubject({
+			message:
+				"Could you please generate a pdf report with the content from AlmaLinux Server project folder? I want it to be detailed and long.",
+			forceProduceFileTool: true,
+			forceWebSearch: true,
+		});
+
+		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				toolChoice: { type: "tool", toolName: "produce_file" },
+				firstStepToolChoice: undefined,
+			}),
+		);
+	});
+
 	it("keeps file-production tools registered for ordinary prose plain requests (stable tool set)", async () => {
 		const tools = {
 			research_web: { __testTool: true },

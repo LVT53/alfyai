@@ -52,16 +52,16 @@ export function sanitizeFetchUrlInput(input: FetchUrlInput): FetchUrlInput {
 
 // ── Model-aware fetched-content cap ────────────────────────────
 //
-// fetch_url returns detailed full_content. To keep a big page from crowding out
-// the rest of a small model's context window — while letting large-context
-// models see more — we size the returned content to a fraction of the model's
-// window, expressed in characters (~4 chars/token). Most pages are ~10-35KB, so
-// the cap rarely bites; it's a guardrail, not a routine trim.
+// fetch_url returns detailed full_content. The payload is re-sent as prompt
+// on every later step of the turn, so it is sized to a fraction of the
+// model's window (~4 chars/token) and capped hard: on a 131k-context model
+// one fetched page was adding ~9k prompt tokens to each subsequent step.
+// The ceiling keeps a page at roughly 12k tokens.
 const FETCH_CONTENT_CONTEXT_FRACTION = 0.4;
 const FETCH_CONTENT_CHARS_PER_TOKEN = 4;
 const FETCH_CONTENT_CHAR_FLOOR = 20_000;
-const FETCH_CONTENT_CHAR_CEILING = 200_000;
-const FETCH_CONTENT_CHAR_DEFAULT = 60_000;
+const FETCH_CONTENT_CHAR_CEILING = 48_000;
+const FETCH_CONTENT_CHAR_DEFAULT = 32_000;
 
 /**
  * Compute the max total characters of page content to request for a fetch,

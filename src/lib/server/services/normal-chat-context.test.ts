@@ -1504,7 +1504,7 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared).not.toHaveProperty("promptPackPlan");
 	});
 
-	it("prefetches forced web search before the current user message through the neutral Normal Chat context boundary", async () => {
+	it("forced search does not prefetch — forceWebSearch reaches the system prompt without a server-side research_web call", async () => {
 		const prepared = await prepareOutboundChatContext({
 			message: "What changed today?",
 			sessionId: "conv-1",
@@ -1519,52 +1519,20 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		expect(mocks.researchWebViaParallel).toHaveBeenCalledWith(
-			expect.objectContaining({ query: "What changed today?" }),
-			expect.objectContaining({
-				config: { parallelApiKey: "parallel-key" },
-			}),
-		);
-		expect(prepared.inputValue.indexOf("## Current Web Research")).toBeLessThan(
-			prepared.inputValue.indexOf("## Current User Message"),
-		);
-		expect(prepared.inputValue).toContain("https://example.com/source");
-		expect(prepared.inputValue).toContain(
-			"## Current User Message\nWhat changed today?",
-		);
-		// G1: "Web research workflow"/"Current-turn forced web retrieval" were
-		// guidance-pack text; that guidance now lives in research_web's own
-		// TOOL_I18N description (see normal-chat-tools/index.test.ts), not in
-		// the assembled system prompt. The server-prefetched "## Current Web
-		// Research" section injected into `inputValue` above is the turn-level
-		// grounding signal for a forced-search turn.
+		// forceWebSearch no longer triggers a server-side prefetch — instead the
+		// caller forces the model's own first tool-call step to research_web
+		// (see resolveForcedResearchWebFirstStepToolChoice), so the model
+		// always runs its own query instead of the raw user message.
+		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
+		expect(prepared.inputValue).not.toContain("## Current Web Research");
+		expect(prepared.inputValue).toBe("What changed today?");
 		expect(prepared.systemPrompt).toContain("Base system prompt");
 		expect(prepared.systemPrompt).not.toContain("Web research workflow:");
-		expect(prepared.prefetchedToolCalls).toEqual([
-			expect.objectContaining({
-				name: "research_web",
-				status: "done",
-				sourceType: "web",
-				candidates: [
-					expect.objectContaining({
-						id: "source-1",
-						title: "Official source",
-						url: "https://example.com/source",
-						sourceType: "web",
-					}),
-				],
-				metadata: expect.objectContaining({
-					serverPrefetched: true,
-					prefetchReason: "forced_search",
-					sourceCount: 1,
-					evidenceReady: true,
-				}),
-				outputSummary: expect.stringContaining("Web research returned"),
-			}),
-		]);
+		expect(prepared.prefetchedToolCalls).toEqual([]);
+		expect(prepared.prefetchedToolMessages ?? []).toEqual([]);
 	});
 
-	it("prefetches pasted URLs before the model run so URL questions are grounded", async () => {
+	it("prefetches pasted URLs before the model run as a native fetch_url tool-call/result exchange", async () => {
 		const url = "https://example.com/source";
 
 		const prepared = await prepareOutboundChatContext({
@@ -1588,14 +1556,87 @@ describe("prepareOutboundChatContext", () => {
 			expect.objectContaining({ maxCharsTotal: expect.any(Number) }),
 		);
 		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
+		// Native mode (the default, i.e. historyToolMessages left undefined):
+		// no text is spliced into the packet any more — the model instead sees
+		// a completed fetch_url tool-call/tool-result exchange below.
+		expect(prepared.inputValue).not.toContain("## Current Web Research");
+		expect(prepared.inputValue).toBe(`What does this page say? ${url}`);
+		expect(prepared.prefetchedToolCalls).toEqual([
+			expect.objectContaining({
+				name: "fetch_url",
+				input: { urls: [url] },
+				status: "done",
+				sourceType: "web",
+				metadata: expect.objectContaining({
+					serverPrefetched: true,
+					prefetchReason: "pasted_url",
+					evidenceReady: true,
+				}),
+			}),
+		]);
+
+		const toolCallId = prepared.prefetchedToolCalls?.[0]?.callId;
+		expect(toolCallId).toMatch(/^server-prefetch:fetch_url:/);
+		expect(prepared.prefetchedToolMessages).toEqual([
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool-call",
+						toolCallId,
+						toolName: "fetch_url",
+						input: { urls: [url] },
+					},
+				],
+			},
+			{
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolCallId,
+						toolName: "fetch_url",
+						output: {
+							type: "json",
+							value: expect.objectContaining({
+								success: true,
+								name: "fetch_url",
+								sourceType: "web",
+							}),
+						},
+					},
+				],
+			},
+		]);
+	});
+
+	it("falls back to the text splice for a pasted-URL prefetch when historyToolMessages is 'flatten'", async () => {
+		const url = "https://example.com/source";
+
+		const prepared = await prepareOutboundChatContext({
+			message: `What does this page say? ${url}`,
+			sessionId: "conv-1",
+			modelConfig,
+			modelId: "model1",
+			historyToolMessages: "flatten",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+			logLabel: "provider request",
+		});
+
 		expect(prepared.inputValue).toContain("## Current Web Research");
 		expect(prepared.inputValue).toContain(
 			"Server-prefetched page content for the pasted URL",
 		);
 		expect(prepared.inputValue).toContain(url);
+		expect(prepared.prefetchedToolMessages ?? []).toEqual([]);
 		expect(prepared.prefetchedToolCalls).toEqual([
 			expect.objectContaining({
-				name: "research_web",
+				name: "fetch_url",
+				input: { urls: [url] },
 				status: "done",
 				sourceType: "web",
 				metadata: expect.objectContaining({
@@ -1656,13 +1697,17 @@ describe("prepareOutboundChatContext", () => {
 
 		expect(typeof model1Opts?.maxCharsTotal).toBe("number");
 		expect(typeof model2Opts?.maxCharsTotal).toBe("number");
-		expect(model1Opts?.maxCharsTotal).not.toBe(model2Opts?.maxCharsTotal);
+		// Both selected models are large, so both land on the fetch cap's
+		// ceiling; the model-aware formula itself is pinned in fetch-url.test.ts.
+		for (const cap of [model1Opts?.maxCharsTotal, model2Opts?.maxCharsTotal]) {
+			expect(cap as number).toBeGreaterThanOrEqual(20_000);
+			expect(cap as number).toBeLessThanOrEqual(48_000);
+		}
 	});
 
-	it("threads an abort signal into the Parallel prefetch calls so they can be cancelled", async () => {
+	it("threads an abort signal into the pasted-URL Parallel prefetch call so it can be cancelled", async () => {
 		const url = "https://example.com/source";
 
-		// pasted-URL path
 		await prepareOutboundChatContext({
 			message: `Summarize ${url}`,
 			sessionId: "conv-1",
@@ -1681,7 +1726,8 @@ describe("prepareOutboundChatContext", () => {
 			expect.anything(),
 		);
 
-		// forced-search path
+		// forceWebSearch no longer prefetches, so it must never reach
+		// researchWebViaParallel from context preparation at all.
 		await prepareOutboundChatContext({
 			message: "What changed today?",
 			sessionId: "conv-1",
@@ -1695,10 +1741,7 @@ describe("prepareOutboundChatContext", () => {
 			},
 			logLabel: "provider request",
 		});
-		expect(mocks.researchWebViaParallel).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.objectContaining({ signal: expect.any(AbortSignal) }),
-		);
+		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
 	});
 
 	it("warns and continues with the original input when the pasted-URL prefetch fails", async () => {
@@ -1738,7 +1781,7 @@ describe("prepareOutboundChatContext", () => {
 		}
 	});
 
-	it("warns and continues with the original input when forced web prefetch fails", async () => {
+	it("forced search never touches the (possibly broken) research_web prefetch path, so nothing warns", async () => {
 		mocks.researchWebViaParallel.mockRejectedValueOnce(
 			new Error("search backend down"),
 		);
@@ -1761,14 +1804,10 @@ describe("prepareOutboundChatContext", () => {
 
 			expect(prepared.inputValue).toBe("What changed today?");
 			expect(prepared.prefetchedToolCalls).toEqual([]);
-			expect(warn).toHaveBeenCalledWith(
+			expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
+			expect(warn).not.toHaveBeenCalledWith(
 				"[NORMAL_CHAT_CONTEXT] Web prefetch failed",
-				expect.objectContaining({
-					sessionId: "conv-1",
-					modelId: "model1",
-					prefetchReason: "forced_search",
-					error: "search backend down",
-				}),
+				expect.anything(),
 			);
 		} finally {
 			warn.mockRestore();
@@ -1888,9 +1927,13 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.systemPrompt).toBe(withoutPrefetch);
 	});
 
-	it("applies prompt budgeting after forced web prefetch and keeps output token budget fields", async () => {
+	it("applies prompt budgeting after a flatten-mode pasted-URL prefetch and keeps output token budget fields", async () => {
 		// parallelApiKey must be present for the prefetch to proceed past the
-		// Parallel-configured pre-gate (see maybePrefetchWebSearch).
+		// Parallel-configured pre-gate (see maybePrefetchWebSearch). Flatten
+		// mode is used here because it's the only mode that still splices text
+		// into inputValue (native mode hands the model a tool-call/result pair
+		// instead, so it wouldn't push this tiny budget over the edge).
+		const url = "https://example.com/source";
 		mocks.getConfig.mockReturnValue({
 			contextDiagnosticsDebug: true,
 			parallelApiKey: "parallel-key",
@@ -1899,10 +1942,10 @@ describe("prepareOutboundChatContext", () => {
 
 		try {
 			const prepared = await prepareOutboundChatContext({
-				message: "What changed today?",
+				message: `Summarize ${url}`,
 				sessionId: "conv-1",
 				modelConfig: budgetConstrainedModelConfig,
-				forceWebSearch: true,
+				historyToolMessages: "flatten",
 				modelId: "model1",
 				// Tighter than compactContextLimits: the per-turn guidance (date,
 				// language, depth contract) no longer sits in the system prompt,
@@ -1937,9 +1980,10 @@ describe("prepareOutboundChatContext", () => {
 			// which exact section survives truncation.
 			expect(prepared.inputValue).not.toContain("## Current Web Research");
 			expect(prepared.inputValue).toContain(
-				"## Current User Message\nWhat changed today?",
+				`## Current User Message\nSummarize ${url}`,
 			);
 			expect(prepared.prefetchedToolCalls).toHaveLength(1);
+			expect(prepared.prefetchedToolMessages ?? []).toEqual([]);
 			expect(prepared.outputTokenBudget).toEqual(
 				expect.objectContaining({
 					configuredMaxTokens: 64,
@@ -2134,19 +2178,20 @@ describe("prepareOutboundChatContext", () => {
 			}
 		});
 
-		it("combines with a forced web prefetch in the same turn without either clobbering the other", async () => {
+		it("combines a pasted-URL prefetch, forced web search, and the proactive connector block in the same turn without clobbering each other", async () => {
+			const url = "https://example.com/source";
 			mocks.buildProactiveConnectorContext.mockResolvedValue({
 				block:
 					"## Your calendar & mail (live)\n\nCalendar (next 48h):\n- 2026-07-09 15:00–15:30 — Team sync",
 			});
 			mocks.buildConstructedContext.mockResolvedValueOnce(
 				createConstructedContextResult(
-					"What changed today, and do I have any meetings?",
+					`What changed today, and do I have any meetings? ${url}`,
 				),
 			);
 
 			const prepared = await prepareOutboundChatContext({
-				message: "What changed today, and do I have any meetings?",
+				message: `What changed today, and do I have any meetings? ${url}`,
 				sessionId: "conv-1",
 				modelConfig,
 				user: { id: "user-1" },
@@ -2157,14 +2202,18 @@ describe("prepareOutboundChatContext", () => {
 				logLabel: "provider request",
 			});
 
-			expect(prepared.inputValue).toContain("## Current Web Research");
+			// forceWebSearch no longer prefetches — only the pasted URL does, as
+			// a native tool-call/result pair rather than spliced text.
+			expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
+			expect(prepared.inputValue).not.toContain("## Current Web Research");
 			expect(prepared.inputValue).toContain("## Your calendar & mail (live)");
-			expect(
-				prepared.inputValue.indexOf("## Current Web Research"),
-			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
 			expect(
 				prepared.inputValue.indexOf("## Your calendar & mail (live)"),
 			).toBeLessThan(prepared.inputValue.indexOf("## Current User Message"));
+			expect(prepared.prefetchedToolCalls).toEqual([
+				expect.objectContaining({ name: "fetch_url", input: { urls: [url] } }),
+			]);
+			expect(prepared.prefetchedToolMessages).toHaveLength(2);
 		});
 	});
 

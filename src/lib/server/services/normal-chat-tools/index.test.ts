@@ -1372,7 +1372,7 @@ describe("createNormalChatTools", () => {
 			// No modelId on ctx -> unknown capacity -> default 60k char cap; the
 			// fetch is chained to the per-turn session (turnId), not the
 			// conversation.
-			{ sessionId: "turn-1", maxCharsTotal: 60_000 },
+			{ sessionId: "turn-1", maxCharsTotal: 32_000 },
 		);
 		// Reuses the shared grounded-web model payload builder, but stamps the
 		// fetch_url tool name so the compact payload envelope and the recorded
@@ -1445,7 +1445,7 @@ describe("createNormalChatTools", () => {
 		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
 			{ urls: ["https://example.com"] },
 			expect.objectContaining({ fetch: expect.any(Function) }),
-			{ sessionId: "turn-1", maxCharsTotal: 200_000 },
+			{ sessionId: "turn-1", maxCharsTotal: 48_000 },
 		);
 	});
 
@@ -1470,7 +1470,7 @@ describe("createNormalChatTools", () => {
 		expect(fetchUrlViaParallelMock).toHaveBeenCalledWith(
 			{ urls: ["https://example.com"] },
 			expect.objectContaining({ fetch: expect.any(Function) }),
-			{ sessionId: "turn-1", maxCharsTotal: 102_400 },
+			{ sessionId: "turn-1", maxCharsTotal: 48_000 },
 		);
 	});
 
@@ -1527,7 +1527,7 @@ describe("createNormalChatTools", () => {
 
 		// Well beyond the 30k default: the model-aware cap governs, not 30k.
 		expect(result.answerBriefMarkdown.length).toBeGreaterThan(30_000);
-		expect(result.answerBriefMarkdown).toContain("y".repeat(80_000));
+		expect(result.answerBriefMarkdown).toContain("y".repeat(40_000));
 	});
 
 	it("records fetch_url service failures without evidence-ready candidates", async () => {

@@ -23,6 +23,7 @@ import {
 	type ProviderRuntime,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
+	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
 	runDeliberationIfNeeded,
 	type ToolPack,
@@ -229,6 +230,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 	const outboundMessages: ModelMessage[] = [
 		...(prepared.historyMessages ?? []),
 		{ role: "user", content: [{ type: "text", text: finalInputValue }] },
+		...(prepared.prefetchedToolMessages ?? []),
 		...(modelRunParams.continuationMessages ?? []),
 	];
 	logOutboundMessageShape({
@@ -241,6 +243,16 @@ async function runPlainModelRun(params: ModelRunParams) {
 	const toolChoice = modelRunParams.forceProduceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)
 		: undefined;
+	// produce_file forcing (above) already pins tool choice for the whole run;
+	// a forced-search turn only forces the FIRST step (see
+	// resolveForcedResearchWebFirstStepToolChoice), so the two are mutually
+	// exclusive rather than combined.
+	const firstStepToolChoice = modelRunParams.forceProduceFileTool
+		? undefined
+		: resolveForcedResearchWebFirstStepToolChoice({
+				forceWebSearch: modelRunParams.forceWebSearch,
+				tools,
+			});
 
 	return runPlainNormalChatModelRun({
 		provider: runtime.provider,
@@ -261,6 +273,7 @@ async function runPlainModelRun(params: ModelRunParams) {
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools,
 		toolChoice: tools ? toolChoice : undefined,
+		firstStepToolChoice: tools ? firstStepToolChoice : undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
 	});

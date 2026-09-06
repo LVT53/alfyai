@@ -187,6 +187,120 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	it("appends prefetchedToolMessages AFTER the current user message in the outbound messages", async () => {
+		const prefetchedToolMessages = [
+			{
+				role: "assistant" as const,
+				content: [
+					{
+						type: "tool-call" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						input: { urls: ["https://example.com/source"] },
+					},
+				],
+			},
+			{
+				role: "tool" as const,
+				content: [
+					{
+						type: "tool-result" as const,
+						toolCallId: "server-prefetch:fetch_url:abc",
+						toolName: "fetch_url",
+						output: { type: "json" as const, value: { success: true } },
+					},
+				],
+			},
+		];
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "What does this page say? https://example.com/source",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: { status: "ready" },
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+			prefetchedToolMessages,
+		});
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What does this page say? https://example.com/source",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messages: [
+					{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "What does this page say? https://example.com/source",
+							},
+						],
+					},
+					...prefetchedToolMessages,
+				],
+			}),
+		);
+	});
+
+	it("forces the first tool-call step to research_web when forceWebSearch is true and research_web is available", async () => {
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What changed today?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+			forceWebSearch: true,
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				firstStepToolChoice: { type: "tool", toolName: "research_web" },
+			}),
+		);
+	});
+
+	it("does not force a first-step tool choice when forceWebSearch is false", async () => {
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What changed today?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({ firstStepToolChoice: undefined }),
+		);
+	});
+
+	it("does not force a first-step tool choice when research_web is unavailable, even with forceWebSearch", async () => {
+		mocks.createNormalChatTools.mockReturnValue({
+			tools: {
+				produce_file: { __testTool: true },
+			},
+			getToolCalls: () => [],
+		});
+
+		await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "What changed today?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+			forceWebSearch: true,
+		});
+
+		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
+			expect.objectContaining({ firstStepToolChoice: undefined }),
+		);
+	});
+
 	it("forwards typed context preparation activity without exposing stage labels as response activity text", async () => {
 		const contextPreparationActivity = vi.fn();
 		const responseActivity = vi.fn();

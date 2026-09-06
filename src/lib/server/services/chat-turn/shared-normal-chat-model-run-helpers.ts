@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage, ToolChoice, ToolSet } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
@@ -218,6 +218,26 @@ export type ToolPack = {
 	recorder: ReturnType<typeof createToolCallRecorder>;
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
 };
+
+/**
+ * A forced-web-search turn no longer prefetches (see maybePrefetchWebSearch
+ * in normal-chat-context.ts) — instead the model's FIRST tool-call step is
+ * forced to research_web, so it always runs its own (possibly better)
+ * query instead of the raw user message, and every later step's tool choice
+ * stays automatic (forcing it every step would loop forever). Returns
+ * `undefined` when the turn isn't a forced-search turn, or the tool set
+ * doesn't expose research_web (e.g. Parallel isn't configured) — a caller
+ * can pass the result straight through to `firstStepToolChoice` without a
+ * null check.
+ */
+export function resolveForcedResearchWebFirstStepToolChoice(params: {
+	forceWebSearch?: boolean;
+	tools: ToolPack["tools"];
+}): ToolChoice<ToolSet> | undefined {
+	if (!params.forceWebSearch) return undefined;
+	if (!params.tools?.research_web) return undefined;
+	return { type: "tool", toolName: "research_web" };
+}
 
 export async function resolveProviderRuntime(
 	params: NormalChatSendModelBaseParams,
