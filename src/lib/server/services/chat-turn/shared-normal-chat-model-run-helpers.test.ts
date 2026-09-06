@@ -9,6 +9,20 @@ import type { NormalChatModelRunProvider } from "$lib/server/services/normal-cha
 
 const mocks = vi.hoisted(() => ({
 	prepareOutboundChatContext: vi.fn(),
+	listSkillCatalogueEntries: vi.fn(),
+	seedBuiltInSystemSkillDefinitions: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/skills/prompt-context", () => ({
+	listSkillCatalogueEntries: mocks.listSkillCatalogueEntries,
+	// Rendering is covered by skills/prompt-context.test.ts; this stub only
+	// has to prove the catalogue reaches context preparation.
+	buildSkillCatalogueBlock: (entries: unknown[]) =>
+		entries.length > 0 ? `## Skills available\n- ${entries.length}` : null,
+}));
+
+vi.mock("$lib/server/services/skills/user-skills", () => ({
+	seedBuiltInSystemSkillDefinitions: mocks.seedBuiltInSystemSkillDefinitions,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
@@ -234,5 +248,44 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 			[...seen.map((entry) => entry.maxToolSteps)].sort((a, b) => a - b),
 		);
 		expect(seen[0]?.maxToolSteps).toBeLessThan(seen.at(-1)?.maxToolSteps ?? 0);
+	});
+
+	it("seeds the built-in system packs before building the catalogue, once per process", async () => {
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		mocks.listSkillCatalogueEntries.mockReset();
+		mocks.listSkillCatalogueEntries.mockResolvedValue([{ id: "system:a" }]);
+		mocks.seedBuiltInSystemSkillDefinitions.mockReset();
+		mocks.seedBuiltInSystemSkillDefinitions.mockResolvedValue(undefined);
+
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "Critique this plan.",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1:gpt-4.1" as const,
+			overrideProvider,
+		};
+		const runtime = await resolveProviderRuntime(params);
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		// The chat turn is the primary consumer of built-in packs now: it must
+		// not depend on someone having opened the composer skill picker or the
+		// Skills settings tab to seed (and refresh) them first.
+		expect(mocks.seedBuiltInSystemSkillDefinitions).toHaveBeenCalledWith(
+			"user-1",
+		);
+		expect(mocks.seedBuiltInSystemSkillDefinitions).toHaveBeenCalledTimes(1);
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].skillCatalogueBlock,
+		).toContain("## Skills available");
 	});
 });

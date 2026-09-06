@@ -44,13 +44,8 @@ describe("SkillDraftCard", () => {
 		expect(
 			screen.getByText("Review meeting notes for weak follow-ups."),
 		).toBeInTheDocument();
-		expect(screen.getByText("Session")).toBeInTheDocument();
 		expect(screen.getByText("Ask when needed")).toBeInTheDocument();
-		expect(screen.getByText("Private notes")).toBeInTheDocument();
 		expect(screen.getByText("Current conversation")).toBeInTheDocument();
-		expect(
-			screen.getByText("Can write private Skill Notes."),
-		).toBeInTheDocument();
 		expect(
 			screen.getByText("Can use broad current-conversation context."),
 		).toBeInTheDocument();
@@ -73,6 +68,34 @@ describe("SkillDraftCard", () => {
 
 		expect(onSave).toHaveBeenCalledWith("draft-1");
 		expect(onDismiss).toHaveBeenCalledWith("draft-1");
+	});
+
+	it("ignores legacy notes and duration policy values on stored drafts", () => {
+		render(SkillDraftCard, {
+			draft: makeDraft({
+				durationPolicy: "session",
+				notesPolicy: "create_private_notes",
+			}),
+			onSave: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+
+		expect(
+			screen.getByRole("article", { name: "Skill draft: Meeting critic" }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Session")).not.toBeInTheDocument();
+		expect(screen.queryByText("Next message")).not.toBeInTheDocument();
+		expect(screen.queryByText("Private notes")).not.toBeInTheDocument();
+		expect(screen.queryByText("No notes")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("Can write private Skill Notes."),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByText("Can use broad current-conversation context."),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Save private skill" }),
+		).toBeInTheDocument();
 	});
 
 	it("uses Hungarian labels for card actions", () => {

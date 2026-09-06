@@ -22,6 +22,12 @@ import {
 
 let { skillsEnabled = true }: { skillsEnabled?: boolean } = $props();
 
+// `durationPolicy` and `notesPolicy` stay on the draft (and on the create /
+// update payloads) so the persisted skill definition contract keeps its
+// shape for rows written before skills moved to on-demand loading, but
+// Skill Sessions and Skill Notes no longer exist
+// (drizzle/1777140000088_drop_skill_sessions_and_notes.sql), so the form no
+// longer lets the user pick either policy — both stay at their defaults.
 type Draft = {
 	skillKind: "user_skill" | "skill_variant";
 	baseSkillId: string;
@@ -455,25 +461,11 @@ onMount(() => {
 
 				{#if draft.skillKind === "user_skill"}
 				<div class="skills-policy-grid">
-					<label class="settings-label" for="skill-duration-policy">
-						{$t("skills.durationPolicy")}
-						<select id="skill-duration-policy" class="settings-input mt-1" bind:value={draft.durationPolicy}>
-							<option value="next_message">{$t("skills.duration.nextMessage")}</option>
-							<option value="session">{$t("skills.duration.session")}</option>
-						</select>
-					</label>
 					<label class="settings-label" for="skill-question-policy">
 						{$t("skills.questionPolicy")}
 						<select id="skill-question-policy" class="settings-input mt-1" bind:value={draft.questionPolicy}>
 							<option value="none">{$t("skills.question.none")}</option>
 							<option value="ask_when_needed">{$t("skills.question.askWhenNeeded")}</option>
-						</select>
-					</label>
-					<label class="settings-label" for="skill-notes-policy">
-						{$t("skills.notesPolicy")}
-						<select id="skill-notes-policy" class="settings-input mt-1" bind:value={draft.notesPolicy}>
-							<option value="none">{$t("skills.notes.none")}</option>
-							<option value="create_private_notes">{$t("skills.notes.createPrivate")}</option>
 						</select>
 					</label>
 					<label class="settings-label" for="skill-source-scope">

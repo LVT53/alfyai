@@ -30,6 +30,7 @@ function seedUsers() {
 	db.insert(schema.users)
 		.values([
 			{ id: "user-1", email: "user-1@example.com", passwordHash: "hash" },
+			{ id: "user-2", email: "user-2@example.com", passwordHash: "hash" },
 		])
 		.run();
 
@@ -282,6 +283,35 @@ describe("skills/prompt-context", () => {
 			expect(byName.ok).toBe(true);
 		});
 
+		it("resolves the localized name a Hungarian catalogue line advertises", async () => {
+			seedUsers();
+			const { seedBuiltInSystemSkillDefinitions } = await import(
+				"./user-skills"
+			);
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await seedBuiltInSystemSkillDefinitions("user-1");
+
+			const entries = await listSkillCatalogueEntries("user-1", "hu");
+			const localizedName = entries.find(
+				(entry) => entry.id === "system:grill-with-docs",
+			)?.displayName;
+			expect(localizedName).toBe("Tervkritikus");
+			if (!localizedName) return;
+
+			// The model can only echo the name it was shown, so the lookup has to
+			// accept the localized catalogue name as well as the stored English one.
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: localizedName,
+				requestText: "Nézd át ezt a tervet",
+			});
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.skillId).toBe("system:grill-with-docs");
+		});
+
 		it("returns a not_found error for an unknown skill name", async () => {
 			seedUsers();
 			const { resolveSkillInstructionsForUse } = await import(
@@ -320,6 +350,57 @@ describe("skills/prompt-context", () => {
 				requestText: "",
 			});
 			expect(result).toEqual({ ok: false, reason: "not_found" });
+		});
+
+		it("refuses a system pack the user hid, and keeps it out of the catalogue", async () => {
+			seedUsers();
+			const {
+				seedBuiltInSystemSkillDefinitions,
+				setSystemSkillPackHiddenForUser,
+			} = await import("./user-skills");
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await seedBuiltInSystemSkillDefinitions("user-1");
+			await setSystemSkillPackHiddenForUser(
+				"user-1",
+				"system:grill-with-docs",
+				true,
+			);
+
+			const entries = await listSkillCatalogueEntries("user-1");
+			expect(entries.map((entry) => entry.id)).not.toContain(
+				"system:grill-with-docs",
+			);
+
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "Plan Critic",
+				requestText: "critique this plan",
+			});
+			expect(result.ok).toBe(false);
+		});
+
+		it("never loads another user's private skill", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { resolveSkillInstructionsForUse } = await import(
+				"./prompt-context"
+			);
+			const otherUsersSkill = await createUserSkillDefinition("user-2", {
+				displayName: "Private Skill",
+				description: "d",
+				instructions: "Secret instructions.",
+				enabled: true,
+			});
+
+			for (const name of ["Private Skill", otherUsersSkill.id]) {
+				const result = await resolveSkillInstructionsForUse({
+					userId: "user-1",
+					name,
+					requestText: "",
+				});
+				expect(result, name).toEqual({ ok: false, reason: "not_found" });
+			}
 		});
 	});
 

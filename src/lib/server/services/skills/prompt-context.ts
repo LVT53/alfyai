@@ -191,22 +191,37 @@ async function resolveSkillByName(
 	const wanted = key(normalized);
 	const summaries = await discoverSkillSummaries(userId);
 	return (
-		summaries.find(
-			(summary) =>
-				summary.displayName.trim().toLowerCase() === normalized ||
-				summary.id.trim().toLowerCase() === normalized,
+		summaries.find((summary) =>
+			skillNamesFor(summary).some(
+				(candidate) => candidate.trim().toLowerCase() === normalized,
+			),
 		) ??
 		summaries.find((summary) => {
 			const id = summary.id.trim().toLowerCase();
 			const idTail = id.includes(":") ? id.slice(id.indexOf(":") + 1) : id;
 			return (
-				key(summary.displayName) === wanted ||
+				skillNamesFor(summary).some((candidate) => key(candidate) === wanted) ||
 				key(id) === wanted ||
 				key(idTail) === wanted
 			);
 		}) ??
 		null
 	);
+}
+
+// Every name a model could plausibly have been shown for one skill: its
+// stored name, its id, and — for a system pack — the localized display names
+// `listSkillCatalogueEntries` renders into the catalogue (the model can only
+// echo the name it saw, so a Hungarian catalogue line must resolve too).
+function skillNamesFor(summary: SkillDiscoverySummary): string[] {
+	const names = [summary.displayName, summary.id];
+	if (summary.ownership === "system" && "localizedDefaults" in summary) {
+		names.push(
+			summary.localizedDefaults.en.displayName,
+			summary.localizedDefaults.hu.displayName,
+		);
+	}
+	return names.filter((name) => Boolean(name?.trim()));
 }
 
 async function resolveSkillEnvelopeById(params: {

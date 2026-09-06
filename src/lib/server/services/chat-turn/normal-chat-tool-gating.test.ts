@@ -12,6 +12,7 @@ function fakeToolSet(): ToolSetParam {
 		image_search: {},
 		produce_file: {},
 		read_generated_file: {},
+		use_skill: {},
 		done: {},
 	} as unknown as ToolSetParam;
 }
@@ -65,6 +66,26 @@ describe("selectNormalChatToolsForRequest", () => {
 		// Non-memory tools are unaffected by the memory gate.
 		expect(selected).toHaveProperty("research_web");
 		expect(selected).toHaveProperty("image_search");
+	});
+
+	it("withholds the skill-loading tool when the Composer Command Registry is off", () => {
+		// The per-turn skills catalogue and the `$` selection are both gated on
+		// composerCommandRegistryEnabled; use_skill must not stay a live back
+		// door into skill instructions when the feature is switched off.
+		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+			message: "Critique this plan.",
+			skillsEnabled: false,
+		});
+		expect(selected).not.toHaveProperty("use_skill");
+		expect(selected).toHaveProperty("memory_context");
+	});
+
+	it("exposes the skill-loading tool when the Composer Command Registry is on", () => {
+		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+			message: "Critique this plan.",
+			skillsEnabled: true,
+		});
+		expect(selected).toHaveProperty("use_skill");
 	});
 
 	it("withholds memory even when file-production tools are exposed and memory is inactive", () => {

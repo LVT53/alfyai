@@ -26,20 +26,15 @@ let statusLabel = $derived(
 				? $t("skillDrafts.published")
 				: "",
 );
-let durationLabel = $derived(
-	draft.durationPolicy === "session"
-		? $t("skillDrafts.duration.session")
-		: $t("skillDrafts.duration.nextMessage"),
-);
+// `durationPolicy` and `notesPolicy` are still carried on the persisted
+// draft contract so old rows and model-produced drafts keep parsing, but
+// Skill Sessions and Skill Notes no longer exist (skills load on demand for
+// a single turn — drizzle/1777140000088_drop_skill_sessions_and_notes.sql),
+// so neither policy is surfaced to the user any more.
 let questionLabel = $derived(
 	draft.questionPolicy === "ask_when_needed"
 		? $t("skillDrafts.question.askWhenNeeded")
 		: $t("skillDrafts.question.none"),
-);
-let notesLabel = $derived(
-	draft.notesPolicy === "create_private_notes"
-		? $t("skillDrafts.notes.createPrivate")
-		: $t("skillDrafts.notes.none"),
 );
 let sourceLabel = $derived(
 	draft.sourceScope === "current_conversation"
@@ -47,9 +42,6 @@ let sourceLabel = $derived(
 		: $t("skillDrafts.source.selectedSourcesOnly"),
 );
 let warnings = $derived([
-	...(draft.notesPolicy === "create_private_notes"
-		? [$t("skillDrafts.warning.notes")]
-		: []),
 	draft.sourceScope === "current_conversation"
 		? $t("skillDrafts.warning.currentConversation")
 		: $t("skillDrafts.warning.selectedSources"),
@@ -75,9 +67,7 @@ let warnings = $derived([
 	{/if}
 
 	<div class="skill-draft-card__policies" aria-label={$t('skillDrafts.policyTitle')}>
-		<span>{durationLabel}</span>
 		<span>{questionLabel}</span>
-		<span>{notesLabel}</span>
 		<span>{sourceLabel}</span>
 	</div>
 

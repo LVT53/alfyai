@@ -26,11 +26,21 @@ export function selectNormalChatToolsForRequest(
 		// an incognito or memory-disabled conversation is never offered memory
 		// recall. Defaults to active when unspecified (fail open).
 		memoryActive?: boolean;
+		// Composer Command Registry master switch for this turn. The per-turn
+		// skills catalogue (shared-normal-chat-model-run-helpers.ts) and the
+		// explicit `$` selection (preflight.ts) are both gated on it, so the
+		// `use_skill` tool has to be withheld with them — otherwise the model
+		// keeps a live path into skill instructions for a feature the operator
+		// switched off. Omitted/true keeps today's behaviour (fail open).
+		skillsEnabled?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
 	const selected: Partial<NormalChatToolSet> = { ...tools };
 	if (params.memoryActive === false) {
 		delete selected.memory_context;
+	}
+	if (params.skillsEnabled === false) {
+		delete selected.use_skill;
 	}
 	return selected;
 }

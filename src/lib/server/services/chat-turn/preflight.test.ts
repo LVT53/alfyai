@@ -307,6 +307,13 @@ describe("preflightChatTurn", () => {
 			},
 			requestText: "Compare the migration paths.",
 		});
+		// The catalogue still lists the skill this turn, so the forced envelope
+		// has to say it is already loaded or the model calls use_skill again.
+		const envelope =
+			result.ok && result.value.appliedSkill?.instructionsEnvelope;
+		expect(envelope).toContain("already loaded for this turn");
+		expect(envelope).toContain("do not call use_skill for it");
+		expect(envelope).toContain("Use the selected research process.");
 	});
 
 	it("rejects the turn when the pending skill is no longer available", async () => {

@@ -407,7 +407,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		use_skill: {
 			description:
-				'Egy skill teljes utasításainak betöltése, pontos `name` alapján a "## Elérhető skillek" listából. Ha a felhasználó kérése megfelel egy listázott skillnek, hívd meg ezt egyszer, mielőtt válaszolnál, és a kör hátralévő részében kövesd a visszakapott utasításokat. Ne hívd olyan skillre, amely nincs listázva.',
+				'Egy skill teljes utasításainak betöltése, pontos `name` alapján a "## Skills available" listából. Ha a felhasználó kérése megfelel egy listázott skillnek, hívd meg ezt egyszer, mielőtt válaszolnál, és a kör hátralévő részében kövesd a visszakapott utasításokat. Ne hívd olyan skillre, amely nincs listázva.',
 			errorPrefix: "A skill betöltése sikertelen",
 		},
 	},

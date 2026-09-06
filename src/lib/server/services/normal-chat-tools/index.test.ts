@@ -31,6 +31,10 @@ import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import {
+	resolveSkillInstructionsForUse,
+	SKILLS_AVAILABLE_HEADING,
+} from "$lib/server/services/skills/prompt-context";
+import {
 	createNormalChatTools,
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
@@ -124,6 +128,10 @@ vi.mock(
 		};
 	},
 );
+vi.mock("$lib/server/services/skills/prompt-context", () => ({
+	SKILLS_AVAILABLE_HEADING: "## Skills available",
+	resolveSkillInstructionsForUse: vi.fn(),
+}));
 vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/immich")
@@ -167,6 +175,9 @@ const hasLocalDistillEnabledMock = vi.mocked(hasLocalDistillEnabled);
 const isCloudModelMock = vi.mocked(isCloudModel);
 const resolveContactsMock = vi.mocked(resolveContacts);
 const githubListReposMock = vi.mocked(githubListRepos);
+const resolveSkillInstructionsForUseMock = vi.mocked(
+	resolveSkillInstructionsForUse,
+);
 
 function makeNextcloudConnection(
 	overrides: Partial<ConnectionPublic> = {},
@@ -3808,6 +3819,102 @@ describe("createNormalChatTools", () => {
 			expect(description.split(/\s+/).filter(Boolean).length).toBeGreaterThan(
 				20,
 			);
+		});
+	});
+});
+
+describe("use_skill tool", () => {
+	beforeEach(() => {
+		resolveSkillInstructionsForUseMock.mockReset();
+	});
+
+	it("names the real catalogue heading in every language it is described in", () => {
+		for (const language of ["en", "hu"] as const) {
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				language,
+			});
+			// The heading is not localized (buildSkillCatalogueBlock always emits
+			// SKILLS_AVAILABLE_HEADING), so a description that quotes a translated
+			// heading points the model at a block that never exists.
+			expect(tools.use_skill.description, language).toContain(
+				SKILLS_AVAILABLE_HEADING,
+			);
+		}
+	});
+
+	it("returns the resolved envelope and records the loaded skill on the tool call", async () => {
+		resolveSkillInstructionsForUseMock.mockResolvedValue({
+			ok: true,
+			skillId: "system:grill-with-docs",
+			skillOwnership: "system",
+			skillKind: "skill_pack",
+			displayName: "Plan Critic",
+			envelope: 'Skill "Plan Critic" instructions — apply these...',
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			requestText: "criticize this plan",
+		});
+
+		const result = await tools.use_skill.execute(
+			{ name: "  Plan Critic  " },
+			{ toolCallId: "tool-call-skill-1", messages: [] },
+		);
+
+		expect(resolveSkillInstructionsForUseMock).toHaveBeenCalledWith({
+			userId: "user-1",
+			name: "Plan Critic",
+			requestText: "criticize this plan",
+		});
+		expect(result).toMatchObject({
+			found: true,
+			displayName: "Plan Critic",
+		});
+		const [entry] = getToolCalls();
+		expect(entry).toMatchObject({
+			name: "use_skill",
+			status: "done",
+			metadata: {
+				found: true,
+				skillId: "system:grill-with-docs",
+				skillDisplayName: "Plan Critic",
+			},
+		});
+	});
+
+	it("reports an unknown skill name without inventing instructions", async () => {
+		resolveSkillInstructionsForUseMock.mockResolvedValue({
+			ok: false,
+			reason: "not_found",
+		});
+
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.use_skill.execute(
+			{ name: "Nonexistent" },
+			{ toolCallId: "tool-call-skill-2", messages: [] },
+		);
+
+		// Null fields are compacted out of the model payload, so the model gets
+		// the failure and an explanation, never an empty `instructions` key.
+		expect(result).toMatchObject({ found: false });
+		expect(result).not.toHaveProperty("instructions");
+		expect(String((result as { error?: string }).error)).toContain(
+			"Nonexistent",
+		);
+		expect(getToolCalls()[0]?.metadata).toMatchObject({
+			found: false,
+			skillId: null,
 		});
 	});
 });

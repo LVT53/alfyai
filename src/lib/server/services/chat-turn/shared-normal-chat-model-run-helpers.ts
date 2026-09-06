@@ -34,6 +34,7 @@ import {
 	buildSkillCatalogueBlock,
 	listSkillCatalogueEntries,
 } from "$lib/server/services/skills/prompt-context";
+import { seedBuiltInSystemSkillDefinitions } from "$lib/server/services/skills/user-skills";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -267,6 +268,7 @@ async function resolveSkillCatalogueBlock(
 ): Promise<string | null> {
 	if (!userId || !getConfig().composerCommandRegistryEnabled) return null;
 	try {
+		await ensureBuiltInSystemSkillsSeeded(userId);
 		const entries = await listSkillCatalogueEntries(
 			userId,
 			detectLanguage(message),
@@ -275,6 +277,26 @@ async function resolveSkillCatalogueBlock(
 	} catch {
 		return null;
 	}
+}
+
+// Built-in system packs are seeded (and refreshed to the current pack text)
+// by the three skills HTTP routes. On-demand loading made the chat turn the
+// primary consumer, and it touches none of them: without this, a database
+// where nobody opened the `$` picker or the Skills settings tab has no system
+// packs to put in the catalogue, and a pack rewrite shipped in a deploy never
+// reaches the model. Seeding is idempotent and pack text only changes with a
+// deploy, so once per process is enough; a failure clears the memo so the
+// next turn retries.
+let builtInSystemSkillSeed: Promise<void> | null = null;
+
+async function ensureBuiltInSystemSkillsSeeded(userId: string): Promise<void> {
+	builtInSystemSkillSeed ??= seedBuiltInSystemSkillDefinitions(userId).catch(
+		(error: unknown) => {
+			builtInSystemSkillSeed = null;
+			throw error;
+		},
+	);
+	await builtInSystemSkillSeed;
 }
 
 export async function prepareOutboundContext(
@@ -377,6 +399,7 @@ export async function createToolPack(
 					message: params.message,
 					forceProduceFileTool: params.forceProduceFileTool,
 					memoryActive,
+					skillsEnabled: getConfig().composerCommandRegistryEnabled,
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
