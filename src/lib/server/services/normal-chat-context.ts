@@ -234,7 +234,14 @@ const JSON_FORMATTING_RULES = [
 function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
 	if (profile === "off") {
-		return "Provider-visible thinking is disabled for this turn. Still answer carefully and use required tools or grounding when another instruction calls for them.";
+		// Quick mode: without private reasoning the model reaches for tools it
+		// would otherwise have decided it did not need (a research_web call to
+		// look up "typical October weather" before a packing list), which
+		// costs the seconds the mode exists to save.
+		return [
+			"Quick mode: thinking is off for this turn. Answer directly from what you know when that is enough.",
+			"Use a tool only when the answer needs current or verifiable facts, the user's own data or connections, a pasted link, or a file the user asked for.",
+		].join(" ");
 	}
 	const grounding = effort.grounding.guidance;
 	const depthContract =
