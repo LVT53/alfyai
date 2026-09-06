@@ -790,10 +790,27 @@ async function readFilesFromInsideContainer(
 	return files;
 }
 
+export interface ExecuteCodeOptions {
+	// Whether to collect files the code wrote to /output. Defaults to true for
+	// produce_file's program mode, whose whole purpose is those files.
+	//
+	// Set false by callers that only want stdout/stderr (run_python). File
+	// collection is not free: it inspects the output directory in-container,
+	// pulls a tar archive of /output, and — because a scratch script writes no
+	// files, so the "succeeded but collected nothing" branch always fires — then
+	// waits a further 1.5s and re-inspects, a delay meant for JavaScript writes
+	// that land after the process reports exit 0. On a tool sold for scratch
+	// arithmetic that is well over a second of pure latency on every single
+	// successful call, spent collecting files the caller then throws away.
+	collectFiles?: boolean;
+}
+
 export async function executeCode(
 	code: string,
 	language: SandboxLanguage,
+	options: ExecuteCodeOptions = {},
 ): Promise<ExecutionResult> {
+	const collectFiles = options.collectFiles ?? true;
 	if (language !== "python" && language !== "javascript") {
 		return {
 			files: [],
@@ -835,6 +852,20 @@ export async function executeCode(
 					reject(err);
 				});
 		});
+
+		if (!collectFiles) {
+			// stdout/stderr-only caller: skip the inspect / archive-pull /
+			// re-inspect dance below entirely rather than paying for files
+			// nobody will read. classifyError still runs, so a crashed script
+			// reports the same diagnosis it would with collection on.
+			return {
+				files: [],
+				stdout: result.stdout,
+				stderr: result.stderr,
+				exitCode: result.exitCode,
+				error: classifyError(result.stderr, result.exitCode, result.stdout),
+			};
+		}
 
 		const outputInspection =
 			result.exitCode === 0

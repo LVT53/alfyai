@@ -1196,9 +1196,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async () => {
+							// stdout/stderr only: run_python never delivers files (the
+							// description tells the model to use produce_file for that),
+							// so skip the /output inspection, archive pull, and the 1.5s
+							// re-inspection wait that would otherwise run on every
+							// successful scratch call.
 							const execution = await executeSandboxCode(
 								safeInput.code,
 								"python",
+								{ collectFiles: false },
 							);
 							const modelPayload = buildRunPythonModelPayload(execution);
 							return {

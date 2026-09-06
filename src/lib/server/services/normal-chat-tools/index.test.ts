@@ -891,9 +891,14 @@ describe("createNormalChatTools", () => {
 				{ toolCallId: "call-run-python", messages: [] },
 			);
 
+			// collectFiles:false — run_python only ever surfaces stdout/stderr, so
+			// it must not pay for /output collection (an in-container inspect, a
+			// tar pull, and the 1.5s re-inspection wait that a file-less script
+			// always triggers) on every successful call.
 			expect(executeSandboxCodeMock).toHaveBeenCalledWith(
 				"print(6 * 7)",
 				"python",
+				{ collectFiles: false },
 			);
 			expect(result).toEqual({
 				success: true,
