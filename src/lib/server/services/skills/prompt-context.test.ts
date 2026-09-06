@@ -30,6 +30,7 @@ function seedUsers() {
 	db.insert(schema.users)
 		.values([
 			{ id: "user-1", email: "user-1@example.com", passwordHash: "hash" },
+			{ id: "user-2", email: "user-2@example.com", passwordHash: "hash" },
 		])
 		.run();
 
@@ -349,6 +350,57 @@ describe("skills/prompt-context", () => {
 				requestText: "",
 			});
 			expect(result).toEqual({ ok: false, reason: "not_found" });
+		});
+
+		it("refuses a system pack the user hid, and keeps it out of the catalogue", async () => {
+			seedUsers();
+			const {
+				seedBuiltInSystemSkillDefinitions,
+				setSystemSkillPackHiddenForUser,
+			} = await import("./user-skills");
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await seedBuiltInSystemSkillDefinitions("user-1");
+			await setSystemSkillPackHiddenForUser(
+				"user-1",
+				"system:grill-with-docs",
+				true,
+			);
+
+			const entries = await listSkillCatalogueEntries("user-1");
+			expect(entries.map((entry) => entry.id)).not.toContain(
+				"system:grill-with-docs",
+			);
+
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "Plan Critic",
+				requestText: "critique this plan",
+			});
+			expect(result.ok).toBe(false);
+		});
+
+		it("never loads another user's private skill", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { resolveSkillInstructionsForUse } = await import(
+				"./prompt-context"
+			);
+			const otherUsersSkill = await createUserSkillDefinition("user-2", {
+				displayName: "Private Skill",
+				description: "d",
+				instructions: "Secret instructions.",
+				enabled: true,
+			});
+
+			for (const name of ["Private Skill", otherUsersSkill.id]) {
+				const result = await resolveSkillInstructionsForUse({
+					userId: "user-1",
+					name,
+					requestText: "",
+				});
+				expect(result, name).toEqual({ ok: false, reason: "not_found" });
+			}
 		});
 	});
 
