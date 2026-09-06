@@ -61,6 +61,10 @@ const produceFileSchema = z.object({
 	title: z.string(),
 });
 
+const researchWebSchema = z.object({
+	query: z.string(),
+});
+
 const doneToolSchema = z.object({
 	summary: z.string(),
 });
@@ -81,6 +85,19 @@ function createProduceFileTool(
 	return tool({
 		description: "Queue a file production job.",
 		inputSchema: produceFileSchema,
+		execute,
+	});
+}
+
+function createResearchWebTool(
+	execute: (
+		input: { query: string },
+		context?: { toolCallId?: string },
+	) => unknown = vi.fn(),
+) {
+	return tool({
+		description: "Search the web.",
+		inputSchema: researchWebSchema,
 		execute,
 	});
 }
@@ -2597,6 +2614,116 @@ describe("Plain Normal Chat Model Run", () => {
 		);
 	});
 
+	it("forces firstStepToolChoice on the first step only, leaving later steps automatic", async () => {
+		const researchExecute = vi.fn(async () => ({ answerBrief: "Brief" }));
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: null,
+									tool_calls: [
+										{
+											id: "call-1",
+											type: "function",
+											function: {
+												name: "research_web",
+												arguments: JSON.stringify({ query: "today" }),
+											},
+										},
+									],
+								},
+								finish_reason: "tool_calls",
+							},
+						],
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-2",
+						model: "provider-returned-model",
+						created: 1_717_171_718,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: "Here is what changed today.",
+								},
+								finish_reason: "stop",
+							},
+						],
+						usage: {
+							prompt_tokens: 12,
+							completion_tokens: 4,
+							total_tokens: 16,
+						},
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		await runPlainNormalChatModelRun({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "What changed today?" }],
+				},
+			],
+			tools: {
+				research_web: createResearchWebTool(researchExecute),
+			},
+			// No top-level `toolChoice` — only the FIRST step is forced.
+			firstStepToolChoice: { type: "tool", toolName: "research_web" },
+			fetch,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+
+		const firstBody = parseRequestBody(fetch, 0);
+		expect(firstBody.tool_choice).toEqual({
+			type: "function",
+			function: { name: "research_web" },
+		});
+
+		const secondBody = parseRequestBody(fetch, 1);
+		expect(secondBody.tool_choice).not.toEqual({
+			type: "function",
+			function: { name: "research_web" },
+		});
+		expect(researchExecute).toHaveBeenCalledTimes(1);
+	});
+
 	it("does not retry required tool-choice runs without tools", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(
 			async () =>
@@ -4214,5 +4341,88 @@ describe("Streaming Normal Chat Model Run", () => {
 			type: "function",
 			function: { name: "produce_file" },
 		});
+	});
+
+	it("forces firstStepToolChoice on the first streaming step only, leaving later steps automatic", async () => {
+		const researchExecute = vi.fn(async () => ({ answerBrief: "Brief" }));
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						toolCalls: [
+							{
+								id: "call-1",
+								name: "research_web",
+								arguments: JSON.stringify({ query: "today" }),
+							},
+						],
+					},
+					{
+						model: "stream-model",
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
+			)
+			.mockResolvedValueOnce(
+				createStreamResponse([
+					{
+						model: "stream-model",
+						content: "Here is what changed today.",
+					},
+					{
+						model: "stream-model",
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 12,
+							completion_tokens: 4,
+							total_tokens: 16,
+						},
+					},
+				]),
+			);
+
+		await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{
+					role: "user",
+					content: [{ type: "text", text: "What changed today?" }],
+				},
+			],
+			tools: {
+				research_web: createResearchWebTool(researchExecute),
+			},
+			// No top-level `toolChoice` — only the FIRST step is forced.
+			firstStepToolChoice: { type: "tool", toolName: "research_web" },
+			fetch,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+
+		const firstBody = parseRequestBody(fetch, 0);
+		expect(firstBody.tool_choice).toEqual({
+			type: "function",
+			function: { name: "research_web" },
+		});
+
+		const secondBody = parseRequestBody(fetch, 1);
+		expect(secondBody.tool_choice).not.toEqual({
+			type: "function",
+			function: { name: "research_web" },
+		});
+		expect(researchExecute).toHaveBeenCalledTimes(1);
 	});
 });
