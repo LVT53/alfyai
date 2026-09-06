@@ -7,11 +7,14 @@ import {
 } from "./composer-command-analytics";
 
 function fetchSpy() {
-	return vi.fn(async () => new Response(null, { status: 200 }));
+	return vi.fn(
+		async (_input: RequestInfo | URL, _init?: RequestInit) =>
+			new Response(null, { status: 200 }),
+	);
 }
 
 function lastBody(fetchImpl: ReturnType<typeof fetchSpy>) {
-	const init = fetchImpl.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+	const init = fetchImpl.mock.calls.at(-1)?.[1];
 	return JSON.parse(String(init?.body));
 }
 
@@ -20,7 +23,7 @@ describe("client activity analytics", () => {
 		const fetchImpl = fetchSpy();
 		recordComposerCommandUsed("remember", "conv-1", fetchImpl);
 
-		expect(fetchImpl.mock.calls[0][0]).toBe("/api/analytics/activity");
+		expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/analytics/activity");
 		expect(lastBody(fetchImpl)).toEqual({
 			kind: "composer_command",
 			name: "remember",

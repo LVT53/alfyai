@@ -350,8 +350,7 @@ const chatDict = {
 		"composerCommands.compact.label": "Compact",
 		"composerCommands.document.description":
 			"Link a Library document as context.",
-		"composerCommands.document.argumentPlaceholder":
-			"Search library documents",
+		"composerCommands.document.argumentPlaceholder": "Search library documents",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
 		"composerCommands.export.description":
@@ -366,8 +365,7 @@ const chatDict = {
 		"composerCommands.new.label": "New chat",
 		"composerCommands.quick.description": "Turn thinking off for replies.",
 		"composerCommands.quick.label": "Quick",
-		"composerCommands.remember.argumentPlaceholder":
-			"What should I remember?",
+		"composerCommands.remember.argumentPlaceholder": "What should I remember?",
 		"composerCommands.remember.description": "Save a note to durable memory.",
 		"composerCommands.remember.error": "Could not save that note.",
 		"composerCommands.remember.label": "Remember",

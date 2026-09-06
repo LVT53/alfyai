@@ -8,8 +8,8 @@ vi.mock("$lib/server/services/messages", () => ({
 }));
 
 import { getConversation } from "$lib/server/services/conversations";
-import type { ChatMessage } from "$lib/server/services/messages-types";
 import { listMessages } from "$lib/server/services/messages";
+import type { ChatMessage } from "$lib/server/services/messages-types";
 import { GET } from "./+server";
 
 const mockGetConversation = vi.mocked(getConversation);

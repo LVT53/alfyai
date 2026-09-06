@@ -152,6 +152,23 @@ describe("findActiveComposerCommandTokenWithArgument", () => {
 		).toBeNull();
 	});
 
+	it("ignores a command name that is really a URL or path segment", () => {
+		for (const text of [
+			"https://example.com/document quarterly",
+			"see /document/archive quarterly",
+			"~/document notes",
+		]) {
+			expect(
+				findActiveComposerCommandTokenWithArgument(
+					text,
+					text.length,
+					commandIds,
+				),
+				text,
+			).toBeNull();
+		}
+	});
+
 	it("returns null when no command id is configured to take an argument", () => {
 		expect(
 			findActiveComposerCommandTokenWithArgument("/document search", 16, []),
