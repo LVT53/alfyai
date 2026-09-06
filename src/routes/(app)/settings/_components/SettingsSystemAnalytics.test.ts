@@ -1,7 +1,20 @@
 import { fireEvent, render } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
+
+const { fetchAnalyticsMock } = vi.hoisted(() => ({
+	fetchAnalyticsMock: vi.fn(),
+}));
+
+vi.mock("$lib/client/api/settings", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/client/api/settings")>();
+	return {
+		...actual,
+		fetchAnalytics: fetchAnalyticsMock,
+	};
+});
 
 vi.mock("chart.js/auto", () => {
 	class Chart {
@@ -125,6 +138,126 @@ function systemWithByModelFixture(): AnalyticsResponse {
 	};
 }
 
+function systemWithAvailabilityFixture(): AnalyticsResponse {
+	const base = systemFixture();
+	const system = base.system;
+	if (!system) throw new Error("systemFixture() must include system");
+	return {
+		...base,
+		system: {
+			...system,
+			byModel: [
+				{
+					model: "model-active",
+					displayName: "Model Active",
+					providerDisplayName: "OpenAI",
+					msgCount: 10,
+					totalTokens: 100,
+					totalCostUsd: 1,
+					availability: "active",
+					firstTokenP50Ms: 200,
+					firstTokenP90Ms: 400,
+					generationP50Ms: 1200,
+					avgReasoningTokens: 50,
+				},
+				{
+					model: "model-disabled",
+					displayName: "Model Disabled",
+					providerDisplayName: "OpenAI",
+					msgCount: 5,
+					totalTokens: 50,
+					totalCostUsd: 0.5,
+					availability: "disabled",
+				},
+				{
+					model: "model-removed",
+					displayName: "Model Removed",
+					providerDisplayName: "OpenAI",
+					msgCount: 2,
+					totalTokens: 20,
+					totalCostUsd: 0.2,
+					availability: "removed",
+				},
+			],
+			byProvider: [
+				{
+					providerId: "provider-openai",
+					displayName: "OpenAI",
+					msgCount: 17,
+					totalTokens: 170,
+					totalCostUsd: 1.7,
+				},
+			],
+		},
+	};
+}
+
+function systemWithToolsAndLatencyFixture(): AnalyticsResponse {
+	const base = systemFixture();
+	const system = base.system;
+	if (!system) throw new Error("systemFixture() must include system");
+	const tools = Array.from({ length: 12 }, (_, i) => ({
+		name: `tool_${i}`,
+		calls: 100 - i,
+		failed: i,
+		cached: i * 2,
+		p50DurationMs: 300 + i,
+	}));
+	const commandsAndSkills = Array.from({ length: 15 }, (_, i) => ({
+		kind:
+			i % 3 === 0
+				? ("composer_command" as const)
+				: i % 3 === 1
+					? ("skill_use" as const)
+					: ("follow_up_click" as const),
+		name: `action_${i}`,
+		count: 50 - i,
+	}));
+	return {
+		...base,
+		system,
+		tools,
+		commandsAndSkills,
+		latencyByPromptBucket: [
+			{
+				bucket: "<10k",
+				n: 10,
+				firstTokenP50Ms: 100,
+				firstTokenP90Ms: 200,
+				reasoningTokensMedian: 20,
+			},
+			{
+				bucket: "10-30k",
+				n: 8,
+				firstTokenP50Ms: 150,
+				firstTokenP90Ms: 300,
+				reasoningTokensMedian: 30,
+			},
+			{
+				bucket: "30-60k",
+				n: 6,
+				firstTokenP50Ms: 200,
+				firstTokenP90Ms: 500,
+				reasoningTokensMedian: 40,
+			},
+			{
+				bucket: "60-120k",
+				n: 4,
+				firstTokenP50Ms: 300,
+				firstTokenP90Ms: 900,
+				reasoningTokensMedian: 60,
+			},
+			{
+				bucket: ">120k",
+				n: 2,
+				firstTokenP50Ms: 500,
+				firstTokenP90Ms: 1500,
+				reasoningTokensMedian: 100,
+			},
+		],
+	};
+}
+
 function systemWithParallelFixture(): AnalyticsResponse {
 	const base = systemFixture();
 	const system = base.system;
@@ -147,6 +280,11 @@ function systemWithParallelFixture(): AnalyticsResponse {
 }
 
 describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
+	beforeEach(() => {
+		fetchAnalyticsMock.mockReset();
+		fetchAnalyticsMock.mockResolvedValue(systemWithAvailabilityFixture());
+	});
+
 	it("renders the System Overview stats on the default Overview tab", () => {
 		const { getByText } = render(SettingsSystemAnalytics, {
 			analyticsData: systemFixture(),
@@ -352,5 +490,154 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		for (const config of chartConfigs) {
 			expect(config.options?.animation).toBe(false);
 		}
+	});
+
+	// Analytics overhaul (frontend half) — status badge, retired grouping, and
+	// the "Show retired" toggle on the Usage by model tab.
+	it("shows status badges, hides retired models by default, and reveals them via Show retired", async () => {
+		const { getByRole, getByText, getByLabelText, queryByText } = render(
+			SettingsSystemAnalytics,
+			{
+				analyticsData: systemWithAvailabilityFixture(),
+				modelNames: {},
+				onRetry: vi.fn(),
+				selectedSystemMonth: null,
+				onSystemMonthChange: vi.fn(),
+				allUsers: [],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
+			},
+		);
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+
+		expect(getByText("Model Active")).toBeInTheDocument();
+		expect(getByText("Model Disabled")).toBeInTheDocument();
+		expect(getByText("Active")).toBeInTheDocument();
+		expect(getByText("Disabled")).toBeInTheDocument();
+		// Retired models are hidden until "Show retired" is toggled on.
+		expect(queryByText("Model Removed")).not.toBeInTheDocument();
+		expect(
+			queryByText("Retired · no longer offered by any provider"),
+		).not.toBeInTheDocument();
+
+		await fireEvent.click(getByLabelText("Show retired"));
+
+		expect(getByText("Model Removed")).toBeInTheDocument();
+		expect(
+			getByText("Retired · no longer offered by any provider"),
+		).toBeInTheDocument();
+		expect(getByText("Removed")).toBeInTheDocument();
+	});
+
+	// Analytics overhaul (frontend half) — the User/Provider/Model filters
+	// call GET /api/analytics (via fetchAnalytics) with the new filter params.
+	it("calls fetchAnalytics with the selected filter params", async () => {
+		const { getByRole, getByLabelText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithAvailabilityFixture(),
+			modelNames: { "model-active": "Model Active" },
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [
+				{ id: "user-2", email: "user2@example.com", name: "User Two" },
+			],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+
+		await fireEvent.change(getByLabelText("User"), {
+			target: { value: "user-2" },
+		});
+
+		await vi.waitFor(() => {
+			expect(fetchAnalyticsMock).toHaveBeenCalledWith(
+				false,
+				undefined,
+				undefined,
+				undefined,
+				{ userId: "user-2", modelId: null, providerId: null },
+			);
+		});
+
+		await fireEvent.change(getByLabelText("Model"), {
+			target: { value: "model-active" },
+		});
+
+		await vi.waitFor(() => {
+			expect(fetchAnalyticsMock).toHaveBeenCalledWith(
+				false,
+				undefined,
+				undefined,
+				undefined,
+				{ userId: "user-2", modelId: "model-active", providerId: null },
+			);
+		});
+	});
+
+	// Analytics overhaul (frontend half) — the Tools & latency tab renders
+	// from the new read-model sections, and its top-10 tables expand/collapse.
+	describe("Tools & latency tab", () => {
+		it("renders the tools, commands/skills, and latency-by-prompt-size cards", async () => {
+			const { getByRole, getByText, getAllByText } = render(
+				SettingsSystemAnalytics,
+				{
+					analyticsData: systemWithToolsAndLatencyFixture(),
+					modelNames: {},
+					onRetry: vi.fn(),
+					selectedSystemMonth: null,
+					onSystemMonthChange: vi.fn(),
+					allUsers: [],
+					excludedUserIds: [],
+					onExcludedUsersChange: vi.fn(),
+				},
+			);
+
+			await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+
+			expect(getByText("tool_0")).toBeInTheDocument();
+			expect(getByText("Commands, skills and actions")).toBeInTheDocument();
+			expect(getByText("action_0")).toBeInTheDocument();
+			expect(getAllByText("Command").length).toBeGreaterThan(0);
+			expect(getByText("Latency by prompt size")).toBeInTheDocument();
+			expect(getByText("<10k")).toBeInTheDocument();
+		});
+
+		it("caps the tools table at 10 rows and expands/collapses via View all / Show fewer", async () => {
+			const { getByRole, getByText, queryByText } = render(
+				SettingsSystemAnalytics,
+				{
+					analyticsData: systemWithToolsAndLatencyFixture(),
+					modelNames: {},
+					onRetry: vi.fn(),
+					selectedSystemMonth: null,
+					onSystemMonthChange: vi.fn(),
+					allUsers: [],
+					excludedUserIds: [],
+					onExcludedUsersChange: vi.fn(),
+				},
+			);
+
+			await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+
+			// 12 tools total, sorted by calls desc by default -> tool_0..tool_9 (top 10).
+			expect(getByText("tool_9")).toBeInTheDocument();
+			expect(queryByText("tool_10")).not.toBeInTheDocument();
+			const viewAll = getByText("Showing 10 of 12 · View all 12 →");
+			expect(viewAll).toBeInTheDocument();
+
+			await fireEvent.click(viewAll);
+
+			expect(getByText("tool_10")).toBeInTheDocument();
+			expect(getByText("tool_11")).toBeInTheDocument();
+			const showFewer = getByText("Show fewer");
+			expect(showFewer).toBeInTheDocument();
+
+			await fireEvent.click(showFewer);
+
+			expect(queryByText("tool_10")).not.toBeInTheDocument();
+		});
 	});
 });

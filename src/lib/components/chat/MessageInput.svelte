@@ -1741,6 +1741,7 @@ function selectCommand(command: CommandTrayRow) {
 		commandTrayMessage = command.statusKey ? $t(command.statusKey) : "";
 		return;
 	}
+	recordComposerCommandUsed(command.id, resolvedConversationId);
 
 	if (command.id === "clear") {
 		const nextMessage = getMessageWithoutActiveCommandToken()?.text ?? message;

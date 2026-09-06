@@ -63,6 +63,29 @@ describe("settings client API", () => {
 		);
 	});
 
+	// Analytics overhaul (frontend half) — admin-only userId/modelId/providerId
+	// narrowing filters over the system/tools/commandsAndSkills/
+	// latencyByPromptBucket sections.
+	it("passes the admin userId/modelId/providerId filters to analytics", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(JSON.stringify({ personal: { byModel: [] } }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchImpl);
+
+		await fetchAnalytics(false, undefined, undefined, "2026-06", {
+			userId: "user-2",
+			modelId: "model-a",
+			providerId: "provider-openai",
+		});
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/analytics?systemMonth=2026-06&userId=user-2&modelId=model-a&providerId=provider-openai",
+		);
+	});
+
 	it("requests the password-confirmed account data archive and returns a ZIP download", async () => {
 		const fetchImpl = vi.fn().mockResolvedValueOnce(
 			new Response("zip", {

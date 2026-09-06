@@ -13,7 +13,10 @@ import {
 	type TableRow,
 } from "$lib/components/analytics";
 import { t } from "$lib/i18n";
-import type { AnalyticsResponse } from "$lib/client/api/settings";
+import {
+	type AnalyticsResponse,
+	fetchAnalytics,
+} from "$lib/client/api/settings";
 import "$lib/components/analytics/analytics.css";
 
 // Phase B, wave B3: the system Blocks B/C/D analytics (admin-only) rebuilt on
@@ -50,7 +53,12 @@ let {
 		| undefined;
 } = $props();
 
-type SystemTab = "overview" | "byModel" | "parallel" | "byUser";
+type SystemTab =
+	| "overview"
+	| "byModel"
+	| "toolsLatency"
+	| "parallel"
+	| "byUser";
 let activeTab = $state<SystemTab>("overview");
 
 let excludedUsersSaveState = $state<"idle" | "saving" | "saved" | "error">(
@@ -63,6 +71,85 @@ const parallel = $derived(system?.parallel);
 const perUserRows = $derived(analyticsData?.perUser ?? []);
 
 const onMonth = $derived(onSystemMonthChange ?? (() => {}));
+
+// Owner-approved mockup — "Usage by model" and "Tools & latency" gain three
+// admin-only select filters (User/Provider/Model) that call GET /api/analytics
+// with userId/modelId/providerId query params. "" means "all" (a native
+// <select> value is always a string). Kept local to this component — the
+// month stays parent-owned (selectedSystemMonth/onSystemMonthChange), but a
+// filtered fetch below always includes the current month so the two never
+// drift apart.
+let filterUserId = $state("");
+let filterModelId = $state("");
+let filterProviderId = $state("");
+let showRetired = $state(false);
+const hasActiveFilters = $derived(
+	Boolean(filterUserId || filterModelId || filterProviderId),
+);
+
+let filteredData = $state<AnalyticsResponse | null>(null);
+let filteredLoading = $state(false);
+let filterFetchToken = 0;
+
+$effect(() => {
+	const userId = filterUserId;
+	const modelId = filterModelId;
+	const providerId = filterProviderId;
+	const month = selectedSystemMonth;
+	if (!userId && !modelId && !providerId) {
+		filteredData = null;
+		filteredLoading = false;
+		return;
+	}
+	const token = ++filterFetchToken;
+	filteredLoading = true;
+	fetchAnalytics(false, undefined, undefined, month ?? undefined, {
+		userId: userId || null,
+		modelId: modelId || null,
+		providerId: providerId || null,
+	})
+		.then((data) => {
+			if (token !== filterFetchToken) return;
+			filteredData = data;
+		})
+		.catch(() => {
+			// Best-effort: keep showing whatever was displayed before.
+		})
+		.finally(() => {
+			if (token === filterFetchToken) filteredLoading = false;
+		});
+});
+
+// The prop data (unfiltered by userId/modelId/providerId) once filters are
+// cleared; the locally fetched filtered read model while any are active.
+const effectiveData = $derived(
+	hasActiveFilters ? (filteredData ?? analyticsData) : analyticsData,
+);
+const effectiveSystem = $derived(effectiveData?.system);
+
+// A stable Provider select option list: refreshed from every unfiltered (by
+// provider) response so picking a provider doesn't collapse the dropdown to
+// just that one entry on the next render.
+let providerOptions = $state<Array<{ id: string; name: string }>>([]);
+$effect(() => {
+	if (filterProviderId) return;
+	const rows = effectiveSystem?.byProvider ?? [];
+	providerOptions = rows
+		.filter((row): row is typeof row & { providerId: string } =>
+			Boolean(row.providerId),
+		)
+		.map((row) => ({ id: row.providerId, name: row.displayName }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+});
+
+// The Model select uses the full, unfiltered model universe (the modelNames
+// prop) rather than the current byModel breakdown, so it never shrinks when
+// another filter narrows the visible rows.
+const modelOptions = $derived(
+	Object.entries(modelNames)
+		.map(([id, name]) => ({ id, name }))
+		.sort((a, b) => a.name.localeCompare(b.name)),
+);
 
 // MonthNav expects chronologically ascending "YYYY-MM" keys.
 const months = $derived(
@@ -85,6 +172,12 @@ const tabs = $derived([
 		label: $t("analytics.usageByModel"),
 		tabId: "system-analytics-bymodel-tab",
 		panelId: "system-analytics-bymodel-panel",
+	},
+	{
+		id: "toolsLatency",
+		label: $t("analytics.toolsAndLatency"),
+		tabId: "system-analytics-toolslatency-tab",
+		panelId: "system-analytics-toolslatency-panel",
 	},
 	...(parallel
 		? [
@@ -162,7 +255,7 @@ const monthlyCostOptions = {
 
 // ---- Usage by model ----------------------------------------------------
 const providerPresent = $derived(
-	(system?.byModel ?? []).some((row) => row.providerDisplayName),
+	(effectiveSystem?.byModel ?? []).some((row) => row.providerDisplayName),
 );
 
 const modelColumns = $derived<TableColumn[]>([
@@ -176,31 +269,211 @@ const modelColumns = $derived<TableColumn[]>([
 				},
 			]
 		: []),
+	{ key: "status", label: $t("analytics.status"), type: "text" },
 	{ key: "calls", label: $t("analytics.calls"), type: "number" },
 	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
 	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+	{
+		key: "firstTokenP50",
+		label: $t("analytics.firstTokenP50"),
+		type: "number",
+	},
+	{
+		key: "firstTokenP90",
+		label: $t("analytics.firstTokenP90"),
+		type: "number",
+	},
+	{
+		key: "generationP50",
+		label: $t("analytics.generationP50"),
+		type: "number",
+	},
+	{
+		key: "reasoningTokens",
+		label: $t("analytics.reasoningTokens"),
+		type: "number",
+	},
 ]);
 
-const modelRows = $derived<TableRow[]>(
-	(system?.byModel ?? []).map((row) => ({
+function statusLabel(status: unknown): string {
+	if (status === "disabled") return $t("analytics.statusDisabled");
+	if (status === "removed") return $t("analytics.statusRemoved");
+	return $t("analytics.statusActive");
+}
+
+function statusPillClass(status: unknown): string {
+	if (status === "disabled") return "status-pill status-pill--disabled";
+	if (status === "removed") return "status-pill status-pill--removed";
+	return "status-pill status-pill--active";
+}
+
+// Every byModel row (Analytics overhaul, frontend half) — availability,
+// avgReasoningTokens and the first-token/generation percentiles are
+// undefined for a row predating those message_analytics marks; blank in the
+// table rather than a misleading 0.
+const allModelRows = $derived<TableRow[]>(
+	(effectiveSystem?.byModel ?? []).map((row) => ({
 		model: row.displayName ?? modelDisplayName(row.model),
 		iconUrl: modelIconUrl(row.model),
 		provider: row.providerDisplayName ?? "",
+		status: row.availability ?? "active",
 		calls: row.msgCount,
 		tokens: row.totalTokens ?? 0,
 		cost: row.totalCostUsd,
+		firstTokenP50: row.firstTokenP50Ms ?? null,
+		firstTokenP90: row.firstTokenP90Ms ?? null,
+		generationP50: row.generationP50Ms ?? null,
+		reasoningTokens: row.avgReasoningTokens ?? null,
 	})),
+);
+
+// A model is "removed" once neither it nor its provider is offered anymore
+// (see ModelAvailability) — grouped separately at the bottom, behind the
+// "Show retired" toggle, rather than mixed into the main breakdown.
+const activeModelRows = $derived(
+	allModelRows.filter((row) => row.status !== "removed"),
+);
+const retiredModelRows = $derived(
+	allModelRows.filter((row) => row.status === "removed"),
 );
 
 const modelTotalRow = $derived<TableRow>({
 	model: $t("analytics.total"),
 	provider: "",
-	calls: (system?.byModel ?? []).reduce((sum, row) => sum + row.msgCount, 0),
-	tokens: (system?.byModel ?? []).reduce(
-		(sum, row) => sum + (row.totalTokens ?? 0),
-		0,
-	),
-	cost: (system?.byModel ?? []).reduce((sum, row) => sum + row.totalCostUsd, 0),
+	status: "",
+	calls: activeModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
+	tokens: activeModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
+	cost: activeModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
+});
+
+function formatMs(value: number | null | undefined): string {
+	return value == null ? "—" : `${formatNum(Math.round(value))} ms`;
+}
+
+// A simple calls-weighted mean across models in scope — a fair single figure
+// for the stat row above the table, not a re-derivation of any single
+// model's own percentile.
+function weightedMeanMs(
+	rows: readonly TableRow[],
+	key: "firstTokenP50" | "firstTokenP90",
+): number | null {
+	let weightedSum = 0;
+	let totalWeight = 0;
+	for (const row of rows) {
+		const value = row[key];
+		const weight = row.calls as number;
+		if (typeof value === "number" && weight > 0) {
+			weightedSum += value * weight;
+			totalWeight += weight;
+		}
+	}
+	return totalWeight > 0 ? weightedSum / totalWeight : null;
+}
+
+const modelCallsTotal = $derived(effectiveSystem?.totalMessages ?? 0);
+const modelTokensTotal = $derived(effectiveSystem?.totalTokens ?? 0);
+const modelCostTotal = $derived(effectiveSystem?.totalCostUsd ?? 0);
+const modelFirstTokenP50Agg = $derived(
+	weightedMeanMs(allModelRows, "firstTokenP50"),
+);
+const modelFirstTokenP90Agg = $derived(
+	weightedMeanMs(allModelRows, "firstTokenP90"),
+);
+const activeModelsCount = $derived(
+	allModelRows.filter((row) => row.status === "active").length,
+);
+const configuredModelsCount = $derived(
+	allModelRows.filter((row) => row.status !== "removed").length,
+);
+
+// ---- Tools & latency (Analytics overhaul, frontend half) ---------------
+// Three admin-only cards honouring the same User/Provider/Model filters as
+// the Usage by model tab — see `effectiveData` above.
+const TOP_N = 10;
+
+function showAllFooterLabel(shownCount: number, totalCount: number): string {
+	return `${$t("analytics.showingOfTotal", { shown: shownCount, total: totalCount })} · ${$t(
+		"analytics.viewAllCount",
+		{ total: totalCount },
+	)}`;
+}
+
+const toolsColumns: TableColumn[] = [
+	{ key: "tool", label: $t("analytics.tool"), type: "text" },
+	{ key: "calls", label: $t("analytics.calls"), type: "number" },
+	{ key: "failedPct", label: $t("analytics.failedPercent"), type: "number" },
+	{ key: "cachedPct", label: $t("analytics.cachedPercent"), type: "number" },
+	{ key: "p50", label: $t("analytics.durationP50"), type: "number" },
+];
+
+function percentOf(part: number, total: number): number {
+	return total > 0 ? Math.round((part / total) * 1000) / 10 : 0;
+}
+
+const toolsRows = $derived<TableRow[]>(
+	(effectiveData?.tools ?? []).map((tool) => ({
+		tool: tool.name,
+		calls: tool.calls,
+		failedPct: percentOf(tool.failed, tool.calls),
+		cachedPct: percentOf(tool.cached, tool.calls),
+		p50: tool.p50DurationMs,
+	})),
+);
+const toolsShowAllLabel = $derived(
+	showAllFooterLabel(Math.min(TOP_N, toolsRows.length), toolsRows.length),
+);
+
+function kindLabel(kind: unknown): string {
+	if (kind === "composer_command") return $t("analytics.kindCommand");
+	if (kind === "skill_use") return $t("analytics.kindSkill");
+	return $t("analytics.kindClick");
+}
+
+const commandsColumns: TableColumn[] = [
+	{ key: "name", label: $t("analytics.name"), type: "text" },
+	{ key: "kind", label: $t("analytics.kind"), type: "text" },
+	{ key: "uses", label: $t("analytics.uses"), type: "number" },
+];
+
+const commandsRows = $derived<TableRow[]>(
+	(effectiveData?.commandsAndSkills ?? []).map((entry) => ({
+		name: entry.name,
+		kind: entry.kind,
+		uses: entry.count,
+	})),
+);
+const commandsShowAllLabel = $derived(
+	showAllFooterLabel(Math.min(TOP_N, commandsRows.length), commandsRows.length),
+);
+
+const latencyColumns: TableColumn[] = [
+	{ key: "bucket", label: $t("analytics.promptBucket"), type: "text" },
+	{ key: "turns", label: $t("analytics.turns"), type: "number" },
+	{ key: "p50", label: $t("analytics.firstTokenP50"), type: "number" },
+	{ key: "p90", label: $t("analytics.firstTokenP90"), type: "number" },
+	{
+		key: "reasoningMedian",
+		label: $t("analytics.reasoningTokensMedian"),
+		type: "number",
+	},
+	{ key: "bar", label: "", type: "number" },
+];
+
+const latencyRows = $derived.by(() => {
+	const rows = effectiveData?.latencyByPromptBucket ?? [];
+	const maxP90 = Math.max(1, ...rows.map((row) => row.firstTokenP90Ms ?? 0));
+	return rows.map((row) => ({
+		bucket: row.bucket,
+		turns: row.n,
+		p50: row.firstTokenP50Ms,
+		p90: row.firstTokenP90Ms,
+		reasoningMedian: row.reasoningTokensMedian,
+		bar: row.firstTokenP90Ms ?? 0,
+		barPct:
+			row.firstTokenP90Ms != null
+				? Math.round((row.firstTokenP90Ms / maxP90) * 100)
+				: 0,
+	}));
 });
 
 // ---- Parallel API ------------------------------------------------------
@@ -368,29 +641,205 @@ async function toggleExcludedUser(userId: string) {
 		<div role="tabpanel" id="system-analytics-bymodel-panel" aria-labelledby="system-analytics-bymodel-tab">
 			<AnalyticsCard title={$t('analytics.usageByModel')}>
 				{#snippet header()}
+					<div class="flex flex-wrap items-center gap-2">
+						<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+						<select
+							class="system-analytics-filter"
+							aria-label={$t('analytics.user')}
+							bind:value={filterUserId}
+						>
+							<option value="">{$t('analytics.allUsers')}</option>
+							{#each allUsers as user (user.id)}
+								<option value={user.id}>{user.name || user.email}</option>
+							{/each}
+						</select>
+						<select
+							class="system-analytics-filter"
+							aria-label={$t('analytics.provider')}
+							bind:value={filterProviderId}
+						>
+							<option value="">{$t('analytics.allProviders')}</option>
+							{#each providerOptions as provider (provider.id)}
+								<option value={provider.id}>{provider.name}</option>
+							{/each}
+						</select>
+						<select
+							class="system-analytics-filter"
+							aria-label={$t('analytics.model')}
+							bind:value={filterModelId}
+						>
+							<option value="">{$t('analytics.allModels')}</option>
+							{#each modelOptions as model (model.id)}
+								<option value={model.id}>{model.name}</option>
+							{/each}
+						</select>
+						<label class="flex items-center gap-1.5 text-xs text-text-muted">
+							<input type="checkbox" bind:checked={showRetired} class="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent" />
+							{$t('analytics.showRetired')}
+						</label>
+					</div>
+				{/snippet}
+				<StatGrid>
+					<StatCard hero value={formatUsd(modelCostTotal)} label={$t('totalCost')} />
+					<StatCard value={formatNum(modelCallsTotal)} label={$t('analytics.modelCalls')} />
+					<StatCard value={formatNum(modelTokensTotal)} label={$t('analytics.totalTokens')} />
+					<StatCard value={formatMs(modelFirstTokenP50Agg)} label={$t('analytics.firstTokenMedian')} />
+					<StatCard value={formatMs(modelFirstTokenP90Agg)} label={$t('analytics.firstTokenP90')} />
+					<StatCard value={`${activeModelsCount} / ${configuredModelsCount}`} label={$t('analytics.modelsActiveConfigured')} />
+				</StatGrid>
+				<div class="mt-5">
+					{#if activeModelRows.length > 0}
+						{#snippet modelCell(row: TableRow)}
+							<span class="inline-flex min-w-0 items-center gap-2">
+								<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+								<span class="truncate text-text-primary">{row.model}</span>
+							</span>
+						{/snippet}
+						{#snippet statusCell(row: TableRow)}
+							{#if row.status}
+								<span class={statusPillClass(row.status)}>{statusLabel(row.status)}</span>
+							{/if}
+						{/snippet}
+						{#snippet msCell(_row: TableRow, value: unknown)}
+							{value == null ? '—' : formatMs(value as number)}
+						{/snippet}
+						{#snippet mutedMsCell(_row: TableRow, value: unknown)}
+							<span class="text-text-muted">{value == null ? '—' : formatMs(value as number)}</span>
+						{/snippet}
+						{#snippet mutedNumberCell(_row: TableRow, value: unknown)}
+							<span class="text-text-muted">{value == null ? '—' : formatNum(value as number)}</span>
+						{/snippet}
+						<SortableTable
+							columns={modelColumns}
+							rows={activeModelRows}
+							initialSort={{ key: 'cost', dir: 'desc' }}
+							filterable
+							filterKeys={['model', 'provider']}
+							filterPlaceholder={$t('analytics.filterModels')}
+							totalRow={modelTotalRow}
+							cells={{
+								model: modelCell,
+								status: statusCell,
+								firstTokenP50: msCell,
+								firstTokenP90: mutedMsCell,
+								generationP50: msCell,
+								reasoningTokens: mutedNumberCell,
+							}}
+						/>
+					{:else}
+						<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+					{/if}
+				</div>
+				{#if showRetired && retiredModelRows.length > 0}
+					<div class="mt-6">
+						<p class="retired-group-label mb-3">{$t('analytics.retiredGroupLabel')}</p>
+						{#snippet retiredModelCell(row: TableRow)}
+							<span class="inline-flex min-w-0 items-center gap-2">
+								<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+								<span class="truncate text-text-primary">{row.model}</span>
+							</span>
+						{/snippet}
+						{#snippet retiredStatusCell(row: TableRow)}
+							{#if row.status}
+								<span class={statusPillClass(row.status)}>{statusLabel(row.status)}</span>
+							{/if}
+						{/snippet}
+						{#snippet retiredMsCell(_row: TableRow, value: unknown)}
+							{value == null ? '—' : formatMs(value as number)}
+						{/snippet}
+						{#snippet retiredMutedMsCell(_row: TableRow, value: unknown)}
+							<span class="text-text-muted">{value == null ? '—' : formatMs(value as number)}</span>
+						{/snippet}
+						{#snippet retiredMutedNumberCell(_row: TableRow, value: unknown)}
+							<span class="text-text-muted">{value == null ? '—' : formatNum(value as number)}</span>
+						{/snippet}
+						<SortableTable
+							columns={modelColumns}
+							rows={retiredModelRows}
+							initialSort={{ key: 'cost', dir: 'desc' }}
+							cells={{
+								model: retiredModelCell,
+								status: retiredStatusCell,
+								firstTokenP50: retiredMsCell,
+								firstTokenP90: retiredMutedMsCell,
+								generationP50: retiredMsCell,
+								reasoningTokens: retiredMutedNumberCell,
+							}}
+						/>
+					</div>
+				{/if}
+			</AnalyticsCard>
+		</div>
+	{:else if activeTab === 'toolsLatency'}
+		<div role="tabpanel" id="system-analytics-toolslatency-panel" aria-labelledby="system-analytics-toolslatency-tab">
+			<AnalyticsCard title={$t('analytics.tools')}>
+				{#snippet header()}
 					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
 				{/snippet}
-				{#if modelRows.length > 0}
-					{#snippet modelCell(row: TableRow)}
-						<span class="inline-flex min-w-0 items-center gap-2">
-							<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
-							<span class="truncate text-text-primary">{row.model}</span>
-						</span>
+				{#if toolsRows.length > 0}
+					{#snippet toolCell(_row: TableRow, value: unknown)}
+						<span class="font-mono text-xs text-text-primary">{value}</span>
+					{/snippet}
+					{#snippet percentCell(_row: TableRow, value: unknown)}
+						<span>{value}%</span>
 					{/snippet}
 					<SortableTable
-						columns={modelColumns}
-						rows={modelRows}
-						initialSort={{ key: 'cost', dir: 'desc' }}
-						filterable
-						filterKeys={['model', 'provider']}
-						filterPlaceholder={$t('analytics.filterModels')}
-						totalRow={modelTotalRow}
-						cells={{ model: modelCell }}
+						columns={toolsColumns}
+						rows={toolsRows}
+						initialSort={{ key: 'calls', dir: 'desc' }}
+						maxRows={TOP_N}
+						showAllLabel={toolsShowAllLabel}
+						showFewerLabel={$t('analytics.showFewer')}
+						cells={{ tool: toolCell, failedPct: percentCell, cachedPct: percentCell }}
 					/>
 				{:else}
 					<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
 				{/if}
 			</AnalyticsCard>
+
+			<div class="mt-4">
+				<AnalyticsCard title={$t('analytics.commandsSkillsActions')}>
+					{#if commandsRows.length > 0}
+						{#snippet kindCell(row: TableRow)}
+							<span class="kind-pill">{kindLabel(row.kind)}</span>
+						{/snippet}
+						<SortableTable
+							columns={commandsColumns}
+							rows={commandsRows}
+							initialSort={{ key: 'uses', dir: 'desc' }}
+							maxRows={TOP_N}
+							showAllLabel={commandsShowAllLabel}
+							showFewerLabel={$t('analytics.showFewer')}
+							cells={{ kind: kindCell }}
+						/>
+					{:else}
+						<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+					{/if}
+				</AnalyticsCard>
+			</div>
+
+			<div class="mt-4">
+				<AnalyticsCard title={$t('analytics.latencyByPromptSize')}>
+					{#if latencyRows.length > 0}
+						{#snippet p90Cell(_row: TableRow, value: unknown)}
+							<span class="text-text-muted">{value == null ? '—' : `${formatNum(value as number)} ms`}</span>
+						{/snippet}
+						{#snippet barCell(row: TableRow)}
+							<div class="latency-bar-track">
+								<div class="latency-bar-fill" style={`width: ${row.barPct}%;`}></div>
+							</div>
+						{/snippet}
+						<SortableTable
+							columns={latencyColumns}
+							rows={latencyRows}
+							initialSort={{ key: 'bucket', dir: 'asc' }}
+							cells={{ p90: p90Cell, bar: barCell }}
+						/>
+					{:else}
+						<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+					{/if}
+				</AnalyticsCard>
+			</div>
 		</div>
 	{:else if activeTab === 'parallel' && parallel}
 		<div role="tabpanel" id="system-analytics-parallel-panel" aria-labelledby="system-analytics-parallel-tab">
@@ -499,3 +948,19 @@ async function toggleExcludedUser(userId: string) {
 {:else}
 	<div class="settings-card py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
 {/if}
+
+<style>
+	.system-analytics-filter {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-size: 0.8rem;
+		padding: 0.35rem 0.6rem;
+	}
+
+	.system-analytics-filter:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+</style>

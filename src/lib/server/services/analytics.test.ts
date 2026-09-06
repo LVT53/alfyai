@@ -1021,4 +1021,498 @@ describe("analytics dashboard read model", () => {
 			});
 		});
 	});
+
+	// Analytics overhaul (backend half) — availability resolution, latency
+	// percentiles/reasoning averages, admin-only filters, and the new
+	// tools/commandsAndSkills/latencyByPromptBucket sections.
+	describe("Analytics overhaul (backend half)", () => {
+		function seedOverhaulFixtures() {
+			const { sqlite, database } = openSeedDatabase();
+			const now = new Date("2026-05-01T00:00:00.000Z");
+
+			database
+				.insert(schema.users)
+				.values([
+					{
+						id: "user-1",
+						email: "user-1@example.com",
+						name: "User One",
+						passwordHash: "hash",
+						role: "user",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "user-2",
+						email: "user-2@example.com",
+						name: "User Two",
+						passwordHash: "hash",
+						role: "user",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "admin-1",
+						email: "admin-1@example.com",
+						name: "Admin One",
+						passwordHash: "hash",
+						role: "admin",
+						createdAt: now,
+						updatedAt: now,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.providers)
+				.values({
+					id: "provider-x",
+					name: "provider-x",
+					displayName: "Provider X",
+					baseUrl: "https://provider-x.example",
+					apiKeyEncrypted: "encrypted",
+					apiKeyIv: "iv",
+					enabled: 1,
+				})
+				.run();
+			database
+				.insert(schema.providerModels)
+				.values([
+					{
+						id: "model-active-id",
+						providerId: "provider-x",
+						name: "active-model",
+						displayName: "Active Model",
+						enabled: 1,
+					},
+					{
+						id: "model-disabled-id",
+						providerId: "provider-x",
+						name: "disabled-model",
+						displayName: "Disabled Model",
+						enabled: 0,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.conversations)
+				.values({
+					id: "conv-1",
+					userId: "user-1",
+					title: "Overhaul conversation",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+
+			const messageIds = ["msg-a", "msg-b", "msg-c", "msg-d", "msg-e"];
+			database
+				.insert(schema.messages)
+				.values(
+					messageIds.map((id) => ({
+						id,
+						conversationId: "conv-1",
+						role: "assistant" as const,
+						content: "response",
+						createdAt: now,
+					})),
+				)
+				.run();
+
+			database
+				.insert(schema.usageEvents)
+				.values([
+					{
+						id: "usage-a",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-a",
+						modelId: "model1",
+						promptTokens: 100,
+						completionTokens: 50,
+						totalTokens: 150,
+						billingMonth: "2026-05",
+						costUsdMicros: 100_000,
+						createdAt: now,
+					},
+					{
+						id: "usage-b",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-b",
+						modelId: "provider:provider-x:model-active-id",
+						providerId: "provider-x",
+						promptTokens: 100,
+						completionTokens: 50,
+						totalTokens: 150,
+						billingMonth: "2026-05",
+						costUsdMicros: 200_000,
+						createdAt: now,
+					},
+					{
+						id: "usage-c",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-c",
+						modelId: "provider:provider-x:model-disabled-id",
+						providerId: "provider-x",
+						promptTokens: 100,
+						completionTokens: 50,
+						totalTokens: 150,
+						billingMonth: "2026-05",
+						costUsdMicros: 300_000,
+						createdAt: now,
+					},
+					{
+						id: "usage-d",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-d",
+						modelId: "provider:provider-x:missing-model-id",
+						providerId: "provider-x",
+						promptTokens: 100,
+						completionTokens: 50,
+						totalTokens: 150,
+						billingMonth: "2026-05",
+						costUsdMicros: 400_000,
+						createdAt: now,
+					},
+					{
+						id: "usage-e",
+						userId: "user-2",
+						conversationId: "conv-1",
+						messageId: "msg-e",
+						modelId: "model1",
+						promptTokens: 100,
+						completionTokens: 50,
+						totalTokens: 150,
+						billingMonth: "2026-05",
+						costUsdMicros: 500_000,
+						createdAt: now,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.messageAnalytics)
+				.values([
+					{
+						id: "ma-a",
+						messageId: "msg-a",
+						userId: "user-1",
+						model: "model1",
+						promptTokens: 5_000,
+						reasoningTokens: 10,
+						firstTokenMs: 100,
+						generationTimeMs: 200,
+					},
+					{
+						id: "ma-b",
+						messageId: "msg-b",
+						userId: "user-1",
+						model: "provider:provider-x:model-active-id",
+						promptTokens: 15_000,
+						reasoningTokens: 20,
+						firstTokenMs: 300,
+						generationTimeMs: 400,
+					},
+					{
+						id: "ma-c",
+						messageId: "msg-c",
+						userId: "user-1",
+						model: "provider:provider-x:model-disabled-id",
+						promptTokens: 50_000,
+						reasoningTokens: 30,
+						firstTokenMs: 500,
+						generationTimeMs: 600,
+					},
+					{
+						id: "ma-d",
+						messageId: "msg-d",
+						userId: "user-1",
+						model: "provider:provider-x:missing-model-id",
+						promptTokens: 100_000,
+						reasoningTokens: 40,
+						firstTokenMs: 700,
+						generationTimeMs: 800,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.activityEvents)
+				.values([
+					{
+						id: "activity-tool-1",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-a",
+						kind: "tool_call",
+						name: "research_web",
+						status: "done",
+						durationMs: 120,
+						modelId: "model1",
+						createdAt: now,
+					},
+					{
+						id: "activity-tool-2",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-b",
+						kind: "tool_call",
+						name: "research_web",
+						status: "failed",
+						durationMs: 80,
+						modelId: "provider:provider-x:model-active-id",
+						createdAt: now,
+					},
+					{
+						id: "activity-tool-3",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-c",
+						kind: "tool_call",
+						name: "fetch_url",
+						status: "cached",
+						durationMs: 10,
+						modelId: "provider:provider-x:model-disabled-id",
+						createdAt: now,
+					},
+					{
+						id: "activity-skill-1",
+						userId: "user-1",
+						conversationId: "conv-1",
+						messageId: "msg-a",
+						kind: "skill_use",
+						name: "outline-skill",
+						status: "done",
+						modelId: "model1",
+						createdAt: now,
+					},
+					{
+						id: "activity-command-1",
+						userId: "user-1",
+						conversationId: "conv-1",
+						kind: "composer_command",
+						name: "model",
+						status: "done",
+						createdAt: now,
+					},
+					{
+						id: "activity-follow-up-1",
+						userId: "user-1",
+						conversationId: "conv-1",
+						kind: "follow_up_click",
+						name: "Tell me more",
+						status: "done",
+						createdAt: now,
+					},
+					{
+						id: "activity-answer-now-1",
+						userId: "user-1",
+						conversationId: "conv-1",
+						kind: "answer_now",
+						name: "answer_now",
+						status: "done",
+						createdAt: now,
+					},
+					// A different user/month — excluded by default filters below.
+					{
+						id: "activity-other-user",
+						userId: "user-2",
+						conversationId: "conv-1",
+						kind: "composer_command",
+						name: "attach",
+						status: "done",
+						createdAt: new Date("2026-06-01T00:00:00.000Z"),
+					},
+				])
+				.run();
+
+			sqlite.close();
+		}
+
+		it("resolves model availability as active/disabled/removed against providers/provider_models", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const byModel = new Map(
+				result.system?.byModel.map((row) => [row.model, row]),
+			);
+			expect(byModel.get("model1")).toMatchObject({ availability: "active" });
+			expect(byModel.get("provider:provider-x:model-active-id")).toMatchObject({
+				availability: "active",
+			});
+			expect(
+				byModel.get("provider:provider-x:model-disabled-id"),
+			).toMatchObject({ availability: "disabled" });
+			expect(byModel.get("provider:provider-x:missing-model-id")).toMatchObject(
+				{ availability: "removed" },
+			);
+		});
+
+		it("joins message_analytics for per-model latency percentiles and reasoning-token average", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const byModel = new Map(
+				result.system?.byModel.map((row) => [row.model, row]),
+			);
+			// A single message per model group: p50 === p90 === that message's mark.
+			expect(byModel.get("model1")).toMatchObject({
+				firstTokenP50Ms: 100,
+				firstTokenP90Ms: 100,
+				generationP50Ms: 200,
+				avgReasoningTokens: 10,
+			});
+			expect(byModel.get("provider:provider-x:model-active-id")).toMatchObject({
+				firstTokenP50Ms: 300,
+				firstTokenP90Ms: 300,
+				generationP50Ms: 400,
+				avgReasoningTokens: 20,
+			});
+		});
+
+		it("honours the userId/modelId/providerId admin filters on the system section", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const byUser = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				userId: "user-2",
+			});
+			expect(byUser.system?.totalMessages).toBe(1);
+			expect(byUser.system?.byModel.map((row) => row.model)).toEqual([
+				"model1",
+			]);
+
+			const byModelId = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				modelId: "provider:provider-x:model-active-id",
+			});
+			expect(byModelId.system?.totalMessages).toBe(1);
+
+			const byProviderId = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				providerId: "provider-x",
+			});
+			expect(byProviderId.system?.totalMessages).toBe(3);
+		});
+
+		it("ignores the userId/modelId/providerId filters for a non-admin caller", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "user-1", role: "user" }),
+				month: "2026-05",
+				userId: "user-2",
+			});
+
+			// The personal section is always the caller's own data regardless of
+			// an admin-only filter a non-admin caller has no business setting.
+			expect(result.personal.totalMessages).toBe(4);
+			expect(result.system).toBeUndefined();
+		});
+
+		it("builds the tools summary from activity_events, honouring the month filter", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const tools = new Map(result.tools?.map((row) => [row.name, row]));
+			expect(tools.get("research_web")).toMatchObject({
+				calls: 2,
+				failed: 1,
+				cached: 0,
+			});
+			expect(tools.get("fetch_url")).toMatchObject({
+				calls: 1,
+				failed: 0,
+				cached: 1,
+				p50DurationMs: 10,
+			});
+		});
+
+		it("builds the commandsAndSkills summary excluding tool_call rows", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			expect(result.commandsAndSkills).toEqual(
+				expect.arrayContaining([
+					{ kind: "skill_use", name: "outline-skill", count: 1 },
+					{ kind: "composer_command", name: "model", count: 1 },
+					{ kind: "follow_up_click", name: "Tell me more", count: 1 },
+					{ kind: "answer_now", name: "answer_now", count: 1 },
+				]),
+			);
+			expect(result.commandsAndSkills).toHaveLength(4);
+			// The June row for user-2 is excluded by the systemMonth filter, and
+			// tool_call rows never appear here regardless.
+			expect(
+				result.commandsAndSkills?.some((row) => row.name === "attach"),
+			).toBe(false);
+		});
+
+		it("buckets latencyByPromptBucket by each message's prompt-token count", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const buckets = new Map(
+				result.latencyByPromptBucket?.map((row) => [row.bucket, row]),
+			);
+			expect(buckets.get("<10k")).toMatchObject({
+				n: 1,
+				firstTokenP50Ms: 100,
+				firstTokenP90Ms: 100,
+				reasoningTokensMedian: 10,
+			});
+			expect(buckets.get("10-30k")).toMatchObject({
+				n: 1,
+				firstTokenP50Ms: 300,
+			});
+			expect(buckets.get("30-60k")).toMatchObject({
+				n: 1,
+				firstTokenP50Ms: 500,
+			});
+			expect(buckets.get("60-120k")).toMatchObject({
+				n: 1,
+				firstTokenP50Ms: 700,
+			});
+			expect(buckets.get(">120k")).toMatchObject({
+				n: 0,
+				firstTokenP50Ms: null,
+				firstTokenP90Ms: null,
+				reasoningTokensMedian: null,
+			});
+		});
+	});
 });

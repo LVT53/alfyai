@@ -33,6 +33,17 @@ interface SortableTableProps {
 	 * The pinned `totalRow` always uses the default text (never a custom cell).
 	 */
 	cells?: Record<string, Snippet<[TableRow, unknown]>>;
+	/**
+	 * Cap the body to this many rows (from the current sort/filter) until
+	 * expanded. Omit for the previous unbounded behaviour. Pairs with
+	 * `showAllLabel`/`showFewerLabel` for the footer line — both are plain,
+	 * pre-localized strings so this component stays i18n-agnostic.
+	 */
+	maxRows?: number;
+	/** Footer link text shown while collapsed, e.g. "Showing 10 of 34 · View all 34 →". */
+	showAllLabel?: string;
+	/** Footer link text shown while expanded, e.g. "Show fewer". */
+	showFewerLabel?: string;
 }
 
 let {
@@ -44,6 +55,9 @@ let {
 	filterPlaceholder = "Filter…",
 	totalRow,
 	cells,
+	maxRows,
+	showAllLabel = "View all",
+	showFewerLabel = "Show fewer",
 }: SortableTableProps = $props();
 
 // Capture the initial sort once; the input props are not meant to be reactive
@@ -51,6 +65,7 @@ let {
 let sortKey = $state(untrack(() => initialSort?.key ?? columns[0]?.key ?? ""));
 let sortDir = $state<SortDir>(untrack(() => initialSort?.dir ?? "desc"));
 let query = $state("");
+let expanded = $state(false);
 
 let columnType = $derived(
 	new Map(columns.map((c) => [c.key, c.type] as const)),
@@ -63,6 +78,16 @@ let visibleRows = $derived.by(() => {
 	const type = columnType.get(sortKey) ?? "text";
 	return sortRows(filtered, sortKey, sortDir, type);
 });
+
+// Reset to collapsed whenever the underlying row set shrinks below the cap
+// (e.g. a filter change) so a stale "expanded" state doesn't hide a footer
+// that would otherwise be useful again.
+let isCappable = $derived(
+	Boolean(maxRows) && visibleRows.length > (maxRows ?? 0),
+);
+let displayRows = $derived(
+	isCappable && !expanded ? visibleRows.slice(0, maxRows) : visibleRows,
+);
 
 function toggleSort(key: string) {
 	if (sortKey === key) {
@@ -142,7 +167,7 @@ function isNumeric(type: ColumnType): boolean {
 			</tr>
 		</thead>
 		<tbody>
-			{#each visibleRows as row (row)}
+			{#each displayRows as row (row)}
 				<tr>
 					{#each columns as col (col.key)}
 						<td
@@ -175,3 +200,24 @@ function isNumeric(type: ColumnType): boolean {
 		</tbody>
 	</table>
 </div>
+{#if isCappable}
+	<div class="mt-2 text-xs">
+		{#if expanded}
+			<button
+				type="button"
+				class="text-text-muted underline-offset-2 hover:text-accent hover:underline"
+				onclick={() => (expanded = false)}
+			>
+				{showFewerLabel}
+			</button>
+		{:else}
+			<button
+				type="button"
+				class="text-text-muted underline-offset-2 hover:text-accent hover:underline"
+				onclick={() => (expanded = true)}
+			>
+				{showAllLabel}
+			</button>
+		{/if}
+	</div>
+{/if}

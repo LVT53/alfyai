@@ -114,6 +114,9 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	serverSegments: ThinkingSegment[];
 	attachmentIds: string[];
 	linkedSources: LinkedContextSource[];
+	// Analytics overhaul (backend half) — threaded straight into
+	// finalizeChatTurn's skillUse param; see its doc comment.
+	skillUse?: { displayName: string } | null;
 	activeDocumentArtifactId: string | null;
 	requestStartTime: number;
 	preparedContext: PreparedContextSnapshot;
@@ -186,6 +189,7 @@ export async function completeStreamTurn(
 		serverSegments,
 		attachmentIds,
 		linkedSources,
+		skillUse,
 		activeDocumentArtifactId,
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
@@ -556,6 +560,7 @@ export async function completeStreamTurn(
 			maintenanceReason: "chat_stream",
 			startedResetGeneration,
 			toolCalls: toolCallRecords,
+			skillUse,
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			linkedSources,

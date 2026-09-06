@@ -14,6 +14,11 @@ export const GET: RequestHandler = async (event) => {
 		systemMonth: event.url.searchParams.get("systemMonth"),
 		timeline: event.url.searchParams.get("timeline"),
 		excludedUserIds: getAnalyticsExcludedUserIds(),
+		// Analytics overhaul (backend half) — admin-only narrowing filters;
+		// getAnalyticsDashboardReadModel ignores them for a non-admin caller.
+		userId: event.url.searchParams.get("userId"),
+		modelId: event.url.searchParams.get("modelId"),
+		providerId: event.url.searchParams.get("providerId"),
 	});
 
 	return json(readModel);

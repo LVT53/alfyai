@@ -463,6 +463,17 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.activityEvents)
+		.values({
+			id: p("activity"),
+			userId,
+			conversationId: p("conv"),
+			messageId: p("msg"),
+			kind: "tool_call",
+			name: "research_web",
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.chatGeneratedFiles)
 		.values({
 			id: p("file"),
@@ -632,6 +643,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 		const names = USER_SCOPED_TABLES.map((entry) => entry.name).sort();
 		expect(names).toEqual(
 			[
+				"activity_events",
 				"analytics_conversations",
 				"announcement_campaign_events",
 				"announcement_campaign_user_states",

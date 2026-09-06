@@ -551,6 +551,9 @@ async function runStandardSendTurn({
 		startedResetGeneration,
 		linkedSources: turn.linkedSources,
 		toolCalls: modelRunArtifacts.finalToolCalls,
+		skillUse: turn.appliedSkill
+			? { displayName: turn.appliedSkill.skillDisplayName }
+			: null,
 		contextTraceSections: modelRunResult.contextTraceSections,
 		webCitationAudit: modelRunArtifacts.citationGate.audit,
 		generatedOutputReconciliation: {

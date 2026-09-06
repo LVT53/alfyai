@@ -85,6 +85,9 @@ describe("GET /api/analytics", () => {
 			systemMonth: "2026-06",
 			timeline: "weekly",
 			excludedUserIds: [],
+			userId: null,
+			modelId: null,
+			providerId: null,
 		});
 	});
 
@@ -102,6 +105,29 @@ describe("GET /api/analytics", () => {
 			systemMonth: null,
 			timeline: null,
 			excludedUserIds: [],
+			userId: null,
+			modelId: null,
+			providerId: null,
 		});
+	});
+
+	// Analytics overhaul (backend half) — admin-only narrowing filters.
+	it("parses userId/modelId/providerId filters from the query string", async () => {
+		const admin = user({ id: "admin-1", role: "admin" });
+		const response = await GET(
+			event(
+				"http://localhost/api/analytics?userId=user-9&modelId=model1&providerId=provider-9",
+				admin,
+			),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mocks.getAnalyticsDashboardReadModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-9",
+				modelId: "model1",
+				providerId: "provider-9",
+			}),
+		);
 	});
 });
