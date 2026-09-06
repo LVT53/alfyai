@@ -18,6 +18,13 @@ export {
 	updateAdminUserRole,
 } from "./admin";
 
+// Analytics overhaul (frontend half) — a modelId that no longer resolves to
+// an enabled providers/provider_models pair reads "removed" (deleted since
+// the calls that reference it were recorded); "disabled" still exists but is
+// turned off; built-in model1/model2 are always "active". Mirrors
+// ModelAvailability in $lib/server/services/analytics.ts.
+export type ModelAvailability = "active" | "disabled" | "removed";
+
 interface AnalyticsByModelRow {
 	model: string;
 	displayName?: string;
@@ -29,6 +36,55 @@ interface AnalyticsByModelRow {
 	reasoningTokens?: number;
 	totalTokens?: number;
 	totalCostUsd: number;
+	// Analytics overhaul (frontend half) — resolved server-side against the
+	// CURRENT providers/provider_models tables; avgReasoningTokens/
+	// firstTokenP50Ms/firstTokenP90Ms/generationP50Ms are joined from
+	// message_analytics by message_id (undefined = no rows joined at all, a
+	// present `null` = rows joined but none carried that particular mark).
+	availability?: ModelAvailability;
+	avgReasoningTokens?: number;
+	firstTokenP50Ms?: number | null;
+	firstTokenP90Ms?: number | null;
+	generationP50Ms?: number | null;
+}
+
+// Analytics overhaul (frontend half) — admin-only "Tools & latency" tab
+// sections. Mirror the server types in $lib/server/services/analytics.ts.
+export interface ToolActivitySummary {
+	name: string;
+	calls: number;
+	failed: number;
+	cached: number;
+	p50DurationMs: number | null;
+}
+
+export type CommandOrSkillActivityKind =
+	| "skill_use"
+	| "composer_command"
+	| "follow_up_click"
+	| "answer_now";
+
+export interface CommandOrSkillActivitySummary {
+	kind: CommandOrSkillActivityKind;
+	name: string;
+	count: number;
+}
+
+export const PROMPT_TOKEN_BUCKETS = [
+	"<10k",
+	"10-30k",
+	"30-60k",
+	"60-120k",
+	">120k",
+] as const;
+export type PromptTokenBucket = (typeof PROMPT_TOKEN_BUCKETS)[number];
+
+export interface LatencyPromptBucketSummary {
+	bucket: PromptTokenBucket;
+	n: number;
+	firstTokenP50Ms: number | null;
+	firstTokenP90Ms: number | null;
+	reasoningTokensMedian: number | null;
 }
 
 interface AnalyticsByProviderRow {
@@ -124,6 +180,11 @@ export interface AnalyticsResponse {
 	systemAvailableMonths?: string[];
 	timeline?: Array<{ label: string; tokens: number }>;
 	analyticsUsers?: AnalyticsUserSummary[];
+	// Analytics overhaul (frontend half) — admin-only, alongside `system`.
+	// Honour the same month/userId/modelId/providerId/excludedUserIds filters.
+	tools?: ToolActivitySummary[];
+	commandsAndSkills?: CommandOrSkillActivitySummary[];
+	latencyByPromptBucket?: LatencyPromptBucketSummary[];
 }
 
 export async function fetchUserSettings(
@@ -168,17 +229,29 @@ export async function updateUserPreferences(params: {
 	);
 }
 
+export interface AnalyticsSystemFilters {
+	userId?: string | null;
+	modelId?: string | null;
+	providerId?: string | null;
+}
+
 export async function fetchAnalytics(
 	useMockData = false,
 	month?: string,
 	timeline?: string,
 	systemMonth?: string,
+	// Analytics overhaul (frontend half) — admin-only narrowing filters over
+	// the system/tools/commandsAndSkills/latencyByPromptBucket sections.
+	filters?: AnalyticsSystemFilters,
 ): Promise<AnalyticsResponse> {
 	const params = new URLSearchParams();
 	if (useMockData) params.set("mock", "1");
 	if (month) params.set("month", month);
 	if (timeline) params.set("timeline", timeline);
 	if (systemMonth) params.set("systemMonth", systemMonth);
+	if (filters?.userId) params.set("userId", filters.userId);
+	if (filters?.modelId) params.set("modelId", filters.modelId);
+	if (filters?.providerId) params.set("providerId", filters.providerId);
 	const qs = params.toString();
 	const endpoint = qs ? `/api/analytics?${qs}` : "/api/analytics";
 	return requestJson<AnalyticsResponse>(
