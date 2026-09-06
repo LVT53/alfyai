@@ -777,6 +777,188 @@ describe("Normal Chat Client Turn Runtime", () => {
 		).toHaveBeenCalledWith("assistant-1");
 	});
 
+	// Item 6 (UX-speed plan) — a produce_file tool call shows a "queued"
+	// FileProductionCard the instant it starts, instead of only appearing
+	// once the call finishes and the conversation re-hydrates.
+	describe("produce_file placeholder (Item 6, UX-speed plan)", () => {
+		it("adds a queued placeholder job as soon as a produce_file tool call starts", () => {
+			const addFileProductionJobPlaceholder = vi.fn();
+			const { adapters, streamInvocations } = makeAdapters({
+				addFileProductionJobPlaceholder,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Make a file",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ requestTitle: "Quarterly report" },
+				"running",
+				{ callId: "call-1" },
+			);
+
+			expect(addFileProductionJobPlaceholder).toHaveBeenCalledWith({
+				id: "pending:call-1",
+				conversationId: "conv-1",
+				input: { requestTitle: "Quarterly report" },
+			});
+		});
+
+		it("does not add a second placeholder for a repeated running event on the same call", () => {
+			const addFileProductionJobPlaceholder = vi.fn();
+			const { adapters, streamInvocations } = makeAdapters({
+				addFileProductionJobPlaceholder,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Make a file",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"running",
+				{ callId: "call-1" },
+			);
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"running",
+				{ callId: "call-1" },
+			);
+
+			expect(addFileProductionJobPlaceholder).toHaveBeenCalledTimes(1);
+		});
+
+		it("leaves the placeholder for mergeFileProductionJobs to replace once the call finishes", () => {
+			const addFileProductionJobPlaceholder = vi.fn();
+			const failFileProductionJobPlaceholder = vi.fn();
+			const mergeFileProductionJobs = vi.fn();
+			const { adapters, streamInvocations } = makeAdapters({
+				addFileProductionJobPlaceholder,
+				failFileProductionJobPlaceholder,
+				mergeFileProductionJobs,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Make a file",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"running",
+				{ callId: "call-1" },
+			);
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"done",
+				{ callId: "call-1" },
+			);
+
+			// A "done" call is not a failure — the placeholder is left alone for
+			// the hydration the "done" status already triggers (via
+			// shouldHydrateFileProductionJobsOnToolCall) to replace, or for the
+			// turn's own metadata.fileProductionJobs to replace via
+			// mergeFileProductionJobs.
+			expect(failFileProductionJobPlaceholder).not.toHaveBeenCalled();
+
+			const fileProductionJobs: NonNullable<
+				StreamMetadata["fileProductionJobs"]
+			> = [
+				{
+					id: "job-1",
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-1",
+					title: "Report",
+					status: "succeeded",
+					createdAt: 1,
+					updatedAt: 2,
+					files: [],
+					warnings: [],
+					dismissed: false,
+				},
+			];
+			streamInvocations[0].callbacks.onEnd("Done", {
+				assistantMessageId: "assistant-1",
+				fileProductionJobs,
+			});
+
+			expect(mergeFileProductionJobs).toHaveBeenCalledWith(fileProductionJobs);
+		});
+
+		it("turns the placeholder into a failed job when the tool call itself fails", () => {
+			const addFileProductionJobPlaceholder = vi.fn();
+			const failFileProductionJobPlaceholder = vi.fn();
+			const { adapters, streamInvocations } = makeAdapters({
+				addFileProductionJobPlaceholder,
+				failFileProductionJobPlaceholder,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Make a file",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"running",
+				{ callId: "call-1" },
+			);
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"failed",
+				{ callId: "call-1", outputSummary: "Renderer timed out" },
+			);
+
+			expect(failFileProductionJobPlaceholder).toHaveBeenCalledWith({
+				id: "pending:call-1",
+				message: "Renderer timed out",
+			});
+		});
+
+		it("guards placeholder creation against a stream whose conversation is no longer current", () => {
+			let currentConversationId = "conv-A";
+			const addFileProductionJobPlaceholder = vi.fn();
+			const { adapters, streamInvocations } = makeAdapters({
+				getConversationId: vi.fn(() => currentConversationId),
+				addFileProductionJobPlaceholder,
+			});
+			const runtime = createNormalChatClientTurnRuntime(adapters);
+
+			runtime.send({
+				message: "Make a file",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			});
+			currentConversationId = "conv-B";
+			streamInvocations[0].callbacks.onToolCall?.(
+				"produce_file",
+				{ title: "Report" },
+				"running",
+				{ callId: "call-1" },
+			);
+
+			expect(addFileProductionJobPlaceholder).not.toHaveBeenCalled();
+		});
+	});
+
 	it("drains queued manual compression before a queued follow-up turn after success", async () => {
 		const order: string[] = [];
 		const { adapters, streamInvocations } = makeAdapters({

@@ -51,3 +51,18 @@ export function isStaleJob(createdAtMs: number, nowMs: number): boolean {
 	}
 	return elapsedMs > STALE_THRESHOLD_MS;
 }
+
+/**
+ * Item 6 (UX-speed plan) — a client-only "queued" FileProductionJob stand-in
+ * shown the instant a produce_file tool call starts, before the server has
+ * ever heard of it. Its id is prefixed with this marker so it can never be
+ * confused with a server-issued job id, and every job-mutating surface
+ * (retry/cancel/dismiss in FileProductionCard.svelte, the merge logic in
+ * routes/(app)/chat/[conversationId]/_helpers.ts) checks the marker before
+ * doing anything that would otherwise hit the server with a made-up id.
+ */
+export const PENDING_FILE_PRODUCTION_JOB_ID_PREFIX = "pending:";
+
+export function isPendingFileProductionJobId(jobId: string): boolean {
+	return jobId.startsWith(PENDING_FILE_PRODUCTION_JOB_ID_PREFIX);
+}

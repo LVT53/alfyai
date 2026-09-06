@@ -67,6 +67,7 @@ import {
 	setSelectedModel,
 	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
+import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
@@ -149,6 +150,9 @@ import {
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
+	buildPendingFileProductionJobPlaceholder,
+	dropPendingFileProductionJobs,
+	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
@@ -740,6 +744,37 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		totalTokens = metadata?.totalTokens ?? totalTokens;
 	},
 	attachFileProductionJobsToAssistantMessage,
+	// Item 6 (UX-speed plan) — see buildPendingFileProductionJobPlaceholder /
+	// failPendingFileProductionJobPlaceholder in ./_helpers for what the
+	// placeholder looks like; this just wires it into the same
+	// fileProductionJobs array real jobs live in, so the existing
+	// getFileProductionJobsForMessage matching in MessageArea.svelte (an
+	// assistantMessageId-less job matches the currently-streaming assistant
+	// message by conversationId + recency) picks it up with no further
+	// plumbing.
+	addFileProductionJobPlaceholder: (placeholder) => {
+		fileProductionJobs = [
+			buildPendingFileProductionJobPlaceholder({
+				id: placeholder.id,
+				conversationId: placeholder.conversationId,
+				input: placeholder.input,
+				now: Date.now(),
+				translate: $t,
+			}),
+			...fileProductionJobs,
+		];
+	},
+	failFileProductionJobPlaceholder: (params) => {
+		fileProductionJobs = fileProductionJobs.map((job) =>
+			job.id === params.id
+				? failPendingFileProductionJobPlaceholder(job, {
+						message: params.message,
+						now: Date.now(),
+						translate: $t,
+					})
+				: job,
+		);
+	},
 	refreshPendingWrites: () => {
 		void refreshPendingWrites();
 	},
@@ -766,9 +801,12 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 	},
 	mergeFileProductionJobs: (jobs) => {
 		markDetailMetadataFreshnessBoundary();
+		// Item 6 (UX-speed plan) — a real job list always supersedes whatever
+		// placeholder stood in for it; drop placeholders first so a
+		// placeholder and its real replacement never render side by side.
 		fileProductionJobs = jobs.reduce(
 			(currentJobs, job) => mergeFileProductionJob(currentJobs, job),
-			fileProductionJobs,
+			dropPendingFileProductionJobs(fileProductionJobs),
 		);
 	},
 	setContextCompressionMarkers: (markers) => {
@@ -1520,6 +1558,10 @@ function attachFileProductionJobsToAssistantMessage(
 }
 
 async function handleRetryFileProductionJob(jobId: string) {
+	// Item 6 (UX-speed plan) — a placeholder card has no server-side job
+	// behind it; FileProductionCard.svelte already hides this action for a
+	// placeholder, this is the defense-in-depth twin.
+	if (isPendingFileProductionJobId(jobId)) return;
 	try {
 		const job = await retryFileProductionJobRequest(jobId);
 		fileProductionJobs = mergeFileProductionJob(fileProductionJobs, job);
@@ -1530,6 +1572,7 @@ async function handleRetryFileProductionJob(jobId: string) {
 }
 
 async function handleCancelFileProductionJob(jobId: string) {
+	if (isPendingFileProductionJobId(jobId)) return;
 	try {
 		const job = await cancelFileProductionJobRequest(jobId);
 		fileProductionJobs = mergeFileProductionJob(fileProductionJobs, job);
@@ -1540,6 +1583,7 @@ async function handleCancelFileProductionJob(jobId: string) {
 }
 
 async function handleDismissFileProductionJob(jobId: string) {
+	if (isPendingFileProductionJobId(jobId)) return;
 	// Optimistic removal: hide the card immediately, then confirm via the
 	// dismiss route (Slice 3). The read-model filter re-confirms on reload.
 	const previous = fileProductionJobs;

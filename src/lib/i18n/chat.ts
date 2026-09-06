@@ -575,6 +575,8 @@ const chatDict = {
 		"fileProduction.error.table_limit_exceeded":
 			"A table exceeds the configured limit.",
 		"fileProduction.error.too_many_outputs": "Too many outputs were requested.",
+		"fileProduction.error.tool_failed":
+			"The file request failed before it could start.",
 		"fileProduction.error.unsupported_chart_data":
 			"The chart data is not supported.",
 		"fileProduction.error.unsupported_chart_type":
@@ -592,6 +594,7 @@ const chatDict = {
 		"fileProduction.fileCount": "{count} files",
 		"fileProduction.noFiles": "No files yet",
 		"fileProduction.oneFile": "1 file",
+		"fileProduction.placeholderTitle": "Preparing your file…",
 		"fileProduction.previewLabel": "Preview {filename}",
 		"fileProduction.producing": "Producing",
 		"fileProduction.queued": "Queued",
@@ -1386,6 +1389,8 @@ const chatDict = {
 		"fileProduction.error.table_limit_exceeded":
 			"Egy tábla túllépi a beállított korlátot.",
 		"fileProduction.error.too_many_outputs": "Túl sok kimenet lett kérve.",
+		"fileProduction.error.tool_failed":
+			"A fájlkérés nem sikerült, mielőtt elindulhatott volna.",
 		"fileProduction.error.unsupported_chart_data":
 			"A diagram adatai nem támogatottak.",
 		"fileProduction.error.unsupported_chart_type":
@@ -1403,6 +1408,7 @@ const chatDict = {
 		"fileProduction.fileCount": "{count} fájl",
 		"fileProduction.noFiles": "Még nincs fájl",
 		"fileProduction.oneFile": "1 fájl",
+		"fileProduction.placeholderTitle": "A fájl előkészítése…",
 		"fileProduction.previewLabel": "{filename} előnézete",
 		"fileProduction.producing": "Előállítás",
 		"fileProduction.queued": "Várakozik",

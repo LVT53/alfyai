@@ -9,8 +9,11 @@ import {
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
+	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
 	createAssistantPlaceholder,
+	dropPendingFileProductionJobs,
+	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveFileProductionJobs,
@@ -436,6 +439,132 @@ describe("file production chat helpers", () => {
 		expect(
 			shouldHydrateFileProductionJobsOnToolCall("web_search", "failed"),
 		).toBe(false);
+	});
+
+	// Item 6 (UX-speed plan) — a produce_file tool call shows a "queued"
+	// FileProductionCard the instant it starts, via a client-only
+	// placeholder job built here and adopted into the same fileProduction-
+	// Jobs array real jobs live in (see +page.svelte's addFileProduction-
+	// JobPlaceholder / failFileProductionJobPlaceholder adapters).
+	describe("produce_file placeholder job", () => {
+		it("builds a queued placeholder titled from the tool input", () => {
+			const job = buildPendingFileProductionJobPlaceholder({
+				id: "pending:call-1",
+				conversationId: "conv-1",
+				input: { requestTitle: "Quarterly report" },
+				now: 1000,
+			});
+
+			expect(job).toMatchObject({
+				id: "pending:call-1",
+				conversationId: "conv-1",
+				assistantMessageId: null,
+				title: "Quarterly report",
+				status: "queued",
+				createdAt: 1000,
+				updatedAt: 1000,
+				files: [],
+				warnings: [],
+				dismissed: false,
+			});
+		});
+
+		it("falls back from requestTitle to title to filename, then a generic label", () => {
+			expect(
+				buildPendingFileProductionJobPlaceholder({
+					id: "pending:1",
+					conversationId: "conv-1",
+					input: { title: "Draft" },
+					now: 1,
+				}).title,
+			).toBe("Draft");
+			expect(
+				buildPendingFileProductionJobPlaceholder({
+					id: "pending:2",
+					conversationId: "conv-1",
+					input: { filename: "report.pdf" },
+					now: 1,
+				}).title,
+			).toBe("report.pdf");
+			expect(
+				buildPendingFileProductionJobPlaceholder({
+					id: "pending:3",
+					conversationId: "conv-1",
+					input: {},
+					now: 1,
+				}).title,
+			).toBe("Preparing your file…");
+		});
+
+		it("prefers a translated fallback title when a translate function is given", () => {
+			const job = buildPendingFileProductionJobPlaceholder({
+				id: "pending:1",
+				conversationId: "conv-1",
+				input: {},
+				now: 1,
+				translate: (key: I18nKey) =>
+					key === "fileProduction.placeholderTitle" ? "Előkészítés…" : key,
+			});
+
+			expect(job.title).toBe("Előkészítés…");
+		});
+
+		it("turns a placeholder into a non-retryable failed job", () => {
+			const placeholder = buildPendingFileProductionJobPlaceholder({
+				id: "pending:call-1",
+				conversationId: "conv-1",
+				input: { title: "Report" },
+				now: 1000,
+			});
+
+			const failed = failPendingFileProductionJobPlaceholder(placeholder, {
+				message: "Renderer timed out",
+				now: 2000,
+			});
+
+			expect(failed).toMatchObject({
+				id: "pending:call-1",
+				status: "failed",
+				updatedAt: 2000,
+				error: {
+					code: "tool_failed",
+					message: "Renderer timed out",
+					retryable: false,
+				},
+			});
+		});
+
+		it("falls back to a generic message when the tool call carries none", () => {
+			const placeholder = buildPendingFileProductionJobPlaceholder({
+				id: "pending:call-1",
+				conversationId: "conv-1",
+				input: {},
+				now: 1000,
+			});
+
+			const failed = failPendingFileProductionJobPlaceholder(placeholder, {
+				message: null,
+				now: 2000,
+			});
+
+			expect(failed.error?.message).toBe(
+				"The file request failed before it could start.",
+			);
+		});
+
+		it("drops every pending-prefixed job, leaving real jobs untouched", () => {
+			const jobs = [
+				buildPendingFileProductionJobPlaceholder({
+					id: "pending:call-1",
+					conversationId: "conv-1",
+					input: {},
+					now: 1,
+				}),
+				makeJob("job-1", "succeeded"),
+			];
+
+			expect(dropPendingFileProductionJobs(jobs)).toEqual([jobs[1]]);
+		});
 	});
 
 	it("keeps produce_file events out of visible thinking segments", () => {

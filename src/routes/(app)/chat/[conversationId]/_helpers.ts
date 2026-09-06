@@ -1,3 +1,4 @@
+import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
@@ -225,6 +226,101 @@ export function mergeFileProductionJob(
 	return currentJobs.map((job, index) =>
 		index === existingIndex ? updatedJob : job,
 	);
+}
+
+const FILE_PRODUCTION_PLACEHOLDER_TITLE_KEY: I18nKey =
+	"fileProduction.placeholderTitle";
+const FALLBACK_FILE_PRODUCTION_PLACEHOLDER_TITLE = "Preparing your file…";
+
+const FILE_PRODUCTION_TOOL_FAILED_KEY: I18nKey =
+	"fileProduction.error.tool_failed";
+const FALLBACK_FILE_PRODUCTION_TOOL_FAILED_MESSAGE =
+	"The file request failed before it could start.";
+
+function pickPendingFileProductionJobTitle(
+	input: Record<string, unknown>,
+	translate?: Translate,
+): string {
+	const candidates = [
+		input.requestTitle,
+		input.title,
+		input.filename,
+	] as unknown[];
+	for (const candidate of candidates) {
+		if (typeof candidate === "string" && candidate.trim().length > 0) {
+			return candidate.trim();
+		}
+	}
+	return (
+		translate?.(FILE_PRODUCTION_PLACEHOLDER_TITLE_KEY) ??
+		FALLBACK_FILE_PRODUCTION_PLACEHOLDER_TITLE
+	);
+}
+
+// Item 6 (UX-speed plan) — a produce_file tool call currently only shows a
+// FileProductionCard once the call finishes AND the conversation has been
+// re-hydrated from the server. This builds a client-only "queued" stand-in
+// the instant the call starts, so the card appears immediately. It carries
+// no server id (see PENDING_FILE_PRODUCTION_JOB_ID_PREFIX /
+// isPendingFileProductionJobId in ./file-production-helpers, which gate
+// every job-mutating action against it) and is superseded the moment a real
+// job lands — mergeFileProductionJobs strips these before merging real jobs
+// in, and hydrateConversationDetail's full-array replace drops them
+// implicitly either way.
+export function buildPendingFileProductionJobPlaceholder(params: {
+	id: string;
+	conversationId: string;
+	input: Record<string, unknown>;
+	now: number;
+	translate?: Translate;
+}): FileProductionJob {
+	return {
+		id: params.id,
+		conversationId: params.conversationId,
+		assistantMessageId: null,
+		title: pickPendingFileProductionJobTitle(params.input, params.translate),
+		status: "queued",
+		createdAt: params.now,
+		updatedAt: params.now,
+		files: [],
+		warnings: [],
+		dismissed: false,
+	};
+}
+
+// Sibling to buildPendingFileProductionJobPlaceholder above — called when
+// the produce_file tool call itself reports "failed" before any real job
+// was ever merged in, so the placeholder card turns into a failed card
+// instead of silently vanishing. `retryable` is always false: there is no
+// server-side job to retry, only the tool call that produced this
+// placeholder in the first place.
+export function failPendingFileProductionJobPlaceholder(
+	job: FileProductionJob,
+	params: { message?: string | null; now: number; translate?: Translate },
+): FileProductionJob {
+	return {
+		...job,
+		status: "failed",
+		updatedAt: params.now,
+		error: {
+			code: "tool_failed",
+			message:
+				params.message ??
+				params.translate?.(FILE_PRODUCTION_TOOL_FAILED_KEY) ??
+				FALLBACK_FILE_PRODUCTION_TOOL_FAILED_MESSAGE,
+			retryable: false,
+		},
+	};
+}
+
+// A real job list (mergeFileProductionJobs) always supersedes whatever
+// placeholder currently stands in for this turn's produce_file call — call
+// this before merging real jobs in so a placeholder and its real
+// replacement never render side by side (Item 6, UX-speed plan).
+export function dropPendingFileProductionJobs(
+	currentJobs: FileProductionJob[],
+): FileProductionJob[] {
+	return currentJobs.filter((job) => !isPendingFileProductionJobId(job.id));
 }
 
 export function attachUnassignedFileProductionJobsToAssistant(

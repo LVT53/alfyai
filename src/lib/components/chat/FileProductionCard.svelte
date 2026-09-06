@@ -9,7 +9,11 @@ import type {
 } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { formatByteSize } from "$lib/utils/format";
-import { formatElapsed, isStaleJob } from "./file-production-helpers";
+import {
+	formatElapsed,
+	isPendingFileProductionJobId,
+	isStaleJob,
+} from "./file-production-helpers";
 
 const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
 	too_many_outputs: "fileProduction.error.too_many_outputs",
@@ -33,6 +37,11 @@ const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
 	document_render_failed: "fileProduction.error.document_render_failed",
 	output_file_too_large: "fileProduction.error.output_file_too_large",
 	job_outputs_too_large: "fileProduction.error.job_outputs_too_large",
+	// Item 6 (UX-speed plan) — set on a placeholder card when its
+	// produce_file tool call fails before a real job ever gets queued (see
+	// buildPendingFileProductionJobPlaceholder / failPendingFileProduction-
+	// JobPlaceholder in ../../../routes/(app)/chat/[conversationId]/_helpers).
+	tool_failed: "fileProduction.error.tool_failed",
 };
 
 let {
@@ -73,7 +82,15 @@ let isError = $derived(job.status === "failed" || job.status === "cancelled");
 let errorIsRetryable = $derived(
 	job.status === "failed" && job.error?.retryable === true,
 );
-let canDismiss = $derived(isError && onDismiss && !errorIsRetryable);
+// Item 6 (UX-speed plan) — a placeholder card has no server-side job behind
+// it yet, so retry/cancel/dismiss must never reach the server with its
+// made-up id. errorIsRetryable is already false for a failed placeholder
+// (see failPendingFileProductionJobPlaceholder), which rules out Retry on
+// its own; Cancel and Dismiss need the explicit check below.
+let isPlaceholder = $derived(isPendingFileProductionJobId(job.id));
+let canDismiss = $derived(
+	isError && onDismiss && !errorIsRetryable && !isPlaceholder,
+);
 
 function fileCountLabel(count: number): string {
 	if (count === 0) {
@@ -175,7 +192,7 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 					{/if}
 				</div>
 			</div>
-			{#if onCancel}
+			{#if onCancel && !isPlaceholder}
 				<button
 					type="button"
 					class="active-stop btn-icon-bare"
@@ -259,7 +276,7 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 			</div>
 		{/if}
 
-		{#if errorIsRetryable && onRetry}
+		{#if errorIsRetryable && onRetry && !isPlaceholder}
 			<div class="job-actions">
 				<button
 					type="button"

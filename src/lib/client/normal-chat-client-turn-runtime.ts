@@ -1,4 +1,5 @@
 import { submitAtlasTurn } from "$lib/client/api/atlas";
+import { PENDING_FILE_PRODUCTION_JOB_ID_PREFIX } from "$lib/components/chat/file-production-helpers";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
@@ -26,6 +27,10 @@ import {
 	type StreamTimingSnapshot,
 	streamChat,
 } from "$lib/services/streaming";
+import {
+	isFileProductionToolName,
+	toolCallInputKey,
+} from "$lib/utils/tool-calls";
 
 type StreamToolCallDetails = Parameters<
 	NonNullable<StreamCallbacks["onToolCall"]>
@@ -180,6 +185,25 @@ export type NormalChatClientTurnRuntimeAdapters = {
 	mergeFileProductionJobs?: (
 		jobs: NonNullable<StreamMetadata["fileProductionJobs"]>,
 	) => void;
+	// Item 6 (UX-speed plan) — shows a "queued" FileProductionCard the
+	// instant a produce_file tool call starts, instead of waiting for the
+	// call to finish and the conversation to re-hydrate. addFileProduction-
+	// JobPlaceholder adds the client-only stand-in (see
+	// buildPendingFileProductionJobPlaceholder, ./chat/[conversationId]/
+	// _helpers.ts); failFileProductionJobPlaceholder turns it into a failed
+	// card if the tool call itself fails before any real job is merged in.
+	// Both are optional so tests/hosts that don't care about this can omit
+	// them (a no-op just means no placeholder appears — the existing
+	// post-hoc hydration path still works).
+	addFileProductionJobPlaceholder?: (params: {
+		id: string;
+		conversationId: string;
+		input: Record<string, unknown>;
+	}) => void;
+	failFileProductionJobPlaceholder?: (params: {
+		id: string;
+		message?: string | null;
+	}) => void;
 	setContextCompressionMarkers?: (
 		markers: NonNullable<StreamMetadata["contextCompressionSnapshots"]>,
 	) => void;
@@ -579,6 +603,16 @@ export function createNormalChatClientTurnRuntime(
 		// visible tokens").
 		let hasStreamedContent = false;
 
+		// Item 6 (UX-speed plan) — maps a produce_file tool call (keyed by its
+		// callId, falling back to a name+input key when the server doesn't
+		// send one — same fallback `applyToolCallUpdateToMessageList` uses to
+		// pair a "running" call with its eventual "done"/"failed") to the
+		// placeholder job id created for it on "running", so the matching
+		// "failed" event can address that same placeholder. Scoped to this
+		// stream attempt: a fresh attempt (capacity retry, reconnect) starts
+		// with no in-flight produce_file calls to track.
+		const fileProductionPlaceholderIds = new Map<string, string>();
+
 		return {
 			onToken(chunk) {
 				hasStreamedContent = true;
@@ -603,6 +637,31 @@ export function createNormalChatClientTurnRuntime(
 					status,
 					details,
 				});
+				if (isFileProductionToolName(name)) {
+					const callKey = details?.callId ?? toolCallInputKey(input);
+					if (status === "running") {
+						if (!fileProductionPlaceholderIds.has(callKey)) {
+							const placeholderId = `${PENDING_FILE_PRODUCTION_JOB_ID_PREFIX}${details?.callId ?? `${callKey}:${Date.now()}`}`;
+							fileProductionPlaceholderIds.set(callKey, placeholderId);
+							adapters.addFileProductionJobPlaceholder?.({
+								id: placeholderId,
+								conversationId: params.turnConversationId,
+								input,
+							});
+						}
+					} else {
+						const placeholderId = fileProductionPlaceholderIds.get(callKey);
+						if (placeholderId) {
+							fileProductionPlaceholderIds.delete(callKey);
+							if (status === "failed") {
+								adapters.failFileProductionJobPlaceholder?.({
+									id: placeholderId,
+									message: details?.outputSummary ?? null,
+								});
+							}
+						}
+					}
+				}
 				if (
 					adapters.shouldHydrateFileProductionJobsOnToolCall?.(name, status)
 				) {
