@@ -70,7 +70,7 @@ function makeRequest(
 		attachmentIds: [],
 		linkedSources: [],
 		pendingSkill: null,
-		reasoningDepth: "auto",
+		reasoningDepth: "thorough",
 		thinkingMode: "auto",
 		forceWebSearch: false,
 		skipPersistUserMessage: false,
@@ -151,7 +151,7 @@ function resetPreflightMocks() {
 	});
 	mocks.resolveReasoningDepthSelection.mockResolvedValue({
 		metadata: {
-			requested: "auto",
+			requested: "thorough",
 			appliedProfile: "extended",
 			fallback: false,
 			classifierSource: "control_model",
@@ -247,7 +247,7 @@ describe("prepareAdmittedChatTurn", () => {
 				conversationId: "conv-1",
 				normalizedMessage: "Compare the migration paths.",
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 				},
 				skillPromptContext,
@@ -276,7 +276,7 @@ describe("preflightChatTurn", () => {
 			value: {
 				conversationId: "conv-1",
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 					fallback: false,
 					classifierSource: "control_model",
@@ -288,7 +288,7 @@ describe("preflightChatTurn", () => {
 			conversationId: "conv-1",
 			request: expect.objectContaining({
 				normalizedMessage: "Compare the migration paths.",
-				reasoningDepth: "auto",
+				reasoningDepth: "thorough",
 			}),
 		});
 	});
@@ -323,7 +323,7 @@ describe("preflightChatTurn", () => {
 			value: {
 				skillPromptContext,
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 				},
 			},
@@ -333,18 +333,18 @@ describe("preflightChatTurn", () => {
 			turn: expect.objectContaining({
 				conversationId: "conv-1",
 				depthMetadata: expect.objectContaining({
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 				}),
 			}),
 		});
 	});
 
-	it("carries forward explicit Max after a Depth Clarification when the composer depth is unchanged", async () => {
+	it("carries forward an explicit maximum profile after a Depth Clarification when the toggle is unchanged", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				classifierSource: "deterministic_bypass",
@@ -364,7 +364,7 @@ describe("preflightChatTurn", () => {
 		const result = await preflightChatTurn({
 			userId: "user-1",
 			request: makeRequest({
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 				modelId: "model2",
 				modelDisplayName: "Current Model",
 				providerDisplayName: "Current Provider",
@@ -375,7 +375,7 @@ describe("preflightChatTurn", () => {
 			ok: true,
 			value: {
 				depthMetadata: {
-					requested: "max",
+					requested: "thorough",
 					appliedProfile: "maximum",
 					fallback: false,
 					classifierSource: "deterministic_bypass",
@@ -393,17 +393,14 @@ describe("preflightChatTurn", () => {
 		expect(mocks.resolveReasoningDepthSelection).not.toHaveBeenCalled();
 	});
 
-	it("carries forward an Auto-resolved extended profile after a Depth Clarification", async () => {
+	it("carries forward a thorough-resolved extended profile after a Depth Clarification", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				classifierSource: "control_model",
-				classifierModelSource: "selected_chat_model",
-				classifierModelId: "model1",
-				classifierModelDisplayName: "Classifier Model",
 				signals: {
 					groundingNeed: "useful",
 					contextBreadth: "broad",
@@ -425,7 +422,7 @@ describe("preflightChatTurn", () => {
 		const result = await preflightChatTurn({
 			userId: "user-1",
 			request: makeRequest({
-				reasoningDepth: "auto",
+				reasoningDepth: "thorough",
 				modelId: "model2",
 				modelDisplayName: "Current Model",
 				providerDisplayName: "Current Provider",
@@ -436,13 +433,10 @@ describe("preflightChatTurn", () => {
 			ok: true,
 			value: {
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 					fallback: false,
 					classifierSource: "control_model",
-					classifierModelSource: "selected_chat_model",
-					classifierModelId: "model1",
-					classifierModelDisplayName: "Classifier Model",
 					signals: {
 						groundingNeed: "useful",
 						contextBreadth: "broad",
@@ -458,18 +452,15 @@ describe("preflightChatTurn", () => {
 		expect(mocks.resolveReasoningDepthSelection).not.toHaveBeenCalled();
 	});
 
-	it("carries forward an Auto-resolved maximum profile after a Depth Clarification", async () => {
+	it("carries forward a thorough-resolved maximum profile after a Depth Clarification", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: true,
 				fallbackReason: "control_model_error",
 				classifierSource: "control_model_fallback",
-				classifierModelSource: "configured_model",
-				classifierModelId: "provider:p1:m1",
-				configuredClassifierModelId: "provider:p1:m1",
 				modelId: "model1",
 				modelDisplayName: "Previous Model",
 				providerDisplayName: "Previous Provider",
@@ -485,7 +476,7 @@ describe("preflightChatTurn", () => {
 		const result = await preflightChatTurn({
 			userId: "user-1",
 			request: makeRequest({
-				reasoningDepth: "auto",
+				reasoningDepth: "thorough",
 				modelId: "model2",
 				modelDisplayName: "Current Model",
 				providerDisplayName: "Current Provider",
@@ -496,14 +487,11 @@ describe("preflightChatTurn", () => {
 			ok: true,
 			value: {
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "maximum",
 					fallback: true,
 					fallbackReason: "control_model_error",
 					classifierSource: "control_model_fallback",
-					classifierModelSource: "configured_model",
-					classifierModelId: "provider:p1:m1",
-					configuredClassifierModelId: "provider:p1:m1",
 					modelId: "model2",
 					modelDisplayName: "Current Model",
 					providerDisplayName: "Current Provider",
@@ -517,7 +505,7 @@ describe("preflightChatTurn", () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getLastMessage.mockResolvedValue(
 			makeAssistantClarificationMessage({
-				requested: "max",
+				requested: "quick",
 				appliedProfile: "maximum",
 				fallback: false,
 				classifierSource: "deterministic_bypass",
@@ -531,7 +519,7 @@ describe("preflightChatTurn", () => {
 			}),
 		);
 
-		const request = makeRequest({ reasoningDepth: "auto" });
+		const request = makeRequest({ reasoningDepth: "thorough" });
 		const result = await preflightChatTurn({
 			userId: "user-1",
 			request,
@@ -541,7 +529,7 @@ describe("preflightChatTurn", () => {
 			ok: true,
 			value: {
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 				},
 			},
@@ -550,7 +538,7 @@ describe("preflightChatTurn", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			request: expect.objectContaining({
-				reasoningDepth: "auto",
+				reasoningDepth: "thorough",
 			}),
 		});
 	});
@@ -566,7 +554,7 @@ describe("preflightChatTurn", () => {
 			content: "Here is the comparison.",
 			timestamp: Date.now() + 2,
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				classifierSource: "control_model",
@@ -575,14 +563,14 @@ describe("preflightChatTurn", () => {
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
-			request: makeRequest({ reasoningDepth: "auto" }),
+			request: makeRequest({ reasoningDepth: "thorough" }),
 		});
 
 		expect(result).toMatchObject({
 			ok: true,
 			value: {
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 				},
 			},

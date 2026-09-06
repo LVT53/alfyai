@@ -757,7 +757,7 @@ describe("streamChat", () => {
 			wasStopped: false,
 			modelDisplayName: "Model 1",
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				modelId: "model1",
@@ -967,12 +967,12 @@ describe("streamChat", () => {
 	it("threads Reasoning depth into the streaming request body", async () => {
 		const { mockFetch, done } = runStreamWithMockedResponse({
 			responseChunks: [endEvent()],
-			options: { reasoningDepth: "off" },
+			options: { reasoningDepth: "quick" },
 		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
-		expect(parsedBody.reasoningDepth).toBe("off");
+		expect(parsedBody.reasoningDepth).toBe("quick");
 		expect(parsedBody).not.toHaveProperty("thinkingMode");
 	});
 
@@ -1012,13 +1012,13 @@ describe("streamChat", () => {
 				retryAssistantMessageId: "assistant-msg-1",
 				retryUserMessageId: "user-msg-1",
 				retryUserMessage: "historical user text",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 			},
 		});
 		await done;
 
 		const parsedBody = parseLastStreamRequestBody(mockFetch);
-		expect(parsedBody.reasoningDepth).toBe("max");
+		expect(parsedBody.reasoningDepth).toBe("thorough");
 		expect(parsedBody).not.toHaveProperty("thinkingMode");
 	});
 

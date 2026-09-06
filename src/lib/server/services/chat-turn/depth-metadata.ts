@@ -7,9 +7,7 @@ import type {
 export function resolveBaselineDepthProfile(
 	reasoningDepth: ReasoningDepth,
 ): DepthAppliedProfile {
-	if (reasoningDepth === "off") return "off";
-	if (reasoningDepth === "max") return "maximum";
-	return "standard";
+	return reasoningDepth === "quick" ? "off" : "standard";
 }
 
 export function buildBaselineDepthMetadata(params: {
@@ -18,7 +16,7 @@ export function buildBaselineDepthMetadata(params: {
 	modelDisplayName?: string | null;
 	providerDisplayName?: string | null;
 }): DepthMetadata {
-	const requested = params.reasoningDepth ?? "auto";
+	const requested = params.reasoningDepth ?? "thorough";
 	const metadata: DepthMetadata = {
 		requested,
 		appliedProfile: resolveBaselineDepthProfile(requested),

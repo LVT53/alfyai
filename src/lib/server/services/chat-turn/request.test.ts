@@ -40,9 +40,9 @@ describe("parseChatTurnRequest reasoning depth", () => {
 		vi.clearAllMocks();
 	});
 
-	it("accepts canonical reasoningDepth and maps Max to current provider-native reasoning", async () => {
+	it("accepts the canonical thorough toggle value", async () => {
 		const result = await parseChatTurnRequest(
-			makeRequest({ reasoningDepth: "max" }),
+			makeRequest({ reasoningDepth: "thorough" }),
 			makeRuntimeConfig(),
 			"stream",
 		);
@@ -51,11 +51,67 @@ describe("parseChatTurnRequest reasoning depth", () => {
 			expect.objectContaining({
 				ok: true,
 				value: expect.objectContaining({
-					reasoningDepth: "max",
+					reasoningDepth: "thorough",
 					thinkingMode: "on",
 				}),
 			}),
 		);
+	});
+
+	it("accepts the canonical quick toggle value", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ reasoningDepth: "quick" }),
+			makeRuntimeConfig(),
+			"stream",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					reasoningDepth: "quick",
+					thinkingMode: "off",
+				}),
+			}),
+		);
+	});
+
+	it("maps the legacy 'off' ladder value to quick", async () => {
+		const result = await parseChatTurnRequest(
+			makeRequest({ reasoningDepth: "off" }),
+			makeRuntimeConfig(),
+			"stream",
+		);
+
+		expect(result).toEqual(
+			expect.objectContaining({
+				ok: true,
+				value: expect.objectContaining({
+					reasoningDepth: "quick",
+					thinkingMode: "off",
+				}),
+			}),
+		);
+	});
+
+	it("maps the legacy 'auto' and 'max' ladder values to thorough", async () => {
+		for (const legacyValue of ["auto", "max"]) {
+			const result = await parseChatTurnRequest(
+				makeRequest({ reasoningDepth: legacyValue }),
+				makeRuntimeConfig(),
+				"stream",
+			);
+
+			expect(result).toEqual(
+				expect.objectContaining({
+					ok: true,
+					value: expect.objectContaining({
+						reasoningDepth: "thorough",
+						thinkingMode: "on",
+					}),
+				}),
+			);
+		}
 	});
 
 	it("maps hidden legacy thinkingMode values when canonical reasoningDepth is absent", async () => {
@@ -69,14 +125,14 @@ describe("parseChatTurnRequest reasoning depth", () => {
 			expect.objectContaining({
 				ok: true,
 				value: expect.objectContaining({
-					reasoningDepth: "off",
+					reasoningDepth: "quick",
 					thinkingMode: "off",
 				}),
 			}),
 		);
 	});
 
-	it("defaults invalid reasoningDepth to Auto baseline behavior", async () => {
+	it("defaults an invalid reasoningDepth to the thorough baseline", async () => {
 		const result = await parseChatTurnRequest(
 			makeRequest({ reasoningDepth: "extended" }),
 			makeRuntimeConfig(),
@@ -87,8 +143,8 @@ describe("parseChatTurnRequest reasoning depth", () => {
 			expect.objectContaining({
 				ok: true,
 				value: expect.objectContaining({
-					reasoningDepth: "auto",
-					thinkingMode: "auto",
+					reasoningDepth: "thorough",
+					thinkingMode: "on",
 				}),
 			}),
 		);
@@ -188,8 +244,8 @@ describe("parseChatTurnRequest Atlas fields", () => {
 					atlasAction: "create",
 					parentAtlasId: null,
 					clientAtlasTurnId: null,
-					reasoningDepth: "auto",
-					thinkingMode: "auto",
+					reasoningDepth: "thorough",
+					thinkingMode: "on",
 				}),
 			}),
 		);

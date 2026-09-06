@@ -198,8 +198,19 @@ const JSON_FORMATTING_RULES = [
 	"- On a parse error, read the message, fix the specific issue, and retry once. Do not repeat the same malformed JSON.",
 ].join("\n");
 
+// ADR-0061: the reasoning-depth ladder collapsed to a single thinking
+// toggle. "thorough" (thinking on) still applies the "standard" contract
+// below; "quick" (thinking off, applied profile "off") gets a single line —
+// no header, no grounding-pressure paragraph, no tool-budget line, since
+// there is nothing profile-specific left to say (its tool/web budgets match
+// "standard" exactly). "extended"/"maximum" are unreachable from the
+// current toggle but stay implemented since DepthAppliedProfile and old
+// persisted messages still reference them.
 function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 	const profile = effort.depthMetadata.appliedProfile;
+	if (profile === "off") {
+		return "Provider-visible thinking is disabled for this turn. Still answer carefully and use required tools or grounding when another instruction calls for them.";
+	}
 	const grounding = effort.grounding.guidance;
 	const depthContract =
 		profile === "maximum"
@@ -217,15 +228,10 @@ function buildReasoningDepthEffortGuard(effort: ReasoningDepthEffort): string {
 						"- Decompose multi-step work internally and verify that the final answer actually satisfies each important part of the request.",
 						"- Do not expose chain-of-thought or scratchpad reasoning. Show only the useful rationale and conclusions.",
 					]
-				: profile === "standard"
-					? [
-							"Standard-depth reasoning contract:",
-							"- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.",
-						]
-					: [
-							"Off-depth reasoning contract:",
-							"- Provider-visible thinking is disabled where supported. Still answer carefully and use required tools or grounding when another instruction calls for them.",
-						];
+				: [
+						"Standard-depth reasoning contract:",
+						"- Use normal private reasoning. Keep the answer efficient, but still check obvious constraints and avoid unsupported claims.",
+					];
 	return [
 		"Reasoning depth effort profile:",
 		`- Applied Normal Chat profile: ${profile}. This does not force web search every turn, and does not make the visible answer longer by itself.`,

@@ -49,7 +49,7 @@ function parseCapabilityState(value: unknown): boolean | null {
 	return null;
 }
 
-function parseCapabilitySupportMap(
+export function parseCapabilitySupportMap(
 	json: string,
 ): Record<ModelCapabilityKey, boolean | null> {
 	const empty = Object.fromEntries(

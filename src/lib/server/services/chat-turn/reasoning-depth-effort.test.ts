@@ -25,7 +25,7 @@ const PROFILES: DepthAppliedProfile[] = [
 describe("resolveReasoningDepthEffort", () => {
 	it("applies maximum depth to provider reasoning, source budgets, grounding, and metadata", () => {
 		const depthMetadata: DepthMetadata = {
-			requested: "auto",
+			requested: "thorough",
 			appliedProfile: "maximum",
 			fallback: false,
 			signals: {
@@ -83,7 +83,7 @@ describe("resolveReasoningDepthEffort", () => {
 		for (const profile of PROFILES) {
 			const effort = resolveReasoningDepthEffort({
 				depthMetadata: {
-					requested: profile === "maximum" ? "max" : "auto",
+					requested: profile === "off" ? "quick" : "thorough",
 					appliedProfile: profile,
 					fallback: false,
 					signals: {
@@ -104,19 +104,49 @@ describe("resolveReasoningDepthEffort", () => {
 		}
 	});
 
-	it("scales the profile ladder while keeping source expansion conditional on evidence signals", () => {
-		const off = resolveReasoningDepthEffort({
+	it("keeps quick's tool/web budgets equal to thorough's while only turning reasoning off", () => {
+		const quick = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "off",
+				requested: "quick",
 				appliedProfile: "off",
 				fallback: false,
 			},
 			provider,
 			forceWebSearch: false,
 		});
+		const thorough = resolveReasoningDepthEffort({
+			depthMetadata: {
+				requested: "thorough",
+				appliedProfile: "standard",
+				fallback: false,
+			},
+			provider,
+			forceWebSearch: false,
+		});
+
+		expect(quick.providerReasoning.thinkingMode).toBe("off");
+		expect(thorough.providerReasoning).toMatchObject({
+			thinkingMode: "auto",
+			reasoningEffort: "low",
+		});
+		// The only difference the toggle makes is provider reasoning — tool
+		// steps and the web-source budget stay identical.
+		expect(quick.maxToolSteps).toBe(14);
+		expect(thorough.maxToolSteps).toBe(14);
+		expect(quick.maxToolSteps).toBe(thorough.maxToolSteps);
+		expect(quick.webSourceBudget).toEqual({
+			maxSources: 6,
+			sourceExpansion: false,
+		});
+		expect(thorough.webSourceBudget).toEqual(quick.webSourceBudget);
+		expect(quick.grounding.guidance).toBe("minimal");
+		expect(thorough.grounding.guidance).toBe("standard");
+	});
+
+	it("scales the unreachable-but-still-defined extended/maximum profiles", () => {
 		const standard = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "standard",
 				fallback: false,
 			},
@@ -125,7 +155,7 @@ describe("resolveReasoningDepthEffort", () => {
 		});
 		const extendedWithoutEvidence = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 			},
@@ -134,7 +164,7 @@ describe("resolveReasoningDepthEffort", () => {
 		});
 		const extendedWithEvidence = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				signals: {
@@ -147,7 +177,7 @@ describe("resolveReasoningDepthEffort", () => {
 		});
 		const maximumWithoutEvidence = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 			},
@@ -155,11 +185,6 @@ describe("resolveReasoningDepthEffort", () => {
 			forceWebSearch: false,
 		});
 
-		expect(off.providerReasoning.thinkingMode).toBe("off");
-		expect(standard.providerReasoning).toMatchObject({
-			thinkingMode: "auto",
-			reasoningEffort: "low",
-		});
 		expect(extendedWithoutEvidence.providerReasoning).toMatchObject({
 			thinkingMode: "on",
 			reasoningEffort: "medium",
@@ -168,15 +193,12 @@ describe("resolveReasoningDepthEffort", () => {
 			thinkingMode: "on",
 			reasoningEffort: "high",
 		});
-		expect(off.maxToolSteps).toBeLessThan(standard.maxToolSteps);
 		expect(standard.maxToolSteps).toBeLessThan(
 			extendedWithoutEvidence.maxToolSteps,
 		);
 		expect(extendedWithoutEvidence.maxToolSteps).toBeLessThan(
 			maximumWithoutEvidence.maxToolSteps,
 		);
-		expect(off.grounding.guidance).toBe("minimal");
-		expect(standard.grounding.guidance).toBe("standard");
 		expect(maximumWithoutEvidence.grounding.guidance).toBe("careful");
 		expect(extendedWithoutEvidence.webSourceBudget).toEqual({
 			maxSources: 6,
@@ -195,7 +217,7 @@ describe("resolveReasoningDepthEffort", () => {
 	it("records provider reasoning constraints when a profile is capped by configured model limits", () => {
 		const effort = resolveReasoningDepthEffort({
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 			},

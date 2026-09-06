@@ -1,3 +1,4 @@
+import { parseCapabilitySupportMap } from "$lib/model-fallback-compatibility";
 import type { ModelId } from "$lib/model-types";
 import type { RuntimeConfig } from "../config-store";
 import {
@@ -5,6 +6,15 @@ import {
 	type ProviderModel,
 } from "./provider-models";
 import { listEnabledProviders, type Provider } from "./providers";
+
+// A model supports the reasoning-controls (thinking toggle) UI unless its
+// admin-recorded capabilities explicitly say otherwise. Built-in models have
+// no capabilitiesJson at all, so they default to supported.
+function resolveSupportsReasoningControls(capabilitiesJson: string): boolean {
+	return (
+		parseCapabilitySupportMap(capabilitiesJson).reasoningControls !== false
+	);
+}
 
 export interface AvailableBuiltInModel {
 	id: ModelId;
@@ -37,6 +47,7 @@ export interface AvailableModelProviderGroup {
 		maxModelContext: number | null;
 		inputUsdMicrosPer1m: number;
 		outputUsdMicrosPer1m: number;
+		supportsReasoningControls: boolean;
 	}>;
 }
 
@@ -171,6 +182,7 @@ export async function getAvailableModelProviderGroups(
 				maxModelContext: null,
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
+				supportsReasoningControls: true,
 			})),
 		});
 	}
@@ -199,6 +211,9 @@ export async function getAvailableModelProviderGroups(
 				maxModelContext: model.maxModelContext,
 				inputUsdMicrosPer1m: model.inputUsdMicrosPer1m,
 				outputUsdMicrosPer1m: model.outputUsdMicrosPer1m,
+				supportsReasoningControls: resolveSupportsReasoningControls(
+					model.capabilitiesJson,
+				),
 			})),
 		});
 	}

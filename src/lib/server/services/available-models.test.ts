@@ -146,6 +146,7 @@ describe("available model projection", () => {
 						maxModelContext: null,
 						inputUsdMicrosPer1m: 0,
 						outputUsdMicrosPer1m: 0,
+						supportsReasoningControls: true,
 					},
 					{
 						id: "model2",
@@ -159,6 +160,7 @@ describe("available model projection", () => {
 						maxModelContext: null,
 						inputUsdMicrosPer1m: 0,
 						outputUsdMicrosPer1m: 0,
+						supportsReasoningControls: true,
 					},
 				],
 			},
@@ -183,9 +185,34 @@ describe("available model projection", () => {
 						maxModelContext: 128000,
 						inputUsdMicrosPer1m: 1000,
 						outputUsdMicrosPer1m: 2000,
+						supportsReasoningControls: true,
 					},
 				],
 			},
 		]);
+	});
+
+	it("hides reasoning controls only when capabilitiesJson explicitly marks them unsupported", async () => {
+		mockListEnabledProviderModels.mockResolvedValue([
+			{
+				id: "model-b",
+				displayName: "Model B",
+				iconAssetId: null,
+				guideNoteEn: null,
+				guideNoteHu: null,
+				guideBadge: null,
+				guideNoCost: false,
+				estimatedTokensPerSecond: null,
+				maxModelContext: null,
+				inputUsdMicrosPer1m: 0,
+				outputUsdMicrosPer1m: 0,
+				capabilitiesJson: JSON.stringify({ reasoningControls: "not_detected" }),
+				enabled: true,
+			} as Awaited<ReturnType<typeof listEnabledProviderModels>>[number],
+		]);
+
+		const groups = await getAvailableModelProviderGroups(runtimeConfig());
+		const providerGroup = groups.find((group) => group.id === "provider-1");
+		expect(providerGroup?.models[0]?.supportsReasoningControls).toBe(false);
 	});
 });

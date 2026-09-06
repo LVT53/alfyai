@@ -13,7 +13,7 @@ function createDeps(
 		conversationId: "c1",
 		controller: new AbortController(),
 		userMessage: "Hello",
-		reasoningDepth: "auto",
+		reasoningDepth: "thorough",
 		getOrphanedStream: vi.fn(() => null),
 		isStreamActive: vi.fn(() => false),
 		registerActiveChatStream: vi.fn(() => true),
@@ -89,7 +89,7 @@ describe("arbitrateStreamStart", () => {
 			expect.objectContaining({
 				streamId: "client-stream",
 				userMessage: "Hello",
-				reasoningDepth: "auto",
+				reasoningDepth: "thorough",
 			}),
 		);
 	});

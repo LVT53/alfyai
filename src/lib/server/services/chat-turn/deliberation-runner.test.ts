@@ -87,7 +87,7 @@ function effort(
 ): ReasoningDepthEffort {
 	return {
 		depthMetadata: {
-			requested: profile === "maximum" ? "max" : "auto",
+			requested: profile === "off" ? "quick" : "thorough",
 			appliedProfile: profile,
 			fallback: false,
 			appliedEffort: {

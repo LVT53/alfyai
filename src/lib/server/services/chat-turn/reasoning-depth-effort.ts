@@ -63,15 +63,21 @@ const REASONING_EFFORT_ORDER: ReasoningEffort[] = [
 	"xhigh",
 ];
 
+// ADR-0061: "quick" (applied profile "off") only turns model reasoning off —
+// it must not cut tool or web-source budgets, so its numbers match
+// "standard" (the profile "thorough" applies) exactly. "extended" and
+// "maximum" are unreachable from the current toggle (no request maps to
+// them any more) but stay defined since DepthAppliedProfile and old
+// persisted messages still reference them.
 const PROFILE_TOOL_STEPS: Record<DepthAppliedProfile, number> = {
-	off: 8,
+	off: 14,
 	standard: 14,
 	extended: 18,
 	maximum: 24,
 };
 
 const BASE_WEB_SOURCE_BUDGET: Record<DepthAppliedProfile, number> = {
-	off: 4,
+	off: 6,
 	standard: 6,
 	extended: 6,
 	maximum: 6,

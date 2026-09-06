@@ -1123,7 +1123,7 @@ describe("finalizeChatTurn", () => {
 				evidenceStatus: "pending",
 				modelDisplayName: "Model One",
 			},
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			skillControlOperations: [],
 			skillControlSessionId: null,
 			attachmentIds: [],
@@ -1151,8 +1151,8 @@ describe("finalizeChatTurn", () => {
 			undefined,
 			expect.objectContaining({
 				depthMetadata: {
-					requested: "max",
-					appliedProfile: "maximum",
+					requested: "thorough",
+					appliedProfile: "standard",
 					fallback: false,
 					modelId: "provider:local:model-a",
 					modelDisplayName: "Model One",
@@ -1178,9 +1178,9 @@ describe("finalizeChatTurn", () => {
 				modelDisplayName: "Provider Model A",
 				providerDisplayName: "Provider One",
 			},
-			reasoningDepth: "auto",
+			reasoningDepth: "thorough",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				classifierSource: "control_model",
@@ -1214,7 +1214,7 @@ describe("finalizeChatTurn", () => {
 			undefined,
 			expect.objectContaining({
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 					fallback: false,
 					classifierSource: "control_model",

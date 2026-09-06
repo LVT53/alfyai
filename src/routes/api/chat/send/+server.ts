@@ -303,7 +303,7 @@ async function runAtlasSendTurn({
 					reused: intake.reused,
 				},
 			},
-			reasoningDepth: "auto",
+			reasoningDepth: "thorough",
 			skillControlOperations: [],
 			skillControlSessionId: null,
 			attachmentIds: turn.attachmentIds,

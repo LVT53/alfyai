@@ -445,25 +445,6 @@ async function resolveDepthClarificationCarryForward(params: {
 	if (previousDepthMetadata.classifierSource) {
 		metadata.classifierSource = previousDepthMetadata.classifierSource;
 	}
-	if (previousDepthMetadata.classifierModelSource) {
-		metadata.classifierModelSource =
-			previousDepthMetadata.classifierModelSource;
-	}
-	if (previousDepthMetadata.classifierModelId) {
-		metadata.classifierModelId = previousDepthMetadata.classifierModelId;
-	}
-	if (previousDepthMetadata.classifierModelDisplayName) {
-		metadata.classifierModelDisplayName =
-			previousDepthMetadata.classifierModelDisplayName;
-	}
-	if (previousDepthMetadata.classifierModelFallbackReason) {
-		metadata.classifierModelFallbackReason =
-			previousDepthMetadata.classifierModelFallbackReason;
-	}
-	if (previousDepthMetadata.configuredClassifierModelId) {
-		metadata.configuredClassifierModelId =
-			previousDepthMetadata.configuredClassifierModelId;
-	}
 	if (previousDepthMetadata.signals) {
 		metadata.signals = { ...previousDepthMetadata.signals };
 	}

@@ -119,10 +119,19 @@ function isDepthMetadata(value: unknown): value is DepthMetadata {
 }
 
 function hasValidDepthMetadataBase(candidate: Partial<DepthMetadata>): boolean {
+	// `requested` on a message persisted before ADR-0061 (the thinking-toggle
+	// redesign) still carries a legacy off/auto/max ladder value — this isn't
+	// re-validated or migrated at read time, so a persisted message keeps
+	// whichever value it was written with. Widened to `unknown` here because
+	// the current ReasoningDepth type ("thorough" | "quick") has no overlap
+	// with those legacy string literals.
+	const requested: unknown = candidate.requested;
 	return (
-		(candidate.requested === "off" ||
-			candidate.requested === "auto" ||
-			candidate.requested === "max") &&
+		(requested === "thorough" ||
+			requested === "quick" ||
+			requested === "off" ||
+			requested === "auto" ||
+			requested === "max") &&
 		(candidate.appliedProfile === "off" ||
 			candidate.appliedProfile === "standard" ||
 			candidate.appliedProfile === "extended" ||

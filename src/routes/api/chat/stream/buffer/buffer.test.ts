@@ -71,7 +71,7 @@ describe("GET /api/chat/stream/buffer", () => {
 			userId: "user-1",
 			conversationId: "conv-buffer-existing",
 			userMessage: "original question",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 		appendToStreamBuffer("stream-buffer-existing", "token", { text: "Hello" });
 		appendToStreamBuffer("stream-buffer-existing", "token", { text: " world" });
@@ -96,7 +96,7 @@ describe("GET /api/chat/stream/buffer", () => {
 			expect(payload).toEqual({
 				exists: true,
 				userMessage: "original question",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 				tokenCount: 2,
 				thinkingCount: 1,
 				toolCallCount: 1,
