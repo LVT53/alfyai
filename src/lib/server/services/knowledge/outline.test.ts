@@ -79,6 +79,46 @@ describe("extractDocumentOutline", () => {
 		);
 	});
 
+	// Plain .txt/.md uploads skip MinerU and are read straight off disk
+	// (document-extraction.ts's direct-text path), so a Windows-authored file
+	// reaches the extractor with its CRLF line endings intact. Offsets and
+	// previews must stay anchored to the real character positions.
+	it("keeps offsets and previews correct for CRLF line endings", () => {
+		const lines = [
+			"# Alpha",
+			"",
+			"Alpha body text here.",
+			"",
+			"## Beta",
+			"",
+			"Beta body text here.",
+			"",
+			"### Gamma",
+			"",
+			"Gamma body text here.",
+		];
+		const crlf = lines.join("\r\n");
+
+		const outline = extractDocumentOutline(crlf);
+
+		expect(outline.map((entry) => entry.title)).toEqual([
+			"Alpha",
+			"Beta",
+			"Gamma",
+		]);
+		for (const entry of outline) {
+			// The stored offset must point at the heading's own line.
+			expect(crlf.slice(entry.offset)).toMatch(
+				new RegExp(`^#{1,6} ${entry.title}\\r\\n`),
+			);
+			// ...and the preview must be the body that follows it, not text
+			// dragged in from a neighbouring section.
+			expect(entry.preview.startsWith(`${entry.title} body text here.`)).toBe(
+				true,
+			);
+		}
+	});
+
 	it("caps stored outline entries at MAX_OUTLINE_ENTRIES", () => {
 		const headings = Array.from(
 			{ length: MAX_OUTLINE_ENTRIES + 50 },
