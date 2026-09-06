@@ -4,6 +4,9 @@ import type { SessionUser } from "$lib/server/services/auth-types";
 const mocks = vi.hoisted(() => ({
 	checkClientActivityRateLimit: vi.fn(() => true),
 	recordClientActivityEvent: vi.fn(async () => undefined),
+	getConversationUserId: vi.fn(
+		async (_conversationId: string) => "user-1" as string | null,
+	),
 }));
 
 vi.mock("$lib/server/services/activity-events", async () => {
@@ -16,6 +19,10 @@ vi.mock("$lib/server/services/activity-events", async () => {
 		recordClientActivityEvent: mocks.recordClientActivityEvent,
 	};
 });
+
+vi.mock("$lib/server/services/conversations", () => ({
+	getConversationUserId: mocks.getConversationUserId,
+}));
 
 import { POST } from "./+server";
 
@@ -47,6 +54,8 @@ describe("POST /api/analytics/activity", () => {
 		mocks.checkClientActivityRateLimit.mockReturnValue(true);
 		mocks.recordClientActivityEvent.mockReset();
 		mocks.recordClientActivityEvent.mockResolvedValue(undefined);
+		mocks.getConversationUserId.mockReset();
+		mocks.getConversationUserId.mockResolvedValue("user-1");
 	});
 
 	it("requires authentication", async () => {
@@ -147,6 +156,40 @@ describe("POST /api/analytics/activity", () => {
 		} as unknown as Parameters<typeof POST>[0]);
 
 		expect(response.status).toBe(400);
+	});
+
+	// A client may only report activity against its OWN conversation: the
+	// caller controls conversationId entirely and activity_events rows are
+	// FK-bound to conversations (cascading with them), so an unchecked id
+	// lets one user attach rows to another user's conversation.
+	it("rejects an event for a conversation owned by another user", async () => {
+		mocks.getConversationUserId.mockResolvedValue("user-2");
+
+		const response = await POST(
+			event({
+				kind: "composer_command",
+				name: "model",
+				conversationId: "conv-of-user-2",
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		expect(mocks.recordClientActivityEvent).not.toHaveBeenCalled();
+	});
+
+	it("rejects an event for a conversation that does not exist", async () => {
+		mocks.getConversationUserId.mockResolvedValue(null);
+
+		const response = await POST(
+			event({
+				kind: "answer_now",
+				name: "answer_now",
+				conversationId: "conv-missing",
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		expect(mocks.recordClientActivityEvent).not.toHaveBeenCalled();
 	});
 
 	it("returns 429 when the per-user rate limit is exceeded", async () => {

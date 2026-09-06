@@ -10,6 +10,7 @@ import {
 	isClientActivityEventKind,
 	recordClientActivityEvent,
 } from "$lib/server/services/activity-events";
+import { getConversationUserId } from "$lib/server/services/conversations";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -72,6 +73,15 @@ export const POST: RequestHandler = async (event) => {
 		typeof messageId !== "string"
 	) {
 		return json({ error: "messageId must be a string" }, { status: 400 });
+	}
+
+	// The caller controls conversationId outright, and activity_events rows
+	// are FK-bound to conversations (and cascade with them), so an event may
+	// only ever be attached to a conversation the caller owns. A missing
+	// conversation answers identically to one owned by somebody else, so the
+	// endpoint is not an existence oracle for other people's conversations.
+	if ((await getConversationUserId(conversationId)) !== userId) {
+		return json({ error: "Conversation not found" }, { status: 403 });
 	}
 
 	await recordClientActivityEvent({
