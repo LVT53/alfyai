@@ -2,6 +2,7 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type GroundedWebResult,
+	type GroundedWebSource,
 	MAX_PAYLOAD_EVIDENCE,
 	MAX_PAYLOAD_SOURCES,
 } from "$lib/server/services/parallel-search/types";
@@ -28,6 +29,16 @@ export type GroundedWebPayloadEvidence = {
 	score: number;
 };
 
+// A single page body fetched by research_web's optional `readPages` (see
+// index.ts): the full markdown content of one search-result URL, alongside
+// its title, so the model can answer from page-level detail without a
+// separate fetch_url round trip in the same turn.
+export type GroundedWebPage = {
+	url: string;
+	title: string;
+	contentMarkdown: string;
+};
+
 export type GroundedWebModelPayload = {
 	success: boolean;
 	name: "research_web" | "fetch_url";
@@ -41,6 +52,8 @@ export type GroundedWebModelPayload = {
 	answerBriefMarkdown: string;
 	sources: GroundedWebPayloadSource[];
 	evidence: GroundedWebPayloadEvidence[];
+	// Only present on research_web when readPages > 0.
+	pages?: GroundedWebPage[];
 };
 
 export type GroundedWebMetadata = NonNullable<ToolCallEntry["metadata"]>;
@@ -176,6 +189,50 @@ export function createGroundedWebCandidates(
 				: {}),
 		},
 	}));
+}
+
+// Pick the top `limit` DISTINCT result URLs (by canonical URL, preserving
+// source-ranking order) for research_web's optional `readPages` page-read
+// follow-up. Sources that fail to canonicalize fall back to their raw URL as
+// the dedupe key rather than being dropped.
+export function selectTopDistinctSourceUrls(
+	sources: GroundedWebSource[],
+	limit: number,
+): string[] {
+	if (limit <= 0) return [];
+	const seen = new Set<string>();
+	const urls: string[] = [];
+	for (const source of sources) {
+		const key =
+			canonicalizeGroundedWebUrl(source.url)?.canonicalUrl ?? source.url;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		urls.push(source.url);
+		if (urls.length >= limit) break;
+	}
+	return urls;
+}
+
+const FETCH_PAGE_HEADER_RE = /^# Fetched page content\n\n/;
+
+// Build a research_web `pages[]` entry from a fetchUrlViaParallel result for
+// a SINGLE url. The fetch orchestrator has no per-page-without-wrapper output
+// of its own, so this strips the generic "# Fetched page content" wrapper
+// fetchUrlViaParallel adds around its (here, single) page block, leaving the
+// per-page "[1] title — url" heading, excerpts, and body intact.
+export function buildGroundedWebPageFromFetch(
+	fetchResult: GroundedWebResult,
+): GroundedWebPage | null {
+	const source = fetchResult.sources[0];
+	if (!source) return null;
+	return {
+		url: source.url,
+		title: source.title,
+		contentMarkdown: fetchResult.answerBrief.markdown.replace(
+			FETCH_PAGE_HEADER_RE,
+			"",
+		),
+	};
 }
 
 // The model payload no longer carries `diagnostics` (P4 hygiene) — this is
