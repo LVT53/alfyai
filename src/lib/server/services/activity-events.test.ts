@@ -335,4 +335,29 @@ describe("client activity rate limiting", () => {
 		expect(checkClientActivityRateLimit("user-a", now)).toBe(false);
 		expect(checkClientActivityRateLimit("user-b", now)).toBe(true);
 	});
+
+	// The bucket map is process-lifetime: without eviction it keeps one entry
+	// per user id that ever posted an activity event, forever, even though
+	// every timestamp in it is long expired.
+	it("evicts buckets whose window has fully expired instead of growing forever", async () => {
+		const {
+			checkClientActivityRateLimit,
+			_resetClientActivityRateLimitForTests,
+			_clientActivityRateLimitSizeForTests,
+		} = await import("./activity-events");
+		_resetClientActivityRateLimitForTests();
+
+		const now = 1_777_140_000_000;
+		for (let i = 0; i < 500; i++) {
+			checkClientActivityRateLimit(`one-shot-user-${i}`, now);
+		}
+		expect(_clientActivityRateLimitSizeForTests()).toBe(500);
+
+		// Two windows later none of those 500 can still be rate-limited, so
+		// none of them should still occupy memory.
+		expect(checkClientActivityRateLimit("later-user", now + 120_001)).toBe(
+			true,
+		);
+		expect(_clientActivityRateLimitSizeForTests()).toBe(1);
+	});
 });

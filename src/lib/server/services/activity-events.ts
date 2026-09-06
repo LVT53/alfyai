@@ -200,12 +200,30 @@ export function isClientActivityEventKind(
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
 const rateLimitBuckets = new Map<string, number[]>();
+let lastRateLimitSweep = 0;
+
+// A bucket whose newest timestamp has fallen out of the window can never
+// block anything again, so it is pure garbage: without this the map keeps one
+// entry per user id that ever posted an activity event, for the life of the
+// process. Swept at most once per window, so the cost is amortized to O(1)
+// per request.
+function sweepExpiredRateLimitBuckets(now: number, windowStart: number): void {
+	if (now - lastRateLimitSweep < RATE_LIMIT_WINDOW_MS) return;
+	lastRateLimitSweep = now;
+	for (const [key, timestamps] of rateLimitBuckets) {
+		const newest = timestamps[timestamps.length - 1];
+		if (newest === undefined || newest <= windowStart) {
+			rateLimitBuckets.delete(key);
+		}
+	}
+}
 
 export function checkClientActivityRateLimit(
 	userId: string,
 	now: number = Date.now(),
 ): boolean {
 	const windowStart = now - RATE_LIMIT_WINDOW_MS;
+	sweepExpiredRateLimitBuckets(now, windowStart);
 	const recent = (rateLimitBuckets.get(userId) ?? []).filter(
 		(timestamp) => timestamp > windowStart,
 	);
@@ -222,4 +240,11 @@ export function checkClientActivityRateLimit(
 // cases (the map is otherwise process-lifetime, matching production).
 export function _resetClientActivityRateLimitForTests(): void {
 	rateLimitBuckets.clear();
+	lastRateLimitSweep = 0;
+}
+
+// Test-only: how many per-user buckets are currently held, so the eviction
+// behaviour above can be asserted without reaching into module internals.
+export function _clientActivityRateLimitSizeForTests(): number {
+	return rateLimitBuckets.size;
 }
