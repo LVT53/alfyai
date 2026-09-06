@@ -2,6 +2,8 @@
 // types, token estimates) without any content. Enabled by
 // NORMAL_CHAT_DEBUG_OUTBOUND=1; off in normal operation.
 
+import { createHash } from "node:crypto";
+
 import type { ModelMessage } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -37,9 +39,15 @@ export function logOutboundMessageShape(params: {
 	const systemTokens = params.systemPrompt
 		? estimateTokenCount(params.systemPrompt)
 		: 0;
+	// Hashes make prefix-cache breakage visible: the system prompt must be
+	// identical from turn to turn for the provider to reuse its prefill.
+	const systemHash = params.systemPrompt
+		? createHash("sha1").update(params.systemPrompt).digest("hex").slice(0, 10)
+		: null;
 	console.log("[OUTBOUND]", {
 		label: params.label,
 		systemTokens,
+		systemHash,
 		toolCount: params.toolCount,
 		messageCount: params.messages.length,
 		messages: params.messages.map(describeMessage),
