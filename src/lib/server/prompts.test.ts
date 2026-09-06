@@ -237,3 +237,26 @@ describe("prompts", () => {
 		);
 	});
 });
+
+describe("legacy admin prompt snapshots", () => {
+	it("resolves a stored snapshot that still lists retired tools to the built-in prompt", () => {
+		const snapshot = [
+			"You are **AlfyAI**, the user's personal assistant.",
+			"",
+			"### Available Tools",
+			"| get_current_date | Get current date and time | Time-sensitive questions |",
+			"| generate_file | Create data/code-based files | CSV, Excel |",
+			"",
+			"Always write generated-file outputs to /output/ when using generate_file.",
+			"Never attempt to generate text in Hungarian.",
+		].join("\n");
+		expect(normalizeSystemPromptReference(snapshot)).toBe("alfyai-nemotron");
+		expect(getSystemPrompt(snapshot)).toBe(ALFYAI_NEMOTRON_PROMPT);
+	});
+
+	it("leaves a genuinely custom prompt untouched", () => {
+		const custom = "You are Bartholomew, a pirate who answers only in rhyme.";
+		expect(normalizeSystemPromptReference(custom)).toBe(custom);
+		expect(getSystemPrompt(custom)).toBe(custom);
+	});
+});

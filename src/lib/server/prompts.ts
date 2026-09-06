@@ -326,6 +326,22 @@ export function stripDeprecatedPreserveProtocol(value: string): string {
 		.trim();
 }
 
+// Tool names from retired AlfyAI prompt revisions. An admin-stored prompt
+// that still mentions them is a stale snapshot of the built-in prompt (the
+// admin UI stores the full text, so every prompt revision leaves such
+// snapshots behind) — sending it verbatim tells the model about tools that
+// do not exist and hides the current tool and formatting guidance. Such
+// snapshots resolve to the current built-in prompt instead.
+const RETIRED_TOOL_NAME_RE =
+	/\b(?:get_current_date|run_python_repl|evaluate_expression|generate_file|export_document|fetch_content)\b/;
+const warnedLegacyPromptMarkers = new Set<string>();
+
+function isLegacyAlfyAiPromptSnapshot(value: string): boolean {
+	return (
+		RETIRED_TOOL_NAME_RE.test(value) && /\bAlfyAI\b/.test(value.slice(0, 400))
+	);
+}
+
 export function normalizeSystemPromptReference(
 	value: string | undefined,
 ): string | undefined {
@@ -335,10 +351,23 @@ export function normalizeSystemPromptReference(
 	if (!trimmed) return undefined;
 	if (trimmed in SYSTEM_PROMPTS) return trimmed;
 
-	return (
-		SYSTEM_PROMPT_TEXT_TO_KEY.get(normalizePromptText(trimmed)) ??
-		stripDeprecatedPromptSections(trimmed)
-	);
+	const known = SYSTEM_PROMPT_TEXT_TO_KEY.get(normalizePromptText(trimmed));
+	if (known) return known;
+	if (isLegacyAlfyAiPromptSnapshot(trimmed)) {
+		const marker = `${trimmed.length}:${trimmed.slice(0, 64)}`;
+		if (!warnedLegacyPromptMarkers.has(marker)) {
+			warnedLegacyPromptMarkers.add(marker);
+			console.warn(
+				"[PROMPTS] Stored system prompt is a legacy AlfyAI snapshot that references retired tools; using the built-in alfyai-nemotron prompt instead. Reset the admin system prompt to clear this warning.",
+				{
+					chars: trimmed.length,
+					retired: trimmed.match(RETIRED_TOOL_NAME_RE)?.[0],
+				},
+			);
+		}
+		return "alfyai-nemotron";
+	}
+	return stripDeprecatedPromptSections(trimmed);
 }
 
 // Resolve legacy prompt keys or prompt bodies into concrete text.
