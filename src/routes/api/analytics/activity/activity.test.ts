@@ -4,6 +4,12 @@ import type { SessionUser } from "$lib/server/services/auth-types";
 const mocks = vi.hoisted(() => ({
 	checkClientActivityRateLimit: vi.fn(() => true),
 	recordClientActivityEvent: vi.fn(async () => undefined),
+	getConversationUserId: vi.fn(
+		async (_conversationId: string) => "user-1" as string | null,
+	),
+	messageBelongsToConversation: vi.fn(
+		async (_messageId: string, _conversationId: string) => true,
+	),
 }));
 
 vi.mock("$lib/server/services/activity-events", async () => {
@@ -16,6 +22,11 @@ vi.mock("$lib/server/services/activity-events", async () => {
 		recordClientActivityEvent: mocks.recordClientActivityEvent,
 	};
 });
+
+vi.mock("$lib/server/services/conversations", () => ({
+	getConversationUserId: mocks.getConversationUserId,
+	messageBelongsToConversation: mocks.messageBelongsToConversation,
+}));
 
 import { POST } from "./+server";
 
@@ -47,6 +58,10 @@ describe("POST /api/analytics/activity", () => {
 		mocks.checkClientActivityRateLimit.mockReturnValue(true);
 		mocks.recordClientActivityEvent.mockReset();
 		mocks.recordClientActivityEvent.mockResolvedValue(undefined);
+		mocks.getConversationUserId.mockReset();
+		mocks.getConversationUserId.mockResolvedValue("user-1");
+		mocks.messageBelongsToConversation.mockReset();
+		mocks.messageBelongsToConversation.mockResolvedValue(true);
 	});
 
 	it("requires authentication", async () => {
@@ -92,8 +107,54 @@ describe("POST /api/analytics/activity", () => {
 			}),
 		);
 
+		expect(mocks.messageBelongsToConversation).toHaveBeenCalledWith(
+			"message-1",
+			"conv-1",
+		);
 		expect(mocks.recordClientActivityEvent).toHaveBeenCalledWith(
 			expect.objectContaining({ messageId: "message-1" }),
+		);
+	});
+
+	// messageId is caller-controlled independently of conversationId, and the
+	// activity_events FK only proves the message exists somewhere. An id from
+	// another conversation is dropped to null rather than trusted (the event
+	// itself is still recorded — nothing in the read model depends on the
+	// message attribution).
+	it("drops a messageId that does not belong to the conversation", async () => {
+		mocks.messageBelongsToConversation.mockResolvedValue(false);
+
+		const response = await POST(
+			event({
+				kind: "follow_up_click",
+				name: "Tell me more",
+				conversationId: "conv-1",
+				messageId: "message-of-another-conversation",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mocks.messageBelongsToConversation).toHaveBeenCalledWith(
+			"message-of-another-conversation",
+			"conv-1",
+		);
+		expect(mocks.recordClientActivityEvent).toHaveBeenCalledWith(
+			expect.objectContaining({ messageId: null }),
+		);
+	});
+
+	it("does not look up a message when none was supplied", async () => {
+		await POST(
+			event({
+				kind: "answer_now",
+				name: "answer_now",
+				conversationId: "conv-1",
+			}),
+		);
+
+		expect(mocks.messageBelongsToConversation).not.toHaveBeenCalled();
+		expect(mocks.recordClientActivityEvent).toHaveBeenCalledWith(
+			expect.objectContaining({ messageId: null }),
 		);
 	});
 
@@ -147,6 +208,40 @@ describe("POST /api/analytics/activity", () => {
 		} as unknown as Parameters<typeof POST>[0]);
 
 		expect(response.status).toBe(400);
+	});
+
+	// A client may only report activity against its OWN conversation: the
+	// caller controls conversationId entirely and activity_events rows are
+	// FK-bound to conversations (cascading with them), so an unchecked id
+	// lets one user attach rows to another user's conversation.
+	it("rejects an event for a conversation owned by another user", async () => {
+		mocks.getConversationUserId.mockResolvedValue("user-2");
+
+		const response = await POST(
+			event({
+				kind: "composer_command",
+				name: "model",
+				conversationId: "conv-of-user-2",
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		expect(mocks.recordClientActivityEvent).not.toHaveBeenCalled();
+	});
+
+	it("rejects an event for a conversation that does not exist", async () => {
+		mocks.getConversationUserId.mockResolvedValue(null);
+
+		const response = await POST(
+			event({
+				kind: "answer_now",
+				name: "answer_now",
+				conversationId: "conv-missing",
+			}),
+		);
+
+		expect(response.status).toBe(403);
+		expect(mocks.recordClientActivityEvent).not.toHaveBeenCalled();
 	});
 
 	it("returns 429 when the per-user rate limit is exceeded", async () => {

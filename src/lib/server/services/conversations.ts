@@ -200,6 +200,28 @@ export async function getConversationUserId(
 	return conversation?.userId ?? null;
 }
 
+// Whether a message id is actually part of a given conversation. Callers that
+// accept a client-supplied messageId alongside a conversationId need this:
+// the two are independent inputs, and a foreign-key check alone only proves
+// the message exists SOMEWHERE, not that it belongs where the caller claims.
+export async function messageBelongsToConversation(
+	messageId: string,
+	conversationId: string,
+): Promise<boolean> {
+	const [message] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, messageId),
+				eq(messages.conversationId, conversationId),
+			),
+		)
+		.limit(1);
+
+	return message !== undefined;
+}
+
 export async function updateConversationTitle(
 	userId: string,
 	conversationId: string,

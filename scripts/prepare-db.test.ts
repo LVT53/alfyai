@@ -131,6 +131,40 @@ describe("prepare-db script", () => {
 		}
 	});
 
+	// requiredExistingTables is the boot-time schema guard: a table missing
+	// from it is never checked at start-up, so a database that skipped its
+	// migration boots "healthy" and fails later at the first query. Every
+	// table in schema.ts must be listed (scripts/verify-migrations.ts warns
+	// about the same gap, but only warns).
+	it("lists every schema table in requiredExistingTables", () => {
+		const schemaSource = readFileSync(
+			join(import.meta.dirname, "../src/lib/server/db/schema.ts"),
+			"utf8",
+		);
+		const prepareDbSource = readFileSync(
+			join(import.meta.dirname, "prepare-db.ts"),
+			"utf8",
+		);
+
+		const schemaTables = [
+			...schemaSource.matchAll(
+				/export const \w+\s*=\s*sqliteTable\s*\(\s*['"]([^'"]+)['"]/g,
+			),
+		].map((match) => match[1]);
+		const listed = new Set(
+			[
+				...(
+					prepareDbSource.match(
+						/requiredExistingTables\s*=\s*\[([\s\S]*?)\]/,
+					)?.[1] ?? ""
+				).matchAll(/['"]([^'"]+)['"]/g),
+			].map((match) => match[1]),
+		);
+
+		expect(schemaTables.length).toBeGreaterThan(50);
+		expect(schemaTables.filter((table) => !listed.has(table))).toEqual([]);
+	});
+
 	it("applies pending migrations and removes retired research tables", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
 		const dbPath = join(tempDir, "chat.db");

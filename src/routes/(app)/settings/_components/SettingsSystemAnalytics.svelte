@@ -89,18 +89,18 @@ const hasActiveFilters = $derived(
 
 let filteredData = $state<AnalyticsResponse | null>(null);
 let filteredLoading = $state(false);
+// A failed filtered fetch used to be swallowed, leaving the previous (wrongly
+// labelled) numbers on screen under the new filter. It now feeds the page's
+// existing error state, together with the parent-owned analyticsError.
+let filteredError = $state("");
 let filterFetchToken = 0;
 
-$effect(() => {
-	const userId = filterUserId;
-	const modelId = filterModelId;
-	const providerId = filterProviderId;
-	const month = selectedSystemMonth;
-	if (!userId && !modelId && !providerId) {
-		filteredData = null;
-		filteredLoading = false;
-		return;
-	}
+function runFilteredFetch(
+	userId: string,
+	modelId: string,
+	providerId: string,
+	month: string | null,
+) {
 	const token = ++filterFetchToken;
 	filteredLoading = true;
 	fetchAnalytics(false, undefined, undefined, month ?? undefined, {
@@ -111,14 +111,50 @@ $effect(() => {
 		.then((data) => {
 			if (token !== filterFetchToken) return;
 			filteredData = data;
+			filteredError = "";
 		})
-		.catch(() => {
-			// Best-effort: keep showing whatever was displayed before.
+		.catch((error: unknown) => {
+			if (token !== filterFetchToken) return;
+			// Drop the stale rows too: leaving them up under the new filter
+			// labels somebody else's numbers as the filtered result.
+			filteredData = null;
+			filteredError = error instanceof Error ? error.message : String(error);
 		})
 		.finally(() => {
 			if (token === filterFetchToken) filteredLoading = false;
 		});
+}
+
+$effect(() => {
+	const userId = filterUserId;
+	const modelId = filterModelId;
+	const providerId = filterProviderId;
+	const month = selectedSystemMonth;
+	if (!userId && !modelId && !providerId) {
+		filterFetchToken += 1;
+		filteredData = null;
+		filteredLoading = false;
+		filteredError = "";
+		return;
+	}
+	runFilteredFetch(userId, modelId, providerId, month);
 });
+
+// Either source of failure renders in the one error card below.
+const displayError = $derived(analyticsError || filteredError);
+
+function retry() {
+	filteredError = "";
+	if (hasActiveFilters) {
+		runFilteredFetch(
+			filterUserId,
+			filterModelId,
+			filterProviderId,
+			selectedSystemMonth,
+		);
+	}
+	void onRetry();
+}
 
 // The prop data (unfiltered by userId/modelId/providerId) once filters are
 // cleared; the locally fetched filtered read model while any are active.
@@ -337,13 +373,17 @@ const retiredModelRows = $derived(
 	allModelRows.filter((row) => row.status === "removed"),
 );
 
+// Totalled over EVERY model in scope, retired ones included, so the pinned
+// Total row and the stat row above it describe the same set — a retired
+// model's spend must not silently disappear from the card's arithmetic just
+// because its rows moved into the collapsed group below.
 const modelTotalRow = $derived<TableRow>({
 	model: $t("analytics.total"),
 	provider: "",
 	status: "",
-	calls: activeModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
-	tokens: activeModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
-	cost: activeModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
+	calls: allModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
+	tokens: allModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
+	cost: allModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
 });
 
 function formatMs(value: number | null | undefined): string {
@@ -398,13 +438,15 @@ function showAllFooterLabel(shownCount: number, totalCount: number): string {
 	)}`;
 }
 
-const toolsColumns: TableColumn[] = [
+// $derived, like modelColumns above: a plain const would freeze the labels
+// at mount and leave them in the previous language after an in-app switch.
+const toolsColumns = $derived<TableColumn[]>([
 	{ key: "tool", label: $t("analytics.tool"), type: "text" },
 	{ key: "calls", label: $t("analytics.calls"), type: "number" },
 	{ key: "failedPct", label: $t("analytics.failedPercent"), type: "number" },
 	{ key: "cachedPct", label: $t("analytics.cachedPercent"), type: "number" },
 	{ key: "p50", label: $t("analytics.durationP50"), type: "number" },
-];
+]);
 
 function percentOf(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 1000) / 10 : 0;
@@ -429,11 +471,11 @@ function kindLabel(kind: unknown): string {
 	return $t("analytics.kindClick");
 }
 
-const commandsColumns: TableColumn[] = [
+const commandsColumns = $derived<TableColumn[]>([
 	{ key: "name", label: $t("analytics.name"), type: "text" },
 	{ key: "kind", label: $t("analytics.kind"), type: "text" },
 	{ key: "uses", label: $t("analytics.uses"), type: "number" },
-];
+]);
 
 const commandsRows = $derived<TableRow[]>(
 	(effectiveData?.commandsAndSkills ?? []).map((entry) => ({
@@ -446,7 +488,7 @@ const commandsShowAllLabel = $derived(
 	showAllFooterLabel(Math.min(TOP_N, commandsRows.length), commandsRows.length),
 );
 
-const latencyColumns: TableColumn[] = [
+const latencyColumns = $derived<TableColumn[]>([
 	{ key: "bucket", label: $t("analytics.promptBucket"), type: "text" },
 	{ key: "turns", label: $t("analytics.turns"), type: "number" },
 	{ key: "p50", label: $t("analytics.firstTokenP50"), type: "number" },
@@ -457,7 +499,7 @@ const latencyColumns: TableColumn[] = [
 		type: "number",
 	},
 	{ key: "bar", label: "", type: "number" },
-];
+]);
 
 const latencyRows = $derived.by(() => {
 	const rows = effectiveData?.latencyByPromptBucket ?? [];
@@ -475,6 +517,12 @@ const latencyRows = $derived.by(() => {
 				: 0,
 	}));
 });
+
+// Every bucket is always present in the read model (n: 0 when empty), so
+// "has data" means a turn landed in some bucket — a non-empty row list is
+// always true here and would render five rows of em-dashes in place of the
+// empty state.
+const hasLatencyData = $derived(latencyRows.some((row) => row.turns > 0));
 
 // ---- Parallel API ------------------------------------------------------
 const parallelTotalCalls = $derived(
@@ -595,10 +643,10 @@ async function toggleExcludedUser(userId: string) {
 
 {#if analyticsLoading && !analyticsData}
 	<div class="flex items-center justify-center py-16 text-text-muted">{$t('analytics.loadingAnalytics')}</div>
-{:else if analyticsError}
+{:else if displayError}
 	<div class="settings-card">
-		<p class="text-danger text-sm">{analyticsError}</p>
-		<button class="btn-secondary mt-3" onclick={onRetry}>{$t('analytics.retry')}</button>
+		<p class="text-danger text-sm">{displayError}</p>
+		<button class="btn-secondary mt-3" onclick={retry}>{$t('analytics.retry')}</button>
 	</div>
 {:else if analyticsData && system}
 	<div class="mb-4">
@@ -677,6 +725,9 @@ async function toggleExcludedUser(userId: string) {
 							<input type="checkbox" bind:checked={showRetired} class="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent" />
 							{$t('analytics.showRetired')}
 						</label>
+						{#if filteredLoading}
+							<span class="text-xs text-text-muted" role="status" aria-live="polite">{$t('analytics.loadingAnalytics')}</span>
+						{/if}
 					</div>
 				{/snippet}
 				<StatGrid>
@@ -820,7 +871,7 @@ async function toggleExcludedUser(userId: string) {
 
 			<div class="mt-4">
 				<AnalyticsCard title={$t('analytics.latencyByPromptSize')}>
-					{#if latencyRows.length > 0}
+					{#if hasLatencyData}
 						{#snippet p90Cell(_row: TableRow, value: unknown)}
 							<span class="text-text-muted">{value == null ? '—' : `${formatNum(value as number)} ms`}</span>
 						{/snippet}

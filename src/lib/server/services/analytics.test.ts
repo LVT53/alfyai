@@ -232,6 +232,7 @@ describe("analytics dashboard read model", () => {
 
 	afterEach(async () => {
 		await closeServiceDatabase();
+		vi.unstubAllEnvs();
 		try {
 			unlinkSync(dbPath);
 		} catch {
@@ -1513,6 +1514,254 @@ describe("analytics dashboard read model", () => {
 				firstTokenP90Ms: null,
 				reasoningTokensMedian: null,
 			});
+		});
+
+		// The documented contract on AnalyticsByModelRow (and its client
+		// mirror) is: an UNDEFINED latency/reasoning field means no
+		// message_analytics rows joined for that model at all, so the admin
+		// table can blank the cell instead of printing a misleading zero.
+		it("leaves avgReasoningTokens undefined for a model with no message_analytics rows", async () => {
+			seedOverhaulFixtures();
+			const { sqlite, database } = openSeedDatabase();
+			database
+				.insert(schema.usageEvents)
+				.values({
+					id: "usage-parallel",
+					userId: "user-1",
+					conversationId: "conv-1",
+					// Parallel usage carries a synthetic message id that never
+					// joins message_analytics — the shape most likely to hit
+					// this path in production.
+					messageId: "parallel:turbo-1",
+					modelId: "parallel:turbo",
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					billingMonth: "2026-05",
+					costUsdMicros: 10_000,
+					createdAt: new Date("2026-05-01T00:00:00.000Z"),
+				})
+				.run();
+			sqlite.close();
+
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const row = result.system?.byModel.find(
+				(entry) => entry.model === "parallel:turbo",
+			);
+			// A "parallel:*" model is not a provider_models row and stays active.
+			expect(row).toMatchObject({
+				availability: "active",
+				firstTokenP50Ms: null,
+				firstTokenP90Ms: null,
+				generationP50Ms: null,
+			});
+			expect(row?.avgReasoningTokens).toBeUndefined();
+		});
+
+		// Reviewer follow-up (whole-table reads): the dashboard used to SELECT
+		// every row of activity_events and message_analytics on every GET and
+		// throw most of them away. Both are now narrowed in SQL, and
+		// activity_events — which only ever feeds admin-only sections — is not
+		// queried at all for a non-admin caller.
+		describe("query narrowing", () => {
+			async function withCapturedSql<T>(
+				run: (analytics: typeof import("./analytics")) => Promise<T>,
+			): Promise<{ result: T; statements: string[] }> {
+				const analytics = await import("./analytics");
+				const { sqlite } = await import("$lib/server/db");
+				const statements: string[] = [];
+				const original = sqlite.prepare.bind(sqlite);
+				const spy = vi.spyOn(sqlite, "prepare").mockImplementation(((
+					sql: string,
+				) => {
+					statements.push(sql);
+					return original(sql);
+				}) as typeof sqlite.prepare);
+				try {
+					return { result: await run(analytics), statements };
+				} finally {
+					spy.mockRestore();
+				}
+			}
+
+			it("never queries activity_events for a non-admin caller", async () => {
+				seedOverhaulFixtures();
+
+				const { result, statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "user-1", role: "user" }),
+						month: "2026-05",
+					}),
+				);
+
+				expect(statements.length).toBeGreaterThan(0);
+				expect(
+					statements.filter((sql) => sql.includes('"activity_events"')),
+				).toEqual([]);
+				expect(result.tools).toBeUndefined();
+				expect(result.commandsAndSkills).toBeUndefined();
+			});
+
+			it("pushes the month window and the user filter into the activity_events query", async () => {
+				seedOverhaulFixtures();
+
+				const { result, statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "admin-1", role: "admin" }),
+						systemMonth: "2026-05",
+						userId: "user-1",
+					}),
+				);
+
+				const activitySql = statements.filter((sql) =>
+					sql.includes('from "activity_events"'),
+				);
+				expect(activitySql.length).toBeGreaterThan(0);
+				for (const sql of activitySql) {
+					expect(sql).toContain('"activity_events"."created_at" >=');
+					expect(sql).toContain('"activity_events"."created_at" <');
+					expect(sql).toContain('"activity_events"."user_id" =');
+				}
+				// user-2's June composer_command sits outside both the month window
+				// and the user filter, so it is never loaded, let alone returned.
+				expect(
+					result.commandsAndSkills?.some((row) => row.name === "attach"),
+				).toBe(false);
+			});
+
+			it("narrows message_analytics to the in-scope message ids instead of reading the table", async () => {
+				seedOverhaulFixtures();
+
+				const { statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "admin-1", role: "admin" }),
+						systemMonth: "2026-05",
+					}),
+				);
+
+				const messageAnalyticsSql = statements.filter((sql) =>
+					sql.includes('from "message_analytics"'),
+				);
+				expect(messageAnalyticsSql.length).toBeGreaterThan(0);
+				for (const sql of messageAnalyticsSql) {
+					expect(sql).toContain('"message_analytics"."message_id" in');
+				}
+			});
+
+			// Behavioural half of the same fix: whatever the query strategy, a row
+			// recorded outside the requested month must not reach the read model.
+			it("returns no activity or usage from outside the requested month window", async () => {
+				seedOverhaulFixtures();
+				const { sqlite, database } = openSeedDatabase();
+				database
+					.insert(schema.activityEvents)
+					.values({
+						id: "activity-out-of-window",
+						userId: "user-1",
+						conversationId: "conv-1",
+						kind: "tool_call",
+						name: "out_of_window_tool",
+						status: "done",
+						durationMs: 5,
+						modelId: "model1",
+						createdAt: new Date("2026-04-30T23:59:59.000Z"),
+					})
+					.run();
+				sqlite.close();
+
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+				});
+
+				expect(
+					result.tools?.some((row) => row.name === "out_of_window_tool"),
+				).toBe(false);
+				expect(
+					result.commandsAndSkills?.some((row) => row.name === "attach"),
+				).toBe(false);
+			});
+		});
+
+		// Reviewer follow-up (provider filter): activity rows used to be filed
+		// under a provider by parsing "provider:<id>:<uuid>" out of modelId
+		// alone, which dropped every tool call recorded against the built-in
+		// "model1"/"model2" aliases as well as every client-observed kind.
+		describe("provider filter over activity events", () => {
+			it("resolves the model1 alias through the same provider mapping availability uses", async () => {
+				// The alias points at provider-x's "active-model" row.
+				vi.stubEnv("MODEL_1_NAME", "active-model");
+				seedOverhaulFixtures();
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+					providerId: "provider-x",
+				});
+
+				const tools = new Map(result.tools?.map((row) => [row.name, row]));
+				// activity-tool-1 carries modelId "model1" and activity-tool-2 the
+				// explicit provider id — both are provider-x calls.
+				expect(tools.get("research_web")).toMatchObject({
+					calls: 2,
+					failed: 1,
+				});
+				// ...and so is the skill_use recorded against the alias.
+				expect(
+					result.commandsAndSkills?.some(
+						(row) => row.kind === "skill_use" && row.name === "outline-skill",
+					),
+				).toBe(true);
+			});
+
+			it("keeps modelId-less client events under a provider filter rather than dropping them", async () => {
+				vi.stubEnv("MODEL_1_NAME", "active-model");
+				seedOverhaulFixtures();
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+					providerId: "provider-not-configured",
+				});
+
+				// Nothing model-attributed resolves to this provider...
+				expect(result.tools).toEqual([]);
+				// ...but composer_command/follow_up_click/answer_now carry no model
+				// at all, so they are included rather than silently dropped (the
+				// documented limitation on the filter).
+				expect(result.commandsAndSkills).toEqual(
+					expect.arrayContaining([
+						{ kind: "composer_command", name: "model", count: 1 },
+						{ kind: "follow_up_click", name: "Tell me more", count: 1 },
+						{ kind: "answer_now", name: "answer_now", count: 1 },
+					]),
+				);
+				expect(result.commandsAndSkills).toHaveLength(3);
+			});
+		});
+
+		it("omits the admin-only activity sections for a non-admin caller", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "user-1", role: "user" }),
+				month: "2026-05",
+			});
+
+			expect(result.tools).toBeUndefined();
+			expect(result.commandsAndSkills).toBeUndefined();
+			expect(result.latencyByPromptBucket).toBeUndefined();
+			expect(result.analyticsUsers).toBeUndefined();
+			expect(result.perUser).toBeUndefined();
 		});
 	});
 });

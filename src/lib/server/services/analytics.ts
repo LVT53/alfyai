@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { getProviderIdFromModelId, isProviderModelId } from "$lib/model-types";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { getConfig } from "../config-store";
@@ -481,11 +481,140 @@ function resolveModelAvailability(
 
 type MessageAnalyticsRow = typeof messageAnalytics.$inferSelect;
 
-async function loadMessageAnalyticsById(): Promise<
-	Map<string, MessageAnalyticsRow>
-> {
-	const rows = await db.select().from(messageAnalytics);
+// SQLite's compiled bound-parameter ceiling is well above this, but a single
+// enormous IN list is slower to plan than a handful of smaller ones.
+const MESSAGE_ANALYTICS_ID_CHUNK = 400;
+// Past this many ids the id list has stopped being a narrowing (it is most of
+// the table), so one sequential scan beats N indexed lookups.
+const MESSAGE_ANALYTICS_FULL_SCAN_THRESHOLD = 4_000;
+
+// message_analytics is joined to usage_events by message_id, so the only rows
+// this read model can ever use are the ones belonging to the usage rows that
+// survived the month window (and the admin user/model/provider filters). Push
+// that set into the WHERE instead of reading the whole table on every GET —
+// the id set IS the month window, expressed exactly, and does not rely on
+// message_analytics.created_at agreeing with usage_events.billing_month.
+// `null` means "no narrowing available"; fall back to the whole table.
+async function loadMessageAnalyticsById(
+	messageIds: string[] | null,
+): Promise<Map<string, MessageAnalyticsRow>> {
+	if (messageIds !== null && messageIds.length === 0) return new Map();
+
+	const rows: MessageAnalyticsRow[] = [];
+	if (
+		messageIds === null ||
+		messageIds.length > MESSAGE_ANALYTICS_FULL_SCAN_THRESHOLD
+	) {
+		rows.push(...(await db.select().from(messageAnalytics)));
+	} else {
+		for (
+			let offset = 0;
+			offset < messageIds.length;
+			offset += MESSAGE_ANALYTICS_ID_CHUNK
+		) {
+			const chunk = messageIds.slice(
+				offset,
+				offset + MESSAGE_ANALYTICS_ID_CHUNK,
+			);
+			rows.push(
+				...(await db
+					.select()
+					.from(messageAnalytics)
+					.where(inArray(messageAnalytics.messageId, chunk))),
+			);
+		}
+	}
 	return new Map(rows.map((row) => [row.messageId, row]));
+}
+
+// The UTC half-open range covering a "YYYY-MM" billing month, matching
+// toBillingMonth (which slices a UTC ISO string). Returns null for anything
+// that is not a well-formed month, so a garbage filter narrows to nothing
+// rather than silently widening to everything.
+function billingMonthRange(month: string): { start: Date; end: Date } | null {
+	const match = /^(\d{4})-(\d{2})$/.exec(month);
+	if (!match) return null;
+	const year = Number(match[1]);
+	const monthIndex = Number(match[2]) - 1;
+	if (monthIndex < 0 || monthIndex > 11) return null;
+	return {
+		start: new Date(Date.UTC(year, monthIndex, 1)),
+		end: new Date(Date.UTC(year, monthIndex + 1, 1)),
+	};
+}
+
+// activity_events feeds ONLY the admin-only tools/commandsAndSkills sections,
+// so a non-admin caller never queries it at all (see the call site). For an
+// admin the month window and the userId filter are pushed into the WHERE
+// rather than applied to a whole-table read; the remaining narrowings
+// (excluded users, modelId, providerId) stay in memory because they need the
+// alias→provider resolution below.
+async function loadActivityEventRows(params: {
+	month: string | null;
+	userId: string | null;
+}): Promise<ActivityEventRow[]> {
+	const conditions = [];
+	if (params.month) {
+		const range = billingMonthRange(params.month);
+		if (!range) return [];
+		conditions.push(
+			gte(activityEvents.createdAt, range.start),
+			lt(activityEvents.createdAt, range.end),
+		);
+	}
+	if (params.userId) {
+		conditions.push(eq(activityEvents.userId, params.userId));
+	}
+	const query = db.select().from(activityEvents);
+	return conditions.length > 0 ? query.where(and(...conditions)) : query;
+}
+
+// The built-in "model1"/"model2" aliases are config-driven rather than rows in
+// provider_models, so an activity row recorded against one carries no provider
+// in its modelId and a naive parse drops it from every provider-filtered view.
+// Resolve them against the same providers/provider_models tables the read
+// model already loads for `availability`: match the alias's configured model
+// name to a provider_models row, preferring the provider whose baseUrl the
+// alias actually points at when several serve the same name.
+function resolveAliasProviderId(
+	alias: "model1" | "model2",
+	context: AvailabilityContext,
+): string | null {
+	const config = getConfig();
+	const modelConfig = alias === "model1" ? config.model1 : config.model2;
+	const name = modelConfig?.modelName?.trim().toLowerCase() ?? "";
+	if (!name) return null;
+	const matches = [...context.providerModelsById.values()].filter(
+		(row) => row.name.trim().toLowerCase() === name,
+	);
+	if (matches.length === 0) return null;
+	if (matches.length === 1) return matches[0].providerId;
+	const aliasBaseUrl = normalizeBaseUrl(modelConfig.baseUrl);
+	const byBaseUrl = matches.find(
+		(row) =>
+			normalizeBaseUrl(context.providersById.get(row.providerId)?.baseUrl) ===
+			aliasBaseUrl,
+	);
+	return (byBaseUrl ?? matches[0]).providerId;
+}
+
+function normalizeBaseUrl(value: string | null | undefined): string {
+	return (value ?? "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+// The providerId an activity event should be filed under: the provider parsed
+// out of a "provider:<providerId>:<modelUuid>" id, or the alias mapping above
+// for "model1"/"model2". null means the event carries no model attribution at
+// all (every client-observed kind).
+function resolveActivityProviderId(
+	modelId: string | null,
+	context: AvailabilityContext,
+): string | null {
+	if (!modelId) return null;
+	if (modelId === "model1" || modelId === "model2") {
+		return resolveAliasProviderId(modelId, context);
+	}
+	return parseProviderModelId(modelId)?.providerId ?? null;
 }
 
 interface AnalyticsQueryContext {
@@ -634,7 +763,14 @@ async function modelBreakdown(
 		return {
 			...entry,
 			availability: resolveModelAvailability(entry.model, context.availability),
-			avgReasoningTokens: average(latency?.reasoningTokens ?? []),
+			// Undefined (not 0) when no message_analytics row joined for this
+			// model at all — the documented contract on AnalyticsByModelRow, so
+			// the admin table blanks the cell instead of printing a zero that
+			// reads as "measured, and it's none".
+			avgReasoningTokens:
+				latency && latency.reasoningTokens.length > 0
+					? average(latency.reasoningTokens)
+					: undefined,
 			firstTokenP50Ms: percentile(
 				sortedNumbers(latency?.firstTokenMs ?? []),
 				50,
@@ -1018,20 +1154,23 @@ export async function getAnalyticsDashboardReadModel({
 		return isAdmin ? MOCK_ANALYTICS : { personal: MOCK_ANALYTICS.personal };
 	}
 
-	const [usageRows, conversationRows, activityRows, queryContext] =
+	const systemMonthParam = isAdmin ? (systemMonth ?? month) : null;
+
+	const [usageRows, conversationRows, activityRows, availability] =
 		await Promise.all([
 			db.select().from(usageEvents),
 			db.select().from(analyticsConversations),
-			db.select().from(activityEvents),
-			Promise.all([loadMessageAnalyticsById(), loadAvailabilityContext()]).then(
-				([messageAnalyticsById, availability]) => ({
-					messageAnalyticsById,
-					availability,
-				}),
-			),
+			// activity_events only ever feeds admin-only sections, and its
+			// month/user narrowing is done in SQL — a non-admin request does not
+			// touch the table at all.
+			isAdmin
+				? loadActivityEventRows({
+						month: systemMonthParam,
+						userId: userIdFilter,
+					})
+				: Promise.resolve<ActivityEventRow[]>([]),
+			loadAvailabilityContext(),
 		]);
-
-	const systemMonthParam = isAdmin ? (systemMonth ?? month) : null;
 
 	const filteredUsage = month
 		? usageRows.filter((row) => row.billingMonth === month)
@@ -1057,16 +1196,10 @@ export async function getAnalyticsDashboardReadModel({
 	let systemFilteredConversations = systemMonthParam
 		? conversationRows.filter((row) => row.billingMonth === systemMonthParam)
 		: conversationRows;
-	let systemFilteredActivity = systemMonthParam
-		? activityRows.filter(
-				(row) =>
-					toBillingMonth(
-						row.createdAt instanceof Date
-							? row.createdAt
-							: new Date(row.createdAt),
-					) === systemMonthParam,
-			)
-		: activityRows;
+	// The month window and the userId filter were already applied in SQL by
+	// loadActivityEventRows; only the narrowings that need in-process
+	// resolution are left below.
+	let systemFilteredActivity = activityRows;
 
 	if (isAdmin && excludedSet.size > 0) {
 		systemFilteredUsage = systemFilteredUsage.filter(
@@ -1090,9 +1223,6 @@ export async function getAnalyticsDashboardReadModel({
 		systemFilteredConversations = systemFilteredConversations.filter(
 			(row) => row.userId === userIdFilter,
 		);
-		systemFilteredActivity = systemFilteredActivity.filter(
-			(row) => row.userId === userIdFilter,
-		);
 	}
 	if (isAdmin && modelIdFilter) {
 		systemFilteredUsage = systemFilteredUsage.filter(
@@ -1106,12 +1236,44 @@ export async function getAnalyticsDashboardReadModel({
 		systemFilteredUsage = systemFilteredUsage.filter(
 			(row) => row.providerId === providerIdFilter,
 		);
-		systemFilteredActivity = systemFilteredActivity.filter(
-			(row) =>
-				parseProviderModelId(row.modelId ?? "")?.providerId ===
-				providerIdFilter,
-		);
+		// An activity row's provider is resolved through the alias→provider
+		// mapping (so tool calls recorded against the built-in "model1"/"model2"
+		// aliases are not silently dropped), memoized per modelId.
+		const activityProviderIds = new Map<string, string | null>();
+		systemFilteredActivity = systemFilteredActivity.filter((row) => {
+			// KNOWN LIMITATION, documented rather than guessed: a client-observed
+			// event (composer_command / follow_up_click / answer_now) carries no
+			// modelId — it is a UI action, not a model call. The only way to
+			// attribute one to a provider would be to infer it from the
+			// surrounding turns of its conversation, which is both ambiguous (a
+			// conversation freely mixes providers) and unavailable here (the event
+			// is not turn-scoped). Such events are therefore INCLUDED under a
+			// provider filter rather than silently dropped, so the
+			// commandsAndSkills counts stay honest.
+			if (!row.modelId) return true;
+			if (!activityProviderIds.has(row.modelId)) {
+				activityProviderIds.set(
+					row.modelId,
+					resolveActivityProviderId(row.modelId, availability),
+				);
+			}
+			return activityProviderIds.get(row.modelId) === providerIdFilter;
+		});
 	}
+
+	// Only the usage rows that survived the filters above can ever join
+	// message_analytics, so the id set is loaded now that they are known —
+	// instead of reading the whole table before any narrowing exists.
+	const neededMessageIds = new Set(
+		personalUsageRows.map((row) => row.messageId),
+	);
+	if (isAdmin) {
+		for (const row of systemFilteredUsage) neededMessageIds.add(row.messageId);
+	}
+	const queryContext: AnalyticsQueryContext = {
+		messageAnalyticsById: await loadMessageAnalyticsById([...neededMessageIds]),
+		availability,
+	};
 
 	const systemAvailableMonths = isAdmin
 		? monthlyBreakdown(usageRows).map((row) => row.month)

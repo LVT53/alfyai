@@ -1,4 +1,5 @@
 import { fireEvent, render } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
@@ -255,6 +256,56 @@ function systemWithToolsAndLatencyFixture(): AnalyticsResponse {
 				reasoningTokensMedian: 100,
 			},
 		],
+	};
+}
+
+// A month whose usage includes a model that no longer resolves: the system
+// totals (as the server computes them) cover every model in scope, retired
+// ones included.
+function systemWithRetiredSpendFixture(): AnalyticsResponse {
+	const base = systemFixture();
+	const system = base.system;
+	if (!system) throw new Error("systemFixture() must include system");
+	return {
+		...base,
+		system: {
+			...system,
+			totalMessages: 30,
+			totalTokens: 3_000,
+			totalCostUsd: 6,
+			byModel: [
+				{
+					model: "model-live",
+					displayName: "Model Live",
+					msgCount: 20,
+					totalTokens: 2_000,
+					totalCostUsd: 4,
+					availability: "active",
+				},
+				{
+					model: "model-gone",
+					displayName: "Model Gone",
+					msgCount: 10,
+					totalTokens: 1_000,
+					totalCostUsd: 2,
+					availability: "removed",
+				},
+			],
+		},
+	};
+}
+
+function systemWithEmptyLatencyFixture(): AnalyticsResponse {
+	const base = systemWithToolsAndLatencyFixture();
+	return {
+		...base,
+		latencyByPromptBucket: (base.latencyByPromptBucket ?? []).map((row) => ({
+			...row,
+			n: 0,
+			firstTokenP50Ms: null,
+			firstTokenP90Ms: null,
+			reasoningTokensMedian: null,
+		})),
 	};
 }
 
@@ -577,6 +628,45 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		});
 	});
 
+	// A filtered fetch that fails used to be swallowed, leaving the previous
+	// (differently filtered) numbers on screen as if they were the result.
+	it("surfaces a failed filtered fetch in the page error state", async () => {
+		fetchAnalyticsMock.mockRejectedValue(new Error("Filtered fetch failed"));
+		const onRetry = vi.fn();
+		const { getByRole, getByLabelText, getByText } = render(
+			SettingsSystemAnalytics,
+			{
+				analyticsData: systemWithAvailabilityFixture(),
+				modelNames: { "model-active": "Model Active" },
+				onRetry,
+				selectedSystemMonth: null,
+				onSystemMonthChange: vi.fn(),
+				allUsers: [
+					{ id: "user-2", email: "user2@example.com", name: "User Two" },
+				],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
+			},
+		);
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+		await fireEvent.change(getByLabelText("User"), {
+			target: { value: "user-2" },
+		});
+
+		await vi.waitFor(() => {
+			expect(getByText("Filtered fetch failed")).toBeInTheDocument();
+		});
+
+		fetchAnalyticsMock.mockResolvedValue(systemWithAvailabilityFixture());
+		await fireEvent.click(getByRole("button", { name: "Retry" }));
+
+		expect(onRetry).toHaveBeenCalled();
+		await vi.waitFor(() => {
+			expect(getByRole("tab", { name: "Usage by model" })).toBeInTheDocument();
+		});
+	});
+
 	// Analytics overhaul (frontend half) — the Tools & latency tab renders
 	// from the new read-model sections, and its top-10 tables expand/collapse.
 	describe("Tools & latency tab", () => {
@@ -639,5 +729,96 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 			expect(queryByText("tool_10")).not.toBeInTheDocument();
 		});
+	});
+
+	// The stat row and the table's pinned Total row sit inside the SAME card,
+	// so they must describe the same set of models: a retired model's spend
+	// must not disappear from the card's arithmetic just because its row moved
+	// into the collapsed group below.
+	it("totals every model in scope in the pinned Total row, retired included", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithRetiredSpendFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+
+		const statValues = [...container.querySelectorAll("[class*=stat-value]")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" ");
+		expect(statValues).toContain("$6.0000");
+		expect(statValues).toContain("30");
+		expect(statValues).toContain("3,000");
+
+		const totalRow = [...container.querySelectorAll("table tbody tr")]
+			.at(-1)
+			?.textContent?.replace(/\s+/g, " ");
+		expect(totalRow).toContain("Total");
+		expect(totalRow).toContain("$6.00");
+		expect(totalRow).toContain("30");
+		expect(totalRow).toContain("3,000");
+	});
+
+	// Every prompt-size bucket is always present in the read model (n: 0 when
+	// empty), so "is there data?" is a turn in some bucket — not a non-empty
+	// row list, which renders five rows of em-dashes instead of the empty
+	// state.
+	it("shows the latency empty state when no prompt-size bucket has any turns", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithEmptyLatencyFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+
+		const latencyCard = [...container.querySelectorAll("section")].find(
+			(node) => node.textContent?.includes("Latency by prompt size"),
+		);
+		expect(latencyCard).toBeTruthy();
+		expect(latencyCard?.querySelector("table")).toBeNull();
+		expect(latencyCard?.textContent).toContain("No analytics data yet.");
+	});
+
+	// The Tools/Commands/Latency column lists must follow the UI language the
+	// way the card titles (and the byModel columns) do — a plain const would
+	// freeze the labels in whatever language was active at mount.
+	it("relabels the Tools table when the UI language changes", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithToolsAndLatencyFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		await tick();
+
+		const headers = [...container.querySelectorAll("thead th")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" | ");
+		const cardTitles = [...container.querySelectorAll("h3")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" | ");
+		uiLanguage.set("en");
+		expect(cardTitles).toContain("Eszközök");
+		expect(headers).toContain("Eszköz");
 	});
 });

@@ -10,6 +10,10 @@ import {
 	isClientActivityEventKind,
 	recordClientActivityEvent,
 } from "$lib/server/services/activity-events";
+import {
+	getConversationUserId,
+	messageBelongsToConversation,
+} from "$lib/server/services/conversations";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async (event) => {
@@ -74,10 +78,32 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "messageId must be a string" }, { status: 400 });
 	}
 
+	// The caller controls conversationId outright, and activity_events rows
+	// are FK-bound to conversations (and cascade with them), so an event may
+	// only ever be attached to a conversation the caller owns. A missing
+	// conversation answers identically to one owned by somebody else, so the
+	// endpoint is not an existence oracle for other people's conversations.
+	if ((await getConversationUserId(conversationId)) !== userId) {
+		return json({ error: "Conversation not found" }, { status: 403 });
+	}
+
+	// messageId is a second, independent caller-controlled input: the
+	// activity_events FK only proves the message exists somewhere, not that it
+	// belongs to the conversation the event is filed under. An id that is not
+	// part of this conversation is dropped to null rather than rejected — the
+	// event itself is still worth recording, it just loses its (unverifiable)
+	// message attribution, which no read-model section depends on.
+	const resolvedMessageId =
+		typeof messageId === "string" &&
+		messageId.length > 0 &&
+		(await messageBelongsToConversation(messageId, conversationId))
+			? messageId
+			: null;
+
 	await recordClientActivityEvent({
 		userId,
 		conversationId,
-		messageId: messageId ?? null,
+		messageId: resolvedMessageId,
 		kind,
 		name,
 	});

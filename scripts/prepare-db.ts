@@ -75,6 +75,7 @@ const requiredExistingTables = [
 	"message_analytics",
 	"analytics_conversations",
 	"usage_events",
+	"activity_events",
 	"chat_generated_files",
 	"file_production_jobs",
 	"file_production_job_attempts",
