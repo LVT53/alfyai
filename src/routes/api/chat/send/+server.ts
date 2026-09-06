@@ -532,6 +532,9 @@ async function runStandardSendTurn({
 		assistantMetadata: {
 			evidenceStatus: "pending",
 			modelDisplayName: modelRunArtifacts.effectiveModelDisplayName,
+			...(modelRunArtifacts.citationGate.repair
+				? { citationAudit: modelRunArtifacts.citationGate.repair }
+				: {}),
 			...modelRunArtifacts.normalizedAssistantOutput.metadata,
 		},
 		reasoningDepth: turn.reasoningDepth,
@@ -687,6 +690,7 @@ function normalizeModelRunOutput({
 	const citationGate = applyWebCitationQualityGate({
 		assistantResponse: responseText,
 		toolCalls: finalToolCalls,
+		userMessage: turn.normalizedMessage,
 	});
 	if (citationGate.appendedNotice) {
 		console.warn("[CHAT_SEND] Appended web citation quality notice", {

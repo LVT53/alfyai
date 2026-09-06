@@ -230,6 +230,7 @@ export async function completeStreamTurn(
 		: applyWebCitationQualityGate({
 				assistantResponse: fullResponse,
 				toolCalls: toolCallRecords,
+				userMessage: normalizedMessage,
 			});
 	const finalResponse = citationGate?.response ?? fullResponse;
 	const skillControl = wasStopped
@@ -471,6 +472,10 @@ export async function completeStreamTurn(
 				// projectMessageMetadata). Omitted entirely when empty, mirroring
 				// completionWarningCodes just above.
 				...(thoughtSteps.length > 0 ? { thoughtSteps } : {}),
+				// Citation auto-repair summary (web-citation-audit.ts). Omitted when
+				// no web-grounding tool ran this turn (nothing to check), mirroring
+				// completionWarningCodes just above.
+				...(citationGate?.repair ? { citationAudit: citationGate.repair } : {}),
 				...skillControl.metadata,
 			},
 			reasoningDepth,

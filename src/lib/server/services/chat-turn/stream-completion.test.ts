@@ -1100,6 +1100,56 @@ describe("completeStreamTurn", () => {
 		warnSpy.mockRestore();
 	});
 
+	it("auto-repairs a same-domain unsupported citation before persisting the assistant message", async () => {
+		const response = "See [wrong page](https://example.com/wrong).";
+
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: response,
+			toolCallRecords: [
+				{
+					name: "research_web",
+					input: { query: "current price" },
+					status: "done",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "src-1",
+							title: "Official Product",
+							url: "https://example.com/product",
+							sourceType: "web",
+						},
+					],
+				},
+			],
+		});
+
+		const repairedText = "See [wrong page](https://example.com/product).";
+		const assistantCreateCall = mockCreateMessage.mock.calls.find(
+			(call: unknown[]) => call[1] === "assistant",
+		);
+		// The repaired text — not the raw model output — is what gets
+		// persisted.
+		expect(assistantCreateCall?.[2]).toBe(repairedText);
+		const assistantMetadata = assistantCreateCall?.[5] as
+			| Record<string, unknown>
+			| undefined;
+		expect(assistantMetadata?.citationAudit).toEqual({
+			cited: 1,
+			verified: 0,
+			repaired: 1,
+			stripped: 0,
+		});
+
+		const evidencePayload = mockPersistAssistantEvidence.mock.calls.at(-1)?.[0];
+		expect(evidencePayload?.assistantResponse).toBe(repairedText);
+		expect(mockPersistAssistantEvidence).toHaveBeenCalledWith(
+			expect.objectContaining({
+				webCitationAudit: expect.objectContaining({ status: "passed" }),
+			}),
+		);
+	});
+
 	it("does not stream a source-check notice when the original visible response is empty", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 

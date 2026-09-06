@@ -27,7 +27,10 @@ import type {
 	SkillDraftProposal,
 	SkillDraftStatus,
 } from "$lib/server/services/skills/types";
-import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type {
+	WebCitationAudit,
+	WebCitationRepairSummary,
+} from "$lib/server/services/web-citation-audit";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -41,6 +44,7 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	providerIconUrl?: string | null;
 	depthMetadata?: DepthMetadata;
 	webCitationAudit?: WebCitationAudit | null;
+	citationAudit?: WebCitationRepairSummary | null;
 	// P3b (ADR-0056) — durable Interim Thought Step rail. Not read directly
 	// off this parsed object (see projectMessageMetadata below, which uses
 	// `parseThoughtSteps` against the raw `metadataJson` string so malformed
@@ -214,6 +218,7 @@ function projectMessageMetadata(
 	ChatMessage,
 	| "evidenceSummary"
 	| "webCitationAudit"
+	| "citationAudit"
 	| "evidencePending"
 	| "wasStopped"
 	| "completionWarningCodes"
@@ -242,6 +247,7 @@ function projectMessageMetadata(
 	return {
 		evidenceSummary,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
+		citationAudit: metadata?.citationAudit ?? undefined,
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
 		completionWarningCodes: Array.isArray(metadata?.completionWarningCodes)
@@ -923,7 +929,8 @@ export async function clearMessageEvidenceForUser(
 			!metadata ||
 			(!("evidenceSummary" in metadata) &&
 				!("evidenceStatus" in metadata) &&
-				!("webCitationAudit" in metadata))
+				!("webCitationAudit" in metadata) &&
+				!("citationAudit" in metadata))
 		) {
 			continue;
 		}
@@ -932,6 +939,7 @@ export async function clearMessageEvidenceForUser(
 		delete next.evidenceSummary;
 		delete next.evidenceStatus;
 		delete next.webCitationAudit;
+		delete next.citationAudit;
 
 		await db
 			.update(messages)
