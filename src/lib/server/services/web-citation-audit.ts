@@ -43,11 +43,15 @@ export interface WebCitationRepairSummary {
 //     an HTML page, and stripping it would leave a stray `!alt`; an image is
 //     never a citation claim, so it is left exactly as written.
 //
+// URLs may carry one level of balanced parentheses (`/wiki/Cork_(city)`),
+// mirroring web-grounding.ts's MARKDOWN_LINK_RE, so such a citation is
+// matched whole rather than cut at the first `)`.
+//
 // Groups 2/3 are a real markdown link's text and URL — captured (unlike
 // web-grounding.ts's MARKDOWN_LINK_RE, which only needs the URL) so a
 // stripped link can fall back to its text instead of disappearing.
 const PROTECTED_REGION_OR_MARKDOWN_LINK_RE =
-	/(```[\s\S]*?```|~~~[\s\S]*?~~~|``[\s\S]*?``|`[^`\n]*`|!\[[^\]]*\]\([^)\s]*(?:\s+"[^"]*")?\))|\[([^\]]+)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
+	/(```[\s\S]*?```|~~~[\s\S]*?~~~|``[\s\S]*?``|`[^`\n]*`|!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))*(?:\s+"[^"]*")?\))|\[([^\]]+)\]\((https?:\/\/(?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/g;
 
 function collectCanonicalUrls(text: string): Set<string> {
 	const canonical = new Set<string>();

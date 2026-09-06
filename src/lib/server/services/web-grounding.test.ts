@@ -314,6 +314,13 @@ describe("extractCitedCanonicalWebUrls", () => {
 		expect([...set].sort()).toEqual(["https://bar.com/b", "https://foo.com/a"]);
 	});
 
+	it("keeps balanced parentheses inside a cited URL", () => {
+		const set = extractCitedCanonicalWebUrls(
+			"See [Cork](https://en.wikipedia.org/wiki/Cork_(city)) and https://en.wikipedia.org/wiki/Cork_(city).",
+		);
+		expect([...set]).toEqual(["https://en.wikipedia.org/wiki/Cork_(city)"]);
+	});
+
 	it("returns an empty set when the answer cites no URLs", () => {
 		expect(extractCitedCanonicalWebUrls("no links here at all").size).toBe(0);
 	});

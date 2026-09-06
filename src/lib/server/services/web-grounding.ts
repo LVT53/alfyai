@@ -66,8 +66,12 @@ export type GroundedWebCitationSource = {
 	host: string;
 };
 
-const MARKDOWN_LINK_RE = /\[[^\]]+\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/gi;
-const BARE_URL_RE = /https?:\/\/[^\s<>)\]]+/gi;
+// URLs may contain one level of balanced parentheses (Wikipedia's
+// `/wiki/Cork_(city)`), so a link URL is "anything but a bare `)`" plus
+// `(…)` groups; the bare-URL form likewise keeps a balanced group.
+const MARKDOWN_LINK_RE =
+	/\[[^\]]+\]\((https?:\/\/(?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/gi;
+const BARE_URL_RE = /https?:\/\/(?:[^\s<>()\]]|\([^\s()]*\))+/gi;
 const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
 
 function truncateText(

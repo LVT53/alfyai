@@ -292,6 +292,34 @@ describe("applyWebCitationQualityGate", () => {
 		});
 	});
 
+	it("treats a citation whose URL has balanced parentheses as supported", () => {
+		const response =
+			"Cork is Ireland's second city ([Wikipedia](https://en.wikipedia.org/wiki/Cork_(city))).";
+		const result = applyWebCitationQualityGate({
+			assistantResponse: response,
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Cork (city)",
+						url: "https://en.wikipedia.org/wiki/Cork_(city)",
+						sourceType: "web",
+					},
+				]),
+			],
+		});
+
+		expect(result.response).toBe(response);
+		expect(result.repair).toEqual({
+			cited: 1,
+			verified: 1,
+			repaired: 0,
+			stripped: 0,
+		});
+		expect(result.audit?.status).toBe("passed");
+		expect(result.appendedNotice).toBeNull();
+	});
+
 	it("never rewrites or strips image markdown", () => {
 		// `![alt](url)` is not a citation claim: repairing it would repoint the
 		// image at an HTML page, and stripping it would leave a stray `!alt`.
