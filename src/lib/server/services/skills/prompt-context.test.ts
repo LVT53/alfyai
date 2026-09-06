@@ -1,426 +1,350 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-	getConfig: vi.fn(() => ({ composerCommandRegistryEnabled: true })),
-	getActiveSkillSession: vi.fn(),
-	resolveEffectiveSkillDefinition: vi.fn(),
-}));
-
-vi.mock("$lib/server/config-store", () => ({
-	getConfig: mocks.getConfig,
-}));
-
-vi.mock("./sessions", () => ({
-	getActiveSkillSession: mocks.getActiveSkillSession,
-}));
-
-vi.mock("./user-skills", () => ({
-	resolveEffectiveSkillDefinition: mocks.resolveEffectiveSkillDefinition,
-}));
-
-import type { PreflightedChatTurn } from "$lib/server/services/chat-turn/types";
+import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as schema from "$lib/server/db/schema";
+// Pure, DB-free helpers are safe to import statically. The DB-touching
+// functions (listSkillCatalogueEntries, resolveSkillInstructionsForUse,
+// resolvePendingSkillApplication) are imported dynamically inside each test
+// instead — like user-skills.test.ts's own pattern — because they transitively
+// pull in $lib/server/db, which reads DATABASE_PATH at import time; importing
+// them statically here would bind them to whichever DATABASE_PATH happened to
+// be set when this file first loaded, not the per-test path set in beforeEach.
 import {
-	buildSkillSystemPromptAppendix,
-	resolveSkillPromptContext,
+	buildSkillCatalogueBlock,
+	buildSkillInstructionsEnvelope,
+	SKILLS_AVAILABLE_HEADING,
+	selectSkillResources,
 } from "./prompt-context";
 
-function makeTurn(
-	overrides: Partial<PreflightedChatTurn> = {},
-): PreflightedChatTurn {
-	return {
-		conversationId: "conv-1",
-		normalizedMessage: "Help me prepare",
-		modelId: "model1",
-		modelDisplayName: "Model 1",
-		attachmentIds: [],
-		linkedSources: [],
-		pendingSkill: null,
-		reasoningDepth: "thorough",
-		thinkingMode: "auto",
-		forceWebSearch: false,
-		atlasMode: false,
-		atlasProfile: null,
-		atlasAction: "create",
-		parentAtlasId: null,
-		clientAtlasTurnId: null,
-		depthMetadata: {
-			requested: "thorough",
-			appliedProfile: "standard",
-			fallback: false,
-			modelId: "model1",
-			modelDisplayName: "Model 1",
-		},
-		skipPersistUserMessage: false,
-		...overrides,
-	};
+let dbPath: string;
+
+function seedUsers() {
+	const sqlite = new Database(dbPath);
+	sqlite.pragma("foreign_keys = ON");
+	const db = drizzle(sqlite, { schema });
+	migrate(db, { migrationsFolder: "./drizzle" });
+
+	db.insert(schema.users)
+		.values([
+			{ id: "user-1", email: "user-1@example.com", passwordHash: "hash" },
+		])
+		.run();
+
+	sqlite.close();
 }
 
-describe("skill prompt context", () => {
+describe("skills/prompt-context", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
-		mocks.getConfig.mockReturnValue({ composerCommandRegistryEnabled: true });
-		mocks.getActiveSkillSession.mockResolvedValue(null);
-		mocks.resolveEffectiveSkillDefinition.mockResolvedValue({
-			available: false,
-			availabilityReason: "not_found",
-			id: "missing",
-			ownership: "user",
-			skillKind: null,
-			displayName: null,
-			description: null,
-			effectiveInstructions: "",
-			effectiveInstructionsHash: null,
-			publicSummary: null,
-			sourceIds: null,
-		});
+		dbPath = `/tmp/alfyai-prompt-context-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
 	});
 
-	it("builds a pending-skill appendix from the available definition without changing the user message", async () => {
-		mocks.resolveEffectiveSkillDefinition.mockResolvedValueOnce({
-			available: true,
-			availabilityReason: "available",
-			id: "skill-1",
-			ownership: "user",
-			skillKind: "skill_variant",
-			displayName: "Interview coach",
-			description: "Runs a focused interview.",
-			effectiveInstructions:
-				"Base instructions.\n\nAsk one concise follow-up question before drafting.",
-			effectiveInstructionsHash: "abc123",
-			publicSummary: {
-				id: "skill-1",
-				ownership: "user",
-				skillKind: "skill_variant",
-				baseSkillId: "pack-1",
-				baseSkillVersion: 4,
-				baseSkillDisplayName: "Interview Pack",
-				displayName: "Interview coach",
-				description: "Runs a focused interview.",
-				activationExamples: ["interview me first"],
-				enabled: true,
-				durationPolicy: "next_message",
-				questionPolicy: "ask_when_needed",
-				notesPolicy: "none",
-				sourceScope: "selected_sources_only",
-				creationSource: "user_created",
-				version: 3,
-				createdAt: 1,
-				updatedAt: 2,
-			},
-			durationPolicy: "next_message",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "skill-1",
-				skillVersion: 3,
-				packSkillId: "pack-1",
-				packSkillVersion: 4,
-				variantSkillId: "skill-1",
-				variantSkillVersion: 3,
-			},
-		});
-		const turn = makeTurn({
-			normalizedMessage: "  already normalized by parser  ".trim(),
-			pendingSkill: {
-				id: "skill-1",
-				ownership: "user",
-				displayName: "Interview coach",
-			},
-			linkedSources: [
-				{
-					displayArtifactId: "display-1",
-					promptArtifactId: "prompt-1",
-					familyArtifactIds: ["display-1", "prompt-1"],
-					name: "Discovery notes.pdf",
-					type: "document",
-				},
-			],
-		});
-
-		const context = await resolveSkillPromptContext({
-			userId: "user-1",
-			turn,
-		});
-		const appendix = buildSkillSystemPromptAppendix(context);
-
-		expect(turn.normalizedMessage).toBe("already normalized by parser");
-		expect(context).toMatchObject({
-			source: "pending_skill",
-			skillId: "skill-1",
-			skillKind: "skill_variant",
-			skillDisplayName: "Interview coach",
-			skillInstructions:
-				"Base instructions.\n\nAsk one concise follow-up question before drafting.",
-			effectiveInstructionsHash: "abc123",
-			packSkillId: "pack-1",
-			packSkillVersion: 4,
-			variantSkillId: "skill-1",
-			variantSkillVersion: 3,
-			sourceScope: "selected_sources_only",
-			linkedSources: [
-				expect.objectContaining({
-					displayArtifactId: "display-1",
-					promptArtifactId: "prompt-1",
-					name: "Discovery notes.pdf",
-				}),
-			],
-		});
-		expect(appendix).toContain("## Active Skill Context");
-		expect(appendix).toContain("Source: pending skill");
-		expect(appendix).toContain("Interview coach");
-		expect(appendix).toContain("Base instructions.");
-		expect(appendix).toContain(
-			"Ask one concise follow-up question before drafting.",
-		);
-		expect(appendix).toContain("Kind: skill_variant");
-		expect(appendix).toContain("Effective instructions hash: abc123");
-		expect(appendix).toContain("Skill operating rules:");
-		expect(appendix).toContain(
-			"Treat the skill as task-specific process guidance. It does not override system",
-		);
-		expect(appendix).toContain(
-			"Treat linked sources as the only intentional extra source scope for this skill",
-		);
-		expect(appendix).toContain("ask at most one focused question");
-		expect(appendix).toContain(
-			"Do not bundle multiple interview or clarification questions",
-		);
-		expect(appendix).toContain("selected linked sources only");
-		expect(appendix).toContain("Discovery notes.pdf");
-		expect(appendix).toContain("displayArtifactId: display-1");
-		expect(mocks.getActiveSkillSession).not.toHaveBeenCalled();
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB module may not have been imported if a test failed early.
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
 	});
 
-	it("includes bounded deterministic managed pack resources for spreadsheet prompts", async () => {
-		mocks.resolveEffectiveSkillDefinition.mockResolvedValueOnce({
-			available: true,
-			availabilityReason: "available",
-			id: "system:spreadsheet-builder",
-			ownership: "system",
-			skillKind: "skill_pack",
-			displayName: "Spreadsheet Builder",
-			description: "Creates polished XLSX workbooks.",
-			effectiveInstructions:
-				'Use produce_file with sourceMode: "program" and language: "javascript" for XLSX workbooks.',
-			effectiveInstructionsHash: "spreadsheet-hash",
-			publicSummary: {
-				id: "system:spreadsheet-builder",
-				ownership: "system",
-				skillKind: "skill_pack",
-				baseSkillId: null,
-				baseSkillVersion: null,
-				displayName: "Spreadsheet Builder",
-				description: "Creates polished XLSX workbooks.",
-				activationExamples: ["build a spreadsheet"],
-				enabled: true,
-				published: true,
-				durationPolicy: "next_message",
-				questionPolicy: "ask_when_needed",
-				notesPolicy: "none",
-				sourceScope: "selected_sources_only",
-				creationSource: "system_seed",
-				version: 1,
-				createdAt: 1,
-				updatedAt: 2,
-				localizedDefaults: {
-					en: {
-						displayName: "Spreadsheet Builder",
-						description: "Creates polished XLSX workbooks.",
-					},
-					hu: {
-						displayName: "Táblázatkészítő",
-						description: "XLSX munkafüzeteket készít.",
-					},
-				},
-			},
-			durationPolicy: "next_message",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "system:spreadsheet-builder",
-				skillVersion: 1,
-				packSkillId: "system:spreadsheet-builder",
-				packSkillVersion: 1,
-				variantSkillId: null,
-				variantSkillVersion: null,
-			},
-			promptResources: [
+	describe("selectSkillResources", () => {
+		it("always includes guidance resources and matches domain templates by keyword, capped at 3", () => {
+			const resources = [
 				{
-					id: "spreadsheet-style-quality",
-					title: "Spreadsheet style and workbook quality",
-					kind: "guidance",
-					summary:
-						"Structure, formulas, assumptions, validation, and dashboards.",
-					whenToUse: "Use for every workbook request.",
-					content:
-						"Use separate source, assumptions, calculations, checks, and dashboard sheets. Keep derived values formula-driven and visibly formatted.",
+					id: "guidance-1",
+					title: "Always guidance",
+					kind: "guidance" as const,
+					summary: "s",
+					whenToUse: "w",
+					content: "Always included content.",
 					keywords: [],
 				},
 				{
-					id: "spreadsheet-finance-models",
-					title: "Finance and operating model conventions",
-					kind: "domain_template",
-					summary:
-						"Finance model assumptions, checks, sources, and formula outputs.",
-					whenToUse:
-						"Use for DCF, FP&A, budget, forecast, valuation, and KPI workbooks.",
-					content:
-						"Use finance number formats, visible assumptions, source/audit sheets, checks, scenarios, and model-status formulas.",
-					keywords: ["dcf", "valuation", "finance", "budget", "forecast"],
+					id: "template-finance",
+					title: "Finance template",
+					kind: "domain_template" as const,
+					summary: "s",
+					whenToUse: "w",
+					content: "Finance-specific content.",
+					keywords: ["budget", "forecast"],
 				},
 				{
-					id: "spreadsheet-healthcare-admin",
-					title: "Healthcare workbook conventions",
-					kind: "domain_template",
-					summary: "Healthcare units, identifiers, thresholds, and legends.",
-					whenToUse: "Use for clinical or healthcare administration workbooks.",
-					content:
-						"Preserve raw healthcare data, label units and identifiers, and use threshold legends.",
-					keywords: ["healthcare", "clinical", "patient"],
+					id: "template-marketing",
+					title: "Marketing template",
+					kind: "domain_template" as const,
+					summary: "s",
+					whenToUse: "w",
+					content: "Marketing-specific content.",
+					keywords: ["campaign"],
 				},
-			],
+			];
+
+			const selected = selectSkillResources(resources, "Build a budget model");
+
+			expect(selected.map((r) => r.id)).toEqual([
+				"guidance-1",
+				"template-finance",
+			]);
 		});
 
-		const context = await resolveSkillPromptContext({
-			userId: "user-1",
-			turn: makeTurn({
-				normalizedMessage:
-					"Build a DCF valuation workbook with assumptions, scenarios, checks, and a KPI dashboard.",
-				pendingSkill: {
-					id: "system:spreadsheet-builder",
+		it("returns an empty list when there are no resources", () => {
+			expect(selectSkillResources(undefined, "anything")).toEqual([]);
+			expect(selectSkillResources([], "anything")).toEqual([]);
+		});
+	});
+
+	describe("buildSkillInstructionsEnvelope", () => {
+		it("frames instructions with the skill name and appends selected resources", () => {
+			const envelope = buildSkillInstructionsEnvelope({
+				displayName: "Plan Critic",
+				instructions: "Find the blockers first.",
+				resources: [
+					{
+						id: "r1",
+						title: "Severity guide",
+						content: "Tag Blocker/Major/Minor.",
+					},
+				],
+			});
+
+			expect(envelope).toContain(
+				'Skill "Plan Critic" instructions — apply these for the rest of this turn:',
+			);
+			expect(envelope).toContain("Find the blockers first.");
+			expect(envelope).toContain("Additional skill resources:");
+			expect(envelope).toContain("Severity guide: Tag Blocker/Major/Minor.");
+		});
+
+		it("omits the resources section when there are none", () => {
+			const envelope = buildSkillInstructionsEnvelope({
+				displayName: "Study Coach",
+				instructions: "Coach actively.",
+				resources: [],
+			});
+
+			expect(envelope).not.toContain("Additional skill resources:");
+		});
+	});
+
+	describe("buildSkillCatalogueBlock", () => {
+		it("returns null for an empty catalogue", () => {
+			expect(buildSkillCatalogueBlock([])).toBeNull();
+		});
+
+		it("renders one line per skill under the heading", () => {
+			const block = buildSkillCatalogueBlock([
+				{
+					id: "system:plan-critic",
 					ownership: "system",
-					displayName: "Spreadsheet Builder",
-					skillKind: "skill_pack",
+					displayName: "Plan Critic",
+					description: "Finds the blockers in a plan.",
+				} as never,
+				{
+					id: "user-skill-1",
+					ownership: "user",
+					displayName: "Custom Skill",
+					description: "A user-authored skill.",
+				} as never,
+			]);
+
+			expect(block).toContain(SKILLS_AVAILABLE_HEADING);
+			expect(block).toContain("Plan Critic — Finds the blockers in a plan.");
+			expect(block).toContain("Custom Skill — A user-authored skill.");
+		});
+
+		it("caps the catalogue at 15 lines and ~600 characters, truncating descriptions not names", () => {
+			const manySkills = Array.from({ length: 20 }, (_, index) => ({
+				id: `skill-${index}`,
+				ownership: "user" as const,
+				displayName: `Skill Number ${index}`,
+				description:
+					"A very long description that goes on and on to force truncation logic to kick in for this catalogue line entry.",
+			})) as never[];
+
+			const block = buildSkillCatalogueBlock(manySkills);
+			expect(block).not.toBeNull();
+			if (!block) return;
+
+			const lines = block.split("\n");
+			// heading + at most 15 skill lines
+			expect(lines.length).toBeLessThanOrEqual(16);
+			expect(block.length).toBeLessThanOrEqual(700);
+			// Every included skill's name survives in full (only descriptions
+			// are truncated).
+			for (const line of lines.slice(1)) {
+				const name = line.replace(/^- /, "").split(" — ")[0];
+				expect(name?.startsWith("Skill Number")).toBe(true);
+			}
+		});
+	});
+
+	describe("listSkillCatalogueEntries + resolveSkillInstructionsForUse (use_skill tool backing)", () => {
+		it("returns the skill's full instructions when the name matches an enabled skill", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await createUserSkillDefinition("user-1", {
+				displayName: "Meeting Recap",
+				description: "Summarizes meeting notes into action items.",
+				instructions: "Extract decisions, owners, and deadlines.",
+				enabled: true,
+			});
+
+			const entries = await listSkillCatalogueEntries("user-1");
+			expect(entries.map((entry) => entry.displayName)).toContain(
+				"Meeting Recap",
+			);
+
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "Meeting Recap",
+				requestText: "Summarize today's meeting",
+			});
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.displayName).toBe("Meeting Recap");
+			expect(result.envelope).toContain(
+				"Extract decisions, owners, and deadlines.",
+			);
+			expect(result.envelope).toContain('Skill "Meeting Recap" instructions');
+		});
+
+		it("matches case-insensitively by id as well as display name", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { resolveSkillInstructionsForUse } = await import(
+				"./prompt-context"
+			);
+			const created = await createUserSkillDefinition("user-1", {
+				displayName: "Case Test Skill",
+				description: "d",
+				instructions: "i",
+				enabled: true,
+			});
+
+			const byId = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: created.id.toUpperCase(),
+				requestText: "",
+			});
+			expect(byId.ok).toBe(true);
+
+			const byName = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "case test skill",
+				requestText: "",
+			});
+			expect(byName.ok).toBe(true);
+		});
+
+		it("returns a not_found error for an unknown skill name", async () => {
+			seedUsers();
+			const { resolveSkillInstructionsForUse } = await import(
+				"./prompt-context"
+			);
+
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "Nonexistent Skill",
+				requestText: "",
+			});
+
+			expect(result).toEqual({ ok: false, reason: "not_found" });
+		});
+
+		it("excludes a disabled skill from the catalogue and refuses to load it by name", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await createUserSkillDefinition("user-1", {
+				displayName: "Disabled Skill",
+				description: "d",
+				instructions: "i",
+				enabled: false,
+			});
+
+			const entries = await listSkillCatalogueEntries("user-1");
+			expect(entries.map((entry) => entry.displayName)).not.toContain(
+				"Disabled Skill",
+			);
+
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: "Disabled Skill",
+				requestText: "",
+			});
+			expect(result).toEqual({ ok: false, reason: "not_found" });
+		});
+	});
+
+	describe("resolvePendingSkillApplication (forced `$` selection)", () => {
+		it("returns the same envelope shape use_skill would return, for the exact selected skill", async () => {
+			seedUsers();
+			const { createUserSkillDefinition } = await import("./user-skills");
+			const { resolvePendingSkillApplication } = await import(
+				"./prompt-context"
+			);
+			const created = await createUserSkillDefinition("user-1", {
+				displayName: "Forced Skill",
+				description: "d",
+				instructions: "Follow this exactly.",
+				enabled: true,
+			});
+
+			const result = await resolvePendingSkillApplication({
+				userId: "user-1",
+				pendingSkill: {
+					id: created.id,
+					ownership: "user",
+					displayName: "Forced Skill",
 				},
-			}),
-		});
-		const appendix = buildSkillSystemPromptAppendix(context);
+				requestText: "do the thing",
+			});
 
-		expect(context?.skillResources).toEqual([
-			expect.objectContaining({
-				id: "spreadsheet-style-quality",
-				inclusionReason: "always",
-			}),
-			expect.objectContaining({
-				id: "spreadsheet-finance-models",
-				inclusionReason: "matched_request",
-			}),
-		]);
-		expect(appendix).toContain("Managed pack resources included:");
-		expect(appendix).toContain("spreadsheet-style-quality");
-		expect(appendix).toContain("spreadsheet-finance-models");
-		expect(appendix).toContain("model-status formulas");
-		expect(appendix).not.toContain("spreadsheet-healthcare-admin");
-		expect(appendix).not.toContain("raw healthcare data");
-	});
-
-	it("uses active durable session snapshots", async () => {
-		mocks.getActiveSkillSession.mockResolvedValueOnce({
-			id: "session-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "skill-1",
-			skillOwnership: "system",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Code Review",
-			skillDescription: "Reviews changes.",
-			skillInstructions: "Lead with bugs and missing tests.",
-			activationExamples: ["review this diff"],
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "none",
-			sourceScope: "current_conversation",
-			skillVersion: 5,
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 2,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.envelope).toContain("Follow this exactly.");
 		});
 
-		const context = await resolveSkillPromptContext({
-			userId: "user-1",
-			turn: makeTurn(),
+		it("reports unavailable when the selected skill was disabled after selection", async () => {
+			seedUsers();
+			const { createUserSkillDefinition, updateUserSkillDefinition } =
+				await import("./user-skills");
+			const { resolvePendingSkillApplication } = await import(
+				"./prompt-context"
+			);
+			const created = await createUserSkillDefinition("user-1", {
+				displayName: "Now Disabled",
+				description: "d",
+				instructions: "i",
+				enabled: true,
+			});
+			await updateUserSkillDefinition("user-1", created.id, { enabled: false });
+
+			const result = await resolvePendingSkillApplication({
+				userId: "user-1",
+				pendingSkill: {
+					id: created.id,
+					ownership: "user",
+					displayName: "Now Disabled",
+				},
+				requestText: "",
+			});
+
+			expect(result).toEqual({ ok: false, reason: "disabled" });
 		});
-		const appendix = buildSkillSystemPromptAppendix(context);
-
-		expect(context).toMatchObject({
-			source: "active_session",
-			sessionId: "session-1",
-			sessionStatus: "active",
-			skillDisplayName: "Code Review",
-			skillInstructions: "Lead with bugs and missing tests.",
-			sourceScope: "current_conversation",
-		});
-		expect(appendix).toContain("Source: active skill session");
-		expect(appendix).toContain("Session: session-1 (active)");
-		expect(appendix).toContain("current conversation context");
-		expect(appendix).toContain("Lead with bugs and missing tests.");
-		expect(appendix).toContain("Skill operating rules:");
-		expect(appendix).toContain(
-			"You may use the current conversation context for this skill",
-		);
-		expect(appendix).not.toContain("ask at most one focused question");
-		expect(mocks.getActiveSkillSession).toHaveBeenCalledTimes(1);
-	});
-
-	it("always includes the universal Tier A operating rule lines after the other rule lines", async () => {
-		mocks.getActiveSkillSession.mockResolvedValueOnce({
-			id: "session-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "skill-1",
-			skillOwnership: "system",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Code Review",
-			skillDescription: "Reviews changes.",
-			skillInstructions: "Lead with bugs and missing tests.",
-			activationExamples: ["review this diff"],
-			durationPolicy: "session",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "current_conversation",
-			skillVersion: 5,
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 2,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
-		});
-
-		const context = await resolveSkillPromptContext({
-			userId: "user-1",
-			turn: makeTurn(),
-		});
-		const appendix = buildSkillSystemPromptAppendix(context);
-
-		expect(appendix).toBeDefined();
-		expect(appendix).toContain(
-			"- When your answer depends on facts not present in this turn, state what is missing or assumed before proceeding, rather than inventing it.",
-		);
-		expect(appendix).toContain(
-			"- Separate what the sources or user actually provided from your own inference or recommendation.",
-		);
-		expect(appendix).toContain(
-			"- When you deliver the main result, give it a clear, labeled structure — a short takeaway first, then detail — suited to the task.",
-		);
-
-		const factsLineIndex = appendix?.indexOf(
-			"- When your answer depends on facts not present in this turn",
-		);
-		const bundleLineIndex = appendix?.indexOf(
-			"Do not bundle multiple interview or clarification questions",
-		);
-		expect(factsLineIndex).toBeGreaterThan(-1);
-		expect(bundleLineIndex).toBeGreaterThan(-1);
-		expect(factsLineIndex as number).toBeGreaterThan(bundleLineIndex as number);
 	});
 });

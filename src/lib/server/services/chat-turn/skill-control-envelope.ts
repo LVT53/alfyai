@@ -100,71 +100,10 @@ function parseSkillDraftProposal(value: unknown): SkillDraftProposal | null {
 	};
 }
 
-function parseSessionTransitionOperation(
-	candidate: JsonRecord,
-	operationId: string,
-): Extract<SkillControlOperation, { kind: "session_transition" }> | null {
-	const transition = candidate.transition;
-	if (
-		transition === "active" ||
-		transition === "awaiting_user" ||
-		transition === "finished" ||
-		transition === "failed_note" ||
-		transition === "failed-note" ||
-		transition === "dismissed"
-	) {
-		return {
-			operationId,
-			kind: "session_transition",
-			transition: transition === "failed-note" ? "failed_note" : transition,
-		};
-	}
-
-	return null;
-}
-
-function parseNoteIntentOperation(
-	candidate: JsonRecord,
-	operationId: string,
-): Extract<SkillControlOperation, { kind: "note_intent" }> | null {
-	const action = candidate.action;
-	if (typeof candidate.body !== "string" || !candidate.body.trim()) return null;
-
-	if (action === "create") {
-		if (typeof candidate.title !== "string" || !candidate.title.trim())
-			return null;
-		return {
-			operationId,
-			kind: "note_intent",
-			action,
-			title: candidate.title,
-			body: candidate.body,
-		};
-	}
-
-	if (action === "replace" || action === "append") {
-		if (
-			typeof candidate.targetArtifactId !== "string" ||
-			!candidate.targetArtifactId.trim()
-		) {
-			return null;
-		}
-		return {
-			operationId,
-			kind: "note_intent",
-			action,
-			targetArtifactId: candidate.targetArtifactId,
-			body: candidate.body,
-		};
-	}
-
-	return null;
-}
-
 function parseSkillDraftOperation(
 	candidate: JsonRecord,
 	operationId: string,
-): Extract<SkillControlOperation, { kind: "skill_draft" }> | null {
+): SkillControlOperation | null {
 	const draft = parseSkillDraftProposal(candidate.draft);
 	if (!draft) return null;
 	return {
@@ -178,14 +117,6 @@ function parseOperation(value: unknown): SkillControlOperation | null {
 	if (!isRecord(value)) return null;
 	const operationId = value.operationId;
 	if (typeof operationId !== "string" || !operationId.trim()) return null;
-
-	if (value.kind === "session_transition") {
-		return parseSessionTransitionOperation(value, operationId);
-	}
-
-	if (value.kind === "note_intent") {
-		return parseNoteIntentOperation(value, operationId);
-	}
 
 	if (value.kind === "skill_draft") {
 		return parseSkillDraftOperation(value, operationId);
@@ -233,32 +164,11 @@ export function parseSkillControlEnvelopePayloads(
 		}
 	}
 
-	const skillQuestion = operations.some(
-		(operation) =>
-			operation.kind === "session_transition" &&
-			operation.transition === "awaiting_user",
-	);
-	const pendingNoteIntents = operations.filter(
-		(
-			operation,
-		): operation is Extract<SkillControlOperation, { kind: "note_intent" }> =>
-			operation.kind === "note_intent",
-	);
-	const skillDrafts = operations
-		.filter(
-			(
-				operation,
-			): operation is Extract<SkillControlOperation, { kind: "skill_draft" }> =>
-				operation.kind === "skill_draft",
-		)
-		.map((operation) => operation.draft);
+	const skillDrafts = operations.map((operation) => operation.draft);
 
 	const metadata: SkillControlMessageMetadata | undefined =
 		operations.length > 0 || malformedEnvelopeCount > 0
 			? {
-					skillQuestion: skillQuestion || undefined,
-					pendingSkillNoteIntents:
-						pendingNoteIntents.length > 0 ? pendingNoteIntents : undefined,
 					skillDrafts: skillDrafts.length > 0 ? skillDrafts : undefined,
 					skillControl: {
 						envelopeVersion: 1 as const,
