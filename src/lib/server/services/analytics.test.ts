@@ -1562,6 +1562,132 @@ describe("analytics dashboard read model", () => {
 			expect(row?.avgReasoningTokens).toBeUndefined();
 		});
 
+		// Reviewer follow-up (whole-table reads): the dashboard used to SELECT
+		// every row of activity_events and message_analytics on every GET and
+		// throw most of them away. Both are now narrowed in SQL, and
+		// activity_events — which only ever feeds admin-only sections — is not
+		// queried at all for a non-admin caller.
+		describe("query narrowing", () => {
+			async function withCapturedSql<T>(
+				run: (analytics: typeof import("./analytics")) => Promise<T>,
+			): Promise<{ result: T; statements: string[] }> {
+				const analytics = await import("./analytics");
+				const { sqlite } = await import("$lib/server/db");
+				const statements: string[] = [];
+				const original = sqlite.prepare.bind(sqlite);
+				const spy = vi.spyOn(sqlite, "prepare").mockImplementation(((
+					sql: string,
+				) => {
+					statements.push(sql);
+					return original(sql);
+				}) as typeof sqlite.prepare);
+				try {
+					return { result: await run(analytics), statements };
+				} finally {
+					spy.mockRestore();
+				}
+			}
+
+			it("never queries activity_events for a non-admin caller", async () => {
+				seedOverhaulFixtures();
+
+				const { result, statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "user-1", role: "user" }),
+						month: "2026-05",
+					}),
+				);
+
+				expect(statements.length).toBeGreaterThan(0);
+				expect(
+					statements.filter((sql) => sql.includes('"activity_events"')),
+				).toEqual([]);
+				expect(result.tools).toBeUndefined();
+				expect(result.commandsAndSkills).toBeUndefined();
+			});
+
+			it("pushes the month window and the user filter into the activity_events query", async () => {
+				seedOverhaulFixtures();
+
+				const { result, statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "admin-1", role: "admin" }),
+						systemMonth: "2026-05",
+						userId: "user-1",
+					}),
+				);
+
+				const activitySql = statements.filter((sql) =>
+					sql.includes('from "activity_events"'),
+				);
+				expect(activitySql.length).toBeGreaterThan(0);
+				for (const sql of activitySql) {
+					expect(sql).toContain('"activity_events"."created_at" >=');
+					expect(sql).toContain('"activity_events"."created_at" <');
+					expect(sql).toContain('"activity_events"."user_id" =');
+				}
+				// user-2's June composer_command sits outside both the month window
+				// and the user filter, so it is never loaded, let alone returned.
+				expect(
+					result.commandsAndSkills?.some((row) => row.name === "attach"),
+				).toBe(false);
+			});
+
+			it("narrows message_analytics to the in-scope message ids instead of reading the table", async () => {
+				seedOverhaulFixtures();
+
+				const { statements } = await withCapturedSql((analytics) =>
+					analytics.getAnalyticsDashboardReadModel({
+						user: user({ id: "admin-1", role: "admin" }),
+						systemMonth: "2026-05",
+					}),
+				);
+
+				const messageAnalyticsSql = statements.filter((sql) =>
+					sql.includes('from "message_analytics"'),
+				);
+				expect(messageAnalyticsSql.length).toBeGreaterThan(0);
+				for (const sql of messageAnalyticsSql) {
+					expect(sql).toContain('"message_analytics"."message_id" in');
+				}
+			});
+
+			// Behavioural half of the same fix: whatever the query strategy, a row
+			// recorded outside the requested month must not reach the read model.
+			it("returns no activity or usage from outside the requested month window", async () => {
+				seedOverhaulFixtures();
+				const { sqlite, database } = openSeedDatabase();
+				database
+					.insert(schema.activityEvents)
+					.values({
+						id: "activity-out-of-window",
+						userId: "user-1",
+						conversationId: "conv-1",
+						kind: "tool_call",
+						name: "out_of_window_tool",
+						status: "done",
+						durationMs: 5,
+						modelId: "model1",
+						createdAt: new Date("2026-04-30T23:59:59.000Z"),
+					})
+					.run();
+				sqlite.close();
+
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+				});
+
+				expect(
+					result.tools?.some((row) => row.name === "out_of_window_tool"),
+				).toBe(false);
+				expect(
+					result.commandsAndSkills?.some((row) => row.name === "attach"),
+				).toBe(false);
+			});
+		});
+
 		it("omits the admin-only activity sections for a non-admin caller", async () => {
 			seedOverhaulFixtures();
 			const { getAnalyticsDashboardReadModel } = await import("./analytics");
