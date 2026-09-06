@@ -1,5 +1,9 @@
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import {
+	recordSkillUseActivityEvent,
+	recordToolCallActivityEvents,
+} from "$lib/server/services/activity-events";
+import {
 	getChatFilesForAssistantMessage,
 	syncGeneratedFilesToMemory,
 } from "$lib/server/services/chat-files";
@@ -148,6 +152,14 @@ export type FinalizeChatTurnParams = {
 	toolCalls?: PersistAssistantEvidenceParams["toolCalls"];
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];
+	// Analytics overhaul (backend half) — the skill this turn force-applied
+	// via a `$` composer selection, resolved at preflight into
+	// PreflightedChatTurn.appliedSkill (see chat-turn/types.ts). Recorded as
+	// an activity_events "skill_use" row, named after the skill, alongside
+	// this turn's tool calls; omitted/null when no skill was force-applied
+	// (an on-demand `use_skill` tool call is recorded separately, from
+	// params.toolCalls, by recordToolCallActivityEvents itself).
+	skillUse?: { displayName: string } | null;
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
@@ -600,6 +612,33 @@ export async function finalizeChatTurn(
 				assistantMessageId: assistantMessage.id,
 				analytics: params.analytics,
 			});
+		}
+
+		// Analytics overhaul (backend half) — activity_events rows for this
+		// turn's tool calls and applied skill, if any. Runs regardless of which
+		// branch above ran (a stopped/cut-short turn still recorded whatever
+		// tools it actually called). Deliberately NOT awaited: this is
+		// best-effort telemetry, never on the critical path — a stream turn
+		// races its background projection against a single tick (see
+		// waitOneTick below), and blocking here on a real write would just
+		// delay persistAssistantEvidence for no benefit.
+		if (assistantMessage) {
+			void recordToolCallActivityEvents({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				messageId: assistantMessage.id,
+				modelId: params.analytics?.model ?? null,
+				toolCalls: params.toolCalls,
+			}).catch(() => undefined);
+			if (params.skillUse?.displayName) {
+				void recordSkillUseActivityEvent({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					messageId: assistantMessage.id,
+					modelId: params.analytics?.model ?? null,
+					displayName: params.skillUse.displayName,
+				}).catch(() => undefined);
+			}
 		}
 
 		const evidenceTask =

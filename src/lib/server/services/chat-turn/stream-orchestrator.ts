@@ -848,6 +848,9 @@ export function runChatStreamOrchestrator(
 					serverSegments: chunkRuntime.serverSegments,
 					attachmentIds: safeAttachmentIds,
 					linkedSources: preparedTurn?.linkedSources ?? turn.linkedSources,
+					skillUse: preparedTurn?.appliedSkill
+						? { displayName: preparedTurn.appliedSkill.skillDisplayName }
+						: null,
 					activeDocumentArtifactId: activeDocumentArtifactId ?? null,
 					requestStartTime,
 					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),

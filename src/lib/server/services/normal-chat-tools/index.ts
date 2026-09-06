@@ -2240,6 +2240,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										error: null,
 										skillId: result.skillId,
 										skillOwnership: result.skillOwnership,
+										// Analytics overhaul (backend half) — carried through so
+										// recordToolCallActivityEvents can record a skill_use
+										// event named after the skill rather than the tool.
+										skillDisplayName: result.displayName,
 									},
 								},
 							};

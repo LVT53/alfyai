@@ -26,6 +26,8 @@ const {
 	mockGenerateShortLocalText,
 	mockResolveShortTextLanguage,
 	mockUpdateMessageRailSummary,
+	mockRecordToolCallActivityEvents,
+	mockRecordSkillUseActivityEvent,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -76,6 +78,8 @@ const {
 	mockGenerateShortLocalText: vi.fn(async () => null as string | null),
 	mockResolveShortTextLanguage: vi.fn(() => "en" as "en" | "hu"),
 	mockUpdateMessageRailSummary: vi.fn(async () => undefined),
+	mockRecordToolCallActivityEvents: vi.fn(async () => undefined),
+	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -97,6 +101,11 @@ vi.mock("$lib/server/services/chat-files", () => ({
 
 vi.mock("$lib/server/services/analytics", () => ({
 	recordMessageAnalytics: vi.fn(async () => undefined),
+}));
+
+vi.mock("$lib/server/services/activity-events", () => ({
+	recordToolCallActivityEvents: mockRecordToolCallActivityEvents,
+	recordSkillUseActivityEvent: mockRecordSkillUseActivityEvent,
 }));
 
 vi.mock("$lib/server/services/memory-controls", () => ({
@@ -623,6 +632,10 @@ describe("finalizeChatTurn", () => {
 		mockRunPostTurnTasks.mockResolvedValue(undefined);
 		mockRecordAssistantTurnAnalytics.mockReset();
 		mockRecordAssistantTurnAnalytics.mockResolvedValue(undefined);
+		mockRecordToolCallActivityEvents.mockReset();
+		mockRecordToolCallActivityEvents.mockResolvedValue(undefined);
+		mockRecordSkillUseActivityEvent.mockReset();
+		mockRecordSkillUseActivityEvent.mockResolvedValue(undefined);
 	});
 
 	it("invokes onDurableReceiptReady with message ids before the deferred projection resolves, then keeps running it in the background — no promise or task-starting function comes back to the caller", async () => {
@@ -1901,6 +1914,149 @@ describe("finalizeChatTurn", () => {
 			expect(completion.assistantMessage?.id).toBe("assistant-message");
 			// No usage/cost analytics row is written for this turn.
 			expect(mockRecordMessageAnalytics).not.toHaveBeenCalled();
+		});
+	});
+
+	// Analytics overhaul (backend half) — activity_events rows for this turn's
+	// tool calls and applied skill.
+	describe("activity_events recording", () => {
+		it("records this turn's tool calls keyed to the assistant message and model", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1", modelDisplayName: "Model One" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				toolCalls: [
+					{ name: "research_web", input: {}, status: "done" },
+					{ name: "fetch_url", input: {}, status: "failed" },
+				],
+			});
+
+			expect(mockRecordToolCallActivityEvents).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				modelId: "model-1",
+				toolCalls: [
+					{ name: "research_web", input: {}, status: "done" },
+					{ name: "fetch_url", input: {}, status: "failed" },
+				],
+			});
+		});
+
+		it("records a skill_use activity event when a skill was applied this turn", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				skillUse: { displayName: "My Skill" },
+			});
+
+			expect(mockRecordSkillUseActivityEvent).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				modelId: "model-1",
+				displayName: "My Skill",
+			});
+		});
+
+		it("does not record a skill_use event when no skill was applied", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+			});
+
+			expect(mockRecordSkillUseActivityEvent).not.toHaveBeenCalled();
+		});
+
+		it("still records tool calls when turn-state persistence is skipped (e.g. a stopped stream)", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "stream",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "partial answer",
+				assistantMetadata: { wasStopped: true },
+				skillControlOperations: [],
+				skillControlSessionId: null,
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "",
+				maintenanceReason: "chat_stream",
+				persistTurnState: false,
+				toolCalls: [{ name: "research_web", input: {}, status: "done" }],
+			});
+
+			expect(mockRecordToolCallActivityEvents).toHaveBeenCalledWith(
+				expect.objectContaining({
+					messageId: "assistant-message",
+					toolCalls: [{ name: "research_web", input: {}, status: "done" }],
+				}),
+			);
 		});
 	});
 });
