@@ -1531,6 +1531,8 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.systemPrompt).not.toContain("Web research workflow:");
 		expect(prepared.prefetchedToolCalls).toEqual([]);
 		expect(prepared.prefetchedToolMessages ?? []).toEqual([]);
+		// The forced search itself travels as turn guidance.
+		expect(prepared.turnGuidance).toContain("call research_web first");
 	});
 
 	it("prefetches pasted URLs before the model run as a native fetch_url tool-call/result exchange", async () => {

@@ -16,7 +16,6 @@ import {
 	type ProviderRuntime,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
-	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
 	type ToolPack,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
@@ -158,16 +157,10 @@ async function runPlainModelRun(params: ModelRunParams) {
 	const toolChoice = modelRunParams.forceProduceFileTool
 		? ({ type: "tool", toolName: "produce_file" } as const)
 		: undefined;
-	// produce_file forcing (above) already pins tool choice for the whole run;
-	// a forced-search turn only forces the FIRST step (see
-	// resolveForcedResearchWebFirstStepToolChoice), so the two are mutually
-	// exclusive rather than combined.
-	const firstStepToolChoice = modelRunParams.forceProduceFileTool
-		? undefined
-		: resolveForcedResearchWebFirstStepToolChoice({
-				forceWebSearch: modelRunParams.forceWebSearch,
-				tools,
-			});
+	// Forced web search is expressed in the turn guidance, not as a named
+	// first-step tool_choice (see streaming-normal-chat-model-run.ts);
+	// produce_file forcing stays a whole-run toolChoice.
+	const firstStepToolChoice = undefined;
 
 	return runPlainNormalChatModelRun({
 		provider: runtime.provider,

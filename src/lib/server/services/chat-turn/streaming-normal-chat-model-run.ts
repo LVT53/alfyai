@@ -16,7 +16,6 @@ import {
 	type NormalChatSendModelBaseParams,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
-	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
@@ -174,10 +173,11 @@ export async function runStreamingNormalChatSendModel(
 		maxOutputTokens: prepared.outputTokenBudget?.effectiveMaxTokens,
 		tools: toolPack.tools,
 		toolChoice: undefined,
-		firstStepToolChoice: resolveForcedResearchWebFirstStepToolChoice({
-			forceWebSearch: params.forceWebSearch,
-			tools: toolPack.tools,
-		}),
+		// Forced web search is expressed in the turn guidance, not as a named
+		// tool_choice: vLLM honours a named tool_choice through guided JSON
+		// decoding, which bypasses the Qwen XML tool format and yields a
+		// text step of raw arguments instead of a parsed tool call.
+		firstStepToolChoice: undefined,
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
 	});

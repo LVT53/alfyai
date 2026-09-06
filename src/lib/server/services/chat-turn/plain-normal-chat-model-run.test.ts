@@ -394,7 +394,7 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
-	it("forces the first tool-call step to research_web when forceWebSearch is true and research_web is available", async () => {
+	it("does not force a named first-step tool choice for forced web search (guidance carries it instead)", async () => {
 		await runSubject({
 			message: "What changed today?",
 			forceWebSearch: true,
@@ -402,7 +402,7 @@ describe("runPlainNormalChatSendModel", () => {
 
 		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
-				firstStepToolChoice: { type: "tool", toolName: "research_web" },
+				firstStepToolChoice: undefined,
 			}),
 		);
 	});

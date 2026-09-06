@@ -492,6 +492,12 @@ export function buildOutboundSystemPrompt(params: {
 }
 
 const TURN_GUIDANCE_HEADING = "## Turn Guidance";
+// The user pressed the web-search toggle for this turn. Expressed as
+// guidance rather than a named tool_choice: vLLM honours a named tool_choice
+// through guided JSON decoding, which bypasses the Qwen XML tool format and
+// yields a text step of raw arguments instead of a parsed tool call.
+const FORCED_WEB_SEARCH_GUIDANCE =
+	"Web research was requested for this turn: call research_web first (set readPages when page-level detail is needed), then answer from its results with citations.";
 
 // Per-turn guidance that used to sit in the system message. It is appended
 // to the user packet (see prepareOutboundChatContext) so the system message
@@ -501,6 +507,7 @@ export function buildTurnGuidance(params: {
 	responseLanguage?: SupportedLanguage;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
+	forceWebSearch?: boolean;
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const todayStr = new Date().toLocaleDateString("en-US", {
@@ -518,6 +525,7 @@ export function buildTurnGuidance(params: {
 		...(params.reasoningDepthEffort
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
 			: []),
+		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
 	];
 	return `${TURN_GUIDANCE_HEADING}\n${sections.join("\n\n")}`;
 }
@@ -1846,6 +1854,7 @@ export async function prepareOutboundChatContext(
 			responseLanguage: detectLanguage(params.message),
 			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
+			forceWebSearch: params.forceWebSearch,
 		}),
 		historyMessages: state.historyMessages ?? [],
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
