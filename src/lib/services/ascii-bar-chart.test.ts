@@ -223,3 +223,29 @@ describe("pickBarMatchedColumn / barFillLength", () => {
 		expect(legendPerBlock(42)).toBeNull();
 	});
 });
+
+describe("parseAsciiBarChart — caption on the legend line", () => {
+	it("uses the text before an inline legend as the title", () => {
+		const chart = parseAsciiBarChart(
+			[
+				"Monthly cost — 1 █ ≈ €20",
+				"10/day, low    €121  ██████",
+				"10/day, high   €217  ███████████",
+			].join("\n"),
+		);
+		expect(chart?.title).toBe("Monthly cost");
+		expect(chart?.units).toBe("€");
+		expect(chart?.points.map((point) => point.value)).toEqual([121, 217]);
+	});
+
+	it("does not turn a bare 'Scale:' legend into a title", () => {
+		const chart = parseAsciiBarChart(
+			[
+				"Scale: 1 █ ≈ €2",
+				"Riverstone €24.25 ████",
+				"Amber Leaf €27.10 █████",
+			].join("\n"),
+		);
+		expect(chart?.title).toBeUndefined();
+	});
+});

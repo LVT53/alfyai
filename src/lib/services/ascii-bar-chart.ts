@@ -179,6 +179,13 @@ export function parseAsciiBarChart(text: string): AsciiBarChart | null {
 				// "€20" → "€", "kg" → "kg"; a bare number carries no unit.
 				const unit = legend.groups.unit.replace(/[\d.,\s()]/g, "");
 				if (unit && !units) units = unit;
+				// "Monthly cost — 1 █ ≈ €20": the caption shares the legend line.
+				const caption = line
+					.slice(0, legend.index)
+					.replace(/[\s—–\-:(,]+$/u, "")
+					.replace(/^\s*(?:scale|legend)\s*[:—–-]?\s*$/iu, "")
+					.trim();
+				if (caption && !title && points.length === 0) title = caption;
 				continue;
 			}
 			// A leading caption line is allowed; anything else counts against it.
