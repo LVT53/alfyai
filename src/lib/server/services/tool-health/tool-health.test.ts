@@ -116,6 +116,19 @@ describe("tool health registry", () => {
 		}
 	});
 
+	it("pings the Parallel API once for research_web and fetch_url together", async () => {
+		const deps = makeDeps(healthyHandler);
+		const snapshot = await checkToolHealth(deps);
+		const tools = byId(snapshot);
+
+		const searchCalls = deps.fetch.mock.calls.filter(([input]) =>
+			String(input).includes("/v1/search"),
+		);
+		expect(searchCalls).toHaveLength(1);
+		expect(tools.research_web.status).toBe("healthy");
+		expect(tools.fetch_url.status).toBe("healthy");
+	});
+
 	it("probes a shared backend once per snapshot and reports it on every entry", async () => {
 		const deps = makeDeps(healthyHandler);
 		const snapshot = await checkToolHealth(deps);

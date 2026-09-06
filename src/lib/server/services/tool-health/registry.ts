@@ -231,6 +231,7 @@ async function probeOwntracks(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 
 // Shared by every tool backed by the Docker sandbox.
 const DOCKER_PROBE_KEY = "docker-sandbox";
+const PARALLEL_PROBE_KEY = "parallel-api";
 
 async function probeDocker(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 	const started = Date.now();
@@ -272,6 +273,7 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		backend: "Parallel API",
 		configured: (config) => hasValue(config.parallelApiKey),
 		probe: probeParallel,
+		probeKey: PARALLEL_PROBE_KEY,
 	},
 	{
 		id: "fetch_url",
@@ -279,6 +281,7 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		backend: "Parallel API",
 		configured: (config) => hasValue(config.parallelApiKey),
 		probe: probeParallel,
+		probeKey: PARALLEL_PROBE_KEY,
 	},
 	{
 		id: "image_search",
