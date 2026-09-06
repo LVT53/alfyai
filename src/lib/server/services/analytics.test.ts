@@ -1514,5 +1514,68 @@ describe("analytics dashboard read model", () => {
 				reasoningTokensMedian: null,
 			});
 		});
+
+		// The documented contract on AnalyticsByModelRow (and its client
+		// mirror) is: an UNDEFINED latency/reasoning field means no
+		// message_analytics rows joined for that model at all, so the admin
+		// table can blank the cell instead of printing a misleading zero.
+		it("leaves avgReasoningTokens undefined for a model with no message_analytics rows", async () => {
+			seedOverhaulFixtures();
+			const { sqlite, database } = openSeedDatabase();
+			database
+				.insert(schema.usageEvents)
+				.values({
+					id: "usage-parallel",
+					userId: "user-1",
+					conversationId: "conv-1",
+					// Parallel usage carries a synthetic message id that never
+					// joins message_analytics — the shape most likely to hit
+					// this path in production.
+					messageId: "parallel:turbo-1",
+					modelId: "parallel:turbo",
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					billingMonth: "2026-05",
+					costUsdMicros: 10_000,
+					createdAt: new Date("2026-05-01T00:00:00.000Z"),
+				})
+				.run();
+			sqlite.close();
+
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const row = result.system?.byModel.find(
+				(entry) => entry.model === "parallel:turbo",
+			);
+			// A "parallel:*" model is not a provider_models row and stays active.
+			expect(row).toMatchObject({
+				availability: "active",
+				firstTokenP50Ms: null,
+				firstTokenP90Ms: null,
+				generationP50Ms: null,
+			});
+			expect(row?.avgReasoningTokens).toBeUndefined();
+		});
+
+		it("omits the admin-only activity sections for a non-admin caller", async () => {
+			seedOverhaulFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "user-1", role: "user" }),
+				month: "2026-05",
+			});
+
+			expect(result.tools).toBeUndefined();
+			expect(result.commandsAndSkills).toBeUndefined();
+			expect(result.latencyByPromptBucket).toBeUndefined();
+			expect(result.analyticsUsers).toBeUndefined();
+			expect(result.perUser).toBeUndefined();
+		});
 	});
 });

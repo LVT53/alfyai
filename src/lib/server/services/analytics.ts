@@ -634,7 +634,14 @@ async function modelBreakdown(
 		return {
 			...entry,
 			availability: resolveModelAvailability(entry.model, context.availability),
-			avgReasoningTokens: average(latency?.reasoningTokens ?? []),
+			// Undefined (not 0) when no message_analytics row joined for this
+			// model at all — the documented contract on AnalyticsByModelRow, so
+			// the admin table blanks the cell instead of printing a zero that
+			// reads as "measured, and it's none".
+			avgReasoningTokens:
+				latency && latency.reasoningTokens.length > 0
+					? average(latency.reasoningTokens)
+					: undefined,
 			firstTokenP50Ms: percentile(
 				sortedNumbers(latency?.firstTokenMs ?? []),
 				50,
