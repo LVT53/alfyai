@@ -322,6 +322,13 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		probe: probeDocker,
 	},
 	{
+		id: "run_python",
+		name: "run_python",
+		backend: "Docker sandbox",
+		configured: () => true,
+		probe: probeDocker,
+	},
+	{
 		id: "location",
 		name: "location",
 		backend: "OwnTracks recorder",

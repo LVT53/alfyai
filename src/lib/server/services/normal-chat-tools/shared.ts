@@ -5,6 +5,7 @@ import type { ToolExecutionOptions } from "ai";
 import { jsonSchema } from "ai";
 import { z } from "zod";
 
+import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { deriveToolResultDigest } from "./tool-result-digest";
 
@@ -203,6 +204,12 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	memory_context: 15_000,
 	image_search: 30_000,
 	produce_file: 30_000,
+	// run_python executes synchronously in-turn (unlike produce_file, which
+	// only submits a job): the envelope timeout must clear the sandbox's own
+	// hard exec cutoff (SANDBOX_TIMEOUT_MS) so a slow-but-still-running script
+	// gets the sandbox's graceful `timedOut: true` result instead of racing it
+	// and returning a generic "run_python timed out" envelope error first.
+	run_python: SANDBOX_TIMEOUT_MS + 15_000,
 	read_generated_file: 10_000,
 	files: 20_000,
 	calendar: 20_000,

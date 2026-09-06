@@ -19,6 +19,7 @@ import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
+import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
@@ -118,6 +119,12 @@ import {
 	runRoutingTool,
 	sanitizeRoutingToolInput,
 } from "./routing";
+import {
+	buildRunPythonModelPayload,
+	runPythonInputSchema,
+	sanitizeRunPythonInput,
+	summarizeRunPythonResult,
+} from "./run-python";
 import {
 	compactToolInputSchema,
 	createToolCallRecorder,
@@ -229,6 +236,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the full current content of a file generated earlier in this conversation, by `filename` or `requestTitle`. Call it before sending `produce_file` patches: a patch whose oldText does not match the file exactly is rejected. If the file is not found, say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
 		},
+		run_python: {
+			description:
+				'Run a short Python 3.11 script for scratch calculations: arithmetic beyond mental math, unit and date/time conversions, and parsing or aggregating data over text the user gave you, plus quick algorithms. Pass {"code": "..."} and optionally a one-line `purpose`; print() the values you need — only stdout, stderr, and the exit code come back, capped at 8,000 characters each (head and tail kept). Only the Python standard library is available (no numpy, no pandas, and no pip installs); openpyxl, xlsxwriter, python-docx, and python-pptx are present but for produce_file\'s program mode, not this tool. No network access. Files written to /output are NOT delivered to the user — use produce_file for any downloadable file. Runs in an isolated sandbox with a 90-second limit; a run that times out is reported, not silently dropped.',
+			errorPrefix: "Python execution failed",
+		},
 		files: {
 			description:
 				"List, search, read, and manage the user's connected files (e.g. their Nextcloud or OneDrive). Use action `list` to see and count the contents of a folder (pass the folder path, or omit it to list the root); action `search` to find files by name across the whole tree; and action `read` to open one specific file by its path. Every list/search/read result includes the item's last-modified time, so you can answer 'my most recent invoice' or 'the newest file'. Use when the user asks to browse, find, count, look up, or read a document/file. Can also `save` a new file, `move`/rename a file (set `destinationPath`), `delete` a file (to trash, recoverable), `create_folder` (make a new folder), and `share_link` (create a PUBLIC link — anyone with the URL can open the file, a deliberate exposure, so use sparingly) on the connected storage (requires the user to have enabled writes; NOT available for OneDrive connections, which are read-only) — these NEVER apply immediately: each only proposes a pending write the user must explicitly confirm before anything is saved, moved, deleted, created, or shared. If the user has more than one Files account connected (e.g. both Nextcloud and OneDrive), pass `account` (a provider name, connection label, or account email) to target a specific one.",
@@ -310,6 +322,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"Egy ebben a beszélgetésben korábban generált fájl teljes aktuális tartalmának beolvasása `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél: a fájllal pontosan nem egyező oldText-ű patch-et a szerver elutasítja. Ha a fájl nem található, mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
+		},
+		run_python: {
+			description:
+				'Rövid Python 3.11 szkript futtatása gyors számításokhoz: fejben nem elvégezhető aritmetika, mértékegység- és dátum/idő-átváltás, a felhasználó által megadott szöveges adatok elemzése vagy összesítése, illetve gyors algoritmusok. Add meg: {"code": "..."}, opcionálisan egy egysoros `purpose`-t; a szükséges értékeket print()-eld ki — csak a stdout, a stderr és a kilépési kód érkezik vissza, egyenként 8000 karakterre korlátozva (az elejét és a végét megtartva). Csak a Python standard könyvtár érhető el (nincs numpy, nincs pandas, és nincs pip telepítés); az openpyxl, xlsxwriter, python-docx és python-pptx jelen van, de a produce_file program módjához, nem ehhez az eszközhöz. Nincs hálózati hozzáférés. A /output-ba írt fájlok NEM jutnak el a felhasználóhoz — letölthető fájlhoz használd a produce_file-t. Elszigetelt sandboxban fut, 90 másodperces korláttal; az időtúllépést jelenti, nem csendben eldobja.',
+			errorPrefix: "A Python-végrehajtás sikertelen",
 		},
 		files: {
 			description:
@@ -964,6 +981,84 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										evidenceReady: false,
 										intakeStatus: 500,
 										error: safeError,
+									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		// run_python shares produce_file's program-mode sandbox execution path
+		// (sandbox-execution.ts / sandbox/config.ts) and, like produce_file, is
+		// registered unconditionally — the Docker sandbox has no static
+		// "configured" flag to gate on (see tool-health registry: both entries'
+		// `configured` is `() => true`); an unreachable Docker daemon degrades
+		// in-band via the tool-health hint and a per-call execution error,
+		// rather than being hidden from the tool set.
+		run_python: asExecutableTool(
+			tool({
+				description: i18n.run_python.description,
+				inputSchema: runPythonInputSchema,
+				execute: async (
+					input: z.infer<typeof runPythonInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					const safeInput = sanitizeRunPythonInput(input);
+					return executeToolWithEnvelope({
+						toolName: "run_python",
+						timeoutMs: TOOL_TIMEOUTS_MS.run_python,
+						options,
+						recorder,
+						run: async () => {
+							const execution = await executeSandboxCode(
+								safeInput.code,
+								"python",
+							);
+							const modelPayload = buildRunPythonModelPayload(execution);
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "run_python",
+									input: safeInput,
+									status: "done",
+									outputSummary: summarizeRunPythonResult(modelPayload),
+									sourceType: "tool",
+									candidates: [],
+									metadata: {
+										ok: true,
+										evidenceReady: false,
+										exitCode: modelPayload.exitCode,
+										timedOut: modelPayload.timedOut,
+										truncated: modelPayload.truncated,
+									},
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								i18n.run_python.errorPrefix,
+							);
+							const modelPayload = {
+								success: false as const,
+								error: message,
+							};
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "run_python",
+									input: safeInput,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									candidates: [],
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										error: message,
 									},
 								},
 							};

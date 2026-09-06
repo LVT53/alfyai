@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
+import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import {
 	hasLocalDistillEnabled,
@@ -28,11 +29,13 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
+import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { TOOL_TIMEOUTS_MS } from "./shared";
 
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
@@ -45,6 +48,9 @@ vi.mock("$lib/server/services/parallel-search/research", () => ({
 }));
 vi.mock("$lib/server/services/parallel-search/fetch-url", () => ({
 	fetchUrlViaParallel: vi.fn(),
+}));
+vi.mock("$lib/server/services/sandbox-execution", () => ({
+	executeCode: vi.fn(),
 }));
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
@@ -143,6 +149,7 @@ function requireTool<T>(t: T | undefined): NonNullable<T> {
 const recordParallelUsageMock = vi.mocked(recordParallelUsage);
 const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
 const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
+const executeSandboxCodeMock = vi.mocked(executeSandboxCode);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
 const searchImagesMock = vi.mocked(searchImages);
 const resolveConnectionsForCapabilityMock = vi.mocked(
@@ -837,6 +844,201 @@ describe("createNormalChatTools", () => {
 		expect(getToolCalls()[1]?.metadata).toMatchObject({
 			ok: false,
 			evidenceReady: false,
+		});
+	});
+
+	describe("run_python tool", () => {
+		it("is registered even when Parallel is not configured (same as produce_file: no static gate)", () => {
+			getConfigMock.mockReturnValueOnce({
+				parallelApiKey: "   ",
+				parallelBaseUrl: "https://api.parallel.ai",
+				model1MaxModelContext: 64_000,
+				model2MaxModelContext: 200_000,
+			} as unknown as ReturnType<typeof getConfig>);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).toHaveProperty("produce_file");
+			expect(tools).toHaveProperty("run_python");
+		});
+
+		it("executes code through the shared sandbox execution path and returns stdout/stderr/exitCode", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "42\n",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print(6 * 7)", purpose: "multiply two numbers" },
+				{ toolCallId: "call-run-python", messages: [] },
+			);
+
+			expect(executeSandboxCodeMock).toHaveBeenCalledWith(
+				"print(6 * 7)",
+				"python",
+			);
+			expect(result).toEqual({
+				success: true,
+				name: "run_python",
+				sourceType: "tool",
+				stdout: "42\n",
+				exitCode: 0,
+				timedOut: false,
+				truncated: false,
+			});
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					callId: "call-run-python",
+					name: "run_python",
+					input: { code: "print(6 * 7)", purpose: "multiply two numbers" },
+					status: "done",
+					outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+					sourceType: "tool",
+					candidates: [],
+					metadata: {
+						ok: true,
+						evidenceReady: false,
+						exitCode: 0,
+						timedOut: false,
+						truncated: false,
+					},
+				}),
+			]);
+		});
+
+		it("reports a non-zero exit code as unsuccessful without treating it as a tool failure", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "Traceback...\nZeroDivisionError: division by zero",
+				exitCode: 1,
+				error: "Execution failed with exit code 1: stderr: ZeroDivisionError",
+			});
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "1 / 0" },
+				{ toolCallId: "call-run-python-error", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				exitCode: 1,
+				timedOut: false,
+				stderr: "Traceback...\nZeroDivisionError: division by zero",
+			});
+		});
+
+		it("caps stdout and stderr at 8,000 characters each, keeping head and tail, and flags truncated", async () => {
+			const longStdout = `HEAD${"x".repeat(9000)}TAIL`;
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: longStdout,
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print('x' * 9000)" },
+				{ toolCallId: "call-run-python-cap", messages: [] },
+			);
+
+			expect(result).toMatchObject({ truncated: true });
+			const stdout = (result as { stdout: string }).stdout;
+			expect(stdout.length).toBeLessThanOrEqual(8000);
+			expect(stdout.startsWith("HEAD")).toBe(true);
+			expect(stdout.endsWith("TAIL")).toBe(true);
+		});
+
+		it("maps a sandbox timeout into a graceful timedOut result instead of a hard tool failure", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "",
+				error: "Execution timed out",
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "while True: pass" },
+				{ toolCallId: "call-run-python-timeout", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				timedOut: true,
+				exitCode: -1,
+			});
+			expect(getToolCalls()[0]?.status).toBe("done");
+			expect(getToolCalls()[0]?.metadata).toMatchObject({ timedOut: true });
+		});
+
+		it("uses a timeout above the sandbox's own hard exec cutoff, so the sandbox's own timeout wins first", () => {
+			expect(TOOL_TIMEOUTS_MS.run_python).toBeGreaterThan(SANDBOX_TIMEOUT_MS);
+		});
+
+		it("records a tool-call failure envelope when the sandbox call itself throws", async () => {
+			executeSandboxCodeMock.mockRejectedValueOnce(
+				new Error("docker daemon unreachable"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print(1)" },
+				{ toolCallId: "call-run-python-throw", messages: [] },
+			);
+
+			expect(result).toEqual({
+				success: false,
+				error: "docker daemon unreachable",
+			});
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					callId: "call-run-python-throw",
+					name: "run_python",
+					status: "done",
+					sourceType: "tool",
+					candidates: [],
+					metadata: {
+						ok: false,
+						evidenceReady: false,
+						error: "docker daemon unreachable",
+					},
+				}),
+			]);
 		});
 	});
 
