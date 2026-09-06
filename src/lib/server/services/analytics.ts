@@ -569,6 +569,54 @@ async function loadActivityEventRows(params: {
 	return conditions.length > 0 ? query.where(and(...conditions)) : query;
 }
 
+// The built-in "model1"/"model2" aliases are config-driven rather than rows in
+// provider_models, so an activity row recorded against one carries no provider
+// in its modelId and a naive parse drops it from every provider-filtered view.
+// Resolve them against the same providers/provider_models tables the read
+// model already loads for `availability`: match the alias's configured model
+// name to a provider_models row, preferring the provider whose baseUrl the
+// alias actually points at when several serve the same name.
+function resolveAliasProviderId(
+	alias: "model1" | "model2",
+	context: AvailabilityContext,
+): string | null {
+	const config = getConfig();
+	const modelConfig = alias === "model1" ? config.model1 : config.model2;
+	const name = modelConfig?.modelName?.trim().toLowerCase() ?? "";
+	if (!name) return null;
+	const matches = [...context.providerModelsById.values()].filter(
+		(row) => row.name.trim().toLowerCase() === name,
+	);
+	if (matches.length === 0) return null;
+	if (matches.length === 1) return matches[0].providerId;
+	const aliasBaseUrl = normalizeBaseUrl(modelConfig.baseUrl);
+	const byBaseUrl = matches.find(
+		(row) =>
+			normalizeBaseUrl(context.providersById.get(row.providerId)?.baseUrl) ===
+			aliasBaseUrl,
+	);
+	return (byBaseUrl ?? matches[0]).providerId;
+}
+
+function normalizeBaseUrl(value: string | null | undefined): string {
+	return (value ?? "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+// The providerId an activity event should be filed under: the provider parsed
+// out of a "provider:<providerId>:<modelUuid>" id, or the alias mapping above
+// for "model1"/"model2". null means the event carries no model attribution at
+// all (every client-observed kind).
+function resolveActivityProviderId(
+	modelId: string | null,
+	context: AvailabilityContext,
+): string | null {
+	if (!modelId) return null;
+	if (modelId === "model1" || modelId === "model2") {
+		return resolveAliasProviderId(modelId, context);
+	}
+	return parseProviderModelId(modelId)?.providerId ?? null;
+}
+
 interface AnalyticsQueryContext {
 	messageAnalyticsById: Map<string, MessageAnalyticsRow>;
 	availability: AvailabilityContext;
@@ -1188,11 +1236,29 @@ export async function getAnalyticsDashboardReadModel({
 		systemFilteredUsage = systemFilteredUsage.filter(
 			(row) => row.providerId === providerIdFilter,
 		);
-		systemFilteredActivity = systemFilteredActivity.filter(
-			(row) =>
-				parseProviderModelId(row.modelId ?? "")?.providerId ===
-				providerIdFilter,
-		);
+		// An activity row's provider is resolved through the alias→provider
+		// mapping (so tool calls recorded against the built-in "model1"/"model2"
+		// aliases are not silently dropped), memoized per modelId.
+		const activityProviderIds = new Map<string, string | null>();
+		systemFilteredActivity = systemFilteredActivity.filter((row) => {
+			// KNOWN LIMITATION, documented rather than guessed: a client-observed
+			// event (composer_command / follow_up_click / answer_now) carries no
+			// modelId — it is a UI action, not a model call. The only way to
+			// attribute one to a provider would be to infer it from the
+			// surrounding turns of its conversation, which is both ambiguous (a
+			// conversation freely mixes providers) and unavailable here (the event
+			// is not turn-scoped). Such events are therefore INCLUDED under a
+			// provider filter rather than silently dropped, so the
+			// commandsAndSkills counts stay honest.
+			if (!row.modelId) return true;
+			if (!activityProviderIds.has(row.modelId)) {
+				activityProviderIds.set(
+					row.modelId,
+					resolveActivityProviderId(row.modelId, availability),
+				);
+			}
+			return activityProviderIds.get(row.modelId) === providerIdFilter;
+		});
 	}
 
 	// Only the usage rows that survived the filters above can ever join

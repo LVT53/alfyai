@@ -232,6 +232,7 @@ describe("analytics dashboard read model", () => {
 
 	afterEach(async () => {
 		await closeServiceDatabase();
+		vi.unstubAllEnvs();
 		try {
 			unlinkSync(dbPath);
 		} catch {
@@ -1685,6 +1686,65 @@ describe("analytics dashboard read model", () => {
 				expect(
 					result.commandsAndSkills?.some((row) => row.name === "attach"),
 				).toBe(false);
+			});
+		});
+
+		// Reviewer follow-up (provider filter): activity rows used to be filed
+		// under a provider by parsing "provider:<id>:<uuid>" out of modelId
+		// alone, which dropped every tool call recorded against the built-in
+		// "model1"/"model2" aliases as well as every client-observed kind.
+		describe("provider filter over activity events", () => {
+			it("resolves the model1 alias through the same provider mapping availability uses", async () => {
+				// The alias points at provider-x's "active-model" row.
+				vi.stubEnv("MODEL_1_NAME", "active-model");
+				seedOverhaulFixtures();
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+					providerId: "provider-x",
+				});
+
+				const tools = new Map(result.tools?.map((row) => [row.name, row]));
+				// activity-tool-1 carries modelId "model1" and activity-tool-2 the
+				// explicit provider id — both are provider-x calls.
+				expect(tools.get("research_web")).toMatchObject({
+					calls: 2,
+					failed: 1,
+				});
+				// ...and so is the skill_use recorded against the alias.
+				expect(
+					result.commandsAndSkills?.some(
+						(row) => row.kind === "skill_use" && row.name === "outline-skill",
+					),
+				).toBe(true);
+			});
+
+			it("keeps modelId-less client events under a provider filter rather than dropping them", async () => {
+				vi.stubEnv("MODEL_1_NAME", "active-model");
+				seedOverhaulFixtures();
+				const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+				const result = await getAnalyticsDashboardReadModel({
+					user: user({ id: "admin-1", role: "admin" }),
+					systemMonth: "2026-05",
+					providerId: "provider-not-configured",
+				});
+
+				// Nothing model-attributed resolves to this provider...
+				expect(result.tools).toEqual([]);
+				// ...but composer_command/follow_up_click/answer_now carry no model
+				// at all, so they are included rather than silently dropped (the
+				// documented limitation on the filter).
+				expect(result.commandsAndSkills).toEqual(
+					expect.arrayContaining([
+						{ kind: "composer_command", name: "model", count: 1 },
+						{ kind: "follow_up_click", name: "Tell me more", count: 1 },
+						{ kind: "answer_now", name: "answer_now", count: 1 },
+					]),
+				);
+				expect(result.commandsAndSkills).toHaveLength(3);
 			});
 		});
 
