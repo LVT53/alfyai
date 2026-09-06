@@ -402,13 +402,15 @@ function showAllFooterLabel(shownCount: number, totalCount: number): string {
 	)}`;
 }
 
-const toolsColumns: TableColumn[] = [
+// $derived, like modelColumns above: a plain const would freeze the labels
+// at mount and leave them in the previous language after an in-app switch.
+const toolsColumns = $derived<TableColumn[]>([
 	{ key: "tool", label: $t("analytics.tool"), type: "text" },
 	{ key: "calls", label: $t("analytics.calls"), type: "number" },
 	{ key: "failedPct", label: $t("analytics.failedPercent"), type: "number" },
 	{ key: "cachedPct", label: $t("analytics.cachedPercent"), type: "number" },
 	{ key: "p50", label: $t("analytics.durationP50"), type: "number" },
-];
+]);
 
 function percentOf(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 1000) / 10 : 0;
@@ -433,11 +435,11 @@ function kindLabel(kind: unknown): string {
 	return $t("analytics.kindClick");
 }
 
-const commandsColumns: TableColumn[] = [
+const commandsColumns = $derived<TableColumn[]>([
 	{ key: "name", label: $t("analytics.name"), type: "text" },
 	{ key: "kind", label: $t("analytics.kind"), type: "text" },
 	{ key: "uses", label: $t("analytics.uses"), type: "number" },
-];
+]);
 
 const commandsRows = $derived<TableRow[]>(
 	(effectiveData?.commandsAndSkills ?? []).map((entry) => ({
@@ -450,7 +452,7 @@ const commandsShowAllLabel = $derived(
 	showAllFooterLabel(Math.min(TOP_N, commandsRows.length), commandsRows.length),
 );
 
-const latencyColumns: TableColumn[] = [
+const latencyColumns = $derived<TableColumn[]>([
 	{ key: "bucket", label: $t("analytics.promptBucket"), type: "text" },
 	{ key: "turns", label: $t("analytics.turns"), type: "number" },
 	{ key: "p50", label: $t("analytics.firstTokenP50"), type: "number" },
@@ -461,7 +463,7 @@ const latencyColumns: TableColumn[] = [
 		type: "number",
 	},
 	{ key: "bar", label: "", type: "number" },
-];
+]);
 
 const latencyRows = $derived.by(() => {
 	const rows = effectiveData?.latencyByPromptBucket ?? [];

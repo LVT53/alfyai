@@ -1,4 +1,5 @@
 import { fireEvent, render } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
@@ -749,5 +750,36 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		expect(latencyCard).toBeTruthy();
 		expect(latencyCard?.querySelector("table")).toBeNull();
 		expect(latencyCard?.textContent).toContain("No analytics data yet.");
+	});
+
+	// The Tools/Commands/Latency column lists must follow the UI language the
+	// way the card titles (and the byModel columns) do — a plain const would
+	// freeze the labels in whatever language was active at mount.
+	it("relabels the Tools table when the UI language changes", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithToolsAndLatencyFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+		const { uiLanguage } = await import("$lib/stores/settings");
+		uiLanguage.set("hu");
+		await tick();
+
+		const headers = [...container.querySelectorAll("thead th")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" | ");
+		const cardTitles = [...container.querySelectorAll("h3")]
+			.map((node) => node.textContent?.trim() ?? "")
+			.join(" | ");
+		uiLanguage.set("en");
+		expect(cardTitles).toContain("Eszközök");
+		expect(headers).toContain("Eszköz");
 	});
 });
