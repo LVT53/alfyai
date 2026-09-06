@@ -2,6 +2,7 @@
 import { onMount } from "svelte";
 import {
 	Bell,
+	Brain,
 	Plug,
 	Plus,
 	Send,
@@ -12,7 +13,12 @@ import {
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
 import { fetchActiveCapabilities } from "$lib/client/api/connections";
+import {
+	fetchAvailableModels,
+	type ModelProvider,
+} from "$lib/client/api/models";
 import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
+import { selectedModel } from "$lib/stores/settings";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
 	linkedContextSourceArtifactIds,
@@ -142,7 +148,7 @@ let {
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
 	onModelChange = undefined,
-	reasoningDepth = "auto",
+	reasoningDepth = "thorough",
 	onReasoningDepthChange = undefined,
 	composerCommandRegistryEnabled = false,
 	atlasAvailability = null,
@@ -277,8 +283,23 @@ let skillDiscoveryQuery = $state("");
 let skillDiscoveryResults = $state<SkillDiscoverySummary[]>([]);
 let skillDiscoveryLoading = $state(false);
 let skillDiscoveryRequestId = 0;
-let toolsMenuInitialOpen = $state<"model" | "style" | "depth" | null>(null);
+let toolsMenuInitialOpen = $state<"model" | "style" | null>(null);
 let forceWebSearch = $state(false);
+// ADR-0061 — the thinking toggle hides itself for a model whose recorded
+// capabilities explicitly mark reasoning controls unsupported. Loaded once
+// on mount (same models list ModelSelector fetches independently) and
+// looked up by the currently selected model id from the settings store.
+let modelProviders = $state<ModelProvider[]>([]);
+let currentModelSupportsReasoningControls = $derived.by(() => {
+	const currentModelId = $selectedModel;
+	for (const provider of modelProviders) {
+		const found = provider.models.find((model) => model.id === currentModelId);
+		if (found) return found.supportsReasoningControls;
+	}
+	// Not loaded yet (or not found): default to showing the toggle rather
+	// than hiding it on every cold load.
+	return true;
+});
 // ADR 0044 Decision 1 — the composer's Connections master toggle.
 // `availableCapabilities` (served) and `defaultOnCapabilities` come from a
 // single fetch on mount. `connectionsEnabled` is the per-conversation
@@ -1135,6 +1156,13 @@ onMount(() => {
 	onUploadReady?.(uploadFiles);
 	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
 	void ensureCapabilitiesLoaded();
+	void fetchAvailableModels()
+		.then((response) => {
+			modelProviders = response.providers;
+		})
+		.catch(() => {
+			// Non-fatal: the thinking toggle just stays visible by default.
+		});
 	return () => {
 		window.removeEventListener("resize", adjustHeight);
 		if (textareaValueSyncFrame !== null) {
@@ -1560,9 +1588,16 @@ function selectSkill(skill: SkillDiscoverySummary) {
 	void emitDraftChange();
 }
 
-function openComposerTools(section: "model" | "style" | "depth") {
+function openComposerTools(section: "model" | "style") {
 	toolsMenuInitialOpen = section;
 	showToolsMenu = true;
+}
+
+// ADR-0061: /depth used to open the reasoning-depth picker in the composer
+// tools menu; that ladder collapsed into the single thinking toggle, so the
+// slash command now flips it directly instead of opening anything.
+function toggleThinking() {
+	onReasoningDepthChange?.(reasoningDepth === "quick" ? "thorough" : "quick");
 }
 
 function selectCommand(command: CommandTrayRow) {
@@ -1602,7 +1637,7 @@ function selectCommand(command: CommandTrayRow) {
 			openComposerTools("style");
 			break;
 		case "depth":
-			openComposerTools("depth");
+			toggleThinking();
 			break;
 		case "attach":
 			openFilePicker();
@@ -2236,8 +2271,6 @@ async function emitDraftChange(force = false) {
 							{selectedPersonalityId}
 							{onPersonalityChange}
 							{onModelChange}
-							{reasoningDepth}
-							{onReasoningDepthChange}
 							initialOpen={toolsMenuInitialOpen}
 							{forceWebSearch}
 							onForceWebSearchChange={setForceWebSearch}
@@ -2261,6 +2294,25 @@ async function emitDraftChange(force = false) {
 				>
 					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
 				</button>
+
+				{#if currentModelSupportsReasoningControls}
+					<button
+						type="button"
+						data-testid="thinking-toggle"
+						class="btn-icon-bare composer-icon composer-thinking-btn flex flex-shrink-0 items-center justify-center"
+						class:composer-thinking-btn--active={reasoningDepth === "thorough"}
+						onclick={toggleThinking}
+						aria-pressed={reasoningDepth === "thorough"}
+						aria-label={reasoningDepth === "thorough"
+							? $t('chat.thinkingToggleOn')
+							: $t('chat.thinkingToggleOff')}
+						title={reasoningDepth === "thorough"
+							? $t('chat.thinkingToggleOn')
+							: $t('chat.thinkingToggleOff')}
+					>
+						<Brain size={19} strokeWidth={2.1} aria-hidden="true" />
+					</button>
+				{/if}
 
 				<button
 					type="button"
@@ -2734,6 +2786,21 @@ async function emitDraftChange(force = false) {
 	}
 
 	.composer-connections-btn--active:hover {
+		color: var(--accent-hover);
+		opacity: 1;
+	}
+
+	/* Thinking toggle (ADR-0061): icon-only colouring, accent while thorough
+	   (thinking on), muted while quick (thinking off). */
+	.composer-thinking-btn {
+		color: var(--icon-muted);
+	}
+
+	.composer-thinking-btn--active {
+		color: var(--accent);
+	}
+
+	.composer-thinking-btn--active:hover {
 		color: var(--accent-hover);
 		opacity: 1;
 	}

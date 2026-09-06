@@ -17,7 +17,7 @@ describe("settings store", () => {
 	beforeEach(() => {
 		// Reset store to default
 		selectedModel.set("model1");
-		selectedReasoningDepth.set("auto");
+		selectedReasoningDepth.set("thorough");
 		localStorageMock = {};
 		vi.restoreAllMocks();
 		vi.stubGlobal("fetch", vi.fn());
@@ -70,20 +70,46 @@ describe("settings store", () => {
 			expect(localStorageMock.selectedModel).toBe("model1");
 		});
 
-		it("should load Reasoning depth from localStorage", () => {
-			localStorageMock.reasoningDepth = "max";
+		it("should load the thinking toggle from localStorage", () => {
+			localStorageMock.reasoningDepth = "quick";
 
 			initSettings();
 
-			expect(get(selectedReasoningDepth)).toBe("max");
+			expect(get(selectedReasoningDepth)).toBe("quick");
 		});
 
-		it("should migrate legacy thinking mode to Reasoning depth", () => {
+		it("should migrate the legacy 'off' ladder value to quick", () => {
+			localStorageMock.reasoningDepth = "off";
+
+			initSettings();
+
+			expect(get(selectedReasoningDepth)).toBe("quick");
+		});
+
+		it("should migrate legacy 'auto' and 'max' ladder values to thorough", () => {
+			localStorageMock.reasoningDepth = "auto";
+			initSettings();
+			expect(get(selectedReasoningDepth)).toBe("thorough");
+
+			localStorageMock.reasoningDepth = "max";
+			initSettings();
+			expect(get(selectedReasoningDepth)).toBe("thorough");
+		});
+
+		it("should migrate legacy thinking mode to the thinking toggle", () => {
+			localStorageMock.thinkingMode = "off";
+
+			initSettings();
+
+			expect(get(selectedReasoningDepth)).toBe("quick");
+		});
+
+		it("should default legacy thinking mode 'on'/'auto' to thorough", () => {
 			localStorageMock.thinkingMode = "on";
 
 			initSettings();
 
-			expect(get(selectedReasoningDepth)).toBe("max");
+			expect(get(selectedReasoningDepth)).toBe("thorough");
 		});
 	});
 
@@ -104,15 +130,15 @@ describe("settings store", () => {
 	});
 
 	describe("setSelectedReasoningDepth", () => {
-		it("should update and persist Reasoning depth", () => {
-			setSelectedReasoningDepth("off");
+		it("should update and persist the thinking toggle", () => {
+			setSelectedReasoningDepth("quick");
 
-			expect(get(selectedReasoningDepth)).toBe("off");
+			expect(get(selectedReasoningDepth)).toBe("quick");
 			expect(localStorage.setItem).toHaveBeenCalledWith(
 				"reasoningDepth",
-				"off",
+				"quick",
 			);
-			expect(localStorageMock.reasoningDepth).toBe("off");
+			expect(localStorageMock.reasoningDepth).toBe("quick");
 		});
 	});
 

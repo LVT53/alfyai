@@ -12,6 +12,10 @@ export interface ProviderModel {
 	maxModelContext: number | null;
 	inputUsdMicrosPer1m: number;
 	outputUsdMicrosPer1m: number;
+	/** false only when the model's capabilities explicitly mark reasoning
+	 * controls unsupported — the composer's thinking toggle hides itself for
+	 * such models. See src/lib/model-capabilities.ts. */
+	supportsReasoningControls: boolean;
 }
 
 export interface ModelProvider {

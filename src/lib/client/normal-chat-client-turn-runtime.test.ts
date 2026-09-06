@@ -254,7 +254,7 @@ function makeAdapters(
 		})),
 		getConversationId: vi.fn(() => "conv-1"),
 		getSelectedModel: vi.fn(() => "model1" as ModelId),
-		getReasoningDepth: vi.fn((): ReasoningDepth => "auto"),
+		getReasoningDepth: vi.fn((): ReasoningDepth => "thorough"),
 		getPersonalityProfileId: vi.fn(() => null),
 		getActiveDocumentArtifactId: vi.fn(() => undefined),
 		getMessages: vi.fn(() => messages),
@@ -654,7 +654,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		};
 		const { adapters, streamInvocations } = makeAdapters({
 			getSelectedModel: vi.fn(() => "fallback-model" as ModelId),
-			getReasoningDepth: vi.fn((): ReasoningDepth => "off"),
+			getReasoningDepth: vi.fn((): ReasoningDepth => "quick"),
 			getPersonalityProfileId: vi.fn(() => "persona-from-adapter"),
 			getActiveDocumentArtifactId: vi.fn(() => "active-doc-1"),
 		});
@@ -669,7 +669,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			pendingSkill,
 			modelId: "model2",
 			personalityProfileId: null,
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			forceWebSearch: true,
 		});
 
@@ -681,7 +681,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			attachmentIds: ["artifact-display"],
 			linkedSources,
 			pendingSkill,
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			forceWebSearch: true,
 			activeDocumentArtifactId: "active-doc-1",
 			personalityProfileId: null,
@@ -846,7 +846,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			attachmentIds: [],
 			attachments: [],
 			pendingAttachments: [],
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			forceWebSearch: true,
 		});
 		runtime.queue({
@@ -858,7 +858,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 		expect(runtime.snapshot().queuedTurn).toMatchObject({
 			message: "Second",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			forceWebSearch: true,
 		});
 		expect(adapters.clearDraft).toHaveBeenCalledTimes(2);
@@ -871,7 +871,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(streamInvocations).toHaveLength(2);
 		expect(streamInvocations[1].message).toBe("Second");
 		expect(streamInvocations[1].options).toMatchObject({
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 		expect(streamInvocations[1].options).toMatchObject({
 			forceWebSearch: true,
@@ -1138,7 +1138,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		const { adapters, streamInvocations, messages, messageListEvents } =
 			makeAdapters({
 				getSelectedModel: vi.fn(() => "fallback-model" as ModelId),
-				getReasoningDepth: vi.fn((): ReasoningDepth => "off"),
+				getReasoningDepth: vi.fn((): ReasoningDepth => "quick"),
 				getPersonalityProfileId: vi.fn(() => "persona-retry"),
 				getActiveDocumentArtifactId: vi.fn(() => "active-doc-retry"),
 			});
@@ -1149,7 +1149,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			attachmentIds: [],
 			attachments: [],
 			pendingAttachments: [],
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 		streamInvocations[0].callbacks.onError(new Error("Network failed"));
 
@@ -1180,7 +1180,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			message: "Regenerate this",
 			options: {
 				modelId: "model1",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 				activeDocumentArtifactId: "active-doc-retry",
 				personalityProfileId: "persona-retry",
 				retryAssistantMessageId: "assistant-old",
@@ -1252,12 +1252,12 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 	it("reconnects with the original stream Reasoning depth from the buffer snapshot", async () => {
 		const { adapters, streamInvocations } = makeAdapters({
-			getReasoningDepth: vi.fn((): ReasoningDepth => "off"),
+			getReasoningDepth: vi.fn((): ReasoningDepth => "quick"),
 			checkForOrphanedStream: vi.fn(async () => "stream-1"),
 			getStreamBufferInfo: vi.fn(async () => ({
 				exists: true,
 				userMessage: "Resume me",
-				reasoningDepth: "max" as ReasoningDepth,
+				reasoningDepth: "thorough" as ReasoningDepth,
 			})),
 		});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
@@ -1269,7 +1269,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 			options: {
 				reconnectToStreamId: "stream-1",
 				reconnectUserMessage: "Resume me",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 			},
 		});
 	});
@@ -1701,7 +1701,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 
 	it("reuses the optimistic user message when reconnecting after a background interruption", async () => {
 		let browserHidden = true;
-		let composerDepth: "off" | "max" = "max";
+		let composerDepth: "quick" | "thorough" = "thorough";
 		const { adapters, streamInvocations, messages, messageListEvents } =
 			makeAdapters({
 				isBrowserHidden: vi.fn(() => browserHidden),
@@ -1710,7 +1710,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				getStreamBufferInfo: vi.fn(async () => ({
 					exists: true,
 					userMessage: "Resume me",
-					reasoningDepth: "max" as ReasoningDepth,
+					reasoningDepth: "thorough" as ReasoningDepth,
 				})),
 			});
 		const runtime = createNormalChatClientTurnRuntime(adapters);
@@ -1720,13 +1720,13 @@ describe("Normal Chat Client Turn Runtime", () => {
 			attachmentIds: [],
 			attachments: [],
 			pendingAttachments: [],
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 		const abortError = new Error("backgrounded");
 		abortError.name = "AbortError";
 		streamInvocations[0].callbacks.onError(abortError);
 
-		composerDepth = "off";
+		composerDepth = "quick";
 		browserHidden = false;
 		runtime.handleVisibilityVisible();
 		await Promise.resolve();
@@ -1740,7 +1740,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(streamInvocations[1].options).toMatchObject({
 			reconnectToStreamId: "stream-1",
 			reconnectUserMessage: "Resume me",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 
 		streamInvocations[1].callbacks.onEnd("Done", {

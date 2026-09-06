@@ -327,7 +327,7 @@ export function createNormalChatClientTurnRuntime(
 	let queuedContextCompression = false;
 	let lastUserMessage = "";
 	let lastAssistantResponse = "";
-	let lastReasoningDepth: ReasoningDepth = "auto";
+	let lastReasoningDepth: ReasoningDepth = "thorough";
 
 	function snapshot(): NormalChatRuntimeSnapshot {
 		return {
@@ -1301,7 +1301,7 @@ export function createNormalChatClientTurnRuntime(
 		activePlaceholderId = null;
 		lastUserMessage = "";
 		lastAssistantResponse = "";
-		lastReasoningDepth = "auto";
+		lastReasoningDepth = "thorough";
 		emitState();
 	}
 

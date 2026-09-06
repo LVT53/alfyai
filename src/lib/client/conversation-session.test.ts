@@ -103,7 +103,7 @@ describe("conversation-session", () => {
 			pendingSkill: null,
 			modelId: undefined,
 			personalityProfileId: null,
-			reasoningDepth: "auto",
+			reasoningDepth: "thorough",
 			forceWebSearch: false,
 			atlasMode: false,
 			atlasProfile: null,
@@ -170,13 +170,13 @@ describe("conversation-session", () => {
 			message: "Think about this",
 			attachmentIds: [],
 			attachments: [],
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 
 		expect(consumePendingConversationMessage("conv-123")).toEqual(
 			expect.objectContaining({
 				message: "Think about this",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 			}),
 		);
 	});
@@ -195,7 +195,7 @@ describe("conversation-session", () => {
 		expect(consumePendingConversationMessage("conv-legacy")).toEqual(
 			expect.objectContaining({
 				message: "Legacy pending message",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 			}),
 		);
 	});

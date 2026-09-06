@@ -1,6 +1,5 @@
 <script lang="ts">
 import { t } from "$lib/i18n";
-import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -37,10 +36,16 @@ let totalTokenCount = $derived(
 );
 let primaryRows = $derived(buildPrimaryRows());
 
-function formatRequestedDepth(depth: ReasoningDepth): string {
-	if (depth === "off") return $t("composerTools.reasoningDepthOff");
-	if (depth === "max") return $t("composerTools.reasoningDepthMax");
-	return $t("composerTools.reasoningDepthAuto");
+// ADR-0061 collapsed the off/auto/max ladder into a single thinking toggle,
+// so `requested` on a NEW message is only ever "thorough" | "quick" and the
+// badge shows that directly. A message persisted before the migration can
+// still carry a legacy requested value ("off" | "auto" | "max" — this field
+// isn't re-validated against the current ReasoningDepth type at read time)
+// and, for a stale "auto" turn, an appliedProfile the classifier picked
+// ("extended" | "maximum") that no toggle can produce any more — that
+// legacy profile name is still worth showing, so it renders instead.
+function isLegacyRequestedDepth(value: unknown): boolean {
+	return value === "off" || value === "auto" || value === "max";
 }
 
 function formatAppliedDepthProfile(profile: DepthAppliedProfile): string {
@@ -52,12 +57,11 @@ function formatAppliedDepthProfile(profile: DepthAppliedProfile): string {
 
 function formatDepthMetadata(metadata: ChatMessage["depthMetadata"]): string {
 	if (!metadata) return "";
-	const requested = formatRequestedDepth(metadata.requested);
-	const applied = formatAppliedDepthProfile(metadata.appliedProfile);
-	const label =
-		requested === applied
-			? requested
-			: $t("messageBubble.depthValue", { requested, applied });
+	const label = isLegacyRequestedDepth(metadata.requested)
+		? formatAppliedDepthProfile(metadata.appliedProfile)
+		: metadata.requested === "quick"
+			? $t("messageBubble.depthQuick")
+			: $t("messageBubble.depthThorough");
 	return metadata.fallback
 		? `${label} ${$t("messageBubble.depthFallbackSuffix")}`
 		: label;

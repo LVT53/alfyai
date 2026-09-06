@@ -2,8 +2,8 @@ import { writable } from "svelte/store";
 import { updateUserPreferences } from "$lib/client/api/settings";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import {
+	parseReasoningDepth,
 	type ReasoningDepth,
-	thinkingModeToReasoningDepth,
 } from "$lib/reasoning-depth-types";
 import { canUseStorage, persist, read } from "./_local-storage";
 
@@ -14,7 +14,9 @@ export type { ModelId };
 export const selectedModel = writable<ModelId>("model1");
 const titleLanguage = writable<TitleLanguage>("auto");
 export const uiLanguage = writable<UiLanguage>("en");
-export const selectedReasoningDepth = writable<ReasoningDepth>("auto");
+// ADR-0061: the old off/auto/max reasoning-depth ladder became a single
+// thinking toggle — "thorough" (thinking on) is the default.
+export const selectedReasoningDepth = writable<ReasoningDepth>("thorough");
 
 const SELECTED_MODEL_KEY = "selectedModel";
 const TITLE_LANGUAGE_KEY = "titleLanguage";
@@ -76,13 +78,18 @@ export function initSettings(serverPrefs?: {
 		}
 	}
 
-	const storedReasoningDepth = read<ReasoningDepth | null>(
+	// ADR-0061 migration: the store used to persist "off" | "auto" | "max"
+	// (the reasoning-depth ladder). parseReasoningDepth maps those legacy
+	// wire values onto the new toggle ("off" -> quick, "auto"/"max" ->
+	// thorough) as well as accepting the current "thorough" | "quick"
+	// values directly, so a stored value from either era resolves correctly.
+	const storedReasoningDepth = read<string | null>(
 		REASONING_DEPTH_KEY,
 		null,
-		(v): v is ReasoningDepth => v === "auto" || v === "max" || v === "off",
+		(v): v is string => typeof v === "string" && v.length > 0,
 	);
 	if (storedReasoningDepth) {
-		selectedReasoningDepth.set(storedReasoningDepth);
+		selectedReasoningDepth.set(parseReasoningDepth(storedReasoningDepth));
 	} else {
 		const legacyThinkingMode = read<"auto" | "on" | "off">(
 			LEGACY_THINKING_MODE_KEY,
@@ -91,7 +98,7 @@ export function initSettings(serverPrefs?: {
 				v === "auto" || v === "on" || v === "off",
 		);
 		selectedReasoningDepth.set(
-			thinkingModeToReasoningDepth(legacyThinkingMode),
+			parseReasoningDepth(undefined, legacyThinkingMode),
 		);
 	}
 }
