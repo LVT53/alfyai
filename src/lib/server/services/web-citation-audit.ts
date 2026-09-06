@@ -58,19 +58,78 @@ function collectCanonicalUrls(text: string): Set<string> {
 	return canonical;
 }
 
+function canonicalPathSegments(canonicalUrl: string): string[] {
+	try {
+		return new URL(canonicalUrl).pathname.split("/").filter(Boolean);
+	} catch {
+		return [];
+	}
+}
+
+function sharedPathSegmentPrefixLength(a: string[], b: string[]): number {
+	let shared = 0;
+	while (shared < a.length && shared < b.length && a[shared] === b[shared]) {
+		shared += 1;
+	}
+	return shared;
+}
+
+/**
+ * Picks which retrieved source a broken same-host citation may be repointed
+ * at: the source on that host sharing the LONGEST path-segment prefix with
+ * the broken URL. Returns null — meaning "don't repoint, strip the link" —
+ * when nothing on the host shares more than the bare "/" path, or when two
+ * or more sources tie for the longest shared prefix. Picking the first
+ * host match regardless of path (the previous behaviour) silently repoints
+ * a citation at an unrelated page that merely happens to be on the right
+ * domain, which reads to the user as a verified source; with no clearly
+ * closest page, plain text is the honest outcome.
+ */
+function findSameHostRepairTarget(params: {
+	canonicalUrl: string;
+	host: string;
+	sources: GroundedWebCitationSource[];
+}): GroundedWebCitationSource | null {
+	const brokenSegments = canonicalPathSegments(params.canonicalUrl);
+	let best: GroundedWebCitationSource | null = null;
+	let bestShared = 0;
+	let tied = false;
+
+	for (const source of params.sources) {
+		if (source.host !== params.host) continue;
+		const shared = sharedPathSegmentPrefixLength(
+			brokenSegments,
+			canonicalPathSegments(source.canonicalUrl),
+		);
+		if (shared === 0) continue;
+		if (shared > bestShared) {
+			best = source;
+			bestShared = shared;
+			tied = false;
+		} else if (shared === bestShared) {
+			tied = true;
+		}
+	}
+
+	return tied ? null : best;
+}
+
 /**
  * Rewrites or strips every markdown link in `assistantResponse` whose URL
  * isn't backed by `sources` (this turn's retrieved research_web/fetch_url
  * candidates, prefetch included) — UNLESS the user pasted that URL
  * themselves, in which case it's left untouched. A link whose canonical URL
- * exactly matches a source is left as-is ("verified"); one that shares a
- * source's registrable domain (host) is rewritten to that source's URL
- * ("repaired"); anything else has its `[text](url)` markup stripped down to
- * just `text` ("stripped") — the link text itself is never removed. Bare
- * URLs (no markdown link syntax) are left untouched: only markdown links
- * carry a claim ("here's the source") that can be repaired without deleting
- * content. Links inside code spans/blocks and image markdown are likewise
- * untouched — see PROTECTED_REGION_OR_MARKDOWN_LINK_RE.
+ * exactly matches a source is left as-is ("verified"); one on a source's
+ * host is rewritten to that source's URL ("repaired") ONLY when exactly one
+ * source on that host shares the longest path-segment prefix with the
+ * broken URL, and that prefix is more than the bare "/" path (see
+ * findSameHostRepairTarget); anything else has its `[text](url)` markup
+ * stripped down to just `text` ("stripped") — the link text itself is never
+ * removed. Bare URLs (no markdown link syntax) are left untouched: only
+ * markdown links carry a claim ("here's the source") that can be repaired
+ * without deleting content. Links inside code spans/blocks and image
+ * markdown are likewise untouched — see
+ * PROTECTED_REGION_OR_MARKDOWN_LINK_RE.
  */
 function repairAssistantWebCitations(params: {
 	assistantResponse: string;
@@ -103,9 +162,11 @@ function repairAssistantWebCitations(params: {
 				verified += 1;
 				return full;
 			}
-			const hostMatch = sources.find(
-				(source) => source.host === canonical.host,
-			);
+			const hostMatch = findSameHostRepairTarget({
+				canonicalUrl: canonical.canonicalUrl,
+				host: canonical.host,
+				sources,
+			});
 			if (hostMatch) {
 				repaired += 1;
 				return `[${text}](${hostMatch.url})`;

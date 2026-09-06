@@ -1082,8 +1082,8 @@ describe("completeStreamTurn", () => {
 		warnSpy.mockRestore();
 	});
 
-	it("auto-repairs a same-domain unsupported citation before persisting the assistant message", async () => {
-		const response = "See [wrong page](https://example.com/wrong).";
+	it("auto-repairs a same-host unsupported citation before persisting the assistant message", async () => {
+		const response = "See [wrong page](https://example.com/product/old).";
 
 		await completeStreamTurn({
 			...defaultParams,

@@ -132,11 +132,52 @@ describe("applyWebCitationQualityGate", () => {
 		expect(result.response).not.toContain("https://example.com/product");
 	});
 
-	it("auto-repairs a same-domain unsupported citation by rewriting it to the retrieved source's URL", () => {
-		// A same-registrable-domain mismatch (wrong path on example.com) is
-		// repaired in place — the citation now passes instead of triggering a
-		// quality notice.
-		const response = "See [wrong page](https://example.com/wrong).";
+	it("auto-repairs a same-host citation to the source sharing the longest path prefix", () => {
+		// Same host AND a shared "/product" path prefix, so the closest
+		// retrieved page is an honest repoint — the citation now passes
+		// instead of triggering a quality notice. The unrelated /support page
+		// on the same host shares no path segment and must not win.
+		const response = "See [wrong page](https://example.com/product/old).";
+		const result = applyWebCitationQualityGate({
+			assistantResponse: response,
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Support",
+						url: "https://example.com/support/contact",
+						sourceType: "web",
+					},
+					{
+						id: "src-2",
+						title: "Official Product",
+						url: "https://example.com/product/price",
+						sourceType: "web",
+					},
+				]),
+			],
+		});
+
+		expect(result.response).toBe(
+			"See [wrong page](https://example.com/product/price).",
+		);
+		expect(result.repair).toEqual({
+			cited: 1,
+			verified: 0,
+			repaired: 1,
+			stripped: 0,
+		});
+		expect(result.audit).toMatchObject({
+			status: "passed",
+			unsupportedCitationCount: 0,
+		});
+		expect(result.appendedNotice).toBeNull();
+	});
+
+	it("strips (never repoints) a same-host citation when no source shares a path segment with it", () => {
+		// Right domain, unrelated page: repointing here would silently pass
+		// off /product as the source for a claim about /pricing.
+		const response = "See [pricing page](https://example.com/pricing).";
 		const result = applyWebCitationQualityGate({
 			assistantResponse: response,
 			toolCalls: [
@@ -151,20 +192,46 @@ describe("applyWebCitationQualityGate", () => {
 			],
 		});
 
-		expect(result.response).toBe(
-			"See [wrong page](https://example.com/product).",
-		);
+		expect(result.response).toBe("See pricing page.");
 		expect(result.repair).toEqual({
 			cited: 1,
 			verified: 0,
-			repaired: 1,
-			stripped: 0,
+			repaired: 0,
+			stripped: 1,
 		});
-		expect(result.audit).toMatchObject({
-			status: "passed",
-			unsupportedCitationCount: 0,
+	});
+
+	it("strips (never repoints) a same-host citation when two sources tie on the longest shared path prefix", () => {
+		// Both candidates share exactly "/product" with the broken URL, so
+		// there is no closest page to pick — plain text is the honest result.
+		const response = "See [wrong page](https://example.com/product/old).";
+		const result = applyWebCitationQualityGate({
+			assistantResponse: response,
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Product Price",
+						url: "https://example.com/product/price",
+						sourceType: "web",
+					},
+					{
+						id: "src-2",
+						title: "Product Specs",
+						url: "https://example.com/product/specs",
+						sourceType: "web",
+					},
+				]),
+			],
 		});
-		expect(result.appendedNotice).toBeNull();
+
+		expect(result.response).toBe("See wrong page.");
+		expect(result.repair).toEqual({
+			cited: 1,
+			verified: 0,
+			repaired: 0,
+			stripped: 1,
+		});
 	});
 
 	it("auto-repairs a citation to an unrelated domain by stripping the link markup and keeping the text", () => {
@@ -290,7 +357,7 @@ describe("applyWebCitationQualityGate", () => {
 	it("still repairs a real citation that follows a protected code block", () => {
 		const result = applyWebCitationQualityGate({
 			assistantResponse:
-				"```\n[sample](https://unrelated.test/page)\n```\n\nSee [wrong page](https://example.com/wrong).",
+				"```\n[sample](https://unrelated.test/page)\n```\n\nSee [wrong page](https://example.com/product/old).",
 			toolCalls: [
 				researchTool([
 					{
