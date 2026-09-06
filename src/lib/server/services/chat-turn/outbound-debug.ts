@@ -44,10 +44,19 @@ export function logOutboundMessageShape(params: {
 	const systemHash = params.systemPrompt
 		? createHash("sha1").update(params.systemPrompt).digest("hex").slice(0, 10)
 		: null;
+	// One short hash per message: across turns of one conversation the
+	// history prefix must hash identically, or the provider cannot reuse it.
+	const messageHashes = params.messages.map((message) =>
+		createHash("sha1")
+			.update(JSON.stringify(message))
+			.digest("hex")
+			.slice(0, 8),
+	);
 	console.log("[OUTBOUND]", {
 		label: params.label,
 		systemTokens,
 		systemHash,
+		messageHashes,
 		toolCount: params.toolCount,
 		messageCount: params.messages.length,
 		messages: params.messages.map(describeMessage),
