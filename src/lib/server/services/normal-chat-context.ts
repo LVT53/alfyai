@@ -724,12 +724,10 @@ function emptyWebPrefetchResult(inputValue: string): WebPrefetchResult {
 // direct http(s) URL, fetch it via Parallel Extract BEFORE the model runs and
 // hand the model a completed fetch_url exchange instead of leaving it to call
 // the tool itself (which re-does the same fetch and burns a tool-call round
-// trip). Forced web search (`forceWebSearch`) is handled separately — see
-// resolveForcedResearchWebFirstStepToolChoice in
-// chat-turn/shared-normal-chat-model-run-helpers.ts — which forces the
-// model's FIRST tool-call step to research_web instead of prefetching, so a
-// forced-search turn always uses the model's own (possibly refined) query
-// rather than the raw pasted message.
+// trip). Forced web search (`forceWebSearch`) is handled separately, as a
+// turn-guidance line (see FORCED_WEB_SEARCH_GUIDANCE) rather than a prefetch
+// or a named tool_choice, so a forced-search turn always uses the model's own
+// (possibly refined) query rather than the raw pasted message.
 async function maybePrefetchWebSearch(params: {
 	inputValue: string;
 	message: string;

@@ -1520,10 +1520,10 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
-		// forceWebSearch no longer triggers a server-side prefetch — instead the
-		// caller forces the model's own first tool-call step to research_web
-		// (see resolveForcedResearchWebFirstStepToolChoice), so the model
-		// always runs its own query instead of the raw user message.
+		// forceWebSearch no longer triggers a server-side prefetch — it is a
+		// turn-guidance line (see FORCED_WEB_SEARCH_GUIDANCE) asking the model
+		// to call research_web itself, so the model always runs its own query
+		// instead of the raw user message.
 		expect(mocks.researchWebViaParallel).not.toHaveBeenCalled();
 		expect(prepared.inputValue).not.toContain("## Current Web Research");
 		expect(prepared.inputValue).toBe("What changed today?");
