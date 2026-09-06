@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
+import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import {
 	hasLocalDistillEnabled,
@@ -28,11 +29,13 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
+import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { TOOL_TIMEOUTS_MS } from "./shared";
 
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
@@ -45,6 +48,9 @@ vi.mock("$lib/server/services/parallel-search/research", () => ({
 }));
 vi.mock("$lib/server/services/parallel-search/fetch-url", () => ({
 	fetchUrlViaParallel: vi.fn(),
+}));
+vi.mock("$lib/server/services/sandbox-execution", () => ({
+	executeCode: vi.fn(),
 }));
 vi.mock("$lib/server/services/memory-context", () => ({
 	getMemoryContext: vi.fn(),
@@ -143,6 +149,7 @@ function requireTool<T>(t: T | undefined): NonNullable<T> {
 const recordParallelUsageMock = vi.mocked(recordParallelUsage);
 const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
 const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
+const executeSandboxCodeMock = vi.mocked(executeSandboxCode);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
 const searchImagesMock = vi.mocked(searchImages);
 const resolveConnectionsForCapabilityMock = vi.mocked(
@@ -840,6 +847,201 @@ describe("createNormalChatTools", () => {
 		});
 	});
 
+	describe("run_python tool", () => {
+		it("is registered even when Parallel is not configured (same as produce_file: no static gate)", () => {
+			getConfigMock.mockReturnValueOnce({
+				parallelApiKey: "   ",
+				parallelBaseUrl: "https://api.parallel.ai",
+				model1MaxModelContext: 64_000,
+				model2MaxModelContext: 200_000,
+			} as unknown as ReturnType<typeof getConfig>);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			expect(tools).toHaveProperty("produce_file");
+			expect(tools).toHaveProperty("run_python");
+		});
+
+		it("executes code through the shared sandbox execution path and returns stdout/stderr/exitCode", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "42\n",
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print(6 * 7)", purpose: "multiply two numbers" },
+				{ toolCallId: "call-run-python", messages: [] },
+			);
+
+			expect(executeSandboxCodeMock).toHaveBeenCalledWith(
+				"print(6 * 7)",
+				"python",
+			);
+			expect(result).toEqual({
+				success: true,
+				name: "run_python",
+				sourceType: "tool",
+				stdout: "42\n",
+				exitCode: 0,
+				timedOut: false,
+				truncated: false,
+			});
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					callId: "call-run-python",
+					name: "run_python",
+					input: { code: "print(6 * 7)", purpose: "multiply two numbers" },
+					status: "done",
+					outputSummary: "run_python finished: exit code 0, 3 stdout chars.",
+					sourceType: "tool",
+					candidates: [],
+					metadata: {
+						ok: true,
+						evidenceReady: false,
+						exitCode: 0,
+						timedOut: false,
+						truncated: false,
+					},
+				}),
+			]);
+		});
+
+		it("reports a non-zero exit code as unsuccessful without treating it as a tool failure", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "Traceback...\nZeroDivisionError: division by zero",
+				exitCode: 1,
+				error: "Execution failed with exit code 1: stderr: ZeroDivisionError",
+			});
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "1 / 0" },
+				{ toolCallId: "call-run-python-error", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				exitCode: 1,
+				timedOut: false,
+				stderr: "Traceback...\nZeroDivisionError: division by zero",
+			});
+		});
+
+		it("caps stdout and stderr at 8,000 characters each, keeping head and tail, and flags truncated", async () => {
+			const longStdout = `HEAD${"x".repeat(9000)}TAIL`;
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: longStdout,
+				stderr: "",
+				exitCode: 0,
+			});
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print('x' * 9000)" },
+				{ toolCallId: "call-run-python-cap", messages: [] },
+			);
+
+			expect(result).toMatchObject({ truncated: true });
+			const stdout = (result as { stdout: string }).stdout;
+			expect(stdout.length).toBeLessThanOrEqual(8000);
+			expect(stdout.startsWith("HEAD")).toBe(true);
+			expect(stdout.endsWith("TAIL")).toBe(true);
+		});
+
+		it("maps a sandbox timeout into a graceful timedOut result instead of a hard tool failure", async () => {
+			executeSandboxCodeMock.mockResolvedValue({
+				files: [],
+				stdout: "",
+				stderr: "",
+				error: "Execution timed out",
+			});
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "while True: pass" },
+				{ toolCallId: "call-run-python-timeout", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				timedOut: true,
+				exitCode: -1,
+			});
+			expect(getToolCalls()[0]?.status).toBe("done");
+			expect(getToolCalls()[0]?.metadata).toMatchObject({ timedOut: true });
+		});
+
+		it("uses a timeout above the sandbox's own hard exec cutoff, so the sandbox's own timeout wins first", () => {
+			expect(TOOL_TIMEOUTS_MS.run_python).toBeGreaterThan(SANDBOX_TIMEOUT_MS);
+		});
+
+		it("records a tool-call failure envelope when the sandbox call itself throws", async () => {
+			executeSandboxCodeMock.mockRejectedValueOnce(
+				new Error("docker daemon unreachable"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.run_python).execute(
+				{ code: "print(1)" },
+				{ toolCallId: "call-run-python-throw", messages: [] },
+			);
+
+			expect(result).toEqual({
+				success: false,
+				error: "docker daemon unreachable",
+			});
+			expect(withoutResultDigest(getToolCalls())).toEqual([
+				expect.objectContaining({
+					callId: "call-run-python-throw",
+					name: "run_python",
+					status: "done",
+					sourceType: "tool",
+					candidates: [],
+					metadata: {
+						ok: false,
+						evidenceReady: false,
+						error: "docker daemon unreachable",
+					},
+				}),
+			]);
+		});
+	});
+
 	it("research_web calls Parallel-backed web research and records compact web candidates", async () => {
 		researchWebViaParallelMock.mockResolvedValue({
 			query: "latest Vercel AI SDK tool API",
@@ -1244,6 +1446,308 @@ describe("createNormalChatTools", () => {
 
 		expect(tools).not.toHaveProperty("research_web");
 		expect(tools).not.toHaveProperty("fetch_url");
+	});
+
+	describe("research_web readPages", () => {
+		function makeResearchResult(urls: string[]) {
+			return {
+				query: "widget pro specs",
+				queries: [{ query: "widget pro specs" }],
+				sources: urls.map((url, i) => ({
+					id: `p${i}`,
+					provider: "parallel",
+					title: `Result ${i}`,
+					url,
+					snippet: `snippet ${i}`,
+					highlights: [`highlight ${i}`],
+					providerRank: i,
+					publishedAt: null,
+					updatedAt: null,
+					authorityClass: "standard",
+					authorityScore: 50,
+				})),
+				evidence: urls.map((url, i) => ({
+					id: `p${i}e0`,
+					sourceId: `p${i}`,
+					title: `Result ${i}`,
+					url,
+					provider: "parallel",
+					quote: `quote ${i}`,
+					score: 1 - i * 0.1,
+				})),
+				answerBrief: {
+					markdown: "Research brief.",
+					instructions: ["Answer only from these sources."],
+				},
+				diagnostics: {
+					mode: "turbo" as const,
+					freshness: "auto" as const,
+					sourcePolicy: "general" as const,
+					plannedQueryCount: 1,
+					directUrlCount: 0,
+					fetchedSourceCount: urls.length,
+					fusedSourceCount: urls.length,
+					selectedSourceCount: urls.length,
+					openedPageCount: 0,
+					pageExtraction: {
+						attemptedCount: 0,
+						succeededCount: 0,
+						cacheHitCount: 0,
+						lowQualityCount: 0,
+						blockedCount: 0,
+						failedCount: 0,
+						totalLatencyMs: 0,
+					},
+					evidenceCandidateCount: 0,
+					exactEvidenceCandidateCount: 0,
+					reranked: false,
+					sourceReranked: false,
+					fallbackReasons: [],
+				},
+			};
+		}
+
+		function makeFetchPageResult(url: string, title: string, body: string) {
+			return {
+				query: url,
+				queries: [{ query: url }],
+				sources: [
+					{
+						id: "e0",
+						provider: "parallel",
+						title,
+						url,
+						snippet: body.slice(0, 300),
+						highlights: [],
+						providerRank: 0,
+						publishedAt: null,
+						updatedAt: null,
+						authorityClass: "standard",
+						authorityScore: 60,
+					},
+				],
+				evidence: [
+					{
+						id: "e0q0",
+						sourceId: "e0",
+						title,
+						url,
+						provider: "parallel",
+						quote: body.slice(0, 900),
+						score: 1,
+					},
+				],
+				answerBrief: {
+					markdown: `# Fetched page content\n\n[1] ${title} — ${url}\n${body}`,
+					instructions: [
+						"Answer only from these fetched pages.",
+						"Cite claims with the returned page URLs.",
+					],
+				},
+				diagnostics: {
+					mode: "fetch" as const,
+					freshness: "auto" as const,
+					sourcePolicy: "general" as const,
+					plannedQueryCount: 0,
+					directUrlCount: 1,
+					fetchedSourceCount: 1,
+					fusedSourceCount: 1,
+					selectedSourceCount: 1,
+					openedPageCount: 1,
+					pageExtraction: {
+						attemptedCount: 1,
+						succeededCount: 1,
+						cacheHitCount: 0,
+						lowQualityCount: 0,
+						blockedCount: 0,
+						failedCount: 0,
+						totalLatencyMs: 0,
+					},
+					evidenceCandidateCount: 1,
+					exactEvidenceCandidateCount: 0,
+					reranked: false,
+					sourceReranked: false,
+					fallbackReasons: [],
+				},
+			};
+		}
+
+		it("does not fetch any page when readPages is omitted (default behaviour unchanged)", async () => {
+			researchWebViaParallelMock.mockResolvedValue(
+				makeResearchResult(["https://a.example.com", "https://b.example.com"]),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.research_web).execute(
+				{ query: "widget pro specs" },
+				{ toolCallId: "call-readpages-off", messages: [] },
+			);
+
+			expect(fetchUrlViaParallelMock).not.toHaveBeenCalled();
+			expect(result).not.toHaveProperty("pages");
+		});
+
+		it("fetches the top N distinct result urls and adds a pages array with citations", async () => {
+			const urlA = "https://a.example.com/product";
+			const urlB = "https://b.example.com/product";
+			researchWebViaParallelMock.mockResolvedValue(
+				makeResearchResult([urlA, urlB, "https://c.example.com/product"]),
+			);
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				makeFetchPageResult(urlA, "Page A", "Price: $19.99"),
+			);
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				makeFetchPageResult(urlB, "Page B", "Spec: 4.2kg"),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.research_web).execute(
+				{ query: "widget pro specs", readPages: 2 },
+				{ toolCallId: "call-readpages-on", messages: [] },
+			);
+
+			expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(2);
+			expect(fetchUrlViaParallelMock).toHaveBeenNthCalledWith(
+				1,
+				{ urls: [urlA] },
+				expect.objectContaining({ signal: expect.any(AbortSignal) }),
+				expect.objectContaining({
+					sessionId: "turn-1",
+					maxCharsTotal: expect.any(Number),
+				}),
+			);
+			expect(fetchUrlViaParallelMock).toHaveBeenNthCalledWith(
+				2,
+				{ urls: [urlB] },
+				expect.objectContaining({ signal: expect.any(AbortSignal) }),
+				expect.objectContaining({ sessionId: "turn-1" }),
+			);
+			expect(result).toMatchObject({
+				pages: [
+					{ url: urlA, title: "Page A", contentMarkdown: expect.any(String) },
+					{ url: urlB, title: "Page B", contentMarkdown: expect.any(String) },
+				],
+			});
+			expect(
+				(result as { pages: { contentMarkdown: string }[] }).pages[0]
+					.contentMarkdown,
+			).toContain("Price: $19.99");
+			const candidates = getToolCalls()[0]?.candidates ?? [];
+			// Search-result candidates (titled "Result N") and the fetched-page
+			// candidates (titled "Page A"/"Page B") must BOTH be present —
+			// proving the page fetch's own evidence candidates were merged in,
+			// not just reusing the search result's candidate for the same url.
+			expect(candidates.some((c) => c.title === "Result 0")).toBe(true);
+			expect(candidates.some((c) => c.title === "Page A")).toBe(true);
+			expect(candidates.some((c) => c.title === "Page B")).toBe(true);
+		});
+
+		it("skips a failed page fetch without failing the whole research_web call", async () => {
+			const urlA = "https://a.example.com/product";
+			const urlB = "https://b.example.com/product";
+			researchWebViaParallelMock.mockResolvedValue(
+				makeResearchResult([urlA, urlB]),
+			);
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				makeFetchPageResult(urlA, "Page A", "Price: $19.99"),
+			);
+			fetchUrlViaParallelMock.mockRejectedValueOnce(
+				new Error("Parallel extract failed: 500"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			const result = await requireTool(tools.research_web).execute(
+				{ query: "widget pro specs", readPages: 2 },
+				{ toolCallId: "call-readpages-partial-fail", messages: [] },
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				pages: [{ url: urlA, title: "Page A" }],
+			});
+		});
+
+		it("divides the shared char-cap ceiling across the pages read (respects resolveFetchContentCharCap)", async () => {
+			researchWebViaParallelMock.mockResolvedValue(
+				makeResearchResult(["https://a.example.com", "https://b.example.com"]),
+			);
+			fetchUrlViaParallelMock.mockResolvedValue(
+				makeFetchPageResult("https://a.example.com", "A", "body"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.research_web).execute(
+				{ query: "widget pro specs", readPages: 2 },
+				{ toolCallId: "call-readpages-cap", messages: [] },
+			);
+
+			const calls = fetchUrlViaParallelMock.mock.calls;
+			expect(calls).toHaveLength(2);
+			for (const call of calls) {
+				const opts = call[2] as { maxCharsTotal?: number };
+				// The default (no modelId) fetch content cap is 32,000 chars total
+				// (FETCH_CONTENT_CHAR_DEFAULT) — split across 2 pages.
+				expect(opts.maxCharsTotal).toBe(16_000);
+			}
+			// Combined, the two pages' budgets never exceed the ~48k ceiling a
+			// single fetch_url call would get.
+			const combined = calls.reduce(
+				(sum, call) =>
+					sum + ((call[2] as { maxCharsTotal?: number }).maxCharsTotal ?? 0),
+				0,
+			);
+			expect(combined).toBeLessThanOrEqual(48_000);
+		});
+
+		it("records a Parallel Extract usage event for each page fetched, the same way fetch_url does", async () => {
+			const urlA = "https://a.example.com/product";
+			researchWebViaParallelMock.mockResolvedValue(makeResearchResult([urlA]));
+			fetchUrlViaParallelMock.mockResolvedValueOnce(
+				makeFetchPageResult(urlA, "Page A", "Price: $19.99"),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.research_web).execute(
+				{ query: "widget pro specs", readPages: 1 },
+				{ toolCallId: "call-readpages-usage", messages: [] },
+			);
+
+			expect(recordParallelUsageMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "research_web",
+			});
+			expect(recordParallelUsageMock).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				tool: "fetch_url",
+			});
+		});
 	});
 
 	it("omits map_route when ORS is not configured", () => {

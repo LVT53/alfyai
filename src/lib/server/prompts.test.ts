@@ -138,7 +138,7 @@ describe("prompts", () => {
 	describe("Tools policy paragraph", () => {
 		it("keeps the five cross-tool sentences the review identified", () => {
 			expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-				"There is no calculator, code-execution, or date tool",
+				"Use run_python for code execution: multi-step arithmetic, unit/date conversions",
 			);
 			expect(ALFYAI_NEMOTRON_PROMPT).toContain("do not pretend it exists");
 			expect(ALFYAI_NEMOTRON_PROMPT).toContain(

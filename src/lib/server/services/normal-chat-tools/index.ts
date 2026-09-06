@@ -13,17 +13,22 @@ import type { FileProductionIntakeResult } from "$lib/server/services/file-produ
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
+import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
+	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
+	type GroundedWebPage,
+	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import {
@@ -119,6 +124,12 @@ import {
 	sanitizeRoutingToolInput,
 } from "./routing";
 import {
+	buildRunPythonModelPayload,
+	runPythonInputSchema,
+	sanitizeRunPythonInput,
+	summarizeRunPythonResult,
+} from "./run-python";
+import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
@@ -196,7 +207,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	en: {
 		research_web: {
 			description:
-				'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Pass {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Returns `evidence` snippets and an `answerBriefMarkdown`; prefer primary sources when they conflict. Do not call it again when this turn already contains web research results.',
+				'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Pass {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, a specific article), so the whole research happens in this one call instead of a separate fetch_url step; leave it at 0 (the default) otherwise. Returns `evidence` snippets and an `answerBriefMarkdown`, plus a `pages` array (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict. Do not call it again when this turn already contains web research results.',
 			errorPrefix: "Web research failed",
 		},
 		fetch_url: {
@@ -228,6 +239,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"Read the full current content of a file generated earlier in this conversation, by `filename` or `requestTitle`. Call it before sending `produce_file` patches: a patch whose oldText does not match the file exactly is rejected. If the file is not found, say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
+		},
+		run_python: {
+			description:
+				'Run a short Python 3.11 script for scratch calculations: arithmetic beyond mental math, unit and date/time conversions, and parsing or aggregating data over text the user gave you, plus quick algorithms. Pass {"code": "..."} and optionally a one-line `purpose`; print() the values you need — only stdout, stderr, and the exit code come back, capped at 8,000 characters each (head and tail kept). Only the Python standard library is available (no numpy, no pandas, and no pip installs); openpyxl, xlsxwriter, python-docx, and python-pptx are present but for produce_file\'s program mode, not this tool. No network access. Files written to /output are NOT delivered to the user — use produce_file for any downloadable file. Runs in an isolated sandbox with a 90-second limit; a run that times out is reported, not silently dropped.',
+			errorPrefix: "Python execution failed",
 		},
 		files: {
 			description:
@@ -278,7 +294,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	hu: {
 		research_web: {
 			description:
-				'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Add meg: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza; ellentmondás esetén az elsődleges forrást részesítsd előnyben. Ne hívd újra, ha ebben a körben már vannak webes kutatási eredmények.',
+				'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Add meg: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). Állítsd a `readPages`-t 1-2-re, ha a válaszhoz oldal-szintű részlet kell (pontos ár, specifikáció, hivatalos dokumentáció, egy konkrét cikk), így a teljes kutatás egyetlen hívásban lezajlik egy külön fetch_url lépés helyett; egyébként hagyd 0-n (alapértelmezett). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza, valamint egy `pages` tömböt (url, title, contentMarkdown), ha a `readPages` be volt állítva; ellentmondás esetén az elsődleges forrást részesítsd előnyben. Ne hívd újra, ha ebben a körben már vannak webes kutatási eredmények.',
 			errorPrefix: "A webes kutatás sikertelen",
 		},
 		fetch_url: {
@@ -310,6 +326,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"Egy ebben a beszélgetésben korábban generált fájl teljes aktuális tartalmának beolvasása `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél: a fájllal pontosan nem egyező oldText-ű patch-et a szerver elutasítja. Ha a fájl nem található, mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
+		},
+		run_python: {
+			description:
+				'Rövid Python 3.11 szkript futtatása gyors számításokhoz: fejben nem elvégezhető aritmetika, mértékegység- és dátum/idő-átváltás, a felhasználó által megadott szöveges adatok elemzése vagy összesítése, illetve gyors algoritmusok. Add meg: {"code": "..."}, opcionálisan egy egysoros `purpose`-t; a szükséges értékeket print()-eld ki — csak a stdout, a stderr és a kilépési kód érkezik vissza, egyenként 8000 karakterre korlátozva (az elejét és a végét megtartva). Csak a Python standard könyvtár érhető el (nincs numpy, nincs pandas, és nincs pip telepítés); az openpyxl, xlsxwriter, python-docx és python-pptx jelen van, de a produce_file program módjához, nem ehhez az eszközhöz. Nincs hálózati hozzáférés. A /output-ba írt fájlok NEM jutnak el a felhasználóhoz — letölthető fájlhoz használd a produce_file-t. Elszigetelt sandboxban fut, 90 másodperces korláttal; az időtúllépést jelenti, nem csendben eldobja.',
+			errorPrefix: "A Python-végrehajtás sikertelen",
 		},
 		files: {
 			description:
@@ -448,6 +469,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								options: ToolExecutionOptions,
 							) => {
 								const safeInput = sanitizeResearchWebInput(input);
+								// readPages is consumed here, not forwarded to Parallel search —
+								// strip it before building the search request.
+								const { readPages, ...researchRequest } = safeInput;
 								return executeToolWithEnvelope({
 									toolName: "research_web",
 									timeoutMs: TOOL_TIMEOUTS_MS.research_web,
@@ -455,13 +479,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									recorder,
 									run: async (abortSignal) => {
 										const { parallelApiKey, parallelBaseUrl } = getConfig();
+										const parallelDeps = {
+											fetch,
+											config: { parallelApiKey, parallelBaseUrl },
+											signal: abortSignal,
+										};
 										const result = await researchWebViaParallel(
-											safeInput,
-											{
-												fetch,
-												config: { parallelApiKey, parallelBaseUrl },
-												signal: abortSignal,
-											},
+											researchRequest,
+											parallelDeps,
 											{
 												sessionId: ctx.turnId,
 												excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
@@ -474,8 +499,71 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											conversationId: ctx.conversationId,
 											tool: "research_web",
 										}).catch(() => {});
-										const modelPayload = buildGroundedWebModelPayload(result);
-										const candidates = createGroundedWebCandidates(result);
+
+										// readPages: fetch the top N distinct result URLs in the
+										// SAME call, so a question needing page-level detail (an
+										// exact price, a spec, official documentation) doesn't need
+										// a separate fetch_url step. Best-effort: any failure here
+										// (a single page, or the whole batch) is swallowed — the
+										// search result already succeeded and stands on its own.
+										const pages: GroundedWebPage[] = [];
+										const pageCandidates: ToolEvidenceCandidate[] = [];
+										if (readPages && readPages > 0) {
+											const topUrls = selectTopDistinctSourceUrls(
+												result.sources,
+												readPages,
+											);
+											if (topUrls.length > 0) {
+												const contextTokens = await resolveModelContextTokens(
+													ctx.modelId,
+												).catch(() => null);
+												// Divide the shared char-cap ceiling across the pages
+												// being read, so N pages together never exceed the
+												// same total budget a single fetch_url call would get.
+												const perPageCap = Math.max(
+													1,
+													Math.floor(
+														resolveFetchContentCharCap(contextTokens) /
+															topUrls.length,
+													),
+												);
+												const settled = await Promise.allSettled(
+													topUrls.map((url) =>
+														fetchUrlViaParallel({ urls: [url] }, parallelDeps, {
+															sessionId: ctx.turnId,
+															maxCharsTotal: perPageCap,
+														}),
+													),
+												);
+												for (const outcome of settled) {
+													if (outcome.status !== "fulfilled") continue;
+													const pageResult = outcome.value;
+													const page =
+														buildGroundedWebPageFromFetch(pageResult);
+													if (!page) continue;
+													pages.push(page);
+													pageCandidates.push(
+														...createGroundedWebCandidates(pageResult),
+													);
+													// Same usage-tracking shape as fetch_url's own
+													// call: fire-and-forget, never blocks the result.
+													void recordParallelUsage({
+														userId: ctx.userId,
+														conversationId: ctx.conversationId,
+														tool: "fetch_url",
+													}).catch(() => {});
+												}
+											}
+										}
+
+										const modelPayload = {
+											...buildGroundedWebModelPayload(result),
+											...(pages.length > 0 ? { pages } : {}),
+										};
+										const candidates = [
+											...createGroundedWebCandidates(result),
+											...pageCandidates,
+										];
 										return {
 											modelPayload,
 											entry: {
@@ -964,6 +1052,84 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										evidenceReady: false,
 										intakeStatus: 500,
 										error: safeError,
+									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		// run_python shares produce_file's program-mode sandbox execution path
+		// (sandbox-execution.ts / sandbox/config.ts) and, like produce_file, is
+		// registered unconditionally — the Docker sandbox has no static
+		// "configured" flag to gate on (see tool-health registry: both entries'
+		// `configured` is `() => true`); an unreachable Docker daemon degrades
+		// in-band via the tool-health hint and a per-call execution error,
+		// rather than being hidden from the tool set.
+		run_python: asExecutableTool(
+			tool({
+				description: i18n.run_python.description,
+				inputSchema: runPythonInputSchema,
+				execute: async (
+					input: z.infer<typeof runPythonInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					const safeInput = sanitizeRunPythonInput(input);
+					return executeToolWithEnvelope({
+						toolName: "run_python",
+						timeoutMs: TOOL_TIMEOUTS_MS.run_python,
+						options,
+						recorder,
+						run: async () => {
+							const execution = await executeSandboxCode(
+								safeInput.code,
+								"python",
+							);
+							const modelPayload = buildRunPythonModelPayload(execution);
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "run_python",
+									input: safeInput,
+									status: "done",
+									outputSummary: summarizeRunPythonResult(modelPayload),
+									sourceType: "tool",
+									candidates: [],
+									metadata: {
+										ok: true,
+										evidenceReady: false,
+										exitCode: modelPayload.exitCode,
+										timedOut: modelPayload.timedOut,
+										truncated: modelPayload.truncated,
+									},
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								i18n.run_python.errorPrefix,
+							);
+							const modelPayload = {
+								success: false as const,
+								error: message,
+							};
+							return {
+								modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "run_python",
+									input: safeInput,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									candidates: [],
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										error: message,
 									},
 								},
 							};

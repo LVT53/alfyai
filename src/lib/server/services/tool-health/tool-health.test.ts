@@ -101,6 +101,7 @@ describe("tool health registry", () => {
 			"memory_context",
 			"map_route",
 			"produce_file",
+			"run_python",
 			"location",
 			"files",
 			"calendar",
@@ -130,6 +131,7 @@ describe("tool health registry", () => {
 		expect(tools.map_route.detail).toBe("status: ready");
 		expect(tools["map_route:geocoder"].status).toBe("healthy");
 		expect(tools.produce_file.status).toBe("healthy");
+		expect(tools.run_python.status).toBe("healthy");
 		expect(tools.location.status).toBe("healthy");
 		expect(tools.location.connectedConnections).toBe(0);
 		expect(tools.files.status).toBe("healthy");
@@ -180,7 +182,10 @@ describe("tool health registry", () => {
 		expect(
 			(owntracks?.[1].headers as Record<string, string>).Authorization,
 		).toBe(`Basic ${Buffer.from("alfy:secret").toString("base64")}`);
-		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
+		// Two registry entries (produce_file, run_python) share the Docker
+		// sandbox probe — each is probed independently, so dockerPing is called
+		// once per entry, not deduped across them.
+		expect(deps.dockerPing).toHaveBeenCalledTimes(2);
 	});
 
 	it("marks configured backends degraded when probes fail, with a detail", async () => {
@@ -214,6 +219,8 @@ describe("tool health registry", () => {
 		expect(tools["memory_context:reranker"].detail).toContain("HTTP 500");
 		expect(tools.produce_file.status).toBe("degraded");
 		expect(tools.produce_file.detail).toContain("docker.sock");
+		expect(tools.run_python.status).toBe("degraded");
+		expect(tools.run_python.detail).toContain("docker.sock");
 		expect(tools.location.status).toBe("degraded");
 		for (const tool of snapshot.tools) {
 			if (tool.status === "degraded") {
@@ -283,6 +290,7 @@ describe("tool health registry", () => {
 		expect(deps.fetch).not.toHaveBeenCalled();
 		// Docker needs no config, so it is still probed.
 		expect(tools.produce_file.status).toBe("healthy");
+		expect(tools.run_python.status).toBe("healthy");
 	});
 
 	it("never throws when config or connection counting fail", async () => {
@@ -345,6 +353,8 @@ describe("tool health registry", () => {
 			runToolHealthChecks(deps),
 		]);
 		expect(a).toBe(b);
-		expect(deps.dockerPing).toHaveBeenCalledTimes(1);
+		// One run, but two registry entries (produce_file, run_python) each
+		// probe Docker independently.
+		expect(deps.dockerPing).toHaveBeenCalledTimes(2);
 	});
 });
