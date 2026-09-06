@@ -1356,7 +1356,7 @@ type CommandTrayRow = Omit<
 	tokenLabel?: string;
 	label?: string;
 	description?: string;
-	argumentPlaceholder?: string;
+	argumentPlaceholderKey?: I18nKey;
 };
 
 // Commands that accept `/id rest of line` free text (currently /document's
@@ -1430,7 +1430,9 @@ function getCommandTrayRows(
 				: command.id === "attach" && !canAttach
 					? "composerCommands.unavailable"
 					: undefined,
-		argumentPlaceholder: command.argument?.placeholder,
+		argumentPlaceholderKey: command.argument
+			? asI18nKey(command.argument.placeholderKey)
+			: undefined,
 	}));
 
 	// ADR-0061's `/depth` -> `/think` rename kept `/depth` working as a
@@ -1454,7 +1456,9 @@ function getCommandTrayRows(
 					aliasedCommand.availability !== "available"
 						? "composerCommands.comingSoon"
 						: undefined,
-				argumentPlaceholder: aliasedCommand.argument?.placeholder,
+				argumentPlaceholderKey: aliasedCommand.argument
+					? asI18nKey(aliasedCommand.argument.placeholderKey)
+					: undefined,
 			});
 		}
 	}
@@ -2213,8 +2217,8 @@ async function emitDraftChange(force = false) {
 							<span class="command-label">{command.label ?? $t(command.labelKey)}</span>
 							<span class="command-description">{command.description ?? $t(command.descriptionKey)}</span>
 						</span>
-						{#if command.argumentPlaceholder}
-							<span class="command-argument-hint">{command.argumentPlaceholder}</span>
+						{#if command.argumentPlaceholderKey}
+							<span class="command-argument-hint">{$t(command.argumentPlaceholderKey)}</span>
 						{/if}
 						{#if command.statusKey}
 							<span class="command-status">{$t(command.statusKey)}</span>

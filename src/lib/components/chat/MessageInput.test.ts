@@ -654,6 +654,19 @@ describe("MessageInput", () => {
 		);
 	});
 
+	it("localizes the argument placeholders with the rest of the tray", async () => {
+		uiLanguage.set("hu");
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText("Írj üzenetet...");
+
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		expect(getByRole("option", { name: /\/remember/i })).toHaveTextContent(
+			"Mire emlékezzek?",
+		);
+	});
+
 	it("runs the /compact command without sending a chat message", async () => {
 		const sendSpy = vi.fn();
 		const compactSpy = vi.fn();

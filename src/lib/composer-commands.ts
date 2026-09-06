@@ -22,8 +22,12 @@ export type ComposerCommandAvailability =
 	| "coming_soon";
 
 export type ComposerCommandArgument = {
-	/** Shown next to the command row once its name is fully typed. */
-	placeholder: string;
+	/**
+	 * i18n key for the hint shown next to the command row once its name is
+	 * fully typed. A key, not literal text — the tray renders it in the
+	 * user's own UI language like every other label in this catalog.
+	 */
+	placeholderKey: string;
 	/** When true, selecting the command with no argument text is a no-op. */
 	required?: boolean;
 };
@@ -72,7 +76,9 @@ export const STATIC_COMPOSER_COMMANDS: readonly ComposerCommandDefinition[] = [
 		labelKey: "composerCommands.document.label",
 		descriptionKey: "composerCommands.document.description",
 		availability: "available",
-		argument: { placeholder: "Search library documents" },
+		argument: {
+			placeholderKey: "composerCommands.document.argumentPlaceholder",
+		},
 	},
 	{
 		id: "source",
@@ -143,7 +149,10 @@ export const STATIC_COMPOSER_COMMANDS: readonly ComposerCommandDefinition[] = [
 		labelKey: "composerCommands.remember.label",
 		descriptionKey: "composerCommands.remember.description",
 		availability: "available",
-		argument: { placeholder: "What should I remember?", required: true },
+		argument: {
+			placeholderKey: "composerCommands.remember.argumentPlaceholder",
+			required: true,
+		},
 	},
 	{
 		id: "export",
