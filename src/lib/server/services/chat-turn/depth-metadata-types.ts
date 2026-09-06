@@ -65,7 +65,6 @@ export interface DepthSelectionTimingMetadata {
 	recentMessagesMs?: number;
 	classificationContextMs?: number;
 	classifierModelResolutionMs?: number;
-	controlModelClassifierMs?: number;
 	classifierAttempts: number;
 	classifierSource: string;
 	appliedProfile: DepthAppliedProfile;
@@ -79,11 +78,6 @@ export interface DepthMetadata {
 	fallbackReason?: string;
 	constraintNote?: string;
 	classifierSource?: string;
-	classifierModelSource?: string;
-	classifierModelId?: string;
-	classifierModelDisplayName?: string;
-	classifierModelFallbackReason?: string;
-	configuredClassifierModelId?: string;
 	modelId?: string;
 	modelDisplayName?: string;
 	providerDisplayName?: string;

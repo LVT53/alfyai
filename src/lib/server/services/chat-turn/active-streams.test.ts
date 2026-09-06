@@ -320,7 +320,7 @@ describe("active chat streams registry", () => {
 			userId: "user-1",
 			conversationId: "conversation-depth-buffer",
 			userMessage: "private question",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 
 		try {
@@ -333,7 +333,7 @@ describe("active chat streams registry", () => {
 			).toEqual({
 				exists: true,
 				userMessage: "private question",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 				tokenCount: 0,
 				thinkingCount: 0,
 				toolCallCount: 0,

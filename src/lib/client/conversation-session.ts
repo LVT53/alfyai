@@ -6,10 +6,7 @@ import {
 import type { FetchLike } from "$lib/client/api/http";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
-import {
-	isReasoningDepth,
-	thinkingModeToReasoningDepth,
-} from "$lib/reasoning-depth-types";
+import { parseReasoningDepth } from "$lib/reasoning-depth-types";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ConversationDraft } from "$lib/server/services/conversations";
 import type {
@@ -304,7 +301,7 @@ export function consumePendingConversationMessage(
 			attachments: [],
 			linkedSources: [],
 			pendingSkill: null,
-			reasoningDepth: "auto",
+			reasoningDepth: "thorough",
 			forceWebSearch: false,
 			enabledConnectionCapabilities: undefined,
 			atlasMode: false,
@@ -318,15 +315,7 @@ export function consumePendingConversationMessage(
 function parsePendingReasoningDepth(
 	parsed: Record<string, unknown>,
 ): ReasoningDepth {
-	if (isReasoningDepth(parsed.reasoningDepth)) return parsed.reasoningDepth;
-	if (
-		parsed.thinkingMode === "auto" ||
-		parsed.thinkingMode === "on" ||
-		parsed.thinkingMode === "off"
-	) {
-		return thinkingModeToReasoningDepth(parsed.thinkingMode);
-	}
-	return "auto";
+	return parseReasoningDepth(parsed.reasoningDepth, parsed.thinkingMode);
 }
 
 function parseEnabledConnectionCapabilities(

@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
 import MessageInput from "./MessageInput.svelte";
@@ -62,9 +63,24 @@ const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
 const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
+// Baked-in default (not just a per-test mockResolvedValue) so every describe
+// block in this file gets a resolved value even without its own setup —
+// vi.clearAllMocks() clears call history but not a mockImplementation set at
+// creation, so this survives across the whole file's describe blocks.
+const fetchAvailableModelsMock = vi.hoisted(() =>
+	vi.fn(async (): Promise<AvailableModelsResponse> => ({ providers: [] })),
+);
 
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
+}));
+
+// ADR-0061 — the composer's thinking toggle looks up the selected model's
+// `supportsReasoningControls` flag through this same fetch ModelSelector
+// uses. Defaults to an empty provider list (so the toggle defaults to
+// visible); individual tests override this to exercise the hidden case.
+vi.mock("$lib/client/api/models", () => ({
+	fetchAvailableModels: fetchAvailableModelsMock,
 }));
 
 vi.mock("$lib/client/api/skills", () => ({
@@ -381,18 +397,15 @@ describe("MessageInput", () => {
 		);
 	});
 
-	it("opens /depth and sends the selected Reasoning depth", async () => {
+	it("toggles thinking off via /depth and sends the updated toggle", async () => {
 		const sendSpy = vi.fn();
 		const reasoningDepthChangeSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, queryByRole, rerender } = render(
-			MessageInput,
-			{
-				composerCommandRegistryEnabled: true,
-				onSend: sendSpy,
-				reasoningDepth: "auto",
-				onReasoningDepthChange: reasoningDepthChangeSpy,
-			},
-		);
+		const { getByPlaceholderText, getByRole, rerender } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			onSend: sendSpy,
+			reasoningDepth: "thorough",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
+		});
 		const input = getByPlaceholderText(
 			"Type a message...",
 		) as HTMLTextAreaElement;
@@ -400,40 +413,26 @@ describe("MessageInput", () => {
 		await fireEvent.input(input, { target: { value: "/depth" } });
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
-		const depthPicker = getByRole("listbox", { name: "Reasoning depth" });
-		expect(
-			within(depthPicker).getByRole("option", { name: "Off" }),
-		).toBeInTheDocument();
-		expect(
-			within(depthPicker).getByRole("option", { name: "Auto" }),
-		).toBeInTheDocument();
-		expect(
-			within(depthPicker).getByRole("option", { name: "Max" }),
-		).toBeInTheDocument();
-		expect(
-			within(depthPicker).queryByRole("option", { name: "On" }),
-		).toBeNull();
+		// /depth no longer opens a picker (ADR-0061) — it flips the toggle
+		// directly and clears the composer input.
+		expect(input.value).toBe("");
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
 
-		await fireEvent.click(
-			within(depthPicker).getByRole("option", { name: "Max" }),
-		);
-		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("max");
-		expect(queryByRole("listbox", { name: "Reasoning depth" })).toBeNull();
 		await rerender({
 			composerCommandRegistryEnabled: true,
 			onSend: sendSpy,
-			reasoningDepth: "max",
+			reasoningDepth: "quick",
 			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
 		await fireEvent.input(input, {
-			target: { value: "Use maximum reasoning" },
+			target: { value: "Answer quickly" },
 		});
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
 
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
-				message: "Use maximum reasoning",
-				reasoningDepth: "max",
+				message: "Answer quickly",
+				reasoningDepth: "quick",
 			}),
 		);
 	});
@@ -1029,42 +1028,86 @@ describe("MessageInput", () => {
 		confirmSpy.mockRestore();
 	});
 
-	it("opens Reasoning depth controls from the slash command", async () => {
-		const { getByPlaceholderText, getByRole } = render(MessageInput, {
-			composerCommandRegistryEnabled: true,
+	it("shows the thinking toggle in the toolbar reflecting the current reasoningDepth", () => {
+		const { getByTestId } = render(MessageInput, {
+			reasoningDepth: "thorough",
 		});
-		const input = getByPlaceholderText(
-			"Type a message...",
-		) as HTMLTextAreaElement;
 
-		await fireEvent.input(input, { target: { value: "/depth" } });
-		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		const toggle = getByTestId("thinking-toggle");
+		expect(toggle).toHaveAttribute("aria-pressed", "true");
+		expect(toggle).toHaveAttribute("title", "Thinking on");
+	});
 
-		expect(input.value).toBe("");
-		expect(
-			getByRole("listbox", { name: "Reasoning depth" }),
-		).toBeInTheDocument();
-		expect(getByRole("option", { name: "Off" })).toBeInTheDocument();
+	it("shows Thinking off styling when reasoningDepth is quick", () => {
+		const { getByTestId } = render(MessageInput, {
+			reasoningDepth: "quick",
+		});
+
+		const toggle = getByTestId("thinking-toggle");
+		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		expect(toggle).toHaveAttribute("title", "Thinking off");
+	});
+
+	it("hides the thinking toggle when the selected model does not support reasoning controls", async () => {
+		selectedModel.set("provider:p1:no-thinking");
+		fetchAvailableModelsMock.mockResolvedValueOnce({
+			providers: [
+				{
+					id: "p1",
+					name: "p1",
+					displayName: "Provider 1",
+					iconAssetId: null,
+					iconUrl: null,
+					processingRegionCode: null,
+					privacyPolicyUrl: null,
+					models: [
+						{
+							id: "provider:p1:no-thinking",
+							displayName: "No Thinking Model",
+							iconUrl: null,
+							guideNoteEn: null,
+							guideNoteHu: null,
+							guideBadge: null,
+							guideNoCost: false,
+							estimatedTokensPerSecond: null,
+							maxModelContext: null,
+							inputUsdMicrosPer1m: 0,
+							outputUsdMicrosPer1m: 0,
+							supportsReasoningControls: false,
+						},
+					],
+				},
+			],
+		});
+
+		const { queryByTestId } = render(MessageInput, {
+			reasoningDepth: "thorough",
+		});
+
+		await waitFor(() => {
+			expect(queryByTestId("thinking-toggle")).toBeNull();
+		});
 	});
 
 	it("sends the selected Reasoning depth with the next message", async () => {
 		const sendSpy = vi.fn();
 		const reasoningDepthChangeSpy = vi.fn();
-		const { getByPlaceholderText, getByRole, rerender } = render(MessageInput, {
-			onSend: sendSpy,
-			reasoningDepth: "auto",
-			onReasoningDepthChange: reasoningDepthChangeSpy,
-		});
+		const { getByPlaceholderText, getByRole, getByTestId, rerender } = render(
+			MessageInput,
+			{
+				onSend: sendSpy,
+				reasoningDepth: "thorough",
+				onReasoningDepthChange: reasoningDepthChangeSpy,
+			},
+		);
 
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(getByRole("button", { name: "Auto" }));
-		await fireEvent.click(getByRole("option", { name: "Off" }));
+		await fireEvent.click(getByTestId("thinking-toggle"));
 
-		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("off");
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
 
 		await rerender({
 			onSend: sendSpy,
-			reasoningDepth: "off",
+			reasoningDepth: "quick",
 			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
@@ -1075,7 +1118,7 @@ describe("MessageInput", () => {
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: "Answer directly",
-				reasoningDepth: "off",
+				reasoningDepth: "quick",
 			}),
 		);
 	});

@@ -80,6 +80,7 @@ describe("GET /api/models", () => {
 				maxModelContext: null,
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
+				supportsReasoningControls: true,
 			},
 			{
 				id: "model2",
@@ -93,6 +94,7 @@ describe("GET /api/models", () => {
 				maxModelContext: null,
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
+				supportsReasoningControls: true,
 			},
 		]);
 	});
@@ -130,6 +132,7 @@ describe("GET /api/models", () => {
 				maxModelContext: null,
 				inputUsdMicrosPer1m: 0,
 				outputUsdMicrosPer1m: 0,
+				supportsReasoningControls: true,
 			},
 		]);
 	});
@@ -194,6 +197,7 @@ describe("GET /api/models", () => {
 				maxModelContext: 128000,
 				inputUsdMicrosPer1m: 1000,
 				outputUsdMicrosPer1m: 2000,
+				supportsReasoningControls: true,
 			},
 		]);
 	});

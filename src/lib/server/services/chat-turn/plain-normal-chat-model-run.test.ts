@@ -514,7 +514,7 @@ describe("runPlainNormalChatSendModel", () => {
 
 	it("applies resolved depth effort before the plain model run", async () => {
 		const depthMetadata = {
-			requested: "auto" as const,
+			requested: "thorough" as const,
 			appliedProfile: "extended" as const,
 			fallback: false,
 			signals: {
@@ -586,7 +586,7 @@ describe("runPlainNormalChatSendModel", () => {
 			message:
 				"Research all viable platform options and build a complete migration plan.",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				signals: {
@@ -608,7 +608,7 @@ describe("runPlainNormalChatSendModel", () => {
 			message:
 				"Research all viable platform options and build a complete migration plan. Use your best judgment.",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				signals: {

@@ -18,6 +18,7 @@ function model(index: number): ModelProvider["models"][number] {
 			index === 12 ? 1_000_000 : index % 3 === 0 ? 256_000 : 64_000,
 		inputUsdMicrosPer1m: index * 500_000,
 		outputUsdMicrosPer1m: index * 1_000_000,
+		supportsReasoningControls: true,
 	};
 }
 

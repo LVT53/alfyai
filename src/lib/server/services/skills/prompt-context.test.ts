@@ -35,7 +35,7 @@ function makeTurn(
 		attachmentIds: [],
 		linkedSources: [],
 		pendingSkill: null,
-		reasoningDepth: "auto",
+		reasoningDepth: "thorough",
 		thinkingMode: "auto",
 		forceWebSearch: false,
 		atlasMode: false,
@@ -44,7 +44,7 @@ function makeTurn(
 		parentAtlasId: null,
 		clientAtlasTurnId: null,
 		depthMetadata: {
-			requested: "auto",
+			requested: "thorough",
 			appliedProfile: "standard",
 			fallback: false,
 			modelId: "model1",

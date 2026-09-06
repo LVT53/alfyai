@@ -1,9 +1,7 @@
 import type { ModelId } from "$lib/model-types";
-import type { ReasoningDepth, ThinkingMode } from "$lib/reasoning-depth-types";
 import {
-	isReasoningDepth,
+	parseReasoningDepth,
 	reasoningDepthToThinkingMode,
-	thinkingModeToReasoningDepth,
 } from "$lib/reasoning-depth-types";
 import {
 	getMaxMessageLength,
@@ -126,7 +124,7 @@ export async function parseChatTurnRequest(
 	}
 	const atlasFields = atlasResult.value;
 	const reasoningDepth = atlasFields.atlasMode
-		? "auto"
+		? "thorough"
 		: parseReasoningDepth(body.reasoningDepth, body.thinkingMode);
 
 	return {
@@ -421,18 +419,6 @@ function parseLinkedSources(value: unknown): LinkedContextSource[] {
 			"type" in source &&
 			source.type === "document",
 	);
-}
-
-function parseReasoningDepth(
-	value: unknown,
-	legacyThinkingMode: unknown,
-): ReasoningDepth {
-	if (isReasoningDepth(value)) return value;
-	return thinkingModeToReasoningDepth(parseThinkingMode(legacyThinkingMode));
-}
-
-function parseThinkingMode(value: unknown): ThinkingMode {
-	return value === "on" || value === "off" || value === "auto" ? value : "auto";
 }
 
 type ParsedAtlasTurnFields = {

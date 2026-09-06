@@ -992,7 +992,7 @@ describe("file production chat helpers", () => {
 			metadata: {
 				assistantMessageId: "server-assistant-1",
 				depthMetadata: {
-					requested: "max",
+					requested: "thorough",
 					appliedProfile: "maximum",
 					fallback: false,
 					modelId: "model1",
@@ -1004,7 +1004,7 @@ describe("file production chat helpers", () => {
 		expect(finalized[0]).toMatchObject({
 			id: "server-assistant-1",
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				modelId: "model1",

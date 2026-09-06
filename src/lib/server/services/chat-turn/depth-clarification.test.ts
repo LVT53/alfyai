@@ -7,7 +7,7 @@ import {
 } from "./depth-clarification";
 
 const highCostDepthMetadata: DepthMetadata = {
-	requested: "auto",
+	requested: "thorough",
 	appliedProfile: "maximum",
 	fallback: false,
 	signals: {
@@ -22,7 +22,7 @@ describe("Depth Clarification gate", () => {
 		const result = await evaluateDepthClarificationGate({
 			message: "Explain this function.",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "standard",
 				fallback: false,
 			},

@@ -534,7 +534,7 @@ describe("POST /api/chat/send", () => {
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
-	it("persists requested Reasoning Depth metadata for non-stream sends", async () => {
+	it("persists requested Reasoning Depth metadata for non-stream sends, migrating the legacy 'max' wire value", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Use max depth" },
 			assistantMessage: { content: "Max-depth answer" },
@@ -552,6 +552,8 @@ describe("POST /api/chat/send", () => {
 			makeEvent({
 				message: "Use max depth",
 				conversationId: "conv-1",
+				// Legacy wire value from an old client — ADR-0061 maps this to
+				// the "thorough" toggle, applied as the "standard" profile.
 				reasoningDepth: "max",
 			}),
 		);
@@ -560,8 +562,8 @@ describe("POST /api/chat/send", () => {
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				depthMetadata: expect.objectContaining({
-					requested: "max",
-					appliedProfile: "maximum",
+					requested: "thorough",
+					appliedProfile: "standard",
 				}),
 			}),
 		);
@@ -573,8 +575,8 @@ describe("POST /api/chat/send", () => {
 			undefined,
 			expect.objectContaining({
 				depthMetadata: {
-					requested: "max",
-					appliedProfile: "maximum",
+					requested: "thorough",
+					appliedProfile: "standard",
 					fallback: false,
 					modelId: "provider:local:model-a",
 					modelDisplayName: "Provider Model A",

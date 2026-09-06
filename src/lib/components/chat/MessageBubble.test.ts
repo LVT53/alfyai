@@ -722,7 +722,7 @@ describe("MessageBubble", () => {
 				isStreaming: false,
 				isThinkingStreaming: false,
 				depthMetadata: {
-					requested: "max",
+					requested: "thorough",
 					appliedProfile: "maximum",
 					fallback: false,
 				},
@@ -742,7 +742,7 @@ describe("MessageBubble", () => {
 			isThinkingStreaming: false,
 			thinking: "Reasoned carefully.",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 			},
@@ -756,7 +756,7 @@ describe("MessageBubble", () => {
 			message: {
 				...message,
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "standard",
 					fallback: false,
 				},
@@ -770,7 +770,7 @@ describe("MessageBubble", () => {
 			message: {
 				...message,
 				depthMetadata: {
-					requested: "off",
+					requested: "quick",
 					appliedProfile: "off",
 					fallback: false,
 				},
@@ -930,7 +930,7 @@ describe("MessageBubble", () => {
 			isStreaming: false,
 			isThinkingStreaming: false,
 			depthMetadata: {
-				requested: "off",
+				requested: "quick",
 				appliedProfile: "off",
 				fallback: false,
 			},
@@ -963,7 +963,7 @@ describe("MessageBubble", () => {
 			isStreaming: false,
 			isThinkingStreaming: false,
 			depthMetadata: {
-				requested: "off",
+				requested: "quick",
 				appliedProfile: "off",
 				fallback: false,
 			},
@@ -995,7 +995,7 @@ describe("MessageBubble", () => {
 			isThinkingStreaming: true,
 			thinking: "Considering the request in detail.",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "standard",
 				fallback: false,
 			},
@@ -1558,7 +1558,7 @@ describe("MessageBubble", () => {
 			generationDurationMs: 1450,
 			costUsd: 0.00042,
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 			},
@@ -1575,7 +1575,9 @@ describe("MessageBubble", () => {
 		expect(within(tooltip).getByText("Model")).toBeInTheDocument();
 		expect(within(tooltip).getByText("Model 1")).toBeInTheDocument();
 		expect(within(tooltip).getByText("Reasoning depth")).toBeInTheDocument();
-		expect(within(tooltip).getByText("Max / Maximum")).toBeInTheDocument();
+		// New metadata shows the toggle value directly, regardless of the
+		// (now unreachable but still-defined) applied profile underneath.
+		expect(within(tooltip).getByText("Thorough")).toBeInTheDocument();
 		expect(within(tooltip).getByText("Response time")).toBeInTheDocument();
 		expect(within(tooltip).getByText("1.4s")).toBeInTheDocument();
 		expect(within(tooltip).getByText("Thinking tokens")).toBeInTheDocument();
@@ -1595,13 +1597,18 @@ describe("MessageBubble", () => {
 			timestamp: Date.now(),
 			responseTokenCount: 88,
 			totalTokenCount: 88,
+			// A message persisted before ADR-0061 (the thinking-toggle
+			// redesign) still carries the legacy "max" ladder value under
+			// `requested` — this field isn't re-validated against the current
+			// ReasoningDepth type at read time, so the cast below stands in
+			// for that on-disk reality. The badge must still show the old
+			// applied-profile name ("Maximum"), not crash or show garbage.
 			depthMetadata: {
-				requested: "max",
+				requested: "max" as never,
 				appliedProfile: "maximum",
 				fallback: false,
 				fallbackReason: "invalid_classifier_response",
 				classifierSource: "deterministic_bypass",
-				classifierModelFallbackReason: "configured_model_unavailable",
 				constraintNote: "explicit_max",
 				appliedEffort: {
 					dimensions: [
@@ -1662,7 +1669,9 @@ describe("MessageBubble", () => {
 
 		const tooltip = screen.getByRole("region", { name: "Info" });
 		expect(within(tooltip).getByText("Reasoning depth")).toBeInTheDocument();
-		expect(within(tooltip).getByText("Max / Maximum")).toBeInTheDocument();
+		// Legacy requested value ("max") + legacy applied profile
+		// ("maximum") — the badge falls back to the old profile name.
+		expect(within(tooltip).getByText("Maximum")).toBeInTheDocument();
 		expect(within(tooltip).getByText("Response tokens")).toBeInTheDocument();
 		expect(within(tooltip).queryByText("Classifier")).not.toBeInTheDocument();
 		expect(

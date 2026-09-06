@@ -466,7 +466,7 @@ describe("completeStreamTurn", () => {
 				evidenceStatus: "pending",
 				modelDisplayName: "Model One",
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "standard",
 					fallback: false,
 					modelId: "model-1",
@@ -480,7 +480,7 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({
 			...defaultParams,
 			wasStopped: true,
-			reasoningDepth: "off",
+			reasoningDepth: "quick",
 			fullResponse: "partial answer",
 			thinkingContent: "",
 		});
@@ -494,7 +494,7 @@ describe("completeStreamTurn", () => {
 			expect.objectContaining({
 				wasStopped: true,
 				depthMetadata: {
-					requested: "off",
+					requested: "quick",
 					appliedProfile: "off",
 					fallback: false,
 					modelId: "model-1",
@@ -505,7 +505,7 @@ describe("completeStreamTurn", () => {
 		expect(getLatestEndPayload()).toMatchObject({
 			assistantMessageId: "asst-msg-1",
 			depthMetadata: {
-				requested: "off",
+				requested: "quick",
 				appliedProfile: "off",
 				fallback: false,
 				modelId: "model-1",
@@ -520,7 +520,7 @@ describe("completeStreamTurn", () => {
 			modelId: "provider:local:model-a",
 			modelDisplayName: "Provider Model A",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				classifierSource: "control_model",
@@ -537,7 +537,7 @@ describe("completeStreamTurn", () => {
 			undefined,
 			expect.objectContaining({
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 					fallback: false,
 					classifierSource: "control_model",
@@ -549,7 +549,7 @@ describe("completeStreamTurn", () => {
 		expect(getLatestEndPayload()).toMatchObject({
 			assistantMessageId: "asst-msg-1",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "extended",
 				fallback: false,
 				classifierSource: "control_model",
@@ -567,7 +567,7 @@ describe("completeStreamTurn", () => {
 
 		await completeStreamTurn({
 			...defaultParams,
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 
 		expectModelSafeTerminalError();

@@ -647,7 +647,7 @@ describe("runStreamingNormalChatSendModel", () => {
 
 	it("applies resolved depth effort before the streaming model run", async () => {
 		const depthMetadata = {
-			requested: "auto" as const,
+			requested: "thorough" as const,
 			appliedProfile: "maximum" as const,
 			fallback: false,
 			signals: {
@@ -732,7 +732,7 @@ describe("runStreamingNormalChatSendModel", () => {
 			conversationId: "conv-1",
 			modelId: "provider:provider-1",
 			depthMetadata: {
-				requested: "auto",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				signals: {

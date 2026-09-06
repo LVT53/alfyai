@@ -270,7 +270,7 @@ function createTurn(
 		attachmentIds: [],
 		linkedSources: [],
 		pendingSkill: null,
-		reasoningDepth: "auto",
+		reasoningDepth: "thorough",
 		thinkingMode: "auto",
 		forceWebSearch: false,
 		atlasMode: false,
@@ -279,7 +279,7 @@ function createTurn(
 		parentAtlasId: null,
 		clientAtlasTurnId: null,
 		depthMetadata: {
-			requested: "auto",
+			requested: "thorough",
 			appliedProfile: "standard",
 			fallback: false,
 			modelId: "model1",
@@ -584,7 +584,7 @@ describe("stream-orchestrator SSE contract", () => {
 			conversationId: "deferred-prep-conv",
 			streamId: "deferred-prep-stream",
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				modelId: "model1",
@@ -746,7 +746,7 @@ describe("stream-orchestrator SSE contract", () => {
 			turn: {
 				conversationId: "depth-prep-failure-conv",
 				streamId: "depth-prep-failure-stream",
-				reasoningDepth: "max",
+				reasoningDepth: "thorough",
 			},
 		});
 
@@ -1039,7 +1039,7 @@ describe("stream-orchestrator SSE contract", () => {
 
 		const response = runStream({
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				modelId: "model1",
@@ -1599,9 +1599,9 @@ describe("stream-orchestrator SSE contract", () => {
 
 		const response = runStream({
 			streamId: "depth-buffer-stream",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 				modelId: "model1",
@@ -1621,7 +1621,7 @@ describe("stream-orchestrator SSE contract", () => {
 			}),
 		).toMatchObject({
 			userMessage: "Hello",
-			reasoningDepth: "max",
+			reasoningDepth: "thorough",
 		});
 
 		releaseEvents([{ type: "text_delta", text: "Done" }, finishEvent]);
@@ -1646,7 +1646,7 @@ describe("stream-orchestrator SSE contract", () => {
 			userId: "u1",
 			conversationId: "active-reconnect-conv",
 			userMessage: "Hello",
-			reasoningDepth: "auto",
+			reasoningDepth: "thorough",
 		});
 		appendToStreamBuffer("active-reconnect-stream", "token", {
 			text: "Already streaming",
@@ -2669,7 +2669,7 @@ describe("stream-orchestrator SSE contract", () => {
 			upstreamSignal = params.signal;
 			return createNeutralStreamingResult([], {
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "standard",
 					fallback: false,
 					modelId: "model1",
@@ -2721,7 +2721,7 @@ describe("stream-orchestrator SSE contract", () => {
 					evidenceStatus: "pending",
 					modelDisplayName: "Model One",
 					depthMetadata: expect.objectContaining({
-						requested: "auto",
+						requested: "thorough",
 						appliedProfile: "standard",
 						fallback: false,
 						appliedEffort: expect.objectContaining({

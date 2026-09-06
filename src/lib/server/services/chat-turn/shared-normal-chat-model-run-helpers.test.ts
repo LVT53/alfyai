@@ -90,7 +90,7 @@ describe("resolvePromptContextLimits", () => {
 // plain/streaming entry-point suites.
 
 const baseDepthMetadata: DepthMetadata = {
-	requested: "auto",
+	requested: "thorough",
 	appliedProfile: "maximum",
 	fallback: false,
 	signals: {
@@ -255,7 +255,7 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 				modelId: "provider:provider-1:gpt-4.1" as const,
 				overrideProvider,
 				depthMetadata: {
-					requested: profile === "maximum" ? "max" : "auto",
+					requested: profile === "off" ? "quick" : "thorough",
 					appliedProfile: profile,
 					fallback: false,
 					signals: {

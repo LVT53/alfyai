@@ -771,7 +771,7 @@ describe("messages metadata", () => {
 			undefined,
 			{
 				depthMetadata: {
-					requested: "max",
+					requested: "thorough",
 					appliedProfile: "maximum",
 					fallback: false,
 					modelId: "provider:local:model-a",
@@ -782,7 +782,7 @@ describe("messages metadata", () => {
 		);
 
 		expect(created.depthMetadata).toEqual({
-			requested: "max",
+			requested: "thorough",
 			appliedProfile: "maximum",
 			fallback: false,
 			modelId: "provider:local:model-a",
@@ -791,7 +791,7 @@ describe("messages metadata", () => {
 		});
 		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
 			depthMetadata: {
-				requested: "max",
+				requested: "thorough",
 				appliedProfile: "maximum",
 				fallback: false,
 			},
@@ -809,7 +809,7 @@ describe("messages metadata", () => {
 			undefined,
 			{
 				depthMetadata: {
-					requested: "auto",
+					requested: "thorough",
 					appliedProfile: "extended",
 					fallback: false,
 					classifierSource: "control_model",
@@ -818,7 +818,7 @@ describe("messages metadata", () => {
 		);
 
 		expect(created.depthMetadata).toEqual({
-			requested: "auto",
+			requested: "thorough",
 			appliedProfile: "extended",
 			fallback: false,
 			classifierSource: "control_model",

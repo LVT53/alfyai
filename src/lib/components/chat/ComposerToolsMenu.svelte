@@ -8,7 +8,6 @@ import {
 	getPersonalityProfileDisplayName,
 } from "$lib/utils/personality-profile-labels";
 import type { ModelId } from "$lib/model-types";
-import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type {
 	AtlasAvailability,
 	AtlasProfile,
@@ -23,8 +22,6 @@ let {
 	selectedPersonalityId = null,
 	onPersonalityChange = undefined,
 	onModelChange = undefined,
-	reasoningDepth = "auto",
-	onReasoningDepthChange = undefined,
 	initialOpen = null,
 	forceWebSearch = false,
 	onForceWebSearchChange = undefined,
@@ -44,9 +41,7 @@ let {
 	selectedPersonalityId?: string | null;
 	onPersonalityChange?: ((id: string | null) => void) | undefined;
 	onModelChange?: ((modelId: ModelId) => void) | undefined;
-	reasoningDepth?: ReasoningDepth;
-	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
-	initialOpen?: "model" | "style" | "depth" | null;
+	initialOpen?: "model" | "style" | null;
 	forceWebSearch?: boolean;
 	onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
 	atlasAvailability?: AtlasAvailability | null;
@@ -55,10 +50,9 @@ let {
 } = $props();
 
 let root = $state<HTMLDivElement | undefined>(undefined);
-let activeDropdown = $state<"model" | "style" | "depth" | "atlas" | null>(null);
-let appliedInitialOpen = $state<"model" | "style" | "depth" | null>(null);
+let activeDropdown = $state<"model" | "style" | "atlas" | null>(null);
+let appliedInitialOpen = $state<"model" | "style" | null>(null);
 let styleOpen = $derived(activeDropdown === "style");
-let depthOpen = $derived(activeDropdown === "depth");
 let atlasOpen = $derived(activeDropdown === "atlas");
 let atlasAvailable = $derived(
 	Boolean(atlasAvailability?.enabled && atlasAvailability.configured),
@@ -73,13 +67,6 @@ let atlasUnavailableReason = $derived(
 
 let selectedProfile = $derived(
 	personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
-);
-let selectedReasoningDepthLabel = $derived(
-	reasoningDepth === "max"
-		? $t("composerTools.reasoningDepthMax")
-		: reasoningDepth === "off"
-			? $t("composerTools.reasoningDepthOff")
-			: $t("composerTools.reasoningDepthAuto"),
 );
 let selectedAtlasProfileLabel = $derived(
 	atlasProfile ? atlasProfileLabel(atlasProfile) : $t("composerTools.atlas"),
@@ -110,11 +97,6 @@ function selectModel(payload: { modelId: ModelId }) {
 function handleAttach() {
 	onAttach?.();
 	onClose?.();
-}
-
-function selectReasoningDepth(depth: ReasoningDepth) {
-	onReasoningDepthChange?.(depth);
-	closeMenu();
 }
 
 function toggleWebSearch() {
@@ -241,55 +223,6 @@ onMount(() => {
 			</div>
 		</div>
 	{/if}
-
-	<div class="menu-row menu-row--static">
-		<div class="menu-label">{$t('composerTools.reasoningDepth')}</div>
-		<div class="model-selector">
-			<button
-				type="button"
-				class="model-selector__trigger"
-				onclick={() => activeDropdown = depthOpen ? null : 'depth'}
-				aria-haspopup="listbox"
-				aria-expanded={depthOpen}
-			>
-				<span class="model-selector__text">{selectedReasoningDepthLabel}</span>
-				<span class={`model-selector__chevron${depthOpen ? ' model-selector__chevron--open' : ''}`}>
-					<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-				</span>
-			</button>
-			{#if depthOpen}
-				<ul class="model-selector__dropdown" role="listbox" aria-label={$t('composerTools.reasoningDepth')}>
-					<li
-						role="option"
-						aria-selected={reasoningDepth === 'off'}
-						class="model-selector__option"
-						class:model-selector__option--selected={reasoningDepth === 'off'}
-						onclick={() => selectReasoningDepth('off')}
-						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('off')}
-						tabindex="0"
-					>{$t('composerTools.reasoningDepthOff')}</li>
-					<li
-						role="option"
-						aria-selected={reasoningDepth === 'auto'}
-						class="model-selector__option"
-						class:model-selector__option--selected={reasoningDepth === 'auto'}
-						onclick={() => selectReasoningDepth('auto')}
-						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('auto')}
-						tabindex="0"
-					>{$t('composerTools.reasoningDepthAuto')}</li>
-					<li
-						role="option"
-						aria-selected={reasoningDepth === 'max'}
-						class="model-selector__option"
-						class:model-selector__option--selected={reasoningDepth === 'max'}
-						onclick={() => selectReasoningDepth('max')}
-						onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectReasoningDepth('max')}
-						tabindex="0"
-					>{$t('composerTools.reasoningDepthMax')}</li>
-				</ul>
-			{/if}
-		</div>
-	</div>
 
 	{#if atlasAvailability}
 		<div class="menu-row">
