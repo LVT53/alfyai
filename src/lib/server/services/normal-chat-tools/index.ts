@@ -1,3 +1,4 @@
+import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -89,6 +90,7 @@ import {
 	createProduceFileToolCallEntry,
 	normalizeProduceFileInput,
 	produceFileInputSchema,
+	produceFileModelInputSchema,
 	sanitizeProduceFileInput,
 	sanitizeUnsafeProduceFileInput,
 	summarizeProduceFileResult,
@@ -112,10 +114,12 @@ import {
 } from "./research-web";
 import {
 	routingToolInputSchema,
+	routingToolModelSchema,
 	runRoutingTool,
 	sanitizeRoutingToolInput,
 } from "./routing";
 import {
+	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
 	modelSafeToolError,
@@ -192,37 +196,37 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	en: {
 		research_web: {
 			description:
-				'Search the web for current facts, prices, specs, policies, news, comparisons, and multi-source research. Use when the user asks about something current, disputed, or verifiable, or asks for sources or verification. Pass {"query": "your exact research question"}; sharpen with `objective` and `searchQueries` (2-3 short 3-6 word keyword queries, no site: operators, no specific years/versions unless historical). Example: {"query": "iPhone 16 Pro Max price 2026", "objective": "current retail price in the US"}. Returns `evidence` snippets and an `answerBriefMarkdown`; prefer primary sources when they conflict.',
+				'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Pass {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Returns `evidence` snippets and an `answerBriefMarkdown`; prefer primary sources when they conflict. Do not call it again when this turn already contains web research results.',
 			errorPrefix: "Web research failed",
 		},
 		fetch_url: {
 			description:
-				'Fetch and read one or more specific web pages by URL. Use when the user pastes a link, or search snippets lack detail from a page. Pass {"urls": ["https://example.com"]} — always an array, even for one link — plus an optional `objective` describing what to extract. Example: {"urls": ["https://example.com/pricing"], "objective": "the current Pro plan monthly price"}. Returns `evidence` snippets and an `answerBriefMarkdown`.',
+				'Read specific web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Use for a link the user gave, or for a detail that research results lack and only the page has. Returns `evidence` snippets and an `answerBriefMarkdown`.',
 			errorPrefix: "Fetch URL failed",
 		},
 		map_route: {
 			description:
-				'Real-world geography on OpenStreetMap data: geocode places, route (distance+ETA+turns), a distance/ETA matrix, or reachability (isochrone) polygons. Pass a single `action` plus its fields: `geocode` {"action":"geocode","query":"Brandenburg Gate","near"?:{lat,lng},"limit"?:5}; `route` {"action":"route","origin":<place>,"destination":<place>,"waypoints"?:[<place>],"mode":"drive|walk|bike"}; `matrix` {"action":"matrix","origins":[<place>],"destinations":[<place>],"mode":...}; `isochrone` {"action":"isochrone","origin":<place>,"ranges_s":[300,600],"mode":...}. A `<place>` is EITHER coordinates {"lat":52.52,"lng":13.4} OR a place-name string. This tool never knows the user\'s location — call `location` first and pass its coordinates. `mode` defaults to `drive`. The result is STRUCTURED (distance_m, duration_s, legs, polyline, matrix arrays, or polygons) — narrate it and ALWAYS include the attribution string ("© OpenStreetMap contributors") in the answer.',
+				'Geography on OpenStreetMap data. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations) or `isochrone` (origin, ranges_s in seconds). A place is a name string or {"lat":52.52,"lng":13.4}; `mode` is drive (default), walk or bike. Example: {"action":"route","origin":"Berlin Hbf","destination":"Brandenburg Gate","mode":"walk"}. It does not know where the user is: call `location` first for their coordinates. Narrate the structured result (distance_m, duration_s, legs, polygons) and always include "© OpenStreetMap contributors".',
 			errorPrefix: "Routing failed",
 		},
 		memory_context: {
 			description:
-				'Retrieve durable memory, project-folder context, persona memory, or account history. Use proactively when it could materially improve the answer. Pass `mode` and `query`: `persona` (default) for durable preferences or goals; `history` with `query` and optional `maxHistoryConversations` for older conversations, then `historyConversationId`/`selectedConversationId` with `maxMessages` for one conversation\'s detail; `project` (start without `siblingConversationId`) for project/folder continuity, naming the folder in `query` if known, then a returned `siblingConversationId` for detail. Example: {"mode": "persona", "query": "dietary preferences"}. `conversationId` is supplied by the runtime — never ask the user for it or pass `userId`/`folderId`/`projectId`. If a mode returns nothing, continue without claiming no related memory.',
+				"Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. An empty result is not proof that no memory exists.",
 			errorPrefix: "Memory context lookup failed",
 		},
 		image_search: {
 			description:
-				'Search the web for image results for the current request. Pass a single JSON argument with only `query`, e.g. {"query": "golden retriever puppy"}. Returns a JSON list of image URLs — embed them in your visible text using markdown image syntax `![alt text](url)` exactly where you want them to appear; the user cannot see raw tool output, so an unembedded image is invisible to them.',
+				'Find web images for the current request: {"query": "golden retriever puppy"}. Returns a list of image URLs. Embed the ones you use in your visible answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible to them.',
 			errorPrefix: "Image search failed",
 		},
 		produce_file: {
 			description:
-				'Queue generation of a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, etc.). Only call this when the user actually asks for a downloadable file — it is registered on every turn regardless. Call dependent tools first and wait for results; never call with placeholder, template, or empty content. Prefer the simple form: `requestTitle`, `outputType` or `filename`, and `markdown`, `content`, or `text` — the server converts this into the correct production mode. Example: {"requestTitle": "Q1 Report", "filename": "q1-report.md", "markdown": "# Q1 Report\\n\\n## Revenue\\n- $1.2M [Source](https://example.com)"}. To update an existing file, call `read_generated_file` with the same `filename` first, then resend full content or use `patches`: `{oldText, newText}` objects applied in order, each `oldText` a unique, exact 20+ char substring of the current content. Use `program` only for artifacts requiring executable generation (XLSX, PPTX, ZIP); `documentSource` only when structured blocks materially improve a PDF/DOCX/HTML report. Success means the request was accepted, not that rendering is finished. documentSource blocks are: heading{level,text}, paragraph{text}, list{style:"bullet"|"numbered",items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:"bar"|"line"|"pie"|"donut"|"scatter",title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never put a pipe table or a text-drawn chart inside a paragraph, and never put block-character bars (█) in table cells or code blocks — use table and chart blocks — and always encode line breaks as \\n inside JSON strings.',
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never with placeholder or empty content. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP). Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables in paragraphs, no block-character bars anywhere) and encode line breaks as \\n inside JSON strings. Success means the request was accepted, not that rendering has finished.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
 			description:
-				"Read the full content of a previously generated file by filename or title, so you can review it before making surgical edits. Always call this before proposing `produce_file` patches — the server rejects a patch whose `oldText` does not match the actual file content exactly. If the file cannot be found, say so rather than guessing at its content.",
+				"Read the full current content of a file generated earlier in this conversation, by `filename` or `requestTitle`. Call it before sending `produce_file` patches: a patch whose oldText does not match the file exactly is rejected. If the file is not found, say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
 		},
 		files: {
@@ -274,37 +278,37 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	hu: {
 		research_web: {
 			description:
-				'Keresés az interneten aktuális tényekért, árakért, specifikációkért, szabályzatokért, hírekért, összehasonlításokért és több forrásos kutatáshoz. Akkor használd, ha a felhasználó valami aktuálisra, vitatottra vagy ellenőrizhetőre kérdez rá, vagy forrást, ellenőrzést kér. Add meg: {"query": "a pontos kutatási kérdésed"}; finomíthatod az `objective` és a `searchQueries` mezővel (2-3 rövid, 3-6 szavas kulcsszókeresés, nincs site: operátor, és nincs konkrét év/verzió, hacsak a kérdés kifejezetten történeti). Példa: {"query": "iPhone 16 Pro Max ára 2026", "objective": "jelenlegi amerikai kiskereskedelmi ár"}. Az eszköz `evidence` részleteket és egy `answerBriefMarkdown` összefoglalót ad vissza; ha a források ellentmondanak egymásnak, az elsődleges forrást részesítsd előnyben.',
+				'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Add meg: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza; ellentmondás esetén az elsődleges forrást részesítsd előnyben. Ne hívd újra, ha ebben a körben már vannak webes kutatási eredmények.',
 			errorPrefix: "A webes kutatás sikertelen",
 		},
 		fetch_url: {
 			description:
-				'Egy vagy több konkrét weboldal letöltése és elolvasása URL alapján. Akkor használd, ha a felhasználó egy linket ad meg, vagy ha a keresési részletek nem tartalmazzák a szükséges adatot egy adott oldalról. Add meg: {"urls": ["https://example.com"]} — mindig szövegek tömbjeként, egyetlen link esetén is —, opcionálisan az `objective` mezővel, amely leírja, mit szeretnél kinyerni. Példa: {"urls": ["https://example.com/pricing"], "objective": "a jelenlegi Pro csomag havi ára"}. Az eszköz `evidence` részleteket és egy `answerBriefMarkdown` összefoglalót ad vissza.',
+				'Konkrét weboldalak elolvasása: {"urls": ["https://example.com"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor használd, ha a felhasználó linket adott, vagy ha egy részlet hiányzik a kutatási eredményekből, és csak az oldalon található meg. `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.',
 			errorPrefix: "Az URL letöltése sikertelen",
 		},
 		map_route: {
 			description:
-				'Valós földrajzi elemzés OpenStreetMap adatokon: helynevek geokódolása, útvonal (távolság+menetidő+fordulók), távolság/menetidő mátrix, vagy elérhetőségi (izokron) poligonok. Egyetlen `action` mezőt adj meg a hozzá tartozó adatokkal: `geocode` {"action":"geocode","query":"Brandenburgi kapu","near"?:{lat,lng},"limit"?:5}; `route` {"action":"route","origin":<hely>,"destination":<hely>,"waypoints"?:[<hely>],"mode":"drive|walk|bike"}; `matrix` {"action":"matrix","origins":[<hely>],"destinations":[<hely>],"mode":...}; `isochrone` {"action":"isochrone","origin":<hely>,"ranges_s":[300,600],"mode":...}. Egy `<hely>` VAGY koordináta {"lat":52.52,"lng":13.4}, VAGY egy helynév szöveg. Ez az eszköz soha nem ismeri a felhasználó helyzetét — előbb hívd meg a `location` eszközt, és add át ide a koordinátákat. A `mode` alapértéke `drive`. Az eredmény STRUKTURÁLT (distance_m, duration_s, legs, polyline, mátrix tömbök vagy poligonok) — fogalmazd meg, és MINDIG tüntesd fel a forrásmegjelölést ("© OpenStreetMap contributors") a válaszban.',
+				'Földrajz OpenStreetMap adatokon. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations) vagy `isochrone` (origin, ranges_s másodpercben). Egy hely lehet helynév szöveg vagy {"lat":52.52,"lng":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {"action":"route","origin":"Keleti pályaudvar","destination":"Lánchíd","mode":"walk"}. Nem tudja, hol van a felhasználó: előbb hívd a `location` eszközt a koordinátákért. Mondd el az eredményt (distance_m, duration_s, legs, poligonok), és mindig szerepeljen benne a "© OpenStreetMap contributors" felirat.',
 			errorPrefix: "Az útvonaltervezés sikertelen",
 		},
 		memory_context: {
 			description:
-				'Tartós memória, projektmappa-kontextus, személyre szabott memória vagy fiókelőzmények lekérése. Használd proaktívan, amikor érdemben javíthatja a választ. Add meg a `mode` és `query` mezőt: `persona` (alapértelmezett) tartós preferenciákhoz vagy célokhoz; `history` a `query` és opcionális `maxHistoryConversations` mezővel régebbi beszélgetésekhez, majd `historyConversationId`/`selectedConversationId` és `maxMessages` egy adott beszélgetés részleteihez; `project` (kezdetben `siblingConversationId` nélkül) projekt-/mappa-folytonossághoz, a `query`-ben megnevezve a mappát, ha ismert, majd egy visszaadott `siblingConversationId` további részletekhez. Példa: {"mode": "persona", "query": "étkezési preferenciák"}. A `conversationId`-t a rendszer adja meg — soha ne kérd el a felhasználótól, és ne add meg a `userId`/`folderId`/`projectId` mezőt. Ha egy mód nem ad vissza semmit, folytasd anélkül, hogy azt állítanád, nincs kapcsolódó memória.',
+				"Tartós memória lekérése, ha érdemben javítja a választ. `mode`: `persona` (alapértelmezett) preferenciákhoz és célokhoz; `history` a `query`-re illő régebbi beszélgetésekhez, majd egy beszélgetés részletei `historyConversationId` + `maxMessages` megadásával; `project` projektmappa-folytonossághoz (a mappa nevét a `query`-ben add meg), majd egy visszakapott `siblingConversationId` a részletekhez. A `conversationId`-t a rendszer adja meg; soha ne kérj vagy adj meg felhasználó-, mappa- vagy projektazonosítót. Az üres eredmény nem bizonyítja, hogy nincs kapcsolódó memória.",
 			errorPrefix: "A memória kontextus lekérése sikertelen",
 		},
 		image_search: {
 			description:
-				'Képkeresés az interneten az aktuális kéréshez. Add meg egyetlen JSON argumentumként, csak a `query` mezővel, pl. {"query": "aranyszínű retriever kölyök"}. Az eszköz kép-URL-ek listáját adja vissza JSON formátumban — ágyazd be őket a látható válaszodba Markdown kép szintaxissal: `![alt szöveg](url)`, pontosan ott, ahol meg szeretnéd jeleníteni őket; a felhasználó nem látja a nyers eszközkimenetet, ezért egy be nem ágyazott kép láthatatlan marad számára.',
+				'Képek keresése az interneten az aktuális kéréshez: {"query": "aranyszínű retriever kölyök"}. Kép-URL-ek listáját adja vissza. A használt képeket ágyazd be a látható válaszba Markdown képszintaxissal: `![alt szöveg](url)`, ott, ahová valók; a felhasználó nem látja a nyers eszközkimenetet, ezért a be nem ágyazott kép láthatatlan marad számára.',
 			errorPrefix: "A képkeresés sikertelen",
 		},
 		produce_file: {
 			description:
-				'Letölthető fájl (PDF, DOCX, XLSX, PPTX, CSV, Markdown stb.) generálásának ütemezése. Csak akkor hívd, ha a felhasználó ténylegesen letölthető fájlt kér — minden körben regisztrálva van, függetlenül ettől. Előbb hívd meg és várd meg a függő eszközöket; soha ne hívd meg helyőrző, sablon jellegű vagy üres tartalommal. Az egyszerű formát részesítsd előnyben: `requestTitle`, `outputType` vagy `filename`, valamint `markdown`, `content` vagy `text` — a szerver ezt automatikusan a megfelelő előállítási módra alakítja. Példa: {"requestTitle": "Q1 riport", "filename": "q1-riport.md", "markdown": "# Q1 riport\\n\\n## Bevétel\\n- 1,2M$ [Forrás](https://example.com)"}. Egy meglévő fájl frissítéséhez előbb hívd meg a `read_generated_file`-t ugyanazzal a `filename`-mel, majd küldd újra a teljes tartalmat, vagy használj `patches`-t: `{oldText, newText}` objektumok tömbjét, sorrendben alkalmazva, ahol minden `oldText` a jelenlegi tartalom egyedi, pontosan egyező, legalább 20 karakteres részlete. A `program`-ot csak olyan tartalomhoz használd, amely valóban végrehajtható generálást igényel (XLSX, PPTX, ZIP); a `documentSource`-t csak akkor, ha a strukturált blokkok érdemben javítanak egy PDF/DOCX/HTML riportot. A sikeres hívás azt jelenti, hogy a kérést elfogadták, nem hogy a renderelés kész. A documentSource blokkjai: heading{level,text}, paragraph{text}, list{style:"bullet"|"numbered",items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:"bar"|"line"|"pie"|"donut"|"scatter",title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne tegyél pipe-táblázatot vagy szöveggel rajzolt diagramot paragraph blokkba, és soha ne rajzolj blokk-karakteres sávokat (█) táblázatcellába vagy kódblokkba — használj table és chart blokkot —, és a sortöréseket mindig \\n-ként kódold a JSON szövegekben.',
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrző vagy üres tartalommal. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP). `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat paragraph-ban, nincs blokk-karakteres sáv sehol), és a sortöréseket \\n-ként kódold a JSON szövegekben. A siker azt jelenti, hogy a kérést elfogadták, nem azt, hogy a renderelés kész.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
 			description:
-				"Egy korábban generált fájl teljes tartalmának beolvasása fájlnév vagy cím alapján, hogy ellenőrizhesd a tartalmát a módosítások előtt. Mindig ezt hívd meg, mielőtt `produce_file` patch-eket javasolnál — a szerver elutasítja azt a patch-et, amelynek `oldText`-je nem egyezik pontosan a fájl tényleges tartalmával. Ha a fájl nem található, mondd ki, ahelyett hogy találgatnál a tartalmáról.",
+				"Egy ebben a beszélgetésben korábban generált fájl teljes aktuális tartalmának beolvasása `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél: a fájllal pontosan nem egyező oldText-ű patch-et a szerver elutasítja. Ha a fájl nem található, mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
 		files: {
@@ -612,7 +616,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		memory_context: asExecutableTool(
 			tool({
 				description: i18n.memory_context.description,
-				inputSchema: memoryContextInputSchema,
+				inputSchema: compactToolInputSchema(
+					memoryContextInputSchema,
+					memoryContextInputSchema.omit({
+						selectedConversationId: true,
+						includeEvidenceCandidates: true,
+					}),
+				),
 				execute: async (
 					input: z.infer<typeof memoryContextInputSchema>,
 					options: ToolExecutionOptions,
@@ -759,9 +769,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		produce_file: asExecutableTool(
 			tool({
 				description: i18n.produce_file.description,
-				inputSchema: produceFileInputSchema,
+				inputSchema: produceFileModelInputSchema,
 				execute: async (
-					input: z.infer<typeof produceFileInputSchema>,
+					input: z.infer<typeof produceFileModelInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
 					const parsedInput = produceFileInputSchema.safeParse(input);
@@ -1781,7 +1791,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					map_route: asExecutableTool(
 						tool({
 							description: mapRouteDescription,
-							inputSchema: routingToolInputSchema,
+							inputSchema: compactToolInputSchema(
+								routingToolInputSchema,
+								routingToolModelSchema as unknown as JSONSchema7,
+							),
 							execute: async (
 								input: z.infer<typeof routingToolInputSchema>,
 								options: ToolExecutionOptions,
@@ -1895,11 +1908,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 			: {}),
 		done: tool({
 			description:
-				"Call this when the task is fully complete and you have nothing more to add. Include a brief summary of what was accomplished. Call it once, at the very end — after you have gathered all needed evidence, synthesized your answer, and produced any requested files — not after every individual tool call. Calling this ends the agent loop; do not call it until you are truly finished, and if you are unsure whether more tool calls are needed, make another tool call instead of calling this prematurely.",
+				"Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. It ends the turn, so if more tool calls might be needed, make them instead.",
 			inputSchema: z.object({
-				summary: z
-					.string()
-					.describe("Brief summary of what was accomplished in this turn"),
+				summary: z.string().describe("One line on what was accomplished"),
 			}),
 		}),
 	};
@@ -1908,7 +1919,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// failing stays registered but its description warns the model, so a
 	// failure is narrated instead of hidden (cached snapshot only, no probes).
 	const hintedTools = applyDegradedToolHints(
-		tools,
+		compactToolSchemas(tools),
 		collectDegradedToolHints(getCachedToolHealthSnapshot(), lang),
 	);
 
@@ -1917,6 +1928,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		recorder,
 		getToolCalls: () => recorder.getEntries(),
 	};
+}
+
+// Every tool keeps its zod schema for validation but shows the model a
+// compact JSON schema (see compactToolInputSchema).
+function compactToolSchemas<T extends Record<string, Tool>>(toolSet: T): T {
+	const out: Record<string, Tool> = {};
+	for (const [name, definition] of Object.entries(toolSet)) {
+		const schema = definition.inputSchema;
+		out[name] =
+			schema && schema instanceof z.ZodType
+				? { ...definition, inputSchema: compactToolInputSchema(schema) }
+				: definition;
+	}
+	return out as T;
 }
 
 async function getPreviousGeneratedFileContent(

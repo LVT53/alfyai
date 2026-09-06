@@ -58,6 +58,32 @@ export const produceFileInputSchema = z
 	})
 	.passthrough();
 
+// What the model is shown. The full schema above stays the parser: it keeps
+// accepting the aliases (`title`, `outputs`, `fileType`, `text`, ...) that
+// older prompts and the model still occasionally send, but describing every
+// alias to the model costs hundreds of prompt tokens on every turn.
+export const produceFileModelInputSchema = z
+	.object({
+		requestTitle: z.string().min(1).optional(),
+		filename: z.string().min(1).optional(),
+		outputType: z.string().min(1).optional(),
+		markdown: z.string().min(1).optional(),
+		content: z.string().min(1).optional(),
+		patches: z
+			.array(z.object({ oldText: z.string().min(1), newText: z.string() }))
+			.min(1)
+			.optional(),
+		program: z
+			.object({
+				language: z.enum(["python", "javascript"]),
+				sourceCode: z.string().min(1),
+				filename: z.string().min(1).optional(),
+			})
+			.optional(),
+		documentSource: z.record(z.string(), z.unknown()).optional(),
+	})
+	.passthrough();
+
 // ── Types ──────────────────────────────────────────────────────
 
 export type ProduceFileInput = z.infer<typeof produceFileInputSchema>;

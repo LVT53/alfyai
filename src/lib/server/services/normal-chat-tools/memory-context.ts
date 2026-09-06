@@ -10,71 +10,53 @@ export const memoryContextInputSchema = z.object({
 	mode: z
 		.enum(["persona", "project", "history"])
 		.optional()
-		.describe(
-			"Memory scope. Use project for project folders/continuity, persona for user preferences/profile, and history for older account chats outside a project.",
-		),
+		.describe("persona (default), project, or history."),
 	query: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			"Specific lookup question or named entity. For named project folders, include the exact folder name, e.g. 'AlmaLinux Server'. Folder-wide report/export requests return bounded report context in one call.",
-		),
+		.describe("What to look up; for project mode, include the folder name."),
 	maxSiblings: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
-		.describe(
-			"Maximum project sibling conversations to return. For folder-wide reports, keep this at or below 16 and use the returned reportSiblings instead of one detail call per sibling.",
-		),
+		.describe("Max project conversations to return (keep at or below 16)."),
 	siblingConversationId: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			"One conversation id returned by a previous project result when requesting deeper project detail.",
-		),
+		.describe("A conversation id from a previous project result, for detail."),
 	maxMessages: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
-		.describe(
-			"Maximum recent messages to return for a selected conversation, or per sibling for folder-wide report context.",
-		),
+		.describe("Max recent messages per selected conversation."),
 	maxHistoryConversations: z
 		.number()
 		.int()
 		.min(1)
 		.optional()
-		.describe("Maximum older history conversations to return."),
+		.describe("Max history conversations to return."),
 	historyConversationId: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			"One conversation id returned by history mode for deeper detail.",
-		),
+		.describe("A conversation id from a history result, for detail."),
 	selectedConversationId: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			"Alias for selecting one returned history conversation for detail.",
-		),
+		.describe("Same as historyConversationId."),
 	includeEvidenceCandidates: z
 		.boolean()
 		.optional()
-		.describe(
-			"Whether to include bounded evidence candidates for UI citations.",
-		),
+		.describe("Include citation evidence."),
 	includeAttachments: z
 		.boolean()
 		.optional()
-		.describe(
-			"Whether to include full attachment contents from previous messages. When true, the full text of any attached files is returned without truncation.",
-		),
+		.describe("Include full text of earlier attachments."),
 });
 
 export type MemoryContextInput = z.infer<typeof memoryContextInputSchema>;

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
+import type { JSONSchema7 } from "@ai-sdk/provider";
+import { asSchema } from "@ai-sdk/provider-utils";
 import type { ToolExecutionOptions } from "ai";
+import { jsonSchema } from "ai";
+import { z } from "zod";
 
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { deriveToolResultDigest } from "./tool-result-digest";
@@ -349,4 +353,43 @@ export async function executeToolWithEnvelope<
 		params.recorder.record(failure.entry);
 		return failure.modelPayload;
 	}
+}
+
+// ── Compact model-facing schemas ─────────────────────────────────
+//
+// The chat template renders every tool's JSON schema verbatim into the
+// prompt, so zod's boilerplate ("$schema", additionalProperties:false,
+// minLength:1, the 2^53 integer ceiling) costs real tokens on every turn.
+// The model is shown a trimmed copy; validation still runs the full zod
+// schema, so nothing is accepted that was not accepted before.
+
+const NOISE_KEYS = new Set(["$schema", "additionalProperties"]);
+
+function compactJsonSchema(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(compactJsonSchema);
+	if (!value || typeof value !== "object") return value;
+	const out: Record<string, unknown> = {};
+	for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+		if (NOISE_KEYS.has(key)) continue;
+		if (key === "minLength" && entry === 1) continue;
+		if (key === "maximum" && entry === 9007199254740991) continue;
+		if (key === "minimum" && entry === -9007199254740991) continue;
+		out[key] = compactJsonSchema(entry);
+	}
+	return out;
+}
+
+export function compactToolInputSchema<T>(
+	schema: z.ZodType<T>,
+	shown: z.ZodType | JSONSchema7 = schema,
+): ReturnType<typeof jsonSchema<T>> {
+	const full = shown instanceof z.ZodType ? asSchema(shown).jsonSchema : shown;
+	return jsonSchema<T>(compactJsonSchema(full) as JSONSchema7, {
+		validate: (value) => {
+			const parsed = schema.safeParse(value);
+			return parsed.success
+				? { success: true, value: parsed.data }
+				: { success: false, error: parsed.error };
+		},
+	});
 }

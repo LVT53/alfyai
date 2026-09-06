@@ -89,6 +89,48 @@ export const routingToolInputSchema = z.object({
 
 export type RoutingToolInput = z.infer<typeof routingToolInputSchema>;
 
+// What the model is shown for map_route. The zod schema above repeats the
+// place union (name | {lat,lng}) five times with coordinate bounds, which the
+// chat template renders in full; the model gets a plain-language copy and the
+// zod schema still validates every call.
+const PLACE_DOC = 'Place: a name string or {"lat":52.52,"lng":13.4}.';
+export const routingToolModelSchema = {
+	type: "object",
+	properties: {
+		action: {
+			type: "string",
+			enum: ["geocode", "route", "matrix", "isochrone"],
+		},
+		query: { type: "string", description: "geocode: the place to look up" },
+		near: {
+			type: "object",
+			properties: { lat: { type: "number" }, lng: { type: "number" } },
+			description: "geocode: bias results near these coordinates",
+		},
+		limit: { type: "integer", maximum: 10 },
+		origin: { description: `route/isochrone start. ${PLACE_DOC}` },
+		destination: { description: `route end. ${PLACE_DOC}` },
+		waypoints: {
+			type: "array",
+			maxItems: 25,
+			items: { description: PLACE_DOC },
+		},
+		origins: { type: "array", maxItems: 25, items: { description: PLACE_DOC } },
+		destinations: {
+			type: "array",
+			maxItems: 25,
+			items: { description: PLACE_DOC },
+		},
+		ranges_s: {
+			type: "array",
+			items: { type: "number" },
+			description: "isochrone: travel-time ranges in seconds",
+		},
+		mode: { type: "string", enum: ["drive", "walk", "bike"] },
+	},
+	required: ["action"],
+} as const;
+
 function trimPlace(place: PlaceInput): PlaceInput {
 	return typeof place === "string" ? place.trim() : place;
 }
