@@ -628,6 +628,45 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		});
 	});
 
+	// A filtered fetch that fails used to be swallowed, leaving the previous
+	// (differently filtered) numbers on screen as if they were the result.
+	it("surfaces a failed filtered fetch in the page error state", async () => {
+		fetchAnalyticsMock.mockRejectedValue(new Error("Filtered fetch failed"));
+		const onRetry = vi.fn();
+		const { getByRole, getByLabelText, getByText } = render(
+			SettingsSystemAnalytics,
+			{
+				analyticsData: systemWithAvailabilityFixture(),
+				modelNames: { "model-active": "Model Active" },
+				onRetry,
+				selectedSystemMonth: null,
+				onSystemMonthChange: vi.fn(),
+				allUsers: [
+					{ id: "user-2", email: "user2@example.com", name: "User Two" },
+				],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
+			},
+		);
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+		await fireEvent.change(getByLabelText("User"), {
+			target: { value: "user-2" },
+		});
+
+		await vi.waitFor(() => {
+			expect(getByText("Filtered fetch failed")).toBeInTheDocument();
+		});
+
+		fetchAnalyticsMock.mockResolvedValue(systemWithAvailabilityFixture());
+		await fireEvent.click(getByRole("button", { name: "Retry" }));
+
+		expect(onRetry).toHaveBeenCalled();
+		await vi.waitFor(() => {
+			expect(getByRole("tab", { name: "Usage by model" })).toBeInTheDocument();
+		});
+	});
+
 	// Analytics overhaul (frontend half) — the Tools & latency tab renders
 	// from the new read-model sections, and its top-10 tables expand/collapse.
 	describe("Tools & latency tab", () => {

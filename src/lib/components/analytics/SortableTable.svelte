@@ -79,9 +79,11 @@ let visibleRows = $derived.by(() => {
 	return sortRows(filtered, sortKey, sortDir, type);
 });
 
-// Reset to collapsed whenever the underlying row set shrinks below the cap
-// (e.g. a filter change) so a stale "expanded" state doesn't hide a footer
-// that would otherwise be useful again.
+// The cap only applies while the row set is actually longer than it, so a row
+// set that shrinks below `maxRows` (e.g. a filter change) shows every row and
+// drops the footer, whether or not it was expanded at the time. `expanded` is
+// deliberately left alone: it is the reader's own choice, and re-applies if
+// the rows grow past the cap again.
 let isCappable = $derived(
 	Boolean(maxRows) && visibleRows.length > (maxRows ?? 0),
 );

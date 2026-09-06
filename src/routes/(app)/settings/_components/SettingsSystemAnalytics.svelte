@@ -89,18 +89,18 @@ const hasActiveFilters = $derived(
 
 let filteredData = $state<AnalyticsResponse | null>(null);
 let filteredLoading = $state(false);
+// A failed filtered fetch used to be swallowed, leaving the previous (wrongly
+// labelled) numbers on screen under the new filter. It now feeds the page's
+// existing error state, together with the parent-owned analyticsError.
+let filteredError = $state("");
 let filterFetchToken = 0;
 
-$effect(() => {
-	const userId = filterUserId;
-	const modelId = filterModelId;
-	const providerId = filterProviderId;
-	const month = selectedSystemMonth;
-	if (!userId && !modelId && !providerId) {
-		filteredData = null;
-		filteredLoading = false;
-		return;
-	}
+function runFilteredFetch(
+	userId: string,
+	modelId: string,
+	providerId: string,
+	month: string | null,
+) {
 	const token = ++filterFetchToken;
 	filteredLoading = true;
 	fetchAnalytics(false, undefined, undefined, month ?? undefined, {
@@ -111,14 +111,50 @@ $effect(() => {
 		.then((data) => {
 			if (token !== filterFetchToken) return;
 			filteredData = data;
+			filteredError = "";
 		})
-		.catch(() => {
-			// Best-effort: keep showing whatever was displayed before.
+		.catch((error: unknown) => {
+			if (token !== filterFetchToken) return;
+			// Drop the stale rows too: leaving them up under the new filter
+			// labels somebody else's numbers as the filtered result.
+			filteredData = null;
+			filteredError = error instanceof Error ? error.message : String(error);
 		})
 		.finally(() => {
 			if (token === filterFetchToken) filteredLoading = false;
 		});
+}
+
+$effect(() => {
+	const userId = filterUserId;
+	const modelId = filterModelId;
+	const providerId = filterProviderId;
+	const month = selectedSystemMonth;
+	if (!userId && !modelId && !providerId) {
+		filterFetchToken += 1;
+		filteredData = null;
+		filteredLoading = false;
+		filteredError = "";
+		return;
+	}
+	runFilteredFetch(userId, modelId, providerId, month);
 });
+
+// Either source of failure renders in the one error card below.
+const displayError = $derived(analyticsError || filteredError);
+
+function retry() {
+	filteredError = "";
+	if (hasActiveFilters) {
+		runFilteredFetch(
+			filterUserId,
+			filterModelId,
+			filterProviderId,
+			selectedSystemMonth,
+		);
+	}
+	void onRetry();
+}
 
 // The prop data (unfiltered by userId/modelId/providerId) once filters are
 // cleared; the locally fetched filtered read model while any are active.
@@ -607,10 +643,10 @@ async function toggleExcludedUser(userId: string) {
 
 {#if analyticsLoading && !analyticsData}
 	<div class="flex items-center justify-center py-16 text-text-muted">{$t('analytics.loadingAnalytics')}</div>
-{:else if analyticsError}
+{:else if displayError}
 	<div class="settings-card">
-		<p class="text-danger text-sm">{analyticsError}</p>
-		<button class="btn-secondary mt-3" onclick={onRetry}>{$t('analytics.retry')}</button>
+		<p class="text-danger text-sm">{displayError}</p>
+		<button class="btn-secondary mt-3" onclick={retry}>{$t('analytics.retry')}</button>
 	</div>
 {:else if analyticsData && system}
 	<div class="mb-4">
@@ -689,6 +725,9 @@ async function toggleExcludedUser(userId: string) {
 							<input type="checkbox" bind:checked={showRetired} class="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent" />
 							{$t('analytics.showRetired')}
 						</label>
+						{#if filteredLoading}
+							<span class="text-xs text-text-muted" role="status" aria-live="polite">{$t('analytics.loadingAnalytics')}</span>
+						{/if}
 					</div>
 				{/snippet}
 				<StatGrid>
