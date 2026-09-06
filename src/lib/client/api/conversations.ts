@@ -471,11 +471,25 @@ export interface ConversationMarkdownExport {
 	filename: string;
 }
 
+// Prefers the RFC 5987 `filename*=UTF-8''…` parameter — it is the one that
+// carries a non-ASCII title (a Hungarian conversation name, say) intact —
+// and only falls back to the plain ASCII `filename=` the server sends
+// alongside it for older clients.
 function conversationExportFilenameFromHeader(
 	header: string | null,
 	fallback: string,
 ): string {
-	const match = header ? /filename="?([^";]+)"?/i.exec(header) : null;
+	if (!header) return fallback;
+	const encoded = /filename\*=UTF-8''([^;\s]+)/i.exec(header);
+	if (encoded?.[1]) {
+		try {
+			const decoded = decodeURIComponent(encoded[1]).trim();
+			if (decoded) return decoded;
+		} catch {
+			// Malformed percent-encoding — fall through to the ASCII form.
+		}
+	}
+	const match = /filename="?([^";]+)"?/i.exec(header);
 	return match?.[1]?.trim() || fallback;
 }
 

@@ -7,6 +7,7 @@ vi.mock("$lib/server/services/messages", () => ({
 	listMessages: vi.fn(),
 }));
 
+import { conversationExportFilename } from "$lib/server/services/conversation-export";
 import { getConversation } from "$lib/server/services/conversations";
 import { listMessages } from "$lib/server/services/messages";
 import type { ChatMessage } from "$lib/server/services/messages-types";
@@ -83,6 +84,9 @@ describe("GET /api/conversations/[id]/export.md", () => {
 		expect(response.headers.get("Content-Disposition")).toContain(
 			'filename="Weekend-Trip-Planning.md"',
 		);
+		expect(response.headers.get("Content-Disposition")).toContain(
+			"filename*=UTF-8''Weekend-Trip-Planning.md",
+		);
 		expect(body).toContain("# Weekend Trip Planning");
 		expect(body).toContain("## User");
 		expect(body).toContain("Find flights to Lisbon");
@@ -111,6 +115,25 @@ describe("GET /api/conversations/[id]/export.md", () => {
 		expect(body).toContain("turn-0");
 		expect(body).toContain("turn-149");
 		expect(body).toContain("turn-249");
+	});
+
+	// Reviewer report — the filename slug stripped every non-ASCII character,
+	// so a Hungarian title degraded to a stub. Unicode letters and digits now
+	// survive in the RFC 5987 parameter, with a folded ASCII fallback.
+	it("keeps a Hungarian title's letters in the Content-Disposition header", async () => {
+		mockConversation("Árvíztűrő tükörfúrógép");
+		mockListMessages.mockResolvedValue([]);
+
+		const response = await GET(makeEvent());
+		const disposition = response.headers.get("Content-Disposition") ?? "";
+
+		expect(disposition).toContain(
+			`filename*=UTF-8''${encodeURIComponent("Árvíztűrő-tükörfúrógép.md")}`,
+		);
+		expect(disposition).toContain('filename="Arvizturo-tukorfurogep.md"');
+		expect(conversationExportFilename("Árvíztűrő tükörfúrógép: 2. rész!")).toBe(
+			"Árvíztűrő-tükörfúrógép-2-rész.md",
+		);
 	});
 
 	it("returns 404 when the conversation is not found or not owned by the user", async () => {

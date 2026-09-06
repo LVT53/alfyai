@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
-	conversationExportFilename,
+	conversationExportContentDisposition,
 	renderConversationMarkdown,
 } from "$lib/server/services/conversation-export";
 import { getConversation } from "$lib/server/services/conversations";
@@ -31,13 +31,15 @@ export const GET: RequestHandler = async (event) => {
 
 	const messages = await listMessages(id);
 	const markdown = renderConversationMarkdown(conversation.title, messages);
-	const filename = conversationExportFilename(conversation.title);
+	const contentDisposition = conversationExportContentDisposition(
+		conversation.title,
+	);
 
 	return new Response(markdown, {
 		status: 200,
 		headers: {
 			"Content-Type": "text/markdown; charset=utf-8",
-			"Content-Disposition": `attachment; filename="${filename}"`,
+			"Content-Disposition": contentDisposition,
 			"Cache-Control": "no-store",
 		},
 	});
