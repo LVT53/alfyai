@@ -17,13 +17,8 @@ import {
 	type TurnAcknowledgmentIntentClass,
 } from "$lib/response-activity-types";
 import {
-	deliberationIconTypeForPassKind,
-	formatDeliberationProgressLabel,
-	isDeliberationActivityEntry,
-	isDeliberationStatusSegment,
 	isThoughtStepActivityEntry,
 	isToolProgressActivity,
-	resolveDeliberationPassIndex,
 } from "$lib/utils/activity-presentation";
 import type {
 	AtlasAction,
@@ -55,19 +50,13 @@ import WriteConfirmCard from "./WriteConfirmCard.svelte";
 import { onDestroy, tick } from "svelte";
 import {
 	AlertTriangle,
-	Bot,
 	Brain,
 	Check,
-	ClipboardCheck,
 	Copy,
 	GitBranch,
 	Info,
-	Languages,
-	Layers,
 	Pencil,
 	RefreshCw,
-	Search,
-	ShieldAlert,
 	X,
 } from "@lucide/svelte";
 import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
@@ -237,36 +226,12 @@ let liveResponseActivityEntries = $derived(
 	!isUser && markdownIsStreaming ? (message.responseActivity ?? []) : [],
 );
 let thinkingSegmentsForDisplay = $derived(message.thinkingSegments ?? []);
-// Tier B2 — the deliberation / thought-step / tool-progress classification
-// predicates (isDeliberationStatusSegment, isDeliberationActivityEntry,
-// isThoughtStepActivityEntry, isToolProgressActivity), the passKind -> icon
-// mapping, the pass-index resolution, and the "Deliberating: N/M · label"
-// assembly now live in the shared pure `activity-presentation.ts`, consumed
-// identically by ThinkingBlock, so the two rails cannot drift.
+// Tier B2 — the thought-step / tool-progress classification predicates
+// (isThoughtStepActivityEntry, isToolProgressActivity) live in the shared
+// pure `activity-presentation.ts`, consumed identically by ThinkingBlock, so
+// the two rails cannot drift.
 type AttachmentArtifactSummary = ArtifactSummary & { artifactId: string };
 
-let visibleThinkingSegmentsForDisplay = $derived(
-	markdownIsStreaming
-		? (() => {
-				const latestDeliberationStatus = [...thinkingSegmentsForDisplay]
-					.reverse()
-					.find(isDeliberationStatusSegment);
-				if (!latestDeliberationStatus) {
-					return thinkingSegmentsForDisplay;
-				}
-
-				return thinkingSegmentsForDisplay.filter(
-					(segment) =>
-						segment.type !== "status" ||
-						!segment.id.startsWith("deliberation-pass-") ||
-						segment.id === latestDeliberationStatus.id,
-				);
-			})()
-		: thinkingSegmentsForDisplay,
-);
-let deliberationThinkingStatus = $derived(
-	[...thinkingSegmentsForDisplay].reverse().find(isDeliberationStatusSegment),
-);
 let hasVisibleThinkingSegments = $derived(
 	thinkingSegmentsForDisplay.some(isVisibleThinkingSegment),
 );
@@ -322,19 +287,9 @@ let hasFileProductionCards = $derived(
 let showEvidencePending = $derived(
 	Boolean(message.evidencePending) && isDone && !hasAtlasCards,
 );
-let liveDeliberationStatus = $derived(
-	markdownIsStreaming
-		? ([...liveResponseActivityEntries]
-				.reverse()
-				.find(isDeliberationActivityEntry) ?? deliberationThinkingStatus)
-		: undefined,
-);
-let liveDeliberationStatusLabel = $derived(
-	liveDeliberationStatus?.label?.trim() ?? "",
-);
-// P3c (ADR-0056) — same reverse-scan-latest-match shape as
-// liveDeliberationStatus above, gated identically to markdownIsStreaming so
-// it (like every other live activity) disappears once the turn is done.
+// P3c (ADR-0056) — reverse-scan-latest-match, gated identically to
+// markdownIsStreaming so it (like every other live activity) disappears once
+// the turn is done.
 let liveThoughtStepActivity = $derived(
 	markdownIsStreaming
 		? [...liveResponseActivityEntries]
@@ -342,60 +297,10 @@ let liveThoughtStepActivity = $derived(
 				.find(isThoughtStepActivityEntry)
 		: undefined,
 );
-// Tier B2 — the "Deliberating: N/M · label" assembly is now the shared
-// `formatDeliberationProgressLabel` (consumed identically by ThinkingBlock).
-// The per-component "what counts as a determinate current pass" rule stays
-// here as the adapter: MessageBubble only showed the progress form for a
-// TRUTHY pass number, so a falsy pass index (0) collapses to `null` (`|| null`)
-// and the bare label shows — exactly the pre-extraction `if (current && …)`.
-let liveDeliberationStatusDisplayLabel = $derived(
-	formatDeliberationProgressLabel(
-		liveDeliberationStatusLabel,
-		resolveDeliberationPassIndex(liveDeliberationStatus) || null,
-		liveDeliberationStatus?.passTotal,
-		$t,
-	),
-);
-// P4 (ADR-0056) — the same already-computed passIndex/passTotal reused above
-// for the legacy `chat.deliberatingProgress` line, fed instead into
-// ThinkingBlock's live header for the determinate "pass N of M" rail state.
-// Deliberately the SAME source values, not a second computation — see
-// $lib/utils/deliberation-progress.ts for the pure decision. Keeps the raw
-// resolved index (not the `|| null` display rule above), so an explicit pass 0
-// is passed through unchanged.
-let livePassIndex = $derived(
-	resolveDeliberationPassIndex(liveDeliberationStatus) ?? undefined,
-);
-let livePassTotal = $derived(
-	typeof liveDeliberationStatus?.passTotal === "number"
-		? liveDeliberationStatus.passTotal
-		: undefined,
-);
-// P4 (ADR-0056) — true once RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER has been
-// observed anywhere in this turn's activity log: every planned deliberation
-// pass (including silent ones — deliberation-runner.ts's isLocalOnlyPass
-// never emits their individual status) has resolved and the model has moved
-// into the final answer-generating call. Unlike liveDeliberationStatus's
-// reverse-scan-latest-MATCH, this only needs presence, not the newest entry,
-// since drafting-answer fires exactly once per turn.
-let liveDraftingAnswerReached = $derived(
-	liveResponseActivityEntries.some(
-		(entry) =>
-			entry.kind === "drafting" &&
-			entry.id === RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER,
-	),
-);
 let liveToolProgressActivityEntries = $derived(
 	markdownIsStreaming
 		? liveResponseActivityEntries.filter(isToolProgressActivity)
 		: [],
-);
-// Tier B2 — the passKind -> icon mapping is now shared
-// (deliberationIconTypeForPassKind, consumed identically by ThinkingBlock).
-// MessageBubble's adapter is a flat "search" default for an unknown / absent
-// pass kind (ThinkingBlock instead falls back to a pass-index heuristic).
-const liveDeliberationStatusIconType = $derived(
-	deliberationIconTypeForPassKind(liveDeliberationStatus?.passKind) ?? "search",
 );
 function isDepthAppliedProfile(value: unknown): value is DepthAppliedProfile {
 	return (
@@ -423,7 +328,6 @@ let resolvedDepthProfile = $derived(
 // acknowledgment without any extra bookkeeping — identical to how
 // context-preparing already gets superseded by drafting-answer today.
 let liveEarlyResponseActivityLabel = $derived.by((): string | null => {
-	if (liveDeliberationStatusLabel) return null;
 	for (const entry of [...liveResponseActivityEntries].reverse()) {
 		const label = getKnownEarlyResponseActivityLabel(entry);
 		if (label) return label;
@@ -439,7 +343,6 @@ let showPreparingStatus = $derived(
 		!hasVisibleContent &&
 		!hasThinking &&
 		!hasVisibleThinkingSegments &&
-		!liveDeliberationStatusLabel &&
 		liveToolProgressActivityEntries.length === 0 &&
 		skillDrafts.length === 0 &&
 		!hasFileProductionCards &&
@@ -818,63 +721,7 @@ function toggleForkDetails() {
 				<span>{reasoningDepthIndicatorLabel}</span>
 			</div>
 		{/if}
-	{#if !isUser && liveDeliberationStatusDisplayLabel}
-		{#key `${liveDeliberationStatus?.id ?? 'deliberation'}:${liveDeliberationStatusDisplayLabel}`}
-			<div class="deliberation-status-line" class:is-running={liveDeliberationStatus?.status === 'running'} data-testid="deliberation-status-line" aria-live="polite">
-				{#if liveDeliberationStatusIconType === 'search'}
-					<Search
-						class="deliberation-status-icon"
-						data-deliberation-icon="search"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{:else if liveDeliberationStatusIconType === 'clipboard-check'}
-					<ClipboardCheck
-						class="deliberation-status-icon"
-						data-deliberation-icon="clipboard-check"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{:else if liveDeliberationStatusIconType === 'shield-alert'}
-					<ShieldAlert
-						class="deliberation-status-icon"
-						data-deliberation-icon="shield-alert"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{:else if liveDeliberationStatusIconType === 'languages'}
-					<Languages
-						class="deliberation-status-icon"
-						data-deliberation-icon="languages"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{:else if liveDeliberationStatusIconType === 'layers'}
-					<Layers
-						class="deliberation-status-icon"
-						data-deliberation-icon="layers"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{:else}
-					<Bot
-						class="deliberation-status-icon"
-						data-deliberation-icon="bot"
-						size={14}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>
-				{/if}
-				<span>{liveDeliberationStatusDisplayLabel}</span>
-			</div>
-			{/key}
-		{/if}
-		{#if !isUser && liveToolProgressActivityEntries.length > 0}
+	{#if !isUser && liveToolProgressActivityEntries.length > 0}
 			<div class="tool-progress-stack" data-testid="tool-progress-stack" aria-live="polite">
 				{#each liveToolProgressActivityEntries as activity (activity.id)}
 					<div class="tool-progress-line">{activity.label}</div>
@@ -885,7 +732,7 @@ function toggleForkDetails() {
 		<ThinkingBlock
 			content={message.thinking ?? ''}
 			thinkingIsDone={thinkingIsDone}
-			segments={visibleThinkingSegmentsForDisplay}
+			segments={thinkingSegmentsForDisplay}
 			streaming={markdownIsStreaming}
 			thinkingDurationSeconds={message.generationDurationMs ? Math.round(message.generationDurationMs / 1000) : 0}
 			answerStarted={hasVisibleContent}
@@ -893,9 +740,6 @@ function toggleForkDetails() {
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
 			thoughtSteps={message.thoughtSteps}
-			livePassIndex={livePassIndex}
-			livePassTotal={livePassTotal}
-			draftingAnswerReached={liveDraftingAnswerReached}
 		/>
 		{/if}
 		{#if isUser}
@@ -1331,23 +1175,6 @@ function toggleForkDetails() {
 		pointer-events: none;
 	}
 
-	.deliberation-status-line {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-xs);
-		margin: 0 0 var(--space-xs);
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		line-height: 1.25;
-		animation: deliberationStatusFade 220ms var(--ease-out) both;
-	}
-
-	.deliberation-status-line.is-running {
-		color: var(--accent);
-	}
-
 	.tool-progress-stack {
 		display: flex;
 		flex-direction: column;
@@ -1363,17 +1190,10 @@ function toggleForkDetails() {
 		width: fit-content;
 		max-width: 100%;
 		overflow-wrap: anywhere;
-		animation: deliberationStatusFade 220ms var(--ease-out) both;
+		animation: activityStatusFade 220ms var(--ease-out) both;
 	}
 
-	:global(.deliberation-status-icon) {
-		width: 14px;
-		height: 14px;
-		flex: 0 0 auto;
-		color: currentColor;
-	}
-
-	@keyframes deliberationStatusFade {
+	@keyframes activityStatusFade {
 		from {
 			opacity: 0;
 			transform: translateY(-2px);
@@ -1821,7 +1641,6 @@ function toggleForkDetails() {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.deliberation-status-line,
 		.tool-progress-line {
 			animation: none;
 		}

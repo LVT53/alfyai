@@ -1,30 +1,27 @@
 // The applied-reasoning-depth diagnostics tree produced by the chat-turn
 // depth pipeline (depth-metadata.ts, depth-selection.ts,
-// depth-clarification.ts, reasoning-depth-effort.ts) and projected onto a
-// persisted/streamed message for display. Consumed type-only by client
-// code (streaming.ts, ResponseAuditDetails.svelte) — relocated out of the
-// former src/lib/types.ts god-module (architecture-deepening T1); this
-// file carries no behavior change, only a new home. The small
+// reasoning-depth-effort.ts) and projected onto a persisted/streamed message
+// for display. Consumed type-only by client code (streaming.ts,
+// ResponseAuditDetails.svelte) — relocated out of the former
+// src/lib/types.ts god-module (architecture-deepening T1); this file
+// carries no behavior change, only a new home. The small
 // ReasoningDepth/ThinkingMode core those client sites also need as a
 // runtime value lives separately at src/lib/reasoning-depth-types.ts.
+//
+// ADR-0061 removed the Depth Clarification Gate (dormant since the
+// thinking-toggle redesign, permanently unreachable once the classifier
+// carry-forward path was also removed): `outcome` and `clarification` no
+// longer exist on this type. A message persisted before that removal may
+// still carry those keys in its stored JSON — readers must tolerate the
+// extra, now-unused fields rather than assume this shape is exhaustive.
 
 import type { ReasoningDepth, ThinkingMode } from "$lib/reasoning-depth-types";
-import type { UiLanguage } from "$lib/server/services/auth-types";
 
 export type DepthAppliedProfile = "off" | "standard" | "extended" | "maximum";
 export type DepthGroundingNeed = "none" | "possible" | "useful" | "required";
 export type DepthContextBreadth = "narrow" | "normal" | "broad";
 export type DepthOutputRoom = "concise" | "normal" | "expanded";
 export type DepthToolUse = "none" | "normal" | "source_heavy";
-export type DepthOutcome =
-	| "normal_response"
-	| "clarification_requested"
-	| "proceeded_with_assumption";
-export type DepthClarificationOutcome = "ask" | "proceed_with_assumption";
-export type DepthClarificationReason =
-	| "multiple_plausible_targets"
-	| "user_requested_assumption"
-	| "classifier";
 
 export interface DepthSelectionSignals {
 	groundingNeed?: DepthGroundingNeed;
@@ -84,13 +81,4 @@ export interface DepthMetadata {
 	signals?: DepthSelectionSignals;
 	timing?: DepthSelectionTimingMetadata;
 	appliedEffort?: DepthAppliedEffortMetadata;
-	outcome?: DepthOutcome;
-	clarification?: {
-		outcome: DepthClarificationOutcome;
-		reason: DepthClarificationReason;
-		language: UiLanguage;
-		classifierSource?: string;
-		question?: string;
-		assumption?: string;
-	};
 }

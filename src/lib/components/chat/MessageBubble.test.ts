@@ -781,145 +781,6 @@ describe("MessageBubble", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("renders a single live deliberation status line above the thinking disclosure", async () => {
-		const message: ChatMessage = {
-			id: "assistant-deliberation",
-			renderKey: "assistant-deliberation",
-			role: "assistant",
-			content: "",
-			timestamp: Date.now(),
-			isStreaming: true,
-			isThinkingStreaming: false,
-			responseActivity: [
-				{
-					id: "depth-selected",
-					kind: "depth",
-					status: "done",
-					detail: "maximum",
-				},
-				{
-					id: "context-preparing",
-					kind: "context",
-					status: "running",
-					label: "Preparing context",
-				},
-				{
-					id: "deliberation-pass-1",
-					kind: "deliberation",
-					status: "running",
-					label: "Reviewing context and sources",
-					passIndex: 1,
-					passTotal: 6,
-					passKind: "context_source_gap_review",
-				},
-			],
-			thinkingSegments: [
-				{
-					type: "status",
-					id: "deliberation-pass-1",
-					status: "running",
-					label: "Reviewing context and sources",
-					passIndex: 1,
-					passTotal: 6,
-					passKind: "context_source_gap_review",
-				},
-			],
-		};
-
-		const { rerender } = render(MessageBubble, { message });
-
-		expect(screen.getByTestId("deliberation-status-line")).toHaveTextContent(
-			"Deliberating: 1/6 · Reviewing context and sources",
-		);
-		expect(screen.getByTestId("reasoning-depth-indicator")).toHaveTextContent(
-			"Max reasoning depth",
-		);
-		// P4 (ADR-0056) — the ThinkingBlock header now reuses this SAME
-		// passIndex/passTotal for a determinate "Pass 1 of 6" rail state
-		// instead of the generic indeterminate "Thinking..." sweep.
-		expect(
-			screen.getByRole("button", { name: "Pass 1 of 6" }),
-		).toBeInTheDocument();
-		expect(screen.queryByText("Preparing response...")).not.toBeInTheDocument();
-		expect(screen.queryByText("Preparing context")).not.toBeInTheDocument();
-		expect(
-			screen
-				.getByTestId("deliberation-status-line")
-				.querySelector('[data-deliberation-icon="search"]'),
-		).not.toBeNull();
-		const doneMessage: ChatMessage = {
-			...message,
-			isStreaming: false,
-			isThinkingStreaming: false,
-			responseActivity: undefined,
-			thinkingSegments: [
-				{
-					type: "status",
-					id: "deliberation-pass-1",
-					status: "done",
-					label: "Reviewed context and sources",
-					passIndex: 1,
-					passTotal: 6,
-					passKind: "context_source_gap_review",
-				},
-			],
-		};
-
-		await rerender({ message: doneMessage });
-		expect(
-			screen.queryByTestId("deliberation-status-line"),
-		).not.toBeInTheDocument();
-		expect(screen.getByRole("button", { name: /Thought/ })).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
-		expect(
-			screen.getByText("Deliberating: 1/6 · Reviewed context and sources"),
-		).toBeInTheDocument();
-
-		await rerender({
-			message: {
-				...message,
-				isStreaming: true,
-				isThinkingStreaming: false,
-				responseActivity: [
-					{
-						id: "depth-selected",
-						kind: "depth",
-						status: "done",
-						detail: "maximum",
-					},
-					{
-						id: "deliberation-pass-2",
-						kind: "deliberation",
-						status: "running",
-						label: "Synthesizing an answer structure",
-						passIndex: 2,
-						passTotal: 6,
-						passKind: "missed_user_need_check",
-					},
-				],
-				thinkingSegments: [
-					{
-						type: "status",
-						id: "deliberation-pass-2",
-						status: "running",
-						label: "Synthesizing an answer structure",
-						passIndex: 2,
-						passTotal: 6,
-						passKind: "missed_user_need_check",
-					},
-				],
-			},
-		});
-		expect(screen.getByTestId("deliberation-status-line")).toHaveTextContent(
-			"Deliberating: 2/6 · Synthesizing an answer structure",
-		);
-		expect(
-			screen
-				.getByTestId("deliberation-status-line")
-				.querySelector('[data-deliberation-icon="clipboard-check"]'),
-		).not.toBeNull();
-	});
-
 	it("marks completed tool-only thinking surfaces as Thought instead of active Thinking", () => {
 		const message: ChatMessage = {
 			id: "assistant-completed-tool-only",
@@ -977,14 +838,13 @@ describe("MessageBubble", () => {
 	});
 
 	// P1 (ADR-0056) — the deterministic reasoning-phase spine's primary
-	// acceptance test: `standard` depth is the common case where the server's
-	// DELIBERATION_PASS_PLAN_BY_PROFILE.standard is [] (no deliberation status
-	// segments) and there are no tool calls either, so nothing but the raw
-	// reasoning trace itself fills the gap. The rail must still never be an
+	// acceptance test: `standard` depth is the common case with no thought-step
+	// status segments and there are no tool calls either, so nothing but the
+	// raw reasoning trace itself fills the gap. The rail must still never be an
 	// empty surface, and must not fall back to a counting timer. No model
 	// call anywhere in this test — real reasoning text is simulated directly
 	// as message state.
-	it("keeps the reasoning rail non-empty at standard depth with no tool calls and no deliberation passes", () => {
+	it("keeps the reasoning rail non-empty at standard depth with no tool calls", () => {
 		const message: ChatMessage = {
 			id: "assistant-standard-spine",
 			renderKey: "assistant-standard-spine",
@@ -999,8 +859,8 @@ describe("MessageBubble", () => {
 				appliedProfile: "standard",
 				fallback: false,
 			},
-			// No thinkingSegments and no responseActivity deliberation/tool
-			// entries at all — the exact "standard, no tools" shape.
+			// No thinkingSegments and no responseActivity entries at all — the
+			// exact "standard, no tools" shape.
 		};
 
 		render(MessageBubble, { message });
@@ -1690,6 +1550,54 @@ describe("MessageBubble", () => {
 		expect(
 			within(tooltip).queryByText("SECRET_THOUGHT_TRACE"),
 		).not.toBeInTheDocument();
+	});
+
+	// ADR-0061 — a message persisted before the thinking-toggle redesign can
+	// still carry the now-retired Normal Chat Deliberation Passes fields
+	// (passIndex/passTotal/passKind on a status thinking segment) and/or the
+	// retired Depth Clarification Gate's fields (clarification/outcome on
+	// depthMetadata) in its stored JSON. Neither is re-validated against the
+	// current types at read time — these extra/unknown fields must simply be
+	// ignored, never crash the render or produce a broken-looking bubble.
+	it("tolerates legacy deliberation-pass and depth-clarification fields on persisted messages without crashing", async () => {
+		const message: ChatMessage = {
+			id: "assistant-legacy-metadata",
+			renderKey: "assistant-legacy-metadata",
+			role: "assistant",
+			content: "Answer from before ADR-0061 retired deliberation passes.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			depthMetadata: {
+				requested: "max" as never,
+				appliedProfile: "maximum",
+				fallback: false,
+				// Legacy Depth Clarification Gate fields, retired by ADR-0061.
+				clarification: { status: "resolved" },
+				outcome: "answered",
+			} as never,
+			thinkingSegments: [
+				{
+					type: "status",
+					id: "deliberation-pass-1",
+					label: "Reviewed context and sources",
+					status: "done",
+					// Legacy Normal Chat Deliberation Passes fields, retired by
+					// ADR-0061.
+					passIndex: 1,
+					passTotal: 6,
+					passKind: "context_source_gap_review",
+				} as never,
+			],
+		};
+
+		expect(() => render(MessageBubble, { message })).not.toThrow();
+		const thoughtButton = screen.getByRole("button", { name: /Thought/ });
+		expect(thoughtButton).toBeInTheDocument();
+		await fireEvent.click(thoughtButton);
+		expect(
+			screen.getByText("Reviewed context and sources"),
+		).toBeInTheDocument();
 	});
 
 	it("shows the fork action only for completed persisted assistant messages", async () => {

@@ -723,37 +723,6 @@ describe("runStreamingNormalChatSendModel", () => {
 		});
 	});
 
-	it("proceeds with broad but answerable high-cost streaming work instead of asking unnecessarily", async () => {
-		const result = await runStreamingNormalChatSendModel({
-			userId: "user-1",
-			runtimeConfig,
-			message:
-				"Research all viable platform options and build a complete migration plan.",
-			conversationId: "conv-1",
-			modelId: "provider:provider-1",
-			depthMetadata: {
-				requested: "thorough",
-				appliedProfile: "maximum",
-				fallback: false,
-				signals: {
-					contextBreadth: "broad",
-					outputRoom: "expanded",
-					toolUse: "source_heavy",
-				},
-			},
-		});
-
-		const events = [];
-		for await (const event of result.stream) {
-			events.push(event);
-		}
-
-		expect(mocks.prepareOutboundChatContext).toHaveBeenCalled();
-		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalled();
-		expect(events).toEqual([{ type: "text_delta", text: "Answer" }]);
-		expect(result.depthMetadata).not.toHaveProperty("clarification");
-	});
-
 	it("leaves tool choice automatic for explicit file requests after removing produce_file auto-force", async () => {
 		await runStreamingNormalChatSendModel({
 			userId: "user-1",

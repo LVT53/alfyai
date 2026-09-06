@@ -23,9 +23,7 @@ vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
 });
 
 import {
-	type ClarificationDecision,
 	type DepthEffort,
-	evaluateClarification,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolveProviderRuntime,
@@ -83,11 +81,10 @@ describe("resolvePromptContextLimits", () => {
 
 // --- Shared helper characterization tests ---
 //
-// `resolveActiveDepthEffort` and `evaluateClarification` are the two helpers
-// that can be unit-tested without standing up the external services
-// (provider resolution, context prep, tool creation, deliberation) the other
-// shared helpers delegate to. Those heavier helpers are covered through the
-// plain/streaming entry-point suites.
+// `resolveActiveDepthEffort` is the one helper that can be unit-tested
+// without standing up the external services (provider resolution, context
+// prep, tool creation) the other shared helpers delegate to. Those heavier
+// helpers are covered through the plain/streaming entry-point suites.
 
 const baseDepthMetadata: DepthMetadata = {
 	requested: "thorough",
@@ -101,9 +98,9 @@ const baseDepthMetadata: DepthMetadata = {
 	},
 };
 
-// A minimal-but-shaped DepthEffort fixture. resolveActiveDepthEffort only
-// spreads the value and overrides depthMetadata, so the rest can be sparse
-// as long as the types line up; cast through unknown to satisfy the type.
+// A minimal-but-shaped DepthEffort fixture. resolveActiveDepthEffort is a
+// typed passthrough, so the rest can be sparse as long as the types line up;
+// cast through unknown to satisfy the type.
 const sampleDepthEffort = {
 	depthMetadata: baseDepthMetadata,
 	webSourceBudget: { maxSources: 12, sourceExpansion: true },
@@ -117,85 +114,18 @@ const sampleDepthEffort = {
 
 describe("resolveActiveDepthEffort", () => {
 	it("returns null when there is no depth effort to resolve", () => {
-		expect(
-			resolveActiveDepthEffort(null, {
-				action: "proceed",
-				depthMetadata: baseDepthMetadata,
-			}),
-		).toBeNull();
+		expect(resolveActiveDepthEffort(null)).toBeNull();
 	});
 
-	it("preserves the resolved depth effort and inherits the clarification's depth metadata", () => {
-		const clarification: ClarificationDecision = {
-			action: "proceed",
-			depthMetadata: { ...baseDepthMetadata, appliedProfile: "extended" },
-		};
-		const result = resolveActiveDepthEffort(sampleDepthEffort, clarification);
+	it("passes the resolved depth effort through unchanged", () => {
+		const result = resolveActiveDepthEffort(sampleDepthEffort);
 		expect(result).not.toBeNull();
-		expect(result?.depthMetadata.appliedProfile).toBe("extended");
+		expect(result?.depthMetadata).toBe(baseDepthMetadata);
 		expect(result?.maxToolSteps).toBe(28);
 		expect(result?.webSourceBudget).toEqual({
 			maxSources: 12,
 			sourceExpansion: true,
 		});
-	});
-
-	it("keeps the depth effort's own metadata when the clarification carries none (bypass)", () => {
-		const clarification: ClarificationDecision = {
-			action: "bypass",
-		};
-		const result = resolveActiveDepthEffort(sampleDepthEffort, clarification);
-		expect(result?.depthMetadata).toBe(baseDepthMetadata);
-	});
-});
-
-describe("evaluateClarification", () => {
-	const baseParams = {
-		message: "Explain how PDF generation works",
-		userId: "user-1",
-		runtimeConfig,
-		conversationId: "conv-1",
-		modelId: "model1" as const,
-	};
-
-	it("bypasses when there is no depth effort to clarify (no high-cost profile)", async () => {
-		const decision = await evaluateClarification({ ...baseParams }, null);
-		expect(decision.action).toBe("bypass");
-	});
-
-	it("forwards the depth effort's resolved metadata into the gate when depth is active", async () => {
-		// The helper's contract is delegation: it must pass depthEffort's
-		// resolved metadata (not the caller's raw params.depthMetadata) to the
-		// gate. We verify by asserting the returned decision carries the
-		// effort's metadata — the gate echoes the metadata it was given.
-		const decision = await evaluateClarification(
-			{ ...baseParams },
-			sampleDepthEffort,
-		);
-		expect(decision.depthMetadata?.appliedProfile).toBe("maximum");
-	});
-
-	it("honours an injected classifier by surfacing its question when it decides to ask", async () => {
-		const askQuestion = "Which options should I compare?";
-		const decision = await evaluateClarification(
-			{
-				...baseParams,
-				message: "research all viable options",
-				depthClarificationClassifier: async () => ({
-					outcome: "ask" as const,
-					question: askQuestion,
-				}),
-			},
-			sampleDepthEffort,
-		);
-		// The high-cost profile engages the gate; a broad-target research
-		// request is either deterministically or classifier-drivenly turned
-		// into an ask. Either way the decision must be "ask" (not silently
-		// proceed/bypass) — that is the shared contract this helper locks.
-		expect(decision.action).toBe("ask");
-		if (decision.action === "ask") {
-			expect(decision.text).toContain(askQuestion);
-		}
 	});
 });
 
@@ -267,10 +197,7 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 				} satisfies DepthMetadata,
 			};
 			const runtime = await resolveProviderRuntime(params);
-			const activeDepthEffort = resolveActiveDepthEffort(runtime.depthEffort, {
-				action: "proceed",
-				depthMetadata: params.depthMetadata,
-			});
+			const activeDepthEffort = resolveActiveDepthEffort(runtime.depthEffort);
 			expect(activeDepthEffort).not.toBeNull();
 			if (!activeDepthEffort) throw new Error("expected active depth effort");
 

@@ -396,6 +396,38 @@ describe("messages metadata", () => {
 			metadataJson: JSON.stringify({
 				depthMetadata: {
 					requested: "auto",
+					appliedProfile: "not-a-real-profile",
+					fallback: false,
+				},
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-depth-invalid-1",
+				depthMetadata: undefined,
+			}),
+		]);
+	});
+
+	// ADR-0061 removed `outcome`/`clarification` from DepthMetadata along with
+	// the Depth Clarification Gate; a message persisted before that removal
+	// may still carry those keys. They are no longer validated, so they ride
+	// along as harmless extra fields instead of invalidating the object.
+	it("keeps unvalidated legacy outcome/clarification fields when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-depth-legacy-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				depthMetadata: {
+					requested: "auto",
 					appliedProfile: "maximum",
 					fallback: false,
 					outcome: "unexpected_outcome",
@@ -407,8 +439,13 @@ describe("messages metadata", () => {
 
 		await expect(listMessages("conv-1")).resolves.toEqual([
 			expect.objectContaining({
-				id: "assistant-depth-invalid-1",
-				depthMetadata: undefined,
+				id: "assistant-depth-legacy-1",
+				depthMetadata: expect.objectContaining({
+					requested: "auto",
+					appliedProfile: "maximum",
+					fallback: false,
+					outcome: "unexpected_outcome",
+				}),
 			}),
 		]);
 	});

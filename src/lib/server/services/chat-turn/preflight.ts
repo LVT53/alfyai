@@ -9,7 +9,6 @@ import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
-import { getLastMessage } from "$lib/server/services/messages";
 import {
 	resolveSkillPromptContext,
 	skillSessionToPromptContext,
@@ -24,11 +23,6 @@ import type {
 	ChatTurnRequestError,
 	ParsedChatTurnRequest,
 } from "./types";
-
-const DEPTH_CLARIFICATION_CARRY_FORWARD_PROFILES = new Set([
-	"extended",
-	"maximum",
-]);
 
 type PreflightError = { ok: false; error: ChatTurnRequestError };
 
@@ -385,17 +379,6 @@ async function resolveDepthMetadata(
 		...request,
 		linkedSources,
 	};
-	const carriedDepthMetadata = await resolveDepthClarificationCarryForward({
-		conversationId: request.conversationId,
-		request: turnForDepthSelection,
-	});
-
-	if (carriedDepthMetadata) {
-		return {
-			depthMetadata: carriedDepthMetadata,
-			linkedSources,
-		};
-	}
 
 	return {
 		depthMetadata: (
@@ -407,54 +390,4 @@ async function resolveDepthMetadata(
 		).metadata,
 		linkedSources,
 	};
-}
-
-async function resolveDepthClarificationCarryForward(params: {
-	conversationId: string;
-	request: Pick<
-		ParsedChatTurnRequest,
-		"reasoningDepth" | "modelId" | "modelDisplayName" | "providerDisplayName"
-	>;
-}): Promise<DepthMetadata | null> {
-	const previousMessage = await getLastMessage(params.conversationId).catch(
-		() => null,
-	);
-	const previousDepthMetadata = previousMessage?.depthMetadata;
-	if (
-		previousMessage?.role !== "assistant" ||
-		previousDepthMetadata?.clarification?.outcome !== "ask" ||
-		previousDepthMetadata.requested !== params.request.reasoningDepth ||
-		!DEPTH_CLARIFICATION_CARRY_FORWARD_PROFILES.has(
-			previousDepthMetadata.appliedProfile,
-		)
-	) {
-		return null;
-	}
-
-	const metadata: DepthMetadata = {
-		requested: params.request.reasoningDepth,
-		appliedProfile: previousDepthMetadata.appliedProfile,
-		fallback: previousDepthMetadata.fallback,
-	};
-	if (previousDepthMetadata.fallbackReason) {
-		metadata.fallbackReason = previousDepthMetadata.fallbackReason;
-	}
-	if (previousDepthMetadata.constraintNote) {
-		metadata.constraintNote = previousDepthMetadata.constraintNote;
-	}
-	if (previousDepthMetadata.classifierSource) {
-		metadata.classifierSource = previousDepthMetadata.classifierSource;
-	}
-	if (previousDepthMetadata.signals) {
-		metadata.signals = { ...previousDepthMetadata.signals };
-	}
-	if (params.request.modelId) metadata.modelId = params.request.modelId;
-	if (params.request.modelDisplayName) {
-		metadata.modelDisplayName = params.request.modelDisplayName;
-	}
-	if (params.request.providerDisplayName) {
-		metadata.providerDisplayName = params.request.providerDisplayName;
-	}
-
-	return metadata;
 }

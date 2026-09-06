@@ -564,16 +564,6 @@ export function runChatStreamOrchestrator(
 					...entry,
 					occurredAt: entry.occurredAt ?? Date.now(),
 				};
-				if (activity.kind === "deliberation" && activity.label) {
-					chunkRuntime.emitStatusSegment({
-						id: activity.id,
-						label: activity.label,
-						status: activity.status,
-						passIndex: activity.passIndex,
-						passTotal: activity.passTotal,
-						passKind: activity.passKind,
-					});
-				}
 				if (streamId) {
 					appendToStreamBuffer(streamId, "response_activity", {
 						activity,

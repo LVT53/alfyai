@@ -61,9 +61,6 @@ export type ThinkingSegment =
 			id: string;
 			label: string;
 			status: ResponseActivityStatus;
-			passIndex?: number;
-			passTotal?: number;
-			passKind?: string;
 	  }
 	| {
 			type: "tool_call";

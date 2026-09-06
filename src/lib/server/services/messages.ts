@@ -111,11 +111,7 @@ function readEvidenceSummaryFromMetadata(
 function isDepthMetadata(value: unknown): value is DepthMetadata {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<DepthMetadata>;
-	return (
-		hasValidDepthMetadataBase(candidate) &&
-		hasValidDepthMetadataOutcome(candidate.outcome) &&
-		hasValidDepthMetadataClarification(candidate.clarification)
-	);
+	return hasValidDepthMetadataBase(candidate);
 }
 
 function hasValidDepthMetadataBase(candidate: Partial<DepthMetadata>): boolean {
@@ -140,31 +136,11 @@ function hasValidDepthMetadataBase(candidate: Partial<DepthMetadata>): boolean {
 	);
 }
 
-function hasValidDepthMetadataOutcome(
-	outcome: DepthMetadata["outcome"] | undefined,
-): boolean {
-	if (outcome === undefined) return true;
-	return (
-		outcome === "normal_response" ||
-		outcome === "clarification_requested" ||
-		outcome === "proceeded_with_assumption"
-	);
-}
-
-function hasValidDepthMetadataClarification(
-	clarification: DepthMetadata["clarification"] | undefined,
-): boolean {
-	if (clarification === undefined) return true;
-	if (!clarification || typeof clarification !== "object") return false;
-	return (
-		(clarification.outcome === "ask" ||
-			clarification.outcome === "proceed_with_assumption") &&
-		(clarification.reason === "multiple_plausible_targets" ||
-			clarification.reason === "user_requested_assumption" ||
-			clarification.reason === "classifier") &&
-		(clarification.language === "en" || clarification.language === "hu")
-	);
-}
+// ADR-0061 removed `outcome`/`clarification` from DepthMetadata along with
+// the Depth Clarification Gate. A message persisted before that removal may
+// still carry those keys in its stored JSON; `hasValidDepthMetadataBase`
+// above intentionally does not re-validate them — they ride along as
+// unused, harmless extra fields on the parsed object instead.
 
 function readThinkingSegmentsFromRow(
 	row: Pick<typeof messages.$inferSelect, "toolCalls">,
@@ -494,8 +470,8 @@ export async function listMessageWindow(
  * Reads only the most recently sequenced message in a conversation, via a
  * single-row `ORDER BY ... LIMIT 1` query. Unlike `listMessages`, this does
  * not join usage/analytics data or resolve attachments — callers that only
- * need the last message's role/content/metadata (e.g. depth-clarification
- * carry-forward) should use this instead of loading the whole conversation.
+ * need the last message's role/content/metadata should use this instead of
+ * loading the whole conversation.
  */
 export async function getLastMessage(
 	conversationId: string,

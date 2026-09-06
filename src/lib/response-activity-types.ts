@@ -11,7 +11,6 @@
 
 export type ResponseActivityKind =
 	| "depth"
-	| "deliberation"
 	| "context"
 	| "tool"
 	| "source"
@@ -145,9 +144,6 @@ export interface ResponseActivityEntry {
 	title?: string;
 	url?: string;
 	count?: number;
-	passIndex?: number;
-	passTotal?: number;
-	passKind?: string;
 	occurredAt?: number;
 	// Amendment (2026-08-16) to ADR-0056 — the constrained, entity-grounded
 	// summary for a "thought_step" kind entry (see InterimThoughtStep.summary

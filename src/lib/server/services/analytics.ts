@@ -26,9 +26,9 @@ export interface ProviderUsageSnapshot {
 	reasoningTokens?: number;
 	totalTokens?: number;
 	// Input tokens of the LAST model step only (promptTokens sums every step
-	// of a multi-step tool loop plus deliberation passes). This is the size
-	// of the prompt the model actually saw at the end of the turn, which is
-	// what the context usage ring reports. Not billed separately.
+	// of a multi-step tool loop). This is the size of the prompt the model
+	// actually saw at the end of the turn, which is what the context usage
+	// ring reports. Not billed separately.
 	lastStepPromptTokens?: number;
 	source?: UsageSource;
 }

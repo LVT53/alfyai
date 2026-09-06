@@ -263,7 +263,6 @@ export type StreamingNormalChatModelRunParams = NormalChatModelRunBaseParams & {
 	maxToolSteps?: number;
 	stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
 	firstOutputTimeoutMs?: number | null;
-	deliberationElapsedMs?: number;
 };
 
 export type PlainNormalChatModelRunResult = {
@@ -288,8 +287,7 @@ export type NormalChatModelRunUsage = {
 	cacheHitTokens?: number;
 	cacheMissTokens?: number;
 	// Input tokens of the last model step only. inputTokens sums every step
-	// of a tool loop (and, after the run wrappers fold deliberation usage in,
-	// every deliberation pass); this stays the size of the final prompt.
+	// of a tool loop; this stays the size of the final prompt.
 	lastStepInputTokens?: number;
 };
 
@@ -1053,15 +1051,13 @@ async function resolveFirstOutputTimeoutMs(
 ): Promise<number | null> {
 	if (!allowFallbackAttempt) return null;
 
-	const extraMs = Math.max(0, params.deliberationElapsedMs ?? 0);
 	if (params.firstOutputTimeoutMs !== undefined) {
 		if (params.firstOutputTimeoutMs === null) return null;
-		const effective = params.firstOutputTimeoutMs + extraMs;
+		const effective = params.firstOutputTimeoutMs;
 		if (!params.runtimeConfig || effective <= 0) return effective;
 		const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
 		console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
 			baseMs: params.firstOutputTimeoutMs,
-			extraMs,
 			resolvedMs: resolved,
 			modelId: currentModelId,
 		});
@@ -1074,13 +1070,13 @@ async function resolveFirstOutputTimeoutMs(
 		{ skipPerModelFallback },
 	);
 	if (!fallbackTarget) return null;
-	const effective =
-		Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs) +
-		extraMs;
+	const effective = Math.max(
+		1000,
+		params.runtimeConfig.modelTimeoutFailoverTimeoutMs,
+	);
 	const resolved = Math.min(params.runtimeConfig.requestTimeoutMs, effective);
 	console.warn("[NORMAL_CHAT_MODEL] first-output timeout adjusted", {
-		baseMs: Math.max(1000, params.runtimeConfig.modelTimeoutFailoverTimeoutMs),
-		extraMs,
+		baseMs: effective,
 		resolvedMs: resolved,
 		modelId: currentModelId,
 	});
@@ -1316,8 +1312,8 @@ async function runPlainNormalChatModelRunAttempt(
 		usage: {
 			// generateText's `usage` is already the LAST step's usage (its
 			// `totalUsage` is the all-steps sum), so the last-step input count
-			// is the same figure here; it is carried separately so it survives
-			// the deliberation/repair summation in the run wrappers.
+			// is the same figure here; it is carried separately as its own
+			// field for the context usage ring to read directly.
 			...mapUsage(result.usage, result.providerMetadata),
 			...(typeof result.usage.inputTokens === "number"
 				? { lastStepInputTokens: result.usage.inputTokens }

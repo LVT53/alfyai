@@ -34,9 +34,9 @@ export interface ReasoningSpineLiveInput {
 /**
  * Resolves the current live reasoning-phase state. Always returns a truthy
  * state — there is no "empty" value, which is what makes the reasoning rail
- * never an empty surface: even with zero deliberation passes and zero tool
- * calls (the `standard`-depth, no-tools case this exists for), the result is
- * always one of the three states above.
+ * never an empty surface: even with zero tool calls (the `standard`-depth,
+ * no-tools case this exists for), the result is always one of the three
+ * states above.
  */
 export function deriveReasoningSpineState(
 	input: ReasoningSpineLiveInput,

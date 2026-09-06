@@ -32,8 +32,8 @@ function toPositiveCount(value: unknown): number | null {
  *
  * Provider-reported input tokens win. `lastStepPromptTokens` (the final
  * step's own input count) is preferred over `promptTokens`, which sums every
- * step of a tool loop and every deliberation pass and therefore overstates
- * the prompt the model actually saw last. Without provider usage the
+ * step of a multi-step tool loop and therefore overstates the prompt the
+ * model actually saw last. Without provider usage the
  * wrapper's full-prompt estimate is used, and as a last resort the
  * pre-request packet estimate already on the status row.
  */

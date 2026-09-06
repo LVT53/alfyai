@@ -3,14 +3,6 @@ import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
-import {
-	runNormalChatDeliberationPasses,
-	shouldRunDeliberationPasses,
-} from "$lib/server/services/chat-turn/deliberation-runner";
-import {
-	type DepthClarificationClassifier,
-	evaluateDepthClarificationGate,
-} from "$lib/server/services/chat-turn/depth-clarification";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	selectNormalChatToolsForRequest,
@@ -39,10 +31,7 @@ import {
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import {
-	estimateHistoryMessagesTokens,
-	renderHistoryAsText,
-} from "./conversation-history";
+import { estimateHistoryMessagesTokens } from "./conversation-history";
 
 export function isEvidenceReadyToolCall(toolCall: ToolCallEntry): boolean {
 	return (
@@ -136,11 +125,11 @@ export function estimateTurnPromptTokens(params: {
 
 // --- Shared send-model param type and helpers (plain + streaming) ---
 //
-// Both the plain and streaming send-model entry points share the same six-step
-// orchestration (provider runtime → clarification → depth effort → outbound
-// context → tool pack → deliberation). Those steps live here so they exist
-// once (AGENTS.md: "Shared behavior should exist once. Do not copy logic
-// between send and stream.").
+// Both the plain and streaming send-model entry points share the same
+// four-step orchestration (provider runtime → depth effort → outbound
+// context → tool pack). Those steps live here so they exist once (AGENTS.md:
+// "Shared behavior should exist once. Do not copy logic between send and
+// stream.").
 //
 // The two param types differ only in that the PLAIN type carries
 // `disableTools` and `forceProduceFileTool` (the streaming path never forces
@@ -175,7 +164,6 @@ export type NormalChatSendModelBaseParams = {
 	disableTools?: boolean;
 	/** Force the `produce_file` tool-choice. Plain-only; streaming never forces it. */
 	forceProduceFileTool?: boolean;
-	depthClarificationClassifier?: DepthClarificationClassifier;
 	overrideProvider?: NormalChatModelRunProvider;
 	onContextPreparationActivity?: Parameters<
 		typeof createNormalChatContextPreparationActivityHandler
@@ -188,10 +176,6 @@ export type NormalChatSendModelBaseParams = {
 export type DepthEffort = Awaited<
 	ReturnType<typeof resolveReasoningDepthEffort>
 > | null;
-
-export type ClarificationDecision = Awaited<
-	ReturnType<typeof evaluateDepthClarificationGate>
->;
 
 export type PreparedModelContext = Awaited<
 	ReturnType<typeof prepareOutboundChatContext>
@@ -273,27 +257,14 @@ export async function resolveProviderRuntime(
 	};
 }
 
-export async function evaluateClarification(
-	params: NormalChatSendModelBaseParams,
-	depthEffort: DepthEffort,
-): Promise<ClarificationDecision> {
-	return evaluateDepthClarificationGate({
-		message: params.message,
-		depthMetadata: depthEffort?.depthMetadata ?? params.depthMetadata,
-		classifier: params.depthClarificationClassifier,
-	});
-}
-
+// Depth clarification used to be able to rewrite `depthMetadata` ahead of the
+// turn (ADR-0061); now that the gate is gone, this is a typed passthrough
+// (DepthEffort -> ActiveDepthEffort) kept so callers don't need to reason
+// about `depthEffort` being possibly null at each call site.
 export function resolveActiveDepthEffort(
 	depthEffort: DepthEffort,
-	clarification: ClarificationDecision,
 ): ActiveDepthEffort | null {
-	return depthEffort
-		? {
-				...depthEffort,
-				depthMetadata: clarification.depthMetadata ?? depthEffort.depthMetadata,
-			}
-		: null;
+	return depthEffort;
 }
 
 export async function prepareOutboundContext(
@@ -333,18 +304,6 @@ export async function prepareOutboundContext(
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
 	});
-}
-
-// Deliberation passes are JSON control calls that take a single string; give
-// them the native history as flat text so their briefs see the conversation.
-function withHistoryForControlCalls(prepared: PreparedModelContext): string {
-	const history = prepared.historyMessages ?? [];
-	if (history.length === 0) return prepared.inputValue;
-	return [
-		"## Conversation so far",
-		renderHistoryAsText(history),
-		prepared.inputValue,
-	].join("\n\n");
 }
 
 // Ready on-demand routing regions, for the map_route description. Fails open
@@ -405,36 +364,4 @@ export async function createToolPack(
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
 	};
-}
-
-export async function runDeliberationIfNeeded(
-	params: NormalChatSendModelBaseParams,
-	runtime: ProviderRuntime,
-	activeDepthEffort: ActiveDepthEffort | null,
-	prepared: PreparedModelContext,
-	turnId: string,
-	recorder: ReturnType<typeof createToolCallRecorder>,
-) {
-	if (!activeDepthEffort || params.disableTools) return null;
-	if (!shouldRunDeliberationPasses(activeDepthEffort)) return null;
-
-	return runNormalChatDeliberationPasses({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		modelId: runtime.modelId,
-		runtimeConfig: params.runtimeConfig,
-		provider: runtime.provider,
-		depthEffort: activeDepthEffort,
-		preparedInputValue: withHistoryForControlCalls(prepared),
-		preparedSystemPrompt: prepared.systemPrompt,
-		user: params.user,
-		language: detectLanguage(params.message),
-		turnId,
-		recorder,
-		onStatus: params.onResponseActivity,
-		abortSignal: createRequestAbortSignal(
-			params.runtimeConfig.requestTimeoutMs,
-			params.signal,
-		),
-	});
 }

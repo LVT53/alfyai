@@ -76,9 +76,6 @@ export type ServerStreamSegment =
 			id: string;
 			label: string;
 			status: ResponseActivityEntry["status"];
-			passIndex?: number;
-			passTotal?: number;
-			passKind?: string;
 	  }
 	| {
 			type: "tool_call";
@@ -837,9 +834,6 @@ export function createServerChunkRuntime({
 		id: string;
 		label: string;
 		status: ResponseActivityEntry["status"];
-		passIndex?: number;
-		passTotal?: number;
-		passKind?: string;
 	}) => {
 		if (!segment.label.trim()) return;
 		flushInlineThinkingBuffer();
@@ -851,13 +845,6 @@ export function createServerChunkRuntime({
 			id: segment.id,
 			label: segment.label,
 			status: streamStatus,
-			...(segment.passIndex !== undefined
-				? { passIndex: segment.passIndex }
-				: {}),
-			...(segment.passTotal !== undefined
-				? { passTotal: segment.passTotal }
-				: {}),
-			...(segment.passKind !== undefined ? { passKind: segment.passKind } : {}),
 		};
 		const existingIndex = serverSegments.findIndex(
 			(entry) => entry.type === "status" && entry.id === segment.id,

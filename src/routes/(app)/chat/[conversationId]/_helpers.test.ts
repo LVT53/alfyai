@@ -651,46 +651,6 @@ describe("file production chat helpers", () => {
 		]);
 	});
 
-	it("mirrors deliberation activity into auditable thinking status segments", () => {
-		const list = [createAssistantPlaceholder("assistant-1")];
-		const running = applyResponseActivityEntryToMessageList(
-			list,
-			"assistant-1",
-			{
-				id: "deliberation-pass-1",
-				kind: "deliberation",
-				status: "running",
-				label: "Reviewing context and sources",
-			},
-		);
-		const done = applyResponseActivityEntryToMessageList(
-			running,
-			"assistant-1",
-			{
-				id: "deliberation-pass-1",
-				kind: "deliberation",
-				status: "done",
-				label: "Reviewed context and sources",
-			},
-		);
-
-		expect(done[0].thinkingSegments).toEqual([
-			{
-				type: "status",
-				id: "deliberation-pass-1",
-				label: "Reviewed context and sources",
-				status: "done",
-			},
-		]);
-		expect(done[0].responseActivity).toEqual([
-			expect.objectContaining({
-				id: "deliberation-pass-1",
-				kind: "deliberation",
-				status: "done",
-			}),
-		]);
-	});
-
 	it("projects existing tool-call events into live tool and source activity rows", () => {
 		const list = [createAssistantPlaceholder("assistant-1")];
 		const running = applyToolCallUpdateToMessageList(list, {

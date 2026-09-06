@@ -3,20 +3,13 @@ import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
-import {
-	appendDeliberationBriefsToInput,
-	sumUsage,
-	verifyAndRepairDeliberatedFinalAnswer,
-} from "$lib/server/services/chat-turn/deliberation-runner";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { buildReasoningDepthProviderOptions } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
 	type ActiveDepthEffort,
-	type ClarificationDecision,
 	createRequestAbortSignal,
 	createToolPack,
 	estimateTurnPromptTokens,
-	evaluateClarification,
 	isEvidenceReadyToolCall,
 	type NormalChatSendModelBaseParams,
 	type PreparedModelContext,
@@ -25,7 +18,6 @@ import {
 	resolveActiveDepthEffort,
 	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
-	runDeliberationIfNeeded,
 	type ToolPack,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
@@ -41,7 +33,6 @@ import type { NormalChatContextPreparationStageTiming } from "$lib/server/servic
 import {
 	buildNormalChatModelRunProviderOptions,
 	mapNormalChatModelRunUsageToProviderSnapshot,
-	type NormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
@@ -50,7 +41,7 @@ import { logOutboundMessageShape } from "./outbound-debug";
 export type PlainNormalChatSendModelParams = NormalChatSendModelBaseParams & {
 	// disableTools / forceProduceFileTool are inherited from the base type;
 	// they are plain-only options but typed on the shared base so the shared
-	// six-step helpers can read them uniformly.
+	// helpers can read them uniformly.
 };
 
 export type PlainNormalChatSendModelResult = {
@@ -78,19 +69,15 @@ type ModelRunParams = {
 	runtime: ProviderRuntime;
 	prepared: PreparedModelContext;
 	activeDepthEffort: ActiveDepthEffort | null;
-	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>;
 	tools: ToolPack["tools"];
 };
 
 type BuildResultInput = {
 	params: PlainNormalChatSendModelParams;
-	clarification: ClarificationDecision;
 	runtime: ProviderRuntime;
 	prepared: PreparedModelContext;
 	activeDepthEffort: ActiveDepthEffort | null;
 	result: Awaited<ReturnType<typeof runPlainNormalChatModelRun>>;
-	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>;
-	finalAnswerRepair: Awaited<ReturnType<typeof maybeRepairFinalAnswer>>;
 	toolPack: ToolPack;
 };
 
@@ -98,19 +85,7 @@ export async function runPlainNormalChatSendModel(
 	params: PlainNormalChatSendModelParams,
 ): Promise<PlainNormalChatSendModelResult> {
 	const runtime = await resolveProviderRuntime(params);
-	const clarification = await evaluateClarification(
-		params,
-		runtime.depthEffort,
-	);
-
-	if (clarification.action === "ask") {
-		return buildClarificationResult(runtime, clarification);
-	}
-
-	const activeDepthEffort = resolveActiveDepthEffort(
-		runtime.depthEffort,
-		clarification,
-	);
+	const activeDepthEffort = resolveActiveDepthEffort(runtime.depthEffort);
 	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
 	// resolved later, inside createToolPack, which meant
 	// prepareOutboundChatContext had no way to know the turn's active
@@ -136,78 +111,22 @@ export async function runPlainNormalChatSendModel(
 		runtime.modelId,
 		enabledConnectionCapabilities,
 	);
-	const deliberation = await runDeliberationIfNeeded(
-		params,
-		runtime,
-		activeDepthEffort,
-		prepared,
-		turnId,
-		toolPack.recorder,
-	);
 	const result = await runPlainModelRun({
 		params,
 		runtime,
 		prepared,
 		activeDepthEffort,
-		deliberation,
 		tools: toolPack.tools,
 	});
-	const finalAnswerRepair = await maybeRepairFinalAnswer(
-		result,
-		params,
-		prepared,
-		runtime.provider,
-		activeDepthEffort,
-		deliberation,
-	);
 
 	return buildRunResult({
 		params,
-		clarification,
 		runtime,
 		prepared,
 		activeDepthEffort,
 		result,
-		deliberation,
-		finalAnswerRepair,
 		toolPack,
 	});
-}
-
-function buildClarificationResult(
-	runtime: ProviderRuntime,
-	clarification: ClarificationDecision,
-): Pick<
-	PlainNormalChatSendModelResult,
-	| "text"
-	| "contextStatus"
-	| "taskState"
-	| "contextDebug"
-	| "contextTraceSections"
-	| "providerUsage"
-	| "prefetchedToolCalls"
-	| "normalChatToolCalls"
-	| "toolCalls"
-	| "modelId"
-	| "modelDisplayName"
-	| "resolvedProviderId"
-	| "depthMetadata"
-> {
-	return {
-		text: clarification.action === "ask" ? clarification.text : "",
-		contextStatus: undefined,
-		taskState: null,
-		contextDebug: null,
-		contextTraceSections: [],
-		providerUsage: null,
-		prefetchedToolCalls: [],
-		normalChatToolCalls: [],
-		toolCalls: [],
-		modelId: runtime.modelId,
-		modelDisplayName: runtime.provider.displayName,
-		resolvedProviderId: runtime.provider.id,
-		depthMetadata: clarification.depthMetadata,
-	};
 }
 
 async function runPlainModelRun(params: ModelRunParams) {
@@ -216,15 +135,11 @@ async function runPlainModelRun(params: ModelRunParams) {
 		runtime,
 		prepared,
 		activeDepthEffort,
-		deliberation,
 		tools,
 	} = params;
 
 	const finalInputValue = appendTurnGuidance(
-		appendDeliberationBriefsToInput(
-			prepared.inputValue,
-			deliberation?.briefs ?? [],
-		),
+		prepared.inputValue,
 		prepared.turnGuidance,
 	);
 	const outboundMessages: ModelMessage[] = [
@@ -279,50 +194,11 @@ async function runPlainModelRun(params: ModelRunParams) {
 	});
 }
 
-async function maybeRepairFinalAnswer(
-	result: Awaited<ReturnType<typeof runPlainNormalChatModelRun>>,
-	params: PlainNormalChatSendModelParams,
-	prepared: PreparedModelContext,
-	runtimeProvider: NormalChatModelRunProvider,
-	activeDepthEffort: ActiveDepthEffort | null,
-	deliberation: Awaited<ReturnType<typeof runDeliberationIfNeeded>>,
-) {
-	if (!deliberation || !activeDepthEffort) return null;
-
-	return verifyAndRepairDeliberatedFinalAnswer({
-		text: result.text,
-		originalUserMessage: params.message,
-		systemPrompt: prepared.systemPrompt,
-		briefs: deliberation.briefs,
-		provider: runtimeProvider,
-		modelId: params.modelId ?? "model1",
-		runtimeConfig: params.runtimeConfig,
-		depthEffort: activeDepthEffort,
-		abortSignal: createRequestAbortSignal(
-			params.runtimeConfig.requestTimeoutMs,
-			params.signal,
-		),
-	});
-}
-
 function buildRunResult(
 	input: BuildResultInput,
 ): PlainNormalChatSendModelResult {
-	const {
-		clarification,
-		prepared,
-		activeDepthEffort,
-		result,
-		deliberation,
-		finalAnswerRepair,
-		toolPack,
-	} = input;
+	const { prepared, activeDepthEffort, result, toolPack } = input;
 
-	const deliberationUsage = deliberation?.usage ?? {
-		inputTokens: undefined,
-		outputTokens: undefined,
-		totalTokens: undefined,
-	};
 	const normalChatToolCalls = toolPack.getToolCalls
 		? toolPack.getToolCalls()
 		: [];
@@ -334,43 +210,19 @@ function buildRunResult(
 		...prefetchedToolCalls,
 		...evidenceReadyNormalChatToolCalls,
 	];
-	const assumptionPrefix =
-		clarification.action === "proceed"
-			? clarification.assumptionPrefix
-			: undefined;
 
 	return {
-		text: assumptionPrefix
-			? `${assumptionPrefix}\n\n${finalAnswerRepair?.text ?? result.text}`
-			: (finalAnswerRepair?.text ?? result.text),
+		text: result.text,
 		contextStatus: prepared.contextStatus,
 		taskState: prepared.taskState,
 		contextDebug: prepared.contextDebug,
 		contextTraceSections: prepared.contextTraceSections,
 		contextPreparationTimings: prepared.contextPreparationTimings,
-		providerUsage: mapNormalChatModelRunUsageToProviderSnapshot(
-			sumUsage(
-				sumUsage(deliberationUsage, result.usage),
-				// The final-answer repair is a separate, smaller request; the
-				// main run's last prompt is the conversation prompt the ring
-				// reports, so its last-step count is pinned after the sum.
-				{
-					...(finalAnswerRepair?.usage ?? {
-						inputTokens: undefined,
-						outputTokens: undefined,
-						totalTokens: undefined,
-					}),
-					lastStepInputTokens: result.usage.lastStepInputTokens,
-				},
-			),
-		),
+		providerUsage: mapNormalChatModelRunUsageToProviderSnapshot(result.usage),
 		estimatedPromptTokens: estimateTurnPromptTokens({
 			prepared,
 			inputValue: appendTurnGuidance(
-				appendDeliberationBriefsToInput(
-					prepared.inputValue,
-					deliberation?.briefs ?? [],
-				),
+				prepared.inputValue,
 				prepared.turnGuidance,
 			),
 			tools: toolPack.tools,
@@ -381,8 +233,6 @@ function buildRunResult(
 		modelId: result.model.modelId as ModelId,
 		modelDisplayName: result.model.displayName,
 		resolvedProviderId: result.model.providerId,
-		depthMetadata: activeDepthEffort
-			? (deliberation?.depthMetadata ?? activeDepthEffort.depthMetadata)
-			: clarification.depthMetadata,
+		depthMetadata: activeDepthEffort?.depthMetadata,
 	};
 }

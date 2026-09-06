@@ -14,8 +14,6 @@ import {
 	ChevronDown,
 	ChevronLeft,
 	Clapperboard,
-	ClipboardCheck,
-	Bot,
 	FileText,
 	Folder,
 	GitBranch,
@@ -24,8 +22,6 @@ import {
 	History,
 	Image as ImageIcon,
 	Images,
-	Languages,
-	Layers,
 	Link,
 	ListChecks,
 	ListTodo,
@@ -33,8 +29,6 @@ import {
 	MapPin,
 	PenLine,
 	Scale,
-	Search,
-	ShieldAlert,
 	Users,
 	Workflow,
 	Wrench,
@@ -44,7 +38,6 @@ import {
 	deriveReasoningSpineState,
 	type ReasoningSpineLiveState,
 } from "$lib/utils/reasoning-spine";
-import { deriveDeliberationProgressState } from "$lib/utils/deliberation-progress";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import {
 	resolveThoughtStepAnchorSpan,
@@ -76,17 +69,7 @@ import {
 	isPhotosToolName,
 	type ToolCallSegment,
 } from "$lib/utils/tool-evidence-presentation";
-import {
-	type DeliberationIconType,
-	type DeliberationStatusThinkingSegment,
-	deliberationIconTypeForPassIndex,
-	deliberationIconTypeForPassKind,
-	formatDeliberationProgressLabel,
-	isDeliberationStatusSegment,
-	parseDeliberationPassIndex,
-	resolveDeliberationPassIndex,
-	thoughtStepIconTypeForClass,
-} from "$lib/utils/activity-presentation";
+import { thoughtStepIconTypeForClass } from "$lib/utils/activity-presentation";
 
 let {
 	content = "",
@@ -128,22 +111,6 @@ let {
 	// `thoughtSteps`, mirroring `completionWarningCodes`), not only after a
 	// reload.
 	thoughtSteps = undefined,
-	// P4 (ADR-0056) — the raw wire values of the latest live "deliberation"
-	// data-response-activity entry (MessageBubble's own reuse of the same
-	// reverse-scan-latest-match pattern P3c already established for
-	// liveThoughtStepClass above). Both already exist on ResponseActivityEntry
-	// ($lib/response-activity-types) and are already emitted by deliberation-runner.ts — this
-	// slice reuses them, it invents nothing new. See
-	// $lib/utils/deliberation-progress.ts for the pure decision this feeds.
-	livePassIndex = undefined,
-	livePassTotal = undefined,
-	// P4 (ADR-0056) — true once RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER has been
-	// observed this turn (MessageBubble scans the same
-	// message.responseActivity array). Combined with livePassTotal > 1, this
-	// is the concluding-phase signal: deliberation (including its silent
-	// tail passes) has fully resolved and the model has moved into the final
-	// answer-generating call.
-	draftingAnswerReached = false,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -155,9 +122,6 @@ let {
 	liveThoughtStepEntity?: string;
 	liveThoughtStepSummary?: string;
 	thoughtSteps?: InterimThoughtStep[];
-	livePassIndex?: number;
-	livePassTotal?: number;
-	draftingAnswerReached?: boolean;
 } = $props();
 
 let expanded = $state(false);
@@ -180,63 +144,7 @@ let stallTimeout: ReturnType<typeof setTimeout> | undefined;
 const isActiveThinking = $derived(!thinkingIsDone);
 const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
 
-// Tier B2 — the deliberation-status predicate, pass-index parsing, pass-kind
-// -> icon mapping, and progress-label assembly now live in the shared pure
-// `activity-presentation.ts` (consumed identically by MessageBubble), so the
-// two rails cannot drift. These are the only component-local shells left: the
-// icon wrapper threads this file's icon-TYPE switch (below); the label shell
-// threads this file's `$t`. Both preserve the exact pre-extraction behaviour —
-// the pass-kind icon wins, else the id-derived pass-index fallback (default
-// pass 1); the label always has a current (id fallback -> 1), so it renders
-// the "N/M" progress form whenever a positive total is present.
-function deliberationStatusIconType(
-	segment: DeliberationStatusThinkingSegment,
-): DeliberationIconType {
-	return (
-		deliberationIconTypeForPassKind(segment.passKind) ??
-		deliberationIconTypeForPassIndex(
-			parseDeliberationPassIndex(segment.id) ?? 1,
-		)
-	);
-}
-
-function formatDeliberationStatusLabel(
-	segment: DeliberationStatusThinkingSegment,
-): string {
-	return formatDeliberationProgressLabel(
-		segment.label,
-		resolveDeliberationPassIndex(segment) ?? 1,
-		segment.passTotal,
-		$t,
-	);
-}
-
-const latestDeliberationStatusSegment = $derived.by(() => {
-	for (let i = visibleSegmentsRaw.length - 1; i >= 0; i -= 1) {
-		if (isDeliberationStatusSegment(visibleSegmentsRaw[i])) {
-			return visibleSegmentsRaw[i];
-		}
-	}
-	return undefined;
-});
-
-const latestDeliberationStatusSegmentId = $derived.by(() =>
-	latestDeliberationStatusSegment?.type === "status"
-		? latestDeliberationStatusSegment.id
-		: null,
-);
-
-const visibleSegments = $derived(
-	streaming
-		? visibleSegmentsRaw.filter((segment) => {
-				if (!isDeliberationStatusSegment(segment)) return true;
-				return latestDeliberationStatusSegmentId
-					? segment.id === latestDeliberationStatusSegmentId
-					: false;
-			})
-		: visibleSegmentsRaw,
-);
-const hasSegments = $derived(visibleSegments.length > 0);
+const hasSegments = $derived(visibleSegmentsRaw.length > 0);
 const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
 const hasVisibleSurface = $derived(
 	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
@@ -344,7 +252,7 @@ const anchoredThoughtSteps = $derived(
 const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
 	const entries: InterleavedEntry[] = [];
 	let runGroupIndexByName: Map<string, number> | null = null;
-	visibleSegments.forEach((seg, i) => {
+	visibleSegmentsRaw.forEach((seg, i) => {
 		if (seg.type === "tool_call" && isConnectionToolName(seg.name)) {
 			if (!runGroupIndexByName) runGroupIndexByName = new Map();
 			const existingIndex = runGroupIndexByName.get(seg.name);
@@ -436,7 +344,7 @@ function formatGroupedConnectorAction(tool: ToolCallSegment): string {
 
 $effect(() => {
 	const totalLength = hasSegments
-		? visibleSegments.reduce(
+		? visibleSegmentsRaw.reduce(
 				(sum, s) =>
 					sum +
 					(s.type === "text"
@@ -579,43 +487,6 @@ const liveThoughtStepHeadline = $derived(
 // Lucide switch in the thoughtStepClassIcon snippet below (a plain string tag
 // rendered via an if/else chain — no dynamic-component map, to match this
 // file's established idiom).
-
-// P4 (ADR-0056) — the determinate deliberation-progress state, a pure
-// decision (deriveDeliberationProgressState) over already-computed
-// passIndex/passTotal plus the deterministic drafting-answer/answer-started
-// facts P1 already tracks. At `standard` depth (empty deliberation plan,
-// livePassTotal never set) this is always `{ kind: "none" }`, so the header
-// falls straight through to liveThoughtStepLabel/the spine label exactly as
-// it did before this slice — P4 is additive, never a branch that can change
-// standard-depth behavior.
-const deliberationProgressState = $derived(
-	deriveDeliberationProgressState({
-		passIndex: livePassIndex,
-		passTotal: livePassTotal,
-		draftingAnswerReached,
-		answerStarted,
-	}),
-);
-
-// Takes precedence over liveThoughtStepLabel: a numeric "pass N of M" or the
-// concluding state is strictly more informative than a qualitative
-// classified-step guess, which is the entire point of this slice — surface
-// determinate progress wherever the system genuinely has it. `null` when
-// there is nothing determinate to show, in which case the header falls back
-// exactly as it did before P4.
-const deliberationProgressLabel = $derived.by(() => {
-	const state = deliberationProgressState;
-	if (state.kind === "pass") {
-		return $t("chat.responseActivity.deliberationPass", {
-			index: state.index,
-			total: state.total,
-		});
-	}
-	if (state.kind === "concluding") {
-		return $t("chat.responseActivity.deliberationFinishing");
-	}
-	return null;
-});
 
 // Shared "Ns" / "Nm Ns" formatter — not itself localized (matches the
 // pre-existing precedent: chat.thoughtFor's "{time}" placeholder already
@@ -807,7 +678,7 @@ $effect(() => {
 
 // TS2-c — the compact, ordered clean-list view's entries: the SAME
 // true-arrival-order merge interleavedEntries already computes (tool calls,
-// deliberation/context status rows, and classified thought steps at the
+// context status rows, and classified thought steps at the
 // exact position they occurred), just without the raw reasoning `text`
 // entries — those are what made the old always-on view "a big mess" per
 // this slice's owner complaint, and now live only behind the explicit
@@ -910,10 +781,9 @@ function toggleFullReasoning(): void {
 
 <!--
 	TS2-c (ADR-0056 amendment) — the closed activity class's secondary
-	signal: a small leading icon, never the headline. Same if/else-over-a-
-	string-tag shape as the deliberation-status-icon block below it in this
-	file, deliberately not a dynamic-component map, to match this file's
-	established idiom for "pick one of a few known icons".
+	signal: a small leading icon, never the headline. An if/else-over-a-
+	string-tag shape, deliberately not a dynamic-component map, to match this
+	file's established idiom for "pick one of a few known icons".
 -->
 {#snippet thoughtStepClassIcon(activityClass: ThoughtStepClassifierActivityClass)}
 	{@const iconType = thoughtStepIconTypeForClass(activityClass)}
@@ -1108,7 +978,7 @@ function toggleFullReasoning(): void {
 	chip instead of the previous generic status-only glyph. iconType is a
 	plain string tag out of getToolCallIconType (tool-calls.ts), rendered here
 	via the same if/else-over-a-string-tag idiom this file already uses for
-	the deliberation-status and thought-step-class icon blocks above — no
+	the thought-step-class icon block above — no
 	dynamic-component map, to match this file's established shape for "pick
 	one of a few known icons". Connection-tool cases render the exact same
 	Lucide glyph SettingsConnectionsTab's CAPABILITY_ICONS already uses per
@@ -1315,44 +1185,21 @@ function toggleFullReasoning(): void {
 
 <!--
 	Extracted (TS2-c) so the same event-derived status row (context
-	preparation / deliberation-pass status) renders identically whether it
-	appears in the pre-existing no-thoughtSteps fallback view below, or in
-	the new clean step list — one markup source, not a fork that could drift.
+	preparation status) renders identically whether it appears in the
+	pre-existing no-thoughtSteps fallback view below, or in the new clean
+	step list — one markup source, not a fork that could drift.
 -->
-{#snippet statusStepEntry(rawStatusSeg: StatusSegment)}
-	<!-- svelte-check's control-flow narrowing over an if/else chain keyed
-	     off an unrelated {@const} (iconType) below misnarrows this to
-	     `never` in the sibling branches without this cast — mirrors the
-	     pre-existing `entry.segment as any` this snippet was extracted
-	     from, at the original call site. -->
-	{@const statusSeg = rawStatusSeg as any}
-	{@const isDeliberationStatus = isDeliberationStatusSegment(statusSeg)}
+{#snippet statusStepEntry(statusSeg: StatusSegment)}
 	<div
 		class="status-step"
-		class:status-deliberation={isDeliberationStatus}
 		class:is-running={statusSeg.status === 'running'}
 	>
-		{#if isDeliberationStatus}
-			{@const iconType = deliberationStatusIconType(statusSeg)}
-			{#if iconType === 'search'}
-				<Search class="deliberation-status-icon" data-deliberation-icon="search" size={14} strokeWidth={2} aria-hidden="true" />
-			{:else if iconType === 'clipboard-check'}
-				<ClipboardCheck class="deliberation-status-icon" data-deliberation-icon="clipboard-check" size={14} strokeWidth={2} aria-hidden="true" />
-			{:else if iconType === 'shield-alert'}
-				<ShieldAlert class="deliberation-status-icon" data-deliberation-icon="shield-alert" size={14} strokeWidth={2} aria-hidden="true" />
-			{:else if iconType === 'languages'}
-				<Languages class="deliberation-status-icon" data-deliberation-icon="languages" size={14} strokeWidth={2} aria-hidden="true" />
-			{:else if iconType === 'layers'}
-				<Layers class="deliberation-status-icon" data-deliberation-icon="layers" size={14} strokeWidth={2} aria-hidden="true" />
-			{:else}
-				<Bot class="deliberation-status-icon" data-deliberation-icon="bot" size={14} strokeWidth={2} aria-hidden="true" />
-			{/if}
-		{:else if statusSeg.status === 'running'}
+		{#if statusSeg.status === 'running'}
 			<span class="tool-dot-inline"></span>
 		{:else}
 			<Check class="check-icon" size={12} strokeWidth={1.5} aria-hidden="true" />
 		{/if}
-		<span class="status-step-label">{isDeliberationStatus ? formatDeliberationStatusLabel(statusSeg) : statusSeg.label}</span>
+		<span class="status-step-label">{statusSeg.label}</span>
 	</div>
 {/snippet}
 
@@ -1409,9 +1256,7 @@ function toggleFullReasoning(): void {
 				this SAME region rather than adding a competing live region: a new
 				classified step is exactly the kind of coarse transition this was
 				already built for (the classifier itself rate-limits to roughly one
-				step per 5-7s). P4 extends it again, same discipline: "pass N of M"
-				and the concluding state are rare, coarse transitions (deliberation
-				passes run on the order of seconds), never a competing live region.
+				step per 5-7s).
 			-->
 			<!--
 				Owner polish pass (visual fixes) — each branch's TEXT sits in its own
@@ -1426,8 +1271,6 @@ function toggleFullReasoning(): void {
 					<span class="thinking-label-text">{$t('chat.thoughtFor', { time: formattedThinkingTime })}</span>
 				{:else if thinkingIsDone}
 					<span class="thinking-label-text">{$t('chat.thought')}</span>
-				{:else if deliberationProgressLabel}
-					<span class="thinking-label-text">{deliberationProgressLabel}</span>
 				{:else if liveThoughtStepHeadline}
 					<!--
 						TS2-c (ADR-0056 amendment) — the closed activityClass is now a
@@ -2251,17 +2094,6 @@ function toggleFullReasoning(): void {
 		to   { opacity: 1; transform: translateY(0); }
 	}
 
-	@keyframes deliberationStatusFade {
-		from {
-			opacity: 0;
-			transform: translateY(-2px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
 	.thinking-text {
 		margin: 0;
 		font-family: var(--font-sans);
@@ -2353,23 +2185,10 @@ function toggleFullReasoning(): void {
 			text-decoration-color 150ms var(--ease-out);
 	}
 
-	.status-step.status-deliberation {
-		font-size: var(--text-sm);
-		font-weight: 600;
-		animation: deliberationStatusFade 220ms var(--ease-out) both;
-	}
-
-	:global(.deliberation-status-icon) {
-		color: currentColor;
-		width: 14px;
-		height: 14px;
-		flex-shrink: 0;
-	}
-
 	/* Owner polish pass, item 2 — the tool-call chip's action-specific icon
 	   (toolIdentityIcon), same sizing rhythm as the other small leading
-	   icons in this file (.deliberation-status-icon/.thought-step-class-icon
-	   above/below). */
+	   icons in this file (.thought-step-class-icon
+	   below). */
 	:global(.tool-identity-icon) {
 		color: currentColor;
 		width: 13px;
@@ -2472,7 +2291,7 @@ function toggleFullReasoning(): void {
 
 	/* TS2-c (ADR-0056 amendment) — the closed activity class's secondary
 	   signal: a small leading icon on a step row/the live header, never the
-	   headline itself. Mirrors :global(.deliberation-status-icon) below. */
+	   headline itself. */
 	:global(.thought-step-class-icon) {
 		color: currentColor;
 		width: 13px;

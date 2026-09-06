@@ -523,7 +523,7 @@ A short synthesis of the user's active facts into fact-linked sentences (`{ sent
 _Avoid_: free-form personality essay, unsourced summary sentences, summary as separate store
 
 **Memory Master Toggle & Memory Incognito**:
-The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, enforced on the read side at every read call site (an inactive turn injects no baseline memory section, is not offered the `memory_context` recall tool on the main chat path, and is not offered it in the deliberation runner either) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
+The dual gate that decides whether memory is active for a turn (`memory-controls.ts`). The **master toggle** (`users.memoryEnabled`) turns all memory off for a user; **incognito** (`conversations.memoryIncognito`) excludes a single conversation. `isMemoryActiveForConversation` is the single source of truth, enforced on the read side at every read call site (an inactive turn injects no baseline memory section and is not offered the `memory_context` recall tool on the main chat path) and the write side (judge, consolidation, re-curation), and fails open so a controls outage never wipes recall.
 _Avoid_: read-only gate, write-only gate, per-turn silent memory when off, incognito that still writes
 
 **Memory Cost Tracking**:
@@ -715,27 +715,26 @@ The composer icon-button control (a `Brain` icon next to the incognito and conne
 _Avoid_: three-option picker, reasoning-depth dropdown, per-conversation setting
 
 **Automatic Depth Selection** _(retired 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
-Formerly the pre-turn decision used when **Reasoning Depth** was Auto, resolving standard/extended/maximum Normal Chat effort via a deterministic keyword/regex rules classifier (see the now-also-retired **Depth Classifier Model** below). The **Thinking Toggle** maps directly to an applied profile with no classification step: `quick` → `off`, `thorough` → `standard`. `extended`/`maximum` are no longer reachable from a fresh turn; the code that computes them still exists for old persisted messages and the **Depth Clarification Carry-forward** path.
+Formerly the pre-turn decision used when **Reasoning Depth** was Auto, resolving standard/extended/maximum Normal Chat effort via a deterministic keyword/regex rules classifier (see the now-also-retired **Depth Classifier Model** below). The **Thinking Toggle** maps directly to an applied profile with no classification step: `quick` → `off`, `thorough` → `standard`. `extended`/`maximum` are no longer reachable from a fresh turn; the effort-scaling code that computes them still exists only so old persisted messages keep displaying correctly. The **Depth Clarification Carry-forward** path that could also have re-introduced them has since been removed (see **Depth Clarification Gate** below).
 _Avoid_: hidden off switch, mid-answer escalation, hardcoded keyword mode, live classifier
 
-**Depth Clarification**:
-A concise localized user-facing question asked as a **Normal Chat** response before high-cost **Depth Profiles** begin when multiple plausible answer targets would materially change expensive work. It asks at most one scoping question, may offer concrete interpretations plus an open-ended alternative, must not expose cost, token, pass-count, or deliberation internals, should use app-owned localized wording rather than model-authored user-facing prose, and should not create a paused or resumable turn state in v1.
+**Depth Clarification** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a concise localized user-facing question asked as a **Normal Chat** response before high-cost **Depth Profiles** began when multiple plausible answer targets would materially change expensive work. The gate that could trigger it was keyed on the retired `extended`/`maximum` applied profiles, which a fresh turn can no longer produce; once the last path that could re-introduce those profiles (**Depth Clarification Carry-forward**) was also removed, the whole mechanism became unreachable and was deleted along with its code.
 _Avoid_: context clarification, hidden assumption, English-only clarification, paused depth turn
 
-**Depth Clarification Turn**:
-A normal persisted **Normal Chat Turn** whose assistant response is a **Depth Clarification** instead of a final substantive answer. It should remain visible in conversation history and may carry compact metadata for one-follow-up **Depth Clarification Carry-forward**.
-_Avoid_: preflight error, invisible prompt rewrite, unpersisted user request, hidden retry state
+**Depth Clarification Turn** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a normal persisted **Normal Chat Turn** whose assistant response was a **Depth Clarification** instead of a final substantive answer. Retained only so references to the old term resolve; no code produces this turn shape any more.
 
-**Depth Clarification Gate**:
-The bounded pre-turn decision after high-cost **Reasoning Depth** effort is selected and before expensive Normal Chat work begins. It uses deterministic bypasses before any cheap model classification, asks only when the selected effort is high-cost, multiple plausible answer targets exist, and the wrong target would materially change the work, then decides whether to proceed, ask a **Depth Clarification**, or proceed with an explicit assumption.
+**Depth Clarification Gate** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the bounded pre-turn decision after high-cost **Reasoning Depth** effort was selected and before expensive Normal Chat work began, deciding whether to proceed, ask a **Depth Clarification**, or proceed with an explicit assumption. Its entire trigger was gated on the applied profile being `extended`/`maximum`; since a fresh turn can only ever resolve to `off`/`standard`, and its carry-forward path was removed alongside it, none of its logic (including the deterministic ask/proceed-with-assumption heuristics) could ever run again — it was deleted rather than left dormant.
 _Avoid_: full context selection, source-heavy precheck, deliberation pass, approval workflow, model-only gate
 
-**Depth Assumption**:
-A brief user-facing assumption stated in the final answer when a high-cost **Depth Profile** can proceed without asking a **Depth Clarification** because one interpretation is clearly dominant. It should name only assumptions that materially shaped the answer and should not mention the internal clarification gate.
+**Depth Assumption** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a brief user-facing assumption stated in the final answer when a high-cost **Depth Profile** could proceed without asking a **Depth Clarification**. Removed with the **Depth Clarification Gate** that produced it.
 _Avoid_: hidden assumption, gate explanation, verbose preamble, weak guess
 
-**Depth Clarification Carry-forward**:
-The one-follow-up preservation of the high-cost **Depth Profile** that caused a **Depth Clarification**, so the clarified next turn can still receive the intended effort. It is not a paused turn, a durable preference, or a guarantee that the same effort applies after the user changes the visible composer depth.
+**Depth Clarification Carry-forward** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the one-follow-up preservation of the high-cost **Depth Profile** that caused a **Depth Clarification**, so a clarified next turn could still receive the intended effort. This was the only remaining path that could re-introduce `extended`/`maximum` on a turn after the Thinking Toggle redesign; removing it made the **Depth Clarification Gate** provably unreachable, so both were deleted together.
 _Avoid_: paused turn resume, sticky depth preference, hidden Max mode
 
 **Depth Classifier Model** _(retired 2026-07-10, and moot since 2026-09-06 — see [ADR-0046](docs/adr/0046-automatic-depth-selection-is-deterministic.md) and [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
@@ -764,28 +763,28 @@ _Avoid_: visible mode list, provider tier, model name
 Formerly the absence of **Depth Selection Signals** when Max bypassed **Automatic Depth Selection**, closed by reusing the previous turn's classifier signals when available. Depth selection no longer computes or reuses signals at all — the **Thinking Toggle** mapping produces no signals for either value — so there is no gap left to close.
 _Avoid_: Max missing signals, deliberation planner default, local-only Max
 
-**Normal Chat Deliberation Pass**:
-A bounded extra deliberation step inside a **Normal Chat Turn** that lets higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. The first pass reconstructs a focused workspace from the current prompt context, keeping only essential user intent, constraints, evidence needs, edge cases, and final-answer guidance. Later passes update a compact central **Deliberation Workspace Report** rather than rereading every prior note. Maximum uses small deterministic micro-checks for missed user needs, risk/tension, final answer shape, and Hungarian parity, then ends in a compact deterministic viable-alternatives preservation check so the final answer stays decisive without prematurely collapsing conditional options. Dynamic high-cost planning may choose additional bounded read-only passes such as source reconciliation, workspace synthesis, or edge-case review when depth signals justify the added latency, but model-backed passes should degrade to compact local checks when their prompt would likely exceed budget. Deliberation remains synchronous Normal Chat work and does not create a retired research job, approval workflow, or report lifecycle.
+**Normal Chat Deliberation Pass** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a bounded extra deliberation step inside a **Normal Chat Turn** that let higher **Depth Profiles** review context, sources, assumptions, draft quality, or missed edge cases before the final answer. It only ever ran for the retired `extended`/`maximum` applied profiles; once a fresh turn could no longer resolve to either (the Thinking Toggle only produces `off`/`standard`) and the **Depth Clarification Carry-forward** path that could re-introduce them was also removed, deliberation passes became fully unreachable and the ~2,000-line runner plus its status-line UI were deleted.
 _Avoid_: deleted research subsystem pass, hidden research job, background report
 
-**Normal Chat Deliberation Brief**:
-A compact structured result from a **Normal Chat Deliberation Pass**, carrying findings such as assumptions, evidence needs, source or memory findings, edge cases, viable alternatives, exit criteria, draft risks, and final-answer instructions. It is transient working material for the final answer pass, not durable user-facing chain-of-thought.
+**Normal Chat Deliberation Brief** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a compact structured result from a **Normal Chat Deliberation Pass**. Removed along with the pass runner that produced it.
 _Avoid_: chain-of-thought, hidden transcript, final answer draft
 
-**Deliberation Workspace Report**:
-A compact central report reduced from **Normal Chat Deliberation Briefs** during a higher-depth turn. It carries only the user intent, must-include constraints, evidence needs, recommendation guidance, viable alternatives, risks, language requirements, final style guidance, and open questions needed by later passes and final synthesis. It is the Normal Chat equivalent of a streamlined IterResearch workspace and is transient working material, not durable chain-of-thought.
+**Deliberation Workspace Report** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a compact central report reduced from **Normal Chat Deliberation Briefs** during a higher-depth turn. Removed along with the pass runner that produced it.
 _Avoid_: full deliberation transcript, hidden essay, durable research report
 
-**Deliberation Context**:
-The bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** material supplied to a **Normal Chat Deliberation Pass**. The first deliberation pass reconstructs a streamlined workspace from selected Prompt Context, while later passes should use the compact **Deliberation Workspace Report** and gathered findings rather than blindly repeating every full context item.
+**Deliberation Context** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the bounded **Prompt Context** and prior **Normal Chat Deliberation Brief** material supplied to a **Normal Chat Deliberation Pass**. Removed along with the pass runner.
 _Avoid_: full prompt replay, hidden document dump, unbounded context loop
 
-**Deliberation Tool Scope**:
-The read-only Normal Chat tool scope available to a **Normal Chat Deliberation Pass** for inspecting memory, web sources, and selected context before the final answer. It excludes file production, write actions, destructive tools, and retired background research mode.
+**Deliberation Tool Scope** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly the read-only Normal Chat tool scope available to a **Normal Chat Deliberation Pass**. Removed along with the pass runner.
 _Avoid_: full tool access, action mode, research job tools
 
 **Normal Chat Response Usage**:
-The combined token, cost, model, provider, and runtime measurements for one completed or partially completed **Normal Chat Turn** response. When higher **Depth Profiles** run **Normal Chat Deliberation Passes**, their model and tool usage is included in the same user-facing response total rather than shown as per-pass cost, hidden overhead, or **Research Usage**.
+The combined token, cost, model, provider, and runtime measurements for one completed or partially completed **Normal Chat Turn** response. When a turn runs a multi-step tool loop, that usage is included in the same user-facing response total rather than shown as per-step cost, hidden overhead, or **Research Usage**.
 _Avoid_: hidden pass cost, fake research usage, final-call-only cost, per-pass cost row
 
 **Depth Selection Signal**:
@@ -801,11 +800,11 @@ Formerly the highest user-selectable **Reasoning Depth**, raising Normal Chat ef
 _Avoid_: Deep mode, automatic research job, escalated toggle state
 
 **Depth Metadata**:
-The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level, including whether higher-depth deliberation was constrained or degraded. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
+The user-inspectable post-response metadata that records which **Depth Profile** was applied to a Normal Chat turn and why at a compact level. It helps users and operators understand effort tradeoffs without exposing private model reasoning.
 _Avoid_: chain-of-thought, debug dump, hidden prompt
 
-**Depth Outcome**:
-The compact result category for a **Reasoning Depth** decision, distinguishing completed high-cost work from a **Depth Clarification Turn**, constrained deliberation, or ordinary standard response. It prevents metadata, analytics, and user-facing audit details from treating a clarification as if expensive deliberation actually ran.
+**Depth Outcome** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a compact result category on **Depth Metadata** distinguishing completed high-cost work from a **Depth Clarification Turn** or constrained deliberation. Removed along with the **Depth Clarification Gate** and **Normal Chat Deliberation Pass** that produced its non-default values; a message persisted before this removal may still carry the field in its stored JSON, but readers no longer interpret it.
 _Avoid_: fake Max completion, hidden analytics flag, pass result dump
 
 **Thinking Trace**:
@@ -824,20 +823,20 @@ _Avoid_: decorative citation, timestamp only, unverifiable claim
 Operational timing and outcome facts about **Automatic Depth Selection** and the resulting **Depth Profile**, such as classification latency, profile choice, and response-start timing. It supports tuning based on real traces rather than fixed product-timeout guesses.
 _Avoid_: spinner budget, hardcoded timeout, private reasoning
 
-**Reasoning Depth Evaluation Harness**:
-A focused Normal Chat evaluation set that compares standard, extended, maximum, and high-cost clarification behavior on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, cost, and wrong-target avoidance. It exists to prove higher depth earns its added response time rather than merely making answers slower or asking unnecessary clarifying questions.
+**Reasoning Depth Evaluation Harness** _(scope narrowed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+A focused Normal Chat evaluation set that compares `quick`/`thorough` **Thinking Toggle** behavior on representative prompts for edge-case handling, source grounding, context awareness, format discipline, latency, and cost. Formerly also compared extended/maximum and high-cost clarification behavior; those profiles and the clarification gate are retired, so the harness no longer exercises them.
 _Avoid_: live demo, subjective vibe check evaluation, English-only benchmark
 
-**Deliberation Status Line**:
-A compact Normal Chat pending-response surface that shows one current high-level **Normal Chat Deliberation Pass** status above the inline **Thought** disclosure while higher **Depth Profiles** are running. It is driven by real pass/tool/context work, changes status with a smooth transition, and disappears from the main answer surface after completion.
+**Deliberation Status Line** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a compact Normal Chat pending-response surface that showed one current high-level **Normal Chat Deliberation Pass** status above the inline **Thought** disclosure. Removed along with the pass runner and its client-side rendering.
 _Avoid_: activity timeline, progress percentage, debug log, chain-of-thought viewer
 
-**Deliberation Status Step**:
-A high-level status phrase from a **Normal Chat Deliberation Pass**, such as reviewing context, checking sources, reviewing edge cases, or writing the answer. Completed status steps and compact human-readable tool milestones may appear inside the **Thought** disclosure at the point where they occurred, but raw tool inputs, JSON, source diagnostics, candidate lists, and verbose tool results should not become a completed UI surface.
+**Deliberation Status Step** _(removed 2026-09-06 — see [ADR-0061](adr/0061-thinking-toggle-replaces-depth-ladder.md))_:
+Formerly a high-level status phrase from a **Normal Chat Deliberation Pass**. Removed along with the pass runner.
 _Avoid_: tool log row, source ledger, debug event, final answer sentence
 
 **Response Audit Details**:
-A user-requested post-response detail surface for inspecting compact response facts in the existing assistant-message info tooltip. It should stay visually minimal and may include **Depth Metadata**, model/provider, response time, token counts, and cost, while deliberation status steps and the persisted **Thinking Trace** remain available through the existing inline **Thought** disclosure.
+A user-requested post-response detail surface for inspecting compact response facts in the existing assistant-message info tooltip. It should stay visually minimal and may include **Depth Metadata**, model/provider, response time, token counts, and cost, while the persisted **Thinking Trace** remains available through the existing inline **Thought** disclosure.
 _Avoid_: permanent status card, hidden transcript, explanation of correctness, second audit UI
 
 **Model Capability**:

@@ -229,7 +229,6 @@ function isResponseActivityKind(
 ): value is ResponseActivityEntry["kind"] {
 	return (
 		value === "depth" ||
-		value === "deliberation" ||
 		value === "context" ||
 		value === "tool" ||
 		value === "source" ||
@@ -303,15 +302,6 @@ function buildResponseActivityEntry(
 		...(typeof parsed.title === "string" ? { title: parsed.title } : {}),
 		...(typeof parsed.url === "string" ? { url: parsed.url } : {}),
 		...(typeof parsed.count === "number" ? { count: parsed.count } : {}),
-		...(typeof parsed.passIndex === "number"
-			? { passIndex: parsed.passIndex }
-			: {}),
-		...(typeof parsed.passTotal === "number"
-			? { passTotal: parsed.passTotal }
-			: {}),
-		...(typeof parsed.passKind === "string"
-			? { passKind: parsed.passKind }
-			: {}),
 		...(typeof parsed.occurredAt === "number"
 			? { occurredAt: parsed.occurredAt }
 			: {}),

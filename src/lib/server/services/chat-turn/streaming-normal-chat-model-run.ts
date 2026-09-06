@@ -5,10 +5,6 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import type { LegacyContextTraceSectionInput } from "$lib/server/services/chat-turn/context-trace";
-import {
-	appendDeliberationBriefsToInput,
-	sumUsage,
-} from "$lib/server/services/chat-turn/deliberation-runner";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { buildReasoningDepthProviderOptions } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import {
@@ -16,14 +12,12 @@ import {
 	createRequestAbortSignal,
 	createToolPack,
 	estimateTurnPromptTokens,
-	evaluateClarification,
 	isEvidenceReadyToolCall,
 	type NormalChatSendModelBaseParams,
 	prepareOutboundContext,
 	resolveActiveDepthEffort,
 	resolveForcedResearchWebFirstStepToolChoice,
 	resolveProviderRuntime,
-	runDeliberationIfNeeded,
 } from "$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers";
 import { NORMAL_CHAT_MAX_TOOL_STEPS } from "$lib/server/services/chat-turn/tool-step-budget";
 import type { Capability } from "$lib/server/services/connections/registry";
@@ -62,9 +56,6 @@ export type StreamingNormalChatSendModelParams = {
 	enabledConnectionCapabilities?: string[];
 	createTurnId?: () => string;
 	signal?: AbortSignal;
-	depthClarificationClassifier?: Parameters<
-		typeof evaluateClarification
-	>[0]["depthClarificationClassifier"];
 	overrideProvider?: Parameters<
 		typeof resolveProviderRuntime
 	>[0]["overrideProvider"];
@@ -104,9 +95,9 @@ export async function runStreamingNormalChatSendModel(
 	// The streaming path never disables tools and never auto-forces the
 	// `produce_file` tool-choice (it leaves tool choice automatic — see the
 	// "leaves tool choice automatic for explicit file requests" test). The
-	// shared six-step helpers read `disableTools`/`forceProduceFileTool` off
-	// the params, so we pass them explicitly as `false` here. With both false
-	// the shared helpers behave exactly as the old inline streaming code did:
+	// shared helpers read `disableTools`/`forceProduceFileTool` off the
+	// params, so we pass them explicitly as `false` here. With both false the
+	// shared helpers behave exactly as the old inline streaming code did:
 	// memory recall is always resolved, tools are always selected, and
 	// produce_file is never force-selected.
 	const baseParams: NormalChatSendModelBaseParams = {
@@ -116,30 +107,8 @@ export async function runStreamingNormalChatSendModel(
 	};
 
 	const runtime = await resolveProviderRuntime(baseParams);
-	const clarification = await evaluateClarification(
-		baseParams,
-		runtime.depthEffort,
-	);
-
-	if (clarification.action === "ask") {
-		const emptyPrepared: StreamingNormalChatPreparedContext = {};
-		return {
-			prepared: emptyPrepared,
-			modelId: runtime.modelId,
-			modelDisplayName: runtime.provider.displayName,
-			providerIconUrl: runtime.provider.iconUrl ?? null,
-			resolvedProviderId: runtime.provider.id,
-			stream: createSyntheticTextStream(clarification.text),
-			prefetchedToolCalls: [],
-			getNormalChatToolCalls: () => [],
-			getToolCalls: () => [],
-			depthMetadata: clarification.depthMetadata,
-		};
-	}
-
 	const activeDepthEffort: ActiveDepthEffort | null = resolveActiveDepthEffort(
 		runtime.depthEffort,
-		clarification,
 	);
 	// Resolved ONCE, ahead of context prep (Issue 8.1) — it used to only be
 	// resolved later, right before createNormalChatTools, which meant
@@ -167,36 +136,11 @@ export async function runStreamingNormalChatSendModel(
 		runtime.modelId,
 		enabledConnectionCapabilities,
 	);
-	// Streaming surfaces how long the deliberation pass took (plain does not).
-	// The shared helper does not time itself, so capture the elapsed ms here.
-	const deliberationStartMs = Date.now();
-	const deliberation = await runDeliberationIfNeeded(
-		baseParams,
-		runtime,
-		activeDepthEffort,
-		prepared,
-		turnId,
-		toolPack.recorder,
-	);
-	const deliberationElapsedMs =
-		deliberation !== null ? Date.now() - deliberationStartMs : 0;
 
 	const prefetchedToolCalls = prepared.prefetchedToolCalls ?? [];
 	const getNormalChatToolCalls = () => toolPack.getToolCalls();
-	const assumptionPrefix =
-		clarification.action === "proceed"
-			? clarification.assumptionPrefix
-			: undefined;
-	const deliberationUsage = deliberation?.usage ?? {
-		inputTokens: undefined,
-		outputTokens: undefined,
-		totalTokens: undefined,
-	};
 	const finalInputValue = appendTurnGuidance(
-		appendDeliberationBriefsToInput(
-			prepared.inputValue,
-			deliberation?.briefs ?? [],
-		),
+		prepared.inputValue,
 		prepared.turnGuidance,
 	);
 	const outboundMessages: ModelMessage[] = [
@@ -236,7 +180,6 @@ export async function runStreamingNormalChatSendModel(
 		}),
 		maxToolSteps: activeDepthEffort?.maxToolSteps ?? NORMAL_CHAT_MAX_TOOL_STEPS,
 		messages: outboundMessages,
-		deliberationElapsedMs,
 	});
 
 	return {
@@ -256,67 +199,13 @@ export async function runStreamingNormalChatSendModel(
 		modelDisplayName: runtime.provider.displayName,
 		providerIconUrl: runtime.provider.iconUrl ?? null,
 		resolvedProviderId: runtime.provider.id,
-		stream: withOptionalAssumptionPrefix(
-			deliberation ? withDeliberationUsage(stream, deliberationUsage) : stream,
-			assumptionPrefix,
-		),
+		stream,
 		prefetchedToolCalls,
 		getNormalChatToolCalls,
 		getToolCalls: () => [
 			...prefetchedToolCalls,
 			...getNormalChatToolCalls().filter(isEvidenceReadyToolCall),
 		],
-		depthMetadata: activeDepthEffort
-			? (deliberation?.depthMetadata ?? activeDepthEffort.depthMetadata)
-			: clarification.depthMetadata,
+		depthMetadata: activeDepthEffort?.depthMetadata,
 	};
-}
-
-async function* createSyntheticTextStream(
-	text: string,
-): AsyncIterable<StreamingNormalChatModelRunEvent> {
-	yield { type: "text_delta", text };
-	yield {
-		type: "finish",
-		finishReason: "stop",
-		rawFinishReason: undefined,
-		model: {
-			modelId: "clarification",
-			providerId: "clarification",
-			providerName: "clarification",
-			displayName: "Clarification",
-			requestedModelName: "clarification",
-			responseModelName: "clarification",
-		},
-	};
-}
-
-async function* withOptionalAssumptionPrefix(
-	stream: AsyncIterable<StreamingNormalChatModelRunEvent>,
-	assumptionPrefix?: string,
-): AsyncIterable<StreamingNormalChatModelRunEvent> {
-	if (assumptionPrefix) {
-		yield { type: "text_delta", text: `${assumptionPrefix}\n\n` };
-	}
-	yield* stream;
-}
-
-async function* withDeliberationUsage(
-	stream: AsyncIterable<StreamingNormalChatModelRunEvent>,
-	deliberationUsage: {
-		inputTokens: number | undefined;
-		outputTokens: number | undefined;
-		totalTokens: number | undefined;
-	},
-): AsyncIterable<StreamingNormalChatModelRunEvent> {
-	for await (const event of stream) {
-		if (event.type === "usage") {
-			yield {
-				...event,
-				usage: sumUsage(deliberationUsage, event.usage),
-			};
-			continue;
-		}
-		yield event;
-	}
 }

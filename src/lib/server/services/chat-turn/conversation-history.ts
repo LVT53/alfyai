@@ -246,8 +246,8 @@ export function buildHistoryModelMessages(params: {
 	};
 }
 
-// Flat text rendering for consumers that still take a single string (the
-// deliberation control calls).
+// Flat text rendering for consumers that need a single string instead of the
+// native message list.
 export function renderHistoryAsText(messages: ModelMessage[]): string {
 	return messages
 		.map((message) => {

@@ -480,49 +480,9 @@ function mergeResponseActivityEntries(
 		}
 	}
 	return {
-		...mergeDeliberationStatusSegments(message, entries),
+		...message,
 		responseActivity: nextEntries,
 	};
-}
-
-function mergeDeliberationStatusSegments(
-	message: ChatMessage,
-	entries: ResponseActivityEntry[],
-): ChatMessage {
-	const deliberationEntries = entries.filter(isDeliberationActivityEntry);
-	if (deliberationEntries.length === 0) return message;
-	const nextSegments = [...(message.thinkingSegments ?? [])];
-	for (const entry of deliberationEntries) {
-		const label = entry.label?.trim();
-		if (!label) continue;
-		const existingIndex = nextSegments.findIndex(
-			(segment) => segment.type === "status" && segment.id === entry.id,
-		);
-		const segment: ThinkingSegment = {
-			type: "status",
-			id: entry.id,
-			label,
-			status: entry.status,
-		};
-		if (existingIndex === -1) {
-			nextSegments.push(segment);
-		} else {
-			nextSegments[existingIndex] = {
-				...nextSegments[existingIndex],
-				...segment,
-			};
-		}
-	}
-	return {
-		...message,
-		thinkingSegments: nextSegments.length > 0 ? nextSegments : undefined,
-	};
-}
-
-function isDeliberationActivityEntry(
-	entry: ResponseActivityEntry,
-): entry is ResponseActivityEntry & { label: string } {
-	return entry.kind === "deliberation" && Boolean(entry.label?.trim());
 }
 
 function finalizeThinkingSegment(segment: ThinkingSegment): ThinkingSegment {

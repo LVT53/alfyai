@@ -358,39 +358,6 @@ describe("streamChat", () => {
 		});
 	});
 
-	it("maps deliberation response-activity events onto the activity callback", async () => {
-		const onResponseActivity = vi.fn();
-		const { done } = runStreamWithMockedResponse({
-			responseChunks: [
-				uiFrame({
-					type: "data-response-activity",
-					data: {
-						id: "deliberation-pass-1",
-						kind: "deliberation",
-						status: "running",
-						label: "Reviewing context and sources",
-						occurredAt: 456,
-					},
-					transient: true,
-				}),
-				uiFrame("[DONE]"),
-			],
-			callbacks: {
-				...makeCallbacks(),
-				onResponseActivity,
-			},
-		});
-		await done;
-
-		expect(onResponseActivity).toHaveBeenCalledWith({
-			id: "deliberation-pass-1",
-			kind: "deliberation",
-			status: "running",
-			label: "Reviewing context and sources",
-			occurredAt: 456,
-		});
-	});
-
 	// P3c (ADR-0056) — "thought_step" (P3b's classified-step kind) was
 	// missing from isResponseActivityKind's allow-list, so every live
 	// classified step was silently dropped here before it ever reached

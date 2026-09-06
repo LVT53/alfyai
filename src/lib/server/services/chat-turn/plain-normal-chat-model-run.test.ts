@@ -581,58 +581,6 @@ describe("runPlainNormalChatSendModel", () => {
 		});
 	});
 
-	it("proceeds with broad but answerable high-cost work instead of asking unnecessarily", async () => {
-		const result = await runSubject({
-			message:
-				"Research all viable platform options and build a complete migration plan.",
-			depthMetadata: {
-				requested: "thorough",
-				appliedProfile: "extended",
-				fallback: false,
-				signals: {
-					contextBreadth: "broad",
-					outputRoom: "expanded",
-					toolUse: "source_heavy",
-				},
-			},
-		});
-
-		expect(mocks.prepareOutboundChatContext).toHaveBeenCalled();
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalled();
-		expect(result.text).toBe("Answer");
-		expect(result.depthMetadata).not.toHaveProperty("clarification");
-	});
-
-	it("proceeds with a visible assumption prefix when the user asks the model to assume", async () => {
-		const result = await runSubject({
-			message:
-				"Research all viable platform options and build a complete migration plan. Use your best judgment.",
-			depthMetadata: {
-				requested: "thorough",
-				appliedProfile: "maximum",
-				fallback: false,
-				signals: {
-					contextBreadth: "broad",
-					outputRoom: "expanded",
-					toolUse: "source_heavy",
-				},
-			},
-		});
-
-		expect(mocks.prepareOutboundChatContext).toHaveBeenCalled();
-		expect(mocks.runPlainNormalChatModelRun).toHaveBeenCalled();
-		expect(result.text).toBe(
-			"Depth Assumption: I will use the most generally useful target and decision criteria.\n\nAnswer",
-		);
-		expect(result.depthMetadata?.clarification).toMatchObject({
-			outcome: "proceed_with_assumption",
-			reason: "user_requested_assumption",
-			language: "en",
-			assumption:
-				"I will use the most generally useful target and decision criteria",
-		});
-	});
-
 	it("returns prefetched forced-search tool calls from prompt preparation", async () => {
 		const prefetchedToolCalls = [
 			{

@@ -3,7 +3,6 @@ import {
 	fireEvent,
 	render,
 	screen,
-	waitFor,
 	within,
 } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
@@ -210,150 +209,39 @@ describe("ThinkingBlock", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("uses different icons per deliberation pass", async () => {
-		const segments: ThinkingSegment[] = [
-			{
-				type: "status",
-				id: "deliberation-pass-1",
-				status: "done",
-				label: "Reviewing context and sources",
-				passKind: "context_source_gap_review",
-			},
-			{
-				type: "status",
-				id: "deliberation-pass-2",
-				status: "done",
-				label: "Deepening source synthesis",
-				passKind: "missed_user_need_check",
-			},
-			{
-				type: "status",
-				id: "deliberation-pass-3",
-				status: "done",
-				label: "Finalizing robust answer",
-				passKind: "contradiction_risk_check",
-			},
-		];
-
-		const { container } = render(ThinkingBlock, {
-			props: {
-				content: "",
-				thinkingIsDone: true,
-				segments,
-			},
-		});
-
-		await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
-
-		const statusRows = container.querySelectorAll(".status-step");
-		expect(statusRows).toHaveLength(3);
-		expect(
-			statusRows[0]?.querySelector('[data-deliberation-icon="search"]'),
-		).not.toBeNull();
-		expect(
-			statusRows[1]?.querySelector(
-				'[data-deliberation-icon="clipboard-check"]',
-			),
-		).not.toBeNull();
-		expect(
-			statusRows[2]?.querySelector('[data-deliberation-icon="shield-alert"]'),
-		).not.toBeNull();
-	});
-
-	it("renders deliberation status rows with the deliberation icon instead of a check icon", async () => {
+	// ADR-0061 — a message persisted before the thinking-toggle redesign can
+	// still carry the now-retired Normal Chat Deliberation Passes fields
+	// (passIndex/passTotal/passKind) on a status thinking segment in its stored
+	// JSON. These are not part of the current ThinkingSegment type and are not
+	// re-validated at read time — the component must simply ignore them and
+	// render the segment as a normal completed status row, never crash.
+	it("tolerates legacy passIndex/passTotal/passKind fields on a persisted status segment without crashing", async () => {
 		const segments: ThinkingSegment[] = [
 			{
 				type: "status",
 				id: "deliberation-pass-1",
 				status: "done",
 				label: "Reviewed context and sources",
-			},
-			{
-				type: "text",
-				content: "Checked evidence and draft plan.",
-			},
+				passIndex: 1,
+				passTotal: 6,
+				passKind: "context_source_gap_review",
+			} as never,
 		];
 
-		render(ThinkingBlock, {
-			props: {
-				content: "",
-				thinkingIsDone: true,
-				segments,
-			},
-		});
-
-		expect(screen.getByRole("button", { name: /Thought/ })).toBeInTheDocument();
+		expect(() =>
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments,
+				},
+			}),
+		).not.toThrow();
 
 		await fireEvent.click(screen.getByRole("button", { name: /Thought/ }));
-		await waitFor(() =>
-			expect(
-				screen.getByText("Reviewed context and sources"),
-			).toBeInTheDocument(),
-		);
-
-		const statusRow = screen
-			.getByText("Reviewed context and sources")
-			.closest(".status-step");
-		expect(statusRow).not.toBeNull();
-		expect(statusRow?.querySelector(".check-icon")).toBeNull();
-		expect(
-			statusRow?.querySelector(".deliberation-status-icon"),
-		).not.toBeNull();
-	});
-
-	it("shows only the latest deliberation status step while streaming", async () => {
-		const { rerender } = render(ThinkingBlock, {
-			props: {
-				content: "",
-				thinkingIsDone: false,
-				streaming: true,
-				segments: [
-					{
-						type: "status",
-						id: "deliberation-pass-1",
-						status: "done",
-						label: "Reviewed context and sources",
-					},
-					{
-						type: "status",
-						id: "deliberation-pass-2",
-						status: "running",
-						label: "Checking answer plan",
-					},
-				],
-			},
-		});
-
-		await fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
-
-		expect(screen.getByText("Checking answer plan")).toBeInTheDocument();
-		expect(
-			screen.queryByText("Reviewed context and sources"),
-		).not.toBeInTheDocument();
-
-		await rerender({
-			content: "",
-			thinkingIsDone: true,
-			streaming: false,
-			segments: [
-				{
-					type: "status",
-					id: "deliberation-pass-1",
-					status: "done",
-					label: "Reviewed context and sources",
-				},
-				{
-					type: "status",
-					id: "deliberation-pass-2",
-					status: "done",
-					label: "Checking answer plan",
-				},
-			],
-		});
 		expect(
 			screen.getByText("Reviewed context and sources"),
 		).toBeInTheDocument();
-		expect(screen.getByText("Checking answer plan")).toBeInTheDocument();
 	});
 
 	it("groups a burst of connector tool calls into one compact summary row per capability", async () => {
@@ -1341,11 +1229,10 @@ describe("ThinkingBlock", () => {
 		});
 
 		// The primary P1 acceptance test: `standard` depth with no tool calls
-		// means DELIBERATION_PASS_PLAN_BY_PROFILE.standard is [] server-side
-		// (no status segments) and there are no tool_call segments either —
+		// means there are no status segments and no tool_call segments either —
 		// segments stays empty for the whole turn, exactly like this fixture.
 		// The rail must still never be empty.
-		it("never renders an empty header for a standard-depth turn with no tool calls and no deliberation passes", () => {
+		it("never renders an empty header for a standard-depth turn with no tool calls", () => {
 			render(ThinkingBlock, {
 				props: {
 					content: "Considering the request",
@@ -1899,163 +1786,6 @@ describe("ThinkingBlock", () => {
 			expect(container.querySelector(".thought-step-clean-list")).toBeNull();
 			expect(
 				screen.queryByRole("button", { name: /Show full reasoning/ }),
-			).not.toBeInTheDocument();
-		});
-	});
-
-	// P4 (ADR-0056) — determinate progress enrichment on top of P1's spine and
-	// P3c's rail, reusing the already-computed passIndex/passTotal
-	// (deliberation-pass-catalogue.ts) and RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER.
-	// No model call anywhere in this suite: every value arrives as a plain
-	// prop, exactly as it would after MessageBubble's reuse of the same
-	// reverse-scan-latest-match pattern P3c already established.
-	describe("P4 determinate deliberation progress (ADR-0056)", () => {
-		// The primary P4 regression test: `standard` depth never emits a
-		// deliberation activity at all (DELIBERATION_PASS_PLAN_BY_PROFILE.standard
-		// is []), so livePassIndex/livePassTotal are never populated — the new
-		// props simply default to undefined/false and P1's spine label governs
-		// exactly as it did before this slice.
-		it("leaves standard-depth (no deliberation plan) behavior byte-identical to P1 — no new props passed at all", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Considering the request",
-					thinkingIsDone: false,
-					segments: [],
-					streaming: true,
-				},
-			});
-
-			const header = screen.getByRole("button", { name: /Thinking/ });
-			expect(header.textContent?.trim()).toBe("Thinking...");
-		});
-
-		// At `standard` depth, RESPONSE_ACTIVITY_IDS.DRAFTING_ANSWER still fires
-		// (it is part of the deterministic spine for every depth — deliberation
-		// is simply a no-op there), but with no multi-pass plan ever observed
-		// this must NOT flip the header to the concluding state. Proves the
-		// concluding signal is gated on a real multi-pass total, not merely on
-		// drafting-answer having been reached.
-		it("does not enter the concluding state at standard depth even once drafting-answer is reached, since no multi-pass plan was ever observed", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Considering the request",
-					thinkingIsDone: false,
-					segments: [],
-					streaming: true,
-					draftingAnswerReached: true,
-				},
-			});
-
-			expect(screen.getByText("Thinking...")).toBeInTheDocument();
-			expect(
-				screen.queryByText("Wrapping up deliberation..."),
-			).not.toBeInTheDocument();
-		});
-
-		it("shows determinate pass N of M while a multi-pass maximum-depth plan is mid-flight", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: false,
-					livePassIndex: 2,
-					livePassTotal: 6,
-				},
-			});
-
-			expect(
-				screen.getByRole("button", { name: "Pass 2 of 6" }),
-			).toBeInTheDocument();
-		});
-
-		it("flips to the determinate concluding state once deliberation has resolved and drafting-answer is reached", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: false,
-					livePassIndex: 6,
-					livePassTotal: 6,
-					draftingAnswerReached: true,
-				},
-			});
-
-			expect(
-				screen.getByText("Wrapping up deliberation..."),
-			).toBeInTheDocument();
-			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
-		});
-
-		it("does not show pass N of M for a single-pass plan (extended depth) even once drafting-answer is reached", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: false,
-					livePassIndex: 1,
-					livePassTotal: 1,
-					draftingAnswerReached: true,
-				},
-			});
-
-			expect(screen.getByText("Thinking...")).toBeInTheDocument();
-			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
-			expect(
-				screen.queryByText("Wrapping up deliberation..."),
-			).not.toBeInTheDocument();
-		});
-
-		it("takes precedence over a classified thought-step label — determinate progress beats a qualitative guess", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: false,
-					livePassIndex: 3,
-					livePassTotal: 6,
-					liveThoughtStepClass: "weighing-options",
-				},
-			});
-
-			expect(
-				screen.getByRole("button", { name: "Pass 3 of 6" }),
-			).toBeInTheDocument();
-			expect(
-				screen.queryByText("Weighing the options..."),
-			).not.toBeInTheDocument();
-		});
-
-		it("defers to P1's writing-the-answer state once the visible answer has started, even mid-plan with drafting-answer reached", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: false,
-					livePassTotal: 6,
-					draftingAnswerReached: true,
-					answerStarted: true,
-				},
-			});
-
-			expect(screen.getByText("Writing the answer...")).toBeInTheDocument();
-			expect(
-				screen.queryByText("Wrapping up deliberation..."),
-			).not.toBeInTheDocument();
-		});
-
-		it("never leaks the live pass/concluding state into the completed header, which stays the retrospective duration", () => {
-			render(ThinkingBlock, {
-				props: {
-					content: "Looking at the request",
-					thinkingIsDone: true,
-					thinkingDurationSeconds: 45,
-					livePassIndex: 6,
-					livePassTotal: 6,
-					draftingAnswerReached: true,
-				},
-			});
-
-			expect(
-				screen.getByRole("button", { name: "Thought for 45s" }),
-			).toBeInTheDocument();
-			expect(screen.queryByText(/Pass \d/)).not.toBeInTheDocument();
-			expect(
-				screen.queryByText("Wrapping up deliberation..."),
 			).not.toBeInTheDocument();
 		});
 	});
