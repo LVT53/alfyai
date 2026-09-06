@@ -397,6 +397,7 @@ export async function createToolPack(
 					message: params.message,
 					forceProduceFileTool: params.forceProduceFileTool,
 					memoryActive,
+					skillsEnabled: getConfig().composerCommandRegistryEnabled,
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,
