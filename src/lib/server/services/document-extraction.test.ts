@@ -331,4 +331,73 @@ describe("extractDocumentText", () => {
 
 		expect(result.text).toBe("fallback content");
 	});
+
+	// "Long-document comfort" (2026-09-06): page count is best-effort — most
+	// MinerU backends don't report it, so it's read opportunistically from
+	// whichever common field name happens to be present.
+	describe("page count (long-document comfort)", () => {
+		it("reads page_count when MinerU reports it", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					createMockResponse(200, {
+						results: {
+							report: { md_content: "# Title\ntext", page_count: 38 },
+						},
+					}),
+				),
+			);
+
+			const result = await extractDocumentText(
+				"/path/to/report.pdf",
+				"application/pdf",
+				"report.pdf",
+			);
+
+			expect(result.pageCount).toBe(38);
+		});
+
+		it("falls back to counting a pages array when no page count field exists", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(
+					createMockResponse(200, {
+						results: {
+							report: {
+								md_content: "# Title\ntext",
+								pages: [{}, {}, {}],
+							},
+						},
+					}),
+				),
+			);
+
+			const result = await extractDocumentText(
+				"/path/to/report.pdf",
+				"application/pdf",
+				"report.pdf",
+			);
+
+			expect(result.pageCount).toBe(3);
+		});
+
+		it("is undefined when MinerU's response carries no page information", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi
+					.fn()
+					.mockResolvedValue(
+						createMockResponse(200, mineruMdResponse("report.pdf", "text")),
+					),
+			);
+
+			const result = await extractDocumentText(
+				"/path/to/report.pdf",
+				"application/pdf",
+				"report.pdf",
+			);
+
+			expect(result.pageCount).toBeUndefined();
+		});
+	});
 });

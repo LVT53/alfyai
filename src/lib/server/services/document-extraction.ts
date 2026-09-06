@@ -6,6 +6,10 @@ interface ExtractionResult {
 	text: string | null;
 	normalizedName: string;
 	mimeType: string;
+	// Populated only when MinerU's response happens to carry a page count
+	// for the source document ("long-document comfort", 2026-09-06) — most
+	// MinerU backends don't, so this is best-effort and frequently absent.
+	pageCount?: number;
 }
 
 function mimeFromExtension(ext: string): string | null {
@@ -64,6 +68,43 @@ function extractMdContent(data: unknown, originalName: string): string {
 	if (!docResult || typeof docResult !== "object") return "";
 	const md = (docResult as Record<string, unknown>).md_content;
 	return typeof md === "string" ? md : "";
+}
+
+function extractPageCount(
+	data: unknown,
+	originalName: string,
+): number | undefined {
+	if (!data || typeof data !== "object") return undefined;
+
+	const payload = data as Record<string, unknown>;
+	const results = payload.results;
+	if (!results || typeof results !== "object") return undefined;
+
+	const resultsObj = results as Record<string, unknown>;
+	const docKey = basename(originalName, extname(originalName));
+	const docResult = resultsObj[docKey] ?? Object.values(resultsObj)[0];
+	if (!docResult || typeof docResult !== "object") return undefined;
+
+	const record = docResult as Record<string, unknown>;
+	const candidates = [
+		record.page_count,
+		record.total_pages,
+		record.num_pages,
+		record.pages_count,
+	];
+	for (const candidate of candidates) {
+		if (
+			typeof candidate === "number" &&
+			Number.isFinite(candidate) &&
+			candidate > 0
+		) {
+			return Math.trunc(candidate);
+		}
+	}
+	if (Array.isArray(record.pages) && record.pages.length > 0) {
+		return record.pages.length;
+	}
+	return undefined;
 }
 
 function toNormalizedName(originalName: string): string {
@@ -181,7 +222,12 @@ export async function extractDocumentText(
 			textPreview: markdown.slice(0, 300),
 		});
 
-		return { text: markdown.trim(), normalizedName, mimeType: "text/markdown" };
+		return {
+			text: markdown.trim(),
+			normalizedName,
+			mimeType: "text/markdown",
+			pageCount: extractPageCount(data, originalName),
+		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const timedOut =

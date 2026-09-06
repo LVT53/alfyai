@@ -33,6 +33,18 @@ export type MemoryLayer =
 	| "working_set"
 	| "task_state";
 
+// "Long-document comfort" (owner-approved mockup): one outline entry
+// derived from a document heading. `offset` is the character offset of the
+// heading's own line within the extracted document text; `preview` is the
+// first ~300 chars of body text that follow it, used to build the quoted
+// text inserted into the composer.
+export interface DocumentOutlineEntry {
+	level: number;
+	title: string;
+	offset: number;
+	preview: string;
+}
+
 export interface ArtifactSummary {
 	id: string;
 	type: ArtifactType;
@@ -44,6 +56,13 @@ export interface ArtifactSummary {
 	summary: string | null;
 	createdAt: number;
 	updatedAt: number;
+	// Long-document comfort fields, populated at ingestion time when the
+	// artifact's extracted text is available. Omitted (rather than null)
+	// when never computed, so older artifacts/tests keep their existing
+	// shape.
+	tokenEstimate?: number;
+	pageCount?: number;
+	outline?: DocumentOutlineEntry[];
 }
 
 export type WorkingDocumentFamilyStatus = "active" | "historical";
@@ -70,6 +89,9 @@ export interface KnowledgeDocumentItem {
 	originConversationId?: string | null;
 	originAssistantMessageId?: string | null;
 	sourceChatFileId?: string | null;
+	tokenEstimate?: number;
+	pageCount?: number;
+	outline?: DocumentOutlineEntry[];
 	createdAt: number;
 	updatedAt: number;
 }
