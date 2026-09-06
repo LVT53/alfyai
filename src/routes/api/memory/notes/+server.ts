@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { checkMemoryNoteRateLimit } from "$lib/server/services/memory-profile/note-rate-limit";
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
@@ -27,6 +28,10 @@ export const POST: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) {
 		return json({ error: "Unauthorized" }, { status: 401 });
+	}
+
+	if (!checkMemoryNoteRateLimit(user.id)) {
+		return json({ error: "Too many requests" }, { status: 429 });
 	}
 
 	const body = await event.request.json().catch(() => null);
