@@ -85,6 +85,12 @@ export function parseJsonWithEnvelopeExtraction(
 				}
 			}
 		}
+		// `lastIndexOf(needle, -1)` searches from index 0 and still matches
+		// there, so a key sitting at index 0 (an unwrapped fragment such as
+		// `"followUps": [...]` with no enclosing `{`) would return 0 forever
+		// and spin this loop on the event loop thread. Index 0 is always the
+		// last position worth scanning.
+		if (keyIdx === 0) break;
 		keyIdx = rawText.lastIndexOf(quotedKey, keyIdx - 1);
 	}
 	return null;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseJudgeDecisions, parseJudgeDecisionsDetailed } from "./schema";
+import {
+	parseJsonWithEnvelopeExtraction,
+	parseJudgeDecisions,
+	parseJudgeDecisionsDetailed,
+} from "./schema";
 
 const valid = (over: Record<string, unknown> = {}) => ({
 	action: "add",
@@ -148,5 +152,36 @@ describe("parseJudgeDecisionsDetailed", () => {
 		);
 		expect(decisions).toHaveLength(1);
 		expect(rejected).toEqual([]);
+	});
+});
+
+describe("parseJsonWithEnvelopeExtraction", () => {
+	it("returns null (without spinning) when the key sits at index 0 with no enclosing object", () => {
+		// `lastIndexOf(needle, -1)` still matches at index 0, so the scan-back
+		// loop used to return 0 forever on this shape and hang the event loop.
+		expect(
+			parseJsonWithEnvelopeExtraction(
+				'"followUps": ["What next?", "Why now?"]',
+				"followUps",
+			),
+		).toBeNull();
+	});
+
+	it("still extracts an embedded envelope that is preceded by prose", () => {
+		expect(
+			parseJsonWithEnvelopeExtraction(
+				'Sure! {"followUps": ["What next?"]} — hope that helps.',
+				"followUps",
+			),
+		).toEqual({ followUps: ["What next?"] });
+	});
+
+	it("extracts an envelope whose object starts at index 0", () => {
+		expect(
+			parseJsonWithEnvelopeExtraction(
+				'{"followUps": ["A?"]} trailing',
+				"followUps",
+			),
+		).toEqual({ followUps: ["A?"] });
 	});
 });
