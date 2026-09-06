@@ -17,9 +17,11 @@ import { OSM_ATTRIBUTION, type RouteData, type RoutingMode } from "./types";
 
 export const MAP_CARD_MAX_BYTES = 8 * 1024;
 
-// A polyline this short never needs simplifying and decoding a tiny path is
-// cheap; this also bounds worst-case decode work for a malformed/huge string.
-const MAX_DECODE_POINTS = 20_000;
+// Ceiling on how many decoded points are carried into simplification. A route
+// denser than this holds far more detail than an 8 KB card can draw, so the
+// path is downsampled uniformly to this budget (see downsamplePath) rather
+// than cut short — the drawn line must still reach the destination.
+const MAX_SOURCE_POINTS = 20_000;
 const MAX_POLYLINE_POINTS = 300;
 
 // ── Encoded polyline decode (Google/ORS algorithm, precision 5) ────────────
@@ -38,7 +40,10 @@ export function decodePolyline(
 	let lng = 0;
 	const len = encoded.length;
 
-	while (index < len && points.length < MAX_DECODE_POINTS) {
+	// Decodes the whole string: work is linear in `encoded.length`, and the
+	// point budget is applied afterwards by downsamplePath, which keeps the
+	// route's full extent instead of dropping its tail.
+	while (index < len) {
 		let result = 0;
 		let shift = 0;
 		let byte: number;
@@ -65,6 +70,33 @@ export function decodePolyline(
 		points.push([lat / factor, lng / factor]);
 	}
 	return points;
+}
+
+// ── Uniform downsampling ───────────────────────────────────────────────────
+
+// Reduces a path to at most `maxPoints` by sampling it at an even stride,
+// always keeping the first and last point. This is the point budget's only
+// enforcement before simplification: unlike truncating the tail, it preserves
+// the route's full origin-to-destination extent, just at coarser resolution.
+export function downsamplePath(
+	points: [number, number][],
+	maxPoints: number,
+): [number, number][] {
+	if (maxPoints < 2)
+		return points.length <= 2 ? points : [points[0], points[points.length - 1]];
+	if (points.length <= maxPoints) return points;
+
+	const last = points.length - 1;
+	const result: [number, number][] = [points[0]];
+	// `points.length > maxPoints` makes step > 1, so Math.round is strictly
+	// increasing and every interior index lands in (0, last) — no duplicates
+	// and no accidental early copy of the endpoint.
+	const step = last / (maxPoints - 1);
+	for (let i = 1; i < maxPoints - 1; i++) {
+		result.push(points[Math.round(i * step)]);
+	}
+	result.push(points[last]);
+	return result;
 }
 
 // ── Douglas-Peucker simplification ─────────────────────────────────────────
@@ -218,7 +250,9 @@ export function buildRouteMapCardData(params: {
 	mode: RoutingMode;
 }): ToolCallMapData | undefined {
 	const { route, originLabel, destinationLabel, mode } = params;
-	const decoded = route.polyline ? decodePolyline(route.polyline) : [];
+	const decoded = route.polyline
+		? downsamplePath(decodePolyline(route.polyline), MAX_SOURCE_POINTS)
+		: [];
 
 	const markers: ToolCallMapMarker[] = [
 		{
@@ -277,7 +311,13 @@ export function buildRouteMapCardData(params: {
 	// given the budget split above), drop the polyline entirely rather than
 	// persist an oversized blob — the card still renders markers.
 	if (Buffer.byteLength(JSON.stringify(map)) > MAP_CARD_MAX_BYTES) {
-		return { ...skeleton, polyline: polyline.slice(0, 2) };
+		// Keep the endpoints rather than the first two points, so even this
+		// degenerate line still spans origin to destination.
+		const ends: [number, number][] =
+			polyline.length > 1
+				? [polyline[0], polyline[polyline.length - 1]]
+				: polyline;
+		return { ...skeleton, polyline: ends };
 	}
 	return map;
 }

@@ -3,6 +3,7 @@ import {
 	buildRouteMapCardData,
 	computeBounds,
 	decodePolyline,
+	downsamplePath,
 	MAP_CARD_MAX_BYTES,
 	simplifyPath,
 } from "./map-card";
@@ -75,6 +76,37 @@ describe("simplifyPath", () => {
 		expect(simplified[simplified.length - 1]).toEqual(
 			points[points.length - 1],
 		);
+	});
+});
+
+describe("downsamplePath", () => {
+	const path: [number, number][] = Array.from(
+		{ length: 1000 },
+		(_, i): [number, number] => [i / 100, -i / 100],
+	);
+
+	it("returns the path untouched when it already fits the budget", () => {
+		expect(downsamplePath(path, 1000)).toBe(path);
+		expect(downsamplePath(path, 5000)).toBe(path);
+	});
+
+	it("samples down to the budget, keeping the first and last points", () => {
+		const sampled = downsamplePath(path, 101);
+		expect(sampled).toHaveLength(101);
+		expect(sampled[0]).toEqual(path[0]);
+		expect(sampled[sampled.length - 1]).toEqual(path[path.length - 1]);
+	});
+
+	it("samples at a strictly increasing, evenly spaced stride", () => {
+		const sampled = downsamplePath(path, 51);
+		const indices = sampled.map((point) => path.indexOf(point));
+		expect(indices).toEqual([...indices].sort((a, b) => a - b));
+		expect(new Set(indices).size).toBe(indices.length);
+		expect(indices.at(-1)).toBe(path.length - 1);
+	});
+
+	it("degrades to the two endpoints for a nonsensical budget", () => {
+		expect(downsamplePath(path, 0)).toEqual([path[0], path[path.length - 1]]);
 	});
 });
 
@@ -210,7 +242,85 @@ describe("buildRouteMapCardData", () => {
 		expect(size).toBeLessThanOrEqual(MAP_CARD_MAX_BYTES);
 		expect(map?.polyline?.length).toBeGreaterThan(1);
 	});
+
+	it("draws a 60k-point route end to end instead of truncating it mid-route", () => {
+		const points = longRouteFixture(60_000);
+		const destination = points[points.length - 1];
+		const map = buildRouteMapCardData({
+			route: makeRoute({
+				distance_m: 1_400_000,
+				duration_s: 54_000,
+				polyline: encodePolylineForTest(points),
+				coords: {
+					origin: { lat: points[0][0], lng: points[0][1] },
+					destination: { lat: destination[0], lng: destination[1] },
+				},
+			}),
+			originLabel: "Budapest",
+			destinationLabel: "Lisbon",
+			mode: "drive",
+		});
+
+		const polyline = map?.polyline;
+		expect(polyline).toBeDefined();
+		if (!polyline) return;
+		// The drawn line must start at the origin and finish at the
+		// destination. Decoding used to stop at a fixed 20k points, which left
+		// the card drawing only the first third of the route.
+		expect(polyline[0][0]).toBeCloseTo(points[0][0], 4);
+		expect(polyline[0][1]).toBeCloseTo(points[0][1], 4);
+		const drawnEnd = polyline[polyline.length - 1];
+		expect(drawnEnd[0]).toBeCloseTo(destination[0], 4);
+		expect(drawnEnd[1]).toBeCloseTo(destination[1], 4);
+	});
+
+	it("keeps a 60k-point route under the 8 KB budget", () => {
+		const points = longRouteFixture(60_000);
+		const destination = points[points.length - 1];
+		const map = buildRouteMapCardData({
+			route: makeRoute({
+				distance_m: 1_400_000,
+				duration_s: 54_000,
+				polyline: encodePolylineForTest(points),
+				coords: {
+					origin: { lat: points[0][0], lng: points[0][1] },
+					destination: { lat: destination[0], lng: destination[1] },
+				},
+			}),
+			originLabel: "Budapest",
+			destinationLabel: "Lisbon",
+			mode: "drive",
+		});
+
+		expect(Buffer.byteLength(JSON.stringify(map))).toBeLessThanOrEqual(
+			MAP_CARD_MAX_BYTES,
+		);
+		expect(map?.polyline?.length).toBeGreaterThan(2);
+	});
 });
+
+// A long cross-continent route: steady north-westward progress with
+// route-scale meanders (motorway sweeps) on top of per-point jitter, so the
+// shape genuinely needs many vertices and cannot be honestly drawn as a
+// straight line between its endpoints.
+function longRouteFixture(count: number): [number, number][] {
+	const points: [number, number][] = [];
+	for (let i = 0; i < count; i++) {
+		const t = i / (count - 1);
+		const lat =
+			47.4979 +
+			t * 4 +
+			Math.cos(t * Math.PI * 14) * 0.4 +
+			Math.sin(i / 7) * 0.0001;
+		const lng =
+			19.0402 -
+			t * 12 +
+			Math.sin(t * Math.PI * 18) * 0.5 +
+			Math.cos(i / 11) * 0.0001;
+		points.push([lat, lng]);
+	}
+	return points;
+}
 
 // Minimal encoder for test fixtures only (mirrors the standard algorithm
 // decodePolyline above implements the inverse of).
