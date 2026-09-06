@@ -7,7 +7,7 @@ import {
 
 // Widened to the general shape so tests can freely probe the optional
 // `argument` field without fighting the catalog's literal `as const` types.
-const commands: ComposerCommandDefinition[] = STATIC_COMPOSER_COMMANDS;
+const commands: readonly ComposerCommandDefinition[] = STATIC_COMPOSER_COMMANDS;
 
 describe("STATIC_COMPOSER_COMMANDS", () => {
 	it("lists every command exactly once, all available", () => {

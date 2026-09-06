@@ -37,7 +37,7 @@ export type ComposerCommandDefinition = {
 	argument?: ComposerCommandArgument;
 };
 
-export const STATIC_COMPOSER_COMMANDS = [
+export const STATIC_COMPOSER_COMMANDS: readonly ComposerCommandDefinition[] = [
 	{
 		id: "model",
 		token: "/model",
@@ -152,7 +152,7 @@ export const STATIC_COMPOSER_COMMANDS = [
 		descriptionKey: "composerCommands.export.description",
 		availability: "available",
 	},
-] as const satisfies ComposerCommandDefinition[];
+];
 
 /**
  * ADR-0061 renamed `/depth` to `/think` when the reasoning-depth ladder

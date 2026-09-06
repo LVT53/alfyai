@@ -1415,7 +1415,7 @@ function getCommandTrayRows(
 	// typing the command name, no argument text yet) does not.
 	const commandQuery =
 		"command" in token ? token.command : token.query.toLowerCase();
-	const rows = STATIC_COMPOSER_COMMANDS.filter(
+	const rows: CommandTrayRow[] = STATIC_COMPOSER_COMMANDS.filter(
 		(command) => commandQuery === "" || command.id.startsWith(commandQuery),
 	).map((command) => ({
 		...command,
