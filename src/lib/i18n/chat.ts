@@ -2,6 +2,12 @@
 
 const chatDict = {
 	en: {
+		"attachmentChip.pages": "{count} pages",
+		"attachmentChip.tokensPerTurn": "{tokens} tokens per turn",
+		"attachmentOutline.more": "… {count} more",
+		"attachmentOutline.outline": "Outline",
+		"attachmentOutline.quote": "Quote",
+		"attachmentOutline.sectionsLabel": "{count} sections",
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.answerNow": "Answer now",
@@ -855,6 +861,12 @@ const chatDict = {
 		"sourceManager.title": "Sources",
 	},
 	hu: {
+		"attachmentChip.pages": "{count} oldal",
+		"attachmentChip.tokensPerTurn": "{tokens} token / forduló",
+		"attachmentOutline.more": "… még {count}",
+		"attachmentOutline.outline": "Vázlat",
+		"attachmentOutline.quote": "Idézés",
+		"attachmentOutline.sectionsLabel": "{count} szakasz",
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.answerNow": "Válasz most",

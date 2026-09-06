@@ -30,6 +30,11 @@ import {
 } from "../../../config-store";
 import { queueArtifactSemanticEmbeddingRefresh } from "../../semantic-embedding-refresh";
 import { syncArtifactChunks } from "../../task-state/chunk-sync";
+import {
+	readStoredOutline,
+	readStoredPageCount,
+	readStoredTokenEstimate,
+} from "../outline";
 
 export function getMaxModelContext(modelId?: string): number {
 	return getPerModelMaxContext(modelId);
@@ -65,7 +70,13 @@ type ArtifactSummaryRow = Pick<
 	| "summary"
 	| "createdAt"
 	| "updatedAt"
->;
+> & {
+	// Present whenever the row came from a full `artifacts` select or from
+	// `knowledgeArtifactListSelection` (both include it); absent for the
+	// handful of narrower ad-hoc selections. Long-document comfort fields
+	// are simply omitted from the mapped summary when it's missing.
+	metadataJson?: string | null;
+};
 
 export type ArtifactOwnershipScope = {
 	conversationIds: Set<string>;
@@ -143,6 +154,11 @@ export function isArtifactCanonicallyOwned(params: {
 }
 
 export function mapArtifactSummary(row: ArtifactSummaryRow): ArtifactSummary {
+	const metadata = parseJsonRecord(row.metadataJson ?? null);
+	const tokenEstimate = readStoredTokenEstimate(metadata?.tokenEstimate);
+	const pageCount = readStoredPageCount(metadata?.pageCount);
+	const outline = readStoredOutline(metadata?.outline);
+
 	return {
 		id: row.id,
 		type: row.type as ArtifactType,
@@ -155,6 +171,9 @@ export function mapArtifactSummary(row: ArtifactSummaryRow): ArtifactSummary {
 		summary: row.summary ?? null,
 		createdAt: row.createdAt.getTime(),
 		updatedAt: row.updatedAt.getTime(),
+		...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
+		...(pageCount !== undefined ? { pageCount } : {}),
+		...(outline.length > 0 ? { outline } : {}),
 	};
 }
 
@@ -290,6 +309,33 @@ export async function updateArtifactBinaryHash(
 			updatedAt: new Date(),
 		})
 		.where(eq(artifacts.id, artifactId));
+}
+
+/** Merges `patch` into an artifact's existing metadata JSON (last-write-wins
+ * per key). Used at ingestion to attach long-document comfort fields
+ * (tokenEstimate/pageCount/outline) onto the source artifact after
+ * extraction completes, without disturbing the rest of its metadata
+ * (uploadSource, renamed, etc). */
+export async function updateArtifactMetadata(params: {
+	artifactId: string;
+	patch: Record<string, unknown>;
+}): Promise<void> {
+	const rows = await db
+		.select({ metadataJson: artifacts.metadataJson })
+		.from(artifacts)
+		.where(eq(artifacts.id, params.artifactId))
+		.limit(1);
+
+	const existing = parseJsonRecord(rows[0]?.metadataJson ?? null) ?? {};
+	const merged = { ...existing, ...params.patch };
+
+	await db
+		.update(artifacts)
+		.set({
+			metadataJson: JSON.stringify(merged),
+			updatedAt: new Date(),
+		})
+		.where(eq(artifacts.id, params.artifactId));
 }
 
 export async function getNormalizedArtifactForSource(

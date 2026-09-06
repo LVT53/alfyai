@@ -20,6 +20,7 @@ import {
 } from "../../tei-observability";
 import { canUseTeiReranker, rerankItems } from "../../tei-reranker";
 import { scoreMatch } from "../../working-set";
+import { estimateDocumentTokenCount, extractDocumentOutline } from "../outline";
 import {
 	buildArtifactVisibilityCondition,
 	createArtifact,
@@ -30,6 +31,7 @@ import {
 	knowledgeArtifactListSelection,
 	mapArtifact,
 	mapArtifactSummary,
+	updateArtifactMetadata,
 } from "./core";
 import {
 	getArtifactDocumentOrigin,
@@ -113,6 +115,15 @@ function mapLogicalDocumentItem(
 		originConversationId: params.originConversationId ?? null,
 		originAssistantMessageId: params.originAssistantMessageId ?? null,
 		sourceChatFileId: params.sourceChatFileId ?? null,
+		...(params.displayArtifact.tokenEstimate !== undefined
+			? { tokenEstimate: params.displayArtifact.tokenEstimate }
+			: {}),
+		...(params.displayArtifact.pageCount !== undefined
+			? { pageCount: params.displayArtifact.pageCount }
+			: {}),
+		...(params.displayArtifact.outline !== undefined
+			? { outline: params.displayArtifact.outline }
+			: {}),
 		createdAt: params.displayArtifact.createdAt,
 		updatedAt: params.updatedAt,
 	};
@@ -307,6 +318,20 @@ export async function createNormalizedArtifact(params: {
 
 	if (!extraction.text) return null;
 
+	// "Long-document comfort" (owner-approved mockup, 2026-09-06): computed
+	// once here, right after extraction, and stored on both the normalized
+	// artifact (which carries the full text) and the source artifact (the
+	// one actually shown to the user as an attachment chip).
+	const tokenEstimate = estimateDocumentTokenCount(extraction.text);
+	const outline = extractDocumentOutline(extraction.text);
+	const comfortMetadataPatch: Record<string, unknown> = {
+		tokenEstimate,
+		...(extraction.pageCount !== undefined
+			? { pageCount: extraction.pageCount }
+			: {}),
+		...(outline.length > 0 ? { outline } : {}),
+	};
+
 	const artifact = await createArtifact({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -321,6 +346,7 @@ export async function createNormalizedArtifact(params: {
 		metadata: {
 			sourceArtifactId: params.sourceArtifactId,
 			normalizedFrom: params.sourceName,
+			...comfortMetadataPatch,
 		},
 	});
 
@@ -330,6 +356,11 @@ export async function createNormalizedArtifact(params: {
 		relatedArtifactId: params.sourceArtifactId,
 		conversationId: params.conversationId,
 		linkType: "derived_from",
+	});
+
+	await updateArtifactMetadata({
+		artifactId: params.sourceArtifactId,
+		patch: comfortMetadataPatch,
 	});
 
 	return artifact;

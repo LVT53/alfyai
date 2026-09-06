@@ -50,7 +50,12 @@ import {
 	initViewportTracking,
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
+import {
+	clearComposerQuoteRequest,
+	composerQuoteRequest,
+} from "$lib/stores/composer-quote";
 import ContextUsageRing from "./ContextUsageRing.svelte";
+import AttachmentOutline from "./AttachmentOutline.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
@@ -373,6 +378,21 @@ let hasUnreadyAttachment = $derived(
 let attachmentReadinessErrors = $derived(
 	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
 );
+
+// "Long-document comfort" (owner-approved mockup, 2026-09-06): an outline
+// row clicked from a *past* message (MessageBubble) routes its quote
+// request here via a small store, since that component has no direct
+// handle on this composer. Rows clicked from the composer's own pending
+// attachments call insertQuoteAtCursor directly instead — see the
+// pending-attachment list below.
+let handledComposerQuoteNonce = -1;
+$effect(() => {
+	const request = $composerQuoteRequest;
+	if (!request || request.nonce === handledComposerQuoteNonce) return;
+	handledComposerQuoteNonce = request.nonce;
+	insertQuoteAtCursor(request.text);
+	clearComposerQuoteRequest();
+});
 
 // Issue 7.4 fix pass — C1's guarantee (re-entrant send() must not dispatch
 // while a gate check is outstanding) is now enforced via `sendPending`, which
@@ -828,6 +848,27 @@ function adjustHeight() {
 		textarea.style.height = `${minHeight}px`;
 		const maxHeight = isMobileDevice ? 112 : 240;
 		textarea.style.height = `${Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight))}px`;
+	});
+}
+
+// "Long-document comfort" (owner-approved mockup, 2026-09-06): splices a
+// quoted outline section into the composer at the cursor, mirroring the
+// existing command-token insertion pattern above (message slice + bump
+// draftEmissionVersion + adjustHeight + refocus on the next frame).
+function insertQuoteAtCursor(quote: string) {
+	const cursor = textarea?.selectionStart ?? message.length;
+	const before = message.slice(0, cursor);
+	const after = message.slice(cursor);
+	const needsLeadingBreak = before.length > 0 && !before.endsWith("\n");
+	const insertion = `${needsLeadingBreak ? "\n\n" : ""}${quote}`;
+	message = before + insertion + after;
+	const nextCursor = before.length + insertion.length;
+	draftEmissionVersion += 1;
+	void emitDraftChange();
+	adjustHeight();
+	requestAnimationFrame(() => {
+		textarea?.focus();
+		textarea?.setSelectionRange(nextCursor, nextCursor);
 	});
 }
 
@@ -2245,6 +2286,12 @@ async function emitDraftChange(force = false) {
 						compact={true}
 						onRemove={() => removePendingAttachment(attachment.artifact.id)}
 					/>
+					{#if attachment.artifact.outline && attachment.artifact.outline.length > 0}
+						<AttachmentOutline
+							outline={attachment.artifact.outline}
+							onQuote={insertQuoteAtCursor}
+						/>
+					{/if}
 				</li>
 			{/each}
 		</ul>

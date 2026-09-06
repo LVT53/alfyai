@@ -19,7 +19,10 @@ import type {
 	ForkCopyMetadata,
 	MessageSourceForks,
 } from "$lib/server/services/conversation-forks";
-import type { ArtifactType } from "$lib/server/services/knowledge/types";
+import type {
+	ArtifactType,
+	DocumentOutlineEntry,
+} from "$lib/server/services/knowledge/types";
 import type {
 	ForkEvidenceSnapshot,
 	MessageEvidenceSummary,
@@ -234,4 +237,9 @@ export interface ChatAttachment {
 	conversationId: string | null;
 	messageId?: string | null;
 	createdAt: number;
+	// Long-document comfort fields (2026-09-06) — omitted when never
+	// computed at ingestion (older attachments, or extraction failures).
+	tokenEstimate?: number;
+	pageCount?: number;
+	outline?: DocumentOutlineEntry[];
 }

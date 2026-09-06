@@ -1,5 +1,6 @@
 <script lang="ts">
 import { get } from "svelte/store";
+import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { t, type I18nKey } from "$lib/i18n";
@@ -43,6 +44,7 @@ import ThinkingBlock from "./ThinkingBlock.svelte";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
+import AttachmentOutline from "./AttachmentOutline.svelte";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import FileProductionCard from "./FileProductionCard.svelte";
 import AtlasCard from "./AtlasCard.svelte";
@@ -731,6 +733,15 @@ function toArtifactSummary(
 		summary: null,
 		createdAt: attachment.createdAt,
 		updatedAt: attachment.createdAt,
+		...(attachment.tokenEstimate !== undefined
+			? { tokenEstimate: attachment.tokenEstimate }
+			: {}),
+		...(attachment.pageCount !== undefined
+			? { pageCount: attachment.pageCount }
+			: {}),
+		...(attachment.outline !== undefined
+			? { outline: attachment.outline }
+			: {}),
 	};
 }
 
@@ -857,14 +868,22 @@ function sendFollowUp(question: string) {
 				</div>
 			{:else}
 				{#if hasAttachments}
-					<div class="mb-3 flex flex-wrap gap-2">
+					<div class="mb-3 flex flex-col flex-wrap gap-2">
 						{#each message.attachments ?? [] as attachment (attachment.id)}
-							<FileAttachment
-								attachment={toArtifactSummary(attachment)}
-								variant="compact"
-								viewable={Boolean(onOpenDocument)}
-								onView={handleViewAttachment}
-							/>
+							<div>
+								<FileAttachment
+									attachment={toArtifactSummary(attachment)}
+									variant="compact"
+									viewable={Boolean(onOpenDocument)}
+									onView={handleViewAttachment}
+								/>
+								{#if attachment.outline && attachment.outline.length > 0}
+									<AttachmentOutline
+										outline={attachment.outline}
+										onQuote={requestComposerQuote}
+									/>
+								{/if}
+							</div>
 						{/each}
 					</div>
 				{/if}

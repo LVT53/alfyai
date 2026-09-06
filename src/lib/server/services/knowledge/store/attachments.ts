@@ -13,11 +13,17 @@ import type {
 	ArtifactType,
 } from "$lib/server/services/knowledge/types";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	hasMeaningfulAttachmentText,
 	logAttachmentTrace,
 	summarizeAttachmentTraceText,
 } from "../../attachment-trace";
+import {
+	readStoredOutline,
+	readStoredPageCount,
+	readStoredTokenEstimate,
+} from "../outline";
 import {
 	createArtifact,
 	createArtifactLink,
@@ -688,6 +694,10 @@ export async function listMessageAttachments(
 	const result = new Map<string, ChatAttachment[]>();
 	for (const row of rows) {
 		if (!row.link.messageId) continue;
+		const metadata = parseJsonRecord(row.artifact.metadataJson ?? null);
+		const tokenEstimate = readStoredTokenEstimate(metadata?.tokenEstimate);
+		const pageCount = readStoredPageCount(metadata?.pageCount);
+		const outline = readStoredOutline(metadata?.outline);
 		const attachments = result.get(row.link.messageId) ?? [];
 		attachments.push({
 			id: row.link.id,
@@ -699,6 +709,9 @@ export async function listMessageAttachments(
 			conversationId: row.artifact.conversationId ?? null,
 			messageId: row.link.messageId,
 			createdAt: row.link.createdAt.getTime(),
+			...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
+			...(pageCount !== undefined ? { pageCount } : {}),
+			...(outline.length > 0 ? { outline } : {}),
 		});
 		result.set(row.link.messageId, attachments);
 	}
