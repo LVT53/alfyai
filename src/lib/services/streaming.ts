@@ -47,6 +47,13 @@ export interface StreamMetadata {
 	// thoughtSteps above, so the action row's chips populate live without a
 	// reload.
 	followUps?: string[];
+	// Finding 4 (web-citation auto-repair) — the final PERSISTED assistant
+	// text, present only when the server's citation repair rewrote what was
+	// already streamed as text-delta frames. The client replaces the
+	// streamed text with this so the live bubble matches the reloaded
+	// conversation; absent (the common case) means the streamed text is
+	// already final.
+	finalContent?: string;
 	upstreamFinishReason?: string;
 	upstreamRawFinishReason?: string;
 	streamClosedWithoutFinish?: boolean;
@@ -168,6 +175,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| StreamMetadata["thoughtSteps"]
 			| undefined,
 		followUps: parsed.followUps as StreamMetadata["followUps"] | undefined,
+		finalContent: parsed.finalContent as
+			| StreamMetadata["finalContent"]
+			| undefined,
 		upstreamFinishReason: parsed.upstreamFinishReason as
 			| StreamMetadata["upstreamFinishReason"]
 			| undefined,

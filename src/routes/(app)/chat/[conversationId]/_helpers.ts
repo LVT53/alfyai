@@ -703,9 +703,14 @@ export function finalizeStreamingMessageList(
 				...message,
 				renderKey: message.renderKey ?? params.placeholderId,
 				id: serverAssistantId ?? message.id,
+				// Finding 4 (web-citation auto-repair) — `finalContent` carries the
+				// final PERSISTED text, and only when the server's citation
+				// repair rewrote what was already streamed here as tokens.
+				// Without this swap the live bubble keeps the raw links while
+				// the reloaded conversation shows the repaired ones.
 				content: params.metadata?.wasStopped
 					? message.content || "Stopped"
-					: message.content,
+					: (params.metadata?.finalContent ?? message.content),
 				// stopped-marker — carry wasStopped onto the finalized client
 				// message so the LIVE session can render the "stopped early" chip
 				// immediately, not just after a reload (server persistence already

@@ -704,7 +704,13 @@ export function createNormalChatClientTurnRuntime(
 					return;
 				}
 
-				lastAssistantResponse = fullText;
+				// Finding 4 (web-citation auto-repair) — prefer the server's final
+				// persisted text over the raw streamed text whenever the two
+				// differ, so retry/title-generation see what the conversation
+				// actually stored (the message list itself is swapped in
+				// finalizeStreamingMessageList).
+				const finalText = metadata?.finalContent ?? fullText;
+				lastAssistantResponse = finalText;
 				canRetry = false;
 				completeTurn();
 
@@ -731,7 +737,7 @@ export function createNormalChatClientTurnRuntime(
 
 				adapters.maybeTriggerTitleGeneration(
 					params.completedUserMessage,
-					fullText,
+					finalText,
 				);
 
 				if (metadata?.wasStopped) {

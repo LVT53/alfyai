@@ -1132,6 +1132,69 @@ describe("completeStreamTurn", () => {
 		);
 	});
 
+	// Finding 4 — the raw text was already streamed as text-delta frames, so
+	// the terminal frame carries the repaired persisted text for the client
+	// to swap in; additive and emitted ONLY when the repair changed it.
+	it("carries the repaired text as finalContent on the terminal frame", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "See [wrong page](https://example.com/product/old).",
+			toolCallRecords: [
+				{
+					name: "research_web",
+					input: { query: "current price" },
+					status: "done",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "src-1",
+							title: "Official Product",
+							url: "https://example.com/product",
+							sourceType: "web",
+						},
+					],
+				},
+			],
+		});
+
+		expect(getLatestEndPayload()).toEqual(
+			expect.objectContaining({
+				finalContent: "See [wrong page](https://example.com/product).",
+			}),
+		);
+	});
+
+	it("omits finalContent from the terminal frame when the citation repair changed nothing", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			fullResponse: "See [official page](https://example.com/product).",
+			toolCallRecords: [
+				{
+					name: "research_web",
+					input: { query: "current price" },
+					status: "done",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "src-1",
+							title: "Official Product",
+							url: "https://example.com/product",
+							sourceType: "web",
+						},
+					],
+				},
+			],
+		});
+
+		expect(getLatestEndPayload()).not.toHaveProperty("finalContent");
+	});
+
+	it("omits finalContent from the terminal frame when no web tool ran this turn", async () => {
+		await completeStreamTurn(defaultParams);
+
+		expect(getLatestEndPayload()).not.toHaveProperty("finalContent");
+	});
+
 	it("does not stream a source-check notice when the original visible response is empty", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 

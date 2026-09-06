@@ -236,6 +236,21 @@ export async function completeStreamTurn(
 				userMessage: normalizedMessage,
 			});
 	const finalResponse = citationGate?.response ?? fullResponse;
+	// Finding 4 — the RAW model text was already streamed to this client as
+	// text-delta frames, so a citation repair that rewrites the persisted
+	// message leaves the live bubble showing links the reloaded conversation
+	// no longer has. The terminal frame therefore carries the repaired text
+	// as `finalContent` and the client swaps its streamed text for it (see
+	// finalizeStreamingMessageList in routes/(app)/chat/[conversationId]/
+	// _helpers.ts). Additive and present ONLY when the repair actually
+	// changed the text, so an unrepaired turn costs nothing and an older
+	// client simply ignores the field. Reconnects get it for free:
+	// stream-reconnect.ts replays the token buffer and then forwards live
+	// frames — including this one — verbatim.
+	const repairedFinalContent =
+		citationGate && citationGate.response !== fullResponse
+			? citationGate.response
+			: null;
 	const skillControl = wasStopped
 		? { operations: [] }
 		: skillControlEnabled
@@ -380,6 +395,12 @@ export async function completeStreamTurn(
 				// built; omitted entirely when there is nothing to show, mirroring
 				// thoughtSteps/completionWarningCodes just above.
 				...(followUps && followUps.length > 0 ? { followUps } : {}),
+				// Finding 4 — see repairedFinalContent above. Omitted entirely
+				// when the citation repair changed nothing, mirroring
+				// thoughtSteps/followUps just above.
+				...(repairedFinalContent !== null
+					? { finalContent: repairedFinalContent }
+					: {}),
 				userMessageId: userMsgId,
 				assistantMessageId: assistantMsgId,
 				modelId,

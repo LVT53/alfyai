@@ -5,6 +5,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
 import {
+	appendTokenChunkToMessageList,
 	applyResponseActivityEntryToMessageList,
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
@@ -960,6 +961,48 @@ describe("file production chat helpers", () => {
 		});
 
 		expect(finalized[0].followUps).toEqual(priorFollowUps);
+	});
+
+	// Finding 4 (web-citation auto-repair) — the raw model text was already
+	// streamed into the bubble, so the terminal frame carries the repaired,
+	// persisted text as `finalContent` and it replaces what was streamed.
+	it("replaces the streamed text with the terminal frame's repaired finalContent", () => {
+		const list = appendTokenChunkToMessageList(
+			[createAssistantPlaceholder("assistant-1")],
+			"assistant-1",
+			"See [wrong page](https://example.com/product/old).",
+		);
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				finalContent: "See [wrong page](https://example.com/product/price).",
+			},
+		});
+
+		expect(finalized[0].content).toBe(
+			"See [wrong page](https://example.com/product/price).",
+		);
+	});
+
+	it("keeps the streamed text when the terminal frame carries no finalContent", () => {
+		const list = appendTokenChunkToMessageList(
+			[createAssistantPlaceholder("assistant-1")],
+			"assistant-1",
+			"See [official page](https://example.com/product).",
+		);
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].content).toBe(
+			"See [official page](https://example.com/product).",
+		);
 	});
 
 	it("clears live response activity when the streaming placeholder finalizes", () => {
