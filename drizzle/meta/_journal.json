@@ -708,6 +708,13 @@
       "when": 1777140000087,
       "tag": "1777140000087_routing_regions",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1777140000088,
+      "tag": "1777140000088_drop_skill_sessions_and_notes",
+      "breakpoints": true
     }
   ]
 }

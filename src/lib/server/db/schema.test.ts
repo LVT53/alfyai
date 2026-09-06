@@ -258,7 +258,7 @@ describe("schema core tables", () => {
 	});
 
 	describe("skill pack and variant metadata", () => {
-		it("stores explicit skill kind, optional base pack references, and session audit snapshot fields", () => {
+		it("stores explicit skill kind and optional base pack references", () => {
 			const skillColumns = sqlite
 				.prepare("PRAGMA table_info(user_skill_definitions)")
 				.all() as {
@@ -280,34 +280,40 @@ describe("schema core tables", () => {
 					"resource_metadata_json",
 				]),
 			);
-
-			const sessionColumns = sqlite
-				.prepare("PRAGMA table_info(skill_sessions)")
-				.all() as {
-				name: string;
-				notnull: number;
-				dflt_value: string | null;
-			}[];
-			expect(sessionColumns.map((column) => column.name)).toEqual(
-				expect.arrayContaining([
-					"skill_kind",
-					"pack_skill_id",
-					"pack_skill_version",
-					"variant_skill_id",
-					"variant_skill_version",
-					"effective_instructions_hash",
-				]),
-			);
-			expect(
-				sessionColumns.find((column) => column.name === "skill_kind")?.notnull,
-			).toBe(1);
-			expect(
-				sessionColumns.find(
-					(column) => column.name === "effective_instructions_hash",
-				)?.notnull,
-			).toBe(1);
 		});
 
+		// On-demand skill loading (drizzle/1777140000088_drop_skill_sessions_and_notes.sql)
+		// drops the four session/notes tables outright while leaving
+		// user_skill_definitions in place. This exercises the migration
+		// journal end to end: `beforeAll` above replays every migration file
+		// against a fresh database in journal order, so a malformed SQL file or
+		// a journal entry pointing at the wrong tag would fail every test in
+		// this file, not just this one.
+		it("drops the skill_sessions family of tables via the migration journal, keeping user_skill_definitions", () => {
+			const tableNames = new Set(
+				(
+					sqlite
+						.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+						.all() as { name: string }[]
+				).map((row) => row.name),
+			);
+			for (const dropped of [
+				"skill_sessions",
+				"skill_session_milestones",
+				"skill_note_operations",
+				"skill_note_checkpoints",
+			]) {
+				expect(tableNames.has(dropped)).toBe(false);
+			}
+			expect(tableNames.has("user_skill_definitions")).toBe(true);
+		});
+
+		// Historical regression test: skill_sessions was dropped from the live
+		// schema (see drizzle/1777140000088_drop_skill_sessions_and_notes.sql —
+		// skills moved from durable sessions to on-demand loading), but this
+		// replays the old 043 migration against an ad hoc legacy in-memory table
+		// to confirm it still backfills pack/user classifications correctly for
+		// any database that applied it before the table was dropped.
 		it("backfills existing skill rows and sessions into pack/user classifications", () => {
 			const legacySqlite = new Database(":memory:");
 			try {
