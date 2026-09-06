@@ -201,7 +201,7 @@ let {
 	draftVersion?: number;
 	onSend?: ((payload: SendPayload) => void) | undefined;
 	onQueue?: ((payload: SendPayload) => void) | undefined;
-	onStop?: (() => void) | undefined;
+	onStop?: (() => void | Promise<void>) | undefined;
 	onEditQueuedMessage?: (() => void) | undefined;
 	onDeleteQueuedMessage?: (() => void) | undefined;
 	onCompact?: (() => void) | undefined;
@@ -1175,16 +1175,20 @@ function queue(nextMessage: string = message) {
 	clearComposerAfterSubmit();
 }
 
-function stop() {
+// Returns the host's stop promise (the page awaits its runtime going idle)
+// so callers that must not race the in-flight turn — `/new`, which navigates
+// away straight after — can await it. The Stop button ignores the result.
+function stop(): void | Promise<void> {
 	if (isComposerDisabled) return;
 	if (!canStop) return;
-	onStop?.();
+	const stopped = onStop?.();
 	showToolsMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
 	if (isMobile()) {
 		textarea?.blur();
 	}
+	return stopped;
 }
 
 onMount(() => {
@@ -1695,6 +1699,11 @@ function toggleThinking() {
 // handleNewConversation: stash the outgoing conversation id (so a landing
 // draft can find its way back to it) then hand the user a blank composer.
 async function startNewConversationFromCommand() {
+	// `/new` fired mid-turn used to navigate away with the stream still
+	// running. Interrupt it first through the very same path the Stop button
+	// uses, awaited so the abort has actually settled before the route
+	// changes (the host resolves it once its runtime reports idle).
+	await stop();
 	markPreviousConversationId($currentConversationId);
 	currentConversationId.set(null);
 	await goto("/");

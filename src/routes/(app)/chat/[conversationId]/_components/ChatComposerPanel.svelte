@@ -83,7 +83,7 @@ let {
 	onErrorClose: () => void;
 	onSend: (payload: SendPayload) => void;
 	onQueue: (payload: SendPayload) => void;
-	onStop: () => void;
+	onStop: () => void | Promise<void>;
 	onDraftChange: (payload: DraftChangePayload) => void;
 	onEditQueuedMessage: () => void;
 	onDeleteQueuedMessage: () => void;

@@ -361,6 +361,7 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 	};
 });
 
+import { goto } from "$app/navigation";
 import {
 	fetchConversationDetail,
 	fetchMessageEvidence,
@@ -671,6 +672,38 @@ describe("chat page runtime integration", () => {
 		// dispatch a third stream before asserting there is none.
 		await new Promise((resolve) => setTimeout(resolve, 120));
 		expect(runtimeHarness.streamInvocations).toHaveLength(2);
+	});
+
+	// Reviewer report — `/new` fired mid-turn navigated away with the stream
+	// still running. It must interrupt the turn through the same stop path the
+	// Stop button uses and only navigate once that abort has actually settled.
+	it("/new stops an in-flight turn before navigating away", async () => {
+		renderPage(pageData({ composerCommandRegistryEnabled: true }));
+		const gotoMock = vi.mocked(goto);
+		gotoMock.mockClear();
+
+		const input = screen.getByTestId("message-input");
+		await fireEvent.input(input, {
+			target: { value: "Explain the tradeoffs" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		const firstInvocation = runtimeHarness.streamInvocations[0];
+		firstInvocation.callbacks.onThinking("Weighing a few different angles.");
+
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(firstInvocation.handle?.stop).toHaveBeenCalledTimes(1);
+		// Still streaming: the navigation waits for the stop to settle.
+		expect(gotoMock).not.toHaveBeenCalled();
+
+		firstInvocation.callbacks.onEnd("", { wasStopped: true });
+
+		await waitFor(() => {
+			expect(gotoMock).toHaveBeenCalledWith("/");
+		});
 	});
 
 	// Owner idea (variant A) — clicking a follow-up chip on the latest

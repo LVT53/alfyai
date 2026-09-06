@@ -2296,8 +2296,12 @@ async function handleEdit(
 	});
 }
 
-function handleStop() {
+// Async so callers that must not race the dying turn can await it — the
+// composer's `/new` awaits this before navigating away. The Stop button and
+// the composer's own Stop control ignore the promise, exactly as before.
+async function handleStop() {
 	normalChatRuntime.stop();
+	await waitForRuntimeIdle();
 }
 
 function latestTimelineMessageId(): string | null {
