@@ -2,11 +2,16 @@
 <script lang="ts" generics="T">
 import { X } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
+import { t } from "$lib/i18n";
 
 interface FileAttachmentData {
 	id: string;
 	name: string;
 	mimeType?: string | null;
+	// "Long-document comfort" (owner-approved mockup, 2026-09-06): shown as
+	// a per-turn cost line under the filename when present.
+	tokenEstimate?: number;
+	pageCount?: number;
 }
 
 let {
@@ -26,6 +31,31 @@ let {
 	onRemove?: (payload: { id: string }) => void;
 	onView?: (attachment: T & FileAttachmentData) => void;
 } = $props();
+
+function formatTokenCount(value: number): string {
+	if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}M`;
+	if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+	return String(value);
+}
+
+function fileTypeLabel(filename: string): string {
+	const ext = filename.split(".").pop() ?? "";
+	return ext && ext !== filename ? ext.toUpperCase() : "";
+}
+
+let costLine = $derived.by(() => {
+	if (!attachment.tokenEstimate || attachment.tokenEstimate <= 0) return null;
+	const parts = [fileTypeLabel(attachment.name)].filter(Boolean);
+	if (attachment.pageCount) {
+		parts.push($t("attachmentChip.pages", { count: attachment.pageCount }));
+	}
+	return {
+		prefix: parts.join(" · "),
+		tokens: $t("attachmentChip.tokensPerTurn", {
+			tokens: formatTokenCount(attachment.tokenEstimate),
+		}),
+	};
+});
 
 function getFileType(mimeType: string | null, filename: string): string {
 	const mime = (mimeType ?? "").toLowerCase().trim();
@@ -151,7 +181,14 @@ function handleKeydown(event: KeyboardEvent) {
 	<span class="file-icon">
 		<FileTypeIcon type={getFileType(attachment.mimeType ?? null, attachment.name)} size={16} />
 	</span>
-	<span class="filename">{attachment.name}</span>
+	<span class="file-attachment-text">
+		<span class="filename">{attachment.name}</span>
+		{#if costLine}
+			<span class="file-cost-line" data-testid="file-attachment-cost-line">
+				{#if costLine.prefix}<span>{costLine.prefix} · </span>{/if}<span class="file-cost-tokens">{costLine.tokens}</span>
+			</span>
+		{/if}
+	</span>
 	{#if removable}
 		<button
 			type="button"
@@ -220,6 +257,29 @@ function handleKeydown(event: KeyboardEvent) {
 	.file-icon {
 		flex-shrink: 0;
 		color: var(--icon-muted);
+	}
+
+	.file-attachment-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		gap: 1px;
+	}
+
+	.file-cost-line {
+		font-family: var(--font-sans);
+		font-size: 0.7rem;
+		line-height: 1.2;
+		color: var(--text-muted);
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.file-cost-tokens {
+		color: var(--accent);
+		font-weight: 500;
 	}
 
 	.filename {

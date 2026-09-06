@@ -2782,3 +2782,79 @@ describe("MessageInput send gate (beforeSend contract)", () => {
 		});
 	});
 });
+
+// "Long-document comfort" (owner-approved mockup, 2026-09-06): a pending
+// attachment with a computed outline renders it under its chip, and
+// clicking a section quotes it into the composer at the cursor.
+describe("MessageInput long-document outline quoting", () => {
+	it("renders the outline for a pending attachment and quotes a section into the composer", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+
+		const { container, getByPlaceholderText, getByText } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadFiles: uploadFilesHandler,
+			},
+		);
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		const file = new File(["contract text"], "contract.pdf", {
+			type: "application/pdf",
+		});
+		await fireEvent.change(fileInput, { target: { files: [file] } });
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-outline-1",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "contract.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "Contract",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					tokenEstimate: 118_000,
+					pageCount: 38,
+					outline: [
+						{
+							level: 2,
+							title: "Section 2.3 Break clause",
+							offset: 0,
+							preview: "Either party may terminate this agreement",
+						},
+					],
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-outline-1",
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByText("Section 2.3 Break clause")).toBeDefined();
+		});
+
+		await fireEvent.click(getByText("Section 2.3 Break clause"));
+
+		await waitFor(() => {
+			expect(textarea.value).toBe(
+				"Section 2.3 Break clause: Either party may terminate this agreement…",
+			);
+		});
+	});
+});
