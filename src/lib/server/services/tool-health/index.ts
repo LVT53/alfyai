@@ -142,25 +142,43 @@ export async function checkToolHealth(
 ): Promise<ToolHealthSnapshot> {
 	const started = deps.now();
 	const config = safeConfig(deps);
+
+	// Start every probe first, in one synchronous pass, so entries sharing a
+	// `probeKey` (produce_file and run_python both ping the one Docker daemon)
+	// are guaranteed to find each other's in-flight promise and hit the
+	// backing service once per snapshot rather than once per entry.
+	const sharedProbes = new Map<string, Promise<ProbeOutcome>>();
+	const pendingProbes = deps.registry.map((entry) => {
+		let configured = false;
+		try {
+			configured = entry.configured(config);
+		} catch {
+			configured = false;
+		}
+		if (!configured || !entry.probe) {
+			return {
+				entry,
+				configured,
+				outcome: null as Promise<ProbeOutcome> | null,
+			};
+		}
+		const key = entry.probeKey;
+		if (!key) {
+			return { entry, configured, outcome: withTimeout(entry, deps, config) };
+		}
+		const shared = sharedProbes.get(key) ?? withTimeout(entry, deps, config);
+		sharedProbes.set(key, shared);
+		return { entry, configured, outcome: shared };
+	});
+
 	const [connections, outcomes] = await Promise.all([
 		safeCountConnections(deps),
 		Promise.all(
-			deps.registry.map(async (entry) => {
-				let configured = false;
-				try {
-					configured = entry.configured(config);
-				} catch {
-					configured = false;
-				}
-				if (!configured || !entry.probe) {
-					return { entry, configured, outcome: null as ProbeOutcome | null };
-				}
-				return {
-					entry,
-					configured,
-					outcome: await withTimeout(entry, deps, config),
-				};
-			}),
+			pendingProbes.map(async ({ entry, configured, outcome }) => ({
+				entry,
+				configured,
+				outcome: outcome ? await outcome : (null as ProbeOutcome | null),
+			})),
 		),
 	]);
 

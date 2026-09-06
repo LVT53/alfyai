@@ -229,6 +229,9 @@ async function probeOwntracks(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 	return { ...root, latencyMs: version.latencyMs + root.latencyMs };
 }
 
+// Shared by every tool backed by the Docker sandbox.
+const DOCKER_PROBE_KEY = "docker-sandbox";
+
 async function probeDocker(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 	const started = Date.now();
 	try {
@@ -314,12 +317,15 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		configured: (config) => hasValue(config.geocoderBaseUrl),
 		probe: probeGeocoder,
 	},
+	// Both sandbox tools run on the same Docker daemon, so they share one
+	// ping per snapshot rather than pinging it twice (see `probeKey`).
 	{
 		id: "produce_file",
 		name: "produce_file",
 		backend: "Docker sandbox",
 		configured: () => true,
 		probe: probeDocker,
+		probeKey: DOCKER_PROBE_KEY,
 	},
 	{
 		id: "run_python",
@@ -327,6 +333,7 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		backend: "Docker sandbox",
 		configured: () => true,
 		probe: probeDocker,
+		probeKey: DOCKER_PROBE_KEY,
 	},
 	{
 		id: "location",
