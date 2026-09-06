@@ -19,6 +19,7 @@ import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
+import { resolveSkillInstructionsForUse } from "$lib/server/services/skills/prompt-context";
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
@@ -141,6 +142,18 @@ import {
 // model payload without crowding out the answer brief.
 const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
 
+const useSkillInputSchema = z.object({
+	name: z
+		.string()
+		.min(1)
+		.max(200)
+		.describe('Exact skill name from "## Skills available"'),
+});
+
+type UseSkillModelPayload =
+	| { found: true; error: null; displayName: string; instructions: string }
+	| { found: false; error: string; displayName: null; instructions: null };
+
 type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
 	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
 };
@@ -186,6 +199,10 @@ export interface CreateNormalChatToolsContext {
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.
 	routingCoverageLabel?: string;
+	// The turn's current user message, used by use_skill to select the (up to
+	// 3) pack resources whose keywords match this request — the same
+	// selectSkillResources logic the forced `$` skill injection uses.
+	requestText?: string;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -274,6 +291,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read the user's connected to-do/task lists (a CalDAV account's task lists): `list_tasks` to see open tasks (optionally filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); and `search_tasks` to free-text search task titles/notes with `query`, optionally combined with `due`. Results are combined across every connected task source. Use when the user asks about their to-dos, what's due, or a specific task. Read-only. Pass `account` (a provider name, connection label, or account email) to narrow to one specific task source instead of combining every source.",
 			errorPrefix: "Tasks lookup failed",
 		},
+		use_skill: {
+			description:
+				"Load a skill's full instructions, by exact `name` from \"## Skills available\". When the user's request matches a listed skill, call this once before answering and follow the returned instructions for the rest of this turn. Do not call it for a skill that is not listed.",
+			errorPrefix: "Loading the skill failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -355,6 +377,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 			description:
 				"A felhasználó csatlakoztatott teendő-/feladatlistáinak (egy CalDAV-fiók feladatlistái) olvasása: `list_tasks` a nyitott feladatok megtekintéséhez (opcionálisan `due` szerint szűrve — egy 'ÉÉÉÉ-HH-NN' dátum vagy a szó szerinti 'overdue'); és `search_tasks` a feladatcímek/jegyzetek szabad szöveges kereséséhez a `query` alapján, opcionálisan `due`-val kombinálva. Az eredmények minden csatlakoztatott feladatforrásból összesítve jelennek meg. Akkor használd, ha a felhasználó a teendőire, a határidőkre vagy egy konkrét feladatra kérdez rá. Csak olvasható. Add meg az `account` mezőt (szolgáltató neve, kapcsolat címkéje vagy fiók e-mail címe) egy konkrét feladatforrásra szűkítéshez, ahelyett hogy minden forrást összesítene.",
 			errorPrefix: "A feladatok elérése sikertelen",
+		},
+		use_skill: {
+			description:
+				'Egy skill teljes utasításainak betöltése, pontos `name` alapján a "## Elérhető skillek" listából. Ha a felhasználó kérése megfelel egy listázott skillnek, hívd meg ezt egyszer, mielőtt válaszolnál, és a kör hátralévő részében kövesd a visszakapott utasításokat. Ne hívd olyan skillre, amely nincs listázva.',
+			errorPrefix: "A skill betöltése sikertelen",
 		},
 	},
 };
@@ -1906,6 +1933,115 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					),
 				}
 			: {}),
+		use_skill: asExecutableTool(
+			tool({
+				description: i18n.use_skill.description,
+				inputSchema: useSkillInputSchema,
+				execute: async (
+					input: z.infer<typeof useSkillInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					const safeInput = { name: input.name.trim() };
+					return executeToolWithEnvelope<UseSkillModelPayload>({
+						toolName: "use_skill",
+						timeoutMs: TOOL_TIMEOUTS_MS.use_skill,
+						options,
+						recorder,
+						run: async () => {
+							const result = await resolveSkillInstructionsForUse({
+								userId: ctx.userId,
+								name: safeInput.name,
+								requestText: ctx.requestText ?? "",
+							});
+							if (!result.ok) {
+								const message =
+									result.reason === "disabled"
+										? `Skill "${safeInput.name}" is not currently enabled.`
+										: `No skill named "${safeInput.name}" was found. Only call use_skill with a name from "## Skills available".`;
+								return {
+									modelPayload: {
+										found: false as const,
+										error: message,
+										displayName: null,
+										instructions: null,
+									},
+									entry: {
+										callId: options.toolCallId,
+										name: "use_skill",
+										input: safeInput,
+										status: "done",
+										outputSummary: message,
+										sourceType: "tool",
+										metadata: {
+											ok: false,
+											evidenceReady: false,
+											found: false,
+											error: message,
+											skillId: null,
+											skillOwnership: null,
+										},
+									},
+								};
+							}
+							return {
+								modelPayload: {
+									found: true as const,
+									error: null,
+									displayName: result.displayName,
+									instructions: result.envelope,
+								},
+								entry: {
+									callId: options.toolCallId,
+									name: "use_skill",
+									input: safeInput,
+									status: "done",
+									outputSummary: `Loaded skill "${result.displayName}"`,
+									sourceType: "tool",
+									metadata: {
+										ok: true,
+										evidenceReady: false,
+										found: true,
+										error: null,
+										skillId: result.skillId,
+										skillOwnership: result.skillOwnership,
+									},
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								i18n.use_skill.errorPrefix,
+							);
+							return {
+								modelPayload: {
+									found: false as const,
+									error: message,
+									displayName: null,
+									instructions: null,
+								},
+								entry: {
+									callId: options.toolCallId,
+									name: "use_skill",
+									input: safeInput,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										found: false,
+										error: message,
+										skillId: null,
+										skillOwnership: null,
+									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
 		done: tool({
 			description:
 				"Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. It ends the turn, so if more tool calls might be needed, make them instead.",

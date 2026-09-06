@@ -747,56 +747,6 @@ describe("messages metadata", () => {
 		).resolves.toBe(true);
 	});
 
-	it("persists and returns Skill Question metadata on assistant messages", async () => {
-		const { createMessage } = await import("./messages");
-
-		const message = await createMessage(
-			"conv-1",
-			"assistant",
-			"Which deadline should I use?",
-			undefined,
-			undefined,
-			{
-				skillQuestion: true,
-				pendingSkillNoteIntents: [
-					{
-						operationId: "note-1",
-						kind: "note_intent",
-						action: "create",
-						title: "Draft note",
-						body: "Capture later.",
-					},
-				],
-				skillControl: {
-					envelopeVersion: 1,
-					malformedEnvelopeCount: 0,
-					operations: [
-						{
-							operationId: "question-1",
-							kind: "session_transition",
-							transition: "awaiting_user",
-						},
-					],
-				},
-			},
-		);
-
-		expect(message).toMatchObject({
-			content: "Which deadline should I use?",
-			skillQuestion: true,
-			pendingSkillNoteIntents: [
-				expect.objectContaining({ operationId: "note-1" }),
-			],
-			skillControl: expect.objectContaining({
-				envelopeVersion: 1,
-				operations: [expect.objectContaining({ operationId: "question-1" })],
-			}),
-		});
-		expect(JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}")).toMatchObject({
-			skillQuestion: true,
-		});
-	});
-
 	it("persists and returns compact Depth Metadata on assistant messages", async () => {
 		const { createMessage } = await import("./messages");
 
@@ -860,59 +810,6 @@ describe("messages metadata", () => {
 			fallback: false,
 			classifierSource: "control_model",
 		});
-	});
-
-	it("compacts Skill Note operation bodies before persisting assistant metadata", async () => {
-		const { createMessage } = await import("./messages");
-
-		const message = await createMessage(
-			"conv-1",
-			"assistant",
-			"I captured that.",
-			undefined,
-			undefined,
-			{
-				pendingSkillNoteIntents: [
-					{
-						operationId: "note-secret-1",
-						kind: "note_intent",
-						action: "create",
-						title: "Private decision",
-						body: "SECRET_NOTE_BODY should not be exposed through message metadata.",
-					},
-				],
-				skillControl: {
-					envelopeVersion: 1,
-					malformedEnvelopeCount: 0,
-					operations: [
-						{
-							operationId: "note-secret-1",
-							kind: "note_intent",
-							action: "create",
-							title: "Private decision",
-							body: "SECRET_NOTE_BODY should not be exposed through message metadata.",
-						},
-					],
-				},
-			},
-		);
-
-		const metadataJson = mockRows.at(-1)?.metadataJson ?? "";
-		expect(metadataJson).not.toContain("SECRET_NOTE_BODY");
-		expect(message.pendingSkillNoteIntents).toEqual([
-			expect.objectContaining({
-				operationId: "note-secret-1",
-				action: "create",
-				bodyLength: 64,
-			}),
-		]);
-		expect(message.skillControl?.operations).toEqual([
-			expect.objectContaining({
-				operationId: "note-secret-1",
-				action: "create",
-				bodyLength: 64,
-			}),
-		]);
 	});
 
 	it("preserves Skill Draft metadata and updates draft status on assistant messages", async () => {

@@ -25,9 +25,6 @@ import type {
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
-import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
-import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
-import type { SkillControlOperation } from "$lib/server/services/skills/types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { buildContextSourcesState } from "./context-sources";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
@@ -138,8 +135,6 @@ export type FinalizeChatTurnParams = {
 	assistantMetadata: Record<string, unknown>;
 	reasoningDepth?: ReasoningDepth;
 	depthMetadata?: DepthMetadata;
-	skillControlOperations: SkillControlOperation[];
-	skillControlSessionId: string | null;
 	attachmentIds: string[];
 	activeDocumentArtifactId: string | null;
 	contextStatus: PersistAssistantTurnStateParams["contextStatus"];
@@ -168,21 +163,6 @@ export type FinalizeChatTurnParams = {
 		receipt: FinalizeChatTurnDurableReceipt,
 	) => void | Promise<void>;
 };
-
-function buildSkillControlLogContext(params: {
-	conversationId: string;
-	assistantMessageId: string;
-	streamId?: string | null;
-}): Record<string, string> {
-	const context: Record<string, string> = {
-		conversationId: params.conversationId,
-		assistantMessageId: params.assistantMessageId,
-	};
-	if (params.streamId) {
-		context.streamId = params.streamId;
-	}
-	return context;
-}
 
 export type FinalizeChatTurnResult = {
 	userMessage: { id: string } | undefined;
@@ -580,10 +560,9 @@ export async function finalizeChatTurn(
 	}
 
 	// The single ordered post-turn projection, shared by both callers. Each
-	// side effect runs exactly once in a fixed order — skill-control ops →
-	// assistant turn-state → evidence → completion context sources →
-	// generated-output reconciliation — so a new post-turn side effect is added
-	// in exactly one place.
+	// side effect runs exactly once in a fixed order — assistant turn-state →
+	// evidence → completion context sources → generated-output reconciliation
+	// — so a new post-turn side effect is added in exactly one place.
 	const runPostTurnProjection = async (): Promise<{
 		turnState: PersistAssistantTurnStateResult | null;
 		evidenceTask: Promise<void>;
@@ -593,40 +572,6 @@ export async function finalizeChatTurn(
 	}> => {
 		let turnState: PersistAssistantTurnStateResult | null = null;
 		if (assistantMessage && shouldPersistTurnState) {
-			if (params.skillControlOperations.length > 0) {
-				await commitSkillNoteOperationsAfterAssistantMessage({
-					userId: params.userId,
-					conversationId: params.conversationId,
-					sessionId: params.skillControlSessionId,
-					assistantMessageId: assistantMessage.id,
-					operations: params.skillControlOperations,
-				}).catch((error) => {
-					console.warn(`${logPrefix} Failed to apply Skill Note Operations`, {
-						...buildSkillControlLogContext({
-							conversationId: params.conversationId,
-							assistantMessageId: assistantMessage.id,
-							streamId: params.streamId,
-						}),
-						error,
-					});
-				});
-				await applySkillControlOperations({
-					userId: params.userId,
-					conversationId: params.conversationId,
-					assistantMessageId: assistantMessage.id,
-					operations: params.skillControlOperations,
-				}).catch((error) => {
-					console.warn(`${logPrefix} Failed to apply Skill Control Envelope`, {
-						...buildSkillControlLogContext({
-							conversationId: params.conversationId,
-							assistantMessageId: assistantMessage.id,
-							streamId: params.streamId,
-						}),
-						error,
-					});
-				});
-			}
-
 			turnState = await persistAssistantTurnState({
 				userId: params.userId,
 				conversationId: params.conversationId,

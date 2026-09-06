@@ -14,23 +14,17 @@
  *   - All deletions are idempotent.
  */
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
-	artifactChunks,
 	artifactLinks,
 	artifacts,
 	conversationTaskStates,
 	conversationWorkingSetItems,
-	skillNoteCheckpoints,
-	skillNoteOperations,
-	skillSessionMilestones,
-	skillSessions,
 	taskCheckpoints,
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
 import { deleteMessages } from "$lib/server/services/messages";
-import { deleteSemanticEmbeddingsForSubjects } from "../semantic-embeddings";
 
 export type CleanupResult = {
 	steps: CleanupStep[];
@@ -183,18 +177,6 @@ export async function cleanupFailedTurn(params: {
 	}
 
 	try {
-		await cleanupSkillSideEffects({
-			userId,
-			conversationId,
-			assistantMessageId,
-		});
-		log("cleanup skill side effects", true);
-	} catch (error) {
-		log("cleanup skill side effects", false, String(error));
-		warnings.push(`skill-side-effects: ${String(error)}`);
-	}
-
-	try {
 		await deleteMessages([assistantMessageId]);
 		log("delete assistant message", true, `id=${assistantMessageId}`);
 	} catch (error) {
@@ -203,212 +185,4 @@ export async function cleanupFailedTurn(params: {
 	}
 
 	return { steps, warnings };
-}
-
-async function cleanupSkillSideEffects(params: {
-	userId: string;
-	conversationId: string;
-	assistantMessageId: string;
-}) {
-	const noteOperations = await db
-		.select()
-		.from(skillNoteOperations)
-		.where(
-			and(
-				eq(skillNoteOperations.userId, params.userId),
-				eq(skillNoteOperations.conversationId, params.conversationId),
-				eq(skillNoteOperations.assistantMessageId, params.assistantMessageId),
-			),
-		);
-	const checkpoints = await db
-		.select()
-		.from(skillNoteCheckpoints)
-		.where(
-			and(
-				eq(skillNoteCheckpoints.userId, params.userId),
-				eq(skillNoteCheckpoints.conversationId, params.conversationId),
-				eq(skillNoteCheckpoints.assistantMessageId, params.assistantMessageId),
-			),
-		)
-		.orderBy(desc(skillNoteCheckpoints.createdAt));
-	const createdNoteArtifactIds = noteOperations
-		.filter((operation) => operation.action === "create")
-		.map((operation) => operation.artifactId);
-	const rolledBackNoteArtifactIds = Array.from(
-		new Set(checkpoints.map((checkpoint) => checkpoint.noteArtifactId)),
-	);
-
-	for (const checkpoint of checkpoints) {
-		await db
-			.update(artifacts)
-			.set({
-				contentText: checkpoint.previousBody,
-				sizeBytes: Buffer.byteLength(checkpoint.previousBody, "utf8"),
-				metadataJson: checkpoint.previousMetadataJson,
-				updatedAt: new Date(),
-			})
-			.where(
-				and(
-					eq(artifacts.id, checkpoint.noteArtifactId),
-					eq(artifacts.userId, params.userId),
-					eq(artifacts.conversationId, params.conversationId),
-					eq(artifacts.type, "skill_note"),
-				),
-			)
-			.run();
-	}
-	if (rolledBackNoteArtifactIds.length > 0) {
-		await db
-			.delete(artifactChunks)
-			.where(
-				and(
-					eq(artifactChunks.userId, params.userId),
-					eq(artifactChunks.conversationId, params.conversationId),
-					inArray(artifactChunks.artifactId, rolledBackNoteArtifactIds),
-				),
-			)
-			.run();
-		await deleteSemanticEmbeddingsForSubjects({
-			userId: params.userId,
-			subjectType: "artifact",
-			subjectIds: rolledBackNoteArtifactIds,
-		});
-	}
-
-	if (createdNoteArtifactIds.length > 0) {
-		await db
-			.delete(artifactLinks)
-			.where(
-				and(
-					eq(artifactLinks.userId, params.userId),
-					inArray(artifactLinks.artifactId, createdNoteArtifactIds),
-				),
-			)
-			.run();
-		await db
-			.delete(conversationWorkingSetItems)
-			.where(
-				and(
-					eq(conversationWorkingSetItems.userId, params.userId),
-					eq(conversationWorkingSetItems.conversationId, params.conversationId),
-					inArray(
-						conversationWorkingSetItems.artifactId,
-						createdNoteArtifactIds,
-					),
-				),
-			)
-			.run();
-		await db
-			.delete(artifactChunks)
-			.where(
-				and(
-					eq(artifactChunks.userId, params.userId),
-					eq(artifactChunks.conversationId, params.conversationId),
-					inArray(artifactChunks.artifactId, createdNoteArtifactIds),
-				),
-			)
-			.run();
-		await deleteSemanticEmbeddingsForSubjects({
-			userId: params.userId,
-			subjectType: "artifact",
-			subjectIds: createdNoteArtifactIds,
-		});
-		await db
-			.delete(artifacts)
-			.where(
-				and(
-					eq(artifacts.userId, params.userId),
-					eq(artifacts.conversationId, params.conversationId),
-					eq(artifacts.type, "skill_note"),
-					inArray(artifacts.id, createdNoteArtifactIds),
-				),
-			)
-			.run();
-	}
-
-	await db
-		.delete(skillNoteCheckpoints)
-		.where(
-			and(
-				eq(skillNoteCheckpoints.userId, params.userId),
-				eq(skillNoteCheckpoints.conversationId, params.conversationId),
-				eq(skillNoteCheckpoints.assistantMessageId, params.assistantMessageId),
-			),
-		)
-		.run();
-	await db
-		.delete(skillNoteOperations)
-		.where(
-			and(
-				eq(skillNoteOperations.userId, params.userId),
-				eq(skillNoteOperations.conversationId, params.conversationId),
-				eq(skillNoteOperations.assistantMessageId, params.assistantMessageId),
-			),
-		)
-		.run();
-
-	const milestones = await db
-		.select()
-		.from(skillSessionMilestones)
-		.where(
-			and(
-				eq(skillSessionMilestones.userId, params.userId),
-				eq(skillSessionMilestones.conversationId, params.conversationId),
-			),
-		);
-	const milestonesToDelete = milestones.filter((milestone) =>
-		milestoneReferencesAssistantMessage(
-			milestone.messageParamsJson,
-			params.assistantMessageId,
-		),
-	);
-	const milestoneIdsToDelete = milestonesToDelete.map(
-		(milestone) => milestone.id,
-	);
-	if (milestoneIdsToDelete.length > 0) {
-		const terminalSessionIds = Array.from(
-			new Set(
-				milestonesToDelete
-					.filter(
-						(milestone) =>
-							milestone.kind === "ended" || milestone.kind === "dismissed",
-					)
-					.map((milestone) => milestone.sessionId),
-			),
-		);
-		await db
-			.delete(skillSessionMilestones)
-			.where(inArray(skillSessionMilestones.id, milestoneIdsToDelete))
-			.run();
-		if (terminalSessionIds.length > 0) {
-			await db
-				.update(skillSessions)
-				.set({
-					status: "active",
-					endReason: null,
-					endedAt: null,
-					updatedAt: new Date(),
-				})
-				.where(inArray(skillSessions.id, terminalSessionIds))
-				.run();
-		}
-	}
-}
-
-function milestoneReferencesAssistantMessage(
-	messageParamsJson: string,
-	assistantMessageId: string,
-): boolean {
-	try {
-		const parsed = JSON.parse(messageParamsJson) as unknown;
-		return (
-			typeof parsed === "object" &&
-			parsed !== null &&
-			"assistantMessageId" in parsed &&
-			(parsed as { assistantMessageId?: unknown }).assistantMessageId ===
-				assistantMessageId
-		);
-	} catch {
-		return messageParamsJson.includes(assistantMessageId);
-	}
 }

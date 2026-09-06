@@ -572,16 +572,6 @@ describe("conversation forks", () => {
 						unsupportedCitationCount: 1,
 						citations: [],
 					},
-					skillQuestion: true,
-					pendingSkillNoteIntents: [
-						{
-							operationId: "note-1",
-							kind: "note_intent",
-							action: "create",
-							title: "Inherited note",
-							body: "Should not remain actionable.",
-						},
-					],
 					skillDrafts: [
 						{
 							id: "draft-1",
@@ -649,8 +639,6 @@ describe("conversation forks", () => {
 		expect(copiedAssistantMetadata.evidenceStatus).toBeUndefined();
 		expect(copiedAssistantMetadata.evidenceSummary).toBeUndefined();
 		expect(copiedAssistantMetadata.forkEvidenceSnapshot).toBeUndefined();
-		expect(copiedAssistantMetadata.skillQuestion).toBeUndefined();
-		expect(copiedAssistantMetadata.pendingSkillNoteIntents).toBeUndefined();
 		expect(copiedAssistantMetadata.skillDrafts).toBeUndefined();
 		expect(copiedAssistantMetadata.skillControl).toBeUndefined();
 
@@ -668,8 +656,6 @@ describe("conversation forks", () => {
 			}),
 		});
 		expect(listedMessages[1]?.evidencePending).toBe(false);
-		expect(listedMessages[1]?.skillQuestion).toBeUndefined();
-		expect(listedMessages[1]?.pendingSkillNoteIntents).toBeUndefined();
 		expect(listedMessages[1]?.skillDrafts).toBeUndefined();
 		expect(listedMessages[1]?.skillControl).toBeUndefined();
 		await expect(

@@ -157,8 +157,6 @@ export interface ChatMessage {
 	// (`railEntryText` in src/lib/components/chat/jump-rail.ts). Assistant
 	// turns only (owner decision O-3).
 	railSummary?: string;
-	skillQuestion?: boolean;
-	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
 	forkCopy?: ForkCopyMetadata;

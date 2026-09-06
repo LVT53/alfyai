@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	baseResolvedSkillDefinition,
-	baseSkillSession,
 	baseSkillSummary,
 	baseUserSkillDefinition,
 	buildInvalidJsonEvent,
@@ -9,11 +8,10 @@ import {
 	linkedSourceFixture,
 	makeEvent,
 	missingPendingSkill,
-	noteCreateDecisionOperation,
 	seedConversation,
 	seedConversationTurn,
-	skillAwaitingUserOperation,
 	skillControlEnvelope,
+	skillDraftOperation,
 } from "./send.test-helpers";
 
 vi.mock("$lib/server/auth/hooks", () => ({
@@ -124,16 +122,6 @@ vi.mock("$lib/server/services/skills/user-skills", () => ({
 	),
 }));
 
-vi.mock("$lib/server/services/skills/sessions", () => ({
-	applySkillControlOperations: vi.fn(async () => null),
-	getActiveSkillSession: vi.fn(async () => null),
-	startSkillSession: vi.fn(async () => null),
-}));
-
-vi.mock("$lib/server/services/skills/notes", () => ({
-	commitSkillNoteOperationsAfterAssistantMessage: vi.fn(async () => null),
-}));
-
 vi.mock("$lib/server/services/task-state", () => ({
 	attachContinuityToTaskState: vi.fn(
 		async (_userId: string, taskState: unknown) => taskState,
@@ -218,12 +206,6 @@ import {
 	updateMessageEvidence,
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
-import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
-import {
-	applySkillControlOperations,
-	getActiveSkillSession,
-	startSkillSession,
-} from "$lib/server/services/skills/sessions";
 import {
 	getAvailableSkillDefinition,
 	getAvailableSkillSummary,
@@ -280,14 +262,6 @@ const mockGetAvailableSkillDefinition =
 	getAvailableSkillDefinition as ReturnType<typeof vi.fn>;
 const mockResolveEffectiveSkillDefinition =
 	resolveEffectiveSkillDefinition as ReturnType<typeof vi.fn>;
-const mockGetActiveSkillSession = getActiveSkillSession as ReturnType<
-	typeof vi.fn
->;
-const mockApplySkillControlOperations =
-	applySkillControlOperations as ReturnType<typeof vi.fn>;
-const mockStartSkillSession = startSkillSession as ReturnType<typeof vi.fn>;
-const mockCommitSkillNoteOperations =
-	commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 
 describe("POST /api/chat/send", () => {
 	beforeEach(() => {
@@ -337,8 +311,6 @@ describe("POST /api/chat/send", () => {
 			baseResolvedSkillDefinition,
 		);
 		mockGetAvailableSkillDefinition.mockResolvedValue(baseUserSkillDefinition);
-		mockGetActiveSkillSession.mockResolvedValue(null);
-		mockStartSkillSession.mockResolvedValue(baseSkillSession);
 	});
 
 	it("returns AI response text for a valid request", async () => {
@@ -1137,96 +1109,7 @@ describe("POST /api/chat/send", () => {
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 	});
 
-	it("rejects normal chat when a different active skill session blocks the pending session skill", async () => {
-		seedConversation(mockGetConversation);
-		mockGetAvailableSkillDefinition.mockResolvedValue({
-			id: "skill-2",
-			ownership: "user",
-			displayName: "Code reviewer",
-			description: "Reviews code.",
-			instructions: "Review the code carefully.",
-			activationExamples: [],
-			enabled: true,
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			creationSource: "user_created",
-			version: 1,
-			createdAt: 1,
-			updatedAt: 2,
-		});
-		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: true,
-			availabilityReason: "available",
-			id: "skill-2",
-			ownership: "user",
-			skillKind: "user_skill",
-			displayName: "Code reviewer",
-			description: "Reviews code.",
-			effectiveInstructions: "Review the code carefully.",
-			effectiveInstructionsHash: "test-hash-2",
-			publicSummary: {
-				id: "skill-2",
-				ownership: "user",
-				skillKind: "user_skill",
-				baseSkillId: null,
-				baseSkillVersion: null,
-				displayName: "Code reviewer",
-				description: "Reviews code.",
-				activationExamples: [],
-				enabled: true,
-				durationPolicy: "session",
-				questionPolicy: "none",
-				notesPolicy: "none",
-				sourceScope: "selected_sources_only",
-				creationSource: "user_created",
-				version: 1,
-				createdAt: 1,
-				updatedAt: 2,
-			},
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "skill-2",
-				skillVersion: 1,
-				packSkillId: null,
-				packSkillVersion: null,
-				variantSkillId: null,
-				variantSkillVersion: null,
-			},
-		});
-		mockStartSkillSession.mockRejectedValue(
-			Object.assign(new Error("Another skill session is already active."), {
-				code: "active_skill_session_conflict",
-				status: 409,
-			}),
-		);
-
-		const response = await POST(
-			makeEvent({
-				message: "Use this other skill",
-				conversationId: "conv-1",
-				pendingSkill: {
-					id: "skill-2",
-					ownership: "user",
-					displayName: "Code reviewer",
-				},
-			}),
-		);
-		const data = await response.json();
-
-		expect(response.status).toBe(409);
-		expect(data).toMatchObject({
-			error: "Another skill session is already active.",
-			code: "active_skill_session_conflict",
-		});
-		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
-	});
-
-	it("passes pending Skill instructions as a system appendix without changing the visible user transcript", async () => {
+	it("forces the pending Skill's instructions into the packet without changing the visible user transcript", async () => {
 		seedConversation(mockGetConversation);
 		mockCreateMessage
 			.mockResolvedValueOnce({
@@ -1275,17 +1158,18 @@ describe("POST /api/chat/send", () => {
 				message: "Draft the plan",
 				conversationId: "conv-1",
 				modelId: "model1",
-				systemPromptAppendix: expect.stringContaining(
+				pendingSkillInstructions: expect.stringContaining(
 					"Ask one concise follow-up before answering.",
 				),
 			}),
 		);
 		const options = mockRunPlainNormalChatSendModel.mock.calls.at(-1)?.[0];
-		expect(options.systemPromptAppendix).toContain("Discovery notes.pdf");
-		expect(options.systemPromptAppendix).toContain(
-			"displayArtifactId: display-1",
+		expect(options.pendingSkillInstructions).toContain(
+			'Skill "Interview coach" instructions',
 		);
-		expect(options.systemPromptAppendix).not.toContain("  Draft the plan  ");
+		expect(options.pendingSkillInstructions).not.toContain(
+			"  Draft the plan  ",
+		);
 		expect(mockCreateMessage).toHaveBeenNthCalledWith(
 			1,
 			"conv-1",
@@ -1310,7 +1194,7 @@ describe("POST /api/chat/send", () => {
 				content: "Visible answer.",
 				timestamp: Date.now(),
 			});
-		const envelope = skillControlEnvelope([skillAwaitingUserOperation]);
+		const envelope = skillControlEnvelope([skillDraftOperation]);
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: `Visible answer.\n${envelope}`,
 			rawResponse: {},
@@ -1332,413 +1216,69 @@ describe("POST /api/chat/send", () => {
 			undefined,
 			expect.not.objectContaining({
 				skillControl: expect.anything(),
-				skillQuestion: expect.anything(),
+				skillDrafts: expect.anything(),
 			}),
 		);
-		expect(mockCommitSkillNoteOperations).not.toHaveBeenCalled();
-		expect(mockApplySkillControlOperations).not.toHaveBeenCalled();
 	});
 
-	it("strips Skill Control Envelopes, persists metadata, and applies transitions after assistant persistence", async () => {
+	it("strips Skill Control Envelopes and persists Skill Draft metadata", async () => {
 		seedConversation(mockGetConversation);
 		mockCreateMessage
 			.mockResolvedValueOnce({
 				id: "user-msg",
 				role: "user",
-				content: "Coach me",
+				content: "Make this a reusable skill",
 				timestamp: Date.now(),
 			})
 			.mockResolvedValueOnce({
 				id: "assistant-msg",
 				role: "assistant",
-				content: "What deadline should I use?",
+				content: "I can make this reusable.",
 				timestamp: Date.now(),
 			});
 		mockRunPlainNormalChatSendModel.mockResolvedValue({
 			text: [
-				"What deadline should I use?",
-				skillControlEnvelope([skillAwaitingUserOperation]),
+				"I can make this reusable.",
+				skillControlEnvelope([skillDraftOperation]),
 			].join("\n"),
 			rawResponse: {},
 			contextStatus: undefined,
 		});
 
 		const response = await POST(
-			makeEvent({ message: "Coach me", conversationId: "conv-1" }),
+			makeEvent({
+				message: "Make this a reusable skill",
+				conversationId: "conv-1",
+			}),
 		);
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.response.text).toBe("What deadline should I use?");
+		expect(data.response.text).toBe("I can make this reusable.");
 		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
-			"What deadline should I use?",
+			"I can make this reusable.",
 			undefined,
 			undefined,
 			expect.objectContaining({
 				evidenceStatus: "pending",
-				skillQuestion: true,
+				skillDrafts: [
+					expect.objectContaining({
+						id: skillDraftOperation.draft.id,
+						displayName: skillDraftOperation.draft.displayName,
+						status: "proposed",
+					}),
+				],
 				skillControl: expect.objectContaining({
 					operations: [
 						expect.objectContaining({
-							operationId: skillAwaitingUserOperation.operationId,
-							transition: skillAwaitingUserOperation.transition,
+							operationId: skillDraftOperation.operationId,
 						}),
 					],
 				}),
 			}),
 		);
-		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-msg",
-			operations: [skillAwaitingUserOperation],
-		});
-	});
-
-	it("commits note operations after the assistant message exists", async () => {
-		seedConversation(mockGetConversation);
-		mockGetActiveSkillSession.mockResolvedValue({
-			id: "session-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "skill-1",
-			skillOwnership: "user",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Meeting critic",
-			skillDescription: "Reviews notes",
-			skillInstructions: "Capture decisions.",
-			activationExamples: [],
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "create_private_notes",
-			sourceScope: "selected_sources_only",
-			skillVersion: 1,
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 1,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
-		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Capture this",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Captured.",
-				timestamp: Date.now(),
-			});
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			text: [
-				"Captured.",
-				skillControlEnvelope([noteCreateDecisionOperation]),
-			].join("\n"),
-			rawResponse: {},
-			contextStatus: undefined,
-		});
-
-		const response = await POST(
-			makeEvent({ message: "Capture this", conversationId: "conv-1" }),
-		);
-
-		expect(response.status).toBe(200);
-		expect(mockCommitSkillNoteOperations).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			sessionId: "session-1",
-			assistantMessageId: "assistant-msg",
-			operations: [noteCreateDecisionOperation],
-		});
-	});
-
-	it("commits first-response note operations to the session started from a pending skill", async () => {
-		seedConversation(mockGetConversation);
-		mockGetAvailableSkillDefinition.mockResolvedValue({
-			id: "skill-1",
-			ownership: "user",
-			displayName: "Meeting critic",
-			description: "Reviews notes",
-			instructions: "Capture decisions.",
-			activationExamples: [],
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "create_private_notes",
-			sourceScope: "selected_sources_only",
-			creationSource: "user_created",
-			version: 1,
-			createdAt: 1,
-			updatedAt: 2,
-		});
-		mockStartSkillSession.mockResolvedValue({
-			id: "started-session-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "skill-1",
-			skillOwnership: "user",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Meeting critic",
-			skillDescription: "Reviews notes",
-			skillInstructions: "Capture decisions.",
-			activationExamples: [],
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "create_private_notes",
-			sourceScope: "selected_sources_only",
-			skillVersion: 1,
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 1,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
-		});
-		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: true,
-			availabilityReason: "available",
-			id: "skill-1",
-			ownership: "user",
-			skillKind: "user_skill",
-			displayName: "Meeting critic",
-			description: "Reviews notes",
-			effectiveInstructions: "Capture decisions.",
-			effectiveInstructionsHash: "test-hash-session",
-			publicSummary: {
-				id: "skill-1",
-				ownership: "user",
-				skillKind: "user_skill",
-				baseSkillId: null,
-				baseSkillVersion: null,
-				displayName: "Meeting critic",
-				description: "Reviews notes",
-				activationExamples: [],
-				enabled: true,
-				durationPolicy: "session",
-				questionPolicy: "none",
-				notesPolicy: "create_private_notes",
-				sourceScope: "selected_sources_only",
-				creationSource: "user_created",
-				version: 1,
-				createdAt: 1,
-				updatedAt: 2,
-			},
-			durationPolicy: "session",
-			questionPolicy: "none",
-			notesPolicy: "create_private_notes",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "skill-1",
-				skillVersion: 1,
-				packSkillId: null,
-				packSkillVersion: null,
-				variantSkillId: null,
-				variantSkillVersion: null,
-			},
-		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Capture this",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Captured.",
-				timestamp: Date.now(),
-			});
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			text: [
-				"Captured.",
-				skillControlEnvelope([noteCreateDecisionOperation]),
-			].join("\n"),
-			rawResponse: {},
-			contextStatus: undefined,
-		});
-
-		const response = await POST(
-			makeEvent({
-				message: "Capture this",
-				conversationId: "conv-1",
-				pendingSkill: {
-					id: "skill-1",
-					ownership: "user",
-					displayName: "Meeting critic",
-				},
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		expect(mockStartSkillSession).toHaveBeenCalledWith(
-			"user-1",
-			"conv-1",
-			expect.objectContaining({
-				id: "skill-1",
-				ownership: "user",
-				displayName: "Meeting critic",
-			}),
-		);
-		expect(mockCommitSkillNoteOperations).toHaveBeenCalledWith(
-			expect.objectContaining({
-				sessionId: "started-session-1",
-				assistantMessageId: "assistant-msg",
-			}),
-		);
-	});
-
-	it("preserves started variant session metadata and managed pack resources in the prompt appendix", async () => {
-		seedConversation(mockGetConversation);
-		mockResolveEffectiveSkillDefinition.mockResolvedValue({
-			available: true,
-			availabilityReason: "available",
-			id: "variant-1",
-			ownership: "user",
-			skillKind: "skill_variant",
-			displayName: "Monthly workbook",
-			description: "Uses the spreadsheet pack with user ratios.",
-			effectiveInstructions:
-				"Build the workbook.\n\nUse my daily ratio layout.",
-			effectiveInstructionsHash: "variant-session-hash",
-			publicSummary: {
-				id: "variant-1",
-				ownership: "user",
-				skillKind: "skill_variant",
-				baseSkillId: "system:spreadsheet-builder",
-				baseSkillVersion: 7,
-				baseSkillDisplayName: "Spreadsheet Builder",
-				displayName: "Monthly workbook",
-				description: "Uses the spreadsheet pack with user ratios.",
-				activationExamples: [],
-				enabled: true,
-				durationPolicy: "session",
-				questionPolicy: "ask_when_needed",
-				notesPolicy: "none",
-				sourceScope: "selected_sources_only",
-				creationSource: "user_created",
-				version: 3,
-				createdAt: 1,
-				updatedAt: 2,
-			},
-			durationPolicy: "session",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			sourceIds: {
-				skillId: "variant-1",
-				skillVersion: 3,
-				packSkillId: "system:spreadsheet-builder",
-				packSkillVersion: 7,
-				variantSkillId: "variant-1",
-				variantSkillVersion: 3,
-			},
-			promptResources: [
-				{
-					id: "spreadsheet-style-quality",
-					title: "Spreadsheet style and workbook quality",
-					kind: "guidance",
-					summary: "Workbook structure and quality checks.",
-					whenToUse: "Use for every workbook request.",
-					content:
-						"Keep source, assumptions, calculations, checks, and dashboard sheets separate.",
-					keywords: [],
-				},
-			],
-		});
-		mockStartSkillSession.mockResolvedValue({
-			id: "started-variant-session",
-			userId: "user-1",
-			conversationId: "conv-1",
-			skillId: "variant-1",
-			skillOwnership: "user",
-			skillKind: "skill_variant",
-			status: "active",
-			pauseReason: null,
-			endReason: null,
-			skillDisplayName: "Monthly workbook",
-			skillDescription: "Uses the spreadsheet pack with user ratios.",
-			skillInstructions: "Build the workbook.\n\nUse my daily ratio layout.",
-			activationExamples: [],
-			durationPolicy: "session",
-			questionPolicy: "ask_when_needed",
-			notesPolicy: "none",
-			sourceScope: "selected_sources_only",
-			skillVersion: 3,
-			packSkillId: "system:spreadsheet-builder",
-			packSkillVersion: 7,
-			variantSkillId: "variant-1",
-			variantSkillVersion: 3,
-			effectiveInstructionsHash: "variant-session-hash",
-			startedFrom: "pending_skill",
-			startedAt: 1,
-			updatedAt: 1,
-			pausedAt: null,
-			endedAt: null,
-			milestones: [],
-		});
-		mockCreateMessage
-			.mockResolvedValueOnce({
-				id: "user-msg",
-				role: "user",
-				content: "Build this workbook",
-				timestamp: Date.now(),
-			})
-			.mockResolvedValueOnce({
-				id: "assistant-msg",
-				role: "assistant",
-				content: "Workbook queued.",
-				timestamp: Date.now(),
-			});
-		mockRunPlainNormalChatSendModel.mockResolvedValue({
-			text: "Workbook queued.",
-			rawResponse: {},
-			contextStatus: undefined,
-		});
-
-		const response = await POST(
-			makeEvent({
-				message: "Build this workbook",
-				conversationId: "conv-1",
-				pendingSkill: {
-					id: "variant-1",
-					ownership: "user",
-					skillKind: "skill_variant",
-					displayName: "Monthly workbook",
-					baseSkillId: "system:spreadsheet-builder",
-					baseSkillDisplayName: "Spreadsheet Builder",
-				},
-			}),
-		);
-
-		expect(response.status).toBe(200);
-		const options = mockRunPlainNormalChatSendModel.mock.calls.at(-1)?.[0];
-		expect(options.systemPromptAppendix).toContain(
-			"Source: active skill session",
-		);
-		expect(options.systemPromptAppendix).toContain("Kind: skill_variant");
-		expect(options.systemPromptAppendix).toContain(
-			"Pack source: system:spreadsheet-builder, version 7",
-		);
-		expect(options.systemPromptAppendix).toContain(
-			"Variant source: variant-1, version 3",
-		);
-		expect(options.systemPromptAppendix).toContain(
-			"Effective instructions hash: variant-session-hash",
-		);
-		expect(options.systemPromptAppendix).toContain(
-			"Managed pack resources included:",
-		);
-		expect(options.systemPromptAppendix).toContain("spreadsheet-style-quality");
 	});
 
 	it("passes messages through unchanged", async () => {

@@ -8,7 +8,6 @@ import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
-import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { preflightChatTurn } from "./preflight";
 import { parseChatTurnRequest } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
@@ -43,7 +42,11 @@ export type RetryPreparationError = ChatTurnRequestError & {
 
 export type RetryOrchestratorInput = Pick<
 	StreamOrchestratorOptions,
-	"turn" | "upstreamMessage" | "isReconnect" | "systemPromptAppendix"
+	| "turn"
+	| "upstreamMessage"
+	| "isReconnect"
+	| "systemPromptAppendix"
+	| "pendingSkillInstructions"
 >;
 
 type RetryPreparationResult =
@@ -238,15 +241,6 @@ export async function prepareRetryChatTurn(params: {
 
 	const turn = preflight.value;
 	const upstreamMessage = turn.normalizedMessage;
-	const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
-		turn.skillPromptContext,
-	);
-	const systemPromptAppendix = [
-		skillSystemPromptAppendix,
-		REGENERATION_PROMPT_APPENDIX,
-	]
-		.filter((value): value is string => Boolean(value?.trim()))
-		.join("\n\n");
 
 	return {
 		ok: true,
@@ -255,7 +249,9 @@ export async function prepareRetryChatTurn(params: {
 				turn,
 				upstreamMessage,
 				isReconnect: false,
-				systemPromptAppendix,
+				systemPromptAppendix: REGENERATION_PROMPT_APPENDIX,
+				pendingSkillInstructions:
+					turn.appliedSkill?.instructionsEnvelope ?? undefined,
 			},
 		},
 	};

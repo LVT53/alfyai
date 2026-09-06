@@ -484,6 +484,7 @@ describe("runStreamingNormalChatSendModel", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			turnId: "normal-chat-turn-1",
+			requestText: "Create a downloadable PDF report",
 			language: "hu",
 			enabledConnectionCapabilities: new Set(),
 			modelId: "model1",

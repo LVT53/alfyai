@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParsedChatTurnRequest, SkillPromptContext } from "./types";
+import type { ParsedChatTurnRequest } from "./types";
 
 const mocks = vi.hoisted(() => ({
 	getConversation: vi.fn(),
@@ -7,10 +7,7 @@ const mocks = vi.hoisted(() => ({
 	isAttachmentReadinessError: vi.fn(),
 	addConversationLinkedContextSources: vi.fn(),
 	isLinkedContextSourceError: vi.fn(),
-	resolveSkillPromptContext: vi.fn(),
-	skillSessionToPromptContext: vi.fn(),
-	startSkillSession: vi.fn(),
-	resolveEffectiveSkillDefinition: vi.fn(),
+	resolvePendingSkillApplication: vi.fn(),
 	resolveReasoningDepthSelection: vi.fn(),
 }));
 
@@ -36,16 +33,7 @@ vi.mock("$lib/server/services/linked-context-sources", () => ({
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
-	resolveSkillPromptContext: mocks.resolveSkillPromptContext,
-	skillSessionToPromptContext: mocks.skillSessionToPromptContext,
-}));
-
-vi.mock("$lib/server/services/skills/sessions", () => ({
-	startSkillSession: mocks.startSkillSession,
-}));
-
-vi.mock("$lib/server/services/skills/user-skills", () => ({
-	resolveEffectiveSkillDefinition: mocks.resolveEffectiveSkillDefinition,
+	resolvePendingSkillApplication: mocks.resolvePendingSkillApplication,
 }));
 
 vi.mock("./depth-selection", () => ({
@@ -98,26 +86,6 @@ function makeHeavyRequest(): ParsedChatTurnRequest {
 	});
 }
 
-function makeSkillPromptContext(): SkillPromptContext {
-	return {
-		source: "active_session",
-		sessionId: "session-1",
-		sessionStatus: "active",
-		skillId: "skill-1",
-		skillOwnership: "user",
-		skillKind: "user_skill",
-		skillDisplayName: "Research Skill",
-		skillDescription: "Helps with focused research.",
-		skillInstructions: "Use the selected research process.",
-		durationPolicy: "session",
-		questionPolicy: "ask_when_needed",
-		notesPolicy: "none",
-		sourceScope: "current_conversation",
-		skillVersion: 1,
-		linkedSources: [],
-	};
-}
-
 function resetPreflightMocks() {
 	vi.clearAllMocks();
 	mocks.getConversation.mockResolvedValue({
@@ -129,10 +97,7 @@ function resetPreflightMocks() {
 	mocks.isAttachmentReadinessError.mockReturnValue(false);
 	mocks.addConversationLinkedContextSources.mockResolvedValue([]);
 	mocks.isLinkedContextSourceError.mockReturnValue(false);
-	mocks.resolveSkillPromptContext.mockResolvedValue(null);
-	mocks.resolveEffectiveSkillDefinition.mockResolvedValue({
-		available: true,
-	});
+	mocks.resolvePendingSkillApplication.mockResolvedValue({ ok: false });
 	mocks.resolveReasoningDepthSelection.mockResolvedValue({
 		metadata: {
 			requested: "thorough",
@@ -193,9 +158,7 @@ describe("admitChatTurnStream", () => {
 		expect(result).toMatchObject({ ok: true });
 		expect(mocks.assertPromptReadyAttachments).not.toHaveBeenCalled();
 		expect(mocks.addConversationLinkedContextSources).not.toHaveBeenCalled();
-		expect(mocks.resolveEffectiveSkillDefinition).not.toHaveBeenCalled();
-		expect(mocks.resolveSkillPromptContext).not.toHaveBeenCalled();
-		expect(mocks.startSkillSession).not.toHaveBeenCalled();
+		expect(mocks.resolvePendingSkillApplication).not.toHaveBeenCalled();
 		expect(mocks.resolveReasoningDepthSelection).not.toHaveBeenCalled();
 	});
 });
@@ -209,11 +172,24 @@ describe("prepareAdmittedChatTurn", () => {
 		const { admitChatTurnStream, prepareAdmittedChatTurn } = await import(
 			"./preflight"
 		);
-		const skillPromptContext = makeSkillPromptContext();
-		mocks.resolveSkillPromptContext.mockResolvedValue(skillPromptContext);
+		mocks.resolvePendingSkillApplication.mockResolvedValue({
+			ok: true,
+			skillId: "skill-1",
+			skillOwnership: "user",
+			skillKind: "user_skill",
+			displayName: "Research Skill",
+			envelope:
+				'Skill "Research Skill" instructions — apply these for the rest of this turn:\n\nUse the selected research process.',
+		});
 		const admitted = await admitChatTurnStream({
 			userId: "user-1",
-			request: makeRequest(),
+			request: makeRequest({
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Research Skill",
+				},
+			}),
 		});
 		expect(admitted.ok).toBe(true);
 		if (!admitted.ok) return;
@@ -232,7 +208,15 @@ describe("prepareAdmittedChatTurn", () => {
 					requested: "thorough",
 					appliedProfile: "extended",
 				},
-				skillPromptContext,
+				appliedSkill: {
+					skillId: "skill-1",
+					skillOwnership: "user",
+					skillKind: "user_skill",
+					skillDisplayName: "Research Skill",
+					instructionsEnvelope: expect.stringContaining(
+						"Use the selected research process.",
+					),
+				},
 			},
 		});
 		expect(mocks.getConversation).toHaveBeenCalledTimes(1);
@@ -263,6 +247,7 @@ describe("preflightChatTurn", () => {
 					fallback: false,
 					classifierSource: "control_model",
 				},
+				appliedSkill: null,
 			},
 		});
 		expect(mocks.resolveReasoningDepthSelection).toHaveBeenCalledWith({
@@ -275,36 +260,77 @@ describe("preflightChatTurn", () => {
 		});
 	});
 
-	it("keeps eager turn preparation responsible for skill prompt context", async () => {
+	it("forces the resolved skill's instructions into the turn when a pendingSkill is selected", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		const skillPromptContext = makeSkillPromptContext();
-		mocks.resolveSkillPromptContext.mockResolvedValue(skillPromptContext);
+		mocks.resolvePendingSkillApplication.mockResolvedValue({
+			ok: true,
+			skillId: "skill-1",
+			skillOwnership: "user",
+			skillKind: "user_skill",
+			displayName: "Research Skill",
+			envelope:
+				'Skill "Research Skill" instructions — apply these for the rest of this turn:\n\nUse the selected research process.',
+		});
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
-			request: makeRequest(),
+			request: makeRequest({
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Research Skill",
+				},
+			}),
 		});
 
 		expect(result).toMatchObject({
 			ok: true,
 			value: {
-				skillPromptContext,
+				appliedSkill: {
+					skillId: "skill-1",
+					skillOwnership: "user",
+					skillKind: "user_skill",
+					skillDisplayName: "Research Skill",
+				},
 				depthMetadata: {
 					requested: "thorough",
 					appliedProfile: "extended",
 				},
 			},
 		});
-		expect(mocks.resolveSkillPromptContext).toHaveBeenCalledWith({
+		expect(mocks.resolvePendingSkillApplication).toHaveBeenCalledWith({
 			userId: "user-1",
-			turn: expect.objectContaining({
-				conversationId: "conv-1",
-				depthMetadata: expect.objectContaining({
-					requested: "thorough",
-					appliedProfile: "extended",
-				}),
-			}),
+			pendingSkill: {
+				id: "skill-1",
+				ownership: "user",
+				displayName: "Research Skill",
+			},
+			requestText: "Compare the migration paths.",
 		});
 	});
 
+	it("rejects the turn when the pending skill is no longer available", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.resolvePendingSkillApplication.mockResolvedValue({ ok: false });
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: makeRequest({
+				pendingSkill: {
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Research Skill",
+				},
+			}),
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			error: {
+				status: 409,
+				error: "Selected skill is no longer available.",
+				code: "pending_skill_unavailable",
+			},
+		});
+	});
 });

@@ -5,8 +5,6 @@ import { getArtifactsForUser } from "$lib/server/services/knowledge";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
-import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 
@@ -164,14 +162,6 @@ vi.mock("$lib/server/services/memory-maintenance", () => ({
 
 vi.mock("$lib/server/services/message-evidence", () => ({
 	buildAssistantEvidenceSummary: vi.fn(async () => null),
-}));
-
-vi.mock("$lib/server/services/skills/notes", () => ({
-	commitSkillNoteOperationsAfterAssistantMessage: vi.fn(async () => null),
-}));
-
-vi.mock("$lib/server/services/skills/sessions", () => ({
-	applySkillControlOperations: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/task-state", () => ({
@@ -667,8 +657,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "upstream message",
 			assistantResponse: "assistant response",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -752,8 +740,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "Create a report",
 			assistantResponse: "Done.",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -821,8 +807,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "Save this to Nextcloud",
 			assistantResponse: "Done.",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -870,8 +854,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "hi",
 			assistantResponse: "Done.",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -910,8 +892,6 @@ describe("finalizeChatTurn", () => {
 					role === "user" ? "normalized user message" : "",
 				),
 		);
-		const mockApplySkillControlOperations =
-			applySkillControlOperations as ReturnType<typeof vi.fn>;
 		const { finalizeChatTurn } = await import("./finalize");
 
 		const completion = await finalizeChatTurn({
@@ -925,16 +905,8 @@ describe("finalizeChatTurn", () => {
 			assistantResponse: "",
 			assistantMetadata: {
 				evidenceStatus: "pending",
-				skillQuestion: true,
+				skillDrafts: [{ id: "draft-1" } as never],
 			},
-			skillControlOperations: [
-				{
-					operationId: "control-only-question",
-					kind: "session_transition",
-					transition: "awaiting_user",
-				} as never,
-			],
-			skillControlSessionId: "session-1",
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -965,87 +937,16 @@ describe("finalizeChatTurn", () => {
 			"",
 			undefined,
 			undefined,
-			expect.objectContaining({ skillQuestion: true }),
+			expect.objectContaining({
+				skillDrafts: [expect.objectContaining({ id: "draft-1" })],
+			}),
 		);
-		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "assistant-message",
-			operations: [
-				expect.objectContaining({ operationId: "control-only-question" }),
-			],
-		});
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
 				assistantMessageId: "assistant-message",
 				assistantResponse: "",
 			}),
 		);
-	});
-
-	it("includes streamId in skill control warnings when present", async () => {
-		const warnSpy = vi
-			.spyOn(console, "warn")
-			.mockImplementation(() => undefined);
-		const mockCommitSkillNoteOperations =
-			commitSkillNoteOperationsAfterAssistantMessage as ReturnType<
-				typeof vi.fn
-			>;
-		const mockApplySkillControlOperations =
-			applySkillControlOperations as ReturnType<typeof vi.fn>;
-		mockCommitSkillNoteOperations.mockRejectedValueOnce(
-			new Error("notes offline"),
-		);
-		mockApplySkillControlOperations.mockRejectedValueOnce(
-			new Error("sessions offline"),
-		);
-		const { finalizeChatTurn } = await import("./finalize");
-
-		await finalizeChatTurn({
-			turnKind: "stream",
-			streamId: "stream-1",
-			userId: "user-1",
-			conversationId: "conv-1",
-			userMessageContent: "normalized user message",
-			persistUserMessage: true,
-			normalizedMessage: "normalized user message",
-			upstreamMessage: "upstream prompt payload",
-			assistantResponse: "visible assistant response",
-			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [{ operationId: "op-1" } as never],
-			skillControlSessionId: null,
-			attachmentIds: [],
-			activeDocumentArtifactId: null,
-			contextStatus: null,
-			initialTaskState: null,
-			initialContextDebug: null,
-			analytics: {
-				model: "model-1",
-				modelDisplayName: "Model One",
-				promptTokens: 8,
-				completionTokens: 5,
-				generationTimeMs: undefined,
-				providerUsage: null,
-			},
-			assistantMirrorContent: "assistant mirror text",
-			maintenanceReason: "chat_stream",
-		});
-
-		expect(warnSpy).toHaveBeenCalledWith(
-			"[STREAM] Failed to apply Skill Note Operations",
-			expect.objectContaining({
-				streamId: "stream-1",
-				conversationId: "conv-1",
-			}),
-		);
-		expect(warnSpy).toHaveBeenCalledWith(
-			"[STREAM] Failed to apply Skill Control Envelope",
-			expect.objectContaining({
-				streamId: "stream-1",
-				conversationId: "conv-1",
-			}),
-		);
-		warnSpy.mockRestore();
 	});
 
 	it("creates the assistant message before attachment persistence in stream mode", async () => {
@@ -1081,8 +982,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "upstream prompt payload",
 			assistantResponse: "visible assistant response",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: ["att-1"],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1124,8 +1023,6 @@ describe("finalizeChatTurn", () => {
 				modelDisplayName: "Model One",
 			},
 			reasoningDepth: "thorough",
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1187,8 +1084,6 @@ describe("finalizeChatTurn", () => {
 				modelId: "model1",
 				modelDisplayName: "Model One",
 			},
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1247,8 +1142,6 @@ describe("finalizeChatTurn", () => {
 				upstreamMessage: "upstream prompt payload",
 				assistantResponse: "visible assistant response",
 				assistantMetadata: { evidenceStatus: "pending" },
-				skillControlOperations: [],
-				skillControlSessionId: null,
 				attachmentIds: ["att-1"],
 				activeDocumentArtifactId: null,
 				contextStatus: null,
@@ -1316,8 +1209,6 @@ describe("finalizeChatTurn", () => {
 				evidenceStatus: "pending",
 				modelDisplayName: "Model One",
 			},
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1374,8 +1265,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "upstream prompt payload",
 			assistantResponse: "visible assistant response",
 			assistantMetadata: { evidenceStatus: "pending" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1427,8 +1316,6 @@ describe("finalizeChatTurn", () => {
 			upstreamMessage: "atlas request",
 			assistantResponse: "atlas queued",
 			assistantMetadata: { evidenceStatus: "not_applicable" },
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1547,8 +1434,6 @@ describe("finalizeChatTurn", () => {
 				evidenceStatus: "pending",
 				modelDisplayName: "Model One",
 			},
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: [],
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -1816,8 +1701,6 @@ describe("finalizeChatTurn", () => {
 				upstreamMessage: "upstream message",
 				assistantResponse: "partial answer",
 				assistantMetadata: { wasStopped: true },
-				skillControlOperations: [],
-				skillControlSessionId: null,
 				attachmentIds: [],
 				activeDocumentArtifactId: null,
 				contextStatus: null,
@@ -1990,8 +1873,6 @@ describe("finalizeChatTurn", () => {
 				upstreamMessage: "upstream message",
 				assistantResponse: "assistant response",
 				assistantMetadata: {},
-				skillControlOperations: [],
-				skillControlSessionId: null,
 				attachmentIds: [],
 				activeDocumentArtifactId: null,
 				contextStatus: null,

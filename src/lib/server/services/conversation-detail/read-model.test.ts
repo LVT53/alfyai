@@ -13,20 +13,6 @@ vi.mock("$lib/server/services/conversation-forks", () => ({
 	listChildForksBySourceMessages: vi.fn(),
 }));
 
-vi.mock("$lib/server/services/skills/sessions", () => ({
-	getActiveSkillSession: vi.fn(),
-	serializePublicSkillSession: (
-		session:
-			| ({ skillInstructions?: unknown } & Record<string, unknown>)
-			| null
-			| undefined,
-	) => {
-		if (!session) return null;
-		const { skillInstructions: _skillInstructions, ...publicSession } = session;
-		return publicSession;
-	},
-}));
-
 vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(),
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT: 100,
@@ -107,7 +93,6 @@ import {
 } from "$lib/server/services/knowledge";
 import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import { listMessageWindow } from "$lib/server/services/messages";
-import { getActiveSkillSession } from "$lib/server/services/skills/sessions";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
@@ -122,7 +107,6 @@ const mockGetConversationForkOrigin = vi.mocked(getConversationForkOrigin);
 const mockListChildForksBySourceMessages = vi.mocked(
 	listChildForksBySourceMessages,
 );
-const mockGetActiveSkillSession = vi.mocked(getActiveSkillSession);
 const mockListMessageWindow = vi.mocked(listMessageWindow);
 const mockListConversationArtifacts = vi.mocked(listConversationArtifacts);
 const mockListConversationLinkedContextSources = vi.mocked(
@@ -180,15 +164,6 @@ describe("Conversation Detail Read Model", () => {
 			forkSequence: 1,
 			createdAt: 1,
 		});
-		mockGetActiveSkillSession.mockResolvedValue({
-			id: "skill-session-1",
-			conversationId: "conv-1",
-			userId: "user-1",
-			status: "active",
-			skillOwnership: "system",
-			skillDisplayName: "Meeting critic",
-			skillInstructions: "SYSTEM_SENTINEL: hidden system skill instructions",
-		} as never);
 		mockListMessageWindow.mockResolvedValue({
 			messages: [],
 			hasMoreBefore: false,
@@ -224,7 +199,6 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockGetConversation).toHaveBeenCalledWith("user-1", "conv-1");
 		expect(mockGetConversationDraft).toHaveBeenCalledWith("user-1", "conv-1");
 		expect(mockGetConversationForkOrigin).toHaveBeenCalledWith("conv-1");
-		expect(mockGetActiveSkillSession).toHaveBeenCalledWith("user-1", "conv-1");
 		expect(mockListMessageWindow).not.toHaveBeenCalled();
 		expect(mockListConversationArtifacts).not.toHaveBeenCalled();
 		expect(mockGetConversationTaskState).not.toHaveBeenCalled();
@@ -253,13 +227,6 @@ describe("Conversation Detail Read Model", () => {
 		});
 		expect(detail?.draft?.draftText).toBe("Continue from here");
 		expect(detail?.forkOrigin?.sourceTitle).toBe("Source title");
-		expect(detail?.activeSkillSession).toMatchObject({
-			id: "skill-session-1",
-			status: "active",
-			skillDisplayName: "Meeting critic",
-		});
-		expect(detail?.activeSkillSession).not.toHaveProperty("skillInstructions");
-		expect(JSON.stringify(detail)).not.toContain("SYSTEM_SENTINEL");
 	});
 
 	it("returns full conversation detail payload pieces from read services", async () => {
@@ -445,9 +412,6 @@ describe("Conversation Detail Read Model", () => {
 					sourceTokenEstimate: 48_000,
 				},
 			],
-			activeSkillSession: expect.objectContaining({
-				id: "skill-session-1",
-			}),
 			bootstrap: false,
 			hasMoreMessages: true,
 			totalCostUsdMicros: 123_456,

@@ -56,6 +56,7 @@ export interface NonStreamFallbackDeps {
 		activeDocumentArtifactId?: string;
 		attachmentTraceId?: string;
 		systemPromptAppendix?: string;
+		pendingSkillInstructions?: string;
 		continuationMessages?: ModelMessage[];
 		personalityPrompt?: string;
 		thinkingMode?: ThinkingMode;
@@ -81,6 +82,7 @@ export interface NonStreamFallbackDeps {
 	completeSuccess: () => Promise<void> | void;
 	signal: AbortSignal;
 	systemPromptAppendix: string | undefined;
+	pendingSkillInstructions?: string | undefined;
 	personalityPrompt: string | undefined;
 	onContextStatus: (status: ConversationContextStatus | undefined) => void;
 	onTaskState: (state: TaskState | null) => void;
@@ -119,6 +121,7 @@ interface FallbackAttemptContext {
 	user: NonStreamFallbackDeps["user"];
 	sendParams: NonStreamFallbackSendParams;
 	systemPromptAppendix: string | undefined;
+	pendingSkillInstructions: string | undefined;
 	personalityPrompt: string | undefined;
 	sendSignal: AbortSignal;
 	completedToolCallContext: string | null;
@@ -213,6 +216,7 @@ function buildFallbackAttemptParams(
 		activeDocumentArtifactId: sendParams.activeDocumentArtifactId,
 		attachmentTraceId: sendParams.attachmentTraceId,
 		systemPromptAppendix: attemptSystemPromptAppendix,
+		pendingSkillInstructions: context.pendingSkillInstructions,
 		continuationMessages: buildContinuationMessages(context.completedToolCalls),
 		personalityPrompt,
 		thinkingMode: sendParams.thinkingMode,
@@ -307,6 +311,7 @@ export async function runNonStreamFallback(
 			sendParams: deps.sendParams,
 			user: deps.user,
 			systemPromptAppendix: deps.systemPromptAppendix,
+			pendingSkillInstructions: deps.pendingSkillInstructions,
 			personalityPrompt: deps.personalityPrompt,
 			sendSignal: deps.signal,
 			completedToolCallContext: deps.completedToolCallContext?.trim() ?? null,

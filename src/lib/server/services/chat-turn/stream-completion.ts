@@ -113,7 +113,6 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	serverSegments: ThinkingSegment[];
 	attachmentIds: string[];
 	linkedSources: LinkedContextSource[];
-	activeSkillSessionId?: string | null;
 	activeDocumentArtifactId: string | null;
 	requestStartTime: number;
 	preparedContext: PreparedContextSnapshot;
@@ -186,7 +185,6 @@ export async function completeStreamTurn(
 		serverSegments,
 		attachmentIds,
 		linkedSources,
-		activeSkillSessionId,
 		activeDocumentArtifactId,
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
@@ -475,8 +473,6 @@ export async function completeStreamTurn(
 			},
 			reasoningDepth,
 			depthMetadata,
-			skillControlOperations: skillControl.operations,
-			skillControlSessionId: activeSkillSessionId ?? null,
 			attachmentIds,
 			activeDocumentArtifactId,
 			contextStatus: completedContextStatus ?? null,

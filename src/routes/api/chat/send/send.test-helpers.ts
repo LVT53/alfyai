@@ -36,18 +36,17 @@ const testAssistantMessage = {
 	timestamp: 0,
 };
 
-export const skillAwaitingUserOperation = {
-	operationId: "ask-deadline",
-	kind: "session_transition",
-	transition: "awaiting_user",
-} as const;
-
-export const noteCreateDecisionOperation = {
-	operationId: "note-create-1",
-	kind: "note_intent",
-	action: "create",
-	title: "Decision",
-	body: "Use the short plan.",
+export const skillDraftOperation = {
+	operationId: "draft-op-1",
+	kind: "skill_draft",
+	draft: {
+		id: "draft-1",
+		displayName: "Meeting critic",
+		description: "Review meeting notes for weak follow-ups.",
+		instructions:
+			"Find missing owners, vague deadlines, and risky assumptions.",
+		activationExamples: ["review these meeting notes"],
+	},
 } as const;
 
 export const baseSkillSummary = {
@@ -115,32 +114,6 @@ export const baseResolvedSkillDefinition = {
 		variantSkillId: null,
 		variantSkillVersion: null,
 	},
-} as const;
-
-export const baseSkillSession = {
-	id: "session-1",
-	userId: "user-1",
-	conversationId: "conv-1",
-	skillId: "skill-1",
-	skillOwnership: "user",
-	status: "active",
-	pauseReason: null,
-	endReason: null,
-	skillDisplayName: "Interview coach",
-	skillDescription: "Asks useful questions.",
-	skillInstructions: "Ask one concise follow-up before answering.",
-	activationExamples: [],
-	durationPolicy: "session",
-	questionPolicy: "none",
-	notesPolicy: "create_private_notes",
-	sourceScope: "selected_sources_only",
-	skillVersion: 1,
-	startedFrom: "pending_skill",
-	startedAt: 1,
-	updatedAt: 1,
-	pausedAt: null,
-	endedAt: null,
-	milestones: [],
 } as const;
 
 export const linkedSourceFixture = {

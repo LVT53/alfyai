@@ -77,7 +77,6 @@ import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-pro
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { mapNormalChatModelRunUsageToProviderSnapshot } from "$lib/server/services/normal-chat-model";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
-import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
@@ -264,6 +263,13 @@ export interface StreamOrchestratorOptions {
 	startedResetGeneration?: StreamCompletionFact<number>;
 	isReconnect?: boolean;
 	systemPromptAppendix?: string;
+	// A retry's own forced skill instructions (see chat-turn/types.ts's
+	// AppliedSkillContext), pre-resolved by retry.ts from the already-prepared
+	// `turn.appliedSkill` — mirrors how `systemPromptAppendix` carries retry's
+	// own regeneration text above. Undefined for a fresh (non-retry) stream,
+	// which instead resolves this from `preparedTurn.appliedSkill` once
+	// `prepareTurn` finishes (see `currentPendingSkillInstructions` below).
+	pendingSkillInstructions?: string;
 	routePhaseTimings?: StreamPhaseTimings;
 }
 
@@ -299,6 +305,7 @@ export function runChatStreamOrchestrator(
 		startedResetGeneration,
 		isReconnect,
 		systemPromptAppendix: retryAppendix,
+		pendingSkillInstructions: retryPendingSkillInstructions,
 		routePhaseTimings,
 		prepareTurn,
 	} = options;
@@ -318,7 +325,7 @@ export function runChatStreamOrchestrator(
 	let preparedTurn: ChatTurnPreflight | null = isPreparedChatTurn(turn)
 		? turn
 		: null;
-	let preparedSkillSystemPromptAppendix: string | undefined;
+	let preparedPendingSkillInstructions: string | undefined;
 
 	const encoder = new TextEncoder();
 	let cancelStream = () => {};
@@ -832,10 +839,6 @@ export function runChatStreamOrchestrator(
 					serverSegments: chunkRuntime.serverSegments,
 					attachmentIds: safeAttachmentIds,
 					linkedSources: preparedTurn?.linkedSources ?? turn.linkedSources,
-					activeSkillSessionId:
-						preparedTurn?.skillPromptContext?.source === "active_session"
-							? preparedTurn.skillPromptContext.sessionId
-							: null,
 					activeDocumentArtifactId: activeDocumentArtifactId ?? null,
 					requestStartTime,
 					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),
@@ -955,11 +958,17 @@ export function runChatStreamOrchestrator(
 				| undefined;
 			let attemptedNonStreamFallback = false;
 			const currentSystemPromptAppendix = () => {
-				const appendices = [
-					preparedSkillSystemPromptAppendix,
-					retryAppendix,
-				].filter((value): value is string => Boolean(value?.trim()));
-				return appendices.length > 0 ? appendices.join("\n\n") : undefined;
+				return retryAppendix?.trim() ? retryAppendix : undefined;
+			};
+			// On-demand skill loading: a retry pre-resolves its own forced skill
+			// instructions (retryPendingSkillInstructions); a fresh stream resolves
+			// them from `preparedTurn.appliedSkill` once `prepareTurn` finishes (see
+			// `preparedPendingSkillInstructions` below) — exactly mirroring
+			// currentSystemPromptAppendix's retry-vs-fresh split above.
+			const currentPendingSkillInstructions = () => {
+				return (
+					retryPendingSkillInstructions ?? preparedPendingSkillInstructions
+				);
 			};
 			fallbackToNonStreaming = async (
 				reason: "stream_connect_failure" | "stream_read_failure",
@@ -1018,6 +1027,7 @@ export function runChatStreamOrchestrator(
 					completeSuccess,
 					signal: upstreamAbortController.signal,
 					systemPromptAppendix: currentSystemPromptAppendix(),
+					pendingSkillInstructions: currentPendingSkillInstructions(),
 					personalityPrompt,
 					onContextStatus: (status) => {
 						latestContextStatus = status;
@@ -1101,8 +1111,8 @@ export function runChatStreamOrchestrator(
 					}
 					preparedTurn = preparation.value;
 				}
-				preparedSkillSystemPromptAppendix = prepareTurn
-					? buildSkillSystemPromptAppendix(preparedTurn.skillPromptContext)
+				preparedPendingSkillInstructions = prepareTurn
+					? (preparedTurn.appliedSkill?.instructionsEnvelope ?? undefined)
 					: undefined;
 				latestDepthMetadata = preparedTurn.depthMetadata;
 				recordDepthSelectionPhase(latestDepthMetadata);
@@ -1140,6 +1150,7 @@ export function runChatStreamOrchestrator(
 					activeDocumentArtifactId: activeDocumentArtifactId ?? undefined,
 					attachmentTraceId: attachmentTraceId ?? undefined,
 					systemPromptAppendix: currentSystemPromptAppendix(),
+					pendingSkillInstructions: currentPendingSkillInstructions(),
 					personalityPrompt,
 					thinkingMode,
 					depthMetadata: latestDepthMetadata,

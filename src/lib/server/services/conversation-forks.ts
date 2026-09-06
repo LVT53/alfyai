@@ -374,8 +374,6 @@ function copyMetadata(
 			sourceCreatedAt: sourceMessage.createdAt.toISOString(),
 		},
 	};
-	delete next.skillQuestion;
-	delete next.pendingSkillNoteIntents;
 	delete next.skillDrafts;
 	delete next.skillControl;
 	delete next.evidenceStatus;
