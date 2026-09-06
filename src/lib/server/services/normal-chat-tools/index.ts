@@ -15,6 +15,7 @@ import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
+import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
@@ -135,6 +136,11 @@ import {
 	applyDegradedToolHints,
 	collectDegradedToolHints,
 } from "./tool-health-hints";
+import {
+	buildToolResultCacheKey,
+	getCachedToolResult,
+	setCachedToolResult,
+} from "./tool-result-cache";
 
 // Per-result excerpt budget (chars) requested from Parallel for research_web.
 // Keeps each source's excerpt short enough to fit several sources into the
@@ -454,27 +460,49 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async (abortSignal) => {
-										const { parallelApiKey, parallelBaseUrl } = getConfig();
-										const result = await researchWebViaParallel(
-											safeInput,
-											{
-												fetch,
-												config: { parallelApiKey, parallelBaseUrl },
-												signal: abortSignal,
-											},
-											{
-												sessionId: ctx.turnId,
-												excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
-											},
-										);
-										// Fire-and-forget Parallel Turbo usage tracking; never
-										// block or alter the tool result on analytics failure.
-										void recordParallelUsage({
-											userId: ctx.userId,
+										// Per-conversation cache: an identical query/objective/
+										// searchQueries this conversation already paid Parallel for
+										// is served from memory instead of paying and waiting twice
+										// (see tool-result-cache.ts).
+										const cacheKey = buildToolResultCacheKey({
 											conversationId: ctx.conversationId,
-											tool: "research_web",
-										}).catch(() => {});
-										const modelPayload = buildGroundedWebModelPayload(result);
+											toolName: "research_web",
+											input: safeInput,
+										});
+										const cached =
+											getCachedToolResult<GroundedWebResult>(cacheKey);
+										let result: GroundedWebResult;
+										if (cached) {
+											result = cached;
+										} else {
+											const { parallelApiKey, parallelBaseUrl } = getConfig();
+											result = await researchWebViaParallel(
+												safeInput,
+												{
+													fetch,
+													config: { parallelApiKey, parallelBaseUrl },
+													signal: abortSignal,
+												},
+												{
+													sessionId: ctx.turnId,
+													excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
+												},
+											);
+											setCachedToolResult(cacheKey, result);
+											// Fire-and-forget Parallel Turbo usage tracking; never
+											// block or alter the tool result on analytics failure.
+											// Skipped entirely on a cache hit above — a repeated
+											// identical call must not bill twice.
+											void recordParallelUsage({
+												userId: ctx.userId,
+												conversationId: ctx.conversationId,
+												tool: "research_web",
+											}).catch(() => {});
+										}
+										const modelPayload = {
+											...buildGroundedWebModelPayload(result),
+											...(cached ? { cached: true as const } : {}),
+										};
 										const candidates = createGroundedWebCandidates(result);
 										return {
 											modelPayload,
@@ -486,7 +514,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												outputSummary: summarizeGroundedWebResult(result),
 												sourceType: "web",
 												candidates,
-												metadata: createGroundedWebMetadata(result),
+												metadata: {
+													...createGroundedWebMetadata(result),
+													...(cached ? { cached: true as const } : {}),
+												},
 											},
 										};
 									},
@@ -536,35 +567,61 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async (abortSignal) => {
-										const { parallelApiKey, parallelBaseUrl } = getConfig();
+										// Per-conversation cache: fetching the same URL set again
+										// this conversation (including a fetch_url that repeats a
+										// server pasted-URL prefetch, see normal-chat-context.ts) is
+										// served from memory instead of paying and waiting twice
+										// (see tool-result-cache.ts). Keyed on {urls, objective}
+										// only — not on maxCharsTotal below — so a hit is still
+										// re-sized to THIS turn's model context window when the
+										// payload is built.
+										const cacheKey = buildToolResultCacheKey({
+											conversationId: ctx.conversationId,
+											toolName: "fetch_url",
+											input: safeInput,
+										});
+										const cached =
+											getCachedToolResult<GroundedWebResult>(cacheKey);
 										// Size returned page content to the selected model's context
 										// window, and chain this fetch to the conversation's session.
 										const maxCharsTotal = resolveFetchContentCharCap(
 											await resolveModelContextTokens(ctx.modelId),
 										);
-										const result = await fetchUrlViaParallel(
-											safeInput,
-											{
-												fetch,
-												config: { parallelApiKey, parallelBaseUrl },
-												signal: abortSignal,
-											},
-											{ sessionId: ctx.turnId, maxCharsTotal },
-										);
-										// Fire-and-forget Parallel Extract usage tracking; never
-										// block or alter the tool result on analytics failure.
-										void recordParallelUsage({
-											userId: ctx.userId,
-											conversationId: ctx.conversationId,
-											tool: "fetch_url",
-										}).catch(() => {});
+										let result: GroundedWebResult;
+										if (cached) {
+											result = cached;
+										} else {
+											const { parallelApiKey, parallelBaseUrl } = getConfig();
+											result = await fetchUrlViaParallel(
+												safeInput,
+												{
+													fetch,
+													config: { parallelApiKey, parallelBaseUrl },
+													signal: abortSignal,
+												},
+												{ sessionId: ctx.turnId, maxCharsTotal },
+											);
+											setCachedToolResult(cacheKey, result);
+											// Fire-and-forget Parallel Extract usage tracking; never
+											// block or alter the tool result on analytics failure.
+											// Skipped entirely on a cache hit above — a repeated
+											// identical call must not bill twice.
+											void recordParallelUsage({
+												userId: ctx.userId,
+												conversationId: ctx.conversationId,
+												tool: "fetch_url",
+											}).catch(() => {});
+										}
 										// Keep the answer brief sized to the same model-aware cap the
 										// fetch used, so the detailed full_content isn't re-truncated
 										// below it when building the model payload.
-										const modelPayload = buildGroundedWebModelPayload(result, {
-											maxMarkdownChars: maxCharsTotal,
-											name: "fetch_url",
-										});
+										const modelPayload = {
+											...buildGroundedWebModelPayload(result, {
+												maxMarkdownChars: maxCharsTotal,
+												name: "fetch_url",
+											}),
+											...(cached ? { cached: true as const } : {}),
+										};
 										const candidates = createGroundedWebCandidates(result);
 										return {
 											modelPayload,
@@ -576,7 +633,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												outputSummary: summarizeGroundedWebResult(result),
 												sourceType: "web",
 												candidates,
-												metadata: createGroundedWebMetadata(result),
+												metadata: {
+													...createGroundedWebMetadata(result),
+													...(cached ? { cached: true as const } : {}),
+												},
 											},
 										};
 									},

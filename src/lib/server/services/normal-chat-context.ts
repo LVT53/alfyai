@@ -38,8 +38,15 @@ import {
 	type NormalChatContextPreparationStageTiming,
 	runNormalChatContextPreparationStages,
 } from "./normal-chat-context-preparation";
-import { resolveFetchContentCharCap } from "./normal-chat-tools/fetch-url";
+import {
+	resolveFetchContentCharCap,
+	sanitizeFetchUrlInput,
+} from "./normal-chat-tools/fetch-url";
 import { resolveModelContextTokens } from "./normal-chat-tools/model-context-tokens";
+import {
+	buildToolResultCacheKey,
+	setCachedToolResult,
+} from "./normal-chat-tools/tool-result-cache";
 import type { GroundedWebResult } from "./parallel-search/types";
 
 const UNKNOWN_PROVIDER_MAX_MODEL_CONTEXT_FALLBACK = 150_000;
@@ -757,6 +764,25 @@ async function maybePrefetchWebSearch(params: {
 			{ urls: pastedUrls },
 			deps,
 			{ maxCharsTotal },
+		);
+		// Populate the fetch_url tool's per-conversation result cache
+		// (tool-result-cache.ts) with this prefetch's result, keyed the SAME
+		// way the real fetch_url tool call normalizes its input
+		// (sanitizeFetchUrlInput) — so if the model goes on to call fetch_url
+		// itself for the same URL(s) this turn (or a later one), it's served
+		// from cache instead of paying and waiting for Parallel twice.
+		// `params.sessionId` IS the conversationId here (see
+		// prepareOutboundChatContext's caller, which passes conversationId as
+		// sessionId). This is write-only: the prefetch itself always fetches
+		// fresh (it never reads this cache), so its own maxCharsTotal
+		// sizing — done once, right above — always reflects THIS turn's model.
+		setCachedToolResult(
+			buildToolResultCacheKey({
+				conversationId: params.sessionId,
+				toolName: "fetch_url",
+				input: sanitizeFetchUrlInput({ urls: pastedUrls }),
+			}),
+			result,
 		);
 		const sourceCandidates = createGroundedWebCandidates(result);
 		const metadata = {
