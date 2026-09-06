@@ -34,6 +34,43 @@ import type {
 // MessageRole type: 'user' | 'assistant'
 export type MessageRole = "user" | "assistant";
 
+// Inline map card data (map_route and future geography tools). Deliberately
+// separate from `metadata` (which is scalar-only, ADR-shaped for the evidence
+// pipeline): this carries the small structured geometry an inline map card
+// needs to render — a simplified route line, marker points, an optional
+// isochrone polygon set, and the summary line — WITHOUT going anywhere near
+// the model's context (it never appears in `modelPayload`). Producers must
+// keep the whole object well under 8 KB (simplify polylines/polygons) since
+// it rides the same JSON blob persisted per tool call.
+export type ToolCallMapMarker = {
+	lat: number;
+	lng: number;
+	label?: string;
+	kind?: "origin" | "destination" | "waypoint" | "point";
+};
+
+export type ToolCallMapPolygon = {
+	// Outer ring only, simplified: [lat, lng] pairs.
+	points: [number, number][];
+	rangeS?: number;
+};
+
+export interface ToolCallMapData {
+	bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number };
+	markers?: ToolCallMapMarker[];
+	// Simplified route geometry as [lat, lng] pairs (already decoded from
+	// whatever the provider returned — never a re-encoded polyline string, so
+	// the client never needs a polyline decoder).
+	polyline?: [number, number][];
+	polygons?: ToolCallMapPolygon[];
+	distanceM?: number;
+	durationS?: number;
+	mode?: "drive" | "walk" | "bike";
+	originLabel?: string;
+	destinationLabel?: string;
+	attribution: string;
+}
+
 // "failed" (E1) is a genuine terminal outcome distinct from "done" — a tool
 // call that errored is finished (not running) but did not succeed. Before
 // E1, failed calls were reported as "done" with only `metadata.ok === false`
@@ -52,6 +89,8 @@ export interface ToolCallEntry {
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
+	// Inline map card data (map_route only, today). See ToolCallMapData.
+	map?: ToolCallMapData | null;
 }
 
 export type ThinkingSegment =
@@ -73,6 +112,7 @@ export type ThinkingSegment =
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
+			map?: ToolCallMapData | null;
 	  };
 
 // E1 — stable codes for a chat turn that completed with a caveat. Before E1

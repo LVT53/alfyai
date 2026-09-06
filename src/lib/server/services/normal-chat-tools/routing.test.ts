@@ -281,6 +281,33 @@ describe("runRoutingTool — route", () => {
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.route?.distance_m).toBe(1000);
 		expect(outcome.modelPayload.attribution).toBe(OSM_ATTRIBUTION);
+		// The inline map card data rides the outcome, never the model payload.
+		expect(outcome.map).toBeDefined();
+		expect(outcome.map?.distanceM).toBe(1000);
+		expect(outcome.map?.mode).toBe("drive");
+		expect(outcome.map?.markers).toEqual([
+			{ lat: 52.5, lng: 13.4, label: "52.5, 13.4", kind: "origin" },
+			{ lat: 48.85, lng: 2.35, label: "48.85, 2.35", kind: "destination" },
+		]);
+		expect(
+			(outcome.modelPayload as Record<string, unknown>).map,
+		).toBeUndefined();
+	});
+
+	it("omits map data for a failed route", async () => {
+		const { provider } = makeProvider({
+			route: { ok: false, reason: "no_route", message: "no path" },
+		});
+		const outcome = await runRoutingTool(
+			{
+				action: "route",
+				origin: { lat: 52.5, lng: 13.4 },
+				destination: { lat: 48.85, lng: 2.35 },
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.map).toBeUndefined();
 	});
 
 	it("auto-geocodes place-name strings before routing", async () => {

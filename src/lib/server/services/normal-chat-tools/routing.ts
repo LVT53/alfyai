@@ -15,6 +15,8 @@
 
 import { z } from "zod";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import { buildRouteMapCardData } from "$lib/server/services/routing/map-card";
 import {
 	type GeocodeMatch,
 	type IsochroneData,
@@ -177,6 +179,9 @@ export type RoutingToolModelPayload = {
 export type RoutingToolOutcome = {
 	modelPayload: RoutingToolModelPayload;
 	candidates: ToolEvidenceCandidate[];
+	// Compact inline map card data (route action only) — never part of
+	// modelPayload; see ToolCallMapData for the size discipline.
+	map?: ToolCallMapData;
 };
 
 function buildPayload(params: {
@@ -188,6 +193,7 @@ function buildPayload(params: {
 	matrix?: MatrixData;
 	isochrone?: IsochroneData;
 	candidates?: ToolEvidenceCandidate[];
+	map?: ToolCallMapData;
 }): RoutingToolOutcome {
 	return {
 		modelPayload: {
@@ -205,6 +211,7 @@ function buildPayload(params: {
 				: {}),
 		},
 		candidates: params.candidates ?? [],
+		...(params.map !== undefined ? { map: params.map } : {}),
 	};
 }
 
@@ -443,6 +450,12 @@ export async function runRoutingTool(
 			message: `${mode} route from ${origin.label} to ${destination.label}: ${formatDistance(data.distance_m)}, about ${formatDuration(data.duration_s)}.`,
 			route: data,
 			candidates,
+			map: buildRouteMapCardData({
+				route: data,
+				originLabel: origin.label,
+				destinationLabel: destination.label,
+				mode,
+			}),
 		});
 	}
 
