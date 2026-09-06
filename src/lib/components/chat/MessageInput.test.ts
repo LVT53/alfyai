@@ -62,7 +62,11 @@ function spyOnScrollIntoView() {
 const fetchKnowledgeLibraryMock = vi.hoisted(() => vi.fn());
 const discoverSkillsMock = vi.hoisted(() => vi.fn());
 const setConversationMemoryIncognitoMock = vi.hoisted(() => vi.fn());
+const fetchConversationMarkdownExportMock = vi.hoisted(() => vi.fn());
 const fetchActiveCapabilitiesMock = vi.hoisted(() => vi.fn());
+const addMemoryNoteMock = vi.hoisted(() => vi.fn());
+const saveBlobAsDownloadMock = vi.hoisted(() => vi.fn());
+const gotoMock = vi.hoisted(() => vi.fn());
 // Baked-in default (not just a per-test mockResolvedValue) so every describe
 // block in this file gets a resolved value even without its own setup —
 // vi.clearAllMocks() clears call history but not a mockImplementation set at
@@ -89,6 +93,7 @@ vi.mock("$lib/client/api/skills", () => ({
 
 vi.mock("$lib/client/api/conversations", () => ({
 	setConversationMemoryIncognito: setConversationMemoryIncognitoMock,
+	fetchConversationMarkdownExport: fetchConversationMarkdownExportMock,
 }));
 
 // Issue 7.4 fix pass — MessageInput no longer imports checkCloudWarning/
@@ -100,6 +105,18 @@ vi.mock("$lib/client/api/conversations", () => ({
 // remains local to this component.
 vi.mock("$lib/client/api/connections", () => ({
 	fetchActiveCapabilities: fetchActiveCapabilitiesMock,
+}));
+
+vi.mock("$lib/client/api/memory-notes", () => ({
+	addMemoryNote: addMemoryNoteMock,
+}));
+
+vi.mock("$lib/client/api/settings", () => ({
+	saveBlobAsDownload: saveBlobAsDownloadMock,
+}));
+
+vi.mock("$app/navigation", () => ({
+	goto: gotoMock,
 }));
 
 describe("MessageInput", () => {
@@ -119,6 +136,12 @@ describe("MessageInput", () => {
 			defaultOn: [],
 			accounts: [],
 		});
+		addMemoryNoteMock.mockResolvedValue({ id: "item-1", statement: "" });
+		fetchConversationMarkdownExportMock.mockResolvedValue({
+			markdown: "# Conversation\n",
+			filename: "conversation.md",
+		});
+		gotoMock.mockResolvedValue(undefined);
 	});
 
 	it("renders correctly", () => {
@@ -397,7 +420,7 @@ describe("MessageInput", () => {
 		);
 	});
 
-	it("toggles thinking off via /depth and sends the updated toggle", async () => {
+	it("toggles thinking off via /think and sends the updated toggle", async () => {
 		const sendSpy = vi.fn();
 		const reasoningDepthChangeSpy = vi.fn();
 		const { getByPlaceholderText, getByRole, rerender } = render(MessageInput, {
@@ -410,10 +433,10 @@ describe("MessageInput", () => {
 			"Type a message...",
 		) as HTMLTextAreaElement;
 
-		await fireEvent.input(input, { target: { value: "/depth" } });
+		await fireEvent.input(input, { target: { value: "/think" } });
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
-		// /depth no longer opens a picker (ADR-0061) — it flips the toggle
+		// /think no longer opens a picker (ADR-0061) — it flips the toggle
 		// directly and clears the composer input.
 		expect(input.value).toBe("");
 		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
@@ -434,6 +457,151 @@ describe("MessageInput", () => {
 				message: "Answer quickly",
 				reasoningDepth: "quick",
 			}),
+		);
+	});
+
+	it("still honors the legacy /depth alias, hidden from the browsable tray", async () => {
+		const reasoningDepthChangeSpy = vi.fn();
+		const { getByPlaceholderText, queryByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			reasoningDepth: "thorough",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		// Typing a partial prefix never surfaces the alias.
+		await fireEvent.input(input, { target: { value: "/dep" } });
+		expect(queryByRole("option", { name: /\/depth/i })).toBeNull();
+
+		// Typed out in full, it still resolves and flips the toggle.
+		await fireEvent.input(input, { target: { value: "/depth" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(input.value).toBe("");
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
+	});
+
+	it("sets thinking on/off explicitly via /quick and /thorough", async () => {
+		const reasoningDepthChangeSpy = vi.fn();
+		const { getByPlaceholderText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			reasoningDepth: "thorough",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/quick" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
+
+		await fireEvent.input(input, { target: { value: "/thorough" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("thorough");
+	});
+
+	it("opens $ skill discovery mode from /skill instead of a coming-soon message", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/skill" } });
+		await fireEvent.click(getByRole("option", { name: /\/skill/i }));
+
+		expect(input.value).toBe("$");
+		await waitFor(() => {
+			expect(discoverSkillsMock).toHaveBeenCalled();
+		});
+	});
+
+	it("starts a new conversation via /new", async () => {
+		const { getByPlaceholderText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/new" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		await waitFor(() => {
+			expect(gotoMock).toHaveBeenCalledWith("/");
+		});
+	});
+
+	it("saves a note via /remember and prompts for text when none is typed", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		// No note text yet: selecting it is a no-op with a hint, not a save.
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		await fireEvent.click(getByRole("option", { name: /\/remember/i }));
+		expect(addMemoryNoteMock).not.toHaveBeenCalled();
+		expect(input.value).toBe("/remember");
+
+		await fireEvent.input(input, {
+			target: { value: "/remember I prefer dark mode" },
+		});
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(input.value).toBe("");
+		await waitFor(() => {
+			expect(addMemoryNoteMock).toHaveBeenCalledWith("I prefer dark mode");
+		});
+	});
+
+	it("downloads the conversation as Markdown via /export", async () => {
+		const { getByPlaceholderText } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+			conversationId: "conv-1",
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/export" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		await waitFor(() => {
+			expect(fetchConversationMarkdownExportMock).toHaveBeenCalledWith(
+				"conv-1",
+			);
+		});
+		await waitFor(() => {
+			expect(saveBlobAsDownloadMock).toHaveBeenCalledWith(
+				expect.any(Blob),
+				"conversation.md",
+			);
+		});
+	});
+
+	it("shows the /document and /remember argument placeholders in the tray", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/document" } });
+		expect(getByRole("option", { name: /\/document/i })).toHaveTextContent(
+			"Search library documents",
+		);
+
+		await fireEvent.input(input, { target: { value: "/remember" } });
+		expect(getByRole("option", { name: /\/remember/i })).toHaveTextContent(
+			"What should I remember?",
 		);
 	});
 

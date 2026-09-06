@@ -69,3 +69,51 @@ export function replaceActiveComposerCommandToken(
 		cursor: token.start + replacement.length,
 	};
 }
+
+export type ComposerCommandTokenWithArgument = ComposerCommandToken & {
+	/** The canonical command id the typed token matched (e.g. "document"). */
+	command: string;
+	/** Trimmed free-text typed after the command name, if any. */
+	argument?: string;
+};
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Generalizes the old `/document <query>`-only lookahead: recognizes
+ * `/<commandId> rest of line` for any command id in `commandIds`, capturing
+ * everything after the command name (up to the cursor, on the same line) as
+ * its `argument`. Unlike `findActiveComposerCommandToken`, this only matches
+ * a token that is anchored at the START of the active `/word...` run — it
+ * does not match `$` tokens or bare command names outside `commandIds`.
+ */
+export function findActiveComposerCommandTokenWithArgument(
+	text: string,
+	cursor: number,
+	commandIds: readonly string[],
+): ComposerCommandTokenWithArgument | null {
+	if (commandIds.length === 0) return null;
+
+	const safeCursor = Math.max(0, Math.min(cursor, text.length));
+	const beforeCursor = text.slice(0, safeCursor);
+	const alternation = commandIds.map(escapeRegExp).join("|");
+	const pattern = new RegExp(`(^|\\s)/(${alternation})(?:\\s+([^\\n\\r]*))?$`);
+	const match = pattern.exec(beforeCursor);
+	if (!match) return null;
+
+	const start = match.index + match[1].length;
+	const command = match[2];
+	const argumentText = (match[3] ?? "").trim();
+
+	return {
+		prefix: "/",
+		query: argumentText ? `${command} ${argumentText}` : command,
+		start,
+		end: safeCursor,
+		token: text.slice(start, safeCursor),
+		command,
+		argument: argumentText || undefined,
+	};
+}
