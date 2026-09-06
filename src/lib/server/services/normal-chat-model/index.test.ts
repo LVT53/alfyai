@@ -4315,6 +4315,176 @@ describe("Streaming Normal Chat Model Run", () => {
 		});
 	});
 
+	it("treats whitespace-only step text as no answer and keeps generating after done", async () => {
+		// Step 1 emits only whitespace alongside `done` — that is not an answer,
+		// so the loop must continue rather than end the turn with blank text.
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{ content: "   \n  " },
+					{
+						toolCalls: [
+							{
+								id: "call-done-blank",
+								name: "done",
+								arguments: JSON.stringify({ summary: "Finished." }),
+							},
+						],
+					},
+					{
+						finishReason: "tool_calls",
+						usage: {
+							prompt_tokens: 11,
+							completion_tokens: 7,
+							total_tokens: 18,
+						},
+					},
+				]),
+			)
+			.mockImplementationOnce(async () =>
+				createStreamResponse([
+					{ content: "The real answer." },
+					{
+						finishReason: "stop",
+						usage: {
+							prompt_tokens: 20,
+							completion_tokens: 6,
+							total_tokens: 26,
+						},
+					},
+				]),
+			);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: doneToolSchema,
+					execute: async () => ({ acknowledged: true }),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "The real answer.",
+		});
+	});
+
+	it("stops on a second premature done so an insistent model cannot loop", async () => {
+		// Two done-only steps in a row and still no answer text: the loop gives
+		// up rather than nudging forever.
+		const doneOnlyStep = () =>
+			createStreamResponse([
+				{
+					toolCalls: [
+						{
+							id: `call-done-${Math.random().toString(36).slice(2, 8)}`,
+							name: "done",
+							arguments: JSON.stringify({ summary: "Finished." }),
+						},
+					],
+				},
+				{
+					finishReason: "tool_calls",
+					usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+				},
+			]);
+		const fetch = vi
+			.fn<typeof globalThis.fetch>()
+			.mockImplementation(async () => doneOnlyStep());
+
+		await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: doneToolSchema,
+					execute: async () => ({ acknowledged: true }),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("stops immediately when done arrives in the same step as the answer text", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createStreamResponse([
+				{ content: "The complete answer." },
+				{
+					toolCalls: [
+						{
+							id: "call-done-with-text",
+							name: "done",
+							arguments: JSON.stringify({ summary: "Finished." }),
+						},
+					],
+				},
+				{
+					finishReason: "tool_calls",
+					usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+				},
+			]),
+		);
+
+		const events = await collectStreamingEvents({
+			provider: {
+				id: "provider-1",
+				name: "fireworks",
+				displayName: "Fireworks",
+				baseUrl: "https://api.fireworks.ai/inference/v1",
+				modelName: "accounts/fireworks/models/kimi-k2p6",
+				apiKey: "plain-secret",
+			},
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Wrap this up" }] },
+			],
+			tools: {
+				done: tool({
+					description: "Finish the assistant response.",
+					inputSchema: doneToolSchema,
+					execute: async () => ({ acknowledged: true }),
+				}),
+			},
+			fetch,
+			maxRetries: 0,
+		});
+
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(events).toContainEqual({
+			type: "text_delta",
+			text: "The complete answer.",
+		});
+	});
+
 	it("suppresses done tool summary text and neutral tool events in streaming runs", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
 			createStreamResponse([
