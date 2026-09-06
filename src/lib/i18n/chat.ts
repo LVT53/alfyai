@@ -696,6 +696,8 @@ const chatDict = {
 		"messageBubble.auditCitationUnsupported": "Unsupported citations",
 		"messageBubble.auditCitationValue":
 			"{status} · {supported}/{cited} supported",
+		"messageBubble.auditVerifiedSources":
+			"{count} verified source{count, plural, one {} other {s}}",
 		"messageBubble.auditClassifier": "Classifier",
 		"messageBubble.auditClassifierControlModel": "Control model",
 		"messageBubble.auditClassifierFallbackValue": "Fallback ({reason})",
@@ -1529,6 +1531,10 @@ const chatDict = {
 		"messageBubble.auditCitationUnsupported": "Nem támogatott hivatkozások",
 		"messageBubble.auditCitationValue":
 			"{status} · {supported}/{cited} támogatott",
+		// Hungarian doesn't inflect the noun for plural after a numeral (see the
+		// chat.regenerateLaterTurnsWarning comment above), so this stays a
+		// single singular form regardless of {count}.
+		"messageBubble.auditVerifiedSources": "{count} ellenőrzött forrás",
 		"messageBubble.auditClassifier": "Osztályozó",
 		"messageBubble.auditClassifierControlModel": "Kontrollmodell",
 		"messageBubble.auditClassifierFallbackValue": "Tartalék ({reason})",

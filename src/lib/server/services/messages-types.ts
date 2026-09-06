@@ -25,7 +25,10 @@ import type {
 	MessageEvidenceSummary,
 } from "$lib/server/services/message-evidence";
 import type { SkillControlMessageMetadata } from "$lib/server/services/skills/types";
-import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type {
+	WebCitationAudit,
+	WebCitationRepairSummary,
+} from "$lib/server/services/web-citation-audit";
 import type {
 	EvidenceSourceType,
 	ToolEvidenceCandidate,
@@ -127,6 +130,11 @@ export interface ChatMessage {
 	costUsd?: number;
 	evidenceSummary?: MessageEvidenceSummary;
 	webCitationAudit?: WebCitationAudit;
+	// Summary of the citation auto-repair pass (web-citation-audit.ts):
+	// markdown links rewritten to a same-domain retrieved source, or stripped
+	// (text kept) when no retrieved source backed them. Present only when a
+	// web-grounding tool ran this turn.
+	citationAudit?: WebCitationRepairSummary;
 	evidencePending?: boolean;
 	wasStopped?: boolean;
 	// E2 — client-side projection of E1's completionWarningCodes (see the

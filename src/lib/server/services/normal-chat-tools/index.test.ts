@@ -36,6 +36,7 @@ import {
 	shouldForceProduceFileTool,
 } from "./index";
 import { TOOL_TIMEOUTS_MS } from "./shared";
+import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
@@ -269,6 +270,11 @@ describe("createNormalChatTools", () => {
 	};
 
 	beforeEach(() => {
+		// Every test below shares the module-level per-conversation tool-result
+		// cache (tool-result-cache.ts) unless reset — many tests reuse the same
+		// conversationId ("conversation-1"), so a result cached by an earlier
+		// test could otherwise leak in as a spurious hit here.
+		resetToolResultCacheForTests();
 		submitFileProductionIntakeMock.mockReset();
 		recordParallelUsageMock.mockReset();
 		recordParallelUsageMock.mockResolvedValue(undefined);
@@ -1411,6 +1417,163 @@ describe("createNormalChatTools", () => {
 			);
 
 			expect(recordParallelUsageMock).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("per-conversation tool result cache", () => {
+		function emptyGroundedWebResult(query: string) {
+			return {
+				query,
+				queries: [{ query }],
+				sources: [],
+				evidence: [],
+				answerBrief: {
+					markdown: "",
+					instructions: ["Answer only from these sources."],
+				},
+				diagnostics: {
+					mode: "turbo" as const,
+					freshness: "auto" as const,
+					sourcePolicy: "general" as const,
+					plannedQueryCount: 1,
+					directUrlCount: 0,
+					fetchedSourceCount: 0,
+					fusedSourceCount: 0,
+					selectedSourceCount: 0,
+					openedPageCount: 0,
+					pageExtraction: {
+						attemptedCount: 0,
+						succeededCount: 0,
+						cacheHitCount: 0,
+						lowQualityCount: 0,
+						blockedCount: 0,
+						failedCount: 0,
+						totalLatencyMs: 0,
+					},
+					evidenceCandidateCount: 0,
+					exactEvidenceCandidateCount: 0,
+					reranked: false,
+					sourceReranked: false,
+					fallbackReasons: [],
+				},
+			};
+		}
+
+		it("serves a repeated identical research_web call from cache without calling Parallel or billing again", async () => {
+			researchWebViaParallelMock.mockResolvedValue(
+				emptyGroundedWebResult("current docs"),
+			);
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache",
+				turnId: "turn-1",
+			});
+
+			const first = await requireTool(tools.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(1);
+			expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
+			expect(first).not.toHaveProperty("cached");
+
+			const second = await requireTool(tools.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-2", messages: [] },
+			);
+
+			// Still only one underlying Parallel call/usage event — the second
+			// call was served from cache.
+			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(1);
+			expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
+			expect(second).toMatchObject({ cached: true, query: "current docs" });
+		});
+
+		it("misses the cache for a different query, and for the same query in a different conversation", async () => {
+			researchWebViaParallelMock.mockImplementation((input) =>
+				Promise.resolve(emptyGroundedWebResult(input.query)),
+			);
+			const { tools: toolsA } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-a",
+				turnId: "turn-1",
+			});
+			const { tools: toolsB } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-b",
+				turnId: "turn-1",
+			});
+
+			await requireTool(toolsA.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			await requireTool(toolsA.research_web).execute(
+				{ query: "a different query" },
+				{ toolCallId: "call-2", messages: [] },
+			);
+			await requireTool(toolsB.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-3", messages: [] },
+			);
+
+			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(3);
+			expect(recordParallelUsageMock).toHaveBeenCalledTimes(3);
+		});
+
+		it("serves a repeated identical fetch_url call (same URL set) from cache without calling Parallel or billing again", async () => {
+			fetchUrlViaParallelMock.mockResolvedValue(
+				emptyGroundedWebResult("https://example.com"),
+			);
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-fetch",
+				turnId: "turn-1",
+			});
+
+			const first = await requireTool(tools.fetch_url).execute(
+				{ urls: ["https://example.com"] },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(1);
+			expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
+			expect(first).not.toHaveProperty("cached");
+
+			const second = await requireTool(tools.fetch_url).execute(
+				{ urls: ["https://example.com"] },
+				{ toolCallId: "call-2", messages: [] },
+			);
+
+			expect(fetchUrlViaParallelMock).toHaveBeenCalledTimes(1);
+			expect(recordParallelUsageMock).toHaveBeenCalledTimes(1);
+			expect(second).toMatchObject({ cached: true });
+		});
+
+		it("does not cache a failed research_web call", async () => {
+			researchWebViaParallelMock.mockRejectedValueOnce(
+				new Error("research unavailable"),
+			);
+			researchWebViaParallelMock.mockResolvedValueOnce(
+				emptyGroundedWebResult("current docs"),
+			);
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-cache-fail",
+				turnId: "turn-1",
+			});
+
+			await requireTool(tools.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+			await requireTool(tools.research_web).execute(
+				{ query: "current docs" },
+				{ toolCallId: "call-2", messages: [] },
+			);
+
+			// The failed first attempt must not have been cached — the retry hits
+			// Parallel again instead of replaying the failure or serving nothing.
+			expect(researchWebViaParallelMock).toHaveBeenCalledTimes(2);
 		});
 	});
 

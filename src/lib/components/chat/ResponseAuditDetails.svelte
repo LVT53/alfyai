@@ -129,6 +129,23 @@ function buildPrimaryRows(): AuditRow[] {
 			value: totalTokenCount.toLocaleString(),
 		});
 	}
+	// Citation auto-repair summary (web-citation-audit.ts): a rewritten or
+	// stripped citation still counts as "verified" here — after the repair
+	// pass every surviving link is either an exact retrieved-source match or
+	// was rewritten to one, so this is the count of citations the reader can
+	// trust once the repair has run.
+	if (message.citationAudit) {
+		const verifiedCount =
+			message.citationAudit.verified + message.citationAudit.repaired;
+		if (verifiedCount > 0) {
+			rows.push({
+				label: $t("messageBubble.auditCitationAudit"),
+				value: $t("messageBubble.auditVerifiedSources", {
+					count: verifiedCount,
+				}),
+			});
+		}
+	}
 	if (atlasCostUsdMicros != null && atlasCostUsdMicros > 0) {
 		rows.push({
 			label: $t("messageBubble.auditCost"),
