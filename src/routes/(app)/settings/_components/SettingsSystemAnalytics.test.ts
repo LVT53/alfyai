@@ -294,6 +294,20 @@ function systemWithRetiredSpendFixture(): AnalyticsResponse {
 	};
 }
 
+function systemWithEmptyLatencyFixture(): AnalyticsResponse {
+	const base = systemWithToolsAndLatencyFixture();
+	return {
+		...base,
+		latencyByPromptBucket: (base.latencyByPromptBucket ?? []).map((row) => ({
+			...row,
+			n: 0,
+			firstTokenP50Ms: null,
+			firstTokenP90Ms: null,
+			reasoningTokensMedian: null,
+		})),
+	};
+}
+
 function systemWithParallelFixture(): AnalyticsResponse {
 	const base = systemFixture();
 	const system = base.system;
@@ -709,5 +723,31 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		expect(totalRow).toContain("$6.00");
 		expect(totalRow).toContain("30");
 		expect(totalRow).toContain("3,000");
+	});
+
+	// Every prompt-size bucket is always present in the read model (n: 0 when
+	// empty), so "is there data?" is a turn in some bucket — not a non-empty
+	// row list, which renders five rows of em-dashes instead of the empty
+	// state.
+	it("shows the latency empty state when no prompt-size bucket has any turns", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: systemWithEmptyLatencyFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+
+		const latencyCard = [...container.querySelectorAll("section")].find(
+			(node) => node.textContent?.includes("Latency by prompt size"),
+		);
+		expect(latencyCard).toBeTruthy();
+		expect(latencyCard?.querySelector("table")).toBeNull();
+		expect(latencyCard?.textContent).toContain("No analytics data yet.");
 	});
 });

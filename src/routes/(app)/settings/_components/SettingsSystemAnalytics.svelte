@@ -480,6 +480,12 @@ const latencyRows = $derived.by(() => {
 	}));
 });
 
+// Every bucket is always present in the read model (n: 0 when empty), so
+// "has data" means a turn landed in some bucket — a non-empty row list is
+// always true here and would render five rows of em-dashes in place of the
+// empty state.
+const hasLatencyData = $derived(latencyRows.some((row) => row.turns > 0));
+
 // ---- Parallel API ------------------------------------------------------
 const parallelTotalCalls = $derived(
 	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
@@ -824,7 +830,7 @@ async function toggleExcludedUser(userId: string) {
 
 			<div class="mt-4">
 				<AnalyticsCard title={$t('analytics.latencyByPromptSize')}>
-					{#if latencyRows.length > 0}
+					{#if hasLatencyData}
 						{#snippet p90Cell(_row: TableRow, value: unknown)}
 							<span class="text-text-muted">{value == null ? '—' : `${formatNum(value as number)} ms`}</span>
 						{/snippet}
