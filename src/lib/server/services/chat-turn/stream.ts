@@ -4,7 +4,10 @@ import type {
 	EvidenceSourceType,
 	ToolEvidenceCandidate,
 } from "$lib/server/services/message-evidence";
-import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type {
+	ToolCallEntry,
+	ToolCallMapData,
+} from "$lib/server/services/messages-types";
 import {
 	decodeAiSdkUiStreamPayloads,
 	encodeAiSdkUiStreamDoneFrame,
@@ -88,6 +91,7 @@ export type ServerStreamSegment =
 			sourceType?: EvidenceSourceType | null;
 			candidates?: ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
+			map?: ToolCallMapData | null;
 	  };
 
 type NativeToolCallFragment = {
@@ -116,6 +120,7 @@ type StreamToolCallDetails = {
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
+	map?: ToolCallMapData | null;
 };
 
 export function createStreamJsonErrorResponse(
@@ -230,6 +235,7 @@ export function streamToolCallEvent(data: {
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
+	map?: ToolCallMapData | null;
 }): string {
 	return streamDataPartEvent("data-tool-call", stripUndefined(data));
 }
@@ -722,6 +728,7 @@ export function createServerChunkRuntime({
 				sourceType: details?.sourceType,
 				candidates: details?.candidates,
 				metadata: details?.metadata,
+				map: details?.map,
 			}),
 		);
 
@@ -764,6 +771,7 @@ export function createServerChunkRuntime({
 					segment.sourceType = details?.sourceType ?? null;
 					segment.candidates = details?.candidates;
 					segment.metadata = details?.metadata;
+					segment.map = details?.map ?? null;
 					break;
 				}
 			}
@@ -782,6 +790,7 @@ export function createServerChunkRuntime({
 				sourceType: details?.sourceType ?? null,
 				candidates: details?.candidates,
 				metadata: details?.metadata,
+				map: details?.map ?? null,
 			};
 			toolCallRecords.push(terminalRecord);
 			if (shouldStoreThinkingSegment) {
@@ -796,6 +805,7 @@ export function createServerChunkRuntime({
 					sourceType: details?.sourceType ?? null,
 					candidates: details?.candidates,
 					metadata: details?.metadata,
+					map: details?.map ?? null,
 				});
 			}
 			return;
@@ -812,6 +822,7 @@ export function createServerChunkRuntime({
 					sourceType: details?.sourceType ?? null,
 					candidates: details?.candidates,
 					metadata: details?.metadata,
+					map: details?.map ?? null,
 				};
 				break;
 			}

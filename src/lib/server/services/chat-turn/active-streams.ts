@@ -5,6 +5,7 @@ import type {
 	EvidenceSourceType,
 	ToolEvidenceCandidate,
 } from "$lib/server/services/message-evidence";
+import type { ToolCallMapData } from "$lib/server/services/messages-types";
 import { toolCallInputKey } from "$lib/utils/tool-calls";
 
 const STOP_REQUEST_TTL_MS = 30_000;
@@ -59,6 +60,7 @@ export interface StreamTokenBuffer {
 		sourceType?: EvidenceSourceType | null;
 		candidates?: ToolEvidenceCandidate[];
 		metadata?: Record<string, string | number | boolean | null>;
+		map?: ToolCallMapData | null;
 	}>;
 	/** Monotonic sequence counter for event ordering during replay */
 	nextSequence: number;
@@ -256,6 +258,7 @@ export function appendToStreamBuffer(
 		sourceType?: EvidenceSourceType | null;
 		candidates?: ToolEvidenceCandidate[];
 		metadata?: Record<string, string | number | boolean | null>;
+		map?: ToolCallMapData | null;
 	},
 ) {
 	const buffer = getLiveStreamBuffer(streamId);
@@ -351,6 +354,7 @@ export function appendToStreamBuffer(
 						sourceType: data.sourceType ?? buffer.toolCalls[i].sourceType,
 						candidates: data.candidates ?? buffer.toolCalls[i].candidates,
 						metadata: data.metadata,
+						map: data.map ?? buffer.toolCalls[i].map,
 					};
 					break;
 				}

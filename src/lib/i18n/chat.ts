@@ -326,6 +326,10 @@ const chatDict = {
 		"diagram.loading": "Rendering diagram…",
 		"diagram.mermaidError":
 			"This diagram could not be rendered. Showing the source instead.",
+		"mapCard.mode.drive": "driving",
+		"mapCard.mode.walk": "walking",
+		"mapCard.mode.bike": "cycling",
+		"mapCard.attribution": "© OpenStreetMap contributors",
 		"composerCommands.activeAnnouncement": "Active command: {token} {label}",
 		"composerCommands.attach.description":
 			"Open the existing file attachment flow.",
@@ -1151,6 +1155,10 @@ const chatDict = {
 		"diagram.loading": "Ábra megjelenítése…",
 		"diagram.mermaidError":
 			"Ezt az ábrát nem sikerült megjeleníteni. A forrás látható helyette.",
+		"mapCard.mode.drive": "autózás",
+		"mapCard.mode.walk": "gyaloglás",
+		"mapCard.mode.bike": "kerékpározás",
+		"mapCard.attribution": "© OpenStreetMap közreműködők",
 		"composerCommands.activeAnnouncement": "Aktív parancs: {token} {label}",
 		"composerCommands.attach.description":
 			"Megnyitja a meglévő fájlcsatolási folyamatot.",

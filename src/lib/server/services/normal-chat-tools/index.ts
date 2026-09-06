@@ -2082,10 +2082,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													},
 													providerDeps,
 												);
-										const { modelPayload, candidates } = await runRoutingTool(
-											safeInput,
-											{ provider },
-										);
+										const { modelPayload, candidates, map } =
+											await runRoutingTool(safeInput, { provider });
 										return {
 											modelPayload,
 											entry: {
@@ -2103,6 +2101,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													action: modelPayload.action,
 													attribution: modelPayload.attribution,
 												},
+												...(map ? { map } : {}),
 											},
 										};
 									},

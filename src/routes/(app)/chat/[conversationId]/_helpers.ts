@@ -22,6 +22,7 @@ import type {
 import type {
 	ChatMessage,
 	ThinkingSegment,
+	ToolCallMapData,
 } from "$lib/server/services/messages-types";
 import type {
 	PendingSkillSelection,
@@ -93,6 +94,7 @@ export type StreamToolCallDetails = {
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
+	map?: ToolCallMapData | null;
 };
 
 type Translate = (key: I18nKey) => string;
@@ -669,6 +671,7 @@ export function applyToolCallUpdateToMessageList(
 					sourceType: params.details?.sourceType ?? null,
 					candidates: params.details?.candidates,
 					metadata: params.details?.metadata,
+					map: params.details?.map,
 				};
 			}
 		}
