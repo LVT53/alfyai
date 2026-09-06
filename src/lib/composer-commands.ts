@@ -1,7 +1,7 @@
 export type ComposerCommandId =
 	| "model"
 	| "style"
-	| "depth"
+	| "think"
 	| "attach"
 	| "document"
 	| "source"
@@ -9,12 +9,24 @@ export type ComposerCommandId =
 	| "settings"
 	| "clear"
 	| "compact"
-	| "web";
+	| "web"
+	| "quick"
+	| "thorough"
+	| "new"
+	| "remember"
+	| "export";
 
 export type ComposerCommandAvailability =
 	| "available"
 	| "disabled"
 	| "coming_soon";
+
+export type ComposerCommandArgument = {
+	/** Shown next to the command row once its name is fully typed. */
+	placeholder: string;
+	/** When true, selecting the command with no argument text is a no-op. */
+	required?: boolean;
+};
 
 export type ComposerCommandDefinition = {
 	id: ComposerCommandId;
@@ -22,6 +34,7 @@ export type ComposerCommandDefinition = {
 	labelKey: string;
 	descriptionKey: string;
 	availability: ComposerCommandAvailability;
+	argument?: ComposerCommandArgument;
 };
 
 export const STATIC_COMPOSER_COMMANDS = [
@@ -40,10 +53,10 @@ export const STATIC_COMPOSER_COMMANDS = [
 		availability: "available",
 	},
 	{
-		id: "depth",
-		token: "/depth",
-		labelKey: "composerCommands.depth.label",
-		descriptionKey: "composerCommands.depth.description",
+		id: "think",
+		token: "/think",
+		labelKey: "composerCommands.think.label",
+		descriptionKey: "composerCommands.think.description",
 		availability: "available",
 	},
 	{
@@ -59,6 +72,7 @@ export const STATIC_COMPOSER_COMMANDS = [
 		labelKey: "composerCommands.document.label",
 		descriptionKey: "composerCommands.document.description",
 		availability: "available",
+		argument: { placeholder: "Search library documents" },
 	},
 	{
 		id: "source",
@@ -72,7 +86,7 @@ export const STATIC_COMPOSER_COMMANDS = [
 		token: "/skill",
 		labelKey: "composerCommands.skill.label",
 		descriptionKey: "composerCommands.skill.description",
-		availability: "coming_soon",
+		availability: "available",
 	},
 	{
 		id: "settings",
@@ -102,6 +116,55 @@ export const STATIC_COMPOSER_COMMANDS = [
 		descriptionKey: "composerCommands.web.description",
 		availability: "available",
 	},
+	{
+		id: "quick",
+		token: "/quick",
+		labelKey: "composerCommands.quick.label",
+		descriptionKey: "composerCommands.quick.description",
+		availability: "available",
+	},
+	{
+		id: "thorough",
+		token: "/thorough",
+		labelKey: "composerCommands.thorough.label",
+		descriptionKey: "composerCommands.thorough.description",
+		availability: "available",
+	},
+	{
+		id: "new",
+		token: "/new",
+		labelKey: "composerCommands.new.label",
+		descriptionKey: "composerCommands.new.description",
+		availability: "available",
+	},
+	{
+		id: "remember",
+		token: "/remember",
+		labelKey: "composerCommands.remember.label",
+		descriptionKey: "composerCommands.remember.description",
+		availability: "available",
+		argument: { placeholder: "What should I remember?", required: true },
+	},
+	{
+		id: "export",
+		token: "/export",
+		labelKey: "composerCommands.export.label",
+		descriptionKey: "composerCommands.export.description",
+		availability: "available",
+	},
 ] as const satisfies ComposerCommandDefinition[];
+
+/**
+ * ADR-0061 renamed `/depth` to `/think` when the reasoning-depth ladder
+ * collapsed into a single on/off toggle. `/depth` still works — typed in
+ * full, it resolves to the same command — but it is intentionally left out
+ * of `STATIC_COMPOSER_COMMANDS` so it never shows up while browsing `/` or
+ * filtering by a partial prefix.
+ */
+export const HIDDEN_COMPOSER_COMMAND_ALIASES: Readonly<
+	Record<string, ComposerCommandId>
+> = {
+	depth: "think",
+};
 
 export const COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT = 7;

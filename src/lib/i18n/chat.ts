@@ -341,12 +341,27 @@ const chatDict = {
 			"Link a Library document as context.",
 		"composerCommands.document.label": "Document",
 		"composerCommands.empty": "No matching commands.",
+		"composerCommands.export.description":
+			"Download this conversation as Markdown.",
+		"composerCommands.export.error": "Could not export this conversation.",
+		"composerCommands.export.label": "Export",
+		"composerCommands.export.noConversation":
+			"Start a conversation before exporting it.",
 		"composerCommands.model.description": "Open the model picker.",
 		"composerCommands.model.label": "Model",
+		"composerCommands.new.description": "Start a new conversation.",
+		"composerCommands.new.label": "New chat",
+		"composerCommands.quick.description": "Turn thinking off for replies.",
+		"composerCommands.quick.label": "Quick",
+		"composerCommands.remember.description": "Save a note to durable memory.",
+		"composerCommands.remember.error": "Could not save that note.",
+		"composerCommands.remember.label": "Remember",
+		"composerCommands.remember.missingArgument":
+			"Type what you want me to remember after /remember.",
+		"composerCommands.remember.saved": "Saved to memory.",
 		"composerCommands.settings.description": "Open app settings.",
 		"composerCommands.settings.label": "Settings",
-		"composerCommands.skill.description":
-			"Open skill controls when skill discovery lands.",
+		"composerCommands.skill.description": "Browse skills with $ discovery.",
 		"composerCommands.skill.label": "Skill",
 		"composerCommands.skillDiscovery.description":
 			"Skill discovery is reserved for a later slice.",
@@ -355,8 +370,10 @@ const chatDict = {
 		"composerCommands.source.label": "Sources",
 		"composerCommands.style.description": "Open the style picker.",
 		"composerCommands.style.label": "Style",
-		"composerCommands.depth.description": "Toggle thinking for this reply.",
-		"composerCommands.depth.label": "Thinking",
+		"composerCommands.think.description": "Toggle thinking for this reply.",
+		"composerCommands.think.label": "Thinking",
+		"composerCommands.thorough.description": "Turn thinking on for replies.",
+		"composerCommands.thorough.label": "Thorough",
 		"composerCommands.trayLabel": "Composer commands",
 		"composerCommands.unavailable": "Unavailable",
 		"composerCommands.web.description":
@@ -1146,13 +1163,31 @@ const chatDict = {
 			"Könyvtári dokumentum kapcsolása kontextusként.",
 		"composerCommands.document.label": "Dokumentum",
 		"composerCommands.empty": "Nincs egyező parancs.",
+		"composerCommands.export.description":
+			"A beszélgetés letöltése Markdown formátumban.",
+		"composerCommands.export.error": "Nem sikerült exportálni a beszélgetést.",
+		"composerCommands.export.label": "Exportálás",
+		"composerCommands.export.noConversation":
+			"Exportálás előtt indíts el egy beszélgetést.",
 		"composerCommands.model.description": "Megnyitja a modellválasztót.",
 		"composerCommands.model.label": "Modell",
+		"composerCommands.new.description": "Új beszélgetés indítása.",
+		"composerCommands.new.label": "Új beszélgetés",
+		"composerCommands.quick.description":
+			"Kikapcsolja a gondolkodást a válaszokhoz.",
+		"composerCommands.quick.label": "Gyors",
+		"composerCommands.remember.description":
+			"Jegyzet mentése a tartós memóriába.",
+		"composerCommands.remember.error": "Nem sikerült elmenteni a jegyzetet.",
+		"composerCommands.remember.label": "Emlékezz",
+		"composerCommands.remember.missingArgument":
+			"Írd le a /remember után, mire emlékezzek.",
+		"composerCommands.remember.saved": "Elmentve a memóriába.",
 		"composerCommands.settings.description":
 			"Megnyitja az alkalmazás beállításait.",
 		"composerCommands.settings.label": "Beállítások",
 		"composerCommands.skill.description":
-			"Skill vezérlők megnyitása a felfedezés elkészülte után.",
+			"Készségek böngészése $ felfedezéssel.",
 		"composerCommands.skill.label": "Készség",
 		"composerCommands.skillDiscovery.description":
 			"A skill felfedezés egy későbbi szelet számára van fenntartva.",
@@ -1162,9 +1197,12 @@ const chatDict = {
 		"composerCommands.source.label": "Források",
 		"composerCommands.style.description": "Megnyitja a stílusválasztót.",
 		"composerCommands.style.label": "Stílus",
-		"composerCommands.depth.description":
+		"composerCommands.think.description":
 			"Be- vagy kikapcsolja a gondolkodást ehhez a válaszhoz.",
-		"composerCommands.depth.label": "Gondolkodás",
+		"composerCommands.think.label": "Gondolkodás",
+		"composerCommands.thorough.description":
+			"Bekapcsolja a gondolkodást a válaszokhoz.",
+		"composerCommands.thorough.label": "Alapos",
 		"composerCommands.trayLabel": "Beviteli parancsok",
 		"composerCommands.unavailable": "Nem érhető el",
 		"composerCommands.web.description":

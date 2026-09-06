@@ -17,8 +17,16 @@ import {
 	fetchAvailableModels,
 	type ModelProvider,
 } from "$lib/client/api/models";
-import { setConversationMemoryIncognito } from "$lib/client/api/conversations";
+import {
+	fetchConversationMarkdownExport,
+	setConversationMemoryIncognito,
+} from "$lib/client/api/conversations";
+import { addMemoryNote } from "$lib/client/api/memory-notes";
+import { saveBlobAsDownload } from "$lib/client/api/settings";
+import { markPreviousConversationId } from "$lib/client/conversation-session";
+import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
 import { selectedModel } from "$lib/stores/settings";
+import { showToast } from "$lib/stores/toast";
 import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
 import {
 	linkedContextSourceArtifactIds,
@@ -30,6 +38,7 @@ import {
 } from "$lib/client/api/skills";
 import {
 	COMPOSER_COMMAND_VISIBLE_RESULT_LIMIT,
+	HIDDEN_COMPOSER_COMMAND_ALIASES,
 	STATIC_COMPOSER_COMMANDS,
 	type ComposerCommandDefinition,
 } from "$lib/composer-commands";
@@ -48,8 +57,10 @@ import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
 	findActiveComposerCommandToken,
+	findActiveComposerCommandTokenWithArgument,
 	replaceActiveComposerCommandToken,
 	type ComposerCommandToken,
+	type ComposerCommandTokenWithArgument,
 } from "./composer-command-parser";
 import { browser } from "$app/environment";
 import type { ModelId } from "$lib/model-types";
@@ -273,7 +284,9 @@ let documentPickerLoading = $state(false);
 let documentPickerError = $state("");
 let resolvedConversationId = $state<string | null>(null);
 let showToolsMenu = $state(false);
-let commandToken = $state<ComposerCommandToken | null>(null);
+let commandToken = $state<
+	ComposerCommandToken | ComposerCommandTokenWithArgument | null
+>(null);
 let commandTrayMounted = $state(false);
 let commandTrayClosing = $state(false);
 let dismissedCommandTokenKey = $state<string | null>(null);
@@ -1302,7 +1315,15 @@ type CommandTrayRow = Omit<
 	tokenLabel?: string;
 	label?: string;
 	description?: string;
+	argumentPlaceholder?: string;
 };
+
+// Commands that accept `/id rest of line` free text (currently /document's
+// search query and /remember's note). Computed once — STATIC_COMPOSER_COMMANDS
+// is a static, module-level catalog.
+const COMMAND_IDS_WITH_ARGUMENT = STATIC_COMPOSER_COMMANDS.filter(
+	(command) => command.argument,
+).map((command) => command.id);
 
 function pendingSkillKindLabelKey(
 	skill: Pick<PendingSkillSelection, "ownership" | "skillKind">,
@@ -1322,13 +1343,15 @@ function skillDiscoveryDescription(skill: SkillDiscoverySummary): string {
 	return skill.description;
 }
 
-function getCommandTokenKey(token: ComposerCommandToken | null): string | null {
+function getCommandTokenKey(
+	token: ComposerCommandToken | ComposerCommandTokenWithArgument | null,
+): string | null {
 	if (!token) return null;
 	return `${token.prefix}:${token.start}:${token.end}:${token.token}`;
 }
 
 function getCommandTrayRows(
-	token: ComposerCommandToken | null,
+	token: ComposerCommandToken | ComposerCommandTokenWithArgument | null,
 ): CommandTrayRow[] {
 	if (!composerCommandRegistryEnabled || !token) return [];
 	if (token.prefix === "$") {
@@ -1346,9 +1369,12 @@ function getCommandTrayRows(
 		}));
 	}
 
-	const query = token.query.toLowerCase();
-	const commandQuery = query.startsWith("document ") ? "document" : query;
-	return STATIC_COMPOSER_COMMANDS.filter(
+	// A parsed `/cmd rest of line` token carries its own canonical `command`
+	// id directly; a bare `findActiveComposerCommandToken` result (still
+	// typing the command name, no argument text yet) does not.
+	const commandQuery =
+		"command" in token ? token.command : token.query.toLowerCase();
+	const rows = STATIC_COMPOSER_COMMANDS.filter(
 		(command) => commandQuery === "" || command.id.startsWith(commandQuery),
 	).map((command) => ({
 		...command,
@@ -1363,26 +1389,36 @@ function getCommandTrayRows(
 				: command.id === "attach" && !canAttach
 					? "composerCommands.unavailable"
 					: undefined,
+		argumentPlaceholder: command.argument?.placeholder,
 	}));
-}
 
-function findDocumentCommandTokenWithQuery(
-	text: string,
-	cursor: number,
-): ComposerCommandToken | null {
-	const safeCursor = Math.max(0, Math.min(cursor, text.length));
-	const beforeCursor = text.slice(0, safeCursor);
-	const match = /(^|\s)\/document(?:\s+([^\n\r]*))?$/.exec(beforeCursor);
-	if (!match) return null;
-	const start = match.index + match[1].length;
-	const queryText = (match[2] ?? "").trim();
-	return {
-		prefix: "/",
-		query: queryText ? `document ${queryText}` : "document",
-		start,
-		end: safeCursor,
-		token: text.slice(start, safeCursor),
-	};
+	// ADR-0061's `/depth` -> `/think` rename kept `/depth` working as a
+	// hidden alias: it never appears while browsing `/` or filtering by a
+	// partial prefix (no STATIC_COMPOSER_COMMANDS id starts with "depth"),
+	// but typing it out in full still resolves to the aliased command so
+	// Enter can select it.
+	if (rows.length === 0) {
+		const aliasTargetId = HIDDEN_COMPOSER_COMMAND_ALIASES[commandQuery];
+		const aliasedCommand = STATIC_COMPOSER_COMMANDS.find(
+			(command) => command.id === aliasTargetId,
+		);
+		if (aliasedCommand) {
+			rows.push({
+				...aliasedCommand,
+				tokenLabel: `/${commandQuery}`,
+				labelKey: asI18nKey(aliasedCommand.labelKey),
+				descriptionKey: asI18nKey(aliasedCommand.descriptionKey),
+				disabled: aliasedCommand.availability !== "available",
+				statusKey:
+					aliasedCommand.availability !== "available"
+						? "composerCommands.comingSoon"
+						: undefined,
+				argumentPlaceholder: aliasedCommand.argument?.placeholder,
+			});
+		}
+	}
+
+	return rows;
 }
 
 function updateCommandTrayFromTextarea() {
@@ -1404,8 +1440,11 @@ function updateCommandTrayFromText(text: string, cursor: number) {
 		return;
 	}
 	const nextToken =
-		findDocumentCommandTokenWithQuery(text, cursor) ??
-		findActiveComposerCommandToken(text, cursor);
+		findActiveComposerCommandTokenWithArgument(
+			text,
+			cursor,
+			COMMAND_IDS_WITH_ARGUMENT,
+		) ?? findActiveComposerCommandToken(text, cursor);
 	commandTrayMessage = "";
 	if (!nextToken) {
 		highlightedCommandIndex = 0;
@@ -1516,10 +1555,10 @@ function handleCommandTrayAnimationEnd(event: AnimationEvent) {
 	finishCommandTrayClose();
 }
 
-function consumeActiveCommandToken(): boolean {
+function consumeActiveCommandToken(replacement = ""): boolean {
 	if (!textarea) return false;
 	const activeToken = commandToken;
-	const result = getMessageWithoutActiveCommandToken(activeToken);
+	const result = getMessageWithoutActiveCommandToken(activeToken, replacement);
 	if (!result) return false;
 	message = result.text;
 	draftEmissionVersion += 1;
@@ -1528,24 +1567,31 @@ function consumeActiveCommandToken(): boolean {
 	requestAnimationFrame(() => {
 		textarea?.setSelectionRange(result.cursor, result.cursor);
 		textarea?.focus();
+		// A non-empty replacement (currently only "$", for /skill) leaves a new
+		// trigger character in the composer — refresh the tray from it instead
+		// of leaving it closed.
+		if (replacement) updateCommandTrayFromTextarea();
 	});
 	return true;
 }
 
 function getMessageWithoutActiveCommandToken(
 	activeToken = commandToken,
+	replacement = "",
 ): { text: string; cursor: number } | null {
 	if (activeToken) {
 		return {
 			text:
-				message.slice(0, activeToken.start) + message.slice(activeToken.end),
-			cursor: activeToken.start,
+				message.slice(0, activeToken.start) +
+				replacement +
+				message.slice(activeToken.end),
+			cursor: activeToken.start + replacement.length,
 		};
 	}
 	return replaceActiveComposerCommandToken(
 		message,
 		textarea?.selectionStart ?? message.length,
-		"",
+		replacement,
 	);
 }
 
@@ -1600,9 +1646,54 @@ function toggleThinking() {
 	onReasoningDepthChange?.(reasoningDepth === "quick" ? "thorough" : "quick");
 }
 
+// Mirrors Header.svelte's handleNewConversation / Sidebar.svelte's
+// handleNewConversation: stash the outgoing conversation id (so a landing
+// draft can find its way back to it) then hand the user a blank composer.
+async function startNewConversationFromCommand() {
+	markPreviousConversationId($currentConversationId);
+	currentConversationId.set(null);
+	await goto("/");
+}
+
+async function submitMemoryNoteCommand(text: string) {
+	try {
+		await addMemoryNote(text);
+		showToast({
+			type: "success",
+			message: $t("composerCommands.remember.saved"),
+		});
+	} catch {
+		showToast({
+			type: "error",
+			message: $t("composerCommands.remember.error"),
+		});
+	}
+}
+
+async function exportConversationCommand() {
+	const id = conversationId ?? resolvedConversationId;
+	if (!id) {
+		showToast({
+			type: "error",
+			message: $t("composerCommands.export.noConversation"),
+		});
+		return;
+	}
+	try {
+		const { markdown, filename } = await fetchConversationMarkdownExport(id);
+		saveBlobAsDownload(
+			new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
+			filename,
+		);
+	} catch {
+		showToast({ type: "error", message: $t("composerCommands.export.error") });
+	}
+}
+
 function selectCommand(command: CommandTrayRow) {
 	if (command.skill) {
 		selectSkill(command.skill);
+		recordComposerCommandUsed("skill");
 		return;
 	}
 	if (command.disabled) {
@@ -1616,18 +1707,35 @@ function selectCommand(command: CommandTrayRow) {
 		const consumed = consumeActiveCommandToken();
 		finishCommandTrayClose();
 		if (consumed) {
+			recordComposerCommandUsed(command.id);
 			clearComposerAfterSubmit();
 		}
 		return;
 	}
 
-	const documentQuery =
-		command.id === "document" && commandToken?.query.startsWith("document ")
-			? commandToken.query.slice("document ".length).trim()
-			: "";
+	// /skill opens $ discovery mode instead of consuming the token outright:
+	// the "/skill" text is replaced with "$" (leaving the trigger character
+	// in place) and the tray reopens against it, matching typing "$" by hand.
+	if (command.id === "skill") {
+		const consumed = consumeActiveCommandToken("$");
+		if (consumed) recordComposerCommandUsed(command.id);
+		return;
+	}
+
+	const commandArgument =
+		commandToken && "argument" in commandToken
+			? commandToken.argument?.trim()
+			: undefined;
+
+	if (command.id === "remember" && !commandArgument) {
+		commandTrayMessage = $t("composerCommands.remember.missingArgument");
+		return;
+	}
+
 	const consumed = consumeActiveCommandToken();
 	finishCommandTrayClose();
 	if (!consumed) return;
+	recordComposerCommandUsed(command.id);
 
 	switch (command.id) {
 		case "model":
@@ -1636,14 +1744,20 @@ function selectCommand(command: CommandTrayRow) {
 		case "style":
 			openComposerTools("style");
 			break;
-		case "depth":
+		case "think":
 			toggleThinking();
+			break;
+		case "quick":
+			onReasoningDepthChange?.("quick");
+			break;
+		case "thorough":
+			onReasoningDepthChange?.("thorough");
 			break;
 		case "attach":
 			openFilePicker();
 			break;
 		case "document":
-			openDocumentPicker(documentQuery);
+			openDocumentPicker(commandArgument ?? "");
 			break;
 		case "source":
 			openSourceManager();
@@ -1656,6 +1770,15 @@ function selectCommand(command: CommandTrayRow) {
 			break;
 		case "web":
 			forceWebSearch = true;
+			break;
+		case "new":
+			void startNewConversationFromCommand();
+			break;
+		case "remember":
+			void submitMemoryNoteCommand(commandArgument as string);
+			break;
+		case "export":
+			void exportConversationCommand();
 			break;
 		default:
 			break;
@@ -1932,8 +2055,11 @@ function getDraftTextForPersistence(): string {
 	if (!composerCommandRegistryEnabled || !textarea) return message;
 	const cursor = textarea.selectionStart ?? message.length;
 	const activeToken =
-		findDocumentCommandTokenWithQuery(message, cursor) ??
-		findActiveComposerCommandToken(message, cursor);
+		findActiveComposerCommandTokenWithArgument(
+			message,
+			cursor,
+			COMMAND_IDS_WITH_ARGUMENT,
+		) ?? findActiveComposerCommandToken(message, cursor);
 	if (!activeToken) return message;
 	return message.slice(0, activeToken.start) + message.slice(activeToken.end);
 }
@@ -2032,6 +2158,9 @@ async function emitDraftChange(force = false) {
 							<span class="command-label">{command.label ?? $t(command.labelKey)}</span>
 							<span class="command-description">{command.description ?? $t(command.descriptionKey)}</span>
 						</span>
+						{#if command.argumentPlaceholder}
+							<span class="command-argument-hint">{command.argumentPlaceholder}</span>
+						{/if}
 						{#if command.statusKey}
 							<span class="command-status">{$t(command.statusKey)}</span>
 						{/if}
@@ -2714,6 +2843,14 @@ async function emitDraftChange(force = false) {
 	.command-status {
 		white-space: nowrap;
 		color: color-mix(in srgb, var(--accent) 64%, var(--text-muted) 36%);
+	}
+
+	.command-argument-hint {
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		white-space: nowrap;
+		color: var(--text-muted);
+		font-style: italic;
 	}
 
 	.command-empty,

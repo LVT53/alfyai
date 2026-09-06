@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	findActiveComposerCommandToken,
+	findActiveComposerCommandTokenWithArgument,
 	replaceActiveComposerCommandToken,
 } from "./composer-command-parser";
 
@@ -77,5 +78,83 @@ describe("composer command parser", () => {
 			text: "Use  today",
 			cursor: 4,
 		});
+	});
+});
+
+describe("findActiveComposerCommandTokenWithArgument", () => {
+	const commandIds = ["document", "remember"];
+
+	it("captures free text typed after a bare command name as the argument", () => {
+		const text = "/remember I love oat milk";
+		expect(
+			findActiveComposerCommandTokenWithArgument(text, text.length, commandIds),
+		).toMatchObject({
+			prefix: "/",
+			command: "remember",
+			argument: "I love oat milk",
+			start: 0,
+			end: text.length,
+			token: text,
+		});
+	});
+
+	it("has no argument yet while only the command name has been typed", () => {
+		const text = "/document";
+		expect(
+			findActiveComposerCommandTokenWithArgument(text, text.length, commandIds),
+		).toMatchObject({
+			command: "document",
+			argument: undefined,
+			query: "document",
+		});
+	});
+
+	it("trims the captured argument and drops it when it is only whitespace", () => {
+		const blank = "/document   ";
+		expect(
+			findActiveComposerCommandTokenWithArgument(
+				blank,
+				blank.length,
+				commandIds,
+			),
+		).toMatchObject({
+			command: "document",
+			argument: undefined,
+		});
+		const withArgument = "/document  quarterly report  ";
+		expect(
+			findActiveComposerCommandTokenWithArgument(
+				withArgument,
+				withArgument.length,
+				commandIds,
+			),
+		).toMatchObject({
+			command: "document",
+			argument: "quarterly report",
+		});
+	});
+
+	it("does not match a command id outside the provided list", () => {
+		const text = "/model gpt-5";
+		expect(
+			findActiveComposerCommandTokenWithArgument(text, text.length, commandIds),
+		).toBeNull();
+	});
+
+	it("only matches a token anchored at the start of the active /word run", () => {
+		const text = "literal/document now";
+		expect(
+			findActiveComposerCommandTokenWithArgument(
+				text,
+				text.indexOf(" now"),
+				commandIds,
+			),
+		).toBeNull();
+	});
+
+	it("returns null when no command id is configured to take an argument", () => {
+		expect(
+			findActiveComposerCommandTokenWithArgument("/document search", 16, []),
+		).toBeNull();
 	});
 });

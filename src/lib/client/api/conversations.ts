@@ -511,3 +511,42 @@ export async function runConversationContextCompression(
 	}
 	return result.snapshot;
 }
+
+export interface ConversationMarkdownExport {
+	markdown: string;
+	filename: string;
+}
+
+function conversationExportFilenameFromHeader(
+	header: string | null,
+	fallback: string,
+): string {
+	const match = header ? /filename="?([^";]+)"?/i.exec(header) : null;
+	return match?.[1]?.trim() || fallback;
+}
+
+/** Backs the composer's `/export` command — downloads the conversation as Markdown. */
+export async function fetchConversationMarkdownExport(
+	conversationId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<ConversationMarkdownExport> {
+	const response = await requestResponse(
+		`/api/conversations/${conversationId}/export.md`,
+		undefined,
+		fetchImpl,
+	);
+	if (!response.ok) {
+		const error = await readErrorPayload(
+			response,
+			"Failed to export conversation",
+		);
+		throw new Error(error.message);
+	}
+	return {
+		markdown: await response.text(),
+		filename: conversationExportFilenameFromHeader(
+			response.headers.get("Content-Disposition"),
+			`${conversationId}.md`,
+		),
+	};
+}
