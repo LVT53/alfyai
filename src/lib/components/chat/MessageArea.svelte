@@ -43,8 +43,6 @@ let {
 	atlasJobs = [],
 	pendingWrites = [],
 	contextCompressionMarkers = [],
-	hasActiveSkillSession = false,
-	activeSkillSessionHeight = 0,
 	forkOrigin = null,
 	forkingMessageId = null,
 	readOnly = false,
@@ -54,11 +52,9 @@ let {
 	onFork = undefined,
 	onSteer = undefined,
 	onOpenDocument = undefined,
-	canPublishSkillDrafts = false,
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
 	onDismissSkillDraft = undefined,
-	onPublishSkillDraft = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
 	onDismissFileProductionJob = undefined,
@@ -78,8 +74,6 @@ let {
 	atlasJobs?: AtlasJobCard[];
 	pendingWrites?: PendingWrite[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
-	hasActiveSkillSession?: boolean;
-	activeSkillSessionHeight?: number;
 	forkOrigin?: ConversationForkOrigin | null;
 	forkingMessageId?: string | null;
 	readOnly?: boolean;
@@ -101,7 +95,6 @@ let {
 				},
 		  ) => void)
 		| undefined;
-	canPublishSkillDrafts?: boolean;
 	skillDraftActionState?: Record<
 		string,
 		{ busy?: boolean; error?: string | null }
@@ -113,12 +106,6 @@ let {
 		  }) => void | Promise<void>)
 		| undefined;
 	onDismissSkillDraft?:
-		| ((payload: {
-				messageId: string;
-				draftId: string;
-		  }) => void | Promise<void>)
-		| undefined;
-	onPublishSkillDraft?:
 		| ((payload: {
 				messageId: string;
 				draftId: string;
@@ -763,11 +750,9 @@ async function scrollToMessage(messageId: string) {
 					forkBusy={forkingMessageId === message.id}
 					{onSteer}
 					{onOpenDocument}
-					{canPublishSkillDrafts}
 					{skillDraftActionState}
 					{onSaveSkillDraft}
 					{onDismissSkillDraft}
-					{onPublishSkillDraft}
 				{onRetryFileProductionJob}
 				{onCancelFileProductionJob}
 				{onDismissFileProductionJob}
@@ -880,12 +865,7 @@ async function scrollToMessage(messageId: string) {
 					</div>
 				{/each}
 			{/each}
-			<div
-				class="scroll-clearance"
-				class:scroll-clearance-active-skill={hasActiveSkillSession}
-				style={activeSkillSessionHeight > 0 ? `--active-skill-session-height: ${activeSkillSessionHeight}px;` : undefined}
-				aria-hidden="true"
-				></div>
+			<div class="scroll-clearance" aria-hidden="true"></div>
 			{/if}
 		</div>
 	</div>
@@ -926,13 +906,8 @@ async function scrollToMessage(messageId: string) {
 	.scroll-clearance {
 		/* Extra height accounts for the absolutely-positioned floating composer
 		   overlaying the bottom of the scroll area. */
-		--scroll-clearance-base: 10.5rem;
-		height: var(--scroll-clearance-base);
+		height: 10.5rem;
 		flex: 0 0 auto;
-	}
-
-	.scroll-clearance-active-skill {
-		height: calc(var(--scroll-clearance-base) + var(--active-skill-session-height, 0px));
 	}
 
 	/* B2 — floating "jump to latest" control. Anchored to the message area's

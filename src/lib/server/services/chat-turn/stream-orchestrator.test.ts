@@ -22,10 +22,10 @@ import {
 } from "./stream-orchestrator";
 import type {
 	AdmittedChatTurn,
+	AppliedSkillContext,
 	ChatTurnPreflight,
 	ChatTurnPreparationResult,
 	ChatTurnRequestError,
-	SkillPromptContext,
 } from "./types";
 
 vi.mock("$lib/server/config-store", () => ({
@@ -154,10 +154,6 @@ vi.mock("$lib/server/services/connections/pending-writes", () => ({
 
 vi.mock("$lib/utils/tokens", () => ({
 	estimateTokenCount: vi.fn(() => 100),
-}));
-
-vi.mock("$lib/server/services/skills/prompt-context", () => ({
-	buildSkillSystemPromptAppendix: vi.fn(() => undefined),
 }));
 
 type NeutralStreamEvent =
@@ -301,29 +297,22 @@ function createAdmittedTurn(
 	const turn = createTurn(overrides);
 	const {
 		depthMetadata: _depthMetadata,
-		skillPromptContext: _skillPromptContext,
+		appliedSkill: _appliedSkill,
 		...admitted
 	} = turn;
 	return admitted as unknown as AdmittedChatTurn;
 }
 
-function createSkillPromptContext(
-	overrides: Partial<SkillPromptContext> = {},
-): SkillPromptContext {
+function createAppliedSkillContext(
+	overrides: Partial<AppliedSkillContext> = {},
+): AppliedSkillContext {
 	return {
-		source: "pending_skill",
 		skillId: "skill-1",
 		skillOwnership: "user",
 		skillKind: "user_skill",
 		skillDisplayName: "Skill One",
-		skillDescription: "A focused test skill",
-		skillInstructions: "Follow the skill.",
-		durationPolicy: "next_message",
-		questionPolicy: "none",
-		notesPolicy: "none",
-		sourceScope: "current_conversation",
-		skillVersion: 1,
-		linkedSources: [],
+		instructionsEnvelope:
+			'Skill "Skill One" instructions — apply these for the rest of this turn:\n\nFollow the skill.',
 		...overrides,
 	};
 }
@@ -440,9 +429,6 @@ async function resetCompletionMocks() {
 		listPendingWritesForConversation,
 	} = await import("$lib/server/services/connections/pending-writes");
 	const { estimateTokenCount } = await import("$lib/utils/tokens");
-	const { buildSkillSystemPromptAppendix } = await import(
-		"$lib/server/services/skills/prompt-context"
-	);
 	const { resolveTurnAcknowledgment } = await import(
 		"$lib/server/services/chat-turn/turn-acknowledgment"
 	);
@@ -495,9 +481,6 @@ async function resetCompletionMocks() {
 		job: { id: "job-recovered-1" },
 	});
 	(estimateTokenCount as ReturnType<typeof vi.fn>).mockReturnValue(100);
-	(buildSkillSystemPromptAppendix as ReturnType<typeof vi.fn>).mockReturnValue(
-		undefined,
-	);
 	// P3b — default no-op session: samples nothing, returns no steps. Tests
 	// that exercise the classifier wiring itself override this per-test.
 	(
@@ -576,10 +559,7 @@ describe("stream-orchestrator SSE contract", () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
-		const { buildSkillSystemPromptAppendix } = await import(
-			"$lib/server/services/skills/prompt-context"
-		);
-		const skillPromptContext = createSkillPromptContext();
+		const appliedSkill = createAppliedSkillContext();
 		const preparedTurn = createTurn({
 			conversationId: "deferred-prep-conv",
 			streamId: "deferred-prep-stream",
@@ -590,7 +570,7 @@ describe("stream-orchestrator SSE contract", () => {
 				modelId: "model1",
 				modelDisplayName: "Model One",
 			},
-			skillPromptContext,
+			appliedSkill,
 		});
 		let resolvePreparation!: (value: ChatTurnPreparationResult) => void;
 		let preparationSettled = false;
@@ -603,9 +583,6 @@ describe("stream-orchestrator SSE contract", () => {
 			},
 		);
 		const prepareTurn = vi.fn(() => deferredPreparation);
-		(
-			buildSkillSystemPromptAppendix as ReturnType<typeof vi.fn>
-		).mockReturnValueOnce("skill appendix");
 		(
 			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
 		).mockResolvedValue(
@@ -656,13 +633,10 @@ describe("stream-orchestrator SSE contract", () => {
 
 		expect(remainingBody).toContain("depth-selected");
 		expect(remainingBody).toContain("Prepared answer");
-		expect(buildSkillSystemPromptAppendix).toHaveBeenCalledWith(
-			skillPromptContext,
-		);
 		expect(runStreamingNormalChatSendModel).toHaveBeenCalledWith(
 			expect.objectContaining({
 				depthMetadata: preparedTurn.depthMetadata,
-				systemPromptAppendix: "skill appendix",
+				pendingSkillInstructions: appliedSkill.instructionsEnvelope,
 			}),
 		);
 	});

@@ -21,13 +21,11 @@ import {
 	deleteConversation,
 	deleteConversationDraft,
 	deleteConversationMessages,
-	endConversationSkillSession,
 	fetchConversationDetail,
 	fetchMessageEvidence,
 	generateConversationTitle,
 	createConversationFork,
 	runConversationContextCompression,
-	startConversationSkillSession,
 } from "$lib/client/api/conversations";
 import {
 	cancelAtlasJob as cancelAtlasJobRequest,
@@ -40,7 +38,6 @@ import {
 } from "$lib/client/api/file-production";
 import {
 	dismissSkillDraft as dismissSkillDraftRequest,
-	publishSkillDraft as publishSkillDraftRequest,
 	saveSkillDraft as saveSkillDraftRequest,
 } from "$lib/client/api/skills";
 import { ApiError } from "$lib/client/api/http";
@@ -97,7 +94,6 @@ import type {
 	ChatMessage,
 	NormalChatRuntimePhase,
 } from "$lib/server/services/messages-types";
-import type { SkillSession } from "$lib/server/services/skills/types";
 import type {
 	TaskState,
 	TaskSteeringPayload,
@@ -138,7 +134,6 @@ import {
 import ChatComposerPanel from "./_components/ChatComposerPanel.svelte";
 import DegradedCapabilitiesBanner from "$lib/components/chat/DegradedCapabilitiesBanner.svelte";
 import ChatMessagePane from "./_components/ChatMessagePane.svelte";
-import SkillSessionPanel from "./_components/SkillSessionPanel.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
@@ -232,7 +227,6 @@ const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
 	getData().contextCompressionSnapshots ?? [];
-const initialActiveSkillSession = getData().activeSkillSession ?? null;
 const initialSidecarPending = getData().sidecarPending ?? false;
 const initialConversationId = getData().conversation.id;
 const initialConversationStatus = getData().conversation.status ?? "open";
@@ -270,11 +264,9 @@ const modelIcons = $derived.by(() => {
 	) as Record<string, string | null>;
 });
 const atlasAvailability = $derived(getAtlasAvailabilityValue(data));
-const canPublishSkillDrafts = false;
 const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
 	"skillDrafts.notFound": "skillDrafts.notFound",
-	"skillDrafts.publishDisabled": "skillDrafts.publishDisabled",
 	"skillDrafts.inheritedCopyBlocked": "skillDrafts.inheritedCopyBlocked",
 	"skills.notFound": "skills.notFound",
 };
@@ -287,10 +279,6 @@ $effect(() => {
 		data.conversation.projectId ?? null,
 	);
 });
-const skillSessionLocalizedApiErrorKeys: Record<string, I18nKey> = {
-	"composerCommandRegistry.disabled": "composerCommandRegistry.disabled",
-	"skillSessions.errors.activeConflict": "skillSessions.errors.activeConflict",
-};
 
 // Track conversation title reactively - use $derived to keep in sync with page data
 let conversationTitle = $derived(data.conversation?.title ?? "");
@@ -502,9 +490,6 @@ let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
-let activeSkillSession = $state<SkillSession | null>(initialActiveSkillSession);
-let skillSessionBusy = $state(false);
-let skillSessionError = $state<string | null>(null);
 let skillDraftActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
@@ -627,38 +612,6 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			data.conversation.title,
 			Date.now() / 1000,
 		);
-	},
-	startPendingSkillSession: async (payload) => {
-		try {
-			skillSessionError = null;
-			const pendingSkill = payload.pendingSkill;
-			if (!pendingSkill) {
-				return {
-					ok: false,
-					errorMessage: $t("skillSessions.errors.start"),
-				};
-			}
-			activeSkillSession = await startConversationSkillSession(
-				data.conversation.id,
-				pendingSkill,
-			);
-			return { ok: true };
-		} catch (error) {
-			if (isPendingSkillUnavailableError(error)) {
-				return {
-					ok: false,
-					errorMessage: $t("pendingSkill.recoveryError"),
-					restoredPayload: markPendingSkillUnavailable(payload),
-				};
-			}
-			return {
-				ok: false,
-				errorMessage: localizedSkillSessionError(
-					error,
-					"skillSessions.errors.start",
-				),
-			};
-		}
 	},
 	// R1 (ADR-0060) — one dispatch point for every visible message-list
 	// mutation the runtime drives, replacing nine separate one-line
@@ -830,9 +783,6 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			return;
 		}
 		sendError = message;
-	},
-	setSkillSessionError: (message) => {
-		skillSessionError = message;
 	},
 	onBackgroundInterrupted: () => {
 		// The runtime owns the interruption flag; the page owns the recovery fetch.
@@ -1493,7 +1443,6 @@ async function hydrateConversationDetail(conversationId: string) {
 		}
 		conversationDraft = payload.draft ?? conversationDraft;
 		forkOrigin = payload.forkOrigin ?? forkOrigin;
-		activeSkillSession = payload.activeSkillSession ?? null;
 		conversationStatus = payload.conversation?.status ?? conversationStatus;
 		bootstrapMode = false;
 		sidecarPending = false;
@@ -1517,23 +1466,6 @@ async function hydrateConversationDetail(conversationId: string) {
 	// "save"/"send"/etc. write proposal's pending-write card can appear
 	// without a dedicated, parallel hydration path.
 	void refreshPendingWrites();
-}
-
-async function endCurrentSkillSession(reason: "ended" | "dismissed") {
-	if (!activeSkillSession || skillSessionBusy) return;
-	skillSessionBusy = true;
-	skillSessionError = null;
-	try {
-		await endConversationSkillSession(data.conversation.id, reason);
-		activeSkillSession = null;
-	} catch (error) {
-		skillSessionError = localizedSkillSessionError(
-			error,
-			"skillSessions.errors.end",
-		);
-	} finally {
-		skillSessionBusy = false;
-	}
 }
 
 function attachFileProductionJobsToAssistantMessage(
@@ -1740,10 +1672,6 @@ $effect(() => {
 		prevContextCompressionData = data.contextCompressionSnapshots;
 		contextCompressionMarkers = [...(data.contextCompressionSnapshots ?? [])];
 	}
-});
-
-$effect(() => {
-	activeSkillSession = data.activeSkillSession ?? null;
 });
 
 $effect(() => {
@@ -1969,18 +1897,6 @@ function localizedSkillDraftActionError(
 	return translate(fallbackKey);
 }
 
-function localizedSkillSessionError(
-	error: unknown,
-	fallbackKey: I18nKey,
-): string {
-	const translate = get(t);
-	if (error instanceof ApiError && error.errorKey) {
-		const localizedKey = skillSessionLocalizedApiErrorKeys[error.errorKey];
-		if (localizedKey) return translate(localizedKey);
-	}
-	return error instanceof Error ? error.message : translate(fallbackKey);
-}
-
 function localizedForkCreationError(error: unknown): string {
 	const translate = get(t);
 	if (error instanceof ApiError) {
@@ -2028,27 +1944,6 @@ async function handleDismissSkillDraft(payload: {
 		setSkillDraftActionState(payload, {
 			busy: false,
 			error: localizedSkillDraftActionError(error, "skillDrafts.dismissError"),
-		});
-	}
-}
-
-async function handlePublishSkillDraft(payload: {
-	messageId: string;
-	draftId: string;
-}) {
-	setSkillDraftActionState(payload, { busy: true, error: null });
-	try {
-		const response = await publishSkillDraftRequest(
-			data.conversation.id,
-			payload.messageId,
-			payload.draftId,
-		);
-		patchSkillDraftFromResponse(payload.messageId, response);
-		setSkillDraftActionState(payload, { busy: false, error: null });
-	} catch (error) {
-		setSkillDraftActionState(payload, {
-			busy: false,
-			error: localizedSkillDraftActionError(error, "skillDrafts.publishError"),
 		});
 	}
 }
@@ -2725,7 +2620,6 @@ function handleDrop(event: DragEvent) {
 						{atlasJobs}
 						{pendingWrites}
 						contextCompressionMarkers={contextCompressionMarkers}
-						hasActiveSkillSession={Boolean(activeSkillSession)}
 						{forkOrigin}
 						{forkOpening}
 						{forkingMessageId}
@@ -2736,11 +2630,9 @@ function handleDrop(event: DragEvent) {
 						onEdit={handleEdit}
 						onFork={handleFork}
 						onSteer={handleSteering}
-						{canPublishSkillDrafts}
 						{skillDraftActionState}
 						onSaveSkillDraft={handleSaveSkillDraft}
 						onDismissSkillDraft={handleDismissSkillDraft}
-						onPublishSkillDraft={handlePublishSkillDraft}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
 						onDismissFileProductionJob={handleDismissFileProductionJob}
@@ -2803,17 +2695,7 @@ function handleDrop(event: DragEvent) {
 				beforeSend={ensureCloudWarningAcked}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
-			>
-				{#if activeSkillSession}
-					<SkillSessionPanel
-						session={activeSkillSession}
-						busy={skillSessionBusy}
-						error={skillSessionError}
-						onFinish={() => endCurrentSkillSession("ended")}
-						onDismiss={() => endCurrentSkillSession("dismissed")}
-					/>
-				{/if}
-			</ChatComposerPanel>
+			/>
 		</div>
 
 		<DocumentWorkspace

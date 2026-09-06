@@ -233,7 +233,6 @@ describe("chat conversation page load", () => {
 			generatedFiles: [],
 			fileProductionJobs: [],
 			contextCompressionSnapshots: [],
-			activeSkillSession: null,
 			totalCostUsdMicros: 0,
 			totalTokens: 0,
 			// Issue 7.5 — defaults to [] when the endpoint has nothing to say

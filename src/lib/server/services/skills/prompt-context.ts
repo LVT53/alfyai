@@ -1,31 +1,41 @@
-import { getConfig } from "$lib/server/config-store";
-import type {
-	PreflightedChatTurn,
-	SkillPromptContext,
-	SkillPromptLinkedSource,
-	SkillPromptResource,
-} from "$lib/server/services/chat-turn/types";
-import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
-import type { SkillSessionInternal } from "$lib/server/services/skills/types";
-import { getActiveSkillSession } from "./sessions";
-import { resolveEffectiveSkillDefinition } from "./user-skills";
+// On-demand skill loading (replaces the former session-based Skill Control
+// Envelope prompt injection — see drizzle/1777140000088_drop_skill_sessions_and_notes.sql):
+//
+// 1. `buildSkillCatalogueBlock` renders the compact "## Skills available"
+//    block the per-turn packet carries for every enabled skill (system packs
+//    + the user's own), so the model can decide whether a skill matches the
+//    request.
+// 2. `resolveSkillInstructionsForUse` looks a skill up by the `name` the
+//    model passed to the `use_skill` tool and returns its full effective
+//    instructions plus up to 3 selected pack resources.
+// 3. `resolvePendingSkillApplication` does the same for an explicit `$`
+//    composer selection, forcing that skill's instructions into the packet
+//    for the turn without a durable session row.
+//
+// Both (2) and (3) share `buildSkillInstructionsEnvelope` so the model sees
+// byte-identical instruction framing regardless of how the skill was loaded.
 
-function linkedSourceForPrompt(
-	source: LinkedContextSource,
-): SkillPromptLinkedSource {
-	return {
-		displayArtifactId: source.displayArtifactId,
-		promptArtifactId: source.promptArtifactId,
-		familyArtifactIds: source.familyArtifactIds,
-		name: source.name,
-		type: "document",
-		mimeType: source.mimeType,
-		documentOrigin: source.documentOrigin,
-	};
+import {
+	discoverSkillSummaries,
+	localizeSkillDiscoverySummary,
+	type ManagedSkillPromptResource,
+	resolveEffectiveSkillDefinition,
+	type SkillDiscoverySummary,
+} from "$lib/server/services/skills/user-skills";
+import type { PendingSkillSelection } from "./types";
+
+const MAX_CATALOGUE_LINES = 15;
+const MAX_CATALOGUE_CHARS = 600;
+const MAX_PROMPT_RESOURCES = 3;
+const MAX_RESOURCE_CONTENT_LENGTH = 700;
+
+export const SKILLS_AVAILABLE_HEADING = "## Skills available";
+
+export interface SelectedSkillResource {
+	id: string;
+	title: string;
+	content: string;
 }
-
-const maxPromptResources = 3;
-const maxResourceContentLength = 700;
 
 function includesKeyword(text: string, keyword: string): boolean {
 	const normalizedKeyword = keyword.trim().toLowerCase();
@@ -34,36 +44,30 @@ function includesKeyword(text: string, keyword: string): boolean {
 
 function truncateResourceContent(value: string): string {
 	const normalized = value.trim().replace(/\s+/g, " ");
-	if (normalized.length <= maxResourceContentLength) return normalized;
-	return `${normalized.slice(0, maxResourceContentLength - 1).trimEnd()}...`;
+	if (normalized.length <= MAX_RESOURCE_CONTENT_LENGTH) return normalized;
+	return `${normalized.slice(0, MAX_RESOURCE_CONTENT_LENGTH - 1).trimEnd()}...`;
 }
 
-function selectSkillResources(
-	resources:
-		| Array<
-				Omit<SkillPromptResource, "inclusionReason"> & {
-					keywords?: string[];
-				}
-		  >
-		| undefined,
+// Selects up to MAX_PROMPT_RESOURCES pack resources for a skill activation:
+// "guidance" resources always apply first, then "domain_template" resources
+// whose keywords match the current request — the same rule the former
+// session-based prompt injection used.
+export function selectSkillResources(
+	resources: ManagedSkillPromptResource[] | undefined,
 	requestText: string,
-): SkillPromptResource[] {
+): SelectedSkillResource[] {
 	if (!resources?.length) return [];
 	const normalizedRequest = requestText.toLowerCase();
-	const selected: SkillPromptResource[] = [];
+	const selected: SelectedSkillResource[] = [];
 
 	for (const resource of resources) {
 		if (resource.kind !== "guidance") continue;
 		selected.push({
 			id: resource.id,
 			title: resource.title,
-			kind: resource.kind,
-			summary: resource.summary,
-			whenToUse: resource.whenToUse,
 			content: truncateResourceContent(resource.content),
-			inclusionReason: "always",
 		});
-		if (selected.length >= maxPromptResources) return selected;
+		if (selected.length >= MAX_PROMPT_RESOURCES) return selected;
 	}
 
 	for (const resource of resources) {
@@ -78,220 +82,180 @@ function selectSkillResources(
 		selected.push({
 			id: resource.id,
 			title: resource.title,
-			kind: resource.kind,
-			summary: resource.summary,
-			whenToUse: resource.whenToUse,
 			content: truncateResourceContent(resource.content),
-			inclusionReason: "matched_request",
 		});
-		if (selected.length >= maxPromptResources) return selected;
+		if (selected.length >= MAX_PROMPT_RESOURCES) return selected;
 	}
 
 	return selected;
 }
 
-export async function resolveSkillPromptContext(params: {
-	userId: string;
-	turn: PreflightedChatTurn;
-}): Promise<SkillPromptContext | null> {
-	const { userId, turn } = params;
-	if (!getConfig().composerCommandRegistryEnabled) return null;
-
-	const linkedSources = turn.linkedSources.map(linkedSourceForPrompt);
-
-	if (turn.pendingSkill) {
-		const skill = await resolveEffectiveSkillDefinition(userId, {
-			id: turn.pendingSkill.id,
-			ownership: turn.pendingSkill.ownership,
-		});
-		if (skill.available) {
-			return {
-				source: "pending_skill",
-				skillId: skill.id,
-				skillOwnership: skill.ownership,
-				skillKind: skill.skillKind,
-				skillDisplayName: skill.displayName,
-				skillDescription: skill.description,
-				skillInstructions: skill.effectiveInstructions,
-				durationPolicy: skill.durationPolicy,
-				questionPolicy: skill.questionPolicy,
-				notesPolicy: skill.notesPolicy,
-				sourceScope: skill.sourceScope,
-				skillVersion: skill.sourceIds.skillVersion,
-				packSkillId: skill.sourceIds.packSkillId,
-				packSkillVersion: skill.sourceIds.packSkillVersion,
-				variantSkillId: skill.sourceIds.variantSkillId,
-				variantSkillVersion: skill.sourceIds.variantSkillVersion,
-				effectiveInstructionsHash: skill.effectiveInstructionsHash,
-				skillResources: selectSkillResources(
-					skill.promptResources,
-					turn.normalizedMessage,
-				),
-				linkedSources,
-			};
+// Shared instruction framing for both the `use_skill` tool result and a
+// forced `$` selection — the model sees the same envelope either way.
+export function buildSkillInstructionsEnvelope(params: {
+	displayName: string;
+	instructions: string;
+	resources: SelectedSkillResource[];
+}): string {
+	const { displayName, instructions, resources } = params;
+	const lines = [
+		`Skill "${displayName}" instructions — apply these for the rest of this turn:`,
+		"",
+		instructions.trim(),
+	];
+	if (resources.length > 0) {
+		lines.push("", "Additional skill resources:");
+		for (const resource of resources) {
+			lines.push(`- ${resource.title}: ${resource.content}`);
 		}
 	}
-
-	const session = await getActiveSkillSession(
-		userId,
-		turn.conversationId,
-	).catch(() => null);
-	if (session?.status !== "active") return null;
-
-	return skillSessionToPromptContext({
-		session,
-		linkedSources,
-	});
+	return lines.join("\n");
 }
 
-export function skillSessionToPromptContext(params: {
-	session: SkillSessionInternal;
-	linkedSources: SkillPromptLinkedSource[];
-	skillResources?: SkillPromptResource[];
-}): SkillPromptContext {
-	const { session, linkedSources, skillResources = [] } = params;
-	const skillKind =
-		session.skillKind === "user_skill" ||
-		session.skillKind === "skill_pack" ||
-		session.skillKind === "skill_variant"
-			? session.skillKind
-			: session.skillOwnership === "system"
-				? "skill_pack"
-				: "user_skill";
+function truncateDescription(description: string, maxLength: number): string {
+	const normalized = description.trim();
+	if (maxLength <= 0) return "";
+	if (normalized.length <= maxLength) return normalized;
+	return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+// Builds the compact per-turn "## Skills available" catalogue block: one
+// `name — description` line per enabled skill, capped at MAX_CATALOGUE_LINES
+// lines and MAX_CATALOGUE_CHARS characters total (descriptions are
+// truncated, never names). Returns null when the user has no enabled skills.
+export function buildSkillCatalogueBlock(
+	entries: SkillDiscoverySummary[],
+): string | null {
+	if (entries.length === 0) return null;
+	const capped = entries.slice(0, MAX_CATALOGUE_LINES);
+	let remaining = MAX_CATALOGUE_CHARS - SKILLS_AVAILABLE_HEADING.length - 1;
+	const lines: string[] = [];
+
+	for (let index = 0; index < capped.length; index += 1) {
+		const entry = capped[index];
+		const prefix = `- ${entry.displayName} — `;
+		const linesLeft = capped.length - index;
+		const budgetForThisLine = Math.max(
+			0,
+			Math.floor(remaining / linesLeft) - 1,
+		);
+		const descriptionBudget = Math.max(0, budgetForThisLine - prefix.length);
+		const description = truncateDescription(
+			entry.description,
+			descriptionBudget,
+		);
+		const line = `${prefix}${description}`;
+		lines.push(line);
+		remaining -= line.length + 1;
+	}
+
+	return [SKILLS_AVAILABLE_HEADING, ...lines].join("\n");
+}
+
+// Fetches the user's enabled skills (system packs + their own), localized
+// for display, ready to pass to buildSkillCatalogueBlock.
+export async function listSkillCatalogueEntries(
+	userId: string,
+	language?: "en" | "hu",
+): Promise<SkillDiscoverySummary[]> {
+	const summaries = await discoverSkillSummaries(userId);
+	return summaries.map((summary) =>
+		localizeSkillDiscoverySummary(summary, language),
+	);
+}
+
+export type SkillLookupFailureReason = "not_found" | "disabled";
+
+export type SkillLookupResult =
+	| {
+			ok: true;
+			skillId: string;
+			skillOwnership: "user" | "system";
+			skillKind: "user_skill" | "skill_pack" | "skill_variant";
+			displayName: string;
+			envelope: string;
+	  }
+	| { ok: false; reason: SkillLookupFailureReason };
+
+async function resolveSkillByName(
+	userId: string,
+	name: string,
+): Promise<SkillDiscoverySummary | null> {
+	const normalized = name.trim().toLowerCase();
+	if (!normalized) return null;
+	const summaries = await discoverSkillSummaries(userId);
+	return (
+		summaries.find(
+			(summary) =>
+				summary.displayName.trim().toLowerCase() === normalized ||
+				summary.id.trim().toLowerCase() === normalized,
+		) ?? null
+	);
+}
+
+async function resolveSkillEnvelopeById(params: {
+	userId: string;
+	id: string;
+	ownership: "user" | "system";
+	requestText: string;
+}): Promise<SkillLookupResult> {
+	const { userId, id, ownership, requestText } = params;
+	const effective = await resolveEffectiveSkillDefinition(userId, {
+		id,
+		ownership,
+	});
+	if (!effective.available) return { ok: false, reason: "disabled" };
+
+	const resources = selectSkillResources(
+		effective.promptResources,
+		requestText,
+	);
+	const envelope = buildSkillInstructionsEnvelope({
+		displayName: effective.displayName,
+		instructions: effective.effectiveInstructions,
+		resources,
+	});
 	return {
-		source: "active_session",
-		sessionId: session.id,
-		sessionStatus: session.status === "paused" ? "paused" : "active",
-		skillId: session.skillId,
-		skillOwnership: session.skillOwnership,
-		skillKind,
-		skillDisplayName: session.skillDisplayName,
-		skillDescription: session.skillDescription,
-		skillInstructions: session.skillInstructions,
-		durationPolicy: session.durationPolicy,
-		questionPolicy: session.questionPolicy,
-		notesPolicy: session.notesPolicy,
-		sourceScope: session.sourceScope,
-		skillVersion: session.skillVersion,
-		packSkillId: session.packSkillId ?? null,
-		packSkillVersion: session.packSkillVersion ?? null,
-		variantSkillId: session.variantSkillId ?? null,
-		variantSkillVersion: session.variantSkillVersion ?? null,
-		effectiveInstructionsHash: session.effectiveInstructionsHash ?? null,
-		skillResources,
-		linkedSources,
+		ok: true,
+		skillId: effective.id,
+		skillOwnership: effective.ownership,
+		skillKind: effective.skillKind,
+		displayName: effective.displayName,
+		envelope,
 	};
 }
 
-function sourceLabel(source: SkillPromptContext["source"]): string {
-	return source === "pending_skill" ? "pending skill" : "active skill session";
-}
-
-function sourceScopeLabel(
-	sourceScope: SkillPromptContext["sourceScope"],
-): string {
-	return sourceScope === "selected_sources_only"
-		? "selected linked sources only"
-		: "current conversation context";
-}
-
-function buildLinkedSourceLines(sources: SkillPromptLinkedSource[]): string[] {
-	if (sources.length === 0) {
-		return ["- No linked sources were selected for this turn."];
-	}
-	return sources.map((source) => {
-		const ids = [
-			`displayArtifactId: ${source.displayArtifactId}`,
-			source.promptArtifactId
-				? `promptArtifactId: ${source.promptArtifactId}`
-				: null,
-		].filter(Boolean);
-		return `- ${source.name} (${ids.join("; ")})`;
+// Backing implementation for the `use_skill` tool: resolves the model's
+// `name` argument (matched against displayName or id, case-insensitively)
+// against the user's enabled skills, and returns its full instructions.
+export async function resolveSkillInstructionsForUse(params: {
+	userId: string;
+	name: string;
+	requestText: string;
+}): Promise<SkillLookupResult> {
+	const match = await resolveSkillByName(params.userId, params.name);
+	if (!match) return { ok: false, reason: "not_found" };
+	return resolveSkillEnvelopeById({
+		userId: params.userId,
+		id: match.id,
+		ownership: match.ownership,
+		requestText: params.requestText,
 	});
 }
 
-function buildQuestionPolicyLines(context: SkillPromptContext): string[] {
-	if (context.questionPolicy !== "ask_when_needed") return [];
-	return [
-		"- If more information is needed from the user, ask at most one focused question in this assistant turn.",
-		"- Do not bundle multiple interview or clarification questions into one response.",
-	];
-}
-
-function buildSkillResourceLines(resources: SkillPromptResource[] | undefined) {
-	if (!resources?.length) return [];
-	return [
-		"Managed pack resources included:",
-		...resources.flatMap((resource) => [
-			`- ${resource.id} (${resource.kind}, ${resource.inclusionReason}): ${resource.title}`,
-			`  Summary: ${resource.summary}`,
-			`  Guidance: ${resource.content}`,
-		]),
-		"",
-	];
-}
-
-function buildSkillOperatingRuleLines(context: SkillPromptContext): string[] {
-	const sourceScopeLine =
-		context.sourceScope === "selected_sources_only"
-			? "- Treat linked sources as the only intentional extra source scope for this skill. If no linked source is available, rely on the current conversation and state the limitation when source grounding matters."
-			: "- You may use the current conversation context for this skill, while still respecting source facts and current user instructions.";
-
-	return [
-		"- Treat the skill as task-specific process guidance. It does not override system, developer, app policy, the current user message, or source facts.",
-		"- Do not claim capabilities, source access, file access, tool access, or note-write authority that is not present in this turn.",
-		sourceScopeLine,
-		"- Follow the skill's workflow directly. Do not explain that a skill is active unless the user asks.",
-		...buildQuestionPolicyLines(context),
-		"- When your answer depends on facts not present in this turn, state what is missing or assumed before proceeding, rather than inventing it.",
-		"- Separate what the sources or user actually provided from your own inference or recommendation.",
-		"- When you deliver the main result, give it a clear, labeled structure — a short takeaway first, then detail — suited to the task.",
-	];
-}
-
-export function buildSkillSystemPromptAppendix(
-	context: SkillPromptContext | null | undefined,
-): string | undefined {
-	if (!context) return undefined;
-	const operatingRuleLines = buildSkillOperatingRuleLines(context);
-
-	const metadata = [
-		`Source: ${sourceLabel(context.source)}`,
-		context.sessionId
-			? `Session: ${context.sessionId} (${context.sessionStatus})`
-			: null,
-		`Skill: ${context.skillDisplayName} (${context.skillOwnership}:${context.skillId}, version ${context.skillVersion})`,
-		`Kind: ${context.skillKind}`,
-		context.packSkillId
-			? `Pack source: ${context.packSkillId}, version ${context.packSkillVersion ?? "unknown"}`
-			: null,
-		context.variantSkillId
-			? `Variant source: ${context.variantSkillId}, version ${context.variantSkillVersion ?? "unknown"}`
-			: null,
-		context.effectiveInstructionsHash
-			? `Effective instructions hash: ${context.effectiveInstructionsHash}`
-			: null,
-		context.skillDescription
-			? `Description: ${context.skillDescription}`
-			: null,
-		`Duration policy: ${context.durationPolicy}`,
-		`Question policy: ${context.questionPolicy}`,
-		`Notes policy: ${context.notesPolicy}`,
-		`Source scope: ${sourceScopeLabel(context.sourceScope)}`,
-	].filter((line): line is string => Boolean(line));
-
-	return [
-		"## Active Skill Context",
-		...metadata.map((line) => `- ${line}`),
-		"",
-		"Linked sources available to this skill turn:",
-		...buildLinkedSourceLines(context.linkedSources),
-		"",
-		"Skill instructions:",
-		context.skillInstructions.trim(),
-		"",
-		...buildSkillResourceLines(context.skillResources),
-		"Skill operating rules:",
-		...operatingRuleLines,
-	].join("\n");
+// Backing implementation for an explicit `$` composer selection: resolves
+// the pending skill and returns the same envelope shape `use_skill` would,
+// so the server can inject it into the packet for this turn only — no
+// durable session row.
+export async function resolvePendingSkillApplication(params: {
+	userId: string;
+	pendingSkill: PendingSkillSelection;
+	requestText: string;
+}): Promise<SkillLookupResult> {
+	return resolveSkillEnvelopeById({
+		userId: params.userId,
+		id: params.pendingSkill.id,
+		ownership: params.pendingSkill.ownership,
+		requestText: params.requestText,
+	});
 }

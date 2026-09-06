@@ -30,6 +30,10 @@ import {
 	createNormalChatTools,
 	createToolCallRecorder,
 } from "$lib/server/services/normal-chat-tools";
+import {
+	buildSkillCatalogueBlock,
+	listSkillCatalogueEntries,
+} from "$lib/server/services/skills/prompt-context";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { estimateHistoryMessagesTokens } from "./conversation-history";
 
@@ -150,6 +154,11 @@ export type NormalChatSendModelBaseParams = {
 	activeDocumentArtifactId?: string;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
+	// An explicit `$` composer selection's full instructions, resolved during
+	// preflight (see chat-turn/types.ts's AppliedSkillContext) and forced into
+	// this turn's packet only — no durable session row. See
+	// normal-chat-context.ts's buildTurnGuidance.
+	pendingSkillInstructions?: string | null;
 	// Messages appended after the current user turn (a non-streaming
 	// continuation replays the interrupted attempt's tool calls/results here).
 	continuationMessages?: ModelMessage[];
@@ -267,6 +276,27 @@ export function resolveActiveDepthEffort(
 	return depthEffort;
 }
 
+// On-demand skill loading's per-turn catalogue line: resolved here (not as a
+// context-preparation pipeline stage) because it only needs the userId and
+// response language already available to every caller of
+// prepareOutboundContext. Fails open (no catalogue) on any lookup error, same
+// posture as every other best-effort context addition in this file.
+async function resolveSkillCatalogueBlock(
+	userId: string | undefined,
+	message: string,
+): Promise<string | null> {
+	if (!userId || !getConfig().composerCommandRegistryEnabled) return null;
+	try {
+		const entries = await listSkillCatalogueEntries(
+			userId,
+			detectLanguage(message),
+		);
+		return buildSkillCatalogueBlock(entries);
+	} catch {
+		return null;
+	}
+}
+
 export async function prepareOutboundContext(
 	params: NormalChatSendModelBaseParams,
 	runtime: ProviderRuntime,
@@ -274,6 +304,10 @@ export async function prepareOutboundContext(
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
 ): Promise<PreparedModelContext> {
+	const skillCatalogueBlock = await resolveSkillCatalogueBlock(
+		params.userId,
+		params.message,
+	);
 	// The model's configured max output tokens and context limits are passed
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
@@ -300,6 +334,8 @@ export async function prepareOutboundContext(
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
+		skillCatalogueBlock,
+		pendingSkillInstructions: params.pendingSkillInstructions,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,
@@ -335,6 +371,7 @@ export async function createToolPack(
 		userId: params.userId,
 		conversationId: params.conversationId,
 		turnId,
+		requestText: params.message,
 		language: detectLanguage(params.message),
 		enabledConnectionCapabilities,
 		modelId,

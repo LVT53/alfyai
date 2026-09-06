@@ -193,34 +193,9 @@ describe("MessageArea", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("adds the measured active skill session height to scroll clearance", () => {
-		const message: ChatMessage = {
-			id: "assistant-1",
-			role: "assistant",
-			content: "Ready.",
-			timestamp: Date.now(),
-		};
-
-		const { container } = render(MessageArea, {
-			messages: [message],
-			conversationId: "conv-1",
-			isThinkingActive: false,
-			contextDebug: null,
-			hasActiveSkillSession: true,
-			activeSkillSessionHeight: 84,
-		});
-
-		const clearance = container.querySelector(".scroll-clearance");
-		expect(clearance).toHaveClass("scroll-clearance-active-skill");
-		expect(clearance).toHaveStyle({
-			"--active-skill-session-height": "84px",
-		});
-	});
-
 	it("forwards assistant Skill Draft card actions with message and draft ids", async () => {
 		const onSaveSkillDraft = vi.fn();
 		const onDismissSkillDraft = vi.fn();
-		const onPublishSkillDraft = vi.fn();
 		const message: ChatMessage = {
 			id: "assistant-1",
 			role: "assistant",
@@ -247,25 +222,18 @@ describe("MessageArea", () => {
 			conversationId: "conv-1",
 			isThinkingActive: false,
 			contextDebug: null,
-			canPublishSkillDrafts: true,
 			onSaveSkillDraft,
 			onDismissSkillDraft,
-			onPublishSkillDraft,
 		});
 
 		await fireEvent.click(getByRole("button", { name: "Save private skill" }));
 		await fireEvent.click(getByRole("button", { name: "Dismiss draft" }));
-		await fireEvent.click(getByRole("button", { name: "Publish skill" }));
 
 		expect(onSaveSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});
 		expect(onDismissSkillDraft).toHaveBeenCalledWith({
-			messageId: "assistant-1",
-			draftId: "draft-1",
-		});
-		expect(onPublishSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});

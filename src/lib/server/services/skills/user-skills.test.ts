@@ -187,12 +187,12 @@ describe("user skill definitions", () => {
 		expect(spreadsheetBuilder).toMatchObject({
 			displayName: "Spreadsheet Builder",
 			description:
-				"Creates polished XLSX workbooks with formulas, tables, assumptions, dashboards, and AlfyAI file-production delivery.",
+				"Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.",
 			localizedDefaults: {
 				hu: {
 					displayName: "Táblázatkészítő",
 					description:
-						"Átgondolt XLSX munkafüzeteket készít képletekkel, táblákkal, feltételezésekkel, irányítópultokkal és AlfyAI fájl-előállítással.",
+						"Átgondolt XLSX munkafüzeteket készít valódi képletekkel, formázott táblákkal és irányítópultokkal, letölthető fájlként.",
 				},
 			},
 			managedResources: expect.arrayContaining([
@@ -259,7 +259,7 @@ describe("user skill definitions", () => {
 		).toMatchObject({
 			displayName: "Dokumentummagyarázó",
 			description:
-				"Kijelölt dokumentumokat magyaráz el érthetően, a forrástényeket, fenntartásokat és szerkezetet megőrizve.",
+				"Érthetően elmagyaráz egy csatolt vagy hivatkozott dokumentumot, megőrizve a pontos számokat, dátumokat és fenntartásokat — ha linket kapsz, előbb lekéri azt.",
 		});
 		const spreadsheetSummary = summaries.find(
 			(skill) => skill.id === "system:spreadsheet-builder",
@@ -270,7 +270,7 @@ describe("user skill definitions", () => {
 		expect(localizeSystemSkillSummary(spreadsheetSummary, "hu")).toMatchObject({
 			displayName: "Táblázatkészítő",
 			description:
-				"Átgondolt XLSX munkafüzeteket készít képletekkel, táblákkal, feltételezésekkel, irányítópultokkal és AlfyAI fájl-előállítással.",
+				"Átgondolt XLSX munkafüzeteket készít valódi képletekkel, formázott táblákkal és irányítópultokkal, letölthető fájlként.",
 		});
 		const planCriticSummary = summaries.find(
 			(skill) => skill.id === "system:grill-with-docs",
@@ -441,7 +441,7 @@ describe("user skill definitions", () => {
 		expect(planCritic).toMatchObject({
 			displayName: "Plan Critic",
 			description:
-				"Stress-tests plans against selected sources, product language, constraints, and implementation reality.",
+				"Finds the blockers, weak assumptions, and gaps in a plan before you execute it, ranked by severity.",
 			instructions: "Admin-edited critic instructions.",
 			activationExamples: [
 				"criticize this plan",
@@ -455,7 +455,7 @@ describe("user skill definitions", () => {
 			getSystemSkillDefinition("system:purchase-helper"),
 		).resolves.toMatchObject({
 			description:
-				"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+				"Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.",
 			activationExamples: [
 				"help me choose what to buy",
 				"compare these options",
@@ -486,7 +486,7 @@ describe("user skill definitions", () => {
 		);
 		expect(seededPurchaseHelper).toMatchObject({
 			description:
-				"Compares buying options against user needs, constraints, tradeoffs, risks, and current evidence.",
+				"Compares purchase options against your real constraints and current prices — researches the web for specs and reviews before recommending.",
 			activationExamples: [
 				"help me choose what to buy",
 				"compare these options",
@@ -495,11 +495,9 @@ describe("user skill definitions", () => {
 			],
 		});
 		expect(seededPurchaseHelper?.instructions).toContain(
-			"not a generic best-product ranking",
+			"not a generic best-of list",
 		);
-		expect(seededPurchaseHelper?.instructions).toContain(
-			"Treat prices, availability, laws, insurance terms, and product specifications as freshness-sensitive.",
-		);
+		expect(seededPurchaseHelper?.instructions).toContain("research_web");
 
 		await updateSystemSkillDefinition("system:document-explainer", {
 			instructions: "Admin-customized document instructions.",
@@ -589,14 +587,10 @@ describe("user skill definitions", () => {
 			"program: {",
 			"sourceCode",
 			"filename",
-			"idempotencyKey",
-			"requestTitle",
-			"documentIntent",
 			"exceljs",
 			"/output",
 			'workbook.xlsx.writeFile("/output/<name>.xlsx")',
 			"workbook.calcProperties.fullCalcOnLoad = true",
-			"chart-ready helper tables",
 		]) {
 			expect(contractText).toContain(required);
 		}
@@ -1444,7 +1438,7 @@ describe("user skill definitions", () => {
 		);
 	});
 
-	it("leaves translate-rewrite and study-coach instructions unchanged", async () => {
+	it("returns the current built-in translate-rewrite and study-coach instructions verbatim", async () => {
 		seedUsers();
 		const { getBuiltInSystemSkillEnInstructions } = await import(
 			"./user-skills"
@@ -1454,23 +1448,21 @@ describe("user skill definitions", () => {
 			getBuiltInSystemSkillEnInstructions("system:translate-rewrite"),
 		).toBe(
 			[
-				"Transform the user's text while preserving meaning, intent, facts, and audience fit.",
-				"Before changing ambiguous meaning, ask a focused question or provide the safest version with a brief note about the ambiguity.",
-				"Keep terminology, names, dates, numbers, and formatting-sensitive details consistent unless the user asks to change them.",
-				"For translation, prefer natural target-language phrasing over word-for-word literalism, while preserving register and nuance.",
-				"For rewriting, match the requested tone and medium. Remove clutter, improve structure, and keep the user's voice where possible.",
-				"Usually provide the revised text first. Add a short explanation only when changes are material or the user asked for reasoning.",
+				"Translate or rewrite the user's text while preserving meaning, intent, and audience fit. Keep names, dates, numbers, and formatting-sensitive details identical unless asked to change them.",
+				"For translation, prefer natural target-language phrasing over literal word-for-word conversion, while preserving register and nuance.",
+				"For rewriting, match the requested tone and medium exactly; remove clutter and improve structure while keeping the user's voice.",
+				"Output: the revised text first, as a single block ready to copy — then, only if changes are material or the user asked for reasoning, a short explanation below it.",
+				"Before changing an ambiguous meaning, either ask one focused question or provide the safest reading with a one-line note on the ambiguity — never silently guess on something that changes the meaning.",
 			].join("\n"),
 		);
 
 		expect(getBuiltInSystemSkillEnInstructions("system:study-coach")).toBe(
 			[
-				"Coach the user through active learning rather than only summarizing material.",
-				"Break the topic into learnable chunks, identify prerequisites, and explain the first chunk before moving deeper.",
-				"Use retrieval practice: ask one short check-for-understanding question when useful, then adapt based on the user's answer.",
-				"Correct misunderstandings directly and kindly. Explain why the correction matters, not just what the right answer is.",
-				"Use examples, contrasts, and small exercises. Prefer concrete practice over abstract encouragement.",
-				"End with practical next study steps, spaced repetition prompts, or a small self-test when appropriate.",
+				"Coach the user through active learning instead of only summarizing material. Break the topic into learnable chunks, name prerequisites, and explain the first chunk before going deeper — never dump the whole topic at once.",
+				"After each chunk, ask one short check-for-understanding question, then adapt based on their answer: correct misunderstandings directly and explain why, don't just restate the right answer.",
+				"Use concrete examples, contrasts, and small exercises over abstract encouragement.",
+				'Output: end each response with a short "what\'s next" — a spaced-repetition prompt, a practice exercise, or the next chunk name — so the user always knows the next step.',
+				"Keep individual responses short enough to invite a reply, not a monologue.",
 			].join("\n"),
 		);
 	});

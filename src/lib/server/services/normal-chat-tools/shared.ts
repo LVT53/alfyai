@@ -221,6 +221,7 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	repos: 20_000,
 	tasks: 20_000,
 	map_route: 20_000,
+	use_skill: 10_000,
 };
 
 export async function withTimeout<T>(

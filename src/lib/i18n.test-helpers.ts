@@ -21,7 +21,6 @@ const AUDITED_PREFIXES = [
 	"fork.",
 	"pendingSkill.",
 	"skillDrafts.",
-	"skillSessions.",
 	"skills.",
 	"sourceManager.",
 	"toolCalls.",

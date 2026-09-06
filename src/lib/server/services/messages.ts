@@ -49,8 +49,8 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// off this parsed object (see projectMessageMetadata below, which uses
 	// `parseThoughtSteps` against the raw `metadataJson` string so malformed
 	// JSON degrades to `[]` rather than throwing here) — declared on this
-	// type only so it round-trips through `compactPersistedMessageMetadata`
-	// like every other metadata field.
+	// type only so it round-trips through the persisted metadataJson like
+	// every other metadata field.
 	thoughtSteps?: InterimThoughtStep[];
 	// A1 (owner idea) — the durable, LLM-summarized jump-rail headline for this
 	// assistant turn (see `railSummary` on ChatMessage). Written back
@@ -229,8 +229,6 @@ function projectMessageMetadata(
 	| "wasStopped"
 	| "completionWarningCodes"
 	| "depthMetadata"
-	| "skillQuestion"
-	| "pendingSkillNoteIntents"
 	| "skillDrafts"
 	| "skillControl"
 	| "forkCopy"
@@ -261,8 +259,6 @@ function projectMessageMetadata(
 			? metadata.completionWarningCodes
 			: undefined,
 		depthMetadata: readDepthMetadataFromMetadata(metadata),
-		skillQuestion: metadata?.skillQuestion || undefined,
-		pendingSkillNoteIntents: metadata?.pendingSkillNoteIntents,
 		skillDrafts: Array.isArray(metadata?.skillDrafts)
 			? metadata.skillDrafts
 			: undefined,
@@ -323,52 +319,6 @@ function parseMetadata(value: string | null): PersistedMessageMetadata | null {
 	} catch {
 		return null;
 	}
-}
-
-function compactSkillNoteOperationForMetadata(
-	operation: NonNullable<
-		SkillControlMessageMetadata["pendingSkillNoteIntents"]
-	>[number],
-): Record<string, unknown> {
-	const bodyLength = operation.body.length;
-	if (operation.action === "create") {
-		return {
-			operationId: operation.operationId,
-			kind: operation.kind,
-			action: operation.action,
-			title: operation.title,
-			bodyLength,
-		};
-	}
-	return {
-		operationId: operation.operationId,
-		kind: operation.kind,
-		action: operation.action,
-		targetArtifactId: operation.targetArtifactId,
-		bodyLength,
-	};
-}
-
-function compactPersistedMessageMetadata(
-	metadata: PersistedMessageMetadata,
-): PersistedMessageMetadata {
-	const next: Record<string, unknown> = { ...metadata };
-	if (Array.isArray(metadata.pendingSkillNoteIntents)) {
-		next.pendingSkillNoteIntents = metadata.pendingSkillNoteIntents.map(
-			compactSkillNoteOperationForMetadata,
-		);
-	}
-	if (metadata.skillControl?.operations) {
-		next.skillControl = {
-			...metadata.skillControl,
-			operations: metadata.skillControl.operations.map((operation) =>
-				operation.kind === "note_intent"
-					? compactSkillNoteOperationForMetadata(operation)
-					: operation,
-			),
-		};
-	}
-	return next as PersistedMessageMetadata;
 }
 
 function messageWindowBaseQuery(conversationId: string) {
@@ -639,9 +589,7 @@ export async function createMessage(
 					thinkingSegments && thinkingSegments.length > 0
 						? JSON.stringify(thinkingSegments)
 						: null,
-				metadataJson: metadata
-					? JSON.stringify(compactPersistedMessageMetadata(metadata))
-					: null,
+				metadataJson: metadata ? JSON.stringify(metadata) : null,
 			})
 			.returning()
 			.get();

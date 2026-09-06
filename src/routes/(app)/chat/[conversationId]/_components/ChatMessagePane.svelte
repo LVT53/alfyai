@@ -25,7 +25,6 @@ let {
 	atlasJobs = [],
 	pendingWrites = [],
 	contextCompressionMarkers = [],
-	hasActiveSkillSession = false,
 	forkOrigin = null,
 	forkOpening = false,
 	forkingMessageId = null,
@@ -36,11 +35,9 @@ let {
 	onEdit,
 	onFork,
 	onSteer,
-	canPublishSkillDrafts = false,
 	skillDraftActionState = {},
 	onSaveSkillDraft,
 	onDismissSkillDraft,
-	onPublishSkillDraft,
 	onRetryFileProductionJob,
 	onCancelFileProductionJob,
 	onDismissFileProductionJob,
@@ -59,7 +56,6 @@ let {
 	atlasJobs?: AtlasJobCard[];
 	pendingWrites?: PendingWrite[];
 	contextCompressionMarkers?: ContextCompressionMarker[];
-	hasActiveSkillSession?: boolean;
 	forkOrigin?: ConversationForkOrigin | null;
 	forkOpening?: boolean;
 	forkingMessageId?: string | null;
@@ -70,7 +66,6 @@ let {
 	onEdit: (payload: MessageEditPayload) => void;
 	onFork?: (payload: { messageId: string }) => void | Promise<void>;
 	onSteer: (payload: TaskSteeringPayload) => void | Promise<void>;
-	canPublishSkillDrafts?: boolean;
 	skillDraftActionState?: Record<
 		string,
 		{ busy?: boolean; error?: string | null }
@@ -80,10 +75,6 @@ let {
 		draftId: string;
 	}) => void | Promise<void>;
 	onDismissSkillDraft?: (payload: {
-		messageId: string;
-		draftId: string;
-	}) => void | Promise<void>;
-	onPublishSkillDraft?: (payload: {
 		messageId: string;
 		draftId: string;
 	}) => void | Promise<void>;
@@ -119,7 +110,6 @@ let {
 		{atlasJobs}
 		{pendingWrites}
 		{contextCompressionMarkers}
-		{hasActiveSkillSession}
 		{forkOrigin}
 		{forkingMessageId}
 		{readOnly}
@@ -129,11 +119,9 @@ let {
 		{onEdit}
 		{onFork}
 		{onSteer}
-		{canPublishSkillDrafts}
 		{skillDraftActionState}
 		{onSaveSkillDraft}
 		{onDismissSkillDraft}
-		{onPublishSkillDraft}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
 		{onDismissFileProductionJob}

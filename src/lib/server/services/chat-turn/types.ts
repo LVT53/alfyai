@@ -72,53 +72,22 @@ export type ParsedChatTurnRequest = {
 	clientAtlasTurnId: string | null;
 };
 
-export interface SkillPromptLinkedSource {
-	displayArtifactId: string;
-	promptArtifactId: string | null;
-	familyArtifactIds: string[];
-	name: string;
-	type: "document";
-	mimeType?: string | null;
-	documentOrigin?: LinkedContextSource["documentOrigin"];
-}
-
-export interface SkillPromptResource {
-	id: string;
-	title: string;
-	kind: "guidance" | "domain_template";
-	summary: string;
-	whenToUse: string;
-	content: string;
-	inclusionReason: "always" | "matched_request";
-}
-
-export interface SkillPromptContext {
-	source: "pending_skill" | "active_session";
-	sessionId?: string;
-	sessionStatus?: "active" | "paused";
+// An explicit `$` composer selection, resolved and forced into this turn's
+// packet (see skills/prompt-context.ts's resolvePendingSkillApplication) —
+// no durable session row. `instructionsEnvelope` is the exact text injected
+// into the packet, byte-identical to what the `use_skill` tool would return
+// for the same skill.
+export interface AppliedSkillContext {
 	skillId: string;
 	skillOwnership: "user" | "system";
 	skillKind: "user_skill" | "skill_pack" | "skill_variant";
 	skillDisplayName: string;
-	skillDescription: string;
-	skillInstructions: string;
-	durationPolicy: "next_message" | "session";
-	questionPolicy: "none" | "ask_when_needed";
-	notesPolicy: "none" | "create_private_notes";
-	sourceScope: "current_conversation" | "selected_sources_only";
-	skillVersion: number;
-	packSkillId?: string | null;
-	packSkillVersion?: number | null;
-	variantSkillId?: string | null;
-	variantSkillVersion?: number | null;
-	effectiveInstructionsHash?: string | null;
-	skillResources?: SkillPromptResource[];
-	linkedSources: SkillPromptLinkedSource[];
+	instructionsEnvelope: string;
 }
 
 export type PreflightedChatTurn = ParsedChatTurnRequest & {
 	depthMetadata: DepthMetadata;
-	skillPromptContext?: SkillPromptContext | null;
+	appliedSkill?: AppliedSkillContext | null;
 };
 
 declare const admittedChatTurnBrand: unique symbol;

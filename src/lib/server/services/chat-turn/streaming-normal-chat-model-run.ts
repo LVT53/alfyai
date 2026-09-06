@@ -48,6 +48,7 @@ export type StreamingNormalChatSendModelParams = {
 	activeDocumentArtifactId?: string;
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
+	pendingSkillInstructions?: string | null;
 	personalityPrompt?: string;
 	thinkingMode?: ThinkingMode;
 	depthMetadata?: DepthMetadata;

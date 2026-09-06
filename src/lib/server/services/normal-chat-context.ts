@@ -508,6 +508,17 @@ export function buildTurnGuidance(params: {
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	skipDefaultRuntimeGuidance?: boolean;
 	forceWebSearch?: boolean;
+	// The compact "## Skills available" catalogue line for every skill
+	// enabled for this user (system packs + their own) — one line per skill,
+	// so the model can call `use_skill` when the request matches one. Varies
+	// per user/turn, so it belongs here, not in the (byte-identical) system
+	// prompt. See skills/prompt-context.ts's buildSkillCatalogueBlock.
+	skillCatalogueBlock?: string | null;
+	// An explicit `$` composer selection's full instructions, forced into
+	// this turn only (see chat-turn/types.ts's AppliedSkillContext) — the
+	// exact same envelope text the `use_skill` tool would return for the
+	// same skill.
+	pendingSkillInstructions?: string | null;
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const todayStr = new Date().toLocaleDateString("en-US", {
@@ -526,6 +537,12 @@ export function buildTurnGuidance(params: {
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
 			: []),
 		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
+		...(params.skillCatalogueBlock?.trim()
+			? [params.skillCatalogueBlock.trim()]
+			: []),
+		...(params.pendingSkillInstructions?.trim()
+			? [params.pendingSkillInstructions.trim()]
+			: []),
 	];
 	return `${TURN_GUIDANCE_HEADING}\n${sections.join("\n\n")}`;
 }
@@ -1458,6 +1475,16 @@ type PrepareOutboundChatContextParams = {
 	// How prior-turn tool activity is replayed in the history (provider
 	// capability, resolved by the caller). Defaults to native.
 	historyToolMessages?: "native" | "flatten";
+	// On-demand skill loading (replaces the former session-based Skill
+	// Control Envelope system-prompt appendix): the compact per-user "##
+	// Skills available" catalogue line (resolved by the caller from
+	// skills/prompt-context.ts's buildSkillCatalogueBlock, since it needs an
+	// async DB read) and, for an explicit `$` composer selection, that
+	// skill's full instructions forced into this turn's packet. Both ride
+	// buildTurnGuidance (the user packet), never the system prompt, so the
+	// system message plus tool catalogue stays a stable, cacheable prefix.
+	skillCatalogueBlock?: string | null;
+	pendingSkillInstructions?: string | null;
 	logLabel: string;
 };
 
@@ -1855,6 +1882,8 @@ export async function prepareOutboundChatContext(
 			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 			forceWebSearch: params.forceWebSearch,
+			skillCatalogueBlock: params.skillCatalogueBlock,
+			pendingSkillInstructions: params.pendingSkillInstructions,
 		}),
 		historyMessages: state.historyMessages ?? [],
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),

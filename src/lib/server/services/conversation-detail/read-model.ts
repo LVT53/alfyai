@@ -30,10 +30,6 @@ import {
 } from "$lib/server/services/messages";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
-	getActiveSkillSession,
-	serializePublicSkillSession,
-} from "$lib/server/services/skills/sessions";
-import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
@@ -97,10 +93,6 @@ export async function getConversationDetail({
 		const draft = await getConversationDraft(userId, conversationId).catch(
 			() => null,
 		);
-		const activeSkillSession = await getActiveSkillSession(
-			userId,
-			conversationId,
-		).catch(() => null);
 		const forkOrigin = await getConversationForkOrigin(conversationId).catch(
 			() => null,
 		);
@@ -119,7 +111,6 @@ export async function getConversationDetail({
 			atlasJobs: [],
 			atlasAvailability,
 			contextCompressionSnapshots: [],
-			activeSkillSession: serializePublicSkillSession(activeSkillSession),
 			bootstrap: true,
 			sidecarPending: false,
 			hasMoreMessages: false,
@@ -142,7 +133,6 @@ export async function getConversationDetail({
 		contextCompressionSnapshots,
 		costSummary,
 		projectReference,
-		activeSkillSession,
 	] = await Promise.all([
 		listMessageWindow(conversationId, { limit: messageWindowLimit }),
 		getConversationForkOrigin(conversationId),
@@ -163,7 +153,6 @@ export async function getConversationDetail({
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
 		getProjectReferenceContext({ userId, conversationId }).catch(() => null),
-		getActiveSkillSession(userId, conversationId).catch(() => null),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
 		userId,
@@ -201,7 +190,6 @@ export async function getConversationDetail({
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),
-		activeSkillSession: serializePublicSkillSession(activeSkillSession),
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,

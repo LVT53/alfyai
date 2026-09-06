@@ -51,14 +51,13 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText } from "ai";
 // Import our application modules (now safe - env vars are already set and directory exists).
 import { ALFYAI_NEMOTRON_PROMPT, getSystemPrompt } from "$lib/server/prompts";
-import type { SkillPromptContext } from "$lib/server/services/chat-turn/types";
 import { listEnabledProviderModels } from "$lib/server/services/provider-models";
 import {
 	decryptApiKey,
 	getProvider,
 	getProviderWithSecrets,
 } from "$lib/server/services/providers";
-import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
+import { buildSkillInstructionsEnvelope } from "$lib/server/services/skills/prompt-context";
 import {
 	type SkillEvalFixture,
 	type SkillEvalPack,
@@ -254,43 +253,21 @@ function createDeepSeekModel(slot: ResolvedModelSlot) {
 	return provider.languageModel(slot.modelName);
 }
 
-// --- Minimal SkillPromptContext construction --------------------------------
-
-function minimalContext(params: {
-	skillId: string;
-	displayName: string;
-	instructions: string;
-}): SkillPromptContext {
-	return {
-		source: "pending_skill",
-		skillId: params.skillId,
-		skillOwnership: "system",
-		skillKind: "skill_pack",
-		skillDisplayName: params.displayName,
-		skillDescription: params.displayName,
-		skillInstructions: params.instructions,
-		durationPolicy: "session",
-		questionPolicy: "ask_when_needed",
-		notesPolicy: "none",
-		sourceScope: "current_conversation",
-		skillVersion: 1,
-		linkedSources: [],
-	};
-}
+// --- On-demand skill envelope (mirrors what use_skill / a forced `$`
+// selection would inject into the per-turn packet — see
+// skills/prompt-context.ts's buildSkillInstructionsEnvelope) --------------
 
 function buildSystemPrompt(
 	instructions: string,
 	pack: { skillId: string; displayName: string },
 ): string {
 	const base = getSystemPrompt("alfyai-nemotron") || ALFYAI_NEMOTRON_PROMPT;
-	const appendix = buildSkillSystemPromptAppendix(
-		minimalContext({
-			skillId: pack.skillId,
-			displayName: pack.displayName,
-			instructions,
-		}),
-	);
-	return appendix ? `${base}\n\n${appendix}` : base;
+	const envelope = buildSkillInstructionsEnvelope({
+		displayName: pack.displayName,
+		instructions,
+		resources: [],
+	});
+	return `${base}\n\n${envelope}`;
 }
 
 function buildUserMessage(fixture: SkillEvalFixture): string {
@@ -676,7 +653,6 @@ export {
 	buildUserMessage,
 	hitRate,
 	judgeAfterWinCount,
-	minimalContext,
 	parseCliArgs,
 	renderMarkdownReport,
 	resolveDeepSeekModelSlot,

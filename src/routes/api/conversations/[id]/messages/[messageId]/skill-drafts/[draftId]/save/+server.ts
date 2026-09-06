@@ -103,7 +103,9 @@ export const POST: RequestHandler = async (event) => {
 			description: draft.description,
 			instructions: draft.instructions,
 			activationExamples: draft.activationExamples,
-			enabled: false,
+			// On-demand skill loading: a saved AI-drafted skill is usable
+			// immediately (no session activation step left to enable it later).
+			enabled: true,
 			durationPolicy: draft.durationPolicy,
 			questionPolicy: draft.questionPolicy,
 			notesPolicy: draft.notesPolicy,

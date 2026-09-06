@@ -451,62 +451,6 @@ function seedEveryUserScopedTable(userId: string) {
 			},
 		])
 		.run();
-	db.insert(schema.skillSessions)
-		.values({
-			id: p("skill-session"),
-			userId,
-			conversationId: p("conv"),
-			skillId: p("skill-user"),
-			skillOwnership: "user",
-			skillDisplayName: "User Skill",
-			skillInstructions: "Do work.",
-			durationPolicy: "next_message",
-			questionPolicy: "none",
-			notesPolicy: "none",
-			sourceScope: "current_conversation",
-			skillVersion: 1,
-			startedFrom: "user",
-			startedAt: now,
-			updatedAt: now,
-		})
-		.run();
-	db.insert(schema.skillSessionMilestones)
-		.values({
-			id: p("milestone"),
-			sessionId: p("skill-session"),
-			userId,
-			conversationId: p("conv"),
-			kind: "note",
-			messageKey: "key",
-			createdAt: now,
-		})
-		.run();
-	db.insert(schema.skillNoteOperations)
-		.values({
-			id: p("note-op"),
-			sessionId: p("skill-session"),
-			userId,
-			conversationId: p("conv"),
-			assistantMessageId: p("msg"),
-			operationId: "op1",
-			action: "append",
-			artifactId: p("art"),
-			createdAt: now,
-		})
-		.run();
-	db.insert(schema.skillNoteCheckpoints)
-		.values({
-			id: p("note-checkpoint"),
-			noteArtifactId: p("art"),
-			sessionId: p("skill-session"),
-			userId,
-			conversationId: p("conv"),
-			assistantMessageId: p("msg"),
-			operationId: "op1",
-			previousBody: "body",
-			createdAt: now,
-		})
-		.run();
 	db.insert(schema.importJobs)
 		.values({ id: p("import"), userId, createdAt: now, updatedAt: now })
 		.run();
@@ -724,10 +668,6 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"projects",
 				"semantic_embeddings",
 				"sessions",
-				"skill_note_checkpoints",
-				"skill_note_operations",
-				"skill_session_milestones",
-				"skill_sessions",
 				"task_checkpoints",
 				"task_state_evidence_links",
 				"usage_events",

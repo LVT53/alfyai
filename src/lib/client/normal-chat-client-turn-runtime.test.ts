@@ -273,11 +273,6 @@ function makeAdapters(
 		clearDraft: vi.fn(),
 		clearAttachedArtifacts: vi.fn(() => []),
 		recordConversationActivity: vi.fn(),
-		startPendingSkillSession: vi.fn(
-			async (): Promise<{ ok: true }> => ({
-				ok: true,
-			}),
-		),
 		applyMessageListEvent,
 		applyStreamMetadata: vi.fn(),
 		attachFileProductionJobsToAssistantMessage: vi.fn(),
@@ -311,7 +306,6 @@ function makeAdapters(
 			error instanceof Error ? error.message : "Stream failed",
 		),
 		setSendError: vi.fn(),
-		setSkillSessionError: vi.fn(),
 		onBackgroundInterrupted: vi.fn(),
 		onForkedSourceHistoryConfirmationRequired: vi.fn(),
 		...overrides,

@@ -25,7 +25,6 @@ import type {
 } from "$lib/server/services/knowledge/context-types";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import type { SkillSession } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 
 export interface ConversationDetail {
@@ -52,7 +51,6 @@ export interface ConversationDetail {
 	atlasJobs?: AtlasJobCard[];
 	atlasAvailability?: AtlasAvailability | null;
 	contextCompressionSnapshots?: ContextCompressionMarker[];
-	activeSkillSession?: SkillSession | null;
 	totalCostUsdMicros?: number;
 	totalTokens?: number;
 	sidecarPending?: boolean;

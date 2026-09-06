@@ -35,7 +35,6 @@ import type { LinkedContextSource } from "$lib/server/services/linked-context-so
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { getPersonalityProfile } from "$lib/server/services/personality-profiles";
-import { buildSkillSystemPromptAppendix } from "$lib/server/services/skills/prompt-context";
 import { applyWebCitationQualityGate } from "$lib/server/services/web-citation-audit";
 import { FRIENDLY_STREAM_ERRORS } from "$lib/services/stream-protocol";
 import { estimateTokenCount } from "$lib/utils/tokens";
@@ -304,8 +303,6 @@ async function runAtlasSendTurn({
 				},
 			},
 			reasoningDepth: "thorough",
-			skillControlOperations: [],
-			skillControlSessionId: null,
 			attachmentIds: turn.attachmentIds,
 			activeDocumentArtifactId: null,
 			contextStatus: null,
@@ -465,9 +462,6 @@ async function runStandardSendTurn({
 	runtimeConfig: ReturnType<typeof getConfig>;
 }): Promise<Response> {
 	const upstreamMessage = turn.normalizedMessage;
-	const skillSystemPromptAppendix = buildSkillSystemPromptAppendix(
-		turn.skillPromptContext,
-	);
 	const fileProductionJobIdsAtStart = await snapshotConversationFileJobs({
 		userId: user.id,
 		conversationId: turn.conversationId,
@@ -491,7 +485,7 @@ async function runStandardSendTurn({
 		attachmentIds: turn.attachmentIds,
 		activeDocumentArtifactId: turn.activeDocumentArtifactId,
 		attachmentTraceId: turn.attachmentTraceId,
-		systemPromptAppendix: skillSystemPromptAppendix,
+		pendingSkillInstructions: turn.appliedSkill?.instructionsEnvelope,
 		personalityPrompt,
 		thinkingMode: turn.thinkingMode,
 		depthMetadata: turn.depthMetadata,
@@ -539,12 +533,6 @@ async function runStandardSendTurn({
 		},
 		reasoningDepth: turn.reasoningDepth,
 		depthMetadata: modelRunResult.depthMetadata ?? turn.depthMetadata,
-		skillControlOperations:
-			modelRunArtifacts.normalizedAssistantOutput.operations,
-		skillControlSessionId:
-			turn.skillPromptContext?.source === "active_session"
-				? (turn.skillPromptContext.sessionId ?? null)
-				: null,
 		attachmentIds: turn.attachmentIds,
 		activeDocumentArtifactId: turn.activeDocumentArtifactId ?? null,
 		contextStatus,

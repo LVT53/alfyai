@@ -9,15 +9,11 @@ import {
 	addConversationLinkedContextSources,
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
-import {
-	resolveSkillPromptContext,
-	skillSessionToPromptContext,
-} from "$lib/server/services/skills/prompt-context";
-import { startSkillSession } from "$lib/server/services/skills/sessions";
-import { resolveEffectiveSkillDefinition } from "$lib/server/services/skills/user-skills";
+import { resolvePendingSkillApplication } from "$lib/server/services/skills/prompt-context";
 import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	AdmittedChatTurn,
+	AppliedSkillContext,
 	ChatTurnAdmissionResult,
 	ChatTurnPreparationResult,
 	ChatTurnRequestError,
@@ -25,10 +21,6 @@ import type {
 } from "./types";
 
 type PreflightError = { ok: false; error: ChatTurnRequestError };
-
-type SkillSessionStartResult =
-	| { ok: true; value: Awaited<ReturnType<typeof startSkillSession>> }
-	| PreflightError;
 
 export async function preflightChatTurn(params: {
 	userId: string;
@@ -94,59 +86,18 @@ async function prepareChatTurn(params: {
 	const resolvedLinkedSources = await resolveLinkedSources(userId, request);
 	if (!resolvedLinkedSources.ok) return resolvedLinkedSources;
 
+	let appliedSkill: AppliedSkillContext | null = null;
 	if (request.pendingSkill) {
-		const pendingSkillError = await validatePendingSkillAvailability(
-			userId,
-			request,
-		);
-		if (pendingSkillError) return pendingSkillError;
+		const applied = await resolveAppliedSkill(userId, request);
+		if (!applied.ok) return applied;
+		appliedSkill = applied.value;
 	}
+
 	const { depthMetadata, linkedSources } = await resolveDepthMetadata(
 		userId,
 		request,
 		resolvedLinkedSources.value,
 	);
-
-	let skillPromptContext = await resolveSkillPromptContext({
-		userId,
-		turn: {
-			...request,
-			linkedSources,
-			depthMetadata,
-		},
-	});
-
-	if (request.pendingSkill && skillPromptContext?.source !== "pending_skill") {
-		return {
-			ok: false,
-			error: {
-				status: 409,
-				error: "Selected skill is no longer available.",
-				code: "pending_skill_unavailable",
-			},
-		};
-	}
-
-	if (
-		request.pendingSkill &&
-		skillPromptContext?.source === "pending_skill" &&
-		skillPromptContext.durationPolicy === "session"
-	) {
-		const pendingSessionSkill = request.pendingSkill;
-		const startedSession = await maybeStartSkillSession(
-			userId,
-			request,
-			pendingSessionSkill,
-		);
-		if (!startedSession.ok) {
-			return startedSession;
-		}
-		skillPromptContext = skillSessionToPromptContext({
-			session: startedSession.value,
-			linkedSources: skillPromptContext.linkedSources,
-			skillResources: skillPromptContext.skillResources,
-		});
-	}
 
 	return {
 		ok: true,
@@ -154,7 +105,7 @@ async function prepareChatTurn(params: {
 			...request,
 			linkedSources,
 			depthMetadata,
-			skillPromptContext,
+			appliedSkill,
 		},
 	};
 }
@@ -273,11 +224,20 @@ async function resolveLinkedSources(
 	}
 }
 
-async function validatePendingSkillAvailability(
+// Resolves an explicit `$` composer selection into this turn's forced skill
+// injection (see AppliedSkillContext) — no durable session row. Both the
+// "Composer Command Registry disabled" and "skill no longer available"
+// failures surface the same request-level errors the pre-refactor
+// session-starting flow returned, so existing client error handling for
+// `pending_skill_unavailable` / `composer_commands_disabled` keeps working.
+async function resolveAppliedSkill(
 	userId: string,
 	request: ParsedChatTurnRequest,
-): Promise<PreflightError | null> {
-	if (!request.pendingSkill) return null;
+): Promise<{ ok: true; value: AppliedSkillContext } | PreflightError> {
+	const pendingSkill = request.pendingSkill;
+	if (!pendingSkill) {
+		throw new Error("resolveAppliedSkill called without a pendingSkill");
+	}
 
 	if (!getConfig().composerCommandRegistryEnabled) {
 		return {
@@ -290,11 +250,12 @@ async function validatePendingSkillAvailability(
 		};
 	}
 
-	const availableSkill = await resolveEffectiveSkillDefinition(userId, {
-		id: request.pendingSkill.id,
-		ownership: request.pendingSkill.ownership,
+	const resolved = await resolvePendingSkillApplication({
+		userId,
+		pendingSkill,
+		requestText: request.normalizedMessage,
 	});
-	if (!availableSkill.available) {
+	if (!resolved.ok) {
 		return {
 			ok: false,
 			error: {
@@ -305,66 +266,16 @@ async function validatePendingSkillAvailability(
 		};
 	}
 
-	return null;
-}
-
-async function maybeStartSkillSession(
-	userId: string,
-	request: ParsedChatTurnRequest,
-	pendingSkill: NonNullable<ParsedChatTurnRequest["pendingSkill"]>,
-): Promise<SkillSessionStartResult> {
-	try {
-		const session = await startSkillSession(
-			userId,
-			request.conversationId,
-			pendingSkill,
-		);
-		return {
-			ok: true,
-			value: session,
-		};
-	} catch (error) {
-		const code = parseErrorCode(error);
-		const status = parseErrorStatus(error);
-
-		if (code === "skill_unavailable") {
-			return {
-				ok: false,
-				error: {
-					status: 409,
-					error: "Selected skill is no longer available.",
-					code: "pending_skill_unavailable",
-				},
-			};
-		}
-
-		if (code === "active_skill_session_conflict") {
-			return {
-				ok: false,
-				error: {
-					status: typeof status === "number" ? status : 409,
-					error: "Another skill session is already active.",
-					code: "active_skill_session_conflict",
-				},
-			};
-		}
-
-		throw error;
-	}
-}
-
-function parseErrorCode(error: unknown): string | undefined {
-	if (error instanceof Error && "code" in error) {
-		return (error as { code?: unknown }).code as string | undefined;
-	}
-	return undefined;
-}
-
-function parseErrorStatus(error: unknown): number | undefined {
-	if (error instanceof Error && "status" in error) {
-		return (error as { status?: unknown }).status as number | undefined;
-	}
-	return undefined;
+	return {
+		ok: true,
+		value: {
+			skillId: resolved.skillId,
+			skillOwnership: resolved.skillOwnership,
+			skillKind: resolved.skillKind,
+			skillDisplayName: resolved.displayName,
+			instructionsEnvelope: resolved.envelope,
+		},
+	};
 }
 
 async function resolveDepthMetadata(

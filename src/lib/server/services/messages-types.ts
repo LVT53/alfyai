@@ -217,8 +217,6 @@ export interface ChatMessage {
 	// — never `[]` — when the turn has no suggestions (skipped or the
 	// control model failed). Assistant turns only.
 	followUps?: string[];
-	skillQuestion?: boolean;
-	pendingSkillNoteIntents?: SkillControlMessageMetadata["pendingSkillNoteIntents"];
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
 	forkCopy?: ForkCopyMetadata;

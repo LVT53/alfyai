@@ -7,8 +7,6 @@ import {
 import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import { commitSkillNoteOperationsAfterAssistantMessage } from "$lib/server/services/skills/notes";
-import { applySkillControlOperations } from "$lib/server/services/skills/sessions";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
@@ -91,14 +89,6 @@ vi.mock("$lib/server/services/task-state", () => ({
 	getProjectReferenceContext: vi.fn(async () => null),
 }));
 
-vi.mock("$lib/server/services/skills/sessions", () => ({
-	applySkillControlOperations: vi.fn(async () => null),
-}));
-
-vi.mock("$lib/server/services/skills/notes", () => ({
-	commitSkillNoteOperationsAfterAssistantMessage: vi.fn(async () => null),
-}));
-
 // Issue 7.5 — finalize.ts's pending-write reconciliation falls back to these
 // real store functions (no override param exists on completeStreamTurn,
 // unlike the file-production job functions below which are injected
@@ -153,10 +143,6 @@ describe("completeStreamTurn", () => {
 		getConversationCostSummary as ReturnType<typeof vi.fn>;
 	const mockGetProjectReferenceContext =
 		getProjectReferenceContext as ReturnType<typeof vi.fn>;
-	const mockApplySkillControlOperations =
-		applySkillControlOperations as ReturnType<typeof vi.fn>;
-	const mockCommitSkillNoteOperations =
-		commitSkillNoteOperationsAfterAssistantMessage as ReturnType<typeof vi.fn>;
 	const mockListPendingWrites = listPendingWritesForConversation as ReturnType<
 		typeof vi.fn
 	>;
@@ -364,7 +350,6 @@ describe("completeStreamTurn", () => {
 		serverSegments: [],
 		attachmentIds: ["att-1"],
 		linkedSources: [],
-		activeSkillSessionId: null,
 		activeDocumentArtifactId: "doc-1",
 		requestStartTime: Date.now() - 5000,
 		fileProductionJobIdsAtStart: new Set<string>(),
@@ -759,18 +744,28 @@ describe("completeStreamTurn", () => {
 		expect(persistedRoles).toEqual(["user", "assistant"]);
 	});
 
-	it("persists Skill Control metadata and applies stream operations after assistant persistence", async () => {
+	it("persists Skill Draft metadata parsed from the stream envelope", async () => {
 		await completeStreamTurn({
 			...defaultParams,
-			fullResponse: "What deadline should I use?",
+			fullResponse: "I drafted a skill for this.",
 			skillControlEnvelopePayloads: [
 				JSON.stringify({
 					version: 1,
 					operations: [
 						{
-							operationId: "stream-question",
-							kind: "session_transition",
-							transition: "awaiting_user",
+							operationId: "stream-draft-1",
+							kind: "skill_draft",
+							draft: {
+								id: "draft-1",
+								displayName: "Meeting Notes Skill",
+								description: "Summarizes meeting notes.",
+								instructions: "Summarize the meeting notes concisely.",
+								activationExamples: [],
+								durationPolicy: "next_message",
+								questionPolicy: "none",
+								notesPolicy: "none",
+								sourceScope: "selected_sources_only",
+							},
 						},
 					],
 				}),
@@ -780,72 +775,28 @@ describe("completeStreamTurn", () => {
 		expect(mockCreateMessage).toHaveBeenCalledWith(
 			"conv-1",
 			"assistant",
-			"What deadline should I use?",
+			"I drafted a skill for this.",
 			"<thinking>reason</thinking>",
 			undefined,
 			expect.objectContaining({
 				evidenceStatus: "pending",
-				skillQuestion: true,
+				skillDrafts: [
+					expect.objectContaining({
+						id: "draft-1",
+						displayName: "Meeting Notes Skill",
+						status: "proposed",
+					}),
+				],
 				skillControl: expect.objectContaining({
 					operations: [
-						expect.objectContaining({ operationId: "stream-question" }),
+						expect.objectContaining({ operationId: "stream-draft-1" }),
 					],
 				}),
 			}),
 		);
-		expect(mockApplySkillControlOperations).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "asst-msg-1",
-			operations: [
-				{
-					operationId: "stream-question",
-					kind: "session_transition",
-					transition: "awaiting_user",
-				},
-			],
-		});
 	});
 
-	it("commits stream note operations after assistant persistence", async () => {
-		await completeStreamTurn({
-			...defaultParams,
-			activeSkillSessionId: "session-1",
-			fullResponse: "Captured.",
-			skillControlEnvelopePayloads: [
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "stream-note-create",
-							kind: "note_intent",
-							action: "create",
-							title: "Decision",
-							body: "Use the short plan.",
-						},
-					],
-				}),
-			],
-		});
-
-		expect(mockCommitSkillNoteOperations).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-			sessionId: "session-1",
-			assistantMessageId: "asst-msg-1",
-			operations: [
-				{
-					operationId: "stream-note-create",
-					kind: "note_intent",
-					action: "create",
-					title: "Decision",
-					body: "Use the short plan.",
-				},
-			],
-		});
-	});
-
-	it("does not apply Skill Control operations for stopped streams", async () => {
+	it("does not carry skill metadata for stopped streams", async () => {
 		await completeStreamTurn({
 			...defaultParams,
 			wasStopped: true,
@@ -855,16 +806,33 @@ describe("completeStreamTurn", () => {
 					version: 1,
 					operations: [
 						{
-							operationId: "partial-question",
-							kind: "session_transition",
-							transition: "awaiting_user",
+							operationId: "partial-draft",
+							kind: "skill_draft",
+							draft: {
+								id: "draft-2",
+								displayName: "Ignored",
+								description: "",
+								instructions: "Ignored instructions",
+								activationExamples: [],
+								durationPolicy: "next_message",
+								questionPolicy: "none",
+								notesPolicy: "none",
+								sourceScope: "selected_sources_only",
+							},
 						},
 					],
 				}),
 			],
 		});
 
-		expect(mockApplySkillControlOperations).not.toHaveBeenCalled();
+		expect(mockCreateMessage).toHaveBeenCalledWith(
+			"conv-1",
+			"assistant",
+			"Partial answer",
+			"<thinking>reason</thinking>",
+			undefined,
+			expect.not.objectContaining({ skillDrafts: expect.anything() }),
+		);
 	});
 
 	it("persists user turn attachments when attachments exist", async () => {

@@ -298,7 +298,7 @@ describe("prepareRetryChatTurn", () => {
 		);
 	});
 
-	it("keeps active Skill prompt context when preparing a retry", async () => {
+	it("carries the applied Skill's instructions into the retry's packet, separate from the regeneration appendix", async () => {
 		(preflightChatTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			ok: true,
 			value: {
@@ -318,22 +318,13 @@ describe("prepareRetryChatTurn", () => {
 					appliedProfile: "standard",
 					fallback: false,
 				},
-				skillPromptContext: {
-					source: "active_session",
-					sessionId: "session-1",
-					sessionStatus: "active",
+				appliedSkill: {
 					skillId: "skill-1",
 					skillOwnership: "user",
 					skillKind: "user_skill",
 					skillDisplayName: "Meeting critic",
-					skillDescription: "Reviews notes",
-					skillInstructions: "Capture decisions before answering.",
-					durationPolicy: "session",
-					questionPolicy: "none",
-					notesPolicy: "create_private_notes",
-					sourceScope: "selected_sources_only",
-					skillVersion: 1,
-					linkedSources: [],
+					instructionsEnvelope:
+						'Skill "Meeting critic" instructions — apply these for the rest of this turn:\n\nCapture decisions before answering.',
 				},
 			},
 		});
@@ -351,14 +342,14 @@ describe("prepareRetryChatTurn", () => {
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		expect(result.value.orchestratorInput.systemPromptAppendix).toContain(
-			"Active Skill Context",
-		);
-		expect(result.value.orchestratorInput.systemPromptAppendix).toContain(
+		expect(result.value.orchestratorInput.pendingSkillInstructions).toContain(
 			"Capture decisions before answering.",
 		);
 		expect(result.value.orchestratorInput.systemPromptAppendix).toContain(
 			"regenerating their last request",
+		);
+		expect(result.value.orchestratorInput.systemPromptAppendix).not.toContain(
+			"Capture decisions before answering.",
 		);
 	});
 

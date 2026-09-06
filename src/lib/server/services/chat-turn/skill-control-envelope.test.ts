@@ -2,42 +2,6 @@ import { describe, expect, it } from "vitest";
 import { parseSkillControlEnvelopeFromAssistantText } from "./skill-control-envelope";
 
 describe("skill control envelopes", () => {
-	it("strips a complete v1 envelope and returns validated operations", () => {
-		const result = parseSkillControlEnvelopeFromAssistantText(
-			[
-				"Which deadline should I use?",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "turn-1-question",
-							kind: "session_transition",
-							transition: "awaiting_user",
-						},
-					],
-				}),
-				"</skill_control_v1>",
-			].join("\n"),
-		);
-
-		expect(result.visibleText).toBe("Which deadline should I use?");
-		expect(result.metadata).toMatchObject({
-			skillQuestion: true,
-			skillControl: {
-				envelopeVersion: 1,
-				operations: [
-					{
-						operationId: "turn-1-question",
-						kind: "session_transition",
-						transition: "awaiting_user",
-					},
-				],
-			},
-		});
-		expect(result.operations).toHaveLength(1);
-	});
-
 	it("keeps incomplete envelopes visible and does not guess operations", () => {
 		const result = parseSkillControlEnvelopeFromAssistantText(
 			[
@@ -52,7 +16,7 @@ describe("skill control envelopes", () => {
 		expect(result.operations).toEqual([]);
 	});
 
-	it("strips complete malformed envelopes without transitions", () => {
+	it("strips complete malformed envelopes without operations", () => {
 		const result = parseSkillControlEnvelopeFromAssistantText(
 			"Answer\n<skill_control_v1>\nnot-json\n</skill_control_v1>",
 		);
@@ -68,18 +32,21 @@ describe("skill control envelopes", () => {
 	});
 
 	it("dedupes repeated operation ids inside complete envelopes", () => {
+		const draft = {
+			id: "draft-1",
+			displayName: "Meeting critic",
+			description: "Review meeting notes.",
+			instructions: "Find missing owners.",
+			activationExamples: [],
+		};
 		const payload = {
 			version: 1,
 			operations: [
+				{ operationId: "same-op", kind: "skill_draft", draft },
 				{
 					operationId: "same-op",
-					kind: "session_transition",
-					transition: "finished",
-				},
-				{
-					operationId: "same-op",
-					kind: "session_transition",
-					transition: "dismissed",
+					kind: "skill_draft",
+					draft: { ...draft, displayName: "Ignored duplicate" },
 				},
 			],
 		};
@@ -87,93 +54,12 @@ describe("skill control envelopes", () => {
 			`Done\n<skill_control_v1>\n${JSON.stringify(payload)}\n</skill_control_v1>`,
 		);
 
-		expect(result.operations).toEqual([
-			{
-				operationId: "same-op",
-				kind: "session_transition",
-				transition: "finished",
-			},
-		]);
-	});
-
-	it("records note operations as pending intents only", () => {
-		const result = parseSkillControlEnvelopeFromAssistantText(
-			[
-				"I captured the decision.",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "note-intent-1",
-							kind: "note_intent",
-							action: "create",
-							title: "Decision",
-							body: "Use the shorter plan.",
-						},
-					],
-				}),
-				"</skill_control_v1>",
-			].join("\n"),
-		);
-
-		expect(result.visibleText).toBe("I captured the decision.");
-		expect(result.metadata?.pendingSkillNoteIntents).toEqual([
-			{
-				operationId: "note-intent-1",
-				kind: "note_intent",
-				action: "create",
-				title: "Decision",
-				body: "Use the shorter plan.",
-			},
-		]);
-		expect(result.operations).toEqual(result.metadata?.pendingSkillNoteIntents);
-	});
-
-	it("validates replace and append note operations with explicit targets and bodies", () => {
-		const result = parseSkillControlEnvelopeFromAssistantText(
-			[
-				"I updated the note.",
-				"<skill_control_v1>",
-				JSON.stringify({
-					version: 1,
-					operations: [
-						{
-							operationId: "note-replace-1",
-							kind: "note_intent",
-							action: "replace",
-							targetArtifactId: "note-1",
-							body: "Replacement body.",
-						},
-						{
-							operationId: "note-append-1",
-							kind: "note_intent",
-							action: "append",
-							targetArtifactId: "note-1",
-							body: "Follow-up entry.",
-						},
-					],
-				}),
-				"</skill_control_v1>",
-			].join("\n"),
-		);
-
-		expect(result.metadata?.pendingSkillNoteIntents).toEqual([
-			{
-				operationId: "note-replace-1",
-				kind: "note_intent",
-				action: "replace",
-				targetArtifactId: "note-1",
-				body: "Replacement body.",
-			},
-			{
-				operationId: "note-append-1",
-				kind: "note_intent",
-				action: "append",
-				targetArtifactId: "note-1",
-				body: "Follow-up entry.",
-			},
-		]);
+		expect(result.operations).toHaveLength(1);
+		expect(result.operations[0]).toMatchObject({
+			operationId: "same-op",
+			kind: "skill_draft",
+			draft: expect.objectContaining({ displayName: "Meeting critic" }),
+		});
 	});
 
 	it("parses Skill Draft proposals with conservative policy defaults", () => {
@@ -245,6 +131,30 @@ describe("skill control envelopes", () => {
 								id: "draft-1",
 								displayName: "No instructions",
 							},
+						},
+					],
+				}),
+				"</skill_control_v1>",
+			].join("\n"),
+		);
+
+		expect(result.visibleText).toBe("Visible answer");
+		expect(result.operations).toEqual([]);
+		expect(result.metadata).toBeUndefined();
+	});
+
+	it("ignores operations with an unrecognized kind", () => {
+		const result = parseSkillControlEnvelopeFromAssistantText(
+			[
+				"Visible answer",
+				"<skill_control_v1>",
+				JSON.stringify({
+					version: 1,
+					operations: [
+						{
+							operationId: "legacy-session-op",
+							kind: "session_transition",
+							transition: "awaiting_user",
 						},
 					],
 				}),

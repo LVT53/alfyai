@@ -1117,7 +1117,6 @@ describe("MessageBubble", () => {
 	it("renders assistant Skill Draft Cards from message metadata", async () => {
 		const onSaveSkillDraft = vi.fn();
 		const onDismissSkillDraft = vi.fn();
-		const onPublishSkillDraft = vi.fn();
 		const message: ChatMessage = {
 			id: "assistant-1",
 			renderKey: "assistant-1",
@@ -1142,10 +1141,8 @@ describe("MessageBubble", () => {
 
 		render(MessageBubble, {
 			message,
-			canPublishSkillDrafts: true,
 			onSaveSkillDraft,
 			onDismissSkillDraft,
-			onPublishSkillDraft,
 		});
 
 		expect(
@@ -1157,19 +1154,12 @@ describe("MessageBubble", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Dismiss draft" }),
 		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Publish skill" }),
-		);
 
 		expect(onSaveSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});
 		expect(onDismissSkillDraft).toHaveBeenCalledWith({
-			messageId: "assistant-1",
-			draftId: "draft-1",
-		});
-		expect(onPublishSkillDraft).toHaveBeenCalledWith({
 			messageId: "assistant-1",
 			draftId: "draft-1",
 		});

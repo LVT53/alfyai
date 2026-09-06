@@ -174,7 +174,6 @@ describe("GET /api/conversations/[id]", () => {
 			draft: null,
 			fileProductionJobs: [],
 			contextCompressionSnapshots: [],
-			activeSkillSession: null,
 			bootstrap: true,
 		});
 

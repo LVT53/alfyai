@@ -117,7 +117,7 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 		});
 	});
 
-	it("saves the assistant draft as a disabled private user skill owned by the caller", async () => {
+	it("saves the assistant draft as an enabled private user skill owned by the caller", async () => {
 		const response = await POST(makeEvent());
 		const data = await response.json();
 
@@ -129,7 +129,7 @@ describe("POST /api/conversations/[id]/messages/[messageId]/skill-drafts/[draftI
 			expect.objectContaining({
 				displayName: "Meeting critic",
 				instructions: "Find missing owners.",
-				enabled: false,
+				enabled: true,
 				creationSource: "ai_draft",
 				sourceScope: "selected_sources_only",
 			}),
