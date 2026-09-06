@@ -282,6 +282,35 @@ describe("skills/prompt-context", () => {
 			expect(byName.ok).toBe(true);
 		});
 
+		it("resolves the localized name a Hungarian catalogue line advertises", async () => {
+			seedUsers();
+			const { seedBuiltInSystemSkillDefinitions } = await import(
+				"./user-skills"
+			);
+			const { listSkillCatalogueEntries, resolveSkillInstructionsForUse } =
+				await import("./prompt-context");
+			await seedBuiltInSystemSkillDefinitions("user-1");
+
+			const entries = await listSkillCatalogueEntries("user-1", "hu");
+			const localizedName = entries.find(
+				(entry) => entry.id === "system:grill-with-docs",
+			)?.displayName;
+			expect(localizedName).toBe("Tervkritikus");
+			if (!localizedName) return;
+
+			// The model can only echo the name it was shown, so the lookup has to
+			// accept the localized catalogue name as well as the stored English one.
+			const result = await resolveSkillInstructionsForUse({
+				userId: "user-1",
+				name: localizedName,
+				requestText: "Nézd át ezt a tervet",
+			});
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.skillId).toBe("system:grill-with-docs");
+		});
+
 		it("returns a not_found error for an unknown skill name", async () => {
 			seedUsers();
 			const { resolveSkillInstructionsForUse } = await import(
