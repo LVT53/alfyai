@@ -225,6 +225,90 @@ describe("applyWebCitationQualityGate", () => {
 		});
 	});
 
+	it("never rewrites or strips image markdown", () => {
+		// `![alt](url)` is not a citation claim: repairing it would repoint the
+		// image at an HTML page, and stripping it would leave a stray `!alt`.
+		const response =
+			"![a chart](https://cdn.other.test/chart.png) and ![on-domain](https://example.com/diagram.png)";
+		const result = applyWebCitationQualityGate({
+			assistantResponse: response,
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Official Product",
+						url: "https://example.com/product",
+						sourceType: "web",
+					},
+				]),
+			],
+		});
+
+		expect(result.response).toBe(response);
+		expect(result.repair).toEqual({
+			cited: 0,
+			verified: 0,
+			repaired: 0,
+			stripped: 0,
+		});
+	});
+
+	it("never rewrites or strips links inside fenced code blocks or inline code", () => {
+		// Link syntax inside code is content the user asked for, not a citation.
+		const response = [
+			"Write this:",
+			"",
+			"```md",
+			"[docs](https://unrelated.test/page)",
+			"```",
+			"",
+			"or inline: `[docs](https://unrelated.test/page)`.",
+		].join("\n");
+		const result = applyWebCitationQualityGate({
+			assistantResponse: response,
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Official Product",
+						url: "https://example.com/product",
+						sourceType: "web",
+					},
+				]),
+			],
+		});
+
+		expect(result.response).toBe(response);
+		expect(result.repair).toEqual({
+			cited: 0,
+			verified: 0,
+			repaired: 0,
+			stripped: 0,
+		});
+	});
+
+	it("still repairs a real citation that follows a protected code block", () => {
+		const result = applyWebCitationQualityGate({
+			assistantResponse:
+				"```\n[sample](https://unrelated.test/page)\n```\n\nSee [wrong page](https://example.com/wrong).",
+			toolCalls: [
+				researchTool([
+					{
+						id: "src-1",
+						title: "Official Product",
+						url: "https://example.com/product",
+						sourceType: "web",
+					},
+				]),
+			],
+		});
+
+		expect(result.response).toBe(
+			"```\n[sample](https://unrelated.test/page)\n```\n\nSee [wrong page](https://example.com/product).",
+		);
+		expect(result.repair).toMatchObject({ cited: 1, repaired: 1 });
+	});
+
 	it("leaves the response untouched and reports no repair when no web tool ran this turn", () => {
 		const response = "See [some link](https://other-domain.test/x).";
 		const result = applyWebCitationQualityGate({

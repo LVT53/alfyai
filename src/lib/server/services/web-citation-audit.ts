@@ -31,11 +31,23 @@ export interface WebCitationRepairSummary {
 	stripped: number;
 }
 
-// Captures both the link text and URL (unlike web-grounding.ts's
-// MARKDOWN_LINK_RE, which only needs the URL) so a stripped link can fall
-// back to its text instead of disappearing.
-const MARKDOWN_LINK_WITH_TEXT_RE =
-	/\[([^\]]+)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
+// One pass over the response, alternating between regions the repair pass
+// must NEVER touch and the markdown links it may rewrite.
+//
+// Group 1 (protected, returned verbatim), matched FIRST so a link inside one
+// of these is consumed whole and never reaches the link branch:
+//   - fenced code blocks (``` / ~~~) and inline code spans (`` / `). Link
+//     syntax there is content the user asked for (sample markdown, a config
+//     snippet), not a citation — rewriting or stripping it corrupts code.
+//   - image markdown `![alt](url)`. Repairing it would repoint an image at
+//     an HTML page, and stripping it would leave a stray `!alt`; an image is
+//     never a citation claim, so it is left exactly as written.
+//
+// Groups 2/3 are a real markdown link's text and URL — captured (unlike
+// web-grounding.ts's MARKDOWN_LINK_RE, which only needs the URL) so a
+// stripped link can fall back to its text instead of disappearing.
+const PROTECTED_REGION_OR_MARKDOWN_LINK_RE =
+	/(```[\s\S]*?```|~~~[\s\S]*?~~~|``[\s\S]*?``|`[^`\n]*`|!\[[^\]]*\]\([^)\s]*(?:\s+"[^"]*")?\))|\[([^\]]+)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
 
 function collectCanonicalUrls(text: string): Set<string> {
 	const canonical = new Set<string>();
@@ -57,7 +69,8 @@ function collectCanonicalUrls(text: string): Set<string> {
  * just `text` ("stripped") — the link text itself is never removed. Bare
  * URLs (no markdown link syntax) are left untouched: only markdown links
  * carry a claim ("here's the source") that can be repaired without deleting
- * content.
+ * content. Links inside code spans/blocks and image markdown are likewise
+ * untouched — see PROTECTED_REGION_OR_MARKDOWN_LINK_RE.
  */
 function repairAssistantWebCitations(params: {
 	assistantResponse: string;
@@ -71,8 +84,11 @@ function repairAssistantWebCitations(params: {
 	let stripped = 0;
 
 	const response = params.assistantResponse.replace(
-		MARKDOWN_LINK_WITH_TEXT_RE,
-		(full, text: string, url: string) => {
+		PROTECTED_REGION_OR_MARKDOWN_LINK_RE,
+		(full, protectedRegion: string | undefined, text: string, url: string) => {
+			// A code span/block or an image: never a citation claim, never
+			// rewritten. See PROTECTED_REGION_OR_MARKDOWN_LINK_RE.
+			if (protectedRegion !== undefined) return full;
 			const canonical = canonicalizeGroundedWebUrl(url);
 			// Malformed/non-http(s) link URLs are left exactly as written —
 			// there's nothing safe to compare them against.
