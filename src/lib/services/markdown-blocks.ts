@@ -8,6 +8,7 @@ import {
 	parseAsciiBarChart,
 	parseNumericCell,
 	pickBarMatchedColumn,
+	sameChartCategories,
 } from "./ascii-bar-chart";
 
 /**
@@ -80,7 +81,7 @@ export type MarkdownBlock =
 	| { kind: "callout"; raw: string }
 	| { kind: "accordion"; raw: string }
 	| { kind: "mermaid"; raw: string; code: string }
-	| { kind: "chart"; raw: string; code: string }
+	| { kind: "chart"; raw: string; code: string; derived?: boolean }
 	| { kind: "csv"; raw: string; code: string }
 	| { kind: "html"; raw: string };
 
@@ -355,11 +356,9 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 				const asciiChart = parseAsciiBarChart(code);
 				if (asciiChart) {
 					const chartCode = JSON.stringify(asciiBarChartToChartJs(asciiChart));
-					// A table above often already produced this exact chart (see the
-					// bar-column table rescue); don't render the same data twice.
-					if (!isDuplicateChart(blocks, chartCode)) {
-						blocks.push({ kind: "chart", raw, code: chartCode });
-					}
+					// A table above often already produced this chart (see the
+					// bar-column table rescue); don't render the same series twice.
+					pushChartOnce(blocks, { kind: "chart", raw, code: chartCode });
 					continue;
 				}
 			}
@@ -379,8 +378,13 @@ export function classifyMarkdownBlocks(tokens: Token[]): MarkdownBlock[] {
 			// the table: drop it and render the chart it stood in for.
 			const rescued = rescueBarColumnTable(token as Tokens.Table);
 			blocks.push({ kind: "table", raw: rescued?.raw ?? raw });
-			if (rescued?.chart && !isDuplicateChart(blocks, rescued.chart)) {
-				blocks.push({ kind: "chart", raw, code: rescued.chart });
+			if (rescued?.chart) {
+				pushChartOnce(blocks, {
+					kind: "chart",
+					raw,
+					code: rescued.chart,
+					derived: true,
+				});
 			}
 			continue;
 		}
@@ -502,28 +506,55 @@ export function rescueBarColumnTable(token: Tokens.Table): TableRescue | null {
 	return { raw: `${lines.join("\n")}\n`, chart };
 }
 
-function chartSignature(code: string): string | null {
+type ChartShape = { labels: unknown[]; values: unknown[] };
+
+function chartShape(code: string): ChartShape | null {
 	try {
 		const config = JSON.parse(code) as {
 			data?: { labels?: unknown[]; datasets?: Array<{ data?: unknown[] }> };
 		};
 		const labels = config.data?.labels ?? [];
 		const values = config.data?.datasets?.[0]?.data ?? [];
-		return labels.length > 0 ? JSON.stringify([labels, values]) : null;
+		return labels.length > 0 ? { labels, values } : null;
 	} catch {
 		return null;
 	}
 }
 
-// True when one of the last two blocks is a chart with the same labels and
-// values — a table-derived chart followed by the model's own text-art copy.
-function isDuplicateChart(blocks: MarkdownBlock[], code: string): boolean {
-	const signature = chartSignature(code);
-	if (!signature) return false;
-	return blocks
-		.slice(-2)
-		.some(
-			(block) =>
-				block.kind === "chart" && chartSignature(block.code) === signature,
-		);
+/**
+ * Push a chart unless one of the last two blocks already charts the same
+ * series. A table-derived chart is provisional: when the model's own chart
+ * over the same categories follows (a ```text bar chart under the table), the
+ * model's wins and replaces it; identical data is simply not repeated.
+ */
+function pushChartOnce(
+	blocks: MarkdownBlock[],
+	chart: Extract<MarkdownBlock, { kind: "chart" }>,
+): void {
+	const shape = chartShape(chart.code);
+	if (shape) {
+		for (
+			let index = blocks.length - 1;
+			index >= Math.max(0, blocks.length - 2);
+			index--
+		) {
+			const previous = blocks[index];
+			if (previous.kind !== "chart") continue;
+			const previousShape = chartShape(previous.code);
+			if (!previousShape) continue;
+			const sameValues =
+				JSON.stringify(previousShape.values) === JSON.stringify(shape.values) &&
+				sameChartCategories(previousShape.labels, shape.labels);
+			const sameCategories = sameChartCategories(
+				previousShape.labels,
+				shape.labels,
+			);
+			if (sameValues || (sameCategories && chart.derived)) return;
+			if (sameCategories && previous.derived) {
+				blocks.splice(index, 1);
+				break;
+			}
+		}
+	}
+	blocks.push(chart);
 }

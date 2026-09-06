@@ -11,6 +11,7 @@ import {
 	parseAsciiBarChart,
 	parseNumericCell,
 	pickBarMatchedColumn,
+	sameChartCategories,
 } from "$lib/services/ascii-bar-chart";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
@@ -395,31 +396,75 @@ function normalizeDocumentSourceEnvelope(
 	};
 }
 
-// A bar-column table yields a chart, and the model's own ASCII copy of the
-// same numbers right after it yields another: keep one.
+// A bar-column table yields a provisional chart; the model's own chart of
+// the same categories right after it (a ```text bar chart under the table)
+// replaces it, and identical data is not repeated.
 function dedupeAdjacentCharts(
 	blocks: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-	const signature = (block: Record<string, unknown>): string | null => {
+	const shape = (
+		block: Record<string, unknown>,
+	): { labels: unknown[]; values: unknown[] } | null => {
 		if (block.type !== "chart" || !Array.isArray(block.data)) return null;
 		const rows = block.data.filter(isRecord);
 		if (rows.length === 0) return null;
-		return JSON.stringify(
-			rows.map((row) => Object.values(row).map((value) => String(value))),
-		);
+		const labelKey =
+			typeof block.xKey === "string"
+				? block.xKey
+				: typeof block.labelKey === "string"
+					? block.labelKey
+					: null;
+		const valueKey =
+			typeof block.yKey === "string"
+				? block.yKey
+				: typeof block.valueKey === "string"
+					? block.valueKey
+					: null;
+		if (!labelKey || !valueKey) return null;
+		return {
+			labels: rows.map((row) => row[labelKey]),
+			values: rows.map((row) => row[valueKey]),
+		};
 	};
 	const result: Record<string, unknown>[] = [];
 	for (const block of blocks) {
-		const sig = signature(block);
-		if (
-			sig &&
-			result.slice(-2).some((previous) => signature(previous) === sig)
-		) {
-			continue;
+		const current = shape(block);
+		if (current) {
+			let skip = false;
+			for (
+				let index = result.length - 1;
+				index >= Math.max(0, result.length - 2);
+				index--
+			) {
+				const previous = shape(result[index]);
+				if (!previous) continue;
+				const sameCategories = sameChartCategories(
+					previous.labels,
+					current.labels,
+				);
+				const sameValues =
+					sameCategories &&
+					JSON.stringify(previous.values) === JSON.stringify(current.values);
+				if (sameValues || (sameCategories && block.derived === true)) {
+					skip = true;
+					break;
+				}
+				if (sameCategories && result[index].derived === true) {
+					result.splice(index, 1);
+					break;
+				}
+			}
+			if (skip) continue;
 		}
 		result.push(block);
 	}
-	return result;
+	return result.map((block) => {
+		if (block.type === "chart" && "derived" in block) {
+			const { derived: _derived, ...rest } = block;
+			return rest;
+		}
+		return block;
+	});
 }
 
 function titleKey(value: string): string {
@@ -1460,6 +1505,7 @@ function repairTableBlock(
 			yKey: "value",
 			units: units ?? "value",
 			data,
+			derived: true,
 		},
 	];
 }

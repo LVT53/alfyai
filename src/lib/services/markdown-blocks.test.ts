@@ -438,3 +438,35 @@ describe("bar-column table rescue — several numeric columns", () => {
 		expect(config.data.datasets[0].data).toEqual([121, 217, 243, 407]);
 	});
 });
+
+describe("bar-column table rescue — model chart replaces the provisional one", () => {
+	it("keeps the model's text-fence chart over the table-derived guess when categories match", async () => {
+		const { classifyMarkdownBlocks } = await import("./markdown-blocks");
+		const markdown = [
+			"| Usage / Band | Monthly | Annual | Visual scale |",
+			"|---|---:|---:|---|",
+			"| 10/day, low band | €121 | €1,452 | `██████` |",
+			"| 10/day, high band | €217 | €2,604 | `███████████` |",
+			"| 20/day, low band | €243 | €2,916 | `████████████` |",
+			"| 20/day, high band | €407 | €4,884 | `████████████████████` |",
+			"",
+			"```text",
+			"Monthly cost",
+			"Scale: 1 █ ≈ €20",
+			"",
+			"10/day, low   €121  ██████",
+			"10/day, high  €217  ███████████",
+			"20/day, low   €243  ████████████",
+			"20/day, high  €407  ████████████████████",
+			"```",
+		].join("\n");
+		const blocks = classifyMarkdownBlocks(marked.lexer(markdown));
+		expect(blocks.map((block) => block.kind)).toEqual(["table", "chart"]);
+		const chart = blocks[1];
+		if (chart.kind !== "chart") throw new Error("expected chart");
+		const config = JSON.parse(chart.code);
+		expect(config.data.datasets[0].data).toEqual([121, 217, 243, 407]);
+		expect(config.options?.plugins?.title?.text).toBe("Monthly cost");
+		expect(chart.derived).toBeUndefined();
+	});
+});

@@ -144,6 +144,21 @@ export function pickBarMatchedColumn<T>(
 	return best.spread <= 1.6 ? best.id : candidates[0].id;
 }
 
+// "10/day, low" and "10/day, low band" are the same category written twice.
+export function sameChartCategories(a: unknown[], b: unknown[]): boolean {
+	if (a.length < 2 || a.length !== b.length) return false;
+	const key = (value: unknown) =>
+		String(value)
+			.normalize("NFKD")
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}]+/gu, "");
+	return a.every((label, index) => {
+		const x = key(label);
+		const y = key(b[index]);
+		return x.length > 0 && y.length > 0 && (x.startsWith(y) || y.startsWith(x));
+	});
+}
+
 export function parseAsciiBarChart(text: string): AsciiBarChart | null {
 	const lines = text
 		.split(/\r?\n/)

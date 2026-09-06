@@ -439,3 +439,61 @@ describe("document source repair — model-shaped blocks", () => {
 		).toEqual(["paragraph"]);
 	});
 });
+
+describe("document source repair — provisional table chart vs model chart", () => {
+	it("replaces the table-derived chart with the model's ASCII chart over the same categories", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				blocks: [
+					{
+						type: "table",
+						columns: [
+							{ key: "usage", label: "Usage / Band" },
+							{ key: "monthly", label: "Monthly" },
+							{ key: "annual", label: "Annual" },
+							{ key: "scale", label: "Visual scale" },
+						],
+						rows: [
+							{
+								usage: "10/day, low band",
+								monthly: "€121",
+								annual: "€1,452",
+								scale: "██████",
+							},
+							{
+								usage: "10/day, high band",
+								monthly: "€217",
+								annual: "€2,604",
+								scale: "███████████",
+							},
+							{
+								usage: "20/day, low band",
+								monthly: "€243",
+								annual: "€2,916",
+								scale: "████████████",
+							},
+							{
+								usage: "20/day, high band",
+								monthly: "€407",
+								annual: "€4,884",
+								scale: "████████████████████",
+							},
+						],
+					},
+					{
+						type: "code",
+						language: "text",
+						text: "Monthly cost\nScale: 1 █ ≈ €20\n\n10/day, low   €121  ██████\n10/day, high  €217  ███████████\n20/day, low   €243  ████████████\n20/day, high  €407  ████████████████████",
+					},
+				],
+			},
+		});
+		expect(blocks.map((block) => block.type)).toEqual(["table", "chart"]);
+		const chart = blocks[1];
+		expect(chart.title).toBe("Monthly cost");
+		expect(
+			(chart.data as Array<{ value: number }>).map((row) => row.value),
+		).toEqual([121, 217, 243, 407]);
+		expect("derived" in chart).toBe(false);
+	});
+});
