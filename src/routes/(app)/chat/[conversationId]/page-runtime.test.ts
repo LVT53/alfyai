@@ -16,12 +16,24 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
-import type { StreamCallbacks } from "$lib/services/streaming";
+import type {
+	StreamCallbacks,
+	StreamChatOptions,
+} from "$lib/services/streaming";
 
 const runtimeHarness = vi.hoisted(() => ({
 	streamInvocations: [] as Array<{
 		message: string;
 		callbacks: StreamCallbacks;
+		// "Answer now" (owner idea) — the reasoningDepth override and the
+		// per-invocation stop() spy, so integration tests can assert both
+		// "the current stream was interrupted" and "the retry carried the
+		// quick override" without reaching into module internals.
+		options?: StreamChatOptions;
+		handle?: {
+			stop: ReturnType<typeof vi.fn>;
+			detach: ReturnType<typeof vi.fn>;
+		};
 	}>,
 	atlasSubmissions: [] as Array<{
 		message: string;
@@ -316,12 +328,15 @@ vi.mock("$lib/client/normal-chat-client-turn-runtime", async () => {
 		createBrowserNormalChatClientTurnRuntime: vi.fn((adapters) =>
 			actual.createNormalChatClientTurnRuntime({
 				...adapters,
-				streamChat: vi.fn((message, _conversationId, callbacks) => {
-					runtimeHarness.streamInvocations.push({ message, callbacks });
-					return {
-						stop: vi.fn(),
-						detach: vi.fn(),
-					};
+				streamChat: vi.fn((message, _conversationId, callbacks, options) => {
+					const handle = { stop: vi.fn(), detach: vi.fn() };
+					runtimeHarness.streamInvocations.push({
+						message,
+						callbacks,
+						options,
+						handle,
+					});
+					return handle;
 				}),
 				checkForOrphanedStream: vi.fn(async () => null),
 				getStreamBufferInfo: vi.fn(async () => null),
@@ -551,6 +566,78 @@ describe("chat page runtime integration", () => {
 		});
 		expect(runtimeHarness.streamInvocations[1].message).toBe(
 			"Follow up while finalizing",
+		);
+	});
+
+	// Owner idea — "Answer now" clicks the ThinkingBlock header's quick-answer
+	// button while a turn is still reasoning: it must interrupt the CURRENT
+	// stream first (the same stop() the Stop button uses), wait for that to
+	// actually settle, and only then resend the same user message with
+	// reasoningDepth "quick" for that one turn — never touching the user's
+	// own depth toggle for later turns.
+	it('"Answer now" stops the current stream, then regenerates in quick mode', async () => {
+		renderPage();
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Explain the tradeoffs" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		const firstInvocation = runtimeHarness.streamInvocations[0];
+		// Live reasoning, no visible answer yet — the state the header's
+		// "Answer now" button is scoped to.
+		firstInvocation.callbacks.onThinking("Weighing a few different angles.");
+
+		const answerNowButton = await screen.findByRole("button", {
+			name: "Answer now",
+		});
+		await fireEvent.click(answerNowButton);
+
+		// The current stream was interrupted the same way Stop would.
+		expect(firstInvocation.handle?.stop).toHaveBeenCalledTimes(1);
+
+		// Mirrors the real transport's abort handling (streaming.ts): once the
+		// aborted fetch's reader settles, onEnd fires with wasStopped: true.
+		firstInvocation.callbacks.onEnd("", { wasStopped: true });
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		});
+		const retryInvocation = runtimeHarness.streamInvocations[1];
+		expect(retryInvocation.message).toBe("Explain the tradeoffs");
+		expect(retryInvocation.options?.reasoningDepth).toBe("quick");
+	});
+
+	// Owner idea (variant A) — clicking a follow-up chip on the latest
+	// assistant message sends its text as the next user message through the
+	// normal send path.
+	it("clicking a follow-up chip sends its text as the next user message", async () => {
+		renderPage();
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "What is the plan?" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(runtimeHarness.streamInvocations).toHaveLength(1);
+		const firstInvocation = runtimeHarness.streamInvocations[0];
+		firstInvocation.callbacks.onToken("Here is the plan.");
+		firstInvocation.callbacks.onEnd("Here is the plan.", {
+			assistantMessageId: "assistant-1",
+			followUps: ["What about risks?", "Any alternatives?"],
+		});
+
+		const chip = await screen.findByRole("button", {
+			name: "Ask: What about risks?",
+		});
+		await fireEvent.click(chip);
+
+		await waitFor(() => {
+			expect(runtimeHarness.streamInvocations).toHaveLength(2);
+		});
+		expect(runtimeHarness.streamInvocations[1].message).toBe(
+			"What about risks?",
 		);
 	});
 

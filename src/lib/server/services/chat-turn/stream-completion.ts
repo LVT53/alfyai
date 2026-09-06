@@ -34,6 +34,7 @@ import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
 } from "./depth-metadata";
+import { generateFollowUpSuggestions } from "./follow-up-suggestions";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import {
 	createUiMessageStreamDoneFrame,
@@ -317,6 +318,13 @@ export async function completeStreamTurn(
 	// pre-request packet estimate.
 	let completedContextStatus: ConversationContextStatus | null | undefined =
 		preparedContext.contextStatus;
+	// Owner idea (variant A) — up to two short follow-up questions for this
+	// turn, resolved (not deferred) below, before the terminal frame is sent,
+	// so they ride `data-stream-metadata` live rather than only appearing on
+	// reload. `null` (the initial value, and the best-effort fallback on any
+	// skip/failure) simply omits the field from that payload — see
+	// `sendEndAndClose` below, mirroring `thoughtSteps`'s `.length > 0` gate.
+	let followUps: string[] | null = null;
 	const sendEndAndClose = (
 		userMsgId: string | undefined,
 		assistantMsgId: string,
@@ -366,6 +374,10 @@ export async function completeStreamTurn(
 				// model); this closes that gap. Omitted entirely when empty,
 				// mirroring completionWarningCodes.
 				...(thoughtSteps.length > 0 ? { thoughtSteps } : {}),
+				// Owner idea (variant A) — resolved just above, before this frame is
+				// built; omitted entirely when there is nothing to show, mirroring
+				// thoughtSteps/completionWarningCodes just above.
+				...(followUps && followUps.length > 0 ? { followUps } : {}),
 				userMessageId: userMsgId,
 				assistantMessageId: assistantMsgId,
 				modelId,
@@ -441,6 +453,32 @@ export async function completeStreamTurn(
 			estimatedPromptTokens: preparedContext.estimatedPromptTokens,
 			logPrefix: "[CHAT_STREAM]",
 		});
+		// Owner idea (variant A) — up to two short follow-up questions for this
+		// turn. Skipped (never attempted) when the turn was stopped early, a
+		// tool call is still mid-flight, or there is no finished answer to base
+		// them on; Atlas mode needs no check here — see the module doc on
+		// generateFollowUpSuggestions. Best-effort: any failure/timeout/
+		// implausible-output already degrades to `null` inside that call, and
+		// the `.catch` below is belt-and-suspenders so a genuinely unexpected
+		// throw can never fail (or even delay past its own timeout) this turn.
+		const toolCallsStillRunning = toolCallRecords.some(
+			(record) => record.status === "running",
+		);
+		if (!wasStopped && !toolCallsStillRunning && finalResponse.trim()) {
+			followUps = await generateFollowUpSuggestions({
+				userId,
+				conversationId,
+				userMessage: normalizedMessage,
+				assistantResponse: finalResponse,
+			}).catch((error) => {
+				console.error("[CHAT_STREAM] Follow-up suggestions failed", {
+					conversationId,
+					streamId,
+					error,
+				});
+				return null;
+			});
+		}
 		await finalizeChatTurn({
 			turnKind: "stream",
 			streamId,
@@ -476,6 +514,10 @@ export async function completeStreamTurn(
 				// no web-grounding tool ran this turn (nothing to check), mirroring
 				// completionWarningCodes just above.
 				...(citationGate?.repair ? { citationAudit: citationGate.repair } : {}),
+				// Follow-up chips — persisted additively (same paved road as
+				// thoughtSteps/railSummary) so a reloaded page still shows the same
+				// suggestions the live session got on the terminal frame above.
+				...(followUps && followUps.length > 0 ? { followUps } : {}),
 				...skillControl.metadata,
 			},
 			reasoningDepth,

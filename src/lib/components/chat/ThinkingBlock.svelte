@@ -111,6 +111,13 @@ let {
 	// `thoughtSteps`, mirroring `completionWarningCodes`), not only after a
 	// reload.
 	thoughtSteps = undefined,
+	// "Answer now" — fires when the user clicks the header's quick-answer
+	// button (see the `.answer-now-button` in the template below). Undefined
+	// hides the button entirely regardless of the live spine state, matching
+	// this file's existing optional-callback convention (see toolStatusIcon
+	// callers etc.) — MessageBubble always supplies it when it has an
+	// onRegenerate handler of its own to forward to.
+	onAnswerNow = undefined,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -122,6 +129,7 @@ let {
 	liveThoughtStepEntity?: string;
 	liveThoughtStepSummary?: string;
 	thoughtSteps?: InterimThoughtStep[];
+	onAnswerNow?: () => void;
 } = $props();
 
 let expanded = $state(false);
@@ -402,6 +410,21 @@ function reasoningSpineLabelKey(state: ReasoningSpineLiveState): I18nKey {
 }
 
 const liveSpineLabelKey = $derived(reasoningSpineLabelKey(reasoningSpineState));
+
+// "Answer now" — visible only while reasoning is still streaming and the
+// visible answer has not started yet (the mockup's "reasoning-spine state",
+// i.e. `reasoning_active` or its stalled variant, never `writing_answer`):
+// once real answer text starts arriving, `answerStarted` flips `true`,
+// `reasoningSpineState` becomes `writing_answer`, and this goes false on its
+// own — no separate "hide after first text" branch needed. Also requires a
+// handler (`onAnswerNow`) and never renders once the turn is done, matching
+// `isActiveThinking`'s existing "still streaming" gate used throughout this
+// file.
+const showAnswerNow = $derived(
+	isActiveThinking &&
+		Boolean(onAnswerNow) &&
+		reasoningSpineState !== "writing_answer",
+);
 
 // P3c (ADR-0056) — one localized label per closed classifier activity class
 // (src/lib/types.ts THOUGHT_STEP_CLASSIFIER_ACTIVITY_CLASSES), reusing the
@@ -1288,6 +1311,23 @@ function toggleFullReasoning(): void {
 			</span>
 			<ChevronDown class={`chevron${expanded ? ' expanded' : ''}`} size={14} strokeWidth={2} aria-hidden="true" />
 		</button>
+		<!--
+			"Answer now" — flush right on this SAME header row, a flex sibling of
+			the expand/collapse button (two <button>s cannot nest), exactly like
+			the "Show full reasoning" toggle below. Plain text, no border/background
+			(per the approved mockup) — deliberately NOT styled like that pill
+			toggle, so it reads as a lightweight escape hatch rather than a second
+			disclosure control. No notice/hint text anywhere around it.
+		-->
+		{#if showAnswerNow}
+			<button
+				type="button"
+				class="answer-now-button"
+				onclick={() => onAnswerNow?.()}
+			>
+				{$t('chat.answerNow')}
+			</button>
+		{/if}
 		<!--
 			Owner polish pass, item 1 — the "Show full reasoning" toggle now
 			lives flush right on this SAME header row (a flex sibling of the
@@ -2379,6 +2419,36 @@ function toggleFullReasoning(): void {
 	.thought-rail-chip .tool-call-item {
 		margin: 0;
 		width: auto;
+	}
+
+	/* "Answer now" — a plain text button flush right on the header row, per
+	   the approved mockup: no border, no background, text-sm/500, muted ->
+	   accent on hover. Deliberately NOT the pill shape .full-reasoning-header-toggle
+	   uses below — this reads as a lightweight inline action, not a secondary
+	   disclosure control. */
+	.answer-now-button {
+		flex-shrink: 0;
+		padding: 0;
+		border: none;
+		background: transparent;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--text-muted);
+		white-space: nowrap;
+		cursor: pointer;
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.answer-now-button:hover,
+	.answer-now-button:focus-visible {
+		color: var(--accent);
+	}
+
+	.answer-now-button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: 2px;
 	}
 
 	/* Owner polish pass, item 1 — the "Show full reasoning" toggle, relocated

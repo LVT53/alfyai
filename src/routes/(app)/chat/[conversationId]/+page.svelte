@@ -2172,11 +2172,48 @@ async function handleRetry() {
 	normalChatRuntime.retry();
 }
 
+// "Answer now" — polls the runtime's own `isSending` snapshot (updated
+// synchronously by applyNormalChatRuntimeSnapshot whenever the runtime's
+// internal state actually changes) rather than assuming the abort triggered
+// by normalChatRuntime.stop() has settled by the time this call returns:
+// stop() only requests the abort (AbortController.abort()) — the runtime's
+// completeTurn()/isSending=false only runs once the aborted fetch's reader
+// promise actually rejects, which is a real (if usually fast) async hop, not
+// something the caller can assume finished in the same tick. Bounded so a
+// pathological stall degrades to "give up and let the caller's own isSending
+// guard reject the regenerate" rather than hanging forever.
+function waitForRuntimeIdle(timeoutMs = 4000): Promise<void> {
+	if (!isSending) return Promise.resolve();
+	return new Promise((resolve) => {
+		const start = Date.now();
+		const interval = setInterval(() => {
+			if (!isSending || Date.now() - start >= timeoutMs) {
+				clearInterval(interval);
+				resolve();
+			}
+		}, 20);
+	});
+}
+
 async function handleRegenerate(
 	payload: MessageRegeneratePayload,
 	confirmForkedSourceHistoryMutation = false,
 ) {
-	if (isConversationReadOnlyForChat || isSending || isEditResendPending) return;
+	if (isConversationReadOnlyForChat || isEditResendPending) return;
+	if (isSending) {
+		// Only the "Answer now" quick-answer button (ThinkingBlock's header,
+		// wired through MessageBubble's existing onRegenerate prop — see
+		// MessageBubble.svelte) may regenerate while a turn is still
+		// in flight: it targets the very message that is currently streaming,
+		// interrupting it first (the same stop() the Stop button uses) and
+		// then regenerating in quick mode. Every other regenerate call site
+		// (the toolbar button) never sets reasoningDepthOverride and keeps the
+		// pre-existing "never regenerate mid-stream" guard unchanged.
+		if (!payload.reasoningDepthOverride) return;
+		normalChatRuntime.stop();
+		await waitForRuntimeIdle();
+		if (isSending || isEditResendPending) return;
+	}
 	// Issue 7.4 fix pass — gate BEFORE any optimistic mutation (removing the
 	// assistant message from $messages below), so a cancelled regenerate
 	// leaves the timeline untouched rather than showing a response already
@@ -2187,7 +2224,7 @@ async function handleRegenerate(
 	// shouldWarnCloudConnector) for a single regenerate action.
 	const proceed = await ensureCloudWarningAcked();
 	if (!proceed) return;
-	const { messageId } = payload;
+	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
 	const assistantIdx = msgs.findIndex((m) => m.id === messageId);
 	if (assistantIdx === -1) return;
@@ -2251,6 +2288,10 @@ async function handleRegenerate(
 			attachmentIds: regenAttachmentIds,
 			attachments: regenAttachments,
 			pendingAttachments: [],
+			// "Answer now" — this turn only; the user's own reasoning-depth
+			// toggle (adapters.getReasoningDepth()) is never touched. Undefined
+			// for every other regenerate path, which keeps the user's depth.
+			reasoningDepth: reasoningDepthOverride,
 		},
 		true,
 		true,
@@ -2447,6 +2488,30 @@ function handleCompact() {
 // bootstrap send) funnels through `ensureCloudWarningAcked()`.
 function handleQueue(payload: SendPayload) {
 	normalChatRuntime.queue(payload);
+}
+
+// Owner idea (variant A) — a follow-up chip click sends its text as the next
+// user message "through the normal send path (respecting the queue/
+// generating state)": mirrors MessageInput's own send()/queue() split
+// (isGenerating decides which) rather than introducing a third path. Only
+// ever called for the LATEST assistant message's chips (MessageBubble's own
+// `isLast` gate), so there is no later turn to warn about, unlike
+// handleRegenerate.
+function handleSendFollowUp(payload: { text: string }) {
+	if (isConversationReadOnlyForChat) return;
+	const text = payload.text.trim();
+	if (!text) return;
+	const minimalPayload: SendPayload = {
+		message: text,
+		attachmentIds: [],
+		attachments: [],
+		pendingAttachments: [],
+	};
+	if (isSending) {
+		handleQueue(minimalPayload);
+		return;
+	}
+	void handleSend(minimalPayload);
 }
 
 async function handleSteering(payload: TaskSteeringPayload) {
@@ -2667,6 +2732,7 @@ function handleDrop(event: DragEvent) {
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
 						onRegenerate={handleRegenerate}
+						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
 						onFork={handleFork}
 						onSteer={handleSteering}

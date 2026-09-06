@@ -42,6 +42,11 @@ export interface StreamMetadata {
 	// data-stream-metadata payload. Lets the completed step-rail populate in
 	// the same session, without a reload.
 	thoughtSteps?: import("$lib/response-activity-types").InterimThoughtStep[];
+	// Owner idea (variant A) — up to two short follow-up questions for this
+	// turn, riding the terminal data-stream-metadata payload exactly like
+	// thoughtSteps above, so the action row's chips populate live without a
+	// reload.
+	followUps?: string[];
 	upstreamFinishReason?: string;
 	upstreamRawFinishReason?: string;
 	streamClosedWithoutFinish?: boolean;
@@ -159,6 +164,7 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		thoughtSteps: parsed.thoughtSteps as
 			| StreamMetadata["thoughtSteps"]
 			| undefined,
+		followUps: parsed.followUps as StreamMetadata["followUps"] | undefined,
 		upstreamFinishReason: parsed.upstreamFinishReason as
 			| StreamMetadata["upstreamFinishReason"]
 			| undefined,

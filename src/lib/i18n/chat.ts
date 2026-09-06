@@ -4,6 +4,7 @@ const chatDict = {
 	en: {
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
+		"chat.answerNow": "Answer now",
 		"chat.attachmentLabel": "Attach file",
 		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
@@ -681,6 +682,7 @@ const chatDict = {
 		"messageBubble.depthThorough": "Thorough",
 		"messageBubble.editMessage": "Edit message",
 		"messageBubble.extendedReasoningDepth": "Extended reasoning depth",
+		"messageBubble.followUpAriaLabel": "Ask: {question}",
 		"messageBubble.forkFromHere": "Fork from here",
 		"messageBubble.info": "Info",
 		"messageBubble.maxReasoningDepth": "Max reasoning depth",
@@ -851,6 +853,7 @@ const chatDict = {
 	hu: {
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
+		"chat.answerNow": "Válasz most",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
@@ -1516,6 +1519,7 @@ const chatDict = {
 		"messageBubble.editMessage": "Üzenet szerkesztése",
 		"messageBubble.extendedReasoningDepth":
 			"Kiterjesztett gondolkodási mélység",
+		"messageBubble.followUpAriaLabel": "Kérdés: {question}",
 		"messageBubble.forkFromHere": "Elágazás innen",
 		"messageBubble.info": "Infó",
 		"messageBubble.maxReasoningDepth": "Max gondolkodási mélység",

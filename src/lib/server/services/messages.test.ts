@@ -617,6 +617,71 @@ describe("messages metadata", () => {
 		expect(message.railSummary).toBeUndefined();
 	});
 
+	// Owner idea (variant A) — up to two follow-up questions ride
+	// `metadataJson.followUps` additively, written directly by
+	// stream-completion.ts (no separate write-back call, unlike railSummary)
+	// and projected onto `ChatMessage` exactly like the other optional turn
+	// metadata fields: present and non-empty -> the array, absent -> `undefined`.
+	it("projects persisted followUps when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-follow-ups-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				followUps: ["What about the sequel?", "Any similar examples?"],
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		await expect(listMessages("conv-1")).resolves.toEqual([
+			expect.objectContaining({
+				id: "assistant-follow-ups-1",
+				followUps: ["What about the sequel?", "Any similar examples?"],
+			}),
+		]);
+	});
+
+	it("omits followUps entirely when none was persisted for the turn", async () => {
+		mockRows.push({
+			id: "assistant-no-follow-ups-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "none" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.followUps).toBeUndefined();
+	});
+
+	it("treats an empty followUps array as absent", async () => {
+		mockRows.push({
+			id: "assistant-empty-follow-ups-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ followUps: [] }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.followUps).toBeUndefined();
+	});
+
 	it("writes railSummary into metadataJson while preserving existing metadata", async () => {
 		mockRows.push({
 			id: "assistant-1",

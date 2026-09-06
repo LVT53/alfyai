@@ -59,6 +59,7 @@ import {
 	RefreshCw,
 	X,
 } from "@lucide/svelte";
+import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 
 let {
@@ -73,6 +74,7 @@ let {
 	modelIcons = {},
 	readOnly = false,
 	onRegenerate = undefined,
+	onSendFollowUp = undefined,
 	onEdit = undefined,
 	onFork = undefined,
 	forkBusy = false,
@@ -102,7 +104,16 @@ let {
 	conversationId?: string | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	readOnly?: boolean;
-	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
+	onRegenerate?:
+		| ((payload: {
+				messageId: string;
+				// "Answer now" (ThinkingBlock's header button) sets this to "quick"
+				// for a single regeneration; every other regenerate call site
+				// (the toolbar button) omits it and keeps the user's own depth.
+				reasoningDepthOverride?: ReasoningDepth;
+		  }) => void)
+		| undefined;
+	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
 	onEdit?:
 		| ((payload: { messageId: string; newText: string }) => void)
 		| undefined;
@@ -701,6 +712,29 @@ function forkLinkLabel(title: string): string {
 function toggleForkDetails() {
 	showForkDetails = !showForkDetails;
 }
+
+// "Answer now" (ThinkingBlock header button) — reuses the exact same
+// stop + regenerate machinery the toolbar's Regenerate button already
+// triggers via onRegenerate, just with `reasoningDepthOverride: "quick"` set
+// so the page-level handler knows to interrupt the current stream first (see
+// handleRegenerate in +page.svelte). No separate onAnswerNow prop needed on
+// this component.
+function handleAnswerNow() {
+	onRegenerate?.({ messageId: message.id, reasoningDepthOverride: "quick" });
+}
+
+// Owner idea (variant A) — up to two follow-up chips, shown only on the
+// LATEST assistant message (mirrors the copy-action-row's own isLast-
+// agnostic icon buttons, but gated further: older messages never show
+// chips, matching the mockup). readOnly conversations never offer a way to
+// send a new message at all, so chips are hidden there too.
+const followUpChips = $derived(
+	!isUser && isLast && !readOnly ? (message.followUps ?? []).slice(0, 2) : [],
+);
+
+function sendFollowUp(question: string) {
+	onSendFollowUp?.({ text: question });
+}
 </script>
 
 <div class="group flex w-full flex-col {isUser && !isEditing ? 'items-end' : 'items-start'} gap-md py-md fade-in">
@@ -740,6 +774,7 @@ function toggleForkDetails() {
 			liveThoughtStepEntity={liveThoughtStepActivity?.label}
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
 			thoughtSteps={message.thoughtSteps}
+			onAnswerNow={onRegenerate && !readOnly ? handleAnswerNow : undefined}
 		/>
 		{/if}
 		{#if isUser}
@@ -1115,6 +1150,20 @@ function toggleForkDetails() {
 					</div>
 				</div>
 			</div>
+
+			{#if followUpChips.length > 0}
+				<span class="follow-up-divider" aria-hidden="true"></span>
+				{#each followUpChips as question (question)}
+					<button
+						type="button"
+						class="follow-up-chip"
+						onclick={() => sendFollowUp(question)}
+						aria-label={$t('messageBubble.followUpAriaLabel', { question })}
+					>
+						{question}
+					</button>
+				{/each}
+			{/if}
 		</div>
 	{/if}
 	{#if showLogoBelow}
@@ -1573,6 +1622,51 @@ function toggleForkDetails() {
 	.action-tooltip-container {
 		position: relative;
 		display: inline-flex;
+	}
+
+	/* Owner idea (variant A) — the action row's follow-up chips. A 1px
+	   vertical divider separates them from the icon buttons; each chip is a
+	   quiet, pill-shaped outline button (never filled) that only picks up
+	   surface/text color on hover, matching the mockup exactly. Visibility
+	   follows the row's own existing opacity rule — no separate rule needed
+	   here since these render as ordinary flex children of .copy-action-row. */
+	.follow-up-divider {
+		display: inline-block;
+		width: 1px;
+		height: 14px;
+		margin: 0 var(--space-xs);
+		background: var(--border-default);
+		flex-shrink: 0;
+	}
+
+	.follow-up-chip {
+		flex-shrink: 0;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		background: transparent;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		padding: 3px 10px;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.follow-up-chip:hover,
+	.follow-up-chip:focus-visible {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.follow-up-chip:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.timestamp-label {

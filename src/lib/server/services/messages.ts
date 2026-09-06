@@ -58,6 +58,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// step, and projected out in `projectMessageMetadata` below. Assistant
 	// turns only (owner decision O-3).
 	railSummary?: string;
+	// Owner idea (variant A) — see `followUps` on ChatMessage. Written
+	// directly into assistantMetadata by stream-completion.ts (resolved
+	// before finalize persists the assistant message — unlike railSummary,
+	// no separate write-back call is needed), and projected out in
+	// projectMessageMetadata below.
+	followUps?: string[];
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -232,6 +238,7 @@ function projectMessageMetadata(
 	| "importSource"
 	| "thoughtSteps"
 	| "railSummary"
+	| "followUps"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -272,6 +279,12 @@ function projectMessageMetadata(
 			typeof metadata?.railSummary === "string" &&
 			metadata.railSummary.trim().length > 0
 				? metadata.railSummary
+				: undefined,
+		// Owner idea (variant A) — plain array field, no anchor validation
+		// needed (unlike thoughtSteps): present and non-empty, or `undefined`.
+		followUps:
+			Array.isArray(metadata?.followUps) && metadata.followUps.length > 0
+				? metadata.followUps
 				: undefined,
 	};
 }

@@ -2079,4 +2079,192 @@ describe("MessageBubble", () => {
 			).not.toBeInTheDocument();
 		});
 	});
+
+	describe("Answer now", () => {
+		const streamingAssistantMessage: ChatMessage = {
+			id: "assistant-answer-now",
+			renderKey: "assistant-answer-now",
+			role: "assistant",
+			content: "",
+			timestamp: Date.now(),
+			isStreaming: true,
+			isThinkingStreaming: true,
+			thinking: "Reasoning about the request.",
+		};
+
+		it("clicking it calls onRegenerate with a quick reasoningDepthOverride for this message", async () => {
+			const onRegenerate = vi.fn();
+			render(MessageBubble, {
+				message: streamingAssistantMessage,
+				onRegenerate,
+			});
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			);
+
+			expect(onRegenerate).toHaveBeenCalledWith({
+				messageId: "assistant-answer-now",
+				reasoningDepthOverride: "quick",
+			});
+		});
+
+		it("is not shown when the caller has no onRegenerate handler", () => {
+			render(MessageBubble, { message: streamingAssistantMessage });
+
+			expect(
+				screen.queryByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).not.toBeInTheDocument();
+		});
+
+		it("is not shown in a read-only conversation", () => {
+			render(MessageBubble, {
+				message: streamingAssistantMessage,
+				onRegenerate: vi.fn(),
+				readOnly: true,
+			});
+
+			expect(
+				screen.queryByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).not.toBeInTheDocument();
+		});
+
+		it("disappears once the visible answer has started streaming", async () => {
+			const { rerender } = render(MessageBubble, {
+				message: streamingAssistantMessage,
+				onRegenerate: vi.fn(),
+			});
+
+			expect(
+				screen.getByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).toBeInTheDocument();
+
+			await rerender({
+				message: { ...streamingAssistantMessage, content: "The answer so far" },
+				onRegenerate: vi.fn(),
+			});
+
+			expect(
+				screen.queryByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).not.toBeInTheDocument();
+		});
+
+		it("is not shown once the message has finished generating", () => {
+			const message: ChatMessage = {
+				...streamingAssistantMessage,
+				isStreaming: false,
+				isThinkingStreaming: false,
+				content: "The final answer.",
+			};
+
+			render(MessageBubble, { message, onRegenerate: vi.fn() });
+
+			expect(
+				screen.queryByRole("button", { name: chatDict.en["chat.answerNow"] }),
+			).not.toBeInTheDocument();
+		});
+	});
+
+	describe("Follow-up suggestion chips (owner idea, variant A)", () => {
+		function buildFollowUpMessage(
+			overrides: Partial<ChatMessage> = {},
+		): ChatMessage {
+			return {
+				id: "assistant-follow-ups",
+				renderKey: "assistant-follow-ups",
+				role: "assistant",
+				content: "Completed answer.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				followUps: ["What about the sequel?", "Any similar examples?"],
+				...overrides,
+			};
+		}
+
+		it("renders a chip per follow-up on the latest assistant message", () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: true,
+			});
+
+			expect(
+				screen.getByRole("button", {
+					name: chatDict.en["messageBubble.followUpAriaLabel"].replace(
+						"{question}",
+						"What about the sequel?",
+					),
+				}),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", {
+					name: chatDict.en["messageBubble.followUpAriaLabel"].replace(
+						"{question}",
+						"Any similar examples?",
+					),
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("does not render chips on an older assistant message", () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: false,
+			});
+
+			expect(
+				screen.queryByText("What about the sequel?"),
+			).not.toBeInTheDocument();
+		});
+
+		it("does not render chips on a user message", () => {
+			render(MessageBubble, {
+				message: {
+					...buildFollowUpMessage(),
+					role: "user",
+				},
+				isLast: true,
+			});
+
+			expect(
+				screen.queryByText("What about the sequel?"),
+			).not.toBeInTheDocument();
+		});
+
+		it("does not render chips in a read-only conversation", () => {
+			render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: true,
+				readOnly: true,
+			});
+
+			expect(
+				screen.queryByText("What about the sequel?"),
+			).not.toBeInTheDocument();
+		});
+
+		it("does not render anything when the message has no follow-ups", () => {
+			const { container } = render(MessageBubble, {
+				message: buildFollowUpMessage({ followUps: undefined }),
+				isLast: true,
+			});
+
+			expect(container.querySelector(".follow-up-chip")).toBeNull();
+			expect(container.querySelector(".follow-up-divider")).toBeNull();
+		});
+
+		it("sends the chip's text as the next user message when clicked", async () => {
+			const onSendFollowUp = vi.fn();
+			render(MessageBubble, {
+				message: buildFollowUpMessage(),
+				isLast: true,
+				onSendFollowUp,
+			});
+
+			await fireEvent.click(screen.getByText("What about the sequel?"));
+
+			expect(onSendFollowUp).toHaveBeenCalledWith({
+				text: "What about the sequel?",
+			});
+		});
+	});
 });
