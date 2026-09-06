@@ -1747,6 +1747,30 @@ function sendFollowUp(question: string) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
+	/* Narrow viewports only: two chips plus the icon buttons overflow a 360px
+	   screen while the row cannot wrap. Let it wrap and turn the divider into
+	   a zero-height full-width break, so the chips drop onto their own line
+	   under the icons and shrink to fit. Desktop keeps the approved mockup —
+	   chips inline on the action row — untouched. */
+	@media (max-width: 480px) {
+		.copy-action-row {
+			flex-wrap: wrap;
+		}
+
+		.follow-up-divider {
+			flex-basis: 100%;
+			width: 100%;
+			height: 0;
+			margin: 0;
+			background: transparent;
+		}
+
+		.follow-up-chip {
+			flex-shrink: 1;
+			max-width: 100%;
+		}
+	}
+
 	.timestamp-label {
 		font-size: var(--text-2xs);
 		color: var(--text-muted);
