@@ -26,6 +26,7 @@ export interface ReconnectBuffer {
 			| null;
 		candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 		metadata?: Record<string, string | number | boolean | null>;
+		map?: import("$lib/server/services/messages-types").ToolCallMapData | null;
 	}>;
 	eventTimeline?: Array<{
 		seq: number;
@@ -168,6 +169,7 @@ function sendReplayByTimeline(
 							sourceType: toolCall.sourceType,
 							candidates: toolCall.candidates,
 							metadata: toolCall.metadata,
+							map: toolCall.map,
 						}),
 					);
 				}
@@ -207,6 +209,7 @@ function sendReplayFallback(
 				sourceType: toolCall.sourceType,
 				candidates: toolCall.candidates,
 				metadata: toolCall.metadata,
+				map: toolCall.map,
 			}),
 		);
 	}

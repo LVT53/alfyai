@@ -106,6 +106,9 @@ export interface StreamCallbacks {
 				| null;
 			candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 			metadata?: Record<string, string | number | boolean | null>;
+			map?:
+				| import("$lib/server/services/messages-types").ToolCallMapData
+				| null;
 		},
 	) => void;
 	onResponseActivity?: (entry: ResponseActivityEntry) => void;
@@ -542,6 +545,10 @@ export function streamChat(
 					| undefined,
 				metadata: parsed.metadata as
 					| Record<string, string | number | boolean | null>
+					| undefined,
+				map: parsed.map as
+					| import("$lib/server/services/messages-types").ToolCallMapData
+					| null
 					| undefined,
 			},
 		);

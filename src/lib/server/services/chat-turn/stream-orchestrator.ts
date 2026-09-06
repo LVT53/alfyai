@@ -553,6 +553,7 @@ export function runChatStreamOrchestrator(
 							sourceType: details?.sourceType,
 							candidates: details?.candidates,
 							metadata: details?.metadata,
+							map: details?.map,
 						});
 					}
 				},
@@ -612,6 +613,9 @@ export function runChatStreamOrchestrator(
 						| null;
 					candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 					metadata?: Record<string, string | number | boolean | null>;
+					map?:
+						| import("$lib/server/services/messages-types").ToolCallMapData
+						| null;
 				},
 			) => {
 				chunkRuntime.emitToolCallEvent(name, input, status, details);
@@ -630,6 +634,9 @@ export function runChatStreamOrchestrator(
 								| null;
 							candidates?: import("$lib/server/services/message-evidence").ToolEvidenceCandidate[];
 							metadata?: Record<string, string | number | boolean | null>;
+							map?:
+								| import("$lib/server/services/messages-types").ToolCallMapData
+								| null;
 					  }>
 					| undefined,
 			) => {
@@ -640,6 +647,7 @@ export function runChatStreamOrchestrator(
 						sourceType: record.sourceType,
 						candidates: record.candidates,
 						metadata: record.metadata,
+						map: record.map,
 					});
 				}
 			};
@@ -665,6 +673,7 @@ export function runChatStreamOrchestrator(
 							sourceType: record.sourceType,
 							candidates: record.candidates,
 							metadata: record.metadata,
+							map: record.map,
 						},
 					);
 				}
@@ -1312,6 +1321,7 @@ export function runChatStreamOrchestrator(
 										sourceType: matchingToolCall?.sourceType ?? null,
 										candidates: matchingToolCall?.candidates ?? [],
 										metadata: matchingToolCall?.metadata ?? {},
+										map: matchingToolCall?.map ?? null,
 									},
 								);
 								break;
