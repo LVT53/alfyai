@@ -541,6 +541,63 @@ describe("MessageInput", () => {
 		});
 	});
 
+	// Reviewer report — "I want /remember to be a feature" opened the command
+	// tray, and Enter then saved a memory note instead of sending the
+	// sentence. A slash only starts a command at the very start of the
+	// composer text.
+	it("treats a slash command typed mid-sentence as ordinary text", async () => {
+		const sendSpy = vi.fn();
+		const { getByPlaceholderText, getByRole, queryByRole } = render(
+			MessageInput,
+			{
+				composerCommandRegistryEnabled: true,
+				onSend: sendSpy,
+			},
+		);
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, {
+			target: { value: "I want /remember to be a feature" },
+		});
+
+		expect(queryByRole("listbox", { name: "Composer commands" })).toBeNull();
+
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+		expect(addMemoryNoteMock).not.toHaveBeenCalled();
+		expect(input.value).toBe("I want /remember to be a feature");
+
+		await fireEvent.click(getByRole("button", { name: "Send message" }));
+		expect(sendSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: "I want /remember to be a feature",
+			}),
+		);
+	});
+
+	it("still opens the tray for a slash command that opens the composer text", async () => {
+		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
+		});
+		const input = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+
+		await fireEvent.input(input, { target: { value: "/remember oat milk" } });
+
+		expect(
+			getByRole("listbox", { name: "Composer commands" }),
+		).toBeInTheDocument();
+
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+
+		expect(input.value).toBe("");
+		await waitFor(() => {
+			expect(addMemoryNoteMock).toHaveBeenCalledWith("oat milk");
+		});
+	});
+
 	it("saves a note via /remember and prompts for text when none is typed", async () => {
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
@@ -786,12 +843,12 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		await fireEvent.input(input, {
-			target: { value: "Please /web now" },
+			target: { value: "/web now please" },
 		});
-		input.setSelectionRange(11, 11);
+		input.setSelectionRange(4, 4);
 		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 
-		expect(input.value).toBe("Please  now");
+		expect(input.value).toBe(" now please");
 	});
 
 	it("opens dollar skill discovery without triggering on prices", async () => {
@@ -1177,15 +1234,16 @@ describe("MessageInput", () => {
 
 		expect(await findByText("clear-attachment.pdf")).toBeInTheDocument();
 		await fireEvent.input(input, {
-			target: { value: "Keep this draft /clear" },
+			target: { value: "/clear Keep this draft" },
 		});
-		input.setSelectionRange(input.value.length, input.value.length);
+		input.setSelectionRange("/clear".length, "/clear".length);
+		await fireEvent.select(input);
 		await fireEvent.click(getByRole("option", { name: /\/clear/i }));
 
 		expect(confirmSpy).toHaveBeenCalledWith(
 			"Clear the current draft and pending composer selections?",
 		);
-		expect(input.value).toBe("Keep this draft /clear");
+		expect(input.value).toBe("/clear Keep this draft");
 		expect(getByText("clear-attachment.pdf")).toBeInTheDocument();
 		expect(getByText("Clear source.md")).toBeInTheDocument();
 		expect(getByText("Clear Skill")).toBeInTheDocument();
@@ -1235,9 +1293,10 @@ describe("MessageInput", () => {
 		) as HTMLTextAreaElement;
 
 		await fireEvent.input(input, {
-			target: { value: "Remove this draft /clear" },
+			target: { value: "/clear Remove this draft" },
 		});
-		input.setSelectionRange(input.value.length, input.value.length);
+		input.setSelectionRange("/clear".length, "/clear".length);
+		await fireEvent.select(input);
 		await fireEvent.click(getByRole("option", { name: /\/clear/i }));
 
 		expect(confirmSpy).toHaveBeenCalledWith(
