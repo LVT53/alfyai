@@ -68,9 +68,10 @@ export const FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT = 6;
 // for a model that pretty-prints it.
 const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 120;
 
-// A reply this short (a one-liner, an acknowledgment) rarely has an obvious
-// follow-up worth surfacing — skip the control-model call entirely.
-export const FOLLOW_UP_SUGGESTIONS_MIN_CONTENT_LENGTH = 20;
+// A reply this short (a one-liner, a bare number, an acknowledgment) rarely
+// has a follow-up worth surfacing — on staging "17 × 23 = 391" produced
+// "What is 17 multiplied by 24?" — so skip the control-model call entirely.
+export const FOLLOW_UP_SUGGESTIONS_MIN_CONTENT_LENGTH = 160;
 
 // A short reply that is itself a question reads as the assistant asking the
 // USER something (a clarification), not an answer to build follow-ups on.
