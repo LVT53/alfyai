@@ -1,22 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { I18nKey } from "$lib/i18n";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import {
-	buildFetchedSourceSummary,
 	candidateReason,
-	citedCount,
 	dedupeSourcesByUrl,
 	extractHostname,
 	type FetchedSource,
 	formatToolCall,
 	getAgendaCandidates,
 	getFaviconUrl,
-	getFetchedSources,
 	getFetchUrlSources,
 	getFetchUrls,
 	getPhotoCandidates,
-	getToolTitle,
 	immichThumbnailUrl,
 	isCalendarToolName,
 	isCitedSource,
@@ -30,13 +25,8 @@ import {
 // A faithful stand-in for the app's real `$t`: reproduces the exact strings
 // (incl. the minimal ICU plural) the English dictionary uses for the keys these
 // pure builders touch, so the summary/label assertions lock the real output.
-const fakeTranslate: Translate = (key: I18nKey, params) => {
-	const count = Number(params?.count);
+const fakeTranslate: Translate = (key: I18nKey) => {
 	const dict: Partial<Record<I18nKey, string>> = {
-		"toolCalls.searchedWeb": "Searched the web",
-		"toolCalls.sourcesCount": `${count} source${count === 1 ? "" : "s"}`,
-		"toolCalls.citedCount": `${count} cited`,
-		"toolCalls.readPagesCount": `Read ${count} page${count === 1 ? "" : "s"}`,
 		"toolCalls.search": "Search",
 		"toolCalls.webSearch": "Searched the web",
 		"toolCalls.fetchPage": "Fetch page",
@@ -56,13 +46,6 @@ function candidate(
 		sourceType: over.sourceType ?? "web",
 		...over,
 	};
-}
-
-function webSegment(
-	candidates: ToolEvidenceCandidate[],
-	name = "research_web",
-): ThinkingSegment {
-	return { type: "tool_call", name, status: "done", input: {}, candidates };
 }
 
 describe("stripToPlainText", () => {
@@ -93,24 +76,6 @@ describe("stripToPlainText", () => {
 		expect(stripToPlainText("rate 18-24% up, snake_case a*b")).toBe(
 			"rate 18-24% up, snake_case a*b",
 		);
-	});
-});
-
-describe("getFetchedSources — plain-text title/excerpt", () => {
-	it("strips markdown/HTML from the title and reason", () => {
-		const sources = getFetchedSources(
-			webSegment([
-				candidate({
-					id: "w1",
-					title: "**Q3** <i>Report</i>",
-					url: "https://ex.example/r",
-					status: "selected",
-					snippet: "Close rates run <b>18-24%</b> above [trailing](http://x).",
-				}),
-			]),
-		);
-		expect(sources[0]?.title).toBe("Q3 Report");
-		expect(sources[0]?.reason).toBe("Close rates run 18-24% above trailing.");
 	});
 });
 
@@ -253,43 +218,6 @@ describe("dedupeSourcesByUrl", () => {
 	});
 });
 
-describe("getFetchedSources", () => {
-	it("returns [] for anything but a research_web tool_call", () => {
-		expect(
-			getFetchedSources({ type: "text", content: "hi" } as ThinkingSegment),
-		).toEqual([]);
-		expect(getFetchedSources(webSegment([], "calendar"))).toEqual([]);
-	});
-
-	it("shapes web candidates into cited-first, deduped sources with hostname fallback titles", () => {
-		const sources = getFetchedSources(
-			webSegment([
-				candidate({
-					id: "u",
-					title: "",
-					url: "https://www.uncited.example/x",
-					status: "reference",
-				}),
-				candidate({
-					id: "c",
-					title: "Cited One",
-					url: "https://cited.example/y",
-					status: "selected",
-					snippet: "why it matters",
-				}),
-				// non-web candidate is filtered out
-				candidate({ id: "t", sourceType: "tool", url: "https://tool.example" }),
-			]),
-		);
-		expect(sources).toHaveLength(2);
-		// cited leads
-		expect(sources[0].url).toBe("https://cited.example/y");
-		expect(sources[0].reason).toBe("why it matters");
-		// empty title falls back to www-stripped hostname
-		expect(sources[1].title).toBe("uncited.example");
-	});
-});
-
 describe("getFetchUrlSources", () => {
 	it("maps read-page urls to hostname-titled sources, deduped", () => {
 		const sources = getFetchUrlSources("fetch_url", {
@@ -298,33 +226,6 @@ describe("getFetchUrlSources", () => {
 		// distinct urls (trailing slash normalization makes these two different)
 		expect(sources.map((s) => s.title)).toEqual(["a.example", "a.example"]);
 		expect(sources.every((s) => s.status === undefined)).toBe(true);
-	});
-});
-
-describe("citedCount / buildFetchedSourceSummary", () => {
-	const cited: FetchedSource = { title: "c", url: "c", status: "selected" };
-	const ref: FetchedSource = { title: "r", url: "r", status: "reference" };
-
-	it("counts only cited sources", () => {
-		expect(citedCount([cited, ref, cited])).toBe(2);
-	});
-
-	it("formats the search summary with the cited clause when something was cited", () => {
-		expect(
-			buildFetchedSourceSummary([cited, ref], "search", fakeTranslate),
-		).toBe("Searched the web · 2 sources · 1 cited");
-	});
-
-	it("omits the cited clause when nothing was cited", () => {
-		expect(buildFetchedSourceSummary([ref], "search", fakeTranslate)).toBe(
-			"Searched the web · 1 source",
-		);
-	});
-
-	it("formats the read summary by page count", () => {
-		expect(buildFetchedSourceSummary([ref, ref], "read", fakeTranslate)).toBe(
-			"Read 2 pages",
-		);
 	});
 });
 
@@ -437,22 +338,5 @@ describe("formatToolCall", () => {
 		expect(
 			formatToolCall("produce_file", { requestTitle: "Report" }, fakeTranslate),
 		).toBe("Create file");
-	});
-});
-
-describe("getToolTitle", () => {
-	it("returns the raw query for a search tool", () => {
-		expect(getToolTitle("research_web", { query: "q" })).toBe("q");
-	});
-
-	it("returns the request title for a file-production tool, defaulting to produce_file", () => {
-		expect(getToolTitle("produce_file", { filename: "f.pdf" })).toBe("f.pdf");
-		expect(getToolTitle("produce_file", {})).toBe("produce_file");
-	});
-
-	it("returns the first input value for a fetch tool", () => {
-		expect(getToolTitle("fetch_url", { url: "https://a.example" })).toBe(
-			"https://a.example",
-		);
 	});
 });

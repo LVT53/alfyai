@@ -3,17 +3,16 @@
 //
 // Everything here is the per-tool DOMAIN logic that shapes a completed tool
 // call's raw candidates/inputs into the compact view-models the thinking
-// block renders: source lists (web search + read-page), the favicon proxy
-// URL, cited-first ordering + dedupe, the search-card summary, the
-// agenda/photo peeks, the Immich thumbnail URL rewrite, and the tool-call
-// labels. It mirrors the existing `reasoning-spine.ts` /
+// block renders: source shaping (favicon proxy URL, cited-first ordering,
+// dedupe), the agenda/photo peeks, the Immich thumbnail URL rewrite, and the
+// tool-call labels. It mirrors the existing `reasoning-spine.ts` /
 // `thought-step-anchor.ts` extractions: pure functions returning plain data,
 // unit-tested directly rather than only reachable through the huge component
 // test.
 //
 // Boundary rule (per the B1 brief): nothing Svelte-reactive and nothing that
-// imports the `$t` store lives here. The two functions that are i18n-coupled
-// (`buildFetchedSourceSummary`, `formatToolCall`) take the translator as a
+// imports the `$t` store lives here. The one function that is i18n-coupled
+// (`formatToolCall`) takes the translator as a
 // plain `Translate` parameter — the component threads its own `$t` in — so
 // the branching/assembly logic (the part actually worth testing) stays here
 // and directly testable with a fake translator, while ThinkingBlock keeps
@@ -54,9 +53,6 @@ export type FetchedSource = {
 	// Compact reason/snippet surfaced in the chip's hover tooltip.
 	reason?: string;
 };
-
-/** Whether a source group summarizes a web search or a read-page (fetch_url) call. */
-export type FetchedSourceKind = "search" | "read";
 
 /**
  * The translator shape the component's `$t` store already satisfies. Threaded
@@ -205,29 +201,6 @@ export function dedupeSourcesByUrl(sources: FetchedSource[]): FetchedSource[] {
 	return deduped;
 }
 
-export function getFetchedSources(segment: ThinkingSegment): FetchedSource[] {
-	if (segment.type !== "tool_call" || segment.name !== "research_web")
-		return [];
-	return orderCitedFirst(
-		dedupeSourcesByUrl(
-			(segment.candidates ?? [])
-				.filter((candidate) => candidate.sourceType === "web" && candidate.url)
-				.map((candidate) => {
-					const reason = candidateReason(candidate);
-					return {
-						title: stripToPlainText(
-							candidate.title || extractHostname(candidate.url ?? ""),
-						),
-						url: candidate.url as string,
-						status: candidate.status,
-						// Clean plain text for the hover excerpt — no raw markdown/HTML.
-						reason: reason ? stripToPlainText(reason) : undefined,
-					};
-				}),
-		),
-	);
-}
-
 export function getFetchUrlSources(
 	name: string,
 	input: Record<string, unknown>,
@@ -238,31 +211,6 @@ export function getFetchUrlSources(
 			url,
 		})),
 	);
-}
-
-export function citedCount(sources: FetchedSource[]): number {
-	return sources.filter(isCitedSource).length;
-}
-
-// The search-card / read-card summary text. i18n-coupled, so the translator is
-// threaded in: for "read" it is "Read N page(s)"; for "search" it is
-// "Searched the web · N source(s)" with a "· M cited" clause appended only when
-// at least one source was cited.
-export function buildFetchedSourceSummary(
-	sources: FetchedSource[],
-	kind: FetchedSourceKind,
-	translate: Translate,
-): string {
-	const count = sources.length;
-	if (kind === "read") {
-		return translate("toolCalls.readPagesCount", { count });
-	}
-	const base = `${translate("toolCalls.searchedWeb")} · ${translate("toolCalls.sourcesCount", { count })}`;
-	const cited = citedCount(sources);
-	if (cited > 0) {
-		return `${base} · ${translate("toolCalls.citedCount", { count: cited })}`;
-	}
-	return base;
 }
 
 export function isCalendarToolName(name: string): boolean {
@@ -342,23 +290,4 @@ export function formatToolCall(
 		return action ? `${toolLabel}: ${action}` : toolLabel;
 	}
 	return firstVal() ? `${toolLabel}: ${firstVal()}` : toolLabel;
-}
-
-export function getToolTitle(
-	name: string,
-	input: Record<string, unknown>,
-): string {
-	const n = name.toLowerCase();
-	if (n.includes("search") || n.includes("tavily")) {
-		const q = input.query ?? input.q ?? Object.values(input)[0];
-		return String(q ?? "");
-	}
-	if (isFileProductionToolName(name)) {
-		const title = input.requestTitle ?? input.filename ?? input.documentIntent;
-		return title ? String(title) : "produce_file";
-	}
-	if (isFetchTool(name)) {
-		return String(Object.values(input)[0] ?? "");
-	}
-	return String(Object.values(input)[0] ?? "");
 }
