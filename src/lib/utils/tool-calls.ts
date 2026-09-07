@@ -182,6 +182,12 @@ export type ToolCallIconType =
 	| "image-search"
 	| "memory"
 	| "file-production"
+	// Unified tool activity rows — three tools that previously fell through to
+	// the generic wrench now carry their own glyph (terminal / map pin /
+	// sparkle), matching the approved mockup's per-tool icon column.
+	| "run-python"
+	| "map-route"
+	| "use-skill"
 	| "calendar"
 	| "contacts"
 	| "email"
@@ -210,6 +216,9 @@ export function getToolCallIconType(name: string): ToolCallIconType {
 	if (isWebSearchToolName(normalized)) return "web-search";
 	if (normalized === "image_search") return "image-search";
 	if (normalized === "memory_context") return "memory";
+	if (normalized === "run_python") return "run-python";
+	if (normalized === "map_route") return "map-route";
+	if (normalized === "use_skill") return "use-skill";
 	if (isFetchOrBrowseToolName(normalized)) return "fetch-url";
 	if (isFileProductionToolName(name)) return "file-production";
 	const connectionIconType = CONNECTION_TOOL_ICON_TYPES[normalized];
