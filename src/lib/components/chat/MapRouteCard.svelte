@@ -1,8 +1,10 @@
 <script lang="ts">
-// Inline map card for a completed map_route tool call — styled like the
-// chart/CSV cards (Chart.svelte, CsvTable.svelte). Renders BELOW the tool
-// line in the message body (wired in MessageBubble.svelte), never inside
-// ThinkingBlock's panel.
+// The map BODY of a completed map_route activity row. Reduced (unified tool
+// activity rows) from the former standalone card: the route label and the
+// distance/duration summary now live on the activity row itself and in the
+// body's own summary line, so this component renders only the map surface and
+// its attribution — no header, no card border of its own. It is dynamic-
+// imported by ToolActivityRow, never mounted eagerly.
 //
 // MapLibre GL is heavy and needs a live DOM/WebGL context, so — same
 // discipline as Chart.svelte (chart.js/auto) and Mermaid.svelte (mermaid) —
@@ -18,7 +20,6 @@
 // SVG fallback is always present in the DOM and a print stylesheet swaps it
 // in regardless of WebGL support.
 import { onMount } from "svelte";
-import type { I18nKey } from "$lib/i18n";
 import { t } from "$lib/i18n";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
 
@@ -59,45 +60,12 @@ function accentColor(): string {
 	return value || "#c15f3c";
 }
 
-function modeKey(mode: ToolCallMapData["mode"]): I18nKey | null {
-	if (mode === "drive") return "mapCard.mode.drive";
-	if (mode === "walk") return "mapCard.mode.walk";
-	if (mode === "bike") return "mapCard.mode.bike";
-	return null;
-}
-
-function formatDistance(meters: number | undefined): string {
-	if (meters == null || !Number.isFinite(meters)) return "";
-	if (meters < 1000) return `${Math.round(meters)} m`;
-	return `${(meters / 1000).toFixed(1)} km`;
-}
-
-function formatDuration(seconds: number | undefined): string {
-	if (seconds == null || !Number.isFinite(seconds)) return "";
-	const mins = Math.round(seconds / 60);
-	if (mins < 60) return `${mins} min`;
-	const hours = Math.floor(mins / 60);
-	const rem = mins % 60;
-	return rem > 0 ? `${hours} h ${rem} min` : `${hours} h`;
-}
-
+// The accessible name of the fallback drawing — the same origin -> destination
+// route the activity row above it names.
 let headerRoute = $derived(
 	map.originLabel && map.destinationLabel
 		? `${map.originLabel} → ${map.destinationLabel}`
 		: (map.originLabel ?? map.destinationLabel ?? ""),
-);
-
-let headerSummary = $derived(
-	[
-		formatDistance(map.distanceM),
-		formatDuration(map.durationS),
-		(() => {
-			const key = modeKey(map.mode);
-			return key ? $t(key) : "";
-		})(),
-	]
-		.filter((part) => part.length > 0)
-		.join(" · "),
 );
 
 // Projects a [lat,lng] point into a 0..100 viewBox box (north-up, padded)
@@ -228,12 +196,6 @@ $effect(() => {
 </script>
 
 <div class="map-route-card" data-testid="map-route-card">
-	<div class="map-route-card__header">
-		<span class="map-route-card__route">{headerRoute}</span>
-		{#if headerSummary}
-			<span class="map-route-card__summary">{headerSummary}</span>
-		{/if}
-	</div>
 	<div class="map-route-card__body">
 		{#if webglAvailable && !renderFailed}
 			<div
@@ -273,42 +235,17 @@ $effect(() => {
 
 <style>
 	.map-route-card {
-		margin: var(--space-sm) 0;
-		border: 1px solid var(--border-default);
-		border-radius: 0.5rem;
-		background: var(--surface-page);
-		overflow: hidden;
-	}
-
-	.map-route-card__header {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: var(--space-sm);
-		padding: 0.5rem 0.75rem;
-		font-size: 0.84rem;
-		border-bottom: 1px solid var(--border-default);
-	}
-
-	.map-route-card__route {
-		font-weight: 600;
-		color: var(--text-primary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		width: 100%;
 		min-width: 0;
-	}
-
-	.map-route-card__summary {
-		color: var(--text-muted);
-		white-space: nowrap;
-		flex-shrink: 0;
 	}
 
 	.map-route-card__body {
 		position: relative;
 		width: 100%;
-		height: 260px;
+		height: 180px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 5px;
+		overflow: hidden;
 		background: var(--surface-code, var(--surface-page));
 	}
 
@@ -331,8 +268,7 @@ $effect(() => {
 	}
 
 	.map-route-card__attribution {
-		padding: 0.25rem 0.5rem;
-		text-align: right;
+		padding: 2px 0 0;
 		font-size: 10px;
 		color: var(--text-muted);
 	}

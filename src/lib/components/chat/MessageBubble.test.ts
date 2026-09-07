@@ -1702,8 +1702,14 @@ describe("MessageBubble", () => {
 		expect(actionRow?.className).toContain("md:focus-within:opacity-100");
 	});
 
-	it("sizes the audit-info button to the ≥44px touch-target minimum", () => {
-		// ADR-0043: interactive affordances must be ≥44px on touch devices.
+	it("sizes every action-row icon button with the compact 28px class, keeping the touch target in CSS", () => {
+		// Unified tool activity rows — the action row's buttons shrink to
+		// 28x28 (radius 5) so they sit in line with the follow-up chips, and
+		// the ≥44px touch target (ADR-0043) moves to a
+		// `(hover: none) and (pointer: coarse)` media query on the same class,
+		// which is the app-wide convention (DocumentWorkspace,
+		// MobileDocumentsSheet). Tailwind's `sm:!min-h-[44px]` utilities are
+		// gone: they applied on DESKTOP, never on touch.
 		const message: ChatMessage = {
 			id: "assistant-info-size",
 			role: "assistant",
@@ -1717,9 +1723,11 @@ describe("MessageBubble", () => {
 
 		render(MessageBubble, { message });
 
-		const infoButton = screen.getByRole("button", { name: "Info" });
-		expect(infoButton.className).toContain("min-h-[44px]");
-		expect(infoButton.className).toContain("min-w-[44px]");
+		for (const name of ["Info", "Copy message"]) {
+			const button = screen.getByRole("button", { name });
+			expect(button.className).toContain("action-icon-btn");
+			expect(button.className).not.toContain("min-h-[44px]");
+		}
 	});
 
 	it("toggles the audit-info popover on tap for touch devices", async () => {

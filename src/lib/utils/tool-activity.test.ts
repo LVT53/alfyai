@@ -1,0 +1,415 @@
+import { get } from "svelte/store";
+import { describe, expect, it } from "vitest";
+import { t } from "$lib/i18n";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import {
+	buildConnectorActivityItem,
+	buildFileProductionActivityItem,
+	buildToolActivityItem,
+	buildToolActivitySummary,
+	runPythonObject,
+	toolElapsedLabel,
+	toolFailureReason,
+} from "./tool-activity";
+import type { ToolCallSegment } from "./tool-evidence-presentation";
+
+// The real English dictionary, so these assert the copy a user actually sees
+// rather than a stand-in — the row grammar IS the thing under test.
+const translate = get(t);
+
+function toolCall(overrides: Partial<ToolCallSegment>): ToolCallSegment {
+	return {
+		type: "tool_call",
+		name: "research_web",
+		input: {},
+		status: "done",
+		...overrides,
+	} as ToolCallSegment;
+}
+
+describe("tool activity row grammar", () => {
+	it("reads a web search as 'Searched <query>' with a source count on the right", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "research_web",
+				input: { query: "cork weather 12–13 september" },
+				candidates: [
+					{
+						id: "c1",
+						title: "Cork city forecast",
+						url: "https://met.ie/cork",
+						sourceType: "web",
+						status: "selected",
+					},
+					{
+						id: "c2",
+						title: "Cork 10-day weather",
+						url: "https://yr.no/cork",
+						sourceType: "web",
+					},
+				],
+			} as Partial<ToolCallSegment>),
+			"k1",
+			translate,
+		);
+
+		expect(item.verb).toBe("Searched");
+		expect(item.object).toBe("cork weather 12–13 september");
+		expect(item.meta).toBe("2 sources");
+		expect(item.iconType).toBe("web-search");
+		expect(item.body).toMatchObject({ kind: "sources", citedCount: 1 });
+	});
+
+	it("uses the present tense while a tool is still running", () => {
+		const item = buildToolActivityItem(
+			toolCall({ input: { query: "cork weather" }, status: "running" }),
+			"k1",
+			translate,
+		);
+		expect(item.verb).toBe("Searching");
+	});
+
+	it("reads a page read as 'Read <host · title>' from the call's own candidate", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "fetch_url",
+				input: { url: "https://www.met.ie/cork-city" },
+				candidates: [
+					{
+						id: "c1",
+						title: "Cork city forecast",
+						url: "https://www.met.ie/cork-city",
+						sourceType: "web",
+						snippet: "Saturday: wet and windy…",
+					},
+				],
+			} as Partial<ToolCallSegment>),
+			"k2",
+			translate,
+		);
+
+		expect(item.verb).toBe("Read");
+		expect(item.object).toBe("met.ie · Cork city forecast");
+		expect(item.iconType).toBe("fetch-url");
+		expect(item.body).toMatchObject({
+			kind: "page",
+			excerpt: "Saturday: wet and windy…",
+		});
+	});
+
+	it("falls back to the bare host when a read has no candidate title", () => {
+		const item = buildToolActivityItem(
+			toolCall({ name: "fetch_url", input: { url: "https://example.com/a" } }),
+			"k3",
+			translate,
+		);
+		expect(item.object).toBe("example.com");
+	});
+
+	it("reads a Python run as 'Ran Python <first comment>' and puts the program in the body", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "run_python",
+				input: { code: "# day count and distance check\nprint(1)" },
+				outputSummary: "7\n34",
+			}),
+			"k4",
+			translate,
+		);
+
+		expect(item.verb).toBe("Ran Python");
+		expect(item.object).toBe("day count and distance check");
+		expect(item.iconType).toBe("run-python");
+		expect(item.body).toMatchObject({ kind: "python", output: "7\n34" });
+	});
+
+	it("falls back to a neutral 'scratch program' when the code carries no leading comment", () => {
+		expect(runPythonObject({ code: "print(1)\n# later" }, translate)).toBe(
+			"scratch program",
+		);
+	});
+
+	it("reads a route as 'Route <A → B>' with distance · duration, and pins it as a deliverable", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "route" },
+				map: {
+					bounds: { minLat: 51, minLng: -8.6, maxLat: 51.9, maxLng: -8.3 },
+					distanceM: 27_000,
+					durationS: 2040,
+					originLabel: "Cork",
+					destinationLabel: "Kinsale",
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k5",
+			translate,
+		);
+
+		expect(item.verb).toBe("Route");
+		expect(item.object).toBe("Cork → Kinsale");
+		expect(item.meta).toBe("27.0 km · 34 min");
+		expect(item.iconType).toBe("map-route");
+		expect(item.pinned).toBe(true);
+		expect(item.body).toMatchObject({ kind: "map" });
+	});
+
+	it("reads a skill load as 'Used skill <name>' from the call's own metadata", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "use_skill",
+				input: { name: "purchase-helper" },
+				metadata: { skillDisplayName: "Purchase Helper" },
+				outputSummary: 'Loaded skill "Purchase Helper"',
+			}),
+			"k6",
+			translate,
+		);
+
+		expect(item.verb).toBe("Used skill");
+		expect(item.object).toBe("Purchase Helper");
+		expect(item.iconType).toBe("use-skill");
+		expect(item.body).toMatchObject({ kind: "text" });
+	});
+
+	it("reads a memory lookup as 'Recalled N memories' with the memories as bullets", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "memory_context",
+				input: { query: "packing" },
+				candidates: [
+					{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+					{ id: "m2", title: "Travels with a toddler", sourceType: "memory" },
+				],
+			} as Partial<ToolCallSegment>),
+			"k7",
+			translate,
+		);
+
+		expect(item.verb).toBe("Recalled");
+		expect(item.object).toBe("2 memories");
+		expect(item.iconType).toBe("memory");
+		expect(item.body).toMatchObject({
+			kind: "bullets",
+			items: ["Prefers Celsius", "Travels with a toddler"],
+		});
+	});
+
+	it("singularizes a single recalled memory", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "memory_context",
+				input: {},
+				candidates: [
+					{ id: "m1", title: "Prefers Celsius", sourceType: "memory" },
+				],
+			} as Partial<ToolCallSegment>),
+			"k7b",
+			translate,
+		);
+		expect(item.object).toBe("1 memory");
+	});
+
+	it("reads a connector run as '<Capability> <N actions>' with one body row per action", () => {
+		const tools = [
+			toolCall({ name: "calendar", input: { action: "list_events" } }),
+			toolCall({ name: "calendar", input: { action: "find_free_slots" } }),
+		];
+		const item = buildConnectorActivityItem(tools, "group-1", translate);
+
+		expect(item.verb).toBe("Calendar");
+		expect(item.object).toBe("2 actions");
+		expect(item.iconType).toBe("calendar");
+		expect(item.body).toMatchObject({
+			kind: "actions",
+			actions: [
+				{ label: "list events", status: "done" },
+				{ label: "find free slots", status: "done" },
+			],
+		});
+	});
+
+	it("marks a connector group failed when any call in it failed", () => {
+		const item = buildConnectorActivityItem(
+			[
+				toolCall({ name: "calendar", input: { action: "list_events" } }),
+				toolCall({
+					name: "calendar",
+					input: { action: "create_event" },
+					status: "failed",
+				}),
+			],
+			"group-2",
+			translate,
+		);
+		expect(item.status).toBe("failed");
+		expect(item.meta).toBe("Failed");
+	});
+
+	it("keeps the normal label on a failed row — only the right-hand word says Failed, and the body carries the reason", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "fetch_url",
+				input: { url: "https://weather.metoffice.gov.uk" },
+				status: "failed",
+				metadata: { error: "request timed out after 20 s" },
+			}),
+			"k8",
+			translate,
+		);
+
+		expect(item.meta).toBe("Failed");
+		expect(item.object).toContain("weather.metoffice.gov.uk");
+		expect(item.body).toEqual({
+			kind: "error",
+			reason: "request timed out after 20 s",
+		});
+	});
+
+	it("prefers a structured error over the output summary, and stays silent when neither exists", () => {
+		expect(
+			toolFailureReason({
+				outputSummary: "fallback",
+				metadata: { error: "real" },
+			}),
+		).toBe("real");
+		expect(toolFailureReason({ outputSummary: "fallback" })).toBe("fallback");
+		expect(toolFailureReason({})).toBeNull();
+	});
+
+	it("falls back to the tool's own label and an arguments/result panel for an unknown tool", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "some_new_tool",
+				input: { thing: "value" },
+				outputSummary: "it worked",
+			}),
+			"k9",
+			translate,
+		);
+
+		expect(item.verb).toBe("Tool");
+		expect(item.object).toBe("value");
+		expect(item.iconType).toBe("generic");
+		expect(item.body).toMatchObject({
+			kind: "generic",
+			args: [{ key: "thing", value: "value" }],
+			result: "it worked",
+		});
+	});
+
+	it("gives a row with nothing to reveal no body at all (never falsely clickable)", () => {
+		const item = buildToolActivityItem(
+			toolCall({ name: "some_new_tool", input: {} }),
+			"k10",
+			translate,
+		);
+		expect(item.body).toBeNull();
+	});
+
+	it("omits an elapsed time unless the segment honestly carries one", () => {
+		expect(toolElapsedLabel(undefined)).toBeNull();
+		expect(toolElapsedLabel({ ok: true })).toBeNull();
+		expect(toolElapsedLabel({ durationMs: 1800 })).toBe("1.8 s");
+		expect(toolElapsedLabel({ durationMs: 420 })).toBe("420 ms");
+		expect(toolElapsedLabel({ durationMs: 21_400 })).toBe("21 s");
+	});
+});
+
+describe("file production activity rows", () => {
+	function job(overrides: Partial<FileProductionJob> = {}): FileProductionJob {
+		return {
+			id: "job-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Cork weekend packing list",
+			status: "succeeded",
+			stage: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			files: [
+				{
+					id: "file-1",
+					filename: "Cork weekend packing list.xlsx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					sizeBytes: 12_288,
+					downloadUrl: "/d",
+					previewUrl: "/p",
+					versionNumber: 1,
+				},
+			],
+			warnings: [],
+			dismissed: false,
+			error: null,
+			...overrides,
+		} as FileProductionJob;
+	}
+
+	it("reads a produced file as 'Created <filename>' with its size, pinned as a deliverable", () => {
+		const item = buildFileProductionActivityItem(job(), translate);
+		expect(item.verb).toBe("Created");
+		expect(item.object).toBe("Cork weekend packing list.xlsx");
+		expect(item.meta).toBe("12 KB");
+		expect(item.pinned).toBe(true);
+		expect(item.alwaysOpen).toBe(false);
+	});
+
+	it("keeps a producing job's row open on its own so the row and body read as one element", () => {
+		const item = buildFileProductionActivityItem(
+			job({ status: "running", files: [] }),
+			translate,
+		);
+		expect(item.status).toBe("running");
+		expect(item.verb).toBe("Creating");
+		expect(item.object).toBe("Cork weekend packing list");
+		expect(item.alwaysOpen).toBe(true);
+	});
+
+	it("maps a failed job onto the failed row + reason body", () => {
+		const item = buildFileProductionActivityItem(
+			job({ status: "failed", files: [] }),
+			translate,
+		);
+		expect(item.status).toBe("failed");
+		expect(item.meta).toBe("Failed");
+		expect(item.alwaysOpen).toBe(false);
+	});
+});
+
+describe("collapsed summary strip", () => {
+	it("keeps one short label per tool and folds repeated reads into one 'Read N pages'", () => {
+		const items = [
+			buildToolActivityItem(
+				toolCall({ input: { query: "cork weather" } }),
+				"a",
+				translate,
+			),
+			buildToolActivityItem(
+				toolCall({ name: "fetch_url", input: { url: "https://met.ie" } }),
+				"b",
+				translate,
+			),
+			buildToolActivityItem(
+				toolCall({
+					name: "fetch_url",
+					input: { url: "https://metoffice.gov.uk" },
+				}),
+				"c",
+				translate,
+			),
+			buildToolActivityItem(
+				toolCall({ name: "run_python", input: { code: "print(1)" } }),
+				"d",
+				translate,
+			),
+		];
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			{ key: "a", iconType: "web-search", label: "Searched" },
+			{ key: "b", iconType: "fetch-url", label: "Read 2 pages" },
+			{ key: "d", iconType: "run-python", label: "Ran Python" },
+		]);
+	});
+});

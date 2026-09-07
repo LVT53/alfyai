@@ -94,26 +94,37 @@ describe("MapRouteCard", () => {
 		vi.clearAllMocks();
 	});
 
-	it("renders the header route line and the OSM attribution", () => {
+	// Unified tool activity rows — this component is now only the map BODY of a
+	// map_route activity row. The route line ("A → B") and the
+	// distance/duration summary moved onto the row and its body summary line
+	// (built by `tool-activity.ts`, covered by tool-activity.test.ts), so the
+	// only text this component still owns is the attribution; the route name
+	// survives here as the fallback drawing's accessible name.
+	it("renders the OSM attribution and names the route on the fallback drawing", () => {
 		const restore = stubWebgl(false);
 		try {
 			const { getByTestId, container } = render(MapRouteCard, {
 				props: { map: makeMap() },
 			});
 			expect(getByTestId("map-route-card")).toBeTruthy();
-			expect(container.textContent).toContain("Berlin Hbf → Brandenburg Gate");
 			expect(container.textContent).toContain("© OpenStreetMap contributors");
+			expect(getByTestId("map-route-fallback").getAttribute("aria-label")).toBe(
+				"Berlin Hbf → Brandenburg Gate",
+			);
 		} finally {
 			restore();
 		}
 	});
 
-	it("renders the distance/duration/mode summary line", () => {
+	it("no longer renders its own header chrome: no route line, no summary line", () => {
 		const restore = stubWebgl(false);
 		try {
 			const { container } = render(MapRouteCard, { props: { map: makeMap() } });
-			expect(container.textContent).toContain("2.1 km");
-			expect(container.textContent).toContain("27 min");
+			expect(container.textContent).not.toContain(
+				"Berlin Hbf → Brandenburg Gate",
+			);
+			expect(container.textContent).not.toContain("2.1 km");
+			expect(container.textContent).not.toContain("27 min");
 		} finally {
 			restore();
 		}

@@ -8,31 +8,16 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import { isThoughtStepClassifierActivityClass } from "$lib/response-activity-types";
 import {
-	Brain,
-	Calendar,
 	Check,
 	ChevronDown,
 	ChevronLeft,
-	Clapperboard,
-	FileText,
-	Folder,
-	GitBranch,
 	Globe,
 	HelpCircle,
 	History,
-	Image as ImageIcon,
-	Images,
-	Link,
 	ListChecks,
-	ListTodo,
-	Mail,
-	MapPin,
 	PenLine,
 	Scale,
-	Users,
 	Workflow,
-	Wrench,
-	XCircle,
 } from "@lucide/svelte";
 import {
 	deriveReasoningSpineState,
@@ -44,31 +29,30 @@ import {
 	resolveThoughtStepDisplayContext,
 } from "$lib/utils/thought-step-anchor";
 import {
-	formatConnectionToolAction,
-	getConnectionToolLabelKey,
-	getToolCallIconType,
 	isConnectionToolName,
-	isFileProductionToolName,
 	isVisibleThinkingSegment,
 	isVisibleThinkingToolCall,
-	type ToolCallIconType,
 } from "$lib/utils/tool-calls";
 import {
-	buildFetchedSourceSummary,
-	type FetchedSource,
-	formatToolCall as formatToolCallLabel,
 	getAgendaCandidates,
-	getFaviconUrl,
-	getFetchedSources,
-	getFetchUrlSources,
 	getPhotoCandidates,
-	getToolTitle,
 	immichThumbnailUrl,
 	isCalendarToolName,
-	isCitedSource,
 	isPhotosToolName,
 	type ToolCallSegment,
 } from "$lib/utils/tool-evidence-presentation";
+import {
+	buildConnectorActivityItem,
+	buildFileProductionActivityItem,
+	buildToolActivityItem,
+	buildToolActivitySummary,
+	type ToolActivityItem,
+} from "$lib/utils/tool-activity";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import ToolActivityIcon from "./ToolActivityIcon.svelte";
+import ToolActivityList from "./ToolActivityList.svelte";
+import ToolActivityRow from "./ToolActivityRow.svelte";
 import { thoughtStepIconTypeForClass } from "$lib/utils/activity-presentation";
 
 let {
@@ -118,6 +102,16 @@ let {
 	// callers etc.) — MessageBubble always supplies it when it has an
 	// onRegenerate handler of its own to forward to.
 	onAnswerNow = undefined,
+	// Unified tool activity rows — file-production jobs are now rendered as
+	// activity rows in this same list instead of as separate cards under the
+	// message body, so MessageBubble threads them (and their actions) through
+	// here. A produced file is a DELIVERABLE: its row never folds into the
+	// collapsed summary strip, it stays pinned with its body open.
+	fileProductionJobs = [],
+	onOpenDocument = undefined,
+	onRetryFileProductionJob = undefined,
+	onCancelFileProductionJob = undefined,
+	onDismissFileProductionJob = undefined,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -130,6 +124,11 @@ let {
 	liveThoughtStepSummary?: string;
 	thoughtSteps?: InterimThoughtStep[];
 	onAnswerNow?: () => void;
+	fileProductionJobs?: FileProductionJob[];
+	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
+	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
+	onDismissFileProductionJob?: ((jobId: string) => void) | undefined;
 } = $props();
 
 let expanded = $state(false);
@@ -154,8 +153,15 @@ const visibleSegmentsRaw = $derived(segments.filter(isVisibleThinkingSegment));
 
 const hasSegments = $derived(visibleSegmentsRaw.length > 0);
 const visibleTools = $derived(segments.filter(isVisibleThinkingToolCall));
-const hasVisibleSurface = $derived(
+// The reasoning surface proper — what the "Thinking…"/"Thought for N s"
+// header describes. A file-production job alone is NOT reasoning, so it never
+// conjures a thinking header (see hasVisibleSurface below): it renders as a
+// bare pinned activity row.
+const hasThinkingSurface = $derived(
 	content.trim().length > 0 || hasSegments || visibleTools.length > 0,
+);
+const hasVisibleSurface = $derived(
+	hasThinkingSurface || fileProductionJobs.length > 0,
 );
 // P1 (ADR-0056) — a currently-running tool call is itself real, visible
 // progress (its own pulsing dot already shows that), so it must never be
@@ -213,19 +219,41 @@ const toolStackEntries: ToolStackEntry[] = $derived.by(() => {
 	return entries;
 });
 
-// Owner polish pass, item 6 — live current-step emphasis. The LAST entry in
-// toolStackEntries is, by construction, whatever most recently arrived on
-// the real event stream (the array is rebuilt fresh from `segments` on every
-// growth), so "the latest one" needs no timer of its own — it falls straight
-// out of the same real-event-driven array this rail already recomputes.
-// Emphasis only applies while the turn is actually still active
-// (isActiveThinking): once thinkingIsDone, nothing is "in progress" anymore
-// and every row settles to its calm resting state, matching the owner's
-// "completed steps settle back to a calm state".
-const latestToolStackEntryKey = $derived(
-	isActiveThinking && toolStackEntries.length > 0
-		? toolStackEntries[toolStackEntries.length - 1].key
-		: null,
+// Unified tool activity rows — the ONE list every tool call renders through,
+// in arrival order. Built from the exact same toolStackEntries the pill stack
+// was built from, so grouping/order behavior is unchanged; only the row shape
+// (and the per-tool grammar, which now lives in the pure `tool-activity.ts`)
+// is new.
+const activityItems: ToolActivityItem[] = $derived(
+	toolStackEntries.map((entry) =>
+		entry.kind === "connector-group"
+			? buildConnectorActivityItem(entry.tools, entry.key, $t)
+			: buildToolActivityItem(entry.tool, entry.key, $t),
+	),
+);
+
+// File-production jobs never ride in `segments` (isVisibleThinkingToolCall
+// filters produce_file out), so they get their own list, rendered below the
+// block and always visible: a produced file is a deliverable, not a step.
+const fileActivityItems: ToolActivityItem[] = $derived(
+	fileProductionJobs.map((job) => buildFileProductionActivityItem(job, $t)),
+);
+
+const fileJobsByActivityKey = $derived(
+	Object.fromEntries(
+		fileProductionJobs.map((job) => [`file-job-${job.id}`, job]),
+	),
+);
+
+// Deliverables (a route with a real map card) keep a row of their own with
+// the body open once the block collapses; everything else folds into the
+// muted summary strip.
+const pinnedActivityItems = $derived(activityItems.filter((it) => it.pinned));
+const activitySummary = $derived(
+	buildToolActivitySummary(
+		activityItems.filter((it) => !it.pinned),
+		$t,
+	),
 );
 
 // Interleaved thinking view: group connector calls only within a contiguous
@@ -333,22 +361,27 @@ const interleavedEntries: InterleavedEntry[] = $derived.by(() => {
 	return merged;
 });
 
-function connectorGroupLabel(name: string): string {
-	const key = getConnectionToolLabelKey(name);
-	return $t(key ?? "toolCalls.generic");
-}
-
-function connectorGroupSummary(name: string, count: number): string {
-	return `${connectorGroupLabel(name)} · ${$t("toolCalls.actionsCount", { count })}`;
-}
-
-function formatGroupedConnectorAction(tool: ToolCallSegment): string {
-	const action =
-		typeof tool.input.action === "string"
-			? formatConnectionToolAction(tool.input.action)
-			: "";
-	return action || formatToolCall(tool.name, tool.input);
-}
+// Connector agenda/photo peeks stay attached to their group's row — keyed by
+// the same activity key so the list can render each one directly under the
+// row it belongs to.
+const connectorPeeks = $derived.by(() => {
+	const peeks: Record<
+		string,
+		{ agenda: ToolEvidenceCandidate[]; photos: ToolEvidenceCandidate[] }
+	> = {};
+	for (const entry of toolStackEntries) {
+		if (entry.kind !== "connector-group") continue;
+		peeks[entry.key] = {
+			agenda: isCalendarToolName(entry.name)
+				? getAgendaCandidates(entry.tools)
+				: [],
+			photos: isPhotosToolName(entry.name)
+				? getPhotoCandidates(entry.tools)
+				: [],
+		};
+	}
+	return peeks;
+});
 
 $effect(() => {
 	const totalLength = hasSegments
@@ -533,19 +566,6 @@ const formattedThinkingTime = $derived.by(() => {
 	return formatDurationLabel(thinkingDurationSeconds);
 });
 
-// The search/read source-summary text is one of only two tool-evidence
-// presenters that touch i18n; it stays here as a one-line shell binding the
-// component's `$t` into the pure builder in tool-evidence-presentation.ts.
-// Everything else (source shaping, dedupe, cited-ordering, favicon proxy URL,
-// agenda/photo candidate extraction, immich thumbnail URL, getToolTitle) is
-// imported directly from that module.
-function fetchedSourceSummary(
-	sources: FetchedSource[],
-	kind: "search" | "read",
-): string {
-	return buildFetchedSourceSummary(sources, kind, $t);
-}
-
 function formatEventTime(iso: string): string {
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return iso;
@@ -560,80 +580,41 @@ function hideBrokenThumbnail(event: Event): void {
 	if (img instanceof HTMLImageElement) img.style.display = "none";
 }
 
-// The tool-call chip label is the other i18n-coupled presenter: a one-line
-// shell binding `$t` into the pure builder in tool-evidence-presentation.ts.
-function formatToolCall(name: string, input: Record<string, unknown>): string {
-	return formatToolCallLabel(name, input, $t);
-}
+// Unified tool activity rows — ONE open-set for every row, wherever it
+// renders (the live stack, the expanded rail, a pinned deliverable). A Set
+// (not a single id) because multiple rows can each be independently open
+// without disturbing their neighbors, and one shared set means a row opened
+// in the live stack is still open once the block is expanded.
+let openActivityKeys = $state<Set<string>>(new Set());
 
-// Owner polish pass, item 7 — clickable tool chips. Mirrors the existing
-// click-to-reveal interaction the reasoning steps already have
-// (selectThoughtStep/selectedStepReveal above): one consistent interaction
-// model, not a second one invented for tools. `openToolDetailKeys` is a Set
-// (not a single id) because, unlike a step reveal (which replaces the whole
-// panel with one focused card), multiple tool-call rows can each be
-// independently expanded in place without disturbing their neighbors.
-let openToolDetailKeys = $state<Set<string>>(new Set());
-
-function toggleToolDetail(key: string): void {
-	const next = new Set(openToolDetailKeys);
+function toggleActivityRow(key: string): void {
+	const next = new Set(openActivityKeys);
 	if (next.has(key)) {
 		next.delete(key);
 	} else {
 		next.add(key);
 	}
-	openToolDetailKeys = next;
+	openActivityKeys = next;
 }
 
-// The search/read source disclosure (the favicon summary row) expands in
-// place with the same click-to-reveal model as the tool-detail panels above.
-// Converted from a native <details> to a controlled open-set so the reveal can
-// carry the app's standard slide transition (a native <details> cannot animate
-// its open/close) and so the revealed result list can break out to the full
-// width of the chip instead of being nested inside the summary's inline flow.
-let openFetchedGroupKeys = $state<Set<string>>(new Set());
-
-function toggleFetchedGroup(key: string): void {
-	const next = new Set(openFetchedGroupKeys);
-	if (next.has(key)) {
-		next.delete(key);
-	} else {
-		next.add(key);
-	}
-	openFetchedGroupKeys = next;
-}
-
-// A chip only ever appears clickable (see hasToolDetail below, consumed by
-// the template to decide button-vs-plain-span) when there is something to
-// reveal beyond its own already-visible label: a non-empty argument, a
-// server-provided outputSummary, or extra metadata. This is the "must not
-// appear falsely clickable" guard from the owner's brief.
-function hasToolDetail(segment: {
-	input: Record<string, unknown>;
-	outputSummary?: string | null;
-	metadata?: Record<string, string | number | boolean | null>;
-}): boolean {
-	return (
-		toolDetailArguments(segment.input).length > 0 ||
-		Boolean(segment.outputSummary?.trim()) ||
-		Boolean(segment.metadata && Object.keys(segment.metadata).length > 0)
+// Deliverables (a route, a produced file) open themselves ONCE, the first
+// time they appear — that is the point of pinning them. Recorded in a plain
+// (non-reactive) set so re-opening is a one-time default, never a re-open
+// that fights the user closing the row.
+const autoOpenedActivityKeys = new Set<string>();
+$effect(() => {
+	const defaults = [...pinnedActivityItems, ...fileActivityItems].map(
+		(item) => item.key,
 	);
-}
-
-// Renders whatever arguments the tool call actually carries — a plain,
-// honest key/value dump of segment.input, the same data source
-// getToolTitle/formatToolCall already read from, just unabridged. Field
-// NAMES are the tool's own parameter identifiers (e.g. "query", "url"), not
-// user-facing prose, so — like the existing metadata.errorCode display
-// elsewhere in this file — they are shown as-is rather than localized.
-function toolDetailArguments(
-	input: Record<string, unknown>,
-): { key: string; value: string }[] {
-	return Object.entries(input ?? {})
-		.map(([key, value]) => [key, String(value ?? "").trim()] as const)
-		.filter(([, value]) => value.length > 0)
-		.map(([key, value]) => ({ key, value: value.slice(0, 500) }));
-}
+	const missing = defaults.filter((key) => !autoOpenedActivityKeys.has(key));
+	if (missing.length === 0) return;
+	const next = new Set(openActivityKeys);
+	for (const key of missing) {
+		autoOpenedActivityKeys.add(key);
+		next.add(key);
+	}
+	openActivityKeys = next;
+});
 
 function formatThinkingTextForDisplay(text: string): string {
 	return text.replace(/([a-z0-9)])([.!?])(?=[A-Z](?:[a-z]|\s))/g, "$1$2\n\n");
@@ -788,20 +769,6 @@ function toggleFullReasoning(): void {
 	const flyTransition = reducedMotionAware(fly);
 </script>
 
-{#snippet toolStatusIcon(status: 'running' | 'done' | 'failed', variant: 'header' | 'inline')}
-	{#if status === 'running'}
-		<span class={variant === 'header' ? 'tool-dot' : 'tool-dot-inline'}></span>
-	{:else if status === 'failed'}
-		<XCircle class={variant === 'header' ? 'fail-icon-header' : 'fail-icon'} size={12} strokeWidth={1.5} aria-hidden="true" />
-	{:else}
-		<Check class={variant === 'header' ? 'check-icon-header' : 'check-icon'} size={12} strokeWidth={1.5} aria-hidden="true" />
-	{/if}
-{/snippet}
-
-{#snippet toolFailedBadge()}
-	<span class="tool-status-badge tool-status-badge--failed">{$t('toolCalls.failed')}</span>
-{/snippet}
-
 <!--
 	TS2-c (ADR-0056 amendment) — the closed activity class's secondary
 	signal: a small leading icon, never the headline. An if/else-over-a-
@@ -823,121 +790,6 @@ function toggleFullReasoning(): void {
 	{:else}
 		<PenLine class="thought-step-class-icon" size={13} strokeWidth={2} aria-hidden="true" />
 	{/if}
-{/snippet}
-
-<!--
-	Tier 0 (chat-experience-elevation §3) — the search/read source disclosure,
-	split into two snippets so the opened result list can render as a full-width
-	SIBLING panel BELOW the pill rather than wrapping inside it. This is what
-	keeps the header line (tick + favicon summary + caret) a stable single line:
-	the pill's width never changes on toggle, so the tick stays vertically
-	centered and does not jump when the panel opens/closes.
-
-	`fetchedSourceSummaryButton` is just the collapsed header button: the
-	favicon stack + summary text + disclosure caret. `groupKey` keys the
-	open-set so each row toggles independently.
--->
-{#snippet fetchedSourceSummaryButton(sources: FetchedSource[], summaryClass: string, kind: "search" | "read", groupKey: string)}
-	{@const isOpen = openFetchedGroupKeys.has(groupKey)}
-	<button
-		type="button"
-		class={`${summaryClass} fetched-source-summary-btn`}
-		aria-expanded={isOpen}
-		onclick={() => toggleFetchedGroup(groupKey)}
-	>
-		<span class="fetched-source-summary">
-			<span class="fetched-favicon-stack" aria-hidden="true">
-				{#each sources as source}
-					{@const faviconUrl = getFaviconUrl(source.url)}
-					{#if faviconUrl}
-						<img
-							class="fetched-favicon-stack-icon"
-							src={faviconUrl}
-							alt=""
-							loading="lazy"
-							decoding="async"
-							referrerpolicy="no-referrer"
-							onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-						/>
-					{/if}
-				{/each}
-			</span>
-			<span class="fetched-source-summary-text">{fetchedSourceSummary(sources, kind)}</span>
-		</span>
-		<ChevronDown class={`fetched-source-caret${isOpen ? ' expanded' : ''}`} size={13} strokeWidth={2} aria-hidden="true" />
-	</button>
-{/snippet}
-
-<!--
-	Tier 0 — the opened result list, a full-width sibling panel rendered AFTER
-	the pill row (never a child of it). One result per line (favicon left, page
-	title right), sliding in with the app's standard height transition. There is
-	no "+N" fold — a web turn returns only a handful of sources, so the whole
-	list is shown. Each row re-exposes its full excerpt in an un-clipped hover
-	popover (Fix D): title + reason, sized to content, wraps freely, never
-	truncated; the native `title` attr stays as the non-hover / a11y fallback.
--->
-{#snippet fetchedSourceResultsPanel(sources: FetchedSource[], groupKey: string)}
-	{#if openFetchedGroupKeys.has(groupKey)}
-		<div class="fetched-source-results" transition:slideTransition={{ duration: 200 }}>
-			{#each sources as source (source.url)}
-				{@const faviconUrl = getFaviconUrl(source.url)}
-				{@const cited = isCitedSource(source)}
-				{@const reason = source.reason?.trim()}
-				<a
-					class="fetched-source-result"
-					class:is-cited={cited}
-					href={source.url}
-					target="_blank"
-					rel="noopener noreferrer"
-					title={source.reason ?? source.title}
-				>
-					<span class="fetched-source-result-favicon" aria-hidden="true">
-						{#if faviconUrl}
-							<img
-								class="fetched-favicon"
-								src={faviconUrl}
-								alt=""
-								loading="lazy"
-								decoding="async"
-								referrerpolicy="no-referrer"
-								onerror={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-							/>
-						{:else}
-							<Globe class="fetched-source-result-globe" size={13} strokeWidth={2} aria-hidden="true" />
-						{/if}
-					</span>
-					<span class="fetched-source-result-title">{source.title}</span>
-					{#if cited}
-						<Check class="fetched-source-result-cited" size={12} strokeWidth={2.2} aria-hidden="true" />
-					{/if}
-					{#if reason}
-						<span class="fetched-source-popover" role="tooltip" aria-hidden="true">
-							<span class="fetched-source-popover-title">{source.title}</span>
-							<span class="fetched-source-popover-reason">{reason}</span>
-						</span>
-					{/if}
-				</a>
-			{/each}
-		</div>
-	{/if}
-{/snippet}
-
-{#snippet connectorGroupDetails(tools: ToolCallSegment[], summaryClass: string)}
-	<details class="connector-group">
-		<summary class={summaryClass}>{connectorGroupSummary(tools[0].name, tools.length)}</summary>
-		<div class="connector-action-list">
-			{#each tools as tool, i (tool.callId ?? tool.name + JSON.stringify(tool.input) + '-' + i)}
-				<div class="connector-action-item" class:is-failed={tool.status === 'failed'}>
-					{@render toolStatusIcon(tool.status, 'inline')}
-					<span class="tool-item-label">{formatGroupedConnectorAction(tool)}</span>
-					{#if tool.status === 'failed'}
-						{@render toolFailedBadge()}
-					{/if}
-				</div>
-			{/each}
-		</div>
-	</details>
 {/snippet}
 
 {#snippet agendaPeek(items: ToolEvidenceCandidate[])}
@@ -997,216 +849,6 @@ function toggleFullReasoning(): void {
 {/snippet}
 
 <!--
-	Owner polish pass, item 2 — a relevant, action-specific icon per tool-call
-	chip instead of the previous generic status-only glyph. iconType is a
-	plain string tag out of getToolCallIconType (tool-calls.ts), rendered here
-	via the same if/else-over-a-string-tag idiom this file already uses for
-	the thought-step-class icon block above — no
-	dynamic-component map, to match this file's established shape for "pick
-	one of a few known icons". Connection-tool cases render the exact same
-	Lucide glyph SettingsConnectionsTab's CAPABILITY_ICONS already uses per
-	capability, so a "Calendar" tool call always reads as the same calendar
-	glyph everywhere in the app.
--->
-{#snippet toolIdentityIcon(iconType: ToolCallIconType)}
-	{#if iconType === 'web-search'}
-		<Globe class="tool-identity-icon" data-tool-icon="web-search" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'fetch-url'}
-		<Link class="tool-identity-icon" data-tool-icon="fetch-url" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'image-search'}
-		<Images class="tool-identity-icon" data-tool-icon="image-search" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'memory'}
-		<Brain class="tool-identity-icon" data-tool-icon="memory" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'file-production'}
-		<FileText class="tool-identity-icon" data-tool-icon="file-production" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'calendar'}
-		<Calendar class="tool-identity-icon" data-tool-icon="calendar" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'contacts'}
-		<Users class="tool-identity-icon" data-tool-icon="contacts" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'email'}
-		<Mail class="tool-identity-icon" data-tool-icon="email" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'files'}
-		<Folder class="tool-identity-icon" data-tool-icon="files" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'location'}
-		<MapPin class="tool-identity-icon" data-tool-icon="location" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'media'}
-		<Clapperboard class="tool-identity-icon" data-tool-icon="media" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'photos'}
-		<ImageIcon class="tool-identity-icon" data-tool-icon="photos" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'repos'}
-		<GitBranch class="tool-identity-icon" data-tool-icon="repos" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else if iconType === 'tasks'}
-		<ListTodo class="tool-identity-icon" data-tool-icon="tasks" size={13} strokeWidth={2} aria-hidden="true" />
-	{:else}
-		<Wrench class="tool-identity-icon" data-tool-icon="generic" size={13} strokeWidth={2} aria-hidden="true" />
-	{/if}
-{/snippet}
-
-<!--
-	Owner polish pass, item 7 — a generic tool-call chip's click-to-reveal
-	detail panel: whatever the segment actually carries (arguments,
-	outputSummary, status), never fabricated. Entrance animated via
-	flyTransition (fade+slide), the same primitive the anchored-span/
-	full-reasoning reveals below use, for one consistent feel.
--->
-{#snippet toolDetailPanel(segment: ToolCallSegment)}
-	{@const args = toolDetailArguments(segment.input)}
-	<div class="tool-detail-panel" in:flyTransition={{ y: 6, duration: 160 }}>
-		{#if args.length > 0}
-			<div class="tool-detail-section">
-				<span class="tool-detail-section-label">{$t('toolCalls.detailArguments')}</span>
-				{#each args as arg (arg.key)}
-					<div class="tool-detail-row">
-						<span class="tool-detail-key">{arg.key}</span>
-						<span class="tool-detail-value">{arg.value}</span>
-					</div>
-				{/each}
-			</div>
-		{/if}
-		{#if segment.outputSummary?.trim()}
-			<div class="tool-detail-section">
-				<span class="tool-detail-section-label">{$t('toolCalls.detailResult')}</span>
-				<p class="tool-detail-value tool-detail-result">{segment.outputSummary}</p>
-			</div>
-		{/if}
-	</div>
-{/snippet}
-
-{#snippet singleToolStackRow(tool: ToolCallSegment, rowKey: string, isCurrent: boolean)}
-	{@const fetchedSources = getFetchedSources(tool)}
-	{#if fetchedSources.length > 0}
-		<!-- Tier 0 Fix A — no toolIdentityIcon here; the summary text names the
-		     tool. Fix B — the results panel is a full-width sibling AFTER the
-		     pill row, so the row stays a stable single line. -->
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
-			{@render toolStatusIcon(tool.status, 'header')}
-			{@render fetchedSourceSummaryButton(fetchedSources, 'tool-label-text', 'search', rowKey)}
-			{#if tool.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{@render fetchedSourceResultsPanel(fetchedSources, rowKey)}
-	{:else if getFetchUrlSources(tool.name, tool.input).length > 0}
-		{@const fetchUrlSources = getFetchUrlSources(tool.name, tool.input)}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
-			{@render toolStatusIcon(tool.status, 'header')}
-			{@render fetchedSourceSummaryButton(fetchUrlSources, 'tool-label-text', 'read', rowKey)}
-			{#if tool.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{@render fetchedSourceResultsPanel(fetchUrlSources, rowKey)}
-	{:else}
-		<div class="tool-call-row" class:is-running={tool.status === 'running'} class:is-failed={tool.status === 'failed'} class:is-current-step={isCurrent}>
-			{@render toolStatusIcon(tool.status, 'header')}
-			{@render toolIdentityIcon(getToolCallIconType(tool.name))}
-			{#if hasToolDetail(tool)}
-				<button
-					type="button"
-					class="tool-label-text tool-label-text--clickable"
-					title={getToolTitle(tool.name, tool.input)}
-					aria-expanded={openToolDetailKeys.has(rowKey)}
-					onclick={() => toggleToolDetail(rowKey)}
-				>{formatToolCall(tool.name, tool.input)}</button>
-			{:else}
-				<span class="tool-label-text" title={getToolTitle(tool.name, tool.input)}>{formatToolCall(tool.name, tool.input)}</span>
-			{/if}
-			{#if tool.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{#if hasToolDetail(tool) && openToolDetailKeys.has(rowKey)}
-			{@render toolDetailPanel(tool)}
-		{/if}
-	{/if}
-{/snippet}
-
-{#snippet connectorGroupStackRow(tools: ToolCallSegment[], isCurrent: boolean)}
-	{@const anyRunning = tools.some((t) => t.status === 'running')}
-	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
-	<div class="tool-call-row" class:is-running={anyRunning} class:is-failed={anyFailed} class:is-current-step={isCurrent}>
-		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'header')}
-		{@render toolIdentityIcon(getToolCallIconType(tools[0].name))}
-		{@render connectorGroupDetails(tools, 'tool-label-text')}
-		{#if anyFailed}
-			{@render toolFailedBadge()}
-		{/if}
-	</div>
-	{#if isCalendarToolName(tools[0].name)}
-		{@const agendaItems = getAgendaCandidates(tools)}
-		{#if agendaItems.length > 0}
-			{@render agendaPeek(agendaItems)}
-		{/if}
-	{:else if isPhotosToolName(tools[0].name)}
-		{@const photoItems = getPhotoCandidates(tools)}
-		{#if photoItems.length > 0}
-			{@render photoStrip(photoItems)}
-		{/if}
-	{/if}
-{/snippet}
-
-{#snippet singleToolItem(seg: ToolCallSegment, rowKey: string)}
-	{@const fetchedSources = getFetchedSources(seg)}
-	{#if fetchedSources.length > 0}
-		<!-- Tier 0 Fix A/B — no identity icon; results panel is a sibling AFTER
-		     the .tool-call-item header line. -->
-		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
-			{@render toolStatusIcon(seg.status, 'inline')}
-			{@render fetchedSourceSummaryButton(fetchedSources, 'tool-item-label', 'search', rowKey)}
-			{#if seg.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{@render fetchedSourceResultsPanel(fetchedSources, rowKey)}
-	{:else if getFetchUrlSources(seg.name, seg.input).length > 0}
-		{@const fetchUrlSources = getFetchUrlSources(seg.name, seg.input)}
-		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
-			{@render toolStatusIcon(seg.status, 'inline')}
-			{@render fetchedSourceSummaryButton(fetchUrlSources, 'tool-item-label', 'read', rowKey)}
-			{#if seg.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{@render fetchedSourceResultsPanel(fetchUrlSources, rowKey)}
-	{:else}
-		<div class="tool-call-item" class:is-failed={seg.status === 'failed'}>
-			{@render toolStatusIcon(seg.status, 'inline')}
-			{@render toolIdentityIcon(getToolCallIconType(seg.name))}
-			{#if hasToolDetail(seg)}
-				<button
-					type="button"
-					class="tool-item-label tool-item-label--clickable"
-					title={getToolTitle(seg.name, seg.input)}
-					aria-expanded={openToolDetailKeys.has(rowKey)}
-					onclick={() => toggleToolDetail(rowKey)}
-				>{formatToolCall(seg.name, seg.input)}</button>
-			{:else}
-				<span class="tool-item-label" title={getToolTitle(seg.name, seg.input)}>{formatToolCall(seg.name, seg.input)}</span>
-			{/if}
-			{#if seg.status === 'failed'}
-				{@render toolFailedBadge()}
-			{/if}
-		</div>
-		{#if hasToolDetail(seg) && openToolDetailKeys.has(rowKey)}
-			{@render toolDetailPanel(seg)}
-		{/if}
-	{/if}
-{/snippet}
-
-{#snippet connectorGroupItem(tools: ToolCallSegment[])}
-	{@const anyRunning = tools.some((t) => t.status === 'running')}
-	{@const anyFailed = !anyRunning && tools.some((t) => t.status === 'failed')}
-	<div class="tool-call-item" class:is-failed={anyFailed}>
-		{@render toolStatusIcon(anyRunning ? 'running' : anyFailed ? 'failed' : 'done', 'inline')}
-		{@render toolIdentityIcon(getToolCallIconType(tools[0].name))}
-		{@render connectorGroupDetails(tools, 'tool-item-label')}
-		{#if anyFailed}
-			{@render toolFailedBadge()}
-		{/if}
-	</div>
-{/snippet}
-
-<!--
 	Extracted (TS2-c) so the same event-derived status row (context
 	preparation status) renders identically whether it appears in the
 	pre-existing no-thoughtSteps fallback view below, or in the new clean
@@ -1261,8 +903,23 @@ function toggleFullReasoning(): void {
 	{/if}
 {/snippet}
 
+<!--
+	The connector agenda peek / photo strip belongs to its group's row, so it
+	renders directly beneath it via ToolActivityList's `afterItem` snippet
+	rather than as a stray block at the end of the list.
+-->
+{#snippet connectorPeek(item: ToolActivityItem)}
+	{@const peek = connectorPeeks[item.key]}
+	{#if peek && peek.agenda.length > 0}
+		{@render agendaPeek(peek.agenda)}
+	{:else if peek && peek.photos.length > 0}
+		{@render photoStrip(peek.photos)}
+	{/if}
+{/snippet}
+
 {#if hasVisibleSurface}
 <div class="thinking-block" bind:this={container}>
+	{#if hasThinkingSurface}
 	<div class="thinking-header-row">
 		<button
 			type="button"
@@ -1355,17 +1012,54 @@ function toggleFullReasoning(): void {
 			</button>
 		{/if}
 	</div>
+	{/if}
 
-	{#if visibleTools.length > 0 || thinkingIsDone}
-		<div class="tool-call-stack" class:fade-out={thinkingIsDone}>
-			{#each toolStackEntries as entry (entry.key)}
-				{#if entry.kind === 'connector-group'}
-					{@render connectorGroupStackRow(entry.tools, entry.key === latestToolStackEntryKey)}
-				{:else}
-					{@render singleToolStackRow(entry.tool, entry.key, entry.key === latestToolStackEntryKey)}
-				{/if}
-			{/each}
-		</div>
+	<!--
+		The unified activity list. While the turn is live it is the full list in
+		arrival order. Once the turn is done AND the block is collapsed it folds
+		into one muted summary strip (clicking it expands the block — the same
+		action as the header), with deliverables staying behind as pinned rows
+		whose body is open. Expanded, the rows live inside the panel below,
+		interleaved with the reasoning rail, so nothing is shown twice.
+	-->
+	{#if activityItems.length > 0 && !thinkingIsDone}
+		<ToolActivityList
+			items={activityItems}
+			openKeys={openActivityKeys}
+			onToggle={toggleActivityRow}
+			afterItem={connectorPeek}
+			testId="tool-activity-stack"
+		/>
+	{:else if activityItems.length > 0 && !expanded}
+		{#if activitySummary.length > 0}
+			<button
+				type="button"
+				class="activity-summary-strip"
+				data-testid="tool-activity-summary"
+				onclick={toggle}
+				aria-expanded={expanded}
+				aria-label={$t('toolActivity.expandActivity')}
+			>
+				{#each activitySummary as entry, index (entry.key)}
+					{#if index > 0}
+						<span class="summary-dot" aria-hidden="true">·</span>
+					{/if}
+					<span class="summary-item">
+						<ToolActivityIcon iconType={entry.iconType} size={13} />
+						{entry.label}
+					</span>
+				{/each}
+				<ChevronDown class="act-chevron summary-chevron" size={14} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{/if}
+		{#if pinnedActivityItems.length > 0}
+			<ToolActivityList
+				items={pinnedActivityItems}
+				openKeys={openActivityKeys}
+				onToggle={toggleActivityRow}
+				testId="tool-activity-pinned"
+			/>
+		{/if}
 	{/if}
 
 {#if expanded}
@@ -1419,11 +1113,19 @@ function toggleFullReasoning(): void {
 							{#if entry.kind === 'status'}
 								{@render statusStepEntry(entry.segment)}
 							{:else if entry.kind === 'tool'}
-								<div class="thought-rail-chip">{@render singleToolItem(entry.segment, entry.key)}</div>
+								<ToolActivityRow
+									item={buildToolActivityItem(entry.segment, entry.key, $t)}
+									open={openActivityKeys.has(entry.key)}
+									onToggle={toggleActivityRow}
+								/>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
 							{:else}
-								<div class="thought-rail-chip">{@render connectorGroupItem(entry.tools)}</div>
+								<ToolActivityRow
+									item={buildConnectorActivityItem(entry.tools, entry.key, $t)}
+									open={openActivityKeys.has(entry.key)}
+									onToggle={toggleActivityRow}
+								/>
 							{/if}
 						{/each}
 					</div>
@@ -1436,9 +1138,17 @@ function toggleFullReasoning(): void {
 				{:else if entry.kind === 'status'}
 					{@render statusStepEntry(entry.segment)}
 					{:else if entry.kind === 'tool'}
-						{@render singleToolItem(entry.segment, entry.key)}
+						<ToolActivityRow
+							item={buildToolActivityItem(entry.segment, entry.key, $t)}
+							open={openActivityKeys.has(entry.key)}
+							onToggle={toggleActivityRow}
+						/>
 					{:else if entry.kind === 'connector-group'}
-						{@render connectorGroupItem(entry.tools)}
+						<ToolActivityRow
+							item={buildConnectorActivityItem(entry.tools, entry.key, $t)}
+							open={openActivityKeys.has(entry.key)}
+							onToggle={toggleActivityRow}
+						/>
 					{/if}
 				{/each}
 				</div>
@@ -1454,6 +1164,26 @@ function toggleFullReasoning(): void {
 			</pre>
 		{/if}
 		</div>
+	{/if}
+
+	<!--
+		Produced files are deliverables, not steps: they never fold into the
+		summary strip and never hide inside the collapsed block. They render as
+		pinned activity rows here — one component, one shape, replacing the old
+		standalone FileProductionCard list under the message body.
+	-->
+	{#if fileActivityItems.length > 0}
+		<ToolActivityList
+			items={fileActivityItems}
+			openKeys={openActivityKeys}
+			onToggle={toggleActivityRow}
+			jobsByKey={fileJobsByActivityKey}
+			{onOpenDocument}
+			onRetryJob={onRetryFileProductionJob}
+			onCancelJob={onCancelFileProductionJob}
+			onDismissJob={onDismissFileProductionJob}
+			testId="tool-activity-files"
+		/>
 	{/if}
 </div>
 {/if}
@@ -1586,457 +1316,54 @@ function toggleFullReasoning(): void {
 		transform: rotate(180deg);
 	}
 
-	/* Tool call stack — accumulates all tool rows, visible without expanding.
-	   Owner polish pass (visual fixes) — rows are laid out as a left-aligned
-	   column of content-hugging chips (see .tool-call-row below) rather than
-	   full-bleed bars. The fade-out's max-height easing front-loads the drop
-	   so the visible collapse starts immediately instead of the old
-	   999px -> 0 linear ramp, which kept the stack at full height for most of
-	   the transition and then snapped shut in the last few frames. */
-	.tool-call-stack {
+	/* Done + collapsed: the whole activity list folds into one muted line
+	   under "Thought for N s" — icon + short label per tool, separated by
+	   middle dots. Clicking it expands the thinking block (the same action as
+	   the header). Deliverables never fold in; they stay as pinned rows. */
+	.activity-summary-strip {
 		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 6px;
-		padding: var(--space-xs) 0;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 4px 10px;
 		width: 100%;
 		min-width: 0;
-		transition: opacity var(--duration-emphasis) var(--ease-out),
-			max-height 350ms cubic-bezier(0.2, 0.9, 0.25, 1),
-			padding 350ms cubic-bezier(0.2, 0.9, 0.25, 1);
-		max-height: 999px;
-		/* Tier 0 Fix D — no `overflow: hidden` at rest, so a result row's hover
-		   popover can extend below the stack without being clipped. The clip is
-		   only needed while the stack collapses on completion, so it moves onto
-		   .fade-out below (no hover happens during that teardown). */
-	}
-
-	.tool-call-stack.fade-out {
-		opacity: 0;
-		max-height: 0;
-		padding: 0;
-		overflow: hidden;
-		pointer-events: none;
-	}
-
-	/* Owner polish pass (visual fixes) — a tool call renders as the SAME chip
-	   in the live stack as in the expanded clean list (.thought-rail-chip
-	   below shares these exact tokens): content-hugging pill, --border-default
-	   hairline, --surface-elevated fill. The old full-bleed bar (negative
-	   margins + width: calc(100% + 12px)) stretched edge to edge and had its
-	   rounded corners clipped by .thinking-block's overflow: hidden — the
-	   "not rounded while running" complaint. */
-	.tool-call-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-xs);
-		width: fit-content;
-		max-width: 100%;
-		min-width: 0;
-		padding: 3px 10px;
-		border-radius: var(--radius-full);
-		border: 1px solid var(--border-default);
-		background: var(--surface-elevated);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		color: var(--text-muted);
-		transition: background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out);
-	}
-
-	/* Tier 0 Fix B/C — the pill is a stable single line at its natural
-	   fit-content width. The opened result list is a full-width SIBLING panel
-	   below it (.fetched-source-results, rendered after this row), so the row
-	   never grows, the tick stays vertically centered, and its width never
-	   snaps on open/close. (The previous flex-wrap + flex-basis:100% breakout
-	   and the align-items:flex-start-on-open override are gone.) */
-
-	/* Owner polish pass, item 3 — hover feedback for the always-visible tool
-	   stack row itself (the summary/button children inside it already get
-	   their own hover state below). */
-	.tool-call-row:hover {
-		background: var(--surface-overlay);
-	}
-
-	.tool-call-row.is-running {
-		color: var(--text-secondary);
-	}
-
-	/* E1/E2 — a failed tool call is a terminal outcome distinct from "done":
-	   the row keeps the danger color so it reads as an error, not a quiet
-	   success, at a glance. */
-	.tool-call-row.is-failed {
-		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-	}
-
-	/* Owner polish pass (visual fixes) — live current-step emphasis. Only the
-	   single most-recently-arrived tool row (see latestToolStackEntryKey in
-	   script — driven purely by real event arrival, no timer) gets the pulse;
-	   every other row stays in its plain resting state. A slow, gentle
-	   breathing of the chip's own fill between two close accent tints — the
-	   old 1.8s background + box-shadow ring pulse read as flashing. The chip
-	   keeps its border-radius in this state (radius lives on the base rule
-	   above and is never overridden here). */
-	@keyframes current-step-pulse {
-		0%, 100% {
-			background-color: color-mix(in srgb, var(--accent) 4%, var(--surface-elevated));
-		}
-		50% {
-			background-color: color-mix(in srgb, var(--accent) 11%, var(--surface-elevated));
-		}
-	}
-
-	.tool-call-row.is-current-step {
-		border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-		animation: current-step-pulse 3.2s ease-in-out infinite;
-	}
-
-	.tool-status-badge {
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		padding: 1px 6px;
-		border-radius: 9999px;
-		font-family: var(--font-sans);
-		font-size: 0.625rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
-	.tool-status-badge--failed {
-		color: var(--danger);
-		background: color-mix(in srgb, var(--danger) 16%, transparent);
-	}
-
-	.tool-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--accent);
-		flex-shrink: 0;
-		animation: tool-pulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes tool-pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.35; }
-	}
-
-	.tool-label-text {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-		white-space: normal;
-		overflow-wrap: anywhere;
-		word-break: break-word;
-	}
-
-	/* The collapsed summary is now a real <button> (not a native <summary>) so
-	   the open reveal can slide and break out to full width. It keeps the label
-	   typography passed in via summaryClass (tool-label-text / tool-item-label)
-	   and lays out as: [favicon stack + summary text] ......... [caret]. */
-	.fetched-source-summary-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-		margin: 0;
-		padding: 0;
+		padding: 2px 0;
 		border: none;
 		background: transparent;
-		font: inherit;
-		color: inherit;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 		text-align: left;
 		cursor: pointer;
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.activity-summary-strip:hover,
+	.activity-summary-strip:focus-visible {
+		color: var(--text-primary);
+	}
+
+	.activity-summary-strip:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 		border-radius: 4px;
-		transition: color 150ms var(--ease-out);
 	}
 
-	.fetched-source-summary-btn:hover,
-	.fetched-source-summary-btn:focus-visible {
-		color: var(--text-primary);
-	}
-
-	.fetched-source-summary-btn:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.connector-group summary::marker {
-		color: var(--icon-muted);
-		font-size: 0.7em;
-	}
-
-	.fetched-source-summary {
+	.summary-item {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		min-width: 0;
-		flex: 1 1 auto;
-		vertical-align: middle;
-	}
-
-	.fetched-source-summary-text {
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
-
-	/* The trailing disclosure caret; rotates when the result list is open. */
-	:global(.fetched-source-caret) {
-		flex-shrink: 0;
-		color: var(--icon-muted);
-		transition: transform var(--duration-standard) var(--ease-out);
-	}
-
-	:global(.fetched-source-caret.expanded) {
-		transform: rotate(180deg);
-	}
-
-	.fetched-favicon-stack {
-		display: inline-flex;
-		align-items: center;
-		flex: 0 1 auto;
-		min-width: 0;
-		max-width: min(260px, 45vw);
-		overflow: hidden;
-		padding: 1px 0 1px 1px;
-	}
-
-	.fetched-favicon-stack-icon {
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		border: 1px solid var(--surface-elevated);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 55%, transparent);
-		flex: 0 0 auto;
-		object-fit: cover;
-	}
-
-	.fetched-favicon-stack-icon + .fetched-favicon-stack-icon {
-		margin-left: -5px;
-	}
-
-	.fetched-favicon {
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		border: 1px solid var(--surface-elevated);
-		background: var(--surface-elevated);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-default) 55%, transparent);
-		flex: 0 0 auto;
-		object-fit: cover;
-	}
-
-	/* Tier 0 Fix B — the opened result list is a full-width SIBLING panel that
-	   sits below the pill (it is a sibling of .tool-call-row / .tool-call-item
-	   now, not a wrapped child). It stretches full width wherever it lands: in
-	   the tool-call-stack (a flex column, align-items: flex-start) and the
-	   interleaved rail its own width: 100% pins it edge to edge; in the
-	   clean-list chip the chip switches to a stretch column (see
-	   .thought-rail-chip:has(.fetched-source-results) below). One result per
-	   row, sliding open on height only — the pill's width never changes. */
-	.fetched-source-results {
-		width: 100%;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		margin-top: 6px;
-	}
-
-	/* One result: favicon left, page title right, hover wash across the WHOLE
-	   line. The title wraps freely (overflow-wrap: anywhere) — no fixed-size
-	   box to clip or overflow it. position: relative anchors the Fix D hover
-	   excerpt popover below. */
-	.fetched-source-result {
-		position: relative;
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-		width: 100%;
-		min-width: 0;
-		padding: 5px 8px;
-		border-radius: var(--radius-sm);
-		text-decoration: none;
-		color: var(--text-secondary);
-		transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
-	}
-
-	.fetched-source-result:hover,
-	.fetched-source-result:focus-visible {
-		background: var(--surface-overlay);
-		color: var(--text-primary);
-		outline: none;
-	}
-
-	.fetched-source-result:focus-visible {
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.fetched-source-result-favicon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 16px;
-		height: 16px;
-		flex-shrink: 0;
-		/* nudge down so it optically aligns with the first line of the title */
-		margin-top: 1px;
-	}
-
-	.fetched-source-result-favicon .fetched-favicon {
-		width: 16px;
-		height: 16px;
-	}
-
-	:global(.fetched-source-result-globe) {
-		color: var(--icon-muted);
-	}
-
-	.fetched-source-result-title {
-		flex: 1 1 auto;
-		min-width: 0;
-		font-size: var(--text-sm);
-		line-height: 1.4;
-		overflow-wrap: anywhere;
-		word-break: break-word;
-	}
-
-	/* Cited sources (the answer's actual citations) read a touch stronger and
-	   carry a small accent check, so the citation signal survives the switch
-	   from the old ringed chip to a plain row. */
-	.fetched-source-result.is-cited .fetched-source-result-title {
-		color: var(--text-primary);
-		font-weight: 500;
-	}
-
-	:global(.fetched-source-result-cited) {
-		flex-shrink: 0;
-		margin-top: 2px;
-		color: var(--accent);
-	}
-
-	/* Tier 0 Fix D — the per-result hover excerpt popover, reinstated and
-	   fixed. Anchored to the row (which is position: relative), it opens just
-	   below the row and clamps its width, wrapping the full title + excerpt
-	   with NO fixed height and NO clipping on any side — the old bug was a
-	   hard-limited box that cut the text off. pointer-events: none so it never
-	   eats the row's own whole-line hover wash; the native `title` attr stays
-	   as the non-hover / a11y fallback. Clip-safety note: .thinking-block and
-	   .tool-call-stack were relaxed above, but the real scroll ancestor is
-	   .scroll-container in MessageArea.svelte (overflow-x: hidden;
-	   overflow-y: auto), which was NOT relaxed. This popover stays inside it
-	   only because it is left-anchored (left: 0) and width-capped at
-	   min(360px, 90vw) — a future right-anchored or wider popover would need
-	   care to avoid being clipped by .scroll-container. */
-	.fetched-source-popover {
-		position: absolute;
-		top: calc(100% + 4px);
-		left: 0;
-		z-index: 60;
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		width: max-content;
-		max-width: min(360px, 90vw);
-		padding: 8px 10px;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-default);
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-md, 0 8px 24px -8px rgba(0, 0, 0, 0.35));
-		white-space: normal;
-		overflow-wrap: anywhere;
-		word-break: break-word;
-		pointer-events: none;
-		opacity: 0;
-		visibility: hidden;
-		transition: opacity 120ms var(--ease-out);
-	}
-
-	.fetched-source-result:hover .fetched-source-popover,
-	.fetched-source-result:focus-within .fetched-source-popover,
-	.fetched-source-result:focus-visible .fetched-source-popover {
-		opacity: 1;
-		visibility: visible;
-	}
-
-	.fetched-source-popover-title {
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		line-height: 1.35;
-		color: var(--text-primary);
-	}
-
-	.fetched-source-popover-reason {
-		font-family: var(--font-sans);
-		font-size: var(--text-xs, 0.75rem);
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-
-	.connector-group {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-	}
-
-	.connector-group summary {
-		cursor: pointer;
-		list-style-position: inside;
-		border-radius: 2px;
-		transition: color 150ms var(--ease-out);
-	}
-
-	.connector-group summary:hover,
-	.connector-group summary:focus-visible {
-		color: var(--text-primary);
-	}
-
-	.connector-group summary:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	.connector-action-list {
-		display: grid;
-		gap: 4px;
-		margin-top: 4px;
-		padding-left: 16px;
-	}
-
-	.connector-action-item {
-		display: flex;
-		align-items: center;
-		gap: 6px;
+		gap: 5px;
 		min-width: 0;
 	}
 
-	.connector-action-item.is-failed {
-		color: var(--danger);
+	.summary-dot {
+		color: color-mix(in srgb, var(--text-muted) 55%, transparent);
 	}
 
-	.check-icon-header {
-		color: var(--success);
-		width: 12px;
-		height: 12px;
-		flex-shrink: 0;
+	.activity-summary-strip :global(.summary-chevron) {
+		margin-left: 2px;
 	}
 
-	.fail-icon-header {
-		color: var(--danger);
-		width: 12px;
-		height: 12px;
-		flex-shrink: 0;
-	}
-
-	/* Agenda peek + photo strip (Task 11b) — subtle, tasteful peeks rendered
-	   alongside the connector group's stack row, visible without expanding. */
 	.agenda-peek,
 	.photo-strip {
 		margin: 4px 0 2px;
@@ -2161,39 +1488,6 @@ function toggleFullReasoning(): void {
 		padding-bottom: 6px;
 		margin-bottom: 4px;
 	}
-
-	/* A tool row immediately followed by its OWN opened reveal (the click-opened
-	   detail panel, item 7, OR the Tier 0 sibling source-results panel) is still
-	   one entry, not two — suppress the divider between them so the reveal reads
-	   as part of the same unit, not a separate action. */
-	.interleaved-rail > :global(.tool-call-item:has(+ .tool-detail-panel)),
-	.interleaved-rail > :global(.tool-call-item:has(+ .fetched-source-results)) {
-		border-bottom: none;
-		padding-bottom: 0;
-		margin-bottom: 0;
-	}
-
-	/* Inline tool call rows between thinking text segments. Tier 0 Fix B — a
-	   stable single-line pill at fit-content width; its opened source list is a
-	   full-width sibling panel below it, never a wrapped child, so this row
-	   keeps align-items: center and never grows on toggle. */
-	.tool-call-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-xs);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		color: var(--text-muted);
-		margin: var(--space-xs) 0;
-		width: 100%;
-		max-width: 100%;
-		min-width: 0;
-	}
-
-	.tool-call-item.is-failed {
-		color: var(--danger);
-	}
-
 	.status-step {
 		display: flex;
 		align-items: center;
@@ -2225,18 +1519,9 @@ function toggleFullReasoning(): void {
 			text-decoration-color 150ms var(--ease-out);
 	}
 
-	/* Owner polish pass, item 2 — the tool-call chip's action-specific icon
-	   (toolIdentityIcon), same sizing rhythm as the other small leading
-	   icons in this file (.thought-step-class-icon
-	   below). */
-	:global(.tool-identity-icon) {
-		color: currentColor;
-		width: 13px;
-		height: 13px;
-		flex-shrink: 0;
-		opacity: 0.85;
-	}
 
+	/* The running dot of a context-preparation status step (the one row in
+	   this file that is NOT a tool activity row). */
 	.tool-dot-inline {
 		width: 6px;
 		height: 6px;
@@ -2247,24 +1532,13 @@ function toggleFullReasoning(): void {
 		animation: tool-pulse 1.5s ease-in-out infinite;
 	}
 
-	.tool-item-label {
-		flex: 1 1 auto;
-		min-width: 0;
-		max-width: 100%;
-		white-space: normal;
-		overflow-wrap: anywhere;
-		word-break: break-word;
+	@keyframes tool-pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.35; }
 	}
 
 	.check-icon {
 		color: var(--success);
-		width: 12px;
-		height: 12px;
-		flex-shrink: 0;
-	}
-
-	.fail-icon {
-		color: var(--danger);
 		width: 12px;
 		height: 12px;
 		flex-shrink: 0;
@@ -2370,62 +1644,11 @@ function toggleFullReasoning(): void {
 		margin-bottom: 2px;
 	}
 
-	/* TS2-c — wraps a tool/connector-group row inside the clean list so it
-	   reads as a distinct inline chip rather than prose-adjacent text; the
-	   nested .tool-call-item keeps every bit of its existing behavior
-	   (favicons, connector grouping, agenda/photo peeks, failed badges) —
-	   only its outer shape changes here. Owner polish pass, item 3 — a hover
-	   wash so the chip reads as clickable when it wraps a clickable tool row. */
-	.thought-rail-chip {
-		display: inline-flex;
-		align-items: center;
-		width: fit-content;
-		max-width: 100%;
-		margin: 2px 0;
-		padding: 3px 10px;
-		border-radius: var(--radius-full);
-		border: 1px solid var(--border-default);
-		background: var(--surface-elevated);
-		transition: background-color var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
-	}
-
-	/* An expanded inner disclosure (a click-opened .tool-detail-panel, or the
-	   open source-result list) relaxes the pill into the card radius and stacks
-	   its reveal BELOW the header row: the chip goes full width and column, so
-	   the result list can span edge to edge instead of bulging out sideways as
-	   a lozenge beside the label. */
-	.thought-rail-chip:has(.tool-detail-panel),
-	.thought-rail-chip:has(.fetched-source-results) {
-		border-radius: var(--radius-md);
-		width: 100%;
-		flex-direction: column;
-		align-items: stretch;
-	}
-
-	/* A connector group still uses a native <details>; open, it only relaxes
-	   the pill radius (its action list lays out inside the summary, so it
-	   doesn't need the full-width column breakout above). */
-	.thought-rail-chip:has(details[open]) {
-		border-radius: var(--radius-md);
-	}
-
-	.thought-rail-chip:has(.tool-label-text--clickable:hover),
-	.thought-rail-chip:has(.tool-item-label--clickable:hover) {
-		border-color: var(--accent);
-	}
-
-	/* The inner row keeps every behavior; only its outer sizing changes so the
-	   chip hugs its content instead of stretching into a full-width lozenge. */
-	.thought-rail-chip .tool-call-item {
-		margin: 0;
-		width: auto;
-	}
-
 	/* "Answer now" — a plain text button flush right on the header row, per
 	   the approved mockup: no border, no background, text-sm/500, muted ->
-	   accent on hover. Deliberately NOT the pill shape .full-reasoning-header-toggle
-	   uses below — this reads as a lightweight inline action, not a secondary
-	   disclosure control. */
+	   accent on hover. Deliberately NOT the pill shape
+	   .full-reasoning-header-toggle uses below — this reads as a lightweight
+	   inline action, not a secondary disclosure control. */
 	.answer-now-button {
 		flex-shrink: 0;
 		padding: 0;
@@ -2542,113 +1765,6 @@ function toggleFullReasoning(): void {
 		padding: 0 1px;
 	}
 
-	/* Owner polish pass, item 7 — a generic tool-call chip's label becomes an
-	   actual <button> only when it has extra detail to reveal (see
-	   hasToolDetail in script); styled to look identical to the plain <span>
-	   it replaces at rest, so only the hover/focus affordance below signals
-	   it's now clickable. */
-	.tool-label-text--clickable,
-	.tool-item-label--clickable {
-		background: transparent;
-		border: none;
-		padding: 0;
-		margin: 0;
-		font: inherit;
-		text-align: left;
-		color: inherit;
-		cursor: pointer;
-		border-radius: 2px;
-		transition: color 150ms var(--ease-out);
-	}
-
-	.tool-label-text--clickable:hover,
-	.tool-label-text--clickable:focus-visible,
-	.tool-item-label--clickable:hover,
-	.tool-item-label--clickable:focus-visible {
-		color: var(--text-primary);
-		text-decoration: underline;
-		text-decoration-style: dotted;
-		text-underline-offset: 2px;
-	}
-
-	.tool-label-text--clickable:focus-visible,
-	.tool-item-label--clickable:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	/* Owner polish pass, item 7 — the tool-call detail panel: arguments,
-	   result, and status, whatever the segment actually carries. */
-	.tool-detail-panel {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		width: 100%;
-		min-width: 0;
-		margin: 4px 0 6px;
-		padding: var(--space-sm);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--surface-elevated);
-	}
-
-	/* Nested inside a chip card the panel sits on the chip's own elevated
-	   fill, so it steps up to the overlay surface to stay readable as an
-	   inset section. */
-	.thought-rail-chip .tool-detail-panel {
-		margin: 2px 0 4px;
-		background: var(--surface-overlay);
-	}
-
-	.tool-detail-section {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.tool-detail-section-label {
-		font-family: var(--font-sans);
-		font-size: 0.625rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		color: var(--text-muted);
-	}
-
-	.tool-detail-row {
-		display: flex;
-		gap: 6px;
-		min-width: 0;
-		font-family: var(--font-mono, monospace);
-		font-size: var(--text-xs, 0.75rem);
-	}
-
-	.tool-detail-key {
-		flex: 0 0 auto;
-		color: var(--text-muted);
-	}
-
-	.tool-detail-key::after {
-		content: ":";
-	}
-
-	/* One size for every value under a sub-heading: the Arguments rows already
-	   inherit --text-xs from .tool-detail-row, so pinning the same size here
-	   keeps the Result prose visually uniform with them (the mono/sans font
-	   split is deliberate — structured args vs. a prose summary). */
-	.tool-detail-value {
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow-wrap: anywhere;
-		font-size: var(--text-xs, 0.75rem);
-		color: var(--text-secondary);
-		margin: 0;
-	}
-
-	.tool-detail-result {
-		font-family: var(--font-sans);
-	}
 
 @media (prefers-reduced-motion: reduce) {
 	.thinking-label.is-active .thinking-label-text {
@@ -2662,7 +1778,6 @@ function toggleFullReasoning(): void {
 		transition: none;
 	}
 
-	.tool-dot,
 	.tool-dot-inline {
 		animation: none;
 		opacity: 0.7;
@@ -2671,13 +1786,6 @@ function toggleFullReasoning(): void {
 	.word-new {
 		animation: none;
 		opacity: 1;
-	}
-
-	/* Live current-step emphasis falls back to a static highlight, no pulse,
-	   under prefers-reduced-motion — same tint the pulse breathes around. */
-	.tool-call-row.is-current-step {
-		animation: none;
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated));
 	}
 }
 </style>

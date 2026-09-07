@@ -36,7 +36,10 @@ describe("FileProductionCard", () => {
 		uiLanguage.set("en");
 	});
 
-	it("renders an active running job with title, elapsed, Producing label, progress bar and a Stop action", async () => {
+	it("renders an active running job as a status line, progress sweep and a Stop action", async () => {
+		// Unified tool activity rows — this component is now only the BODY of a
+		// file-production activity row: the job title and its "Creating …" verb
+		// live on the row above it, so they are deliberately absent here.
 		const onCancel = vi.fn();
 		const created = 1_700_000_000_000;
 		vi.useFakeTimers();
@@ -50,23 +53,21 @@ describe("FileProductionCard", () => {
 				},
 			);
 
-			// Title is rendered from job.title (was previously hidden).
-			expect(getByText("Quarterly report")).toBeInTheDocument();
-			// Producing label is visible (not aria-only).
-			expect(getByText("Producing")).toBeInTheDocument();
+			expect(queryByText("Quarterly report")).toBeNull();
+			expect(
+				getByText("Generating files in the background."),
+			).toBeInTheDocument();
 			// Elapsed timer formatted as m:ss (75s -> 1:15) with tabular-nums.
 			expect(getByText("1:15")).toBeInTheDocument();
-			// Animated gold sweep progress bar present.
-			expect(
-				container.querySelector(".producing-progress-sweep"),
-			).toBeInTheDocument();
-			// Card is still marked busy.
+			// Animated sweep progress track present.
+			expect(container.querySelector(".track")).toBeInTheDocument();
+			// Body is still marked busy.
 			expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
 			// No resolved-only copy leaks through.
 			expect(queryByText("No files yet")).toBeNull();
 			expect(queryByText("Waiting for the file worker.")).toBeNull();
 
-			// Cancel is a Stop (Square) icon button, not a dominant X.
+			// Cancel is a compact "Stop" mini-button.
 			await fireEvent.click(
 				getByRole("button", { name: "Stop file production" }),
 			);
@@ -108,7 +109,9 @@ describe("FileProductionCard", () => {
 			onRetry,
 		});
 
-		expect(getByText("Couldn’t produce this file")).toBeInTheDocument();
+		// The "Couldn’t produce this file" eyebrow is gone: the failure now
+		// reads on the activity row itself (red cross + "Failed"), and the body
+		// carries only the reason.
 		expect(getByText("Document rendering timed out.")).toBeInTheDocument();
 
 		await fireEvent.click(getByRole("button", { name: "Retry" }));
@@ -116,7 +119,7 @@ describe("FileProductionCard", () => {
 		expect(onRetry).toHaveBeenCalledWith("job-1");
 	});
 
-	it("renders a non-retryable failed job with Couldn't produce copy, the cause and a Dismiss action", async () => {
+	it("renders a non-retryable failed job with the cause and a Dismiss action", async () => {
 		const onDismiss = vi.fn();
 		const { getByRole, getByText } = render(FileProductionCard, {
 			job: makeJob({
@@ -130,7 +133,6 @@ describe("FileProductionCard", () => {
 			onDismiss,
 		});
 
-		expect(getByText("Couldn’t produce this file")).toBeInTheDocument();
 		expect(getByText("Program execution timed out.")).toBeInTheDocument();
 
 		await fireEvent.click(

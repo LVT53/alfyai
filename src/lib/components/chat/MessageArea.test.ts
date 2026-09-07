@@ -1105,7 +1105,11 @@ describe("MessageArea", () => {
 		});
 	});
 
-	it("renders a running file-production card instead of a temporary generated-file row", async () => {
+	// Unified tool activity rows — a file-production job now renders as a
+	// pinned activity ROW ("Creating <title>") whose body (the status line,
+	// the progress sweep and Stop) is a lazily imported component, so these
+	// assertions wait for that import rather than reading it synchronously.
+	it("renders a running file-production row instead of a temporary generated-file row", async () => {
 		const runningJob = makeFileProductionJob("assistant-1", {
 			id: "job-running",
 			title: "Draft report",
@@ -1131,18 +1135,25 @@ describe("MessageArea", () => {
 			fileProductionJobs: [runningJob],
 		});
 
-		expect(
-			container.querySelector('[data-testid="file-production-card"]'),
-		).toBeInTheDocument();
+		await waitFor(() => {
+			expect(
+				container.querySelector('[data-testid="file-production-card"]'),
+			).toBeInTheDocument();
+		});
 		expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
-		// ADR-0043 Slice 4: the running card now surfaces the title + "Producing".
+		// The title and the "Creating" verb are on the row; the body carries
+		// the progress copy.
+		const row = container.querySelector('[data-testid="tool-activity-row"]');
+		expect(row?.textContent).toContain("Creating");
 		expect(queryByText("Draft report")).toBeInTheDocument();
-		expect(queryByText("Producing")).toBeInTheDocument();
+		expect(
+			queryByText("Generating files in the background."),
+		).toBeInTheDocument();
 		expect(queryByText("In-progress")).toBeNull();
 		expect(queryByText("Generating...")).toBeNull();
 	});
 
-	it("attaches an unassigned active file-production job to the latest streaming assistant response", () => {
+	it("attaches an unassigned active file-production job to the latest streaming assistant response", async () => {
 		const runningJob = makeFileProductionJob(null, {
 			id: "job-unassigned-running",
 			title: "Immediate report",
@@ -1180,11 +1191,15 @@ describe("MessageArea", () => {
 		const assistantMessages = container.querySelectorAll(
 			'[data-testid="assistant-message"]',
 		);
+		await waitFor(() => {
+			expect(
+				container.querySelector('[data-testid="file-production-card"]'),
+			).toBeInTheDocument();
+		});
 		const card = container.querySelector(
 			'[data-testid="file-production-card"]',
 		);
 
-		expect(card).toBeInTheDocument();
 		expect(assistantMessages[0].contains(card)).toBe(false);
 		expect(assistantMessages[1].contains(card)).toBe(true);
 	});
@@ -1333,7 +1348,7 @@ describe("MessageArea", () => {
 		expect(assistantMessages[1]).not.toHaveTextContent("scope.txt");
 	});
 
-	it("renders file-production jobs as grouped cards for the assistant response", () => {
+	it("renders file-production jobs as one pinned activity row for the assistant response", async () => {
 		const messageTimestamp = Date.now();
 		const fileProductionJob: FileProductionJob = {
 			id: "job-grouped-1",
@@ -1367,7 +1382,7 @@ describe("MessageArea", () => {
 			],
 		};
 
-		const { container, getByText } = render(MessageArea, {
+		const { container, getAllByText, getByText } = render(MessageArea, {
 			messages: [
 				{
 					id: "assistant-job-1",
@@ -1385,13 +1400,20 @@ describe("MessageArea", () => {
 			fileProductionJobs: [fileProductionJob],
 		});
 
+		await waitFor(() => {
+			expect(
+				container.querySelectorAll('[data-testid="file-production-card"]'),
+			).toHaveLength(1);
+		});
+		// One activity row for the job, its produced files listed in the body.
+		// The "2 files" count line is gone: the file rows themselves say it.
 		expect(
-			container.querySelectorAll('[data-testid="file-production-card"]'),
+			container.querySelectorAll('[data-testid="tool-activity-row"]'),
 		).toHaveLength(1);
-		expect(getByText("Quarterly report package")).toBeInTheDocument();
-		expect(getByText("quarterly-report.pdf")).toBeInTheDocument();
+		// The first produced file names the row; both files are listed in the
+		// body, so the .pdf appears twice by design.
+		expect(getAllByText("quarterly-report.pdf")).toHaveLength(2);
 		expect(getByText("quarterly-report.html")).toBeInTheDocument();
-		expect(getByText("2 files")).toBeInTheDocument();
 	});
 
 	it("renders Atlas jobs inside the assistant response they belong to", async () => {
@@ -1556,6 +1578,9 @@ describe("MessageArea", () => {
 			onCancelFileProductionJob,
 		});
 
+		await waitFor(() => {
+			expect(getByRole("button", { name: "Retry" })).toBeInTheDocument();
+		});
 		await fireEvent.click(getByRole("button", { name: "Retry" }));
 		await fireEvent.click(
 			getByRole("button", { name: "Stop file production" }),
