@@ -41,7 +41,6 @@ import type {
 	ChatAttachment,
 	ChatMessage,
 	ChatTurnCompletionWarningCode,
-	ToolCallMapData,
 } from "$lib/server/services/messages-types";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
 import ThinkingBlock from "./ThinkingBlock.svelte";
@@ -50,7 +49,6 @@ import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
-import FileProductionCard from "./FileProductionCard.svelte";
 import AtlasCard from "./AtlasCard.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
@@ -247,46 +245,6 @@ let hasVisibleThinkingSegments = $derived(
 let hasToolCalls = $derived(
 	thinkingSegmentsForDisplay.some(isVisibleThinkingToolCall),
 );
-// Inline map cards (map_route tool calls that finished with card data) —
-// rendered as their own block below the tool line, not inside ThinkingBlock's
-// panel. Streams in live as the tool call completes and reappears the same
-// way from persisted thinkingSegments on reload (see messages.ts's
-// readThinkingSegmentsFromRow, which round-trips the whole tool_call segment
-// including `map`). Keyed by callId so a re-render never remounts the map.
-type MapRouteCardEntry = { key: string; map: ToolCallMapData };
-let mapRouteCards = $derived(
-	thinkingSegmentsForDisplay.reduce<MapRouteCardEntry[]>(
-		(acc, segment, index) => {
-			if (
-				segment.type === "tool_call" &&
-				segment.name === "map_route" &&
-				segment.map
-			) {
-				acc.push({
-					key: segment.callId ?? `map-route-${index}`,
-					map: segment.map,
-				});
-			}
-			return acc;
-		},
-		[],
-	),
-);
-// MapRouteCard.svelte itself statically imports nothing heavy (MapLibre GL is
-// dynamic-imported inside IT), but it is still lazy-loaded here — same
-// discipline as Chart/Mermaid's dynamic library imports — so its module graph
-// never touches the entry chat bundle for the common case of a message with
-// no map card.
-let MapRouteCardComponent = $state<
-	typeof import("./MapRouteCard.svelte").default | null
->(null);
-$effect(() => {
-	if (mapRouteCards.length > 0 && !MapRouteCardComponent) {
-		import("./MapRouteCard.svelte").then((module) => {
-			MapRouteCardComponent = module.default;
-		});
-	}
-});
 let hasResponseAuditInfo = $derived(
 	!isUser &&
 		(message.content.trim().length > 0 ||
@@ -820,7 +778,13 @@ function sendFollowUp(question: string) {
 				{/each}
 			</div>
 		{/if}
-		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls)}
+		{#if !isUser && (hasThinking || hasVisibleThinkingSegments || hasToolCalls || hasFileProductionCards)}
+		<!--
+			Unified tool activity rows — file-production jobs and route cards are
+			no longer separate components under the message body: they render as
+			pinned activity rows inside this same list, so a map card and a file
+			card no longer look like two unrelated components.
+		-->
 		<ThinkingBlock
 			content={message.thinking ?? ''}
 			thinkingIsDone={thinkingIsDone}
@@ -833,14 +797,12 @@ function sendFollowUp(question: string) {
 			liveThoughtStepSummary={liveThoughtStepActivity?.summary}
 			thoughtSteps={message.thoughtSteps}
 			onAnswerNow={onRegenerate && !readOnly ? handleAnswerNow : undefined}
+			fileProductionJobs={hasFileProductionCards ? dedupedFileProductionJobs : []}
+			{onOpenDocument}
+			{onRetryFileProductionJob}
+			{onCancelFileProductionJob}
+			{onDismissFileProductionJob}
 		/>
-		{/if}
-		{#if !isUser && MapRouteCardComponent && mapRouteCards.length > 0}
-			<div class="map-route-card-list" data-testid="message-map-route-cards">
-				{#each mapRouteCards as card (card.key)}
-					<MapRouteCardComponent map={card.map} />
-				{/each}
-			</div>
 		{/if}
 		{#if isUser}
 			{#if isEditing}
@@ -969,19 +931,6 @@ function sendFollowUp(question: string) {
 					{/each}
 				</div>
 			{/if}
-			{#if hasFileProductionCards}
-				<div class="file-production-inline" data-testid="message-file-production-jobs">
-					{#each dedupedFileProductionJobs as job (job.id)}
-						<FileProductionCard
-							{job}
-							onOpenDocument={onOpenDocument}
-							onRetry={onRetryFileProductionJob}
-							onCancel={onCancelFileProductionJob}
-							onDismiss={onDismissFileProductionJob}
-						/>
-					{/each}
-				</div>
-			{/if}
 			{#if atlasJobs.length > 0}
 				<div class="file-production-inline" data-testid="message-atlas-jobs">
 					{#each dedupedAtlasJobs as job (job.id)}
@@ -1070,13 +1019,13 @@ function sendFollowUp(question: string) {
 				<div class="info-container">
 					<button
 						type="button"
-						class="btn-icon-bare info-button min-h-[44px] min-w-[44px]"
+						class="btn-icon-bare action-icon-btn info-button"
 						aria-label={$t('messageBubble.info')}
 						aria-describedby={auditDetailsId}
 						aria-expanded={infoPopoverTouched || undefined}
 						onclick={toggleInfoPopoverOnTouch}
 					>
-						<Info size={16} strokeWidth={2} aria-hidden="true" />
+						<Info size={15} strokeWidth={2} aria-hidden="true" />
 					</button>
 					<div
 						id={auditDetailsId}
@@ -1099,12 +1048,12 @@ function sendFollowUp(question: string) {
 					<button
 						id={regenerateButtonId}
 						type="button"
-						class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+						class="btn-icon-bare action-icon-btn"
 						onclick={() => onRegenerate?.({ messageId: message.id })}
 						aria-label={$t('messageBubble.regenerate')}
 						aria-describedby={`${regenerateButtonId}-tooltip`}
 					>
-						<RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
+						<RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
 					</button>
 					<div
 						id={`${regenerateButtonId}-tooltip`}
@@ -1125,7 +1074,7 @@ function sendFollowUp(question: string) {
 					<button
 						id={forkButtonId}
 						type="button"
-						class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+						class="btn-icon-bare action-icon-btn"
 						onclick={() => onFork?.({ messageId: message.id })}
 						disabled={forkBusy}
 						aria-label={forkBusy ? $t('fork.creating') : $t('messageBubble.forkFromHere')}
@@ -1134,7 +1083,7 @@ function sendFollowUp(question: string) {
 						{#if forkBusy}
 							<span class="mini-spinner" aria-hidden="true"></span>
 						{:else}
-							<GitBranch size={16} strokeWidth={2} aria-hidden="true" />
+							<GitBranch size={15} strokeWidth={2} aria-hidden="true" />
 						{/if}
 					</button>
 					<div
@@ -1172,12 +1121,12 @@ function sendFollowUp(question: string) {
 						<button
 							id={editButtonId}
 							type="button"
-							class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+							class="btn-icon-bare action-icon-btn"
 							onclick={startEdit}
 							aria-label={$t('messageBubble.editMessage')}
 							aria-describedby={`${editButtonId}-tooltip`}
 						>
-							<Pencil size={16} strokeWidth={2} aria-hidden="true" />
+							<Pencil size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
 						<div
 							id={`${editButtonId}-tooltip`}
@@ -1198,15 +1147,15 @@ function sendFollowUp(question: string) {
 				<button
 					id={copyButtonId}
 					type="button"
-					class="btn-icon-bare sm:!min-h-[44px] sm:!min-w-[44px]"
+					class="btn-icon-bare action-icon-btn"
 					onclick={copyToClipboard}
 					aria-label={$t('messageBubble.copyMessage')}
 					aria-describedby={`${copyButtonId}-tooltip`}
 				>
 					{#if copied}
-						<Check size={16} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
+						<Check size={15} strokeWidth={2} class="text-icon-primary" aria-hidden="true" />
 					{:else}
-						<Copy size={16} strokeWidth={2} aria-hidden="true" />
+						<Copy size={15} strokeWidth={2} aria-hidden="true" />
 					{/if}
 				</button>
 				<div
@@ -1311,13 +1260,6 @@ function sendFollowUp(question: string) {
 		max-width: 100%;
 		overflow-wrap: anywhere;
 		animation: activityStatusFade 220ms var(--ease-out) both;
-	}
-
-	.map-route-card-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-sm);
-		margin: 0 0 var(--space-sm);
 	}
 
 	@keyframes activityStatusFade {
@@ -1435,6 +1377,36 @@ function sendFollowUp(question: string) {
 	}
 	.copy-action-row {
 		margin-top: var(--space-sm);
+	}
+
+	/* Approved mockup — the action row's icon buttons shrink to 28x28 with a
+	   15px glyph and a 5px radius so they sit in line with the follow-up chips
+	   beside them, instead of towering over them at 40/44px. The hover wash is
+	   the same --surface-elevated the activity rows use. */
+	.copy-action-row :global(.action-icon-btn) {
+		min-height: 28px;
+		min-width: 28px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border-radius: 5px;
+	}
+
+	.copy-action-row :global(.action-icon-btn:hover) {
+		background-color: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	/* Touch devices keep a real 44px hit target (the app-wide convention —
+	   see DocumentWorkspace / MobileDocumentsSheet), the visual glyph
+	   unchanged. */
+	@media (hover: none) and (pointer: coarse) {
+		.copy-action-row :global(.action-icon-btn) {
+			min-height: 44px;
+			min-width: 44px;
+			width: 44px;
+			height: 44px;
+		}
 	}
 
 	.mini-spinner {

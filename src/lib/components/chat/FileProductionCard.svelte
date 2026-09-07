@@ -1,5 +1,15 @@
 <script lang="ts">
-import { Download, LoaderCircle, RotateCw, Square, X } from "@lucide/svelte";
+// The BODY of a file-production activity row. Reduced (unified tool activity
+// rows) from the former standalone card: the job's title, its "Created /
+// Creating" verb and the produced size now live on the ToolActivityRow above
+// it, so this component renders only what goes INSIDE the opened panel —
+// the status line, the progress sweep + Stop while producing, the produced
+// file rows with Open/Download, and the failure reason with Retry/Dismiss.
+//
+// While a job is producing, its row is pinned open (see
+// `buildFileProductionActivityItem`'s `alwaysOpen`), so row and body share one
+// background and read as a single element.
+import { Download, FileText, RotateCw, Square, X } from "@lucide/svelte";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
@@ -59,11 +69,10 @@ let {
 } = $props();
 
 let isActive = $derived(job.status === "queued" || job.status === "running");
-let isResolved = $derived(!isActive);
 
 // Client-side elapsed timer for the active state. Ticks once per second; the
-// producing bar + "Producing · m:ss" copy derive from this. Reduced-motion is
-// honored via CSS (no spin, static sweep) — the value still advances.
+// "Producing · m:ss" copy derives from this. Reduced-motion is honored via
+// CSS (static sweep) — the value still advances.
 let nowMs = $state(Date.now());
 $effect(() => {
 	if (!isActive) return;
@@ -84,37 +93,11 @@ let errorIsRetryable = $derived(
 );
 // Item 6 (UX-speed plan) — a placeholder card has no server-side job behind
 // it yet, so retry/cancel/dismiss must never reach the server with its
-// made-up id. errorIsRetryable is already false for a failed placeholder
-// (see failPendingFileProductionJobPlaceholder), which rules out Retry on
-// its own; Cancel and Dismiss need the explicit check below.
+// made-up id.
 let isPlaceholder = $derived(isPendingFileProductionJobId(job.id));
 let canDismiss = $derived(
 	isError && onDismiss && !errorIsRetryable && !isPlaceholder,
 );
-
-function fileCountLabel(count: number): string {
-	if (count === 0) {
-		return $t("fileProduction.noFiles");
-	}
-	return count === 1
-		? $t("fileProduction.oneFile")
-		: $t("fileProduction.fileCount", { count });
-}
-
-function statusLabel(status: FileProductionJob["status"]): string {
-	switch (status) {
-		case "queued":
-			return $t("fileProduction.queued");
-		case "running":
-			return $t("fileProduction.running");
-		case "failed":
-			return $t("fileProduction.failed");
-		case "cancelled":
-			return $t("fileProduction.cancelled");
-		default:
-			return $t("fileProduction.ready");
-	}
-}
 
 function statusDescription(job: FileProductionJob): string | null {
 	if (job.error?.message) {
@@ -164,546 +147,275 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 }
 </script>
 
+{#snippet producedFiles()}
+	{#if job.files.length > 0}
+		<div class="produced-files" data-testid="file-production-files">
+			{#each job.files as file (file.id)}
+				<div class="file-row">
+					<FileText class="file-row-icon" size={14} strokeWidth={2} aria-hidden="true" />
+					<span class="file-name" title={file.filename}>{file.filename}</span>
+					<span class="file-size">{formatByteSize(file.sizeBytes, { trimWholeUnits: true })}</span>
+					<span class="file-actions">
+						<button
+							type="button"
+							class="mini-btn"
+							disabled={!file.previewUrl}
+							onclick={() => openFile(file)}
+							onpointerenter={() => handlePreviewIntent(file)}
+							onfocus={() => handlePreviewIntent(file)}
+							aria-label={$t('fileProduction.previewLabel', { filename: file.filename })}
+						>
+							{$t('fileProduction.open')}
+						</button>
+						<a
+							class="mini-btn"
+							href={file.downloadUrl}
+							download={file.filename}
+							aria-label={$t('fileProduction.downloadLabel', { filename: file.filename })}
+							title={$t('fileProduction.downloadLabel', { filename: file.filename })}
+						>
+							<Download size={13} strokeWidth={2} aria-hidden="true" />
+						</a>
+					</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 <div
-	class="file-production-card"
+	class="file-job-body"
 	class:is-active={isActive}
-	class:is-resolved={isResolved}
-	class:is-stale={isStale}
 	data-testid="file-production-card"
 	data-motion={isActive ? 'producing-sweep' : undefined}
 	aria-busy={isActive}
-	aria-label={isActive ? $t('fileProduction.runningDescription') : undefined}
 >
 	{#if isActive}
-		<div class="active-body">
-			<div class="active-icon" aria-hidden="true">
-				<LoaderCircle size={16} strokeWidth={2} aria-hidden="true" />
-			</div>
-			<div class="active-text">
-				<div class="active-title" title={job.title}>{job.title}</div>
-				<div class="active-meta">
-					{#if isStale}
-						<span class="active-stale-heading">{$t('fileProduction.staleHeading')}</span>
-						<span class="active-stale-desc">{$t('fileProduction.staleDescription')}</span>
-					{:else}
-						<span class="active-producing">{$t('fileProduction.producing')}</span>
-						<span class="active-elapsed" data-testid="file-production-elapsed">·</span>
-						<span class="active-elapsed active-elapsed-time">{elapsedLabel}</span>
-					{/if}
-				</div>
-			</div>
-			{#if onCancel && !isPlaceholder}
-				<button
-					type="button"
-					class="active-stop btn-icon-bare"
-					onclick={() => onCancel?.(job.id)}
-					aria-label={$t('fileProduction.stopLabel')}
-					title={$t('fileProduction.stopLabel')}
-				>
-					<Square size={16} strokeWidth={2} aria-hidden="true" />
-				</button>
+		<div class="job-line">
+			{#if isStale}
+				<span class="job-stale">{$t('fileProduction.staleHeading')}</span>
+				<span>{$t('fileProduction.staleDescription')}</span>
+			{:else}
+				<span>{$t('fileProduction.runningDescription')}</span>
+				<span aria-hidden="true">·</span>
+				<span class="job-elapsed" data-testid="file-production-elapsed">{elapsedLabel}</span>
 			{/if}
 		</div>
-		{#if isStale}
-			<!-- Amber honesty bar: a static (reduced-motion-safe) amber track. -->
-			<div class="producing-progress-track is-stale-track" aria-hidden="true"></div>
-		{:else}
-			<!-- Gold gradient sweep bar — reuses the compaction sweep motion (ADR-0043). -->
-			<div class="producing-progress-sweep" aria-hidden="true">
-				<span class="producing-progress-sweep-fill"></span>
-			</div>
-		{/if}
-	{:else if isError}
-		<div class="job-header job-header--error">
-			<div class="job-title-group">
-				<div class="job-eyebrow job-eyebrow--error">
-					{job.status === 'cancelled'
-						? $t('fileProduction.cancelled')
-						: $t('fileProduction.couldNotProduce')}
-				</div>
-				{#if job.title}
-					<div class="job-title" title={job.title}>{job.title}</div>
-				{/if}
-			</div>
-			{#if canDismiss}
-				<button
-					type="button"
-					class="job-dismiss btn-icon-bare"
-					onclick={() => onDismiss?.(job.id)}
-					aria-label={$t('fileProduction.dismissLabel')}
-					title={$t('fileProduction.dismissLabel')}
-				>
-					<X size={16} strokeWidth={2} aria-hidden="true" />
-				</button>
-			{/if}
+		<div class="track" class:is-stale-track={isStale} aria-hidden="true">
+			{#if !isStale}<i></i>{/if}
 		</div>
-
-		{#if statusDescription(job)}
-			<div class="job-status-detail">{statusDescription(job)}</div>
-		{/if}
-
-		{#if !errorIsRetryable}
-			<div class="job-suggestion">{$t('fileProduction.suggestion')}</div>
-		{/if}
-
-		{#if job.files.length > 0}
-			<div class="produced-files" data-testid="file-production-files">
-				{#each job.files as file (file.id)}
-					<div class="produced-file-row">
-						<button
-							type="button"
-							class="file-open"
-							disabled={!file.previewUrl}
-							onclick={() => openFile(file)}
-							onpointerenter={() => handlePreviewIntent(file)}
-							onfocus={() => handlePreviewIntent(file)}
-							aria-label={$t('fileProduction.previewLabel', { filename: file.filename })}
-						>
-							<span class="file-name" title={file.filename}>{file.filename}</span>
-							<span class="file-size">{formatByteSize(file.sizeBytes)}</span>
-						</button>
-						<a
-							class="file-download"
-							href={file.downloadUrl}
-							download={file.filename}
-							aria-label={$t('fileProduction.downloadLabel', { filename: file.filename })}
-							title={$t('fileProduction.downloadLabel', { filename: file.filename })}
-						>
-						<Download size={16} strokeWidth={2} aria-hidden="true" />
-						</a>
-					</div>
-				{/each}
-			</div>
-		{/if}
-
-		{#if errorIsRetryable && onRetry && !isPlaceholder}
+		{#if onCancel && !isPlaceholder}
 			<div class="job-actions">
 				<button
 					type="button"
-					class="job-action"
-					onclick={() => onRetry?.(job.id)}
+					class="mini-btn"
+					onclick={() => onCancel?.(job.id)}
+					title={$t('fileProduction.stopLabel')}
+					aria-label={$t('fileProduction.stopLabel')}
 				>
-					<RotateCw size={14} strokeWidth={2} aria-hidden="true" />
-					<span>{$t('fileProduction.retry')}</span>
+					<Square size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('fileProduction.stop')}
 				</button>
 			</div>
 		{/if}
-	{:else}
-		<div class="job-header">
-			<div class="job-title-group">
-				<div class="job-eyebrow">{statusLabel(job.status)}</div>
-				<div class="job-title" title={job.title}>{job.title}</div>
-			</div>
-			<div class="job-count">{fileCountLabel(job.files.length)}</div>
-		</div>
-
+	{:else if isError}
 		{#if statusDescription(job)}
-			<div class="job-status-detail">{statusDescription(job)}</div>
+			<div class="job-error">{statusDescription(job)}</div>
 		{/if}
-
-		{#if job.files.length > 0}
-			<div class="produced-files" data-testid="file-production-files">
-				{#each job.files as file (file.id)}
-					<div class="produced-file-row">
-						<button
-							type="button"
-							class="file-open"
-							disabled={!file.previewUrl}
-							onclick={() => openFile(file)}
-							onpointerenter={() => handlePreviewIntent(file)}
-							onfocus={() => handlePreviewIntent(file)}
-							aria-label={$t('fileProduction.previewLabel', { filename: file.filename })}
-						>
-							<span class="file-name" title={file.filename}>{file.filename}</span>
-							<span class="file-size">{formatByteSize(file.sizeBytes)}</span>
-						</button>
-						<a
-							class="file-download"
-							href={file.downloadUrl}
-							download={file.filename}
-							aria-label={$t('fileProduction.downloadLabel', { filename: file.filename })}
-							title={$t('fileProduction.downloadLabel', { filename: file.filename })}
-						>
-						<Download size={16} strokeWidth={2} aria-hidden="true" />
-						</a>
-					</div>
-				{/each}
+		{#if !errorIsRetryable}
+			<div class="job-suggestion">{$t('fileProduction.suggestion')}</div>
+		{/if}
+		{@render producedFiles()}
+		{#if (errorIsRetryable && onRetry && !isPlaceholder) || canDismiss}
+			<div class="job-actions">
+				{#if errorIsRetryable && onRetry && !isPlaceholder}
+					<button type="button" class="mini-btn" onclick={() => onRetry?.(job.id)}>
+						<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+						{$t('fileProduction.retry')}
+					</button>
+				{/if}
+				{#if canDismiss}
+					<button
+						type="button"
+						class="mini-btn"
+						onclick={() => onDismiss?.(job.id)}
+						aria-label={$t('fileProduction.dismissLabel')}
+					>
+						<X size={12} strokeWidth={2} aria-hidden="true" />
+						{$t('fileProduction.dismiss')}
+					</button>
+				{/if}
 			</div>
 		{/if}
+	{:else}
+		{@render producedFiles()}
 	{/if}
 </div>
 
 <style>
-	.file-production-card {
+	.file-job-body {
 		display: flex;
-		position: relative;
-		width: 100%;
-		max-width: 100%;
-		min-height: 4.75rem;
 		flex-direction: column;
-		gap: var(--space-sm);
-		overflow: hidden;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent 22%);
-		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--surface-elevated) 60%, transparent 40%);
-		padding: 0.75rem;
-	}
-
-	.file-production-card.is-active {
-		background: color-mix(in srgb, var(--surface-elevated) 68%, var(--surface-page) 32%);
-		border-color: color-mix(in srgb, var(--border-subtle) 70%, var(--accent) 30%);
-	}
-
-	/* Running body: icon + title/meta + Stop. */
-	.active-body {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.55rem;
-		position: relative;
-		z-index: 1;
-	}
-
-	.active-icon {
-		flex: 0 0 auto;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.625rem;
-		height: 1.625rem;
-		margin-top: 0.0625rem;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--accent) 15%, transparent 85%);
-		color: var(--accent);
-		animation: file-production-spin 1s linear infinite;
-	}
-
-	.active-text {
-		flex: 1 1 auto;
+		gap: 6px;
+		width: 100%;
 		min-width: 0;
 	}
 
-	.active-title {
-		min-width: 0;
-		overflow: hidden;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.active-meta {
+	.job-line {
 		display: flex;
-		align-items: center;
 		flex-wrap: wrap;
-		gap: 0.3rem;
-		margin-top: 0.125rem;
-		color: var(--text-secondary);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		line-height: 1.4;
-	}
-
-	.active-producing {
-		color: color-mix(in srgb, var(--accent) 80%, var(--text-secondary) 20%);
-		font-weight: 600;
-	}
-
-	.active-elapsed {
+		gap: 4px;
 		color: var(--text-muted);
+		line-height: 1.45;
 	}
 
-	.active-elapsed-time {
+	.job-elapsed {
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* Stale honesty state: amber accent. */
-	.file-production-card.is-stale {
-		border-color: color-mix(in srgb, var(--border-subtle) 62%, var(--warning) 38%);
-	}
-
-	.is-stale .active-icon {
-		background: color-mix(in srgb, var(--warning) 16%, transparent 84%);
+	.job-stale {
 		color: var(--warning);
-		animation: none;
+		font-weight: 600;
 	}
 
-	.active-stale-heading {
-		color: var(--warning);
-		font-weight: 700;
+	.job-error {
+		color: var(--danger);
+		line-height: 1.45;
 	}
 
-	.active-stale-desc {
-		color: var(--text-secondary);
+	.job-suggestion {
+		color: var(--text-muted);
+		line-height: 1.45;
 	}
 
-	.active-stop {
-		flex: 0 0 auto;
-		color: var(--text-secondary);
-	}
-
-	/* Gold gradient-sweep progress bar — reuses the compaction motion (Slice 19):
-	   same gold #B8945F, same track/sweep-fill structure, same 1.6s sweep. */
-	.producing-progress-sweep {
+	/* The progress sweep — the mockup's 3px track with a 40% accent runner. */
+	.track {
 		position: relative;
-		flex: 1 1 auto;
-		width: 100%;
 		height: 3px;
-		overflow: hidden;
+		margin: 2px 0;
 		border-radius: 999px;
-		background: color-mix(in srgb, #b8945f 18%, transparent 82%);
+		background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+		overflow: hidden;
 	}
 
-	.producing-progress-sweep-fill {
+	.track i {
 		position: absolute;
 		top: 0;
 		left: 0;
-		width: 25%;
+		width: 40%;
 		height: 100%;
 		border-radius: 999px;
-		background: #b8945f;
-		animation: producing-progress-bar-sweep 1.6s ease-in-out infinite;
+		background: var(--accent);
+		animation: file-job-sweep 1.6s ease-in-out infinite;
 	}
 
-	@keyframes producing-progress-bar-sweep {
+	.track.is-stale-track {
+		background: color-mix(in srgb, var(--warning) 50%, transparent);
+	}
+
+	@keyframes file-job-sweep {
 		0% {
-			left: -25%;
+			left: -40%;
 		}
 		100% {
 			left: 100%;
 		}
 	}
 
-	/* Amber honesty track (static). */
-	.producing-progress-track.is-stale-track {
-		width: 100%;
-		height: 3px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--warning) 50%, transparent 50%);
-	}
-
-	.job-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-md);
-		min-width: 0;
-	}
-
-	.job-header--error {
-		align-items: flex-start;
-	}
-
-	.job-title-group {
-		min-width: 0;
-	}
-
-	.job-eyebrow {
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		font-weight: 700;
-		text-transform: uppercase;
-		color: color-mix(in srgb, var(--accent) 76%, var(--text-secondary) 24%);
-	}
-
-	.job-eyebrow--error {
-		color: var(--danger);
-	}
-
-	.job-title {
-		min-width: 0;
-		overflow: hidden;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-md);
-		font-weight: 700;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.job-count {
-		flex: 0 0 auto;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-	}
-
-	.job-status-detail {
-		color: var(--text-secondary);
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		line-height: 1.35;
-	}
-
-	.job-suggestion {
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		line-height: 1.4;
-	}
-
 	.produced-files {
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: 2px;
 	}
 
-	.produced-file-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+	.file-row {
+		display: flex;
 		align-items: center;
-		gap: var(--space-sm);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-page) 70%, transparent 30%);
-		padding: 0.45rem 0.5rem;
-	}
-
-	.file-open {
-		display: grid;
+		gap: 8px;
 		min-width: 0;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: baseline;
-		gap: var(--space-sm);
-		border: 0;
-		background: transparent;
-		padding: 0;
-		text-align: left;
+		margin: 0 -6px;
+		padding: 4px 6px;
+		border-radius: 5px;
+		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
-	.file-open:not(:disabled) {
-		cursor: pointer;
+	.file-row:hover {
+		background: var(--surface-overlay);
 	}
 
-	.file-open:disabled {
-		cursor: default;
+	:global(.file-row-icon) {
+		flex: 0 0 14px;
+		width: 14px;
+		height: 14px;
+		color: var(--text-muted);
+		opacity: 0.85;
 	}
 
 	.file-name {
 		min-width: 0;
 		overflow: hidden;
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-sm);
-		font-weight: 600;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		color: var(--text-primary);
 	}
 
 	.file-size {
+		flex: 0 0 auto;
 		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.file-download {
+	.file-actions {
+		margin-left: auto;
 		display: inline-flex;
-		width: 30px;
-		height: 30px;
-		align-items: center;
-		justify-content: center;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent 28%);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--accent) 9%, var(--surface-page) 91%);
-		color: color-mix(in srgb, var(--accent) 66%, var(--text-primary) 34%);
-		text-decoration: none;
-	}
-
-	.file-download:hover {
-		background: color-mix(in srgb, var(--accent) 15%, var(--surface-page) 85%);
+		gap: 2px;
 	}
 
 	.job-actions {
 		display: flex;
 		justify-content: flex-end;
+		gap: 4px;
 	}
 
-	.job-action {
+	.mini-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3rem;
-		min-height: 44px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent 22%);
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--surface-page) 86%, var(--accent) 14%);
-		color: var(--text-primary);
-		cursor: pointer;
+		gap: 4px;
+		height: 24px;
+		padding: 0 8px;
+		border: 1px solid var(--border-default);
+		border-radius: 5px;
+		background: var(--surface-page);
+		color: var(--text-muted);
 		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		padding: 0.5rem 0.7rem;
+		font-size: 0.72rem;
+		text-decoration: none;
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.job-action:hover {
-		background: color-mix(in srgb, var(--surface-page) 78%, var(--accent) 22%);
+	.mini-btn:hover:not(:disabled) {
+		background: var(--surface-overlay);
+		color: var(--text-primary);
 	}
 
-	/* ≥44px touch targets for the active Stop and failed Dismiss icon buttons
-	   (btn-icon-bare gives 40px min; the producing card widens to 44px). */
-	.active-stop,
-	.job-dismiss {
-		min-width: 44px;
-		min-height: 44px;
-		width: 44px;
-		height: 44px;
+	.mini-btn:disabled {
+		cursor: default;
+		opacity: 0.55;
 	}
 
-	.file-production-card.is-resolved .job-header,
-	.file-production-card.is-resolved .job-status-detail,
-	.file-production-card.is-resolved .produced-files,
-	.file-production-card.is-resolved .job-actions {
-		animation: file-production-reveal 260ms ease-out both;
+	.mini-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.file-production-card.is-resolved .job-status-detail {
-		animation-delay: 70ms;
-	}
-
-	.file-production-card.is-resolved .produced-files,
-	.file-production-card.is-resolved .job-actions {
-		animation-delay: 140ms;
-	}
-
-	@keyframes file-production-spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	@keyframes file-production-reveal {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	/* Reduced-motion (HARD requirement): static bar, no spinner spin, no sweep.
-	   The global override in app.css already collapses durations to ~0ms, but we
-	   also explicitly stop the spin + sweep here so the intent is unambiguous. */
+	/* Reduced-motion (HARD requirement): a static centered runner, no sweep. */
 	@media (prefers-reduced-motion: reduce) {
-		.active-icon {
+		.track i {
 			animation: none;
-		}
-
-		.producing-progress-sweep-fill {
-			animation: none;
-			/* Show a static centered gold segment instead of a frozen off-screen fill. */
-			left: 37.5%;
-			width: 25%;
-		}
-
-		.file-production-card.is-resolved .job-header,
-		.file-production-card.is-resolved .job-status-detail,
-		.file-production-card.is-resolved .produced-files,
-		.file-production-card.is-resolved .job-actions {
-			animation: none;
+			left: 30%;
 		}
 	}
 </style>
