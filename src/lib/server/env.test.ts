@@ -79,7 +79,7 @@ describe("Environment Configuration", () => {
 		expect(config.teiEmbedderUrl).toBe("");
 		expect(config.teiEmbedderApiKey).toBe("");
 		expect(config.teiEmbedderModel).toBe("");
-		expect(config.teiEmbedderBatchSize).toBe(32);
+		expect(config.teiEmbedderBatchSize).toBe(8);
 		expect(config.teiRerankerUrl).toBe("");
 		expect(config.teiRerankerApiKey).toBe("");
 		expect(config.teiRerankerModel).toBe("");

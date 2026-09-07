@@ -402,7 +402,7 @@ function readConfig(): Config {
 		teiEmbedderModel: process.env.TEI_EMBEDDER_MODEL || "",
 		teiEmbedderBatchSize: Math.max(
 			1,
-			parseInt(process.env.TEI_EMBEDDER_BATCH_SIZE || "32", 10) || 32,
+			parseInt(process.env.TEI_EMBEDDER_BATCH_SIZE || "8", 10) || 8,
 		),
 		teiRerankerUrl: process.env.TEI_RERANKER_URL || "",
 		teiRerankerApiKey: process.env.TEI_RERANKER_API_KEY || "",

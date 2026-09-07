@@ -258,7 +258,7 @@ Notes before the tables:
 | `TEI_EMBEDDER_URL` | No | empty | URL for the TEI embedding service | Set it when semantic retrieval should use a dedicated embedder | Empty disables semantic embedding |
 | `TEI_EMBEDDER_API_KEY` | No | empty | API key for the TEI embedding service | Set it if the embedder requires auth | Empty is valid for unauthenticated local deployments |
 | `TEI_EMBEDDER_MODEL` | No | empty | Model name used for the TEI embedder | Set it to the exact served model name | Must match the upstream endpoint |
-| `TEI_EMBEDDER_BATCH_SIZE` | No | `32` | Batch size for TEI embedding requests | Raise/lower based on embedder capacity | Can also be overridden in admin config |
+| `TEI_EMBEDDER_BATCH_SIZE` | No | `8` | Inputs per TEI embedding request; longer lists are chunked | Must not exceed the server's `--max-client-batch-size` (the client learns a lower server limit from its 422) | Can also be overridden in admin config |
 | `TEI_RERANKER_URL` | No | empty | URL for the TEI reranker service | Set it when semantic retrieval should use a dedicated reranker | Empty disables semantic reranking |
 | `TEI_RERANKER_API_KEY` | No | empty | API key for the TEI reranker service | Set it if the reranker requires auth | Empty is valid for unauthenticated local deployments |
 | `TEI_RERANKER_MODEL` | No | empty | Model name used for the TEI reranker | Set it to the exact served model name | Must match the upstream endpoint |
