@@ -32,6 +32,7 @@ const {
 	mockRecordAssistantTurnAnalytics,
 	mockRecordCompletedTurnContextUsage,
 	mockGenerateFollowUpSuggestions,
+	mockListMessageWindow,
 } = vi.hoisted(() => ({
 	mockCreateMessage: vi.fn(),
 	mockPersistUserTurnAttachments: vi.fn(),
@@ -41,6 +42,10 @@ const {
 	mockRecordAssistantTurnAnalytics: vi.fn(async () => undefined),
 	mockRecordCompletedTurnContextUsage: vi.fn(),
 	mockGenerateFollowUpSuggestions: vi.fn(),
+	mockListMessageWindow: vi.fn(async () => ({
+		messages: [] as Array<{ role: string; content: string }>,
+		hasMoreBefore: false,
+	})),
 }));
 
 // Owner idea (variant A) — seamed exactly like the other control-model-backed
@@ -49,6 +54,7 @@ const {
 // result, never the real control model.
 vi.mock("./follow-up-suggestions", () => ({
 	generateFollowUpSuggestions: mockGenerateFollowUpSuggestions,
+	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT: 6,
 }));
 
 // Post-turn prompt usage write (context usage ring). Seamed so the glue
@@ -63,6 +69,9 @@ vi.mock("$lib/server/services/messages", () => ({
 	updateMessageEvidence: vi.fn(async () => undefined),
 	updateMessageWebCitationAudit: vi.fn(async () => undefined),
 	listConversationMessagesForExport: vi.fn(async () => []),
+	// The bounded prior-turn window completion reads for the follow-up
+	// suggester (see the recentHistory block in stream-completion.ts).
+	listMessageWindow: mockListMessageWindow,
 }));
 
 vi.mock("$lib/server/services/chat-turn/finalize-steps", () => ({
@@ -258,6 +267,12 @@ describe("completeStreamTurn", () => {
 		// on any skip/failure) — individual tests below override this to assert
 		// the emit/persist path.
 		mockGenerateFollowUpSuggestions.mockResolvedValue(null);
+		// Default: an empty prior-turn window (a first turn) — the follow-up
+		// tests below override this to assert the history hand-off.
+		mockListMessageWindow.mockResolvedValue({
+			messages: [],
+			hasMoreBefore: false,
+		});
 	});
 
 	it("records the completed turn's prompt usage and carries the refreshed context status to finalize and the terminal metadata", async () => {
@@ -2247,6 +2262,7 @@ describe("completeStreamTurn", () => {
 				conversationId: "conv-1",
 				userMessage: "user message",
 				assistantResponse: "response text",
+				recentHistory: [],
 			});
 			expect(getLatestEndPayload()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
@@ -2254,6 +2270,47 @@ describe("completeStreamTurn", () => {
 			expect(getPersistedAssistantMetadata()).toMatchObject({
 				followUps: ["What about the sequel?", "Any other examples?"],
 			});
+		});
+
+		it("hands the suggester the bounded prior-turn window, user/assistant rows only", async () => {
+			mockListMessageWindow.mockResolvedValue({
+				messages: [
+					{ role: "user", content: "earlier question" },
+					{ role: "assistant", content: "earlier answer" },
+					{ role: "system", content: "system noise" },
+				],
+				hasMoreBefore: true,
+			});
+
+			await completeStreamTurn(defaultParams);
+
+			expect(mockListMessageWindow).toHaveBeenCalledWith("conv-1", {
+				limit: 6,
+			});
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({
+					recentHistory: [
+						{ role: "user", content: "earlier question" },
+						{ role: "assistant", content: "earlier answer" },
+					],
+				}),
+			);
+		});
+
+		it("still asks for suggestions (with no history) when the prior-turn read fails", async () => {
+			mockListMessageWindow.mockRejectedValue(new Error("db down"));
+
+			await completeStreamTurn(defaultParams);
+
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ recentHistory: [] }),
+			);
+		});
+
+		it("does not read the prior-turn window when the suggester is skipped", async () => {
+			await completeStreamTurn({ ...defaultParams, wasStopped: true });
+
+			expect(mockListMessageWindow).not.toHaveBeenCalled();
 		});
 
 		it("skips the control-model call and omits followUps when the turn was stopped early", async () => {

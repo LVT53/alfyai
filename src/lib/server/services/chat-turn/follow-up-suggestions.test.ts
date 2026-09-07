@@ -14,13 +14,17 @@ vi.mock("./short-local-text", () => ({
 }));
 
 import {
+	FOLLOW_UP_SUGGESTIONS_COUNT,
 	FOLLOW_UP_SUGGESTIONS_FEATURE,
 	FOLLOW_UP_SUGGESTIONS_MAX_CONCURRENT,
+	FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
 	FOLLOW_UP_SUGGESTIONS_MIN_CONTENT_LENGTH,
+	FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT,
 	FOLLOW_UP_SUGGESTIONS_TIMEOUT_MS,
 	generateFollowUpSuggestions,
 	isPlausibleFollowUpSuggestion,
 	looksLikeClarificationQuestion,
+	renderFollowUpReply,
 } from "./follow-up-suggestions";
 
 const LONG_REPLY = `${"A long, substantive assistant answer with plenty of content to build a follow-up question on. ".repeat(3)}`;
@@ -48,10 +52,26 @@ describe("isPlausibleFollowUpSuggestion", () => {
 		expect(isPlausibleFollowUpSuggestion("Really, is that true?")).toBe(false);
 	});
 
+	it("accepts a question at the max word count", () => {
+		// Seven words plus the bare "?" — inside the eight-word cap.
+		expect(
+			isPlausibleFollowUpSuggestion("Can you draft the email to them?"),
+		).toBe(true);
+	});
+
+	it("rejects a question one word over the max word count", () => {
+		// Nine words — one past the cap.
+		expect(
+			isPlausibleFollowUpSuggestion(
+				"Can you draft the follow up email to them?",
+			),
+		).toBe(false);
+	});
+
 	it("rejects a question longer than the max word count", () => {
 		expect(
 			isPlausibleFollowUpSuggestion(
-				"Is this one single question far too long to ever pass the six word cap?",
+				"Is this one single question far too long to ever pass the eight word cap?",
 			),
 		).toBe(false);
 	});
@@ -59,6 +79,22 @@ describe("isPlausibleFollowUpSuggestion", () => {
 	it("rejects an empty or whitespace-only candidate", () => {
 		expect(isPlausibleFollowUpSuggestion("   ")).toBe(false);
 		expect(isPlausibleFollowUpSuggestion("?")).toBe(false);
+	});
+});
+
+describe("renderFollowUpReply", () => {
+	it("passes a reply inside the budget through unchanged", () => {
+		expect(renderFollowUpReply(LONG_REPLY)).toBe(LONG_REPLY);
+	});
+
+	it("keeps the opening and the closing of a reply over the budget", () => {
+		const reply = `HEAD_MARKER ${"filler ".repeat(1200)}TAIL_MARKER`;
+		const rendered = renderFollowUpReply(reply);
+
+		expect(rendered.startsWith("HEAD_MARKER")).toBe(true);
+		expect(rendered.endsWith("TAIL_MARKER")).toBe(true);
+		expect(rendered).toContain("[…]");
+		expect(rendered.length).toBeLessThanOrEqual(1200 + 600 + 5);
 	});
 });
 
@@ -120,6 +156,176 @@ describe("generateFollowUpSuggestions", () => {
 		expect(args.jsonSchema).toBeDefined();
 		expect(args.userId).toBe("u1");
 		expect(args.conversationId).toBe("c1");
+	});
+
+	it("returns the best two of the three candidates it asks for", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: ["Draft the email?", "Compare the two options?", "Cost?"],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Tell me about the movie.",
+			assistantResponse: LONG_REPLY,
+		});
+
+		expect(result).toEqual(["Draft the email?", "Compare the two options?"]);
+		expect(result).toHaveLength(FOLLOW_UP_SUGGESTIONS_COUNT);
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string; maxTokens: number },
+		];
+		// The prompt asks for three candidates even though two are returned.
+		expect(args.systemPrompt).toContain(
+			`Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate questions`,
+		);
+		expect(args.systemPrompt).toContain(
+			`at most ${FOLLOW_UP_SUGGESTIONS_MAX_WORDS} words`,
+		);
+		expect(args.systemPrompt).toContain("[string, string, string]");
+		// Next-step framing, not comprehension checks.
+		expect(args.systemPrompt).toContain("Draft the email?");
+		expect(args.systemPrompt).toContain(
+			"Never ask something the reply already answers",
+		);
+		expect(args.systemPrompt).toContain(
+			"Never restate or rephrase anything the user has already asked",
+		);
+		expect(args.maxTokens).toBeGreaterThanOrEqual(120);
+	});
+
+	it("keeps the first two survivors when a candidate fails the filter", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Not a question at all",
+						"Draft the email?",
+						"Compare the options?",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "hi",
+			assistantResponse: LONG_REPLY,
+		});
+
+		expect(result).toEqual(["Draft the email?", "Compare the options?"]);
+	});
+
+	it("puts the recent turns and the reply's head AND tail in the prompt", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Draft the email?"] })),
+		);
+		const reply = `HEAD_MARKER ${"filler ".repeat(1200)}TAIL_MARKER`;
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "And after that?",
+			assistantResponse: reply,
+			recentHistory: [
+				{ role: "user", content: "What is the deadline?" },
+				{ role: "assistant", content: "It is next Friday." },
+			],
+		});
+
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ message: string },
+		];
+		expect(args.message).toContain("Earlier in this conversation:");
+		expect(args.message).toContain("User: What is the deadline?");
+		expect(args.message).toContain("Assistant: It is next Friday.");
+		expect(args.message).toContain("Latest user message:\nAnd after that?");
+		// Both ends of a reply too long for the budget survive, with the
+		// truncated middle marked.
+		expect(args.message).toContain("HEAD_MARKER");
+		expect(args.message).toContain("TAIL_MARKER");
+		expect(args.message).toContain("[…]");
+		expect(args.message.length).toBeLessThan(reply.length);
+	});
+
+	it("keeps only the last three turns of history, truncated per message", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Draft the email?"] })),
+		);
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "And after that?",
+			assistantResponse: LONG_REPLY,
+			recentHistory: [
+				{ role: "user", content: "OLDEST_MARKER dropped turn" },
+				{ role: "assistant", content: "dropped answer" },
+				{ role: "user", content: "q2" },
+				{ role: "assistant", content: "a2" },
+				{ role: "user", content: "q3" },
+				{ role: "assistant", content: "a3" },
+				{ role: "user", content: `LONG_MARKER ${"x".repeat(600)}` },
+				{ role: "assistant", content: "a4" },
+			],
+		});
+
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ message: string },
+		];
+		expect(args.message).not.toContain("OLDEST_MARKER");
+		expect(args.message).toContain("LONG_MARKER");
+		expect(args.message).toContain("User: q3");
+		const historyLine = args.message
+			.split("\n")
+			.find((line) => line.includes("LONG_MARKER")) as string;
+		expect(historyLine.length).toBeLessThanOrEqual("User: ".length + 300);
+	});
+
+	it("writes the rules and the action example in Hungarian for a Hungarian turn", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Megírod az e-mailt?"] })),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Mesélj a filmről kérlek.",
+			assistantResponse: LONG_REPLY,
+		});
+
+		expect(result).toEqual(["Megírod az e-mailt?"]);
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(args.systemPrompt).toContain("in Hungarian");
+		expect(args.systemPrompt).toContain("Megírod az e-mailt?");
+		expect(args.systemPrompt).not.toContain("Draft the email?");
+	});
+
+	it("omits the history section entirely when there are no prior turns", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Draft the email?"] })),
+		);
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "hi",
+			assistantResponse: LONG_REPLY,
+			recentHistory: [{ role: "user", content: "   " }],
+		});
+
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ message: string },
+		];
+		expect(args.message).not.toContain("Earlier in this conversation:");
+		expect(args.message.startsWith("Latest user message:")).toBe(true);
 	});
 
 	it("caps the result at two suggestions even when the model returns more", async () => {

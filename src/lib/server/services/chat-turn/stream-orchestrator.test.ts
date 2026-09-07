@@ -83,6 +83,11 @@ vi.mock("$lib/server/services/chat-turn/thought-step-classifier", () => ({
 vi.mock("$lib/server/services/messages", () => ({
 	createMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
 	listConversationMessagesForExport: vi.fn(() => Promise.resolve([])),
+	// The bounded prior-turn window stream-completion reads for the follow-up
+	// suggester; empty here (these tests never assert on the chips).
+	listMessageWindow: vi.fn(() =>
+		Promise.resolve({ messages: [], hasMoreBefore: false }),
+	),
 }));
 
 vi.mock("$lib/server/services/memory-profile/reset-generation", () => ({

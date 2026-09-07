@@ -13,6 +13,7 @@ import type {
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
+import { listMessageWindow } from "$lib/server/services/messages";
 import type {
 	ChatTurnCompletionWarningCode,
 	ThinkingSegment,
@@ -34,7 +35,10 @@ import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
 } from "./depth-metadata";
-import { generateFollowUpSuggestions } from "./follow-up-suggestions";
+import {
+	FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT,
+	generateFollowUpSuggestions,
+} from "./follow-up-suggestions";
 import { parseSkillControlEnvelopePayloads } from "./skill-control-envelope";
 import {
 	createUiMessageStreamDoneFrame,
@@ -488,11 +492,37 @@ export async function completeStreamTurn(
 			(record) => record.status === "running",
 		);
 		if (!wasStopped && !toolCallsStillRunning && finalResponse.trim()) {
+			// The prepared-context snapshot this boundary receives carries no
+			// message rows (context-selection loads the history for the prompt
+			// deep inside prepareTurn and never surfaces it here), so the few
+			// turns the suggester needs come from one bounded read of the
+			// messages service instead — newest-first with a small LIMIT, the
+			// same window helper the conversation-open read path uses. This turn
+			// is not in it: finalizeChatTurn persists the user + assistant rows
+			// below, after this point, so the window holds exactly the PRIOR
+			// turns. Best-effort like everything else on this path: a failed read
+			// degrades to no history section, never to a failed turn.
+			const recentHistory = await listMessageWindow(conversationId, {
+				limit: FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT,
+			})
+				.then((page) =>
+					page.messages
+						.filter(
+							(message) =>
+								message.role === "user" || message.role === "assistant",
+						)
+						.map((message) => ({
+							role: message.role as "user" | "assistant",
+							content: message.content,
+						})),
+				)
+				.catch(() => []);
 			followUps = await generateFollowUpSuggestions({
 				userId,
 				conversationId,
 				userMessage: normalizedMessage,
 				assistantResponse: finalResponse,
+				recentHistory,
 			}).catch((error) => {
 				console.error("[CHAT_STREAM] Follow-up suggestions failed", {
 					conversationId,

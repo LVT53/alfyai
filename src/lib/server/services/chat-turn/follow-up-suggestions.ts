@@ -8,9 +8,13 @@ import {
 
 /**
  * Follow-up suggestions (owner idea, variant A) — after an assistant turn
- * finishes, ask the shared local control model ("model2") for two short
- * follow-up questions the user might want to ask next, based on their
- * message and the start of the assistant's reply.
+ * finishes, ask the shared local control model ("model2") for the best
+ * NEXT-STEP questions the user might want to ask: what the reply did not
+ * cover, the decision it leaves open, the concrete action it sets up. The
+ * model sees the last few turns of the conversation (so a suggestion cannot
+ * simply restate what the user already asked), the current user message,
+ * and the reply's head AND tail (so a long answer's conclusion — usually
+ * where the next step lives — is never truncated away).
  *
  * Same discipline as the rail-summary / thought-step-classifier control
  * calls this module sits beside: fire only from the stream's synchronous
@@ -38,13 +42,31 @@ export const FOLLOW_UP_SUGGESTIONS_TIMEOUT_MS = 6000;
 // completed turn, well after generation, not repeatedly during it.
 export const FOLLOW_UP_SUGGESTIONS_MAX_CONCURRENT = 2;
 
+// How many suggestions reach the client (and the persisted metadata) — the
+// chip row's own cap, unchanged.
 export const FOLLOW_UP_SUGGESTIONS_COUNT = 2;
-export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 6;
+// How many candidates the control model is asked for. One spare costs a
+// handful of tokens and lets the plausibility filter + dedupe drop a weak or
+// malformed line without leaving the turn with a single chip; the first two
+// survivors (the model is asked to order them best first) win.
+export const FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT = 3;
+export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 8;
 
-// Only the opening of the reply matters for suggesting what to ask next.
-const FOLLOW_UP_SUGGESTIONS_SOURCE_CHAR_BUDGET = 1500;
+// The reply's opening carries the substance, but its END carries the
+// conclusion, the caveat and the "want me to…" hook a good next step hangs
+// off — so a long reply is sent head + tail rather than merely truncated.
+const FOLLOW_UP_SUGGESTIONS_REPLY_HEAD_CHAR_BUDGET = 1200;
+const FOLLOW_UP_SUGGESTIONS_REPLY_TAIL_CHAR_BUDGET = 600;
 const FOLLOW_UP_SUGGESTIONS_USER_MESSAGE_CHAR_BUDGET = 500;
-const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 80;
+// Prior turns are here to say what the user ALREADY asked (so a suggestion
+// can avoid restating it) — a short excerpt of each is enough.
+const FOLLOW_UP_SUGGESTIONS_HISTORY_CHAR_BUDGET = 300;
+// Up to three prior turns (user + assistant each). The caller reads exactly
+// this many rows; this module trims whatever it is handed to the same bound.
+export const FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT = 6;
+// Room for three 8-word questions inside the JSON envelope, with headroom
+// for a model that pretty-prints it.
+const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 120;
 
 // A reply this short (a one-liner, an acknowledgment) rarely has an obvious
 // follow-up worth surfacing — skip the control-model call entirely.
@@ -67,17 +89,79 @@ export function looksLikeClarificationQuestion(response: string): boolean {
 	return trimmed.length <= CLARIFICATION_MAX_LENGTH && trimmed.endsWith("?");
 }
 
+export type FollowUpHistoryMessage = {
+	role: "user" | "assistant";
+	content: string;
+};
+
 function buildFollowUpSuggestionsSystemPrompt(language: "en" | "hu"): string {
 	const languageLabel = language === "hu" ? "Hungarian" : "English";
-	return `You suggest short follow-up questions a user might want to ask next, given their message and an assistant's reply to it. Respond with strict JSON only, matching exactly: {"followUps": [string, string]} — no preamble, no explanation, no markdown.
+	// The example is written in the target language so the rule reads as an
+	// instruction in the language the chips themselves must be written in.
+	const actionExample =
+		language === "hu" ? "Megírod az e-mailt?" : "Draft the email?";
+	return `You suggest what a user might usefully ask NEXT, after reading an assistant's reply. Respond with strict JSON only, matching exactly: {"followUps": [string, string, string]} — no preamble, no explanation, no markdown.
 
 Rules:
-- Write exactly ${FOLLOW_UP_SUGGESTIONS_COUNT} follow-up questions, in ${languageLabel}.
+- Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate questions, in ${languageLabel}.
 - Each must be at most ${FOLLOW_UP_SUGGESTIONS_MAX_WORDS} words.
 - Each must end with a question mark and contain no other punctuation.
-- Each must be a genuinely different, natural next question the user might ask, grounded in the assistant's reply below — never a repeat or rephrasing of the user's original message.
+- Each must move the conversation forward: something the reply did not cover, a decision the user now faces, or a concrete next action ("${actionExample}").
+- Never ask something the reply already answers. No comprehension checks, no asking the assistant to repeat or summarise what it just said.
+- Never restate or rephrase anything the user has already asked earlier in the conversation.
+- Make the ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} genuinely different from one another, and order them best first.
 - Never invent a fact or claim that is not supported by the reply.
+- Write each one the way the user would type it: natural, idiomatic ${languageLabel}, addressed to the assistant.
 - Output the JSON object only.`;
+}
+
+function trimForPrompt(text: string, budget: number): string {
+	return text.replace(/\s+/g, " ").trim().slice(0, budget);
+}
+
+/**
+ * The prior turns, oldest → newest, capped at
+ * `FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT` messages and
+ * `FOLLOW_UP_SUGGESTIONS_HISTORY_CHAR_BUDGET` characters each. Empty rows
+ * drop out; an empty result renders no section at all rather than a bare
+ * heading. Exported for direct unit testing of the prompt shape.
+ */
+export function renderFollowUpHistory(
+	history: FollowUpHistoryMessage[],
+): string {
+	return history
+		.slice(-FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT)
+		.map((message) => ({
+			role: message.role,
+			content: trimForPrompt(
+				message.content ?? "",
+				FOLLOW_UP_SUGGESTIONS_HISTORY_CHAR_BUDGET,
+			),
+		}))
+		.filter((message) => message.content.length > 0)
+		.map(
+			(message) =>
+				`${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
+		)
+		.join("\n");
+}
+
+/**
+ * A reply that fits the combined budget is sent whole. A longer one is sent
+ * as its opening AND its closing, separated by an explicit elision marker,
+ * so the model never has to guess a next step from a cut-off middle.
+ */
+export function renderFollowUpReply(response: string): string {
+	if (
+		response.length <=
+		FOLLOW_UP_SUGGESTIONS_REPLY_HEAD_CHAR_BUDGET +
+			FOLLOW_UP_SUGGESTIONS_REPLY_TAIL_CHAR_BUDGET
+	) {
+		return response;
+	}
+	const head = response.slice(0, FOLLOW_UP_SUGGESTIONS_REPLY_HEAD_CHAR_BUDGET);
+	const tail = response.slice(-FOLLOW_UP_SUGGESTIONS_REPLY_TAIL_CHAR_BUDGET);
+	return `${head}\n[…]\n${tail}`;
 }
 
 const FOLLOW_UP_SUGGESTIONS_JSON_SCHEMA: JsonControlResponseSchema = {
@@ -147,13 +231,17 @@ function parseFollowUpSuggestions(rawText: string): string[] | null {
  * to bother with, looks like a clarification question, or the control-model
  * call fails/times out/returns implausible output — the caller's own gate
  * (tools still running, the turn was stopped) lives at the call site in
- * `stream-completion.ts`, alongside the other terminal-frame decisions.
+ * `stream-completion.ts`, alongside the other terminal-frame decisions —
+ * which is also where `recentHistory` (the turns already persisted before
+ * this one) is read; passing it is optional and a missing/empty history just
+ * drops that section from the prompt.
  */
 export async function generateFollowUpSuggestions(params: {
 	userId: string;
 	conversationId: string;
 	userMessage: string;
 	assistantResponse: string;
+	recentHistory?: FollowUpHistoryMessage[];
 	signal?: AbortSignal;
 }): Promise<string[] | null> {
 	const response = params.assistantResponse.trim();
@@ -161,15 +249,14 @@ export async function generateFollowUpSuggestions(params: {
 	if (looksLikeClarificationQuestion(response)) return null;
 
 	const language = resolveShortTextLanguage(params.userMessage);
-	const prompt = `User message:\n${params.userMessage
-		.trim()
-		.slice(
-			0,
-			FOLLOW_UP_SUGGESTIONS_USER_MESSAGE_CHAR_BUDGET,
-		)}\n\nAssistant reply:\n${response.slice(
-		0,
-		FOLLOW_UP_SUGGESTIONS_SOURCE_CHAR_BUDGET,
-	)}`;
+	const history = renderFollowUpHistory(params.recentHistory ?? []);
+	const prompt = [
+		...(history ? [`Earlier in this conversation:\n${history}`] : []),
+		`Latest user message:\n${params.userMessage
+			.trim()
+			.slice(0, FOLLOW_UP_SUGGESTIONS_USER_MESSAGE_CHAR_BUDGET)}`,
+		`Assistant reply:\n${renderFollowUpReply(response)}`,
+	].join("\n\n");
 
 	const result = await callShortLocalControlModel({
 		message: prompt,
