@@ -301,6 +301,88 @@ describe("ToolActivityRow", () => {
 		expect(body.textContent).toContain("it worked");
 	});
 
+	it("lists the transit itinerary legs above the map", () => {
+		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "map_route",
+				input: { action: "transit" },
+				map: {
+					bounds: { minLat: 49.3, minLng: 8.6, maxLat: 49.5, maxLng: 8.8 },
+					durationS: 1620,
+					mode: "transit",
+					transfers: 1,
+					originLabel: "Dossenheim",
+					destinationLabel: "Heidelberg",
+					transitLegs: [
+						{ type: "walk", depart: "08:25", arrive: "08:28", minutes: 3 },
+						{
+							type: "pt",
+							line: "39A",
+							headsign: "Bismarckplatz",
+							from: "Dossenheim, Süd",
+							to: "Heidelberg, Alois-Link-Platz",
+							depart: "08:31",
+							arrive: "08:50",
+							stops: 7,
+							minutes: 19,
+						},
+					],
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			open: true,
+		});
+
+		const legs = getByTestId("transit-legs");
+		expect(legs.querySelectorAll("li")).toHaveLength(2);
+		const text = legs.textContent ?? "";
+		expect(text).toContain("08:31–08:50");
+		expect(text).toContain("39A");
+		expect(text).toContain("Dossenheim, Süd → Heidelberg, Alois-Link-Platz");
+		expect(text).toContain("Bismarckplatz");
+		expect(text).toContain("7 stops");
+		// The walk leg is named rather than left blank.
+		expect(text).toContain("Walk");
+		expect(queryByTestId("transit-departures")).toBeNull();
+	});
+
+	it("lists the next departures for a timetable call", () => {
+		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+			item: item({
+				name: "map_route",
+				input: { action: "timetable" },
+				map: {
+					bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+					durationS: 1620,
+					mode: "transit",
+					transfers: 1,
+					originLabel: "A",
+					destinationLabel: "B",
+					departures: [
+						{
+							depart: "08:25",
+							arrive: "08:52",
+							minutes: 27,
+							transfers: 1,
+							line: "39A",
+						},
+						{ depart: "08:45", arrive: "09:12", minutes: 27, transfers: 0 },
+					],
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			open: true,
+		});
+
+		const rows = getByTestId("transit-departures");
+		expect(rows.querySelectorAll("li")).toHaveLength(2);
+		const text = rows.textContent ?? "";
+		expect(text).toContain("08:25–08:52");
+		expect(text).toContain("1 transfer");
+		expect(text).toContain("0 transfers");
+		expect(queryByTestId("transit-legs")).toBeNull();
+	});
+
 	it("localizes the row grammar with the UI language", () => {
 		uiLanguage.set("hu");
 		try {

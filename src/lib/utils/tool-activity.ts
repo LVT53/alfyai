@@ -108,6 +108,10 @@ const VERB_KEYS = {
 	runningPython: "toolActivity.runningPython",
 	route: "toolActivity.route",
 	routing: "toolActivity.routing",
+	transit: "toolActivity.transit",
+	planningTransit: "toolActivity.planningTransit",
+	timetable: "toolActivity.timetable",
+	loadingTimetable: "toolActivity.loadingTimetable",
 	created: "toolActivity.created",
 	creating: "toolActivity.creating",
 	usedSkill: "toolActivity.usedSkill",
@@ -128,6 +132,10 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	...Object.values(VERB_KEYS),
 	"toolActivity.scratchProgram",
 	"toolActivity.memoriesCount",
+	"toolActivity.transfersCount",
+	"toolActivity.departuresCount",
+	"toolActivity.transitWalk",
+	"toolActivity.transitStops",
 	"toolActivity.summaryTimes",
 	"toolActivity.summaryRepeat",
 	"toolActivity.summaryFailedCount",
@@ -270,6 +278,30 @@ function mapMeta(map: ToolCallMapData): string {
 	return [formatMapDistance(map.distanceM), formatMapDuration(map.durationS)]
 		.filter((part) => part.length > 0)
 		.join(" · ");
+}
+
+/**
+ * The right-hand fact for a public-transport row. A journey is measured in
+ * time and changes ("1 h 12 min · 1 transfer"); a "next departures" lookup is
+ * measured in how many it found ("6 departures"). Distance is deliberately
+ * absent: nobody asks how many kilometres a bus ride is.
+ */
+export function transitMeta(
+	map: ToolCallMapData,
+	translate: Translate,
+): string {
+	if (map.departures) {
+		return translate("toolActivity.departuresCount", {
+			count: map.departures.length,
+		});
+	}
+	const parts = [formatMapDuration(map.durationS)];
+	if (map.transfers !== undefined) {
+		parts.push(
+			translate("toolActivity.transfersCount", { count: map.transfers }),
+		);
+	}
+	return parts.filter((part) => part.length > 0).join(" · ");
 }
 
 function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
@@ -451,12 +483,27 @@ function buildSettledToolActivityItem(
 	if (iconType === "map-route") {
 		const map = segment.map ?? null;
 		const object = map ? mapRouteLabel(map) : firstStringInput(segment.input);
-		const routeVerb = verb(translate, "routing", "route", status);
+		// The two public-transport actions get their own verbs and their own
+		// right-hand fact — "Route A → B · 27 km" would be nonsense for a bus
+		// journey, and outright wrong for a list of departures.
+		const action = segment.input?.action;
+		const isTimetable = action === "timetable";
+		const isTransit = action === "transit" || isTimetable;
+		const routeVerb = isTimetable
+			? verb(translate, "loadingTimetable", "timetable", status)
+			: isTransit
+				? verb(translate, "planningTransit", "transit", status)
+				: verb(translate, "routing", "route", status);
+		const meta = map
+			? isTransit
+				? transitMeta(map, translate)
+				: mapMeta(map)
+			: (elapsed ?? "");
 		return {
 			...base,
 			verb: routeVerb,
 			object,
-			meta: map ? mapMeta(map) : (elapsed ?? ""),
+			meta,
 			summaryLabel: routeVerb,
 			title: object,
 			// A route is a deliverable: it stays visible, body open, when the
@@ -466,7 +513,7 @@ function buildSettledToolActivityItem(
 				? {
 						kind: "map",
 						map,
-						summary: [object, mapMeta(map)].filter(Boolean).join(" · "),
+						summary: [object, meta].filter(Boolean).join(" · "),
 					}
 				: genericBody(segment),
 		};

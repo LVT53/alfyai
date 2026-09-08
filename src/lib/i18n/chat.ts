@@ -841,9 +841,20 @@ const chatDict = {
 		"toolActivity.usingSkill": "Using skill",
 		"toolActivity.recalled": "Recalled",
 		"toolActivity.recalling": "Recalling",
+		"toolActivity.transit": "Transit",
+		"toolActivity.planningTransit": "Planning transit",
+		"toolActivity.timetable": "Timetable",
+		"toolActivity.loadingTimetable": "Loading timetable",
 		"toolActivity.scratchProgram": "scratch program",
 		"toolActivity.memoriesCount":
 			"{count} memor{count, plural, one {y} other {ies}}",
+		"toolActivity.transfersCount":
+			"{count} transfer{count, plural, one {} other {s}}",
+		"toolActivity.departuresCount":
+			"{count} departure{count, plural, one {} other {s}}",
+		"toolActivity.transitWalk": "Walk",
+		"toolActivity.transitStops":
+			"{count} stop{count, plural, one {} other {s}}",
 		// Collapsed summary strip — repeats of one tool aggregate into a single
 		// count-aware entry instead of one entry each.
 		"toolActivity.summaryTimes": "{verb} {count} times",
@@ -1712,8 +1723,16 @@ const chatDict = {
 		"toolActivity.usingSkill": "Képesség betöltése",
 		"toolActivity.recalled": "Felidézve",
 		"toolActivity.recalling": "Felidézés",
+		"toolActivity.transit": "Tömegközlekedés",
+		"toolActivity.planningTransit": "Tömegközlekedés tervezése",
+		"toolActivity.timetable": "Menetrend",
+		"toolActivity.loadingTimetable": "Menetrend lekérése",
 		"toolActivity.scratchProgram": "gyors program",
 		"toolActivity.memoriesCount": "{count} emlék",
+		"toolActivity.transfersCount": "{count} átszállás",
+		"toolActivity.departuresCount": "{count} indulás",
+		"toolActivity.transitWalk": "Gyaloglás",
+		"toolActivity.transitStops": "{count} megálló",
 		"toolActivity.summaryTimes": "{verb} {count} alkalommal",
 		"toolActivity.summaryRepeat": "{verb} ×{count}",
 		"toolActivity.summaryFailedCount": "{verb} {count} sikertelen",
