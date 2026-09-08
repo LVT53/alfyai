@@ -720,13 +720,25 @@ export function createRoutingRegionManager(
 			await updateRow(row.id, { pbfSizeBytes: existing.size });
 		}
 
-		// 1b. Timetable feed (optional). The public-transport profile is only
-		// added to the container when its GTFS zip is actually on disk, so a
-		// feed that cannot be fetched costs the region its timetables — never
-		// its road routing.
+		// 1b. Timetable feed (optional). A feed that cannot be fetched costs the
+		// region its timetables and NOTHING else: the failure is recorded on
+		// transit_status and the road build carries on, because a bad hour at a
+		// transit agency's web server must never cost a country its routing.
+		// The public-transport profile is then simply left out of the container
+		// (createRegionContainer keys off the zip actually being on disk).
 		const feedUrl = feedUrlFor(row.id);
+		let feedOnDisk = false;
+		// Held until after the road build, because the "region ready" update
+		// clears `error` — writing the feed failure earlier would erase it.
+		let feedError: string | null = null;
 		if (feedUrl) {
-			await ensureTransitFeed(row, feedUrl, { force: false });
+			try {
+				await ensureTransitFeed(row, feedUrl, { force: false });
+				feedOnDisk = true;
+			} catch (error) {
+				feedError = error instanceof Error ? error.message : String(error);
+				log("gtfs feed download failed", { id: row.id, error: feedError });
+			}
 		}
 
 		// 2. Build the graph inside a dedicated ORS container.
@@ -764,10 +776,17 @@ export function createRoutingRegionManager(
 			lastUsedAt: toDate(now),
 		});
 		log("region ready", { id: row.id, baseUrl });
-		// The container was created WITH the public-transport profile when a
+		// The container was created WITH the public-transport profile when the
 		// feed was on disk, so the timetable graph is built by the same start.
-		if (feedUrlFor(row.id)) {
+		// With no feed on disk there is nothing to wait for — only a failure to
+		// record, now that the road build is no longer overwriting `error`.
+		if (feedOnDisk) {
 			await settleTransitReadiness(row.id, baseUrl);
+		} else if (feedError) {
+			await updateRow(row.id, {
+				transitStatus: "error",
+				error: `transit: ${feedError.slice(0, 900)}`,
+			});
 		}
 
 		// 3. Best-effort geocoder import; never affects routing readiness.

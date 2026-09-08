@@ -1234,6 +1234,53 @@ describe("routing region manager — public transport", () => {
 		expect(await m.listTransitReadyRegions()).toHaveLength(0);
 	});
 
+	it("still builds road routing when the timetable feed cannot be downloaded", async () => {
+		const good = fakeFetch(docker);
+		const feedDown = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				if (String(input).endsWith(".zip")) {
+					return new Response("bad gateway", { status: 502 });
+				}
+				return good(input, init);
+			},
+		);
+		const m = createRoutingRegionManager(
+			config({
+				gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+			}),
+			{
+				db: memory.db,
+				docker,
+				fetch: feedDown as unknown as typeof fetch,
+				loadIndex: async () => index,
+				now: () => now,
+				sleep: async () => {
+					now += 1000;
+				},
+				log: () => undefined,
+			},
+		);
+		await m.ensureRegionForPoints([DUBLIN]);
+		await m.drain();
+
+		const row = (await m.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		// A bad hour at the transit agency's web server costs the region its
+		// timetables and nothing else.
+		expect(row?.status).toBe("ready");
+		expect(row?.transitStatus).toBe("error");
+		expect(row?.error).toContain("transit:");
+		// And the container is not asked to build a graph from a file that is
+		// not there.
+		const spec = docker.containers.get(
+			regionContainerName("ireland-and-northern-ireland"),
+		)?.spec;
+		expect(spec?.env.some((entry) => entry.includes("public-transport"))).toBe(
+			false,
+		);
+	});
+
 	it("rebuilds ONLY the public-transport graph when a feed is added later", async () => {
 		// First build: no feed.
 		const plain = manager();
