@@ -7,6 +7,7 @@ import { messages } from "$lib/server/db/schema";
 import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
 import { resolveAtlasPipelineVersion } from "../atlas-v2/config";
+import { AtlasV2PipelineError } from "../atlas-v2/types";
 import { runAtlasV2PipelineForClaimedJob } from "../atlas-v2/worker-bindings";
 import {
 	buildAtlasLifecycleContext,
@@ -282,10 +283,13 @@ export async function executeNextAtlasJob(
 	} catch (error) {
 		const qualityError =
 			error instanceof AtlasPipelineQualityError ? error : null;
+		// v2 raises its own coded failures (ADR 0062); surface the code so the
+		// card says "no usable sources" rather than a generic pipeline failure.
+		const v2Error = error instanceof AtlasV2PipelineError ? error : null;
 		await failAtlasJob({
 			jobId: claimed.job.id,
 			workerId: input.workerId,
-			errorCode: qualityError?.code ?? "atlas_pipeline_failed",
+			errorCode: qualityError?.code ?? v2Error?.code ?? "atlas_pipeline_failed",
 			errorMessage:
 				error instanceof Error ? error.message : "Atlas pipeline failed.",
 			retryable: true,
