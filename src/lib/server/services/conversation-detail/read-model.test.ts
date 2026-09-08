@@ -307,6 +307,7 @@ describe("Conversation Detail Read Model", () => {
 				action: "create",
 				parentAtlasJobId: null,
 				profile: "in-depth",
+				pipelineVersion: 1,
 				title: "Atlas research",
 				status: "queued",
 				stage: "queued",

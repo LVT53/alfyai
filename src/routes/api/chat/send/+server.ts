@@ -10,6 +10,7 @@ import {
 	submitAtlasJobIntake,
 	wakeAtlasWorker,
 } from "$lib/server/services/atlas";
+import { atlasPipelineVersionForNewJob } from "$lib/server/services/atlas-v2/config";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
 	checkStreamCapacity,
@@ -210,12 +211,16 @@ async function runAtlasSendTurn({
 				{ status: atlasPreflight.error.status },
 			);
 		}
+		// ADR 0062: stamp the pipeline on the row now. A lifecycle child inherits
+		// its parent's pipeline so a family never splits across pipelines.
+		let parentPipelineVersion: number | null = null;
 		if (turn.atlasAction !== "create" && turn.parentAtlasId) {
 			const [parentJob] = await db
 				.select({
 					id: atlasJobs.id,
 					userId: atlasJobs.userId,
 					status: atlasJobs.status,
+					pipelineVersion: atlasJobs.pipelineVersion,
 				})
 				.from(atlasJobs)
 				.where(eq(atlasJobs.id, turn.parentAtlasId))
@@ -233,6 +238,7 @@ async function runAtlasSendTurn({
 					{ status: 409 },
 				);
 			}
+			parentPipelineVersion = parentJob.pipelineVersion;
 		}
 		const intake = await submitAtlasJobIntake({
 			userId: user.id,
@@ -242,6 +248,10 @@ async function runAtlasSendTurn({
 			action: turn.atlasAction,
 			parentAtlasJobId: turn.parentAtlasId,
 			clientAtlasTurnId: turn.clientAtlasTurnId,
+			pipelineVersion: atlasPipelineVersionForNewJob({
+				flag: config.atlasPipeline,
+				parentPipelineVersion,
+			}),
 		});
 		const assistantResponse = buildAtlasKickoffAssistantMessage({
 			profile: intake.job.profile,

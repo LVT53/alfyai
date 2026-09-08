@@ -1,12 +1,17 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { atlasJobs } from "$lib/server/db/schema";
+import {
+	isAtlasV2ProgressDetails,
+	sanitizeAtlasV2ProgressDetails,
+} from "../atlas-v2/progress";
 import type {
 	AtlasAction,
 	AtlasJobCard,
 	AtlasJobProgressDetails,
 	AtlasJobStatus,
 	AtlasProfile,
+	AtlasV1JobProgressDetails,
 } from "./types";
 
 const MAX_PROGRESS_ITEMS = 8;
@@ -38,9 +43,23 @@ function parseProgressTextList(value: unknown): string[] {
 		.slice(0, MAX_PROGRESS_ITEMS);
 }
 
+/**
+ * Projects the stored progress-details blob onto the card. ADR 0062 added a
+ * second contract shape; `pipelineVersion: 2` selects it, and anything else
+ * keeps v1's `{ queries, roundKind, focus }` behaviour byte for byte.
+ */
 export function sanitizeAtlasJobProgressDetails(
 	value: unknown,
 ): AtlasJobProgressDetails {
+	if (isAtlasV2ProgressDetails(value)) {
+		return sanitizeAtlasV2ProgressDetails(value);
+	}
+	return sanitizeAtlasV1JobProgressDetails(value);
+}
+
+function sanitizeAtlasV1JobProgressDetails(
+	value: unknown,
+): AtlasV1JobProgressDetails {
 	if (!value || typeof value !== "object") return { queries: [] };
 	const record = value as {
 		queries?: unknown;
@@ -81,6 +100,7 @@ export function mapAtlasJobRowToCard(
 		action: job.action as AtlasAction,
 		parentAtlasJobId: job.parentAtlasJobId ?? null,
 		profile: job.profile as AtlasProfile,
+		pipelineVersion: job.pipelineVersion === 2 ? 2 : 1,
 		title: job.title,
 		status: job.status as AtlasJobStatus,
 		stage: job.stage,

@@ -25,6 +25,53 @@ export interface AtlasAvailability {
 	reason?: string | null;
 }
 
+/**
+ * v1 progress details: the search queries the current round is running.
+ */
+export interface AtlasV1ProgressDetailsView {
+	queries: string[];
+	roundKind?: "initial" | "gap-fill";
+	focus?: string[];
+}
+
+/**
+ * v2 progress details (ADR 0062). The chat UI dispatches on `pipelineVersion`:
+ * v1 cards carry the shape above, v2 cards carry this one.
+ */
+export interface AtlasV2ProgressDetailsView {
+	pipelineVersion: 2;
+	phase: "plan" | "research" | "index" | "write" | "verify" | "render";
+	plan: Array<{
+		id: string;
+		question: string;
+		status: "queued" | "running" | "done";
+		sourceCount: number;
+		confidence?: "corroborated" | "single" | "mixed" | "thin";
+	}>;
+	round: { current: number; total: number };
+	sourcesRead: number;
+	next: string;
+	evidence?: {
+		corroborated: number;
+		single: number;
+		inferred: number;
+		cut: number;
+		filteredCount: number;
+		sources: Array<{
+			n: number;
+			title: string;
+			host: string;
+			date: string | null;
+			cited: boolean;
+			snippet: string;
+		}>;
+	};
+}
+
+export type AtlasProgressDetailsView =
+	| AtlasV1ProgressDetailsView
+	| AtlasV2ProgressDetailsView;
+
 export interface AtlasJobCard {
 	id: string;
 	conversationId: string;
@@ -32,17 +79,19 @@ export interface AtlasJobCard {
 	action: AtlasAction;
 	parentAtlasJobId?: string | null;
 	profile: AtlasProfile;
+	/**
+	 * ADR 0062: 1 for the original pipeline, 2 for the rebuilt one. Optional in
+	 * the client view so a card from a deployment that predates the flag still
+	 * parses; absent means 1.
+	 */
+	pipelineVersion?: 1 | 2;
 	title: string;
 	status: AtlasJobStatus;
 	stage?: string | null;
 	progress: {
 		percent: number;
 		stage: string;
-		details: {
-			queries: string[];
-			roundKind?: "initial" | "gap-fill";
-			focus?: string[];
-		};
+		details: AtlasProgressDetailsView;
 	};
 	sourceCounts: {
 		local: number;

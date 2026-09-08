@@ -619,6 +619,7 @@ describe("Atlas persistence foundation", () => {
 				action: "create",
 				parentAtlasJobId: null,
 				profile: "exhaustive",
+				pipelineVersion: 1,
 				title: "Atlas research",
 				status: "failed",
 				stage: "audit",

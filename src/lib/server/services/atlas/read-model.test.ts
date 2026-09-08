@@ -14,6 +14,7 @@ function atlasJobRow(
 		action: "create",
 		parentAtlasJobId: null,
 		profile: "in-depth",
+		pipelineVersion: 1,
 		normalizedQueryHash: "hash",
 		clientAtlasTurnId: "client-turn-1",
 		idempotencyKey: "atlas:v1:user-1:conv-1:create:root:in-depth:hash",

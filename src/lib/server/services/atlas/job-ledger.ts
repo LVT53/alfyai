@@ -28,6 +28,12 @@ export interface CreateOrReuseAtlasJobInput {
 	clientAtlasTurnId: string;
 	assistantMessageId?: string | null;
 	title?: string | null;
+	/**
+	 * ADR 0062: the content pipeline this job runs on, stamped at kickoff from
+	 * ATLAS_PIPELINE. Defaults to 1 so a caller that does not care keeps the
+	 * original pipeline.
+	 */
+	pipelineVersion?: 1 | 2;
 	now?: Date;
 }
 
@@ -222,6 +228,9 @@ export async function createOrReuseAtlasJob(
 			action: input.action,
 			parentAtlasJobId: input.parentAtlasJobId ?? null,
 			profile: input.profile,
+			// Not part of the idempotency key: a flag flip between the client's
+			// retries must reuse the job it already created, not fork a second one.
+			pipelineVersion: input.pipelineVersion ?? 1,
 			normalizedQueryHash,
 			clientAtlasTurnId: input.clientAtlasTurnId,
 			idempotencyKey,

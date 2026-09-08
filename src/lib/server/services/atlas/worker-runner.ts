@@ -6,6 +6,8 @@ import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
 import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
+import { resolveAtlasPipelineVersion } from "../atlas-v2/config";
+import { runAtlasV2PipelineForClaimedJob } from "../atlas-v2/worker-bindings";
 import {
 	buildAtlasLifecycleContext,
 	writeAtlasRoundCheckpoint,
@@ -110,6 +112,23 @@ export async function executeNextAtlasJob(
 			config,
 		});
 		const profileConfig = getAtlasProfileRuntimeConfig(claimed.job.profile);
+		// ADR 0062: the pipeline comes from the version stamped on the row at
+		// kickoff, never from the current flag, so flipping ATLAS_PIPELINE cannot
+		// re-route a queued job or split a Continue/Revise/Fork family.
+		const pipelineVersion = resolveAtlasPipelineVersion({
+			stampedPipelineVersion: claimed.job.pipelineVersion,
+		});
+		if (pipelineVersion === 2) {
+			return await executeAtlasV2Job({
+				claimed,
+				workerId: input.workerId,
+				now,
+				query,
+				lifecycle,
+				synthesisModel: config.atlasSynthesisModel,
+				auditModel: auditModel.modelSelection,
+			});
+		}
 		const result = await runAtlasPipeline({
 			job: {
 				id: claimed.job.id,
@@ -285,6 +304,108 @@ export async function executeNextAtlasJob(
 		});
 		return true;
 	}
+}
+
+/**
+ * Runs a v2 job and completes it through the SAME ledger calls v1 uses. The
+ * only v2-specific bookkeeping is `verification` landing in the checkpoint
+ * (written by the pipeline) rather than on the job row.
+ */
+async function executeAtlasV2Job(input: {
+	claimed: ClaimedAtlasJob;
+	workerId: string;
+	now: Date;
+	query: string;
+	lifecycle: Awaited<ReturnType<typeof buildAtlasLifecycleContext>>;
+	synthesisModel: ModelId;
+	auditModel: ModelId;
+}): Promise<boolean> {
+	const { claimed } = input;
+	const result = await runAtlasV2PipelineForClaimedJob({
+		job: {
+			id: claimed.job.id,
+			userId: claimed.userId,
+			conversationId: claimed.job.conversationId,
+			assistantMessageId: claimed.job.assistantMessageId,
+			action: claimed.job.action,
+			parentAtlasJobId: claimed.job.parentAtlasJobId,
+			profile: claimed.job.profile,
+			title: claimed.job.title,
+			query: input.query,
+			lifecycle: input.lifecycle,
+		},
+		now: input.now,
+		synthesisModel: input.synthesisModel,
+		auditModel: input.auditModel,
+		heartbeat: async ({ stage, progressPercent, progressDetails }) => {
+			const alive = await heartbeatAtlasJob({
+				jobId: claimed.job.id,
+				workerId: input.workerId,
+				stage,
+				progressPercent,
+				progressDetails: progressDetails as Parameters<
+					typeof heartbeatAtlasJob
+				>[0]["progressDetails"],
+			});
+			if (!alive) {
+				throw new Error("Atlas job is no longer running.");
+			}
+		},
+	});
+	const completedJob = await completeAtlasJob({
+		jobId: claimed.job.id,
+		workerId: input.workerId,
+		stage: result.stage,
+		progressPercent: 100,
+		inputTokens: result.usage.inputTokens,
+		outputTokens: result.usage.outputTokens,
+		totalTokens: result.usage.totalTokens,
+		costUsdMicros: result.usage.costUsdMicros,
+		localSourceCount: result.sourceCounts.local,
+		webSourceCount: result.sourceCounts.web,
+		acceptedSourceCount: result.sourceCounts.accepted,
+		rejectedSourceCount: result.sourceCounts.rejected,
+		fileProductionJobId: result.outputs.fileProductionJobId,
+		htmlChatGeneratedFileId: result.outputs.htmlChatGeneratedFileId,
+		pdfChatGeneratedFileId: result.outputs.pdfChatGeneratedFileId,
+		markdownChatGeneratedFileId: result.outputs.markdownChatGeneratedFileId,
+		now: new Date(),
+	});
+	if (!completedJob) {
+		console.info("[ATLAS v2] Skipped completion for inactive job", {
+			jobId: claimed.job.id,
+			workerId: input.workerId,
+		});
+		return true;
+	}
+	await recordAtlasJobAnalytics({
+		userId: claimed.userId,
+		conversationId: claimed.job.conversationId,
+		atlasJobId: claimed.job.id,
+		assistantMessageId: claimed.job.assistantMessageId,
+		profile: claimed.job.profile,
+		inputTokens: result.usage.inputTokens,
+		outputTokens: result.usage.outputTokens,
+		totalTokens: result.usage.totalTokens,
+		costUsdMicros: result.usage.costUsdMicros,
+	}).catch((error) => {
+		console.warn("[ATLAS v2] Failed to record job analytics", {
+			jobId: claimed.job.id,
+			error,
+		});
+	});
+	void notifyAtlasCompletion({
+		userId: claimed.userId,
+		conversationId: claimed.job.conversationId,
+		jobId: claimed.job.id,
+		title: completedJob.title,
+	});
+	console.info("[ATLAS v2] Completed job", {
+		jobId: claimed.job.id,
+		workerId: input.workerId,
+		verification: result.verification,
+	});
+	return true;
 }
 
 async function resolveAtlasJobQuery(job: {

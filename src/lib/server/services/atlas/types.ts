@@ -1,3 +1,5 @@
+import type { AtlasV2ProgressDetails } from "../atlas-v2/types";
+
 export const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
 export const ATLAS_ACTIONS = ["create", "continue", "fork", "revise"] as const;
 export const ATLAS_JOB_STATUSES = [
@@ -261,11 +263,20 @@ export interface AtlasJobProgress {
 	details: AtlasJobProgressDetails;
 }
 
-export interface AtlasJobProgressDetails {
+/**
+ * v1's progress details. Unchanged; ADR 0062 added the v2 shape alongside it
+ * rather than merging the two, and `read-model.ts` dispatches on
+ * `pipelineVersion`.
+ */
+export interface AtlasV1JobProgressDetails {
 	queries: string[];
 	roundKind?: "initial" | "gap-fill";
 	focus?: string[];
 }
+
+export type AtlasJobProgressDetails =
+	| AtlasV1JobProgressDetails
+	| AtlasV2ProgressDetails;
 
 export interface AtlasJobSourceCounts {
 	local: number;
@@ -313,6 +324,8 @@ export interface AtlasJobCard {
 	action: AtlasAction;
 	parentAtlasJobId: string | null;
 	profile: AtlasProfile;
+	/** ADR 0062: which content pipeline produced (or is producing) this job. */
+	pipelineVersion: 1 | 2;
 	title: string;
 	status: AtlasJobStatus;
 	stage: string;
