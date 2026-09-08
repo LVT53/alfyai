@@ -1195,7 +1195,8 @@ describe("Atlas renderer output", () => {
 				type: "basisMarker",
 				id: "basis-unanchored",
 				support: "unsupported",
-				anchorText: "The market has unresolved adoption signals.",
+				// The claim carries its own confidence annotation inline.
+				anchorText: "The market has unresolved adoption signals.[[cite:i]]",
 				occurrence: 0,
 				rationale: "No accepted source supports the unanchored risk claim.",
 				auditCode: "atlas_unanchored_risk",
@@ -1473,7 +1474,7 @@ describe("Atlas renderer output", () => {
 			expect.objectContaining({
 				id: "basis-model-tradeoffs",
 				anchorText:
-					"Latency and retrieval quality have to be evaluated together.",
+					"Latency and retrieval quality have to be evaluated together.[[cite:s]]",
 			}),
 		]);
 	});
@@ -1598,7 +1599,101 @@ describe("Atlas renderer output", () => {
 		expect(anchorText).not.toBe(fullParagraphText);
 		expect(anchorText.length).toBeLessThan(fullParagraphText.length);
 		expect(fullParagraphText).toContain(anchorText);
-		expect(anchorText).toBe("Market signals are unresolved.");
+		expect(anchorText).toBe("Market signals are unresolved.[[cite:s]]");
+	});
+
+	it("annotates each anchored claim with its confidence next to the citation", async () => {
+		const { buildAtlasDocumentSource } = await import("./renderer-output");
+		const { validateGeneratedDocumentSource } = await import(
+			"$lib/server/services/file-production/source-schema"
+		);
+
+		const claim = (
+			id: string,
+			claimText: string,
+			supportLevel: "supported" | "partial" | "unsupported",
+			sourceRefs: Array<{ title: string; url: string }>,
+		) => ({
+			version: "atlas.claim-basis.v1" as const,
+			id,
+			locator: {
+				sectionTitle: "Build-out",
+				paragraphIndex: 0,
+				claimIndex: 0,
+				claimText,
+				quote: claimText,
+				startOffset: null,
+				endOffset: null,
+			},
+			supportLevel,
+			evidencePackIds: [],
+			sourceRefs: sourceRefs.map((ref, index) => ({
+				id: `${id}-source-${index}`,
+				kind: "web" as const,
+				title: ref.title,
+				url: ref.url,
+				authority: "accepted_web" as const,
+			})),
+			supportRationale: `Rationale for ${id}.`,
+			auditConcernCode: null,
+		});
+
+		const source = buildAtlasDocumentSource({
+			title: "Wind Build-out Atlas",
+			assembledMarkdown: [
+				"## Build-out",
+				"Ireland passed 8 GW of onshore renewable capacity [1]. Onshore wind is just over 5 GW [2]. Storage will not cover a multi-day lull.",
+			].join("\n"),
+			sources: [
+				{ title: "Gov statement", url: "https://gov.ie/renewables" },
+				{ title: "Regulator data", url: "https://cru.ie/data" },
+			],
+			honestyMarkers: [],
+			claimBasis: [
+				claim(
+					"basis-corroborated",
+					"Ireland passed 8 GW of onshore renewable capacity [1].",
+					"supported",
+					[
+						{ title: "Gov statement", url: "https://gov.ie/renewables" },
+						{ title: "Regulator data", url: "https://cru.ie/data" },
+					],
+				),
+				claim(
+					"basis-single",
+					"Onshore wind is just over 5 GW [2].",
+					"partial",
+					[{ title: "Gov statement", url: "https://gov.ie/renewables" }],
+				),
+				claim(
+					"basis-inferred",
+					"Storage will not cover a multi-day lull.",
+					"unsupported",
+					[],
+				),
+			],
+		});
+
+		const paragraph = source.blocks.find(
+			(
+				block,
+			): block is Extract<
+				(typeof source.blocks)[number],
+				{ type: "paragraph" }
+			> => block.type === "paragraph",
+		);
+		// Each annotation sits on the citation its claim rests on, and the claim
+		// with no source of its own carries a bare inferred annotation.
+		expect(paragraph?.text).toBe(
+			"Ireland passed 8 GW of onshore renewable capacity [1][[cite:c]]. Onshore wind is just over 5 GW [2][[cite:s]]. Storage will not cover a multi-day lull.[[cite:i]]",
+		);
+		// The document the renderers receive still validates, and the markers
+		// still find their claims.
+		const validation = validateGeneratedDocumentSource(source);
+		expect(validation.ok).toBe(true);
+		for (const marker of paragraph?.basisMarkers ?? []) {
+			expect(paragraph?.text).toContain(marker.anchorText);
+		}
 	});
 
 	it("distributes multiple unplaced markers across sentences in the same paragraph", async () => {
@@ -1681,9 +1776,9 @@ describe("Atlas renderer output", () => {
 		expect(paragraphs).toHaveLength(1);
 		expect(paragraphs[0].basisMarkers).toHaveLength(3);
 		const anchors = paragraphs[0].basisMarkers?.map((m) => m.anchorText) ?? [];
-		expect(anchors[0]).toBe("First claim point.");
-		expect(anchors[1]).toBe("Second claim area.");
-		expect(anchors[2]).toBe("Third claim topic.");
+		expect(anchors[0]).toBe("First claim point.[[cite:s]]");
+		expect(anchors[1]).toBe("Second claim area.[[cite:s]]");
+		expect(anchors[2]).toBe("Third claim topic.[[cite:s]]");
 		const unique = new Set(anchors);
 		expect(unique.size).toBe(3);
 	});

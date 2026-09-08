@@ -1,9 +1,17 @@
 import type {
 	GeneratedDocumentBlock,
+	GeneratedDocumentInlineSegment,
 	GeneratedDocumentSource,
 	GeneratedDocumentSourceChip,
 } from "../source-schema";
-import { generatedDocumentBasisClaimLabel } from "../source-schema";
+import {
+	GENERATED_DOCUMENT_CITATION_LEVELS,
+	generatedDocumentBasisClaimLabel,
+	generatedDocumentCitationLevelLabel,
+	generatedDocumentUsesCitationAnnotations,
+	hasGeneratedDocumentCitationAnnotations,
+	parseGeneratedDocumentInlineText,
+} from "../source-schema";
 import { renderChartSvg } from "./chart-svg";
 
 export interface StandardReportHtmlRenderResult {
@@ -410,22 +418,101 @@ function renderOrganizedSourcesGroups(
 	].join("");
 }
 
+function renderCitationLegend(): string {
+	const entries = GENERATED_DOCUMENT_CITATION_LEVELS.map(
+		(level) =>
+			`<span class="cite-legend-entry"><span class="cite-dot cite-dot--${level}" aria-hidden="true"></span>${escapeHtml(generatedDocumentCitationLevelLabel(level))}</span>`,
+	).join("");
+	return `<p class="cite-legend">${entries}</p>`;
+}
+
+function citationLevelSentenceLabel(
+	level: Parameters<typeof generatedDocumentCitationLevelLabel>[0],
+): string {
+	const label = generatedDocumentCitationLevelLabel(level);
+	return `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
+
+function renderCitationDot(
+	level: Parameters<typeof generatedDocumentCitationLevelLabel>[0],
+): string {
+	const label = escapeHtml(citationLevelSentenceLabel(level));
+	return `<span class="cite-dot cite-dot--${level}" role="img" title="${label}" aria-label="${label}"></span>`;
+}
+
+// A citation annotation renders as the source it points at (the same numbered
+// chip a bare `[n]` produces) immediately followed by its confidence dot. An
+// inferred claim carries no source number, so it is the dot alone.
+function renderCitationAnnotation(
+	segment: Extract<GeneratedDocumentInlineSegment, { kind: "citation" }>,
+	sourceIndex: ReportSourceIndex,
+	chrome: ReportChrome,
+): string {
+	const source =
+		segment.sourceNumber === null
+			? undefined
+			: sourceIndex.sources[segment.sourceNumber - 1];
+	const chip = source
+		? renderSourceChip(source, chrome, {
+				sourceNumber: sourceNumberFor(sourceIndex, source),
+			})
+		: "";
+	return `${chip}${renderCitationDot(segment.level)}`;
+}
+
 function renderInlineTextWithSourceCitations(
 	text: string,
 	sourceIndex: ReportSourceIndex,
 	chrome: ReportChrome,
 	localSources: GeneratedDocumentSourceChip[] = [],
 ): string {
-	const citationPattern = /\[(?:(source|forr[aá]s)\s+)?(\d{1,3})\]/gi;
-	const sourceLabelCitationsAreZeroBased = /\[(?:source|forr[aá]s)\s+0\]/i.test(
-		text,
-	);
-	let cursor = 0;
-	let html = "";
 	const localSourceKeys = new Set(
 		localSources.map((source) => sourceKey(source)),
 	);
 	const consumedLocalSourceKeys = new Set<string>();
+	const sourceLabelCitationsAreZeroBased = /\[(?:source|forr[aá]s)\s+0\]/i.test(
+		text,
+	);
+	const renderRun = (run: string): string =>
+		renderCitationRun(run, {
+			sourceIndex,
+			chrome,
+			localSources,
+			localSourceKeys,
+			consumedLocalSourceKeys,
+			sourceLabelCitationsAreZeroBased,
+		});
+	if (!hasGeneratedDocumentCitationAnnotations(text)) return renderRun(text);
+	return parseGeneratedDocumentInlineText(text)
+		.map((segment) =>
+			segment.kind === "text"
+				? renderRun(segment.text)
+				: renderCitationAnnotation(segment, sourceIndex, chrome),
+		)
+		.join("");
+}
+
+interface CitationRunContext {
+	sourceIndex: ReportSourceIndex;
+	chrome: ReportChrome;
+	localSources: GeneratedDocumentSourceChip[];
+	localSourceKeys: Set<string>;
+	consumedLocalSourceKeys: Set<string>;
+	sourceLabelCitationsAreZeroBased: boolean;
+}
+
+function renderCitationRun(text: string, context: CitationRunContext): string {
+	const {
+		sourceIndex,
+		chrome,
+		localSources,
+		localSourceKeys,
+		consumedLocalSourceKeys,
+		sourceLabelCitationsAreZeroBased,
+	} = context;
+	const citationPattern = /\[(?:(source|forr[aá]s)\s+)?(\d{1,3})\]/gi;
+	let cursor = 0;
+	let html = "";
 	for (const match of text.matchAll(citationPattern)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
@@ -480,6 +567,7 @@ function renderInlineTextWithSourceCitations(
 }
 
 function hasSourceCitationReferences(text: string): boolean {
+	if (hasGeneratedDocumentCitationAnnotations(text)) return true;
 	return /\[(?:(?:source|forr[aá]s)\s+)?\d{1,3}\]/i.test(text);
 }
 
@@ -706,10 +794,26 @@ function renderReportContent(
 	}>,
 	sourceIndex: ReportSourceIndex,
 	chrome: ReportChrome,
+	usesCitationAnnotations: boolean,
 ): string {
 	const html: string[] = [];
 	let sectionOpen = false;
 	let inSourcesSection = false;
+	// The legend explains the confidence dots, so it belongs under the last
+	// source list; a report that lists no sources gets it at the very end.
+	const legendAfterEntry = usesCitationAnnotations
+		? blockEntries.reduce(
+				(last, entry, index) =>
+					entry.block.type === "sourceChips" ? index : last,
+				-1,
+			)
+		: -1;
+	let legendRendered = false;
+	const pushLegendAfter = (index: number): void => {
+		if (legendRendered || index !== legendAfterEntry) return;
+		html.push(renderCitationLegend());
+		legendRendered = true;
+	};
 	const hasExplicitSourcesSection = blockEntries.some(
 		(entry) =>
 			entry.block.type === "heading" &&
@@ -718,7 +822,7 @@ function renderReportContent(
 	);
 	let fallbackSourcesSectionOpen = false;
 
-	for (const entry of blockEntries) {
+	for (const [entryIndex, entry] of blockEntries.entries()) {
 		if (entry.block.type === "heading") {
 			if (sectionOpen) html.push("</section>");
 			fallbackSourcesSectionOpen = false;
@@ -755,6 +859,7 @@ function renderReportContent(
 					? renderOrganizedSourcesGroups(sourceIndex, chrome)
 					: renderSourcesGroup(entry.block, sourceIndex, chrome),
 			);
+			pushLegendAfter(entryIndex);
 			continue;
 		}
 		if (fallbackSourcesSectionOpen) {
@@ -774,8 +879,16 @@ function renderReportContent(
 				inSourcesSection,
 			}),
 		);
+		pushLegendAfter(entryIndex);
 	}
 
+	if (usesCitationAnnotations && !legendRendered) {
+		if (!sectionOpen) {
+			html.push('<section class="report-section">');
+			sectionOpen = true;
+		}
+		html.push(renderCitationLegend());
+	}
 	if (sectionOpen) html.push("</section>");
 	return html.join("");
 }
@@ -808,9 +921,9 @@ export function renderStandardReportHtml(
 		'<meta name="alfyai-template" content="alfyai_standard_report" />',
 		`<title>${escapeHtml(source.title)}</title>`,
 		"<style>",
-		':root{color-scheme:light;--report-text:#1B1815;--report-body:#3E3933;--report-muted:#6F6860;--report-accent:#B65F3D;--report-bg:#FAFAF8;--report-panel:#F4F3EE;--report-rule:rgba(0,0,0,.08);--report-callout:#F7F6F2;--report-tooltip-bg:#1B1815;--report-tooltip-text:#FAFAF8;--report-tooltip-muted:rgba(250,250,248,.78);--report-tooltip-border:rgba(255,255,255,.12);--report-serif:"Libre Baskerville","Georgia",serif;font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
-		"html.dark{color-scheme:dark;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;--report-tooltip-bg:#27211D;--report-tooltip-text:#F4EFE8;--report-tooltip-muted:#CFC4B8;--report-tooltip-border:#4A4038;}",
-		"@media (prefers-color-scheme: dark){:root{color-scheme:dark;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;--report-tooltip-bg:#27211D;--report-tooltip-text:#F4EFE8;--report-tooltip-muted:#CFC4B8;--report-tooltip-border:#4A4038;}}",
+		':root{color-scheme:light;--report-text:#1B1815;--report-body:#3E3933;--report-muted:#6F6860;--report-accent:#B65F3D;--report-bg:#FAFAF8;--report-panel:#F4F3EE;--report-rule:rgba(0,0,0,.08);--report-callout:#F7F6F2;--report-tooltip-bg:#1B1815;--report-tooltip-text:#FAFAF8;--report-tooltip-muted:rgba(250,250,248,.78);--report-tooltip-border:rgba(255,255,255,.12);--cite-corroborated:#15803D;--cite-single:#D97706;--cite-inferred:#B91C1C;--report-serif:"Libre Baskerville","Georgia",serif;font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
+		"html.dark{color-scheme:dark;--cite-corroborated:#4ADE80;--cite-single:#FBBF24;--cite-inferred:#F87171;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;--report-tooltip-bg:#27211D;--report-tooltip-text:#F4EFE8;--report-tooltip-muted:#CFC4B8;--report-tooltip-border:#4A4038;}",
+		"@media (prefers-color-scheme: dark){:root{color-scheme:dark;--cite-corroborated:#4ADE80;--cite-single:#FBBF24;--cite-inferred:#F87171;--report-text:#F4EFE8;--report-body:#E1D8CE;--report-muted:#AFA59A;--report-accent:#E19A78;--report-bg:#171412;--report-panel:#27211D;--report-rule:#3B332D;--report-callout:#241F1B;--report-tooltip-bg:#27211D;--report-tooltip-text:#F4EFE8;--report-tooltip-muted:#CFC4B8;--report-tooltip-border:#4A4038;}}",
 		"html,body{margin:0;width:100%;height:100%;min-height:100vh;min-height:100dvh;overflow:hidden;}",
 		'body{box-sizing:border-box;padding:0;line-height:1.55;color:var(--report-body);background:var(--report-bg);font-family:"Nimbus Sans L","Inter",system-ui,sans-serif;}',
 		".report-viewer{display:flex;position:relative;width:100%;height:100vh;height:100dvh;min-height:100vh;min-height:100dvh;max-width:none;margin:0;border:0;border-radius:0;background:var(--report-bg);overflow:hidden;box-shadow:none;}",
@@ -892,6 +1005,13 @@ export function renderStandardReportHtml(
 		"p.inline-source-chips{display:flex;gap:8px;margin:.5rem 0 1rem;}",
 		".source-chip{display:inline-flex;align-items:center;justify-content:center;position:relative;width:16px;height:16px;margin-left:2px;vertical-align:middle;color:var(--report-muted);text-decoration:none;cursor:pointer;transition:transform .1s ease;}",
 		".source-chip:hover,.source-chip:focus{outline:none;}",
+		".cite-dot{display:inline-block;width:7px;height:7px;margin-left:2px;border-radius:50%;vertical-align:1px;background:var(--cite-single);}",
+		".cite-dot--corroborated{background:var(--cite-corroborated);}",
+		".cite-dot--single{background:var(--cite-single);}",
+		".cite-dot--inferred{background:var(--cite-inferred);}",
+		".cite-legend{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:8px 0 0;color:var(--report-muted);font-size:12px;}",
+		".cite-legend-entry{display:inline-flex;align-items:center;gap:5px;}",
+		".cite-legend .cite-dot{margin-left:0;vertical-align:baseline;}",
 		".source-favicon,.source-chip img,.favicon-placeholder{display:block;width:16px;height:16px;border-radius:3px;}",
 		".source-chip img{object-fit:cover;}",
 		".favicon-placeholder{box-sizing:border-box;background:var(--report-accent);color:#fff;padding:2px;}",
@@ -934,7 +1054,12 @@ export function renderStandardReportHtml(
 		source.subtitle
 			? `<p class="subtitle">${escapeHtml(source.subtitle)}</p>`
 			: "",
-		renderReportContent(blockEntries, sourceIndex, chrome),
+		renderReportContent(
+			blockEntries,
+			sourceIndex,
+			chrome,
+			generatedDocumentUsesCitationAnnotations(source.blocks),
+		),
 		"</article></div>",
 		"<script>",
 		"(() => { const sidebar = document.getElementById('report-sidebar'); const backdrop = document.getElementById('sidebar-backdrop'); const button = document.getElementById('mobile-menu-btn'); if (!sidebar || !backdrop || !button) return; const close = () => { sidebar.classList.remove('open'); backdrop.classList.remove('open'); button.setAttribute('aria-expanded', 'false'); }; const open = () => { sidebar.classList.add('open'); backdrop.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }; button.addEventListener('click', () => sidebar.classList.contains('open') ? close() : open()); backdrop.addEventListener('click', close); sidebar.querySelectorAll('a').forEach((link) => link.addEventListener('click', close)); })();",

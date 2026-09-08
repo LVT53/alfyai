@@ -13,7 +13,10 @@ import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentSource,
 } from "../source-schema";
-import { generatedDocumentBasisClaimLabel } from "../source-schema";
+import {
+	generatedDocumentBasisClaimLabel,
+	generatedDocumentCitationPlainText,
+} from "../source-schema";
 
 export interface StandardReportDocxRenderResult {
 	filename: string;
@@ -104,7 +107,7 @@ function renderBlock(block: GeneratedDocumentBlock): Array<Paragraph | Table> {
 			];
 		case "paragraph":
 			return [
-				paragraph(block.text),
+				paragraph(generatedDocumentCitationPlainText(block.text)),
 				...(block.basisMarkers ?? []).map(basisNoteParagraph),
 			];
 		case "list":

@@ -18,9 +18,18 @@ import {
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
+	GeneratedDocumentCitationLevel,
 	GeneratedDocumentSource,
 } from "../source-schema";
-import { formatGeneratedDocumentBasisNote } from "../source-schema";
+import {
+	formatGeneratedDocumentBasisNote,
+	GENERATED_DOCUMENT_CITATION_LEVEL_COLORS,
+	GENERATED_DOCUMENT_CITATION_LEVELS,
+	generatedDocumentCitationLevelLabel,
+	generatedDocumentUsesCitationAnnotations,
+	hasGeneratedDocumentCitationAnnotations,
+	parseGeneratedDocumentInlineText,
+} from "../source-schema";
 import { renderChartSvg } from "./chart-svg";
 
 const MM_TO_PT = 72 / 25.4;
@@ -345,6 +354,126 @@ function wrapText(
 	return lines;
 }
 
+// Confidence dots are drawn as vector circles rather than a `●` glyph: the
+// bundled Liberation Sans has no coverage for it, and a circle scales with the
+// text size exactly.
+const CITATION_DOT = {
+	diameterRatio: 0.42,
+	leadingGapRatio: 0.14,
+	trailingGapRatio: 0.06,
+	baselineOffsetRatio: 0.3,
+} as const;
+
+type InlineWordPart =
+	| { kind: "text"; text: string }
+	| { kind: "dot"; level: GeneratedDocumentCitationLevel };
+
+interface InlineWord {
+	parts: InlineWordPart[];
+	width: number;
+}
+
+function citationDotAdvance(size: number): number {
+	return (
+		size *
+		(CITATION_DOT.leadingGapRatio +
+			CITATION_DOT.diameterRatio +
+			CITATION_DOT.trailingGapRatio)
+	);
+}
+
+function inlineWordPartWidth(
+	part: InlineWordPart,
+	font: PDFFont,
+	size: number,
+): number {
+	return part.kind === "dot"
+		? citationDotAdvance(size)
+		: font.widthOfTextAtSize(part.text, size);
+}
+
+function inlineWordWidth(
+	parts: InlineWordPart[],
+	font: PDFFont,
+	size: number,
+): number {
+	return parts.reduce(
+		(total, part) => total + inlineWordPartWidth(part, font, size),
+		0,
+	);
+}
+
+// Splits annotated paragraph text into whitespace-separated words. A citation
+// annotation binds to the word it follows, so a dot never wraps away from the
+// claim it annotates.
+function inlineWords(
+	text: string,
+	font: PDFFont,
+	size: number,
+	maxWidth: number,
+): InlineWord[] {
+	const words: InlineWord[] = [];
+	let parts: InlineWordPart[] = [];
+	const flush = (): void => {
+		if (parts.length === 0) return;
+		words.push({ parts, width: inlineWordWidth(parts, font, size) });
+		parts = [];
+	};
+	for (const segment of parseGeneratedDocumentInlineText(text)) {
+		if (segment.kind === "citation") {
+			parts.push({ kind: "dot", level: segment.level });
+			continue;
+		}
+		const chunks = segment.text.split(/(\s+)/);
+		for (const chunk of chunks) {
+			if (!chunk) continue;
+			if (/^\s+$/.test(chunk)) {
+				flush();
+				continue;
+			}
+			const pieces =
+				font.widthOfTextAtSize(chunk, size) > maxWidth
+					? breakLongWord(chunk, font, size, maxWidth)
+					: [chunk];
+			for (const [index, piece] of pieces.entries()) {
+				if (index > 0) flush();
+				parts.push({ kind: "text", text: piece });
+			}
+		}
+	}
+	flush();
+	return words;
+}
+
+function wrapInlineWords(
+	words: InlineWord[],
+	font: PDFFont,
+	size: number,
+	maxWidth: number,
+): InlineWordPart[][] {
+	const spaceWidth = font.widthOfTextAtSize(" ", size);
+	const lines: InlineWordPart[][] = [];
+	let current: InlineWordPart[] = [];
+	let currentWidth = 0;
+	for (const word of words) {
+		const nextWidth =
+			current.length === 0
+				? word.width
+				: currentWidth + spaceWidth + word.width;
+		if (current.length > 0 && nextWidth > maxWidth) {
+			lines.push(current);
+			current = [...word.parts];
+			currentWidth = word.width;
+			continue;
+		}
+		if (current.length > 0) current.push({ kind: "text", text: " " });
+		current.push(...word.parts);
+		currentWidth = nextWidth;
+	}
+	if (current.length > 0) lines.push(current);
+	return lines;
+}
+
 function fitTextToWidth(
 	text: string,
 	font: PDFFont,
@@ -643,15 +772,89 @@ class StandardReportPdfLayout {
 		this.y -= 6;
 	}
 
-	drawParagraph(text: string): void {
-		this.drawWrapped({
-			text,
-			font: this.fonts.regular,
-			size: LAYOUT.bodyFontPt,
-			color: hexColor(THEME.paragraphText),
-			lineHeight: LAYOUT.bodyFontPt * LAYOUT.lineHeight,
+	private drawCitationDot(
+		level: GeneratedDocumentCitationLevel,
+		x: number,
+		baseline: number,
+		size: number,
+	): number {
+		const diameter = size * CITATION_DOT.diameterRatio;
+		this.page.drawCircle({
+			x: x + size * CITATION_DOT.leadingGapRatio + diameter / 2,
+			y: baseline + size * CITATION_DOT.baselineOffsetRatio,
+			size: diameter / 2,
+			color: hexColor(GENERATED_DOCUMENT_CITATION_LEVEL_COLORS[level]),
 		});
+		return citationDotAdvance(size);
+	}
+
+	private drawAnnotatedParagraph(text: string): void {
+		const size = LAYOUT.bodyFontPt;
+		const lineHeight = size * LAYOUT.lineHeight;
+		const width = this.contentWidth();
+		const font = this.fonts.regular;
+		const lines = wrapInlineWords(
+			inlineWords(sanitizePdfText(text), font, size, width),
+			font,
+			size,
+			width,
+		);
+		this.ensureSpace(lines.length * lineHeight);
+		for (const line of lines) {
+			let x = this.contentX();
+			for (const part of line) {
+				if (part.kind === "dot") {
+					x += this.drawCitationDot(part.level, x, this.y, size);
+					continue;
+				}
+				this.page.drawText(part.text, {
+					x,
+					y: this.y,
+					size,
+					font,
+					color: hexColor(THEME.paragraphText),
+				});
+				x += font.widthOfTextAtSize(part.text, size);
+			}
+			this.y -= lineHeight;
+		}
+	}
+
+	drawParagraph(text: string): void {
+		if (hasGeneratedDocumentCitationAnnotations(text)) {
+			this.drawAnnotatedParagraph(text);
+		} else {
+			this.drawWrapped({
+				text,
+				font: this.fonts.regular,
+				size: LAYOUT.bodyFontPt,
+				color: hexColor(THEME.paragraphText),
+				lineHeight: LAYOUT.bodyFontPt * LAYOUT.lineHeight,
+			});
+		}
 		this.y -= LAYOUT.paragraphGapPt;
+	}
+
+	drawCitationLegend(): void {
+		const size = 8.5;
+		const lineHeight = 12;
+		const font = this.fonts.regular;
+		this.ensureSpace(lineHeight + 6);
+		this.y -= 2;
+		let x = this.contentX();
+		for (const level of GENERATED_DOCUMENT_CITATION_LEVELS) {
+			x += this.drawCitationDot(level, x, this.y, size) + 2;
+			const label = generatedDocumentCitationLevelLabel(level);
+			this.page.drawText(label, {
+				x,
+				y: this.y,
+				size,
+				font,
+				color: hexColor(THEME.secondaryText),
+			});
+			x += font.widthOfTextAtSize(label, size) + 10;
+		}
+		this.y -= lineHeight + 4;
 	}
 
 	drawBasisNote(
@@ -1817,7 +2020,18 @@ export async function renderStandardReportPdf(
 		normalizeTitleKey(source.blocks[0].text) === titleKey
 			? source.blocks.slice(1)
 			: source.blocks;
-	for (const block of visibleBlocks) {
+	// The legend explains the confidence dots, so it sits under the last source
+	// list; a report that lists no sources gets it at the very end.
+	const usesCitationAnnotations =
+		generatedDocumentUsesCitationAnnotations(visibleBlocks);
+	const legendAfterBlock = usesCitationAnnotations
+		? visibleBlocks.reduce(
+				(last, block, index) => (block.type === "sourceChips" ? index : last),
+				-1,
+			)
+		: -1;
+	let legendDrawn = false;
+	for (const [blockIndex, block] of visibleBlocks.entries()) {
 		switch (block.type) {
 			case "heading":
 				layout.drawHeading(block.level, block.text);
@@ -1870,6 +2084,13 @@ export async function renderStandardReportPdf(
 				layout.drawChart(block);
 				break;
 		}
+		if (blockIndex === legendAfterBlock) {
+			layout.drawCitationLegend();
+			legendDrawn = true;
+		}
+	}
+	if (usesCitationAnnotations && !legendDrawn) {
+		layout.drawCitationLegend();
 	}
 	layout.drawHeadersAndFooters();
 

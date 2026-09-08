@@ -3,7 +3,14 @@ import type {
 	GeneratedDocumentSource,
 	GeneratedDocumentTableBlock,
 } from "../source-schema";
-import { generatedDocumentBasisClaimShortLabel } from "../source-schema";
+import {
+	GENERATED_DOCUMENT_CITATION_LEVELS,
+	generatedDocumentBasisClaimShortLabel,
+	generatedDocumentCitationLevelGlyph,
+	generatedDocumentCitationLevelLabel,
+	generatedDocumentCitationPlainText,
+	generatedDocumentUsesCitationAnnotations,
+} from "../source-schema";
 
 export interface StandardReportMarkdownRenderResult {
 	filename: string;
@@ -58,15 +65,16 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "heading":
 			return `${"#".repeat(block.level)} ${block.text}`;
 		case "paragraph": {
+			const text = generatedDocumentCitationPlainText(block.text);
 			const markers = block.basisMarkers ?? [];
-			if (markers.length === 0) return block.text;
+			if (markers.length === 0) return text;
 			const markerText = markers
 				.map(
 					(m) =>
 						`*(Basis: ${generatedDocumentBasisClaimShortLabel(m.support)})*`,
 				)
 				.join(" ");
-			return `${block.text} ${markerText}`;
+			return `${text} ${markerText}`;
 		}
 		case "list":
 			return block.items
@@ -132,6 +140,33 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 	}
 }
 
+// Markdown stays plain text, so the legend explains the glyphs the paragraphs
+// carry (`[4]ᶜ`) rather than the coloured dots the HTML and PDF reports draw.
+function citationLegendMarkdown(): string {
+	return GENERATED_DOCUMENT_CITATION_LEVELS.map(
+		(level) =>
+			`${generatedDocumentCitationLevelGlyph(level)} ${generatedDocumentCitationLevelLabel(level)}`,
+	).join(" · ");
+}
+
+function renderBlocksWithCitationLegend(
+	blocks: GeneratedDocumentSource["blocks"],
+): string[] {
+	const rendered = blocks.map(renderBlock);
+	if (!generatedDocumentUsesCitationAnnotations(blocks)) return rendered;
+	const legend = citationLegendMarkdown();
+	const lastSourceList = blocks.reduce(
+		(last, block, index) => (block.type === "sourceChips" ? index : last),
+		-1,
+	);
+	if (lastSourceList < 0) return [...rendered, legend];
+	return [
+		...rendered.slice(0, lastSourceList + 1),
+		legend,
+		...rendered.slice(lastSourceList + 1),
+	];
+}
+
 export function renderStandardReportMarkdown(
 	source: GeneratedDocumentSource,
 ): StandardReportMarkdownRenderResult {
@@ -139,7 +174,7 @@ export function renderStandardReportMarkdown(
 		`# ${source.title}`,
 		source.subtitle ?? null,
 		source.date ?? null,
-		...source.blocks.map(renderBlock),
+		...renderBlocksWithCitationLegend(source.blocks),
 	]
 		.filter((line): line is string => Boolean(line?.trim()))
 		.join("\n\n");

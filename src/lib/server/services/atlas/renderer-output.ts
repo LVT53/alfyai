@@ -4,6 +4,7 @@ import type {
 	GeneratedDocumentBasisSourceRef,
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
+	GeneratedDocumentCitationLevel,
 	GeneratedDocumentImageBlock,
 	GeneratedDocumentParagraphBasisMarker,
 	GeneratedDocumentScalar,
@@ -11,6 +12,7 @@ import type {
 	GeneratedDocumentSourceChip,
 	GeneratedDocumentTableBlock,
 } from "$lib/server/services/file-production/source-schema";
+import { generatedDocumentCitationToken } from "$lib/server/services/file-production/source-schema";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	detectLanguage,
@@ -1570,6 +1572,155 @@ function applyAtlasClaimBasisMarkers(
 	blocks.splice(0, blocks.length, ...converted);
 }
 
+// Claim basis says how well a claim is held up; the reader needs that next to
+// the claim, not only in the note under the paragraph. Each anchored claim
+// gets an inline annotation right after the citation it rests on, which the
+// renderers draw as a coloured dot (a superscript glyph in plain text).
+function citationLevelForClaimBasis(
+	marker: GeneratedDocumentParagraphBasisMarker,
+): GeneratedDocumentCitationLevel {
+	if (marker.support === "unsupported") return "inferred";
+	const distinctSources = new Set(
+		(marker.sourceRefs ?? []).map((ref) => `${ref.url ?? ""} | ${ref.title}`),
+	);
+	return distinctSources.size >= 2 ? "corroborated" : "single";
+}
+
+function claimAnchorSpan(
+	text: string,
+	marker: GeneratedDocumentParagraphBasisMarker,
+): { start: number; end: number } | null {
+	const occurrence = marker.occurrence ?? 0;
+	let cursor = 0;
+	for (let index = 0; index <= occurrence; index += 1) {
+		const found = text.indexOf(marker.anchorText, cursor);
+		if (found < 0) return null;
+		if (index === occurrence) {
+			return { start: found, end: found + marker.anchorText.length };
+		}
+		cursor = found + marker.anchorText.length;
+	}
+	return null;
+}
+
+// The annotation belongs on the citation the claim rests on, so it goes after
+// the last `[n]` inside the claim; a claim citing nothing takes it at the end.
+function citationAnnotationOffset(
+	text: string,
+	span: { start: number; end: number },
+): number {
+	const claim = text.slice(span.start, span.end);
+	let offset = span.end;
+	for (const match of claim.matchAll(
+		/\[(?:(?:source|forr[aá]s)\s+)?\d{1,3}\]/gi,
+	)) {
+		offset = span.start + (match.index ?? 0) + match[0].length;
+	}
+	return offset;
+}
+
+function occurrenceOfAnchor(
+	text: string,
+	anchorText: string,
+	start: number,
+): number {
+	let occurrence = 0;
+	let cursor = 0;
+	while (cursor < start) {
+		const found = text.indexOf(anchorText, cursor);
+		if (found < 0 || found >= start) break;
+		occurrence += 1;
+		cursor = found + anchorText.length;
+	}
+	return occurrence;
+}
+
+function annotateParagraphClaimConfidence(
+	block: Extract<GeneratedDocumentBlock, { type: "paragraph" }>,
+): Extract<GeneratedDocumentBlock, { type: "paragraph" }> {
+	const markers = block.basisMarkers ?? [];
+	if (markers.length === 0) return block;
+	const placements = markers
+		.map((marker) => {
+			const span = claimAnchorSpan(block.text, marker);
+			if (!span) return null;
+			return {
+				marker,
+				span,
+				offset: citationAnnotationOffset(block.text, span),
+				token: generatedDocumentCitationToken({
+					sourceNumber: null,
+					level: citationLevelForClaimBasis(marker),
+				}),
+			};
+		})
+		.filter((placement): placement is NonNullable<typeof placement> =>
+			Boolean(placement),
+		);
+	if (placements.length === 0) return block;
+
+	const insertions: Array<{ offset: number; token: string }> = [];
+	for (const placement of [...placements].sort(
+		(left, right) => left.offset - right.offset,
+	)) {
+		const alreadyThere = insertions.some(
+			(insertion) =>
+				insertion.offset === placement.offset &&
+				insertion.token === placement.token,
+		);
+		if (!alreadyThere) {
+			insertions.push({ offset: placement.offset, token: placement.token });
+		}
+	}
+
+	let text = "";
+	let cursor = 0;
+	for (const insertion of insertions) {
+		text += block.text.slice(cursor, insertion.offset) + insertion.token;
+		cursor = insertion.offset;
+	}
+	text += block.text.slice(cursor);
+
+	// An annotation inserted at a claim's own end belongs inside that claim, so
+	// the anchor still matches the text the renderers search for.
+	const shift = (offset: number, inclusive: boolean): number =>
+		offset +
+		insertions
+			.filter((insertion) =>
+				inclusive ? insertion.offset <= offset : insertion.offset < offset,
+			)
+			.reduce((total, insertion) => total + insertion.token.length, 0);
+
+	const placementByMarker = new Map(
+		placements.map((placement) => [placement.marker, placement]),
+	);
+	return {
+		...block,
+		text,
+		basisMarkers: markers.map((marker) => {
+			const placement = placementByMarker.get(marker);
+			if (!placement) return marker;
+			const start = shift(placement.span.start, false);
+			const end = shift(placement.span.end, true);
+			const anchorText = text.slice(start, end);
+			return {
+				...marker,
+				anchorText,
+				occurrence: occurrenceOfAnchor(text, anchorText, start),
+			};
+		}),
+	};
+}
+
+function annotateAtlasClaimConfidence(
+	blocks: GeneratedDocumentSource["blocks"],
+): void {
+	for (const [index, block] of blocks.entries()) {
+		if (block.type !== "paragraph") continue;
+		blocks[index] = annotateParagraphClaimConfidence(block);
+	}
+}
+
 function imageUrlsInBlocks(
 	blocks: GeneratedDocumentSource["blocks"],
 ): Set<string> {
@@ -1871,6 +2022,7 @@ export function buildAtlasDocumentSource(
 		input.claimBasis ?? [],
 		input.writerClaimBasis,
 	);
+	annotateAtlasClaimConfidence(blocks);
 
 	const librarySources = input.sources.filter((source) => !source.url);
 	const webSources = input.sources.filter((source) => Boolean(source.url));
