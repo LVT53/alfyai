@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
 	fireEvent,
 	render,
@@ -2292,6 +2293,41 @@ describe("MessageBubble", () => {
 					),
 				}),
 			).toHaveLength(1);
+		});
+
+		// The owner reported chips being cut "after 5 words and just followed
+		// by …". The chip must carry the whole question, and its stylesheet
+		// must not re-introduce the single-line ellipsis clamp that did it.
+		it("renders a long question in full, with no ellipsis clamp on the chip", () => {
+			const longQuestion =
+				"How would the packing list change if the forecast turns to steady rain all weekend?";
+			const { container } = render(MessageBubble, {
+				message: buildFollowUpMessage({ followUps: [longQuestion] }),
+				isLast: true,
+			});
+
+			const chip = container.querySelector(".follow-up-chip");
+			expect(chip).not.toBeNull();
+			expect(chip?.textContent?.trim()).toBe(longQuestion);
+			expect(chip?.textContent).not.toContain("…");
+
+			const source = readFileSync(
+				`${process.cwd()}/src/lib/components/chat/MessageBubble.svelte`,
+				"utf-8",
+			);
+			const chipRule =
+				source.match(/\n\t\.follow-up-chip \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+			expect(chipRule).not.toBe("");
+			expect(chipRule).not.toMatch(/text-overflow:\s*ellipsis/);
+			expect(chipRule).not.toMatch(/white-space:\s*nowrap/);
+			expect(chipRule).not.toMatch(/max-width:\s*\d/);
+			expect(chipRule).toMatch(/white-space:\s*normal/);
+			expect(chipRule).toMatch(/text-align:\s*left/);
+			// The row has to be free to wrap at any width for a full-width
+			// chip to have anywhere to go.
+			expect(source).toMatch(
+				/\.copy-action-row \{[\s\S]*?flex-wrap:\s*wrap[\s\S]*?\n\t\}/,
+			);
 		});
 
 		it("sends the chip's text as the next user message when clicked", async () => {
