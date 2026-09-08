@@ -95,25 +95,27 @@ test.describe("Atlas job app flow", () => {
 			await page.goto(`/chat/${conversationId}`, {
 				waitUntil: "domcontentloaded",
 			});
-			const card = page.getByTestId("atlas-card");
-			await expect(card).toContainText("Checking evidence coverage", {
-				timeout: 30_000,
-			});
-
-			await page.reload({ waitUntil: "domcontentloaded" });
-			await expect(page.getByTestId("atlas-card")).toContainText(
-				"Checking evidence coverage",
-				{ timeout: 15_000 },
+			// The Atlas job renders as a unified activity row: while it runs the row
+			// is pinned open and its body carries the stage line ("Reviewing
+			// coverage" for this v1 pipeline stage).
+			const row = page.getByTestId("atlas-activity-row");
+			await expect(row.getByTestId("atlas-stage-line")).toContainText(
+				"Reviewing coverage",
+				{ timeout: 30_000 },
 			);
 
-			const restoredCard = page.getByTestId("atlas-card");
+			await page.reload({ waitUntil: "domcontentloaded" });
 			await expect(
-				restoredCard.getByTestId("atlas-completion-icon"),
-			).toBeVisible({ timeout: 90_000 });
-			const openButton = restoredCard.getByRole("button", {
-				name: "Open",
-				exact: true,
-			});
+				page.getByTestId("atlas-activity-row").getByTestId("atlas-stage-line"),
+			).toContainText("Reviewing coverage", { timeout: 15_000 });
+
+			const restoredRow = page.getByTestId("atlas-activity-row");
+			// Settled: the row's own status flips to done and the body opens on the
+			// Report tab with the document row's Open button.
+			await expect(
+				restoredRow.getByTestId("tool-activity-row"),
+			).toHaveAttribute("data-status", "done", { timeout: 90_000 });
+			const openButton = restoredRow.getByTestId("atlas-open-report");
 			await expect(openButton).toBeEnabled({ timeout: 15_000 });
 			await openButton.click();
 

@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import { t } from "$lib/i18n";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
+	type AtlasActivityJob,
+	atlasPlanProgress,
+	buildAtlasActivityItem,
 	buildConnectorActivityItem,
 	buildFileProductionActivityItem,
 	buildToolActivityItem,
 	buildToolActivitySummary,
+	parseAtlasActivityDetails,
 	runPythonObject,
 	toolElapsedLabel,
 	toolFailureReason,
@@ -725,5 +729,188 @@ describe("collapsed summary strip", () => {
 		expect(
 			buildToolActivitySummary(items, translate).map((entry) => entry.key),
 		).toEqual(["p1", "s1"]);
+	});
+});
+
+describe("Atlas report row grammar", () => {
+	const START = 1_700_000_000_000;
+
+	function atlasJob(
+		overrides: Partial<AtlasActivityJob> = {},
+	): AtlasActivityJob {
+		return {
+			id: "job-1",
+			conversationId: "conv-1",
+			title: "Ireland's grid decarbonisation and the 2030 targets",
+			status: "running",
+			stage: "research",
+			profile: "in-depth",
+			progress: { percent: 50, stage: "research", details: {} },
+			sourceCounts: { accepted: 28, web: 31, local: 0 },
+			outputs: {},
+			error: null,
+			startedAt: START,
+			createdAt: START - 5_000,
+			completedAt: null,
+			...overrides,
+		};
+	}
+
+	const plan = [
+		{ id: "q1", question: "Generation mix", status: "done", sourceCount: 8 },
+		{ id: "q2", question: "Wind pipeline", status: "done", sourceCount: 6 },
+		{ id: "q3", question: "Solar records", status: "done", sourceCount: 7 },
+		{ id: "q4", question: "Interconnectors", status: "done", sourceCount: 5 },
+		{ id: "q5", question: "Storage", status: "running", sourceCount: 2 },
+		{ id: "q6", question: "Delivery risks", status: "queued" },
+	];
+
+	it("reads a running report as 'Atlas report <title>' with questions and live elapsed", () => {
+		const details = parseAtlasActivityDetails({
+			pipelineVersion: 2,
+			phase: "research",
+			plan,
+			sourcesRead: 31,
+			next: "write 6 sections",
+		});
+		const item = buildAtlasActivityItem(
+			atlasJob(),
+			details,
+			translate,
+			START + 360_000,
+		);
+
+		expect(item.key).toBe("atlas-job-job-1");
+		expect(item.status).toBe("running");
+		expect(item.iconType).toBe("file-production");
+		expect(item.verb).toBe("Atlas report");
+		expect(item.object).toBe(
+			"Ireland's grid decarbonisation and the 2030 targets",
+		);
+		expect(item.meta).toBe("4 of 6 questions · 6 min");
+		// Pinned open while it runs: no chevron, row and body read as one element.
+		expect(item.pinned).toBe(true);
+		expect(item.alwaysOpen).toBe(true);
+		expect(item.body).toEqual({ kind: "atlas" });
+	});
+
+	it("reads a finished report as sources plus the time it took", () => {
+		const item = buildAtlasActivityItem(
+			atlasJob({ status: "succeeded", completedAt: START + 540_000 }),
+			parseAtlasActivityDetails({ plan }),
+			translate,
+			START + 900_000,
+		);
+
+		expect(item.status).toBe("done");
+		expect(item.meta).toBe("28 sources · 9 min");
+		expect(item.alwaysOpen).toBe(false);
+	});
+
+	it("says Failed on a failed job and keeps the report's own title", () => {
+		const item = buildAtlasActivityItem(
+			atlasJob({ status: "failed", completedAt: START + 60_000 }),
+			parseAtlasActivityDetails({ plan }),
+			translate,
+			START + 60_000,
+		);
+
+		expect(item.status).toBe("failed");
+		expect(item.meta).toBe("Failed");
+		expect(item.object).toBe(
+			"Ireland's grid decarbonisation and the 2030 targets",
+		);
+	});
+
+	it("reads a cancelled job as a done row that says how far it got", () => {
+		const item = buildAtlasActivityItem(
+			atlasJob({ status: "cancelled", completedAt: START + 180_000 }),
+			parseAtlasActivityDetails({ plan }),
+			translate,
+			START + 180_000,
+		);
+
+		expect(item.status).toBe("done");
+		expect(item.object).toBe("Cancelled after 4 of 6 questions");
+		expect(item.meta).toBe("Stopped");
+	});
+
+	it("prefers a generated title over the query the user typed", () => {
+		const item = buildAtlasActivityItem(
+			atlasJob({ title: "user query fallback" }),
+			parseAtlasActivityDetails({ generatedTitle: "Ireland grid 2030" }),
+			translate,
+			START + 1_000,
+		);
+
+		expect(item.object).toBe("Ireland grid 2030");
+	});
+
+	it("leaves the question count out of a v1 row that has no plan", () => {
+		const item = buildAtlasActivityItem(
+			atlasJob(),
+			parseAtlasActivityDetails({ queries: ["a", "b"] }),
+			translate,
+			START + 120_000,
+		);
+
+		expect(item.meta).toBe("2 min");
+	});
+
+	it("parses v2 progress details and ignores junk", () => {
+		const details = parseAtlasActivityDetails({
+			pipelineVersion: 2,
+			phase: "verify",
+			round: { current: 2, total: 3 },
+			sourcesRead: 31,
+			next: "  render   PDF ",
+			plan: [
+				{ id: "q1", question: "Real question", status: "done", sourceCount: 8 },
+				{ question: "", status: "done" },
+				{ id: "q3", question: "No status", status: "elsewhere" },
+				"not an object",
+			],
+			evidence: {
+				corroborated: 41,
+				single: 9,
+				inferred: 3,
+				cut: 2,
+				filteredCount: 5,
+				sources: [
+					{
+						n: 1,
+						title: "A source",
+						host: "gov.ie",
+						date: "18 Jun 2026",
+						cited: true,
+					},
+					{ title: "" },
+				],
+			},
+		});
+
+		expect(details.phase).toBe("verify");
+		expect(details.round).toEqual({ current: 2, total: 3 });
+		expect(details.next).toBe("render PDF");
+		expect(details.plan.map((entry) => entry.id)).toEqual(["q1", "q3"]);
+		// An unknown status degrades to "queued" rather than being trusted.
+		expect(details.plan[1]?.status).toBe("queued");
+		expect(details.plan[0]?.sourceCount).toBe(8);
+		expect(details.evidence?.sources).toHaveLength(1);
+		expect(details.evidence?.filteredCount).toBe(5);
+		expect(atlasPlanProgress(details.plan)).toEqual({ done: 1, total: 2 });
+	});
+
+	it("treats a missing, malformed or empty details payload as no details", () => {
+		for (const value of [undefined, null, "text", 42, {}]) {
+			const details = parseAtlasActivityDetails(value);
+			expect(details.plan).toEqual([]);
+			expect(details.evidence).toBeNull();
+			expect(details.phase).toBeNull();
+			expect(details.queries).toEqual([]);
+		}
+		expect(
+			parseAtlasActivityDetails({ evidence: { sources: [] } }).evidence,
+		).toBeNull();
 	});
 });

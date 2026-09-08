@@ -527,7 +527,48 @@ describe("MessageBubble", () => {
 		});
 
 		expect(screen.queryByText("Evidence is loading…")).not.toBeInTheDocument();
-		expect(screen.getByTestId("atlas-card")).toBeInTheDocument();
+		expect(screen.getByTestId("atlas-activity-row")).toBeInTheDocument();
+	});
+
+	// The redesign's explicit requirement: an Atlas turn is a normal assistant
+	// message with a report attached. Its executive summary renders as prose, and
+	// the action row + follow-up chips are no longer suppressed.
+	it("renders the assistant summary, action row and follow-up chips on an Atlas message", async () => {
+		const message: ChatMessage = {
+			id: "assistant-atlas",
+			renderKey: "assistant-atlas",
+			role: "assistant",
+			content: "Ireland's grid is decarbonising fast.",
+			timestamp: Date.now(),
+			isStreaming: false,
+			isThinkingStreaming: false,
+			followUps: ["Compare with the Netherlands?"],
+		};
+
+		const { container } = render(MessageBubble, {
+			message,
+			isLast: true,
+			atlasJobs: [
+				buildAtlasJob({
+					status: "succeeded",
+					stage: "render",
+					completedAt: 2,
+				}),
+			],
+		});
+
+		expect(
+			await screen.findByText("Ireland's grid is decarbonising fast."),
+		).toBeInTheDocument();
+		expect(container.querySelector(".copy-action-row")).not.toBeNull();
+		expect(
+			screen.getByRole("button", {
+				name: chatDict.en["messageBubble.followUpAriaLabel"].replace(
+					"{question}",
+					"Compare with the Netherlands?",
+				),
+			}),
+		).toBeInTheDocument();
 	});
 
 	it("shows the Atlas card without kickoff text when the linked Atlas job succeeded", async () => {
@@ -557,7 +598,7 @@ describe("MessageBubble", () => {
 			],
 		});
 
-		expect(await screen.findByTestId("atlas-card")).toBeInTheDocument();
+		expect(await screen.findByTestId("atlas-activity-row")).toBeInTheDocument();
 		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 
@@ -577,7 +618,7 @@ describe("MessageBubble", () => {
 			atlasJobs: [buildAtlasJob({ status: "running" })],
 		});
 
-		expect(await screen.findByTestId("atlas-card")).toBeInTheDocument();
+		expect(await screen.findByTestId("atlas-activity-row")).toBeInTheDocument();
 		expect(screen.queryByText("Report is ready")).not.toBeInTheDocument();
 	});
 

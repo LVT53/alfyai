@@ -1453,10 +1453,10 @@ describe("MessageArea", () => {
 		const assistantMessage = container.querySelector(
 			'[data-testid="assistant-message"]',
 		);
-		const card = getByTestId("atlas-card");
+		const card = getByTestId("atlas-activity-row");
 		expect(assistantMessage?.contains(card)).toBe(true);
-		expect(card).toHaveTextContent("ATLAS");
-		expect(card).toHaveTextContent("In-Depth");
+		expect(card).toHaveTextContent("Atlas report");
+		expect(card).toHaveTextContent("2 sources");
 
 		await fireEvent.click(getByRole("button", { name: "Continue Atlas" }));
 		const panel = getByRole("region", { name: "Continue Atlas" });
@@ -1521,7 +1521,7 @@ describe("MessageArea", () => {
 			atlasJobs: [atlasJob],
 		});
 
-		expect(getByTestId("atlas-card")).toBeInTheDocument();
+		expect(getByTestId("atlas-activity-row")).toBeInTheDocument();
 		expect(
 			container.querySelector('[data-testid="file-production-card"]'),
 		).not.toBeInTheDocument();

@@ -49,7 +49,7 @@ import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
-import AtlasCard from "./AtlasCard.svelte";
+import AtlasActivityRow from "./AtlasActivityRow.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
 import WriteConfirmCard from "./WriteConfirmCard.svelte";
 import { onDestroy, tick } from "svelte";
@@ -878,14 +878,15 @@ function sendFollowUp(question: string) {
 			{/if}
 		{:else}
 			<div class="prose-container min-w-0 w-full text-[0.875rem] leading-[1.5] md:leading-[1.55]">
-			{#if !hasAtlasCards}
+			<!-- An Atlas turn is no longer a dead end: the v2 pipeline posts the
+			     report's executive summary as the assistant message, so it renders
+			     here like any other answer (the row below carries the document). -->
 			<MarkdownRenderer
 				content={message.content}
 				isDark={$isDark}
 				isStreaming={markdownIsStreaming}
 				compactExternalLinks
 			/>
-			{/if}
 			</div>
 			{#if completionWarningCodes.length > 0}
 				<div class="completion-warning-notice" role="status">
@@ -934,7 +935,7 @@ function sendFollowUp(question: string) {
 			{#if atlasJobs.length > 0}
 				<div class="file-production-inline" data-testid="message-atlas-jobs">
 					{#each dedupedAtlasJobs as job (job.id)}
-						<AtlasCard
+						<AtlasActivityRow
 							{job}
 							onOpenDocument={onOpenDocument}
 							onCancel={onCancelAtlasJob}
@@ -1009,7 +1010,10 @@ function sendFollowUp(question: string) {
 		</div>
 	{/if}
 
-	{#if !message.isStreaming && !isEditing && !hasAtlasCards}
+	<!-- Atlas no longer suppresses the action row: an Atlas turn is a normal
+	     assistant message with a report attached, so copy / feedback /
+	     regenerate and the follow-up chips work exactly as anywhere else. -->
+	{#if !message.isStreaming && !isEditing}
 		<div
 			class="copy-action-row flex w-full items-center gap-0.5 opacity-100 transition-opacity duration-[var(--duration-micro)] md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100"
 			class:justify-end={isUser}
