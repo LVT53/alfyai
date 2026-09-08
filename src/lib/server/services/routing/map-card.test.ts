@@ -87,8 +87,8 @@ describe("downsamplePath", () => {
 	);
 
 	it("returns the path untouched when it already fits the budget", () => {
-		expect(downsamplePath(path, 1000)).toBe(path);
-		expect(downsamplePath(path, 5000)).toBe(path);
+		expect(downsamplePath(path, 1000)).toEqual(path);
+		expect(downsamplePath(path, 5000)).toEqual(path);
 	});
 
 	it("samples down to the budget, keeping the first and last points", () => {
@@ -406,10 +406,16 @@ function longRouteFixture(count: number): [number, number][] {
 
 // Minimal encoder for test fixtures only (mirrors the standard algorithm
 // decodePolyline above implements the inverse of).
-function encodePolylineForTest(points: [number, number][]): string {
+// `elevations` (metres, one per point) produces the 3D geometry ORS returns
+// when elevation is requested.
+function encodePolylineForTest(
+	points: [number, number][],
+	elevations?: number[],
+): string {
 	let output = "";
 	let prevLat = 0;
 	let prevLng = 0;
+	let prevEle = 0;
 	const encodeValue = (value: number): string => {
 		let v = value < 0 ? ~(value << 1) : value << 1;
 		let chunk = "";
@@ -420,13 +426,147 @@ function encodePolylineForTest(points: [number, number][]): string {
 		chunk += String.fromCharCode(v + 63);
 		return chunk;
 	};
-	for (const [lat, lng] of points) {
+	points.forEach(([lat, lng], index) => {
 		const latE5 = Math.round(lat * 1e5);
 		const lngE5 = Math.round(lng * 1e5);
 		output += encodeValue(latE5 - prevLat);
 		output += encodeValue(lngE5 - prevLng);
 		prevLat = latE5;
 		prevLng = lngE5;
-	}
+		if (elevations) {
+			const eleE5 = Math.round((elevations[index] ?? 0) * 1e5);
+			output += encodeValue(eleE5 - prevEle);
+			prevEle = eleE5;
+		}
+	});
 	return output;
 }
+
+describe("decodePolyline — elevation geometry", () => {
+	it("consumes the third value per point instead of reading it as a latitude", () => {
+		const points: [number, number][] = [
+			[38.5, -120.2],
+			[40.7, -120.95],
+			[43.252, -126.453],
+		];
+		const flat = encodePolylineForTest(points);
+		const withElevation = encodePolylineForTest(points, [100, 10, 250]);
+		// A 2D read of the 3D string would drift immediately; a 3D read matches.
+		expect(decodePolyline(withElevation, 5, 3)).toEqual(
+			decodePolyline(flat, 5, 2),
+		);
+		expect(decodePolyline(withElevation, 5, 2)).not.toEqual(
+			decodePolyline(flat, 5, 2),
+		);
+	});
+});
+
+describe("buildRouteMapCardData — directions", () => {
+	it("re-points a step's way-point span at the simplified line", () => {
+		// A dense zig-zag: simplification drops most of its points, so an
+		// un-remapped span would point past the end of the drawn line.
+		const points: [number, number][] = Array.from(
+			{ length: 500 },
+			(_, index): [number, number] => [
+				51.9 + index * 0.0001,
+				-8.47 + (index % 2 === 0 ? 0.00001 : -0.00001),
+			],
+		);
+		const map = buildRouteMapCardData({
+			route: {
+				distance_m: 5000,
+				duration_s: 600,
+				polyline: encodePolylineForTest(points),
+				legs: [
+					{
+						distance_m: 5000,
+						duration_s: 600,
+						steps: [
+							{
+								distance_m: 2500,
+								duration_s: 300,
+								instruction: "Head north",
+								type: 11,
+								way_points: [0, 250],
+							},
+							{
+								distance_m: 2500,
+								duration_s: 300,
+								instruction: "Arrive",
+								type: 10,
+								way_points: [250, 499],
+							},
+						],
+					},
+				],
+				coords: {
+					origin: { lat: 51.9, lng: -8.47 },
+					destination: { lat: 51.95, lng: -8.47 },
+				},
+			},
+			originLabel: "A",
+			destinationLabel: "B",
+			mode: "drive",
+		});
+		const drawn = map?.polyline?.length ?? 0;
+		expect(drawn).toBeGreaterThan(1);
+		for (const step of map?.steps ?? []) {
+			expect(step.wayPointRange?.[0]).toBeGreaterThanOrEqual(0);
+			expect(step.wayPointRange?.[1]).toBeLessThan(drawn);
+		}
+		expect(map?.steps?.[1].wayPointRange?.[1]).toBe(drawn - 1);
+	});
+
+	it("drops the spans when the provider returned no geometry to point at", () => {
+		const map = buildRouteMapCardData({
+			route: {
+				distance_m: 100,
+				duration_s: 60,
+				legs: [
+					{
+						distance_m: 100,
+						duration_s: 60,
+						steps: [
+							{
+								distance_m: 100,
+								duration_s: 60,
+								instruction: "Head north",
+								way_points: [0, 3],
+							},
+						],
+					},
+				],
+				coords: {
+					origin: { lat: 51.9, lng: -8.47 },
+					destination: { lat: 51.95, lng: -8.47 },
+				},
+			},
+			originLabel: "A",
+			destinationLabel: "B",
+			mode: "walk",
+		});
+		expect(map?.steps?.[0].wayPointRange).toBeUndefined();
+		expect(map?.steps?.[0].instruction).toBe("Head north");
+	});
+
+	it("carries the climb reported for a walking route", () => {
+		const map = buildRouteMapCardData({
+			route: {
+				distance_m: 2600,
+				duration_s: 1980,
+				ascent_m: 45.4,
+				descent_m: 12.2,
+				legs: [],
+				coords: {
+					origin: { lat: 51.7, lng: -8.52 },
+					destination: { lat: 51.7, lng: -8.5 },
+				},
+			},
+			originLabel: "Kinsale harbour",
+			destinationLabel: "Charles Fort",
+			mode: "walk",
+		});
+		expect(map?.ascentM).toBe(45);
+		expect(map?.descentM).toBe(12);
+	});
+});

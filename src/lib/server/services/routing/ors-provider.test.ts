@@ -105,6 +105,9 @@ describe("createOrsProvider", () => {
 					[13.4, 52.5],
 					[2.35, 48.85],
 				],
+				// The card's Directions list needs the manoeuvres, so they are
+				// asked for explicitly; elevation is not, on a driving profile.
+				instructions: true,
 			});
 		});
 

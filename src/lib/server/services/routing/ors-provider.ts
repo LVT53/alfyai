@@ -171,6 +171,9 @@ type OrsStep = {
 	duration?: number;
 	instruction?: string;
 	name?: string;
+	// ORS's manoeuvre code, and the step's span in the route geometry.
+	type?: number;
+	way_points?: number[];
 };
 
 type OrsSegment = {
@@ -181,7 +184,13 @@ type OrsSegment = {
 
 type OrsDirectionsResponse = {
 	routes?: Array<{
-		summary?: { distance?: number; duration?: number };
+		summary?: {
+			distance?: number;
+			duration?: number;
+			// Emitted only when `elevation: true` was asked for.
+			ascent?: number;
+			descent?: number;
+		};
 		segments?: OrsSegment[];
 		geometry?: string;
 	}>;
@@ -294,12 +303,30 @@ function mapRouteStep(raw: OrsStep): RouteStep {
 	if (typeof raw.name === "string" && raw.name.trim()) {
 		step.name = raw.name;
 	}
+	if (typeof raw.type === "number" && Number.isFinite(raw.type)) {
+		step.type = raw.type;
+	}
+	// `way_points` is a two-element [first, last] index pair into the route
+	// geometry. Anything else (a shorter array, non-numeric members) is dropped
+	// rather than half-carried, so the card never highlights a made-up span.
+	const span = raw.way_points;
+	if (
+		Array.isArray(span) &&
+		span.length === 2 &&
+		typeof span[0] === "number" &&
+		typeof span[1] === "number" &&
+		Number.isFinite(span[0]) &&
+		Number.isFinite(span[1])
+	) {
+		step.way_points = [span[0], span[1]];
+	}
 	return step;
 }
 
 function mapDirectionsResponse(
 	body: OrsDirectionsResponse,
 	coords: RouteData["coords"],
+	options?: { elevation?: boolean },
 ): RouteData | null {
 	const route = body.routes?.[0];
 	if (!route) return null;
@@ -321,6 +348,18 @@ function mapDirectionsResponse(
 	};
 	if (typeof route.geometry === "string" && route.geometry.length > 0) {
 		data.polyline = route.geometry;
+		// With elevation on, ORS packs a third value per point into the SAME
+		// encoded string — a 2D decoder would read that altitude as the next
+		// point's latitude, so the dimension count travels with the geometry.
+		if (options?.elevation) data.polylineDimensions = 3;
+	}
+	const ascent = route.summary?.ascent;
+	if (typeof ascent === "number" && Number.isFinite(ascent)) {
+		data.ascent_m = ascent;
+	}
+	const descent = route.summary?.descent;
+	if (typeof descent === "number" && Number.isFinite(descent)) {
+		data.descent_m = descent;
 	}
 	return data;
 }
@@ -414,6 +453,15 @@ export function mapTransitLeg(raw: OrsLeg): TransitLeg {
 		const routeType = optionalNumber(raw.route_type);
 		if (routeType !== undefined && routeType >= 0) leg.routeType = routeType;
 		if (stops.length > 0) leg.stopsCount = stops.length;
+		// GTFS `platform_code` on the boarding stop, when the feed carries one.
+		// Most feeds (and ORS's own JSONPtStop) omit it, so this is read
+		// defensively off the raw stop and simply absent otherwise — the card
+		// renders a platform only when there genuinely is one.
+		const rawStops = Array.isArray(raw.stops)
+			? (raw.stops as Array<Record<string, unknown>>)
+			: [];
+		const platform = optionalString(rawStops[0]?.platform_code);
+		if (platform) leg.platform = platform;
 		if (typeof raw.is_in_same_vehicle_as_previous === "boolean") {
 			leg.sameVehicleAsPrevious = raw.is_in_same_vehicle_as_previous;
 		}
@@ -711,18 +759,33 @@ export function createOrsProvider(
 			...(input.waypoints ?? []).map(toOrsCoord),
 			toOrsCoord(input.destination),
 		];
+		// Elevation is asked for on the self-powered profiles only: a climb is
+		// what a walker or a cyclist plans around, and the driving graph has no
+		// use for it. ORS answers with `summary.ascent`/`descent` and a 3D
+		// geometry (see polylineDimensions).
+		const elevation = input.mode === "walk" || input.mode === "bike";
 		const result = await postOrs<OrsDirectionsResponse>(
 			`/v2/directions/${profile}`,
-			{ coordinates },
+			{
+				coordinates,
+				// Turn-by-turn steps are the route card's Directions list, so they
+				// are requested explicitly rather than left to a server default.
+				instructions: true,
+				...(elevation ? { elevation: true } : {}),
+			},
 		);
 		if (!result.ok) return orsFailure(result);
-		const data = mapDirectionsResponse(result.body, {
-			origin: input.origin,
-			destination: input.destination,
-			...(input.waypoints && input.waypoints.length > 0
-				? { waypoints: input.waypoints }
-				: {}),
-		});
+		const data = mapDirectionsResponse(
+			result.body,
+			{
+				origin: input.origin,
+				destination: input.destination,
+				...(input.waypoints && input.waypoints.length > 0
+					? { waypoints: input.waypoints }
+					: {}),
+			},
+			{ elevation },
+		);
 		if (!data) {
 			return providerError("ORS returned no route for those coordinates.");
 		}

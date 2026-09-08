@@ -907,14 +907,9 @@ describe("runRoutingTool — timetable", () => {
 		expect(outcome.modelPayload.success).toBe(true);
 		expect(outcome.modelPayload.transit?.itineraries).toHaveLength(2);
 		expect(outcome.modelPayload.message).toContain("Next 2 public transport");
+		// The FIRST departure is drawn as the timeline; `departures` holds the
+		// alternatives under it, so the 08:25 itinerary is not repeated there.
 		expect(outcome.map?.departures).toEqual([
-			{
-				depart: "08:25",
-				arrive: "08:52",
-				minutes: 27,
-				transfers: 1,
-				line: "39A",
-			},
 			{
 				depart: "08:45",
 				arrive: "09:12",
@@ -923,8 +918,10 @@ describe("runRoutingTool — timetable", () => {
 				line: "39A",
 			},
 		]);
-		// A departures card lists rows, not legs.
-		expect(outcome.map?.transitLegs).toBeUndefined();
+		expect(outcome.map?.departAt).toBe("08:25");
+		expect(
+			outcome.map?.transitLegs?.find((leg) => leg.type === "pt"),
+		).toMatchObject({ line: "39A" });
 	});
 
 	it("reports an empty timetable as a no-route failure, not as zero departures", async () => {
@@ -943,5 +940,224 @@ describe("runRoutingTool — timetable", () => {
 		expect(outcome.modelPayload.message).toContain(
 			"no path between those points",
 		);
+	});
+});
+
+describe("runRoutingTool — route directions", () => {
+	it("carries a compact manoeuvre list on the card and a summary for the model", async () => {
+		const { provider } = makeProvider({
+			route: {
+				ok: true,
+				data: {
+					distance_m: 27_000,
+					duration_s: 2040,
+					legs: [
+						{
+							distance_m: 27_000,
+							duration_s: 2040,
+							steps: [
+								{
+									distance_m: 350,
+									duration_s: 60,
+									instruction: "Head south on Grand Parade",
+									name: "Grand Parade",
+									type: 11,
+								},
+								{
+									distance_m: 17_000,
+									duration_s: 900,
+									instruction: "Turn left toward Kinsale",
+									name: "R600",
+									type: 0,
+								},
+								{
+									distance_m: 0,
+									duration_s: 0,
+									instruction: "Arrive at Kinsale",
+									type: 10,
+								},
+							],
+						},
+					],
+					coords: {
+						origin: { lat: 51.897, lng: -8.47 },
+						destination: { lat: 51.706, lng: -8.522 },
+					},
+				},
+			},
+		});
+		const outcome = await runRoutingTool(
+			{
+				action: "route",
+				origin: { lat: 51.897, lng: -8.47 },
+				destination: { lat: 51.706, lng: -8.522 },
+			},
+			{ provider },
+		);
+		expect(outcome.map?.steps).toHaveLength(3);
+		expect(outcome.map?.steps?.[0]).toMatchObject({
+			maneuver: "depart",
+			distanceM: 350,
+		});
+		expect(outcome.map?.steps?.[2].maneuver).toBe("arrive");
+		// The road the drive spends the most distance on becomes the "via".
+		expect(outcome.map?.via).toBe("R600");
+		expect(outcome.modelPayload.summary).toContain("via R600");
+		// The model gets text, never the raw geometry.
+		expect(outcome.modelPayload.route?.steps_total).toBe(3);
+		expect(outcome.modelPayload.route?.steps[0]).toEqual({
+			instruction: "Head south on Grand Parade",
+			distance: "350 m",
+		});
+		expect(
+			(outcome.modelPayload.route as unknown as Record<string, unknown>)
+				.polyline,
+		).toBeUndefined();
+	});
+
+	it("keeps the persisted card under the byte ceiling on a long route", async () => {
+		const steps = Array.from({ length: 400 }, (_, index) => ({
+			distance_m: 500,
+			duration_s: 60,
+			instruction: `Continue on a very long road name number ${index} for a while`,
+			name: `Road ${index}`,
+			type: 6,
+			way_points: [index, index + 1] as [number, number],
+		}));
+		const { provider } = makeProvider({
+			route: {
+				ok: true,
+				data: {
+					distance_m: 200_000,
+					duration_s: 24_000,
+					legs: [{ distance_m: 200_000, duration_s: 24_000, steps }],
+					coords: {
+						origin: { lat: 51.897, lng: -8.47 },
+						destination: { lat: 53.35, lng: -6.26 },
+					},
+				},
+			},
+		});
+		const outcome = await runRoutingTool(
+			{
+				action: "route",
+				origin: { lat: 51.897, lng: -8.47 },
+				destination: { lat: 53.35, lng: -6.26 },
+			},
+			{ provider },
+		);
+		expect(outcome.map?.steps?.length).toBe(60);
+		expect(Buffer.byteLength(JSON.stringify(outcome.map))).toBeLessThanOrEqual(
+			12 * 1024,
+		);
+		expect(outcome.modelPayload.route?.steps.length).toBe(12);
+		expect(outcome.modelPayload.route?.steps_total).toBe(60);
+	});
+});
+
+describe("runRoutingTool — journey", () => {
+	function journeyProvider() {
+		const { provider, transitMock } = transitProvider();
+		const routeMock = vi.fn().mockResolvedValue({
+			ok: true,
+			data: {
+				distance_m: 4100,
+				duration_s: 960,
+				legs: [
+					{
+						distance_m: 4100,
+						duration_s: 960,
+						steps: [
+							{
+								distance_m: 2600,
+								duration_s: 600,
+								instruction: "Follow the greenway north-west",
+								name: "Blackrock greenway",
+								type: 6,
+								way_points: [0, 5],
+							},
+						],
+					},
+				],
+				coords: {
+					origin: { lat: 51.897, lng: -8.47 },
+					destination: { lat: 51.902, lng: -8.45 },
+				},
+			},
+		});
+		return {
+			provider: { ...provider, route: routeMock } as RoutingProvider,
+			routeMock,
+			transitMock,
+		};
+	}
+
+	it("plans a bike + train + walk journey backwards from an arrive-by time", async () => {
+		const { provider, transitMock } = journeyProvider();
+		const outcome = await runRoutingTool(
+			{
+				action: "journey",
+				origin: { lat: 51.897, lng: -8.47 },
+				destination: { lat: 53.344, lng: -6.259 },
+				legs: [
+					{ mode: "bike", to: { lat: 51.902, lng: -8.45 } },
+					{ mode: "transit", to: { lat: 53.346, lng: -6.294 } },
+					{ mode: "walk" },
+				],
+				arrive_by: "2026-09-08T09:30",
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.journey?.planned_backwards).toBe(true);
+		expect(outcome.modelPayload.journey?.legs.map((leg) => leg.mode)).toEqual([
+			"bike",
+			"transit",
+			"walk",
+		]);
+		// The transit leg is asked to ARRIVE by the walk's departure minus the
+		// ordinary 5-minute buffer, not to leave at a guessed time.
+		expect(transitMock).toHaveBeenCalledWith(
+			expect.objectContaining({ arrival: expect.stringContaining("T09:0") }),
+		);
+		expect(outcome.map?.mode).toBe("journey");
+		expect(outcome.map?.arriveBy).toBe("09:30");
+		// The timeline expands the transit leg into the services it contains.
+		expect(outcome.map?.transitLegs?.map((leg) => leg.type)).toEqual([
+			"bike",
+			"walk",
+			"pt",
+			"walk",
+			"walk",
+		]);
+		expect(outcome.map?.transitLegs?.[0].steps?.[0].instruction).toContain(
+			"greenway",
+		);
+	});
+
+	it("says which leg has no endpoint instead of guessing where the modes change", async () => {
+		const { provider } = journeyProvider();
+		const outcome = await runRoutingTool(
+			{
+				action: "journey",
+				origin: "A",
+				destination: "B",
+				// Nothing says where the bike ride ends and the walk begins.
+				legs: [{ mode: "bike" }, { mode: "walk" }],
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("leg 1 (bike) has no end");
+	});
+
+	it("requires legs", async () => {
+		const { provider } = journeyProvider();
+		const outcome = await runRoutingTool(
+			{ action: "journey", origin: "A", destination: "B" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("legs");
 	});
 });

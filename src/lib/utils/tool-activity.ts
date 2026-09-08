@@ -116,6 +116,8 @@ const VERB_KEYS = {
 	planningTransit: "toolActivity.planningTransit",
 	timetable: "toolActivity.timetable",
 	loadingTimetable: "toolActivity.loadingTimetable",
+	journey: "toolActivity.journey",
+	planningJourney: "toolActivity.planningJourney",
 	created: "toolActivity.created",
 	creating: "toolActivity.creating",
 	usedSkill: "toolActivity.usedSkill",
@@ -212,6 +214,29 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolActivity.program",
 	"toolActivity.output",
 	"toolActivity.expandActivity",
+	// The route card's step-by-step body (RouteItinerary.svelte) draws these;
+	// they ride the same resolution test rather than a second one of their own.
+	"routeItinerary.directions",
+	"routeItinerary.showAllSteps",
+	"routeItinerary.showFewerSteps",
+	"routeItinerary.otherDepartures",
+	"routeItinerary.change",
+	"routeItinerary.cycle",
+	"routeItinerary.drive",
+	"routeItinerary.cyclingDirections",
+	"routeItinerary.drivingDirections",
+	"routeItinerary.via",
+	"routeItinerary.climb",
+	"routeItinerary.toward",
+	"routeItinerary.platform",
+	"routeItinerary.minutes",
+	"routeItinerary.leaveArrive",
+	"routeItinerary.arriveBy",
+	"routeItinerary.changesCount",
+	"routeItinerary.modeCar",
+	"routeItinerary.modeWalk",
+	"routeItinerary.modeBike",
+	"routeItinerary.modeTransit",
 	"toolCalls.failed",
 	"toolCalls.sourcesCount",
 	"toolCalls.citedCount",
@@ -371,6 +396,36 @@ export function transitMeta(
 		);
 	}
 	return parts.filter((part) => part.length > 0).join(" · ");
+}
+
+/**
+ * The right-hand fact for a mixed-mode journey: how long the whole trip takes
+ * and which modes it uses, in order and without repeats ("3 h 32 min · bike,
+ * train, walk"). Distance is left out for the same reason it is on a transit
+ * row — a journey is measured in time, not kilometres.
+ */
+export function journeyMeta(
+	map: ToolCallMapData,
+	translate: Translate,
+): string {
+	const modeKeys: I18nKey[] = [];
+	for (const leg of map.transitLegs ?? []) {
+		const key: I18nKey =
+			leg.type === "pt"
+				? "routeItinerary.modeTransit"
+				: leg.type === "bike"
+					? "routeItinerary.modeBike"
+					: leg.type === "drive"
+						? "routeItinerary.modeCar"
+						: "routeItinerary.modeWalk";
+		if (!modeKeys.includes(key)) modeKeys.push(key);
+	}
+	const modes = modeKeys
+		.map((key) => translate(key).toLocaleLowerCase())
+		.join(", ");
+	return [formatMapDuration(map.durationS), modes]
+		.filter((part) => part.length > 0)
+		.join(" · ");
 }
 
 function memoryBullets(candidates: ToolEvidenceCandidate[]): string[] {
@@ -557,16 +612,21 @@ function buildSettledToolActivityItem(
 		// journey, and outright wrong for a list of departures.
 		const action = segment.input?.action;
 		const isTimetable = action === "timetable";
+		const isJourney = action === "journey";
 		const isTransit = action === "transit" || isTimetable;
-		const routeVerb = isTimetable
-			? verb(translate, "loadingTimetable", "timetable", status)
-			: isTransit
-				? verb(translate, "planningTransit", "transit", status)
-				: verb(translate, "routing", "route", status);
+		const routeVerb = isJourney
+			? verb(translate, "planningJourney", "journey", status)
+			: isTimetable
+				? verb(translate, "loadingTimetable", "timetable", status)
+				: isTransit
+					? verb(translate, "planningTransit", "transit", status)
+					: verb(translate, "routing", "route", status);
 		const meta = map
-			? isTransit
-				? transitMeta(map, translate)
-				: mapMeta(map)
+			? isJourney
+				? journeyMeta(map, translate)
+				: isTransit
+					? transitMeta(map, translate)
+					: mapMeta(map)
 			: (elapsed ?? "");
 		return {
 			...base,

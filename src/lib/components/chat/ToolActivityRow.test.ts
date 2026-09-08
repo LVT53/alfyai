@@ -314,7 +314,13 @@ describe("ToolActivityRow", () => {
 					originLabel: "Dossenheim",
 					destinationLabel: "Heidelberg",
 					transitLegs: [
-						{ type: "walk", depart: "08:25", arrive: "08:28", minutes: 3 },
+						{
+							type: "walk",
+							depart: "08:25",
+							arrive: "08:28",
+							minutes: 3,
+							distanceM: 220,
+						},
 						{
 							type: "pt",
 							line: "39A",
@@ -333,21 +339,26 @@ describe("ToolActivityRow", () => {
 			open: true,
 		});
 
-		const legs = getByTestId("transit-legs");
-		expect(legs.querySelectorAll("li")).toHaveLength(2);
-		const text = legs.textContent ?? "";
-		expect(text).toContain("08:31–08:50");
+		// The body is the route itinerary now: a timeline row per leg plus the
+		// arrival, with the line, headsign and stop count on the ride.
+		const timeline = getByTestId("itinerary-timeline");
+		expect(
+			timeline.querySelectorAll("[data-testid='itinerary-leg']"),
+		).toHaveLength(3);
+		const text = timeline.textContent ?? "";
+		expect(text).toContain("08:31");
 		expect(text).toContain("39A");
-		expect(text).toContain("Dossenheim, Süd → Heidelberg, Alois-Link-Platz");
+		expect(text).toContain("Dossenheim, Süd");
+		expect(text).toContain("Heidelberg, Alois-Link-Platz");
 		expect(text).toContain("Bismarckplatz");
 		expect(text).toContain("7 stops");
 		// The walk leg is named rather than left blank.
 		expect(text).toContain("Walk");
-		expect(queryByTestId("transit-departures")).toBeNull();
+		expect(queryByTestId("itinerary-departure")).toBeNull();
 	});
 
 	it("lists the next departures for a timetable call", () => {
-		const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+		const { getAllByTestId, queryByTestId } = render(ToolActivityRow, {
 			item: item({
 				name: "map_route",
 				input: { action: "timetable" },
@@ -374,13 +385,14 @@ describe("ToolActivityRow", () => {
 			open: true,
 		});
 
-		const rows = getByTestId("transit-departures");
-		expect(rows.querySelectorAll("li")).toHaveLength(2);
-		const text = rows.textContent ?? "";
-		expect(text).toContain("08:25–08:52");
-		expect(text).toContain("1 transfer");
-		expect(text).toContain("0 transfers");
-		expect(queryByTestId("transit-legs")).toBeNull();
+		const rows = getAllByTestId("itinerary-departure");
+		expect(rows).toHaveLength(2);
+		const text = rows.map((row) => row.textContent ?? "").join(" ");
+		expect(text).toContain("08:25");
+		expect(text).toContain("08:52");
+		expect(text).toContain("1 change");
+		expect(text).toContain("0 changes");
+		expect(queryByTestId("itinerary-timeline")).toBeNull();
 	});
 
 	it("localizes the row grammar with the UI language", () => {
