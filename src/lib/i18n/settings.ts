@@ -520,6 +520,8 @@ const settingsDict = {
 		"admin.routingRegions.colGeocoder": "Geocoder",
 		"admin.routingRegions.colTransit": "Timetables",
 		"admin.routingRegions.refreshTransit": "Refresh timetable",
+		"admin.routingRegions.retryFeed": "Retry feed",
+		"admin.routingRegions.feedCount": "{ready}/{total} feeds",
 		"admin.routingRegions.transitQueued":
 			"Timetable rebuild queued; the region restarts once its new public-transport graph is built.",
 		"admin.routingRegions.colResident": "Resident",
@@ -1374,6 +1376,8 @@ const settingsDict = {
 		"admin.routingRegions.colGeocoder": "Geokódoló",
 		"admin.routingRegions.colTransit": "Menetrend",
 		"admin.routingRegions.refreshTransit": "Menetrend frissítése",
+		"admin.routingRegions.retryFeed": "Forrás újra",
+		"admin.routingRegions.feedCount": "{ready}/{total} forrás",
 		"admin.routingRegions.transitQueued":
 			"A menetrend újraépítése sorba állítva; a régió az új tömegközlekedési gráf elkészültekor indul újra.",
 		"admin.routingRegions.colResident": "Állandó",

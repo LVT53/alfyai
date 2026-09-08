@@ -23,6 +23,7 @@ function fullConfig(
 		orsBaseUrl: "http://ors:8082/ors",
 		geocoderBaseUrl: "http://nominatim:8080",
 		routingGtfsFeeds: "hungary=https://feeds.test/hu.zip",
+		routingOnDemandEnabled: true,
 		owntracksRecorderUrl: "http://owntracks:8083",
 		owntracksRecorderUser: "alfy",
 		owntracksRecorderPass: "secret",

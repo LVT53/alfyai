@@ -361,7 +361,11 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		id: "map_route:transit",
 		name: "map_route",
 		backend: "Public transport (GTFS)",
-		configured: (config) => hasValue(config.routingGtfsFeeds),
+		// Timetables default to the SHIPPED catalogue, so an empty
+		// ROUTING_GTFS_FEEDS means "every catalogued region", not "off". The
+		// entry is therefore configured whenever on-demand regions are.
+		configured: (config) =>
+			hasValue(config.routingGtfsFeeds) || config.routingOnDemandEnabled,
 		probe: probeTransit,
 	},
 	// Both sandbox tools run on the same Docker daemon, so they share one

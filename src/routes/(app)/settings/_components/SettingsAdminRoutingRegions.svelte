@@ -5,6 +5,7 @@ import {
 	fetchRoutingRegions,
 	refreshRoutingRegionTransit,
 	removeRoutingRegion,
+	retryRoutingRegionFeed,
 	requestRoutingRegion,
 	retryRoutingRegion,
 	setRoutingRegionResident,
@@ -116,6 +117,32 @@ async function remove(id: string) {
 	} finally {
 		busyId = null;
 	}
+}
+
+// Per-feed retry: clears that operator's recorded failure and queues the
+// region's rebuild, which re-fetches only that feed.
+async function retryFeed(regionId: string, feedId: string) {
+	busyId = regionId;
+	error = "";
+	message = "";
+	try {
+		await retryRoutingRegionFeed(regionId, feedId);
+		message = $t("admin.routingRegions.transitQueued");
+		await load();
+	} catch (retryError) {
+		error =
+			retryError instanceof Error ? retryError.message : String(retryError);
+	} finally {
+		busyId = null;
+	}
+}
+
+// A feed's own state, which is finer than the region's: "stale" and "error"
+// on a feed that still has a zip on disk are warnings, not outages.
+function feedClass(status: string): string {
+	if (status === "ready") return "text-green-700 dark:text-green-300";
+	if (status === "error") return "text-red-700 dark:text-red-300";
+	return "text-amber-700 dark:text-amber-300";
 }
 
 function statusClass(status: string): string {
@@ -272,6 +299,41 @@ onMount(() => {
 								<span class={`rounded px-2 py-0.5 ${statusClass(region.transitStatus)}`}>{region.transitStatus}</span>
 								{#if region.gtfsDownloadedAt}
 									<div class="mt-1 text-text-secondary">{formatDate(region.gtfsDownloadedAt)}</div>
+								{/if}
+								{#if region.feeds?.length}
+									<details class="mt-1">
+										<summary class="cursor-pointer text-text-secondary">
+											{$t('admin.routingRegions.feedCount', {
+												ready: String(region.feeds.filter((feed) => feed.status !== 'error' && feed.status !== 'pending').length),
+												total: String(region.feeds.length),
+											})}
+										</summary>
+										<ul class="mt-1 space-y-1">
+											{#each region.feeds as feed (feed.id)}
+												<li data-testid={`feed-${region.id}-${feed.id}`}>
+													<span class={feedClass(feed.status)}>{feed.status}</span>
+													<span class="ml-1">{feed.name}</span>
+													{#if feed.downloadedAt}
+														<span class="ml-1 text-text-secondary">{formatDate(new Date(feed.downloadedAt).toISOString())}</span>
+													{/if}
+													{#if feed.bytes}
+														<span class="ml-1 text-text-secondary">{formatSize(feed.bytes)}</span>
+													{/if}
+													{#if feed.error}
+														<div class="text-red-700 dark:text-red-300">{feed.error}</div>
+													{/if}
+													<button
+														type="button"
+														class="btn-secondary ml-1 text-xs"
+														onclick={() => void retryFeed(region.id, feed.id)}
+														disabled={busyId === region.id}
+													>
+														{$t('admin.routingRegions.retryFeed')}
+													</button>
+												</li>
+											{/each}
+										</ul>
+									</details>
 								{/if}
 							</td>
 							<td class="py-2 pr-3 text-xs">{formatSize(region.pbfSizeBytes)}</td>

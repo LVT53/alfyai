@@ -129,6 +129,7 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			orsBaseUrl: "",
 			geocoderBaseUrl: "",
 			routingGtfsFeeds: "",
+			routingOnDemandEnabled: false,
 			owntracksRecorderUrl: "",
 			owntracksRecorderUser: "",
 			owntracksRecorderPass: "",

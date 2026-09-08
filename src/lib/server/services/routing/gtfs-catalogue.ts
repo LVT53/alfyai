@@ -268,7 +268,7 @@ export function transitCoverageNote(
 		const parts: string[] = [];
 		if (ids.has(HU_RAIL)) parts.push("MÁV/GYSEV rail");
 		if (ids.has(HU_COACH)) parts.push("Volánbusz coaches");
-		if (ids.has(HU_BUDAPEST)) parts.push("Budapest (BKK)");
+		if (ids.has(HU_BUDAPEST)) parts.push("Budapest BKK");
 		const cities = [...ids].filter(
 			(id) => id !== HU_RAIL && id !== HU_COACH && id !== HU_BUDAPEST,
 		).length;

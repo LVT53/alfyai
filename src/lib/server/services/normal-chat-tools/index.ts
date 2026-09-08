@@ -17,7 +17,9 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
+import { transitCoverageLabelFor } from "$lib/server/services/routing/gtfs-catalogue";
 import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
+import { loadedGtfsFeedIds } from "$lib/server/services/routing/region-manager";
 import { getRoutingRegionManager } from "$lib/server/services/routing/region-runtime";
 import { createRegionalRoutingProvider } from "$lib/server/services/routing/regional-provider";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
@@ -2131,7 +2133,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														readyRegionNames: ready.map((row) => row.name),
 														transitRegionNames: ready
 															.filter((row) => row.transitStatus === "ready")
-															.map((row) => row.name),
+															.map((row) =>
+																transitCoverageLabelFor(
+																	row.id,
+																	row.name,
+																	loadedGtfsFeedIds(row.gtfsFeeds),
+																),
+															),
 														geocoder: createOrsProvider(
 															{ orsBaseUrl, geocoderBaseUrl },
 															providerDeps,

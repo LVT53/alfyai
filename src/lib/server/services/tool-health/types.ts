@@ -15,6 +15,7 @@ export type ToolHealthConfig = Pick<
 	| "orsBaseUrl"
 	| "geocoderBaseUrl"
 	| "routingGtfsFeeds"
+	| "routingOnDemandEnabled"
 	| "owntracksRecorderUrl"
 	| "owntracksRecorderUser"
 	| "owntracksRecorderPass"

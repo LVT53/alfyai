@@ -357,13 +357,28 @@ async function resolveRoutingCoverageLabels(): Promise<{
 		const { getRoutingRegionManager } = await import(
 			"$lib/server/services/routing/region-runtime"
 		);
+		const [{ loadedGtfsFeedIds }, { transitCoverageLabelFor }] =
+			await Promise.all([
+				import("$lib/server/services/routing/region-manager"),
+				import("$lib/server/services/routing/gtfs-catalogue"),
+			]);
 		const ready = await getRoutingRegionManager().listReadyRegions();
-		const transit = ready.filter((row) => row.transitStatus === "ready");
+		// The timetable label names what ACTUALLY loaded, feed by feed, so the
+		// model is told "Hungary (national coverage: …)" only when the rail and
+		// coach feeds really are in the graph.
+		const transit = ready
+			.filter((row) => row.transitStatus === "ready")
+			.map((row) =>
+				transitCoverageLabelFor(
+					row.id,
+					row.name,
+					loadedGtfsFeedIds(row.gtfsFeeds),
+				),
+			);
 		return {
 			routing:
 				ready.length > 0 ? ready.map((row) => row.name).join(", ") : "none yet",
-			transit:
-				transit.length > 0 ? transit.map((row) => row.name).join(", ") : null,
+			transit: transit.length > 0 ? transit.join(", ") : null,
 		};
 	} catch {
 		return { routing: null, transit: null };
