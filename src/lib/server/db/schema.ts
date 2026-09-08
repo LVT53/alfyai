@@ -1620,6 +1620,10 @@ export const atlasJobs = sqliteTable(
 			},
 		),
 		profile: text("profile").notNull(),
+		// ADR 0062: which Atlas content pipeline this job runs on. Stamped at
+		// kickoff from ATLAS_PIPELINE so a later flag flip never changes the
+		// pipeline of a queued job or splits a Continue/Revise/Fork family.
+		pipelineVersion: integer("pipeline_version").notNull().default(1),
 		normalizedQueryHash: text("normalized_query_hash").notNull(),
 		clientAtlasTurnId: text("client_atlas_turn_id").notNull(),
 		idempotencyKey: text("idempotency_key").notNull(),

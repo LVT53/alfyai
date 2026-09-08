@@ -9,7 +9,7 @@ import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-preset
 import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
-import type { ModelConfig } from "./env";
+import type { AtlasPipelineSelection, ModelConfig } from "./env";
 import { config as envConfig } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
@@ -18,7 +18,7 @@ import {
 	modelIconUrl as projectedModelIconUrl,
 } from "./services/available-models";
 
-export type { ModelConfig } from "./env";
+export type { AtlasPipelineSelection, ModelConfig } from "./env";
 
 export const ADMIN_CONFIG_KEYS = [
 	"MAX_MESSAGE_LENGTH",
@@ -125,6 +125,14 @@ export const ADMIN_CONFIG_KEYS = [
 	"ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS",
 	"ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS",
 	"ATLAS_MAX_WRITER_PROMPT_CHARS",
+	"ATLAS_PIPELINE",
+	"ATLAS_STALE_MONTHS",
+	"ATLAS_V2_QUESTIONS_OVERVIEW",
+	"ATLAS_V2_QUESTIONS_IN_DEPTH",
+	"ATLAS_V2_QUESTIONS_EXHAUSTIVE",
+	"ATLAS_V2_ROUNDS_OVERVIEW",
+	"ATLAS_V2_ROUNDS_IN_DEPTH",
+	"ATLAS_V2_ROUNDS_EXHAUSTIVE",
 	"WEB_PUSH_VAPID_PUBLIC_KEY",
 	"WEB_PUSH_VAPID_PRIVATE_KEY",
 	"WEB_PUSH_VAPID_SUBJECT",
@@ -193,6 +201,14 @@ export interface RuntimeConfig {
 	atlasInDepthMaxOutputTokens: number;
 	atlasExhaustiveMaxOutputTokens: number;
 	atlasMaxWriterPromptChars: number;
+	atlasPipeline: AtlasPipelineSelection;
+	atlasStaleMonths: number;
+	atlasV2QuestionsOverview: number;
+	atlasV2QuestionsInDepth: number;
+	atlasV2QuestionsExhaustive: number;
+	atlasV2RoundsOverview: number;
+	atlasV2RoundsInDepth: number;
+	atlasV2RoundsExhaustive: number;
 	webPushVapidPublicKey: string;
 	webPushVapidPrivateKey: string;
 	webPushVapidSubject: string;
@@ -892,6 +908,44 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.atlasMaxWriterPromptChars = Math.max(100, parsed);
 	},
+	// ADR 0062. Only an explicit "v2" selects the rebuilt content pipeline;
+	// every other value (including a typo) leaves the deployment on v1.
+	ATLAS_PIPELINE: (config, value) => {
+		config.atlasPipeline = value.trim().toLowerCase() === "v2" ? "v2" : "v1";
+	},
+	ATLAS_STALE_MONTHS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) config.atlasStaleMonths = Math.max(1, parsed);
+	},
+	ATLAS_V2_QUESTIONS_OVERVIEW: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2QuestionsOverview = Math.max(1, parsed);
+	},
+	ATLAS_V2_QUESTIONS_IN_DEPTH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2QuestionsInDepth = Math.max(1, parsed);
+	},
+	ATLAS_V2_QUESTIONS_EXHAUSTIVE: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2QuestionsExhaustive = Math.max(1, parsed);
+	},
+	ATLAS_V2_ROUNDS_OVERVIEW: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2RoundsOverview = Math.max(1, parsed);
+	},
+	ATLAS_V2_ROUNDS_IN_DEPTH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) config.atlasV2RoundsInDepth = Math.max(1, parsed);
+	},
+	ATLAS_V2_ROUNDS_EXHAUSTIVE: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2RoundsExhaustive = Math.max(1, parsed);
+	},
 	WEB_PUSH_VAPID_PUBLIC_KEY: (config, value) => {
 		config.webPushVapidPublicKey = value.trim();
 	},
@@ -1087,6 +1141,33 @@ export function getAtlasExhaustiveMaxOutputTokens(): number {
 
 export function getAtlasMaxWriterPromptChars(): number {
 	return runtimeConfig.atlasMaxWriterPromptChars;
+}
+
+/** ADR 0062: which Atlas content pipeline a NEW job is stamped with. */
+export function getAtlasPipelineSelection(): AtlasPipelineSelection {
+	return runtimeConfig.atlasPipeline;
+}
+
+export function getAtlasStaleMonths(): number {
+	return runtimeConfig.atlasStaleMonths;
+}
+
+export function getAtlasV2ProfileKnobs(): {
+	questions: { overview: number; inDepth: number; exhaustive: number };
+	rounds: { overview: number; inDepth: number; exhaustive: number };
+} {
+	return {
+		questions: {
+			overview: runtimeConfig.atlasV2QuestionsOverview,
+			inDepth: runtimeConfig.atlasV2QuestionsInDepth,
+			exhaustive: runtimeConfig.atlasV2QuestionsExhaustive,
+		},
+		rounds: {
+			overview: runtimeConfig.atlasV2RoundsOverview,
+			inDepth: runtimeConfig.atlasV2RoundsInDepth,
+			exhaustive: runtimeConfig.atlasV2RoundsExhaustive,
+		},
+	};
 }
 
 export function getAnalyticsExcludedUserIds(): string[] {
@@ -1312,6 +1393,14 @@ export function getResolvedAdminConfigValues(
 			config.atlasExhaustiveMaxOutputTokens,
 		),
 		ATLAS_MAX_WRITER_PROMPT_CHARS: String(config.atlasMaxWriterPromptChars),
+		ATLAS_PIPELINE: config.atlasPipeline,
+		ATLAS_STALE_MONTHS: String(config.atlasStaleMonths),
+		ATLAS_V2_QUESTIONS_OVERVIEW: String(config.atlasV2QuestionsOverview),
+		ATLAS_V2_QUESTIONS_IN_DEPTH: String(config.atlasV2QuestionsInDepth),
+		ATLAS_V2_QUESTIONS_EXHAUSTIVE: String(config.atlasV2QuestionsExhaustive),
+		ATLAS_V2_ROUNDS_OVERVIEW: String(config.atlasV2RoundsOverview),
+		ATLAS_V2_ROUNDS_IN_DEPTH: String(config.atlasV2RoundsInDepth),
+		ATLAS_V2_ROUNDS_EXHAUSTIVE: String(config.atlasV2RoundsExhaustive),
 		WEB_PUSH_VAPID_PUBLIC_KEY: config.webPushVapidPublicKey,
 		WEB_PUSH_VAPID_PRIVATE_KEY: config.webPushVapidPrivateKey ? "[set]" : "",
 		WEB_PUSH_VAPID_SUBJECT: config.webPushVapidSubject,

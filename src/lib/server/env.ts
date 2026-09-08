@@ -72,6 +72,14 @@ interface Config {
 	atlasInDepthMaxOutputTokens: number;
 	atlasExhaustiveMaxOutputTokens: number;
 	atlasMaxWriterPromptChars: number;
+	atlasPipeline: AtlasPipelineSelection;
+	atlasStaleMonths: number;
+	atlasV2QuestionsOverview: number;
+	atlasV2QuestionsInDepth: number;
+	atlasV2QuestionsExhaustive: number;
+	atlasV2RoundsOverview: number;
+	atlasV2RoundsInDepth: number;
+	atlasV2RoundsExhaustive: number;
 	webPushVapidPublicKey: string;
 	webPushVapidPrivateKey: string;
 	webPushVapidSubject: string;
@@ -284,6 +292,19 @@ function normalizeConfiguredModelId(value: unknown): ModelId {
 function parseIntegerEnv(value: string | undefined, fallback: number): number {
 	const parsed = parseInt(value ?? "", 10);
 	return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+/**
+ * Which Atlas content pipeline a new job runs on (ADR 0062). Anything other
+ * than an explicit "v2" keeps the deployment on v1, so a typo can never flip
+ * production onto the unevaluated pipeline.
+ */
+export type AtlasPipelineSelection = "v1" | "v2";
+
+function parseAtlasPipelineEnv(
+	value: string | undefined,
+): AtlasPipelineSelection {
+	return value?.trim().toLowerCase() === "v2" ? "v2" : "v1";
 }
 
 function parsePositiveIntegerEnv(
@@ -520,6 +541,42 @@ function readConfig(): Config {
 			process.env.ATLAS_MAX_WRITER_PROMPT_CHARS,
 			80000,
 			100,
+		),
+		atlasPipeline: parseAtlasPipelineEnv(process.env.ATLAS_PIPELINE),
+		atlasStaleMonths: parsePositiveIntegerEnv(
+			process.env.ATLAS_STALE_MONTHS,
+			18,
+			1,
+		),
+		atlasV2QuestionsOverview: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_QUESTIONS_OVERVIEW,
+			6,
+			1,
+		),
+		atlasV2QuestionsInDepth: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_QUESTIONS_IN_DEPTH,
+			10,
+			1,
+		),
+		atlasV2QuestionsExhaustive: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_QUESTIONS_EXHAUSTIVE,
+			16,
+			1,
+		),
+		atlasV2RoundsOverview: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_ROUNDS_OVERVIEW,
+			1,
+			1,
+		),
+		atlasV2RoundsInDepth: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_ROUNDS_IN_DEPTH,
+			2,
+			1,
+		),
+		atlasV2RoundsExhaustive: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_ROUNDS_EXHAUSTIVE,
+			3,
+			1,
 		),
 		webPushVapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "",
 		webPushVapidPrivateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "",
