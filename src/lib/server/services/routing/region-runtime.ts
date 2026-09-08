@@ -5,6 +5,7 @@
 
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
+import { parseMirrorList } from "./extract-mirrors";
 import { loadGeofabrikIndex } from "./geofabrik";
 import { createDockerodeRegionDocker } from "./region-docker";
 import {
@@ -16,6 +17,9 @@ import {
 const IDLE_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const BUILD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 const START_TIMEOUT_MS = 90 * 1000;
+const DOWNLOAD_STALL_MS = 60 * 1000;
+const DOWNLOAD_MAX_MS = 3 * 60 * 60 * 1000;
+const MAX_ATTEMPTS = 20;
 
 let manager: RoutingRegionManager | null = null;
 let managerKey = "";
@@ -45,6 +49,14 @@ export function buildRegionManagerConfig(): RoutingRegionManagerConfig {
 		startTimeoutMs: START_TIMEOUT_MS,
 		geocoderImportContainer: config.routingGeocoderImportContainer,
 		geocoderRegionsMount: "/regions",
+		extractMirrors: parseMirrorList(config.routingExtractMirrors),
+		residentRegionIds: config.routingResidentRegionIds
+			.split(",")
+			.map((entry) => entry.trim())
+			.filter(Boolean),
+		downloadStallMs: DOWNLOAD_STALL_MS,
+		downloadMaxMs: DOWNLOAD_MAX_MS,
+		maxAttempts: MAX_ATTEMPTS,
 		legacy:
 			legacyBase && config.routingLegacyRegionId
 				? { id: config.routingLegacyRegionId, baseUrl: legacyBase }
@@ -86,7 +98,12 @@ export function ensureRoutingRegionScheduler(): void {
 			console.error("[ROUTING_REGIONS] resume failed", String(error)),
 		);
 	sweepTimer = setInterval(() => {
-		getRoutingRegionManager()
+		const active = getRoutingRegionManager();
+		// The retry backoff has no timer of its own; this tick is what makes a
+		// region whose next attempt has come due actually get retried, with or
+		// without a user request.
+		active.kickJobs();
+		active
 			.runIdleSweep()
 			.catch((error) =>
 				console.error("[ROUTING_REGIONS] idle sweep failed", String(error)),
