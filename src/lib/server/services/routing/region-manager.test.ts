@@ -17,6 +17,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import { parseGeofabrikIndex } from "./geofabrik";
+import type { GtfsFeed } from "./gtfs-catalogue";
 import type { RegionContainerSpec, RegionDocker } from "./region-docker";
 import {
 	classifyRegionError,
@@ -41,9 +42,31 @@ const MID_ATLANTIC = { lat: 30, lng: -40 };
 const PBF_BYTES = Buffer.from(
 	"not really a pbf but good enough for a checksum",
 );
-const GTFS_BYTES = Buffer.from("not really a gtfs zip, but it has a length");
+// Starts with the local zip magic number, because the feed downloader refuses
+// anything that is not a zip (a CDN's HTML error page arrives with a 200).
+const GTFS_BYTES = Buffer.from(
+	"PK\u0003\u0004 not really a gtfs zip, but it has a length",
+	"latin1",
+);
 const HU_FEED = "https://go.bkk.hu/api/static/v1/public-gtfs/budapest_gtfs.zip";
 const IE_FEED = "https://www.transportforireland.ie/transitData/Data/GTFS.zip";
+const HU_GTFS: GtfsFeed = {
+	id: "bkk",
+	name: "BKK Budapest",
+	url: HU_FEED,
+	refreshDays: 7,
+};
+const IE_GTFS: GtfsFeed = {
+	id: "tfi",
+	name: "Transport for Ireland",
+	url: IE_FEED,
+	refreshDays: 7,
+};
+const NO_FEEDS = new Map<string, GtfsFeed[]>();
+const IE_FEEDS = new Map<string, GtfsFeed[]>([
+	["ireland-and-northern-ireland", [IE_GTFS]],
+]);
+const HU_FEEDS = new Map<string, GtfsFeed[]>([["hungary", [HU_GTFS]]]);
 
 type FakeDocker = RegionDocker & {
 	containers: Map<string, { running: boolean; spec?: RegionContainerSpec }>;
@@ -193,7 +216,7 @@ describe("routing region manager", () => {
 			downloadMaxMs: 30_000,
 			maxAttempts: 20,
 			legacy: { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" },
-			gtfsFeeds: new Map<string, string>(),
+			gtfsFeeds: NO_FEEDS,
 			gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
 			gtfsMaxBytes: 600 * 1048576,
 			transitRefreshWindow: { startHour: 3, endHour: 5 },
@@ -998,7 +1021,7 @@ describe("routing region manager — legacy seed backfill", () => {
 				downloadMaxMs: 30_000,
 				maxAttempts: 20,
 				legacy: { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" },
-				gtfsFeeds: new Map<string, string>(),
+				gtfsFeeds: NO_FEEDS,
 				gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
 				gtfsMaxBytes: 600 * 1048576,
 				transitRefreshWindow: { startHour: 3, endHour: 5 },
@@ -1070,7 +1093,7 @@ describe("routing region manager — download retries", () => {
 					downloadMaxMs: 30_000,
 					maxAttempts: 20,
 					legacy: null,
-					gtfsFeeds: new Map<string, string>(),
+					gtfsFeeds: NO_FEEDS,
 					gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
 					gtfsMaxBytes: 600 * 1048576,
 					transitRefreshWindow: { startHour: 3, endHour: 5 },
@@ -1138,7 +1161,7 @@ describe("routing region manager — public transport", () => {
 			downloadMaxMs: 30_000,
 			maxAttempts: 20,
 			legacy: null,
-			gtfsFeeds: new Map<string, string>(),
+			gtfsFeeds: NO_FEEDS,
 			gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
 			gtfsMaxBytes: 600 * 1048576,
 			transitRefreshWindow: { startHour: 3, endHour: 5 },
@@ -1174,7 +1197,7 @@ describe("routing region manager — public transport", () => {
 
 	it("builds a region with the public-transport profile when a feed is configured", async () => {
 		const m = manager({
-			gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+			gtfsFeeds: IE_FEEDS,
 		});
 		await m.ensureRegionForPoints([DUBLIN]);
 		await m.drain();
@@ -1184,7 +1207,7 @@ describe("routing region manager — public transport", () => {
 		);
 		expect(row?.status).toBe("ready");
 		expect(row?.transitStatus).toBe("ready");
-		expect(row?.gtfsUrl).toBe(IE_FEED);
+		expect(row?.gtfsUrl).toBe(`tfi=${IE_FEED}`);
 		expect(row?.gtfsSizeBytes).toBe(GTFS_BYTES.length);
 		expect(row?.gtfsDownloadedAt).toBeInstanceOf(Date);
 		expect(row?.timezone).toBe("Europe/Dublin");
@@ -1196,7 +1219,7 @@ describe("routing region manager — public transport", () => {
 					dir,
 					"ireland-and-northern-ireland",
 					"files",
-					"ireland-and-northern-ireland-gtfs.zip",
+					"ireland-and-northern-ireland-gtfs-tfi.zip",
 				),
 			),
 		).toEqual(GTFS_BYTES);
@@ -1208,7 +1231,7 @@ describe("routing region manager — public transport", () => {
 			expect.arrayContaining([
 				"ors.engine.profiles.public-transport.enabled=true",
 				"ors.engine.profiles.public-transport.encoder_name=public-transport",
-				"ors.engine.profiles.public-transport.build.gtfs_file=/home/ors/files/ireland-and-northern-ireland-gtfs.zip",
+				"ors.engine.profiles.public-transport.build.gtfs_file=/home/ors/files/ireland-and-northern-ireland-gtfs-tfi.zip",
 				"ors.engine.profiles.public-transport.build.elevation=false",
 				"ors.engine.profiles.public-transport.service.maximum_visited_nodes=1000000",
 			]),
@@ -1246,7 +1269,7 @@ describe("routing region manager — public transport", () => {
 		);
 		const m = createRoutingRegionManager(
 			config({
-				gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+				gtfsFeeds: IE_FEEDS,
 			}),
 			{
 				db: memory.db,
@@ -1293,7 +1316,7 @@ describe("routing region manager — public transport", () => {
 
 		// Second start: the feed is now configured.
 		const withFeed = manager({
-			gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+			gtfsFeeds: IE_FEEDS,
 		});
 		await withFeed.resumePendingJobs();
 		await withFeed.drain();
@@ -1316,7 +1339,7 @@ describe("routing region manager — public transport", () => {
 
 	it("drops a region back to no timetables when its feed is removed", async () => {
 		const withFeed = manager({
-			gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+			gtfsFeeds: IE_FEEDS,
 		});
 		await withFeed.ensureRegionForPoints([DUBLIN]);
 		await withFeed.drain();
@@ -1332,7 +1355,7 @@ describe("routing region manager — public transport", () => {
 	describe("refresh scheduling", () => {
 		async function readyRegion() {
 			const m = manager({
-				gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+				gtfsFeeds: IE_FEEDS,
 			});
 			await m.ensureRegionForPoints([DUBLIN]);
 			await m.drain();
@@ -1341,7 +1364,7 @@ describe("routing region manager — public transport", () => {
 
 		it("queues a stale feed only inside the nightly window", async () => {
 			await readyRegion();
-			const feeds = new Map([["ireland-and-northern-ireland", IE_FEED]]);
+			const feeds = IE_FEEDS;
 			// A fortnight later, but at midday: the rebuild would take the region
 			// down, so it must wait.
 			now = atLocalHour(12) + 14 * 24 * 60 * 60 * 1000;
@@ -1365,14 +1388,14 @@ describe("routing region manager — public transport", () => {
 			await readyRegion();
 			now = atLocalHour(4) + 60 * 60 * 1000;
 			const m = manager({
-				gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+				gtfsFeeds: IE_FEEDS,
 			});
 			expect(await m.runTransitMaintenance()).toEqual([]);
 		});
 
 		it("an admin refresh ignores the window entirely", async () => {
 			const m = manager({
-				gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+				gtfsFeeds: IE_FEEDS,
 			});
 			await m.ensureRegionForPoints([DUBLIN]);
 			await m.drain();
@@ -1404,7 +1427,7 @@ describe("routing region manager — public transport", () => {
 			const m = manager({
 				legacy,
 				residentRegionIds: ["hungary"],
-				gtfsFeeds: new Map([["hungary", HU_FEED]]),
+				gtfsFeeds: HU_FEEDS,
 			});
 			// Before the promotion runs, the legacy instance still answers.
 			expect(await m.ensureRegionForPoints([BUDAPEST])).toMatchObject({
@@ -1436,7 +1459,7 @@ describe("routing region manager — public transport", () => {
 			const first = manager({
 				legacy,
 				residentRegionIds: ["hungary"],
-				gtfsFeeds: new Map([["hungary", HU_FEED]]),
+				gtfsFeeds: HU_FEEDS,
 			});
 			await first.resumePendingJobs();
 			await first.drain();
@@ -1445,7 +1468,7 @@ describe("routing region manager — public transport", () => {
 			const second = manager({
 				legacy,
 				residentRegionIds: ["hungary"],
-				gtfsFeeds: new Map([["hungary", HU_FEED]]),
+				gtfsFeeds: HU_FEEDS,
 			});
 			const row = (await second.listRegions()).find((r) => r.id === "hungary");
 			expect(row?.managed).toBe(true);
@@ -1457,7 +1480,7 @@ describe("routing region manager — public transport", () => {
 				throw new Error("network is unreachable");
 			});
 			const m = createRoutingRegionManager(
-				config({ legacy, gtfsFeeds: new Map([["hungary", HU_FEED]]) }),
+				config({ legacy, gtfsFeeds: HU_FEEDS }),
 				{
 					db: memory.db,
 					docker,
@@ -1493,7 +1516,7 @@ describe("routing region manager — public transport", () => {
 
 	it("never stops a container while its timetable graph is being rebuilt", async () => {
 		const m = manager({
-			gtfsFeeds: new Map([["ireland-and-northern-ireland", IE_FEED]]),
+			gtfsFeeds: IE_FEEDS,
 		});
 		await m.ensureRegionForPoints([DUBLIN]);
 		await m.drain();

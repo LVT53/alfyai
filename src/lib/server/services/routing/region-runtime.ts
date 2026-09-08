@@ -7,7 +7,7 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { parseMirrorList } from "./extract-mirrors";
 import { loadGeofabrikIndex } from "./geofabrik";
-import { parseGtfsFeeds } from "./gtfs-feeds";
+import { resolveGtfsFeeds } from "./gtfs-feeds";
 import { createDockerodeRegionDocker } from "./region-docker";
 import {
 	createRoutingRegionManager,
@@ -65,7 +65,10 @@ export function buildRegionManagerConfig(): RoutingRegionManagerConfig {
 			legacyBase && config.routingLegacyRegionId
 				? { id: config.routingLegacyRegionId, baseUrl: legacyBase }
 				: null,
-		gtfsFeeds: parseGtfsFeeds(config.routingGtfsFeeds),
+		gtfsFeeds: resolveGtfsFeeds(
+			config.routingGtfsFeeds,
+			config.routingGtfsFeedExclude,
+		),
 		gtfsRefreshMs: config.routingGtfsRefreshDays * 24 * 60 * 60 * 1000,
 		gtfsMaxBytes: config.routingGtfsMaxMb * 1048576,
 		transitRefreshWindow: TRANSIT_REFRESH_WINDOW,

@@ -125,6 +125,7 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["provider_models", "aliases_json"],
 	["routing_regions", "transit_status"],
 	["routing_regions", "gtfs_url"],
+	["routing_regions", "gtfs_feeds"],
 ];
 
 const baselineAdoptionRequiredTables = [

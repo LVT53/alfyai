@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { catalogueFeedsForRegion, GTFS_CATALOGUE } from "./gtfs-catalogue";
 import {
+	feedIdForUrl,
 	formatLocalClock,
 	formatLocalDateTime,
 	isoMinutes,
-	parseGtfsFeeds,
+	parseGtfsFeedExcludes,
+	parseGtfsFeedUrls,
+	resolveGtfsFeeds,
 	timezoneForRegion,
 	toRegionLocalDateTime,
 	transitModeLabel,
 } from "./gtfs-feeds";
 
-describe("parseGtfsFeeds", () => {
-	it("parses the documented three-region configuration", () => {
-		const feeds = parseGtfsFeeds(
+describe("parseGtfsFeedUrls", () => {
+	it("parses the single-url-per-region form", () => {
+		const feeds = parseGtfsFeedUrls(
 			"hungary=https://go.bkk.hu/api/static/v1/public-gtfs/budapest_gtfs.zip," +
 				"ireland-and-northern-ireland=https://www.transportforireland.ie/transitData/Data/GTFS_All.zip," +
 				"netherlands=http://gtfs.ovapi.nl/nl/gtfs-nl.zip",
@@ -21,29 +25,138 @@ describe("parseGtfsFeeds", () => {
 			"ireland-and-northern-ireland",
 			"netherlands",
 		]);
-		expect(feeds.get("netherlands")).toBe(
+		expect(feeds.get("netherlands")).toEqual([
 			"http://gtfs.ovapi.nl/nl/gtfs-nl.zip",
-		);
-	});
-
-	it("tolerates whitespace and ignores malformed or non-http entries", () => {
-		const feeds = parseGtfsFeeds(
-			"  hungary = https://feeds.test/hu.zip , broken , =https://x , austria= , ftp=ftp://nope",
-		);
-		expect([...feeds.entries()]).toEqual([
-			["hungary", "https://feeds.test/hu.zip"],
 		]);
 	});
 
-	it("keeps the FIRST url for a duplicated region id", () => {
-		const feeds = parseGtfsFeeds(
+	it("parses the many-feeds-per-region form, `|` inside and `,` between", () => {
+		const feeds = parseGtfsFeedUrls(
+			"hungary=https://a.test/bkk.zip|https://b.test/volan.zip|https://c.test/mav.zip," +
+				"austria=https://d.test/at.zip",
+		);
+		expect(feeds.get("hungary")).toEqual([
+			"https://a.test/bkk.zip",
+			"https://b.test/volan.zip",
+			"https://c.test/mav.zip",
+		]);
+		expect(feeds.get("austria")).toEqual(["https://d.test/at.zip"]);
+	});
+
+	it("tolerates whitespace and ignores malformed or non-http entries", () => {
+		const feeds = parseGtfsFeedUrls(
+			"  hungary = https://feeds.test/hu.zip | ftp://nope , broken , =https://x , austria= ",
+		);
+		expect([...feeds.entries()]).toEqual([
+			["hungary", ["https://feeds.test/hu.zip"]],
+		]);
+	});
+
+	it("keeps the FIRST list for a duplicated region id", () => {
+		const feeds = parseGtfsFeedUrls(
 			"hungary=https://good.test/a.zip,hungary=https://typo.test/b.zip",
 		);
-		expect(feeds.get("hungary")).toBe("https://good.test/a.zip");
+		expect(feeds.get("hungary")).toEqual(["https://good.test/a.zip"]);
 	});
 
 	it("returns an empty map for empty config", () => {
-		expect(parseGtfsFeeds("").size).toBe(0);
+		expect(parseGtfsFeedUrls("").size).toBe(0);
+	});
+});
+
+describe("parseGtfsFeedExcludes", () => {
+	it("groups feed ids by region and ignores malformed entries", () => {
+		const excludes = parseGtfsFeedExcludes(
+			" hungary:mav-gysev , hungary:bahart , netherlands:* , broken , :x , austria: ",
+		);
+		expect([...(excludes.get("hungary") ?? [])]).toEqual([
+			"mav-gysev",
+			"bahart",
+		]);
+		expect([...(excludes.get("netherlands") ?? [])]).toEqual(["*"]);
+		expect(excludes.has("austria")).toBe(false);
+	});
+});
+
+describe("feedIdForUrl", () => {
+	it("derives a filename-safe id from the host plus a digest of the url", () => {
+		const id = feedIdForUrl("https://gtfs.menetbrand.com/download/mav");
+		expect(id).toMatch(/^gtfs-menetbrand-com-[0-9a-f]{8}$/);
+	});
+
+	it("distinguishes two feeds from the same host", () => {
+		expect(feedIdForUrl("https://x.test/a")).not.toBe(
+			feedIdForUrl("https://x.test/b"),
+		);
+	});
+});
+
+describe("resolveGtfsFeeds", () => {
+	it("uses the shipped catalogue when the env is unset", () => {
+		const feeds = resolveGtfsFeeds("");
+		expect([...feeds.keys()].sort()).toEqual(
+			Object.keys(GTFS_CATALOGUE).sort(),
+		);
+		expect(feeds.get("hungary")?.map((feed) => feed.id)).toContain("volanbusz");
+		// Hungary needs many feeds — that is the whole point of the catalogue.
+		expect((feeds.get("hungary") ?? []).length).toBeGreaterThan(15);
+	});
+
+	it("uses the catalogue for the explicit `catalogue` token too", () => {
+		expect(resolveGtfsFeeds("catalogue").get("hungary")).toEqual(
+			catalogueFeedsForRegion("hungary"),
+		);
+	});
+
+	it("lets an explicit list override the catalogue entirely", () => {
+		const feeds = resolveGtfsFeeds(
+			"austria=https://at.test/a.zip|https://at.test/b.zip",
+		);
+		expect([...feeds.keys()]).toEqual(["austria"]);
+		expect(feeds.get("austria")?.map((feed) => feed.url)).toEqual([
+			"https://at.test/a.zip",
+			"https://at.test/b.zip",
+		]);
+	});
+
+	it("opts one region back into the catalogue with regionId=catalogue", () => {
+		const feeds = resolveGtfsFeeds(
+			"hungary=catalogue,austria=https://at.test/a.zip",
+		);
+		expect(feeds.get("hungary")).toEqual(catalogueFeedsForRegion("hungary"));
+		expect(feeds.has("netherlands")).toBe(false);
+	});
+
+	it("keeps a catalogue feed's identity when its url is pasted in by hand", () => {
+		const bkk = catalogueFeedsForRegion("hungary").find(
+			(feed) => feed.id === "bkk",
+		);
+		if (!bkk) throw new Error("expected a bkk catalogue entry");
+		const feeds = resolveGtfsFeeds(`hungary=${bkk.url}`);
+		expect(feeds.get("hungary")).toEqual([bkk]);
+	});
+
+	it("drops excluded feeds — the MÁV licence case", () => {
+		const feeds = resolveGtfsFeeds("catalogue", "hungary:mav-gysev");
+		const ids = feeds.get("hungary")?.map((feed) => feed.id) ?? [];
+		expect(ids).not.toContain("mav-gysev");
+		expect(ids).toContain("volanbusz");
+	});
+
+	it("drops a whole region with `*`, leaving it without timetables", () => {
+		const feeds = resolveGtfsFeeds("catalogue", "netherlands:*");
+		expect(feeds.has("netherlands")).toBe(false);
+		expect(feeds.has("hungary")).toBe(true);
+	});
+
+	it("de-duplicates a feed listed twice", () => {
+		const bkk = catalogueFeedsForRegion("hungary").find(
+			(feed) => feed.id === "bkk",
+		);
+		if (!bkk) throw new Error("expected a bkk catalogue entry");
+		const feeds = resolveGtfsFeeds(`hungary=catalogue|${bkk.url}`);
+		const ids = feeds.get("hungary")?.map((feed) => feed.id) ?? [];
+		expect(ids.filter((id) => id === "bkk")).toHaveLength(1);
 	});
 });
 

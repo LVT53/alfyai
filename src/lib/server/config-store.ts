@@ -97,6 +97,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_EXTRACT_MIRRORS",
 	"ROUTING_RESIDENT_REGION_IDS",
 	"ROUTING_GTFS_FEEDS",
+	"ROUTING_GTFS_FEED_EXCLUDE",
 	"ROUTING_GTFS_REFRESH_DAYS",
 	"ROUTING_GTFS_MAX_MB",
 	"NATIVE_HISTORY_ENABLED",
@@ -241,6 +242,7 @@ export interface RuntimeConfig {
 	routingExtractMirrors: string;
 	routingResidentRegionIds: string;
 	routingGtfsFeeds: string;
+	routingGtfsFeedExclude: string;
 	routingGtfsRefreshDays: number;
 	routingGtfsMaxMb: number;
 	nativeHistoryEnabled: boolean;
@@ -765,6 +767,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	ROUTING_GTFS_FEEDS: (config, value) => {
 		config.routingGtfsFeeds = value.trim();
 	},
+	ROUTING_GTFS_FEED_EXCLUDE: (config, value) => {
+		config.routingGtfsFeedExclude = value.trim();
+	},
 	ROUTING_GTFS_REFRESH_DAYS: (config, value) => {
 		const parsed = parseInt(value, 10);
 		if (Number.isFinite(parsed) && parsed >= 1) {
@@ -1265,6 +1270,7 @@ export function getResolvedAdminConfigValues(
 		ROUTING_EXTRACT_MIRRORS: config.routingExtractMirrors,
 		ROUTING_RESIDENT_REGION_IDS: config.routingResidentRegionIds,
 		ROUTING_GTFS_FEEDS: config.routingGtfsFeeds,
+		ROUTING_GTFS_FEED_EXCLUDE: config.routingGtfsFeedExclude,
 		ROUTING_GTFS_REFRESH_DAYS: String(config.routingGtfsRefreshDays),
 		ROUTING_GTFS_MAX_MB: String(config.routingGtfsMaxMb),
 		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
