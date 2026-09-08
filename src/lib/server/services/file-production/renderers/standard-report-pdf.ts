@@ -843,7 +843,7 @@ class StandardReportPdfLayout {
 		this.y -= 2;
 		let x = this.contentX();
 		for (const level of GENERATED_DOCUMENT_CITATION_LEVELS) {
-			x += this.drawCitationDot(level, x, this.y, size);
+			x += this.drawCitationDot(level, x, this.y, size) + 2;
 			const label = generatedDocumentCitationLevelLabel(level);
 			this.page.drawText(label, {
 				x,
