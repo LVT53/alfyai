@@ -1,8 +1,18 @@
 # Self-hosted Nominatim geocoder for the map_route tool (GEOCODER_BASE_URL).
 #
-# First start imports the extract in PBF_PATH (Hungary here; 20-60 minutes).
-# The extract is mounted OUTSIDE /nominatim because the image's entrypoint
-# chowns that tree and a read-only bind mount there aborts the start.
+# First start bulk-imports the extract in PBF_PATH. That file is the osmium
+# merge of every resident region (Hungary + Ireland + Netherlands, ~2.2 GB,
+# 1-3 hours with 16 threads):
+#   docker run --rm -v /opt/openrouteservice/files:/hu:ro \
+#     -v /home/services/routing-regions:/regions:ro \
+#     -v /home/services/nominatim/extracts:/out stefda/osmium-tool \
+#     osmium merge /hu/hungary-latest.osm.pbf \
+#       /regions/<slug>/files/<slug>.osm.pbf ... -o /out/hu-ie-nl.osm.pbf --overwrite
+# To add a resident region: re-merge, wipe /home/services/nominatim/postgres,
+# restart this unit. `nominatim add-data` (the per-region append path) is
+# single-threaded and takes 5+ hours per country — never use it for a whole
+# country. The extracts dir is mounted OUTSIDE /nominatim because the image's
+# entrypoint chowns that tree and a read-only bind mount there aborts the start.
 # later starts reuse the database under /home/services/nominatim (bind
 # mounts on the large /home filesystem; Docker's data root on / is too small).
 # No flat-node file: osm2pgsql memory-maps it and dies with SIGBUS on this
@@ -20,11 +30,11 @@ Type=simple
 ExecStartPre=-/usr/bin/docker rm -f nominatim
 ExecStart=/usr/bin/docker run --rm --name nominatim \
   -p 127.0.0.1:8089:8080 \
-  -e PBF_PATH=/extracts/hungary-latest.osm.pbf \
+  -e PBF_PATH=/extracts/hu-ie-nl.osm.pbf \
   -e IMPORT_WIKIPEDIA=false \
-  -e THREADS=8 \
+  -e THREADS=16 \
   -e NOMINATIM_PASSWORD=alfyai-nominatim-local \
-  -v /opt/openrouteservice/files/hungary-latest.osm.pbf:/extracts/hungary-latest.osm.pbf:ro \
+  -v /home/services/nominatim/extracts:/extracts:ro \
   -v /home/services/routing-regions:/regions:ro \
   -v /home/services/nominatim/postgres:/var/lib/postgresql/16/main \
   --shm-size=2g \
