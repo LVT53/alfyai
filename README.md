@@ -279,6 +279,18 @@ Notes before the tables:
 | `HONCHO_PERSONA_CONTEXT_WAIT_MS` | No | `8000` | Timeout for auxiliary Honcho persona enrichment on chat turns, especially persona prompt context | Lower it to keep the prompt path responsive while persona clusters refresh in the background | Can also be overridden in admin config |
 | `HONCHO_OVERVIEW_WAIT_MS` | No | `10000` | Timeout for the Knowledge Base live Honcho overview refresh path | Raise it if the overview is usually available but slower than chat-path persona enrichment | Can also be overridden in admin config |
 | `MEMORY_MAINTENANCE_INTERVAL_MINUTES` | No | `0` | Enables periodic maintenance for memory/task-state cleanup | Set it to a positive number to turn on the scheduler | `0` disables the scheduler entirely |
+
+### On-Demand Routing Coverage (`map_route`)
+
+| Variable | Required? | Default | What it does | When to set it | Caveats |
+|---|---|---:|---|---|---|
+| `ROUTING_ON_DEMAND_ENABLED` | No | `false` | Downloads the matching Geofabrik extract and builds a per-region OpenRouteService container the first time a route needs it | Set it to `true` when routing should cover more than the fixed `ORS_BASE_URL` region | Needs a reachable `DOCKER_HOST`; builds take hours per region |
+| `ROUTING_LEGACY_REGION_ID` | No | `hungary` | Geofabrik id the fixed `ORS_BASE_URL` instance covers, registered as an unmanaged region | Set it to whatever the fixed instance was built from | The app never starts or stops that container |
+| `ROUTING_EXTRACT_MIRRORS` | No | `https://download.openstreetmap.fr/extracts` | Comma-separated extract mirrors tried, in order, when `download.geofabrik.de` cannot serve the `.osm.pbf` | Leave at the default; add mirrors if you host your own | Geofabrik is verified against its `.md5`; mirrors publish none, so their `Content-Length` must match exactly. Not every Geofabrik region exists on every mirror (osm.fr has no `hungary`) |
+| `ROUTING_RESIDENT_REGION_IDS` | No | empty | Comma-separated Geofabrik ids downloaded and built on start and never stopped by the idle sweep | Set it for the regions that must always answer instantly | Each resident region holds its ORS container's `ROUTING_REGION_XMX` heap for good |
+| `ROUTING_REGION_IDLE_MINUTES` | No | `180` | How long a non-resident region container may sit unused before it is stopped | Lower it on a tight host | Stopped regions restart in a minute or two; the graph stays on disk |
+| `ROUTING_REGION_MAX_PBF_MB` | No | `2500` | Size cap for a single extract | Raise it for large countries | Above the cap is a permanent failure, not a retry |
+
 ### Deployment And Runtime Wrapper Variables
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
