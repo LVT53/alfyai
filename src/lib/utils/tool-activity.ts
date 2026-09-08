@@ -65,7 +65,11 @@ export type ToolActivityBody =
 	// The file-production body is rendered by FileProductionCard.svelte (the
 	// reduced, body-only component); the job itself is threaded through the
 	// component prop rather than flattened here.
-	| { kind: "file-job" };
+	| { kind: "file-job" }
+	// Same arrangement for an Atlas report: AtlasActivityBody.svelte renders the
+	// panel (stage line + plan while running, Report/Evidence/Plan tabs when
+	// done), threaded in as a snippet by AtlasActivityRow.svelte.
+	| { kind: "atlas" };
 
 export type ToolActivityItem = {
 	key: string;
@@ -123,6 +127,67 @@ const VERB_KEYS = {
 type VerbName = keyof typeof VERB_KEYS;
 
 /**
+ * Every string the Atlas activity row and its body can print. Kept as its own
+ * list (and folded into TOOL_ACTIVITY_I18N_KEYS below) so the one dictionary
+ * test covers the Atlas grammar too — an Atlas row that lost a translation
+ * would otherwise print a raw key in the chat.
+ */
+export const ATLAS_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
+	"atlasActivity.verb",
+	"atlasActivity.questionsProgress",
+	"atlasActivity.stopped",
+	"atlasActivity.stoppedNote",
+	"atlasActivity.cancelledAfter",
+	"atlasActivity.cancelled",
+	"atlasActivity.phase.plan",
+	"atlasActivity.phase.research",
+	"atlasActivity.phase.index",
+	"atlasActivity.phase.write",
+	"atlasActivity.phase.verify",
+	"atlasActivity.phase.render",
+	"atlasActivity.sourcesRead",
+	"atlasActivity.sections",
+	"atlasActivity.then",
+	"atlasActivity.stop",
+	"atlasActivity.planLabel",
+	"atlasActivity.questionQueued",
+	"atlasActivity.questionRunning",
+	"atlasActivity.questionDone",
+	"atlasActivity.tabsLabel",
+	"atlasActivity.tab.report",
+	"atlasActivity.tab.evidence",
+	"atlasActivity.tab.plan",
+	"atlasActivity.reportMeta",
+	"atlasActivity.reportMetaWithSections",
+	"atlasActivity.download",
+	"atlasActivity.format.pdf",
+	"atlasActivity.format.html",
+	"atlasActivity.format.markdown",
+	"atlasActivity.formatWithSize",
+	"atlasActivity.confidence",
+	"atlasActivity.evidenceSummary",
+	"atlasActivity.confidence.corroborated",
+	"atlasActivity.confidence.single",
+	"atlasActivity.confidence.mixed",
+	"atlasActivity.confidence.thin",
+	"atlasActivity.moreSources",
+	"atlasActivity.moreSourcesFiltered",
+	"atlasActivity.filteredOnly",
+	"atlasActivity.retry",
+	"atlasActivity.retryNote",
+	"atlasActivity.retryPrompt",
+	"atlasActivity.progressLabel",
+	"atlas.defaultTitle",
+	"atlas.durationMinutes",
+	"atlas.durationSeconds",
+	"atlas.failed",
+	"atlas.sourceCount",
+	"atlas.stage.failed",
+	"atlas.stage.queued",
+	"atlas.stage.running",
+];
+
+/**
  * Every i18n key an activity row can render — the verbs above plus the few
  * non-verb strings the rows and their bodies use. Exported so one test can
  * assert the whole set resolves in BOTH dictionaries: a missing verb would
@@ -151,6 +216,7 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	"toolCalls.actionsCount",
 	"toolCalls.detailArguments",
 	"toolCalls.detailResult",
+	...ATLAS_ACTIVITY_I18N_KEYS,
 ];
 
 function verb(
@@ -791,6 +857,383 @@ export function buildFileProductionActivityItem(
 		alwaysOpen: isActive,
 		title: object,
 		body: { kind: "file-job" },
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Atlas report rows
+// ---------------------------------------------------------------------------
+//
+// An Atlas job renders as ONE activity row in the same grammar as every other
+// tool — while it runs it is a pinned row, always open, exactly like a file
+// being produced:
+//
+//   [spinner] [file] Atlas report  <title> ……… 4 of 6 questions · 6 min
+//
+// The v2 pipeline puts its live plan on `progress.details`; v1 jobs carry only
+// `queries`/`focus`. Everything below reads BOTH, and every v2 field is
+// optional, so a v1 job keeps rendering (stage label + queries) with no
+// server change.
+
+export type AtlasActivityPhase =
+	| "plan"
+	| "research"
+	| "index"
+	| "write"
+	| "verify"
+	| "render";
+
+export type AtlasPlanEntryStatus = "queued" | "running" | "done";
+
+export type AtlasPlanConfidence = "corroborated" | "single" | "mixed" | "thin";
+
+export type AtlasPlanEntry = {
+	id: string;
+	question: string;
+	status: AtlasPlanEntryStatus;
+	sourceCount: number;
+	confidence: AtlasPlanConfidence | null;
+};
+
+export type AtlasEvidenceSource = {
+	n: number;
+	title: string;
+	host: string;
+	date: string | null;
+	cited: boolean;
+};
+
+export type AtlasEvidenceSummary = {
+	corroborated: number;
+	single: number;
+	inferred: number;
+	cut: number;
+	filteredCount: number;
+	sources: AtlasEvidenceSource[];
+};
+
+/** The client's view of `AtlasJobCard.progress.details`, v1 and v2 together. */
+export type AtlasActivityDetails = {
+	pipelineVersion: number | null;
+	phase: AtlasActivityPhase | null;
+	plan: AtlasPlanEntry[];
+	round: { current: number; total: number } | null;
+	sourcesRead: number | null;
+	next: string | null;
+	evidence: AtlasEvidenceSummary | null;
+	/**
+	 * Section count for the Report tab's document row. Not part of the agreed
+	 * contract, so it is read when the server happens to send it and simply
+	 * omitted from the row's meta when it does not.
+	 */
+	sectionCount: number | null;
+	/** v1 fields, still rendered by the fallback body. */
+	queries: string[];
+	focus: string[];
+	roundKind: "initial" | "gap-fill" | null;
+	generatedTitle: string | null;
+};
+
+const ATLAS_PHASES: readonly AtlasActivityPhase[] = [
+	"plan",
+	"research",
+	"index",
+	"write",
+	"verify",
+	"render",
+];
+
+const ATLAS_PLAN_STATUSES: readonly AtlasPlanEntryStatus[] = [
+	"queued",
+	"running",
+	"done",
+];
+
+const ATLAS_CONFIDENCES: readonly AtlasPlanConfidence[] = [
+	"corroborated",
+	"single",
+	"mixed",
+	"thin",
+];
+
+const ATLAS_MAX_PLAN_ENTRIES = 24;
+const ATLAS_MAX_EVIDENCE_SOURCES = 40;
+const ATLAS_MAX_TEXT = 240;
+
+function atlasText(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const normalized = value.replace(/\s+/g, " ").trim();
+	return normalized ? normalized.slice(0, ATLAS_MAX_TEXT) : null;
+}
+
+function atlasCount(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	return Math.max(0, Math.round(value));
+}
+
+function atlasStringList(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(atlasText)
+		.filter((entry): entry is string => Boolean(entry))
+		.slice(0, ATLAS_MAX_PLAN_ENTRIES);
+}
+
+function parseAtlasPlanEntry(
+	value: unknown,
+	index: number,
+): AtlasPlanEntry | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	const question = atlasText(record.question);
+	if (!question) return null;
+	const status = ATLAS_PLAN_STATUSES.includes(
+		record.status as AtlasPlanEntryStatus,
+	)
+		? (record.status as AtlasPlanEntryStatus)
+		: "queued";
+	const confidence = ATLAS_CONFIDENCES.includes(
+		record.confidence as AtlasPlanConfidence,
+	)
+		? (record.confidence as AtlasPlanConfidence)
+		: null;
+	return {
+		id: atlasText(record.id) ?? `q${index + 1}`,
+		question,
+		status,
+		sourceCount: atlasCount(record.sourceCount) ?? 0,
+		confidence,
+	};
+}
+
+function parseAtlasEvidence(value: unknown): AtlasEvidenceSummary | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	const sources = Array.isArray(record.sources)
+		? record.sources
+				.map((entry, index): AtlasEvidenceSource | null => {
+					if (!entry || typeof entry !== "object") return null;
+					const source = entry as Record<string, unknown>;
+					const title = atlasText(source.title);
+					if (!title) return null;
+					return {
+						n: atlasCount(source.n) ?? index + 1,
+						title,
+						host: atlasText(source.host) ?? "",
+						date: atlasText(source.date),
+						cited: source.cited === true,
+					};
+				})
+				.filter((entry): entry is AtlasEvidenceSource => entry !== null)
+				.slice(0, ATLAS_MAX_EVIDENCE_SOURCES)
+		: [];
+	const corroborated = atlasCount(record.corroborated) ?? 0;
+	const single = atlasCount(record.single) ?? 0;
+	const inferred = atlasCount(record.inferred) ?? 0;
+	const cut = atlasCount(record.cut) ?? 0;
+	const filteredCount = atlasCount(record.filteredCount) ?? 0;
+	// An evidence object with nothing in it at all is treated as absent, so the
+	// Evidence tab never opens on an empty panel.
+	if (
+		sources.length === 0 &&
+		corroborated + single + inferred + cut + filteredCount === 0
+	) {
+		return null;
+	}
+	return { corroborated, single, inferred, cut, filteredCount, sources };
+}
+
+/** Defensive read of a job's progress details — every field optional. */
+export function parseAtlasActivityDetails(
+	value: unknown,
+): AtlasActivityDetails {
+	const empty: AtlasActivityDetails = {
+		pipelineVersion: null,
+		phase: null,
+		plan: [],
+		round: null,
+		sourcesRead: null,
+		next: null,
+		evidence: null,
+		sectionCount: null,
+		queries: [],
+		focus: [],
+		roundKind: null,
+		generatedTitle: null,
+	};
+	if (!value || typeof value !== "object") return empty;
+	const record = value as Record<string, unknown>;
+	const plan = Array.isArray(record.plan)
+		? record.plan
+				.map(parseAtlasPlanEntry)
+				.filter((entry): entry is AtlasPlanEntry => entry !== null)
+				.slice(0, ATLAS_MAX_PLAN_ENTRIES)
+		: [];
+	const roundRecord =
+		record.round && typeof record.round === "object"
+			? (record.round as Record<string, unknown>)
+			: null;
+	const roundCurrent = atlasCount(roundRecord?.current);
+	const roundTotal = atlasCount(roundRecord?.total);
+	return {
+		pipelineVersion: atlasCount(record.pipelineVersion),
+		phase: ATLAS_PHASES.includes(record.phase as AtlasActivityPhase)
+			? (record.phase as AtlasActivityPhase)
+			: null,
+		plan,
+		round:
+			roundCurrent !== null && roundTotal !== null
+				? { current: roundCurrent, total: roundTotal }
+				: null,
+		sourcesRead: atlasCount(record.sourcesRead),
+		next: atlasText(record.next),
+		evidence: parseAtlasEvidence(record.evidence),
+		sectionCount: atlasCount(record.sectionCount),
+		queries: atlasStringList(record.queries),
+		focus: atlasStringList(record.focus ?? record.gapFillFocus),
+		roundKind:
+			record.roundKind === "gap-fill" || record.roundKind === "initial"
+				? record.roundKind
+				: null,
+		generatedTitle: atlasText(record.generatedTitle),
+	};
+}
+
+/** How many plan questions are finished, and how many there are. */
+export function atlasPlanProgress(plan: AtlasPlanEntry[]): {
+	done: number;
+	total: number;
+} {
+	return {
+		done: plan.filter((entry) => entry.status === "done").length,
+		total: plan.length,
+	};
+}
+
+/** "45s" / "6 min", from the job's own timestamps. Never negative. */
+export function atlasElapsedLabel(
+	startMs: number,
+	endMs: number,
+	translate: Translate,
+): string | null {
+	if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+	const seconds = Math.round((endMs - startMs) / 1000);
+	if (seconds < 1) return null;
+	if (seconds < 60) return translate("atlas.durationSeconds", { seconds });
+	return translate("atlas.durationMinutes", {
+		minutes: Math.max(1, Math.round(seconds / 60)),
+	});
+}
+
+/**
+ * The Atlas job as the client sees it. Structurally the public `AtlasJobCard`
+ * plus the two fields the v2 read model adds: `startedAt` (when the worker
+ * claimed the job — the honest clock for "6 min") and the richer
+ * `progress.details`. Both optional, so a v1 payload satisfies this type.
+ */
+export type AtlasActivityJob = {
+	id: string;
+	conversationId: string;
+	title: string;
+	status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+	stage?: string | null;
+	profile: string;
+	progress?: {
+		percent: number;
+		stage: string;
+		details?: unknown;
+	} | null;
+	sourceCounts: { accepted: number; web: number; local: number };
+	outputs: {
+		htmlChatGeneratedFileId?: string | null;
+		pdfChatGeneratedFileId?: string | null;
+		markdownChatGeneratedFileId?: string | null;
+	};
+	error?: { code: string; message: string; retryable: boolean } | null;
+	startedAt?: number | null;
+	createdAt: number;
+	completedAt?: number | null;
+};
+
+/** The report's own title: the generated one when there is one. */
+export function atlasReportTitle(
+	job: AtlasActivityJob,
+	details: AtlasActivityDetails,
+	translate: Translate,
+): string {
+	return (
+		details.generatedTitle ??
+		(job.title.trim() || translate("atlas.defaultTitle"))
+	);
+}
+
+/**
+ * One Atlas job as an activity row. Running jobs are `alwaysOpen` (pinned, no
+ * chevron — the plan stays visible while it executes); a settled job folds to a
+ * tick with a chevron over the Report / Evidence / Plan tabs.
+ *
+ * A cancelled job is deliberately NOT a failure: it renders as a done row whose
+ * object says how far it got and whose meta reads "Stopped".
+ */
+export function buildAtlasActivityItem(
+	job: AtlasActivityJob,
+	details: AtlasActivityDetails,
+	translate: Translate,
+	nowMs: number,
+): ToolActivityItem {
+	const isActive = job.status === "queued" || job.status === "running";
+	const status: ToolActivityStatus =
+		job.status === "failed" ? "failed" : isActive ? "running" : "done";
+	const reportTitle = atlasReportTitle(job, details, translate);
+	const { done, total } = atlasPlanProgress(details.plan);
+	const startedAt = job.startedAt ?? job.createdAt;
+	const elapsed = atlasElapsedLabel(
+		startedAt,
+		isActive ? nowMs : (job.completedAt ?? nowMs),
+		translate,
+	);
+	const atlasVerb = translate("atlasActivity.verb");
+
+	const object =
+		job.status === "cancelled"
+			? total > 0
+				? translate("atlasActivity.cancelledAfter", { done, total })
+				: translate("atlasActivity.cancelled")
+			: reportTitle;
+
+	let meta = "";
+	if (job.status === "failed") {
+		meta = translate("atlas.stage.failed");
+	} else if (job.status === "cancelled") {
+		meta = translate("atlasActivity.stopped");
+	} else if (isActive) {
+		const questions =
+			total > 0
+				? translate("atlasActivity.questionsProgress", { done, total })
+				: null;
+		meta = [questions, elapsed].filter(Boolean).join(" · ");
+	} else {
+		const sources =
+			job.sourceCounts.accepted > 0
+				? translate("atlas.sourceCount", { count: job.sourceCounts.accepted })
+				: null;
+		meta = [sources, elapsed].filter(Boolean).join(" · ");
+	}
+
+	return {
+		key: `atlas-job-${job.id}`,
+		status,
+		iconType: "file-production",
+		verb: atlasVerb,
+		object,
+		meta,
+		summaryLabel: `${atlasVerb} ${object}`.trim(),
+		// A report is a deliverable: it never folds into the collapsed summary
+		// strip, and while it runs the row and its body are one open element.
+		pinned: true,
+		alwaysOpen: isActive,
+		title: object,
+		body: { kind: "atlas" },
 	};
 }
 

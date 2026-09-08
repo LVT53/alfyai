@@ -16,6 +16,7 @@
 // slides open AND closed with the app's standard reduced-motion-aware
 // transition.
 import { Check, ChevronDown, LoaderCircle, X } from "@lucide/svelte";
+import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -36,6 +37,7 @@ let {
 	onRetryJob = undefined,
 	onCancelJob = undefined,
 	onDismissJob = undefined,
+	bodyContent = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -45,6 +47,14 @@ let {
 	onRetryJob?: ((jobId: string) => void) | undefined;
 	onCancelJob?: ((jobId: string) => void) | undefined;
 	onDismissJob?: ((jobId: string) => void) | undefined;
+	/**
+	 * The panel for a body kind this component does not own — today only
+	 * `atlas`, whose body (AtlasActivityBody) needs the Atlas job and its
+	 * lifecycle callbacks. Passing it in as a snippet keeps this row free of
+	 * Atlas-specific props while the row chrome (status glyph, verb, meta,
+	 * chevron, open/close slide) stays shared.
+	 */
+	bodyContent?: Snippet | undefined;
 } = $props();
 
 // The mockup's "no chevron yet" on a running row falls out of the data rather
@@ -291,6 +301,8 @@ function handleToggle() {
 						onDismiss={onDismissJob}
 					/>
 				{/if}
+			{:else if body.kind === 'atlas'}
+				{@render bodyContent?.()}
 			{:else if body.kind === 'text'}
 				<div class="act-excerpt">{body.text}</div>
 			{:else if body.kind === 'bullets'}
