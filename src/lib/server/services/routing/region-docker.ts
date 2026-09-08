@@ -57,8 +57,16 @@ function isNotFound(error: unknown): boolean {
 	);
 }
 
+// How long a detached-from exec may keep running before it is given up on,
+// and how often its state is polled meanwhile. Geocoder imports of a
+// country-sized extract take 1–3 hours single-threaded.
+export const EXEC_COMPLETION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+export const EXEC_POLL_INTERVAL_MS = 15_000;
+
 export function createDockerodeRegionDocker(
 	docker = new Docker(),
+	sleep: (ms: number) => Promise<void> = (ms) =>
+		new Promise((resolve) => setTimeout(resolve, ms)),
 ): RegionDocker {
 	return {
 		async ping() {
@@ -143,7 +151,23 @@ export function createDockerodeRegionDocker(
 				stream.on("end", () => resolve());
 				stream.on("error", reject);
 			});
-			const inspect = await exec.inspect();
+			// The hijacked stream ending is NOT proof the command finished: the
+			// docker proxy drops a long-idle attach (a Nominatim import runs for
+			// hours), after which the exec keeps running inside the container
+			// while `ExitCode` is still null. Poll the exec until it reports
+			// finished, instead of reporting -1 and moving on to the next step
+			// while the previous one is still writing.
+			let inspect = await exec.inspect();
+			const deadline = Date.now() + EXEC_COMPLETION_TIMEOUT_MS;
+			while (inspect.Running && Date.now() < deadline) {
+				await sleep(EXEC_POLL_INTERVAL_MS);
+				inspect = await exec.inspect();
+			}
+			if (inspect.Running) {
+				throw new Error(
+					`exec still running after ${Math.round(EXEC_COMPLETION_TIMEOUT_MS / 3_600_000)} h: ${cmd.join(" ")}`,
+				);
+			}
 			return {
 				exitCode: inspect.ExitCode ?? -1,
 				// Multiplexed stream frames carry an 8-byte header per frame; keep
