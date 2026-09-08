@@ -179,7 +179,12 @@ let activeModes = $derived.by(() => {
 	if (map.mode === "drive") active.add("car");
 	if (map.mode === "walk") active.add("walk");
 	if (map.mode === "bike") active.add("bike");
-	if (map.mode === "transit") active.add("transit");
+	// A public-transport journey is ONE mode even though it always contains
+	// some walking; only a mixed journey lights up a glyph per leg.
+	if (map.mode === "transit") {
+		active.add("transit");
+		return active;
+	}
 	for (const leg of legs) {
 		if (leg.type === "pt") active.add("transit");
 		else if (leg.type === "drive") active.add("car");
@@ -215,7 +220,8 @@ let headParts = $derived.by(() => {
 		const duration = formatMapDuration(map.durationS);
 		if (duration) parts.push(duration);
 	}
-	if (map.transfers !== undefined && legs.some((leg) => leg.type === "pt")) {
+	// A journey with nothing to change between says so by saying nothing.
+	if (map.transfers && legs.some((leg) => leg.type === "pt")) {
 		parts.push($t("routeItinerary.changesCount", { count: map.transfers }));
 	}
 	if (map.via) parts.push($t("routeItinerary.via", { road: map.via }));
@@ -257,9 +263,8 @@ type TimelineRow = {
 	color: string;
 	glyph: ItineraryGlyph;
 	badge?: string;
-	headsign?: string;
-	platform?: string;
-	stops?: number;
+	// The middot-separated facts after the badge: headsign, platform, stops.
+	facts: string[];
 	detail?: string;
 	range: ItineraryRange | null;
 	steps: ToolCallMapStep[];
@@ -279,6 +284,22 @@ function isChange(leg: ToolCallMapTransitLeg): boolean {
 	return leg.type === "walk" && !(leg.distanceM && leg.distanceM > 50);
 }
 
+// Minutes between two "HH:MM" clock strings the SERVER already computed. It
+// is only ever used for a gap inside one journey, so a wrap past midnight is
+// read as the next day rather than as a negative wait.
+function waitMinutes(from: string, to: string): number {
+	const parse = (clock: string) => {
+		const [hours, minutes] = clock.split(":").map(Number);
+		return Number.isFinite(hours) && Number.isFinite(minutes)
+			? hours * 60 + minutes
+			: null;
+	};
+	const start = parse(from);
+	const end = parse(to);
+	if (start === null || end === null) return 0;
+	return end >= start ? end - start : end + 24 * 60 - start;
+}
+
 let timeline = $derived.by((): TimelineRow[] => {
 	if (legs.length === 0) return [];
 	const rows: TimelineRow[] = [];
@@ -293,27 +314,39 @@ let timeline = $derived.by((): TimelineRow[] => {
 			key: `leg-${index}`,
 			time: leg.depart ?? "",
 			name,
-			kind: leg.type === "pt" ? "ride" : "walk",
+			// Only actual walking gets the dashed rail; a cycle or a drive leg
+			// is a ride like any other, in its own colour.
+			kind: leg.type === "walk" ? "walk" : "ride",
 			color: itineraryLineColor(
 				leg.type === "pt" ? glyphForVehicle(leg.vehicle) : legGlyph(leg),
 				leg.line,
 				leg.color,
 			),
 			glyph,
+			facts: [],
 			range: leg.pointRange ?? null,
 			steps: leg.steps ?? [],
 		};
 		if (leg.type === "pt") {
 			row.badge = leg.line ?? leg.vehicle ?? "";
-			if (leg.headsign) row.headsign = leg.headsign;
-			if (leg.platform) row.platform = leg.platform;
-			if (leg.stops !== undefined) row.stops = leg.stops;
+			if (leg.headsign) {
+				row.facts.push($t("routeItinerary.toward", { place: leg.headsign }));
+			}
+			if (leg.platform) {
+				row.facts.push(
+					$t("routeItinerary.platform", { platform: leg.platform }),
+				);
+			}
+			if (leg.stops !== undefined) {
+				row.facts.push($t("toolActivity.transitStops", { count: leg.stops }));
+			}
 		} else if (leg.type === "walk") {
 			const label = isChange(leg)
 				? $t("routeItinerary.change")
 				: $t("toolActivity.transitWalk");
 			row.detail = [
-				`${label} ${$t("routeItinerary.minutes", { count: minutes })}`,
+				label,
+				$t("routeItinerary.minutes", { count: minutes }),
 				distance,
 			]
 				.filter(Boolean)
@@ -324,9 +357,9 @@ let timeline = $derived.by((): TimelineRow[] => {
 			row.badge = $t(
 				leg.type === "bike" ? "routeItinerary.cycle" : "routeItinerary.drive",
 			);
-			row.detail = [distance, formatMapDuration(minutes * 60)]
-				.filter(Boolean)
-				.join(" · ");
+			row.facts.push(
+				[distance, formatMapDuration(minutes * 60)].filter(Boolean).join(" · "),
+			);
 			if (row.steps.length > 0) {
 				row.stepsLabel = $t(
 					leg.type === "bike"
@@ -337,6 +370,37 @@ let timeline = $derived.by((): TimelineRow[] => {
 			}
 		}
 		rows.push(row);
+		// Two rides back to back leave a gap the reader has to stand in: the
+		// arrival at the interchange and the wait for the next service. Without
+		// its own row the timeline would jump straight from one departure to
+		// the next and quietly lose the arrival time.
+		const next = legs[index + 1];
+		if (
+			next &&
+			leg.type !== "walk" &&
+			next.type !== "walk" &&
+			leg.arrive &&
+			next.depart &&
+			leg.arrive !== next.depart
+		) {
+			rows.push({
+				key: `wait-${index}`,
+				time: leg.arrive,
+				name: leg.to ?? next.from ?? "",
+				kind: "walk",
+				color: "transparent",
+				glyph: "change",
+				facts: [],
+				range: null,
+				steps: [],
+				detail: [
+					$t("routeItinerary.change"),
+					$t("routeItinerary.minutes", {
+						count: waitMinutes(leg.arrive, next.depart),
+					}),
+				].join(" · "),
+			});
+		}
 	});
 	const last = legs[legs.length - 1];
 	rows.push({
@@ -346,6 +410,7 @@ let timeline = $derived.by((): TimelineRow[] => {
 		kind: "last",
 		color: "transparent",
 		glyph: "walk",
+		facts: [],
 		range: null,
 		steps: [],
 	});
@@ -475,7 +540,7 @@ function pin(range: ItineraryRange | null) {
 					</span>
 					<span class="ri-tl-body">
 						<span class="ri-tl-name">{row.name}</span>
-						{#if row.badge || row.detail}
+						{#if row.badge || row.detail || row.facts.length > 0}
 							<span class="ri-tl-sub">
 								{#if row.badge}
 									<span class="ri-badge" style={`--ri-line: ${row.color}`}>
@@ -483,15 +548,10 @@ function pin(range: ItineraryRange | null) {
 										{row.badge}
 									</span>
 								{/if}
-								{#if row.headsign}
-									<span>{$t('routeItinerary.toward', { place: row.headsign })}</span>
-								{/if}
-								{#if row.platform}
-									<span>{$t('routeItinerary.platform', { platform: row.platform })}</span>
-								{/if}
-								{#if row.stops !== undefined}
-									<span>{$t('toolActivity.transitStops', { count: row.stops })}</span>
-								{/if}
+								{#each row.facts as fact, index (index)}
+									{#if index > 0}<span aria-hidden="true">·</span>{/if}
+									<span>{fact}</span>
+								{/each}
 								{#if row.detail}
 									<span class="ri-tl-detail">
 										<span class="ri-tl-detail-icon">{@render modeIcon(row.glyph)}</span>

@@ -257,7 +257,13 @@ describe("RouteItinerary — mixed-mode journey", () => {
 		const { getAllByTestId, container } = render(RouteItinerary, {
 			map: journey,
 		});
-		expect(getAllByTestId("itinerary-leg")).toHaveLength(4);
+		// Three legs, the arrival, and a row for the wait at the station —
+		// without it the timeline would jump from 07:22 to 07:45 and lose the
+		// moment the bike ride actually ends.
+		const rows = getAllByTestId("itinerary-leg");
+		expect(rows).toHaveLength(5);
+		expect(rows[1].textContent).toContain("07:38");
+		expect(rows[1].textContent).toContain("Change · 7 min");
 		expect(container.textContent).toContain("Leave 07:22 → arrive 10:54");
 		expect(container.textContent).toContain("arrive by 11:00");
 		expect(container.textContent).toContain("Cycling directions");
