@@ -123,6 +123,8 @@ const requiredExistingColumns: Array<[string, string]> = [
 	["announcement_campaign_user_states", "snapshot_id"],
 	["announcement_campaign_events", "event_type"],
 	["provider_models", "aliases_json"],
+	["routing_regions", "transit_status"],
+	["routing_regions", "gtfs_url"],
 ];
 
 const baselineAdoptionRequiredTables = [
