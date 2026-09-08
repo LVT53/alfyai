@@ -104,6 +104,138 @@ const THOUGHT_STEP_SAMPLING_TRIGGER_REGEX =
 // a SAMPLING decision (when to call the model), not a text source.
 const THOUGHT_STEP_SAMPLING_FALLBACK_CHAR_CAP = 1200;
 
+// ── Sentence-boundary snapping at anchor CREATION time ────────────────────
+// (owner feedback, 2026-09-08: "It cuts off mid sentences.")
+//
+// Root cause: a step's persisted anchor was EXACTLY the sampled delta window
+// (`sampleStart..sampleEnd`), and those bounds are network-chunk boundaries
+// — a reasoning delta ends wherever the model's token stream happened to
+// flush, never where a thought ends. Every consumer therefore inherited a
+// mid-sentence span: the rail's reveal, the honesty audit harness, and any
+// future export of the durable state. Fixing it only at render time would
+// leave the PERSISTED anchor mid-sentence forever, so the snap happens once,
+// here, before the anchor is ever validated or stored.
+//
+// `start` moves left to the beginning of the sentence (or line) it sits in;
+// `end` moves right through the next sentence terminator (or to the next
+// line break). Both directions are capped so a terminator-free wall of
+// reasoning can never swallow the whole trace, and the snap only ever
+// EXPANDS the span — it can never drop a content word — so the
+// `hasVerbatimContentWordTether` guarantee made against the sampled chunk
+// still holds for the (now larger) anchored text, and a span that resolved
+// before the snap still resolves after it.
+//
+// Deliberately duplicated in shape (not imported) by
+// src/lib/utils/thought-step-anchor.ts's display expansion: that module is
+// client-reachable and may not import anything under $lib/server. The
+// display expansion is a strictly cosmetic superset applied at render time
+// so OLD, pre-snap persisted anchors still read cleanly; this one fixes the
+// durable state itself.
+export const THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS = 400;
+
+function isSentenceTerminator(char: string | undefined): boolean {
+	return char === "." || char === "!" || char === "?";
+}
+
+function snapAnchorStartToSentenceStart(text: string, start: number): number {
+	if (start <= 0) return 0;
+	const previous = text[start - 1];
+	if (previous === "\n" || isSentenceTerminator(previous)) return start;
+	const floor = Math.max(0, start - THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS);
+	let index = start;
+	while (index > floor) {
+		const char = text[index - 1];
+		if (char === "\n" || isSentenceTerminator(char)) break;
+		index -= 1;
+	}
+	// Begin on a real word, never on the whitespace that followed the
+	// previous sentence's terminator.
+	while (index < start && /\s/.test(text[index])) index += 1;
+	return index;
+}
+
+function snapAnchorEndToSentenceEnd(text: string, end: number): number {
+	if (end >= text.length) return text.length;
+	if (isSentenceTerminator(text[end - 1]) || text[end] === "\n") return end;
+	const ceiling = Math.min(
+		text.length,
+		end + THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS,
+	);
+	let index = end;
+	while (index < ceiling) {
+		const char = text[index];
+		if (char === "\n") break;
+		index += 1;
+		if (isSentenceTerminator(char)) break;
+	}
+	return index;
+}
+
+/**
+ * Snaps a freshly-sampled anchor out to the sentence boundaries around it,
+ * against the turn's running reasoning text. Pure and total: bounds are
+ * clamped into `text` first, the result is never narrower than the input,
+ * and `end >= start` always — so it can only ever turn an unresolvable
+ * anchor into a resolvable one, never the reverse. The caller still
+ * validates the RESULT with `resolveThoughtStepAnchorSpan` and drops the
+ * step when it does not resolve (ADR-0056's structural honesty gate is
+ * unchanged). Exported for direct unit testing.
+ */
+export function snapThoughtStepAnchorToSentenceBounds(
+	anchor: ThoughtStepAnchor,
+	text: string,
+): ThoughtStepAnchor {
+	const start = Math.max(0, Math.min(anchor.start, text.length));
+	const end = Math.max(start, Math.min(anchor.end, text.length));
+	const snappedEnd = Math.max(snapAnchorEndToSentenceEnd(text, end), start);
+	let snappedStart = snapAnchorStartToSentenceStart(text, start);
+	// A window that begins on the whitespace right after the previous
+	// sentence's terminator is already at a sentence boundary, but would
+	// render with a leading blank. Trimming whitespace can only ever remove
+	// blanks — never a content word — so the verbatim tether is untouched;
+	// it is skipped entirely when it would empty the span.
+	while (snappedStart < snappedEnd && /\s/.test(text[snappedStart])) {
+		snappedStart += 1;
+	}
+	if (snappedStart >= snappedEnd) {
+		snappedStart = snapAnchorStartToSentenceStart(text, start);
+	}
+	return { start: snappedStart, end: Math.max(snappedEnd, snappedStart) };
+}
+
+// The classifier sees a COMPLETE thought, not a truncated one (owner
+// feedback, 2026-09-08 — "isn't very conclusive"). A window that stops
+// mid-sentence hides the very clause that carries the conclusion, so the
+// model can only describe the activity it saw. When the buffered window
+// contains a sentence terminator, the sample is cut there and the trailing
+// partial sentence is carried over into the next window instead of being
+// classified half-read. The cut is only taken when it keeps at least this
+// fraction of the buffer — otherwise a single early "." would shrink the
+// window down to a sliver with even less to conclude from.
+const THOUGHT_STEP_SAMPLING_MIN_SENTENCE_WINDOW_RATIO = 0.5;
+
+/**
+ * Returns how many leading characters of `buffered` to classify: the buffer
+ * up to and including its last sentence terminator when that keeps enough of
+ * the window, otherwise the whole buffer. Exported for direct unit testing.
+ */
+export function measureSentenceAlignedSampleLength(buffered: string): number {
+	const minimumLength = Math.ceil(
+		buffered.length * THOUGHT_STEP_SAMPLING_MIN_SENTENCE_WINDOW_RATIO,
+	);
+	for (let index = buffered.length - 1; index >= 0; index -= 1) {
+		if (!isSentenceTerminator(buffered[index])) continue;
+		const next = buffered[index + 1];
+		// A terminator only ends a sentence when a boundary follows it, so
+		// decimals and version numbers ("model 4.5", "v1.2") are not cuts.
+		if (next !== undefined && !/\s/.test(next)) continue;
+		const cut = index + 1;
+		if (cut < minimumLength) break;
+		return cut;
+	}
+	return buffered.length;
+}
+
 // "Rate-limited to roughly one new step per 5-7s" (architecture-deepening-
 // slices.md § P3b): a hard floor on how often a classify call can fire per
 // turn. Combined with the marker trigger above, natural reasoning produces a
@@ -751,17 +883,38 @@ export function createThoughtStepClassifierSession(params: {
 			// Can't extend a step that doesn't exist yet — drop defensively
 			// rather than fabricate one with no class.
 			if (!currentStep?.anchor) return;
-			currentStep.anchor = {
+			// The extended end is snapped exactly like a fresh anchor's, so a
+			// merged step's span ends on a sentence terminator too — a
+			// continuation must not re-introduce the mid-sentence cut the
+			// creation-time snap just removed.
+			// Only the END moves: the start was already snapped when the step
+			// was created, and re-snapping it on every continuation could walk
+			// it a further capped stretch backwards through terminator-free
+			// reasoning each time.
+			const extended: ThoughtStepAnchor = {
 				start: currentStep.anchor.start,
-				end: Math.max(currentStep.anchor.end, window.sampleEnd),
+				end: snapThoughtStepAnchorToSentenceBounds(
+					{
+						start: currentStep.anchor.start,
+						end: Math.max(currentStep.anchor.end, window.sampleEnd),
+					},
+					thinkingSoFar,
+				).end,
 			};
+			if (resolveThoughtStepAnchorSpan(extended, thinkingSoFar) === null) {
+				return;
+			}
+			currentStep.anchor = extended;
 			return;
 		}
 
-		const anchor: ThoughtStepAnchor = {
-			start: window.sampleStart,
-			end: window.sampleEnd,
-		};
+		// Owner feedback (2026-09-08) — the persisted anchor is the SNAPPED
+		// span, not the raw delta window, so the durable state itself starts
+		// and ends on a real sentence boundary.
+		const anchor = snapThoughtStepAnchorToSentenceBounds(
+			{ start: window.sampleStart, end: window.sampleEnd },
+			thinkingSoFar,
+		);
 		// Structural honesty gate (ADR-0056 "What makes a step true"): a step
 		// that cannot name a real anchor into the reasoning that produced it
 		// is not emitted. Validated with the SAME function P3a's read model
@@ -812,10 +965,18 @@ export function createThoughtStepClassifierSession(params: {
 			// the async call resolves, so reasoning that arrives while this
 			// call is in flight starts a fresh window instead of being lost
 			// or double-counted.
-			const sampleText = buffered;
-			const sampleEnd = thinkingSoFar.length;
+			//
+			// The window prefers to END on a sentence terminator (owner
+			// feedback, 2026-09-08): the classifier then sees complete
+			// thoughts and can state what they concluded. Whatever partial
+			// sentence trails the cut is carried over into the next window
+			// rather than dropped, so no reasoning is skipped.
+			const sampleLength = measureSentenceAlignedSampleLength(buffered);
+			const sampleText = buffered.slice(0, sampleLength);
+			const carryOver = buffered.slice(sampleLength);
+			const sampleEnd = thinkingSoFar.length - carryOver.length;
 			const sampleStart = sampleEnd - sampleText.length;
-			pendingSinceLastSample = "";
+			pendingSinceLastSample = carryOver;
 			lastSampleAt = nowFn();
 			sampleInFlight = true;
 
