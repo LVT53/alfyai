@@ -89,6 +89,18 @@ const CASES: Case[] = [
 		wrappedNames: ["charFade"],
 		bannedDirectives: [/in:fade=/],
 	},
+	{
+		// The thinking block's disclosures plus the collapsed summary strip /
+		// pinned deliverables fade, all three through the wrappers.
+		file: "src/lib/components/chat/ThinkingBlock.svelte",
+		wrappedNames: ["slideTransition", "flyTransition", "fadeTransition"],
+		bannedDirectives: [
+			/transition:slide=/,
+			/transition:fade=/,
+			/in:fade=/,
+			/in:fly=/,
+		],
+	},
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {
