@@ -474,6 +474,127 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	// Owner feedback (2026-09-08) — "isn't very conclusive". A headline that
+	// only names the activity is dropped at runtime, not merely discouraged
+	// in the prompt; the step still emits with its class (the phase-label
+	// floor), exactly like the other headline guards.
+	it("drops a generic activity headline, even though it is verbatim-tethered, but still emits the step's class", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"understanding-request","summary":"Analyzing the request"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Analyzing the request the user just sent me here.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "understanding-request",
+		});
+	});
+
+	it("keeps a conclusive past-tense headline that states what the reasoning found", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"Found the prefix cache never hits"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "The prefix cache never hits on this serving config.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+			summary: "Found the prefix cache never hits",
+		});
+	});
+
+	it("asks the classifier for a conclusion, not an activity label, in the system prompt", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		const prompt = options.systemPrompt ?? "";
+		expect(prompt).toContain("DECIDED, FOUND, or ESTABLISHED");
+		expect(prompt).toContain("Between 4 and 10 words");
+		expect(prompt).toContain('Never "-ing" activity phrasing');
+		// The generic wording the deterministic post-filter also rejects is
+		// named explicitly, so the model is told the same rule it is judged by.
+		expect(prompt).toContain('"Analyzing the request"');
+		expect(prompt).toContain('"Thinking about options"');
+		expect(prompt).toContain(
+			"analyzing / considering / thinking / looking / exploring / evaluating",
+		);
+		// ...and the superseded present-tense-paraphrase instruction is gone.
+		expect(prompt).not.toContain("short, present-tense paraphrase");
+	});
+
+	it("localizes the conclusive-headline examples for a Hungarian conversation", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		const prompt = options.systemPrompt ?? "";
+		expect(prompt).toContain("A Flash-Next modellt választotta");
+		expect(prompt).toContain("A kérés elemzése");
+		expect(prompt).not.toContain("Chose Flash-Next over Qwen");
+	});
+
 	it("returns a bare continuation verdict, carrying no class or entity", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(
@@ -841,6 +962,71 @@ describe("assertsExternalAction", () => {
 				"Weighing tradeoffs between caching and recomputation",
 			),
 		).toBe(false);
+	});
+});
+
+// Owner feedback (2026-09-08), second half — the deterministic backstop for
+// "not very conclusive" headlines. Deliberately narrow: a generic activity
+// verb is only fatal when the headline names nothing specific alongside it.
+describe("isGenericActivityHeadline", () => {
+	it("rejects headlines that only name a mental activity", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Analyzing the request",
+			"Considering the options",
+			"Thinking about options",
+			"Looking at the problem",
+			"Exploring possible approaches",
+			"Evaluating the alternatives",
+			"Reviewing the details",
+			"Weighing the options",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(true);
+		}
+	});
+
+	it("rejects the Hungarian equivalents (head-final activity nouns)", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"A kérés elemzése",
+			"Lehetőségek mérlegelése",
+			"Gondolkodás a válaszon",
+			"A feladat átgondolása",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(true);
+		}
+	});
+
+	it("keeps a headline that names a concrete subject, even with a generic verb", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Weighing tradeoffs between caching and recomputation",
+			"Analyzing the vLLM prefix cache miss",
+			"A Kafka üzenetsor működését vizsgálja át",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(false);
+		}
+	});
+
+	it("keeps conclusive result phrasing, which names no generic activity verb at all", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Chose Flash-Next over Qwen for latency",
+			"Found the prefix cache never hits",
+			"Comparing option A against option B",
+			"Recalling the user's earlier message",
+			"A Flash-Next modellt választotta a Qwen helyett",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(false);
+		}
 	});
 });
 
