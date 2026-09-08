@@ -844,6 +844,12 @@ const chatDict = {
 		"toolActivity.scratchProgram": "scratch program",
 		"toolActivity.memoriesCount":
 			"{count} memor{count, plural, one {y} other {ies}}",
+		// Collapsed summary strip — repeats of one tool aggregate into a single
+		// count-aware entry instead of one entry each.
+		"toolActivity.summaryTimes": "{verb} {count} times",
+		"toolActivity.summaryRepeat": "{verb} ×{count}",
+		"toolActivity.summaryFailedCount": "{verb} {count} failed",
+		"toolActivity.summaryMemories": "{verb} memories",
 		"toolActivity.sourcesEyebrow": "Sources",
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Output",
@@ -1708,6 +1714,10 @@ const chatDict = {
 		"toolActivity.recalling": "Felidézés",
 		"toolActivity.scratchProgram": "gyors program",
 		"toolActivity.memoriesCount": "{count} emlék",
+		"toolActivity.summaryTimes": "{verb} {count} alkalommal",
+		"toolActivity.summaryRepeat": "{verb} ×{count}",
+		"toolActivity.summaryFailedCount": "{verb} {count} sikertelen",
+		"toolActivity.summaryMemories": "Emlékek felidézve",
 		"toolActivity.sourcesEyebrow": "Források",
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Kimenet",

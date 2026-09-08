@@ -79,6 +79,15 @@ export type ToolActivityItem = {
 	meta: string;
 	/** Short label for the collapsed summary strip ("Searched 6 sources"). */
 	summaryLabel: string;
+	/**
+	 * What repeats of this tool ADD UP TO in the collapsed strip: the unit
+	 * names the quantity, `summaryCount` carries this row's share of it (5
+	 * sources, 1 page, 3 connector actions, 4 memories). A tool with nothing
+	 * countable (Python, a skill, a route) leaves both unset and its repeats
+	 * fold into a "×N" instead.
+	 */
+	summaryUnit?: "sources" | "pages" | "actions" | "memories";
+	summaryCount?: number;
 	/** A deliverable stays visible (with its body open) when the block collapses. */
 	pinned: boolean;
 	/** A file-production row is always open — row + body read as one element. */
@@ -119,6 +128,10 @@ export const TOOL_ACTIVITY_I18N_KEYS: readonly I18nKey[] = [
 	...Object.values(VERB_KEYS),
 	"toolActivity.scratchProgram",
 	"toolActivity.memoriesCount",
+	"toolActivity.summaryTimes",
+	"toolActivity.summaryRepeat",
+	"toolActivity.summaryFailedCount",
+	"toolActivity.summaryMemories",
 	"toolActivity.sourcesEyebrow",
 	"toolActivity.program",
 	"toolActivity.output",
@@ -304,6 +317,8 @@ export function buildToolActivityItem(
 		...item,
 		meta: failedMeta,
 		summaryLabel: `${item.verb} ${failedMeta}`,
+		// A call that failed contributed nothing to count up.
+		summaryCount: 0,
 		// Nothing failed is a deliverable, and nothing failed pins itself open.
 		pinned: false,
 		alwaysOpen: false,
@@ -343,6 +358,8 @@ function buildSettledToolActivityItem(
 			object: query,
 			meta: sourcesMeta,
 			summaryLabel: sourcesMeta ? `${searchVerb} ${sourcesMeta}` : searchVerb,
+			summaryUnit: "sources",
+			summaryCount: sources.length,
 			title: query,
 			body:
 				sources.length > 0
@@ -396,6 +413,8 @@ function buildSettledToolActivityItem(
 			object,
 			meta: elapsed ?? "",
 			summaryLabel: translate("toolCalls.readPagesCount", { count: 1 }),
+			summaryUnit: "pages",
+			summaryCount: 1,
 			title: object,
 			body: hasRevealableBody
 				? {
@@ -488,6 +507,8 @@ function buildSettledToolActivityItem(
 			object,
 			meta: elapsed ?? "",
 			summaryLabel: `${memoryVerb} ${object}`.trim(),
+			summaryUnit: "memories",
+			summaryCount: bullets.length,
 			title: object,
 			body:
 				bullets.length > 0
@@ -553,6 +574,8 @@ export function buildConnectorActivityItem(
 		object,
 		meta: anyFailed ? translate("toolCalls.failed") : "",
 		summaryLabel: `${label} ${object}`,
+		summaryUnit: "actions",
+		summaryCount: tools.length,
 		pinned: false,
 		alwaysOpen: false,
 		title: `${label} · ${object}`,
@@ -570,41 +593,110 @@ export function buildConnectorActivityItem(
 	};
 }
 
+type ToolActivitySummaryGroup = {
+	key: string;
+	iconType: ToolCallIconType;
+	verb: string;
+	failed: boolean;
+	/** The first row of the group — its label is what a lone occurrence shows. */
+	first: ToolActivityItem;
+	/** How many rows folded in. */
+	occurrences: number;
+	/** Sum of `summaryCount` across them (sources, pages, actions, memories). */
+	total: number;
+};
+
+/** The label one group of same-kind rows contributes to the strip. */
+function summaryGroupLabel(
+	group: ToolActivitySummaryGroup,
+	translate: Translate,
+): string {
+	// One call of a tool reads exactly as it did before aggregation.
+	if (group.occurrences === 1) return group.first.summaryLabel;
+	if (group.failed) {
+		return translate("toolActivity.summaryFailedCount", {
+			verb: group.verb,
+			count: group.occurrences,
+		});
+	}
+	switch (group.first.summaryUnit) {
+		case "pages":
+			// "Read 4 pages" — the pages ARE the calls, so no "×4" as well.
+			return translate("toolCalls.readPagesCount", { count: group.total });
+		case "sources": {
+			// "Searched 3 times · 14 sources" — how often, then what it yielded.
+			const times = translate("toolActivity.summaryTimes", {
+				verb: group.verb,
+				count: group.occurrences,
+			});
+			return group.total > 0
+				? `${times} · ${translate("toolCalls.sourcesCount", { count: group.total })}`
+				: times;
+		}
+		case "actions":
+			// "Calendar 5 actions" — the same shape a single group already uses,
+			// with the actions of every group summed.
+			return `${group.verb} ${translate("toolCalls.actionsCount", { count: group.total })}`;
+		case "memories":
+			// A recall count is not a number the user can act on, and several
+			// recalls are one thing that happened: "Recalled memories".
+			return translate("toolActivity.summaryMemories", { verb: group.verb });
+		default:
+			// Nothing countable behind it (Python, a skill, an image search):
+			// "Ran Python ×2".
+			return translate("toolActivity.summaryRepeat", {
+				verb: group.verb,
+				count: group.occurrences,
+			});
+	}
+}
+
 /**
- * The collapsed-and-done summary strip: one short label per tool, in arrival
- * order, joined by middle dots in the template. Only non-pinned rows fold in —
- * deliverables keep their own pinned row.
+ * The collapsed-and-done summary strip: one entry per KIND of tool, in the
+ * order each kind first appeared, joined by middle dots in the template. Only
+ * non-pinned rows fold in — deliverables keep their own pinned row.
+ *
+ * Repeats aggregate rather than queueing up: a turn that searched three times
+ * spends one slot ("Searched 3 times · 14 sources"), not three. The grouping
+ * key is the icon type plus the verb — the two things that make two rows read
+ * as "the same tool again" — and successes never merge with failures, so a
+ * turn that read four pages and failed two says both ("Read 4 pages · Read 2
+ * failed") instead of hiding either.
  */
 export function buildToolActivitySummary(
 	items: ToolActivityItem[],
 	translate: Translate,
 ): { key: string; iconType: ToolCallIconType; label: string }[] {
-	// Consecutive read rows collapse into one "Read N pages" item — a turn
-	// that read four pages should not spend four slots of the strip saying so.
-	const readCount = items.filter(
-		(item) => item.iconType === "fetch-url" && item.status !== "failed",
-	).length;
-	const summary: { key: string; iconType: ToolCallIconType; label: string }[] =
-		[];
-	let readFolded = false;
+	const groups = new Map<string, ToolActivitySummaryGroup>();
+	const order: string[] = [];
 	for (const item of items) {
-		if (item.iconType === "fetch-url" && item.status !== "failed") {
-			if (readFolded) continue;
-			readFolded = true;
-			summary.push({
-				key: item.key,
-				iconType: item.iconType,
-				label: translate("toolCalls.readPagesCount", { count: readCount }),
-			});
+		const failed = item.status === "failed";
+		const groupKey = `${item.iconType} ${item.verb} ${failed}`;
+		const existing = groups.get(groupKey);
+		if (existing) {
+			existing.occurrences += 1;
+			existing.total += item.summaryCount ?? 0;
 			continue;
 		}
-		summary.push({
+		groups.set(groupKey, {
 			key: item.key,
 			iconType: item.iconType,
-			label: item.summaryLabel,
+			verb: item.verb,
+			failed,
+			first: item,
+			occurrences: 1,
+			total: item.summaryCount ?? 0,
 		});
+		order.push(groupKey);
 	}
-	return summary;
+	return order.map((groupKey) => {
+		const group = groups.get(groupKey) as ToolActivitySummaryGroup;
+		return {
+			key: group.key,
+			iconType: group.iconType,
+			label: summaryGroupLabel(group, translate),
+		};
+	});
 }
 
 /**

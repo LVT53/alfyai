@@ -412,4 +412,182 @@ describe("collapsed summary strip", () => {
 			{ key: "d", iconType: "run-python", label: "Ran Python" },
 		]);
 	});
+
+	function search(
+		key: string,
+		query: string,
+		sources: string[],
+		overrides: Partial<ToolCallSegment> = {},
+	) {
+		return buildToolActivityItem(
+			toolCall({
+				input: { query },
+				candidates: sources.map((url, index) => ({
+					id: `${key}-${index}`,
+					title: url,
+					url,
+					sourceType: "web",
+				})),
+				...overrides,
+			} as Partial<ToolCallSegment>),
+			key,
+			translate,
+		);
+	}
+
+	// The owner's report: the strip listed every call one by one, so a turn
+	// that searched three times said "Searched 5 sources · Searched 4 sources
+	// · Searched 5 sources". Repeats of one tool now aggregate.
+	it("aggregates repeated searches into one entry with the calls and the sources summed", () => {
+		const items = [
+			search("s1", "cork weather", ["https://met.ie", "https://yr.no"]),
+			search("s2", "cork tides", ["https://tides.ie"]),
+			search("s3", "cork events", ["https://events.ie", "https://what.ie"]),
+		];
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			{
+				key: "s1",
+				iconType: "web-search",
+				label: "Searched 3 times · 5 sources",
+			},
+		]);
+	});
+
+	it("says only how often it searched when the searches returned no sources", () => {
+		const items = [search("s1", "cork weather", []), search("s2", "tides", [])];
+
+		expect(buildToolActivitySummary(items, translate)[0].label).toBe(
+			"Searched 2 times",
+		);
+	});
+
+	it("aggregates non-adjacent reads, not just consecutive ones", () => {
+		const read = (key: string, url: string) =>
+			buildToolActivityItem(
+				toolCall({ name: "fetch_url", input: { url } }),
+				key,
+				translate,
+			);
+		const items = [
+			read("r1", "https://met.ie"),
+			search("s1", "cork tides", ["https://tides.ie"]),
+			read("r2", "https://yr.no"),
+			read("r3", "https://metoffice.gov.uk"),
+			read("r4", "https://windy.com"),
+		];
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			{ key: "r1", iconType: "fetch-url", label: "Read 4 pages" },
+			{ key: "s1", iconType: "web-search", label: "Searched 1 source" },
+		]);
+	});
+
+	it("counts repeats of an uncountable tool with a multiplier", () => {
+		const python = (key: string, code: string) =>
+			buildToolActivityItem(
+				toolCall({ name: "run_python", input: { code } }),
+				key,
+				translate,
+			);
+
+		expect(
+			buildToolActivitySummary(
+				[python("p1", "print(1)"), python("p2", "print(2)")],
+				translate,
+			),
+		).toEqual([{ key: "p1", iconType: "run-python", label: "Ran Python ×2" }]);
+	});
+
+	it("sums the actions of several connector groups for one capability", () => {
+		const items = [
+			buildConnectorActivityItem(
+				[
+					toolCall({ name: "calendar", input: { action: "list_events" } }),
+					toolCall({ name: "calendar", input: { action: "find_free_slots" } }),
+				],
+				"g1",
+				translate,
+			),
+			buildConnectorActivityItem(
+				[
+					toolCall({ name: "calendar", input: { action: "create_event" } }),
+					toolCall({ name: "calendar", input: { action: "invite" } }),
+					toolCall({ name: "calendar", input: { action: "notify" } }),
+				],
+				"g2",
+				translate,
+			),
+		];
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			{ key: "g1", iconType: "calendar", label: "Calendar 5 actions" },
+		]);
+	});
+
+	it("folds several recalls into a count-less 'Recalled memories'", () => {
+		const recall = (key: string, titles: string[]) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "memory_context",
+					input: { query: "trip" },
+					candidates: titles.map((title, index) => ({
+						id: `${key}-${index}`,
+						title,
+						sourceType: "memory",
+					})),
+				} as Partial<ToolCallSegment>),
+				key,
+				translate,
+			);
+		const items = [recall("m1", ["Likes trains"]), recall("m2", ["Cork trip"])];
+
+		const summary = buildToolActivitySummary(items, translate);
+		expect(summary).toHaveLength(1);
+		expect(summary[0].label).toBe("Recalled memories");
+	});
+
+	it("keeps failures in their own aggregate beside the successes of the same tool", () => {
+		const read = (key: string, url: string, failed = false) =>
+			buildToolActivityItem(
+				toolCall({
+					name: "fetch_url",
+					input: { url },
+					status: failed ? "failed" : "done",
+				}),
+				key,
+				translate,
+			);
+		const items = [
+			read("r1", "https://met.ie"),
+			read("f1", "https://blocked.example", true),
+			read("r2", "https://yr.no"),
+			read("f2", "https://timeout.example", true),
+		];
+
+		expect(buildToolActivitySummary(items, translate)).toEqual([
+			{ key: "r1", iconType: "fetch-url", label: "Read 2 pages" },
+			{ key: "f1", iconType: "fetch-url", label: "Read 2 failed" },
+		]);
+	});
+
+	it("keeps every entry in the order its tool first appeared", () => {
+		const items = [
+			buildToolActivityItem(
+				toolCall({ name: "run_python", input: { code: "print(1)" } }),
+				"p1",
+				translate,
+			),
+			search("s1", "cork weather", ["https://met.ie"]),
+			buildToolActivityItem(
+				toolCall({ name: "run_python", input: { code: "print(2)" } }),
+				"p2",
+				translate,
+			),
+		];
+
+		expect(
+			buildToolActivitySummary(items, translate).map((entry) => entry.key),
+		).toEqual(["p1", "s1"]);
+	});
 });
