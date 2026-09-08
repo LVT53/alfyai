@@ -7,6 +7,7 @@ import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { parseMirrorList } from "./extract-mirrors";
 import { loadGeofabrikIndex } from "./geofabrik";
+import { parseGtfsFeeds } from "./gtfs-feeds";
 import { createDockerodeRegionDocker } from "./region-docker";
 import {
 	createRoutingRegionManager,
@@ -20,6 +21,9 @@ const START_TIMEOUT_MS = 90 * 1000;
 const DOWNLOAD_STALL_MS = 60 * 1000;
 const DOWNLOAD_MAX_MS = 3 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 20;
+// A timetable rebuild stops the region's container for the length of the
+// build, so an AUTOMATIC refresh may only start between 03:00 and 05:00 local.
+const TRANSIT_REFRESH_WINDOW = { startHour: 3, endHour: 5 };
 
 let manager: RoutingRegionManager | null = null;
 let managerKey = "";
@@ -61,6 +65,10 @@ export function buildRegionManagerConfig(): RoutingRegionManagerConfig {
 			legacyBase && config.routingLegacyRegionId
 				? { id: config.routingLegacyRegionId, baseUrl: legacyBase }
 				: null,
+		gtfsFeeds: parseGtfsFeeds(config.routingGtfsFeeds),
+		gtfsRefreshMs: config.routingGtfsRefreshDays * 24 * 60 * 60 * 1000,
+		gtfsMaxBytes: config.routingGtfsMaxMb * 1048576,
+		transitRefreshWindow: TRANSIT_REFRESH_WINDOW,
 	};
 }
 
@@ -73,7 +81,12 @@ export function isRegionRoutingConfigured(): boolean {
 
 export function getRoutingRegionManager(): RoutingRegionManager {
 	const managerConfig = buildRegionManagerConfig();
-	const key = JSON.stringify(managerConfig);
+	// `gtfsFeeds` is a Map, which JSON.stringify would flatten to `{}` — a
+	// feed added or changed at runtime would then not invalidate the cached
+	// manager. Expand Maps into entry arrays so the key is honest.
+	const key = JSON.stringify(managerConfig, (_key, value) =>
+		value instanceof Map ? Array.from(value.entries()) : value,
+	);
 	if (manager && managerKey === key) return manager;
 	managerKey = key;
 	manager = createRoutingRegionManager(managerConfig, {
@@ -107,6 +120,16 @@ export function ensureRoutingRegionScheduler(): void {
 			.runIdleSweep()
 			.catch((error) =>
 				console.error("[ROUTING_REGIONS] idle sweep failed", String(error)),
+			);
+		// Same tick picks up newly configured GTFS feeds and, inside the
+		// nightly window, queues the timetable refreshes that have come due.
+		active
+			.runTransitMaintenance()
+			.catch((error) =>
+				console.error(
+					"[ROUTING_REGIONS] transit maintenance failed",
+					String(error),
+				),
 			);
 	}, IDLE_SWEEP_INTERVAL_MS);
 	sweepTimer.unref?.();
