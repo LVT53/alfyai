@@ -265,9 +265,11 @@ describe("buildAtlasV2DocumentSource", () => {
 		expect(sources.sources[0].url).toBe("https://source2.example/report");
 	});
 
-	it("carries a confidence legend and no basis prose", () => {
+	it("annotates every sentence with an inline confidence token and no basis prose", () => {
 		const text = JSON.stringify(documentSource);
-		expect(text).toContain("Confidence key");
+		// The renderers draw the legend themselves from these annotations.
+		expect(text).toMatch(/\[\[cite:\d+:[csi]\]\]/);
+		expect(text).not.toContain("Confidence key");
 		expect(text.toLowerCase()).not.toContain("basis");
 		expect(text).not.toContain("basisMarkers");
 	});
@@ -278,7 +280,9 @@ describe("buildAtlasV2DocumentSource", () => {
 		// The HTML renderer resolves `[n]` against the Sources block's order, so
 		// the published numbering has to line up with the source list.
 		expect(html).toContain("source2.example");
-		expect(html).toContain(ATLAS_V2_CONFIDENCE_MARKS.single);
+		// The HTML renderer turns the annotation into a coloured dot plus a legend.
+		expect(html).toContain("cite-dot--single");
+		expect(html).toContain("cite-legend");
 
 		const markdown =
 			renderStandardReportMarkdown(documentSource).content.toString("utf8");

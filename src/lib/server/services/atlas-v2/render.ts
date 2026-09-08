@@ -166,6 +166,34 @@ export function renderSentenceWithCitations(sentence: {
 		: `${sentence.text} ${mark}`;
 }
 
+const CONFIDENCE_LEVEL_CODE: Record<AtlasV2Confidence, "c" | "s" | "i"> = {
+	corroborated: "c",
+	single: "s",
+	inferred: "i",
+};
+
+/**
+ * `"Solar reached 8 GW. [3][7][[cite:7:c]]"` — the document form: citations
+ * followed by an inline confidence annotation the file-production renderers
+ * turn into a coloured dot (HTML, PDF) or a superscript key (Markdown, DOCX),
+ * with their own legend under the source list. A sentence with no citation
+ * carries a bare `[[cite:i]]`-style annotation.
+ */
+export function renderSentenceWithCitationTokens(sentence: {
+	text: string;
+	citations: number[];
+	confidence: AtlasV2Confidence;
+}): string {
+	const code = CONFIDENCE_LEVEL_CODE[sentence.confidence];
+	const last = sentence.citations.at(-1);
+	const token =
+		last === undefined ? `[[cite:${code}]]` : `[[cite:${last}:${code}]]`;
+	const citations = sentence.citations
+		.map((citation) => `[${citation}]`)
+		.join("");
+	return `${sentence.text} ${citations}${token}`;
+}
+
 function paragraphBlock(
 	sentences: Array<{
 		text: string;
@@ -175,7 +203,7 @@ function paragraphBlock(
 ): GeneratedDocumentBlock {
 	return {
 		type: "paragraph",
-		text: sentences.map(renderSentenceWithCitations).join(" "),
+		text: sentences.map(renderSentenceWithCitationTokens).join(" "),
 	};
 }
 
@@ -217,10 +245,8 @@ export function buildAtlasV2DocumentSource(
 		for (const paragraph of input.summary.paragraphs) {
 			blocks.push(paragraphBlock(paragraph));
 		}
-		blocks.push({
-			type: "paragraph",
-			text: chrome.confidenceLegend,
-		});
+		// No legend paragraph here: every renderer draws its own confidence
+		// legend under the source list from the inline annotations.
 	}
 
 	for (const section of input.publication.sections) {
