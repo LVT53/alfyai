@@ -240,7 +240,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		map_route: {
 			description:
-				'Geography on OpenStreetMap data. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations) or `isochrone` (origin, ranges_s in seconds). A place is a name string or {"lat":52.52,"lng":13.4}; `mode` is drive (default), walk or bike. Example: {"action":"route","origin":"Berlin Hbf","destination":"Brandenburg Gate","mode":"walk"}. It does not know where the user is: call `location` first for their coordinates. Narrate the structured result (distance_m, duration_s, legs, polygons) and always include "© OpenStreetMap contributors".',
+				'Places, distances, travel times and routes on OpenStreetMap data — the ONLY tool for "how far", "how long to get there", "route/directions", "what is within 20 minutes", or turning a place name into coordinates; never use image_search or research_web for those. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations) or `isochrone` (origin, ranges_s in seconds). A place is a name string or {"lat":52.52,"lng":13.4}; `mode` is drive (default), walk or bike. Example: {"action":"route","origin":"Berlin Hbf","destination":"Brandenburg Gate","mode":"walk"}. It does not know where the user is: call `location` first for their coordinates. Narrate the structured result (distance_m, duration_s, legs, polygons) and always include "© OpenStreetMap contributors".',
 			errorPrefix: "Routing failed",
 		},
 		memory_context: {
@@ -250,7 +250,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		image_search: {
 			description:
-				'Find web images for the current request: {"query": "golden retriever puppy"}. Returns a list of image URLs. Embed the ones you use in your visible answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible to them.',
+				'Find web images (photos, illustrations, diagrams) to show in the answer: {"query": "golden retriever puppy"}. Returns a list of image URLs. Not for maps, routes or distances — use map_route, which renders its own map card. Embed the ones you use in your visible answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible to them.',
 			errorPrefix: "Image search failed",
 		},
 		produce_file: {
@@ -332,7 +332,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		map_route: {
 			description:
-				'Földrajz OpenStreetMap adatokon. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations) vagy `isochrone` (origin, ranges_s másodpercben). Egy hely lehet helynév szöveg vagy {"lat":52.52,"lng":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {"action":"route","origin":"Keleti pályaudvar","destination":"Lánchíd","mode":"walk"}. Nem tudja, hol van a felhasználó: előbb hívd a `location` eszközt a koordinátákért. Mondd el az eredményt (distance_m, duration_s, legs, poligonok), és mindig szerepeljen benne a "© OpenStreetMap contributors" felirat.',
+				'Helyek, távolságok, menetidők és útvonalak OpenStreetMap adatokon — az EGYETLEN eszköz a „milyen messze”, „mennyi idő odaérni”, „útvonal/útbaigazítás”, „mi érhető el 20 percen belül” kérdésekhez és helynevek koordinátává alakításához; ezekre soha ne használd az image_search vagy research_web eszközt. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations) vagy `isochrone` (origin, ranges_s másodpercben). Egy hely lehet helynév szöveg vagy {"lat":52.52,"lng":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {"action":"route","origin":"Keleti pályaudvar","destination":"Lánchíd","mode":"walk"}. Nem tudja, hol van a felhasználó: előbb hívd a `location` eszközt a koordinátákért. Mondd el az eredményt (distance_m, duration_s, legs, poligonok), és mindig szerepeljen benne a "© OpenStreetMap contributors" felirat.',
 			errorPrefix: "Az útvonaltervezés sikertelen",
 		},
 		memory_context: {
@@ -342,7 +342,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		image_search: {
 			description:
-				'Képek keresése az interneten az aktuális kéréshez: {"query": "aranyszínű retriever kölyök"}. Kép-URL-ek listáját adja vissza. A használt képeket ágyazd be a látható válaszba Markdown képszintaxissal: `![alt szöveg](url)`, ott, ahová valók; a felhasználó nem látja a nyers eszközkimenetet, ezért a be nem ágyazott kép láthatatlan marad számára.',
+				'Webes képek (fotók, illusztrációk, ábrák) keresése a válaszhoz: {"query": "aranyszínű retriever kölyök"}. Kép-URL-ek listáját adja vissza. Térképhez, útvonalhoz vagy távolsághoz nem való — arra a map_route szolgál, amely saját térképkártyát jelenít meg. A használt képeket ágyazd be a látható válaszba Markdown képszintaxissal: `![alt szöveg](url)`, ott, ahová valók; a felhasználó nem látja a nyers eszközkimenetet, ezért a be nem ágyazott kép láthatatlan marad számára.',
 			errorPrefix: "A képkeresés sikertelen",
 		},
 		produce_file: {
