@@ -706,9 +706,11 @@ export async function runAtlasV2Pipeline(
 	const evidence = buildAtlasV2ProgressEvidence({
 		index,
 		totals: combinedVerification.totals,
-		citedSourceNumbers: publication.sources
-			.filter((source) => source.n > 0)
-			.map((source) => source.n),
+		// In the PUBLISHED numbering. A source only a Limitations contradiction
+		// names is published but not cited, so this is not simply every source.
+		citedSourceNumbers: combinedVerification.citedSourceNumbers
+			.map((citation) => publication.renumberMap.get(citation))
+			.filter((citation): citation is number => citation !== undefined),
 		publishedSources: publication.sources,
 	});
 	await heartbeat("verify", {
