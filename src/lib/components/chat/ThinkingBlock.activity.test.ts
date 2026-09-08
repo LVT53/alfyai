@@ -2,6 +2,7 @@
 // top of ThinkingBlock's existing behaviour (which ThinkingBlock.test.ts
 // covers): the collapsed summary strip, pinned deliverables surviving the
 // collapse, and a producing file row that is open on its own.
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -109,6 +110,43 @@ describe("ThinkingBlock tool activity", () => {
 		const strip = screen.getByTestId("tool-activity-summary");
 		expect(strip.textContent).toContain("Searched 1 source");
 		expect(strip.querySelector(".summary-item")).not.toBeNull();
+	});
+
+	// The strip takes the live list's place the instant the turn finishes, so
+	// it used to pop into the vacated space. It now fades in through the
+	// block's reduced-motion-aware wrapper.
+	it("fades the summary strip and the pinned deliverables in when the turn completes", () => {
+		render(ThinkingBlock, {
+			props: {
+				content: "Working out the distance.",
+				thinkingIsDone: true,
+				thinkingDurationSeconds: 14,
+				segments: [searchSegment, routeSegment],
+			},
+		});
+
+		// It mounts only after completion, with the live list already gone…
+		expect(screen.queryByTestId("tool-activity-stack")).toBeNull();
+		expect(screen.getByTestId("tool-activity-summary")).toBeInTheDocument();
+		const pinned = screen.getByTestId("tool-activity-pinned").parentElement;
+		expect(pinned?.classList.contains("pinned-activity")).toBe(true);
+
+		// …and both are wired to the wrapped fade rather than appearing at
+		// full opacity. jsdom applies no component CSS and Svelte's `in:`
+		// interpolates styles directly, so the directive itself is the
+		// subject — the approach reduced-motion-transitions.regression.test.ts
+		// already takes for motion that cannot be observed in jsdom.
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/ThinkingBlock.svelte`,
+			"utf-8",
+		);
+		expect(source).toMatch(/const fadeTransition = reducedMotionAware\(fade\)/);
+		expect(source).toMatch(
+			/data-testid="tool-activity-summary"[\s\S]*?in:fadeTransition=\{\{ duration: 200 \}\}/,
+		);
+		expect(source).toMatch(
+			/class="pinned-activity" in:fadeTransition=\{\{ duration: 200 \}\}/,
+		);
 	});
 
 	it("expands the whole thinking block when the summary strip is clicked", async () => {

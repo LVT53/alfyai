@@ -1375,8 +1375,18 @@ function sendFollowUp(question: string) {
 	.fade-in {
 		animation: fadeIn var(--duration-micro) var(--ease-out) forwards;
 	}
+	/* The row wraps at ANY width (it used to wrap only under 480px): a
+	   follow-up chip now shows its whole question instead of five words and
+	   an ellipsis, so two chips plus the icon buttons rarely fit one line.
+	   The icon buttons keep the first line — they come first in DOM order and
+	   never shrink — and the chips flow onto the following lines. The
+	   hover-reveal (`md:opacity-0 md:group-hover:opacity-100` in the class
+	   list) is untouched: it animates opacity on this same element, so a
+	   taller, wrapped row reveals exactly as the one-line row did. */
 	.copy-action-row {
 		margin-top: var(--space-sm);
+		flex-wrap: wrap;
+		row-gap: var(--space-xs);
 	}
 
 	/* Approved mockup — the action row's icon buttons shrink to 28x28 with a
@@ -1689,12 +1699,18 @@ function sendFollowUp(question: string) {
 		flex-shrink: 0;
 	}
 
+	/* The chip shows the WHOLE question. It used to clip at 220px with an
+	   ellipsis, which cut most suggestions after ~5 words — a question you
+	   cannot read is not a question you can pick. So: no max-width, text
+	   wraps onto as many lines as it needs, left-aligned (a wrapped centred
+	   pill reads as a ragged blob), pill radius and padding unchanged. */
 	.follow-up-chip {
-		flex-shrink: 0;
-		max-width: 220px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		flex: 0 1 auto;
+		min-width: 0;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		text-align: left;
+		line-height: 1.35;
 		background: transparent;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-full);
@@ -1719,16 +1735,12 @@ function sendFollowUp(question: string) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* Narrow viewports only: two chips plus the icon buttons overflow a 360px
-	   screen while the row cannot wrap. Let it wrap and turn the divider into
-	   a zero-height full-width break, so the chips drop onto their own line
-	   under the icons and shrink to fit. Desktop keeps the approved mockup —
-	   chips inline on the action row — untouched. */
+	/* Narrow viewports: the chips get the whole width to themselves. The
+	   divider becomes a zero-height full-width break, forcing every chip onto
+	   its own line under the icon buttons rather than sharing one. (Wider
+	   viewports wrap too — see .copy-action-row above — but there the divider
+	   stays a real 1px rule and the chips only break when they must.) */
 	@media (max-width: 480px) {
-		.copy-action-row {
-			flex-wrap: wrap;
-		}
-
 		.follow-up-divider {
 			flex-basis: 100%;
 			width: 100%;
@@ -1738,8 +1750,7 @@ function sendFollowUp(question: string) {
 		}
 
 		.follow-up-chip {
-			flex-shrink: 1;
-			max-width: 100%;
+			flex-basis: 100%;
 		}
 	}
 

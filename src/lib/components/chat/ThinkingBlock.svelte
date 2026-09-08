@@ -753,7 +753,7 @@ function toggleFullReasoning(): void {
 </script>
 
 <script module>
-	import { fly, slide } from 'svelte/transition';
+	import { fade, fly, slide } from 'svelte/transition';
 	import { preserveScrollOnToggle } from '$lib/actions/preserve-scroll';
 	import { reducedMotionAware } from '$lib/utils/motion';
 
@@ -767,6 +767,9 @@ function toggleFullReasoning(): void {
 	// reduced-motion override cannot reach, unlike plain :hover transitions.
 	const slideTransition = reducedMotionAware(slide);
 	const flyTransition = reducedMotionAware(fly);
+	// The collapsed summary strip and the pinned deliverables both appear the
+	// moment the live list disappears; they fade in rather than pop.
+	const fadeTransition = reducedMotionAware(fade);
 </script>
 
 <!--
@@ -1032,6 +1035,13 @@ function toggleFullReasoning(): void {
 		/>
 	{:else if activityItems.length > 0 && !expanded}
 		{#if activitySummary.length > 0}
+			<!--
+				The strip REPLACES the live list the instant the turn finishes,
+				so without a transition it pops into the space the list just
+				vacated. It fades in over the same 200ms the rest of this
+				block's disclosures use (`in:` only — on the way out the block
+				is expanding, and the panel's own slide already carries that).
+			-->
 			<button
 				type="button"
 				class="activity-summary-strip"
@@ -1039,6 +1049,7 @@ function toggleFullReasoning(): void {
 				onclick={toggle}
 				aria-expanded={expanded}
 				aria-label={$t('toolActivity.expandActivity')}
+				in:fadeTransition={{ duration: 200 }}
 			>
 				{#each activitySummary as entry, index (entry.key)}
 					{#if index > 0}
@@ -1053,12 +1064,19 @@ function toggleFullReasoning(): void {
 			</button>
 		{/if}
 		{#if pinnedActivityItems.length > 0}
-			<ToolActivityList
-				items={pinnedActivityItems}
-				openKeys={openActivityKeys}
-				onToggle={toggleActivityRow}
-				testId="tool-activity-pinned"
-			/>
+			<!--
+				The deliverables appear at the same moment, out of the same
+				vacated space, so they fade in with the strip rather than
+				popping in beside it. A transition cannot go on a component,
+				hence the wrapper. -->
+			<div class="pinned-activity" in:fadeTransition={{ duration: 200 }}>
+				<ToolActivityList
+					items={pinnedActivityItems}
+					openKeys={openActivityKeys}
+					onToggle={toggleActivityRow}
+					testId="tool-activity-pinned"
+				/>
+			</div>
 		{/if}
 	{/if}
 
@@ -1341,6 +1359,15 @@ function toggleFullReasoning(): void {
 	.activity-summary-strip:hover,
 	.activity-summary-strip:focus-visible {
 		color: var(--text-primary);
+	}
+
+	/* Exists only to carry the pinned rows' fade-in (a transition cannot be
+	   put on a component), so it must be layout-neutral: full width, no box
+	   of its own, and un-clipped for the rows' source popovers. */
+	.pinned-activity {
+		width: 100%;
+		min-width: 0;
+		overflow: visible;
 	}
 
 	.activity-summary-strip:focus-visible {
