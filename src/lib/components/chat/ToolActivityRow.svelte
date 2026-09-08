@@ -282,11 +282,16 @@ function handleToggle() {
 </div>
 
 <style>
+	/* Both the entry and the body below stay explicitly un-clipped: the source
+	   popover is absolutely positioned inside the body and hangs past its
+	   bottom edge, so an `overflow: hidden` anywhere up this chain would trap
+	   it. (.thinking-block above already carries the same note.) */
 	.act-entry {
 		display: flex;
 		flex-direction: column;
 		width: 100%;
 		min-width: 0;
+		overflow: visible;
 	}
 
 	/* The row's -8px horizontal margin pulls its hover wash out past the text
@@ -442,6 +447,7 @@ function handleToggle() {
 		padding: 8px 10px 10px 30px;
 		border-radius: 0 0 6px 6px;
 		background: var(--surface-elevated);
+		overflow: visible;
 		/* The body sits inside the message's serif prose column; tool detail is
 		   UI, not prose, so it pins the sans face like the row above it. */
 		font-family: var(--font-sans);
@@ -475,6 +481,26 @@ function handleToggle() {
 	.act-src:hover,
 	.act-src:focus-visible {
 		background: var(--surface-overlay);
+	}
+
+	/* The hovered source row lifts above the rows BELOW it, so its popover —
+	   which hangs off the bottom edge — is painted over the next source
+	   instead of under it. The z-index drop is delayed by the popover's own
+	   duration (an instant step at the end, not an interpolation), so the
+	   fade-out is never cut off by the row falling back into place. */
+	.act-src {
+		z-index: 0;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			z-index 0s linear var(--duration-standard);
+	}
+
+	.act-src:hover,
+	.act-src:focus-within {
+		z-index: 30;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			z-index 0s linear 0s;
 	}
 
 	.act-src:focus-visible {
@@ -521,13 +547,20 @@ function handleToggle() {
 	}
 
 	/* The full excerpt, un-clipped, on hover — the native `title` attribute
-	   above stays as the non-hover / assistive-tech fallback. */
+	   above stays as the non-hover / assistive-tech fallback.
+	   It is ALWAYS rendered (it used to be display:none, which cannot
+	   animate) and fades + slides in and out. `visibility` carries the
+	   "not there" semantics — it keeps the hidden popover out of hit-testing
+	   and out of the a11y tree — and is switched in one step at the END of
+	   the fade-out (a 0s transition delayed by the full duration) so the
+	   closing animation actually plays. `pointer-events: none` throughout:
+	   this is a tooltip, never a target. */
 	.act-src-popover {
 		position: absolute;
 		left: 0;
 		top: calc(100% + 4px);
 		z-index: 20;
-		display: none;
+		display: flex;
 		flex-direction: column;
 		gap: 2px;
 		max-width: min(28rem, 90vw);
@@ -537,11 +570,25 @@ function handleToggle() {
 		background: var(--surface-overlay);
 		box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
 		white-space: normal;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(-4px);
+		pointer-events: none;
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility 0s linear var(--duration-standard);
 	}
 
 	.act-src:hover .act-src-popover,
 	.act-src:focus-visible .act-src-popover {
-		display: flex;
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			visibility 0s linear 0s;
 	}
 
 	.act-src-popover-title {
@@ -637,6 +684,14 @@ function handleToggle() {
 
 		:global(.act-chevron) {
 			transition: none;
+		}
+
+		/* The popover still fades (a cross-fade is not vestibular motion) but
+		   never slides. */
+		.act-src-popover,
+		.act-src:hover .act-src-popover,
+		.act-src:focus-visible .act-src-popover {
+			transform: none;
 		}
 	}
 </style>

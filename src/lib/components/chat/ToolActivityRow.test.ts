@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,6 +162,70 @@ describe("ToolActivityRow", () => {
 		expect(
 			source?.querySelector(".act-src-popover-reason")?.textContent,
 		).toContain("Saturday: wet and windy");
+	});
+
+	// The popover used to be `display: none` until :hover, which cannot
+	// animate — it popped in and out. It is now always laid out and animates
+	// its opacity/transform, with `visibility` (not `display`) carrying the
+	// hidden semantics so it stays out of hit-testing and the a11y tree.
+	// jsdom applies no component CSS, so the stylesheet itself is the subject
+	// here — the same approach reduced-motion-transitions.regression.test.ts
+	// takes for style-only guarantees.
+	it("keeps the source popover mounted and hidden by visibility, not display", () => {
+		const { getByTestId } = render(ToolActivityRow, {
+			item: item(searchSegment),
+			open: true,
+		});
+
+		const popover =
+			getByTestId("tool-activity-body").querySelector(".act-src-popover");
+		// Rendered up front (nothing waits for a hover to create it) and
+		// hidden from assistive tech, since the row's `title` already says it.
+		expect(popover).not.toBeNull();
+		expect(popover?.getAttribute("aria-hidden")).toBe("true");
+
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/ToolActivityRow.svelte`,
+			"utf-8",
+		);
+		const hiddenRule =
+			source.match(/\n\t\.act-src-popover \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+		expect(hiddenRule).not.toBe("");
+		expect(hiddenRule).not.toMatch(/display:\s*none/);
+		expect(hiddenRule).toMatch(/opacity:\s*0/);
+		expect(hiddenRule).toMatch(/visibility:\s*hidden/);
+		expect(hiddenRule).toMatch(/transform:\s*translateY\(-4px\)/);
+		expect(hiddenRule).toMatch(/pointer-events:\s*none/);
+		// Both directions animate: the transition lives on the hidden state
+		// (fade-out) as well as the shown one (fade-in), at the app's standard
+		// duration and easing, with `visibility` stepping only at the end.
+		expect(hiddenRule).toMatch(
+			/transition:\s*opacity var\(--duration-standard\) var\(--ease-out\)/,
+		);
+		expect(hiddenRule).toMatch(
+			/visibility 0s linear var\(--duration-standard\)/,
+		);
+
+		const shownRule =
+			source.match(
+				/\.act-src:hover \.act-src-popover,\n\t\.act-src:focus-visible \.act-src-popover \{([\s\S]*?)\n\t\}/,
+			)?.[1] ?? "";
+		expect(shownRule).not.toBe("");
+		expect(shownRule).toMatch(/opacity:\s*1/);
+		expect(shownRule).toMatch(/visibility:\s*visible/);
+		expect(shownRule).toMatch(/transform:\s*translateY\(0\)/);
+		expect(shownRule).toMatch(
+			/transition:\s*opacity var\(--duration-standard\) var\(--ease-out\)/,
+		);
+
+		// Reduced motion keeps the fade but drops the slide.
+		const reducedMotionBlock =
+			source.match(
+				/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\t\}\n<\/style>/,
+			)?.[1] ?? "";
+		expect(reducedMotionBlock).toMatch(
+			/\.act-src-popover,[\s\S]*?transform:\s*none/,
+		);
 	});
 
 	it("renders a Python body as PROGRAM and OUTPUT code blocks", () => {

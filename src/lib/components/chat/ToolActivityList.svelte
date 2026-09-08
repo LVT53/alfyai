@@ -54,11 +54,14 @@ let {
 </div>
 
 <style>
+	/* Un-clipped on purpose: a row's source popover is absolutely positioned
+	   and hangs below its row, so this column must never scroll or clip. */
 	.tool-activity-list {
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
 		width: 100%;
 		min-width: 0;
+		overflow: visible;
 	}
 </style>
