@@ -194,3 +194,39 @@ describe("MapRouteCard", () => {
 		}
 	});
 });
+
+describe("MapRouteCard — highlighted stretch", () => {
+	it("draws the hovered span on the fallback drawing", () => {
+		const map = makeMap({
+			polyline: [
+				[52.525, 13.3694],
+				[52.522, 13.372],
+				[52.519, 13.375],
+				[52.5163, 13.3777],
+			],
+		});
+		const { getByTestId, queryByTestId, rerender } = render(MapRouteCard, {
+			props: { map },
+		});
+		// Nothing highlighted until a step is hovered.
+		expect(queryByTestId("map-route-highlight")).toBeNull();
+
+		rerender({ map, highlightRange: [1, 2] as [number, number] });
+		const highlight = getByTestId("map-route-highlight");
+		// Two points -> one line segment.
+		expect((highlight.getAttribute("d") ?? "").split("L")).toHaveLength(2);
+	});
+
+	it("ignores a span that no longer fits the drawn line", () => {
+		const map = makeMap({
+			polyline: [
+				[52.525, 13.3694],
+				[52.5163, 13.3777],
+			],
+		});
+		const { queryByTestId } = render(MapRouteCard, {
+			props: { map, highlightRange: [40, 90] as [number, number] },
+		});
+		expect(queryByTestId("map-route-highlight")).toBeNull();
+	});
+});

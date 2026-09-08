@@ -727,3 +727,49 @@ describe("collapsed summary strip", () => {
 		).toEqual(["p1", "s1"]);
 	});
 });
+
+describe("buildToolActivityItem — journey row", () => {
+	it("reads a mixed-mode journey as its time and the modes it uses", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "journey" },
+				map: {
+					bounds: { minLat: 51, minLng: -9, maxLat: 54, maxLng: -6 },
+					durationS: 12_720,
+					mode: "journey",
+					originLabel: "Cork, Blackrock",
+					destinationLabel: "Trinity College Dublin",
+					transitLegs: [
+						{ type: "bike", minutes: 16 },
+						{ type: "pt", minutes: 157, line: "IC" },
+						{ type: "walk", minutes: 10 },
+						{ type: "walk", minutes: 8 },
+					],
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k-journey",
+			translate,
+		);
+		expect(item.verb).toBe("Journey");
+		expect(item.object).toBe("Cork, Blackrock → Trinity College Dublin");
+		// Modes in the order they are travelled, each named once.
+		expect(item.meta).toBe("3 h 32 min · bike, transit, walk");
+		expect(item.body?.kind).toBe("map");
+	});
+
+	it("shows the running verb while a journey is still being planned", () => {
+		expect(
+			buildToolActivityItem(
+				toolCall({
+					name: "map_route",
+					input: { action: "journey" },
+					status: "running",
+				}),
+				"k-journey-running",
+				translate,
+			).verb,
+		).toBe("Planning journey");
+	});
+});
