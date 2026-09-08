@@ -23,9 +23,10 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import type { DatabaseInstance } from "$lib/server/db";
 import { routingRegions } from "$lib/server/db/schema";
+import { deriveMirrorUrls, extractSourceLabel } from "./extract-mirrors";
 import {
 	findRegionsForPoint,
 	type GeofabrikIndex,
@@ -65,6 +66,19 @@ export type RoutingRegionManagerConfig = {
 	geocoderImportContainer: string;
 	// Where `regionsDir` is mounted inside that Nominatim container.
 	geocoderRegionsMount: string;
+	// Extract mirrors tried, in order, when Geofabrik cannot serve the pbf.
+	// Base URLs, e.g. "https://download.openstreetmap.fr/extracts".
+	extractMirrors: string[];
+	// Geofabrik ids kept downloaded and running: enqueued on start, never
+	// stopped by the idle sweep.
+	residentRegionIds: string[];
+	// Abort a download that has not produced a byte for this long.
+	downloadStallMs: number;
+	// Hard cap on a single extract download, so a hung transfer cannot hold
+	// the single job loop forever.
+	downloadMaxMs: number;
+	// Consecutive transient failures before a region is given up as `error`.
+	maxAttempts: number;
 	// The pre-existing fixed ORS instance, registered as an unmanaged region.
 	legacy: { id: string; baseUrl: string } | null;
 };
@@ -104,9 +118,13 @@ export interface RoutingRegionManager {
 		options?: { requestedBy?: string | null },
 	): Promise<EnsureRegionOutcome>;
 	retryRegion(id: string): Promise<RoutingRegionRow | null>;
+	setResident(id: string, resident: boolean): Promise<RoutingRegionRow | null>;
 	removeRegion(id: string): Promise<boolean>;
 	runIdleSweep(): Promise<string[]>;
 	resumePendingJobs(): Promise<void>;
+	// Nudge the job loop (retry backoff has no timer of its own; the runtime
+	// sweep timer calls this so a due retry runs without a user request).
+	kickJobs(): void;
 	// Wait for the in-process job loop to drain (tests / shutdown).
 	drain(): Promise<void>;
 }
@@ -114,6 +132,59 @@ export interface RoutingRegionManager {
 const HEALTH_POLL_MS = 15_000;
 const START_POLL_MS = 3_000;
 const DEFAULT_LOG_PREFIX = "[ROUTING_REGIONS]";
+// The whole Geofabrik attempt (first try plus its in-band retries) is capped
+// so a persistent Geofabrik outage costs ~a minute before the mirrors run.
+const GEOFABRIK_ATTEMPT_BUDGET_MS = 60_000;
+const RETRY_BASE_MS = 60_000;
+const RETRY_MAX_MS = 60 * 60_000;
+
+// A failure the operator has to fix (a wrong id, an extract that is simply too
+// big) must not be retried forever; anything that looks like a bad hour on the
+// network must not become a terminal `error` row that only a click can clear.
+const PERMANENT_ERROR_PATTERNS = [
+	/above the \d+ mb cap/,
+	/unknown region/,
+	/no free port/,
+];
+
+const TRANSIENT_ERROR_PATTERNS = [
+	// HTTP 5xx / 429 in any of the shapes we (or dockerode) produce.
+	/(?:failed|error|status|code)[:\s]+(?:429|5\d\d)\b/,
+	/\b(?:429|5\d\d)\s+(?:too many|internal|bad|service|gateway)/,
+	/bad gateway|service unavailable|gateway time-?out|too many requests/,
+	/truncated/,
+	/checksum mismatch/,
+	/stalled/,
+	/download exceeded \d+ min/,
+	/did not report a content length/,
+	/timed out|timeout|etimedout|esockettimedout/,
+	/network|fetch failed|socket hang up|econnreset|econnrefused|econnaborted|enotfound|eai_again|epipe|aborted/,
+	/docker|image pull|pull image|manifest unknown|registry/,
+];
+
+// Classify a stored error message. Unrecognized failures are treated as
+// permanent on purpose: an unknown build failure that repeats twenty times is
+// worse than one that waits for an admin.
+export function classifyRegionError(
+	message: string | null | undefined,
+): "transient" | "permanent" {
+	const text = (message ?? "").toLowerCase().trim();
+	if (!text) return "permanent";
+	if (PERMANENT_ERROR_PATTERNS.some((pattern) => pattern.test(text))) {
+		return "permanent";
+	}
+	return TRANSIENT_ERROR_PATTERNS.some((pattern) => pattern.test(text))
+		? "transient"
+		: "permanent";
+}
+
+// 1 min, 2, 4 … capped at 1 h. `attempts` is the count *including* the failure
+// that just happened, so the first retry waits RETRY_BASE_MS.
+export function computeRetryDelayMs(attempts: number): number {
+	const exponent = Math.max(0, attempts - 1);
+	if (exponent > 30) return RETRY_MAX_MS;
+	return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** exponent);
+}
 
 function defaultLog(message: string, details?: Record<string, unknown>): void {
 	if (details) console.log(`${DEFAULT_LOG_PREFIX} ${message}`, details);
@@ -311,6 +382,7 @@ export function createRoutingRegionManager(
 	async function enqueue(
 		region: GeofabrikRegion,
 		requestedBy: string | null | undefined,
+		options: { resident?: boolean } = {},
 	): Promise<RoutingRegionRow> {
 		const slug = regionSlug(region.id);
 		await db
@@ -324,6 +396,7 @@ export function createRoutingRegionManager(
 				managed: true,
 				containerName: regionContainerName(slug),
 				geocoderStatus: config.geocoderImportContainer ? "queued" : "none",
+				resident: options.resident ?? false,
 				requestedBy: requestedBy ?? null,
 				createdAt: toDate(now),
 				updatedAt: toDate(now),
@@ -473,11 +546,23 @@ export function createRoutingRegionManager(
 	async function runJobs(): Promise<void> {
 		if (!config.enabled) return;
 		for (;;) {
+			// A row waiting out its retry backoff is invisible to the loop, so a
+			// failing region never spins and never blocks the ones behind it.
 			const rows = await db
 				.select()
 				.from(routingRegions)
 				.where(
-					inArray(routingRegions.status, ["queued", "downloading", "building"]),
+					and(
+						inArray(routingRegions.status, [
+							"queued",
+							"downloading",
+							"building",
+						]),
+						or(
+							isNull(routingRegions.nextAttemptAt),
+							lte(routingRegions.nextAttemptAt, toDate(now)),
+						),
+					),
 				)
 				.orderBy(asc(routingRegions.createdAt))
 				.limit(1);
@@ -487,13 +572,40 @@ export function createRoutingRegionManager(
 				await buildRegion(row);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				log("region build failed", { id: row.id, error: message });
-				await updateRow(row.id, {
-					status: "error",
-					error: message.slice(0, 1000),
-				});
+				await recordFailure(row, message);
 			}
 		}
+	}
+
+	async function recordFailure(
+		row: RoutingRegionRow,
+		message: string,
+	): Promise<void> {
+		const attempts = (row.attempts ?? 0) + 1;
+		const kind = classifyRegionError(message);
+		if (kind === "transient" && attempts < config.maxAttempts) {
+			const delayMs = computeRetryDelayMs(attempts);
+			log("region build failed, retrying later", {
+				id: row.id,
+				attempts,
+				retryInSeconds: Math.round(delayMs / 1000),
+				error: message,
+			});
+			await updateRow(row.id, {
+				status: "queued",
+				attempts,
+				nextAttemptAt: new Date(now() + delayMs),
+				error: message.slice(0, 1000),
+			});
+			return;
+		}
+		log("region build failed", { id: row.id, attempts, kind, error: message });
+		await updateRow(row.id, {
+			status: "error",
+			attempts,
+			nextAttemptAt: null,
+			error: message.slice(0, 1000),
+		});
 	}
 
 	function regionPaths(slug: string) {
@@ -525,9 +637,12 @@ export function createRoutingRegionManager(
 		const existing = await stat(paths.pbf).catch(() => null);
 		if (!existing) {
 			await updateRow(row.id, { status: "downloading", error: null });
-			log("downloading extract", { id: row.id, url: row.pbfUrl });
-			const size = await downloadPbf(row.pbfUrl, paths.pbf);
-			await updateRow(row.id, { pbfSizeBytes: size });
+			const { bytes, source } = await downloadPbf(
+				row.pbfUrl,
+				paths.pbf,
+				row.id,
+			);
+			await updateRow(row.id, { pbfSizeBytes: bytes, extractSource: source });
 		} else {
 			await updateRow(row.id, { pbfSizeBytes: existing.size });
 		}
@@ -591,6 +706,8 @@ export function createRoutingRegionManager(
 		await updateRow(row.id, {
 			status: "ready",
 			error: null,
+			attempts: 0,
+			nextAttemptAt: null,
 			readyAt: toDate(now),
 			lastUsedAt: toDate(now),
 		});
@@ -602,79 +719,242 @@ export function createRoutingRegionManager(
 		}
 	}
 
-	// Geofabrik's mirrors occasionally answer 5xx or drop a connection; retry
-	// transient failures with backoff before giving the region up as error.
-	async function fetchExtractWithRetry(url: string): Promise<Response> {
+	// Geofabrik occasionally answers 5xx or drops a connection; retry transient
+	// failures in-band before falling through to the mirrors. The whole attempt
+	// is budgeted so a hard Geofabrik outage costs about a minute, not more.
+	async function fetchGeofabrikWithRetry(
+		url: string,
+		signal: AbortSignal,
+	): Promise<Response> {
 		const delays = [5_000, 15_000, 45_000];
+		const deadline = now() + GEOFABRIK_ATTEMPT_BUDGET_MS;
 		let lastError: Error = new Error("extract download failed");
 		for (let attempt = 0; attempt <= delays.length; attempt++) {
 			try {
-				const res = await deps.fetch(url, {
-					headers: { "user-agent": "AlfyAI" },
-				});
-				if (res.ok && res.body) return res;
-				lastError = new Error(
-					`extract download failed: ${res.status} ${res.statusText}`,
-				);
-				// Client errors are permanent (wrong URL, gone); do not retry.
-				if (res.status < 500 && res.status !== 429) throw lastError;
+				return await fetchExtract(url, signal);
 			} catch (error) {
 				lastError = error instanceof Error ? error : new Error(String(error));
-				if (/download failed: 4\d\d/.test(lastError.message)) throw lastError;
+				// Client errors other than 429 are permanent here (wrong URL, gone).
+				if (/download failed: 4(?!29)\d\d/.test(lastError.message)) break;
 			}
-			if (attempt < delays.length) {
-				log("extract download retry", {
-					url,
-					attempt: attempt + 1,
-					error: lastError.message,
-				});
-				await sleep(delays[attempt]);
-			}
+			const delay = delays[attempt];
+			if (delay === undefined || now() + delay > deadline) break;
+			log("extract download retry", {
+				url,
+				attempt: attempt + 1,
+				error: lastError.message,
+			});
+			await sleep(delay);
 		}
 		throw lastError;
 	}
 
-	async function downloadPbf(url: string, target: string): Promise<number> {
-		const part = `${target}.part`;
-		await rm(part, { force: true });
-		const res = await fetchExtractWithRetry(url);
-		if (!res.body) {
-			throw new Error("extract download failed: empty body");
-		}
-		const expectedLength = Number(res.headers.get("content-length"));
-		if (
-			Number.isFinite(expectedLength) &&
-			expectedLength > config.maxPbfBytes
-		) {
+	async function fetchExtract(
+		url: string,
+		signal: AbortSignal,
+		headers: Record<string, string> = {},
+	): Promise<Response> {
+		const res = await deps.fetch(url, {
+			headers: { "user-agent": "AlfyAI", ...headers },
+			signal,
+		});
+		if (!res.ok || !res.body) {
+			await res.body?.cancel().catch(() => undefined);
 			throw new Error(
-				`extract is ${Math.round(expectedLength / 1048576)} MB, above the ${Math.round(config.maxPbfBytes / 1048576)} MB cap`,
+				`extract download failed: ${res.status} ${res.statusText}`,
 			);
 		}
+		return res;
+	}
+
+	function contentLength(res: Response): number | null {
+		const raw = Number(res.headers.get("content-length"));
+		return Number.isFinite(raw) && raw > 0 ? raw : null;
+	}
+
+	// Cheap liveness/existence check so a mirror that simply does not carry a
+	// region (osm.fr has no `hungary`) costs one request instead of a transfer.
+	async function probeMirror(
+		url: string,
+		signal: AbortSignal,
+	): Promise<{ ok: true } | { ok: false; message: string }> {
+		const attempt = async (
+			init: RequestInit,
+		): Promise<{ ok: true } | { ok: false; message: string }> => {
+			const res = await deps.fetch(url, {
+				...init,
+				headers: {
+					"user-agent": "AlfyAI",
+					...(init.headers as Record<string, string> | undefined),
+				},
+				signal,
+			});
+			await res.body?.cancel().catch(() => undefined);
+			return res.ok
+				? { ok: true }
+				: { ok: false, message: `mirror probe failed: ${res.status}` };
+		};
+		try {
+			const head = await attempt({ method: "HEAD" });
+			if (head.ok) return head;
+			// Some mirrors refuse HEAD; a one-byte range answers the same question.
+			if (/failed: (?:403|405|501)$/.test(head.message)) {
+				return await attempt({ headers: { range: "bytes=0-0" } });
+			}
+			return head;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { ok: false, message: `mirror probe failed: ${message}` };
+		}
+	}
+
+	// Stream one response into `part`, aborting on a stall (no bytes for
+	// downloadStallMs) or on the overall cap. Both are enforced on the Node
+	// stream itself, not only on the fetch signal, so a source that ignores
+	// AbortSignal still cannot wedge the single job loop.
+	async function streamToPart(
+		res: Response,
+		part: string,
+		controller: AbortController,
+	): Promise<{ bytes: number; md5: string }> {
 		const hash = createHash("md5");
 		let bytes = 0;
+		let aborted: Error | null = null;
 		const body = Readable.fromWeb(res.body as never);
+		const abortWith = (message: string) => {
+			aborted = new Error(message);
+			controller.abort();
+			body.destroy(aborted);
+		};
+		let stallTimer: ReturnType<typeof setTimeout> | null = null;
+		const armStall = () => {
+			if (stallTimer) clearTimeout(stallTimer);
+			stallTimer = setTimeout(() => {
+				abortWith(
+					`extract download stalled (no data for ${Math.round(config.downloadStallMs / 1000)}s)`,
+				);
+			}, config.downloadStallMs);
+			stallTimer.unref?.();
+		};
+		const overallTimer = setTimeout(() => {
+			abortWith(
+				`extract download exceeded ${Math.round(config.downloadMaxMs / 60000)} min`,
+			);
+		}, config.downloadMaxMs);
+		overallTimer.unref?.();
+		armStall();
 		body.on("data", (chunk: Buffer) => {
 			bytes += chunk.length;
 			hash.update(chunk);
+			armStall();
 		});
-		await pipeline(body, createWriteStream(part));
-		if (
-			Number.isFinite(expectedLength) &&
-			expectedLength > 0 &&
-			bytes !== expectedLength
-		) {
-			await rm(part, { force: true });
-			throw new Error(
-				`extract download truncated (${bytes} of ${expectedLength} bytes)`,
+		try {
+			await pipeline(body, createWriteStream(part));
+		} catch (error) {
+			throw (
+				aborted ?? (error instanceof Error ? error : new Error(String(error)))
 			);
+		} finally {
+			if (stallTimer) clearTimeout(stallTimer);
+			clearTimeout(overallTimer);
 		}
-		const expectedMd5 = await fetchMd5(url);
-		if (expectedMd5 && expectedMd5 !== hash.digest("hex")) {
-			await rm(part, { force: true });
-			throw new Error("extract checksum mismatch");
+		if (aborted) throw aborted;
+		return { bytes, md5: hash.digest("hex") };
+	}
+
+	// Download from one source into `target`. Geofabrik publishes a `.md5` for
+	// every extract and is checked against it; mirrors do not, so their only
+	// integrity signal is an exact Content-Length match, which is therefore
+	// required rather than optional.
+	async function downloadFrom(
+		candidate: { url: string; kind: "geofabrik" | "mirror" },
+		target: string,
+	): Promise<number> {
+		const part = `${target}.part`;
+		await rm(part, { force: true });
+		const controller = new AbortController();
+		try {
+			if (candidate.kind === "mirror") {
+				const probe = await probeMirror(candidate.url, controller.signal);
+				if (!probe.ok) throw new Error(probe.message);
+			}
+			const res =
+				candidate.kind === "geofabrik"
+					? await fetchGeofabrikWithRetry(candidate.url, controller.signal)
+					: await fetchExtract(candidate.url, controller.signal);
+			const expectedLength = contentLength(res);
+			// Both of these refuse the response before a byte is written, so let
+			// go of the socket instead of leaving the body dangling.
+			const refuse = async (error: Error): Promise<never> => {
+				await res.body?.cancel().catch(() => undefined);
+				throw error;
+			};
+			if (expectedLength !== null && expectedLength > config.maxPbfBytes) {
+				await refuse(
+					new Error(
+						`extract is ${Math.round(expectedLength / 1048576)} MB, above the ${Math.round(config.maxPbfBytes / 1048576)} MB cap`,
+					),
+				);
+			}
+			if (candidate.kind === "mirror" && expectedLength === null) {
+				await refuse(new Error("mirror did not report a content length"));
+			}
+			const { bytes, md5 } = await streamToPart(res, part, controller);
+			if (expectedLength !== null && bytes !== expectedLength) {
+				throw new Error(
+					`extract download truncated (${bytes} of ${expectedLength} bytes)`,
+				);
+			}
+			if (candidate.kind === "geofabrik") {
+				const expectedMd5 = await fetchMd5(candidate.url);
+				if (expectedMd5 && expectedMd5 !== md5) {
+					throw new Error("extract checksum mismatch");
+				}
+			}
+			await rename(part, target);
+			return bytes;
+		} catch (error) {
+			await rm(part, { force: true }).catch(() => undefined);
+			throw error;
 		}
-		await rename(part, target);
-		return bytes;
+	}
+
+	// Geofabrik first (it is the catalogue and the only source with checksums),
+	// then each configured mirror in order.
+	async function downloadPbf(
+		pbfUrl: string,
+		target: string,
+		regionId: string,
+	): Promise<{ bytes: number; source: string }> {
+		const candidates: Array<{ url: string; kind: "geofabrik" | "mirror" }> = [
+			{ url: pbfUrl, kind: "geofabrik" },
+			...deriveMirrorUrls(pbfUrl, config.extractMirrors).map((url) => ({
+				url,
+				kind: "mirror" as const,
+			})),
+		];
+		const failures: string[] = [];
+		for (const candidate of candidates) {
+			const source = extractSourceLabel(candidate.url);
+			await updateRow(regionId, { extractSource: source });
+			log("downloading extract", {
+				id: regionId,
+				url: candidate.url,
+				source,
+			});
+			try {
+				const bytes = await downloadFrom(candidate, target);
+				log("extract downloaded", { id: regionId, source, bytes });
+				return { bytes, source };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				// An extract that is over the cap is over the cap everywhere.
+				if (/above the \d+ MB cap/.test(message)) throw error;
+				log("extract source failed", { id: regionId, source, error: message });
+				failures.push(`${source}: ${message}`);
+			}
+		}
+		throw new Error(failures.join("; ") || "extract download failed");
 	}
 
 	async function fetchMd5(url: string): Promise<string | null> {
@@ -785,8 +1065,40 @@ export function createRoutingRegionManager(
 	async function retryRegion(id: string): Promise<RoutingRegionRow | null> {
 		const row = await getRow(id);
 		if (!row?.managed) return row;
-		await updateRow(id, { status: "queued", error: null });
+		// An explicit admin retry clears the backoff entirely: run it now.
+		await updateRow(id, {
+			status: "queued",
+			error: null,
+			attempts: 0,
+			nextAttemptAt: null,
+		});
 		kick();
+		return getRow(id);
+	}
+
+	async function setResident(
+		id: string,
+		resident: boolean,
+	): Promise<RoutingRegionRow | null> {
+		const row = await getRow(id);
+		if (!row) return null;
+		await updateRow(id, { resident });
+		// Promoting a region that fell over transiently should also get it going
+		// again — that is the whole point of asking for it to be resident.
+		if (
+			resident &&
+			row.managed &&
+			row.status === "error" &&
+			classifyRegionError(row.error) === "transient"
+		) {
+			await updateRow(id, {
+				status: "queued",
+				error: null,
+				attempts: 0,
+				nextAttemptAt: null,
+			});
+			kick();
+		}
 		return getRow(id);
 	}
 
@@ -814,6 +1126,8 @@ export function createRoutingRegionManager(
 		const stopped: string[] = [];
 		for (const row of rows) {
 			if (!row.managed || !row.containerName) continue;
+			// Resident regions stay up no matter how long nobody routed there.
+			if (row.resident) continue;
 			const lastUsed = row.lastUsedAt?.getTime() ?? row.readyAt?.getTime() ?? 0;
 			if (lastUsed > cutoff) continue;
 			const state = await docker
@@ -831,8 +1145,63 @@ export function createRoutingRegionManager(
 		return stopped;
 	}
 
+	// Every configured resident id exists as a resident row after this, whether
+	// it was already known, known but not resident, or not in the table at all.
+	async function ensureResidentRegions(): Promise<void> {
+		for (const id of config.residentRegionIds) {
+			const existing = await getRow(id);
+			if (existing) {
+				if (!existing.resident) {
+					log("marking region resident", { id });
+					await updateRow(id, { resident: true });
+				}
+				continue;
+			}
+			if (!config.enabled) continue;
+			let region: GeofabrikRegion | undefined;
+			try {
+				region = (await getIndex()).byId.get(id);
+			} catch (error) {
+				log("resident region lookup failed", { id, error: String(error) });
+				continue;
+			}
+			if (!region) {
+				log("resident region id is not in the Geofabrik catalogue", { id });
+				continue;
+			}
+			log("enqueueing resident region", { id });
+			await enqueue(region, null, { resident: true });
+		}
+	}
+
+	// A resident region that died on a bad hour at Geofabrik must come back by
+	// itself on the next deploy — that failure mode is exactly what left
+	// Ireland sitting in `error` with a 502 for two days.
+	async function requeueTransientResidentErrors(): Promise<void> {
+		const rows = await db
+			.select()
+			.from(routingRegions)
+			.where(eq(routingRegions.status, "error"));
+		for (const row of rows) {
+			if (!row.managed || !row.resident) continue;
+			if (classifyRegionError(row.error) !== "transient") continue;
+			log("re-queueing resident region after a transient failure", {
+				id: row.id,
+				error: row.error,
+			});
+			await updateRow(row.id, {
+				status: "queued",
+				attempts: 0,
+				nextAttemptAt: null,
+				error: null,
+			});
+		}
+	}
+
 	async function resumePendingJobs(): Promise<void> {
 		await seedLegacy();
+		await ensureResidentRegions();
+		await requeueTransientResidentErrors();
 		kick();
 	}
 
@@ -848,9 +1217,11 @@ export function createRoutingRegionManager(
 		listReadyRegions,
 		requestRegion,
 		retryRegion,
+		setResident,
 		removeRegion,
 		runIdleSweep,
 		resumePendingJobs,
+		kickJobs: kick,
 		drain,
 	};
 }

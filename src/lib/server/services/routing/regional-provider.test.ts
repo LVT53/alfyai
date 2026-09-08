@@ -23,6 +23,10 @@ function fakeRegionRow(id: string, name: string) {
 		containerName: `alfyai-ors-${id}`,
 		pbfSizeBytes: 1,
 		geocoderStatus: "none",
+		extractSource: null,
+		attempts: 0,
+		nextAttemptAt: null,
+		resident: false,
 		error: null,
 		requestedBy: null,
 		createdAt: new Date(0),
@@ -69,9 +73,11 @@ function fakeManager(outcome: EnsureRegionOutcome): RoutingRegionManager & {
 		listReadyRegions: vi.fn().mockResolvedValue([]),
 		requestRegion: vi.fn(),
 		retryRegion: vi.fn(),
+		setResident: vi.fn(),
 		removeRegion: vi.fn(),
 		runIdleSweep: vi.fn(),
 		resumePendingJobs: vi.fn(),
+		kickJobs: vi.fn(),
 		drain: vi.fn(),
 	};
 }

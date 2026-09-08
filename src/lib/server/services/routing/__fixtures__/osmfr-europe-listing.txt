@@ -1,0 +1,31 @@
+# Recorded 2026-09-08 from https://download.openstreetmap.fr/extracts/europe/
+# (the "-latest" duplicates of each name are omitted). Used to verify the
+# mirror alias table in extract-mirrors.ts against reality.
+andorra.osm.pbf
+austria.osm.pbf
+belgium.osm.pbf
+czech_republic.osm.pbf
+denmark.osm.pbf
+finland.osm.pbf
+france.osm.pbf
+germany.osm.pbf
+gibraltar.osm.pbf
+guernesey.osm.pbf
+ireland.osm.pbf
+italy.osm.pbf
+jersey.osm.pbf
+luxembourg.osm.pbf
+monaco.osm.pbf
+netherlands.osm.pbf
+norway.osm.pbf
+poland.osm.pbf
+portugal.osm.pbf
+san_marino.osm.pbf
+slovakia.osm.pbf
+spain.osm.pbf
+sweden.osm.pbf
+switzerland.osm.pbf
+turkey.osm.pbf
+ukraine.osm.pbf
+united_kingdom.osm.pbf
+vatican_city.osm.pbf

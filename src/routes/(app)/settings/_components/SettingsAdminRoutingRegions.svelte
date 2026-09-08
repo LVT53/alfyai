@@ -6,6 +6,7 @@ import {
 	removeRoutingRegion,
 	requestRoutingRegion,
 	retryRoutingRegion,
+	setRoutingRegionResident,
 	type RoutingRegionSummary,
 } from "$lib/client/api/admin";
 
@@ -69,6 +70,19 @@ async function retry(id: string) {
 	}
 }
 
+async function toggleResident(region: RoutingRegionSummary) {
+	busyId = region.id;
+	error = "";
+	try {
+		await setRoutingRegionResident(region.id, !region.resident);
+		await load();
+	} catch (patchError) {
+		error = patchError instanceof Error ? patchError.message : String(patchError);
+	} finally {
+		busyId = null;
+	}
+}
+
 async function remove(id: string) {
 	if (!confirm($t("admin.routingRegions.confirmRemove"))) return;
 	busyId = id;
@@ -100,6 +114,28 @@ function formatDate(value: string | null | undefined): string {
 function formatSize(bytes: number | null | undefined): string {
 	if (!bytes) return "—";
 	return `${Math.round(bytes / 1048576)} MB`;
+}
+
+// One line that says what the region is actually doing right now: which
+// source is serving the download, when a backed-off retry is due, and how
+// many attempts it has burned.
+function statusDetail(region: RoutingRegionSummary): string {
+	if (region.status === "downloading" && region.extractSource) {
+		return $t("admin.routingRegions.viaSource", { source: region.extractSource });
+	}
+	if (region.status === "queued" && region.nextAttemptAt) {
+		return $t("admin.routingRegions.retryAt", {
+			time: formatDate(region.nextAttemptAt),
+			attempts: String(region.attempts),
+		});
+	}
+	if (region.status === "ready" && region.extractSource) {
+		return $t("admin.routingRegions.viaSource", { source: region.extractSource });
+	}
+	if (region.status === "error" && region.attempts > 0) {
+		return $t("admin.routingRegions.attempts", { attempts: String(region.attempts) });
+	}
+	return "";
 }
 
 onMount(() => {
@@ -161,6 +197,7 @@ onMount(() => {
 					<tr class="text-xs uppercase text-text-secondary">
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colRegion')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colStatus')}</th>
+						<th class="py-1 pr-3">{$t('admin.routingRegions.colResident')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colGeocoder')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colSize')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colEndpoint')}</th>
@@ -180,6 +217,25 @@ onMount(() => {
 							</td>
 							<td class="py-2 pr-3">
 								<span class={`rounded px-2 py-0.5 text-xs ${statusClass(region.status)}`}>{region.status}</span>
+								{#if statusDetail(region)}
+									<div class="mt-1 text-xs text-text-secondary">{statusDetail(region)}</div>
+								{/if}
+							</td>
+							<td class="py-2 pr-3 text-xs">
+								{#if region.managed}
+									<label class="flex items-center gap-1">
+										<input
+											type="checkbox"
+											checked={region.resident}
+											disabled={busyId === region.id}
+											onchange={() => void toggleResident(region)}
+											aria-label={$t('admin.routingRegions.colResident')}
+										/>
+										<span class="sr-only">{$t('admin.routingRegions.colResident')}</span>
+									</label>
+								{:else}
+									—
+								{/if}
 							</td>
 							<td class="py-2 pr-3 text-xs">{region.geocoderStatus}</td>
 							<td class="py-2 pr-3 text-xs">{formatSize(region.pbfSizeBytes)}</td>
@@ -187,7 +243,7 @@ onMount(() => {
 							<td class="py-2 pr-3 text-xs">{formatDate(region.lastUsedAt)}</td>
 							<td class="py-2 text-right whitespace-nowrap">
 								{#if region.managed}
-									{#if region.status === 'error'}
+									{#if region.status === 'error' || (region.status === 'queued' && region.nextAttemptAt)}
 										<button type="button" class="btn-secondary text-xs" onclick={() => void retry(region.id)} disabled={busyId === region.id}>
 											{$t('admin.routingRegions.retry')}
 										</button>
@@ -199,7 +255,7 @@ onMount(() => {
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="7" class="py-2 text-sm text-text-secondary">{$t('admin.routingRegions.empty')}</td></tr>
+						<tr><td colspan="8" class="py-2 text-sm text-text-secondary">{$t('admin.routingRegions.empty')}</td></tr>
 					{/each}
 				</tbody>
 			</table>

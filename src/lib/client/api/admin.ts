@@ -625,6 +625,10 @@ export type RoutingRegionSummary = {
 	containerName: string | null;
 	pbfSizeBytes: number | null;
 	geocoderStatus: string;
+	extractSource: string | null;
+	attempts: number;
+	nextAttemptAt: string | null;
+	resident: boolean;
 	error: string | null;
 	requestedBy: string | null;
 	createdAt: string;
@@ -670,6 +674,21 @@ export async function retryRoutingRegion(id: string): Promise<void> {
 		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
 		{ method: "POST" },
 		"Failed to retry routing region",
+	);
+}
+
+export async function setRoutingRegionResident(
+	id: string,
+	resident: boolean,
+): Promise<void> {
+	await requestJson<{ region: unknown }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ resident }),
+		},
+		"Failed to update routing region",
 	);
 }
 

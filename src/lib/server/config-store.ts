@@ -94,6 +94,8 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_REGION_MAX_PBF_MB",
 	"ROUTING_GEOCODER_IMPORT_CONTAINER",
 	"ROUTING_LEGACY_REGION_ID",
+	"ROUTING_EXTRACT_MIRRORS",
+	"ROUTING_RESIDENT_REGION_IDS",
 	"NATIVE_HISTORY_ENABLED",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
@@ -233,6 +235,8 @@ export interface RuntimeConfig {
 	routingRegionMaxPbfMb: number;
 	routingGeocoderImportContainer: string;
 	routingLegacyRegionId: string;
+	routingExtractMirrors: string;
+	routingResidentRegionIds: string;
 	nativeHistoryEnabled: boolean;
 	normalChatDebugOutbound: boolean;
 	braveSearchApiKey: string;
@@ -745,6 +749,13 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	ROUTING_LEGACY_REGION_ID: (config, value) => {
 		config.routingLegacyRegionId = value.trim() || "hungary";
 	},
+	ROUTING_EXTRACT_MIRRORS: (config, value) => {
+		config.routingExtractMirrors =
+			value.trim() || "https://download.openstreetmap.fr/extracts";
+	},
+	ROUTING_RESIDENT_REGION_IDS: (config, value) => {
+		config.routingResidentRegionIds = value.trim();
+	},
 	NATIVE_HISTORY_ENABLED: (config, value) => {
 		config.nativeHistoryEnabled = value.trim() !== "false";
 	},
@@ -1230,6 +1241,8 @@ export function getResolvedAdminConfigValues(
 		ROUTING_REGION_MAX_PBF_MB: String(config.routingRegionMaxPbfMb),
 		ROUTING_GEOCODER_IMPORT_CONTAINER: config.routingGeocoderImportContainer,
 		ROUTING_LEGACY_REGION_ID: config.routingLegacyRegionId,
+		ROUTING_EXTRACT_MIRRORS: config.routingExtractMirrors,
+		ROUTING_RESIDENT_REGION_IDS: config.routingResidentRegionIds,
 		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,

@@ -1,5 +1,5 @@
 import { createDecipheriv, pbkdf2Sync } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -11,6 +11,7 @@ const PRE_RETIRED_RESEARCH_TAG = "1777140000011_file_production_requests";
 const PRE_RESEARCH_REMOVAL_TAG = "1777140000061_memory_rework_foundation";
 const ADOPTION_BASELINE_TAG = "0005_flaky_famine";
 const SKILL_NOTES_TAG = "1777140000035_skill_notes";
+const PRE_ROUTING_RETRY_TAG = "1777140000089_activity_events";
 const PRE_LANGFLOW_RETIREMENT_TAG =
 	"1777140000046_context_compression_snapshots";
 const RETIRED_RESEARCH_TABLE_PREFIX = ["deep", "research"].join("_");
@@ -163,6 +164,60 @@ describe("prepare-db script", () => {
 
 		expect(schemaTables.length).toBeGreaterThan(50);
 		expect(schemaTables.filter((table) => !listed.has(table))).toEqual([]);
+	});
+
+	// A migration file that is not in the journal is never applied, and a
+	// journal entry without a file makes drizzle's migrator throw at boot.
+	// Both are silent until a deploy, so assert the two agree here.
+	it("keeps the migration journal in step with the SQL files on disk", () => {
+		const journal = JSON.parse(
+			readFileSync("./drizzle/meta/_journal.json", "utf8"),
+		) as { entries: Array<{ idx: number; when: number; tag: string }> };
+		const files = new Set(
+			readdirSync("./drizzle")
+				.filter((name) => name.endsWith(".sql"))
+				.map((name) => name.replace(/\.sql$/, "")),
+		);
+		expect(
+			journal.entries
+				.map((entry) => entry.tag)
+				.filter((tag) => !files.has(tag)),
+		).toEqual([]);
+		expect(
+			[...files].filter(
+				(tag) => !journal.entries.some((entry) => entry.tag === tag),
+			),
+		).toEqual([]);
+		// idx must be a dense, ascending sequence and `when` must never go
+		// backwards, or drizzle applies migrations out of order.
+		journal.entries.forEach((entry, position) => {
+			expect(entry.idx).toBe(position);
+			if (position > 0) {
+				expect(entry.when).toBeGreaterThan(journal.entries[position - 1].when);
+			}
+		});
+	});
+
+	it("adds the routing region retry columns when upgrading from the previous release", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "alfyai-prepare-db-"));
+		const dbPath = join(tempDir, "chat.db");
+		createDatabaseMigratedThroughTag(dbPath, PRE_ROUTING_RETRY_TAG);
+
+		prepareDatabase(dbPath);
+
+		const sqlite = new Database(dbPath, { readonly: true });
+		try {
+			expect(listColumns(sqlite, "routing_regions")).toEqual(
+				expect.arrayContaining([
+					"extract_source",
+					"attempts",
+					"next_attempt_at",
+					"resident",
+				]),
+			);
+		} finally {
+			sqlite.close();
+		}
 	});
 
 	it("applies pending migrations and removes retired research tables", () => {

@@ -132,6 +132,13 @@ interface Config {
 	routingRegionMaxPbfMb: number;
 	routingGeocoderImportContainer: string;
 	routingLegacyRegionId: string;
+	// Comma-separated mirror bases tried when Geofabrik cannot serve an
+	// extract (Geofabrik's *.osm.pbf endpoints answered 502 for days in
+	// September 2026 while its index stayed up).
+	routingExtractMirrors: string;
+	// Comma-separated Geofabrik ids that are downloaded on start and never
+	// stopped by the idle sweep.
+	routingResidentRegionIds: string;
 	// Tile proxy for the inline map_route card (GET /api/map-tiles/[z]/[x]/[y]).
 	// There is no self-hosted tile server yet, so this proxies+caches OSM's
 	// standard raster tiles. Swapping to a self-hosted server later is a
@@ -608,6 +615,10 @@ function readConfig(): Config {
 		routingGeocoderImportContainer:
 			process.env.ROUTING_GEOCODER_IMPORT_CONTAINER || "",
 		routingLegacyRegionId: process.env.ROUTING_LEGACY_REGION_ID || "hungary",
+		routingExtractMirrors:
+			process.env.ROUTING_EXTRACT_MIRRORS ||
+			"https://download.openstreetmap.fr/extracts",
+		routingResidentRegionIds: process.env.ROUTING_RESIDENT_REGION_IDS || "",
 		mapTileUpstreamBaseUrl:
 			process.env.MAP_TILE_UPSTREAM_BASE_URL ||
 			"https://tile.openstreetmap.org",

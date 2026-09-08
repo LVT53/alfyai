@@ -18,6 +18,24 @@ export const POST: RequestHandler = async (event) => {
 	return json({ region });
 };
 
+// Toggle whether a region is resident (kept downloaded and running).
+export const PATCH: RequestHandler = async (event) => {
+	requireAdmin(event);
+	if (!isRegionRoutingConfigured()) {
+		return json({ error: "Routing is not configured" }, { status: 409 });
+	}
+	const body = (await event.request.json().catch(() => null)) as {
+		resident?: unknown;
+	} | null;
+	if (!body || typeof body.resident !== "boolean") {
+		return json({ error: "Provide { resident: boolean }" }, { status: 400 });
+	}
+	const id = decodeURIComponent(event.params.id);
+	const region = await getRoutingRegionManager().setResident(id, body.resident);
+	if (!region) return json({ error: "Region not found" }, { status: 404 });
+	return json({ region });
+};
+
 // Remove a region: stops and removes its container and deletes its files.
 export const DELETE: RequestHandler = async (event) => {
 	requireAdmin(event);
