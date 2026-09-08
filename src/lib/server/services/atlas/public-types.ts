@@ -37,8 +37,13 @@ export interface AtlasV1ProgressDetailsView {
 /**
  * v2 progress details (ADR 0062). The chat UI dispatches on `pipelineVersion`:
  * v1 cards carry the shape above, v2 cards carry this one.
+ *
+ * It extends the v1 view rather than replacing it so a client that reads
+ * `queries` / `roundKind` / `focus` unconditionally still compiles and still
+ * renders; on a v2 card `queries` is always empty and the `plan` array is what
+ * the UI should show instead.
  */
-export interface AtlasV2ProgressDetailsView {
+export interface AtlasV2ProgressDetailsView extends AtlasV1ProgressDetailsView {
 	pipelineVersion: 2;
 	phase: "plan" | "research" | "index" | "write" | "verify" | "render";
 	plan: Array<{

@@ -284,6 +284,12 @@ export interface AtlasV2ProgressEvidence {
 
 export interface AtlasV2ProgressDetails {
 	pipelineVersion: 2;
+	/**
+	 * Always empty on v2 — the `plan` array replaced the per-round query list.
+	 * Kept in the payload so a client that reads v1's `queries` unconditionally
+	 * degrades to "no queries" instead of crashing on a v2 job.
+	 */
+	queries: string[];
 	phase: AtlasV2Phase;
 	plan: AtlasV2ProgressPlanEntry[];
 	round: { current: number; total: number };

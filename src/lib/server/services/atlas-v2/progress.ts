@@ -120,6 +120,7 @@ export function buildAtlasV2ProgressDetails(
 	);
 	return {
 		pipelineVersion: 2,
+		queries: [],
 		phase: input.phase,
 		plan,
 		round: input.round,
@@ -253,6 +254,7 @@ export function sanitizeAtlasV2ProgressDetails(
 
 	const details: AtlasV2ProgressDetails = {
 		pipelineVersion: 2,
+		queries: [],
 		phase: phase(record.phase),
 		plan,
 		round,

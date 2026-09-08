@@ -204,6 +204,10 @@ Notes before the tables:
 | `WORKING_SET_PROMPT_TOKEN_BUDGET` | No | `20000` | Token budget for the overall working-set prompt section | Raise it if more documents should be included in context | Can also be overridden in admin config |
 | `SMALL_FILE_THRESHOLD_CHARS` | No | `5000` | Character threshold below which files are treated as small for extraction | Tune based on typical upload sizes | Can also be overridden in admin config |
 | `PARALLEL_API_KEY` | No | empty | API key for Parallel, which powers web search and page extraction for `research_web`, `fetch_url`, and Atlas | Set it when web search and Atlas should be enabled | Empty disables Parallel-backed web search and reports Atlas as unavailable |
+| `ATLAS_PIPELINE` | No | `v1` | Which Atlas content pipeline a NEW job runs on: `v1` (original) or `v2` (the ADR 0062 rebuild with inline citations, per-claim verification and confidence) | Set it to `v2` once `scripts/atlas-eval.ts` shows v2 ahead of v1 on your deployment | Only the exact value `v2` selects v2. The version is stamped on the job row at kickoff, so a flip never re-routes a queued job, and a Continue/Revise/Fork child stays on its parent's pipeline. Can also be overridden in admin config |
+| `ATLAS_STALE_MONTHS` | No | `18` | Age past which a cited statistic is listed in the report's Limitations section | Lower it for fast-moving subjects | v2 only. Can also be overridden in admin config |
+| `ATLAS_V2_QUESTIONS_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `6` / `10` / `16` | Research questions the v2 plan stage produces per profile | Raise for broader coverage | Clamped to 4-20. Each question costs one `research_web` call per round. Can also be overridden in admin config |
+| `ATLAS_V2_ROUNDS_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `1` / `2` / `3` | Bounded v2 research rounds per profile | Raise when coverage checks keep finding thin questions | Clamped to 1-4. Round 2+ researches only the questions the coverage check named. Can also be overridden in admin config |
 | `BRAVE_SEARCH_API_KEY` | No | empty | API key for Brave Search image search | Set it when image search should be enabled | Empty disables Brave-backed image search |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
 | `PER_USER_STREAM_LIMIT` | No | `1` | Max concurrent chat streams per user | Lower it to reduce per-user load | Can also be overridden in admin config |
@@ -363,6 +367,25 @@ npm run build
 Playwright coverage is also available for critical browser flows such as login, chat streaming, conversations, and admin settings, but the root README intentionally keeps the testing section short.
 
 Playwright runs set `PLAYWRIGHT_TEST=1`, and the conversation-title endpoint returns `null` in that mode so browser tests do not depend on an external title-generation service.
+
+### Atlas Report Quality Evaluation
+
+`scripts/atlas-eval.ts` measures Atlas report quality against a **live** deployment and compares the two content pipelines (ADR 0062). It drives the same HTTP surface a browser does: log in, create a conversation, `POST /api/chat/send` with `atlasMode`, poll `GET /api/conversations/:id` until the job ends, then download the produced Markdown.
+
+```bash
+BASE=https://staging.example EMAIL=admin@example.com PASSWORD=... \
+  npx tsx scripts/atlas-eval.ts --pipeline v2 --out /tmp/atlas-eval
+```
+
+- `--pipeline v1|v2|both` — which pipeline to label the run as (default `both`).
+- `--queries <ids>` — a subset of `scripts/atlas-eval-queries.json` (e.g. `energy-statistics,hungarian-query`).
+- `--profile overview|in-depth|exhaustive` — override every query's profile.
+- `--timeout <minutes>` — per-job timeout (default 45).
+- `--concurrency <n>` — jobs in flight (default 1; the Atlas worker's own global limit still applies).
+
+The script does **not** change `ATLAS_PIPELINE` — set it in admin config or the environment first, then pass the matching `--pipeline` value. It reads back each job's `pipelineVersion` and marks a run that does not match as mislabelled rather than reporting it silently.
+
+Output in `--out`: `report.md` (comparison table, totals, and per-query hand-check lists), `results.json`, and each run's Markdown report. Measured per query: wall time, tokens, citation resolution rate, number match rate (checked offline against the per-source snippets the job stores in its progress details), corroboration rate, junk-source count, and inline-citation density. v1 has no `[n]` markers, so its citation, number-match and corroboration columns read `n/a` rather than a misleading `0`.
 
 ## API Note
 

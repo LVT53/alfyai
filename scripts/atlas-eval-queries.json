@@ -1,0 +1,133 @@
+{
+	"$comment": "Atlas evaluation queries (ADR 0062). Each `expectations` entry is HAND-CHECKABLE: run the eval, open the produced Markdown, and confirm each line yourself. The script does not grade expectations — it measures citation resolution, number matching, corroboration, junk sources and citation density, and prints the expectations next to them for the manual false-claim pass.",
+	"queries": [
+		{
+			"id": "energy-statistics",
+			"kind": "energy statistics",
+			"profile": "overview",
+			"language": "en",
+			"query": "How much solar PV capacity did the European Union add in 2025, and how does that compare with 2024?",
+			"expectations": [
+				"Gives an additions figure for 2025 in GW with a citation.",
+				"Gives the 2024 comparison figure with a citation.",
+				"The two figures come from the same series (both additions, not one additions and one cumulative).",
+				"If SolarPower Europe and the IEA disagree, both figures appear in one sentence with both citations."
+			]
+		},
+		{
+			"id": "product-comparison",
+			"kind": "product comparison",
+			"profile": "in-depth",
+			"language": "en",
+			"query": "Compare the Framework Laptop 13 and the Dell XPS 13 for repairability and upgradeability, with current prices.",
+			"expectations": [
+				"Prices carry a currency and a citation, and the report says as-of when.",
+				"Repairability claims cite a teardown, a manufacturer page or iFixit rather than a review's impression.",
+				"The report does not present a vendor marketing claim as an independent finding.",
+				"No stock photography appears anywhere."
+			]
+		},
+		{
+			"id": "policy-question",
+			"kind": "policy question",
+			"profile": "in-depth",
+			"language": "en",
+			"query": "What obligations does the EU AI Act place on providers of general-purpose AI models, and when do they apply?",
+			"expectations": [
+				"Names the specific articles or chapters, cited.",
+				"Gives the application dates, cited, and distinguishes entry into force from applicability.",
+				"Cites the Official Journal text or the Commission rather than only law-firm summaries."
+			]
+		},
+		{
+			"id": "medical-guideline",
+			"kind": "medical guideline summary",
+			"profile": "in-depth",
+			"language": "en",
+			"query": "What does the current NICE guideline recommend as first-line treatment for type 2 diabetes in adults?",
+			"expectations": [
+				"Names the guideline and its number, cited.",
+				"States the first-line recommendation, cited to NICE itself.",
+				"Says the guideline's date and flags it in Limitations if older than the stale window.",
+				"Does not give individual medical advice."
+			]
+		},
+		{
+			"id": "hungarian-query",
+			"kind": "Hungarian-language query",
+			"profile": "overview",
+			"language": "hu",
+			"query": "Mennyi volt a magyar minimálbér 2026-ban, és hogyan változott az előző évhez képest?",
+			"expectations": [
+				"The report is written in Hungarian.",
+				"Gives the 2026 minimum wage in HUF with a citation.",
+				"Gives the change against 2025, cited.",
+				"Cites a Hungarian primary source (Magyar Közlöny, KSH or a ministry) rather than only news aggregation.",
+				"The Hungarian decimal comma in a source is matched, not reported as a mismatch."
+			]
+		},
+		{
+			"id": "local-irish-topic",
+			"kind": "local Irish topic",
+			"profile": "overview",
+			"language": "en",
+			"query": "What are the current rules and fees for residential planning permission in Cork City, and how long does a decision take?",
+			"expectations": [
+				"Gives the fee with a citation to Cork City Council or the statutory instrument.",
+				"Gives the statutory decision period, cited.",
+				"Distinguishes the statutory period from the observed average, if it gives both."
+			]
+		},
+		{
+			"id": "dutch-topic",
+			"kind": "Dutch topic",
+			"profile": "overview",
+			"language": "en",
+			"query": "How does the Dutch 30% ruling for expats work in 2026, and what changed recently?",
+			"expectations": [
+				"States the current percentage and the duration, cited.",
+				"Describes the recent change with its effective date, cited to Belastingdienst or the government.",
+				"Does not present a pre-change rule as current."
+			]
+		},
+		{
+			"id": "historical-timeline",
+			"kind": "historical timeline",
+			"profile": "in-depth",
+			"language": "en",
+			"query": "Give a timeline of the key events in the Chernobyl disaster and its immediate aftermath, from 25 April to 6 May 1986.",
+			"expectations": [
+				"Every dated event carries a citation.",
+				"Dates are internally consistent and in order.",
+				"Casualty figures, if given, are attributed to a specific body rather than stated flatly.",
+				"Older sources are expected here and should NOT dominate Limitations as staleness."
+			]
+		},
+		{
+			"id": "fast-moving-tech",
+			"kind": "fast-moving tech topic",
+			"profile": "in-depth",
+			"language": "en",
+			"query": "What are the current context window sizes and prices of the leading frontier language models?",
+			"expectations": [
+				"Every context size and price carries a citation to the provider's own pricing page.",
+				"The report says as-of when.",
+				"It does not mix a deprecated model's price with a current one.",
+				"Where two sources disagree on a price, both appear with both citations."
+			]
+		},
+		{
+			"id": "thin-niche-topic",
+			"kind": "niche topic with thin evidence",
+			"profile": "overview",
+			"language": "en",
+			"query": "What is known about the population trend of the Kerry slug (Geomalacus maculosus) in Ireland since 2015?",
+			"expectations": [
+				"The report is HONEST about thin evidence rather than padding.",
+				"Limitations names the questions no usable evidence answered.",
+				"Any population claim is cited; no invented trend figure appears.",
+				"A short report here is the correct outcome."
+			]
+		}
+	]
+}

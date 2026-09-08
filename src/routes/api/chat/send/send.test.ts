@@ -428,6 +428,8 @@ describe("POST /api/chat/send", () => {
 			action: "create",
 			parentAtlasJobId: null,
 			clientAtlasTurnId: "client-atlas-1",
+			// ADR 0062: the pipeline is stamped on the row at kickoff.
+			pipelineVersion: 1,
 		});
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 		expect(mockWakeAtlasWorker).toHaveBeenCalledOnce();
