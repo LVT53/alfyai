@@ -84,6 +84,89 @@ export type RouteData = {
 	};
 };
 
+// ── Public transport ───────────────────────────────────────────
+//
+// ORS serves timetables through a dedicated `public-transport` profile built
+// from a GTFS feed. Its response shape is NOT the road one: a PT route carries
+// `legs` (walk / pt) instead of `segments`, and `summary.transfers`. These
+// types mirror the ORS 9.10.0 response classes 1:1 —
+// JSONIndividualRouteResponse (routes[].legs, .departure, .arrival, .geometry,
+// .summary.transfers), JSONLeg and JSONPtStop — so nothing here is guessed.
+
+// ORS's `public-transport` profile name, as it appears in the directions path
+// and in `/v2/status`'s `profiles` object.
+export const PUBLIC_TRANSPORT_PROFILE = "public-transport";
+
+// One stop on a public-transport leg (ORS JSONPtStop).
+export type TransitStop = {
+	name?: string;
+	stopId?: string;
+	// ISO instants exactly as ORS emitted them.
+	arrival?: string;
+	departure?: string;
+	lat?: number;
+	lng?: number;
+};
+
+// One leg of an itinerary. `type` is ORS's own leg type: "walk" or "pt".
+export type TransitLeg = {
+	type: "walk" | "pt";
+	// ISO instants (offset-bearing) as ORS emitted them.
+	departure?: string;
+	arrival?: string;
+	// Human labels for the leg's ends: the boarding stop and the alighting stop
+	// for a pt leg; omitted for a walk leg, which has no named endpoints.
+	from?: string;
+	to?: string;
+	// Line identity: `route_short_name` where the feed has one ("39A"), with
+	// `lineLong` carrying `route_long_name`.
+	line?: string;
+	lineLong?: string;
+	headsign?: string;
+	// GTFS route_type (0 tram, 1 metro, 2 rail, 3 bus, …). Absent on walk legs
+	// (ORS emits -1 there, which we drop).
+	routeType?: number;
+	// Intermediate + terminal stops ORS listed for this leg.
+	stopsCount?: number;
+	distance_m: number;
+	duration_s: number;
+	// The leg continues in the same physical vehicle as the previous one.
+	sameVehicleAsPrevious?: boolean;
+	// Encoded polyline for this leg alone.
+	polyline?: string;
+};
+
+export type TransitItinerary = {
+	// ISO instants for the whole journey (ORS route-level departure/arrival).
+	departure?: string;
+	arrival?: string;
+	duration_s: number;
+	distance_m: number;
+	// Number of vehicle changes. ORS reports it in `summary.transfers`; when it
+	// is absent we derive it from the pt-leg count.
+	transfers: number;
+	legs: TransitLeg[];
+	// Whole-journey encoded polyline (ORS route-level geometry).
+	polyline?: string;
+};
+
+export type TransitData = {
+	// One entry for a journey query; several (the next departures) for a
+	// schedule query.
+	itineraries: TransitItinerary[];
+	coords: { origin: LatLng; destination: LatLng };
+	// The region's IANA timezone, so callers can render local clock times.
+	// Absent when it could not be derived (times are then server-local).
+	timezone?: string;
+	// What was actually asked of ORS, echoed for the model.
+	query: {
+		departure?: string;
+		arrival?: string;
+		schedule?: boolean;
+		walkingTimeMinutes?: number;
+	};
+};
+
 export type MatrixData = {
 	// [originIndex][destinationIndex]. `null` where the provider could not
 	// compute a value (ORS emits null for unreachable pairs).
@@ -127,6 +210,11 @@ export type RoutingFailureReason =
 	// The region cannot be served (too large for the cap, on-demand disabled,
 	// or its build failed).
 	| "region_unavailable"
+	// The region routes fine, but has no public-transport graph: no GTFS feed
+	// is configured for it, or the timetable graph is still being built.
+	// Distinct from region_preparing (that one is about the ROAD graph) so the
+	// tool can say "no timetables for this region" instead of "not ready yet".
+	| "transit_unavailable"
 	// Network error, non-2xx, malformed body, or timeout from the upstream.
 	| "provider_error";
 
@@ -138,6 +226,27 @@ export type GeocodeOutcome = ProviderOutcome<{ results: GeocodeMatch[] }>;
 export type RouteOutcome = ProviderOutcome<RouteData>;
 export type MatrixOutcome = ProviderOutcome<MatrixData>;
 export type IsochroneOutcome = ProviderOutcome<IsochroneData>;
+export type TransitOutcome = ProviderOutcome<TransitData>;
+
+// A public-transport journey request. `departure` / `arrival` are LOCAL
+// date-times without an offset ("2026-09-08T08:30:00") — the exact format
+// ORS's LocalDateTime parameters take. At most one of them is honoured;
+// `arrival` wins when both are set, matching "arrive by".
+export type TransitQuery = {
+	origin: LatLng;
+	destination: LatLng;
+	departure?: string;
+	arrival?: string;
+	// Maximum walking time for access/egress, in minutes (ORS default 15).
+	walkingTimeMinutes?: number;
+};
+
+// A "next departures" request: the same journey search, run repeatedly over a
+// window (ORS `schedule` + `schedule_duration` + `schedule_rows`).
+export type TransitScheduleQuery = TransitQuery & {
+	windowMinutes?: number;
+	rows?: number;
+};
 
 // ── Provider interface ─────────────────────────────────────────
 
@@ -159,6 +268,9 @@ export interface RoutingProvider {
 	// covers (e.g. "Hungary"). Surfaced to the model in the tool description
 	// and in out_of_coverage failures so it can explain the limit honestly.
 	coverageLabel?(): string;
+	// Optional human-readable list of the regions whose timetables are loaded
+	// ("Hungary, Ireland"). Empty/undefined => no region has a GTFS graph.
+	transitCoverageLabel?(): string;
 
 	geocode(input: {
 		query: string;
@@ -184,4 +296,9 @@ export interface RoutingProvider {
 		mode: RoutingMode;
 		rangesS: number[];
 	}): Promise<IsochroneOutcome>;
+
+	// Public transport. Optional on the interface so a provider without a GTFS
+	// graph simply omits them; the tool reports `transit_unavailable` then.
+	transit?(input: TransitQuery): Promise<TransitOutcome>;
+	transitSchedule?(input: TransitScheduleQuery): Promise<TransitOutcome>;
 }
