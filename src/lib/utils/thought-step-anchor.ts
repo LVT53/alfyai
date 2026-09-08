@@ -72,29 +72,79 @@ function expandEndToSentence(text: string, end: number): number {
 	return i;
 }
 
+// Owner feedback (2026-09-08), second half — one extra sentence of
+// SURROUNDING context. Walking one sentence further out is not the same walk
+// as completing the sentence the span sits in: `contextStart` already sits
+// on a sentence start, so `expandStartToSentence` would return it unchanged.
+// These step over the boundary itself (the whitespace, then the terminator
+// that closed the neighbouring sentence) before completing that neighbour.
+// A line break is treated as a paragraph edge and never crossed — the reader
+// gets the paragraph, not an unrelated one.
+function expandStartToPreviousSentence(text: string, start: number): number {
+	let i = start;
+	while (i > 0 && /\s/.test(text[i - 1])) {
+		if (text[i - 1] === "\n") return i;
+		i -= 1;
+	}
+	if (i <= 0) return 0;
+	if (!isSentenceTerminator(text[i - 1])) return start;
+	while (i > 0 && isSentenceTerminator(text[i - 1])) i -= 1;
+	return expandStartToSentence(text, i);
+}
+
+function expandEndToNextSentence(text: string, end: number): number {
+	let i = end;
+	while (i < text.length && /\s/.test(text[i])) {
+		if (text[i] === "\n") return i;
+		i += 1;
+	}
+	if (i >= text.length) return text.length;
+	return expandEndToSentence(text, i);
+}
+
 /**
  * The step rail's per-step reveal used to show ONLY the raw anchored span,
  * which — because the classifier samples reasoning at arbitrary delta
  * boundaries, not sentence boundaries — routinely began and ended mid-sentence
- * ("beginning and end cut off"). This returns the same honest, in-bounds
- * anchored `span` PLUS the `before`/`after` text needed to complete the
- * sentence the span sits in, so the reveal reads as whole thoughts. It only
- * ever exposes MORE of the real `thinkingText` (never fabricates), and the
- * caller still highlights `span` alone — the surrounding sentence context is
- * shown un-highlighted. Returns `null` on exactly the anchors
- * `resolveThoughtStepAnchorSpan` rejects, so eligibility is unchanged.
+ * ("beginning and end cut off"). Anchors created from 2026-09-08 on are
+ * already snapped to sentence bounds server-side
+ * (`snapThoughtStepAnchorToSentenceBounds`), but every anchor persisted
+ * BEFORE that is still mid-sentence forever, so the reveal completes the
+ * sentence here too and stays correct for both.
+ *
+ * Returns the honest, in-bounds anchored `span` plus:
+ *   - `before`/`after`: the rest of the sentence the span sits in. The caller
+ *     highlights `before + span + after` as ONE unit, so the highlight is
+ *     always whole sentences rather than a mid-word slice.
+ *   - `leadIn`/`tailOut`: one further sentence on each side (stopping at a
+ *     line break), shown UN-highlighted so the reader can see where the
+ *     highlighted thought sits.
+ *
+ * It only ever exposes MORE of the real `thinkingText` (never fabricates),
+ * and returns `null` on exactly the anchors `resolveThoughtStepAnchorSpan`
+ * rejects, so step eligibility is unchanged.
  */
 export function resolveThoughtStepDisplayContext(
 	anchor: ThoughtStepAnchor | null | undefined,
 	thinkingText: string,
-): { before: string; span: string; after: string } | null {
+): {
+	leadIn: string;
+	before: string;
+	span: string;
+	after: string;
+	tailOut: string;
+} | null {
 	const span = resolveThoughtStepAnchorSpan(anchor, thinkingText);
 	if (span === null || !anchor) return null;
 	const contextStart = expandStartToSentence(thinkingText, anchor.start);
 	const contextEnd = expandEndToSentence(thinkingText, anchor.end);
+	const leadInStart = expandStartToPreviousSentence(thinkingText, contextStart);
+	const tailOutEnd = expandEndToNextSentence(thinkingText, contextEnd);
 	return {
+		leadIn: thinkingText.slice(leadInStart, contextStart),
 		before: thinkingText.slice(contextStart, anchor.start),
 		span,
 		after: thinkingText.slice(anchor.end, contextEnd),
+		tailOut: thinkingText.slice(contextEnd, tailOutEnd),
 	};
 }

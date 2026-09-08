@@ -1791,17 +1791,21 @@ describe("ThinkingBlock", () => {
 
 			const mark = document.querySelector("mark.thought-step-anchor-highlight");
 			expect(mark).not.toBeNull();
-			// The highlight is still EXACTLY the anchored span.
-			expect(mark?.textContent).toBe(anchorText);
-			// The reveal now completes the sentence the span sits in, so it no
-			// longer begins/ends mid-sentence: the same-sentence lead-in ("Then
-			// I ") and tail ("before continuing.") surround the highlight...
-			const reveal = mark?.closest("pre");
-			expect(reveal?.textContent).toBe(
+			// Owner feedback (2026-09-08) — the HIGHLIGHT is now the whole
+			// sentence the anchored span sits in, so it never begins or ends
+			// mid-sentence even for a mid-sentence persisted anchor like this
+			// one.
+			expect(mark?.textContent).toBe(
 				"Then I weighed two different options before continuing.",
 			);
-			// ...but the PREVIOUS sentence is not pulled in.
-			expect(reveal?.textContent).not.toContain("First I read the request");
+			// The neighbouring sentence is shown as un-highlighted context, so
+			// the reader can see where the highlighted thought sits...
+			const reveal = mark?.closest("pre");
+			expect(reveal?.textContent).toBe(
+				"First I read the request carefully. Then I weighed two different options before continuing.",
+			);
+			// ...outside the highlight itself.
+			expect(mark?.textContent).not.toContain("First I read the request");
 			expect(
 				screen.getByRole("button", { name: /Back to steps/ }),
 			).toBeInTheDocument();

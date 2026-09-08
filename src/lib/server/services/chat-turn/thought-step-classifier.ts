@@ -104,6 +104,138 @@ const THOUGHT_STEP_SAMPLING_TRIGGER_REGEX =
 // a SAMPLING decision (when to call the model), not a text source.
 const THOUGHT_STEP_SAMPLING_FALLBACK_CHAR_CAP = 1200;
 
+// ── Sentence-boundary snapping at anchor CREATION time ────────────────────
+// (owner feedback, 2026-09-08: "It cuts off mid sentences.")
+//
+// Root cause: a step's persisted anchor was EXACTLY the sampled delta window
+// (`sampleStart..sampleEnd`), and those bounds are network-chunk boundaries
+// — a reasoning delta ends wherever the model's token stream happened to
+// flush, never where a thought ends. Every consumer therefore inherited a
+// mid-sentence span: the rail's reveal, the honesty audit harness, and any
+// future export of the durable state. Fixing it only at render time would
+// leave the PERSISTED anchor mid-sentence forever, so the snap happens once,
+// here, before the anchor is ever validated or stored.
+//
+// `start` moves left to the beginning of the sentence (or line) it sits in;
+// `end` moves right through the next sentence terminator (or to the next
+// line break). Both directions are capped so a terminator-free wall of
+// reasoning can never swallow the whole trace, and the snap only ever
+// EXPANDS the span — it can never drop a content word — so the
+// `hasVerbatimContentWordTether` guarantee made against the sampled chunk
+// still holds for the (now larger) anchored text, and a span that resolved
+// before the snap still resolves after it.
+//
+// Deliberately duplicated in shape (not imported) by
+// src/lib/utils/thought-step-anchor.ts's display expansion: that module is
+// client-reachable and may not import anything under $lib/server. The
+// display expansion is a strictly cosmetic superset applied at render time
+// so OLD, pre-snap persisted anchors still read cleanly; this one fixes the
+// durable state itself.
+export const THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS = 400;
+
+function isSentenceTerminator(char: string | undefined): boolean {
+	return char === "." || char === "!" || char === "?";
+}
+
+function snapAnchorStartToSentenceStart(text: string, start: number): number {
+	if (start <= 0) return 0;
+	const previous = text[start - 1];
+	if (previous === "\n" || isSentenceTerminator(previous)) return start;
+	const floor = Math.max(0, start - THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS);
+	let index = start;
+	while (index > floor) {
+		const char = text[index - 1];
+		if (char === "\n" || isSentenceTerminator(char)) break;
+		index -= 1;
+	}
+	// Begin on a real word, never on the whitespace that followed the
+	// previous sentence's terminator.
+	while (index < start && /\s/.test(text[index])) index += 1;
+	return index;
+}
+
+function snapAnchorEndToSentenceEnd(text: string, end: number): number {
+	if (end >= text.length) return text.length;
+	if (isSentenceTerminator(text[end - 1]) || text[end] === "\n") return end;
+	const ceiling = Math.min(
+		text.length,
+		end + THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS,
+	);
+	let index = end;
+	while (index < ceiling) {
+		const char = text[index];
+		if (char === "\n") break;
+		index += 1;
+		if (isSentenceTerminator(char)) break;
+	}
+	return index;
+}
+
+/**
+ * Snaps a freshly-sampled anchor out to the sentence boundaries around it,
+ * against the turn's running reasoning text. Pure and total: bounds are
+ * clamped into `text` first, the result is never narrower than the input,
+ * and `end >= start` always — so it can only ever turn an unresolvable
+ * anchor into a resolvable one, never the reverse. The caller still
+ * validates the RESULT with `resolveThoughtStepAnchorSpan` and drops the
+ * step when it does not resolve (ADR-0056's structural honesty gate is
+ * unchanged). Exported for direct unit testing.
+ */
+export function snapThoughtStepAnchorToSentenceBounds(
+	anchor: ThoughtStepAnchor,
+	text: string,
+): ThoughtStepAnchor {
+	const start = Math.max(0, Math.min(anchor.start, text.length));
+	const end = Math.max(start, Math.min(anchor.end, text.length));
+	const snappedEnd = Math.max(snapAnchorEndToSentenceEnd(text, end), start);
+	let snappedStart = snapAnchorStartToSentenceStart(text, start);
+	// A window that begins on the whitespace right after the previous
+	// sentence's terminator is already at a sentence boundary, but would
+	// render with a leading blank. Trimming whitespace can only ever remove
+	// blanks — never a content word — so the verbatim tether is untouched;
+	// it is skipped entirely when it would empty the span.
+	while (snappedStart < snappedEnd && /\s/.test(text[snappedStart])) {
+		snappedStart += 1;
+	}
+	if (snappedStart >= snappedEnd) {
+		snappedStart = snapAnchorStartToSentenceStart(text, start);
+	}
+	return { start: snappedStart, end: Math.max(snappedEnd, snappedStart) };
+}
+
+// The classifier sees a COMPLETE thought, not a truncated one (owner
+// feedback, 2026-09-08 — "isn't very conclusive"). A window that stops
+// mid-sentence hides the very clause that carries the conclusion, so the
+// model can only describe the activity it saw. When the buffered window
+// contains a sentence terminator, the sample is cut there and the trailing
+// partial sentence is carried over into the next window instead of being
+// classified half-read. The cut is only taken when it keeps at least this
+// fraction of the buffer — otherwise a single early "." would shrink the
+// window down to a sliver with even less to conclude from.
+const THOUGHT_STEP_SAMPLING_MIN_SENTENCE_WINDOW_RATIO = 0.5;
+
+/**
+ * Returns how many leading characters of `buffered` to classify: the buffer
+ * up to and including its last sentence terminator when that keeps enough of
+ * the window, otherwise the whole buffer. Exported for direct unit testing.
+ */
+export function measureSentenceAlignedSampleLength(buffered: string): number {
+	const minimumLength = Math.ceil(
+		buffered.length * THOUGHT_STEP_SAMPLING_MIN_SENTENCE_WINDOW_RATIO,
+	);
+	for (let index = buffered.length - 1; index >= 0; index -= 1) {
+		if (!isSentenceTerminator(buffered[index])) continue;
+		const next = buffered[index + 1];
+		// A terminator only ends a sentence when a boundary follows it, so
+		// decimals and version numbers ("model 4.5", "v1.2") are not cuts.
+		if (next !== undefined && !/\s/.test(next)) continue;
+		const cut = index + 1;
+		if (cut < minimumLength) break;
+		return cut;
+	}
+	return buffered.length;
+}
+
 // "Rate-limited to roughly one new step per 5-7s" (architecture-deepening-
 // slices.md § P3b): a hard floor on how often a classify call can fire per
 // turn. Combined with the marker trigger above, natural reasoning produces a
@@ -171,7 +303,18 @@ function buildThoughtStepClassifierSystemPrompt(
 		? `The step currently in progress is classified as "${currentActivityClass}".`
 		: "No step has been classified yet for this turn — this is the first fragment.";
 	const targetLanguageLabel = targetLanguage === "hu" ? "Hungarian" : "English";
-	return `You are classifying a short fragment of an AI assistant's PRIVATE internal reasoning trace (never the final answer shown to a user) into one of a small set of activity categories, and writing a short summary of it. Respond with strict JSON only, matching exactly: {"verdict": "new_step" | "continuation", "activityClass": one of "understanding-request" | "recalling-context" | "weighing-options" | "working-through-logic" | "checking-details" | "drafting-approach" (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "summary": a short present-tense paraphrase of the fragment (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "entity": a short phrase copied verbatim from the fragment, or omit the field}.
+	// Owner feedback (2026-09-08) — "isn't very conclusive". The headline
+	// examples are localized alongside the rest of the summary rules so the
+	// model is shown result phrasing in the language it must actually write.
+	const conclusiveHeadlineExamples =
+		targetLanguage === "hu"
+			? '"A Flash-Next modellt választotta a Qwen helyett", "Megállapította, hogy a prefix cache sosem talál"'
+			: '"Chose Flash-Next over Qwen for latency", "Found the prefix cache never hits"';
+	const genericHeadlineExamples =
+		targetLanguage === "hu"
+			? '"A kérés elemzése", "Lehetőségek mérlegelése", "Gondolkodás a válaszon"'
+			: '"Analyzing the request", "Thinking about options", "Considering alternatives", "Evaluating approaches"';
+	return `You are classifying a short fragment of an AI assistant's PRIVATE internal reasoning trace (never the final answer shown to a user) into one of a small set of activity categories, and writing a short headline for it. Respond with strict JSON only, matching exactly: {"verdict": "new_step" | "continuation", "activityClass": one of "understanding-request" | "recalling-context" | "weighing-options" | "working-through-logic" | "checking-details" | "drafting-approach" (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "summary": a short statement of what the fragment DECIDED or FOUND (REQUIRED when verdict is "new_step"; omit when verdict is "continuation"), "entity": a short phrase copied verbatim from the fragment, or omit the field}.
 
 ${currentDescription}
 
@@ -189,9 +332,13 @@ activityClass meanings (only used when verdict is "new_step"):
 - checking-details: verifying, double-checking, or catching a mistake
 - drafting-approach: planning how to structure or phrase the eventual answer
 
-summary rules (only used when verdict is "new_step"; checked mechanically, not just requested):
-- Write a short, present-tense paraphrase of what THIS fragment is doing — 10 words or fewer.
-- Summarize the SUBSTANTIVE thinking, never administrative framing. Do NOT quote or restate the user's request, and do NOT begin the summary with a meta label such as "Latest user request", "The user wants", "The user is asking", "User asked", "User request", or "Task:". If the fragment only restates the request, describe the mental activity itself (e.g. taking the request in) in ${targetLanguageLabel} — never the request text.
+summary rules — this is the step's visible HEADLINE (only used when verdict is "new_step"; checked mechanically, not just requested):
+- State what the reasoning in THIS fragment DECIDED, FOUND, or ESTABLISHED: the choice it settled on, the fact it worked out, the conclusion it reached, the problem it caught. The reader must learn the OUTCOME of the thinking, not that thinking occurred.
+- Use result phrasing — a completed, past-tense statement in ${targetLanguageLabel}, e.g. ${conclusiveHeadlineExamples}. Never "-ing" activity phrasing.
+- Between 4 and 10 words. Under 4 words cannot carry a conclusion; over 10 does not fit.
+- A headline that only names the activity is REJECTED and the step loses its headline entirely. Never write generic wording such as ${genericHeadlineExamples}, and never build the headline around the bare verbs analyzing / considering / thinking / looking / exploring / evaluating / reviewing / weighing with no concrete subject.
+- If the fragment genuinely reaches no conclusion yet, still name the concrete thing it pinned down (the specific constraint, number, name, or condition it settled), never the activity in the abstract.
+- Summarize the SUBSTANTIVE thinking, never administrative framing. Do NOT quote or restate the user's request, and do NOT begin the summary with a meta label such as "Latest user request", "The user wants", "The user is asking", "User asked", "User request", or "Task:". If the fragment only restates the request, name the concrete thing the reasoning established about it (the constraint, subject, or condition it pinned down) in ${targetLanguageLabel} — never the request text, and never the bare activity.
 - Write the summary in ${targetLanguageLabel} — the conversation's response language — no matter what language the reasoning fragment below is written in.
 - It MUST include at least one word or short phrase copied VERBATIM (character-for-character) from the fragment below. Technical terms, proper nouns, identifiers (API/library/product names, error codes, file names), and numbers are the best choice for this: copy them exactly as written and leave them untranslated. You may paraphrase everything else into ${targetLanguageLabel}, but the subject must stay traceable to the fragment's own words.
 - Describe ONLY what the reasoning is doing with content that is actually present in the fragment. Never introduce an entity, fact, claim, or conclusion that is not in the fragment — no outside knowledge, no guessing ahead to the answer.
@@ -529,12 +676,13 @@ export function assertsExternalAction(summary: string): boolean {
 }
 
 /**
- * Applies both runtime guards: `candidate` survives only when non-empty,
- * tethered to `anchoredText` per `hasVerbatimContentWordTether`, AND does
- * NOT assert an external action per `assertsExternalAction`. Otherwise
- * `undefined` — dropping the summary, never the step itself (the caller
- * still emits the step with its class + entity, exactly as it did before
- * this amendment).
+ * Applies every runtime headline guard: `candidate` survives only when
+ * non-empty, tethered to `anchoredText` per `hasVerbatimContentWordTether`,
+ * NOT asserting an external action per `assertsExternalAction`, NOT a meta
+ * restatement of the request per `isMetaRestatement`, and NOT a generic
+ * activity label per `isGenericActivityHeadline`. Otherwise `undefined` —
+ * dropping the summary, never the step itself (the caller still emits the
+ * step with its class + entity, exactly as it did before this amendment).
  */
 // Meta / administrative fragments — the model restating the user's request or
 // quoting its own prompt scaffolding — make weak, non-thinking summaries like
@@ -550,6 +698,75 @@ export function isMetaRestatement(summary: string): boolean {
 	return META_RESTATEMENT_PREFIX_REGEX.test(summary.trim());
 }
 
+// ── Runtime "not very conclusive" guard (owner feedback, 2026-09-08) ───────
+//
+// The second half of the owner's complaint: headlines like "Analyzing the
+// request" or "Thinking about options" are honest, tethered, and useless —
+// they restate the activity class the rail already shows as an icon and a
+// phase label, and tell the reader nothing about what the reasoning
+// actually concluded. The prompt above now demands result phrasing, but a
+// prompt is a request, not a guarantee (the same reason the tether and the
+// external-action denylist exist), so this is the mechanical backstop that
+// keeps such a headline from ever rendering.
+//
+// Deliberately narrow, exactly like the other two guards: a headline is
+// rejected ONLY when it is built around a generic activity verb AND names
+// nothing specific — every remaining token is filler or a generic
+// placeholder object. "Weighing tradeoffs between caching and
+// recomputation" keeps its generic verb but names two concrete subjects, so
+// it survives; "Weighing the options" does not. Failing this check drops
+// only the HEADLINE, never the step (which still emits with its class and
+// entity), so the floor stays the localized phase label — never worse than
+// the pre-amendment behavior.
+//
+// Bilingual (EN + HU), like the external-action denylist: the reasoning
+// stream is English but the headline is written in the conversation's
+// response language, so a generic HU nominalization ("A kérés elemzése")
+// must be caught in HU too. Hungarian is agglutinative and head-final, so
+// the verb stems are matched anywhere in the headline (not just at the
+// front) with an open-ended letter run for inflections.
+const GENERIC_HEADLINE_VERB_REGEX =
+	/^(?:analys|analyz|assess|consider|contemplat|deliberat|evaluat|examin|explor|look|mull|ponder|process|reflect|review|think|weigh|elemz|mérlegel|gondolkod|gondolkoz|átgondol|megfontol|fontolgat|vizsgál|értékel|áttekint|tűnőd)[\p{L}]*$/u;
+
+// Words that carry no subject of their own: articles, prepositions,
+// auxiliaries, and vague quantifiers, in both languages.
+const GENERIC_HEADLINE_FILLER_REGEX =
+	/^(?:the|a|an|this|that|these|those|its|their|our|my|his|her|some|any|all|more|most|other|another|of|on|at|about|over|into|through|for|with|in|to|and|or|but|from|between|among|out|up|upon|whether|how|what|which|if|possible|potential|different|various|several|best|next|further|again|now|still|currently|just|also|here|there|is|are|be|been|being|was|were|am|it|we|they|i|az|egy|és|vagy|ezt|azt|ezek|néhány|több|különböző|lehetséges|milyen|hogyan|még|van|vannak|hogy)$/u;
+
+// Placeholder objects — nouns that name the conversation's furniture rather
+// than anything the reasoning actually established. EN takes an optional
+// plural/possessive suffix; HU takes an open-ended letter run (kérés,
+// kérést, kérésre, kérdések, lehetőségeket, ...).
+const GENERIC_HEADLINE_OBJECT_REGEX =
+	/^(?:(?:request|question|task|problem|issue|option|alternative|approach|possibilit(?:y|ies)|situation|context|detail|information|info|input|prompt|message|answer|response|reply|topic|subject|idea|point|aspect|factor|way|thing|step|plan|choice|user|matter|scenario|case)(?:s|es|'s|’s)?|(?:kérés|kérdés|feladat|lehetőség|opció|válasz|probléma|helyzet|megközelítés|szempont|információ|dolog|téma|ötlet|lépés|terv|felhasználó)[\p{L}]*)$/u;
+
+/**
+ * Does `summary` merely name a generic mental activity instead of stating a
+ * conclusion? Exported for direct unit testing of the blacklist's boundary
+ * (a generic verb with a CONCRETE subject must survive).
+ */
+export function isGenericActivityHeadline(summary: string): boolean {
+	const tokens = summary.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
+	if (tokens.length === 0) return true;
+	let sawGenericVerb = false;
+	let sawSpecificSubject = false;
+	for (const rawToken of tokens) {
+		const token = rawToken.toLowerCase();
+		if (GENERIC_HEADLINE_VERB_REGEX.test(token)) {
+			sawGenericVerb = true;
+			continue;
+		}
+		if (
+			GENERIC_HEADLINE_FILLER_REGEX.test(token) ||
+			GENERIC_HEADLINE_OBJECT_REGEX.test(token)
+		) {
+			continue;
+		}
+		sawSpecificSubject = true;
+	}
+	return sawGenericVerb && !sawSpecificSubject;
+}
+
 function extractGroundedSummary(
 	candidate: string | undefined,
 	anchoredText: string,
@@ -558,6 +775,7 @@ function extractGroundedSummary(
 	if (!trimmed) return undefined;
 	if (assertsExternalAction(trimmed)) return undefined;
 	if (isMetaRestatement(trimmed)) return undefined;
+	if (isGenericActivityHeadline(trimmed)) return undefined;
 	return hasVerbatimContentWordTether(trimmed, anchoredText)
 		? trimmed
 		: undefined;
@@ -751,17 +969,38 @@ export function createThoughtStepClassifierSession(params: {
 			// Can't extend a step that doesn't exist yet — drop defensively
 			// rather than fabricate one with no class.
 			if (!currentStep?.anchor) return;
-			currentStep.anchor = {
+			// The extended end is snapped exactly like a fresh anchor's, so a
+			// merged step's span ends on a sentence terminator too — a
+			// continuation must not re-introduce the mid-sentence cut the
+			// creation-time snap just removed.
+			// Only the END moves: the start was already snapped when the step
+			// was created, and re-snapping it on every continuation could walk
+			// it a further capped stretch backwards through terminator-free
+			// reasoning each time.
+			const extended: ThoughtStepAnchor = {
 				start: currentStep.anchor.start,
-				end: Math.max(currentStep.anchor.end, window.sampleEnd),
+				end: snapThoughtStepAnchorToSentenceBounds(
+					{
+						start: currentStep.anchor.start,
+						end: Math.max(currentStep.anchor.end, window.sampleEnd),
+					},
+					thinkingSoFar,
+				).end,
 			};
+			if (resolveThoughtStepAnchorSpan(extended, thinkingSoFar) === null) {
+				return;
+			}
+			currentStep.anchor = extended;
 			return;
 		}
 
-		const anchor: ThoughtStepAnchor = {
-			start: window.sampleStart,
-			end: window.sampleEnd,
-		};
+		// Owner feedback (2026-09-08) — the persisted anchor is the SNAPPED
+		// span, not the raw delta window, so the durable state itself starts
+		// and ends on a real sentence boundary.
+		const anchor = snapThoughtStepAnchorToSentenceBounds(
+			{ start: window.sampleStart, end: window.sampleEnd },
+			thinkingSoFar,
+		);
 		// Structural honesty gate (ADR-0056 "What makes a step true"): a step
 		// that cannot name a real anchor into the reasoning that produced it
 		// is not emitted. Validated with the SAME function P3a's read model
@@ -812,10 +1051,18 @@ export function createThoughtStepClassifierSession(params: {
 			// the async call resolves, so reasoning that arrives while this
 			// call is in flight starts a fresh window instead of being lost
 			// or double-counted.
-			const sampleText = buffered;
-			const sampleEnd = thinkingSoFar.length;
+			//
+			// The window prefers to END on a sentence terminator (owner
+			// feedback, 2026-09-08): the classifier then sees complete
+			// thoughts and can state what they concluded. Whatever partial
+			// sentence trails the cut is carried over into the next window
+			// rather than dropped, so no reasoning is skipped.
+			const sampleLength = measureSentenceAlignedSampleLength(buffered);
+			const sampleText = buffered.slice(0, sampleLength);
+			const carryOver = buffered.slice(sampleLength);
+			const sampleEnd = thinkingSoFar.length - carryOver.length;
 			const sampleStart = sampleEnd - sampleText.length;
-			pendingSinceLastSample = "";
+			pendingSinceLastSample = carryOver;
 			lastSampleAt = nowFn();
 			sampleInFlight = true;
 

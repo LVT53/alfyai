@@ -474,6 +474,127 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	// Owner feedback (2026-09-08) — "isn't very conclusive". A headline that
+	// only names the activity is dropped at runtime, not merely discouraged
+	// in the prompt; the step still emits with its class (the phase-label
+	// floor), exactly like the other headline guards.
+	it("drops a generic activity headline, even though it is verbatim-tethered, but still emits the step's class", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"understanding-request","summary":"Analyzing the request"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Analyzing the request the user just sent me here.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "understanding-request",
+		});
+	});
+
+	it("keeps a conclusive past-tense headline that states what the reasoning found", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"working-through-logic","summary":"Found the prefix cache never hits"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		const result = await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "The prefix cache never hits on this serving config.",
+			currentActivityClass: null,
+		});
+
+		expect(result).toEqual({
+			verdict: "new_step",
+			activityClass: "working-through-logic",
+			summary: "Found the prefix cache never hits",
+		});
+	});
+
+	it("asks the classifier for a conclusion, not an activity label, in the system prompt", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		const prompt = options.systemPrompt ?? "";
+		expect(prompt).toContain("DECIDED, FOUND, or ESTABLISHED");
+		expect(prompt).toContain("Between 4 and 10 words");
+		expect(prompt).toContain('Never "-ing" activity phrasing');
+		// The generic wording the deterministic post-filter also rejects is
+		// named explicitly, so the model is told the same rule it is judged by.
+		expect(prompt).toContain('"Analyzing the request"');
+		expect(prompt).toContain('"Thinking about options"');
+		expect(prompt).toContain(
+			"analyzing / considering / thinking / looking / exploring / evaluating",
+		);
+		// ...and the superseded present-tense-paraphrase instruction is gone.
+		expect(prompt).not.toContain("short, present-tense paraphrase");
+	});
+
+	it("localizes the conclusive-headline examples for a Hungarian conversation", async () => {
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"weighing-options"}',
+			}),
+		);
+
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "conv-1",
+			chunkText: "Comparing option A against option B for this case.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+
+		const [, , options] = sendJsonControlMessageMock.mock.calls[0] as [
+			string,
+			string,
+			{ systemPrompt?: string },
+		];
+		const prompt = options.systemPrompt ?? "";
+		expect(prompt).toContain("A Flash-Next modellt választotta");
+		expect(prompt).toContain("A kérés elemzése");
+		expect(prompt).not.toContain("Chose Flash-Next over Qwen");
+	});
+
 	it("returns a bare continuation verdict, carrying no class or entity", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(
@@ -844,10 +965,209 @@ describe("assertsExternalAction", () => {
 	});
 });
 
+// Owner feedback (2026-09-08), second half — the deterministic backstop for
+// "not very conclusive" headlines. Deliberately narrow: a generic activity
+// verb is only fatal when the headline names nothing specific alongside it.
+describe("isGenericActivityHeadline", () => {
+	it("rejects headlines that only name a mental activity", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Analyzing the request",
+			"Considering the options",
+			"Thinking about options",
+			"Looking at the problem",
+			"Exploring possible approaches",
+			"Evaluating the alternatives",
+			"Reviewing the details",
+			"Weighing the options",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(true);
+		}
+	});
+
+	it("rejects the Hungarian equivalents (head-final activity nouns)", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"A kérés elemzése",
+			"Lehetőségek mérlegelése",
+			"Gondolkodás a válaszon",
+			"A feladat átgondolása",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(true);
+		}
+	});
+
+	it("keeps a headline that names a concrete subject, even with a generic verb", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Weighing tradeoffs between caching and recomputation",
+			"Analyzing the vLLM prefix cache miss",
+			"A Kafka üzenetsor működését vizsgálja át",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(false);
+		}
+	});
+
+	it("keeps conclusive result phrasing, which names no generic activity verb at all", async () => {
+		const { isGenericActivityHeadline } = await import(
+			"./thought-step-classifier"
+		);
+		for (const headline of [
+			"Chose Flash-Next over Qwen for latency",
+			"Found the prefix cache never hits",
+			"Comparing option A against option B",
+			"Recalling the user's earlier message",
+			"A Flash-Next modellt választotta a Qwen helyett",
+		]) {
+			expect(isGenericActivityHeadline(headline)).toBe(false);
+		}
+	});
+});
+
+// Owner feedback (2026-09-08), first half — "It cuts off mid sentences."
+// The anchor persisted with a step is snapped out to the sentence bounds
+// around the sampled delta window, at CREATION time, so the durable state
+// itself is clean rather than being patched up at render time.
+describe("snapThoughtStepAnchorToSentenceBounds", () => {
+	const text =
+		"First I read the request carefully. Then I weighed two different options before continuing. After that I drafted an answer.";
+
+	it("snaps a window that starts and ends mid-sentence out to whole sentences", async () => {
+		const { snapThoughtStepAnchorToSentenceBounds } = await import(
+			"./thought-step-classifier"
+		);
+		const start = text.indexOf("weighed");
+		const end = text.indexOf("before");
+		const snapped = snapThoughtStepAnchorToSentenceBounds({ start, end }, text);
+		expect(text.slice(snapped.start, snapped.end)).toBe(
+			"Then I weighed two different options before continuing.",
+		);
+	});
+
+	it("leaves an already sentence-aligned window untouched", async () => {
+		const { snapThoughtStepAnchorToSentenceBounds } = await import(
+			"./thought-step-classifier"
+		);
+		const start = text.indexOf("Then");
+		const end = text.indexOf("continuing.") + "continuing.".length;
+		expect(snapThoughtStepAnchorToSentenceBounds({ start, end }, text)).toEqual(
+			{ start, end },
+		);
+	});
+
+	it("treats a line break as a boundary and never crosses it", async () => {
+		const { snapThoughtStepAnchorToSentenceBounds } = await import(
+			"./thought-step-classifier"
+		);
+		const lines = "A first line with no terminator\nA second line mid cut here";
+		const start = lines.indexOf("second");
+		const snapped = snapThoughtStepAnchorToSentenceBounds(
+			{ start, end: start + 6 },
+			lines,
+		);
+		expect(lines.slice(snapped.start, snapped.end)).toBe(
+			"A second line mid cut here",
+		);
+		expect(snapped.start).toBe(lines.indexOf("A second"));
+	});
+
+	it("caps the expansion in each direction on terminator-free reasoning", async () => {
+		const {
+			snapThoughtStepAnchorToSentenceBounds,
+			THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS,
+		} = await import("./thought-step-classifier");
+		const wall = "word ".repeat(600); // 3000 chars, no terminator anywhere
+		const start = 1500;
+		const end = 1600;
+		const snapped = snapThoughtStepAnchorToSentenceBounds({ start, end }, wall);
+		expect(start - snapped.start).toBeLessThanOrEqual(
+			THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS,
+		);
+		expect(snapped.end - end).toBeLessThanOrEqual(
+			THOUGHT_STEP_ANCHOR_SNAP_MAX_CHARS,
+		);
+	});
+
+	it("only ever widens a span, and stays in bounds — so a resolvable anchor cannot become unresolvable", async () => {
+		const { snapThoughtStepAnchorToSentenceBounds } = await import(
+			"./thought-step-classifier"
+		);
+		const { resolveThoughtStepAnchorSpan } = await import("./thought-steps");
+		for (let start = 0; start < text.length - 1; start += 7) {
+			for (const width of [1, 9, 40]) {
+				const end = Math.min(text.length, start + width);
+				const snapped = snapThoughtStepAnchorToSentenceBounds(
+					{ start, end },
+					text,
+				);
+				expect(snapped.start).toBeGreaterThanOrEqual(0);
+				expect(snapped.end).toBeLessThanOrEqual(text.length);
+				expect(snapped.end).toBeGreaterThanOrEqual(end);
+				expect(resolveThoughtStepAnchorSpan(snapped, text)).not.toBeNull();
+			}
+		}
+	});
+});
+
+// Owner feedback (2026-09-08), second half — the classifier can only report
+// a conclusion it was actually shown, so the sampled window prefers to end
+// on a completed sentence and carries the trailing partial one over.
+describe("measureSentenceAlignedSampleLength", () => {
+	it("cuts the window at its last sentence terminator", async () => {
+		const { measureSentenceAlignedSampleLength } = await import(
+			"./thought-step-classifier"
+		);
+		const buffered = "So the measured win is zero on this config. A later half";
+		expect(measureSentenceAlignedSampleLength(buffered)).toBe(
+			"So the measured win is zero on this config.".length,
+		);
+	});
+
+	it("keeps the whole window when cutting would discard most of it", async () => {
+		const { measureSentenceAlignedSampleLength } = await import(
+			"./thought-step-classifier"
+		);
+		const buffered =
+			"Right. Everything after this point is a long unfinished thought that carries the actual reasoning";
+		expect(measureSentenceAlignedSampleLength(buffered)).toBe(buffered.length);
+	});
+
+	it("does not treat a decimal point or version number as a sentence end", async () => {
+		const { measureSentenceAlignedSampleLength } = await import(
+			"./thought-step-classifier"
+		);
+		const buffered = "The model is 4.5 and the config is v1.2 for this run";
+		expect(measureSentenceAlignedSampleLength(buffered)).toBe(buffered.length);
+	});
+
+	it("keeps a window that already ends on a terminator whole", async () => {
+		const { measureSentenceAlignedSampleLength } = await import(
+			"./thought-step-classifier"
+		);
+		const buffered = "So the cache never hits on this config.";
+		expect(measureSentenceAlignedSampleLength(buffered)).toBe(buffered.length);
+	});
+});
+
 describe("createThoughtStepClassifierSession", () => {
 	beforeEach(() => {
 		resolveThoughtStepAnchorSpanMock.mockClear();
 	});
+
+	// A fired sample sets `sampleInFlight` until its promise resolves a few
+	// microtask hops later; flushing here keeps the NEXT window gated only by
+	// the rate limit and the trigger, which is what these tests are about.
+	async function settleInFlightSample() {
+		for (let hop = 0; hop < 4; hop += 1) {
+			await Promise.resolve();
+		}
+	}
 
 	function fakeClock(startMs = 0) {
 		let now = startMs;
@@ -1025,6 +1345,135 @@ describe("createThoughtStepClassifierSession", () => {
 		const steps = session.getSteps();
 		expect(steps).toHaveLength(1);
 		expect(steps[0].anchor?.start).toBe(anchorAfterFirstSample?.start);
+	});
+
+	// Owner feedback (2026-09-08) — the load-bearing test for the first half
+	// ("It cuts off mid sentences"): the sampled delta window starts and ends
+	// mid-sentence, and the PERSISTED anchor must not.
+	it("snaps a mid-sentence sample window out to whole sentences when creating the step's anchor", async () => {
+		const { createThoughtStepClassifierSession } = await import(
+			"./thought-step-classifier"
+		);
+		const classify = vi.fn().mockResolvedValue({
+			verdict: "new_step" as const,
+			activityClass: "working-through-logic" as const,
+		});
+		const clock = fakeClock();
+		const session = createThoughtStepClassifierSession({
+			userId: "u1",
+			conversationId: "conv-1",
+			classify,
+			now: clock.now,
+		});
+
+		// Sample 1 consumes a window with no terminator at all, so sample 2's
+		// window BEGINS mid-sentence...
+		clock.advance(10_000);
+		const first = "Now the vLLM prefix cache never hits";
+		session.onReasoningDelta(first);
+		await vi.waitFor(() => expect(session.getSteps()).toHaveLength(1));
+
+		clock.advance(10_000);
+		const second =
+			" on Flash-Next, so the measured win is zero. Then a new thought";
+		session.onReasoningDelta(second);
+		await vi.waitFor(() => expect(session.getSteps()).toHaveLength(2));
+
+		const thinking = `${first}${second}`;
+		const [, secondStep] = session.getSteps();
+		const anchored = thinking.slice(
+			secondStep.anchor?.start ?? 0,
+			secondStep.anchor?.end ?? 0,
+		);
+		// ...yet the anchor starts at the real sentence start and ends on its
+		// terminator, never mid-word.
+		expect(anchored).toBe(
+			"Now the vLLM prefix cache never hits on Flash-Next, so the measured win is zero.",
+		);
+		expect(secondStep.anchor?.start).toBe(0);
+	});
+
+	it("samples a window that ends on a completed sentence, carrying the partial one over to the next window", async () => {
+		const { createThoughtStepClassifierSession } = await import(
+			"./thought-step-classifier"
+		);
+		const classify = vi.fn().mockResolvedValue(null);
+		const clock = fakeClock();
+		const session = createThoughtStepClassifierSession({
+			userId: "u1",
+			conversationId: "conv-1",
+			classify,
+			now: clock.now,
+		});
+
+		clock.advance(10_000);
+		session.onReasoningDelta(
+			"So the measured win is zero on this config. A later half-finished",
+		);
+		await vi.waitFor(() => expect(classify).toHaveBeenCalledTimes(1));
+		expect(classify.mock.calls[0][0].chunkText).toBe(
+			"So the measured win is zero on this config.",
+		);
+		// Let the in-flight (null-resolving) call settle so `sampleInFlight`
+		// isn't what gates the next window.
+		await settleInFlightSample();
+
+		// The trailing partial sentence is not dropped: it opens the next
+		// window instead of being classified half-read.
+		clock.advance(10_000);
+		session.onReasoningDelta(" thought now ends properly here.");
+		await vi.waitFor(() => expect(classify).toHaveBeenCalledTimes(2));
+		expect(classify.mock.calls[1][0].chunkText).toBe(
+			" A later half-finished thought now ends properly here.",
+		);
+	});
+
+	it("snaps the extended end on a continuation too, so a merged anchor still ends on a sentence", async () => {
+		const { createThoughtStepClassifierSession } = await import(
+			"./thought-step-classifier"
+		);
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				verdict: "new_step" as const,
+				activityClass: "checking-details" as const,
+			})
+			.mockResolvedValue({ verdict: "continuation" as const });
+		const clock = fakeClock();
+		const session = createThoughtStepClassifierSession({
+			userId: "u1",
+			conversationId: "conv-1",
+			classify,
+			now: clock.now,
+		});
+
+		clock.advance(10_000);
+		const first = "Now let me check the details carefully.";
+		session.onReasoningDelta(first);
+		await vi.waitFor(() => expect(session.getSteps()).toHaveLength(1));
+		const endAfterFirst = session.getSteps()[0].anchor?.end ?? 0;
+		await settleInFlightSample();
+
+		// The continuation's own window ends mid-sentence ("...a while
+		// longer"), but more reasoning arrives while that classify call is in
+		// flight, so the merged end snaps forward to the real terminator.
+		clock.advance(10_000);
+		const second = " So the same check continues a while longer";
+		const third = " than expected. And on to the next thing.";
+		session.onReasoningDelta(second);
+		session.onReasoningDelta(third);
+		await vi.waitFor(() =>
+			expect(session.getSteps()[0]?.anchor?.end ?? 0).toBeGreaterThan(
+				endAfterFirst,
+			),
+		);
+
+		const thinking = `${first}${second}${third}`;
+		const anchor = session.getSteps()[0]?.anchor;
+		expect(thinking.slice(anchor?.start ?? 0, anchor?.end ?? 0)).toBe(
+			"Now let me check the details carefully. So the same check continues a while longer than expected.",
+		);
+		expect(session.getSteps()).toHaveLength(1);
 	});
 
 	it("never emits a step whose anchor cannot be resolved against the reasoning text", async () => {
