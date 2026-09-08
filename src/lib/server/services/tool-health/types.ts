@@ -14,10 +14,19 @@ export type ToolHealthConfig = Pick<
 	| "teiRerankerApiKey"
 	| "orsBaseUrl"
 	| "geocoderBaseUrl"
+	| "routingGtfsFeeds"
 	| "owntracksRecorderUrl"
 	| "owntracksRecorderUser"
 	| "owntracksRecorderPass"
 >;
+
+// Per-region public-transport readiness, as the map_route health entry reports
+// it. Read from `routing_regions`, not from an HTTP probe: whether a region's
+// GTFS graph is loaded is state this app owns, not something an endpoint says.
+export interface TransitRegionHealth {
+	name: string;
+	transitStatus: string;
+}
 
 export interface ToolProbeResult {
 	ok: boolean;
@@ -30,6 +39,7 @@ export interface ToolProbeContext {
 	config: ToolHealthConfig;
 	signal: AbortSignal;
 	dockerPing: (signal: AbortSignal) => Promise<void>;
+	listTransitRegions: () => Promise<TransitRegionHealth[]>;
 }
 
 // One registry entry per (tool, backend) pair. A new tool is one object here.
@@ -89,6 +99,7 @@ export interface ToolHealthDeps {
 	fetch: typeof fetch;
 	getConfig: () => ToolHealthConfig;
 	dockerPing: (signal: AbortSignal) => Promise<void>;
+	listTransitRegions: () => Promise<TransitRegionHealth[]>;
 	countConnectedConnections: () => Promise<ConnectedConnectionCounts>;
 	now: () => number;
 	timeoutMs: number;

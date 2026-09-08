@@ -190,6 +190,43 @@ async function probeOrs(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 	);
 }
 
+// Public-transport readiness is per REGION and lives in this app's own
+// `routing_regions` table, not behind an HTTP endpoint — so this "probe" is a
+// database read. It is healthy as soon as at least one configured region is
+// serving timetables, and its detail names every region's state so an admin
+// can see which country is still building.
+async function probeTransit(ctx: ToolProbeContext): Promise<ToolProbeResult> {
+	const started = Date.now();
+	try {
+		const regions = await ctx.listTransitRegions();
+		const relevant = regions.filter(
+			(region) => region.transitStatus !== "none",
+		);
+		const latencyMs = Date.now() - started;
+		if (relevant.length === 0) {
+			return {
+				ok: false,
+				detail: clampDetail("no region has a public-transport graph yet"),
+				latencyMs,
+			};
+		}
+		const detail = relevant
+			.map((region) => `${region.name}: ${region.transitStatus}`)
+			.join(", ");
+		return {
+			ok: relevant.some((region) => region.transitStatus === "ready"),
+			detail: clampDetail(detail),
+			latencyMs,
+		};
+	} catch (error) {
+		return {
+			ok: false,
+			detail: clampDetail(describeError(error, ctx.signal)),
+			latencyMs: Date.now() - started,
+		};
+	}
+}
+
 function probeGeocoder(ctx: ToolProbeContext): Promise<ToolProbeResult> {
 	return httpProbe(
 		ctx,
@@ -319,6 +356,13 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		backend: "Geocoder (Nominatim)",
 		configured: (config) => hasValue(config.geocoderBaseUrl),
 		probe: probeGeocoder,
+	},
+	{
+		id: "map_route:transit",
+		name: "map_route",
+		backend: "Public transport (GTFS)",
+		configured: (config) => hasValue(config.routingGtfsFeeds),
+		probe: probeTransit,
 	},
 	// Both sandbox tools run on the same Docker daemon, so they share one
 	// ping per snapshot rather than pinging it twice (see `probeKey`).

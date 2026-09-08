@@ -22,6 +22,7 @@ function fullConfig(
 		teiRerankerApiKey: "rerank-token",
 		orsBaseUrl: "http://ors:8082/ors",
 		geocoderBaseUrl: "http://nominatim:8080",
+		routingGtfsFeeds: "hungary=https://feeds.test/hu.zip",
 		owntracksRecorderUrl: "http://owntracks:8083",
 		owntracksRecorderUser: "alfy",
 		owntracksRecorderPass: "secret",
@@ -37,6 +38,7 @@ function emptyConfig(): ToolHealthConfig {
 		teiRerankerUrl: "",
 		orsBaseUrl: "",
 		geocoderBaseUrl: "",
+		routingGtfsFeeds: "",
 		owntracksRecorderUrl: "",
 	});
 }
@@ -65,6 +67,9 @@ function makeDeps(
 		fetch: fetchMock as unknown as typeof fetch,
 		getConfig: () => fullConfig(),
 		dockerPing: vi.fn(async () => {}),
+		listTransitRegions: vi.fn(async () => [
+			{ name: "Hungary", transitStatus: "ready" },
+		]),
 		countConnectedConnections: vi.fn(async () => ({ files: 2, calendar: 1 })),
 		now: Date.now,
 		timeoutMs: 50,
@@ -172,6 +177,8 @@ describe("tool health registry", () => {
 		expect(tools.map_route.status).toBe("healthy");
 		expect(tools.map_route.detail).toBe("status: ready");
 		expect(tools["map_route:geocoder"].status).toBe("healthy");
+		expect(tools["map_route:transit"].status).toBe("healthy");
+		expect(tools["map_route:transit"].detail).toBe("Hungary: ready");
 		expect(tools.produce_file.status).toBe("healthy");
 		expect(tools.run_python.status).toBe("healthy");
 		expect(tools.location.status).toBe("healthy");
@@ -186,6 +193,52 @@ describe("tool health registry", () => {
 			expect(tool.degradedSince).toBeNull();
 			if (tool.probed) expect(tool.latencyMs).toBeGreaterThanOrEqual(0);
 		}
+	});
+
+	// Public-transport readiness is per REGION and is app state, not an
+	// endpoint: the probe reads `routing_regions` and reports every configured
+	// region's state so an admin can see which country is still building.
+	it("reports per-region timetable readiness without an HTTP call", async () => {
+		const deps = makeDeps(healthyHandler, {
+			listTransitRegions: vi.fn(async () => [
+				{ name: "Hungary", transitStatus: "ready" },
+				{ name: "Netherlands", transitStatus: "building" },
+				// A region with no feed is not part of the picture at all.
+				{ name: "Austria", transitStatus: "none" },
+			]),
+		});
+		const tools = byId(await checkToolHealth(deps));
+		expect(tools["map_route:transit"].status).toBe("healthy");
+		expect(tools["map_route:transit"].detail).toBe(
+			"Hungary: ready, Netherlands: building",
+		);
+		expect(
+			deps.fetch.mock.calls.some((call) => String(call[0]).includes("status")),
+		).toBe(true);
+	});
+
+	it("is degraded while no region has a timetable graph yet", async () => {
+		const tools = byId(
+			await checkToolHealth(
+				makeDeps(healthyHandler, {
+					listTransitRegions: vi.fn(async () => [
+						{ name: "Hungary", transitStatus: "building" },
+					]),
+				}),
+			),
+		);
+		expect(tools["map_route:transit"].status).toBe("degraded");
+		expect(tools["map_route:transit"].detail).toBe("Hungary: building");
+	});
+
+	it("is unconfigured when no GTFS feed is configured at all", async () => {
+		const tools = byId(
+			await checkToolHealth(
+				makeDeps(healthyHandler, { getConfig: () => emptyConfig() }),
+			),
+		);
+		expect(tools["map_route:transit"].status).toBe("unconfigured");
+		expect(tools["map_route:transit"].probed).toBe(false);
 	});
 
 	it("sends the expected requests and headers for each probe", async () => {

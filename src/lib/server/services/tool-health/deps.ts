@@ -5,7 +5,7 @@
 import { eq } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
-import { userConnections } from "$lib/server/db/schema";
+import { routingRegions, userConnections } from "$lib/server/db/schema";
 import {
 	CAPABILITIES,
 	type Capability,
@@ -15,6 +15,7 @@ import {
 	type ConnectedConnectionCounts,
 	TOOL_HEALTH_PROBE_TIMEOUT_MS,
 	type ToolHealthDeps,
+	type TransitRegionHealth,
 } from "./types";
 
 type DockerLike = { ping: () => Promise<unknown> };
@@ -79,11 +80,22 @@ export async function countConnectedConnections(): Promise<ConnectedConnectionCo
 	return counts;
 }
 
+// Per-region public-transport readiness, straight from the routing table.
+export async function listTransitRegions(): Promise<TransitRegionHealth[]> {
+	return db
+		.select({
+			name: routingRegions.name,
+			transitStatus: routingRegions.transitStatus,
+		})
+		.from(routingRegions);
+}
+
 export function createDefaultToolHealthDeps(): ToolHealthDeps {
 	return {
 		fetch: (input, init) => fetch(input, init),
 		getConfig,
 		dockerPing: pingDocker,
+		listTransitRegions,
 		countConnectedConnections,
 		now: Date.now,
 		timeoutMs: TOOL_HEALTH_PROBE_TIMEOUT_MS,

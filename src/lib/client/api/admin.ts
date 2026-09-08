@@ -629,6 +629,12 @@ export type RoutingRegionSummary = {
 	attempts: number;
 	nextAttemptAt: string | null;
 	resident: boolean;
+	// Public transport (GTFS) timetables for this region.
+	gtfsUrl: string | null;
+	gtfsSizeBytes: number | null;
+	gtfsDownloadedAt: string | null;
+	transitStatus: string;
+	timezone: string | null;
 	error: string | null;
 	requestedBy: string | null;
 	createdAt: string;
@@ -674,6 +680,20 @@ export async function retryRoutingRegion(id: string): Promise<void> {
 		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
 		{ method: "POST" },
 		"Failed to retry routing region",
+	);
+}
+
+// Re-download the region's GTFS feed and rebuild only its public-transport
+// graph. Ignores the nightly refresh window — this is an explicit ask.
+export async function refreshRoutingRegionTransit(id: string): Promise<void> {
+	await requestJson<{ region: unknown }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ action: "refresh_transit" }),
+		},
+		"Failed to refresh the region timetable",
 	);
 }
 
