@@ -782,8 +782,11 @@ export function createRoutingRegionManager(
 			init: RequestInit,
 		): Promise<{ ok: true } | { ok: false; message: string }> => {
 			const res = await deps.fetch(url, {
-				headers: { "user-agent": "AlfyAI", ...(init.headers ?? {}) },
 				...init,
+				headers: {
+					"user-agent": "AlfyAI",
+					...(init.headers as Record<string, string> | undefined),
+				},
 				signal,
 			});
 			await res.body?.cancel().catch(() => undefined);
@@ -859,14 +862,6 @@ export function createRoutingRegionManager(
 		return { bytes, md5: hash.digest("hex") };
 	}
 
-	function assertUnderCap(expectedLength: number | null): void {
-		if (expectedLength !== null && expectedLength > config.maxPbfBytes) {
-			throw new Error(
-				`extract is ${Math.round(expectedLength / 1048576)} MB, above the ${Math.round(config.maxPbfBytes / 1048576)} MB cap`,
-			);
-		}
-	}
-
 	// Download from one source into `target`. Geofabrik publishes a `.md5` for
 	// every extract and is checked against it; mirrors do not, so their only
 	// integrity signal is an exact Content-Length match, which is therefore
@@ -888,10 +883,21 @@ export function createRoutingRegionManager(
 					? await fetchGeofabrikWithRetry(candidate.url, controller.signal)
 					: await fetchExtract(candidate.url, controller.signal);
 			const expectedLength = contentLength(res);
-			assertUnderCap(expectedLength);
-			if (candidate.kind === "mirror" && expectedLength === null) {
+			// Both of these refuse the response before a byte is written, so let
+			// go of the socket instead of leaving the body dangling.
+			const refuse = async (error: Error): Promise<never> => {
 				await res.body?.cancel().catch(() => undefined);
-				throw new Error("mirror did not report a content length");
+				throw error;
+			};
+			if (expectedLength !== null && expectedLength > config.maxPbfBytes) {
+				await refuse(
+					new Error(
+						`extract is ${Math.round(expectedLength / 1048576)} MB, above the ${Math.round(config.maxPbfBytes / 1048576)} MB cap`,
+					),
+				);
+			}
+			if (candidate.kind === "mirror" && expectedLength === null) {
+				await refuse(new Error("mirror did not report a content length"));
 			}
 			const { bytes, md5 } = await streamToPart(res, part, controller);
 			if (expectedLength !== null && bytes !== expectedLength) {
