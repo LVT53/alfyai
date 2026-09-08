@@ -5,11 +5,12 @@ import type {
 	ToolCallMapStep,
 } from "$lib/server/services/messages-types";
 import { uiLanguage } from "$lib/stores/settings";
-import RouteItinerary, {
+import RouteItinerary from "./RouteItinerary.svelte";
+import {
 	glyphForVehicle,
 	itineraryLineColor,
 	maneuverGlyph,
-} from "./RouteItinerary.svelte";
+} from "./route-itinerary-helpers";
 
 function step(
 	instruction: string,
