@@ -15,14 +15,34 @@
 
 import { z } from "zod";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
-import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import type {
+	ToolCallMapData,
+	ToolCallMapStep,
+	ToolCallMapTransitLeg,
+} from "$lib/server/services/messages-types";
+import {
+	buildRouteSteps,
+	narrateSteps,
+	routeVia,
+	type StepNarration,
+} from "$lib/server/services/routing/directions";
 import {
 	formatLocalClock,
+	formatLocalDateTime,
+	toRegionLocalDateTime,
 	transitModeLabel,
 } from "$lib/server/services/routing/gtfs-feeds";
 import {
+	chainJourneyLegs,
+	type JourneyLegMode,
+	type PlannedJourneyLeg,
+	planJourney,
+	type ResolvedJourneyLeg,
+} from "$lib/server/services/routing/journey";
+import {
 	buildRouteMapCardData,
 	buildTransitMapCardData,
+	decodePolyline,
 } from "$lib/server/services/routing/map-card";
 import {
 	type GeocodeMatch,
@@ -78,6 +98,19 @@ const MAX_TIMETABLE_WINDOW_MINUTES = 720;
 const MAX_TIMETABLE_ROWS = 12;
 const MAX_WALK_MINUTES = 120;
 
+// A mixed-mode journey is a handful of legs, not an itinerary planner: six
+// covers "bike, train, tram, walk" with room to spare, and every leg costs at
+// least one upstream call.
+const MAX_JOURNEY_LEGS = 6;
+
+const journeyLegSchema = z
+	.object({
+		mode: z.enum(["drive", "walk", "bike", "transit"]),
+		from: placeSchema.optional(),
+		to: placeSchema.optional(),
+	})
+	.strict();
+
 export const routingToolInputSchema = z.object({
 	action: z.enum([
 		"geocode",
@@ -86,6 +119,7 @@ export const routingToolInputSchema = z.object({
 		"isochrone",
 		"transit",
 		"timetable",
+		"journey",
 	]),
 	// geocode
 	query: z.string().min(1).optional(),
@@ -130,6 +164,14 @@ export const routingToolInputSchema = z.object({
 		.max(MAX_TIMETABLE_WINDOW_MINUTES)
 		.optional(),
 	rows: z.number().int().positive().max(MAX_TIMETABLE_ROWS).optional(),
+	// journey: the modes in order, with only the places where they change.
+	legs: z
+		.array(journeyLegSchema)
+		.min(1)
+		.max(MAX_JOURNEY_LEGS, {
+			error: `journey supports at most ${MAX_JOURNEY_LEGS} legs`,
+		})
+		.optional(),
 	// shared travel mode; defaults to "drive" where a mode is required.
 	mode: modeSchema.optional(),
 });
@@ -146,7 +188,15 @@ export const routingToolModelSchema = {
 	properties: {
 		action: {
 			type: "string",
-			enum: ["geocode", "route", "matrix", "isochrone", "transit", "timetable"],
+			enum: [
+				"geocode",
+				"route",
+				"matrix",
+				"isochrone",
+				"transit",
+				"timetable",
+				"journey",
+			],
 		},
 		query: { type: "string", description: "geocode: the place to look up" },
 		near: {
@@ -203,6 +253,24 @@ export const routingToolModelSchema = {
 			maximum: MAX_TIMETABLE_ROWS,
 			description: "timetable: how many departures to return (default 6)",
 		},
+		legs: {
+			type: "array",
+			maxItems: MAX_JOURNEY_LEGS,
+			items: {
+				type: "object",
+				properties: {
+					mode: {
+						type: "string",
+						enum: ["drive", "walk", "bike", "transit"],
+					},
+					from: { description: PLACE_DOC },
+					to: { description: PLACE_DOC },
+				},
+				required: ["mode"],
+			},
+			description:
+				'journey: the modes in order. Consecutive legs chain, so only name a place where it changes: [{"mode":"bike","to":"Cork Kent station"},{"mode":"transit","to":"Dublin Heuston"},{"mode":"walk"}].',
+		},
 		mode: { type: "string", enum: ["drive", "walk", "bike"] },
 	},
 	required: ["action"],
@@ -240,6 +308,15 @@ export function sanitizeRoutingToolInput(
 			? { window_minutes: input.window_minutes }
 			: {}),
 		...(input.rows !== undefined ? { rows: input.rows } : {}),
+		...(input.legs
+			? {
+					legs: input.legs.map((leg) => ({
+						mode: leg.mode,
+						...(leg.from !== undefined ? { from: trimPlace(leg.from) } : {}),
+						...(leg.to !== undefined ? { to: trimPlace(leg.to) } : {}),
+					})),
+				}
+			: {}),
 		...(input.mode ? { mode: input.mode } : {}),
 	};
 }
@@ -262,6 +339,7 @@ export type TransitNarrationLeg = {
 	vehicle?: string;
 	stops?: number;
 	walk_m?: number;
+	platform?: string;
 };
 
 export type TransitNarrationItinerary = {
@@ -279,20 +357,70 @@ export type TransitNarration = {
 	itineraries: TransitNarrationItinerary[];
 };
 
+// The road-route narration. Deliberately NOT the raw `RouteData`: that
+// carries an encoded polyline and every manoeuvre with its geometry indices,
+// none of which a model can say out loud, and all of which is replayed into
+// the prompt on every later turn. What it gets instead is one summary line,
+// the facts a person asks about, and a short manoeuvre list — the CARD draws
+// the full directions, so the answer summarises rather than recites.
+export type RouteNarration = {
+	summary: string;
+	distance_m: number;
+	duration_s: number;
+	via?: string;
+	ascent_m?: number;
+	// Up to MAX_NARRATION_STEPS entries; `steps_total` is how many the card
+	// actually shows, so the model can say "14 steps" honestly.
+	steps: StepNarration[];
+	steps_total: number;
+	coords: RouteData["coords"];
+};
+
+// One leg of a mixed-mode journey, in the same text-friendly register.
+export type JourneyNarrationLeg = {
+	mode: JourneyLegMode;
+	depart?: string;
+	arrive?: string;
+	minutes: number;
+	from: string;
+	to: string;
+	distance_m: number;
+	// Transit legs only: the lines actually taken.
+	lines?: string[];
+	// Road legs only: a few manoeuvres, same discipline as `route`.
+	steps?: StepNarration[];
+};
+
+export type JourneyNarration = {
+	summary: string;
+	depart?: string;
+	arrive?: string;
+	minutes: number;
+	transfers: number;
+	planned_backwards: boolean;
+	legs: JourneyNarrationLeg[];
+	timezone?: string;
+};
+
 export type RoutingToolModelPayload = {
 	success: boolean;
 	name: "map_route";
 	sourceType: "tool";
 	action: RoutingToolInput["action"];
 	message: string;
+	// One line describing the result, identical to what the card's summary
+	// says — present on every successful payload so the model always has a
+	// sentence to build its answer on.
+	summary?: string;
 	// Required OSM attribution — the model must surface this on user-facing
 	// routing output. Present on every payload (a constant string).
 	attribution: string;
 	geocode?: { results: GeocodeMatch[] };
-	route?: RouteData;
+	route?: RouteNarration;
 	matrix?: MatrixData;
 	isochrone?: IsochroneData;
 	transit?: TransitNarration;
+	journey?: JourneyNarration;
 };
 
 export type RoutingToolOutcome = {
@@ -307,11 +435,13 @@ function buildPayload(params: {
 	success: boolean;
 	action: RoutingToolInput["action"];
 	message: string;
+	summary?: string;
 	geocode?: { results: GeocodeMatch[] };
-	route?: RouteData;
+	route?: RouteNarration;
 	matrix?: MatrixData;
 	isochrone?: IsochroneData;
 	transit?: TransitNarration;
+	journey?: JourneyNarration;
 	candidates?: ToolEvidenceCandidate[];
 	map?: ToolCallMapData;
 }): RoutingToolOutcome {
@@ -322,6 +452,7 @@ function buildPayload(params: {
 			sourceType: "tool",
 			action: params.action,
 			message: params.message,
+			...(params.summary !== undefined ? { summary: params.summary } : {}),
 			attribution: OSM_ATTRIBUTION,
 			...(params.geocode !== undefined ? { geocode: params.geocode } : {}),
 			...(params.route !== undefined ? { route: params.route } : {}),
@@ -330,6 +461,7 @@ function buildPayload(params: {
 				? { isochrone: params.isochrone }
 				: {}),
 			...(params.transit !== undefined ? { transit: params.transit } : {}),
+			...(params.journey !== undefined ? { journey: params.journey } : {}),
 		},
 		candidates: params.candidates ?? [],
 		...(params.map !== undefined ? { map: params.map } : {}),
@@ -483,6 +615,46 @@ function formatDistance(meters: number): string {
 	return `${(meters / 1000).toFixed(1)} km`;
 }
 
+// ── Road-route narration ───────────────────────────────────────
+
+// The one line the model builds its answer on, and the same facts the card
+// prints above the map: how far, how long, along what, and how much climb.
+export function routeSummary(route: RouteData, mode: RoutingMode): string {
+	const via = routeVia(route);
+	const parts = [
+		`${formatDistance(route.distance_m)} · ${formatDuration(route.duration_s)}`,
+	];
+	if (via) parts.push(`via ${via}`);
+	if (route.ascent_m !== undefined && route.ascent_m >= 1) {
+		parts.push(`${Math.round(route.ascent_m)} m climb`);
+	}
+	return `${parts.join(" · ")} (${mode})`;
+}
+
+export function narrateRoute(
+	route: RouteData,
+	mode: RoutingMode,
+	cardSteps: ToolCallMapStep[],
+): RouteNarration {
+	// The card is the source of truth for the step list — narrating a
+	// DIFFERENT set of manoeuvres than the user is looking at is how a model
+	// ends up describing a turn that is not on screen.
+	const steps = cardSteps.length > 0 ? cardSteps : buildRouteSteps(route);
+	const via = routeVia(route);
+	return {
+		summary: routeSummary(route, mode),
+		distance_m: Math.round(route.distance_m),
+		duration_s: Math.round(route.duration_s),
+		...(via ? { via } : {}),
+		...(route.ascent_m !== undefined
+			? { ascent_m: Math.round(route.ascent_m) }
+			: {}),
+		steps: narrateSteps(steps),
+		steps_total: steps.length,
+		coords: route.coords,
+	};
+}
+
 // ── Public-transport narration ─────────────────────────────────
 
 function minutesOf(seconds: number): number {
@@ -520,6 +692,7 @@ function narrateItinerary(
 			const vehicle = transitModeLabel(leg.routeType);
 			if (vehicle) entry.vehicle = vehicle;
 			if (leg.stopsCount !== undefined) entry.stops = leg.stopsCount;
+			if (leg.platform) entry.platform = leg.platform;
 		} else if (leg.distance_m > 0) {
 			entry.walk_m = Math.round(leg.distance_m);
 		}
@@ -551,6 +724,180 @@ function narrateTransit(data: TransitData): TransitNarration {
 // The first pt leg's line, used as the one-word identity of a departure row.
 function firstLine(itinerary: TransitNarrationItinerary): string | undefined {
 	return itinerary.legs.find((leg) => leg.type === "pt")?.line;
+}
+
+// How many "other departures" ride under the timeline. Three is what the card
+// shows without turning into a timetable printout.
+const MAX_ALTERNATIVE_DEPARTURES = 3;
+
+// One narrated leg as the card draws it. The narration layer has already put
+// the times in local clock form, so this is purely a field selection.
+function transitCardLeg(leg: TransitNarrationLeg): ToolCallMapTransitLeg {
+	return {
+		type: leg.type,
+		minutes: leg.minutes,
+		...(leg.line ? { line: leg.line } : {}),
+		...(leg.headsign ? { headsign: leg.headsign } : {}),
+		...(leg.from ? { from: leg.from } : {}),
+		...(leg.to ? { to: leg.to } : {}),
+		...(leg.depart ? { depart: leg.depart } : {}),
+		...(leg.arrive ? { arrive: leg.arrive } : {}),
+		...(leg.stops !== undefined ? { stops: leg.stops } : {}),
+		...(leg.vehicle ? { vehicle: leg.vehicle } : {}),
+		...(leg.platform ? { platform: leg.platform } : {}),
+		...(leg.walk_m !== undefined ? { distanceM: leg.walk_m } : {}),
+	};
+}
+
+// The calendar date a journey runs on ("2026-09-09"), in the region's own
+// timezone — the card prints it so "07:05" is never ambiguous about which day.
+function journeyDate(
+	iso: string | undefined,
+	timezone: string | undefined,
+): string | undefined {
+	if (!iso) return undefined;
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return undefined;
+	return formatLocalDateTime(date, timezone).slice(0, 10);
+}
+
+// ── Mixed-mode journeys ────────────────────────────────────────
+
+// The clock half of a LOCAL date-time ("2026-09-09T07:22:00" → "07:22").
+function clockOf(local: string): string {
+	return local.slice(11, 16);
+}
+
+const JOURNEY_MODE_WORD: Record<JourneyLegMode, string> = {
+	drive: "drive",
+	walk: "walk",
+	bike: "bike",
+	transit: "transit",
+};
+
+// "Leave 07:22 → arrive 10:54 · 3 h 32 min · bike, train, walk" — the line the
+// card prints and the model builds its answer around.
+export function journeySummary(plan: {
+	departure: string;
+	arrival: string;
+	durationS: number;
+	legs: { mode: JourneyLegMode }[];
+}): string {
+	const modes: string[] = [];
+	for (const leg of plan.legs) {
+		const word = JOURNEY_MODE_WORD[leg.mode];
+		if (!modes.includes(word)) modes.push(word);
+	}
+	return `${clockOf(plan.departure)} → ${clockOf(plan.arrival)} · ${formatDuration(plan.durationS)} · ${modes.join(", ")}`;
+}
+
+// Stitches the planned legs into ONE set of card legs plus the geometry the
+// map draws. A transit leg is expanded into the services it actually contains
+// (walk to the stop, the train, the change), so a mixed journey reads as one
+// continuous timeline rather than an opaque "transit" block.
+function journeyCardLegs(plan: {
+	legs: PlannedJourneyLeg[];
+	timezone?: string;
+}): { legs: ToolCallMapTransitLeg[]; points: [number, number][] } {
+	const points: [number, number][] = [];
+	// Appends a decoded geometry and returns the span it occupies. Pushed in a
+	// loop rather than with a spread, which blows the stack on a long route.
+	function append(
+		encoded: string | undefined,
+		dimensions: 2 | 3,
+	): [number, number] | undefined {
+		if (!encoded) return undefined;
+		const decoded = decodePolyline(encoded, 5, dimensions);
+		if (decoded.length === 0) return undefined;
+		const start = points.length;
+		for (const point of decoded) points.push(point);
+		return [start, points.length - 1];
+	}
+
+	const cardLegs: ToolCallMapTransitLeg[] = [];
+	for (const leg of plan.legs) {
+		if (leg.mode !== "transit") {
+			const route = leg.route;
+			const range = append(route?.polyline, route?.polylineDimensions ?? 2);
+			// A journey's step list highlights per LEG, not per manoeuvre — the
+			// spans would index the stitched geometry, not the leg's own — so the
+			// way-point ranges are dropped here rather than left pointing at the
+			// wrong stretch.
+			const steps = route
+				? buildRouteSteps(route).map(
+						({ wayPointRange: _drop, ...rest }) => rest,
+					)
+				: [];
+			cardLegs.push({
+				type: leg.mode,
+				minutes: Math.max(1, Math.round(leg.durationS / 60)),
+				from: leg.fromLabel,
+				to: leg.toLabel,
+				depart: clockOf(leg.departure),
+				arrive: clockOf(leg.arrival),
+				distanceM: leg.distanceM,
+				...(steps.length > 0 ? { steps } : {}),
+				...(range ? { pointRange: range } : {}),
+			});
+			continue;
+		}
+		const itinerary = leg.itinerary;
+		if (!itinerary) continue;
+		const narrated = narrateItinerary(itinerary, plan.timezone);
+		itinerary.legs.forEach((raw, index) => {
+			const range = append(raw.polyline, 2);
+			const card = transitCardLeg(narrated.legs[index]);
+			cardLegs.push({
+				...card,
+				...(range ? { pointRange: range } : {}),
+			});
+		});
+		// A PT itinerary usually carries only a whole-journey geometry; use it
+		// when the individual legs had none, so the map still draws the ride.
+		if (points.length === 0) append(itinerary.polyline, 2);
+	}
+	return { legs: cardLegs, points };
+}
+
+function narrateJourney(
+	plan: {
+		legs: PlannedJourneyLeg[];
+		departure: string;
+		arrival: string;
+		durationS: number;
+		transfers: number;
+		timezone?: string;
+		plannedBackwards: boolean;
+	},
+	summary: string,
+): JourneyNarration {
+	return {
+		summary,
+		depart: clockOf(plan.departure),
+		arrive: clockOf(plan.arrival),
+		minutes: minutesOf(plan.durationS),
+		transfers: plan.transfers,
+		planned_backwards: plan.plannedBackwards,
+		...(plan.timezone ? { timezone: plan.timezone } : {}),
+		legs: plan.legs.map((leg): JourneyNarrationLeg => {
+			const lines = leg.itinerary?.legs
+				.filter((sub) => sub.type === "pt" && sub.line)
+				.map((sub) => sub.line as string);
+			return {
+				mode: leg.mode,
+				depart: clockOf(leg.departure),
+				arrive: clockOf(leg.arrival),
+				minutes: minutesOf(leg.durationS),
+				from: leg.fromLabel,
+				to: leg.toLabel,
+				distance_m: leg.distanceM,
+				...(lines && lines.length > 0 ? { lines } : {}),
+				...(leg.route
+					? { steps: narrateSteps(buildRouteSteps(leg.route)) }
+					: {}),
+			};
+		}),
+	};
 }
 
 // ── Runner ─────────────────────────────────────────────────────
@@ -596,6 +943,9 @@ export async function runRoutingTool(
 			success: true,
 			action: "geocode",
 			message: `Found ${results.length} place${results.length === 1 ? "" : "s"} for "${input.query}".`,
+			summary: results[0]
+				? `${results[0].name} (${results[0].lat}, ${results[0].lng})`
+				: `No match for "${input.query}"`,
 			geocode: { results },
 			candidates,
 		});
@@ -642,18 +992,132 @@ export async function runRoutingTool(
 			placeCandidate("route:origin", origin.label, origin.coord),
 			placeCandidate("route:destination", destination.label, destination.coord),
 		];
+		const map = buildRouteMapCardData({
+			route: data,
+			originLabel: origin.label,
+			destinationLabel: destination.label,
+			mode,
+		});
+		const summary = routeSummary(data, mode);
 		return buildPayload({
 			success: true,
 			action: "route",
-			message: `${mode} route from ${origin.label} to ${destination.label}: ${formatDistance(data.distance_m)}, about ${formatDuration(data.duration_s)}.`,
-			route: data,
+			message: `${mode} route from ${origin.label} to ${destination.label}: ${summary}`,
+			summary,
+			route: narrateRoute(data, mode, map?.steps ?? []),
 			candidates,
-			map: buildRouteMapCardData({
-				route: data,
-				originLabel: origin.label,
-				destinationLabel: destination.label,
-				mode,
-			}),
+			...(map ? { map } : {}),
+		});
+	}
+
+	if (input.action === "journey") {
+		if (input.origin === undefined || input.destination === undefined) {
+			return missingInput(
+				"journey",
+				"journey requires `origin`, `destination` and `legs`.",
+			);
+		}
+		const rawLegs = input.legs ?? [];
+		if (rawLegs.length === 0) {
+			return missingInput(
+				"journey",
+				"journey requires `legs` — the modes to use, in order.",
+			);
+		}
+		const chained = chainJourneyLegs(rawLegs, input.origin, input.destination);
+		if (!chained.ok) return missingInput("journey", chained.message);
+
+		// A chained journey names the same place twice (one leg's end is the
+		// next one's start), so each distinct place is geocoded ONCE.
+		const resolvedPlaces = new Map<string, { coord: LatLng; label: string }>();
+		const legs: ResolvedJourneyLeg[] = [];
+		for (const leg of chained.legs) {
+			const ends: { coord: LatLng; label: string }[] = [];
+			for (const place of [leg.from, leg.to]) {
+				const key =
+					typeof place === "string" ? `s:${place}` : JSON.stringify(place);
+				const cached = resolvedPlaces.get(key);
+				if (cached) {
+					ends.push(cached);
+					continue;
+				}
+				const resolved = await resolvePlace(place, provider);
+				if (!resolved.ok) return failure("journey", resolved.message);
+				const entry = { coord: resolved.coord, label: resolved.label };
+				resolvedPlaces.set(key, entry);
+				ends.push(entry);
+			}
+			legs.push({
+				mode: leg.mode,
+				from: ends[0].coord,
+				to: ends[1].coord,
+				fromLabel: ends[0].label,
+				toLabel: ends[1].label,
+			});
+		}
+
+		const nowMs = Date.now();
+		const departure = input.departure
+			? toRegionLocalDateTime(input.departure, undefined, nowMs)
+			: undefined;
+		const arriveBy = input.arrive_by
+			? toRegionLocalDateTime(input.arrive_by, undefined, nowMs)
+			: undefined;
+		if (input.departure && !departure) {
+			return failure(
+				"journey",
+				`I couldn't read "${input.departure}" as a departure time. Use "HH:MM" or "YYYY-MM-DDTHH:MM".`,
+			);
+		}
+		if (input.arrive_by && !arriveBy) {
+			return failure(
+				"journey",
+				`I couldn't read "${input.arrive_by}" as an arrival time. Use "HH:MM" or "YYYY-MM-DDTHH:MM".`,
+			);
+		}
+
+		const outcome = await planJourney(
+			{
+				legs,
+				// "Be there by" is the stricter ask, so it wins over a departure —
+				// the same precedence the transit action uses.
+				...(arriveBy ? { arriveBy } : departure ? { departure } : {}),
+			},
+			{ provider },
+		);
+		if (!outcome.ok) return failure("journey", outcome.message);
+		const plan = outcome.plan;
+		const first = legs[0];
+		const last = legs[legs.length - 1];
+		const card = journeyCardLegs(plan);
+		const summary = journeySummary(plan);
+		const map = buildTransitMapCardData({
+			points: card.points,
+			origin: first.from,
+			destination: last.to,
+			originLabel: first.fromLabel,
+			destinationLabel: last.toLabel,
+			durationS: plan.durationS,
+			distanceM: plan.distanceM,
+			transfers: plan.transfers,
+			legs: card.legs,
+			mode: "journey",
+			departAt: clockOf(plan.departure),
+			arriveAt: clockOf(plan.arrival),
+			departDate: plan.departure.slice(0, 10),
+			...(arriveBy ? { arriveBy: clockOf(arriveBy) } : {}),
+		});
+		return buildPayload({
+			success: true,
+			action: "journey",
+			message: `Journey from ${first.fromLabel} to ${last.toLabel}: ${summary}`,
+			summary,
+			journey: narrateJourney(plan, summary),
+			candidates: [
+				placeCandidate("journey:origin", first.fromLabel, first.from),
+				placeCandidate("journey:destination", last.toLabel, last.to),
+			],
+			map,
 		});
 	}
 
@@ -689,6 +1153,7 @@ export async function runRoutingTool(
 			success: true,
 			action: "matrix",
 			message: `Computed a ${origins.length}×${destinations.length} ${mode} distance/ETA matrix.`,
+			summary: `${origins.length}×${destinations.length} ${mode} matrix`,
 			matrix: outcome.data,
 		});
 	}
@@ -773,53 +1238,57 @@ export async function runRoutingTool(
 			durationS: firstItinerary?.duration_s ?? 0,
 			distanceM: firstItinerary?.distance_m ?? 0,
 			transfers: first?.transfers ?? 0,
-			...(action === "transit" && first
+			// The itinerary is drawn as a timeline for BOTH actions: a timetable
+			// answer is far more useful when the first departure is shown in
+			// full and the rest read as alternatives under it.
+			...(first ? { legs: first.legs.map(transitCardLeg) } : {}),
+			...(first?.depart ? { departAt: first.depart } : {}),
+			...(first?.arrive ? { arriveAt: first.arrive } : {}),
+			...(journeyDate(firstItinerary?.departure, data.timezone)
 				? {
-						legs: first.legs.map((leg) => ({
-							type: leg.type,
-							minutes: leg.minutes,
-							...(leg.line ? { line: leg.line } : {}),
-							...(leg.headsign ? { headsign: leg.headsign } : {}),
-							...(leg.from ? { from: leg.from } : {}),
-							...(leg.to ? { to: leg.to } : {}),
-							...(leg.depart ? { depart: leg.depart } : {}),
-							...(leg.arrive ? { arrive: leg.arrive } : {}),
-							...(leg.stops !== undefined ? { stops: leg.stops } : {}),
-							...(leg.vehicle ? { vehicle: leg.vehicle } : {}),
-						})),
+						departDate: journeyDate(
+							firstItinerary?.departure,
+							data.timezone,
+						) as string,
 					}
 				: {}),
 			...(action === "timetable"
 				? {
-						departures: narration.itineraries.map((itinerary) => ({
-							...(itinerary.depart ? { depart: itinerary.depart } : {}),
-							...(itinerary.arrive ? { arrive: itinerary.arrive } : {}),
-							minutes: itinerary.minutes,
-							transfers: itinerary.transfers,
-							...(firstLine(itinerary) ? { line: firstLine(itinerary) } : {}),
-						})),
+						// The first itinerary is the timeline above; these are the
+						// ALTERNATIVES to it, capped so the card stays a card.
+						departures: narration.itineraries
+							.slice(1, 1 + MAX_ALTERNATIVE_DEPARTURES)
+							.map((itinerary) => ({
+								...(itinerary.depart ? { depart: itinerary.depart } : {}),
+								...(itinerary.arrive ? { arrive: itinerary.arrive } : {}),
+								minutes: itinerary.minutes,
+								transfers: itinerary.transfers,
+								...(firstLine(itinerary) ? { line: firstLine(itinerary) } : {}),
+							})),
 					}
 				: {}),
 		});
 
+		const legSummary = first
+			? `${first.depart ?? "?"} → ${first.arrive ?? "?"} · ${formatDuration((first.minutes ?? 0) * 60)} · ${first.transfers} change${first.transfers === 1 ? "" : "s"}`
+			: "no itinerary";
 		if (action === "timetable") {
 			const count = narration.itineraries.length;
 			return buildPayload({
 				success: true,
 				action,
 				message: `Next ${count} public transport departure${count === 1 ? "" : "s"} from ${origin.label} to ${destination.label}${first?.depart ? `, starting ${first.depart}` : ""}.`,
+				summary: legSummary,
 				transit: narration,
 				candidates,
 				map,
 			});
 		}
-		const legSummary = first
-			? `${first.depart ?? "?"} → ${first.arrive ?? "?"}, ${formatDuration((first.minutes ?? 0) * 60)}, ${first.transfers} transfer${first.transfers === 1 ? "" : "s"}`
-			: "no itinerary";
 		return buildPayload({
 			success: true,
 			action,
 			message: `Public transport from ${origin.label} to ${destination.label}: ${legSummary}.`,
+			summary: legSummary,
 			transit: narration,
 			candidates,
 			map,
@@ -854,6 +1323,7 @@ export async function runRoutingTool(
 		success: true,
 		action: "isochrone",
 		message: `Computed ${outcome.data.polygons.length} ${mode} reachability polygon${outcome.data.polygons.length === 1 ? "" : "s"} from ${origin.label}.`,
+		summary: `${outcome.data.polygons.length} ${mode} reachability polygon${outcome.data.polygons.length === 1 ? "" : "s"} from ${origin.label}`,
 		isochrone: outcome.data,
 		candidates: [
 			placeCandidate("isochrone:origin", origin.label, origin.coord),
