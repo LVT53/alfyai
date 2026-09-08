@@ -46,22 +46,18 @@ describe("DegradedCapabilitiesBanner", () => {
 
 	it("stays hidden when nothing is degraded", async () => {
 		mockFetch.mockResolvedValue({ degraded: [], checkedAt: "" });
-		render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: true });
 
 		await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
 	});
 
-	it("lists each degraded tool once and hides the admin link for members", async () => {
+	it("stays hidden for members and never polls capability status", async () => {
 		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: false });
 
-		const banner = await screen.findByRole("status");
-		expect(banner).toHaveTextContent(
-			"Some capabilities are degraded: image search, map routing",
-		);
-		expect(
-			screen.queryByTestId("degraded-capabilities-admin-link"),
-		).not.toBeInTheDocument();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(screen.queryByRole("status")).not.toBeInTheDocument();
+		expect(mockFetch).not.toHaveBeenCalled();
 	});
 
 	it("links admins to the tool health section", async () => {
@@ -73,20 +69,23 @@ describe("DegradedCapabilitiesBanner", () => {
 	});
 
 	it("dismisses for the session and stays hidden for the same degraded set", async () => {
-		const first = render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		const first = render(DegradedCapabilitiesBanner, {
+			pollMs: 0,
+			isAdmin: true,
+		});
 		await screen.findByRole("status");
 
 		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
 		first.unmount();
 
-		render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: true });
 		await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
 	});
 
 	it("re-shows the banner when a different tool degrades after dismissal", async () => {
-		render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: true });
 		await screen.findByRole("status");
 		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
@@ -101,7 +100,7 @@ describe("DegradedCapabilitiesBanner", () => {
 			],
 			checkedAt: "2026-09-05T10:05:00.000Z",
 		});
-		render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: true });
 
 		const banner = await screen.findByRole("status");
 		expect(banner).toHaveTextContent("web research");
@@ -109,7 +108,7 @@ describe("DegradedCapabilitiesBanner", () => {
 
 	it("polls on the configured interval", async () => {
 		vi.useFakeTimers();
-		render(DegradedCapabilitiesBanner, { pollMs: 1_000 });
+		render(DegradedCapabilitiesBanner, { pollMs: 1_000, isAdmin: true });
 		expect(mockFetch).toHaveBeenCalledTimes(1);
 
 		await vi.advanceTimersByTimeAsync(1_000);
@@ -120,7 +119,7 @@ describe("DegradedCapabilitiesBanner", () => {
 
 	it("uses Hungarian copy when the UI language is Hungarian", async () => {
 		uiLanguage.set("hu");
-		render(DegradedCapabilitiesBanner, { pollMs: 0 });
+		render(DegradedCapabilitiesBanner, { pollMs: 0, isAdmin: true });
 
 		const banner = await screen.findByRole("status");
 		expect(banner).toHaveTextContent(

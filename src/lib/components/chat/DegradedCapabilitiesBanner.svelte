@@ -31,7 +31,7 @@ let dismissedSignature = $state<string | null>(null);
 
 const signature = $derived(degradedSignature(degraded));
 const visible = $derived(
-	degraded.length > 0 && dismissedSignature !== signature,
+	isAdmin && degraded.length > 0 && dismissedSignature !== signature,
 );
 const toolLabels = $derived(degradedToolLabels(degraded, (key) => $t(key)));
 
@@ -52,7 +52,10 @@ function dismiss() {
 	dismissedSignature = signature;
 }
 
+// Tool health is operator information: members never see the banner and
+// never poll for it. Only admins are told which capabilities are degraded.
 onMount(() => {
+	if (!isAdmin) return;
 	void refresh();
 	if (pollMs <= 0) return;
 	const timer = setInterval(() => {
