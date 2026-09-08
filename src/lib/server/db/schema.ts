@@ -2215,6 +2215,16 @@ export const routingRegions = sqliteTable(
 		pbfSizeBytes: integer("pbf_size_bytes"),
 		// none | queued | importing | ready | error
 		geocoderStatus: text("geocoder_status").notNull().default("none"),
+		// Host that actually served the extract ("download.geofabrik.de" or a
+		// mirror). Null until a download has started.
+		extractSource: text("extract_source"),
+		// Consecutive failed build attempts and the earliest time the job loop
+		// may pick this row up again (transient-failure backoff).
+		attempts: integer("attempts").notNull().default(0),
+		nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+		// Resident regions are kept running: the idle sweep never stops them and
+		// they are re-queued on start (ROUTING_RESIDENT_REGION_IDS).
+		resident: integer("resident", { mode: "boolean" }).notNull().default(false),
 		error: text("error"),
 		requestedBy: text("requested_by"),
 		createdAt: integer("created_at", { mode: "timestamp" })
