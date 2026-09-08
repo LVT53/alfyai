@@ -3,7 +3,9 @@ import { onMount } from "svelte";
 import { t } from "$lib/i18n";
 import {
 	fetchRoutingRegions,
+	refreshRoutingRegionTransit,
 	removeRoutingRegion,
+	retryRoutingRegionFeed,
 	requestRoutingRegion,
 	retryRoutingRegion,
 	setRoutingRegionResident,
@@ -77,7 +79,26 @@ async function toggleResident(region: RoutingRegionSummary) {
 		await setRoutingRegionResident(region.id, !region.resident);
 		await load();
 	} catch (patchError) {
-		error = patchError instanceof Error ? patchError.message : String(patchError);
+		error =
+			patchError instanceof Error ? patchError.message : String(patchError);
+	} finally {
+		busyId = null;
+	}
+}
+
+async function refreshTimetable(id: string) {
+	busyId = id;
+	error = "";
+	message = "";
+	try {
+		await refreshRoutingRegionTransit(id);
+		message = $t("admin.routingRegions.transitQueued");
+		await load();
+	} catch (refreshError) {
+		error =
+			refreshError instanceof Error
+				? refreshError.message
+				: String(refreshError);
 	} finally {
 		busyId = null;
 	}
@@ -98,10 +119,39 @@ async function remove(id: string) {
 	}
 }
 
+// Per-feed retry: clears that operator's recorded failure and queues the
+// region's rebuild, which re-fetches only that feed.
+async function retryFeed(regionId: string, feedId: string) {
+	busyId = regionId;
+	error = "";
+	message = "";
+	try {
+		await retryRoutingRegionFeed(regionId, feedId);
+		message = $t("admin.routingRegions.transitQueued");
+		await load();
+	} catch (retryError) {
+		error =
+			retryError instanceof Error ? retryError.message : String(retryError);
+	} finally {
+		busyId = null;
+	}
+}
+
+// A feed's own state, which is finer than the region's: "stale" and "error"
+// on a feed that still has a zip on disk are warnings, not outages.
+function feedClass(status: string): string {
+	if (status === "ready") return "text-green-700 dark:text-green-300";
+	if (status === "error") return "text-red-700 dark:text-red-300";
+	return "text-amber-700 dark:text-amber-300";
+}
+
 function statusClass(status: string): string {
 	if (status === "ready")
 		return "bg-green-500/15 text-green-700 dark:text-green-300";
 	if (status === "error") return "bg-red-500/15 text-red-700 dark:text-red-300";
+	// "none" is not a problem — the region simply has no GTFS feed configured,
+	// so it must not wear the amber "in progress" colour.
+	if (status === "none") return "bg-surface-muted text-text-secondary";
 	return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
 }
 
@@ -121,7 +171,9 @@ function formatSize(bytes: number | null | undefined): string {
 // many attempts it has burned.
 function statusDetail(region: RoutingRegionSummary): string {
 	if (region.status === "downloading" && region.extractSource) {
-		return $t("admin.routingRegions.viaSource", { source: region.extractSource });
+		return $t("admin.routingRegions.viaSource", {
+			source: region.extractSource,
+		});
 	}
 	if (region.status === "queued" && region.nextAttemptAt) {
 		return $t("admin.routingRegions.retryAt", {
@@ -130,10 +182,14 @@ function statusDetail(region: RoutingRegionSummary): string {
 		});
 	}
 	if (region.status === "ready" && region.extractSource) {
-		return $t("admin.routingRegions.viaSource", { source: region.extractSource });
+		return $t("admin.routingRegions.viaSource", {
+			source: region.extractSource,
+		});
 	}
 	if (region.status === "error" && region.attempts > 0) {
-		return $t("admin.routingRegions.attempts", { attempts: String(region.attempts) });
+		return $t("admin.routingRegions.attempts", {
+			attempts: String(region.attempts),
+		});
 	}
 	return "";
 }
@@ -199,6 +255,7 @@ onMount(() => {
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colStatus')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colResident')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colGeocoder')}</th>
+						<th class="py-1 pr-3">{$t('admin.routingRegions.colTransit')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colSize')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colEndpoint')}</th>
 						<th class="py-1 pr-3">{$t('admin.routingRegions.colLastUsed')}</th>
@@ -238,10 +295,61 @@ onMount(() => {
 								{/if}
 							</td>
 							<td class="py-2 pr-3 text-xs">{region.geocoderStatus}</td>
+							<td class="py-2 pr-3 text-xs" data-testid={`transit-${region.id}`}>
+								<span class={`rounded px-2 py-0.5 ${statusClass(region.transitStatus)}`}>{region.transitStatus}</span>
+								{#if region.gtfsDownloadedAt}
+									<div class="mt-1 text-text-secondary">{formatDate(region.gtfsDownloadedAt)}</div>
+								{/if}
+								{#if region.feeds?.length}
+									<details class="mt-1">
+										<summary class="cursor-pointer text-text-secondary">
+											{$t('admin.routingRegions.feedCount', {
+												ready: String(region.feeds.filter((feed) => feed.status !== 'error' && feed.status !== 'pending').length),
+												total: String(region.feeds.length),
+											})}
+										</summary>
+										<ul class="mt-1 space-y-1">
+											{#each region.feeds as feed (feed.id)}
+												<li data-testid={`feed-${region.id}-${feed.id}`}>
+													<span class={feedClass(feed.status)}>{feed.status}</span>
+													<span class="ml-1">{feed.name}</span>
+													{#if feed.downloadedAt}
+														<span class="ml-1 text-text-secondary">{formatDate(new Date(feed.downloadedAt).toISOString())}</span>
+													{/if}
+													{#if feed.bytes}
+														<span class="ml-1 text-text-secondary">{formatSize(feed.bytes)}</span>
+													{/if}
+													{#if feed.error}
+														<div class="text-red-700 dark:text-red-300">{feed.error}</div>
+													{/if}
+													<button
+														type="button"
+														class="btn-secondary ml-1 text-xs"
+														onclick={() => void retryFeed(region.id, feed.id)}
+														disabled={busyId === region.id}
+													>
+														{$t('admin.routingRegions.retryFeed')}
+													</button>
+												</li>
+											{/each}
+										</ul>
+									</details>
+								{/if}
+							</td>
 							<td class="py-2 pr-3 text-xs">{formatSize(region.pbfSizeBytes)}</td>
 							<td class="py-2 pr-3 text-xs">{region.baseUrl ?? '—'}</td>
 							<td class="py-2 pr-3 text-xs">{formatDate(region.lastUsedAt)}</td>
 							<td class="py-2 text-right whitespace-nowrap">
+								{#if region.transitStatus !== 'none'}
+									<button
+										type="button"
+										class="btn-secondary text-xs"
+										onclick={() => void refreshTimetable(region.id)}
+										disabled={busyId === region.id}
+									>
+										{$t('admin.routingRegions.refreshTransit')}
+									</button>
+								{/if}
 								{#if region.managed}
 									{#if region.status === 'error' || (region.status === 'queued' && region.nextAttemptAt)}
 										<button type="button" class="btn-secondary text-xs" onclick={() => void retry(region.id)} disabled={busyId === region.id}>
@@ -255,7 +363,7 @@ onMount(() => {
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="8" class="py-2 text-sm text-text-secondary">{$t('admin.routingRegions.empty')}</td></tr>
+						<tr><td colspan="9" class="py-2 text-sm text-text-secondary">{$t('admin.routingRegions.empty')}</td></tr>
 					{/each}
 				</tbody>
 			</table>

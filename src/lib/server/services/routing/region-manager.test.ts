@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +17,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import { parseGeofabrikIndex } from "./geofabrik";
+import type { GtfsFeed } from "./gtfs-catalogue";
 import type { RegionContainerSpec, RegionDocker } from "./region-docker";
 import {
 	classifyRegionError,
@@ -34,6 +42,31 @@ const MID_ATLANTIC = { lat: 30, lng: -40 };
 const PBF_BYTES = Buffer.from(
 	"not really a pbf but good enough for a checksum",
 );
+// Starts with the local zip magic number, because the feed downloader refuses
+// anything that is not a zip (a CDN's HTML error page arrives with a 200).
+const GTFS_BYTES = Buffer.from(
+	"PK\u0003\u0004 not really a gtfs zip, but it has a length",
+	"latin1",
+);
+const HU_FEED = "https://go.bkk.hu/api/static/v1/public-gtfs/budapest_gtfs.zip";
+const IE_FEED = "https://www.transportforireland.ie/transitData/Data/GTFS.zip";
+const HU_GTFS: GtfsFeed = {
+	id: "bkk",
+	name: "BKK Budapest",
+	url: HU_FEED,
+	refreshDays: 7,
+};
+const IE_GTFS: GtfsFeed = {
+	id: "tfi",
+	name: "Transport for Ireland",
+	url: IE_FEED,
+	refreshDays: 7,
+};
+const NO_FEEDS = new Map<string, GtfsFeed[]>();
+const IE_FEEDS = new Map<string, GtfsFeed[]>([
+	["ireland-and-northern-ireland", [IE_GTFS]],
+]);
+const HU_FEEDS = new Map<string, GtfsFeed[]>([["hungary", [HU_GTFS]]]);
 
 type FakeDocker = RegionDocker & {
 	containers: Map<string, { running: boolean; spec?: RegionContainerSpec }>;
@@ -107,6 +140,14 @@ function fakeFetch(
 				headers: { "content-length": String(PBF_BYTES.length) },
 			});
 		}
+		// A GTFS feed: no checksum is published for these, so the manager relies
+		// on an exact Content-Length match — which this serves.
+		if (url.endsWith(".zip")) {
+			return new Response(GTFS_BYTES, {
+				status: 200,
+				headers: { "content-length": String(GTFS_BYTES.length) },
+			});
+		}
 		if (url.endsWith("/v2/health")) {
 			const port = Number(new URL(url).port);
 			const running = Array.from(docker.containers.values()).some(
@@ -121,6 +162,27 @@ function fakeFetch(
 					status: ready ? 200 : 503,
 				},
 			);
+		}
+		// `/v2/status` lists the profiles the engine actually BUILT, keyed by
+		// profile name. Modelled honestly: public-transport appears only when
+		// the running container was created with the PT env keys.
+		if (url.endsWith("/v2/status")) {
+			const port = Number(new URL(url).port);
+			const entry = Array.from(docker.containers.values()).find(
+				(candidate) => candidate.running && candidate.spec?.hostPort === port,
+			);
+			if (!entry) return new Response("not running", { status: 503 });
+			const profiles: Record<string, unknown> = {
+				"driving-car": { encoder_name: "driving-car" },
+			};
+			if (
+				entry.spec?.env.includes(
+					"ors.engine.profiles.public-transport.enabled=true",
+				)
+			) {
+				profiles["public-transport"] = { encoder_name: "public-transport" };
+			}
+			return new Response(JSON.stringify({ profiles }), { status: 200 });
 		}
 		return new Response("not found", { status: 404 });
 	});
@@ -154,6 +216,10 @@ describe("routing region manager", () => {
 			downloadMaxMs: 30_000,
 			maxAttempts: 20,
 			legacy: { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" },
+			gtfsFeeds: NO_FEEDS,
+			gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
+			gtfsMaxBytes: 600 * 1048576,
+			transitRefreshWindow: { startHour: 3, endHour: 5 },
 			...overrides,
 		};
 	}
@@ -955,6 +1021,10 @@ describe("routing region manager — legacy seed backfill", () => {
 				downloadMaxMs: 30_000,
 				maxAttempts: 20,
 				legacy: { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" },
+				gtfsFeeds: NO_FEEDS,
+				gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
+				gtfsMaxBytes: 600 * 1048576,
+				transitRefreshWindow: { startHour: 3, endHour: 5 },
 			};
 			// First start: index unavailable → name falls back to the id.
 			const first = createRoutingRegionManager(cfg, {
@@ -1023,6 +1093,10 @@ describe("routing region manager — download retries", () => {
 					downloadMaxMs: 30_000,
 					maxAttempts: 20,
 					legacy: null,
+					gtfsFeeds: NO_FEEDS,
+					gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
+					gtfsMaxBytes: 600 * 1048576,
+					transitRefreshWindow: { startHour: 3, endHour: 5 },
 				},
 				{
 					db: memory.db,
@@ -1045,5 +1119,765 @@ describe("routing region manager — download retries", () => {
 			memory.close();
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+// ── Public transport (GTFS) ────────────────────────────────────
+
+describe("routing region manager — public transport", () => {
+	let memory: InMemoryDatabase;
+	let dir: string;
+	let docker: FakeDocker;
+	let now = 1_700_000_000_000;
+
+	// The refresh window is a LOCAL-clock window, so a test that wants to be
+	// inside (or outside) it has to build its timestamp in the process's own
+	// timezone rather than assume UTC.
+	function atLocalHour(hour: number): number {
+		const date = new Date(1_700_000_000_000);
+		date.setHours(hour, 0, 0, 0);
+		return date.getTime();
+	}
+
+	function config(
+		overrides: Partial<RoutingRegionManagerConfig> = {},
+	): RoutingRegionManagerConfig {
+		return {
+			enabled: true,
+			regionsDir: dir,
+			orsImage: "openrouteservice/openrouteservice:test",
+			xmx: "4g",
+			portRange: { start: 8300, end: 8302 },
+			hostIp: "127.0.0.1",
+			idleMinutes: 60,
+			maxPbfBytes: 10 * 1048576,
+			buildTimeoutMs: 60_000,
+			startTimeoutMs: 10_000,
+			geocoderImportContainer: "",
+			geocoderRegionsMount: "/regions",
+			extractMirrors: [],
+			residentRegionIds: [],
+			downloadStallMs: 5_000,
+			downloadMaxMs: 30_000,
+			maxAttempts: 20,
+			legacy: null,
+			gtfsFeeds: NO_FEEDS,
+			gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
+			gtfsMaxBytes: 600 * 1048576,
+			transitRefreshWindow: { startHour: 3, endHour: 5 },
+			...overrides,
+		};
+	}
+
+	function manager(overrides: Partial<RoutingRegionManagerConfig> = {}) {
+		return createRoutingRegionManager(config(overrides), {
+			db: memory.db,
+			docker,
+			fetch: fakeFetch(docker) as typeof fetch,
+			loadIndex: async () => index,
+			now: () => now,
+			sleep: async () => {
+				now += 1000;
+			},
+			log: () => undefined,
+		});
+	}
+
+	beforeEach(() => {
+		memory = createInMemoryDatabase();
+		dir = mkdtempSync(join(tmpdir(), "alfyai-regions-"));
+		docker = fakeDocker();
+		now = 1_700_000_000_000;
+	});
+
+	afterEach(() => {
+		memory.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("builds a region with the public-transport profile when a feed is configured", async () => {
+		const m = manager({
+			gtfsFeeds: IE_FEEDS,
+		});
+		await m.ensureRegionForPoints([DUBLIN]);
+		await m.drain();
+
+		const row = (await m.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		expect(row?.status).toBe("ready");
+		expect(row?.transitStatus).toBe("ready");
+		expect(row?.gtfsUrl).toBe(`tfi=${IE_FEED}`);
+		expect(row?.gtfsSizeBytes).toBe(GTFS_BYTES.length);
+		expect(row?.gtfsDownloadedAt).toBeInstanceOf(Date);
+		expect(row?.timezone).toBe("Europe/Dublin");
+
+		// The feed lands next to the extract, under the name the PT env points at.
+		expect(
+			readFileSync(
+				join(
+					dir,
+					"ireland-and-northern-ireland",
+					"files",
+					"ireland-and-northern-ireland-gtfs-tfi.zip",
+				),
+			),
+		).toEqual(GTFS_BYTES);
+
+		const spec = docker.containers.get(
+			regionContainerName("ireland-and-northern-ireland"),
+		)?.spec;
+		expect(spec?.env).toEqual(
+			expect.arrayContaining([
+				"ors.engine.profiles.public-transport.enabled=true",
+				"ors.engine.profiles.public-transport.encoder_name=public-transport",
+				"ors.engine.profiles.public-transport.build.gtfs_file=/home/ors/files/ireland-and-northern-ireland-gtfs-tfi.zip",
+				"ors.engine.profiles.public-transport.build.elevation=false",
+				"ors.engine.profiles.public-transport.service.maximum_visited_nodes=1000000",
+			]),
+		);
+		expect(await m.listTransitReadyRegions()).toHaveLength(1);
+	});
+
+	it("leaves a region without a configured feed on road profiles only", async () => {
+		const m = manager();
+		await m.ensureRegionForPoints([DUBLIN]);
+		await m.drain();
+		const row = (await m.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		expect(row?.status).toBe("ready");
+		expect(row?.transitStatus).toBe("none");
+		const spec = docker.containers.get(
+			regionContainerName("ireland-and-northern-ireland"),
+		)?.spec;
+		expect(spec?.env.some((entry) => entry.includes("public-transport"))).toBe(
+			false,
+		);
+		expect(await m.listTransitReadyRegions()).toHaveLength(0);
+	});
+
+	it("still builds road routing when the timetable feed cannot be downloaded", async () => {
+		const good = fakeFetch(docker);
+		const feedDown = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				if (String(input).endsWith(".zip")) {
+					return new Response("bad gateway", { status: 502 });
+				}
+				return good(input, init);
+			},
+		);
+		const m = createRoutingRegionManager(
+			config({
+				gtfsFeeds: IE_FEEDS,
+			}),
+			{
+				db: memory.db,
+				docker,
+				fetch: feedDown as unknown as typeof fetch,
+				loadIndex: async () => index,
+				now: () => now,
+				sleep: async () => {
+					now += 1000;
+				},
+				log: () => undefined,
+			},
+		);
+		await m.ensureRegionForPoints([DUBLIN]);
+		await m.drain();
+
+		const row = (await m.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		// A bad hour at the transit agency's web server costs the region its
+		// timetables and nothing else.
+		expect(row?.status).toBe("ready");
+		expect(row?.transitStatus).toBe("error");
+		expect(row?.error).toContain("transit:");
+		// And the container is not asked to build a graph from a file that is
+		// not there.
+		const spec = docker.containers.get(
+			regionContainerName("ireland-and-northern-ireland"),
+		)?.spec;
+		expect(spec?.env.some((entry) => entry.includes("public-transport"))).toBe(
+			false,
+		);
+	});
+
+	it("rebuilds ONLY the public-transport graph when a feed is added later", async () => {
+		// First build: no feed.
+		const plain = manager();
+		await plain.ensureRegionForPoints([DUBLIN]);
+		await plain.drain();
+		const graphs = join(dir, "ireland-and-northern-ireland", "graphs");
+		mkdirSync(join(graphs, "public-transport"), { recursive: true });
+		mkdirSync(join(graphs, "driving-car"), { recursive: true });
+		writeFileSync(join(graphs, "driving-car", "keep.me"), "road graph");
+
+		// Second start: the feed is now configured.
+		const withFeed = manager({
+			gtfsFeeds: IE_FEEDS,
+		});
+		await withFeed.resumePendingJobs();
+		await withFeed.drain();
+
+		const row = (await withFeed.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		expect(row?.transitStatus).toBe("ready");
+		// The road graph is untouched — REBUILD_GRAPHS=False reuses it — while
+		// the public-transport graph directory was dropped before the restart.
+		expect(existsSync(join(graphs, "driving-car", "keep.me"))).toBe(true);
+		expect(existsSync(join(graphs, "public-transport"))).toBe(false);
+		const spec = docker.containers.get(
+			regionContainerName("ireland-and-northern-ireland"),
+		)?.spec;
+		expect(spec?.env).toContain(
+			"ors.engine.profiles.public-transport.enabled=true",
+		);
+	});
+
+	it("drops a region back to no timetables when its feed is removed", async () => {
+		const withFeed = manager({
+			gtfsFeeds: IE_FEEDS,
+		});
+		await withFeed.ensureRegionForPoints([DUBLIN]);
+		await withFeed.drain();
+
+		const without = manager();
+		await without.runTransitMaintenance();
+		const row = (await without.listRegions()).find(
+			(r) => r.id === "ireland-and-northern-ireland",
+		);
+		expect(row?.transitStatus).toBe("none");
+	});
+
+	describe("refresh scheduling", () => {
+		async function readyRegion() {
+			const m = manager({
+				gtfsFeeds: IE_FEEDS,
+			});
+			await m.ensureRegionForPoints([DUBLIN]);
+			await m.drain();
+			return m;
+		}
+
+		it("queues a stale feed only inside the nightly window", async () => {
+			await readyRegion();
+			const feeds = IE_FEEDS;
+			// A fortnight later, but at midday: the rebuild would take the region
+			// down, so it must wait.
+			now = atLocalHour(12) + 14 * 24 * 60 * 60 * 1000;
+			const daytime = manager({ gtfsFeeds: feeds });
+			expect(await daytime.runTransitMaintenance()).toEqual([]);
+			expect(
+				(await daytime.listRegions()).find(
+					(r) => r.id === "ireland-and-northern-ireland",
+				)?.transitStatus,
+			).toBe("ready");
+
+			// Same staleness, 04:00 local: now it goes.
+			now = atLocalHour(4) + 14 * 24 * 60 * 60 * 1000;
+			const nightly = manager({ gtfsFeeds: feeds });
+			expect(await nightly.runTransitMaintenance()).toEqual([
+				"ireland-and-northern-ireland",
+			]);
+		});
+
+		it("leaves a fresh feed alone inside the window", async () => {
+			await readyRegion();
+			now = atLocalHour(4) + 60 * 60 * 1000;
+			const m = manager({
+				gtfsFeeds: IE_FEEDS,
+			});
+			expect(await m.runTransitMaintenance()).toEqual([]);
+		});
+
+		it("an admin refresh ignores the window entirely", async () => {
+			const m = manager({
+				gtfsFeeds: IE_FEEDS,
+			});
+			await m.ensureRegionForPoints([DUBLIN]);
+			await m.drain();
+			now = atLocalHour(12);
+			const row = await m.refreshTransit("ireland-and-northern-ireland");
+			expect(row?.transitStatus).toBe("queued");
+			await m.drain();
+			expect(
+				(await m.listRegions()).find(
+					(r) => r.id === "ireland-and-northern-ireland",
+				)?.transitStatus,
+			).toBe("ready");
+		});
+
+		it("refuses to refresh a region that has no feed configured", async () => {
+			const m = manager();
+			await m.ensureRegionForPoints([DUBLIN]);
+			await m.drain();
+			const row = await m.refreshTransit("ireland-and-northern-ireland");
+			expect(row?.transitStatus).toBe("none");
+			expect(await m.refreshTransit("nowhere")).toBeNull();
+		});
+	});
+
+	describe("legacy region promotion", () => {
+		const legacy = { id: "hungary", baseUrl: "http://127.0.0.1:8088/ors" };
+
+		it("keeps serving the legacy URL until the managed container is healthy", async () => {
+			const m = manager({
+				legacy,
+				residentRegionIds: ["hungary"],
+				gtfsFeeds: HU_FEEDS,
+			});
+			// Before the promotion runs, the legacy instance still answers.
+			expect(await m.ensureRegionForPoints([BUDAPEST])).toMatchObject({
+				kind: "ready",
+				baseUrl: legacy.baseUrl,
+			});
+			expect(
+				(await m.listRegions()).find((r) => r.id === "hungary")?.managed,
+			).toBe(false);
+
+			await m.resumePendingJobs();
+			await m.drain();
+
+			const after = (await m.listRegions()).find((r) => r.id === "hungary");
+			expect(after?.managed).toBe(true);
+			expect(after?.status).toBe("ready");
+			expect(after?.transitStatus).toBe("ready");
+			expect(after?.containerName).toBe("alfyai-ors-hungary");
+			expect(after?.baseUrl).toBe("http://127.0.0.1:8300/ors");
+			expect(after?.timezone).toBe("Europe/Budapest");
+			// Routing now goes through the managed container.
+			expect(await m.ensureRegionForPoints([BUDAPEST])).toMatchObject({
+				kind: "ready",
+				baseUrl: "http://127.0.0.1:8300/ors",
+			});
+		});
+
+		it("does not re-seed the promoted region back onto the legacy instance", async () => {
+			const first = manager({
+				legacy,
+				residentRegionIds: ["hungary"],
+				gtfsFeeds: HU_FEEDS,
+			});
+			await first.resumePendingJobs();
+			await first.drain();
+
+			// A later start (deploy/restart) must not undo the promotion.
+			const second = manager({
+				legacy,
+				residentRegionIds: ["hungary"],
+				gtfsFeeds: HU_FEEDS,
+			});
+			const row = (await second.listRegions()).find((r) => r.id === "hungary");
+			expect(row?.managed).toBe(true);
+			expect(row?.baseUrl).toBe("http://127.0.0.1:8300/ors");
+		});
+
+		it("leaves the legacy row serving when the promotion fails", async () => {
+			const failing = vi.fn(async () => {
+				throw new Error("network is unreachable");
+			});
+			const m = createRoutingRegionManager(
+				config({ legacy, gtfsFeeds: HU_FEEDS }),
+				{
+					db: memory.db,
+					docker,
+					fetch: failing as unknown as typeof fetch,
+					loadIndex: async () => index,
+					now: () => now,
+					sleep: async () => {
+						now += 1000;
+					},
+					log: () => undefined,
+				},
+			);
+			await m.resumePendingJobs();
+			await m.drain();
+			const row = (await m.listRegions()).find((r) => r.id === "hungary");
+			expect(row?.managed).toBe(false);
+			expect(row?.status).toBe("ready");
+			expect(row?.baseUrl).toBe(legacy.baseUrl);
+			expect(row?.transitStatus).toBe("error");
+			expect(row?.error).toContain("transit:");
+		});
+
+		it("does nothing to the legacy region when no feed is configured for it", async () => {
+			const m = manager({ legacy, residentRegionIds: ["hungary"] });
+			await m.resumePendingJobs();
+			await m.drain();
+			const row = (await m.listRegions()).find((r) => r.id === "hungary");
+			expect(row?.managed).toBe(false);
+			expect(row?.transitStatus).toBe("none");
+			expect(docker.createContainer).not.toHaveBeenCalled();
+		});
+	});
+
+	it("never stops a container while its timetable graph is being rebuilt", async () => {
+		const m = manager({
+			gtfsFeeds: IE_FEEDS,
+		});
+		await m.ensureRegionForPoints([DUBLIN]);
+		await m.drain();
+		await m.refreshTransit("ireland-and-northern-ireland");
+		// Long past the idle cutoff, but a rebuild is queued for it.
+		now += 10 * 60 * 60 * 1000;
+		expect(await m.runIdleSweep()).toEqual([]);
+	});
+});
+
+// ── Many feeds per region ──────────────────────────────────────
+//
+// A country's timetables are a BUNDLE: Hungary publishes ~21 official feeds
+// and no national one. GraphHopper comma-splits `gtfs_file` and loads each
+// path as its own feed, so a region carries all of them — and one operator's
+// web server having a bad hour must cost that operator's trips and nothing
+// more.
+describe("routing region manager — many timetable feeds", () => {
+	let memory: InMemoryDatabase;
+	let dir: string;
+	let docker: FakeDocker;
+	let now = 1_700_000_000_000;
+
+	const RAIL = "https://rail.test/rail.zip";
+	const COACH = "https://coach.test/coach.zip";
+	const CITY = "https://city.test/city.zip";
+	const HU_MANY: GtfsFeed[] = [
+		{ id: "rail", name: "Rail", url: RAIL, refreshDays: 1 },
+		{ id: "coach", name: "Coach", url: COACH, refreshDays: 14 },
+		{ id: "city", name: "City", url: CITY, refreshDays: 14 },
+	];
+	const MANY_FEEDS = new Map<string, GtfsFeed[]>([["hungary", HU_MANY]]);
+
+	function atLocalHour(hour: number): number {
+		const date = new Date(1_700_000_000_000);
+		date.setHours(hour, 0, 0, 0);
+		return date.getTime();
+	}
+
+	function config(
+		overrides: Partial<RoutingRegionManagerConfig> = {},
+	): RoutingRegionManagerConfig {
+		return {
+			enabled: true,
+			regionsDir: dir,
+			orsImage: "openrouteservice/openrouteservice:test",
+			xmx: "4g",
+			portRange: { start: 8300, end: 8302 },
+			hostIp: "127.0.0.1",
+			idleMinutes: 60,
+			maxPbfBytes: 10 * 1048576,
+			buildTimeoutMs: 60_000,
+			startTimeoutMs: 10_000,
+			geocoderImportContainer: "",
+			geocoderRegionsMount: "/regions",
+			extractMirrors: [],
+			residentRegionIds: [],
+			downloadStallMs: 5_000,
+			downloadMaxMs: 30_000,
+			maxAttempts: 20,
+			legacy: null,
+			gtfsFeeds: MANY_FEEDS,
+			gtfsRefreshMs: 7 * 24 * 60 * 60 * 1000,
+			gtfsMaxBytes: 600 * 1048576,
+			transitRefreshWindow: { startHour: 3, endHour: 5 },
+			...overrides,
+		};
+	}
+
+	// Records what each feed URL was asked for, and lets a test answer one
+	// feed differently (a 502, a 304, an HTML page) while the rest behave.
+	function feedFetch(
+		answers: Record<
+			string,
+			(init?: RequestInit) => Response | Promise<Response>
+		> = {},
+	) {
+		const base = fakeFetch(docker);
+		const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+		const impl = vi.fn(
+			async (input: string | URL | Request, init?: RequestInit) => {
+				const url = String(input);
+				const answer = answers[url];
+				if (answer) {
+					calls.push({
+						url,
+						headers: (init?.headers ?? {}) as Record<string, string>,
+					});
+					return answer(init);
+				}
+				return base(input, init);
+			},
+		);
+		return Object.assign(impl, { calls });
+	}
+
+	function manager(
+		overrides: Partial<RoutingRegionManagerConfig> = {},
+		fetchImpl?: typeof fetch,
+	) {
+		return createRoutingRegionManager(config(overrides), {
+			db: memory.db,
+			docker,
+			fetch: (fetchImpl ?? fakeFetch(docker)) as typeof fetch,
+			loadIndex: async () => index,
+			now: () => now,
+			sleep: async () => {
+				now += 1000;
+			},
+			log: () => undefined,
+		});
+	}
+
+	async function readyHungary(fetchImpl?: typeof fetch) {
+		const m = manager({}, fetchImpl);
+		await m.ensureRegionForPoints([BUDAPEST]);
+		await m.drain();
+		return m;
+	}
+
+	function transitEnvOf(): string | undefined {
+		return docker.containers
+			.get(regionContainerName("hungary"))
+			?.spec?.env.find((entry) => entry.includes("build.gtfs_file="));
+	}
+
+	beforeEach(() => {
+		memory = createInMemoryDatabase();
+		dir = mkdtempSync(join(tmpdir(), "alfyai-regions-"));
+		docker = fakeDocker();
+		now = 1_700_000_000_000;
+	});
+
+	afterEach(() => {
+		memory.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("joins every downloaded feed into one comma-separated gtfs_file", async () => {
+		const m = await readyHungary();
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		expect(row?.transitStatus).toBe("ready");
+		// The exact string ORS receives: absolute container paths, comma-joined,
+		// in configured order. GraphHopper splits it and loads each as gtfs_<n>.
+		expect(transitEnvOf()).toBe(
+			"ors.engine.profiles.public-transport.build.gtfs_file=" +
+				"/home/ors/files/hungary-gtfs-rail.zip," +
+				"/home/ors/files/hungary-gtfs-coach.zip," +
+				"/home/ors/files/hungary-gtfs-city.zip",
+		);
+		for (const feedId of ["rail", "coach", "city"]) {
+			expect(
+				readFileSync(
+					join(dir, "hungary", "files", `hungary-gtfs-${feedId}.zip`),
+				),
+			).toEqual(GTFS_BYTES);
+		}
+		// Each feed is accounted for individually, and the row's summary is the
+		// total of what landed.
+		expect(m.describeTransitFeeds(row as never).map((f) => f.status)).toEqual([
+			"ready",
+			"ready",
+			"ready",
+		]);
+		expect(row?.gtfsSizeBytes).toBe(3 * GTFS_BYTES.length);
+	});
+
+	it("builds from the feeds that answered when one operator is down", async () => {
+		const m = await readyHungary(
+			feedFetch({
+				[COACH]: () => new Response("bad gateway", { status: 502 }),
+			}) as unknown as typeof fetch,
+		);
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		// Two feeds are enough: the region serves timetables, minus coaches.
+		expect(row?.transitStatus).toBe("ready");
+		expect(transitEnvOf()).toBe(
+			"ors.engine.profiles.public-transport.build.gtfs_file=" +
+				"/home/ors/files/hungary-gtfs-rail.zip," +
+				"/home/ors/files/hungary-gtfs-city.zip",
+		);
+		expect(
+			existsSync(join(dir, "hungary", "files", "hungary-gtfs-coach.zip")),
+		).toBe(false);
+		const feeds = m.describeTransitFeeds(row as never);
+		expect(feeds.map((feed) => [feed.id, feed.status])).toEqual([
+			["rail", "ready"],
+			["coach", "error"],
+			["city", "ready"],
+		]);
+		expect(feeds[1].error).toContain("502");
+	});
+
+	it("refuses a feed that is not a zip", async () => {
+		const m = await readyHungary(
+			feedFetch({
+				[CITY]: () =>
+					new Response("<html>maintenance</html>", {
+						status: 200,
+						headers: { "content-length": "24" },
+					}),
+			}) as unknown as typeof fetch,
+		);
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		const city = m
+			.describeTransitFeeds(row as never)
+			.find((feed) => feed.id === "city");
+		expect(city?.status).toBe("error");
+		expect(city?.error).toContain("not a zip");
+		expect(transitEnvOf()).not.toContain("city");
+	});
+
+	it("records a transit error only when EVERY feed fails", async () => {
+		const down = () => new Response("bad gateway", { status: 502 });
+		const m = await readyHungary(
+			feedFetch({
+				[RAIL]: down,
+				[COACH]: down,
+				[CITY]: down,
+			}) as unknown as typeof fetch,
+		);
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		// Road routing is untouched — a transit agency's bad hour must never
+		// cost a country its routing.
+		expect(row?.status).toBe("ready");
+		expect(row?.transitStatus).toBe("error");
+		expect(row?.error).toContain("transit:");
+		expect(transitEnvOf()).toBeUndefined();
+	});
+
+	it("revalidates an unchanged feed with If-None-Match instead of re-downloading", async () => {
+		const etagged = feedFetch({
+			[RAIL]: (init) => {
+				const headers = (init?.headers ?? {}) as Record<string, string>;
+				if (headers["if-none-match"] === '"v1"') {
+					return new Response(null, { status: 304 });
+				}
+				return new Response(GTFS_BYTES, {
+					status: 200,
+					headers: {
+						"content-length": String(GTFS_BYTES.length),
+						etag: '"v1"',
+					},
+				});
+			},
+		});
+		const m = await readyHungary(etagged as unknown as typeof fetch);
+		expect(etagged.calls).toHaveLength(1);
+		// The zip is fresh by its own cadence, so "refresh" has to mean
+		// something explicit — it marks every feed due.
+		// An explicit refresh revalidates every feed; the rail host answers 304
+		// and the zip on disk is kept.
+		await m.refreshTransit("hungary");
+		await m.drain();
+		expect(etagged.calls).toHaveLength(2);
+		expect(etagged.calls[1].headers["if-none-match"]).toBe('"v1"');
+		expect(
+			readFileSync(join(dir, "hungary", "files", "hungary-gtfs-rail.zip")),
+		).toEqual(GTFS_BYTES);
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		expect(row?.transitStatus).toBe("ready");
+	});
+
+	it("keeps yesterday's zip when a feed's refresh fails", async () => {
+		let attempts = 0;
+		const flaky = feedFetch({
+			[CITY]: () => {
+				attempts += 1;
+				return attempts === 1
+					? new Response(GTFS_BYTES, {
+							status: 200,
+							headers: { "content-length": String(GTFS_BYTES.length) },
+						})
+					: new Response("gone", { status: 500 });
+			},
+		});
+		const m = await readyHungary(flaky as unknown as typeof fetch);
+		await m.refreshTransit("hungary");
+		await m.drain();
+		const row = (await m.listRegions()).find((r) => r.id === "hungary");
+		expect(row?.transitStatus).toBe("ready");
+		// Stale trips beat no trips: the file stays and still goes in the graph,
+		// with the failure visible per feed.
+		expect(transitEnvOf()).toContain("hungary-gtfs-city.zip");
+		const city = m
+			.describeTransitFeeds(row as never)
+			.find((feed) => feed.id === "city");
+		expect(city?.error).toContain("500");
+	});
+
+	it("queues a rebuild when ONE feed comes due on its own cadence", async () => {
+		await readyHungary();
+		// Two days on, at midday: the daily rail feed is due but the window is
+		// closed, so nothing moves.
+		now = atLocalHour(12) + 2 * 24 * 60 * 60 * 1000;
+		expect(await manager().runTransitMaintenance()).toEqual([]);
+		// 04:00: the rail feed alone is enough to schedule the rebuild, even
+		// though the fortnightly city and coach feeds are still fresh.
+		now = atLocalHour(4) + 2 * 24 * 60 * 60 * 1000;
+		const nightly = manager();
+		expect(await nightly.runTransitMaintenance()).toEqual(["hungary"]);
+	});
+
+	it("leaves every feed alone while all of them are inside their cadence", async () => {
+		await readyHungary();
+		now = atLocalHour(4) + 60 * 60 * 1000;
+		expect(await manager().runTransitMaintenance()).toEqual([]);
+	});
+
+	it("re-downloads ONLY the feed an admin retried", async () => {
+		await readyHungary(
+			feedFetch({
+				[COACH]: () => new Response("bad gateway", { status: 502 }),
+			}) as unknown as typeof fetch,
+		);
+		// Later, with every host healthy again, the admin retries just coaches.
+		const serve = () =>
+			new Response(GTFS_BYTES, {
+				status: 200,
+				headers: { "content-length": String(GTFS_BYTES.length) },
+			});
+		const healthy = feedFetch({ [RAIL]: serve, [COACH]: serve, [CITY]: serve });
+		const second = manager({}, healthy as unknown as typeof fetch);
+		const queued = await second.retryTransitFeed("hungary", "coach");
+		expect(queued?.transitStatus).toBe("queued");
+		await second.drain();
+		// Retrying one small city must not re-pull the country: rail and city
+		// are on disk and inside their cadence, so they are not fetched at all.
+		expect(healthy.calls.map((call) => call.url)).toEqual([COACH]);
+		const row = (await second.listRegions()).find((r) => r.id === "hungary");
+		expect(row?.transitStatus).toBe("ready");
+		const coach = second
+			.describeTransitFeeds(row as never)
+			.find((feed) => feed.id === "coach");
+		expect(coach?.status).toBe("ready");
+		expect(coach?.error).toBeUndefined();
+	});
+
+	it("ignores a retry for a feed the region does not have", async () => {
+		const m = await readyHungary();
+		const row = await m.retryTransitFeed("hungary", "not-a-feed");
+		expect(row?.transitStatus).toBe("ready");
+		expect(await m.retryTransitFeed("nowhere", "rail")).toBeNull();
+	});
+
+	it("deletes the zip of a feed that has been removed from the config", async () => {
+		await readyHungary();
+		const files = join(dir, "hungary", "files");
+		expect(existsSync(join(files, "hungary-gtfs-city.zip"))).toBe(true);
+		const trimmed = manager({
+			gtfsFeeds: new Map<string, GtfsFeed[]>([
+				["hungary", HU_MANY.slice(0, 2)],
+			]),
+		});
+		await trimmed.refreshTransit("hungary");
+		await trimmed.drain();
+		expect(existsSync(join(files, "hungary-gtfs-city.zip"))).toBe(false);
+		expect(transitEnvOf()).toBe(
+			"ors.engine.profiles.public-transport.build.gtfs_file=" +
+				"/home/ors/files/hungary-gtfs-rail.zip," +
+				"/home/ors/files/hungary-gtfs-coach.zip",
+		);
 	});
 });

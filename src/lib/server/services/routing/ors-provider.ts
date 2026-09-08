@@ -16,6 +16,7 @@
 // The provider is written against Nominatim's response shape; swapping to
 // Photon/Pelias would be a new provider behind the same RoutingProvider seam.
 
+import { isoMinutes } from "./gtfs-feeds";
 import {
 	type GeocodeMatch,
 	type GeocodeOutcome,
@@ -25,6 +26,7 @@ import {
 	type MatrixData,
 	type MatrixOutcome,
 	MODE_TO_PROFILE,
+	PUBLIC_TRANSPORT_PROFILE,
 	type RouteData,
 	type RouteLeg,
 	type RouteOutcome,
@@ -33,6 +35,13 @@ import {
 	type RoutingMode,
 	type RoutingProvider,
 	type RoutingProviderDeps,
+	type TransitData,
+	type TransitItinerary,
+	type TransitLeg,
+	type TransitOutcome,
+	type TransitQuery,
+	type TransitScheduleQuery,
+	type TransitStop,
 } from "./types";
 
 export type OrsProviderConfig = {
@@ -58,6 +67,13 @@ const NOMINATIM_USER_AGENT = "AlfyAI";
 // Half-degree box (~55 km per side) drawn around a `near` point to bias the
 // search to that region (Nominatim `viewbox` + `bounded=1`).
 const NEAR_VIEWBOX_DELTA_DEG = 0.5;
+
+// ORS's own default for `walking_time` is PT15M; we send it explicitly so the
+// value the model sees echoed back is always the one that was used.
+export const DEFAULT_WALKING_TIME_MINUTES = 15;
+// "Next departures" defaults: a two-hour window, six rows.
+export const DEFAULT_SCHEDULE_WINDOW_MINUTES = 120;
+export const DEFAULT_SCHEDULE_ROWS = 6;
 
 function trimBase(url: string): string {
 	return url.trim().replace(/\/+$/, "");
@@ -171,6 +187,72 @@ type OrsDirectionsResponse = {
 	}>;
 };
 
+// ── ORS public-transport response shapes ───────────────────────
+//
+// Field names taken VERBATIM from openrouteservice v9.10.0:
+//   ors-api/.../responses/routing/json/JSONIndividualRouteResponse.java
+//     — routes[]: geometry, summary, segments, way_points, legs, departure,
+//       arrival, bbox, extras, warnings
+//   ors-api/.../responses/routing/json/JSONSummary.java
+//     — distance, duration, ascent, descent, transfers, fare
+//       (transfers/fare are emitted ONLY for a PT request, and suppressed when
+//        they are -1, hence both are optional here)
+//   ors-api/.../responses/routing/json/JSONLeg.java
+//     — type ("walk" | "pt"), departure_location, trip_headsign,
+//       route_long_name, route_short_name, route_desc, route_type, distance,
+//       duration, departure, arrival, feed_id, trip_id, route_id,
+//       is_in_same_vehicle_as_previous, geometry, instructions, stops
+//   ors-api/.../responses/routing/json/JSONPtStop.java
+//     — stop_id, name, location ([lng, lat]), arrival_time,
+//       planned_arrival_time, predicted_arrival_time, arrival_cancelled,
+//       departure_time, planned_departure_time, predicted_departure_time,
+//       departure_cancelled
+//
+// Both leg classes are @JsonInclude(NON_EMPTY), so absent fields simply do not
+// appear — every one of them is optional here and defensively narrowed.
+
+type OrsPtStop = {
+	stop_id?: unknown;
+	name?: unknown;
+	location?: unknown;
+	arrival_time?: unknown;
+	planned_arrival_time?: unknown;
+	departure_time?: unknown;
+	planned_departure_time?: unknown;
+};
+
+type OrsLeg = {
+	type?: unknown;
+	departure_location?: unknown;
+	trip_headsign?: unknown;
+	route_long_name?: unknown;
+	route_short_name?: unknown;
+	route_desc?: unknown;
+	route_type?: unknown;
+	distance?: unknown;
+	duration?: unknown;
+	departure?: unknown;
+	arrival?: unknown;
+	is_in_same_vehicle_as_previous?: unknown;
+	geometry?: unknown;
+	stops?: unknown;
+};
+
+type OrsPtRoute = {
+	summary?: {
+		distance?: unknown;
+		duration?: unknown;
+		transfers?: unknown;
+		fare?: unknown;
+	};
+	geometry?: unknown;
+	departure?: unknown;
+	arrival?: unknown;
+	legs?: unknown;
+};
+
+type OrsPtDirectionsResponse = { routes?: unknown };
+
 type OrsMatrixResponse = {
 	durations?: (number | null)[][];
 	distances?: (number | null)[][];
@@ -241,6 +323,176 @@ function mapDirectionsResponse(
 		data.polyline = route.geometry;
 	}
 	return data;
+}
+
+// ── Public-transport parsing ───────────────────────────────────
+
+function optionalNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value)
+		? value
+		: undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+// ORS emits every PT timestamp as an offset-bearing ISO string (ZonedDateTime
+// on the route/leg, java.util.Date on a stop). We keep whatever it sent
+// verbatim as long as it parses as a date, and drop anything that does not —
+// a broken timestamp must never become a fabricated one.
+function isoInstant(value: unknown): string | undefined {
+	const text = optionalString(value);
+	if (!text) return undefined;
+	return Number.isNaN(new Date(text).getTime()) ? undefined : text;
+}
+
+export function mapPtStop(raw: OrsPtStop): TransitStop {
+	const stop: TransitStop = {};
+	const name = optionalString(raw.name);
+	if (name) stop.name = name;
+	const stopId = optionalString(raw.stop_id);
+	if (stopId) stop.stopId = stopId;
+	// planned_* is the scheduled time; *_time is the effective one (equal to
+	// planned unless the feed carries realtime updates). Prefer the effective.
+	const arrival =
+		isoInstant(raw.arrival_time) ?? isoInstant(raw.planned_arrival_time);
+	if (arrival) stop.arrival = arrival;
+	const departure =
+		isoInstant(raw.departure_time) ?? isoInstant(raw.planned_departure_time);
+	if (departure) stop.departure = departure;
+	// JSONPtStop.location is [lng, lat] (its @Schema example is
+	// "[8.6912542, 49.399979]" for Heidelberg — longitude first).
+	if (Array.isArray(raw.location) && raw.location.length >= 2) {
+		const lng = optionalNumber(raw.location[0]);
+		const lat = optionalNumber(raw.location[1]);
+		if (lat !== undefined && lng !== undefined) {
+			stop.lat = lat;
+			stop.lng = lng;
+		}
+	}
+	return stop;
+}
+
+export function mapTransitLeg(raw: OrsLeg): TransitLeg {
+	// ORS only ever emits "walk" or "pt" (RouteLeg copies GraphHopper's
+	// Trip.Leg.type, and JSONLeg branches on type.equals("pt")); anything else
+	// is treated as a walk so an unknown value can never claim to be a service.
+	const type = optionalString(raw.type) === "pt" ? "pt" : "walk";
+	const stops = Array.isArray(raw.stops)
+		? (raw.stops as OrsPtStop[]).map(mapPtStop)
+		: [];
+	const leg: TransitLeg = {
+		type,
+		distance_m: num(raw.distance),
+		duration_s: num(raw.duration),
+	};
+	const departure = isoInstant(raw.departure);
+	if (departure) leg.departure = departure;
+	const arrival = isoInstant(raw.arrival);
+	if (arrival) leg.arrival = arrival;
+	const polyline = optionalString(raw.geometry);
+	if (polyline) leg.polyline = polyline;
+	if (type === "pt") {
+		// `departure_location` is the boarding stop's name; fall back to the
+		// first listed stop when the feed left it empty.
+		const from = optionalString(raw.departure_location) ?? stops[0]?.name;
+		if (from) leg.from = from;
+		const to = stops[stops.length - 1]?.name;
+		if (to) leg.to = to;
+		const short = optionalString(raw.route_short_name);
+		const long = optionalString(raw.route_long_name);
+		// Prefer the short name ("39A"); a feed with only a long name still
+		// gets a usable line label.
+		const line = short ?? long;
+		if (line) leg.line = line;
+		if (long && long !== line) leg.lineLong = long;
+		const headsign = optionalString(raw.trip_headsign);
+		if (headsign) leg.headsign = headsign;
+		// RouteLeg sets routeType to -1 for a walk leg; a real GTFS route_type
+		// is >= 0, so anything negative is dropped rather than surfaced.
+		const routeType = optionalNumber(raw.route_type);
+		if (routeType !== undefined && routeType >= 0) leg.routeType = routeType;
+		if (stops.length > 0) leg.stopsCount = stops.length;
+		if (typeof raw.is_in_same_vehicle_as_previous === "boolean") {
+			leg.sameVehicleAsPrevious = raw.is_in_same_vehicle_as_previous;
+		}
+	}
+	return leg;
+}
+
+// Maps ONE ORS route object into an itinerary. `transfers` comes from
+// summary.transfers when ORS emitted it (it suppresses the value when it is
+// -1); otherwise it is derived as "one fewer than the number of pt legs",
+// which is what a transfer count means.
+export function mapTransitItinerary(raw: OrsPtRoute): TransitItinerary {
+	const legs = Array.isArray(raw.legs)
+		? (raw.legs as OrsLeg[]).map(mapTransitLeg)
+		: [];
+	const ptLegs = legs.filter((leg) => leg.type === "pt").length;
+	const reported = optionalNumber(raw.summary?.transfers);
+	const itinerary: TransitItinerary = {
+		duration_s: num(raw.summary?.duration),
+		distance_m: num(raw.summary?.distance),
+		transfers:
+			reported !== undefined && reported >= 0
+				? reported
+				: Math.max(0, ptLegs - 1),
+		legs,
+	};
+	const departure = isoInstant(raw.departure) ?? legs[0]?.departure;
+	if (departure) itinerary.departure = departure;
+	const arrival = isoInstant(raw.arrival) ?? legs[legs.length - 1]?.arrival;
+	if (arrival) itinerary.arrival = arrival;
+	const polyline = optionalString(raw.geometry);
+	if (polyline) itinerary.polyline = polyline;
+	return itinerary;
+}
+
+// A schedule request returns one `routes[]` entry per departure, so the same
+// parser serves both actions; a journey request simply yields one itinerary.
+export function mapTransitResponse(
+	body: OrsPtDirectionsResponse,
+): TransitItinerary[] {
+	const routes = Array.isArray(body.routes)
+		? (body.routes as OrsPtRoute[])
+		: [];
+	return routes.map(mapTransitItinerary);
+}
+
+// A directions call against a profile the engine did not build fails with an
+// error that NAMES the profile ("Unable to find an appropriate routing
+// profile…"), or — when the request never reached a controller — a bare 404.
+// Either means "this region has no timetable graph".
+//
+// Returns null to hand the failure back to the ordinary ORS classifier. That
+// matters: ORS answers 404 for a coverage miss (2010) and for "no route found"
+// (2009) too, so status alone would report a point outside the extract as
+// "there are no timetables here", which is a different and misleading claim.
+export function classifyTransitFailure(error: {
+	status?: number;
+	code?: number;
+	message: string;
+}): RoutingFailureReason | null {
+	// A recognized ORS routing error is about the QUERY, not the profile.
+	if (error.code !== undefined) {
+		const ordinary = classifyOrsFailure({
+			code: error.code,
+			message: error.message,
+		});
+		if (ordinary !== "provider_error") return null;
+	}
+	if (
+		/unknown profile|profile .*not (?:found|supported|available)|unable to find an appropriate routing profile|public-transport/i.test(
+			error.message,
+		)
+	) {
+		return "transit_unavailable";
+	}
+	if (error.status === 404 && error.code === undefined) {
+		return "transit_unavailable";
+	}
+	return null;
 }
 
 // Parse a Nominatim coordinate, which arrives as a numeric STRING (e.g.
@@ -340,6 +592,8 @@ export function createOrsProvider(
 		| {
 				ok: false;
 				message: string;
+				// HTTP status of the failed response; absent for transport errors.
+				status?: number;
 				orsError?: { code?: number; message: string };
 		  }
 	> {
@@ -359,6 +613,7 @@ export function createOrsProvider(
 					ok: false,
 					message:
 						`ORS ${path} failed: ${res.status} ${res.statusText} ${detail}`.trim(),
+					status: res.status,
 					orsError: extractOrsError(detail),
 				};
 			}
@@ -545,6 +800,91 @@ export function createOrsProvider(
 		return { ok: true, data };
 	}
 
+	// One request builder for both PT actions: the journey search and the
+	// "next departures" schedule differ only by ORS's `schedule` flag and its
+	// two window parameters (RouteRequest.PARAM_SCHEDULE / _DURATION / _ROWS).
+	async function postTransit(
+		input: TransitQuery & {
+			schedule?: { windowMinutes: number; rows: number };
+		},
+	): Promise<TransitOutcome> {
+		if (!routingConfigured()) {
+			return {
+				ok: false,
+				reason: "unconfigured",
+				message: "Routing is not configured on this server.",
+			};
+		}
+		const walkingTimeMinutes =
+			input.walkingTimeMinutes && input.walkingTimeMinutes > 0
+				? input.walkingTimeMinutes
+				: DEFAULT_WALKING_TIME_MINUTES;
+		// ORS honours ONE of departure/arrival. "Arrive by" wins when both are
+		// present, because that is the stricter constraint the user asked for.
+		const timing = input.arrival
+			? { arrival: input.arrival }
+			: input.departure
+				? { departure: input.departure }
+				: {};
+		const payload: Record<string, unknown> = {
+			coordinates: [toOrsCoord(input.origin), toOrsCoord(input.destination)],
+			// Walk legs get their duration from the sum of their instruction
+			// durations (ORS RouteLeg), so instructions must be ON or every walk
+			// leg would report 0 s.
+			instructions: true,
+			geometry: true,
+			walking_time: isoMinutes(walkingTimeMinutes),
+			ignore_transfers: false,
+			...timing,
+		};
+		if (input.schedule) {
+			payload.schedule = true;
+			payload.schedule_duration = isoMinutes(input.schedule.windowMinutes);
+			payload.schedule_rows = input.schedule.rows;
+		}
+		const result = await postOrs<OrsPtDirectionsResponse>(
+			`/v2/directions/${PUBLIC_TRANSPORT_PROFILE}`,
+			payload,
+		);
+		if (!result.ok) {
+			const transit = classifyTransitFailure({
+				...(result.status !== undefined ? { status: result.status } : {}),
+				...(result.orsError?.code !== undefined
+					? { code: result.orsError.code }
+					: {}),
+				message: result.orsError?.message ?? result.message,
+			});
+			if (transit) {
+				return {
+					ok: false,
+					reason: transit,
+					message:
+						"This area has no public transport timetable loaded on this server.",
+				};
+			}
+			return orsFailure(result);
+		}
+		const itineraries = mapTransitResponse(result.body);
+		if (itineraries.length === 0) {
+			return {
+				ok: false,
+				reason: "no_route",
+				message:
+					"No public transport journey was found between those points at that time.",
+			};
+		}
+		const data: TransitData = {
+			itineraries,
+			coords: { origin: input.origin, destination: input.destination },
+			query: {
+				...timing,
+				...(input.schedule ? { schedule: true } : {}),
+				walkingTimeMinutes,
+			},
+		};
+		return { ok: true, data };
+	}
+
 	return {
 		routingConfigured,
 		geocoderConfigured,
@@ -553,5 +893,18 @@ export function createOrsProvider(
 		route,
 		matrix,
 		isochrone,
+		transit: (input: TransitQuery) => postTransit(input),
+		transitSchedule: (input: TransitScheduleQuery) =>
+			postTransit({
+				...input,
+				schedule: {
+					windowMinutes:
+						input.windowMinutes && input.windowMinutes > 0
+							? input.windowMinutes
+							: DEFAULT_SCHEDULE_WINDOW_MINUTES,
+					rows:
+						input.rows && input.rows > 0 ? input.rows : DEFAULT_SCHEDULE_ROWS,
+				},
+			}),
 	};
 }

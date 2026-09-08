@@ -518,6 +518,12 @@ const settingsDict = {
 		"admin.routingRegions.colRegion": "Region",
 		"admin.routingRegions.colStatus": "Status",
 		"admin.routingRegions.colGeocoder": "Geocoder",
+		"admin.routingRegions.colTransit": "Timetables",
+		"admin.routingRegions.refreshTransit": "Refresh timetable",
+		"admin.routingRegions.retryFeed": "Retry feed",
+		"admin.routingRegions.feedCount": "{ready}/{total} feeds",
+		"admin.routingRegions.transitQueued":
+			"Timetable rebuild queued; the region restarts once its new public-transport graph is built.",
 		"admin.routingRegions.colResident": "Resident",
 		"admin.routingRegions.viaSource": "via {source}",
 		"admin.routingRegions.retryAt": "retry {time} (attempt {attempts})",
@@ -1368,6 +1374,12 @@ const settingsDict = {
 		"admin.routingRegions.colRegion": "Régió",
 		"admin.routingRegions.colStatus": "Állapot",
 		"admin.routingRegions.colGeocoder": "Geokódoló",
+		"admin.routingRegions.colTransit": "Menetrend",
+		"admin.routingRegions.refreshTransit": "Menetrend frissítése",
+		"admin.routingRegions.retryFeed": "Forrás újra",
+		"admin.routingRegions.feedCount": "{ready}/{total} forrás",
+		"admin.routingRegions.transitQueued":
+			"A menetrend újraépítése sorba állítva; a régió az új tömegközlekedési gráf elkészültekor indul újra.",
 		"admin.routingRegions.colResident": "Állandó",
 		"admin.routingRegions.viaSource": "forrás: {source}",
 		"admin.routingRegions.retryAt":

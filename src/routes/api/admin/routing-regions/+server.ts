@@ -11,7 +11,15 @@ export const GET: RequestHandler = async (event) => {
 	if (!isRegionRoutingConfigured()) {
 		return json({ configured: false, regions: [] });
 	}
-	const regions = await getRoutingRegionManager().listRegions();
+	const manager = getRoutingRegionManager();
+	const rows = await manager.listRegions();
+	// Each row carries its configured timetable feeds joined with their
+	// recorded download state, so the admin table can show WHICH operator is
+	// missing rather than a single "transit: error" for the whole country.
+	const regions = rows.map((row) => ({
+		...row,
+		feeds: manager.describeTransitFeeds(row),
+	}));
 	return json({ configured: true, regions });
 };
 

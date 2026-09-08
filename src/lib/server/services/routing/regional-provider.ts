@@ -7,9 +7,11 @@
 // provider bound to that region's base URL. Geocoding goes to the shared
 // Nominatim instance regardless of region.
 
+import { formatLocalDateTime, toRegionLocalDateTime } from "./gtfs-feeds";
 import type {
 	EnsureRegionOutcome,
 	RoutingRegionManager,
+	RoutingRegionRow,
 } from "./region-manager";
 import type {
 	IsochroneOutcome,
@@ -19,6 +21,9 @@ import type {
 	RoutingFailureReason,
 	RoutingMode,
 	RoutingProvider,
+	TransitOutcome,
+	TransitQuery,
+	TransitScheduleQuery,
 } from "./types";
 
 export type RegionalRoutingProviderParams = {
@@ -31,7 +36,13 @@ export type RegionalRoutingProviderParams = {
 	requestedBy?: string | null;
 	// Names of the regions currently ready, for the coverage label.
 	readyRegionNames?: string[];
+	// Names of the regions whose public-transport (GTFS) graph is ready, for
+	// the timetable coverage label.
+	transitRegionNames?: string[];
 	onDemandEnabled: boolean;
+	// Injected clock — a transit query with no explicit time departs "now" in
+	// the REGION's timezone, so this has to be substitutable in tests.
+	now?: () => number;
 };
 
 type Failure = { ok: false; reason: RoutingFailureReason; message: string };
@@ -107,9 +118,14 @@ export function createRegionalRoutingProvider(
 ): RoutingProvider {
 	const { manager, createProvider, geocoder } = params;
 
+	const now = params.now ?? Date.now;
+
 	async function resolve(
 		points: LatLng[],
-	): Promise<{ provider: RoutingProvider } | { failure: Failure }> {
+	): Promise<
+		| { provider: RoutingProvider; region: RoutingRegionRow }
+		| { failure: Failure }
+	> {
 		const outcome = await manager.ensureRegionForPoints(points, {
 			requestedBy: params.requestedBy ?? null,
 		});
@@ -124,7 +140,71 @@ export function createRegionalRoutingProvider(
 				},
 			};
 		}
-		return { provider: createProvider(outcome.baseUrl) };
+		return {
+			provider: createProvider(outcome.baseUrl),
+			region: outcome.region,
+		};
+	}
+
+	// Timetables live on a per-region `public-transport` ORS profile, so a
+	// transit call is only possible once THAT region's GTFS graph is ready —
+	// its road graph being ready says nothing about it.
+	function transitFailure(region: RoutingRegionRow): Failure | null {
+		switch (region.transitStatus) {
+			case "ready":
+				return null;
+			case "queued":
+			case "building":
+				return {
+					ok: false,
+					reason: "transit_unavailable",
+					message: `The public transport timetable for ${region.name} is still being built on this server; it is usually ready within an hour.`,
+				};
+			case "error":
+				return {
+					ok: false,
+					reason: "transit_unavailable",
+					message: `The public transport timetable for ${region.name} could not be built on this server. An administrator can retry it.`,
+				};
+			default:
+				return {
+					ok: false,
+					reason: "transit_unavailable",
+					message: `No public transport timetable is loaded for ${region.name} on this server.`,
+				};
+		}
+	}
+
+	// Fill in the departure ORS needs. Its `departure`/`arrival` parameters are
+	// LOCAL date-times, so "now" has to be expressed in the region's own
+	// timezone — the server's clock would be wrong for any region in another
+	// zone. `timezone` is null only when it could not be derived, in which case
+	// formatLocalDateTime falls back to server-local time.
+	function withDefaultTiming<T extends TransitQuery>(
+		input: T,
+		region: RoutingRegionRow,
+	): T {
+		const normalize = (value: string | undefined) =>
+			value ? toRegionLocalDateTime(value, region.timezone, now()) : null;
+		const arrival = normalize(input.arrival);
+		const departure = normalize(input.departure);
+		if (arrival) return { ...input, arrival, departure: undefined };
+		if (departure) return { ...input, departure, arrival: undefined };
+		// Nothing usable was given (or what was given did not parse): depart now,
+		// expressed in the REGION's local time.
+		return {
+			...input,
+			departure: formatLocalDateTime(new Date(now()), region.timezone),
+			arrival: undefined,
+		};
+	}
+
+	function withTimezone(
+		outcome: TransitOutcome,
+		region: RoutingRegionRow,
+	): TransitOutcome {
+		if (!outcome.ok || !region.timezone) return outcome;
+		return { ...outcome, data: { ...outcome.data, timezone: region.timezone } };
 	}
 
 	return {
@@ -138,6 +218,7 @@ export function createRegionalRoutingProvider(
 				? `${loaded} (other regions are downloaded and built on demand, which takes 10–40 minutes on first use)`
 				: loaded;
 		},
+		transitCoverageLabel: () => (params.transitRegionNames ?? []).join(", "),
 		geocode: (input) => geocoder.geocode(input),
 		async route(input): Promise<RouteOutcome> {
 			const resolved = await resolve([
@@ -161,6 +242,44 @@ export function createRegionalRoutingProvider(
 			const resolved = await resolve([input.origin]);
 			if ("failure" in resolved) return resolved.failure;
 			return resolved.provider.isochrone(input);
+		},
+		async transit(input: TransitQuery): Promise<TransitOutcome> {
+			const resolved = await resolve([input.origin, input.destination]);
+			if ("failure" in resolved) return resolved.failure;
+			const unavailable = transitFailure(resolved.region);
+			if (unavailable) return unavailable;
+			const call = resolved.provider.transit;
+			if (!call) {
+				return {
+					ok: false,
+					reason: "transit_unavailable",
+					message: "Public transport routing is not available on this server.",
+				};
+			}
+			return withTimezone(
+				await call(withDefaultTiming(input, resolved.region)),
+				resolved.region,
+			);
+		},
+		async transitSchedule(
+			input: TransitScheduleQuery,
+		): Promise<TransitOutcome> {
+			const resolved = await resolve([input.origin, input.destination]);
+			if ("failure" in resolved) return resolved.failure;
+			const unavailable = transitFailure(resolved.region);
+			if (unavailable) return unavailable;
+			const call = resolved.provider.transitSchedule;
+			if (!call) {
+				return {
+					ok: false,
+					reason: "transit_unavailable",
+					message: "Public transport routing is not available on this server.",
+				};
+			}
+			return withTimezone(
+				await call(withDefaultTiming(input, resolved.region)),
+				resolved.region,
+			);
 		},
 	};
 }

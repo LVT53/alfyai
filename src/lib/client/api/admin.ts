@@ -613,6 +613,22 @@ export async function savePriceWindows(
 
 // ── Routing regions (on-demand map coverage) ──────────────────
 
+// One configured GTFS feed of a region, joined with what happened to it.
+export type RoutingRegionFeedSummary = {
+	id: string;
+	name: string;
+	url: string;
+	licence?: string;
+	official?: boolean;
+	notes?: string;
+	status: "ready" | "stale" | "error" | "pending";
+	bytes?: number;
+	// Epoch milliseconds of the last successful download.
+	downloadedAt?: number;
+	error?: string;
+	refreshDays: number;
+};
+
 export type RoutingRegionSummary = {
 	id: string;
 	name: string;
@@ -629,6 +645,15 @@ export type RoutingRegionSummary = {
 	attempts: number;
 	nextAttemptAt: string | null;
 	resident: boolean;
+	// Public transport (GTFS) timetables for this region. A region carries MANY
+	// feeds (one per operator), so `feeds` is the per-feed detail and the
+	// gtfs* fields are only the summary the table shows at a glance.
+	gtfsUrl: string | null;
+	gtfsSizeBytes: number | null;
+	gtfsDownloadedAt: string | null;
+	transitStatus: string;
+	timezone: string | null;
+	feeds: RoutingRegionFeedSummary[];
 	error: string | null;
 	requestedBy: string | null;
 	createdAt: string;
@@ -674,6 +699,37 @@ export async function retryRoutingRegion(id: string): Promise<void> {
 		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
 		{ method: "POST" },
 		"Failed to retry routing region",
+	);
+}
+
+// Re-download the region's GTFS feed and rebuild only its public-transport
+// graph. Ignores the nightly refresh window — this is an explicit ask.
+export async function refreshRoutingRegionTransit(id: string): Promise<void> {
+	await requestJson<{ region: unknown }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ action: "refresh_transit" }),
+		},
+		"Failed to refresh the region timetable",
+	);
+}
+
+// Clear ONE feed's recorded failure and queue the region's timetable rebuild.
+// The rebuild re-fetches just this feed and leaves the rest on disk.
+export async function retryRoutingRegionFeed(
+	id: string,
+	feedId: string,
+): Promise<void> {
+	await requestJson<{ region: unknown }>(
+		`/api/admin/routing-regions/${encodeURIComponent(id)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ action: "retry_feed", feedId }),
+		},
+		"Failed to retry the timetable feed",
 	);
 }
 

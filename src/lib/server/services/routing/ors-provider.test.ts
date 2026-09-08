@@ -547,3 +547,364 @@ describe("createOrsProvider — ORS error classification", () => {
 		expect(without.coverageLabel?.()).toBe("");
 	});
 });
+
+// ── Public transport ───────────────────────────────────────────
+//
+// The fixture below is built field-by-field from openrouteservice v9.10.0's
+// own response classes (see the header comment in ors-provider.ts for the
+// exact files): JSONIndividualRouteResponse for routes[] (geometry, summary,
+// departure, arrival, legs), JSONSummary for the PT-only `transfers`, JSONLeg
+// for every leg field, and JSONPtStop for every stop field. Nothing here is
+// invented — including `route_type: -1` on the walk legs, which is what
+// RouteLeg's non-PT branch assigns.
+function ptFixtureRoute(overrides: Record<string, unknown> = {}) {
+	return {
+		summary: { distance: 5231.4, duration: 1620.0, transfers: 1 },
+		geometry: "whole_journey_polyline",
+		departure: "2026-09-08T08:25:00+02:00",
+		arrival: "2026-09-08T08:52:00+02:00",
+		legs: [
+			{
+				type: "walk",
+				route_type: -1,
+				distance: 245.0,
+				duration: 196.2,
+				departure: "2026-09-08T08:25:00+02:00",
+				arrival: "2026-09-08T08:28:16+02:00",
+				geometry: "walk_leg_polyline",
+				instructions: [{ distance: 245, duration: 196.2, instruction: "Walk" }],
+			},
+			{
+				type: "pt",
+				departure_location: "Dossenheim, Süd Bstg G1",
+				trip_headsign: "Bismarckplatz",
+				route_long_name: "RNV Bus 39A",
+				route_short_name: "39A",
+				route_desc: "Bus",
+				route_type: 3,
+				distance: 4786.4,
+				duration: 1140.0,
+				departure: "2026-09-08T08:31:00+02:00",
+				arrival: "2026-09-08T08:50:00+02:00",
+				feed_id: "gtfs_0",
+				trip_id: "vrn-19-39A-1-2",
+				route_id: "vrn-19-39A-1",
+				is_in_same_vehicle_as_previous: false,
+				geometry: "pt_leg_polyline",
+				stops: [
+					{
+						stop_id: "de:08221:1138:0:O",
+						name: "Dossenheim, Süd Bstg G1",
+						location: [8.6912542, 49.399979],
+						departure_time: "2026-09-08T06:31:00Z",
+						planned_departure_time: "2026-09-08T06:31:00Z",
+					},
+					{
+						stop_id: "de:08221:1140:0:O",
+						name: "Heidelberg, Alois-Link-Platz",
+						location: [8.69512, 49.41],
+						arrival_time: "2026-09-08T06:50:00Z",
+						planned_arrival_time: "2026-09-08T06:50:00Z",
+					},
+				],
+			},
+			{
+				type: "walk",
+				route_type: -1,
+				distance: 200.0,
+				duration: 120.0,
+				departure: "2026-09-08T08:50:00+02:00",
+				arrival: "2026-09-08T08:52:00+02:00",
+				geometry: "egress_polyline",
+				instructions: [{ distance: 200, duration: 120, instruction: "Walk" }],
+			},
+		],
+		...overrides,
+	};
+}
+
+describe("createOrsProvider — public transport", () => {
+	it("posts to the public-transport profile with ORS's own parameter names", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ routes: [ptFixtureRoute()] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		await provider.transit?.({
+			origin: { lat: 49.4, lng: 8.69 },
+			destination: { lat: 49.41, lng: 8.695 },
+			departure: "2026-09-08T08:25:00",
+			walkingTimeMinutes: 20,
+		});
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe(`${ORS_BASE}/v2/directions/public-transport`);
+		expect(JSON.parse(init.body)).toEqual({
+			// ORS speaks [lng, lat].
+			coordinates: [
+				[8.69, 49.4],
+				[8.695, 49.41],
+			],
+			instructions: true,
+			geometry: true,
+			walking_time: "PT20M",
+			ignore_transfers: false,
+			departure: "2026-09-08T08:25:00",
+		});
+	});
+
+	it("sends `arrival` instead of `departure` for an arrive-by query", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ routes: [ptFixtureRoute()] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+			departure: "2026-09-08T08:00:00",
+			arrival: "2026-09-08T09:00:00",
+		});
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body.arrival).toBe("2026-09-08T09:00:00");
+		expect(body.departure).toBeUndefined();
+		// The default walking budget is sent explicitly, matching ORS's PT15M.
+		expect(body.walking_time).toBe("PT15M");
+	});
+
+	it("parses ORS's legs, stops and transfers into a typed itinerary", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ routes: [ptFixtureRoute()] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 49.4, lng: 8.69 },
+			destination: { lat: 49.41, lng: 8.695 },
+		});
+		expect(outcome?.ok).toBe(true);
+		if (!outcome?.ok) return;
+		expect(outcome.data.itineraries).toHaveLength(1);
+		const itinerary = outcome.data.itineraries[0];
+		expect(itinerary).toMatchObject({
+			departure: "2026-09-08T08:25:00+02:00",
+			arrival: "2026-09-08T08:52:00+02:00",
+			duration_s: 1620,
+			distance_m: 5231.4,
+			transfers: 1,
+			polyline: "whole_journey_polyline",
+		});
+		expect(itinerary.legs.map((leg) => leg.type)).toEqual([
+			"walk",
+			"pt",
+			"walk",
+		]);
+		expect(itinerary.legs[1]).toMatchObject({
+			type: "pt",
+			from: "Dossenheim, Süd Bstg G1",
+			to: "Heidelberg, Alois-Link-Platz",
+			line: "39A",
+			lineLong: "RNV Bus 39A",
+			headsign: "Bismarckplatz",
+			routeType: 3,
+			stopsCount: 2,
+			distance_m: 4786.4,
+			duration_s: 1140,
+			sameVehicleAsPrevious: false,
+			polyline: "pt_leg_polyline",
+		});
+		// route_type -1 (ORS's walk marker) never leaks out as a real GTFS type,
+		// and a walk leg carries no line identity.
+		expect(itinerary.legs[0].routeType).toBeUndefined();
+		expect(itinerary.legs[0].line).toBeUndefined();
+		expect(itinerary.legs[0].stopsCount).toBeUndefined();
+		expect(outcome.data.query).toMatchObject({ walkingTimeMinutes: 15 });
+	});
+
+	it("derives the transfer count from the pt legs when ORS suppressed it", async () => {
+		// JSONSummary suppresses `transfers` when it is -1.
+		const route = ptFixtureRoute({ summary: { distance: 100, duration: 200 } });
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ routes: [route] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome?.ok).toBe(true);
+		if (!outcome?.ok) return;
+		// One pt leg → zero transfers.
+		expect(outcome.data.itineraries[0].transfers).toBe(0);
+	});
+
+	it("sends the schedule parameters and parses every returned departure", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			jsonResponse({
+				routes: [
+					ptFixtureRoute(),
+					ptFixtureRoute({
+						departure: "2026-09-08T08:45:00+02:00",
+						arrival: "2026-09-08T09:12:00+02:00",
+					}),
+				],
+			}),
+		);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transitSchedule?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+			departure: "2026-09-08T08:00:00",
+			windowMinutes: 90,
+			rows: 4,
+		});
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body).toMatchObject({
+			schedule: true,
+			schedule_duration: "PT90M",
+			schedule_rows: 4,
+			departure: "2026-09-08T08:00:00",
+		});
+		expect(outcome?.ok).toBe(true);
+		if (!outcome?.ok) return;
+		expect(outcome.data.itineraries).toHaveLength(2);
+		expect(outcome.data.itineraries[1].departure).toBe(
+			"2026-09-08T08:45:00+02:00",
+		);
+		expect(outcome.data.query.schedule).toBe(true);
+	});
+
+	it("defaults the schedule window to two hours and six rows", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ routes: [ptFixtureRoute()] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		await provider.transitSchedule?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(body.schedule_duration).toBe("PT120M");
+		expect(body.schedule_rows).toBe(6);
+	});
+
+	it("reports transit_unavailable when the engine has no public-transport profile", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			jsonResponse(
+				{
+					error: {
+						code: 2003,
+						message:
+							"Unable to find an appropriate routing profile for 'public-transport'.",
+					},
+				},
+				{ status: 404 },
+			),
+		);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "transit_unavailable" });
+	});
+
+	it("keeps a coverage miss distinct from a missing timetable graph", async () => {
+		// ORS answers 404 for a point it cannot snap (code 2010) as well as for
+		// an unknown profile, so the error CODE, not the status, has to decide.
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse(
+					{ error: { code: 2010, message: "Could not find routable point" } },
+					{ status: 404 },
+				),
+			);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "out_of_coverage" });
+	});
+
+	it("reports an unroutable pair as no_route, not as a missing timetable", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				jsonResponse(
+					{ error: { code: 2009, message: "Route could not be found" } },
+					{ status: 404 },
+				),
+			);
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "no_route" });
+	});
+
+	it("treats a bare 404 with no ORS error body as a missing profile", async () => {
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response("Not Found", { status: 404 }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "transit_unavailable" });
+	});
+
+	it("says no journey was found rather than inventing an empty itinerary", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ routes: [] }));
+		const provider = createOrsProvider(
+			{ orsBaseUrl: ORS_BASE },
+			{ fetch: fetchMock as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "no_route" });
+	});
+
+	it("degrades to unconfigured with no ORS base URL", async () => {
+		const provider = createOrsProvider(
+			{ orsBaseUrl: "" },
+			{ fetch: vi.fn() as unknown as typeof fetch },
+		);
+		const outcome = await provider.transit?.({
+			origin: { lat: 1, lng: 2 },
+			destination: { lat: 3, lng: 4 },
+		});
+		expect(outcome).toMatchObject({ ok: false, reason: "unconfigured" });
+	});
+});

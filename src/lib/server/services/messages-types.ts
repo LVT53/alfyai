@@ -61,6 +61,33 @@ export type ToolCallMapPolygon = {
 	rangeS?: number;
 };
 
+// One leg of a public-transport itinerary, as the chat card draws it. Times
+// are already LOCAL "HH:MM" strings for the region the journey is in — the
+// client never has to know a timezone.
+export type ToolCallMapTransitLeg = {
+	type: "walk" | "pt";
+	// Line label ("39A") and where the vehicle is headed.
+	line?: string;
+	headsign?: string;
+	from?: string;
+	to?: string;
+	depart?: string;
+	arrive?: string;
+	stops?: number;
+	minutes: number;
+	// Plain word for the vehicle ("bus", "tram", …), from GTFS route_type.
+	vehicle?: string;
+};
+
+// One row of a "next departures" card.
+export type ToolCallMapDeparture = {
+	depart?: string;
+	arrive?: string;
+	minutes: number;
+	transfers: number;
+	line?: string;
+};
+
 export interface ToolCallMapData {
 	bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number };
 	markers?: ToolCallMapMarker[];
@@ -71,9 +98,14 @@ export interface ToolCallMapData {
 	polygons?: ToolCallMapPolygon[];
 	distanceM?: number;
 	durationS?: number;
-	mode?: "drive" | "walk" | "bike";
+	mode?: "drive" | "walk" | "bike" | "transit";
 	originLabel?: string;
 	destinationLabel?: string;
+	// Public transport only: the itinerary's legs (transit action) or the next
+	// departures (timetable action), plus the journey's transfer count.
+	transitLegs?: ToolCallMapTransitLeg[];
+	departures?: ToolCallMapDeparture[];
+	transfers?: number;
 	attribution: string;
 }
 

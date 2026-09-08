@@ -43,9 +43,20 @@ function makeEvent(method: string, body?: unknown, id = REGION_ID): RouteEvent {
 	} as unknown as RouteEvent;
 }
 
+const FEEDS = [
+	{ id: "tfi-all", name: "Transport for Ireland", status: "ready" },
+];
+
 function fakeManager() {
 	return {
 		retryRegion: vi.fn().mockResolvedValue({ id: REGION_ID, status: "queued" }),
+		refreshTransit: vi
+			.fn()
+			.mockResolvedValue({ id: REGION_ID, transitStatus: "queued" }),
+		retryTransitFeed: vi
+			.fn()
+			.mockResolvedValue({ id: REGION_ID, transitStatus: "queued" }),
+		describeTransitFeeds: vi.fn().mockReturnValue(FEEDS),
 		setResident: vi
 			.fn()
 			.mockResolvedValue({ id: REGION_ID, resident: true, status: "queued" }),
@@ -105,6 +116,55 @@ describe("admin routing region [id] route", () => {
 		const response = await PATCH(makeEvent("PATCH", { resident: true }));
 		expect(response.status).toBe(409);
 		expect(mockGetManager).not.toHaveBeenCalled();
+	});
+
+	it("retries the region build for a POST with no action", async () => {
+		const response = await POST(makeEvent("POST"));
+		expect(response.status).toBe(200);
+		expect(manager.retryRegion).toHaveBeenCalledWith(REGION_ID);
+		expect(manager.refreshTransit).not.toHaveBeenCalled();
+	});
+
+	it("refreshes the timetables and returns the per-feed detail", async () => {
+		const response = await POST(
+			makeEvent("POST", { action: "refresh_transit" }),
+		);
+		expect(response.status).toBe(200);
+		expect(manager.refreshTransit).toHaveBeenCalledWith(REGION_ID);
+		expect(manager.retryRegion).not.toHaveBeenCalled();
+		expect(await response.json()).toEqual({
+			region: { id: REGION_ID, transitStatus: "queued", feeds: FEEDS },
+		});
+	});
+
+	it("retries ONE feed", async () => {
+		const response = await POST(
+			makeEvent("POST", { action: "retry_feed", feedId: " tfi-all " }),
+		);
+		expect(response.status).toBe(200);
+		// The id is trimmed, and nothing else about the region is touched.
+		expect(manager.retryTransitFeed).toHaveBeenCalledWith(REGION_ID, "tfi-all");
+		expect(manager.retryRegion).not.toHaveBeenCalled();
+	});
+
+	it("rejects a feed retry without a feed id", async () => {
+		for (const body of [
+			{ action: "retry_feed" },
+			{ action: "retry_feed", feedId: "" },
+			{ action: "retry_feed", feedId: 7 },
+		]) {
+			const response = await POST(makeEvent("POST", body));
+			expect(response.status).toBe(400);
+		}
+		expect(manager.retryTransitFeed).not.toHaveBeenCalled();
+	});
+
+	it("404s a feed retry for an unknown region", async () => {
+		manager.retryTransitFeed.mockResolvedValue(null);
+		const response = await POST(
+			makeEvent("POST", { action: "retry_feed", feedId: "tfi-all" }),
+		);
+		expect(response.status).toBe(404);
 	});
 
 	it("refuses every verb when admin authorization fails", async () => {

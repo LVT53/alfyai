@@ -2225,6 +2225,31 @@ export const routingRegions = sqliteTable(
 		// Resident regions are kept running: the idle sweep never stops them and
 		// they are re-queued on start (ROUTING_RESIDENT_REGION_IDS).
 		resident: integer("resident", { mode: "boolean" }).notNull().default(false),
+		// Public-transport (GTFS) timetable coverage for this region. A region
+		// carries MANY feeds (ORS's gtfs_file is comma-split by GraphHopper), so
+		// `gtfsUrl` is only a fingerprint of the configured set — used to notice
+		// a config change — while `gtfsFeeds` holds the per-feed state. The
+		// size/timestamp summarise the last successful downloads (total bytes,
+		// newest download) so the admin table has something to show at a glance.
+		gtfsUrl: text("gtfs_url"),
+		gtfsSizeBytes: integer("gtfs_size_bytes"),
+		gtfsDownloadedAt: integer("gtfs_downloaded_at", { mode: "timestamp" }),
+		// JSON array of per-feed state: { id, url, bytes, downloadedAt, etag,
+		// lastModified, error }. A JSON column rather than a table because it is
+		// only ever read and written whole, with the row that owns it.
+		gtfsFeeds: text("gtfs_feeds"),
+		// When the public-transport graph last finished building. A feed
+		// downloaded after this is not in the running graph yet, which is what
+		// schedules the next nightly rebuild.
+		transitBuiltAt: integer("transit_built_at", { mode: "timestamp" }),
+		// none | queued | building | ready | error. Tracked SEPARATELY from
+		// `status`: a region routes cars the moment its road graph is ready, long
+		// before (or entirely without) a public-transport graph.
+		transitStatus: text("transit_status").notNull().default("none"),
+		// IANA timezone of the region, used to turn "now" into the LOCAL
+		// date-time ORS's public-transport `departure`/`arrival` parameters
+		// expect. Derived once from the Geofabrik id / bounding box.
+		timezone: text("timezone"),
 		error: text("error"),
 		requestedBy: text("requested_by"),
 		createdAt: integer("created_at", { mode: "timestamp" })
@@ -2239,5 +2264,6 @@ export const routingRegions = sqliteTable(
 	(table) => [
 		uniqueIndex("routing_regions_slug_unique").on(table.slug),
 		index("routing_regions_status_idx").on(table.status),
+		index("routing_regions_transit_status_idx").on(table.transitStatus),
 	],
 );

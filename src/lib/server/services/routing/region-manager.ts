@@ -19,7 +19,14 @@
 
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import {
+	mkdir,
+	open as openFile,
+	readdir,
+	rename,
+	rm,
+	stat,
+} from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -33,8 +40,10 @@ import {
 	type GeofabrikRegion,
 	regionSlug,
 } from "./geofabrik";
+import type { GtfsFeed } from "./gtfs-catalogue";
+import { timezoneForRegion } from "./gtfs-feeds";
 import type { RegionDocker } from "./region-docker";
-import type { LatLng } from "./types";
+import { type LatLng, PUBLIC_TRANSPORT_PROFILE } from "./types";
 
 export type RoutingRegionRow = typeof routingRegions.$inferSelect;
 
@@ -44,6 +53,64 @@ export type RoutingRegionStatus =
 	| "building"
 	| "ready"
 	| "error";
+
+// Public-transport readiness, tracked SEPARATELY from `status` because the two
+// are genuinely independent: a region routes cars as soon as its road graph is
+// built, whether or not a GTFS timetable graph exists (or ever will).
+export type RoutingTransitStatus =
+	| "none"
+	| "queued"
+	| "building"
+	| "ready"
+	| "error";
+
+// Per-feed download state, persisted as JSON on `routing_regions.gtfs_feeds`.
+// One entry per CONFIGURED feed, whether or not it downloaded: an entry with
+// an `error` and no `downloadedAt` is a feed that has never made it to disk,
+// which the admin table shows and the build skips.
+export type GtfsFeedState = {
+	id: string;
+	url: string;
+	// Bytes on disk, and when it last landed there. Absent until one download
+	// has succeeded.
+	bytes?: number;
+	downloadedAt?: number;
+	// Validators from the last successful response, replayed as
+	// If-None-Match / If-Modified-Since so a refresh of an unchanged feed costs
+	// a 304 instead of a transfer.
+	etag?: string;
+	lastModified?: string;
+	// The last failure, cleared by the next success. A feed with an error AND a
+	// downloadedAt is still usable — the old copy is on disk.
+	error?: string;
+};
+
+// A feed's state list is written and read whole; anything unparseable is
+// treated as "no state yet" rather than failing a build over a bad row.
+export function parseGtfsFeedStates(raw: string | null): GtfsFeedState[] {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(
+			(entry): entry is GtfsFeedState =>
+				Boolean(entry) &&
+				typeof entry === "object" &&
+				typeof (entry as GtfsFeedState).id === "string" &&
+				typeof (entry as GtfsFeedState).url === "string",
+		);
+	} catch {
+		return [];
+	}
+}
+
+// Feeds whose zip is on disk and current, in configured order — exactly what
+// goes into `gtfs_file`.
+export function loadedGtfsFeedIds(raw: string | null): string[] {
+	return parseGtfsFeedStates(raw)
+		.filter((state) => typeof state.downloadedAt === "number")
+		.map((state) => state.id);
+}
 
 export type RoutingRegionManagerConfig = {
 	// Master switch for on-demand downloads. When false the manager still
@@ -81,6 +148,22 @@ export type RoutingRegionManagerConfig = {
 	maxAttempts: number;
 	// The pre-existing fixed ORS instance, registered as an unmanaged region.
 	legacy: { id: string; baseUrl: string } | null;
+	// Geofabrik region id → the GTFS feeds that cover it, already resolved from
+	// the catalogue and ROUTING_GTFS_FEEDS/_EXCLUDE. A region listed here gets a
+	// `public-transport` profile whose `gtfs_file` is the comma-joined list of
+	// the feeds that downloaded successfully.
+	gtfsFeeds: Map<string, GtfsFeed[]>;
+	// Default staleness before a feed is re-downloaded and its PT graph rebuilt
+	// (during the nightly window only). A catalogue feed's own `refreshDays`
+	// wins over this.
+	gtfsRefreshMs: number;
+	// Hard cap on a single GTFS download.
+	gtfsMaxBytes: number;
+	// Local-clock window in which an AUTOMATIC timetable refresh may start.
+	// A PT rebuild stops the region's container for the duration of the build,
+	// so it must not land in the middle of the day. An explicit admin refresh
+	// ignores this window.
+	transitRefreshWindow: { startHour: number; endHour: number };
 };
 
 export type RoutingRegionManagerDeps = {
@@ -91,6 +174,26 @@ export type RoutingRegionManagerDeps = {
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (message: string, details?: Record<string, unknown>) => void;
+};
+
+// One row of the admin timetable table: what is configured, joined with what
+// actually happened to it.
+export type TransitFeedView = {
+	id: string;
+	name: string;
+	url: string;
+	licence?: string;
+	official?: boolean;
+	notes?: string;
+	// ready  — on disk and in (or headed for) the graph
+	// stale  — on disk but past its refresh interval
+	// error  — the last attempt failed and nothing is on disk
+	// pending — configured, never downloaded, no failure recorded yet
+	status: "ready" | "stale" | "error" | "pending";
+	bytes?: number;
+	downloadedAt?: number;
+	error?: string;
+	refreshDays: number;
 };
 
 export type EnsureRegionOutcome =
@@ -113,6 +216,21 @@ export interface RoutingRegionManager {
 	): Promise<EnsureRegionOutcome>;
 	listRegions(): Promise<RoutingRegionRow[]>;
 	listReadyRegions(): Promise<RoutingRegionRow[]>;
+	// Regions whose public-transport graph is loaded and serving timetables.
+	listTransitReadyRegions(): Promise<RoutingRegionRow[]>;
+	// Admin "Refresh timetable": re-download the feeds and rebuild ONLY the
+	// public-transport graph, ignoring the nightly window.
+	refreshTransit(id: string): Promise<RoutingRegionRow | null>;
+	// Admin per-feed retry: clear ONE feed's recorded failure and queue the
+	// region's timetable rebuild, which re-downloads what is missing or stale
+	// and leaves the feeds already on disk alone.
+	retryTransitFeed(
+		id: string,
+		feedId: string,
+	): Promise<RoutingRegionRow | null>;
+	// The configured feeds of a region joined with their recorded state, for
+	// the admin table. Returns [] for a region with no feeds configured.
+	describeTransitFeeds(row: RoutingRegionRow): TransitFeedView[];
 	requestRegion(
 		input: { id: string } | { point: LatLng },
 		options?: { requestedBy?: string | null },
@@ -121,6 +239,9 @@ export interface RoutingRegionManager {
 	setResident(id: string, resident: boolean): Promise<RoutingRegionRow | null>;
 	removeRegion(id: string): Promise<boolean>;
 	runIdleSweep(): Promise<string[]>;
+	// Reconciles configured GTFS feeds and queues any timetable refresh that
+	// has come due inside the nightly window. Returns the ids it queued.
+	runTransitMaintenance(): Promise<string[]>;
 	resumePendingJobs(): Promise<void>;
 	// Nudge the job loop (retry backoff has no timer of its own; the runtime
 	// sweep timer calls this so a due retry runs without a user request).
@@ -233,6 +354,12 @@ export function createRoutingRegionManager(
 		if (!config.legacy) return;
 		const { id, baseUrl } = config.legacy;
 		const existing = await getRow(id);
+		if (existing?.managed) {
+			// The legacy region was promoted to a managed container (see
+			// promoteLegacyRegion). Re-seeding it would point it back at the old
+			// fixed instance and undo the promotion on every restart.
+			return;
+		}
 		if (existing) {
 			// Backfill the display name if an earlier seed ran without the index
 			// (e.g. the cache directory did not exist yet on that start).
@@ -567,7 +694,12 @@ export function createRoutingRegionManager(
 				.orderBy(asc(routingRegions.createdAt))
 				.limit(1);
 			const row = rows[0];
-			if (!row?.managed) return;
+			if (!row?.managed) {
+				// No road build is pending; timetable work runs in the same single
+				// job loop so a PT rebuild never overlaps a graph build.
+				if (await runTransitJob()) continue;
+				return;
+			}
 			try {
 				await buildRegion(row);
 			} catch (error) {
@@ -618,7 +750,61 @@ export function createRoutingRegionManager(
 			config: `${root}/config`,
 			elevation: `${root}/elevation_cache`,
 			pbf: `${root}/files/${slug}.osm.pbf`,
+			// One zip PER FEED. GraphHopper comma-splits `gtfs_file`, so the
+			// region's timetable graph is built from every one of these that is
+			// on disk. The path is derived from the feed id, which is stable for
+			// a catalogue feed and digest-derived for a hand-configured URL.
+			gtfs: (feedId: string) => `${root}/files/${slug}-gtfs-${feedId}.zip`,
+			// The public-transport graph. Deleting THIS directory (and nothing
+			// else) is what forces ORS to rebuild only the timetable graph:
+			// REBUILD_GRAPHS=False makes it reuse every other profile's graph.
+			transitGraph: `${root}/graphs/${PUBLIC_TRANSPORT_PROFILE}`,
 		};
+	}
+
+	// The `public-transport` profile block, appended to a region's container
+	// env only when a GTFS feed is configured for it. Key names come from the
+	// ORS 9.10.0 config template's profile block:
+	//   public-transport:
+	//     encoder_name: public-transport
+	//     build: { elevation: …, gtfs_file: … }
+	//     service: { maximum_visited_nodes: 1000000 }
+	// `build.elevation` is forced OFF so a timetable build never waits on (or
+	// fails over) the SRTM elevation cache the road profiles use.
+	//
+	// `gtfs_file` is the COMMA-JOINED list of absolute container paths: ORS
+	// passes the string through `Path.toAbsolutePath()` untouched and
+	// GraphHopper 4.14's GraphHopperGtfs splits it on commas, loading each zip
+	// as feed `gtfs_<n>`. Overlapping feeds are fine — a change between two
+	// operators is a walk on the street graph like any other transfer.
+	function transitEnv(slug: string, feedIds: string[]): string[] {
+		const files = feedIds
+			.map((feedId) => `/home/ors/files/${slug}-gtfs-${feedId}.zip`)
+			.join(",");
+		return [
+			`ors.engine.profiles.${PUBLIC_TRANSPORT_PROFILE}.enabled=true`,
+			`ors.engine.profiles.${PUBLIC_TRANSPORT_PROFILE}.encoder_name=${PUBLIC_TRANSPORT_PROFILE}`,
+			`ors.engine.profiles.${PUBLIC_TRANSPORT_PROFILE}.build.gtfs_file=${files}`,
+			`ors.engine.profiles.${PUBLIC_TRANSPORT_PROFILE}.build.elevation=false`,
+			`ors.engine.profiles.${PUBLIC_TRANSPORT_PROFILE}.service.maximum_visited_nodes=1000000`,
+		];
+	}
+
+	function feedsFor(id: string): GtfsFeed[] {
+		return config.gtfsFeeds.get(id) ?? [];
+	}
+
+	// The configured set, as a single string, so a changed config (a feed added,
+	// removed or re-pointed) is one comparison against `gtfs_url`.
+	function feedFingerprint(feeds: GtfsFeed[]): string | null {
+		if (feeds.length === 0) return null;
+		return feeds.map((feed) => `${feed.id}=${feed.url}`).join("|");
+	}
+
+	function feedRefreshMs(feed: GtfsFeed): number {
+		return feed.refreshDays && feed.refreshDays > 0
+			? feed.refreshDays * 24 * 60 * 60 * 1000
+			: config.gtfsRefreshMs;
 	}
 
 	async function buildRegion(row: RoutingRegionRow): Promise<void> {
@@ -647,6 +833,28 @@ export function createRoutingRegionManager(
 			await updateRow(row.id, { pbfSizeBytes: existing.size });
 		}
 
+		// 1b. Timetable feeds (optional, and MANY per region). A feed that cannot
+		// be fetched costs the region THAT OPERATOR'S trips and nothing else:
+		// the build uses whichever feeds did land, and only a region where every
+		// feed failed is recorded as a transit error. A bad hour at one transit
+		// agency's web server must never cost a country its routing, nor its
+		// other operators' timetables.
+		const feeds = feedsFor(row.id);
+		let readyFeedIds: string[] = [];
+		// Held until after the road build, because the "region ready" update
+		// clears `error` — writing the feed failure earlier would erase it.
+		let feedError: string | null = null;
+		if (feeds.length > 0) {
+			const outcome = await downloadTransitFeeds(row, feeds);
+			readyFeedIds = outcome.readyFeedIds;
+			if (readyFeedIds.length === 0) {
+				feedError =
+					outcome.failures.join("; ") ||
+					"no timetable feed could be downloaded";
+				log("every gtfs feed failed", { id: row.id, error: feedError });
+			}
+		}
+
 		// 2. Build the graph inside a dedicated ORS container.
 		const hostPort = row.hostPort ?? (await allocatePort());
 		const containerName = row.containerName ?? regionContainerName(row.slug);
@@ -659,37 +867,7 @@ export function createRoutingRegionManager(
 		});
 		const state = await docker.inspectContainer(containerName);
 		if (!state.exists) {
-			await docker.pullImage(config.orsImage);
-			await docker.createContainer({
-				name: containerName,
-				image: config.orsImage,
-				hostIp: config.hostIp,
-				hostPort,
-				containerPort: 8082,
-				labels: { "ai.alfy.routing-region": row.id },
-				binds: [
-					`${paths.graphs}:/home/ors/graphs`,
-					`${paths.elevation}:/home/ors/elevation_cache`,
-					`${paths.files}:/home/ors/files`,
-					`${paths.logs}:/home/ors/logs`,
-					`${paths.config}:/home/ors/config`,
-				],
-				env: [
-					"REBUILD_GRAPHS=False",
-					"CONTAINER_LOG_LEVEL=INFO",
-					"XMS=2g",
-					`XMX=${config.xmx}`,
-					`ors.engine.profile_default.build.source_file=/home/ors/files/${row.slug}.osm.pbf`,
-					"ors.engine.profiles.driving-car.enabled=true",
-					"ors.engine.profiles.foot-walking.enabled=true",
-					"ors.engine.profiles.cycling-regular.enabled=true",
-					"ors.engine.profile_default.service.maximum_distance=1000000",
-					"ors.engine.profile_default.service.maximum_distance_dynamic_weights=1000000",
-					"ors.engine.profile_default.service.maximum_snapping_radius=2000",
-					"ors.endpoints.isochrones.maximum_range_distance_default=200000",
-					"ors.endpoints.isochrones.maximum_range_time_default=18000",
-				],
-			});
+			await createRegionContainer(row, hostPort, containerName);
 		}
 		await docker.startContainer(containerName);
 		log("waiting for graph build", { id: row.id, baseUrl });
@@ -712,10 +890,539 @@ export function createRoutingRegionManager(
 			lastUsedAt: toDate(now),
 		});
 		log("region ready", { id: row.id, baseUrl });
+		// The container was created WITH the public-transport profile when the
+		// feed was on disk, so the timetable graph is built by the same start.
+		// With no feed on disk there is nothing to wait for — only a failure to
+		// record, now that the road build is no longer overwriting `error`.
+		if (readyFeedIds.length > 0) {
+			await settleTransitReadiness(row.id, baseUrl);
+		} else if (feedError) {
+			await updateRow(row.id, {
+				transitStatus: "error",
+				error: `transit: ${feedError.slice(0, 900)}`,
+			});
+		}
 
 		// 3. Best-effort geocoder import; never affects routing readiness.
 		if (config.geocoderImportContainer && row.geocoderStatus !== "ready") {
 			await importIntoGeocoder(row, paths.pbf);
+		}
+	}
+
+	// ── Public transport (GTFS) ──────────────────────────────────
+
+	// Creates the region's ORS container. The `public-transport` profile is
+	// added only when the region's GTFS zip is already on disk, so a container
+	// is never asked to build a timetable graph from a file that is not there.
+	async function createRegionContainer(
+		row: RoutingRegionRow,
+		hostPort: number,
+		containerName: string,
+	): Promise<void> {
+		const paths = regionPaths(row.slug);
+		const onDisk = await feedsOnDisk(row);
+		await docker.pullImage(config.orsImage);
+		await docker.createContainer({
+			name: containerName,
+			image: config.orsImage,
+			hostIp: config.hostIp,
+			hostPort,
+			containerPort: 8082,
+			labels: { "ai.alfy.routing-region": row.id },
+			binds: [
+				`${paths.graphs}:/home/ors/graphs`,
+				`${paths.elevation}:/home/ors/elevation_cache`,
+				`${paths.files}:/home/ors/files`,
+				`${paths.logs}:/home/ors/logs`,
+				`${paths.config}:/home/ors/config`,
+			],
+			env: [
+				"REBUILD_GRAPHS=False",
+				"CONTAINER_LOG_LEVEL=INFO",
+				"XMS=2g",
+				`XMX=${config.xmx}`,
+				`ors.engine.profile_default.build.source_file=/home/ors/files/${row.slug}.osm.pbf`,
+				"ors.engine.profiles.driving-car.enabled=true",
+				"ors.engine.profiles.foot-walking.enabled=true",
+				"ors.engine.profiles.cycling-regular.enabled=true",
+				"ors.engine.profile_default.service.maximum_distance=1000000",
+				"ors.engine.profile_default.service.maximum_distance_dynamic_weights=1000000",
+				"ors.engine.profile_default.service.maximum_snapping_radius=2000",
+				"ors.endpoints.isochrones.maximum_range_distance_default=200000",
+				"ors.endpoints.isochrones.maximum_range_time_default=18000",
+				...(onDisk.length > 0 ? transitEnv(row.slug, onDisk) : []),
+			],
+		});
+	}
+
+	// Which of a region's CONFIGURED feeds have a zip on disk right now, in
+	// configured order. This — not the recorded state — is what decides the
+	// container's `gtfs_file`, so ORS is never pointed at a file that is not
+	// there.
+	async function feedsOnDisk(row: RoutingRegionRow): Promise<string[]> {
+		const paths = regionPaths(row.slug);
+		const present: string[] = [];
+		for (const feed of feedsFor(row.id)) {
+			if (await stat(paths.gtfs(feed.id)).catch(() => null)) {
+				present.push(feed.id);
+			}
+		}
+		return present;
+	}
+
+	// Downloads every configured feed that is missing, whose URL changed, or
+	// that is past its own refresh interval. Each feed is independent: one
+	// failure is recorded against that feed and the rest carry on.
+	//
+	// There is no "force" flag, deliberately. Wanting a feed re-fetched is
+	// expressed by FORGETTING its download timestamp (see `refreshTransit` and
+	// `retryTransitFeed`), which is what makes a per-feed retry cost one small
+	// download instead of re-pulling a country's twenty-one feeds.
+	//
+	// GTFS feeds publish no checksum, so integrity rests on (a) an exact
+	// Content-Length match WHEN the server sends one — several of the Hungarian
+	// city feeds are generated on the fly and send none — and (b) the zip magic
+	// number, which catches an HTML error page served with a 200.
+	async function downloadTransitFeeds(
+		row: RoutingRegionRow,
+		feeds: GtfsFeed[],
+	): Promise<{ readyFeedIds: string[]; failures: string[] }> {
+		const paths = regionPaths(row.slug);
+		await mkdir(paths.files, { recursive: true });
+		const prior = new Map(
+			parseGtfsFeedStates(row.gtfsFeeds).map((state) => [state.id, state]),
+		);
+		const states: GtfsFeedState[] = [];
+		const readyFeedIds: string[] = [];
+		const failures: string[] = [];
+		for (const feed of feeds) {
+			const target = paths.gtfs(feed.id);
+			const previous = prior.get(feed.id);
+			const onDisk = await stat(target).catch(() => null);
+			const unchangedUrl = previous?.url === feed.url;
+			const fresh = !feedIsDue(feed, previous);
+			if (onDisk && fresh) {
+				states.push({
+					...previous,
+					id: feed.id,
+					url: feed.url,
+					bytes: onDisk.size,
+				});
+				readyFeedIds.push(feed.id);
+				continue;
+			}
+			try {
+				log("downloading gtfs feed", {
+					id: row.id,
+					feed: feed.id,
+					url: feed.url,
+				});
+				// Revalidate only a feed whose current file we would otherwise
+				// keep: a changed URL, or a missing file, must be a full fetch.
+				const validators = onDisk && unchangedUrl ? previous : undefined;
+				const result = await downloadFeedFile(feed.url, target, validators);
+				const bytes = result.bytes ?? onDisk?.size ?? previous?.bytes;
+				states.push({
+					id: feed.id,
+					url: feed.url,
+					...(bytes === undefined ? {} : { bytes }),
+					downloadedAt: now(),
+					...(result.etag ? { etag: result.etag } : {}),
+					...(result.lastModified ? { lastModified: result.lastModified } : {}),
+				});
+				readyFeedIds.push(feed.id);
+				log(
+					result.notModified ? "gtfs feed unchanged" : "gtfs feed downloaded",
+					{ id: row.id, feed: feed.id, bytes },
+				);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				failures.push(`${feed.id}: ${message}`);
+				// A feed that failed but still has yesterday's zip on disk keeps
+				// serving it: stale trips beat no trips, and the error is visible
+				// in the admin table either way.
+				const usable = Boolean(onDisk) && unchangedUrl;
+				states.push({
+					...(usable && previous ? previous : {}),
+					id: feed.id,
+					url: feed.url,
+					...(usable && onDisk ? { bytes: onDisk.size } : {}),
+					error: message.slice(0, 400),
+				});
+				if (usable) readyFeedIds.push(feed.id);
+				log("gtfs feed download failed", {
+					id: row.id,
+					feed: feed.id,
+					error: message,
+				});
+			}
+		}
+		await pruneStaleFeedFiles(row, feeds);
+		const downloadedAt = states
+			.map((state) => state.downloadedAt ?? 0)
+			.reduce((max, value) => Math.max(max, value), 0);
+		const totalBytes = states
+			.filter((state) => readyFeedIds.includes(state.id))
+			.reduce((total, state) => total + (state.bytes ?? 0), 0);
+		await updateRow(row.id, {
+			gtfsUrl: feedFingerprint(feeds),
+			gtfsFeeds: JSON.stringify(states),
+			gtfsSizeBytes: totalBytes || null,
+			...(downloadedAt > 0 ? { gtfsDownloadedAt: new Date(downloadedAt) } : {}),
+			timezone: row.timezone ?? (await regionTimezone(row.id)),
+		});
+		return { readyFeedIds, failures };
+	}
+
+	// Feed zips for feeds that are no longer configured (and the single-feed
+	// file this manager used to write) are dead weight in the region's files
+	// directory, and a stale one must never be picked up by a later build.
+	async function pruneStaleFeedFiles(
+		row: RoutingRegionRow,
+		feeds: GtfsFeed[],
+	): Promise<void> {
+		const paths = regionPaths(row.slug);
+		const keep = new Set(
+			feeds.map((feed) => `${row.slug}-gtfs-${feed.id}.zip`),
+		);
+		const entries = await readdir(paths.files).catch(() => [] as string[]);
+		for (const entry of entries) {
+			if (!entry.startsWith(`${row.slug}-gtfs`) || !entry.endsWith(".zip")) {
+				continue;
+			}
+			if (keep.has(entry)) continue;
+			await rm(`${paths.files}/${entry}`, { force: true }).catch(
+				() => undefined,
+			);
+		}
+	}
+
+	// The timezone is derived once, from the Geofabrik id (an explicit table)
+	// or its bounding box. It is stored so a timetable query never has to load
+	// the catalogue just to read a clock.
+	async function regionTimezone(id: string): Promise<string | null> {
+		try {
+			const region = (await getIndex()).byId.get(id);
+			return timezoneForRegion(id, region?.bbox ?? null);
+		} catch {
+			return timezoneForRegion(id, null);
+		}
+	}
+
+	// `/v2/status` lists every profile the engine actually built, keyed by
+	// profile name (StatusAPI.addProfilesInfo). A `public-transport` key there
+	// is the only honest proof that the timetable graph loaded.
+	async function transitProfileLoaded(baseUrl: string): Promise<boolean> {
+		try {
+			const res = await deps.fetch(`${baseUrl}/v2/status`);
+			if (!res.ok) return false;
+			const body = (await res.json()) as { profiles?: unknown };
+			const profiles = body?.profiles;
+			if (!profiles || typeof profiles !== "object") return false;
+			return Object.keys(profiles as Record<string, unknown>).includes(
+				PUBLIC_TRANSPORT_PROFILE,
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	// A PT graph finishes building AFTER the container reports healthy (health
+	// flips once the engine is up), so readiness is polled separately with the
+	// same budget a graph build gets.
+	async function waitForTransitProfile(
+		baseUrl: string,
+		timeoutMs: number,
+	): Promise<boolean> {
+		const deadline = now() + timeoutMs;
+		for (;;) {
+			if (await transitProfileLoaded(baseUrl)) return true;
+			if (now() >= deadline) return false;
+			await sleep(HEALTH_POLL_MS);
+		}
+	}
+
+	async function settleTransitReadiness(
+		id: string,
+		baseUrl: string,
+	): Promise<void> {
+		const ready = await waitForTransitProfile(baseUrl, config.buildTimeoutMs);
+		if (ready) {
+			// The graph now contains every feed that was on disk when the
+			// container was created; anything downloaded after this stamp is what
+			// schedules the next rebuild.
+			await updateRow(id, {
+				transitStatus: "ready",
+				transitBuiltAt: toDate(now),
+			});
+			log("region timetables ready", { id });
+			return;
+		}
+		await updateRow(id, {
+			transitStatus: "error",
+			error: `transit: the public-transport profile did not load within ${Math.round(config.buildTimeoutMs / 60000)} min`,
+		});
+		log("region timetable build timed out", { id });
+	}
+
+	// Rebuild ONLY the public-transport graph of an already-managed region:
+	// stop the container, drop graphs/public-transport (every other profile's
+	// graph survives because REBUILD_GRAPHS=False), recreate the container so
+	// the PT env is present, start it, and wait for the profile to appear.
+	async function rebuildTransit(row: RoutingRegionRow): Promise<void> {
+		const feeds = feedsFor(row.id);
+		if (feeds.length === 0) {
+			await updateRow(row.id, { transitStatus: "none" });
+			return;
+		}
+		const paths = regionPaths(row.slug);
+		await updateRow(row.id, { transitStatus: "building" });
+		const { readyFeedIds, failures } = await downloadTransitFeeds(row, feeds);
+		if (readyFeedIds.length === 0) {
+			throw new Error(
+				failures.join("; ") || "no timetable feed could be downloaded",
+			);
+		}
+		if (failures.length > 0) {
+			// Explicitly NOT fatal: the graph is built from the operators that
+			// answered, and the ones that did not are visible per feed in admin.
+			log("building timetables without some feeds", {
+				id: row.id,
+				skipped: failures,
+			});
+		}
+		const containerName = row.containerName ?? regionContainerName(row.slug);
+		const hostPort = row.hostPort ?? (await allocatePort());
+		const baseUrl = row.baseUrl ?? `http://${config.hostIp}:${hostPort}/ors`;
+		const state = await docker.inspectContainer(containerName);
+		if (state.exists) {
+			await docker.stopContainer(containerName).catch(() => undefined);
+			await docker.removeContainer(containerName).catch(() => undefined);
+		}
+		await rm(paths.transitGraph, { recursive: true, force: true });
+		await updateRow(row.id, { containerName, hostPort, baseUrl });
+		await createRegionContainer(row, hostPort, containerName);
+		await docker.startContainer(containerName);
+		const healthy = await waitForHealth(
+			baseUrl,
+			config.buildTimeoutMs,
+			HEALTH_POLL_MS,
+		);
+		if (!healthy) {
+			throw new Error(
+				`ORS did not become ready within ${Math.round(config.buildTimeoutMs / 60000)} min after the timetable rebuild`,
+			);
+		}
+		await settleTransitReadiness(row.id, baseUrl);
+	}
+
+	// The legacy fixed instance (ORS_BASE_URL) has no public-transport profile
+	// and is outside this manager, so giving that country timetables means
+	// building a MANAGED container for it. The legacy base URL keeps serving
+	// every route for the whole build — the row stays `managed: false` and
+	// `ready` — and only flips over once the new container is healthy. A
+	// failure therefore costs nothing: routing carries on where it was.
+	async function promoteLegacyRegion(row: RoutingRegionRow): Promise<void> {
+		const feeds = feedsFor(row.id);
+		if (feeds.length === 0) {
+			await updateRow(row.id, { transitStatus: "none" });
+			return;
+		}
+		const paths = regionPaths(row.slug);
+		await Promise.all(
+			[
+				paths.files,
+				paths.graphs,
+				paths.logs,
+				paths.config,
+				paths.elevation,
+			].map((dir) => mkdir(dir, { recursive: true })),
+		);
+		await updateRow(row.id, { transitStatus: "building" });
+		log("promoting legacy region to a managed container", { id: row.id });
+		const existingPbf = await stat(paths.pbf).catch(() => null);
+		if (!existingPbf) {
+			const { bytes, source } = await downloadPbf(
+				row.pbfUrl,
+				paths.pbf,
+				row.id,
+			);
+			await updateRow(row.id, { pbfSizeBytes: bytes, extractSource: source });
+		} else {
+			await updateRow(row.id, { pbfSizeBytes: existingPbf.size });
+		}
+		const promoted = await downloadTransitFeeds(row, feeds);
+		if (promoted.readyFeedIds.length === 0) {
+			throw new Error(
+				promoted.failures.join("; ") || "no timetable feed could be downloaded",
+			);
+		}
+		const hostPort = row.hostPort ?? (await allocatePort());
+		const containerName = regionContainerName(row.slug);
+		const managedBaseUrl = `http://${config.hostIp}:${hostPort}/ors`;
+		const state = await docker.inspectContainer(containerName);
+		if (!state.exists) {
+			await createRegionContainer(row, hostPort, containerName);
+		}
+		await docker.startContainer(containerName);
+		const healthy = await waitForHealth(
+			managedBaseUrl,
+			config.buildTimeoutMs,
+			HEALTH_POLL_MS,
+		);
+		if (!healthy) {
+			throw new Error(
+				`the managed container for ${row.id} did not become ready within ${Math.round(config.buildTimeoutMs / 60000)} min`,
+			);
+		}
+		// Only now does the region stop being the legacy fixed instance.
+		await updateRow(row.id, {
+			managed: true,
+			containerName,
+			hostPort,
+			baseUrl: managedBaseUrl,
+			status: "ready",
+			error: null,
+			attempts: 0,
+			nextAttemptAt: null,
+			readyAt: toDate(now),
+			lastUsedAt: toDate(now),
+		});
+		log("legacy region is now managed", {
+			id: row.id,
+			baseUrl: managedBaseUrl,
+		});
+		await settleTransitReadiness(row.id, managedBaseUrl);
+	}
+
+	// Pick up one region whose timetable graph needs (re)building. Runs only
+	// when no ROAD build is pending — a PT rebuild stops a serving container,
+	// so it must never queue-jump a region that has no graph at all yet.
+	async function runTransitJob(): Promise<boolean> {
+		const rows = await db
+			.select()
+			.from(routingRegions)
+			.where(
+				and(
+					inArray(routingRegions.transitStatus, ["queued", "building"]),
+					eq(routingRegions.status, "ready"),
+				),
+			)
+			.orderBy(asc(routingRegions.createdAt))
+			.limit(1);
+		const row = rows[0];
+		if (!row) return false;
+		try {
+			if (row.managed) await rebuildTransit(row);
+			else await promoteLegacyRegion(row);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			log("timetable build failed", { id: row.id, error: message });
+			await updateRow(row.id, {
+				transitStatus: "error",
+				error: `transit: ${message.slice(0, 900)}`,
+			});
+		}
+		return true;
+	}
+
+	// Reconcile the resolved feed set against the rows: a region that gained
+	// feeds (or whose feed list changed at all) is queued for a timetable
+	// build; a region whose feeds were all removed drops back to "none".
+	async function reconcileTransitFeeds(): Promise<void> {
+		const rows = await db.select().from(routingRegions);
+		for (const row of rows) {
+			const feeds = feedsFor(row.id);
+			const fingerprint = feedFingerprint(feeds);
+			if (!fingerprint) {
+				if (row.transitStatus !== "none") {
+					log("timetable feeds removed", { id: row.id });
+					await updateRow(row.id, { transitStatus: "none" });
+				}
+				continue;
+			}
+			if (!row.timezone) {
+				await updateRow(row.id, { timezone: await regionTimezone(row.id) });
+			}
+			if (row.gtfsUrl !== fingerprint || row.transitStatus === "none") {
+				log("timetable feeds configured", {
+					id: row.id,
+					feeds: feeds.length,
+				});
+				await updateRow(row.id, {
+					gtfsUrl: fingerprint,
+					transitStatus: "queued",
+				});
+			}
+		}
+	}
+
+	// True when a feed is past ITS OWN refresh interval (catalogue
+	// `refreshDays`, else the global default) — BKK republishes daily, the
+	// small city feeds every fortnight, so one global interval would either
+	// hammer the small hosts or serve a week-old Budapest timetable.
+	function feedIsDue(
+		feed: GtfsFeed,
+		state: GtfsFeedState | undefined,
+	): boolean {
+		if (!state || state.url !== feed.url) return true;
+		if (typeof state.downloadedAt !== "number") return true;
+		return now() - state.downloadedAt >= feedRefreshMs(feed);
+	}
+
+	// A region is rebuilt when a feed has come due, or when a feed landed on
+	// disk AFTER the running graph was built (an admin's per-feed retry, say) —
+	// but only inside the nightly window, because the rebuild takes the
+	// region's container down.
+	async function scheduleTransitRefreshes(): Promise<string[]> {
+		const hour = new Date(now()).getHours();
+		const { startHour, endHour } = config.transitRefreshWindow;
+		if (hour < startHour || hour >= endHour) return [];
+		const rows = await db
+			.select()
+			.from(routingRegions)
+			.where(eq(routingRegions.transitStatus, "ready"));
+		const queued: string[] = [];
+		for (const row of rows) {
+			const feeds = feedsFor(row.id);
+			if (feeds.length === 0) continue;
+			const states = new Map(
+				parseGtfsFeedStates(row.gtfsFeeds).map((state) => [state.id, state]),
+			);
+			const due = feeds.filter((feed) => feedIsDue(feed, states.get(feed.id)));
+			const builtAt =
+				row.transitBuiltAt?.getTime() ?? row.gtfsDownloadedAt?.getTime() ?? 0;
+			const newerThanGraph = [...states.values()].some(
+				(state) => (state.downloadedAt ?? 0) > builtAt,
+			);
+			if (due.length === 0 && !newerThanGraph) continue;
+			log("timetable refresh due", {
+				id: row.id,
+				due: due.map((feed) => feed.id),
+				newerThanGraph,
+			});
+			await updateRow(row.id, { transitStatus: "queued" });
+			queued.push(row.id);
+		}
+		if (queued.length > 0) kick();
+		return queued;
+	}
+
+	// A timetable build that died on a bad hour at the feed host must come
+	// back by itself, the same way a resident road build does.
+	async function requeueTransientTransitErrors(): Promise<void> {
+		const rows = await db
+			.select()
+			.from(routingRegions)
+			.where(eq(routingRegions.transitStatus, "error"));
+		for (const row of rows) {
+			if (feedsFor(row.id).length === 0) continue;
+			if (classifyRegionError(row.error) !== "transient") continue;
+			log("re-queueing timetable build after a transient failure", {
+				id: row.id,
+				error: row.error,
+			});
+			await updateRow(row.id, { transitStatus: "queued", error: null });
 		}
 	}
 
@@ -816,6 +1523,7 @@ export function createRoutingRegionManager(
 		res: Response,
 		part: string,
 		controller: AbortController,
+		maxBytes?: number,
 	): Promise<{ bytes: number; md5: string }> {
 		const hash = createHash("md5");
 		let bytes = 0;
@@ -846,6 +1554,14 @@ export function createRoutingRegionManager(
 		body.on("data", (chunk: Buffer) => {
 			bytes += chunk.length;
 			hash.update(chunk);
+			// A source that sends no Content-Length can still be capped — on the
+			// bytes it actually delivers.
+			if (maxBytes !== undefined && bytes > maxBytes) {
+				abortWith(
+					`download is over the ${Math.round(maxBytes / 1048576)} MB cap`,
+				);
+				return;
+			}
 			armStall();
 		});
 		try {
@@ -957,6 +1673,122 @@ export function createRoutingRegionManager(
 		throw new Error(failures.join("; ") || "extract download failed");
 	}
 
+	// Single-source download for a GTFS feed. No mirrors and no checksums exist
+	// for these, so the integrity signals are:
+	//
+	//   * an exact Content-Length match WHEN the server sends one — several
+	//     Hungarian city feeds are generated per request and send none, so its
+	//     absence is tolerated rather than fatal;
+	//   * the zip magic number ("PK\x03\x04"), which catches the HTML error
+	//     page a CDN happily serves with a 200;
+	//   * the shared stall / overall-timeout guards plus a streaming byte cap,
+	//     so neither a hung nor an endless feed host can wedge the job loop.
+	//
+	// `validators` replays the previous response's ETag / Last-Modified, so a
+	// refresh of an unchanged feed costs a 304 and no transfer. A server that
+	// ignores conditional requests (or Range — menetbrand does) simply answers
+	// 200 and the file is rewritten, which is correct, only less cheap.
+	async function downloadFeedFile(
+		url: string,
+		target: string,
+		validators?: { etag?: string; lastModified?: string },
+	): Promise<{
+		bytes: number | null;
+		etag?: string;
+		lastModified?: string;
+		notModified: boolean;
+	}> {
+		const maxBytes = config.gtfsMaxBytes;
+		const part = `${target}.part`;
+		await rm(part, { force: true });
+		const controller = new AbortController();
+		const headers: Record<string, string> = {};
+		if (validators?.etag) headers["if-none-match"] = validators.etag;
+		if (validators?.lastModified) {
+			headers["if-modified-since"] = validators.lastModified;
+		}
+		try {
+			const res = await fetchFeed(url, controller.signal, headers);
+			if (res.status === 304) {
+				await res.body?.cancel().catch(() => undefined);
+				return {
+					bytes: null,
+					...(validators?.etag ? { etag: validators.etag } : {}),
+					...(validators?.lastModified
+						? { lastModified: validators.lastModified }
+						: {}),
+					notModified: true,
+				};
+			}
+			const expectedLength = contentLength(res);
+			const refuse = async (error: Error): Promise<never> => {
+				await res.body?.cancel().catch(() => undefined);
+				throw error;
+			};
+			if (expectedLength !== null && expectedLength > maxBytes) {
+				await refuse(
+					new Error(
+						`feed is ${Math.round(expectedLength / 1048576)} MB, above the ${Math.round(maxBytes / 1048576)} MB cap`,
+					),
+				);
+			}
+			const { bytes } = await streamToPart(res, part, controller, maxBytes);
+			if (expectedLength !== null && bytes !== expectedLength) {
+				throw new Error(
+					`feed download truncated (${bytes} of ${expectedLength} bytes)`,
+				);
+			}
+			if (!(await looksLikeZip(part))) {
+				throw new Error("feed is not a zip archive");
+			}
+			await rename(part, target);
+			const etag = res.headers.get("etag") ?? undefined;
+			const lastModified = res.headers.get("last-modified") ?? undefined;
+			return {
+				bytes,
+				...(etag ? { etag } : {}),
+				...(lastModified ? { lastModified } : {}),
+				notModified: false,
+			};
+		} catch (error) {
+			await rm(part, { force: true }).catch(() => undefined);
+			throw error;
+		}
+	}
+
+	// Like `fetchExtract`, but 304 is a SUCCESS (the caller keeps its file) and
+	// the error text says "feed", which is what an admin reads.
+	async function fetchFeed(
+		url: string,
+		signal: AbortSignal,
+		headers: Record<string, string>,
+	): Promise<Response> {
+		const res = await deps.fetch(url, {
+			headers: { "user-agent": "AlfyAI", ...headers },
+			signal,
+		});
+		if (res.status === 304) return res;
+		if (!res.ok || !res.body) {
+			await res.body?.cancel().catch(() => undefined);
+			throw new Error(`feed download failed: ${res.status} ${res.statusText}`);
+		}
+		return res;
+	}
+
+	// The local zip magic number. Cheap, and the only thing standing between a
+	// captive-portal HTML page and a ten-minute graph build that fails.
+	async function looksLikeZip(path: string): Promise<boolean> {
+		const handle = await openFile(path, "r").catch(() => null);
+		if (!handle) return false;
+		try {
+			const buffer = Buffer.alloc(4);
+			const { bytesRead } = await handle.read(buffer, 0, 4, 0);
+			return bytesRead === 4 && buffer.toString("latin1", 0, 2) === "PK";
+		} finally {
+			await handle.close().catch(() => undefined);
+		}
+	}
+
 	async function fetchMd5(url: string): Promise<string | null> {
 		try {
 			const res = await deps.fetch(`${url}.md5`, {
@@ -1032,6 +1864,113 @@ export function createRoutingRegionManager(
 
 	async function listReadyRegions(): Promise<RoutingRegionRow[]> {
 		return (await listRegions()).filter((row) => row.status === "ready");
+	}
+
+	async function listTransitReadyRegions(): Promise<RoutingRegionRow[]> {
+		return (await listRegions()).filter(
+			(row) => row.transitStatus === "ready" && row.status === "ready",
+		);
+	}
+
+	// Admin "Refresh timetable": queue an immediate rebuild, bypassing the
+	// nightly window. A region with no feeds configured cannot be refreshed.
+	async function refreshTransit(id: string): Promise<RoutingRegionRow | null> {
+		const row = await getRow(id);
+		if (!row) return null;
+		if (feedsFor(id).length === 0) return row;
+		// "Refresh" means every feed, so every feed is marked due — the download
+		// still sends its validators, so an unchanged feed costs a 304.
+		const states = parseGtfsFeedStates(row.gtfsFeeds).map((state) =>
+			forgetFeedDownload(state),
+		);
+		await updateRow(id, {
+			gtfsFeeds: JSON.stringify(states),
+			transitStatus: "queued",
+			error: null,
+		});
+		kick();
+		return getRow(id);
+	}
+
+	// Drops the timestamp (and any recorded failure) that would otherwise make
+	// a feed count as fresh, while KEEPING the validators, so the next download
+	// can still be answered with a 304.
+	function forgetFeedDownload(state: GtfsFeedState): GtfsFeedState {
+		return {
+			id: state.id,
+			url: state.url,
+			...(state.bytes === undefined ? {} : { bytes: state.bytes }),
+			...(state.etag ? { etag: state.etag } : {}),
+			...(state.lastModified ? { lastModified: state.lastModified } : {}),
+		};
+	}
+
+	// Admin per-feed retry. It clears the recorded failure and forgets that
+	// feed's download timestamp, then queues the region: the rebuild fetches
+	// exactly this feed (it is now "due") and leaves every feed already on disk
+	// and fresh alone, so retrying one small city costs one small download.
+	async function retryTransitFeed(
+		id: string,
+		feedId: string,
+	): Promise<RoutingRegionRow | null> {
+		const row = await getRow(id);
+		if (!row) return null;
+		const feeds = feedsFor(id);
+		if (!feeds.some((feed) => feed.id === feedId)) return row;
+		const states = parseGtfsFeedStates(row.gtfsFeeds).map((state) =>
+			state.id === feedId ? forgetFeedDownload(state) : state,
+		);
+		await updateRow(id, {
+			gtfsFeeds: JSON.stringify(states),
+			transitStatus: "queued",
+			error: null,
+		});
+		kick();
+		return getRow(id);
+	}
+
+	// The configured feeds joined with their recorded state, for the admin
+	// table. Configuration order is preserved so the list reads the same way it
+	// is written in the catalogue.
+	function describeTransitFeeds(row: RoutingRegionRow): TransitFeedView[] {
+		const states = new Map(
+			parseGtfsFeedStates(row.gtfsFeeds).map((state) => [state.id, state]),
+		);
+		return feedsFor(row.id).map((feed) => {
+			const state = states.get(feed.id);
+			const downloaded = state?.downloadedAt;
+			const status: TransitFeedView["status"] =
+				downloaded === undefined
+					? state?.error
+						? "error"
+						: "pending"
+					: feedIsDue(feed, state)
+						? "stale"
+						: "ready";
+			return {
+				id: feed.id,
+				name: feed.name,
+				url: feed.url,
+				...(feed.licence ? { licence: feed.licence } : {}),
+				...(feed.official === undefined ? {} : { official: feed.official }),
+				...(feed.notes ? { notes: feed.notes } : {}),
+				status,
+				...(state?.bytes === undefined ? {} : { bytes: state.bytes }),
+				...(downloaded === undefined ? {} : { downloadedAt: downloaded }),
+				...(state?.error ? { error: state.error } : {}),
+				refreshDays: Math.round(feedRefreshMs(feed) / (24 * 60 * 60 * 1000)),
+			};
+		});
+	}
+
+	// Periodic timetable maintenance, driven by the runtime's sweep timer:
+	// pick up feeds added to the config since the last tick and queue the
+	// refreshes that have come due inside the nightly window.
+	async function runTransitMaintenance(): Promise<string[]> {
+		await reconcileTransitFeeds();
+		const queued = await scheduleTransitRefreshes();
+		kick();
+		return queued;
 	}
 
 	async function requestRegion(
@@ -1128,6 +2067,11 @@ export function createRoutingRegionManager(
 			if (!row.managed || !row.containerName) continue;
 			// Resident regions stay up no matter how long nobody routed there.
 			if (row.resident) continue;
+			// A queued/running timetable build owns this container; stopping it
+			// underneath the build would fail the build for no reason.
+			if (row.transitStatus === "queued" || row.transitStatus === "building") {
+				continue;
+			}
 			const lastUsed = row.lastUsedAt?.getTime() ?? row.readyAt?.getTime() ?? 0;
 			if (lastUsed > cutoff) continue;
 			const state = await docker
@@ -1202,6 +2146,8 @@ export function createRoutingRegionManager(
 		await seedLegacy();
 		await ensureResidentRegions();
 		await requeueTransientResidentErrors();
+		await reconcileTransitFeeds();
+		await requeueTransientTransitErrors();
 		kick();
 	}
 
@@ -1215,11 +2161,16 @@ export function createRoutingRegionManager(
 		ensureRegionForPoints,
 		listRegions,
 		listReadyRegions,
+		listTransitReadyRegions,
+		refreshTransit,
+		retryTransitFeed,
+		describeTransitFeeds,
 		requestRegion,
 		retryRegion,
 		setResident,
 		removeRegion,
 		runIdleSweep,
+		runTransitMaintenance,
 		resumePendingJobs,
 		kickJobs: kick,
 		drain,

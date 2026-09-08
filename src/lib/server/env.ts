@@ -139,6 +139,22 @@ interface Config {
 	// Comma-separated Geofabrik ids that are downloaded on start and never
 	// stopped by the idle sweep.
 	routingResidentRegionIds: string;
+	// Public-transport timetables. `regionId=url[|url...][,regionId=...]` — `|`
+	// separates the feeds of one region, `,` separates regions. Empty or the
+	// literal "catalogue" uses the shipped feed catalogue (gtfs-catalogue.ts),
+	// which is national for Hungary, Ireland and the Netherlands. A region with
+	// feeds gets a `public-transport` profile built into its ORS container;
+	// regions without one keep road routing only.
+	routingGtfsFeeds: string;
+	// `regionId:feedId[,regionId:feedId...]` dropped from the resolved feed set
+	// (`regionId:*` drops a whole region). For feeds an operator may not
+	// redistribute — e.g. `hungary:mav-gysev` without MÁV's request form.
+	routingGtfsFeedExclude: string;
+	// How old a downloaded GTFS feed may get before the region's
+	// public-transport graph is rebuilt from a fresh download (nightly window).
+	routingGtfsRefreshDays: number;
+	// Hard cap on a single GTFS feed download, in MB.
+	routingGtfsMaxMb: number;
 	// Tile proxy for the inline map_route card (GET /api/map-tiles/[z]/[x]/[y]).
 	// There is no self-hosted tile server yet, so this proxies+caches OSM's
 	// standard raster tiles. Swapping to a self-hosted server later is a
@@ -619,6 +635,16 @@ function readConfig(): Config {
 			process.env.ROUTING_EXTRACT_MIRRORS ||
 			"https://download.openstreetmap.fr/extracts",
 		routingResidentRegionIds: process.env.ROUTING_RESIDENT_REGION_IDS || "",
+		routingGtfsFeeds: process.env.ROUTING_GTFS_FEEDS || "",
+		routingGtfsFeedExclude: process.env.ROUTING_GTFS_FEED_EXCLUDE || "",
+		routingGtfsRefreshDays: Math.max(
+			1,
+			parseInt(process.env.ROUTING_GTFS_REFRESH_DAYS || "7", 10) || 7,
+		),
+		routingGtfsMaxMb: Math.max(
+			10,
+			parseInt(process.env.ROUTING_GTFS_MAX_MB || "600", 10) || 600,
+		),
 		mapTileUpstreamBaseUrl:
 			process.env.MAP_TILE_UPSTREAM_BASE_URL ||
 			"https://tile.openstreetmap.org",

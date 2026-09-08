@@ -71,6 +71,7 @@ function withTimeout(
 			config,
 			signal: controller.signal,
 			dockerPing: deps.dockerPing,
+			listTransitRegions: deps.listTransitRegions,
 		}).then(
 			(result) => finish({ ...result, timedOut: false }),
 			(error: unknown) =>
@@ -127,6 +128,8 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			teiRerankerApiKey: "",
 			orsBaseUrl: "",
 			geocoderBaseUrl: "",
+			routingGtfsFeeds: "",
+			routingOnDemandEnabled: false,
 			owntracksRecorderUrl: "",
 			owntracksRecorderUser: "",
 			owntracksRecorderPass: "",

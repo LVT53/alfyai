@@ -5,6 +5,7 @@ import type {
 	MatrixOutcome,
 	RouteOutcome,
 	RoutingProvider,
+	TransitOutcome,
 } from "$lib/server/services/routing/types";
 import { OSM_ATTRIBUTION } from "$lib/server/services/routing/types";
 import {
@@ -562,5 +563,385 @@ describe("runRoutingTool — coverage-aware failures", () => {
 			{ provider },
 		);
 		expect(outcome.modelPayload.message).toContain("does not cover that area");
+	});
+});
+
+// ── Public transport ───────────────────────────────────────────
+
+// One journey: walk → bus 39A → walk, with the ISO instants ORS emits.
+const TRANSIT_ITINERARY = {
+	departure: "2026-09-08T08:25:00+02:00",
+	arrival: "2026-09-08T08:52:00+02:00",
+	duration_s: 1620,
+	distance_m: 5231.4,
+	transfers: 1,
+	polyline: "journey_polyline",
+	legs: [
+		{
+			type: "walk" as const,
+			departure: "2026-09-08T08:25:00+02:00",
+			arrival: "2026-09-08T08:28:00+02:00",
+			distance_m: 245,
+			duration_s: 196,
+		},
+		{
+			type: "pt" as const,
+			departure: "2026-09-08T08:31:00+02:00",
+			arrival: "2026-09-08T08:50:00+02:00",
+			from: "Dossenheim, Süd",
+			to: "Heidelberg, Alois-Link-Platz",
+			line: "39A",
+			lineLong: "RNV Bus 39A",
+			headsign: "Bismarckplatz",
+			routeType: 3,
+			stopsCount: 7,
+			distance_m: 4786,
+			duration_s: 1140,
+		},
+		{
+			type: "walk" as const,
+			departure: "2026-09-08T08:50:00+02:00",
+			arrival: "2026-09-08T08:52:00+02:00",
+			distance_m: 200,
+			duration_s: 120,
+		},
+	],
+};
+
+function transitProvider(
+	overrides: {
+		transit?: TransitOutcome;
+		transitSchedule?: TransitOutcome;
+		omitTransit?: boolean;
+		transitCoverageLabel?: string;
+	} = {},
+) {
+	const { provider, geocodeMock } = makeProvider();
+	const transitMock = vi.fn().mockResolvedValue(
+		overrides.transit ?? {
+			ok: true,
+			data: {
+				itineraries: [TRANSIT_ITINERARY],
+				coords: {
+					origin: { lat: 49.4, lng: 8.69 },
+					destination: { lat: 49.41, lng: 8.695 },
+				},
+				timezone: "Europe/Berlin",
+				query: { departure: "2026-09-08T08:25:00", walkingTimeMinutes: 15 },
+			},
+		},
+	);
+	const scheduleMock = vi.fn().mockResolvedValue(
+		overrides.transitSchedule ?? {
+			ok: true,
+			data: {
+				itineraries: [
+					TRANSIT_ITINERARY,
+					{
+						...TRANSIT_ITINERARY,
+						departure: "2026-09-08T08:45:00+02:00",
+						arrival: "2026-09-08T09:12:00+02:00",
+					},
+				],
+				coords: {
+					origin: { lat: 49.4, lng: 8.69 },
+					destination: { lat: 49.41, lng: 8.695 },
+				},
+				timezone: "Europe/Berlin",
+				query: { schedule: true },
+			},
+		},
+	);
+	const withTransit: RoutingProvider = overrides.omitTransit
+		? provider
+		: {
+				...provider,
+				transit: transitMock,
+				transitSchedule: scheduleMock,
+				...(overrides.transitCoverageLabel !== undefined
+					? { transitCoverageLabel: () => overrides.transitCoverageLabel ?? "" }
+					: {}),
+			};
+	return { provider: withTransit, transitMock, scheduleMock, geocodeMock };
+}
+
+describe("routingToolInputSchema — transit actions", () => {
+	it("accepts a transit journey with an arrive-by time and a walk budget", () => {
+		expect(
+			routingToolInputSchema.safeParse({
+				action: "transit",
+				origin: "Dossenheim",
+				destination: { lat: 49.41, lng: 8.695 },
+				arrive_by: "09:00",
+				max_walk_minutes: 20,
+			}).success,
+		).toBe(true);
+	});
+
+	it("accepts a timetable request with a window and a row count", () => {
+		expect(
+			routingToolInputSchema.safeParse({
+				action: "timetable",
+				origin: "A",
+				destination: "B",
+				from: "2026-09-08T08:00",
+				window_minutes: 180,
+				rows: 6,
+			}).success,
+		).toBe(true);
+	});
+
+	it("rejects an out-of-range window, row count or walk budget", () => {
+		for (const overrides of [
+			{ window_minutes: 5000 },
+			{ rows: 99 },
+			{ max_walk_minutes: 999 },
+			{ rows: 0 },
+			{ window_minutes: -10 },
+		]) {
+			expect(
+				routingToolInputSchema.safeParse({
+					action: "timetable",
+					origin: "A",
+					destination: "B",
+					...overrides,
+				}).success,
+			).toBe(false);
+		}
+	});
+
+	it("keeps the transit fields through sanitization, trimmed", () => {
+		expect(
+			sanitizeRoutingToolInput({
+				action: "transit",
+				origin: "  A  ",
+				destination: "B",
+				departure: "  08:30 ",
+				max_walk_minutes: 25,
+			}),
+		).toEqual({
+			action: "transit",
+			origin: "A",
+			destination: "B",
+			departure: "08:30",
+			max_walk_minutes: 25,
+		});
+	});
+});
+
+describe("runRoutingTool — transit", () => {
+	it("narrates the itinerary with local clock times, lines and transfers", async () => {
+		const { provider, transitMock } = transitProvider();
+		const outcome = await runRoutingTool(
+			{
+				action: "transit",
+				origin: { lat: 49.4, lng: 8.69 },
+				destination: { lat: 49.41, lng: 8.695 },
+				departure: "08:20",
+				max_walk_minutes: 20,
+			},
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(transitMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				departure: "08:20",
+				walkingTimeMinutes: 20,
+			}),
+		);
+		const transit = outcome.modelPayload.transit;
+		expect(transit?.timezone).toBe("Europe/Berlin");
+		expect(transit?.itineraries).toHaveLength(1);
+		const itinerary = transit?.itineraries[0];
+		expect(itinerary).toMatchObject({
+			depart: "08:25",
+			arrive: "08:52",
+			minutes: 27,
+			transfers: 1,
+			// 196 s + 120 s of walking.
+			walk_minutes: 5,
+		});
+		expect(itinerary?.legs[1]).toMatchObject({
+			type: "pt",
+			depart: "08:31",
+			arrive: "08:50",
+			line: "39A",
+			headsign: "Bismarckplatz",
+			vehicle: "bus",
+			stops: 7,
+			minutes: 19,
+		});
+		expect(itinerary?.legs[0]).toMatchObject({ type: "walk", walk_m: 245 });
+		expect(outcome.modelPayload.message).toContain("08:25 → 08:52");
+		expect(outcome.modelPayload.attribution).toBe(OSM_ATTRIBUTION);
+	});
+
+	it("sends arrive_by as an arrival, never alongside a departure", async () => {
+		const { provider, transitMock } = transitProvider();
+		await runRoutingTool(
+			{
+				action: "transit",
+				origin: "A",
+				destination: "B",
+				departure: "08:00",
+				arrive_by: "09:30",
+			},
+			{ provider },
+		);
+		const call = transitMock.mock.calls[0][0];
+		expect(call.arrival).toBe("09:30");
+		expect(call.departure).toBeUndefined();
+	});
+
+	it("builds a map card carrying the itinerary legs and the journey polyline", async () => {
+		const { provider } = transitProvider();
+		const outcome = await runRoutingTool(
+			{
+				action: "transit",
+				origin: { lat: 49.4, lng: 8.69 },
+				destination: { lat: 49.41, lng: 8.695 },
+			},
+			{ provider },
+		);
+		expect(outcome.map?.mode).toBe("transit");
+		expect(outcome.map?.transfers).toBe(1);
+		expect(outcome.map?.transitLegs).toHaveLength(3);
+		expect(outcome.map?.transitLegs?.[1]).toMatchObject({
+			type: "pt",
+			line: "39A",
+			depart: "08:31",
+			arrive: "08:50",
+			stops: 7,
+		});
+		expect(outcome.map?.departures).toBeUndefined();
+		// The map data never rides the model payload.
+		expect(
+			(outcome.modelPayload as Record<string, unknown>).map,
+		).toBeUndefined();
+	});
+
+	it("requires both endpoints", async () => {
+		const { provider } = transitProvider();
+		const outcome = await runRoutingTool(
+			{ action: "transit", origin: "A" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"`origin` and `destination`",
+		);
+	});
+
+	it("says timetables are unavailable when the provider has no transit support", async () => {
+		const { provider } = transitProvider({ omitTransit: true });
+		const outcome = await runRoutingTool(
+			{ action: "transit", origin: "A", destination: "B" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"not available on this server",
+		);
+	});
+
+	it("names the timetable coverage and forbids invented departures", async () => {
+		const { provider } = transitProvider({
+			transit: {
+				ok: false,
+				reason: "transit_unavailable",
+				message: "No public transport timetable is loaded for Austria.",
+			},
+			transitCoverageLabel: "Hungary, Netherlands",
+		});
+		const outcome = await runRoutingTool(
+			{ action: "transit", origin: "A", destination: "B" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain("Hungary, Netherlands");
+		expect(outcome.modelPayload.message).toContain(
+			"do NOT invent departure times",
+		);
+	});
+
+	it("says so plainly when no timetable region is loaded at all", async () => {
+		const { provider } = transitProvider({
+			transit: {
+				ok: false,
+				reason: "transit_unavailable",
+				message: "No public transport timetable is loaded.",
+			},
+			transitCoverageLabel: "",
+		});
+		const outcome = await runRoutingTool(
+			{ action: "transit", origin: "A", destination: "B" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.message).toContain(
+			"No public transport timetables are loaded on this server",
+		);
+	});
+});
+
+describe("runRoutingTool — timetable", () => {
+	it("returns the next departures with local times and transfer counts", async () => {
+		const { provider, scheduleMock } = transitProvider();
+		const outcome = await runRoutingTool(
+			{
+				action: "timetable",
+				origin: "Dossenheim",
+				destination: "Heidelberg",
+				from: "08:00",
+				window_minutes: 90,
+				rows: 4,
+			},
+			{ provider },
+		);
+		expect(scheduleMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				departure: "08:00",
+				windowMinutes: 90,
+				rows: 4,
+			}),
+		);
+		expect(outcome.modelPayload.success).toBe(true);
+		expect(outcome.modelPayload.transit?.itineraries).toHaveLength(2);
+		expect(outcome.modelPayload.message).toContain("Next 2 public transport");
+		expect(outcome.map?.departures).toEqual([
+			{
+				depart: "08:25",
+				arrive: "08:52",
+				minutes: 27,
+				transfers: 1,
+				line: "39A",
+			},
+			{
+				depart: "08:45",
+				arrive: "09:12",
+				minutes: 27,
+				transfers: 1,
+				line: "39A",
+			},
+		]);
+		// A departures card lists rows, not legs.
+		expect(outcome.map?.transitLegs).toBeUndefined();
+	});
+
+	it("reports an empty timetable as a no-route failure, not as zero departures", async () => {
+		const { provider } = transitProvider({
+			transitSchedule: {
+				ok: false,
+				reason: "no_route",
+				message: "No public transport journey was found.",
+			},
+		});
+		const outcome = await runRoutingTool(
+			{ action: "timetable", origin: "A", destination: "B" },
+			{ provider },
+		);
+		expect(outcome.modelPayload.success).toBe(false);
+		expect(outcome.modelPayload.message).toContain(
+			"no path between those points",
+		);
 	});
 });

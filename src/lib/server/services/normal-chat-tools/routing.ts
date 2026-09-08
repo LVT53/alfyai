@@ -16,7 +16,14 @@
 import { z } from "zod";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
-import { buildRouteMapCardData } from "$lib/server/services/routing/map-card";
+import {
+	formatLocalClock,
+	transitModeLabel,
+} from "$lib/server/services/routing/gtfs-feeds";
+import {
+	buildRouteMapCardData,
+	buildTransitMapCardData,
+} from "$lib/server/services/routing/map-card";
 import {
 	type GeocodeMatch,
 	type IsochroneData,
@@ -28,6 +35,8 @@ import {
 	type RouteData,
 	type RoutingMode,
 	type RoutingProvider,
+	type TransitData,
+	type TransitItinerary,
 } from "$lib/server/services/routing/types";
 
 // ── Input schema (v1) ──────────────────────────────────────────
@@ -57,8 +66,27 @@ const modeSchema = z.enum(["drive", "walk", "bike"]);
 // as the other rejections), so the runner never partially executes.
 const MAX_PLACES = 25;
 
+// A time the model may pass for a transit query. Kept as a loose string here
+// (a full local date-time, an absolute ISO instant, or a bare "HH:MM") and
+// normalized against the REGION's timezone in the provider — the tool has no
+// business guessing which timezone "08:30" is in.
+const timeSchema = z.string().min(1).max(40);
+
+// Bounds on the timetable window so one call cannot ask ORS to simulate a
+// whole day of departures.
+const MAX_TIMETABLE_WINDOW_MINUTES = 720;
+const MAX_TIMETABLE_ROWS = 12;
+const MAX_WALK_MINUTES = 120;
+
 export const routingToolInputSchema = z.object({
-	action: z.enum(["geocode", "route", "matrix", "isochrone"]),
+	action: z.enum([
+		"geocode",
+		"route",
+		"matrix",
+		"isochrone",
+		"transit",
+		"timetable",
+	]),
 	// geocode
 	query: z.string().min(1).optional(),
 	near: latLngSchema.optional(),
@@ -85,6 +113,23 @@ export const routingToolInputSchema = z.object({
 		.optional(),
 	// isochrone
 	ranges_s: z.array(z.number().positive()).max(10).optional(),
+	// transit / timetable
+	departure: timeSchema.optional(),
+	arrive_by: timeSchema.optional(),
+	max_walk_minutes: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_WALK_MINUTES)
+		.optional(),
+	from: timeSchema.optional(),
+	window_minutes: z
+		.number()
+		.int()
+		.positive()
+		.max(MAX_TIMETABLE_WINDOW_MINUTES)
+		.optional(),
+	rows: z.number().int().positive().max(MAX_TIMETABLE_ROWS).optional(),
 	// shared travel mode; defaults to "drive" where a mode is required.
 	mode: modeSchema.optional(),
 });
@@ -101,7 +146,7 @@ export const routingToolModelSchema = {
 	properties: {
 		action: {
 			type: "string",
-			enum: ["geocode", "route", "matrix", "isochrone"],
+			enum: ["geocode", "route", "matrix", "isochrone", "transit", "timetable"],
 		},
 		query: { type: "string", description: "geocode: the place to look up" },
 		near: {
@@ -127,6 +172,36 @@ export const routingToolModelSchema = {
 			type: "array",
 			items: { type: "number" },
 			description: "isochrone: travel-time ranges in seconds",
+		},
+		departure: {
+			type: "string",
+			description:
+				'transit: leave at this local time, e.g. "08:30" or "2026-09-08T08:30". Omit for "now".',
+		},
+		arrive_by: {
+			type: "string",
+			description:
+				"transit: arrive by this local time instead of leaving at one",
+		},
+		max_walk_minutes: {
+			type: "integer",
+			maximum: MAX_WALK_MINUTES,
+			description:
+				"transit/timetable: longest walk to or from a stop (default 15)",
+		},
+		from: {
+			type: "string",
+			description: 'timetable: start of the window, local time (default "now")',
+		},
+		window_minutes: {
+			type: "integer",
+			maximum: MAX_TIMETABLE_WINDOW_MINUTES,
+			description: "timetable: how far ahead to look (default 120)",
+		},
+		rows: {
+			type: "integer",
+			maximum: MAX_TIMETABLE_ROWS,
+			description: "timetable: how many departures to return (default 6)",
 		},
 		mode: { type: "string", enum: ["drive", "walk", "bike"] },
 	},
@@ -155,11 +230,54 @@ export function sanitizeRoutingToolInput(
 			? { destinations: input.destinations.map(trimPlace) }
 			: {}),
 		...(input.ranges_s ? { ranges_s: input.ranges_s } : {}),
+		...(input.departure ? { departure: input.departure.trim() } : {}),
+		...(input.arrive_by ? { arrive_by: input.arrive_by.trim() } : {}),
+		...(input.max_walk_minutes !== undefined
+			? { max_walk_minutes: input.max_walk_minutes }
+			: {}),
+		...(input.from ? { from: input.from.trim() } : {}),
+		...(input.window_minutes !== undefined
+			? { window_minutes: input.window_minutes }
+			: {}),
+		...(input.rows !== undefined ? { rows: input.rows } : {}),
 		...(input.mode ? { mode: input.mode } : {}),
 	};
 }
 
 // ── Model-facing payload ───────────────────────────────────────
+
+// The transit payload is deliberately NOT the raw provider shape: the model
+// needs local clock times, line names and a walk budget, not ISO instants,
+// stop ids and encoded polylines. Everything here is already in the region's
+// local time.
+export type TransitNarrationLeg = {
+	type: "walk" | "pt";
+	depart?: string;
+	arrive?: string;
+	minutes: number;
+	from?: string;
+	to?: string;
+	line?: string;
+	headsign?: string;
+	vehicle?: string;
+	stops?: number;
+	walk_m?: number;
+};
+
+export type TransitNarrationItinerary = {
+	depart?: string;
+	arrive?: string;
+	minutes: number;
+	transfers: number;
+	walk_minutes: number;
+	legs: TransitNarrationLeg[];
+};
+
+export type TransitNarration = {
+	// IANA timezone the clock times are in. Absent => server local time.
+	timezone?: string;
+	itineraries: TransitNarrationItinerary[];
+};
 
 export type RoutingToolModelPayload = {
 	success: boolean;
@@ -174,6 +292,7 @@ export type RoutingToolModelPayload = {
 	route?: RouteData;
 	matrix?: MatrixData;
 	isochrone?: IsochroneData;
+	transit?: TransitNarration;
 };
 
 export type RoutingToolOutcome = {
@@ -192,6 +311,7 @@ function buildPayload(params: {
 	route?: RouteData;
 	matrix?: MatrixData;
 	isochrone?: IsochroneData;
+	transit?: TransitNarration;
 	candidates?: ToolEvidenceCandidate[];
 	map?: ToolCallMapData;
 }): RoutingToolOutcome {
@@ -209,6 +329,7 @@ function buildPayload(params: {
 			...(params.isochrone !== undefined
 				? { isochrone: params.isochrone }
 				: {}),
+			...(params.transit !== undefined ? { transit: params.transit } : {}),
 		},
 		candidates: params.candidates ?? [],
 		...(params.map !== undefined ? { map: params.map } : {}),
@@ -259,6 +380,13 @@ function providerFailureMessage(
 	}
 	if (outcome.reason === "region_unavailable") {
 		return `I couldn't compute ${what}: ${outcome.message} Say the location is outside the routing coverage; do NOT estimate.`;
+	}
+	if (outcome.reason === "transit_unavailable") {
+		const transit = provider.transitCoverageLabel?.()?.trim();
+		const where = transit
+			? ` Public transport timetables on this server cover ${transit} only.`
+			: " No public transport timetables are loaded on this server.";
+		return `I couldn't look up ${what}: ${outcome.message}${where} Say public transport timetables are not available for that area; do NOT invent departure times, lines, or journey durations, and do not fall back to a driving or walking estimate unless the user asks for one.`;
 	}
 	return `I couldn't compute ${what} right now — the routing service is unavailable.`;
 }
@@ -353,6 +481,76 @@ function formatDuration(seconds: number): string {
 function formatDistance(meters: number): string {
 	if (meters < 1000) return `${Math.round(meters)} m`;
 	return `${(meters / 1000).toFixed(1)} km`;
+}
+
+// ── Public-transport narration ─────────────────────────────────
+
+function minutesOf(seconds: number): number {
+	return Math.max(0, Math.round(seconds / 60));
+}
+
+// Total walking in an itinerary, which is the number people actually ask
+// about ("how much walking?") and the one ORS does not report directly.
+function walkMinutes(itinerary: TransitItinerary): number {
+	return minutesOf(
+		itinerary.legs
+			.filter((leg) => leg.type === "walk")
+			.reduce((total, leg) => total + leg.duration_s, 0),
+	);
+}
+
+function narrateItinerary(
+	itinerary: TransitItinerary,
+	timezone: string | undefined,
+): TransitNarrationItinerary {
+	const legs: TransitNarrationLeg[] = itinerary.legs.map((leg) => {
+		const entry: TransitNarrationLeg = {
+			type: leg.type,
+			minutes: minutesOf(leg.duration_s),
+		};
+		const depart = formatLocalClock(leg.departure, timezone);
+		if (depart) entry.depart = depart;
+		const arrive = formatLocalClock(leg.arrival, timezone);
+		if (arrive) entry.arrive = arrive;
+		if (leg.from) entry.from = leg.from;
+		if (leg.to) entry.to = leg.to;
+		if (leg.type === "pt") {
+			if (leg.line) entry.line = leg.line;
+			if (leg.headsign) entry.headsign = leg.headsign;
+			const vehicle = transitModeLabel(leg.routeType);
+			if (vehicle) entry.vehicle = vehicle;
+			if (leg.stopsCount !== undefined) entry.stops = leg.stopsCount;
+		} else if (leg.distance_m > 0) {
+			entry.walk_m = Math.round(leg.distance_m);
+		}
+		return entry;
+	});
+	const narrated: TransitNarrationItinerary = {
+		minutes: minutesOf(itinerary.duration_s),
+		transfers: itinerary.transfers,
+		walk_minutes: walkMinutes(itinerary),
+		legs,
+	};
+	const depart = formatLocalClock(itinerary.departure, timezone);
+	if (depart) narrated.depart = depart;
+	const arrive = formatLocalClock(itinerary.arrival, timezone);
+	if (arrive) narrated.arrive = arrive;
+	return narrated;
+}
+
+function narrateTransit(data: TransitData): TransitNarration {
+	const timezone = data.timezone;
+	return {
+		...(timezone ? { timezone } : {}),
+		itineraries: data.itineraries.map((itinerary) =>
+			narrateItinerary(itinerary, timezone),
+		),
+	};
+}
+
+// The first pt leg's line, used as the one-word identity of a departure row.
+function firstLine(itinerary: TransitNarrationItinerary): string | undefined {
+	return itinerary.legs.find((leg) => leg.type === "pt")?.line;
 }
 
 // ── Runner ─────────────────────────────────────────────────────
@@ -492,6 +690,139 @@ export async function runRoutingTool(
 			action: "matrix",
 			message: `Computed a ${origins.length}×${destinations.length} ${mode} distance/ETA matrix.`,
 			matrix: outcome.data,
+		});
+	}
+
+	if (input.action === "transit" || input.action === "timetable") {
+		const action = input.action;
+		if (input.origin === undefined || input.destination === undefined) {
+			return missingInput(
+				action,
+				`${action} requires both \`origin\` and \`destination\`.`,
+			);
+		}
+		if (!provider.transit || !provider.transitSchedule) {
+			return failure(
+				action,
+				"Public transport timetables are not available on this server. Say timetables are unavailable rather than inventing departures.",
+			);
+		}
+		const origin = await resolvePlace(input.origin, provider);
+		if (!origin.ok) return failure(action, origin.message);
+		const destination = await resolvePlace(input.destination, provider);
+		if (!destination.ok) return failure(action, destination.message);
+
+		const base = {
+			origin: origin.coord,
+			destination: destination.coord,
+			...(input.max_walk_minutes !== undefined
+				? { walkingTimeMinutes: input.max_walk_minutes }
+				: {}),
+		};
+		const outcome =
+			action === "transit"
+				? await provider.transit({
+						...base,
+						// `arrive_by` is the stricter ask, so it wins over `departure`.
+						...(input.arrive_by
+							? { arrival: input.arrive_by }
+							: input.departure
+								? { departure: input.departure }
+								: {}),
+					})
+				: await provider.transitSchedule({
+						...base,
+						...(input.from ? { departure: input.from } : {}),
+						...(input.window_minutes !== undefined
+							? { windowMinutes: input.window_minutes }
+							: {}),
+						...(input.rows !== undefined ? { rows: input.rows } : {}),
+					});
+		if (!outcome.ok) {
+			return failure(
+				action,
+				providerFailureMessage(
+					action === "transit"
+						? "a public transport journey"
+						: "the next departures",
+					outcome,
+					provider,
+				),
+			);
+		}
+		const data = outcome.data;
+		const narration = narrateTransit(data);
+		const first = narration.itineraries[0];
+		const firstItinerary = data.itineraries[0];
+		const candidates = [
+			placeCandidate("transit:origin", origin.label, origin.coord),
+			placeCandidate(
+				"transit:destination",
+				destination.label,
+				destination.coord,
+			),
+		];
+		const map = buildTransitMapCardData({
+			...(firstItinerary?.polyline
+				? { polyline: firstItinerary.polyline }
+				: {}),
+			origin: origin.coord,
+			destination: destination.coord,
+			originLabel: origin.label,
+			destinationLabel: destination.label,
+			durationS: firstItinerary?.duration_s ?? 0,
+			distanceM: firstItinerary?.distance_m ?? 0,
+			transfers: first?.transfers ?? 0,
+			...(action === "transit" && first
+				? {
+						legs: first.legs.map((leg) => ({
+							type: leg.type,
+							minutes: leg.minutes,
+							...(leg.line ? { line: leg.line } : {}),
+							...(leg.headsign ? { headsign: leg.headsign } : {}),
+							...(leg.from ? { from: leg.from } : {}),
+							...(leg.to ? { to: leg.to } : {}),
+							...(leg.depart ? { depart: leg.depart } : {}),
+							...(leg.arrive ? { arrive: leg.arrive } : {}),
+							...(leg.stops !== undefined ? { stops: leg.stops } : {}),
+							...(leg.vehicle ? { vehicle: leg.vehicle } : {}),
+						})),
+					}
+				: {}),
+			...(action === "timetable"
+				? {
+						departures: narration.itineraries.map((itinerary) => ({
+							...(itinerary.depart ? { depart: itinerary.depart } : {}),
+							...(itinerary.arrive ? { arrive: itinerary.arrive } : {}),
+							minutes: itinerary.minutes,
+							transfers: itinerary.transfers,
+							...(firstLine(itinerary) ? { line: firstLine(itinerary) } : {}),
+						})),
+					}
+				: {}),
+		});
+
+		if (action === "timetable") {
+			const count = narration.itineraries.length;
+			return buildPayload({
+				success: true,
+				action,
+				message: `Next ${count} public transport departure${count === 1 ? "" : "s"} from ${origin.label} to ${destination.label}${first?.depart ? `, starting ${first.depart}` : ""}.`,
+				transit: narration,
+				candidates,
+				map,
+			});
+		}
+		const legSummary = first
+			? `${first.depart ?? "?"} → ${first.arrive ?? "?"}, ${formatDuration((first.minutes ?? 0) * 60)}, ${first.transfers} transfer${first.transfers === 1 ? "" : "s"}`
+			: "no itinerary";
+		return buildPayload({
+			success: true,
+			action,
+			message: `Public transport from ${origin.label} to ${destination.label}: ${legSummary}.`,
+			transit: narration,
+			candidates,
+			map,
 		});
 	}
 

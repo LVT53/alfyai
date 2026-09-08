@@ -155,6 +155,142 @@ describe("tool activity row grammar", () => {
 		expect(item.body).toMatchObject({ kind: "map" });
 	});
 
+	it("reads a transit journey as 'Transit <A → B>' with duration · transfers", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "transit" },
+				map: {
+					bounds: { minLat: 49.3, minLng: 8.6, maxLat: 49.5, maxLng: 8.8 },
+					// Distance is deliberately present but NOT shown: nobody asks how
+					// many kilometres a bus ride is.
+					distanceM: 5231,
+					durationS: 4320,
+					mode: "transit",
+					transfers: 1,
+					originLabel: "Dossenheim",
+					destinationLabel: "Heidelberg",
+					transitLegs: [
+						{ type: "walk", minutes: 3 },
+						{ type: "pt", line: "39A", minutes: 19, stops: 7 },
+					],
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k5b",
+			translate,
+		);
+
+		expect(item.verb).toBe("Transit");
+		expect(item.object).toBe("Dossenheim → Heidelberg");
+		expect(item.meta).toBe("1 h 12 min · 1 transfer");
+		expect(item.iconType).toBe("map-route");
+		expect(item.pinned).toBe(true);
+		expect(item.body).toMatchObject({ kind: "map" });
+	});
+
+	it("pluralizes the transfer count", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "transit" },
+				map: {
+					bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+					durationS: 1800,
+					mode: "transit",
+					transfers: 2,
+					originLabel: "A",
+					destinationLabel: "B",
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k5c",
+			translate,
+		);
+		expect(item.meta).toBe("30 min · 2 transfers");
+	});
+
+	it("reads a timetable as 'Timetable <A → B>' counting the departures", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "timetable" },
+				map: {
+					bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+					durationS: 1620,
+					mode: "transit",
+					transfers: 1,
+					originLabel: "Dossenheim",
+					destinationLabel: "Heidelberg",
+					departures: Array.from({ length: 6 }, (_, index) => ({
+						depart: `08:${String(index * 10).padStart(2, "0")}`,
+						minutes: 27,
+						transfers: 1,
+					})),
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k5d",
+			translate,
+		);
+
+		expect(item.verb).toBe("Timetable");
+		expect(item.object).toBe("Dossenheim → Heidelberg");
+		expect(item.meta).toBe("6 departures");
+		expect(item.body).toMatchObject({ kind: "map" });
+		expect(item.body?.kind === "map" ? item.body.summary : "").toBe(
+			"Dossenheim → Heidelberg · 6 departures",
+		);
+	});
+
+	it("keeps the road-route grammar for the plain route action", () => {
+		const item = buildToolActivityItem(
+			toolCall({
+				name: "map_route",
+				input: { action: "route" },
+				map: {
+					bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+					distanceM: 27_000,
+					durationS: 2040,
+					transfers: 1,
+					originLabel: "Cork",
+					destinationLabel: "Kinsale",
+					attribution: "© OpenStreetMap contributors",
+				},
+			} as Partial<ToolCallSegment>),
+			"k5e",
+			translate,
+		);
+		// A stray `transfers` on a road card must not leak into the meta line.
+		expect(item.verb).toBe("Route");
+		expect(item.meta).toBe("27.0 km · 34 min");
+	});
+
+	it("shows the running verbs while a transit call is still in flight", () => {
+		expect(
+			buildToolActivityItem(
+				toolCall({
+					name: "map_route",
+					input: { action: "transit" },
+					status: "running",
+				}),
+				"k5f",
+				translate,
+			).verb,
+		).toBe("Planning transit");
+		expect(
+			buildToolActivityItem(
+				toolCall({
+					name: "map_route",
+					input: { action: "timetable" },
+					status: "running",
+				}),
+				"k5g",
+				translate,
+			).verb,
+		).toBe("Loading timetable");
+	});
+
 	it("reads a skill load as 'Used skill <name>' from the call's own metadata", () => {
 		const item = buildToolActivityItem(
 			toolCall({

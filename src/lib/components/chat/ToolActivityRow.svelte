@@ -232,6 +232,52 @@ function handleToggle() {
 				{/if}
 			{:else if body.kind === 'map'}
 				<div class="act-map-summary">{body.summary}</div>
+				<!-- Public transport: the itinerary (or the next departures) reads
+				     ABOVE the map, because the times and line names are the answer
+				     and the drawn line is only context. -->
+				{#if body.map.transitLegs?.length}
+					<ol class="act-transit" data-testid="transit-legs">
+						{#each body.map.transitLegs as leg, index (index)}
+							<li class="act-transit-leg">
+								<span class="act-transit-time">
+									{leg.depart ?? ''}{leg.arrive ? `–${leg.arrive}` : ''}
+								</span>
+								{#if leg.type === 'pt'}
+									<span class="act-transit-line">{leg.line ?? leg.vehicle ?? ''}</span>
+								{:else}
+									<span class="act-transit-walk">{$t('toolActivity.transitWalk')}</span>
+								{/if}
+								<span class="act-transit-where">
+									{[leg.from, leg.to].filter(Boolean).join(' → ')}
+									{#if leg.headsign}<span class="act-transit-headsign">{leg.headsign}</span>{/if}
+								</span>
+								<span class="act-transit-meta">
+									{leg.stops !== undefined
+										? `${$t('toolActivity.transitStops', { count: leg.stops })} · ${leg.minutes} min`
+										: `${leg.minutes} min`}
+								</span>
+							</li>
+						{/each}
+					</ol>
+				{:else if body.map.departures?.length}
+					<ol class="act-transit" data-testid="transit-departures">
+						{#each body.map.departures as departure, index (index)}
+							<li class="act-transit-leg">
+								<span class="act-transit-time">
+									{departure.depart ?? ''}{departure.arrive ? `–${departure.arrive}` : ''}
+								</span>
+								{#if departure.line}
+									<span class="act-transit-line">{departure.line}</span>
+								{/if}
+								<span class="act-transit-meta">
+									{departure.minutes} min · {$t('toolActivity.transfersCount', {
+										count: departure.transfers,
+									})}
+								</span>
+							</li>
+						{/each}
+					</ol>
+				{/if}
 				{#if MapRouteBody}
 					<MapRouteBody map={body.map} />
 				{/if}
@@ -610,6 +656,60 @@ function handleToggle() {
 
 	.act-map-summary {
 		color: var(--text-primary);
+	}
+
+	.act-transit {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.act-transit-leg {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 6px;
+		line-height: 1.45;
+		color: var(--text-secondary);
+	}
+
+	.act-transit-time {
+		min-width: 5.5em;
+		color: var(--text-primary);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.act-transit-line {
+		padding: 0 5px;
+		border-radius: 4px;
+		background: var(--accent);
+		color: var(--surface-page);
+		font-weight: 600;
+	}
+
+	.act-transit-walk {
+		color: var(--text-muted);
+	}
+
+	.act-transit-where {
+		flex: 1 1 8em;
+		min-width: 0;
+		color: var(--text-primary);
+		overflow-wrap: anywhere;
+	}
+
+	.act-transit-headsign {
+		margin-left: 6px;
+		color: var(--text-muted);
+	}
+
+	.act-transit-meta {
+		margin-left: auto;
+		color: var(--text-muted);
+		white-space: nowrap;
 	}
 
 	.act-code {

@@ -96,6 +96,10 @@ export const ADMIN_CONFIG_KEYS = [
 	"ROUTING_LEGACY_REGION_ID",
 	"ROUTING_EXTRACT_MIRRORS",
 	"ROUTING_RESIDENT_REGION_IDS",
+	"ROUTING_GTFS_FEEDS",
+	"ROUTING_GTFS_FEED_EXCLUDE",
+	"ROUTING_GTFS_REFRESH_DAYS",
+	"ROUTING_GTFS_MAX_MB",
 	"NATIVE_HISTORY_ENABLED",
 	"BRAVE_SEARCH_API_KEY",
 	"APP_VERSION_OVERRIDE",
@@ -237,6 +241,10 @@ export interface RuntimeConfig {
 	routingLegacyRegionId: string;
 	routingExtractMirrors: string;
 	routingResidentRegionIds: string;
+	routingGtfsFeeds: string;
+	routingGtfsFeedExclude: string;
+	routingGtfsRefreshDays: number;
+	routingGtfsMaxMb: number;
 	nativeHistoryEnabled: boolean;
 	normalChatDebugOutbound: boolean;
 	braveSearchApiKey: string;
@@ -756,6 +764,24 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	ROUTING_RESIDENT_REGION_IDS: (config, value) => {
 		config.routingResidentRegionIds = value.trim();
 	},
+	ROUTING_GTFS_FEEDS: (config, value) => {
+		config.routingGtfsFeeds = value.trim();
+	},
+	ROUTING_GTFS_FEED_EXCLUDE: (config, value) => {
+		config.routingGtfsFeedExclude = value.trim();
+	},
+	ROUTING_GTFS_REFRESH_DAYS: (config, value) => {
+		const parsed = parseInt(value, 10);
+		if (Number.isFinite(parsed) && parsed >= 1) {
+			config.routingGtfsRefreshDays = parsed;
+		}
+	},
+	ROUTING_GTFS_MAX_MB: (config, value) => {
+		const parsed = parseInt(value, 10);
+		if (Number.isFinite(parsed) && parsed >= 10) {
+			config.routingGtfsMaxMb = parsed;
+		}
+	},
 	NATIVE_HISTORY_ENABLED: (config, value) => {
 		config.nativeHistoryEnabled = value.trim() !== "false";
 	},
@@ -1243,6 +1269,10 @@ export function getResolvedAdminConfigValues(
 		ROUTING_LEGACY_REGION_ID: config.routingLegacyRegionId,
 		ROUTING_EXTRACT_MIRRORS: config.routingExtractMirrors,
 		ROUTING_RESIDENT_REGION_IDS: config.routingResidentRegionIds,
+		ROUTING_GTFS_FEEDS: config.routingGtfsFeeds,
+		ROUTING_GTFS_FEED_EXCLUDE: config.routingGtfsFeedExclude,
+		ROUTING_GTFS_REFRESH_DAYS: String(config.routingGtfsRefreshDays),
+		ROUTING_GTFS_MAX_MB: String(config.routingGtfsMaxMb),
 		NATIVE_HISTORY_ENABLED: config.nativeHistoryEnabled ? "true" : "false",
 		BRAVE_SEARCH_API_KEY: config.braveSearchApiKey,
 		GOOGLE_OAUTH_CLIENT_ID: config.googleOauthClientId,
