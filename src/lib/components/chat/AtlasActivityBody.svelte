@@ -483,9 +483,10 @@ function handleTabKeydown(event: KeyboardEvent) {
 				type="button"
 				class="mini-btn"
 				onclick={() => togglePanel('continue')}
+				aria-label={$t('atlas.action.continue')}
 				data-testid="atlas-continue"
 			>
-				{$t('atlas.action.continue')}
+				{$t('atlasActivity.continue')}
 			</button>
 		</div>
 		{@render lifecyclePanel()}
@@ -578,26 +579,29 @@ function handleTabKeydown(event: KeyboardEvent) {
 						class="mini-btn"
 						onclick={() => togglePanel('revise')}
 						title={$t('atlas.action.reviseTooltip')}
+						aria-label={$t('atlas.action.revise')}
 					>
 						<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
-						{$t('atlas.action.revise')}
+						{$t('atlasActivity.revise')}
 					</button>
 					<button
 						type="button"
 						class="mini-btn"
 						onclick={() => togglePanel('continue')}
 						title={$t('atlas.action.continueTooltip')}
+						aria-label={$t('atlas.action.continue')}
 					>
-						{$t('atlas.action.continue')}
+						{$t('atlasActivity.continue')}
 					</button>
 					<button
 						type="button"
 						class="mini-btn"
 						onclick={() => togglePanel('fork')}
 						title={$t('atlas.action.forkTooltip')}
+						aria-label={$t('atlas.action.fork')}
 					>
 						<Split size={12} strokeWidth={2} aria-hidden="true" />
-						{$t('atlas.action.fork')}
+						{$t('atlasActivity.fork')}
 					</button>
 				</div>
 				{@render lifecyclePanel()}

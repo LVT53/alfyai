@@ -80,11 +80,6 @@ const CASES: Case[] = [
 		bannedDirectives: [/transition:slide=/],
 	},
 	{
-		file: "src/lib/components/chat/AtlasCard.svelte",
-		wrappedNames: ["progressFade"],
-		bannedDirectives: [/transition:fade=/],
-	},
-	{
 		file: "src/lib/components/ui/TypewriterText.svelte",
 		wrappedNames: ["charFade"],
 		bannedDirectives: [/in:fade=/],

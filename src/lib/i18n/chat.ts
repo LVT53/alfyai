@@ -291,6 +291,11 @@ const chatDict = {
 			"… {count} more · duplicates and redirect stubs removed ({filtered})",
 		"atlasActivity.filteredOnly":
 			"Duplicates and redirect stubs removed ({filtered})",
+		// Short labels for the mini buttons in the row's body — the full
+		// "Revise Atlas" strings stay as their accessible names.
+		"atlasActivity.revise": "Revise",
+		"atlasActivity.continue": "Continue",
+		"atlasActivity.fork": "Fork",
 		"atlasActivity.retry": "Retry",
 		"atlasActivity.retryNote":
 			"Retry keeps the plan and the sources already read.",
@@ -1161,6 +1166,9 @@ const chatDict = {
 			"… még {count} · duplikátumok és átirányítási csonkok eltávolítva ({filtered})",
 		"atlasActivity.filteredOnly":
 			"Duplikátumok és átirányítási csonkok eltávolítva ({filtered})",
+		"atlasActivity.revise": "Átdolgozás",
+		"atlasActivity.continue": "Folytatás",
+		"atlasActivity.fork": "Elágaztatás",
 		"atlasActivity.retry": "Újra",
 		"atlasActivity.retryNote":
 			"Az újrafutás megtartja a tervet és a már beolvasott forrásokat.",
