@@ -61,6 +61,13 @@ export type RouteStep = {
 	duration_s: number;
 	instruction?: string;
 	name?: string;
+	// ORS `segments[].steps[].type` — the numeric manoeuvre code (0 left,
+	// 1 right, 6 straight, 7 enter roundabout, 10 goal, 11 depart, …). Kept
+	// raw here; `directions.ts` maps it to the card's manoeuvre vocabulary.
+	type?: number;
+	// ORS `segments[].steps[].way_points` — [firstIndex, lastIndex] into the
+	// route's own geometry, so the card can highlight this step on the map.
+	way_points?: [number, number];
 };
 
 export type RouteLeg = {
@@ -75,6 +82,14 @@ export type RouteData = {
 	legs: RouteLeg[];
 	// Encoded polyline (ORS default geometry) when the provider returns one.
 	polyline?: string;
+	// 3 when the geometry was requested WITH elevation (walk/bike): ORS then
+	// packs a third value per point into the same encoded string, which a 2D
+	// decoder would read as the next point's latitude. Absent => 2.
+	polylineDimensions?: 2 | 3;
+	// Cumulative climb/descent in metres — only present when elevation was
+	// requested (walk/bike) and ORS returned it.
+	ascent_m?: number;
+	descent_m?: number;
 	// The resolved coordinates actually routed (so the model can echo what a
 	// place string resolved to).
 	coords: {
@@ -128,6 +143,10 @@ export type TransitLeg = {
 	routeType?: number;
 	// Intermediate + terminal stops ORS listed for this leg.
 	stopsCount?: number;
+	// Boarding platform/track, when the feed carries one on the first stop
+	// (GTFS `platform_code`). ORS omits it for most feeds, so it is optional
+	// and simply not rendered when absent.
+	platform?: string;
 	distance_m: number;
 	duration_s: number;
 	// The leg continues in the same physical vehicle as the previous one.

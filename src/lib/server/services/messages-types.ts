@@ -61,11 +61,49 @@ export type ToolCallMapPolygon = {
 	rangeS?: number;
 };
 
+// The manoeuvre vocabulary the route card draws an icon for. Mapped from
+// ORS's numeric instruction type in routing/directions.ts; "other" is the
+// honest catch-all for a code with no icon of its own.
+export type ToolCallMapManeuver =
+	| "depart"
+	| "straight"
+	| "left"
+	| "slight-left"
+	| "sharp-left"
+	| "right"
+	| "slight-right"
+	| "sharp-right"
+	| "u-turn"
+	| "roundabout"
+	| "exit-roundabout"
+	| "keep-left"
+	| "keep-right"
+	| "merge"
+	| "arrive"
+	| "other";
+
+// One turn of a road (drive/walk/bike) route, as the Directions list draws it.
+export type ToolCallMapStep = {
+	instruction: string;
+	maneuver: ToolCallMapManeuver;
+	distanceM: number;
+	durationS: number;
+	// The road/path the step follows — the list's subtext.
+	name?: string;
+	// [firstIndex, lastIndex] into `ToolCallMapData.polyline`, so hovering the
+	// step can highlight exactly its stretch of the drawn line.
+	wayPointRange?: [number, number];
+};
+
 // One leg of a public-transport itinerary, as the chat card draws it. Times
 // are already LOCAL "HH:MM" strings for the region the journey is in — the
 // client never has to know a timezone.
+//
+// A `journey` (mixed modes) reuses this shape: its self-powered legs carry
+// type "drive" | "walk" | "bike" alongside the transit ones, so one timeline
+// draws the whole trip.
 export type ToolCallMapTransitLeg = {
-	type: "walk" | "pt";
+	type: "walk" | "pt" | "drive" | "bike";
 	// Line label ("39A") and where the vehicle is headed.
 	line?: string;
 	headsign?: string;
@@ -77,6 +115,18 @@ export type ToolCallMapTransitLeg = {
 	minutes: number;
 	// Plain word for the vehicle ("bus", "tram", …), from GTFS route_type.
 	vehicle?: string;
+	// Boarding platform, when the feed publishes one.
+	platform?: string;
+	// Ground covered — drawn for the self-powered legs, where "2 min" alone
+	// says too little.
+	distanceM?: number;
+	// The feed's own line colour ("#1f4e9c"), when it has one. Absent => the
+	// card derives a stable colour from the mode and the line name.
+	color?: string;
+	// Turn-by-turn directions for a self-powered leg of a journey.
+	steps?: ToolCallMapStep[];
+	// [firstIndex, lastIndex] into `ToolCallMapData.polyline` for this leg.
+	pointRange?: [number, number];
 };
 
 // One row of a "next departures" card.
@@ -98,7 +148,7 @@ export interface ToolCallMapData {
 	polygons?: ToolCallMapPolygon[];
 	distanceM?: number;
 	durationS?: number;
-	mode?: "drive" | "walk" | "bike" | "transit";
+	mode?: "drive" | "walk" | "bike" | "transit" | "journey";
 	originLabel?: string;
 	destinationLabel?: string;
 	// Public transport only: the itinerary's legs (transit action) or the next
@@ -106,6 +156,21 @@ export interface ToolCallMapData {
 	transitLegs?: ToolCallMapTransitLeg[];
 	departures?: ToolCallMapDeparture[];
 	transfers?: number;
+	// Road modes: the turn-by-turn Directions list under the map.
+	steps?: ToolCallMapStep[];
+	// Climb/drop in metres, when the profile reported elevation (walk/bike).
+	ascentM?: number;
+	descentM?: number;
+	// The road the route mostly follows ("R600") — the summary's "via".
+	via?: string;
+	// Local clock times and calendar date for a timed journey ("07:22",
+	// "10:54", "2026-09-09"), so the card can print "07:22 → 10:54 · Tue 9 Sep"
+	// without knowing a timezone.
+	departAt?: string;
+	arriveAt?: string;
+	departDate?: string;
+	// Set when the journey was planned backwards from an arrive-by time.
+	arriveBy?: string;
 	attribution: string;
 }
 
