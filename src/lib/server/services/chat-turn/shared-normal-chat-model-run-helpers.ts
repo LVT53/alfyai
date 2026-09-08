@@ -344,20 +344,29 @@ export async function prepareOutboundContext(
 	});
 }
 
-// Ready on-demand routing regions, for the map_route description. Fails open
-// (no label) so a region-manager hiccup never blocks a turn.
-async function resolveRoutingCoverageLabel(): Promise<string | null> {
-	if (!getConfig().routingOnDemandEnabled) return null;
+// Ready on-demand routing regions (and, separately, the ones whose public
+// transport timetables are loaded) for the map_route description. Fails open
+// (no labels) so a region-manager hiccup never blocks a turn.
+async function resolveRoutingCoverageLabels(): Promise<{
+	routing: string | null;
+	transit: string | null;
+}> {
+	if (!getConfig().routingOnDemandEnabled)
+		return { routing: null, transit: null };
 	try {
 		const { getRoutingRegionManager } = await import(
 			"$lib/server/services/routing/region-runtime"
 		);
 		const ready = await getRoutingRegionManager().listReadyRegions();
-		return ready.length > 0
-			? ready.map((row) => row.name).join(", ")
-			: "none yet";
+		const transit = ready.filter((row) => row.transitStatus === "ready");
+		return {
+			routing:
+				ready.length > 0 ? ready.map((row) => row.name).join(", ") : "none yet",
+			transit:
+				transit.length > 0 ? transit.map((row) => row.name).join(", ") : null,
+		};
 	} catch {
-		return null;
+		return { routing: null, transit: null };
 	}
 }
 
@@ -368,7 +377,8 @@ export async function createToolPack(
 	modelId: ModelId,
 	enabledConnectionCapabilities: Set<Capability>,
 ): Promise<ToolPack> {
-	const routingCoverageLabel = await resolveRoutingCoverageLabel();
+	const routingCoverage = await resolveRoutingCoverageLabels();
+	const routingCoverageLabel = routingCoverage.routing;
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -378,6 +388,9 @@ export async function createToolPack(
 		enabledConnectionCapabilities,
 		modelId,
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
+		...(routingCoverage.transit
+			? { routingTransitCoverageLabel: routingCoverage.transit }
+			: {}),
 		...(activeDepthEffort
 			? { webSourceBudget: activeDepthEffort.webSourceBudget }
 			: {}),

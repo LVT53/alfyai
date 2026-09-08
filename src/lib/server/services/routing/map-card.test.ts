@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildRouteMapCardData,
+	buildTransitMapCardData,
 	computeBounds,
 	decodePolyline,
 	downsamplePath,
@@ -296,6 +297,87 @@ describe("buildRouteMapCardData", () => {
 			MAP_CARD_MAX_BYTES,
 		);
 		expect(map?.polyline?.length).toBeGreaterThan(2);
+	});
+});
+
+describe("buildTransitMapCardData", () => {
+	const origin = { lat: 49.4, lng: 8.69 };
+	const destination = { lat: 49.41, lng: 8.695 };
+
+	it("draws the itinerary geometry and carries its legs", () => {
+		const points: [number, number][] = [
+			[49.4, 8.69],
+			[49.405, 8.692],
+			[49.41, 8.695],
+		];
+		const map = buildTransitMapCardData({
+			polyline: encodePolylineForTest(points),
+			origin,
+			destination,
+			originLabel: "Dossenheim",
+			destinationLabel: "Heidelberg",
+			durationS: 1620,
+			distanceM: 5231.4,
+			transfers: 1,
+			legs: [
+				{ type: "walk", minutes: 3 },
+				{ type: "pt", line: "39A", minutes: 19, stops: 7 },
+			],
+		});
+		expect(map.mode).toBe("transit");
+		expect(map.transfers).toBe(1);
+		expect(map.transitLegs).toHaveLength(2);
+		expect(map.durationS).toBe(1620);
+		expect(map.distanceM).toBe(5231);
+		expect(map.polyline?.length).toBe(3);
+		expect(map.markers?.map((marker) => marker.kind)).toEqual([
+			"origin",
+			"destination",
+		]);
+		expect(map.departures).toBeUndefined();
+	});
+
+	it("falls back to a straight origin→destination line with no geometry", () => {
+		const map = buildTransitMapCardData({
+			origin,
+			destination,
+			originLabel: "A",
+			destinationLabel: "B",
+			durationS: 600,
+			distanceM: 1000,
+			transfers: 0,
+			departures: [{ depart: "08:25", minutes: 27, transfers: 0 }],
+		});
+		expect(map.polyline).toEqual([
+			[origin.lat, origin.lng],
+			[destination.lat, destination.lng],
+		]);
+		expect(map.departures).toHaveLength(1);
+		expect(map.transitLegs).toBeUndefined();
+	});
+
+	it("keeps a long itinerary under the 8 KB card budget", () => {
+		const points = longRouteFixture(20_000);
+		const last = points[points.length - 1];
+		const map = buildTransitMapCardData({
+			polyline: encodePolylineForTest(points),
+			origin: { lat: points[0][0], lng: points[0][1] },
+			destination: { lat: last[0], lng: last[1] },
+			originLabel: "Budapest",
+			destinationLabel: "Lisbon",
+			durationS: 54_000,
+			distanceM: 1_400_000,
+			transfers: 4,
+			legs: Array.from({ length: 12 }, (_, index) => ({
+				type: index % 2 === 0 ? ("walk" as const) : ("pt" as const),
+				minutes: 20,
+				line: `L${index}`,
+			})),
+		});
+		expect(Buffer.byteLength(JSON.stringify(map))).toBeLessThanOrEqual(
+			MAP_CARD_MAX_BYTES,
+		);
+		expect(map.polyline?.length).toBeGreaterThan(2);
 	});
 });
 

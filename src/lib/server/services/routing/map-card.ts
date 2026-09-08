@@ -11,7 +11,9 @@
 
 import type {
 	ToolCallMapData,
+	ToolCallMapDeparture,
 	ToolCallMapMarker,
+	ToolCallMapTransitLeg,
 } from "$lib/server/services/messages-types";
 import { OSM_ATTRIBUTION, type RouteData, type RoutingMode } from "./types";
 
@@ -243,6 +245,92 @@ function fitPolylineToBudget(
 
 // ── Public builder ──────────────────────────────────────────────────────────
 
+// Shared tail of both builders: choose the drawn path, compute bounds, fit the
+// polyline to the byte budget around whatever else the card carries, and drop
+// the line entirely rather than persist an oversized blob.
+function assembleMapCard(
+	skeleton: Omit<ToolCallMapData, "polyline">,
+	rawPath: [number, number][],
+): ToolCallMapData {
+	const overheadBytes = Buffer.byteLength(JSON.stringify(skeleton));
+	const polyline = fitPolylineToBudget(rawPath, overheadBytes);
+	const map: ToolCallMapData = { ...skeleton, polyline };
+	if (Buffer.byteLength(JSON.stringify(map)) > MAP_CARD_MAX_BYTES) {
+		// Keep the endpoints rather than the first two points, so even this
+		// degenerate line still spans origin to destination.
+		const ends: [number, number][] =
+			polyline.length > 1
+				? [polyline[0], polyline[polyline.length - 1]]
+				: polyline;
+		return { ...skeleton, polyline: ends };
+	}
+	return map;
+}
+
+// The map card for a `transit` / `timetable` result. The drawn line is the
+// itinerary's own geometry (ORS returns a whole-journey polyline for a PT
+// route, same encoding as a road route), and the leg list rides alongside it
+// so the chat body can print "bus 39A 08:31 → 08:47" above the map.
+export function buildTransitMapCardData(params: {
+	polyline?: string;
+	origin: { lat: number; lng: number };
+	destination: { lat: number; lng: number };
+	originLabel: string;
+	destinationLabel: string;
+	durationS: number;
+	distanceM: number;
+	transfers: number;
+	legs?: ToolCallMapTransitLeg[];
+	departures?: ToolCallMapDeparture[];
+}): ToolCallMapData {
+	const decoded = params.polyline
+		? downsamplePath(decodePolyline(params.polyline), MAX_SOURCE_POINTS)
+		: [];
+	const markers: ToolCallMapMarker[] = [
+		{
+			lat: params.origin.lat,
+			lng: params.origin.lng,
+			label: params.originLabel,
+			kind: "origin",
+		},
+		{
+			lat: params.destination.lat,
+			lng: params.destination.lng,
+			label: params.destinationLabel,
+			kind: "destination",
+		},
+	];
+	const rawPath: [number, number][] =
+		decoded.length >= 2
+			? decoded
+			: [
+					[params.origin.lat, params.origin.lng],
+					[params.destination.lat, params.destination.lng],
+				];
+	const bounds = computeBounds([
+		...rawPath,
+		...markers.map((marker): [number, number] => [marker.lat, marker.lng]),
+	]);
+	const skeleton: Omit<ToolCallMapData, "polyline"> = {
+		bounds,
+		markers,
+		distanceM: Math.round(params.distanceM),
+		durationS: Math.round(params.durationS),
+		mode: "transit",
+		originLabel: params.originLabel,
+		destinationLabel: params.destinationLabel,
+		transfers: params.transfers,
+		...(params.legs && params.legs.length > 0
+			? { transitLegs: params.legs }
+			: {}),
+		...(params.departures && params.departures.length > 0
+			? { departures: params.departures }
+			: {}),
+		attribution: OSM_ATTRIBUTION,
+	};
+	return assembleMapCard(skeleton, rawPath);
+}
+
 export function buildRouteMapCardData(params: {
 	route: RouteData;
 	originLabel: string;
@@ -303,21 +391,8 @@ export function buildRouteMapCardData(params: {
 		destinationLabel,
 		attribution: OSM_ATTRIBUTION,
 	};
-	const overheadBytes = Buffer.byteLength(JSON.stringify(skeleton));
-	const polyline = fitPolylineToBudget(rawPath, overheadBytes);
-
-	const map: ToolCallMapData = { ...skeleton, polyline };
-	// Final guard: if something upstream still overshoots (shouldn't happen
-	// given the budget split above), drop the polyline entirely rather than
-	// persist an oversized blob — the card still renders markers.
-	if (Buffer.byteLength(JSON.stringify(map)) > MAP_CARD_MAX_BYTES) {
-		// Keep the endpoints rather than the first two points, so even this
-		// degenerate line still spans origin to destination.
-		const ends: [number, number][] =
-			polyline.length > 1
-				? [polyline[0], polyline[polyline.length - 1]]
-				: polyline;
-		return { ...skeleton, polyline: ends };
-	}
-	return map;
+	// Final guard inside assembleMapCard: if something upstream still
+	// overshoots the budget, the polyline is reduced to its endpoints rather
+	// than persisted oversized — the card still renders markers.
+	return assembleMapCard(skeleton, rawPath);
 }

@@ -216,6 +216,10 @@ export interface CreateNormalChatToolsContext {
 	// in the map_route description. Computed upstream (createToolPack) because
 	// tool construction is synchronous; omitted when on-demand routing is off.
 	routingCoverageLabel?: string;
+	// Names of the regions whose public-transport timetables are loaded, for
+	// the map_route description's TIMETABLES line. Computed upstream for the
+	// same reason routingCoverageLabel is.
+	routingTransitCoverageLabel?: string;
 	// The turn's current user message, used by use_skill to select the (up to
 	// 3) pack resources whose keywords match this request — the same
 	// selectSkillResources logic the forced `$` skill injection uses.
@@ -240,7 +244,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		map_route: {
 			description:
-				'Places, distances, travel times and routes on OpenStreetMap data — the ONLY tool for "how far", "how long to get there", "route/directions", "what is within 20 minutes", or turning a place name into coordinates; never use image_search or research_web for those. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations) or `isochrone` (origin, ranges_s in seconds). A place is a name string or {"lat":52.52,"lng":13.4}; `mode` is drive (default), walk or bike. Example: {"action":"route","origin":"Berlin Hbf","destination":"Brandenburg Gate","mode":"walk"}. It does not know where the user is: call `location` first for their coordinates. Narrate the structured result (distance_m, duration_s, legs, polygons) and always include "© OpenStreetMap contributors".',
+				'Places, distances, travel times and routes on OpenStreetMap data — the ONLY tool for "how far", "how long to get there", "route/directions", "what is within 20 minutes", public transport journeys and departure times, or turning a place name into coordinates; never use image_search or research_web for those. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations), `isochrone` (origin, ranges_s in seconds), `transit` (public transport journey with times and lines: origin, destination, optional departure or arrive_by and max_walk_minutes) or `timetable` (the next departures between two places: origin, destination, optional from, window_minutes, rows). A place is a name string or {"lat":52.52,"lng":13.4}; `mode` is drive (default), walk or bike. Example: {"action":"route","origin":"Berlin Hbf","destination":"Brandenburg Gate","mode":"walk"}. It does not know where the user is: call `location` first for their coordinates. Narrate the structured result (distance_m, duration_s, legs, polygons; for transit the local clock times, lines and transfers) and always include "© OpenStreetMap contributors".',
 			errorPrefix: "Routing failed",
 		},
 		memory_context: {
@@ -332,7 +336,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		map_route: {
 			description:
-				'Helyek, távolságok, menetidők és útvonalak OpenStreetMap adatokon — az EGYETLEN eszköz a „milyen messze”, „mennyi idő odaérni”, „útvonal/útbaigazítás”, „mi érhető el 20 percen belül” kérdésekhez és helynevek koordinátává alakításához; ezekre soha ne használd az image_search vagy research_web eszközt. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations) vagy `isochrone` (origin, ranges_s másodpercben). Egy hely lehet helynév szöveg vagy {"lat":52.52,"lng":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {"action":"route","origin":"Keleti pályaudvar","destination":"Lánchíd","mode":"walk"}. Nem tudja, hol van a felhasználó: előbb hívd a `location` eszközt a koordinátákért. Mondd el az eredményt (distance_m, duration_s, legs, poligonok), és mindig szerepeljen benne a "© OpenStreetMap contributors" felirat.',
+				'Helyek, távolságok, menetidők és útvonalak OpenStreetMap adatokon — az EGYETLEN eszköz a „milyen messze”, „mennyi idő odaérni”, „útvonal/útbaigazítás”, „mi érhető el 20 percen belül” kérdésekhez, tömegközlekedési utazásokhoz és indulási időkhöz, valamint helynevek koordinátává alakításához; ezekre soha ne használd az image_search vagy research_web eszközt. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations), `isochrone` (origin, ranges_s másodpercben), `transit` (tömegközlekedési utazás időpontokkal és járatszámokkal: origin, destination, opcionális departure vagy arrive_by és max_walk_minutes) vagy `timetable` (a következő indulások két hely között: origin, destination, opcionális from, window_minutes, rows). Egy hely lehet helynév szöveg vagy {"lat":52.52,"lng":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {"action":"route","origin":"Keleti pályaudvar","destination":"Lánchíd","mode":"walk"}. Nem tudja, hol van a felhasználó: előbb hívd a `location` eszközt a koordinátákért. Mondd el az eredményt (distance_m, duration_s, legs, poligonok; tömegközlekedésnél a helyi időpontokat, járatokat és átszállásokat), és mindig szerepeljen benne a "© OpenStreetMap contributors" felirat.',
 			errorPrefix: "Az útvonaltervezés sikertelen",
 		},
 		memory_context: {
@@ -446,17 +450,30 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const orsCoverageLabel = registrationConfig.routingOnDemandEnabled
 		? (ctx.routingCoverageLabel?.trim() ?? "")
 		: (registrationConfig.orsCoverageLabel?.trim() ?? "");
-	const mapRouteDescription = orsCoverageLabel
-		? `${i18n.map_route.description} ${
-				registrationConfig.routingOnDemandEnabled
-					? lang === "hu"
-						? `LEFEDETTSÉG: jelenleg betöltött régiók: ${orsCoverageLabel}. Más régiók térképadatát a szerver első használatkor igény szerint letölti és felépíti (10–40 perc); ha az eszköz azt jelzi, hogy egy régió előkészítés alatt áll, mondd el a felhasználónak, hogy kérdezzen rá később, és ne becsülj.`
-						: `COVERAGE: regions loaded right now: ${orsCoverageLabel}. Other regions are downloaded and built on demand the first time they are needed (10–40 minutes); if the tool reports a region is being prepared, tell the user to ask again later and do not estimate.`
-					: lang === "hu"
-						? `FONTOS: az útvonaltervező térképadatai CSAK ezt a régiót fedik le: ${orsCoverageLabel}. Ezen kívüli helyekre ne hívd útvonalhoz/mátrixhoz/izokronhoz — mondd ki, hogy a hely kívül esik az útvonaltervezés lefedettségén, és ne becsülj.`
-						: `IMPORTANT: the routing map data on this server covers ONLY ${orsCoverageLabel}. Do not call route/matrix/isochrone for places outside it — say the location is outside the routing coverage instead, and do not estimate.`
-			}`
-		: i18n.map_route.description;
+	// Timetables are a per-region GTFS graph, so they cover FEWER regions than
+	// road routing. Naming them separately stops the model from calling
+	// transit/timetable for a region that only has roads.
+	const transitCoverageLabel = ctx.routingTransitCoverageLabel?.trim() ?? "";
+	const transitCoverageSuffix = transitCoverageLabel
+		? lang === "hu"
+			? ` MENETREND: tömegközlekedési menetrend csak ezekre a régiókra érhető el: ${transitCoverageLabel}. Máshol ne hívd a transit/timetable műveletet — mondd ki, hogy nincs menetrend, és ne találj ki indulási időket.`
+			: ` TIMETABLES: public transport timetables are loaded for ${transitCoverageLabel} only. Do not call transit/timetable elsewhere — say timetables are unavailable there, and never invent departure times.`
+		: lang === "hu"
+			? " MENETREND: ezen a szerveren jelenleg egyetlen régióhoz sincs tömegközlekedési menetrend; ne hívd a transit/timetable műveletet."
+			: " TIMETABLES: no region on this server has public transport timetables loaded right now; do not call transit/timetable.";
+	const mapRouteDescription = `${
+		orsCoverageLabel
+			? `${i18n.map_route.description} ${
+					registrationConfig.routingOnDemandEnabled
+						? lang === "hu"
+							? `LEFEDETTSÉG: jelenleg betöltött régiók: ${orsCoverageLabel}. Más régiók térképadatát a szerver első használatkor igény szerint letölti és felépíti (10–40 perc); ha az eszköz azt jelzi, hogy egy régió előkészítés alatt áll, mondd el a felhasználónak, hogy kérdezzen rá később, és ne becsülj.`
+							: `COVERAGE: regions loaded right now: ${orsCoverageLabel}. Other regions are downloaded and built on demand the first time they are needed (10–40 minutes); if the tool reports a region is being prepared, tell the user to ask again later and do not estimate.`
+						: lang === "hu"
+							? `FONTOS: az útvonaltervező térképadatai CSAK ezt a régiót fedik le: ${orsCoverageLabel}. Ezen kívüli helyekre ne hívd útvonalhoz/mátrixhoz/izokronhoz — mondd ki, hogy a hely kívül esik az útvonaltervezés lefedettségén, és ne becsülj.`
+							: `IMPORTANT: the routing map data on this server covers ONLY ${orsCoverageLabel}. Do not call route/matrix/isochrone for places outside it — say the location is outside the routing coverage instead, and do not estimate.`
+				}`
+			: i18n.map_route.description
+	}${transitCoverageSuffix}`;
 	const includeFilesTool = Boolean(
 		ctx.enabledConnectionCapabilities?.has("files"),
 	);
@@ -2112,6 +2129,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 														onDemandEnabled: true,
 														requestedBy: ctx.userId ?? null,
 														readyRegionNames: ready.map((row) => row.name),
+														transitRegionNames: ready
+															.filter((row) => row.transitStatus === "ready")
+															.map((row) => row.name),
 														geocoder: createOrsProvider(
 															{ orsBaseUrl, geocoderBaseUrl },
 															providerDeps,
