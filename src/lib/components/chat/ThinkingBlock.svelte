@@ -650,12 +650,21 @@ const selectedStepReveal = $derived.by(() => {
 	if (!selectedStepId) return null;
 	const step = anchoredThoughtSteps.find((s) => s.id === selectedStepId);
 	if (!step) return null;
-	// Show the anchored span (highlighted) plus enough surrounding text to
-	// complete its own sentence, so the reveal no longer begins/ends
-	// mid-sentence. `before`/`after` are real, un-highlighted context.
 	const reveal = resolveThoughtStepDisplayContext(step.anchor, content);
 	if (!reveal) return null;
-	return { step, ...reveal };
+	// Owner feedback (2026-09-08) — "it cuts off mid sentences". The
+	// HIGHLIGHT is the whole sentence (or sentences) the anchored span sits
+	// in, not the raw span: `before + span + after` is marked as one unit, so
+	// even an old, pre-snap persisted anchor that starts or ends mid-word
+	// reads as a complete thought. `leadIn`/`tailOut` are one further
+	// sentence of real, un-highlighted context on each side (never crossing a
+	// paragraph break) so the reader sees where the thought sits.
+	return {
+		step,
+		leadIn: reveal.leadIn,
+		highlight: `${reveal.before}${reveal.span}${reveal.after}`,
+		tailOut: reveal.tailOut,
+	};
 });
 
 function selectThoughtStep(step: InterimThoughtStep) {
@@ -1097,7 +1106,7 @@ function toggleFullReasoning(): void {
 							<ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
 							{$t('chat.thoughtStep.backToSteps')}
 						</button>
-						<pre class="thinking-text" bind:this={selectedStepRevealEl}>{selectedStepReveal.before}<mark class="thought-step-anchor-highlight">{selectedStepReveal.span}</mark>{selectedStepReveal.after}</pre>
+						<pre class="thinking-text" bind:this={selectedStepRevealEl}>{selectedStepReveal.leadIn}<mark class="thought-step-anchor-highlight">{selectedStepReveal.highlight}</mark>{selectedStepReveal.tailOut}</pre>
 					</div>
 				{:else if showFullReasoning}
 					<div class="full-reasoning-view" in:flyTransition={{ y: 8, duration: 200 }}>
