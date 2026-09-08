@@ -717,6 +717,8 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 
 	it("draws a coloured vector dot for each citation annotation and a source legend", async () => {
 		const rendered = await renderStandardReportPdf({
+			version: 1,
+			template: "alfyai_standard_report",
 			title: "Wind and solar build-out",
 			blocks: [
 				{
@@ -752,6 +754,8 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 
 	it("leaves unannotated reports free of dots and the legend", async () => {
 		const rendered = await renderStandardReportPdf({
+			version: 1,
+			template: "alfyai_standard_report",
 			title: "Plain report",
 			blocks: [
 				{ type: "paragraph", text: "Ireland passed 8 GW [4]." },
