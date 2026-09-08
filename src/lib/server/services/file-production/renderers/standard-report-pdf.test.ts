@@ -51,6 +51,30 @@ function readFixtureSource(filename: string): GeneratedDocumentSource {
 	return validation.source;
 }
 
+async function extractPdfFillColors(content: Buffer): Promise<string[]> {
+	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+	const document = await pdfjs.getDocument({
+		data: new Uint8Array(content),
+		useSystemFonts: false,
+	}).promise;
+	const opNameByCode = Object.fromEntries(
+		Object.entries(pdfjs.OPS).map(([name, code]) => [code, name]),
+	) as Record<number, string>;
+	const colors: string[] = [];
+	for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+		const page = await document.getPage(pageNumber);
+		const operators = await page.getOperatorList();
+		operators.fnArray.forEach((code: number, index: number) => {
+			if (opNameByCode[code] !== "setFillRGBColor") return;
+			const args = operators.argsArray[index] as unknown[];
+			if (typeof args?.[0] === "string") colors.push(args[0].toLowerCase());
+		});
+		page.cleanup();
+	}
+	await document.destroy();
+	return colors;
+}
+
 describe("AlfyAI Standard Report PDF renderer", () => {
 	it("renders core fixture documents as styled A4 PDFs with stable metadata", async () => {
 		for (const filename of [
@@ -689,5 +713,63 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 		expect(rendered.diagnostics.charts.map((chart) => chart.chartType)).toEqual(
 			["bar", "stackedBar", "scatter", "pie", "donut"],
 		);
+	});
+
+	it("draws a coloured vector dot for each citation annotation and a source legend", async () => {
+		const rendered = await renderStandardReportPdf({
+			title: "Wind and solar build-out",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Ireland passed 8 GW of installed onshore renewable capacity[[cite:1:c]], of which onshore wind is just over 5 GW[[cite:2:s]], so storage is unlikely to cover a multi-day wind lull before 2030[[cite:i]].",
+				},
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{ title: "Ireland reaches 8 GW", url: "https://gov.ie/renewables" },
+					],
+				},
+			],
+		});
+
+		const text = await extractPdfText(rendered.content);
+		expect(text).not.toContain("[[cite");
+		expect(text).toContain(
+			"Ireland passed 8 GW of installed onshore renewable",
+		);
+		expect(text).toContain("corroborated by independent sources");
+		expect(text).toContain("single source");
+		expect(text).toContain("inferred, no direct source");
+
+		// Three annotated claims plus the three legend dots, drawn as filled
+		// circles in the level colours rather than a font glyph.
+		const colors = await extractPdfFillColors(rendered.content);
+		expect(colors.filter((color) => color === "#15803d")).toHaveLength(2);
+		expect(colors.filter((color) => color === "#d97706")).toHaveLength(2);
+		expect(colors.filter((color) => color === "#b91c1c")).toHaveLength(2);
+	});
+
+	it("leaves unannotated reports free of dots and the legend", async () => {
+		const rendered = await renderStandardReportPdf({
+			title: "Plain report",
+			blocks: [
+				{ type: "paragraph", text: "Ireland passed 8 GW [4]." },
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{ title: "Ireland reaches 8 GW", url: "https://gov.ie/renewables" },
+					],
+				},
+			],
+		});
+
+		const text = await extractPdfText(rendered.content);
+		expect(text).toContain("Ireland passed 8 GW [4].");
+		expect(text).not.toContain("corroborated by independent sources");
+		const colors = await extractPdfFillColors(rendered.content);
+		expect(colors).not.toContain("#15803d");
+		expect(colors).not.toContain("#b91c1c");
 	});
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildGeneratedDocumentProjection,
+	generatedDocumentCitationPlainText,
+	generatedDocumentCitationToken,
+	parseGeneratedDocumentInlineText,
 	validateGeneratedDocumentSource,
 } from "./source-schema";
 
@@ -602,5 +605,80 @@ describe("generated document source schema", () => {
 			ok: false,
 			code: "unsupported_chart_type",
 		});
+	});
+
+	function paragraphSource(text: string): unknown {
+		return {
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Annotated report",
+			blocks: [{ type: "paragraph", text }],
+		};
+	}
+
+	it("accepts inline citation annotations in paragraph text", () => {
+		const result = validateGeneratedDocumentSource(
+			paragraphSource(
+				"Ireland passed 8 GW [4][[cite:4:c]], wind is 5 GW [7][[cite:s]], storage lags[[cite:i]].",
+			),
+		);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const paragraph = result.source.blocks[0];
+		expect(paragraph).toMatchObject({
+			type: "paragraph",
+			text: "Ireland passed 8 GW [4][[cite:4:c]], wind is 5 GW [7][[cite:s]], storage lags[[cite:i]].",
+		});
+	});
+
+	it("rejects paragraphs carrying a malformed citation annotation", () => {
+		for (const text of [
+			"Unknown level[[cite:4:x]].",
+			"Zero is not a source number[[cite:0:c]].",
+			"Missing level[[cite:4]].",
+			"Nothing at all[[cite:]].",
+			"Half written [[cite:c].",
+		]) {
+			expect(
+				validateGeneratedDocumentSource(paragraphSource(text)),
+			).toMatchObject({
+				ok: false,
+				code: "unsupported_document_block",
+			});
+		}
+	});
+
+	it("parses annotations into segments and projects them as plain glyphs", () => {
+		const text = "Grid capacity is 1 GW [12][[cite:12:s]] today[[cite:i]].";
+		expect(parseGeneratedDocumentInlineText(text)).toEqual([
+			{ kind: "text", text: "Grid capacity is 1 GW [12]" },
+			{ kind: "citation", sourceNumber: 12, level: "single" },
+			{ kind: "text", text: " today" },
+			{ kind: "citation", sourceNumber: null, level: "inferred" },
+			{ kind: "text", text: "." },
+		]);
+		expect(generatedDocumentCitationPlainText(text)).toBe(
+			"Grid capacity is 1 GW [12][12]ˢ todayⁱ.",
+		);
+		expect(
+			generatedDocumentCitationToken({
+				sourceNumber: 4,
+				level: "corroborated",
+			}),
+		).toBe("[[cite:4:c]]");
+		expect(
+			generatedDocumentCitationToken({ sourceNumber: null, level: "inferred" }),
+		).toBe("[[cite:i]]");
+	});
+
+	it("keeps annotation tokens out of the text projection", () => {
+		const result = validateGeneratedDocumentSource(
+			paragraphSource("Onshore wind is 5 GW[[cite:7:c]]."),
+		);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const projection = buildGeneratedDocumentProjection(result.source);
+		expect(projection).toContain("Onshore wind is 5 GW[7]ᶜ.");
+		expect(projection).not.toContain("[[cite");
 	});
 });

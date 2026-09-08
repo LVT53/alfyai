@@ -914,4 +914,93 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		);
 		expect(html).not.toContain('class="">Findings</h2>');
 	});
+
+	it("renders a confidence dot after each annotated citation and a legend under the sources", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Wind and solar build-out",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "Ireland passed 8 GW of installed onshore renewable capacity[[cite:1:c]], of which onshore wind is just over 5 GW[[cite:2:s]], so storage is unlikely to cover a multi-day wind lull[[cite:i]].",
+				},
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{ title: "Ireland reaches 8 GW", url: "https://gov.ie/renewables" },
+						{
+							title: "Renewable Energy Generation",
+							url: "https://oireachtas.ie/pq520",
+						},
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).not.toContain("[[cite");
+		// Each dot follows the numbered chip for the source it annotates.
+		expect(html).toContain('data-source-number="1"');
+		expect(html).toContain(
+			'<span class="cite-dot cite-dot--corroborated" role="img" title="Corroborated by independent sources" aria-label="Corroborated by independent sources"></span>',
+		);
+		expect(html).toContain(
+			'<span class="cite-dot cite-dot--single" role="img" title="Single source" aria-label="Single source"></span>',
+		);
+		expect(html).toContain(
+			'<span class="cite-dot cite-dot--inferred" role="img" title="Inferred, no direct source" aria-label="Inferred, no direct source"></span>',
+		);
+		// The inferred claim carries no source number, so it is a bare dot.
+		expect(html).toContain(
+			'multi-day wind lull<span class="cite-dot cite-dot--inferred"',
+		);
+		expect(html).toContain(
+			'<p class="cite-legend"><span class="cite-legend-entry"><span class="cite-dot cite-dot--corroborated" aria-hidden="true"></span>corroborated by independent sources</span><span class="cite-legend-entry"><span class="cite-dot cite-dot--single" aria-hidden="true"></span>single source</span><span class="cite-legend-entry"><span class="cite-dot cite-dot--inferred" aria-hidden="true"></span>inferred, no direct source</span></p>',
+		);
+		// The legend sits under the rendered source list, not before it.
+		expect(html.indexOf('class="cite-legend"')).toBeGreaterThan(
+			html.indexOf('class="source-list"'),
+		);
+		expect(html).toContain(
+			".cite-dot{display:inline-block;width:7px;height:7px;margin-left:2px;border-radius:50%;vertical-align:1px;background:var(--cite-single);}",
+		);
+		expect(html).toContain("--cite-corroborated:#15803D;");
+		expect(html).toContain(
+			"@media (prefers-color-scheme: dark){:root{color-scheme:dark;--cite-corroborated:#4ADE80;",
+		);
+	});
+
+	it("leaves unannotated reports byte-identical to plain citation rendering", () => {
+		const build = (text: string) =>
+			validateGeneratedDocumentSource({
+				version: 1,
+				template: "alfyai_standard_report",
+				title: "Plain report",
+				blocks: [
+					{ type: "paragraph", text },
+					{
+						type: "sourceChips",
+						title: "Sources",
+						sources: [{ title: "Source one", url: "https://example.com/one" }],
+					},
+				],
+			});
+		const plain = build("Onshore wind is just over 5 GW [1].");
+		expect(plain.ok).toBe(true);
+		if (!plain.ok) return;
+		const html = renderStandardReportHtml(plain.source).content.toString(
+			"utf8",
+		);
+		expect(html).not.toContain('<p class="cite-legend">');
+		expect(html).not.toContain("cite-dot cite-dot--");
+		expect(html).toContain('data-source-number="1"');
+	});
 });

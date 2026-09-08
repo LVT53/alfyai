@@ -28,6 +28,100 @@ export interface GeneratedDocumentParagraphBlock {
 	basisMarkers?: GeneratedDocumentParagraphBasisMarker[];
 }
 
+/**
+ * Per-claim confidence carried inline in `paragraph.text`.
+ *
+ * A paragraph stays a plain string — producers that know nothing about
+ * confidence keep emitting prose, and every existing document renders
+ * unchanged. Producers that do know annotate a claim with a token the prose
+ * cannot contain: `[[cite:4:c]]` annotates the citation for source 4,
+ * `[[cite:i]]` annotates a claim with no numbered source. Levels are `c`
+ * (corroborated by independent sources), `s` (single source) and `i`
+ * (inferred, no direct source). Anything else that looks like a `[[cite…`
+ * token is rejected by the schema rather than shown to the reader.
+ */
+export const GENERATED_DOCUMENT_CITATION_LEVELS = [
+	"corroborated",
+	"single",
+	"inferred",
+] as const;
+
+export type GeneratedDocumentCitationLevel =
+	(typeof GENERATED_DOCUMENT_CITATION_LEVELS)[number];
+
+export interface GeneratedDocumentCitationAnnotation {
+	sourceNumber: number | null;
+	level: GeneratedDocumentCitationLevel;
+}
+
+export type GeneratedDocumentInlineSegment =
+	| { kind: "text"; text: string }
+	| ({ kind: "citation" } & GeneratedDocumentCitationAnnotation);
+
+const CITATION_LEVEL_BY_CODE: Record<string, GeneratedDocumentCitationLevel> = {
+	c: "corroborated",
+	s: "single",
+	i: "inferred",
+};
+
+const CITATION_CODE_BY_LEVEL: Record<GeneratedDocumentCitationLevel, string> = {
+	corroborated: "c",
+	single: "s",
+	inferred: "i",
+};
+
+// Source numbers match the `[n]` citations the renderers already understand:
+// a positive integer of at most three digits.
+const CITATION_TOKEN_PATTERN = /\[\[cite:(?:([1-9]\d{0,2}):)?([csi])\]\]/g;
+const CITATION_TOKEN_TEST = /\[\[cite:(?:[1-9]\d{0,2}:)?[csi]\]\]/;
+const CITATION_TOKEN_PROBE = /\[\[\s*cite/i;
+
+export function generatedDocumentCitationToken(
+	annotation: GeneratedDocumentCitationAnnotation,
+): string {
+	const code = CITATION_CODE_BY_LEVEL[annotation.level];
+	return annotation.sourceNumber === null
+		? `[[cite:${code}]]`
+		: `[[cite:${annotation.sourceNumber}:${code}]]`;
+}
+
+export function parseGeneratedDocumentInlineText(
+	text: string,
+): GeneratedDocumentInlineSegment[] {
+	const segments: GeneratedDocumentInlineSegment[] = [];
+	let cursor = 0;
+	for (const match of text.matchAll(CITATION_TOKEN_PATTERN)) {
+		const start = match.index ?? 0;
+		if (start > cursor) {
+			segments.push({ kind: "text", text: text.slice(cursor, start) });
+		}
+		const level = CITATION_LEVEL_BY_CODE[match[2]];
+		if (level) {
+			segments.push({
+				kind: "citation",
+				sourceNumber: match[1] ? Number.parseInt(match[1], 10) : null,
+				level,
+			});
+		}
+		cursor = start + match[0].length;
+	}
+	if (cursor < text.length) {
+		segments.push({ kind: "text", text: text.slice(cursor) });
+	}
+	return segments;
+}
+
+export function hasGeneratedDocumentCitationAnnotations(text: string): boolean {
+	return CITATION_TOKEN_TEST.test(text);
+}
+
+export function generatedDocumentTextHasMalformedCitationToken(
+	text: string,
+): boolean {
+	if (!CITATION_TOKEN_PROBE.test(text)) return false;
+	return CITATION_TOKEN_PROBE.test(text.replace(CITATION_TOKEN_PATTERN, ""));
+}
+
 export type GeneratedDocumentBasisSupport =
 	| "supported"
 	| "partial"
@@ -651,6 +745,11 @@ function normalizeParagraphBlock(
 ): BlockNormalizationResult {
 	const text = cleanText(block.text);
 	if (!text) return unsupportedDocumentBlockResult();
+	// A half-written annotation would otherwise print as literal `[[cite…` in
+	// the reader's report, so the block is rejected instead.
+	if (generatedDocumentTextHasMalformedCitationToken(text)) {
+		return unsupportedDocumentBlockResult();
+	}
 	const sources = normalizeSourceChipArray(block.sources);
 	const basisMarkers = normalizeParagraphBasisMarkers(block.basisMarkers);
 	if (!basisMarkers.ok) return basisMarkers;
@@ -1230,6 +1329,70 @@ export function formatGeneratedDocumentBasisNote(
 	return `${generatedDocumentBasisClaimShortLabel(marker.support)} — ${marker.rationale}`;
 }
 
+/** Legend dot colours, shared by every renderer that can draw colour. */
+export const GENERATED_DOCUMENT_CITATION_LEVEL_COLORS: Record<
+	GeneratedDocumentCitationLevel,
+	string
+> = {
+	corroborated: "#15803d",
+	single: "#d97706",
+	inferred: "#b91c1c",
+};
+
+/** True when any paragraph in the document carries a citation annotation. */
+export function generatedDocumentUsesCitationAnnotations(
+	blocks: GeneratedDocumentBlock[],
+): boolean {
+	return blocks.some(
+		(block) =>
+			block.type === "paragraph" &&
+			hasGeneratedDocumentCitationAnnotations(block.text),
+	);
+}
+
+export function generatedDocumentCitationLevelLabel(
+	level: GeneratedDocumentCitationLevel,
+): string {
+	switch (level) {
+		case "corroborated":
+			return "corroborated by independent sources";
+		case "single":
+			return "single source";
+		case "inferred":
+			return "inferred, no direct source";
+	}
+}
+
+export function generatedDocumentCitationLevelGlyph(
+	level: GeneratedDocumentCitationLevel,
+): string {
+	switch (level) {
+		case "corroborated":
+			return "ᶜ";
+		case "single":
+			return "ˢ";
+		case "inferred":
+			return "ⁱ";
+	}
+}
+
+/**
+ * Plain-text projection of a paragraph: every citation annotation collapses to
+ * `[n]` plus the level glyph (`[4]ᶜ`), or to the bare glyph when the claim has
+ * no numbered source. Renderers without colour (Markdown, DOCX, the text
+ * projection) use this so annotation tokens never leak into readable output.
+ */
+export function generatedDocumentCitationPlainText(text: string): string {
+	if (!hasGeneratedDocumentCitationAnnotations(text)) return text;
+	return parseGeneratedDocumentInlineText(text)
+		.map((segment) =>
+			segment.kind === "text"
+				? segment.text
+				: `${segment.sourceNumber === null ? "" : `[${segment.sourceNumber}]`}${generatedDocumentCitationLevelGlyph(segment.level)}`,
+		)
+		.join("");
+}
+
 export function buildGeneratedDocumentProjection(
 	source: GeneratedDocumentSource,
 ): string {
@@ -1254,7 +1417,7 @@ export function buildGeneratedDocumentProjection(
 				lines.push(`${"#".repeat(block.level)} ${block.text}`);
 				break;
 			case "paragraph":
-				lines.push(block.text);
+				lines.push(generatedDocumentCitationPlainText(block.text));
 				if (block.sources && block.sources.length > 0) {
 					lines.push(
 						`Sources: ${block.sources.map(formatSourceProjection).join("; ")}`,
