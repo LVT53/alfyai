@@ -40,6 +40,7 @@ function emptyConfig(): ToolHealthConfig {
 		orsBaseUrl: "",
 		geocoderBaseUrl: "",
 		routingGtfsFeeds: "",
+		routingOnDemandEnabled: false,
 		owntracksRecorderUrl: "",
 	});
 }
@@ -232,7 +233,27 @@ describe("tool health registry", () => {
 		expect(tools["map_route:transit"].detail).toBe("Hungary: building");
 	});
 
-	it("is unconfigured when no GTFS feed is configured at all", async () => {
+	it("stays configured on the shipped catalogue alone", async () => {
+		// An empty ROUTING_GTFS_FEEDS means "use the catalogue", not "off", so
+		// on-demand regions are enough to make the entry real.
+		const tools = byId(
+			await checkToolHealth(
+				makeDeps(healthyHandler, {
+					getConfig: () =>
+						fullConfig({
+							routingGtfsFeeds: "",
+							routingOnDemandEnabled: true,
+						}),
+					listTransitRegions: vi.fn(async () => [
+						{ name: "Hungary", transitStatus: "ready" },
+					]),
+				}),
+			),
+		);
+		expect(tools["map_route:transit"].status).toBe("healthy");
+	});
+
+	it("is unconfigured with no feeds AND no on-demand regions", async () => {
 		const tools = byId(
 			await checkToolHealth(
 				makeDeps(healthyHandler, { getConfig: () => emptyConfig() }),

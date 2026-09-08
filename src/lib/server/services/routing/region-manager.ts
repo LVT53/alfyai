@@ -845,7 +845,7 @@ export function createRoutingRegionManager(
 		// clears `error` — writing the feed failure earlier would erase it.
 		let feedError: string | null = null;
 		if (feeds.length > 0) {
-			const outcome = await downloadTransitFeeds(row, feeds, { force: false });
+			const outcome = await downloadTransitFeeds(row, feeds);
 			readyFeedIds = outcome.readyFeedIds;
 			if (readyFeedIds.length === 0) {
 				feedError =
@@ -971,9 +971,13 @@ export function createRoutingRegionManager(
 	}
 
 	// Downloads every configured feed that is missing, whose URL changed, or
-	// that is past its own refresh interval — and, on `force`, revalidates them
-	// all. Each feed is independent: one failure is recorded against that feed
-	// and the rest carry on.
+	// that is past its own refresh interval. Each feed is independent: one
+	// failure is recorded against that feed and the rest carry on.
+	//
+	// There is no "force" flag, deliberately. Wanting a feed re-fetched is
+	// expressed by FORGETTING its download timestamp (see `refreshTransit` and
+	// `retryTransitFeed`), which is what makes a per-feed retry cost one small
+	// download instead of re-pulling a country's twenty-one feeds.
 	//
 	// GTFS feeds publish no checksum, so integrity rests on (a) an exact
 	// Content-Length match WHEN the server sends one — several of the Hungarian
@@ -982,7 +986,6 @@ export function createRoutingRegionManager(
 	async function downloadTransitFeeds(
 		row: RoutingRegionRow,
 		feeds: GtfsFeed[],
-		options: { force: boolean },
 	): Promise<{ readyFeedIds: string[]; failures: string[] }> {
 		const paths = regionPaths(row.slug);
 		await mkdir(paths.files, { recursive: true });
@@ -997,9 +1000,8 @@ export function createRoutingRegionManager(
 			const previous = prior.get(feed.id);
 			const onDisk = await stat(target).catch(() => null);
 			const unchangedUrl = previous?.url === feed.url;
-			const age = now() - (previous?.downloadedAt ?? 0);
-			const fresh = unchangedUrl && age < feedRefreshMs(feed);
-			if (!options.force && onDisk && fresh) {
+			const fresh = !feedIsDue(feed, previous);
+			if (onDisk && fresh) {
 				states.push({
 					...previous,
 					id: feed.id,
@@ -1175,9 +1177,7 @@ export function createRoutingRegionManager(
 		}
 		const paths = regionPaths(row.slug);
 		await updateRow(row.id, { transitStatus: "building" });
-		const { readyFeedIds, failures } = await downloadTransitFeeds(row, feeds, {
-			force: true,
-		});
+		const { readyFeedIds, failures } = await downloadTransitFeeds(row, feeds);
 		if (readyFeedIds.length === 0) {
 			throw new Error(
 				failures.join("; ") || "no timetable feed could be downloaded",
@@ -1251,7 +1251,7 @@ export function createRoutingRegionManager(
 		} else {
 			await updateRow(row.id, { pbfSizeBytes: existingPbf.size });
 		}
-		const promoted = await downloadTransitFeeds(row, feeds, { force: true });
+		const promoted = await downloadTransitFeeds(row, feeds);
 		if (promoted.readyFeedIds.length === 0) {
 			throw new Error(
 				promoted.failures.join("; ") || "no timetable feed could be downloaded",
@@ -1878,9 +1878,31 @@ export function createRoutingRegionManager(
 		const row = await getRow(id);
 		if (!row) return null;
 		if (feedsFor(id).length === 0) return row;
-		await updateRow(id, { transitStatus: "queued", error: null });
+		// "Refresh" means every feed, so every feed is marked due — the download
+		// still sends its validators, so an unchanged feed costs a 304.
+		const states = parseGtfsFeedStates(row.gtfsFeeds).map((state) =>
+			forgetFeedDownload(state),
+		);
+		await updateRow(id, {
+			gtfsFeeds: JSON.stringify(states),
+			transitStatus: "queued",
+			error: null,
+		});
 		kick();
 		return getRow(id);
+	}
+
+	// Drops the timestamp (and any recorded failure) that would otherwise make
+	// a feed count as fresh, while KEEPING the validators, so the next download
+	// can still be answered with a 304.
+	function forgetFeedDownload(state: GtfsFeedState): GtfsFeedState {
+		return {
+			id: state.id,
+			url: state.url,
+			...(state.bytes === undefined ? {} : { bytes: state.bytes }),
+			...(state.etag ? { etag: state.etag } : {}),
+			...(state.lastModified ? { lastModified: state.lastModified } : {}),
+		};
 	}
 
 	// Admin per-feed retry. It clears the recorded failure and forgets that
@@ -1896,13 +1918,7 @@ export function createRoutingRegionManager(
 		const feeds = feedsFor(id);
 		if (!feeds.some((feed) => feed.id === feedId)) return row;
 		const states = parseGtfsFeedStates(row.gtfsFeeds).map((state) =>
-			state.id === feedId
-				? {
-						id: state.id,
-						url: state.url,
-						...(state.bytes === undefined ? {} : { bytes: state.bytes }),
-					}
-				: state,
+			state.id === feedId ? forgetFeedDownload(state) : state,
 		);
 		await updateRow(id, {
 			gtfsFeeds: JSON.stringify(states),
