@@ -575,6 +575,9 @@ export async function verifyAtlasV2Report(
 						rewritten = true;
 					} else {
 						totals.cut += 1;
+						// A cut sentence still leaves the disagreement standing, so its
+						// contradictions reach Limitations even though its prose does not.
+						allContradictions.push(...verdict.contradictions);
 						continue;
 					}
 				}
