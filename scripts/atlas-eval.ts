@@ -162,9 +162,14 @@ interface Metrics {
 	junkSourceNotes: string[];
 	/** Sentences whose figure the cited snippet did not carry. */
 	unmatchedNumberNotes: string[];
-	/** Words against the profile budget: "ok", "over by n" or "under by n". */
+	/**
+	 * Words against the profile band: "in range (700-1100)", "over by n (…)" or
+	 * "under by n (…)".
+	 */
 	wordBudget: string;
 	wordBudgetOk: boolean;
+	/** Sentences whose figure set repeats an earlier sentence's. */
+	repeatedFactCount: number;
 	sectionCount: number;
 	/** Did the report answer the question that was asked? Null when unchecked. */
 	coreAnswerPresent: boolean | null;
@@ -505,24 +510,84 @@ function coreAnswerPresent(input: {
 	);
 }
 
-/** "ok", or how far outside the profile band the report landed. */
+/**
+ * Where the report landed against the profile band, WITH the band: "in range",
+ * "over by n" or "under by n", each naming the range it is measured against, so
+ * the number in the table can be read without opening this file.
+ */
 function describeWordBudget(
 	wordCount: number,
 	profile: EvalQuery["profile"],
 ): { label: string; ok: boolean } {
 	const band = WORD_BUDGETS[profile];
+	const range = `${band.min}-${band.max}`;
 	if (wordCount > band.max) {
-		return { label: `over by ${wordCount - band.max}`, ok: false };
+		return { label: `over by ${wordCount - band.max} (${range})`, ok: false };
 	}
 	if (wordCount < band.min) {
-		return { label: `under by ${band.min - wordCount}`, ok: false };
+		return { label: `under by ${band.min - wordCount} (${range})`, ok: false };
 	}
-	return { label: "ok", ok: true };
+	return { label: `in range (${range})`, ok: true };
 }
 
+/**
+ * Every prose sentence in the report body, headings and list chrome excluded.
+ * Splitting per LINE first matters: a section heading sits between two
+ * paragraphs, and a sentence splitter run over the whole body would glue the
+ * heading to the sentence on either side of it.
+ */
+function reportSentences(body: string): string[] {
+	return body
+		.split(/\n+/)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("#"))
+		.flatMap((line) => sentencesOf(line));
+}
+
+/**
+ * Sentences that restate an earlier sentence's figures.
+ *
+ * The second evaluation's reports said the same thing in three sections — "65.1
+ * GW in 2025, down 0.7% from 65.6 GW in 2024" in all three — and then reported
+ * themselves as short. A repeated figure set is the cheapest detectable form of
+ * that, and it is counted here INDEPENDENTLY of the server's own novelty guard.
+ */
+function repeatedFactCount(body: string): number {
+	const seen: Array<Set<string>> = [];
+	let repeats = 0;
+	for (const sentence of reportSentences(body)) {
+		const figures = new Set(
+			numbersIn(sentence).filter(
+				(number) => number.replace(/\D/g, "").length >= 2,
+			),
+		);
+		if (figures.size === 0) continue;
+		const isRepeat = seen.some(
+			(earlier) =>
+				earlier.size === figures.size &&
+				[...figures].every((figure) => earlier.has(figure)),
+		);
+		if (isRepeat) {
+			repeats += 1;
+			continue;
+		}
+		seen.push(figures);
+	}
+	return repeats;
+}
+
+/**
+ * Splits a report body into sentences, ACCEPTING the citation group and
+ * confidence glyph that follow the full stop: an Atlas sentence ends
+ * `… in 2024. [2][3]ᶜ`, and a splitter that only looks for `.` followed by a
+ * capital never split there at all — it handed the whole report back as one
+ * "sentence", which quietly pooled every figure against every cited source.
+ */
 function sentencesOf(text: string): string[] {
 	return text
-		.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÖŐÚÜŰ0-9])/)
+		.split(
+			/(?<=[.!?][)"'\]]*(?:\s*\[\d{1,3}\])*\s*[ᶜˢⁱ]?)\s+(?=[A-ZÁÉÍÓÖŐÚÜŰ0-9])/u,
+		)
 		.map((sentence) => sentence.trim())
 		.filter(Boolean);
 }
@@ -559,6 +624,7 @@ function computeMetrics(input: {
 		unmatchedNumberNotes: [],
 		wordBudget: "n/a",
 		wordBudgetOk: false,
+		repeatedFactCount: 0,
 		sectionCount: 0,
 		coreAnswerPresent: null,
 		contradictionLineCount: 0,
@@ -582,7 +648,7 @@ function computeMetrics(input: {
 	let numbersMatched = 0;
 	const unmatchedNumberNotes: string[] = [];
 	if (sources.length > 0) {
-		for (const sentence of sentencesOf(body)) {
+		for (const sentence of reportSentences(body)) {
 			const sentenceCitations = [...sentence.matchAll(CITATION_PATTERN)].map(
 				(match) => Number.parseInt(match[1], 10),
 			);
@@ -649,6 +715,7 @@ function computeMetrics(input: {
 		unmatchedNumberNotes: unmatchedNumberNotes.slice(0, 12),
 		wordBudget: budget.label,
 		wordBudgetOk: budget.ok,
+		repeatedFactCount: repeatedFactCount(body),
 		sectionCount: countHeadings(input.markdown),
 		coreAnswerPresent: input.query
 			? coreAnswerPresent({ markdown: input.markdown, query: input.query })
@@ -821,8 +888,8 @@ function buildMarkdownReport(results: QueryResult[]): string {
 		"",
 		"## Comparison",
 		"",
-		"| Query | Kind | Pipeline | Profile | Status | Wall | Tokens in/out | Words | Budget | Sections | Core answer | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Cut | Disagreements | Sources (cited) | Filtered | Junk |",
-		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+		"| Query | Kind | Pipeline | Profile | Status | Wall | Tokens in/out | Words | Budget | Sections | Core answer | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Repeated facts | Cut | Disagreements | Sources (cited) | Filtered | Junk |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 	];
 
 	for (const result of results) {
@@ -835,7 +902,7 @@ function buildMarkdownReport(results: QueryResult[]): string {
 					? "yes"
 					: "**NO**";
 		lines.push(
-			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? "ok" : `**${metrics.wordBudget}**`} | ${metrics.sectionCount} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
+			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${metrics.sectionCount} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
 		);
 	}
 
@@ -875,6 +942,10 @@ function buildMarkdownReport(results: QueryResult[]): string {
 		lines.push(
 			`- **${pipeline}**: ${succeeded.length}/${bucket.length} succeeded · ${minutes(totalWall)} total · ${totalTokens} tokens · ${density.toFixed(1)} citations per 100 words · ${junk} junk sources`,
 			`  - words inside the profile budget: ${inBudget}/${succeeded.length}`,
+			`  - sentences repeating an earlier figure set: ${bucket.reduce(
+				(sum, entry) => sum + entry.metrics.repeatedFactCount,
+				0,
+			)}`,
 			checkedCore.length > 0
 				? `  - answered the core question: ${answered}/${checkedCore.length}`
 				: "  - answered the core question: not checked (no `coreAnswerRegex` in the query file)",
@@ -919,9 +990,15 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			lines.push(`**Phase durations:** ${durations}`, "");
 		}
 		lines.push(
-			`**Length:** ${result.metrics.wordCount} words against the ${result.query.profile} budget (${WORD_BUDGETS[result.query.profile].min}-${WORD_BUDGETS[result.query.profile].max}) — ${result.metrics.wordBudget}; ${result.metrics.sectionCount} sections.`,
+			`**Length:** ${result.metrics.wordCount} words against the ${result.query.profile} budget — ${result.metrics.wordBudget}; ${result.metrics.sectionCount} sections.`,
 			"",
 		);
+		if (result.metrics.repeatedFactCount > 0) {
+			lines.push(
+				`**Repeated facts:** ${result.metrics.repeatedFactCount} sentence(s) restate a figure set an earlier sentence already carried.`,
+				"",
+			);
+		}
 		if (result.metrics.coreAnswerPresent === false) {
 			lines.push(
 				"> **The report did not answer the core question.** The executive",
@@ -1103,6 +1180,7 @@ export {
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
+	repeatedFactCount,
 	reportBody,
 	WORD_BUDGETS,
 };

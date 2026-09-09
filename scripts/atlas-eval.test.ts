@@ -9,6 +9,7 @@ import {
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
+	repeatedFactCount,
 	reportBody,
 } from "./atlas-eval";
 
@@ -253,6 +254,22 @@ describe("computeMetrics", () => {
 		expect(metrics.unmatchedNumberNotes[0]).toContain("8,412");
 	});
 
+	it("checks each figure against its OWN sentence's sources", () => {
+		// Two sentences in one paragraph, each ending in a citation group. The
+		// second sentence's figure is in source 1's text, not source 2's, so
+		// pooling the whole paragraph would wrongly call it matched.
+		const metrics = computeMetrics({
+			markdown: [
+				"## Capacity",
+				"",
+				"The union added 8,000 MW of solar capacity. [1]ˢ Permits take 8,000 MW of review. [2]ˢ",
+			].join("\n"),
+			evidence,
+		});
+		expect(metrics.numbersChecked).toBe(2);
+		expect(metrics.numbersMatched).toBe(1);
+	});
+
 	it("returns honest nulls when there is no report", () => {
 		const metrics = computeMetrics({ markdown: null, evidence: undefined });
 		expect(metrics).toMatchObject({
@@ -326,27 +343,73 @@ describe("computeMetrics", () => {
 });
 
 describe("describeWordBudget", () => {
-	it("reports ok inside the profile band", () => {
+	it("names the range it is measuring against, inside the band", () => {
 		expect(describeWordBudget(900, "overview")).toEqual({
-			label: "ok",
+			label: "in range (700-1100)",
 			ok: true,
 		});
 	});
 
-	it("reports how far over or under the band a report landed", () => {
+	it("reports how far over or under the band a report landed, with the band", () => {
 		expect(describeWordBudget(33_212, "in-depth")).toEqual({
-			label: "over by 30412",
+			label: "over by 30412 (1800-2800)",
 			ok: false,
 		});
 		expect(describeWordBudget(430, "overview")).toEqual({
-			label: "under by 270",
+			label: "under by 270 (700-1100)",
 			ok: false,
 		});
+	});
+
+	it("names the band even when the report is empty of words", () => {
+		expect(describeWordBudget(0, "overview").label).toContain("(700-1100)");
 	});
 
 	it("uses each profile's own band", () => {
 		expect(describeWordBudget(4000, "exhaustive").ok).toBe(true);
 		expect(describeWordBudget(4000, "in-depth").ok).toBe(false);
+	});
+});
+
+describe("repeatedFactCount", () => {
+	it("counts a sentence restating an earlier sentence's figure set", () => {
+		const body = [
+			"The union installed 65.1 GW of solar in 2025, down from 65.6 GW in 2024. [1]ᶜ",
+			"SolarPower Europe reports 65.1 GW for 2025 and 65.6 GW for 2024. [2]ˢ",
+		].join(" ");
+		expect(repeatedFactCount(body)).toBe(1);
+	});
+
+	it("does not count a sentence carrying a different figure set", () => {
+		const body = [
+			"The union installed 65.1 GW of solar in 2025. [1]ᶜ",
+			"Germany added 18.8 GW of that total. [2]ˢ",
+		].join(" ");
+		expect(repeatedFactCount(body)).toBe(0);
+	});
+
+	it("ignores sentences with no figures at all", () => {
+		const body =
+			"A member-state ranking would require more evidence. ⁱ The picture is mixed. ⁱ";
+		expect(repeatedFactCount(body)).toBe(0);
+	});
+
+	it("is reported per query in the metrics", () => {
+		const metrics = computeMetrics({
+			markdown: [
+				"# Solar",
+				"",
+				"## Additions",
+				"",
+				"The union installed 65.1 GW in 2025 against 65.6 GW in 2024. [1]ᶜ",
+				"",
+				"## Cross-check",
+				"",
+				"The outlook reports 65.1 GW for 2025 and 65.6 GW for 2024. [1]ᶜ",
+			].join("\n"),
+			evidence: null,
+		});
+		expect(metrics.repeatedFactCount).toBe(1);
 	});
 });
 

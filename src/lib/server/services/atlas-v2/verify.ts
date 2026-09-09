@@ -19,7 +19,10 @@
 // sitting in a text window that shares keywords, entity and year with the
 // figure's own context in the sentence.
 
-import { ATLAS_V2_MAX_CONTRADICTION_LINES } from "./config";
+import {
+	ATLAS_V2_MAX_CITATIONS_PER_SENTENCE,
+	ATLAS_V2_MAX_CONTRADICTION_LINES,
+} from "./config";
 import { sourceEvidenceText } from "./evidence-index";
 import {
 	competingFigures,
@@ -29,6 +32,7 @@ import {
 	findUnsupportedFigures,
 	isCheckableFigure,
 } from "./number-match";
+import { mapWithConcurrency } from "./research";
 import type {
 	AtlasV2Confidence,
 	AtlasV2Contradiction,
@@ -93,15 +97,14 @@ const CONTRADICTION_WINDOW_CHARS = 320;
 /** Window around the figure IN THE SENTENCE that names what it measures. */
 const CLAIM_WINDOW_CHARS = 140;
 const MIN_SHARED_CONTENT_WORDS = 2;
-/** Chars of the sentence used as the quantity label in Limitations. */
-const QUANTITY_LABEL_CHARS = 70;
+/** Context words the quantity phrase in Limitations may carry, in total. */
+const QUANTITY_PHRASE_CONTEXT_WORDS = 6;
+/** Of those, how many may sit before the figure. */
+const QUANTITY_PHRASE_WORDS_BEFORE = 3;
 
-/**
- * A sentence may cite at most this many sources. Denser citation was the
- * report's worst readability defect: 12-18 markers per 100 words, several of
- * them redundant. See `trimSectionCitations`.
- */
-export const ATLAS_V2_MAX_CITATIONS_PER_SENTENCE = 2;
+// Re-exported so the verifier's own callers keep one import path for the cap;
+// it lives in config.ts because the renderer enforces it too.
+export { ATLAS_V2_MAX_CITATIONS_PER_SENTENCE };
 
 export interface AtlasV2EntailmentRequest {
 	claim: string;
@@ -122,6 +125,11 @@ export type AtlasV2EntailmentCheck = (
 export type AtlasV2BatchEntailmentCheck = (
 	inputs: AtlasV2EntailmentRequest[],
 ) => Promise<Array<boolean | null> | null>;
+
+/** Batched entailment calls in flight at once; they are independent. */
+export const ATLAS_V2_ENTAILMENT_BATCH_CONCURRENCY = 3;
+/** Section rewrite calls in flight at once. */
+export const ATLAS_V2_REWRITE_CONCURRENCY = 3;
 
 export type AtlasV2CalculationRunner = (input: {
 	expression: string;
@@ -153,6 +161,8 @@ export interface VerifyAtlasV2ReportInput {
 	runCalculation?: AtlasV2CalculationRunner;
 	/** Omitted to skip the rewrite pass and cut on first failure. */
 	rewriteSection?: AtlasV2SectionRewriter;
+	/** Section rewrites in flight at once. Defaults to 3. */
+	rewriteConcurrency?: number;
 	/** Cap on the disagreements Limitations may report. Defaults to 3. */
 	maxContradictions?: number;
 }
@@ -250,12 +260,40 @@ function figureContext(
 	return { words: contentWords(window), years: yearsIn(window) };
 }
 
-/** A short label for the quantity, for the Limitations line. */
-function quantityLabel(sentence: string, figure: ExtractedFigure): string {
-	const window = textWindow(sentence, figure.text, QUANTITY_LABEL_CHARS)
-		.replace(/\s+/g, " ")
+/**
+ * The quantity phrase for the Limitations line: the figure and a few words of
+ * the context that says what it measures, cut on WORD boundaries.
+ *
+ * It used to be a character window, which produced disagreement lines quoting
+ * half a sentence — `Sources disagree on "…put 2025 addit"` — in the second
+ * evaluation. A phrase is what the reader needs; a cut sentence is noise.
+ */
+export function quantityPhrase(
+	sentence: string,
+	figure: ExtractedFigure,
+): string {
+	const collapsed = sentence.replace(/\s+/g, " ").trim();
+	const needle = figure.text.replace(/\s+/g, " ").trim();
+	const index = collapsed.indexOf(needle);
+	if (index < 0) return needle;
+	const before = collapsed
+		.slice(0, index)
+		.split(" ")
+		.filter((word) => word.length > 0);
+	const after = collapsed
+		.slice(index + needle.length)
+		.split(" ")
+		.filter((word) => word.length > 0);
+	const lead = before.slice(-QUANTITY_PHRASE_WORDS_BEFORE);
+	const trail = after.slice(
+		0,
+		Math.max(0, QUANTITY_PHRASE_CONTEXT_WORDS - lead.length),
+	);
+	return [...lead, needle, ...trail]
+		.join(" ")
+		.replace(/^[^\p{L}\p{N}]+/u, "")
+		.replace(/[\s,;:.]+$/u, "")
 		.trim();
-	return window.slice(0, QUANTITY_LABEL_CHARS * 2);
 }
 
 /**
@@ -316,7 +354,7 @@ export function findContradictions(input: {
 					if (!sharesYear) continue;
 				}
 				contradictions.push({
-					quantity: quantityLabel(input.sentence, figure),
+					quantity: quantityPhrase(input.sentence, figure),
 					statedValue: figure.text,
 					statedCitation,
 					competingValue: competing.text,
@@ -359,7 +397,13 @@ export function trimSentenceCitations(input: {
 	limit?: number;
 }): number[] {
 	const limit = input.limit ?? ATLAS_V2_MAX_CITATIONS_PER_SENTENCE;
-	const citations = input.sentence.citations;
+	// Deduplicated first: a sentence citing the same source twice must render one
+	// citation, and the cap must count it once.
+	const unique = [...new Set(input.sentence.citations)];
+	const citations =
+		unique.length === input.sentence.citations.length
+			? input.sentence.citations
+			: unique;
 	if (citations.length <= limit) return citations;
 	const figures = extractFigures(input.sentence.text).filter(isCheckableFigure);
 	const score = (citation: number): number => {
@@ -606,6 +650,7 @@ async function resolveEntailments(input: {
 	checkEntailment?: AtlasV2EntailmentCheck;
 	checkEntailmentBatch?: AtlasV2BatchEntailmentCheck;
 	batchSize: number;
+	batchConcurrency?: number;
 }): Promise<EntailmentOutcome> {
 	const answers: Array<boolean | null> = [];
 	let batchCount = 0;
@@ -632,21 +677,33 @@ async function resolveEntailments(input: {
 		};
 	}
 
+	const chunks: AtlasV2EntailmentRequest[][] = [];
 	for (let start = 0; start < input.requests.length; start += input.batchSize) {
-		const chunk = input.requests.slice(start, start + input.batchSize);
-		batchCount += 1;
-		let chunkAnswers: Array<boolean | null> | null = null;
-		try {
-			chunkAnswers = await input.checkEntailmentBatch(chunk);
-		} catch {
-			chunkAnswers = null;
-		}
-		if (chunkAnswers && chunkAnswers.length === chunk.length) {
-			answers.push(...chunkAnswers);
-			continue;
-		}
-		answers.push(...(await runOneByOne(chunk)));
+		chunks.push(input.requests.slice(start, start + input.batchSize));
 	}
+	batchCount = chunks.length;
+	// The batches are independent, so they go out together. Running them one
+	// after another made verification the second-slowest phase in the second
+	// evaluation (up to 249s on one report) for no gain in correctness.
+	const perChunk = await mapWithConcurrency(
+		chunks,
+		Math.max(
+			1,
+			input.batchConcurrency ?? ATLAS_V2_ENTAILMENT_BATCH_CONCURRENCY,
+		),
+		async (chunk) => {
+			let chunkAnswers: Array<boolean | null> | null = null;
+			try {
+				chunkAnswers = (await input.checkEntailmentBatch?.(chunk)) ?? null;
+			} catch {
+				chunkAnswers = null;
+			}
+			return chunkAnswers && chunkAnswers.length === chunk.length
+				? chunkAnswers
+				: await runOneByOne(chunk);
+		},
+	);
+	for (const chunkAnswers of perChunk) answers.push(...chunkAnswers);
 	return { answers, claimCount: input.requests.length, batchCount };
 }
 
@@ -722,6 +779,75 @@ function runDeterministicPass(input: {
 	return { verdicts, requests };
 }
 
+export interface AtlasV2RewriteReplacements {
+	sentences: Map<string, AtlasV2WrittenSentence>;
+	verdicts: Map<string, SentenceVerdict>;
+}
+
+/**
+ * Lines a rewrite up with the sentences it was asked to fix.
+ *
+ * The rewrite prompt asks for "the same paragraph structure", and a model that
+ * obeys is matched by position. A model that instead returns ONLY the sentences
+ * it rewrote — the common case, and what the prompt literally permits — used to
+ * be discarded, because its paragraph 0 / sentence 0 did not match the failing
+ * paragraph 2 / sentence 5, and the pipeline then cut a sentence the writer had
+ * already repaired. When the structure does not line up and the rewrite is no
+ * longer than the failed list, its sentences map onto the failed sentences in
+ * order instead.
+ */
+export function mapRewriteToFailedSentences(input: {
+	rewrite: AtlasV2WrittenSection;
+	verdicts: SentenceVerdict[][];
+	failed: Array<{ paragraphIndex: number; sentenceIndex: number }>;
+}): AtlasV2RewriteReplacements {
+	const sentences = new Map<string, AtlasV2WrittenSentence>();
+	const verdicts = new Map<string, SentenceVerdict>();
+	const flat: Array<{
+		key: string;
+		sentence: AtlasV2WrittenSentence;
+		verdict: SentenceVerdict;
+	}> = [];
+	for (const [
+		paragraphIndex,
+		paragraph,
+	] of input.rewrite.paragraphs.entries()) {
+		for (const [sentenceIndex, sentence] of paragraph.sentences.entries()) {
+			const verdict = input.verdicts[paragraphIndex]?.[sentenceIndex];
+			if (!verdict) continue;
+			flat.push({
+				key: `${paragraphIndex}:${sentenceIndex}`,
+				sentence,
+				verdict,
+			});
+		}
+	}
+	const positional = new Set(flat.map((entry) => entry.key));
+	const linesUp = input.failed.every((entry) =>
+		positional.has(`${entry.paragraphIndex}:${entry.sentenceIndex}`),
+	);
+	if (linesUp) {
+		for (const entry of flat) {
+			sentences.set(entry.key, entry.sentence);
+			verdicts.set(entry.key, entry.verdict);
+		}
+		return { sentences, verdicts };
+	}
+	if (flat.length === 0 || flat.length > input.failed.length) {
+		// Neither reading is safe: a longer rewrite whose structure does not line
+		// up could attach any sentence to any claim, and a wrong repair is worse
+		// than a cut.
+		return { sentences, verdicts };
+	}
+	for (const [position, entry] of flat.entries()) {
+		const target = input.failed[position];
+		const key = `${target.paragraphIndex}:${target.sentenceIndex}`;
+		sentences.set(key, entry.sentence);
+		verdicts.set(key, entry.verdict);
+	}
+	return { sentences, verdicts };
+}
+
 export async function verifyAtlasV2Report(
 	input: VerifyAtlasV2ReportInput,
 ): Promise<AtlasV2VerificationResult> {
@@ -779,11 +905,12 @@ export async function verifyAtlasV2Report(
 		});
 	}
 
-	for (const [sectionIndex, section] of sections.entries()) {
-		const verdicts = pass.verdicts[sectionIndex];
-
-		// (d) one rewrite pass, with the exact mismatch, then cut.
-		const failed = verdicts.flatMap((paragraph, paragraphIndex) =>
+	// (d) one rewrite pass per failing section, with the exact mismatch, then
+	// cut. The rewrites are independent of one another, so they go out together:
+	// running one section's rewrite after another's put every failing section's
+	// model call on the critical path.
+	const failedBySection = sections.map((section, sectionIndex) =>
+		pass.verdicts[sectionIndex].flatMap((paragraph, paragraphIndex) =>
 			paragraph.flatMap((verdict, sentenceIndex) =>
 				verdict.failures.length > 0
 					? [
@@ -801,68 +928,69 @@ export async function verifyAtlasV2Report(
 						]
 					: [],
 			),
-		);
+		),
+	);
 
-		let rewrittenVerdicts: Map<string, SentenceVerdict> | null = null;
-		let rewrittenSentences: Map<string, AtlasV2WrittenSentence> | null = null;
-		if (failed.length > 0 && input.rewriteSection) {
+	const rewrites = await mapWithConcurrency(
+		sections,
+		Math.max(1, input.rewriteConcurrency ?? ATLAS_V2_REWRITE_CONCURRENCY),
+		async (section, sectionIndex) => {
+			const failed = failedBySection[sectionIndex];
+			if (failed.length === 0 || !input.rewriteSection) return null;
 			const rewrite = await input.rewriteSection({ section, failed });
-			if (rewrite) {
-				const [trimmedRewrite] = trimSectionCitations(
-					[rewrite],
-					sourcesByNumber,
-				);
-				rewrittenVerdicts = new Map();
-				rewrittenSentences = new Map();
-				const rewriteCalculations = await runSectionCalculations(
-					trimmedRewrite,
-					input.runCalculation,
-				);
-				const rewritePass = runDeterministicPass({
-					sections: [trimmedRewrite],
-					calculationValues: [rewriteCalculations],
-					sourcesByNumber,
-					allSources: input.index.sources,
-					staleMonths: input.staleMonths,
-					now: input.now,
-					entailmentAvailable,
+			if (!rewrite) return null;
+			const [trimmedRewrite] = trimSectionCitations([rewrite], sourcesByNumber);
+			const rewriteCalculations = await runSectionCalculations(
+				trimmedRewrite,
+				input.runCalculation,
+			);
+			const rewritePass = runDeterministicPass({
+				sections: [trimmedRewrite],
+				calculationValues: [rewriteCalculations],
+				sourcesByNumber,
+				allSources: input.index.sources,
+				staleMonths: input.staleMonths,
+				now: input.now,
+				entailmentAvailable,
+			});
+			const rewriteEntailment = await resolveEntailments({
+				requests: rewritePass.requests.map((entry) => entry.request),
+				checkEntailment: input.checkEntailment,
+				checkEntailmentBatch: input.checkEntailmentBatch,
+				batchSize,
+			});
+			for (const [position, entry] of rewritePass.requests.entries()) {
+				if (rewriteEntailment.answers[position] !== false) continue;
+				rewritePass.verdicts[0][entry.paragraphIndex][
+					entry.sentenceIndex
+				].failures.push({
+					code: "entailment_failed",
+					detail: `source [${entry.request.sourceNumber}] does not support this claim`,
+					citation: entry.request.sourceNumber,
 				});
-				const rewriteEntailment = await resolveEntailments({
-					requests: rewritePass.requests.map((entry) => entry.request),
-					checkEntailment: input.checkEntailment,
-					checkEntailmentBatch: input.checkEntailmentBatch,
-					batchSize,
-				});
-				entailmentCallCount += rewriteEntailment.claimCount;
-				entailmentBatchCount += rewriteEntailment.batchCount;
-				for (const [position, entry] of rewritePass.requests.entries()) {
-					if (rewriteEntailment.answers[position] !== false) continue;
-					rewritePass.verdicts[0][entry.paragraphIndex][
-						entry.sentenceIndex
-					].failures.push({
-						code: "entailment_failed",
-						detail: `source [${entry.request.sourceNumber}] does not support this claim`,
-						citation: entry.request.sourceNumber,
-					});
-				}
-				for (const [
-					paragraphIndex,
-					paragraph,
-				] of trimmedRewrite.paragraphs.entries()) {
-					for (const [
-						sentenceIndex,
-						sentence,
-					] of paragraph.sentences.entries()) {
-						const key = `${paragraphIndex}:${sentenceIndex}`;
-						rewrittenSentences.set(key, sentence);
-						rewrittenVerdicts.set(
-							key,
-							rewritePass.verdicts[0][paragraphIndex][sentenceIndex],
-						);
-					}
-				}
 			}
-		}
+			return {
+				replacements: mapRewriteToFailedSentences({
+					rewrite: trimmedRewrite,
+					verdicts: rewritePass.verdicts[0],
+					failed,
+				}),
+				claimCount: rewriteEntailment.claimCount,
+				batchCount: rewriteEntailment.batchCount,
+			};
+		},
+	);
+	for (const rewrite of rewrites) {
+		if (!rewrite) continue;
+		entailmentCallCount += rewrite.claimCount;
+		entailmentBatchCount += rewrite.batchCount;
+	}
+
+	for (const [sectionIndex, section] of sections.entries()) {
+		const verdicts = pass.verdicts[sectionIndex];
+		const replacements = rewrites[sectionIndex]?.replacements ?? null;
+		const rewrittenSentences = replacements?.sentences ?? null;
+		const rewrittenVerdicts = replacements?.verdicts ?? null;
 
 		const paragraphs: AtlasV2VerifiedSentence[][] = [];
 		for (const [paragraphIndex, paragraph] of section.paragraphs.entries()) {

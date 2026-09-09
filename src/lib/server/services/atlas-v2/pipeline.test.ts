@@ -434,6 +434,7 @@ describe("runAtlasV2Pipeline", () => {
 		expect(research).not.toHaveBeenCalled();
 		expect(runControlModel).not.toHaveBeenCalled();
 		expect(runWriterModel.mock.calls.map(([call]) => call.stage)).toEqual([
+			"lead:s1",
 			"write:s1",
 			"summary",
 		]);
@@ -462,9 +463,12 @@ describe("runAtlasV2Pipeline", () => {
 			call.stage.startsWith("write:"),
 		);
 		const prompt = JSON.parse(sectionCall?.[0].prompt ?? "{}");
-		// Overview: 950 body words over two sections, at ~22 words a sentence.
-		expect(prompt.maxSentences).toBeGreaterThan(0);
-		expect(prompt.maxSentences).toBeLessThanOrEqual(9);
+		// Overview: the 700-1,100 band's midpoint less the chrome reserve is 750
+		// body words, halved over the plan's two sections, at ~20 words a
+		// sentence — clamped to what the 14-sentence ceiling can hold.
+		expect(prompt.targetWords).toBe(280);
+		expect(prompt.minSentences).toBe(12);
+		expect(prompt.maxSentences).toBe(14);
 		expect(prompt.maxCitationsPerSentence).toBe(2);
 	});
 
@@ -511,6 +515,8 @@ describe("runAtlasV2Pipeline", () => {
 			}
 		)?.phaseDurationsMs;
 		expect(Object.keys(durations ?? {}).sort()).toEqual([
+			"index",
+			"lead",
 			"plan",
 			"research",
 			"summary",
@@ -886,7 +892,7 @@ describe("getAtlasV2ProfileConfig", () => {
 		expect(overview).toMatchObject({
 			questions: 6,
 			rounds: 1,
-			readPages: 2,
+			readPages: 1,
 			maxIndexedSources: 20,
 			contradictionHuntOnLastRound: false,
 		});

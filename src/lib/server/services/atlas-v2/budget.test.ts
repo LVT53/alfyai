@@ -53,7 +53,7 @@ describe("ATLAS_V2_BUDGETS", () => {
 			minSections: 4,
 			maxSections: 6,
 			maxIndexedSources: 20,
-			readPages: 2,
+			readPages: 1,
 		});
 		expect(ATLAS_V2_BUDGETS["in-depth"]).toMatchObject({
 			minWords: 1800,

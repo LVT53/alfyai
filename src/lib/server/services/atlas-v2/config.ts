@@ -25,6 +25,14 @@ export const ATLAS_V2_DEFAULT_WRITER_CONCURRENCY = 3;
 export const ATLAS_V2_COVERAGE_SUFFICIENT_SOURCES = 3;
 /** Limitations lines the disagreement list may occupy. */
 export const ATLAS_V2_MAX_CONTRADICTION_LINES = 3;
+/**
+ * A sentence may cite at most this many sources. Denser citation was the
+ * report's worst readability defect: 12-18 markers per 100 words, several of
+ * them redundant. Enforced in the verifier (`trimSentenceCitations`) and again
+ * at publication (`publishSentenceCitations`), because renumbering can turn two
+ * citations into one.
+ */
+export const ATLAS_V2_MAX_CITATIONS_PER_SENTENCE = 2;
 
 /**
  * Hard bounds on the plan stage. The plan prompt asks for a per-profile

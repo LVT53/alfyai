@@ -11,6 +11,13 @@
 //
 // The post-cap keeps cited sentences before uncited ones: when something has to
 // go, prose without a source is what goes.
+//
+// The second evaluation reversed the original problem: every one of ten reports
+// came in UNDER its band (219-464 words against 700-1,100), because the writer
+// was handed a sentence CEILING and no target. The writer is now asked for the
+// per-section word MIDPOINT of the band, with the sentence caps derived from
+// that target rather than from the ceiling, and the post-cap only trims a body
+// that is genuinely over the upper bound.
 
 import type { AtlasProfile } from "../atlas/types";
 import type { AtlasV2VerifiedSection, AtlasV2VerifiedSentence } from "./types";
@@ -31,10 +38,21 @@ export interface AtlasV2Budget {
 	maxIndexedSources: number;
 	/** `readPages` per research question. */
 	readPages: number;
-	/** Sentence cap for one section, handed to the writer and enforced on parse. */
+	/**
+	 * Absolute sentence ceiling for one section. This is a GUARD, not the
+	 * target: the number handed to the writer comes from
+	 * `atlasV2SectionWriterBudget`, which derives it from the band's midpoint.
+	 */
 	maxSentencesPerSection: number;
 	maxParagraphsPerSection: number;
 }
+
+/**
+ * Words per sentence the writer actually produces, measured over the second
+ * evaluation's ten reports (1,314 words / 60 sentences and similar). Used to
+ * turn a word target into a sentence count.
+ */
+export const ATLAS_V2_AVERAGE_SENTENCE_WORDS = 20;
 
 export const ATLAS_V2_BUDGETS: Record<AtlasProfile, AtlasV2Budget> = {
 	overview: {
@@ -44,9 +62,11 @@ export const ATLAS_V2_BUDGETS: Record<AtlasProfile, AtlasV2Budget> = {
 		minSections: 4,
 		maxSections: 6,
 		maxIndexedSources: 20,
-		readPages: 2,
-		maxSentencesPerSection: 9,
-		maxParagraphsPerSection: 3,
+		// One page per source on an overview: the second evaluation read two and
+		// spent the extra fetch on evidence the 700-1,100 word band cannot carry.
+		readPages: 1,
+		maxSentencesPerSection: 14,
+		maxParagraphsPerSection: 4,
 	},
 	"in-depth": {
 		minWords: 1800,
@@ -56,8 +76,8 @@ export const ATLAS_V2_BUDGETS: Record<AtlasProfile, AtlasV2Budget> = {
 		maxSections: 8,
 		maxIndexedSources: 40,
 		readPages: 3,
-		maxSentencesPerSection: 17,
-		maxParagraphsPerSection: 4,
+		maxSentencesPerSection: 24,
+		maxParagraphsPerSection: 5,
 	},
 	exhaustive: {
 		minWords: 3500,
@@ -67,7 +87,7 @@ export const ATLAS_V2_BUDGETS: Record<AtlasProfile, AtlasV2Budget> = {
 		maxSections: 10,
 		maxIndexedSources: 80,
 		readPages: 4,
-		maxSentencesPerSection: 28,
+		maxSentencesPerSection: 36,
 		maxParagraphsPerSection: 6,
 	},
 };
@@ -75,6 +95,68 @@ export const ATLAS_V2_BUDGETS: Record<AtlasProfile, AtlasV2Budget> = {
 /** Words the section bodies may use once the chrome reserve is subtracted. */
 export function bodyWordBudget(budget: AtlasV2Budget): number {
 	return Math.max(200, budget.maxWords - budget.chromeReserveWords);
+}
+
+/**
+ * What the section bodies should AIM at: the midpoint of the band, less the
+ * chrome reserve. Aiming at the midpoint rather than the ceiling is what keeps
+ * a report that runs a little short still inside the band, and aiming at
+ * anything at all is what the second evaluation was missing.
+ */
+export function bodyWordTarget(budget: AtlasV2Budget): number {
+	const midpoint = Math.round((budget.minWords + budget.maxWords) / 2);
+	return Math.max(200, midpoint - budget.chromeReserveWords);
+}
+
+export interface AtlasV2SectionWriterBudget {
+	/** Words this section should aim at; the number the writer is given. */
+	targetWords: number;
+	/** Sentences below which the section is too thin to hit the band. */
+	minSentences: number;
+	/** Sentences past which extra prose is discarded on parse. */
+	maxSentences: number;
+}
+
+/**
+ * The per-section budget handed to one writer call, derived from the band's
+ * midpoint and the number of sections the plan actually produced — so a
+ * 3-section overview is written to a 3-section budget rather than to a
+ * 6-section one and then reported as short.
+ */
+export function atlasV2SectionWriterBudget(input: {
+	budget: AtlasV2Budget;
+	sectionCount: number;
+}): AtlasV2SectionWriterBudget {
+	const sections = Math.max(1, input.sectionCount);
+	const share = Math.max(
+		60,
+		Math.round(bodyWordTarget(input.budget) / sections),
+	);
+	const shareSentences = Math.max(
+		3,
+		Math.round(share / ATLAS_V2_AVERAGE_SENTENCE_WORDS),
+	);
+	const maxSentences = Math.max(
+		4,
+		Math.min(
+			input.budget.maxSentencesPerSection,
+			Math.ceil(shareSentences * 1.3),
+		),
+	);
+	// The word target may never exceed what the sentence cap can hold: asking for
+	// words the parse step would then discard is how a budget lies to the writer.
+	const targetWords = Math.min(
+		share,
+		maxSentences * ATLAS_V2_AVERAGE_SENTENCE_WORDS,
+	);
+	const targetSentences = Math.round(
+		targetWords / ATLAS_V2_AVERAGE_SENTENCE_WORDS,
+	);
+	return {
+		targetWords,
+		minSentences: Math.max(3, Math.min(maxSentences, targetSentences - 2)),
+		maxSentences,
+	};
 }
 
 export function countWords(text: string): number {
@@ -90,12 +172,16 @@ export interface AtlasV2BudgetCapResult {
 }
 
 /**
- * Drops trailing sentences until the section bodies fit `maxWords`.
+ * Drops sentences ONLY when the section bodies are over `maxWords`, which is
+ * the body's upper bound. A report inside the bound is returned untouched, and
+ * a report that is merely short is never touched at all.
  *
- * Selection order is: the lead sentence of every section (so no section
- * collapses and the outline survives), then cited sentences in reading order,
- * then uncited ones. Everything not selected is dropped, and the kept
- * sentences stay in their original order — the cap never reshuffles prose.
+ * Removal order is the reverse of importance: uncited sentences from the end of
+ * the report first, then cited ones from the end, and never a section's lead
+ * (so no section collapses and the outline survives). Removing from the end
+ * rather than selecting from the front is what stops the cap from discarding an
+ * early cited sentence in favour of a later short one; the kept sentences stay
+ * in their original order either way.
  */
 export function capAtlasV2SectionsToWordBudget(input: {
 	sections: AtlasV2VerifiedSection[];
@@ -136,35 +222,30 @@ export function capAtlasV2SectionsToWordBudget(input: {
 		};
 	}
 
-	const kept = new Set<string>();
-	let used = 0;
-	const take = (entry: (typeof flat)[number]): void => {
-		if (kept.has(entry.key)) return;
-		if (used + entry.words > input.maxWords && used > 0) return;
-		kept.add(entry.key);
-		used += entry.words;
-	};
-	for (const entry of flat) {
-		if (entry.isLead) take(entry);
-	}
-	for (const entry of flat) {
-		if (entry.isCited) take(entry);
-	}
-	for (const entry of flat) {
-		take(entry);
+	const removable = flat.filter((entry) => !entry.isLead);
+	const removalOrder = [
+		...removable.filter((entry) => !entry.isCited).reverse(),
+		...removable.filter((entry) => entry.isCited).reverse(),
+	];
+	const dropped = new Set<string>();
+	let used = total;
+	for (const entry of removalOrder) {
+		if (used <= input.maxWords) break;
+		dropped.add(entry.key);
+		used -= entry.words;
 	}
 
 	const sections = input.sections.map((section) => ({
 		...section,
 		paragraphs: section.paragraphs
 			.map((paragraph) =>
-				paragraph.filter((sentence) => kept.has(keys.get(sentence) ?? "")),
+				paragraph.filter((sentence) => !dropped.has(keys.get(sentence) ?? "")),
 			)
 			.filter((paragraph) => paragraph.length > 0),
 	}));
 	return {
 		sections,
-		droppedSentenceCount: flat.length - kept.size,
+		droppedSentenceCount: dropped.size,
 		wordCount: used,
 	};
 }

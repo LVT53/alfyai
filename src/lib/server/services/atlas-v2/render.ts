@@ -16,7 +16,10 @@ import type {
 	GeneratedDocumentSourceChip,
 } from "$lib/server/services/file-production/source-schema";
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { ATLAS_V2_MAX_CONTRADICTION_LINES } from "./config";
+import {
+	ATLAS_V2_MAX_CITATIONS_PER_SENTENCE,
+	ATLAS_V2_MAX_CONTRADICTION_LINES,
+} from "./config";
 import { formatSourceLine } from "./evidence-index";
 import type {
 	AtlasV2Confidence,
@@ -111,6 +114,34 @@ export interface AtlasV2Publication {
 	renumberMap: Map<number, number>;
 }
 
+/**
+ * One sentence's citations in the PUBLISHED numbering: unresolvable numbers
+ * dropped, the rest remapped, then deduplicated and capped.
+ *
+ * The dedupe is not cosmetic. Two indexed sources can collapse onto one
+ * published source — the same document reached under two URLs, or a source
+ * republished for a contradiction — and a sentence citing both then rendered
+ * `[3][3]`, which is what the second evaluation's reports show. One published
+ * source is one citation.
+ */
+export function publishSentenceCitations(input: {
+	citations: readonly number[];
+	renumberMap: Map<number, number>;
+	limit?: number;
+}): number[] {
+	const published: number[] = [];
+	for (const citation of input.citations) {
+		const mapped = input.renumberMap.get(citation);
+		if (mapped === undefined) continue;
+		if (published.includes(mapped)) continue;
+		published.push(mapped);
+	}
+	return published.slice(
+		0,
+		Math.max(1, input.limit ?? ATLAS_V2_MAX_CITATIONS_PER_SENTENCE),
+	);
+}
+
 export function renumberAtlasV2ForPublication(input: {
 	index: AtlasV2EvidenceIndex;
 	verification: AtlasV2VerificationResult;
@@ -137,9 +168,10 @@ export function renumberAtlasV2ForPublication(input: {
 			paragraphs: section.paragraphs.map((paragraph) =>
 				paragraph.map((sentence) => ({
 					...sentence,
-					citations: sentence.citations
-						.filter((citation) => renumberMap.has(citation))
-						.map(remap),
+					citations: publishSentenceCitations({
+						citations: sentence.citations,
+						renumberMap,
+					}),
 				})),
 			),
 		})),
@@ -178,11 +210,16 @@ const CONFIDENCE_LEVEL_CODE: Record<AtlasV2Confidence, "c" | "s" | "i"> = {
 };
 
 /**
- * `"Solar reached 8 GW. [3][7][[cite:7:c]]"` — the document form: citations
- * followed by an inline confidence annotation the file-production renderers
- * turn into a coloured dot (HTML, PDF) or a superscript key (Markdown, DOCX),
- * with their own legend under the source list. A sentence with no citation
- * carries a bare `[[cite:i]]`-style annotation.
+ * `"Solar reached 8 GW. [3][[cite:7:c]]"` — the document form: the citations
+ * before the last as plain `[n]`, then ONE inline confidence annotation naming
+ * the last citation, which every file-production renderer turns into that
+ * source's own numbered chip plus a coloured dot (HTML, PDF) or a superscript
+ * key (Markdown, DOCX). A sentence with no citation carries a bare
+ * `[[cite:i]]`-style annotation.
+ *
+ * The last citation is NOT also written as `[n]`: the annotation already
+ * renders it. Writing both is what put `[2][3][3]ᶜ` and `[4][4]ˢ` in the second
+ * evaluation's reports — one citation printed twice, not two citations.
  */
 export function renderSentenceWithCitationTokens(sentence: {
 	text: string;
@@ -194,6 +231,7 @@ export function renderSentenceWithCitationTokens(sentence: {
 	const token =
 		last === undefined ? `[[cite:${code}]]` : `[[cite:${last}:${code}]]`;
 	const citations = sentence.citations
+		.slice(0, -1)
 		.map((citation) => `[${citation}]`)
 		.join("");
 	return `${sentence.text} ${citations}${token}`;

@@ -14,6 +14,7 @@ import {
 import type { AtlasOutputIds } from "../atlas/renderer-output";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
+	atlasV2SectionWriterBudget,
 	bodyWordBudget,
 	capAtlasV2SectionsToWordBudget,
 	citedNumbersInSections,
@@ -36,6 +37,7 @@ import {
 	buildAtlasV2CuratedSourcePool,
 	extractAtlasV2LifecycleSeed,
 } from "./lifecycle-seed";
+import { dropRepeatedAtlasV2Sentences } from "./novelty";
 import {
 	ATLAS_V2_PLAN_SYSTEM,
 	buildAtlasV2PlanPrompt,
@@ -52,6 +54,7 @@ import {
 import {
 	buildAtlasV2DocumentSource,
 	buildAtlasV2ExecutiveSummaryMarkdown,
+	publishSentenceCitations,
 	renumberAtlasV2ForPublication,
 } from "./render";
 import {
@@ -91,12 +94,15 @@ import {
 } from "./verify";
 import {
 	ATLAS_V2_REWRITE_SYSTEM,
+	ATLAS_V2_SECTION_LEAD_SYSTEM,
 	ATLAS_V2_SUMMARY_SYSTEM,
 	ATLAS_V2_WRITER_SYSTEM,
 	buildAtlasV2RewritePrompt,
+	buildAtlasV2SectionLeadPrompt,
 	buildAtlasV2SectionPrompt,
 	buildAtlasV2SummaryPrompt,
 	buildWriterEvidenceEntries,
+	parseAtlasV2SectionLead,
 	parseAtlasV2WrittenSection,
 } from "./writer";
 
@@ -111,9 +117,9 @@ const CHECKPOINT_ROUND: Record<Exclude<AtlasV2Phase, "research">, number> = {
 const RESEARCH_CHECKPOINT_BASE = 1;
 
 /** Bounded parallelism for the per-section writer calls. */
-const DEFAULT_WRITER_CONCURRENCY = 3;
-/** Used to turn a word budget into a sentence cap for the writer prompt. */
-const AVERAGE_SENTENCE_WORDS = 22;
+const DEFAULT_WRITER_CONCURRENCY = 5;
+/** Section sentences the executive-summary prompt carries, per section. */
+const SUMMARY_SENTENCES_PER_SECTION = 12;
 
 export type AtlasV2ModelCall = (input: {
 	stage: string;
@@ -571,12 +577,16 @@ export async function runAtlasV2Pipeline(
 		round: { current: totalRounds, total: totalRounds },
 		doneQuestionIds: resolvedPlan.questions.map((question) => question.id),
 	});
-	const mergedIndex =
-		resume.index ??
-		mergeAtlasV2EvidenceIndexes(
-			seed?.evidenceIndex ?? null,
-			buildAtlasV2EvidenceIndex(rawSources),
-		);
+	// Deterministic, but not instant on a few hundred raw sources — and timed, so
+	// a slow run can be attributed rather than guessed at.
+	const mergedIndex = await timePhase("index", async () =>
+		resume.index
+			? resume.index
+			: mergeAtlasV2EvidenceIndexes(
+					seed?.evidenceIndex ?? null,
+					buildAtlasV2EvidenceIndex(rawSources),
+				),
+	);
 	// The source budget is applied HERE, before anything is written, so no
 	// citation is ever minted against a source the report cannot afford to
 	// carry. A resumed index is already capped and renumbered.
@@ -621,20 +631,57 @@ export async function runAtlasV2Pipeline(
 		(largest, source) => Math.max(largest, source.n),
 		0,
 	);
-	// The per-section sentence cap scales with how many sections the plan
-	// actually produced, so a 4-section overview is not written to a 6-section
-	// budget and then trimmed.
-	const sectionSentenceBudget = Math.max(
-		3,
-		Math.min(
-			budget.maxSentencesPerSection,
-			Math.ceil(
-				bodyWordBudget(budget) /
-					Math.max(1, resolvedPlan.sections.length) /
-					AVERAGE_SENTENCE_WORDS,
+	// The per-section budget is derived from the band's MIDPOINT and from how
+	// many sections the plan actually produced, so a 3-section overview is
+	// written to a 3-section budget rather than to a 6-section one and then
+	// reported as short. `targetWords` is what the writer aims at; the sentence
+	// counts follow from it.
+	const sectionBudget = atlasV2SectionWriterBudget({
+		budget,
+		sectionCount: resolvedPlan.sections.length,
+	});
+	const evidenceBySection = new Map(
+		resolvedPlan.sections.map((section) => [
+			section.id,
+			buildWriterEvidenceEntries(
+				sourcesForSection(index, section.questionIds),
+				profileConfig.maxSourcesPerSection,
 			),
-		),
+		]),
 	);
+	// Pass one: one line per section naming the figures it will use. Every body
+	// call then sees every other section's line, so no two sections state the
+	// same fact — and the bodies still run in one concurrent wave.
+	const sectionGists = resume.sections
+		? []
+		: (
+				await mapWithConcurrency(
+					resolvedPlan.sections,
+					writerConcurrency,
+					async (section) => {
+						const evidence = evidenceBySection.get(section.id) ?? [];
+						if (evidence.length === 0) return null;
+						const call = await timePhase("lead", () =>
+							deps.runWriterModel({
+								stage: `lead:${section.id}`,
+								system: ATLAS_V2_SECTION_LEAD_SYSTEM[language],
+								prompt: buildAtlasV2SectionLeadPrompt({
+									query: job.query,
+									language,
+									section,
+									evidence,
+								}),
+							}),
+						);
+						usage = addUsage(usage, call.usage);
+						const gist = parseAtlasV2SectionLead(call.text);
+						return gist ? { id: section.id, title: section.title, gist } : null;
+					},
+				)
+			).filter(
+				(entry): entry is { id: string; title: string; gist: string } =>
+					entry !== null,
+			);
 	const writtenSections =
 		resume.sections ??
 		(
@@ -642,10 +689,7 @@ export async function runAtlasV2Pipeline(
 				resolvedPlan.sections,
 				writerConcurrency,
 				async (section) => {
-					const evidence = buildWriterEvidenceEntries(
-						sourcesForSection(index, section.questionIds),
-						profileConfig.maxSourcesPerSection,
-					);
+					const evidence = evidenceBySection.get(section.id) ?? [];
 					if (evidence.length === 0) return null;
 					const call = await timePhase("write", () =>
 						deps.runWriterModel({
@@ -662,7 +706,12 @@ export async function runAtlasV2Pipeline(
 								),
 								outline,
 								evidence,
-								maxSentences: sectionSentenceBudget,
+								sectionsAlreadyWritten: sectionGists
+									.filter((entry) => entry.id !== section.id)
+									.map((entry) => ({ title: entry.title, gist: entry.gist })),
+								targetWords: sectionBudget.targetWords,
+								minSentences: sectionBudget.minSentences,
+								maxSentences: sectionBudget.maxSentences,
 								maxParagraphs: budget.maxParagraphsPerSection,
 							}),
 						}),
@@ -672,7 +721,7 @@ export async function runAtlasV2Pipeline(
 						sectionId: section.id,
 						title: section.title,
 						maxSourceNumber,
-						maxSentences: sectionSentenceBudget,
+						maxSentences: sectionBudget.maxSentences,
 						maxParagraphs: budget.maxParagraphsPerSection,
 					});
 				},
@@ -777,17 +826,33 @@ export async function runAtlasV2Pipeline(
 					sectionId: section.sectionId,
 					title: section.title,
 					maxSourceNumber,
-					maxSentences: sectionSentenceBudget,
+					maxSentences: sectionBudget.maxSentences,
 					maxParagraphs: budget.maxParagraphsPerSection,
 				});
 			},
+			rewriteConcurrency: writerConcurrency,
 		}),
 	);
 
+	// A fact an earlier section already stated is dropped rather than counted
+	// toward the budget: three sections stating one figure is what made the
+	// second evaluation's reports repetitive AND short.
+	const novelty = dropRepeatedAtlasV2Sentences({
+		sections: verification.sections,
+	});
+	if (novelty.droppedSentenceCount > 0) {
+		console.info("[ATLAS v2] Dropped sentences repeating an earlier section", {
+			jobId: job.id,
+			profile: job.profile,
+			dropped: novelty.droppedSentenceCount,
+		});
+	}
+
 	// The length budget is applied to the VERIFIED sections, before the summary
 	// is written, so the summary never summarises prose the reader will not see.
+	// It only ever TRIMS: a body under the bound is passed through untouched.
 	const bodyCap = capAtlasV2SectionsToWordBudget({
-		sections: verification.sections,
+		sections: novelty.sections,
 		maxWords: bodyWordBudget(budget),
 	});
 	const cappedVerification: AtlasV2VerificationResult = {
@@ -835,13 +900,17 @@ export async function runAtlasV2Pipeline(
 				maxSourceNumber,
 			}),
 		);
+		// Timed as part of `verify`: it was outside every phase timer before, which
+		// is one of the places the second evaluation's unattributed wall time went.
 		const verified = source
-			? await verifyAtlasV2Report({
-					sections: [source],
-					index,
-					staleMonths,
-					now,
-				})
+			? await timePhase("verify", () =>
+					verifyAtlasV2Report({
+						sections: [source],
+						index,
+						staleMonths,
+						now,
+					}),
+				)
 			: null;
 		return {
 			source,
@@ -915,11 +984,13 @@ export async function runAtlasV2Pipeline(
 				paragraphs: summarySection.paragraphs.map((paragraph) =>
 					paragraph.map((sentence) => ({
 						...sentence,
-						citations: sentence.citations
-							.filter((citation) => publication.renumberMap.has(citation))
-							.map(
-								(citation) => publication.renumberMap.get(citation) ?? citation,
-							),
+						// Same publication rule as the section bodies: remapped, then
+						// deduplicated and capped, so two indexed sources that collapse
+						// into one published source yield ONE citation.
+						citations: publishSentenceCitations({
+							citations: sentence.citations,
+							renumberMap: publication.renumberMap,
+						}),
 					})),
 				),
 			}
@@ -996,7 +1067,12 @@ export async function runAtlasV2Pipeline(
 		cutSentenceCount: combinedVerification.totals.cut,
 		staleMonths,
 	});
-	const outputs = await deps.renderOutputs(documentSource);
+	// File production (HTML, PDF, DOCX, Markdown) is not free and was not timed
+	// before; on the second evaluation it sat inside the unattributed gap between
+	// the phase timers and the job's wall time.
+	const outputs = await timePhase("render", () =>
+		deps.renderOutputs(documentSource),
+	);
 
 	const executiveSummaryMarkdown = buildAtlasV2ExecutiveSummaryMarkdown({
 		title,
@@ -1046,8 +1122,10 @@ export async function runAtlasV2Pipeline(
 				phaseDurationsMs: { ...phaseDurationsMs },
 				wordCount: reportWordCount(combinedVerification, summarySection),
 				wordBudget: budget.maxWords,
+				wordTargetPerSection: sectionBudget.targetWords,
 				sourcesDroppedForBudget: capped.droppedForBudget,
 				sentencesDroppedForBudget: bodyCap.droppedSentenceCount,
+				sentencesDroppedAsRepeats: novelty.droppedSentenceCount,
 				coreAnswerPresent: coreAnswer.present,
 				coreAnswerCitesFigure: coreAnswer.citedFigure,
 			},
@@ -1093,10 +1171,16 @@ async function writeExecutiveSummary(input: {
 		.filter((section) => section.paragraphs.length > 0)
 		.map((section) => ({
 			title: section.title,
-			sentences: section.paragraphs.flat().map((sentence) => ({
-				text: sentence.text,
-				citations: sentence.citations,
-			})),
+			// Bounded per section: the summary is written from the report's claims,
+			// and handing the model every sentence of a long report buys nothing but
+			// prompt and latency.
+			sentences: section.paragraphs
+				.flat()
+				.slice(0, SUMMARY_SENTENCES_PER_SECTION)
+				.map((sentence) => ({
+					text: sentence.text,
+					citations: sentence.citations,
+				})),
 		}));
 	if (sections.length === 0) return null;
 	const call = await input.runWriterModel({

@@ -29,6 +29,9 @@ const MAX_PARAGRAPHS_PER_SECTION = 8;
 const MAX_SENTENCES_PER_SECTION = 28;
 const MAX_CALCULATIONS_PER_SECTION = 6;
 const MAX_EVIDENCE_CHARS_PER_SOURCE = 2400;
+/** The lead pass names figures; it does not need the whole page. */
+const MAX_LEAD_EVIDENCE_CHARS_PER_SOURCE = 700;
+const MAX_LEAD_CHARS = 240;
 
 export const ATLAS_V2_WRITER_SYSTEM: Record<SupportedLanguage, string> = {
 	en: [
@@ -45,7 +48,9 @@ export const ATLAS_V2_WRITER_SYSTEM: Record<SupportedLanguage, string> = {
 		"6. Arithmetic you perform yourself goes in `calculations` as a single Python expression over figures from the cited `inputs`; reference it from a sentence with `calcId`. Never compute in your head.",
 		"7. No images. No source list. No section heading — the title is given. No mention of your own process, of confidence levels, or of the word 'basis'.",
 		"Write in the report's language. Prefer short, factual sentences over long ones.",
-		"Stay inside `maxSentences`: this section is one part of a length-budgeted report, and sentences past the budget are dropped rather than published.",
+		"8. LENGTH: write about `targetWords` words, and at least `minSentences` sentences. Sentences past `maxSentences` are dropped rather than published, so stay between the two.",
+		"9. NEW MATERIAL ONLY: `sectionsAlreadyWritten` lists what the other sections of this report state. Do NOT restate a figure or finding that is already there — a repeated fact is deleted, so restating one makes the report SHORTER, not longer. Every sentence must add a figure, date, name or position the report does not have yet.",
+		"10. If the evidence cannot fill `targetWords` with new facts, write fewer sentences. An honest short section beats a padded one.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási jelentés egy szakaszát írod számozott bizonyítékokból. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -61,7 +66,9 @@ export const ATLAS_V2_WRITER_SYSTEM: Record<SupportedLanguage, string> = {
 		"6. Az általad végzett számítás a `calculations` mezőbe kerül egyetlen Python kifejezésként a hivatkozott `inputs` számaiból; a mondatból `calcId`-vel hivatkozz rá. Fejben soha ne számolj.",
 		"7. Ne legyen kép, forráslista, szakaszcím — a címet megadjuk. Ne írj a saját folyamatodról, bizonyossági szintekről, és ne használd a „basis” szót.",
 		"A jelentés nyelvén írj. A rövid, tényszerű mondatokat részesítsd előnyben.",
-		"Tartsd magad a `maxSentences` értékhez: a jelentés hossza korlátozott, és a kereten túli mondatok nem jelennek meg, hanem törlődnek.",
+		"8. HOSSZ: körülbelül `targetWords` szót írj, és legalább `minSentences` mondatot. A `maxSentences` feletti mondatok törlődnek, tehát a kettő között maradj.",
+		"9. CSAK ÚJ ANYAG: a `sectionsAlreadyWritten` felsorolja, mit állítanak a jelentés többi szakaszai. NE mondd el újra az ott szereplő számot vagy megállapítást — az ismételt tényt töröljük, tehát az ismétléstől a jelentés RÖVIDEBB lesz, nem hosszabb. Minden mondat adjon új számot, dátumot, nevet vagy álláspontot.",
+		"10. Ha a bizonyíték nem elég `targetWords` szó új tényhez, írj kevesebb mondatot. Az őszintén rövid szakasz jobb, mint a vizezett.",
 	].join("\n"),
 };
 
@@ -134,7 +141,16 @@ export interface BuildAtlasV2SectionPromptInput {
 	evidence: AtlasV2WriterEvidenceEntry[];
 	/** Sentence budget for this section, from the profile's length budget. */
 	maxSentences?: number;
+	/** Sentences below which this section cannot carry its share of the band. */
+	minSentences?: number;
+	/** Words this section should aim at; the midpoint share of the band. */
+	targetWords?: number;
 	maxParagraphs?: number;
+	/**
+	 * What the other sections state, one line each — the lead pass's gists. This
+	 * is how a section knows not to restate a fact the report already carries.
+	 */
+	sectionsAlreadyWritten?: Array<{ title: string; gist: string }>;
 }
 
 export function buildAtlasV2SectionPrompt(
@@ -154,11 +170,88 @@ export function buildAtlasV2SectionPrompt(
 		otherSections: input.outline.filter(
 			(entry) => entry.title !== input.section.title,
 		),
+		...(input.sectionsAlreadyWritten?.length
+			? { sectionsAlreadyWritten: input.sectionsAlreadyWritten }
+			: {}),
+		...(input.targetWords ? { targetWords: input.targetWords } : {}),
+		...(input.minSentences ? { minSentences: input.minSentences } : {}),
 		maxSentences: input.maxSentences ?? MAX_SENTENCES_PER_SECTION,
 		maxParagraphs: input.maxParagraphs ?? MAX_PARAGRAPHS_PER_SECTION,
 		maxCitationsPerSentence: 2,
 		evidence: input.evidence,
 	});
+}
+
+// ---------------------------------------------------------------------------
+// The section lead pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Before any section body is written, every section is asked for ONE line
+ * naming the figures it will use. Those lines are handed to every body call as
+ * `sectionsAlreadyWritten`, which is what stops three sections from stating the
+ * same figure — the defect that made the second evaluation's reports both
+ * repetitive and short.
+ *
+ * The lead pass is never published: it produces plain, uncited text used only as
+ * context. It also costs less wall time than it saves, because it lets every
+ * body call run in one concurrent wave instead of waiting for earlier sections.
+ */
+export const ATLAS_V2_SECTION_LEAD_SYSTEM: Record<SupportedLanguage, string> = {
+	en: [
+		"You are given one section of a research report and its evidence. Return ONE sentence of at most 30 words and nothing else — no JSON, no citation markers, no heading.",
+		"The sentence names the specific figures, dates or named findings this section will state, so the report's other sections know not to repeat them.",
+		"Name only what the evidence actually carries. If the evidence carries no figures, say in plain words what the section can state.",
+	].join("\n"),
+	hu: [
+		"Egy kutatási jelentés egy szakaszát és annak bizonyítékait kapod. EGYETLEN, legfeljebb 30 szavas mondatot adj vissza, semmi mást — se JSON, se hivatkozásjel, se cím.",
+		"A mondat nevezze meg azokat a konkrét számokat, dátumokat vagy megállapításokat, amelyeket ez a szakasz ki fog mondani, hogy a jelentés többi szakasza ne ismételje meg őket.",
+		"Csak azt nevezd meg, ami a bizonyítékban tényleg benne van. Ha nincs benne szám, mondd el sima szavakkal, mit tud kimondani a szakasz.",
+	].join("\n"),
+};
+
+export function buildAtlasV2SectionLeadPrompt(input: {
+	query: string;
+	language: SupportedLanguage;
+	section: AtlasV2PlanSection;
+	evidence: AtlasV2WriterEvidenceEntry[];
+	/** Evidence chars per source; the lead needs far less than a body. */
+	evidenceChars?: number;
+}): string {
+	const chars = input.evidenceChars ?? MAX_LEAD_EVIDENCE_CHARS_PER_SOURCE;
+	return JSON.stringify({
+		task: "write_section_lead",
+		request: input.query,
+		language: input.language,
+		section: { title: input.section.title, brief: input.section.brief },
+		evidence: input.evidence.map((entry) => ({
+			n: entry.n,
+			title: entry.title,
+			text: entry.text.slice(0, chars),
+		})),
+	});
+}
+
+/** The one-line gist, or null when the call came back empty. */
+export function parseAtlasV2SectionLead(text: string): string | null {
+	const parsed = parseJsonFromText(text);
+	const raw =
+		typeof parsed === "string"
+			? parsed
+			: parsed && typeof parsed === "object"
+				? firstStringField(parsed as Record<string, unknown>)
+				: text;
+	const cleaned = cleanSentenceText(raw ?? text);
+	if (!cleaned) return null;
+	return cleaned.slice(0, MAX_LEAD_CHARS);
+}
+
+function firstStringField(record: Record<string, unknown>): string | null {
+	for (const key of ["gist", "lead", "sentence", "text", "summary"]) {
+		const value = record[key];
+		if (typeof value === "string" && value.trim()) return value;
+	}
+	return null;
 }
 
 export interface BuildAtlasV2SummaryPromptInput {
