@@ -14,11 +14,13 @@ import {
 	questionConfidences,
 	readAtlasV2ResumeState,
 	runAtlasV2Pipeline,
+	sourcesForSectionWithFallback,
 } from "./pipeline";
 import type { AtlasV2ResearchWebRunner } from "./research-web-adapter";
 import {
 	ATLAS_V2_CHECKPOINT_SCHEMA_VERSION,
 	type AtlasV2EvidenceIndex,
+	type AtlasV2IndexedSource,
 	type AtlasV2Plan,
 	type AtlasV2Usage,
 } from "./types";
@@ -1464,5 +1466,297 @@ describe("questionConfidences", () => {
 			},
 		});
 		expect(confidences).toEqual({ q1: "thin", q2: "mixed" });
+	});
+});
+
+describe("sourcesForSectionWithFallback", () => {
+	function indexed(n: number, questionId: string): AtlasV2IndexedSource {
+		return {
+			n,
+			canonicalUrl: `https://source${n}.example/report`,
+			host: `source${n}.example`,
+			organisation: `source${n}.example`,
+			title: `Report ${n}`,
+			date: "2026-04-01",
+			snippets: [`Evidence ${n}.`],
+			pageExcerpt: null,
+			questionIds: [questionId],
+		};
+	}
+	const index: AtlasV2EvidenceIndex = {
+		sources: [1, 2, 3, 4, 5, 6].map((n) =>
+			indexed(n, n <= 2 ? "q1" : n <= 5 ? "q2" : "q3"),
+		),
+		dropped: [],
+		filteredCount: 0,
+		byQuestion: { q1: [1, 2], q2: [3, 4, 5], q3: [6] },
+	};
+
+	it("leaves a section that found enough evidence alone", () => {
+		expect(
+			sourcesForSectionWithFallback({
+				index,
+				questionIds: ["q2"],
+				minSources: 3,
+				maxSources: 6,
+			}).map((source) => source.n),
+		).toEqual([3, 4, 5]);
+	});
+
+	it("tops a starved section up from the top of the index, its own first", () => {
+		expect(
+			sourcesForSectionWithFallback({
+				index,
+				questionIds: ["q3"],
+				minSources: 3,
+				maxSources: 4,
+			}).map((source) => source.n),
+		).toEqual([6, 1, 2, 3]);
+	});
+
+	it("never exceeds the profile's per-section source cap", () => {
+		expect(
+			sourcesForSectionWithFallback({
+				index,
+				questionIds: ["q3"],
+				minSources: 3,
+				maxSources: 2,
+			}).map((source) => source.n),
+		).toEqual([6, 1]);
+		// A cap at or below what the section already has tops it up not at all.
+		expect(
+			sourcesForSectionWithFallback({
+				index,
+				questionIds: ["q3"],
+				minSources: 3,
+				maxSources: 1,
+			}).map((source) => source.n),
+		).toEqual([6]);
+	});
+
+	it("gives a section with no evidence of its own the whole index's best", () => {
+		expect(
+			sourcesForSectionWithFallback({
+				index,
+				questionIds: ["q9"],
+				minSources: 3,
+				maxSources: 3,
+			}).map((source) => source.n),
+		).toEqual([1, 2, 3]);
+	});
+});
+
+describe("Atlas v2 writer runaways", () => {
+	/** Every model answer ends at the output cap, as the local model's did. */
+	function runawayWriter(answers: (stage: string) => string) {
+		return vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text: answers(stage),
+				finishReason: "length" as const,
+				usage: { ...ZERO_USAGE, outputTokens: 6_000 },
+			}),
+		);
+	}
+
+	function controlModel() {
+		return vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "plan" ? PLAN_JSON : JSON.stringify({ sufficient: true }),
+				usage: ZERO_USAGE,
+			}),
+		);
+	}
+
+	const renderOutputs = async () => ({
+		fileProductionJobId: null,
+		htmlChatGeneratedFileId: null,
+		pdfChatGeneratedFileId: null,
+		markdownChatGeneratedFileId: null,
+	});
+
+	it("salvages a truncated body instead of retrying and losing the section", async () => {
+		// Cut mid-way through the third sentence: two whole sentences survive.
+		const whole = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{ text: "The union added 8 GW of solar.", citations: [1] },
+						{ text: "Permits take eighteen months.", citations: [2] },
+						{ text: "The queue keeps growing.", citations: [1] },
+					],
+				},
+			],
+		});
+		const truncated = whole.slice(0, whole.indexOf("The queue keeps") + 9);
+		const runWriterModel = runawayWriter((stage) =>
+			stage === "summary" ? SUMMARY_JSON : truncated,
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: { stage: string; qualityDiagnostics: unknown }) => {},
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await runAtlasV2Pipeline({
+				job: job(),
+				now: NOW,
+				dependencies: {
+					researchWeb: researchWeb(),
+					runControlModel: controlModel(),
+					runWriterModel,
+					writeCheckpoint,
+					renderOutputs,
+					profileOverrides: { questions: 4, rounds: 1 },
+				},
+			});
+		} finally {
+			vi.restoreAllMocks();
+		}
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sectionsWritten?: number;
+			sectionsDropped?: unknown[];
+			writerRunaways?: {
+				length: number;
+				salvaged: number;
+				retried: number;
+				fallback: number;
+			};
+		};
+		expect(diagnostics?.sectionsWritten).toBe(2);
+		expect(diagnostics?.sectionsDropped).toEqual([]);
+		expect(diagnostics?.writerRunaways).toEqual({
+			length: 2,
+			salvaged: 2,
+			retried: 0,
+			fallback: 0,
+		});
+		// Salvaged on the FIRST call, so no section was written twice.
+		const sectionCalls = runWriterModel.mock.calls.filter(([call]) =>
+			(call as { stage: string }).stage.startsWith("write"),
+		);
+		expect(sectionCalls).toHaveLength(2);
+	});
+
+	it("retries tighter, then writes plain text, when the JSON never closes", async () => {
+		const unsalvageable = '{"paragraphs":[{"sentences":[{"text":"The union add';
+		const runWriterModel = runawayWriter((stage) => {
+			if (stage === "summary") return SUMMARY_JSON;
+			if (stage.startsWith("write:plain:")) {
+				return [
+					"The union added 8 GW of solar capacity. [1]",
+					"Grid connection permits take eighteen months. [2]",
+					"The queue is still growi",
+				].join("\n");
+			}
+			return unsalvageable;
+		});
+		const writeCheckpoint = vi.fn(
+			async (_input: { stage: string; qualityDiagnostics: unknown }) => {},
+		);
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await runAtlasV2Pipeline({
+				// Exhaustive, so the section's own cap sits above the 1,500-token
+				// floor and the retry's 30% cut is actually visible.
+				job: job({ profile: "exhaustive" }),
+				now: NOW,
+				dependencies: {
+					researchWeb: researchWeb(),
+					runControlModel: controlModel(),
+					runWriterModel,
+					writeCheckpoint,
+					renderOutputs,
+					profileOverrides: { questions: 4, rounds: 1 },
+				},
+			});
+		} finally {
+			vi.restoreAllMocks();
+		}
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sectionsWritten?: number;
+			sectionsDropped?: unknown[];
+			writerRunaways?: { retried: number; fallback: number };
+		};
+		// Every section survives: `unparsable_body` is no longer a way to lose
+		// one while its evidence is sitting right there.
+		expect(diagnostics?.sectionsWritten).toBe(2);
+		expect(diagnostics?.sectionsDropped).toEqual([]);
+		expect(diagnostics?.writerRunaways).toMatchObject({
+			retried: 2,
+			fallback: 2,
+		});
+
+		const calls = runWriterModel.mock.calls.map(
+			([call]) =>
+				call as {
+					stage: string;
+					system: string;
+					maxOutputTokens?: number;
+					thinkingMode?: string;
+				},
+		);
+		const first = calls.find((call) => call.stage === "write:s1");
+		const retry = calls.filter((call) => call.stage === "write:s1")[1];
+		const plain = calls.find((call) => call.stage === "write:plain:s1");
+		// The retry is TIGHTER than the call that ran away, and says so first.
+		expect(retry?.maxOutputTokens).toBeLessThan(
+			first?.maxOutputTokens ?? Number.POSITIVE_INFINITY,
+		);
+		expect(retry?.system.startsWith("Output the JSON object only.")).toBe(true);
+		expect(first?.system.startsWith("Output the JSON object only.")).toBe(
+			false,
+		);
+		expect(plain?.system).toContain("PLAIN TEXT only");
+		// And every writer call turned provider thinking off.
+		for (const call of calls) expect(call.thinkingMode).toBe("off");
+	});
+
+	it("caps each stage's output and turns thinking off across the pipeline", async () => {
+		const runControlModel = controlModel();
+		const { runWriterModel } = modelDeps();
+		const runAuditModel = vi.fn(async () => ({
+			text: JSON.stringify([{ entailed: true }]),
+			usage: ZERO_USAGE,
+		}));
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				runAuditModel,
+				writeCheckpoint: async () => {},
+				renderOutputs,
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const everyCall = [
+			...runControlModel.mock.calls,
+			...runWriterModel.mock.calls,
+			...runAuditModel.mock.calls,
+		].map(
+			([call]) =>
+				call as {
+					stage: string;
+					thinkingMode?: string;
+					maxOutputTokens?: number;
+				},
+		);
+		expect(everyCall.length).toBeGreaterThan(0);
+		for (const call of everyCall) {
+			expect(call.thinkingMode).toBe("off");
+			// Sized to the stage, and nowhere near the 16,000 the writer ran to.
+			expect(call.maxOutputTokens).toBeGreaterThan(0);
+			expect(call.maxOutputTokens).toBeLessThanOrEqual(6_000);
+		}
+		expect(
+			everyCall.find((call) => call.stage === "plan")?.maxOutputTokens,
+		).toBe(1_500);
+		expect(
+			everyCall.find((call) => call.stage === "summary")?.maxOutputTokens,
+		).toBe(2_500);
 	});
 });

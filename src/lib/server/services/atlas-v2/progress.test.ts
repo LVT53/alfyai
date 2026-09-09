@@ -192,6 +192,42 @@ describe("sanitizeAtlasV2ProgressDetails", () => {
 		expect(sanitizeAtlasV2ProgressDetails(details)).toEqual(details);
 	});
 
+	it("carries the writer runaway counters to the evaluation intact", () => {
+		const details = buildAtlasV2ProgressDetails({
+			phase: "render",
+			language: "en",
+			plan: PLAN,
+			round: { current: 1, total: 1 },
+			sourcesRead: 4,
+			sections: { written: 3, planned: 4 },
+			writerRunaways: { length: 2, salvaged: 1, retried: 1, fallback: 1 },
+		});
+		expect(details.writerRunaways).toEqual({
+			length: 2,
+			salvaged: 1,
+			retried: 1,
+			fallback: 1,
+		});
+		expect(sanitizeAtlasV2ProgressDetails(details)).toEqual(details);
+	});
+
+	it("omits the runaway counters entirely before the writer has run", () => {
+		const details = buildAtlasV2ProgressDetails({
+			phase: "plan",
+			language: "en",
+			plan: PLAN,
+			round: { current: 1, total: 1 },
+			sourcesRead: 0,
+		});
+		expect(details).not.toHaveProperty("writerRunaways");
+		expect(
+			sanitizeAtlasV2ProgressDetails({
+				...details,
+				writerRunaways: "not an object",
+			}),
+		).not.toHaveProperty("writerRunaways");
+	});
+
 	it("drops junk and clamps the caps", () => {
 		const sanitized = sanitizeAtlasV2ProgressDetails({
 			pipelineVersion: 2,

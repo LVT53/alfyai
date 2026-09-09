@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AtlasV2IndexedSource } from "./types";
 import {
+	ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM,
 	ATLAS_V2_WRITER_SYSTEM,
 	buildAtlasV2SectionPrompt,
 	buildWriterEvidenceEntries,
+	countAtlasV2SectionSentences,
+	parseAtlasV2PlainTextSection,
 	parseAtlasV2WrittenSection,
+	salvageAtlasV2WrittenSection,
+	salvageTruncatedWriterJson,
 } from "./writer";
 
 const OPTIONS = { sectionId: "s1", title: "Capacity", maxSourceNumber: 9 };
@@ -285,5 +290,166 @@ describe("parseAtlasV2WrittenSection — length budget", () => {
 		expect(
 			section?.paragraphs.flatMap((paragraph) => paragraph.sentences),
 		).toHaveLength(25);
+	});
+});
+
+describe("salvageTruncatedWriterJson", () => {
+	// The shape the local model produced when it ran to its output cap: valid
+	// JSON up to the cut, rubble after. Cut at every point, so the repair is not
+	// shown to work only where the cap happened to land once.
+	const FULL = JSON.stringify({
+		paragraphs: [
+			{
+				sentences: [
+					{ text: "Capacity reached 8 GW.", citations: [1], inferred: false },
+					{ text: "Additions doubled in 2025.", citations: [2, 3] },
+					{ text: "The queue is 40 GW.", citations: [2] },
+				],
+			},
+			{ sentences: [{ text: "Grid costs rose.", citations: [3] }] },
+		],
+		calculations: [{ id: "c1", expression: "8/12*100", inputs: [1] }],
+	});
+
+	it("returns a complete body unchanged", () => {
+		expect(salvageTruncatedWriterJson(FULL)).toBe(FULL);
+	});
+
+	it("closes the object at the last clean cut, wherever the cut fell", () => {
+		const salvagedCounts = new Set<number>();
+		for (let cut = 1; cut < FULL.length; cut += 1) {
+			const repaired = salvageTruncatedWriterJson(FULL.slice(0, cut));
+			if (!repaired) continue;
+			expect(() => JSON.parse(repaired)).not.toThrow();
+			const section = parseAtlasV2WrittenSection(repaired, OPTIONS);
+			if (section) salvagedCounts.add(countAtlasV2SectionSentences(section));
+		}
+		// 1, 2, 3 and all 4 sentences, as the cut moves right through the body.
+		expect([...salvagedCounts].sort()).toEqual([1, 2, 3, 4]);
+	});
+
+	it("never publishes the half sentence the cut left behind", () => {
+		const cut = FULL.indexOf("The queue is 40") + 8;
+		const section = salvageAtlasV2WrittenSection(FULL.slice(0, cut), OPTIONS);
+		expect(
+			section?.paragraphs.flatMap((paragraph) =>
+				paragraph.sentences.map((sentence) => sentence.text),
+			),
+		).toEqual(["Capacity reached 8 GW.", "Additions doubled in 2025."]);
+	});
+
+	it("gives back nothing when the cut fell before the first sentence closed", () => {
+		expect(
+			salvageTruncatedWriterJson('{"paragraphs":[{"sentences":[{"text":"Cap'),
+		).toBeNull();
+		expect(
+			salvageTruncatedWriterJson("Thinking about the section..."),
+		).toBeNull();
+	});
+
+	it("survives a brace or bracket inside a sentence's own text", () => {
+		const withBraces = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{ text: 'The rule is "{ a } [b]" in the annex.', citations: [1] },
+						{ text: "A second sentence.", citations: [2] },
+					],
+				},
+			],
+		});
+		const repaired = salvageTruncatedWriterJson(
+			withBraces.slice(0, withBraces.length - 12),
+		);
+		expect(repaired).not.toBeNull();
+		expect(() => JSON.parse(repaired as string)).not.toThrow();
+		expect(
+			parseAtlasV2WrittenSection(repaired as string, OPTIONS)?.paragraphs[0]
+				.sentences[0].text,
+		).toBe('The rule is "{ a } [b]" in the annex.');
+	});
+});
+
+describe("parseAtlasV2PlainTextSection", () => {
+	it("reads one sentence per line with its trailing citations", () => {
+		const section = parseAtlasV2PlainTextSection(
+			[
+				"Capacity reached 8 GW in 2025. [1]",
+				"Additions doubled year on year. [2][3]",
+				"The picture is mixed across member states.",
+			].join("\n"),
+			OPTIONS,
+		);
+		expect(section?.paragraphs[0].sentences).toEqual([
+			{
+				text: "Capacity reached 8 GW in 2025.",
+				citations: [1],
+				inferred: false,
+				calcId: null,
+			},
+			{
+				text: "Additions doubled year on year.",
+				citations: [2, 3],
+				inferred: false,
+				calcId: null,
+			},
+			{
+				text: "The picture is mixed across member states.",
+				citations: [],
+				inferred: true,
+				calcId: null,
+			},
+		]);
+	});
+
+	it("drops the last line when the answer was cut at the output cap", () => {
+		// This is what makes the fallback the floor under `unparsable_body`: a
+		// truncated plain-text answer is still a section, minus one line.
+		const section = parseAtlasV2PlainTextSection(
+			"Capacity reached 8 GW. [1]\nAdditions doubled in 20",
+			{ ...OPTIONS, truncated: true },
+		);
+		expect(countAtlasV2SectionSentences(section)).toBe(1);
+	});
+
+	it("strips list markers and skips fences and stray braces", () => {
+		const section = parseAtlasV2PlainTextSection(
+			[
+				"```",
+				"- Capacity reached 8 GW. [1]",
+				"}",
+				"1. Grid costs rose. [2]",
+			].join("\n"),
+			OPTIONS,
+		);
+		expect(
+			section?.paragraphs.flatMap((paragraph) =>
+				paragraph.sentences.map((sentence) => sentence.text),
+			),
+		).toEqual(["Capacity reached 8 GW.", "Grid costs rose."]);
+	});
+
+	it("caps citations at two and drops numbers past the source list", () => {
+		const section = parseAtlasV2PlainTextSection(
+			"Capacity reached 8 GW. [1][2][3][40]",
+			OPTIONS,
+		);
+		expect(section?.paragraphs[0].sentences[0].citations).toEqual([1, 2]);
+	});
+
+	it("returns null when there is no line to read", () => {
+		expect(parseAtlasV2PlainTextSection("   \n\n", OPTIONS)).toBeNull();
+	});
+
+	it("asks for one sentence per line and trailing brackets in both languages", () => {
+		for (const system of [
+			ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM.en,
+			ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM.hu,
+		]) {
+			expect(system).toContain("[3]");
+		}
+		expect(ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM.en).toContain(
+			"ONE sentence per line",
+		);
 	});
 });

@@ -332,3 +332,75 @@ describe("fallbackAtlasV2Plan", () => {
 		);
 	});
 });
+
+describe("parseAtlasV2Plan question dedupe", () => {
+	// The energy plan in the live evaluation asked the SAME question three
+	// times: three research passes for one answer, and three sections written
+	// from one pile of evidence.
+	const DUPLICATED = JSON.stringify({
+		title: "EU solar in 2026",
+		questions: [
+			"How much solar did the EU add in 2026?",
+			"How much solar did the EU add in 2026",
+			"HOW MUCH SOLAR DID THE EU ADD IN 2026?!",
+			"What is the grid connection queue?",
+			"Which member states led the additions?",
+			"What did the additions cost?",
+			"How fast is the queue clearing?",
+		],
+		// Every distinct question is covered, so nothing is redistributed by the
+		// "a question must be written about somewhere" pass and the assertions
+		// below are about the dedupe alone.
+		sections: [
+			{ title: "Additions", brief: "The headline figure.", questions: [1, 3] },
+			{ title: "Queue", brief: "Grid connections.", questions: [2, 4] },
+			{ title: "Cost", brief: "What it cost.", questions: [5, 6, 7] },
+		],
+	});
+
+	it("collapses questions that differ only in case and punctuation", () => {
+		const plan = parseAtlasV2Plan(DUPLICATED, { questionCount: 10 });
+		expect(plan?.questions.map((question) => question.question)).toEqual([
+			"How much solar did the EU add in 2026?",
+			"What is the grid connection queue?",
+			"Which member states led the additions?",
+			"What did the additions cost?",
+			"How fast is the queue clearing?",
+		]);
+	});
+
+	it("merges the duplicates' sections onto the one surviving id", () => {
+		const plan = parseAtlasV2Plan(DUPLICATED, { questionCount: 10 });
+		// Section 1 named questions 1 and 3 — both the same question — so it
+		// carries ONE id, not two ids pointing at whatever now sits there.
+		expect(plan?.sections[0].questionIds).toEqual(["q1"]);
+		// Section 2 named questions 2 and 4: the duplicate collapses onto q1 and
+		// the distinct one keeps its own id.
+		expect(
+			plan?.sections.find((section) => section.title === "Queue")?.questionIds,
+		).toEqual(["q1", "q2"]);
+	});
+
+	it("fills the profile's question count from DISTINCT questions", () => {
+		// Four distinct questions survive a cap of four, not two distinct plus
+		// two duplicates.
+		const plan = parseAtlasV2Plan(DUPLICATED, { questionCount: 4 });
+		expect(plan?.questions).toHaveLength(4);
+		expect(
+			new Set(plan?.questions.map((question) => question.question)).size,
+		).toBe(4);
+	});
+
+	it("keeps the core question first and drops the model's restatement of it", () => {
+		const plan = parseAtlasV2Plan(DUPLICATED, {
+			questionCount: 10,
+			coreQuestion: "How much solar did the EU add in 2026?",
+		});
+		expect(plan?.questions[0].question).toBe(
+			"How much solar did the EU add in 2026?",
+		);
+		expect(plan?.questions.map((question) => question.question)).toHaveLength(
+			5,
+		);
+	});
+});

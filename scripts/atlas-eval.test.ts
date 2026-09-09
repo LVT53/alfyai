@@ -12,6 +12,7 @@ import {
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	writerRunawaysCell,
 } from "./atlas-eval";
 
 const QUERIES = JSON.parse(
@@ -541,5 +542,43 @@ describe("sectionsCell", () => {
 		expect(
 			sectionsCell({ ...base, sectionCount: 4, sectionsPlanned: null }),
 		).toBe("4");
+	});
+});
+
+describe("writerRunawaysCell", () => {
+	const base = computeMetrics({ markdown: null, evidence: undefined });
+
+	it("says n/a on a pipeline that reports no writer counters", () => {
+		expect(writerRunawaysCell(base)).toBe("n/a");
+	});
+
+	it("shows a plain zero on a healthy run", () => {
+		expect(
+			writerRunawaysCell({
+				...base,
+				writerRunaways: { length: 0, salvaged: 0, retried: 0, fallback: 0 },
+			}),
+		).toBe("0");
+	});
+
+	// The defect the wall time alone reads as "the model was slow": the body
+	// comes back unclosed, and the section is written twice or written blind.
+	it("bolds a runaway and names the repair it cost", () => {
+		expect(
+			writerRunawaysCell({
+				...base,
+				writerRunaways: { length: 4, salvaged: 1, retried: 2, fallback: 1 },
+			}),
+		).toBe("**4 (1 salvaged, 2 retried, 1 plain)**");
+	});
+
+	it("keeps the counters when the job produced no report at all", () => {
+		const metrics = computeMetrics({
+			markdown: null,
+			evidence: undefined,
+			writerRunaways: { length: 3, salvaged: 0, retried: 3, fallback: 0 },
+		});
+		expect(metrics.writerRunaways?.length).toBe(3);
+		expect(writerRunawaysCell(metrics)).toBe("**3 (3 retried)**");
 	});
 });

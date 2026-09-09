@@ -9,6 +9,11 @@ import {
 	countWords,
 } from "./budget";
 import {
+	ATLAS_V2_MAX_OUTPUT_TOKENS,
+	atlasV2RunawayRetryMaxOutputTokens,
+	atlasV2SectionMaxOutputTokens,
+} from "./config";
+import {
 	buildAtlasV2EvidenceIndex,
 	capAtlasV2EvidenceIndex,
 } from "./evidence-index";
@@ -321,5 +326,57 @@ describe("capAtlasV2EvidenceIndex", () => {
 		expect(first.index.sources.map((source) => source.canonicalUrl)).toEqual(
 			second.index.sources.map((source) => source.canonicalUrl),
 		);
+	});
+});
+
+describe("atlasV2SectionMaxOutputTokens", () => {
+	it("sizes the cap from the section's word target", () => {
+		expect(atlasV2SectionMaxOutputTokens(600)).toBe(2_400);
+	});
+
+	it("floors a tiny section and ceilings a huge one", () => {
+		// Below the floor a section cannot even hold its minimum sentences; above
+		// the ceiling the writer is back in runaway territory.
+		expect(atlasV2SectionMaxOutputTokens(60)).toBe(1_500);
+		expect(atlasV2SectionMaxOutputTokens(4_000)).toBe(6_000);
+		expect(atlasV2SectionMaxOutputTokens(0)).toBe(1_500);
+	});
+
+	it("keeps every profile's section cap far below the 16,000 that ran away", () => {
+		for (const profile of ["overview", "in-depth", "exhaustive"] as const) {
+			for (const sectionCount of [2, 4, 6, 10]) {
+				const { targetWords } = atlasV2SectionWriterBudget({
+					budget: ATLAS_V2_BUDGETS[profile],
+					sectionCount,
+				});
+				expect(atlasV2SectionMaxOutputTokens(targetWords)).toBeLessThanOrEqual(
+					6_000,
+				);
+			}
+		}
+	});
+});
+
+describe("atlasV2RunawayRetryMaxOutputTokens", () => {
+	it("cuts the cap that ran away by 30%", () => {
+		expect(atlasV2RunawayRetryMaxOutputTokens(4_000)).toBe(2_800);
+	});
+
+	it("never retries below the floor", () => {
+		// A retry at the same cap only truncates in the same place; a retry below
+		// the floor cannot hold a section at all.
+		expect(atlasV2RunawayRetryMaxOutputTokens(1_500)).toBe(1_500);
+		expect(atlasV2RunawayRetryMaxOutputTokens(800)).toBe(1_500);
+	});
+});
+
+describe("ATLAS_V2_MAX_OUTPUT_TOKENS", () => {
+	it("caps every structured-JSON stage well under a runaway", () => {
+		expect(ATLAS_V2_MAX_OUTPUT_TOKENS).toEqual({
+			plan: 1_500,
+			coverage: 800,
+			summary: 2_500,
+			entailment: 800,
+		});
 	});
 });

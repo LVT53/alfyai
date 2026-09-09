@@ -259,4 +259,123 @@ describe("Atlas model stage", () => {
 			}),
 		);
 	});
+
+	// v1 passes neither option and must keep asking for the profile's cap with
+	// nothing said about reasoning; v2 passes both per call.
+	it("says nothing about reasoning and uses the profile cap by default", async () => {
+		const { runAtlasModelStage } = await import("./model-stage");
+		let captured: Record<string, unknown> = {};
+		const runModel = vi.fn(async (input: unknown) => {
+			captured = input as Record<string, unknown>;
+			return {
+				text: "{}",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				model: { modelId: "m", providerId: "p", displayName: "M" },
+			};
+		});
+
+		await runAtlasModelStage({
+			stage: "synthesize",
+			profile: "exhaustive",
+			modelSelection: "provider:p:m",
+			system: "Atlas system prompt",
+			prompt: "Use curated evidence only.",
+			runModel,
+		});
+
+		expect(captured.maxOutputTokens).toBe(32000);
+		expect(captured).not.toHaveProperty("thinkingMode");
+	});
+
+	it("forwards a per-call output cap and thinking mode to the boundary", async () => {
+		const { runAtlasModelStage } = await import("./model-stage");
+		const runModel = vi.fn(async () => ({
+			text: "{}",
+			usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+			model: { modelId: "m", providerId: "p", displayName: "M" },
+		}));
+
+		await runAtlasModelStage({
+			stage: "synthesize",
+			profile: "exhaustive",
+			modelSelection: "provider:p:m",
+			system: "Atlas system prompt",
+			prompt: "Use curated evidence only.",
+			maxOutputTokens: 1_500,
+			thinkingMode: "off",
+			runModel,
+		});
+
+		expect(runModel).toHaveBeenCalledWith(
+			expect.objectContaining({ maxOutputTokens: 1_500, thinkingMode: "off" }),
+		);
+	});
+});
+
+describe("Atlas model stage provider reasoning", () => {
+	/**
+	 * The point of the option: `thinkingMode: "off"` has to reach the REQUEST,
+	 * not just the boundary's argument list. It does so through the same helper
+	 * the chat path's "quick" depth uses, per attempt so a failover keeps it —
+	 * which for a Qwen-shaped provider is `enable_thinking: false`, mirrored
+	 * into `chat_template_kwargs` where a self-hosted vLLM reads it.
+	 */
+	async function runThroughBoundary(
+		thinkingMode?: "off" | "on",
+	): Promise<Record<string, unknown>> {
+		vi.resetModules();
+		const streamed: Record<string, unknown>[] = [];
+		vi.doMock("$lib/server/config-store", () => ({
+			getConfig: () => ({ model1: {}, model2: {} }),
+			normalizeModelSelectionWithProviders: async (id: string) => id,
+		}));
+		vi.doMock("$lib/server/services/normal-chat-model", () => ({
+			resolveNormalChatModelRunProvider: async () => ({
+				name: "qwen",
+				modelId: "qwen3.8-flash-next",
+			}),
+			buildNormalChatModelRunProviderOptions: (
+				provider: { name: string },
+				mode: string | undefined,
+			) => ({ [provider.name]: { enable_thinking: mode !== "off" } }),
+			runStreamingNormalChatModelRun: (params: Record<string, unknown>) => {
+				streamed.push(params);
+				return (async function* () {
+					yield { type: "text_delta", text: "{}" };
+				})();
+			},
+		}));
+		const { runAtlasModelStage } = await import("./model-stage");
+		await runAtlasModelStage({
+			stage: "synthesize",
+			profile: "in-depth",
+			modelSelection: "provider:p:qwen3.8-flash-next",
+			system: "Write the section.",
+			prompt: "{}",
+			// Explicit, so the boundary never reaches for the profile's runtime
+			// config: this test is about the provider options, not the cap.
+			maxOutputTokens: 2_000,
+			...(thinkingMode ? { thinkingMode } : {}),
+		});
+		vi.doUnmock("$lib/server/config-store");
+		vi.doUnmock("$lib/server/services/normal-chat-model");
+		return streamed[0];
+	}
+
+	it("resolves `enable_thinking: false` per attempt when thinking is off", async () => {
+		const params = await runThroughBoundary("off");
+		const resolve = params.resolveProviderOptions as (provider: {
+			name: string;
+		}) => unknown;
+		expect(typeof resolve).toBe("function");
+		expect(resolve({ name: "qwen" })).toEqual({
+			qwen: { enable_thinking: false },
+		});
+	});
+
+	it("sends no reasoning options at all when no mode is asked for", async () => {
+		const params = await runThroughBoundary();
+		expect(params.resolveProviderOptions).toBeUndefined();
+		expect(params.providerOptions).toBeUndefined();
+	});
 });
