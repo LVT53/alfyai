@@ -684,7 +684,12 @@ async function runQuery(input: {
 	profileOverride: EvalQuery["profile"] | null;
 	timeoutMs: number;
 }): Promise<QueryResult> {
-	const { session, query } = input;
+	// A --profile override changes the profile the job actually ran on, so the
+	// budget the report is graded against has to follow it.
+	const query: EvalQuery = input.profileOverride
+		? { ...input.query, profile: input.profileOverride }
+		: input.query;
+	const { session } = input;
 	const startedAt = Date.now();
 	const conversation = await session.json<{ id: string }>(
 		"/api/conversations",
@@ -705,7 +710,7 @@ async function runQuery(input: {
 				conversationId: conversation.id,
 				message: query.query,
 				atlasMode: true,
-				atlasProfile: input.profileOverride ?? query.profile,
+				atlasProfile: query.profile,
 				atlasAction: "create",
 				clientAtlasTurnId: randomUUID(),
 			}),
