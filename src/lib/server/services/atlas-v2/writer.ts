@@ -25,6 +25,8 @@ import type {
 const MAX_SENTENCE_CHARS = 600;
 const MAX_SENTENCES_PER_PARAGRAPH = 8;
 const MAX_PARAGRAPHS_PER_SECTION = 8;
+/** Absolute bound when no profile budget is passed; see budget.ts. */
+const MAX_SENTENCES_PER_SECTION = 28;
 const MAX_CALCULATIONS_PER_SECTION = 6;
 const MAX_EVIDENCE_CHARS_PER_SOURCE = 2400;
 
@@ -36,11 +38,14 @@ export const ATLAS_V2_WRITER_SYSTEM: Record<SupportedLanguage, string> = {
 		"1. Every figure, date, name, quantity or named position in a sentence MUST be stated by at least one source you cite for that sentence. Cite by source number in `citations`.",
 		"2. Never write a figure you cannot find in the evidence. If the evidence does not have it, write about what the evidence does have.",
 		"3. Do NOT put the citation marker in `text` — the renderer adds it. Write the sentence as plain prose.",
+		"3a. Cite AT MOST TWO sources per sentence: the ones that actually state the claim. A third citation adds nothing a reader can use.",
+		'3b. A sentence that carries no factual claim — a transition, or a line saying what the section covers — takes NO citations: give it an empty `citations` list and "inferred": true.',
 		'4. A sentence that synthesises across sources without any source stating it directly is allowed ONLY as hedged prose with "inferred": true, an empty `citations` list, and NO figure, date or quantity inside it.',
 		"5. When independent sources disagree on a figure, write ONE sentence that states both figures and cite both sources.",
 		"6. Arithmetic you perform yourself goes in `calculations` as a single Python expression over figures from the cited `inputs`; reference it from a sentence with `calcId`. Never compute in your head.",
 		"7. No images. No source list. No section heading — the title is given. No mention of your own process, of confidence levels, or of the word 'basis'.",
 		"Write in the report's language. Prefer short, factual sentences over long ones.",
+		"Stay inside `maxSentences`: this section is one part of a length-budgeted report, and sentences past the budget are dropped rather than published.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási jelentés egy szakaszát írod számozott bizonyítékokból. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -49,11 +54,14 @@ export const ATLAS_V2_WRITER_SYSTEM: Record<SupportedLanguage, string> = {
 		"1. Minden szám, dátum, név, mennyiség és megnevezett álláspont mögött legyen legalább egy forrás, amit az adott mondathoz hivatkozol. A hivatkozás forrásszám a `citations` mezőben.",
 		"2. Soha ne írj olyan számot, amit nem találsz a bizonyítékban. Ha nincs benne, arról írj, ami benne van.",
 		"3. A hivatkozásjelet NE írd a `text`-be — azt a megjelenítő teszi hozzá. A mondat legyen sima próza.",
+		"3a. Mondatonként LEGFELJEBB KÉT forrást hivatkozz: azokat, amelyek tényleg kimondják az állítást. A harmadik hivatkozás semmit nem ad az olvasónak.",
+		'3b. A tényállítást nem tartalmazó mondat — átvezetés vagy a szakasz tárgyát bemutató sor — NE kapjon hivatkozást: üres `citations` lista és "inferred": true.',
 		'4. Több forráson átnyúló szintézis mondat CSAK óvatos megfogalmazással, "inferred": true értékkel, üres `citations` listával és szám, dátum vagy mennyiség NÉLKÜL engedélyezett.',
 		"5. Ha független források más számot adnak, EGY mondatban írd le mindkét számot, és mindkét forrást hivatkozd.",
 		"6. Az általad végzett számítás a `calculations` mezőbe kerül egyetlen Python kifejezésként a hivatkozott `inputs` számaiból; a mondatból `calcId`-vel hivatkozz rá. Fejben soha ne számolj.",
 		"7. Ne legyen kép, forráslista, szakaszcím — a címet megadjuk. Ne írj a saját folyamatodról, bizonyossági szintekről, és ne használd a „basis” szót.",
 		"A jelentés nyelvén írj. A rövid, tényszerű mondatokat részesítsd előnyben.",
+		"Tartsd magad a `maxSentences` értékhez: a jelentés hossza korlátozott, és a kereten túli mondatok nem jelennek meg, hanem törlődnek.",
 	].join("\n"),
 };
 
@@ -61,13 +69,17 @@ export const ATLAS_V2_SUMMARY_SYSTEM: Record<SupportedLanguage, string> = {
 	en: [
 		"You write the executive summary of a research report from its finished sections. Return STRICT JSON only, in the same shape as a section.",
 		"Every citation you use must already appear in the section sentence you are summarising — you may not introduce a source or a figure the sections do not carry.",
-		"Answer the request in the first paragraph. Keep it to 3-6 sentences per paragraph and at most 3 paragraphs.",
+		"THE FIRST SENTENCE ANSWERS `coreQuestion` DIRECTLY, with the figure or named finding that answers it and the citations that carry it. Not context, not what the report covers, not the most interesting detail — the answer.",
+		"If the sections do not answer the core question, say so plainly in the first sentence instead of answering a different question.",
+		"Then the rest: at most 3 paragraphs, 3-6 sentences each, at most two citations per sentence.",
 		"No headings, no source list, no mention of your own process.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási jelentés vezetői összefoglalóját írod a kész szakaszaiból. KIZÁRÓLAG szigorú JSON-t adj vissza, ugyanabban az alakban, mint egy szakasz.",
 		"Minden használt hivatkozás szerepeljen már abban a szakaszmondatban, amit összefoglalsz — új forrást vagy számot nem vezethetsz be.",
-		"Az első bekezdésben válaszolj a kérdésre. Bekezdésenként 3-6 mondat, legfeljebb 3 bekezdés.",
+		"AZ ELSŐ MONDAT KÖZVETLENÜL MEGVÁLASZOLJA a `coreQuestion` kérdést: a választ adó számmal vagy megnevezett ténnyel és az azt hordozó hivatkozásokkal. Nem háttér, nem a jelentés tárgya, nem a legérdekesebb részlet — a válasz.",
+		"Ha a szakaszok nem válaszolják meg a fő kérdést, ezt mondd ki az első mondatban, ne más kérdésre válaszolj.",
+		"Utána a többi: legfeljebb 3 bekezdés, bekezdésenként 3-6 mondat, mondatonként legfeljebb két hivatkozás.",
 		"Ne legyen cím, forráslista, és ne írj a saját folyamatodról.",
 	].join("\n"),
 };
@@ -120,6 +132,9 @@ export interface BuildAtlasV2SectionPromptInput {
 	/** The outline, so the writer does not repeat another section's material. */
 	outline: Array<{ title: string; brief: string }>;
 	evidence: AtlasV2WriterEvidenceEntry[];
+	/** Sentence budget for this section, from the profile's length budget. */
+	maxSentences?: number;
+	maxParagraphs?: number;
 }
 
 export function buildAtlasV2SectionPrompt(
@@ -139,6 +154,9 @@ export function buildAtlasV2SectionPrompt(
 		otherSections: input.outline.filter(
 			(entry) => entry.title !== input.section.title,
 		),
+		maxSentences: input.maxSentences ?? MAX_SENTENCES_PER_SECTION,
+		maxParagraphs: input.maxParagraphs ?? MAX_PARAGRAPHS_PER_SECTION,
+		maxCitationsPerSentence: 2,
 		evidence: input.evidence,
 	});
 }
@@ -150,6 +168,15 @@ export interface BuildAtlasV2SummaryPromptInput {
 		title: string;
 		sentences: Array<{ text: string; citations: number[] }>;
 	}>;
+	/** The request as one question; the first sentence must answer it. */
+	coreQuestion?: string;
+	/** Citations carrying the core question's evidence, for the retry. */
+	coreCitations?: number[];
+	/**
+	 * Set on the ONE retry the pipeline allows when the first summary answered
+	 * something else. It names the sources that carry the answer.
+	 */
+	insistOnCoreAnswer?: boolean;
 }
 
 export function buildAtlasV2SummaryPrompt(
@@ -158,6 +185,16 @@ export function buildAtlasV2SummaryPrompt(
 	return JSON.stringify({
 		task: "write_executive_summary",
 		request: input.query,
+		...(input.coreQuestion ? { coreQuestion: input.coreQuestion } : {}),
+		...(input.coreCitations?.length
+			? { citationsThatAnswerTheCoreQuestion: input.coreCitations }
+			: {}),
+		...(input.insistOnCoreAnswer
+			? {
+					retryReason:
+						"Your previous summary did not answer the core question. Open with one sentence that answers it using the evidence behind `citationsThatAnswerTheCoreQuestion`, or state plainly that the evidence does not answer it.",
+				}
+			: {}),
 		language: input.language,
 		sections: input.sections,
 	});
@@ -264,6 +301,9 @@ export function parseAtlasV2WrittenSection(
 		sectionId: string;
 		title: string;
 		maxSourceNumber: number;
+		/** Sentence budget for this section; extra sentences are discarded. */
+		maxSentences?: number;
+		maxParagraphs?: number;
 	},
 ): AtlasV2WrittenSection | null {
 	const parsed = parseJsonFromText(text);
@@ -278,6 +318,19 @@ export function parseAtlasV2WrittenSection(
 	);
 	const calculationIds = new Set(calculations.map((entry) => entry.id));
 
+	const sentenceBudget = Math.max(
+		1,
+		options.maxSentences ?? MAX_SENTENCES_PER_SECTION,
+	);
+	const paragraphBudget = Math.max(
+		1,
+		Math.min(
+			MAX_PARAGRAPHS_PER_SECTION,
+			options.maxParagraphs ?? MAX_PARAGRAPHS_PER_SECTION,
+		),
+	);
+	let sentenceCount = 0;
+
 	const paragraphs: AtlasV2WrittenParagraph[] = [];
 	for (const rawParagraph of rawParagraphs) {
 		const rawSentences = Array.isArray(rawParagraph)
@@ -287,6 +340,7 @@ export function parseAtlasV2WrittenSection(
 				: [];
 		const sentences: AtlasV2WrittenSentence[] = [];
 		for (const rawSentence of rawSentences) {
+			if (sentenceCount >= sentenceBudget) break;
 			const sentenceRecord =
 				typeof rawSentence === "string"
 					? { text: rawSentence }
@@ -314,10 +368,12 @@ export function parseAtlasV2WrittenSection(
 				inferred: citations.length === 0 && sentenceRecord.inferred === true,
 				calcId: calcIdRaw && calculationIds.has(calcIdRaw) ? calcIdRaw : null,
 			});
+			sentenceCount += 1;
 			if (sentences.length >= MAX_SENTENCES_PER_PARAGRAPH) break;
 		}
 		if (sentences.length > 0) paragraphs.push({ sentences });
-		if (paragraphs.length >= MAX_PARAGRAPHS_PER_SECTION) break;
+		if (paragraphs.length >= paragraphBudget) break;
+		if (sentenceCount >= sentenceBudget) break;
 	}
 
 	if (paragraphs.length === 0) return null;

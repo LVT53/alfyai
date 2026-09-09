@@ -81,6 +81,60 @@ describe("buildAtlasV2ProgressDetails", () => {
 		});
 		expect(details.next).toContain("szakasz megírása");
 	});
+
+	it("carries per-phase durations once there are any", () => {
+		expect(
+			buildAtlasV2ProgressDetails({
+				phase: "write",
+				language: "en",
+				plan: PLAN,
+				round: { current: 1, total: 1 },
+				sourcesRead: 0,
+				phaseDurationsMs: {},
+			}).phaseDurationsMs,
+		).toBeUndefined();
+		expect(
+			buildAtlasV2ProgressDetails({
+				phase: "write",
+				language: "en",
+				plan: PLAN,
+				round: { current: 1, total: 1 },
+				sourcesRead: 0,
+				phaseDurationsMs: { plan: 1200, research: 45_000 },
+			}).phaseDurationsMs,
+		).toEqual({ plan: 1200, research: 45_000 });
+	});
+});
+
+describe("sanitizePhaseDurations (through the details sanitiser)", () => {
+	const sanitize = (phaseDurationsMs: unknown) =>
+		sanitizeAtlasV2ProgressDetails({
+			pipelineVersion: 2,
+			phase: "verify",
+			plan: [],
+			round: { current: 1, total: 1 },
+			sourcesRead: 0,
+			next: "",
+			phaseDurationsMs,
+		}).phaseDurationsMs;
+
+	it("keeps the known phase keys as non-negative integers", () => {
+		expect(sanitize({ plan: 1200.7, verify: -5, write: 900 })).toEqual({
+			plan: 1200,
+			verify: 0,
+			write: 900,
+		});
+	});
+
+	it("drops an unknown key so the job row cannot be grown", () => {
+		expect(sanitize({ plan: 10, somethingElse: 99 })).toEqual({ plan: 10 });
+	});
+
+	it("is absent when there is nothing usable", () => {
+		expect(sanitize(undefined)).toBeUndefined();
+		expect(sanitize({ nope: 1 })).toBeUndefined();
+		expect(sanitize("not an object")).toBeUndefined();
+	});
 });
 
 describe("buildAtlasV2ProgressEvidence", () => {

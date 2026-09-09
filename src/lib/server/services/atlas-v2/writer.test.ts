@@ -163,3 +163,49 @@ describe("buildWriterEvidenceEntries", () => {
 		expect(entries[0].text).toContain("Page text 1");
 	});
 });
+
+describe("parseAtlasV2WrittenSection — length budget", () => {
+	const long = JSON.stringify({
+		paragraphs: Array.from({ length: 5 }, (_, paragraph) => ({
+			sentences: Array.from({ length: 5 }, (_, position) => ({
+				text: `Paragraph ${paragraph} sentence ${position} states something.`,
+				citations: [1],
+			})),
+		})),
+	});
+
+	it("drops the sentences past the section's sentence budget", () => {
+		const section = parseAtlasV2WrittenSection(long, {
+			sectionId: "s1",
+			title: "S",
+			maxSourceNumber: 2,
+			maxSentences: 6,
+		});
+		const sentences = section?.paragraphs.flatMap(
+			(paragraph) => paragraph.sentences,
+		);
+		expect(sentences).toHaveLength(6);
+	});
+
+	it("drops the paragraphs past the paragraph budget", () => {
+		const section = parseAtlasV2WrittenSection(long, {
+			sectionId: "s1",
+			title: "S",
+			maxSourceNumber: 2,
+			maxParagraphs: 2,
+		});
+		expect(section?.paragraphs).toHaveLength(2);
+	});
+
+	it("keeps everything when the section is inside its budget", () => {
+		const section = parseAtlasV2WrittenSection(long, {
+			sectionId: "s1",
+			title: "S",
+			maxSourceNumber: 2,
+			maxSentences: 40,
+		});
+		expect(
+			section?.paragraphs.flatMap((paragraph) => paragraph.sentences),
+		).toHaveLength(25);
+	});
+});

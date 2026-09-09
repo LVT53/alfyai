@@ -72,6 +72,7 @@ function verification(
 			]),
 		],
 		totals: { corroborated: 1, single: 0, inferred: 0, cut: 0 },
+		entailmentBatchCount: 0,
 		contradictions: [],
 		staleCitations: [],
 		citedSourceNumbers: [2],
@@ -130,6 +131,7 @@ describe("renumberAtlasV2ForPublication", () => {
 			verification: verification({
 				contradictions: [
 					{
+						quantity: "Capacity reached 8 GW",
 						statedValue: "8 GW",
 						statedCitation: 2,
 						competingValue: "6 GW",
@@ -166,6 +168,7 @@ describe("buildAtlasV2Limitations", () => {
 				staleCitations: [2],
 				contradictions: [
 					{
+						quantity: "Capacity reached 8 GW",
 						statedValue: "8 GW",
 						statedCitation: 2,
 						competingValue: "6 GW",

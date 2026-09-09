@@ -438,6 +438,366 @@ describe("runAtlasV2Pipeline", () => {
 			"summary",
 		]);
 	});
+
+	it("hands the writer the profile's sentence budget", async () => {
+		const { runControlModel, runWriterModel } = modelDeps();
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const sectionCall = runWriterModel.mock.calls.find(([call]) =>
+			call.stage.startsWith("write:"),
+		);
+		const prompt = JSON.parse(sectionCall?.[0].prompt ?? "{}");
+		// Overview: 950 body words over two sections, at ~22 words a sentence.
+		expect(prompt.maxSentences).toBeGreaterThan(0);
+		expect(prompt.maxSentences).toBeLessThanOrEqual(9);
+		expect(prompt.maxCitationsPerSentence).toBe(2);
+	});
+
+	it("reports per-phase durations in progress details and diagnostics", async () => {
+		const { runControlModel, runWriterModel } = modelDeps();
+		const heartbeat = vi.fn(
+			async (_input: {
+				stage: string;
+				progressPercent: number;
+				progressDetails?: unknown;
+			}) => {},
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: {
+				stage: string;
+				checkpoint: unknown;
+				qualityDiagnostics: unknown;
+			}) => {},
+		);
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				heartbeat,
+				writeCheckpoint,
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const renderHeartbeat = heartbeat.mock.calls
+			.map(([call]) => call)
+			.find((call) => call.stage === "render");
+		const durations = (
+			renderHeartbeat?.progressDetails as {
+				phaseDurationsMs?: Record<string, number>;
+			}
+		)?.phaseDurationsMs;
+		expect(Object.keys(durations ?? {}).sort()).toEqual([
+			"plan",
+			"research",
+			"summary",
+			"verify",
+			"write",
+		]);
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			phaseDurationsMs?: Record<string, number>;
+			wordBudget?: number;
+			coreAnswerPresent?: boolean;
+		};
+		expect(diagnostics?.wordBudget).toBe(1100);
+		expect(diagnostics?.coreAnswerPresent).toBe(true);
+		expect(diagnostics?.phaseDurationsMs?.write).toBeGreaterThanOrEqual(0);
+	});
+
+	it("titles the report from the plan rather than the truncated request", async () => {
+		const runControlModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "plan"
+						? JSON.stringify({
+								...JSON.parse(PLAN_JSON),
+								title: "EU solar additions in 2026",
+							})
+						: JSON.stringify({ sufficient: true }),
+				usage: ZERO_USAGE,
+			}),
+		);
+		const { runWriterModel } = modelDeps();
+		const applyGeneratedTitle = vi.fn(async () => {});
+		const result = await runAtlasV2Pipeline({
+			job: job({
+				title: "How much solar capacity did the EU add in 2026, and",
+			}),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				applyGeneratedTitle,
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		expect(result.title).toBe("EU solar additions in 2026");
+		expect(applyGeneratedTitle).toHaveBeenCalledWith({
+			jobId: "job-1",
+			title: "EU solar additions in 2026",
+		});
+	});
+
+	it("falls back to a word-boundary title when the plan proposes none", async () => {
+		const { runControlModel, runWriterModel } = modelDeps();
+		const result = await runAtlasV2Pipeline({
+			job: job({
+				query:
+					"How much solar PV capacity did the European Union add in 2025, and how does that compare with 2024?",
+			}),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		expect(result.title).toBe(
+			"How much solar PV capacity did the European Union add in 2025",
+		);
+	});
+
+	it("re-runs the summary once when it does not answer the core question", async () => {
+		const { runControlModel } = modelDeps();
+		const uncitedSummary = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{
+							text: "Broadly, the union continued to build out capacity.",
+							citations: [],
+							inferred: true,
+						},
+					],
+				},
+			],
+		});
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "summary"
+						? uncitedSummary
+						: stage === "summary:retry"
+							? SUMMARY_JSON
+							: SECTION_JSON,
+				usage: ZERO_USAGE,
+			}),
+		);
+		const result = await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const stages = runWriterModel.mock.calls.map(([call]) => call.stage);
+		expect(stages.filter((stage) => stage.startsWith("summary"))).toEqual([
+			"summary",
+			"summary:retry",
+		]);
+		expect(result.executiveSummaryMarkdown).toContain("8 GW");
+		const retryPrompt = JSON.parse(
+			runWriterModel.mock.calls.find(
+				([call]) => call.stage === "summary:retry",
+			)?.[0].prompt ?? "{}",
+		);
+		expect(retryPrompt.retryReason).toContain("did not answer");
+		expect(retryPrompt.citationsThatAnswerTheCoreQuestion).toContain(1);
+	});
+
+	it("does not re-run the summary when it already answers the core question", async () => {
+		const { runControlModel, runWriterModel } = modelDeps();
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		expect(
+			runWriterModel.mock.calls
+				.map(([call]) => call.stage)
+				.filter((stage) => stage.startsWith("summary")),
+		).toEqual(["summary"]);
+	});
+
+	it("does not re-research a question that already has enough sources", async () => {
+		const runControlModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "plan"
+						? PLAN_JSON
+						: JSON.stringify({
+								// The model asks for another round on every question.
+								thin: [
+									{ id: "q1", queries: ["more solar"] },
+									{ id: "q2", queries: ["more rules"] },
+									{ id: "q3", queries: ["more leaders"] },
+									{ id: "q4", queries: ["more queues"] },
+								],
+								sufficient: false,
+							}),
+				usage: ZERO_USAGE,
+			}),
+		);
+		const { runWriterModel } = modelDeps();
+		// Three usable sources per question, which is the sufficiency threshold.
+		const research: AtlasV2ResearchWebRunner = vi.fn(async () => ({
+			sources: [1, 2, 3].map((position) => ({
+				url: `https://org${position}.example/report`,
+				title: `Solar capacity report ${position}`,
+				snippets: [
+					`The European Union added 8,000 MW of new solar capacity according to report ${position}.`,
+				],
+				publishedAt: "2026-06-01",
+				pageExcerpt: null,
+			})),
+			pagesRead: 1,
+			cached: false,
+		}));
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: research,
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 3 },
+			},
+		});
+		// Round 1 covered all four questions; every follow-up was dropped, so no
+		// second round ran and the coverage check was asked only once.
+		expect(research).toHaveBeenCalledTimes(4);
+		expect(
+			runControlModel.mock.calls.filter(([call]) => call.stage === "coverage"),
+		).toHaveLength(1);
+	});
+
+	it("batches the entailment checks into one audit call", async () => {
+		const { runControlModel } = modelDeps();
+		const nonNumericSection = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{
+							text: "The tracker describes steady growth across the union.",
+							citations: [1],
+						},
+						{
+							text: "The review describes permitting as the binding constraint.",
+							citations: [2],
+						},
+					],
+				},
+			],
+		});
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text: stage === "summary" ? SUMMARY_JSON : nonNumericSection,
+				usage: ZERO_USAGE,
+			}),
+		);
+		const runAuditModel = vi.fn(
+			async ({ prompt }: { stage: string; system: string; prompt: string }) => {
+				const parsed = JSON.parse(prompt) as {
+					items?: unknown[];
+				};
+				return {
+					text: JSON.stringify((parsed.items ?? [""]).map(() => "yes")),
+					usage: ZERO_USAGE,
+				};
+			},
+		);
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				runAuditModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const auditStages = runAuditModel.mock.calls.map(([call]) => call.stage);
+		// Four claims across two sections reach the audit model in ONE call, not
+		// four; the old pipeline made one call per claim.
+		expect(auditStages).toEqual(["entail:batch:4"]);
+	});
 });
 
 describe("readAtlasV2ResumeState", () => {
@@ -748,6 +1108,7 @@ describe("questionConfidences", () => {
 				staleCitations: [],
 				citedSourceNumbers: [1, 2],
 				entailmentCallCount: 0,
+				entailmentBatchCount: 0,
 			},
 		});
 		expect(confidences).toEqual({ q1: "thin", q2: "mixed" });

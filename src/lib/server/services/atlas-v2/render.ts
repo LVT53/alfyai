@@ -16,6 +16,7 @@ import type {
 	GeneratedDocumentSourceChip,
 } from "$lib/server/services/file-production/source-schema";
 import type { SupportedLanguage } from "$lib/server/services/language";
+import { ATLAS_V2_MAX_CONTRADICTION_LINES } from "./config";
 import { formatSourceLine } from "./evidence-index";
 import type {
 	AtlasV2Confidence,
@@ -57,7 +58,9 @@ const CHROME: Record<SupportedLanguage, AtlasV2RenderChrome> = {
 		staleSources: ({ citations, months }) =>
 			`Statistics cited from ${citations} are more than ${months} months old.`,
 		contradiction: (contradiction) =>
-			`Sources disagree: [${contradiction.statedCitation}] gives ${contradiction.statedValue} where [${contradiction.competingCitation}] gives ${contradiction.competingValue}.`,
+			contradiction.quantity
+				? `Sources disagree on "${contradiction.quantity}": [${contradiction.statedCitation}] says the figure is ${contradiction.statedValue}, [${contradiction.competingCitation}] says it is ${contradiction.competingValue}.`
+				: `Sources disagree: [${contradiction.statedCitation}] says the figure is ${contradiction.statedValue}, [${contradiction.competingCitation}] says it is ${contradiction.competingValue}.`,
 		cutSentences: (count) =>
 			count === 1
 				? "One sentence was removed because no cited source supported it."
@@ -77,7 +80,9 @@ const CHROME: Record<SupportedLanguage, AtlasV2RenderChrome> = {
 		staleSources: ({ citations, months }) =>
 			`A ${citations} forrásból hivatkozott statisztikák ${months} hónapnál régebbiek.`,
 		contradiction: (contradiction) =>
-			`A források nem egyeznek: a [${contradiction.statedCitation}] szerint ${contradiction.statedValue}, a [${contradiction.competingCitation}] szerint ${contradiction.competingValue}.`,
+			contradiction.quantity
+				? `A források nem egyeznek erről: „${contradiction.quantity}” — a [${contradiction.statedCitation}] szerint ${contradiction.statedValue}, a [${contradiction.competingCitation}] szerint ${contradiction.competingValue}.`
+				: `A források nem egyeznek: a [${contradiction.statedCitation}] szerint ${contradiction.statedValue}, a [${contradiction.competingCitation}] szerint ${contradiction.competingValue}.`,
 		cutSentences: (count) =>
 			count === 1
 				? "Egy mondatot eltávolítottunk, mert egyik hivatkozott forrás sem támasztotta alá."
@@ -311,7 +316,12 @@ export function buildAtlasV2Limitations(input: {
 			}),
 		);
 	}
-	for (const contradiction of input.publication.contradictions) {
+	// Belt and braces: the verifier already caps the list, but Limitations is
+	// where an over-long disagreement list would actually hurt the reader.
+	for (const contradiction of input.publication.contradictions.slice(
+		0,
+		ATLAS_V2_MAX_CONTRADICTION_LINES,
+	)) {
 		items.push(chrome.contradiction(contradiction));
 	}
 	if (input.cutSentenceCount > 0) {

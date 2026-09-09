@@ -13,9 +13,22 @@ import {
 } from "$lib/server/services/language";
 import type { AtlasOutputIds } from "../atlas/renderer-output";
 import type { AtlasPipelineJobContext } from "../atlas/types";
-import { getAtlasV2ProfileConfig, getAtlasV2StaleMonths } from "./config";
+import {
+	bodyWordBudget,
+	capAtlasV2SectionsToWordBudget,
+	citedNumbersInSections,
+	countWords,
+} from "./budget";
+import {
+	ATLAS_V2_COVERAGE_SUFFICIENT_SOURCES,
+	getAtlasV2EntailmentBatchSize,
+	getAtlasV2ProfileConfig,
+	getAtlasV2StaleMonths,
+	getAtlasV2WriterConcurrency,
+} from "./config";
 import {
 	buildAtlasV2EvidenceIndex,
+	capAtlasV2EvidenceIndex,
 	mergeAtlasV2EvidenceIndexes,
 } from "./evidence-index";
 import {
@@ -26,6 +39,8 @@ import {
 import {
 	ATLAS_V2_PLAN_SYSTEM,
 	buildAtlasV2PlanPrompt,
+	coreQuestionFromQuery,
+	deterministicAtlasV2Title,
 	fallbackAtlasV2Plan,
 	parseAtlasV2Plan,
 } from "./plan";
@@ -64,9 +79,13 @@ import {
 	type AtlasV2WrittenSection,
 } from "./types";
 import {
+	ATLAS_V2_ENTAILMENT_BATCH_SYSTEM,
 	ATLAS_V2_ENTAILMENT_SYSTEM,
+	buildAtlasV2EntailmentBatchPrompt,
 	buildAtlasV2EntailmentPrompt,
+	checkAtlasV2CoreAnswer,
 	parseAtlasV2EntailmentAnswer,
+	parseAtlasV2EntailmentBatchAnswer,
 	verifyAtlasV2Report,
 } from "./verify";
 import {
@@ -91,7 +110,9 @@ const CHECKPOINT_ROUND: Record<Exclude<AtlasV2Phase, "research">, number> = {
 const RESEARCH_CHECKPOINT_BASE = 1;
 
 /** Bounded parallelism for the per-section writer calls. */
-const DEFAULT_WRITER_CONCURRENCY = 2;
+const DEFAULT_WRITER_CONCURRENCY = 3;
+/** Used to turn a word budget into a sentence cap for the writer prompt. */
+const AVERAGE_SENTENCE_WORDS = 22;
 
 export type AtlasV2ModelCall = (input: {
 	stage: string;
@@ -174,6 +195,24 @@ function addUsage(total: AtlasV2Usage, next: AtlasV2Usage): AtlasV2Usage {
 
 function isoDate(now: Date): string {
 	return now.toISOString().slice(0, 10);
+}
+
+// Both knobs read the env config, which is not initialised in every unit-test
+// process; the constants are the honest fallback.
+function safeWriterConcurrency(): number {
+	try {
+		return getAtlasV2WriterConcurrency();
+	} catch {
+		return DEFAULT_WRITER_CONCURRENCY;
+	}
+}
+
+function safeEntailmentBatchSize(): number {
+	try {
+		return getAtlasV2EntailmentBatchSize();
+	} catch {
+		return 10;
+	}
 }
 
 interface ResumeState {
@@ -283,8 +322,11 @@ export async function runAtlasV2Pipeline(
 	const searchConcurrency = Math.max(1, deps.searchConcurrency ?? 3);
 	const writerConcurrency = Math.max(
 		1,
-		deps.writerConcurrency ?? DEFAULT_WRITER_CONCURRENCY,
+		deps.writerConcurrency ?? safeWriterConcurrency(),
 	);
+	const entailmentBatchSize = safeEntailmentBatchSize();
+	const budget = profileConfig.budget;
+	const coreQuestion = coreQuestionFromQuery(job.query, language);
 	const seed = extractAtlasV2LifecycleSeed(job.lifecycle);
 	const resume = deps.loadCheckpoints
 		? readAtlasV2ResumeState(await deps.loadCheckpoints(job.id))
@@ -293,6 +335,21 @@ export async function runAtlasV2Pipeline(
 	let usage = ZERO_USAGE;
 	const totalRounds = profileConfig.rounds;
 	let sourcesRead = 0;
+	// Per-phase wall time, so a slow run can be attributed rather than guessed
+	// at. Reported in progress details and in the render checkpoint.
+	const phaseDurationsMs: Record<string, number> = {};
+	const timePhase = async <T>(
+		name: string,
+		run: () => Promise<T>,
+	): Promise<T> => {
+		const startedAt = Date.now();
+		try {
+			return await run();
+		} finally {
+			phaseDurationsMs[name] =
+				(phaseDurationsMs[name] ?? 0) + (Date.now() - startedAt);
+		}
+	};
 
 	const heartbeat = async (
 		phase: AtlasV2Phase,
@@ -320,6 +377,7 @@ export async function runAtlasV2Pipeline(
 				doneQuestionIds: details.doneQuestionIds,
 				confidenceByQuestion: details.confidenceByQuestion,
 				evidence: details.evidence,
+				phaseDurationsMs,
 			}),
 		});
 	};
@@ -356,24 +414,31 @@ export async function runAtlasV2Pipeline(
 	await heartbeat("plan", { plan: null });
 	let plan = resume.plan ?? null;
 	if (!plan) {
-		const planCall = await deps.runControlModel({
-			stage: "plan",
-			system: ATLAS_V2_PLAN_SYSTEM[language],
-			prompt: buildAtlasV2PlanPrompt({
-				query: job.query,
-				profile: job.profile,
-				questionCount: profileConfig.questions,
-				language,
-				currentDate: isoDate(now),
-				seedQuestions: seed?.questions,
-				seedSections: seed?.sections,
-				reviseInstruction: job.action === "revise" ? job.query : null,
+		const planCall = await timePhase("plan", () =>
+			deps.runControlModel({
+				stage: "plan",
+				system: ATLAS_V2_PLAN_SYSTEM[language],
+				prompt: buildAtlasV2PlanPrompt({
+					query: job.query,
+					profile: job.profile,
+					questionCount: profileConfig.questions,
+					minSections: budget.minSections,
+					maxSections: budget.maxSections,
+					language,
+					currentDate: isoDate(now),
+					seedQuestions: seed?.questions,
+					seedSections: seed?.sections,
+					reviseInstruction: job.action === "revise" ? job.query : null,
+				}),
 			}),
-		});
+		);
 		usage = addUsage(usage, planCall.usage);
 		plan =
 			parseAtlasV2Plan(planCall.text, {
 				questionCount: profileConfig.questions,
+				coreQuestion,
+				minSections: budget.minSections,
+				maxSections: budget.maxSections,
 			}) ??
 			fallbackAtlasV2Plan({
 				query: job.query,
@@ -406,22 +471,24 @@ export async function runAtlasV2Pipeline(
 			sourceCountByQuestion: countByQuestion(rawSources),
 		});
 
-		const roundResult = await runAtlasV2ResearchRound({
-			round,
-			questions: questionsForRound,
-			researchWeb: deps.researchWeb,
-			readPages: profileConfig.readPages,
-			queriesPerQuestion: profileConfig.queriesPerQuestion,
-			concurrency: searchConcurrency,
-			language,
-			followUpQueries,
-			huntContradictions:
-				profileConfig.contradictionHuntOnLastRound && round === totalRounds,
-			onQuestionDone: async ({ questionId, rawSourceCount }) => {
-				doneQuestionIds.add(questionId);
-				sourcesRead += rawSourceCount;
-			},
-		});
+		const roundResult = await timePhase("research", () =>
+			runAtlasV2ResearchRound({
+				round,
+				questions: questionsForRound,
+				researchWeb: deps.researchWeb,
+				readPages: profileConfig.readPages,
+				queriesPerQuestion: profileConfig.queriesPerQuestion,
+				concurrency: searchConcurrency,
+				language,
+				followUpQueries,
+				huntContradictions:
+					profileConfig.contradictionHuntOnLastRound && round === totalRounds,
+				onQuestionDone: async ({ questionId, rawSourceCount }) => {
+					doneQuestionIds.add(questionId);
+					sourcesRead += rawSourceCount;
+				},
+			}),
+		);
 		rawSources = [...rawSources, ...roundResult.rawSources];
 		await checkpoint("research", RESEARCH_CHECKPOINT_BASE + round, {
 			round,
@@ -438,32 +505,34 @@ export async function runAtlasV2Pipeline(
 			interimIndex.byQuestion,
 			resolvedPlan.questions,
 		);
-		const coverageCall = await deps.runControlModel({
-			stage: "coverage",
-			system: ATLAS_V2_COVERAGE_SYSTEM[language],
-			prompt: buildAtlasV2CoveragePrompt({
-				plan: resolvedPlan,
-				round,
-				roundsRemaining: totalRounds - round,
-				language,
-				evidenceByQuestion: resolvedPlan.questions.map((question) => {
-					const numbers = interimIndex.byQuestion[question.id] ?? [];
-					return {
-						id: question.id,
-						question: question.question,
-						sourceCount: numbers.length,
-						excerpts: numbers
-							.slice(0, 3)
-							.map(
-								(n) =>
-									interimIndex.sources.find((source) => source.n === n)
-										?.snippets[0] ?? "",
-							)
-							.filter(Boolean),
-					};
+		const coverageCall = await timePhase("coverage", () =>
+			deps.runControlModel({
+				stage: "coverage",
+				system: ATLAS_V2_COVERAGE_SYSTEM[language],
+				prompt: buildAtlasV2CoveragePrompt({
+					plan: resolvedPlan,
+					round,
+					roundsRemaining: totalRounds - round,
+					language,
+					evidenceByQuestion: resolvedPlan.questions.map((question) => {
+						const numbers = interimIndex.byQuestion[question.id] ?? [];
+						return {
+							id: question.id,
+							question: question.question,
+							sourceCount: numbers.length,
+							excerpts: numbers
+								.slice(0, 3)
+								.map(
+									(n) =>
+										interimIndex.sources.find((source) => source.n === n)
+											?.snippets[0] ?? "",
+								)
+								.filter(Boolean),
+						};
+					}),
 				}),
 			}),
-		});
+		);
 		usage = addUsage(usage, coverageCall.usage);
 		const review = parseAtlasV2CoverageReview(
 			coverageCall.text,
@@ -480,6 +549,16 @@ export async function runAtlasV2Pipeline(
 					?.question ?? "",
 			].filter(Boolean);
 		}
+		// ...and a question that already has enough evidence is NOT re-researched,
+		// whatever the model said. Re-researching answered questions is what made
+		// the first live evaluation read 189 sources for one report.
+		for (const questionId of Object.keys(followUpQueries)) {
+			const found = interimIndex.byQuestion[questionId]?.length ?? 0;
+			if (found >= ATLAS_V2_COVERAGE_SUFFICIENT_SOURCES) {
+				delete followUpQueries[questionId];
+			}
+		}
+		if (Object.keys(followUpQueries).length === 0) break;
 	}
 
 	// -- 3. Evidence index (deterministic) ----------------------------------
@@ -488,12 +567,31 @@ export async function runAtlasV2Pipeline(
 		round: { current: totalRounds, total: totalRounds },
 		doneQuestionIds: resolvedPlan.questions.map((question) => question.id),
 	});
-	const index =
+	const mergedIndex =
 		resume.index ??
 		mergeAtlasV2EvidenceIndexes(
 			seed?.evidenceIndex ?? null,
 			buildAtlasV2EvidenceIndex(rawSources),
 		);
+	// The source budget is applied HERE, before anything is written, so no
+	// citation is ever minted against a source the report cannot afford to
+	// carry. A resumed index is already capped and renumbered.
+	const capped = resume.index
+		? { index: mergedIndex, droppedForBudget: 0 }
+		: capAtlasV2EvidenceIndex({
+				index: mergedIndex,
+				maxSources: profileConfig.maxIndexedSources,
+				questionOrder: resolvedPlan.questions.map((question) => question.id),
+			});
+	const index = capped.index;
+	if (capped.droppedForBudget > 0) {
+		console.info("[ATLAS v2] Capped the evidence index to the source budget", {
+			jobId: job.id,
+			profile: job.profile,
+			kept: index.sources.length,
+			dropped: capped.droppedForBudget,
+		});
+	}
 	if (index.sources.length === 0) {
 		throw new AtlasV2PipelineError(
 			"atlas_v2_no_sources",
@@ -519,6 +617,20 @@ export async function runAtlasV2Pipeline(
 		(largest, source) => Math.max(largest, source.n),
 		0,
 	);
+	// The per-section sentence cap scales with how many sections the plan
+	// actually produced, so a 4-section overview is not written to a 6-section
+	// budget and then trimmed.
+	const sectionSentenceBudget = Math.max(
+		3,
+		Math.min(
+			budget.maxSentencesPerSection,
+			Math.ceil(
+				bodyWordBudget(budget) /
+					Math.max(1, resolvedPlan.sections.length) /
+					AVERAGE_SENTENCE_WORDS,
+			),
+		),
+	);
 	const writtenSections =
 		resume.sections ??
 		(
@@ -531,27 +643,33 @@ export async function runAtlasV2Pipeline(
 						profileConfig.maxSourcesPerSection,
 					);
 					if (evidence.length === 0) return null;
-					const call = await deps.runWriterModel({
-						stage: `write:${section.id}`,
-						system: ATLAS_V2_WRITER_SYSTEM[language],
-						prompt: buildAtlasV2SectionPrompt({
-							query: job.query,
-							profile: job.profile,
-							language,
-							currentDate: isoDate(now),
-							section,
-							questions: resolvedPlan.questions.filter((question) =>
-								section.questionIds.includes(question.id),
-							),
-							outline,
-							evidence,
+					const call = await timePhase("write", () =>
+						deps.runWriterModel({
+							stage: `write:${section.id}`,
+							system: ATLAS_V2_WRITER_SYSTEM[language],
+							prompt: buildAtlasV2SectionPrompt({
+								query: job.query,
+								profile: job.profile,
+								language,
+								currentDate: isoDate(now),
+								section,
+								questions: resolvedPlan.questions.filter((question) =>
+									section.questionIds.includes(question.id),
+								),
+								outline,
+								evidence,
+								maxSentences: sectionSentenceBudget,
+								maxParagraphs: budget.maxParagraphsPerSection,
+							}),
 						}),
-					});
+					);
 					usage = addUsage(usage, call.usage);
 					return parseAtlasV2WrittenSection(call.text, {
 						sectionId: section.id,
 						title: section.title,
 						maxSourceNumber,
+						maxSentences: sectionSentenceBudget,
+						maxParagraphs: budget.maxParagraphsPerSection,
 					});
 				},
 			)
@@ -576,108 +694,226 @@ export async function runAtlasV2Pipeline(
 		doneQuestionIds: resolvedPlan.questions.map((question) => question.id),
 		sourceCountByQuestion: sourceCountsFromIndex(index),
 	});
-	const verification = await verifyAtlasV2Report({
-		sections: writtenSections,
-		index,
-		staleMonths,
-		now,
-		checkEntailment: deps.runAuditModel
-			? async ({ claim, sourceNumber, sourceTitle, sourceText }) => {
-					const call = await deps.runAuditModel?.({
-						stage: `entail:${sourceNumber}`,
-						system: ATLAS_V2_ENTAILMENT_SYSTEM,
-						prompt: buildAtlasV2EntailmentPrompt({
-							claim,
-							sourceTitle,
-							sourceText,
-						}),
-					});
-					if (!call) return null;
-					usage = addUsage(usage, call.usage);
-					const answer = parseAtlasV2EntailmentAnswer(call.text);
-					console.info("[ATLAS v2] Entailment check", {
-						jobId: job.id,
-						sourceNumber,
-						answer,
-						claim: claim.slice(0, 160),
-					});
-					return answer;
-				}
-			: undefined,
-		runCalculation: deps.runPython
-			? async ({ expression }) => {
-					const result = await deps.runPython?.({ expression });
-					return result ?? { ok: false, value: null };
-				}
-			: undefined,
-		rewriteSection: async ({ section, failed }) => {
-			const call = await deps.runWriterModel({
-				stage: `rewrite:${section.sectionId}`,
-				system: ATLAS_V2_REWRITE_SYSTEM[language],
-				prompt: buildAtlasV2RewritePrompt({
-					language,
-					section: { id: section.sectionId, title: section.title },
-					evidence: buildWriterEvidenceEntries(
-						citedSources(index, section),
-						profileConfig.maxSourcesPerSection,
-					),
-					failed,
-				}),
-			});
-			usage = addUsage(usage, call.usage);
-			return parseAtlasV2WrittenSection(call.text, {
-				sectionId: section.sectionId,
-				title: section.title,
-				maxSourceNumber,
-			});
-		},
+	const checkEntailment = deps.runAuditModel
+		? async ({
+				claim,
+				sourceNumber,
+				sourceTitle,
+				sourceText,
+			}: {
+				claim: string;
+				sourceNumber: number;
+				sourceTitle: string;
+				sourceText: string;
+			}) => {
+				const call = await deps.runAuditModel?.({
+					stage: `entail:${sourceNumber}`,
+					system: ATLAS_V2_ENTAILMENT_SYSTEM,
+					prompt: buildAtlasV2EntailmentPrompt({
+						claim,
+						sourceTitle,
+						sourceText,
+					}),
+				});
+				if (!call) return null;
+				usage = addUsage(usage, call.usage);
+				return parseAtlasV2EntailmentAnswer(call.text);
+			}
+		: undefined;
+	// Batched: up to `entailmentBatchSize` claims per call, with the one-claim
+	// path above as the fallback whenever the array answer does not parse.
+	const checkEntailmentBatch = deps.runAuditModel
+		? async (
+				items: Array<{
+					claim: string;
+					sourceTitle: string;
+					sourceText: string;
+				}>,
+			) => {
+				const call = await deps.runAuditModel?.({
+					stage: `entail:batch:${items.length}`,
+					system: ATLAS_V2_ENTAILMENT_BATCH_SYSTEM,
+					prompt: buildAtlasV2EntailmentBatchPrompt({
+						items: items.map((item) => ({
+							claim: item.claim,
+							sourceNumber: 0,
+							sourceTitle: item.sourceTitle,
+							sourceText: item.sourceText,
+						})),
+					}),
+				});
+				if (!call) return null;
+				usage = addUsage(usage, call.usage);
+				const answers = parseAtlasV2EntailmentBatchAnswer(
+					call.text,
+					items.length,
+				);
+				console.info("[ATLAS v2] Batched entailment check", {
+					jobId: job.id,
+					claims: items.length,
+					parsed: answers !== null,
+				});
+				return answers;
+			}
+		: undefined;
+
+	const verification = await timePhase("verify", () =>
+		verifyAtlasV2Report({
+			sections: writtenSections,
+			index,
+			staleMonths,
+			now,
+			checkEntailment,
+			checkEntailmentBatch,
+			entailmentBatchSize,
+			runCalculation: deps.runPython
+				? async ({ expression }) => {
+						const result = await deps.runPython?.({ expression });
+						return result ?? { ok: false, value: null };
+					}
+				: undefined,
+			rewriteSection: async ({ section, failed }) => {
+				const call = await deps.runWriterModel({
+					stage: `rewrite:${section.sectionId}`,
+					system: ATLAS_V2_REWRITE_SYSTEM[language],
+					prompt: buildAtlasV2RewritePrompt({
+						language,
+						section: { id: section.sectionId, title: section.title },
+						evidence: buildWriterEvidenceEntries(
+							citedSources(index, section),
+							profileConfig.maxSourcesPerSection,
+						),
+						failed,
+					}),
+				});
+				usage = addUsage(usage, call.usage);
+				return parseAtlasV2WrittenSection(call.text, {
+					sectionId: section.sectionId,
+					title: section.title,
+					maxSourceNumber,
+					maxSentences: sectionSentenceBudget,
+					maxParagraphs: budget.maxParagraphsPerSection,
+				});
+			},
+		}),
+	);
+
+	// The length budget is applied to the VERIFIED sections, before the summary
+	// is written, so the summary never summarises prose the reader will not see.
+	const bodyCap = capAtlasV2SectionsToWordBudget({
+		sections: verification.sections,
+		maxWords: bodyWordBudget(budget),
 	});
+	const cappedVerification: AtlasV2VerificationResult = {
+		...verification,
+		sections: bodyCap.sections,
+		citedSourceNumbers: citedNumbersInSections(bodyCap.sections),
+	};
+	if (bodyCap.droppedSentenceCount > 0) {
+		console.info("[ATLAS v2] Trimmed the report to its word budget", {
+			jobId: job.id,
+			profile: job.profile,
+			maxWords: bodyWordBudget(budget),
+			words: bodyCap.wordCount,
+			droppedSentences: bodyCap.droppedSentenceCount,
+		});
+	}
 
 	// The executive summary is written LAST, from the finished sections, then
 	// verified the same way so it cannot smuggle in an unsupported figure.
-	const summarySource = await writeExecutiveSummary({
-		query: job.query,
-		language,
-		verification,
-		runWriterModel: deps.runWriterModel,
-		onUsage: (next) => {
-			usage = addUsage(usage, next);
-		},
-		maxSourceNumber,
+	//
+	// It must ANSWER THE QUESTION. `coreSourceNumbers` are the sources indexed
+	// against plan question 1 — the request itself — so a summary citing none of
+	// them is answering something else, and is rewritten once with that said.
+	const coreQuestionId = resolvedPlan.questions[0]?.id ?? "";
+	const coreSourceNumbers = index.byQuestion[coreQuestionId] ?? [];
+	const runSummary = async (
+		insistOnCoreAnswer: boolean,
+	): Promise<{
+		source: AtlasV2WrittenSection | null;
+		verification: AtlasV2VerificationResult | null;
+		section: AtlasV2VerifiedSection | null;
+	}> => {
+		const source = await timePhase("summary", () =>
+			writeExecutiveSummary({
+				query: job.query,
+				coreQuestion,
+				coreCitations: coreSourceNumbers,
+				insistOnCoreAnswer,
+				language,
+				verification: cappedVerification,
+				runWriterModel: deps.runWriterModel,
+				onUsage: (next) => {
+					usage = addUsage(usage, next);
+				},
+				maxSourceNumber,
+			}),
+		);
+		const verified = source
+			? await verifyAtlasV2Report({
+					sections: [source],
+					index,
+					staleMonths,
+					now,
+				})
+			: null;
+		return {
+			source,
+			verification: verified,
+			section: verified?.sections[0] ?? null,
+		};
+	};
+
+	let summary = await runSummary(false);
+	let coreAnswer = checkAtlasV2CoreAnswer({
+		summary: summary.section,
+		coreSourceNumbers,
 	});
-	const summaryVerification = summarySource
-		? await verifyAtlasV2Report({
-				sections: [summarySource],
-				index,
-				staleMonths,
-				now,
-			})
-		: null;
-	const summarySection: AtlasV2VerifiedSection | null =
-		summaryVerification?.sections[0] ?? null;
+	if (!coreAnswer.present) {
+		console.info("[ATLAS v2] Executive summary missed the core question", {
+			jobId: job.id,
+			coreQuestionId,
+			coreSourceNumbers,
+		});
+		const retry = await runSummary(true);
+		const retryAnswer = checkAtlasV2CoreAnswer({
+			summary: retry.section,
+			coreSourceNumbers,
+		});
+		// Only take the retry when it is actually better; a retry that lost the
+		// summary entirely must not replace a usable one.
+		if (retryAnswer.present || (!summary.section && retry.section)) {
+			summary = retry;
+			coreAnswer = retryAnswer;
+		}
+	}
+	const summaryVerification = summary.verification;
+	const summarySection: AtlasV2VerifiedSection | null = summary.section;
 
 	const combinedVerification: AtlasV2VerificationResult = {
-		...verification,
+		...cappedVerification,
 		totals: {
 			corroborated:
-				verification.totals.corroborated +
+				cappedVerification.totals.corroborated +
 				(summaryVerification?.totals.corroborated ?? 0),
 			single:
-				verification.totals.single + (summaryVerification?.totals.single ?? 0),
+				cappedVerification.totals.single +
+				(summaryVerification?.totals.single ?? 0),
 			inferred:
-				verification.totals.inferred +
+				cappedVerification.totals.inferred +
 				(summaryVerification?.totals.inferred ?? 0),
-			cut: verification.totals.cut + (summaryVerification?.totals.cut ?? 0),
+			cut:
+				cappedVerification.totals.cut + (summaryVerification?.totals.cut ?? 0),
 		},
 		citedSourceNumbers: [
 			...new Set([
-				...verification.citedSourceNumbers,
+				...cappedVerification.citedSourceNumbers,
 				...(summaryVerification?.citedSourceNumbers ?? []),
 			]),
 		].sort((a, b) => a - b),
 		staleCitations: [
 			...new Set([
-				...verification.staleCitations,
+				...cappedVerification.staleCitations,
 				...(summaryVerification?.staleCitations ?? []),
 			]),
 		].sort((a, b) => a - b),
@@ -747,7 +983,23 @@ export async function runAtlasV2Pipeline(
 	const thinQuestions = resolvedPlan.questions
 		.filter((question) => (index.byQuestion[question.id]?.length ?? 0) === 0)
 		.map((question) => question.question);
-	const title = job.title;
+	// The report title, in order of preference: what the plan stage proposed,
+	// then a deterministic truncation of the request at a word boundary. The job
+	// row's own title is the request cut at 80 characters, which is what produced
+	// the "...and how does that" titles in the first live evaluation.
+	const title =
+		resolvedPlan.title?.trim() || deterministicAtlasV2Title(job.query);
+	if (title && title !== job.title) {
+		await deps
+			.applyGeneratedTitle?.({ jobId: job.id, title })
+			.catch((error) => {
+				// A report with a readable title beats a job row with a matching one.
+				console.warn("[ATLAS v2] Failed to apply the generated title", {
+					jobId: job.id,
+					error,
+				});
+			});
+	}
 	const documentSource = buildAtlasV2DocumentSource({
 		title,
 		language,
@@ -804,6 +1056,14 @@ export async function runAtlasV2Pipeline(
 				contradictionCount: combinedVerification.contradictions.length,
 				staleCitationCount: combinedVerification.staleCitations.length,
 				entailmentCallCount: combinedVerification.entailmentCallCount,
+				entailmentBatchCount: combinedVerification.entailmentBatchCount,
+				phaseDurationsMs: { ...phaseDurationsMs },
+				wordCount: reportWordCount(combinedVerification, summarySection),
+				wordBudget: budget.maxWords,
+				sourcesDroppedForBudget: capped.droppedForBudget,
+				sentencesDroppedForBudget: bodyCap.droppedSentenceCount,
+				coreAnswerPresent: coreAnswer.present,
+				coreAnswerCitesFigure: coreAnswer.citedFigure,
 			},
 		},
 	);
@@ -833,6 +1093,10 @@ export async function runAtlasV2Pipeline(
 
 async function writeExecutiveSummary(input: {
 	query: string;
+	/** The request as one question; the first sentence must answer it. */
+	coreQuestion?: string;
+	coreCitations?: number[];
+	insistOnCoreAnswer?: boolean;
 	language: SupportedLanguage;
 	verification: AtlasV2VerificationResult;
 	runWriterModel: AtlasV2ModelCall;
@@ -850,10 +1114,13 @@ async function writeExecutiveSummary(input: {
 		}));
 	if (sections.length === 0) return null;
 	const call = await input.runWriterModel({
-		stage: "summary",
+		stage: input.insistOnCoreAnswer ? "summary:retry" : "summary",
 		system: ATLAS_V2_SUMMARY_SYSTEM[input.language],
 		prompt: buildAtlasV2SummaryPrompt({
 			query: input.query,
+			coreQuestion: input.coreQuestion,
+			coreCitations: input.coreCitations,
+			insistOnCoreAnswer: input.insistOnCoreAnswer,
 			language: input.language,
 			sections,
 		}),
@@ -864,6 +1131,21 @@ async function writeExecutiveSummary(input: {
 		title: "summary",
 		maxSourceNumber: input.maxSourceNumber,
 	});
+}
+
+/** Words in the published body plus the executive summary. */
+function reportWordCount(
+	verification: AtlasV2VerificationResult,
+	summary: AtlasV2VerifiedSection | null,
+): number {
+	const sentences = [
+		...verification.sections.flatMap((section) => section.paragraphs.flat()),
+		...(summary?.paragraphs.flat() ?? []),
+	];
+	return sentences.reduce(
+		(total, sentence) => total + countWords(sentence.text),
+		0,
+	);
 }
 
 function countByQuestion(

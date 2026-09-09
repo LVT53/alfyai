@@ -3,14 +3,18 @@ import { buildAtlasV2EvidenceIndex } from "./evidence-index";
 import type {
 	AtlasV2EvidenceIndex,
 	AtlasV2RawSource,
+	AtlasV2VerifiedSection,
 	AtlasV2WrittenSection,
 	AtlasV2WrittenSentence,
 } from "./types";
 import {
+	checkAtlasV2CoreAnswer,
 	figureCorroboration,
 	findContradictions,
 	isStaleSource,
 	parseAtlasV2EntailmentAnswer,
+	parseAtlasV2EntailmentBatchAnswer,
+	trimSentenceCitations,
 	verifyAtlasV2Report,
 } from "./verify";
 
@@ -364,22 +368,35 @@ describe("findContradictions", () => {
 		}),
 	]).sources;
 
-	it("flags an independent source that gives a different figure", () => {
+	it("flags two sources cited in the same sentence that disagree", () => {
 		const contradictions = findContradictions({
 			sentence: "Installed solar capacity reached 8 GW across the union.",
-			citedSources: [sources[0]],
-			allSources: sources,
+			citedSources: sources,
 		});
 		expect(contradictions).toEqual([
 			expect.objectContaining({
 				statedValue: "8 GW",
+				statedCitation: 1,
 				competingValue: "6.2 GW",
 				competingCitation: 2,
 			}),
 		]);
+		expect(contradictions[0].quantity).toContain("8 GW");
 	});
 
-	it("ignores a disagreement in an unrelated passage", () => {
+	it("never scans a source the sentence does not cite", () => {
+		// The defect this replaced: every GW figure in every indexed source was
+		// compared against the sentence's figure, which turned one report's
+		// Limitations into 26 lines of bogus disagreement.
+		expect(
+			findContradictions({
+				sentence: "Installed solar capacity reached 8 GW across the union.",
+				citedSources: [sources[0]],
+			}),
+		).toEqual([]);
+	});
+
+	it("ignores a disagreement in an unrelated passage of a cited source", () => {
 		const unrelated = indexOf([
 			raw({
 				url: "https://iea.org/a",
@@ -396,10 +413,69 @@ describe("findContradictions", () => {
 		expect(
 			findContradictions({
 				sentence: "Installed solar capacity reached 8 GW across the union.",
-				citedSources: [unrelated[0]],
-				allSources: unrelated,
+				citedSources: unrelated,
 			}),
 		).toEqual([]);
+	});
+
+	it("ignores a cited figure that describes a different year", () => {
+		const otherYear = indexOf([
+			raw({
+				url: "https://iea.org/a",
+				snippets: [
+					"Installed solar capacity across the union reached 8 GW in 2025.",
+				],
+			}),
+			raw({
+				url: "https://irena.org/b",
+				title: "IRENA solar capacity review",
+				snippets: [
+					"Installed solar capacity across the union reached 6.2 GW in 2019.",
+				],
+			}),
+		]).sources;
+		expect(
+			findContradictions({
+				sentence:
+					"Installed solar capacity across the union reached 8 GW in 2025.",
+				citedSources: otherYear,
+			}),
+		).toEqual([]);
+	});
+
+	it("caps the disagreements Limitations can report", async () => {
+		// One sentence can only produce one disagreement now (at most two
+		// citations), so the cap is about a report full of them.
+		const many = indexOf(
+			Array.from({ length: 10 }, (_, position) =>
+				raw({
+					url: `https://org${position}.example/a`,
+					title: `Solar capacity review ${position}`,
+					snippets: [
+						position % 2 === 0
+							? "Installed solar capacity across the union stands at 8 GW."
+							: `Installed solar capacity across the union stands at ${position + 2}.5 GW.`,
+					],
+				}),
+			),
+		);
+		const result = await verifyAtlasV2Report({
+			sections: [
+				section(
+					Array.from({ length: 5 }, (_, position) =>
+						sentence({
+							text: "Installed solar capacity across the union stands at 8 GW.",
+							citations: [position * 2 + 1, position * 2 + 2],
+						}),
+					),
+				),
+			],
+			index: many,
+			staleMonths: 18,
+			now: NOW,
+			maxContradictions: 3,
+		});
+		expect(result.contradictions).toHaveLength(3);
 	});
 
 	it("does not flag a sentence that already states both figures", async () => {
@@ -420,13 +496,13 @@ describe("findContradictions", () => {
 		expect(result.totals.cut).toBe(0);
 	});
 
-	it("cuts a sentence that hides the disagreement", async () => {
+	it("cuts a sentence that hides a disagreement between its own sources", async () => {
 		const result = await verifyAtlasV2Report({
 			sections: [
 				section([
 					sentence({
 						text: "Installed solar capacity reached 8 GW across the union.",
-						citations: [1],
+						citations: [1, 2],
 					}),
 				]),
 			],
@@ -539,5 +615,284 @@ describe("parseAtlasV2EntailmentAnswer", () => {
 	it("returns null when the answer is not a verdict", () => {
 		expect(parseAtlasV2EntailmentAnswer("It depends, yes and no")).toBeNull();
 		expect(parseAtlasV2EntailmentAnswer("")).toBeNull();
+	});
+});
+
+describe("parseAtlasV2EntailmentBatchAnswer", () => {
+	it("reads an array of verdicts", () => {
+		expect(parseAtlasV2EntailmentBatchAnswer('["yes","no","yes"]', 3)).toEqual([
+			true,
+			false,
+			true,
+		]);
+	});
+
+	it("reads booleans and the object shapes a small model produces", () => {
+		expect(parseAtlasV2EntailmentBatchAnswer("[true, false]", 2)).toEqual([
+			true,
+			false,
+		]);
+		expect(
+			parseAtlasV2EntailmentBatchAnswer(
+				'[{"i":1,"answer":"yes"},{"i":2,"entailed":false}]',
+				2,
+			),
+		).toEqual([true, false]);
+	});
+
+	it("reads an array wrapped in a code fence or surrounding prose", () => {
+		expect(
+			parseAtlasV2EntailmentBatchAnswer('```json\n["yes","no"]\n```', 2),
+		).toEqual([true, false]);
+		expect(
+			parseAtlasV2EntailmentBatchAnswer('Here you go: ["no","no"]', 2),
+		).toEqual([false, false]);
+	});
+
+	it("returns null on the wrong length or unreadable output, so the caller falls back", () => {
+		expect(parseAtlasV2EntailmentBatchAnswer('["yes"]', 3)).toBeNull();
+		expect(parseAtlasV2EntailmentBatchAnswer("not json at all", 2)).toBeNull();
+		expect(parseAtlasV2EntailmentBatchAnswer('{"answer":"yes"}', 1)).toBeNull();
+	});
+
+	it("reads an unrecognisable entry as null rather than a verdict", () => {
+		expect(parseAtlasV2EntailmentBatchAnswer('["yes", 42]', 2)).toEqual([
+			true,
+			null,
+		]);
+	});
+});
+
+describe("verifyAtlasV2Report — batched entailment", () => {
+	// No digits anywhere: a numeric claim is checked deterministically and never
+	// reaches the entailment path at all.
+	const claims = (count: number) =>
+		Array.from({ length: count }, (_, position) =>
+			sentence({
+				text: `The agency restated its opposition in reply number ${"a".repeat(position + 1)}.`,
+				citations: [1],
+			}),
+		);
+
+	it("checks many claims in one call", async () => {
+		const index = indexOf([raw({})]);
+		const checkEntailmentBatch = vi.fn(
+			async (items: Array<{ claim: string }>) => items.map(() => true),
+		);
+		const checkEntailment = vi.fn().mockResolvedValue(true);
+		const result = await verifyAtlasV2Report({
+			sections: [section(claims(7))],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			checkEntailment,
+			checkEntailmentBatch,
+			entailmentBatchSize: 10,
+		});
+		expect(checkEntailmentBatch).toHaveBeenCalledTimes(1);
+		expect(checkEntailment).not.toHaveBeenCalled();
+		expect(result.entailmentCallCount).toBe(7);
+		expect(result.entailmentBatchCount).toBe(1);
+		expect(result.totals.cut).toBe(0);
+	});
+
+	it("splits the claims into batches of the configured size", async () => {
+		const index = indexOf([raw({})]);
+		const checkEntailmentBatch = vi.fn(
+			async (items: Array<{ claim: string }>) => items.map(() => true),
+		);
+		const result = await verifyAtlasV2Report({
+			sections: [section(claims(7))],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			checkEntailmentBatch,
+			entailmentBatchSize: 3,
+		});
+		expect(checkEntailmentBatch).toHaveBeenCalledTimes(3);
+		expect(result.entailmentBatchCount).toBe(3);
+	});
+
+	it("cuts the claim the batch answered no for, and only that one", async () => {
+		const index = indexOf([raw({})]);
+		const result = await verifyAtlasV2Report({
+			sections: [section(claims(3))],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			checkEntailmentBatch: async () => [true, false, true],
+			entailmentBatchSize: 10,
+		});
+		expect(result.totals.cut).toBe(1);
+		expect(result.sections[0].paragraphs[0]).toHaveLength(2);
+	});
+
+	it("falls back to one call per claim when the batch answer does not parse", async () => {
+		const index = indexOf([raw({})]);
+		const checkEntailment = vi.fn().mockResolvedValue(true);
+		const result = await verifyAtlasV2Report({
+			sections: [section(claims(3))],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			checkEntailment,
+			checkEntailmentBatch: async () => null,
+			entailmentBatchSize: 10,
+		});
+		expect(checkEntailment).toHaveBeenCalledTimes(3);
+		expect(result.totals.cut).toBe(0);
+	});
+
+	it("falls back when the batch throws", async () => {
+		const index = indexOf([raw({})]);
+		const checkEntailment = vi.fn().mockResolvedValue(false);
+		const result = await verifyAtlasV2Report({
+			sections: [section(claims(2))],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			checkEntailment,
+			checkEntailmentBatch: async () => {
+				throw new Error("the model timed out");
+			},
+			entailmentBatchSize: 10,
+		});
+		expect(checkEntailment).toHaveBeenCalledTimes(2);
+		expect(result.totals.cut).toBe(2);
+	});
+});
+
+describe("trimSentenceCitations", () => {
+	const index = indexOf([
+		raw({
+			url: "https://a.example/1",
+			title: "First capacity report",
+			snippets: [
+				"This report walks through grid connection queues and permitting without giving a capacity figure.",
+			],
+		}),
+		raw({
+			url: "https://b.example/2",
+			title: "Second capacity report",
+			snippets: [
+				"Installed solar capacity reached 8 GW according to the transmission operators.",
+			],
+		}),
+		raw({
+			url: "https://c.example/3",
+			title: "Third capacity report",
+			snippets: [
+				"A qualitative discussion of member-state policy with nothing numeric in it.",
+			],
+		}),
+	]);
+	const byNumber = new Map(index.sources.map((source) => [source.n, source]));
+
+	it("leaves one or two citations alone", () => {
+		expect(
+			trimSentenceCitations({
+				sentence: sentence({ citations: [1, 2] }),
+				sourcesByNumber: byNumber,
+			}),
+		).toEqual([1, 2]);
+	});
+
+	it("keeps at most two, preferring the source that states the figure", () => {
+		expect(
+			trimSentenceCitations({
+				sentence: sentence({ citations: [1, 3, 2] }),
+				sourcesByNumber: byNumber,
+			}),
+		).toEqual([1, 2]);
+	});
+
+	it("keeps the writer's order among equally useful sources", () => {
+		expect(
+			trimSentenceCitations({
+				sentence: sentence({
+					text: "The agency published its response.",
+					citations: [3, 1, 2],
+				}),
+				sourcesByNumber: byNumber,
+			}),
+		).toEqual([3, 1]);
+	});
+
+	it("caps citation density on every sentence the verifier keeps", async () => {
+		const result = await verifyAtlasV2Report({
+			sections: [section([sentence({ citations: [1, 2, 3] })])],
+			index,
+			staleMonths: 18,
+			now: NOW,
+		});
+		expect(result.sections[0].paragraphs[0][0].citations).toEqual([1, 2]);
+	});
+});
+
+describe("checkAtlasV2CoreAnswer", () => {
+	const summary = (
+		sentences: Array<{ text: string; citations: number[] }>,
+	): AtlasV2VerifiedSection => ({
+		sectionId: "summary",
+		title: "summary",
+		paragraphs: [
+			sentences.map((entry) => ({
+				sectionId: "summary",
+				text: entry.text,
+				citations: entry.citations,
+				confidence: "single" as const,
+				failures: [],
+				kept: true,
+				rewritten: false,
+			})),
+		],
+	});
+
+	it("is absent when the summary cites none of the core question's evidence", () => {
+		expect(
+			checkAtlasV2CoreAnswer({
+				summary: summary([
+					{ text: "Germany led the member states.", citations: [9] },
+				]),
+				coreSourceNumbers: [1, 2],
+			}),
+		).toEqual({ present: false, citedFigure: false });
+	});
+
+	it("is present, with a figure, when a cited core sentence carries one", () => {
+		expect(
+			checkAtlasV2CoreAnswer({
+				summary: summary([
+					{ text: "The EU added 65.1 GW in that year.", citations: [2] },
+				]),
+				coreSourceNumbers: [1, 2],
+			}),
+		).toEqual({ present: true, citedFigure: true });
+	});
+
+	it("is present without a figure when the core answer is not numeric", () => {
+		expect(
+			checkAtlasV2CoreAnswer({
+				summary: summary([
+					{ text: "The guideline names metformin first-line.", citations: [1] },
+				]),
+				coreSourceNumbers: [1],
+			}),
+		).toEqual({ present: true, citedFigure: false });
+	});
+
+	it("falls back to any cited sentence when the core question found no sources", () => {
+		expect(
+			checkAtlasV2CoreAnswer({
+				summary: summary([{ text: "Something cited.", citations: [4] }]),
+				coreSourceNumbers: [],
+			}).present,
+		).toBe(true);
+	});
+
+	it("is absent when there is no summary at all", () => {
+		expect(
+			checkAtlasV2CoreAnswer({ summary: null, coreSourceNumbers: [1] }),
+		).toEqual({ present: false, citedFigure: false });
 	});
 });

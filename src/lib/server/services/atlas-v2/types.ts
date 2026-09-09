@@ -60,6 +60,11 @@ export interface AtlasV2PlanSection {
 export interface AtlasV2Plan {
 	questions: AtlasV2PlanQuestion[];
 	sections: AtlasV2PlanSection[];
+	/**
+	 * Report title the plan stage proposed, at most 70 characters. Null when the
+	 * model gave nothing usable; the pipeline then derives one from the request.
+	 */
+	title?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +209,12 @@ export interface AtlasV2Failure {
 }
 
 export interface AtlasV2Contradiction {
+	/**
+	 * A short label for WHAT disagrees, lifted from the sentence around the
+	 * figure, so the Limitations line names the quantity instead of only two
+	 * bare numbers.
+	 */
+	quantity: string;
 	/** Figure as the sentence states it. */
 	statedValue: string;
 	statedCitation: number;
@@ -245,7 +256,10 @@ export interface AtlasV2VerificationResult {
 	staleCitations: number[];
 	/** Citation numbers at least one kept sentence cites. */
 	citedSourceNumbers: number[];
+	/** Claims sent for an entailment check. */
 	entailmentCallCount: number;
+	/** Model calls those claims cost, after batching. */
+	entailmentBatchCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +310,11 @@ export interface AtlasV2ProgressDetails {
 	sourcesRead: number;
 	next: string;
 	evidence?: AtlasV2ProgressEvidence;
+	/**
+	 * Wall time each phase took, in milliseconds. Present from the write phase
+	 * onwards so `scripts/atlas-eval.ts` can report where a slow run went.
+	 */
+	phaseDurationsMs?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------

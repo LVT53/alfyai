@@ -4,18 +4,30 @@
 // The order matters: a citation that does not resolve, a figure the source does
 // not state, or a figure in a sentence claiming to be inferred are all decided
 // without a model. Only a NON-numeric cited claim reaches the entailment check,
-// one claim per call.
+// and those are BATCHED — up to `entailmentBatchSize` claims per call — because
+// one call per claim was the single largest cost in the first live evaluation.
 //
 // A failing sentence goes back to the writer ONCE with the exact mismatch. If
 // it still fails, it is cut. Cutting is a real outcome: a v2 report can be
 // shorter than a v1 report on the same query, and Limitations says so.
+//
+// Contradiction detection changed after the first live evaluation. It used to
+// compare the sentence's figure against EVERY indexed source, which turned one
+// energy report's Limitations into 26 lines of "sources disagree" — every GW
+// figure in every source compared as if it were the same quantity. It now looks
+// only at the sources the writer's own sentence cites, and only at figures
+// sitting in a text window that shares keywords, entity and year with the
+// figure's own context in the sentence.
 
+import { ATLAS_V2_MAX_CONTRADICTION_LINES } from "./config";
 import { sourceEvidenceText } from "./evidence-index";
 import {
 	competingFigures,
+	type ExtractedFigure,
 	extractFigures,
 	figureAppearsInText,
 	findUnsupportedFigures,
+	isCheckableFigure,
 } from "./number-match";
 import type {
 	AtlasV2Confidence,
@@ -78,14 +90,38 @@ const CONTENT_STOPWORDS = new Set([
 ]);
 
 const CONTRADICTION_WINDOW_CHARS = 320;
+/** Window around the figure IN THE SENTENCE that names what it measures. */
+const CLAIM_WINDOW_CHARS = 140;
 const MIN_SHARED_CONTENT_WORDS = 2;
+/** Chars of the sentence used as the quantity label in Limitations. */
+const QUANTITY_LABEL_CHARS = 70;
 
-export type AtlasV2EntailmentCheck = (input: {
+/**
+ * A sentence may cite at most this many sources. Denser citation was the
+ * report's worst readability defect: 12-18 markers per 100 words, several of
+ * them redundant. See `trimSectionCitations`.
+ */
+export const ATLAS_V2_MAX_CITATIONS_PER_SENTENCE = 2;
+
+export interface AtlasV2EntailmentRequest {
 	claim: string;
 	sourceNumber: number;
 	sourceTitle: string;
 	sourceText: string;
-}) => Promise<boolean | null>;
+}
+
+export type AtlasV2EntailmentCheck = (
+	input: AtlasV2EntailmentRequest,
+) => Promise<boolean | null>;
+
+/**
+ * Batched entailment: one call, many claims, an answer per claim in order.
+ * Returning null (or an array of the wrong length) means "could not read the
+ * answer", and the caller falls back to one call per claim.
+ */
+export type AtlasV2BatchEntailmentCheck = (
+	inputs: AtlasV2EntailmentRequest[],
+) => Promise<Array<boolean | null> | null>;
 
 export type AtlasV2CalculationRunner = (input: {
 	expression: string;
@@ -109,10 +145,16 @@ export interface VerifyAtlasV2ReportInput {
 	now: Date;
 	/** Omitted in tests and when no audit model is available. */
 	checkEntailment?: AtlasV2EntailmentCheck;
+	/** Preferred over `checkEntailment` when both are given. */
+	checkEntailmentBatch?: AtlasV2BatchEntailmentCheck;
+	/** Claims per batched call. Defaults to 10; 1 disables batching. */
+	entailmentBatchSize?: number;
 	/** Omitted when run_python is unavailable; calc sentences then go inferred. */
 	runCalculation?: AtlasV2CalculationRunner;
 	/** Omitted to skip the rewrite pass and cut on first failure. */
 	rewriteSection?: AtlasV2SectionRewriter;
+	/** Cap on the disagreements Limitations may report. Defaults to 3. */
+	maxContradictions?: number;
 }
 
 function contentWords(text: string): Set<string> {
@@ -131,6 +173,23 @@ function sharedContentWordCount(left: Set<string>, right: Set<string>): number {
 		if (right.has(word)) shared += 1;
 	}
 	return shared;
+}
+
+function yearsIn(text: string): Set<string> {
+	return new Set(
+		[...text.matchAll(/\b(?:1[89]\d{2}|20\d{2}|21\d{2})\b/g)].map(
+			(match) => match[0],
+		),
+	);
+}
+
+function textWindow(text: string, needle: string, radius: number): string {
+	const index = text.indexOf(needle);
+	if (index < 0) return text;
+	return text.slice(
+		Math.max(0, index - radius),
+		index + needle.length + radius,
+	);
 }
 
 function monthsBetween(from: Date, to: Date): number {
@@ -162,9 +221,7 @@ export function figureCorroboration(input: {
 	sentence: string;
 	sources: AtlasV2IndexedSource[];
 }): { organisations: string[]; supportingNumbers: number[] } {
-	const figures = extractFigures(input.sentence).filter(
-		(figure) => !figure.isDate && figure.value !== null,
-	);
+	const figures = extractFigures(input.sentence).filter(isCheckableFigure);
 	if (figures.length === 0) {
 		return { organisations: [], supportingNumbers: [] };
 	}
@@ -183,59 +240,83 @@ export function figureCorroboration(input: {
 	return { organisations: [...organisations], supportingNumbers };
 }
 
+/** The words and years around a figure, i.e. what the figure measures. */
+function figureContext(
+	text: string,
+	figure: ExtractedFigure,
+	radius: number,
+): { words: Set<string>; years: Set<string> } {
+	const window = textWindow(text, figure.text, radius);
+	return { words: contentWords(window), years: yearsIn(window) };
+}
+
+/** A short label for the quantity, for the Limitations line. */
+function quantityLabel(sentence: string, figure: ExtractedFigure): string {
+	const window = textWindow(sentence, figure.text, QUANTITY_LABEL_CHARS)
+		.replace(/\s+/g, " ")
+		.trim();
+	return window.slice(0, QUANTITY_LABEL_CHARS * 2);
+}
+
 /**
- * Independent sources that state a DIFFERENT figure for what looks like the
- * same metric. Relevance is content-word overlap between the claim and the
- * text window around the competing figure, so "8 GW of solar" is not treated
- * as contradicted by "6 GW of wind" in the same document.
+ * Disagreements the sentence hides. ONLY the sources the sentence itself cites
+ * are examined — never the whole index — and a competing figure counts only
+ * when it sits in a passage about the same thing: same unit (enforced by
+ * `competingFigures`), at least two shared content words with the figure's own
+ * context in the sentence, and no clash of years between the two contexts.
+ *
+ * That covers both cases worth reporting: a cited source whose text carries a
+ * different value for the figure, and two sources cited in the same sentence
+ * that disagree with each other.
  */
 export function findContradictions(input: {
 	sentence: string;
 	citedSources: AtlasV2IndexedSource[];
-	allSources: AtlasV2IndexedSource[];
 }): AtlasV2Contradiction[] {
-	const claimWords = contentWords(input.sentence);
-	const citedOrganisations = new Set(
-		input.citedSources.map((source) => source.organisation),
-	);
 	const contradictions: AtlasV2Contradiction[] = [];
 	const figures = extractFigures(input.sentence).filter(
-		(figure) => !figure.isDate && figure.value !== null && figure.unit !== "",
+		(figure) => isCheckableFigure(figure) && figure.unit !== "",
 	);
-	if (figures.length === 0) return contradictions;
+	if (figures.length === 0 || input.citedSources.length === 0) {
+		return contradictions;
+	}
 
 	for (const figure of figures) {
-		for (const source of input.allSources) {
-			if (citedOrganisations.has(source.organisation)) continue;
+		const claimContext = figureContext(
+			input.sentence,
+			figure,
+			CLAIM_WINDOW_CHARS,
+		);
+		const statedCitation =
+			input.citedSources.find((source) =>
+				figureAppearsInText(figure, sourceEvidenceText(source)),
+			)?.n ?? input.citedSources[0].n;
+		for (const source of input.citedSources) {
+			if (source.n === statedCitation) continue;
 			const text = sourceEvidenceText(source);
 			// A source that also states our figure agrees; it cannot contradict.
 			if (figureAppearsInText(figure, text)) continue;
 			for (const competing of competingFigures(figure, text)) {
-				const index = text.indexOf(competing.text);
-				const window =
-					index < 0
-						? text
-						: text.slice(
-								Math.max(0, index - CONTRADICTION_WINDOW_CHARS),
-								index + CONTRADICTION_WINDOW_CHARS,
-							);
+				const sourceContext = figureContext(
+					text,
+					competing,
+					CONTRADICTION_WINDOW_CHARS,
+				);
 				if (
-					sharedContentWordCount(claimWords, contentWords(window)) <
+					sharedContentWordCount(claimContext.words, sourceContext.words) <
 					MIN_SHARED_CONTENT_WORDS
 				) {
 					continue;
 				}
-				const statedCitation = input.citedSources[0]?.n ?? 0;
-				if (
-					contradictions.some(
-						(existing) =>
-							existing.competingCitation === source.n &&
-							existing.competingValue === competing.text,
-					)
-				) {
-					continue;
+				// A figure for another year is a different quantity, not a rival one.
+				if (claimContext.years.size > 0 && sourceContext.years.size > 0) {
+					const sharesYear = [...claimContext.years].some((year) =>
+						sourceContext.years.has(year),
+					);
+					if (!sharesYear) continue;
 				}
 				contradictions.push({
+					quantity: quantityLabel(input.sentence, figure),
 					statedValue: figure.text,
 					statedCitation,
 					competingValue: competing.text,
@@ -266,28 +347,92 @@ function statesBothFigures(
 	);
 }
 
+/**
+ * Keeps at most `ATLAS_V2_MAX_CITATIONS_PER_SENTENCE` citations per sentence,
+ * preferring the sources that actually state the sentence's figures so the
+ * trim never turns a supported figure into an unsupported one. Order among
+ * equals is the writer's own.
+ */
+export function trimSentenceCitations(input: {
+	sentence: AtlasV2WrittenSentence;
+	sourcesByNumber: Map<number, AtlasV2IndexedSource>;
+	limit?: number;
+}): number[] {
+	const limit = input.limit ?? ATLAS_V2_MAX_CITATIONS_PER_SENTENCE;
+	const citations = input.sentence.citations;
+	if (citations.length <= limit) return citations;
+	const figures = extractFigures(input.sentence.text).filter(isCheckableFigure);
+	const score = (citation: number): number => {
+		const source = input.sourcesByNumber.get(citation);
+		if (!source) return -1;
+		if (figures.length === 0) return 0;
+		const text = sourceEvidenceText(source);
+		const stated = figures.filter((figure) =>
+			figureAppearsInText(figure, text),
+		).length;
+		return stated;
+	};
+	return [...citations]
+		.map((citation, position) => ({
+			citation,
+			position,
+			rank: score(citation),
+		}))
+		.sort((left, right) =>
+			left.rank === right.rank
+				? left.position - right.position
+				: right.rank - left.rank,
+		)
+		.slice(0, limit)
+		.sort((left, right) => left.position - right.position)
+		.map((entry) => entry.citation);
+}
+
+export function trimSectionCitations(
+	sections: readonly AtlasV2WrittenSection[],
+	sourcesByNumber: Map<number, AtlasV2IndexedSource>,
+): AtlasV2WrittenSection[] {
+	return sections.map((section) => ({
+		...section,
+		paragraphs: section.paragraphs.map((paragraph) => ({
+			sentences: paragraph.sentences.map((sentence) => {
+				const citations = trimSentenceCitations({ sentence, sourcesByNumber });
+				return citations === sentence.citations
+					? sentence
+					: { ...sentence, citations };
+			}),
+		})),
+	}));
+}
+
 interface SentenceVerdict {
 	confidence: AtlasV2Confidence;
 	failures: AtlasV2Failure[];
 	contradictions: AtlasV2Contradiction[];
 	staleCitations: number[];
+	/** Set when a non-numeric cited claim still needs a model check. */
+	entailmentRequest: AtlasV2EntailmentRequest | null;
 }
 
-async function verifySentence(input: {
+/**
+ * Everything deterministic about one sentence. The entailment check is NOT
+ * performed here: the request is returned so the caller can batch every claim
+ * in the report into a handful of calls.
+ */
+function verifySentence(input: {
 	sentence: AtlasV2WrittenSentence;
-	section: AtlasV2WrittenSection;
 	sourcesByNumber: Map<number, AtlasV2IndexedSource>;
 	allSources: AtlasV2IndexedSource[];
 	staleMonths: number;
 	now: Date;
-	checkEntailment?: AtlasV2EntailmentCheck;
+	entailmentAvailable: boolean;
 	calculationValues: Map<string, string | null>;
-	onEntailmentCall: () => void;
-}): Promise<SentenceVerdict> {
+}): SentenceVerdict {
 	const failures: AtlasV2Failure[] = [];
 	const { sentence } = input;
 	const figures = extractFigures(sentence.text);
-	const hasFigure = figures.length > 0;
+	const checkableFigures = figures.filter(isCheckableFigure);
+	const hasFigure = checkableFigures.length > 0;
 
 	// (a) every [n] resolves.
 	const citedSources: AtlasV2IndexedSource[] = [];
@@ -309,7 +454,7 @@ async function verifySentence(input: {
 		if (hasFigure) {
 			failures.push({
 				code: "inferred_with_figure",
-				detail: `an inferred sentence may not state a figure, but this one states "${figures[0].text}"`,
+				detail: `an inferred sentence may not state a figure, but this one states "${checkableFigures[0].text}"`,
 				citation: null,
 			});
 		}
@@ -318,6 +463,7 @@ async function verifySentence(input: {
 			failures,
 			contradictions: [],
 			staleCitations: [],
+			entailmentRequest: null,
 		};
 	}
 
@@ -326,7 +472,7 @@ async function verifySentence(input: {
 		failures.push({
 			code: hasFigure ? "uncited_figure" : "unresolved_citation",
 			detail: hasFigure
-				? `"${figures[0].text}" carries no citation; every figure must cite the source that states it`
+				? `"${checkableFigures[0].text}" carries no citation; every figure must cite the source that states it`
 				: "this sentence carries no citation and is not marked as inferred synthesis",
 			citation: null,
 		});
@@ -335,6 +481,7 @@ async function verifySentence(input: {
 			failures,
 			contradictions: [],
 			staleCitations: [],
+			entailmentRequest: null,
 		};
 	}
 
@@ -352,13 +499,14 @@ async function verifySentence(input: {
 				failures,
 				contradictions: [],
 				staleCitations: [],
+				entailmentRequest: null,
 			};
 		}
 	}
 
 	// (b) every figure appears in at least ONE cited source.
 	if (hasFigure && !sentence.calcId) {
-		for (const figure of figures) {
+		for (const figure of checkableFigures) {
 			const supported = citedSources.some((source) =>
 				figureAppearsInText(figure, sourceEvidenceText(source)),
 			);
@@ -381,37 +529,28 @@ async function verifySentence(input: {
 		}
 	}
 
-	// (c) a non-numeric cited claim gets one yes/no entailment check.
-	if (!hasFigure && input.checkEntailment && failures.length === 0) {
-		const primary = citedSources[0];
-		input.onEntailmentCall();
-		const entailed = await input.checkEntailment({
-			claim: sentence.text,
-			sourceNumber: primary.n,
-			sourceTitle: primary.title,
-			sourceText: sourceEvidenceText(primary),
-		});
-		if (entailed === false) {
-			failures.push({
-				code: "entailment_failed",
-				detail: `source [${primary.n}] does not support this claim`,
-				citation: primary.n,
-			});
-		}
-	}
+	// (c) a non-numeric cited claim gets one yes/no entailment check, batched.
+	const entailmentRequest =
+		!hasFigure && input.entailmentAvailable && failures.length === 0
+			? {
+					claim: sentence.text,
+					sourceNumber: citedSources[0].n,
+					sourceTitle: citedSources[0].title,
+					sourceText: sourceEvidenceText(citedSources[0]),
+				}
+			: null;
 
 	// (f) contradictions must be stated, not hidden.
 	const contradictions = findContradictions({
 		sentence: sentence.text,
 		citedSources,
-		allSources: input.allSources,
 	}).filter(
 		(contradiction) => !statesBothFigures(sentence.text, contradiction),
 	);
 	for (const contradiction of contradictions) {
 		failures.push({
 			code: "contradiction_unstated",
-			detail: `source [${contradiction.competingCitation}] gives ${contradiction.competingValue} where this sentence gives ${contradiction.statedValue}; state both figures and cite both sources`,
+			detail: `source [${contradiction.competingCitation}] says ${contradiction.competingValue} where this sentence says ${contradiction.statedValue}; state both figures and cite both sources`,
 			citation: contradiction.competingCitation,
 		});
 	}
@@ -442,7 +581,145 @@ async function verifySentence(input: {
 		confidence = organisations.size >= 2 ? "corroborated" : "single";
 	}
 
-	return { confidence, failures, contradictions, staleCitations };
+	return {
+		confidence,
+		failures,
+		contradictions,
+		staleCitations,
+		entailmentRequest,
+	};
+}
+
+interface EntailmentOutcome {
+	answers: Array<boolean | null>;
+	claimCount: number;
+	batchCount: number;
+}
+
+/**
+ * Resolves every collected claim. Batched when a batch checker is given, with
+ * a per-claim fallback whenever a batch answer does not parse, so a model that
+ * mangles a JSON array degrades in cost rather than in correctness.
+ */
+async function resolveEntailments(input: {
+	requests: AtlasV2EntailmentRequest[];
+	checkEntailment?: AtlasV2EntailmentCheck;
+	checkEntailmentBatch?: AtlasV2BatchEntailmentCheck;
+	batchSize: number;
+}): Promise<EntailmentOutcome> {
+	const answers: Array<boolean | null> = [];
+	let batchCount = 0;
+	if (input.requests.length === 0) {
+		return { answers, claimCount: 0, batchCount };
+	}
+	const runOneByOne = async (
+		requests: AtlasV2EntailmentRequest[],
+	): Promise<Array<boolean | null>> => {
+		const results: Array<boolean | null> = [];
+		for (const request of requests) {
+			results.push(
+				input.checkEntailment ? await input.checkEntailment(request) : null,
+			);
+		}
+		return results;
+	};
+
+	if (!input.checkEntailmentBatch || input.batchSize <= 1) {
+		return {
+			answers: await runOneByOne(input.requests),
+			claimCount: input.requests.length,
+			batchCount: 0,
+		};
+	}
+
+	for (let start = 0; start < input.requests.length; start += input.batchSize) {
+		const chunk = input.requests.slice(start, start + input.batchSize);
+		batchCount += 1;
+		let chunkAnswers: Array<boolean | null> | null = null;
+		try {
+			chunkAnswers = await input.checkEntailmentBatch(chunk);
+		} catch {
+			chunkAnswers = null;
+		}
+		if (chunkAnswers && chunkAnswers.length === chunk.length) {
+			answers.push(...chunkAnswers);
+			continue;
+		}
+		answers.push(...(await runOneByOne(chunk)));
+	}
+	return { answers, claimCount: input.requests.length, batchCount };
+}
+
+async function runSectionCalculations(
+	section: AtlasV2WrittenSection,
+	runCalculation?: AtlasV2CalculationRunner,
+): Promise<Map<string, string | null>> {
+	const values = new Map<string, string | null>();
+	if (!runCalculation) return values;
+	for (const calculation of section.calculations) {
+		try {
+			const result = await runCalculation({
+				expression: calculation.expression,
+			});
+			values.set(calculation.id, result.ok ? result.value : null);
+		} catch {
+			values.set(calculation.id, null);
+		}
+	}
+	return values;
+}
+
+interface DeterministicPass {
+	/** Per section, per paragraph, per sentence. */
+	verdicts: SentenceVerdict[][][];
+	requests: Array<{
+		request: AtlasV2EntailmentRequest;
+		sectionIndex: number;
+		paragraphIndex: number;
+		sentenceIndex: number;
+	}>;
+}
+
+function runDeterministicPass(input: {
+	sections: readonly AtlasV2WrittenSection[];
+	calculationValues: Array<Map<string, string | null>>;
+	sourcesByNumber: Map<number, AtlasV2IndexedSource>;
+	allSources: AtlasV2IndexedSource[];
+	staleMonths: number;
+	now: Date;
+	entailmentAvailable: boolean;
+}): DeterministicPass {
+	const verdicts: SentenceVerdict[][][] = [];
+	const requests: DeterministicPass["requests"] = [];
+	for (const [sectionIndex, section] of input.sections.entries()) {
+		const sectionVerdicts: SentenceVerdict[][] = [];
+		for (const [paragraphIndex, paragraph] of section.paragraphs.entries()) {
+			const paragraphVerdicts: SentenceVerdict[] = [];
+			for (const [sentenceIndex, sentence] of paragraph.sentences.entries()) {
+				const verdict = verifySentence({
+					sentence,
+					sourcesByNumber: input.sourcesByNumber,
+					allSources: input.allSources,
+					staleMonths: input.staleMonths,
+					now: input.now,
+					entailmentAvailable: input.entailmentAvailable,
+					calculationValues: input.calculationValues[sectionIndex] ?? new Map(),
+				});
+				if (verdict.entailmentRequest) {
+					requests.push({
+						request: verdict.entailmentRequest,
+						sectionIndex,
+						paragraphIndex,
+						sentenceIndex,
+					});
+				}
+				paragraphVerdicts.push(verdict);
+			}
+			sectionVerdicts.push(paragraphVerdicts);
+		}
+		verdicts.push(sectionVerdicts);
+	}
+	return { verdicts, requests };
 }
 
 export async function verifyAtlasV2Report(
@@ -451,6 +728,11 @@ export async function verifyAtlasV2Report(
 	const sourcesByNumber = new Map(
 		input.index.sources.map((source) => [source.n, source]),
 	);
+	const sections = trimSectionCitations(input.sections, sourcesByNumber);
+	const entailmentAvailable = Boolean(
+		input.checkEntailment ?? input.checkEntailmentBatch,
+	);
+	const batchSize = Math.max(1, input.entailmentBatchSize ?? 10);
 	const totals: AtlasV2VerificationTotals = {
 		corroborated: 0,
 		single: 0,
@@ -461,36 +743,44 @@ export async function verifyAtlasV2Report(
 	const staleCitations = new Set<number>();
 	const citedSourceNumbers = new Set<number>();
 	const verifiedSections: AtlasV2VerifiedSection[] = [];
-	let entailmentCallCount = 0;
-	const onEntailmentCall = () => {
-		entailmentCallCount += 1;
-	};
 
-	for (const section of input.sections) {
-		const calculationValues = await runSectionCalculations(
-			section,
-			input.runCalculation,
+	const calculationValues: Array<Map<string, string | null>> = [];
+	for (const section of sections) {
+		calculationValues.push(
+			await runSectionCalculations(section, input.runCalculation),
 		);
+	}
 
-		const verdicts = await Promise.all(
-			section.paragraphs.map((paragraph) =>
-				Promise.all(
-					paragraph.sentences.map((sentence) =>
-						verifySentence({
-							sentence,
-							section,
-							sourcesByNumber,
-							allSources: input.index.sources,
-							staleMonths: input.staleMonths,
-							now: input.now,
-							checkEntailment: input.checkEntailment,
-							calculationValues,
-							onEntailmentCall,
-						}),
-					),
-				),
-			),
-		);
+	const pass = runDeterministicPass({
+		sections,
+		calculationValues,
+		sourcesByNumber,
+		allSources: input.index.sources,
+		staleMonths: input.staleMonths,
+		now: input.now,
+		entailmentAvailable,
+	});
+	const entailment = await resolveEntailments({
+		requests: pass.requests.map((entry) => entry.request),
+		checkEntailment: input.checkEntailment,
+		checkEntailmentBatch: input.checkEntailmentBatch,
+		batchSize,
+	});
+	let entailmentCallCount = entailment.claimCount;
+	let entailmentBatchCount = entailment.batchCount;
+	for (const [position, entry] of pass.requests.entries()) {
+		if (entailment.answers[position] !== false) continue;
+		pass.verdicts[entry.sectionIndex][entry.paragraphIndex][
+			entry.sentenceIndex
+		].failures.push({
+			code: "entailment_failed",
+			detail: `source [${entry.request.sourceNumber}] does not support this claim`,
+			citation: entry.request.sourceNumber,
+		});
+	}
+
+	for (const [sectionIndex, section] of sections.entries()) {
+		const verdicts = pass.verdicts[sectionIndex];
 
 		// (d) one rewrite pass, with the exact mismatch, then cut.
 		const failed = verdicts.flatMap((paragraph, paragraphIndex) =>
@@ -518,16 +808,47 @@ export async function verifyAtlasV2Report(
 		if (failed.length > 0 && input.rewriteSection) {
 			const rewrite = await input.rewriteSection({ section, failed });
 			if (rewrite) {
+				const [trimmedRewrite] = trimSectionCitations(
+					[rewrite],
+					sourcesByNumber,
+				);
 				rewrittenVerdicts = new Map();
 				rewrittenSentences = new Map();
 				const rewriteCalculations = await runSectionCalculations(
-					rewrite,
+					trimmedRewrite,
 					input.runCalculation,
 				);
+				const rewritePass = runDeterministicPass({
+					sections: [trimmedRewrite],
+					calculationValues: [rewriteCalculations],
+					sourcesByNumber,
+					allSources: input.index.sources,
+					staleMonths: input.staleMonths,
+					now: input.now,
+					entailmentAvailable,
+				});
+				const rewriteEntailment = await resolveEntailments({
+					requests: rewritePass.requests.map((entry) => entry.request),
+					checkEntailment: input.checkEntailment,
+					checkEntailmentBatch: input.checkEntailmentBatch,
+					batchSize,
+				});
+				entailmentCallCount += rewriteEntailment.claimCount;
+				entailmentBatchCount += rewriteEntailment.batchCount;
+				for (const [position, entry] of rewritePass.requests.entries()) {
+					if (rewriteEntailment.answers[position] !== false) continue;
+					rewritePass.verdicts[0][entry.paragraphIndex][
+						entry.sentenceIndex
+					].failures.push({
+						code: "entailment_failed",
+						detail: `source [${entry.request.sourceNumber}] does not support this claim`,
+						citation: entry.request.sourceNumber,
+					});
+				}
 				for (const [
 					paragraphIndex,
 					paragraph,
-				] of rewrite.paragraphs.entries()) {
+				] of trimmedRewrite.paragraphs.entries()) {
 					for (const [
 						sentenceIndex,
 						sentence,
@@ -536,17 +857,7 @@ export async function verifyAtlasV2Report(
 						rewrittenSentences.set(key, sentence);
 						rewrittenVerdicts.set(
 							key,
-							await verifySentence({
-								sentence,
-								section: rewrite,
-								sourcesByNumber,
-								allSources: input.index.sources,
-								staleMonths: input.staleMonths,
-								now: input.now,
-								checkEntailment: input.checkEntailment,
-								calculationValues: rewriteCalculations,
-								onEntailmentCall,
-							}),
+							rewritePass.verdicts[0][paragraphIndex][sentenceIndex],
 						);
 					}
 				}
@@ -612,30 +923,17 @@ export async function verifyAtlasV2Report(
 	return {
 		sections: verifiedSections,
 		totals,
-		contradictions: dedupeContradictions(allContradictions),
+		// Capped here rather than at render time, so the publication numbering
+		// only ever carries sources the report actually names.
+		contradictions: dedupeContradictions(allContradictions).slice(
+			0,
+			Math.max(0, input.maxContradictions ?? ATLAS_V2_MAX_CONTRADICTION_LINES),
+		),
 		staleCitations: [...staleCitations].sort((a, b) => a - b),
 		citedSourceNumbers: [...citedSourceNumbers].sort((a, b) => a - b),
 		entailmentCallCount,
+		entailmentBatchCount,
 	};
-}
-
-async function runSectionCalculations(
-	section: AtlasV2WrittenSection,
-	runCalculation?: AtlasV2CalculationRunner,
-): Promise<Map<string, string | null>> {
-	const values = new Map<string, string | null>();
-	if (!runCalculation) return values;
-	for (const calculation of section.calculations) {
-		try {
-			const result = await runCalculation({
-				expression: calculation.expression,
-			});
-			values.set(calculation.id, result.ok ? result.value : null);
-		} catch {
-			values.set(calculation.id, null);
-		}
-	}
-	return values;
 }
 
 function dedupeContradictions(
@@ -653,11 +951,54 @@ function dedupeContradictions(
 }
 
 // ---------------------------------------------------------------------------
-// The entailment prompt
+// Does the summary answer the question that was asked?
+// ---------------------------------------------------------------------------
+
+export interface AtlasV2CoreAnswerCheck {
+	/** A kept summary sentence rests on the core question's own evidence. */
+	present: boolean;
+	/** That sentence also carries a figure, which is the stronger outcome. */
+	citedFigure: boolean;
+}
+
+/**
+ * The executive summary must answer the user's question, not open with a
+ * tangent. `coreSourceNumbers` are the sources indexed against the core
+ * question — the first plan question, which is the request verbatim — so a
+ * summary that cites none of them is not answering it.
+ */
+export function checkAtlasV2CoreAnswer(input: {
+	summary: AtlasV2VerifiedSection | null;
+	coreSourceNumbers: readonly number[];
+}): AtlasV2CoreAnswerCheck {
+	const sentences = (input.summary?.paragraphs ?? []).flat();
+	if (sentences.length === 0) return { present: false, citedFigure: false };
+	const core = new Set(input.coreSourceNumbers);
+	const onCore = sentences.filter((sentence) =>
+		core.size === 0
+			? sentence.citations.length > 0
+			: sentence.citations.some((citation) => core.has(citation)),
+	);
+	return {
+		present: onCore.length > 0,
+		citedFigure: onCore.some((sentence) =>
+			extractFigures(sentence.text).some(isCheckableFigure),
+		),
+	};
+}
+
+// ---------------------------------------------------------------------------
+// The entailment prompts
 // ---------------------------------------------------------------------------
 
 export const ATLAS_V2_ENTAILMENT_SYSTEM =
 	'Answer with one word, "yes" or "no", and nothing else. Say "yes" only when the source text states or directly implies the claim. Say "no" when the source is silent, says something different, or only touches an adjacent topic. Do not explain.';
+
+export const ATLAS_V2_ENTAILMENT_BATCH_SYSTEM = [
+	'You check several claims against their own source text. Return STRICT JSON only: an array of "yes"/"no" strings, no prose and no code fence.',
+	'The array must have exactly one entry per numbered item, in the same order. Answer "yes" only when that item\'s source text states or directly implies that item\'s claim; "no" when the source is silent, says something different, or only touches an adjacent topic.',
+	"Judge each item only against its own source. Do not explain and do not add any other field.",
+].join("\n");
 
 export function buildAtlasV2EntailmentPrompt(input: {
 	claim: string;
@@ -675,6 +1016,26 @@ export function buildAtlasV2EntailmentPrompt(input: {
 	});
 }
 
+export function buildAtlasV2EntailmentBatchPrompt(input: {
+	items: AtlasV2EntailmentRequest[];
+	/** Per-item source budget; the batch shares one context window. */
+	maxSourceChars?: number;
+}): string {
+	const perItem = input.maxSourceChars ?? 2400;
+	return JSON.stringify({
+		task: "entailment_batch",
+		answerCount: input.items.length,
+		items: input.items.map((item, index) => ({
+			i: index + 1,
+			claim: item.claim,
+			source: {
+				title: item.sourceTitle,
+				text: item.sourceText.slice(0, perItem),
+			},
+		})),
+	});
+}
+
 /** Reads the entailment answer. Anything ambiguous is null, not a failure. */
 export function parseAtlasV2EntailmentAnswer(text: string): boolean | null {
 	const normalized = text.trim().toLowerCase();
@@ -683,4 +1044,55 @@ export function parseAtlasV2EntailmentAnswer(text: string): boolean | null {
 	if (/\byes\b/.test(normalized) && !/\bno\b/.test(normalized)) return true;
 	if (/\bno\b/.test(normalized) && !/\byes\b/.test(normalized)) return false;
 	return null;
+}
+
+/**
+ * Reads a batched answer. Returns null — meaning "fall back to one call per
+ * claim" — unless the array has exactly `expectedCount` readable entries.
+ * Accepts the shapes a small model actually produces: bare strings, booleans,
+ * or objects carrying the verdict under a recognisable key.
+ */
+export function parseAtlasV2EntailmentBatchAnswer(
+	text: string,
+	expectedCount: number,
+): Array<boolean | null> | null {
+	const parsed = readJsonArray(text);
+	if (!parsed || parsed.length !== expectedCount) return null;
+	return parsed.map((entry) => {
+		if (typeof entry === "boolean") return entry;
+		if (typeof entry === "string") return parseAtlasV2EntailmentAnswer(entry);
+		if (entry && typeof entry === "object") {
+			const record = entry as Record<string, unknown>;
+			for (const key of [
+				"answer",
+				"entailed",
+				"supported",
+				"verdict",
+				"value",
+			]) {
+				const value = record[key];
+				if (typeof value === "boolean") return value;
+				if (typeof value === "string") {
+					return parseAtlasV2EntailmentAnswer(value);
+				}
+			}
+		}
+		return null;
+	});
+}
+
+function readJsonArray(text: string): unknown[] | null {
+	const trimmed = text
+		.trim()
+		.replace(/^```(?:json)?/i, "")
+		.replace(/```$/, "");
+	const start = trimmed.indexOf("[");
+	const end = trimmed.lastIndexOf("]");
+	if (start < 0 || end <= start) return null;
+	try {
+		const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+		return Array.isArray(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
 }

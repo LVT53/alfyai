@@ -29,9 +29,28 @@ export const ATLAS_V2_MAX_NEXT_CHARS = 200;
 export const ATLAS_V2_MAX_TITLE_CHARS = 160;
 /**
  * Per-source snippet budget. Present so `scripts/atlas-eval.ts` can re-check
- * number matches offline from the job row instead of re-fetching the web.
+ * number matches offline from the job row instead of re-fetching the web, and
+ * sized so the text carries the PAGE EXCERPT as well as the search snippets:
+ * at 500 chars the harness was checking figures against the snippet alone and
+ * reporting mismatches the page it read plainly contained.
  */
-export const ATLAS_V2_MAX_EVIDENCE_SNIPPET_CHARS = 500;
+export const ATLAS_V2_MAX_EVIDENCE_SNIPPET_CHARS = 1200;
+
+/**
+ * Phase names `phaseDurationsMs` may carry. Fixed rather than free-form so the
+ * job row cannot be grown by an unexpected key, and named separately from the
+ * phases because verification splits into work worth timing on its own.
+ */
+export const ATLAS_V2_PHASE_DURATION_KEYS = [
+	"plan",
+	"research",
+	"coverage",
+	"index",
+	"write",
+	"verify",
+	"summary",
+	"render",
+] as const;
 
 /** Percent shown for each phase, so the bar advances monotonically. */
 export const ATLAS_V2_PHASE_PROGRESS: Record<AtlasV2Phase, number> = {
@@ -96,6 +115,8 @@ export interface BuildAtlasV2ProgressDetailsInput {
 	round: { current: number; total: number };
 	sourcesRead: number;
 	evidence?: AtlasV2ProgressEvidence;
+	/** Wall time per phase so far, in milliseconds. */
+	phaseDurationsMs?: Record<string, number>;
 }
 
 export function buildAtlasV2ProgressDetails(
@@ -133,6 +154,9 @@ export function buildAtlasV2ProgressDetails(
 			round: input.round,
 		}),
 		...(input.evidence ? { evidence: input.evidence } : {}),
+		...(input.phaseDurationsMs && Object.keys(input.phaseDurationsMs).length > 0
+			? { phaseDurationsMs: { ...input.phaseDurationsMs } }
+			: {}),
 	};
 }
 
@@ -262,8 +286,29 @@ export function sanitizeAtlasV2ProgressDetails(
 		next: cleanText(record.next, ATLAS_V2_MAX_NEXT_CHARS),
 	};
 
+	const durations = sanitizePhaseDurations(record.phaseDurationsMs);
+	const withDurations = durations
+		? { ...details, phaseDurationsMs: durations }
+		: details;
 	const evidence = sanitizeEvidence(record.evidence);
-	return evidence ? { ...details, evidence } : details;
+	return evidence ? { ...withDurations, evidence } : withDurations;
+}
+
+/** Per-phase wall time, bounded to the known phase names. */
+function sanitizePhaseDurations(value: unknown): Record<string, number> | null {
+	if (!value || typeof value !== "object") return null;
+	const durations: Record<string, number> = {};
+	for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+		const name = cleanText(key, 24);
+		if (
+			!name ||
+			!(ATLAS_V2_PHASE_DURATION_KEYS as readonly string[]).includes(name)
+		) {
+			continue;
+		}
+		durations[name] = nonNegativeInteger(raw);
+	}
+	return Object.keys(durations).length > 0 ? durations : null;
 }
 
 function sanitizeEvidence(value: unknown): AtlasV2ProgressEvidence | null {
