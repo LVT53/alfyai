@@ -119,7 +119,7 @@ const RESEARCH_CHECKPOINT_BASE = 1;
 /** Bounded parallelism for the per-section writer calls. */
 const DEFAULT_WRITER_CONCURRENCY = 5;
 /** Section sentences the executive-summary prompt carries, per section. */
-const SUMMARY_SENTENCES_PER_SECTION = 12;
+const SUMMARY_SENTENCES_PER_SECTION = 16;
 
 export type AtlasV2ModelCall = (input: {
 	stage: string;
@@ -652,36 +652,42 @@ export async function runAtlasV2Pipeline(
 	// Pass one: one line per section naming the figures it will use. Every body
 	// call then sees every other section's line, so no two sections state the
 	// same fact — and the bodies still run in one concurrent wave.
-	const sectionGists = resume.sections
-		? []
-		: (
-				await mapWithConcurrency(
-					resolvedPlan.sections,
-					writerConcurrency,
-					async (section) => {
-						const evidence = evidenceBySection.get(section.id) ?? [];
-						if (evidence.length === 0) return null;
-						const call = await timePhase("lead", () =>
-							deps.runWriterModel({
-								stage: `lead:${section.id}`,
-								system: ATLAS_V2_SECTION_LEAD_SYSTEM[language],
-								prompt: buildAtlasV2SectionLeadPrompt({
-									query: job.query,
-									language,
-									section,
-									evidence,
+	//
+	// Skipped for a one-section plan: there is no other section to inform, and the
+	// call would be pure latency.
+	const sectionGists =
+		resume.sections || resolvedPlan.sections.length < 2
+			? []
+			: (
+					await mapWithConcurrency(
+						resolvedPlan.sections,
+						writerConcurrency,
+						async (section) => {
+							const evidence = evidenceBySection.get(section.id) ?? [];
+							if (evidence.length === 0) return null;
+							const call = await timePhase("lead", () =>
+								deps.runWriterModel({
+									stage: `lead:${section.id}`,
+									system: ATLAS_V2_SECTION_LEAD_SYSTEM[language],
+									prompt: buildAtlasV2SectionLeadPrompt({
+										query: job.query,
+										language,
+										section,
+										evidence,
+									}),
 								}),
-							}),
-						);
-						usage = addUsage(usage, call.usage);
-						const gist = parseAtlasV2SectionLead(call.text);
-						return gist ? { id: section.id, title: section.title, gist } : null;
-					},
-				)
-			).filter(
-				(entry): entry is { id: string; title: string; gist: string } =>
-					entry !== null,
-			);
+							);
+							usage = addUsage(usage, call.usage);
+							const gist = parseAtlasV2SectionLead(call.text);
+							return gist
+								? { id: section.id, title: section.title, gist }
+								: null;
+						},
+					)
+				).filter(
+					(entry): entry is { id: string; title: string; gist: string } =>
+						entry !== null,
+				);
 	const writtenSections =
 		resume.sections ??
 		(

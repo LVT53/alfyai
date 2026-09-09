@@ -559,8 +559,9 @@ describe("runAtlasV2Pipeline", () => {
 		});
 		expect(research).not.toHaveBeenCalled();
 		expect(runControlModel).not.toHaveBeenCalled();
+		// A one-section plan gets no lead pass: there is no other section to tell
+		// about it, so the call would be pure latency.
 		expect(runWriterModel.mock.calls.map(([call]) => call.stage)).toEqual([
-			"lead:s1",
 			"write:s1",
 			"summary",
 		]);
