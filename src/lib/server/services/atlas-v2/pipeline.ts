@@ -744,6 +744,16 @@ export async function runAtlasV2Pipeline(
 		written: writtenSections.length,
 		planned: resolvedPlan.sections.length,
 	};
+	// Plan order, not the order the concurrent wave happened to finish in, so
+	// two runs that lose the same sections report the same list.
+	const planOrder = new Map(
+		resolvedPlan.sections.map((section, position) => [section.id, position]),
+	);
+	sectionWriteFailures.sort(
+		(left, right) =>
+			(planOrder.get(left.sectionId) ?? 0) -
+			(planOrder.get(right.sectionId) ?? 0),
+	);
 	if (
 		!resume.sections &&
 		writtenSections.length !== resolvedPlan.sections.length
