@@ -80,6 +80,14 @@ interface Config {
 	atlasV2RoundsOverview: number;
 	atlasV2RoundsInDepth: number;
 	atlasV2RoundsExhaustive: number;
+	atlasV2MaxWordsOverview: number;
+	atlasV2MaxWordsInDepth: number;
+	atlasV2MaxWordsExhaustive: number;
+	atlasV2MaxSourcesOverview: number;
+	atlasV2MaxSourcesInDepth: number;
+	atlasV2MaxSourcesExhaustive: number;
+	atlasV2EntailmentBatch: number;
+	atlasV2WriterConcurrency: number;
 	webPushVapidPublicKey: string;
 	webPushVapidPrivateKey: string;
 	webPushVapidSubject: string;
@@ -575,6 +583,46 @@ function readConfig(): Config {
 		),
 		atlasV2RoundsExhaustive: parsePositiveIntegerEnv(
 			process.env.ATLAS_V2_ROUNDS_EXHAUSTIVE,
+			3,
+			1,
+		),
+		atlasV2MaxWordsOverview: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_WORDS_OVERVIEW,
+			1100,
+			200,
+		),
+		atlasV2MaxWordsInDepth: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_WORDS_IN_DEPTH,
+			2800,
+			200,
+		),
+		atlasV2MaxWordsExhaustive: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_WORDS_EXHAUSTIVE,
+			5500,
+			200,
+		),
+		atlasV2MaxSourcesOverview: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_SOURCES_OVERVIEW,
+			20,
+			1,
+		),
+		atlasV2MaxSourcesInDepth: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_SOURCES_IN_DEPTH,
+			40,
+			1,
+		),
+		atlasV2MaxSourcesExhaustive: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE,
+			80,
+			1,
+		),
+		atlasV2EntailmentBatch: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_ENTAILMENT_BATCH,
+			10,
+			1,
+		),
+		atlasV2WriterConcurrency: parsePositiveIntegerEnv(
+			process.env.ATLAS_V2_WRITER_CONCURRENCY,
 			3,
 			1,
 		),

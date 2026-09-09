@@ -526,14 +526,21 @@ describe("getAtlasV2ProfileConfig", () => {
 		expect(overview).toMatchObject({
 			questions: 6,
 			rounds: 1,
-			readPages: 1,
+			readPages: 2,
+			maxIndexedSources: 20,
 			contradictionHuntOnLastRound: false,
 		});
-		expect(inDepth).toMatchObject({ questions: 10, rounds: 2, readPages: 2 });
+		expect(inDepth).toMatchObject({
+			questions: 10,
+			rounds: 2,
+			readPages: 3,
+			maxIndexedSources: 40,
+		});
 		expect(exhaustive).toMatchObject({
 			questions: 16,
 			rounds: 3,
-			readPages: 2,
+			readPages: 4,
+			maxIndexedSources: 80,
 			contradictionHuntOnLastRound: true,
 		});
 	});

@@ -11,6 +11,20 @@
 // This module is deterministic and has no model dependency: it is the part of
 // verification that must never be a judgement call.
 
+/**
+ * What a run of digits actually is. Only `number` is a quantity the verifier
+ * can meaningfully hunt for in a source: the first live evaluation reported
+ * "2025", "January 21, 2026", "13 9343" (a Dell model number) and "GPT-5.6" as
+ * figures the source did not carry, which is a false positive every time —
+ * a source states a date or a model name in whatever form it likes.
+ */
+export type ExtractedFigureKind =
+	| "number"
+	| "year"
+	| "date"
+	| "version"
+	| "ordinal";
+
 /** A figure lifted out of a sentence, with the unit that qualifies it. */
 export interface ExtractedFigure {
 	/** Exactly as written in the sentence, e.g. "8,000" or "3.5". */
@@ -19,10 +33,20 @@ export interface ExtractedFigure {
 	value: number | null;
 	/** Normalised unit token ("gw", "%", "eur", "") — "" when unitless. */
 	unit: string;
-	/** True for a 4-digit year or an ISO/spelled date. */
+	/** True for a 4-digit year or an ISO/spelled date. Kept for readability. */
 	isDate: boolean;
+	/** What kind of digit run this is; see ExtractedFigureKind. */
+	kind: ExtractedFigureKind;
 	/** The full matched text including any unit, for error messages. */
 	text: string;
+}
+
+/**
+ * True when the figure is a quantity worth checking against a source. Years,
+ * dates, model/version tokens and ordinals are not.
+ */
+export function isCheckableFigure(figure: ExtractedFigure): boolean {
+	return figure.kind === "number";
 }
 
 const UNIT_ALIASES: Record<string, string> = {
@@ -131,16 +155,115 @@ const UNIT_PATTERN = Object.keys(UNIT_ALIASES)
 // A number, optionally preceded by a currency symbol, optionally followed by a
 // scale word and/or a unit. Thousands separators may be "," "." or any of the
 // space characters publishers actually use; the decimal separator may be "."
-// or ",". A scale word must not be followed by another letter, so "8 mint"
-// never parses as eight million.
+// or ",". Neither a scale word nor a unit may be followed by another letter, so
+// "8 mint" never parses as eight million and "2024 the" never parses as 2024
+// tonnes — the latter used to hide a bare year behind a bogus unit.
 const GROUP_SEPARATORS = "[\\u0020\\u00a0\\u202f,.]";
 const FIGURE_PATTERN = new RegExp(
-	`([$\\u20ac\\u00a3])?\\s?(\\d{1,3}(?:${GROUP_SEPARATORS}\\d{3})+(?:[.,]\\d+)?|\\d+(?:[.,]\\d+)?)\\s*(?:(${SCALE_PATTERN})(?![\\p{L}]))?\\s*(${UNIT_PATTERN})?`,
+	`([$\\u20ac\\u00a3])?\\s?(\\d{1,3}(?:${GROUP_SEPARATORS}\\d{3})+(?:[.,]\\d+)?|\\d+(?:[.,]\\d+)?)\\s*(?:(${SCALE_PATTERN})(?![\\p{L}]))?\\s*(?:(${UNIT_PATTERN})(?![\\p{L}]))?`,
 	"giu",
 );
 
 const ISO_DATE_PATTERN = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
 const YEAR_PATTERN = /\b(1[89]\d{2}|20\d{2}|21\d{2})\b/g;
+
+/** Month names the report languages actually use (en, hu, nl). */
+const MONTH_NAMES = [
+	"january",
+	"february",
+	"march",
+	"april",
+	"may",
+	"june",
+	"july",
+	"august",
+	"september",
+	"october",
+	"november",
+	"december",
+	"jan",
+	"feb",
+	"mar",
+	"apr",
+	"jun",
+	"jul",
+	"aug",
+	"sep",
+	"sept",
+	"oct",
+	"nov",
+	"dec",
+	"január",
+	"február",
+	"március",
+	"április",
+	"május",
+	"június",
+	"július",
+	"augusztus",
+	"szeptember",
+	"október",
+	"november",
+	"december",
+	"januari",
+	"februari",
+	"maart",
+	"mei",
+	"juni",
+	"juli",
+	"augustus",
+	"oktober",
+];
+const MONTH_PATTERN = MONTH_NAMES.sort((a, b) => b.length - a.length).join("|");
+
+/**
+ * Full dates, in the forms publishers write them. Matched BEFORE plain figures
+ * so "January 21, 2026" is one date rather than the numbers 21 and 2026 — the
+ * "21, 2026" false positive from the first live evaluation.
+ */
+const DATE_PATTERNS: RegExp[] = [
+	// 2026. március 14. / 2026. 03. 14.
+	new RegExp(
+		`\\b\\d{4}\\.\\s?(?:${MONTH_PATTERN})\\s?\\d{1,2}\\.?(?:-[\\p{L}]+)?`,
+		"giu",
+	),
+	/\b\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/giu,
+	// 14 March 2026 / 14. March 2026
+	new RegExp(`\\b\\d{1,2}\\.?\\s(?:${MONTH_PATTERN})\\.?,?\\s\\d{4}\\b`, "giu"),
+	// March 14, 2026 / March 2026
+	new RegExp(
+		`\\b(?:${MONTH_PATTERN})\\.?\\s\\d{1,2}(?:st|nd|rd|th)?,?\\s\\d{4}\\b`,
+		"giu",
+	),
+	new RegExp(`\\b(?:${MONTH_PATTERN})\\.?\\s\\d{4}\\b`, "giu"),
+	// 14 March / March 14 (day and month, no year)
+	new RegExp(`\\b\\d{1,2}\\.?\\s(?:${MONTH_PATTERN})\\b`, "giu"),
+	new RegExp(
+		`\\b(?:${MONTH_PATTERN})\\.?\\s\\d{1,2}(?:st|nd|rd|th)?\\b`,
+		"giu",
+	),
+	// 14/03/2026, 14.03.2026, 3/14/26
+	/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/g,
+];
+
+/** "1st", "2nd", "3rd", "21st" — a position, not a quantity. */
+const ORDINAL_PATTERN = /\b\d{1,3}(?:st|nd|rd|th)\b/gi;
+
+/**
+ * Model, version and part numbers: "GPT-5.6", "H100", "v2.1", "Llama3", and a
+ * bare model-number run like "13 9343" (Dell XPS 13 9343). None of these is a
+ * quantity, and a source that names the same product may write it differently.
+ */
+const VERSION_PATTERNS: RegExp[] = [
+	/\b[\p{L}][\p{L}]*-\d+(?:\.\d+)*\b/giu,
+	/\b[\p{L}][\p{L}]*\d+(?:\.\d+)*\b/giu,
+];
+const MODEL_NUMBER_RUN_PATTERN = /\b(\d{1,4})\s(\d{4,})\b/g;
+
+function isYearLike(value: string): boolean {
+	const parsed = Number.parseInt(value, 10);
+	return value.length === 4 && parsed >= 1800 && parsed <= 2199;
+}
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -185,27 +308,79 @@ export function extractFigures(sentence: string): ExtractedFigure[] {
 		.replace(/[ᶜˢⁱ]/g, " ");
 	const figures: ExtractedFigure[] = [];
 	const claimedRanges: Array<[number, number]> = [];
-	const isoDateRanges: Array<[number, number]> = [];
+	const dateRanges: Array<[number, number]> = [];
+	// Overlap is tested across the WHOLE match, not just its first character:
+	// the figure pattern may start one character early on an optional leading
+	// space, which would otherwise let it re-extract digits inside a claimed
+	// date or model number ("13 934" out of "XPS 13 9343").
+	const overlaps = (
+		start: number,
+		length: number,
+		ranges: ReadonlyArray<[number, number]> = claimedRanges,
+	): boolean =>
+		ranges.some(([from, to]) => start < to && start + length > from);
 
-	for (const match of text.matchAll(ISO_DATE_PATTERN)) {
-		const start = match.index ?? 0;
-		claimedRanges.push([start, start + match[0].length]);
-		isoDateRanges.push([start, start + match[0].length]);
+	const claim = (
+		start: number,
+		matched: string,
+		kind: ExtractedFigureKind,
+	): void => {
+		claimedRanges.push([start, start + matched.length]);
+		if (kind === "date") dateRanges.push([start, start + matched.length]);
 		figures.push({
-			raw: match[0],
+			raw: matched,
 			value: null,
 			unit: "",
-			isDate: true,
-			text: match[0],
+			isDate: kind === "date",
+			kind,
+			text: matched,
 		});
+	};
+
+	for (const match of text.matchAll(ISO_DATE_PATTERN)) {
+		claim(match.index ?? 0, match[0], "date");
+	}
+	for (const pattern of DATE_PATTERNS) {
+		for (const match of text.matchAll(pattern)) {
+			const start = match.index ?? 0;
+			if (overlaps(start, match[0].length)) continue;
+			claim(start, match[0], "date");
+		}
+	}
+	for (const pattern of VERSION_PATTERNS) {
+		for (const match of text.matchAll(pattern)) {
+			const start = match.index ?? 0;
+			if (overlaps(start, match[0].length)) continue;
+			// A unit written against its number ("8GW", "3.5%") is a quantity, not
+			// a version, and the scale words are handled by the figure pattern.
+			const digitsAt = match[0].search(/\d/);
+			const prefix = match[0].slice(0, digitsAt).toLowerCase();
+			if (prefix in UNIT_ALIASES || prefix in SCALE_WORDS) continue;
+			claim(start, match[0], "version");
+		}
+	}
+	for (const match of text.matchAll(MODEL_NUMBER_RUN_PATTERN)) {
+		const start = match.index ?? 0;
+		if (overlaps(start, match[0].length)) continue;
+		// "in 2024 1500 MW" is a year and a quantity, not a part number.
+		if (isYearLike(match[1]) || isYearLike(match[2])) continue;
+		const after = text.slice(
+			start + match[0].length,
+			start + match[0].length + 12,
+		);
+		if (new RegExp(`^\\s*(?:${UNIT_PATTERN})\\b`, "iu").test(after)) continue;
+		claim(start, match[0], "version");
+	}
+	for (const match of text.matchAll(ORDINAL_PATTERN)) {
+		const start = match.index ?? 0;
+		if (overlaps(start, match[0].length)) continue;
+		claim(start, match[0], "ordinal");
 	}
 
 	for (const match of text.matchAll(FIGURE_PATTERN)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
-		if (claimedRanges.some(([from, to]) => start >= from && start < to)) {
-			continue;
-		}
+		if (overlaps(start, match[0].length)) continue;
 		const [, currency, digits, scaleWord, unitWord] = match;
 		if (!digits) continue;
 		const magnitude = parseWrittenNumber(digits);
@@ -216,42 +391,31 @@ export function extractFigures(sentence: string): ExtractedFigure[] {
 				? (UNIT_ALIASES[currency] ?? "")
 				: "";
 		claimedRanges.push([start, end]);
+		const bareYear = !unit && !scaleWord && !currency && isYearLike(digits);
 		figures.push({
 			raw: digits,
 			value: magnitude === null ? null : magnitude * (scale ?? 1),
 			unit,
-			isDate: false,
+			isDate: bareYear,
+			kind: bareYear ? "year" : "number",
 			text: match[0].trim(),
 		});
 	}
 
-	// Bare years the figure pattern already consumed as plain numbers still
-	// need the date treatment, so a "2019 baseline" claim is date-checked.
+	// A year the figure pattern never reached (inside punctuation it does not
+	// span) still has to be recognised rather than left out entirely.
 	for (const match of text.matchAll(YEAR_PATTERN)) {
 		const year = match[0];
 		const start = match.index ?? 0;
-		// The year inside an ISO date is part of that date, not a figure of its
-		// own. A year the figure pattern parsed as a plain number IS promoted
-		// below, so "the 2019 baseline" is date-checked rather than magnitude-
-		// checked.
-		if (isoDateRanges.some(([from, to]) => start >= from && start < to)) {
-			continue;
-		}
-		if (figures.some((figure) => figure.isDate && figure.raw === year)) {
-			continue;
-		}
-		const numeric = figures.find(
-			(figure) => !figure.isDate && figure.raw === year,
-		);
-		if (numeric) {
-			numeric.isDate = true;
-			continue;
-		}
+		if (overlaps(start, year.length, dateRanges)) continue;
+		if (figures.some((figure) => figure.raw === year)) continue;
+		if (overlaps(start, year.length)) continue;
 		figures.push({
 			raw: year,
 			value: Number.parseInt(year, 10),
 			unit: "",
 			isDate: true,
+			kind: "year",
 			text: year,
 		});
 	}
@@ -419,11 +583,49 @@ export function findUnsupportedFigures(input: {
 	sourceNumber: number;
 }): FigureMismatch[] {
 	return extractFigures(input.sentence)
+		.filter(isCheckableFigure)
 		.filter((figure) => !figureAppearsInText(figure, input.sourceText))
-		.map((figure) => ({
-			figure,
-			detail: `"${figure.text}" does not appear in source [${input.sourceNumber}] in any unit or format variant`,
-		}));
+		.map((figure) => {
+			const closest = closestFigureInText(figure, input.sourceText);
+			return {
+				figure,
+				detail: closest
+					? `"${figure.text}" does not appear in source [${input.sourceNumber}]; the closest figure it states is "${closest.text}"`
+					: `"${figure.text}" does not appear in source [${input.sourceNumber}] in any unit or format variant`,
+			};
+		});
+}
+
+/**
+ * The comparable figure in `sourceText` nearest to `figure`, so the rewrite
+ * prompt can say what the source DOES state instead of only that the writer's
+ * number is absent. Comparable means the same unit family; a bare number
+ * compares only against other bare numbers.
+ */
+export function closestFigureInText(
+	figure: ExtractedFigure,
+	sourceText: string,
+): ExtractedFigure | null {
+	if (figure.value === null || !isCheckableFigure(figure)) return null;
+	const ladder = UNIT_LADDERS.find((entry) => figure.unit in entry);
+	const toBase = (value: number, unit: string): number | null => {
+		if (!ladder) return unit === figure.unit ? value : null;
+		const factor = ladder[unit];
+		return factor === undefined ? null : value * factor;
+	};
+	const target = toBase(figure.value, figure.unit);
+	if (target === null) return null;
+	let best: { figure: ExtractedFigure; distance: number } | null = null;
+	for (const candidate of extractFigures(sourceText)) {
+		if (candidate.value === null || !isCheckableFigure(candidate)) continue;
+		const candidateBase = toBase(candidate.value, candidate.unit);
+		if (candidateBase === null) continue;
+		const distance = Math.abs(candidateBase - target);
+		if (!best || distance < best.distance) {
+			best = { figure: candidate, distance };
+		}
+	}
+	return best?.figure ?? null;
 }
 
 /**
@@ -435,7 +637,7 @@ export function competingFigures(
 	sourceText: string,
 	tolerance = 0.02,
 ): ExtractedFigure[] {
-	if (figure.value === null || figure.isDate) return [];
+	if (figure.value === null || !isCheckableFigure(figure)) return [];
 	const ladder = UNIT_LADDERS.find((entry) => figure.unit in entry);
 	const toBase = (value: number, unit: string): number | null => {
 		if (!ladder) return unit === figure.unit ? value : null;
@@ -445,7 +647,7 @@ export function competingFigures(
 	const target = toBase(figure.value, figure.unit);
 	if (target === null || target === 0) return [];
 	return extractFigures(sourceText).filter((candidate) => {
-		if (candidate.value === null || candidate.isDate) return false;
+		if (candidate.value === null || !isCheckableFigure(candidate)) return false;
 		const candidateBase = toBase(candidate.value, candidate.unit);
 		if (candidateBase === null) return false;
 		return Math.abs(candidateBase - target) / Math.abs(target) > tolerance;

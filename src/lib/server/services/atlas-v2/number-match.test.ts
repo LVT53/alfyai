@@ -4,6 +4,7 @@ import {
 	extractFigures,
 	figureAppearsInText,
 	findUnsupportedFigures,
+	isCheckableFigure,
 	parseWrittenNumber,
 } from "./number-match";
 
@@ -142,5 +143,87 @@ describe("competingFigures", () => {
 		expect(competingFigures(figure, "revenue was 40 million euros")).toEqual(
 			[],
 		);
+	});
+});
+
+describe("figure kinds", () => {
+	const kinds = (sentence: string) =>
+		extractFigures(sentence).map((figure) => `${figure.kind}:${figure.text}`);
+
+	it("classifies a bare year as a year, not a quantity", () => {
+		expect(kinds("Additions fell in 2025.")).toEqual(["year:2025"]);
+		expect(
+			extractFigures("Additions fell in 2025.").every(isCheckableFigure),
+		).toBe(false);
+	});
+
+	it("reads a spelled date as one date rather than the numbers in it", () => {
+		expect(kinds("Shipping started on January 21, 2026.")).toEqual([
+			"date:January 21, 2026",
+		]);
+	});
+
+	it("reads a model or version token as a version, not a quantity", () => {
+		expect(kinds("The Dell XPS 13 9343 runs GPT-5.6.")).toEqual([
+			"version:GPT-5.6",
+			"version:13 9343",
+		]);
+	});
+
+	it("reads an English ordinal as an ordinal", () => {
+		expect(kinds("France took 3rd place.")).toEqual(["ordinal:3rd"]);
+	});
+
+	it("still reads a quantity written against its unit", () => {
+		expect(kinds("The EU added 65.1 GW.")).toEqual(["number:65.1 GW"]);
+	});
+
+	it("does not mistake a currency prefix for a version token", () => {
+		// "EUR2" is letters against digits, but the prefix is a unit, so the run
+		// stays a quantity rather than being written off as a model name.
+		expect(kinds("The cost was EUR2,500 per unit.")).toEqual(["number:2,500"]);
+	});
+
+	it("keeps a quantity that follows a year in the same sentence", () => {
+		expect(kinds("In 2024 the EU added 62.8 GW.")).toEqual([
+			"year:2024",
+			"number:62.8 GW",
+		]);
+	});
+});
+
+describe("figureAppearsInText (separator and spacing variants)", () => {
+	it("treats 65.1 GW, 65,1 GW and 65.1GW as the same figure", () => {
+		const figure = extractFigures("The EU added 65.1 GW.")[0];
+		expect(figureAppearsInText(figure, "az EU 65,1 GW-ot telepitett")).toBe(
+			true,
+		);
+		expect(figureAppearsInText(figure, "the EU added 65.1GW")).toBe(true);
+		expect(figureAppearsInText(figure, "the EU added 65 100 MW")).toBe(true);
+	});
+});
+
+describe("findUnsupportedFigures (closest figure)", () => {
+	it("names the closest figure the source does state", () => {
+		const mismatches = findUnsupportedFigures({
+			sentence: "The EU added 65.1 GW.",
+			sourceText:
+				"The EU added 62.8 GW in that year, against 406 GW installed.",
+			sourceNumber: 7,
+		});
+		expect(mismatches).toHaveLength(1);
+		expect(mismatches[0].detail).toContain("62.8 GW");
+		expect(mismatches[0].detail).toContain("[7]");
+	});
+
+	it("does not report a year, a date, a version or an ordinal as unsupported", () => {
+		expect(
+			findUnsupportedFigures({
+				sentence:
+					"The Dell XPS 13 9343 shipped on January 21, 2026 and took 3rd place in 2025.",
+				sourceText: "A laptop review with no numbers in it at all.",
+				sourceNumber: 3,
+			}),
+		).toEqual([]);
 	});
 });

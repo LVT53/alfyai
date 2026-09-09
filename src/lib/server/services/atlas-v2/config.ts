@@ -7,11 +7,24 @@ import {
 	getAtlasStaleMonths,
 	getAtlasV2ProfileKnobs,
 } from "$lib/server/config-store";
-import { MAX_RESEARCH_WEB_READ_PAGES } from "$lib/server/services/normal-chat-tools/research-web";
+import { config as envConfig } from "$lib/server/env";
 import type { AtlasProfile } from "../atlas/types";
+import { ATLAS_V2_BUDGETS, type AtlasV2Budget } from "./budget";
 import type { AtlasPipelineVersion } from "./types";
 
 export const ATLAS_V2_DEFAULT_STALE_MONTHS = 18;
+
+/** Claims per batched entailment call, and the writer's section concurrency. */
+export const ATLAS_V2_DEFAULT_ENTAILMENT_BATCH = 10;
+export const ATLAS_V2_DEFAULT_WRITER_CONCURRENCY = 3;
+/**
+ * A question with this many indexed sources is never re-researched, whatever
+ * the coverage model says: the third round on an already-answered question was
+ * the largest single cost in the first live evaluation.
+ */
+export const ATLAS_V2_COVERAGE_SUFFICIENT_SOURCES = 3;
+/** Limitations lines the disagreement list may occupy. */
+export const ATLAS_V2_MAX_CONTRADICTION_LINES = 3;
 
 /**
  * Hard bounds on the plan stage. The plan prompt asks for a per-profile
@@ -34,6 +47,10 @@ export interface AtlasV2ProfileConfig {
 	queriesPerQuestion: number;
 	/** Cap on indexed sources handed to one section's writer call. */
 	maxSourcesPerSection: number;
+	/** Cap on indexed sources carried into the write phase at all. */
+	maxIndexedSources: number;
+	/** Length and section budget for this profile (see budget.ts). */
+	budget: AtlasV2Budget;
 	/** v2 never renders images; the stock-image defect is fixed by omission. */
 	allowImages: false;
 	/**
@@ -45,24 +62,27 @@ export interface AtlasV2ProfileConfig {
 
 const ATLAS_V2_PROFILE_BASE: Record<
 	AtlasProfile,
-	Omit<AtlasV2ProfileConfig, "questions" | "rounds">
+	Omit<
+		AtlasV2ProfileConfig,
+		"questions" | "rounds" | "maxIndexedSources" | "budget"
+	>
 > = {
 	overview: {
-		readPages: 1,
+		readPages: ATLAS_V2_BUDGETS.overview.readPages,
 		queriesPerQuestion: 2,
 		maxSourcesPerSection: 12,
 		allowImages: false,
 		contradictionHuntOnLastRound: false,
 	},
 	"in-depth": {
-		readPages: 2,
+		readPages: ATLAS_V2_BUDGETS["in-depth"].readPages,
 		queriesPerQuestion: 3,
 		maxSourcesPerSection: 16,
 		allowImages: false,
 		contradictionHuntOnLastRound: false,
 	},
 	exhaustive: {
-		readPages: MAX_RESEARCH_WEB_READ_PAGES,
+		readPages: ATLAS_V2_BUDGETS.exhaustive.readPages,
 		queriesPerQuestion: 3,
 		maxSourcesPerSection: 20,
 		allowImages: false,
@@ -111,11 +131,74 @@ export function getAtlasV2ProfileConfig(
 				? knobs?.rounds.inDepth
 				: knobs?.rounds.exhaustive) ??
 		ATLAS_V2_DEFAULT_ROUNDS[profile];
+	const budget = resolveAtlasV2Budget(profile);
 	return {
 		...ATLAS_V2_PROFILE_BASE[profile],
 		questions: clamp(questions, ATLAS_V2_MIN_QUESTIONS, ATLAS_V2_MAX_QUESTIONS),
 		rounds: clamp(rounds, 1, 4),
+		maxIndexedSources: budget.maxIndexedSources,
+		budget,
 	};
+}
+
+function safeEnvNumber(read: () => number | undefined): number | undefined {
+	try {
+		const value = read();
+		return typeof value === "number" && Number.isFinite(value) && value > 0
+			? Math.trunc(value)
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The per-profile budget, with the two operationally interesting numbers —
+ * the word ceiling and the indexed-source cap — overridable from the
+ * environment so a live deployment can retune length without a redeploy.
+ */
+export function resolveAtlasV2Budget(profile: AtlasProfile): AtlasV2Budget {
+	const base = ATLAS_V2_BUDGETS[profile];
+	const maxWords = safeEnvNumber(() =>
+		profile === "overview"
+			? envConfig.atlasV2MaxWordsOverview
+			: profile === "in-depth"
+				? envConfig.atlasV2MaxWordsInDepth
+				: envConfig.atlasV2MaxWordsExhaustive,
+	);
+	const maxSources = safeEnvNumber(() =>
+		profile === "overview"
+			? envConfig.atlasV2MaxSourcesOverview
+			: profile === "in-depth"
+				? envConfig.atlasV2MaxSourcesInDepth
+				: envConfig.atlasV2MaxSourcesExhaustive,
+	);
+	return {
+		...base,
+		maxWords: maxWords ?? base.maxWords,
+		minWords: Math.min(base.minWords, maxWords ?? base.maxWords),
+		maxIndexedSources: maxSources ?? base.maxIndexedSources,
+	};
+}
+
+/** Claims per batched entailment call. */
+export function getAtlasV2EntailmentBatchSize(): number {
+	return clamp(
+		safeEnvNumber(() => envConfig.atlasV2EntailmentBatch) ??
+			ATLAS_V2_DEFAULT_ENTAILMENT_BATCH,
+		1,
+		25,
+	);
+}
+
+/** Sections written in parallel. */
+export function getAtlasV2WriterConcurrency(): number {
+	return clamp(
+		safeEnvNumber(() => envConfig.atlasV2WriterConcurrency) ??
+			ATLAS_V2_DEFAULT_WRITER_CONCURRENCY,
+		1,
+		8,
+	);
 }
 
 // The knob reader touches the runtime config singleton, which is not

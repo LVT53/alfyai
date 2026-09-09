@@ -491,3 +491,83 @@ export function mergeAtlasV2EvidenceIndexes(
 		filteredCount: seed.filteredCount + fresh.filteredCount,
 	};
 }
+
+/**
+ * Caps the index at `maxSources`, then renumbers 1..k.
+ *
+ * The choice of which sources survive is round-robin over the research
+ * questions in `questionOrder`, taking each question's lowest-numbered unused
+ * source in turn. That keeps every question represented instead of spending the
+ * whole budget on whichever question the search engine was most generous about,
+ * and it is deterministic, so a resumed job caps identically.
+ *
+ * Renumbering is safe here because the cap runs before the write phase, so no
+ * citation has been minted against the pre-cap numbering yet.
+ */
+export function capAtlasV2EvidenceIndex(input: {
+	index: AtlasV2EvidenceIndex;
+	maxSources: number;
+	/** Question ids in plan order; questions missing from it come last. */
+	questionOrder: readonly string[];
+}): { index: AtlasV2EvidenceIndex; droppedForBudget: number } {
+	const { index } = input;
+	if (index.sources.length <= input.maxSources) {
+		return { index, droppedForBudget: 0 };
+	}
+	const order = [
+		...input.questionOrder,
+		...Object.keys(index.byQuestion).filter(
+			(questionId) => !input.questionOrder.includes(questionId),
+		),
+	];
+	const cursors = new Map<string, number>(
+		order.map((questionId) => [questionId, 0]),
+	);
+	const keep = new Set<number>();
+	let progressed = true;
+	while (keep.size < input.maxSources && progressed) {
+		progressed = false;
+		for (const questionId of order) {
+			if (keep.size >= input.maxSources) break;
+			const numbers = index.byQuestion[questionId] ?? [];
+			let cursor = cursors.get(questionId) ?? 0;
+			while (cursor < numbers.length && keep.has(numbers[cursor])) cursor += 1;
+			cursors.set(questionId, cursor);
+			if (cursor >= numbers.length) continue;
+			keep.add(numbers[cursor]);
+			cursors.set(questionId, cursor + 1);
+			progressed = true;
+		}
+	}
+	// A source attached to no question at all would otherwise be unreachable.
+	if (keep.size < input.maxSources) {
+		for (const source of index.sources) {
+			if (keep.size >= input.maxSources) break;
+			keep.add(source.n);
+		}
+	}
+
+	const kept = index.sources.filter((source) => keep.has(source.n));
+	const renumberMap = new Map(
+		kept.map((source, position) => [source.n, position + 1]),
+	);
+	const sources = kept.map((source) => ({
+		...source,
+		n: renumberMap.get(source.n) ?? source.n,
+	}));
+	const byQuestion: Record<string, number[]> = {};
+	for (const source of sources) {
+		for (const questionId of source.questionIds) {
+			const numbers = byQuestion[questionId];
+			if (numbers) {
+				numbers.push(source.n);
+			} else {
+				byQuestion[questionId] = [source.n];
+			}
+		}
+	}
+	return {
+		index: { ...index, sources, byQuestion },
+		droppedForBudget: index.sources.length - sources.length,
+	};
+}
