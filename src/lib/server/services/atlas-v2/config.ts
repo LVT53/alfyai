@@ -53,6 +53,61 @@ export const ATLAS_V2_MAX_QUESTIONS = 20;
 export const ATLAS_V2_MIN_SECTIONS = 2;
 export const ATLAS_V2_MAX_SECTIONS = 10;
 
+/**
+ * Per-stage output caps, in tokens.
+ *
+ * Every v2 stage asks for a small, structured JSON answer, so none of them has
+ * any business producing thousands of tokens. Without a cap the section writer
+ * on the local model ran to the provider's own 16,000-token ceiling, finished
+ * with `length`, and left a body of JSON that could not be closed — which is
+ * how a four-section report shipped with one section and a 1,001-second write
+ * phase. The caps below are sized to the task; a call that hits one is a
+ * runaway, and the writer treats it as one (salvage, then retry, then a
+ * plain-text fallback) rather than discarding the section.
+ */
+export const ATLAS_V2_MAX_OUTPUT_TOKENS = {
+	plan: 1500,
+	coverage: 800,
+	summary: 2500,
+	entailment: 800,
+} as const;
+
+/**
+ * Tokens per word of target prose, for the section writer's cap. The writer's
+ * answer is a sentence-level JSON envelope — `text`, `citations`, `inferred`,
+ * `calcId` per sentence — which costs roughly four tokens per word of prose
+ * once the keys, braces and quoting are counted.
+ */
+export const ATLAS_V2_SECTION_TOKENS_PER_WORD = 4;
+export const ATLAS_V2_SECTION_MIN_OUTPUT_TOKENS = 1500;
+export const ATLAS_V2_SECTION_MAX_OUTPUT_TOKENS = 6000;
+
+/** The output cap for one section body, derived from its word target. */
+export function atlasV2SectionMaxOutputTokens(targetWords: number): number {
+	const derived = Math.round(
+		Math.max(0, targetWords) * ATLAS_V2_SECTION_TOKENS_PER_WORD,
+	);
+	return clamp(
+		derived,
+		ATLAS_V2_SECTION_MIN_OUTPUT_TOKENS,
+		ATLAS_V2_SECTION_MAX_OUTPUT_TOKENS,
+	);
+}
+
+/**
+ * The cap the ONE runaway retry uses: 30% below the cap that ran away, but
+ * never below the floor. A second call at the same cap only buys a second
+ * truncation at the same place.
+ */
+export function atlasV2RunawayRetryMaxOutputTokens(
+	maxOutputTokens: number,
+): number {
+	return Math.max(
+		ATLAS_V2_SECTION_MIN_OUTPUT_TOKENS,
+		Math.round(maxOutputTokens * 0.7),
+	);
+}
+
 export interface AtlasV2ProfileConfig {
 	/** Research questions the plan stage should produce. */
 	questions: number;

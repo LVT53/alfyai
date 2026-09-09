@@ -46,7 +46,7 @@ function makeModelCall(input: {
 	modelSelection: ModelId;
 	profile: AtlasPipelineJobContext["profile"];
 }): AtlasV2ModelCall {
-	return async ({ stage, system, prompt }) => {
+	return async ({ stage, system, prompt, thinkingMode, maxOutputTokens }) => {
 		const result = await runAtlasModelStage({
 			// v1's stage union does not include v2's stage names; the value only
 			// ever reaches the system-prompt suffix, so it is passed as-is.
@@ -55,6 +55,11 @@ function makeModelCall(input: {
 			modelSelection: input.modelSelection,
 			system,
 			prompt,
+			// v2 asks for structured JSON on every stage, so it turns provider
+			// thinking off and caps the output per stage. Both are per-call
+			// options on the shared boundary; v1 passes neither.
+			...(thinkingMode ? { thinkingMode } : {}),
+			...(maxOutputTokens ? { maxOutputTokens } : {}),
 		});
 		return {
 			text: result.text,

@@ -101,6 +101,43 @@ export const ATLAS_V2_REWRITE_SYSTEM: Record<SupportedLanguage, string> = {
 	].join("\n"),
 };
 
+/**
+ * The preface the ONE runaway retry puts in front of the writer system prompt.
+ * A model that ran to its output cap either never closed the JSON or wrote
+ * reasoning ahead of it; both are answered by saying, first and plainly, that
+ * the answer is the object and nothing else.
+ */
+export const ATLAS_V2_STRICT_JSON_PREFACE: Record<SupportedLanguage, string> = {
+	en: "Output the JSON object only. Start with `{` and end with `}`. No prose, no reasoning.",
+	hu: "KIZÁRÓLAG a JSON objektumot add ki. `{` jellel kezdj és `}` jellel fejezd be. Semmi próza, semmi gondolatmenet.",
+};
+
+/**
+ * The last resort when the JSON writer keeps running away: plain text, one
+ * sentence per line, each line ending in its `[n]` citations. A truncated
+ * plain-text answer still parses — the cut line is simply dropped — which is
+ * what makes this the floor under `unparsable_body`.
+ */
+export const ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM: Record<
+	SupportedLanguage,
+	string
+> = {
+	en: [
+		"You write one section of a research report from numbered evidence. Return PLAIN TEXT only — no JSON, no code fence, no heading, no reasoning.",
+		"Write ONE sentence per line. End every line with the source numbers it rests on, in square brackets: `... in 2025. [3]` or `... in 2025. [3][7]`.",
+		"Every figure, date, name or quantity MUST be stated by a source you cite on that line. Never write a figure the evidence does not carry.",
+		"Cite at most two sources per line. A line that carries no factual claim takes no brackets.",
+		"No section heading, no source list, no mention of your own process. Write in the report's language.",
+	].join("\n"),
+	hu: [
+		"Egy kutatási jelentés egy szakaszát írod számozott bizonyítékokból. KIZÁRÓLAG SIMA SZÖVEGET adj vissza — se JSON, se kódkerítés, se cím, se gondolatmenet.",
+		"Soronként EGY mondatot írj. Minden sor végén szögletes zárójelben álljanak a forrásszámok: `... 2025-ben. [3]` vagy `... 2025-ben. [3][7]`.",
+		"Minden szám, dátum, név és mennyiség mögött álljon egy azon a soron hivatkozott forrás. Soha ne írj olyan számot, amit a bizonyíték nem tartalmaz.",
+		"Soronként legfeljebb két forrást hivatkozz. A tényállítást nem tartalmazó sor ne kapjon zárójelet.",
+		"Ne legyen szakaszcím, forráslista, és ne írj a saját folyamatodról. A jelentés nyelvén írj.",
+	].join("\n"),
+};
+
 /** The evidence for one source, as the writer prompt carries it. */
 export interface AtlasV2WriterEvidenceEntry {
 	n: number;
@@ -164,6 +201,33 @@ export function buildAtlasV2SectionPrompt(
 		...(input.minSentences ? { minSentences: input.minSentences } : {}),
 		maxSentences: input.maxSentences ?? MAX_SENTENCES_PER_SECTION,
 		maxParagraphs: input.maxParagraphs ?? MAX_PARAGRAPHS_PER_SECTION,
+		maxCitationsPerSentence: 2,
+		evidence: input.evidence,
+	});
+}
+
+/**
+ * The plain-text fallback's prompt. Same material as the JSON prompt, minus the
+ * envelope knobs the plain-text shape has no use for.
+ */
+export function buildAtlasV2PlainTextSectionPrompt(
+	input: BuildAtlasV2SectionPromptInput,
+): string {
+	return JSON.stringify({
+		task: "write_section_plain_text",
+		request: input.query,
+		language: input.language,
+		currentDate: input.currentDate,
+		section: {
+			title: input.section.title,
+			brief: input.section.brief,
+			questions: input.questions.map((question) => question.question),
+		},
+		otherSections: input.outline.filter(
+			(entry) => entry.title !== input.section.title,
+		),
+		...(input.targetWords ? { targetWords: input.targetWords } : {}),
+		maxSentences: input.maxSentences ?? MAX_SENTENCES_PER_SECTION,
 		maxCitationsPerSentence: 2,
 		evidence: input.evidence,
 	});
@@ -390,6 +454,165 @@ export function parseAtlasV2WrittenSection(
 		title: options.title,
 		paragraphs,
 		calculations,
+	};
+}
+
+/**
+ * Repairs a writer answer the model never finished.
+ *
+ * A `finishReason: "length"` body is valid JSON up to the point the cap cut it
+ * and rubble after: half a key, half a string, an unclosed array. This walks
+ * the text once, remembers the last position at which a NESTED value closed
+ * cleanly — the end of a complete sentence object, of a `citations` array — and
+ * rebuilds the document from that prefix plus the closers the open stack still
+ * needs. Everything after the cut point is discarded, so a half-written
+ * sentence is never published as a whole one.
+ *
+ * Returns null when nothing closed cleanly, and returns the object as-is when
+ * the text was complete after all.
+ */
+export function salvageTruncatedWriterJson(text: string): string | null {
+	const start = text.indexOf("{");
+	if (start < 0) return null;
+	const body = text.slice(start);
+	const stack: Array<"{" | "["> = [];
+	let inString = false;
+	let escaped = false;
+	let safeCut = -1;
+	let safeStack: Array<"{" | "["> = [];
+	for (let index = 0; index < body.length; index += 1) {
+		const character = body[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+			if (character === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (character === '"') inString = false;
+			continue;
+		}
+		if (character === '"') {
+			inString = true;
+			continue;
+		}
+		if (character === "{" || character === "[") {
+			stack.push(character);
+			continue;
+		}
+		if (character !== "}" && character !== "]") continue;
+		stack.pop();
+		// The root object closed: the answer was complete, cap or no cap.
+		if (stack.length === 0) return body.slice(0, index + 1);
+		safeCut = index + 1;
+		safeStack = [...stack];
+	}
+	if (safeCut < 0) return null;
+	const closers = [...safeStack]
+		.reverse()
+		.map((opener) => (opener === "{" ? "}" : "]"))
+		.join("");
+	return `${body.slice(0, safeCut)}${closers}`;
+}
+
+/** Sentences in a written section, for the "did the salvage buy anything" test. */
+export function countAtlasV2SectionSentences(
+	section: AtlasV2WrittenSection | null,
+): number {
+	if (!section) return 0;
+	return section.paragraphs.reduce(
+		(total, paragraph) => total + paragraph.sentences.length,
+		0,
+	);
+}
+
+/**
+ * Parses a truncated writer answer, or null when nothing survives the repair.
+ * Same options as `parseAtlasV2WrittenSection`, because the repaired text goes
+ * through exactly that parser.
+ */
+export function salvageAtlasV2WrittenSection(
+	text: string,
+	options: Parameters<typeof parseAtlasV2WrittenSection>[1],
+): AtlasV2WrittenSection | null {
+	const repaired = salvageTruncatedWriterJson(text);
+	if (!repaired) return null;
+	return parseAtlasV2WrittenSection(repaired, options);
+}
+
+/** Trailing `[3]`, `[3][7]` or `[3, 7]` citation markers on a plain-text line. */
+const TRAILING_CITATIONS = /(?:\s*\[[\d\s,;]+\])+\s*$/;
+
+/**
+ * Parses the plain-text fallback: one sentence per line, each line ending in
+ * its citation markers. Deterministic and truncation-proof — a line the cap cut
+ * in half simply loses its markers and, with `truncated`, is dropped.
+ */
+export function parseAtlasV2PlainTextSection(
+	text: string,
+	options: {
+		sectionId: string;
+		title: string;
+		maxSourceNumber: number;
+		maxSentences?: number;
+		/** The answer ended at the output cap; the last line may be a fragment. */
+		truncated?: boolean;
+	},
+): AtlasV2WrittenSection | null {
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		// Headings, bullets and stray fences are chrome the prompt asked for
+		// none of; a line that is only punctuation carries no sentence.
+		.map((line) => line.replace(/^(?:[-*•]|#{1,6}|\d+[.)])\s+/, "").trim())
+		.filter((line) => line.length > 0 && !/^(?:```|\{|\}|\[|\])/.test(line));
+	if (lines.length === 0) return null;
+	// A truncated answer's last line is whatever the cap left behind.
+	const usable =
+		options.truncated && lines.length > 1 ? lines.slice(0, -1) : lines;
+
+	const budget = Math.max(1, options.maxSentences ?? MAX_SENTENCES_PER_SECTION);
+	const sentences: AtlasV2WrittenSentence[] = [];
+	for (const line of usable) {
+		if (sentences.length >= budget) break;
+		const markers = line.match(TRAILING_CITATIONS)?.[0] ?? "";
+		const citations = citationNumbers(
+			markers.match(/\d+/g) ?? [],
+			options.maxSourceNumber,
+		).slice(0, 2);
+		const sentenceText = cleanSentenceText(
+			markers ? line.slice(0, line.length - markers.length) : line,
+		);
+		if (!sentenceText) continue;
+		sentences.push({
+			text: sentenceText,
+			citations,
+			inferred: citations.length === 0,
+			calcId: null,
+		});
+	}
+	if (sentences.length === 0) return null;
+
+	// One paragraph per `MAX_SENTENCES_PER_PARAGRAPH`: the plain-text shape
+	// carries no paragraph breaks, and a single wall of sentences reads worse
+	// than the same sentences in the paragraphs the renderer expects.
+	const paragraphs: AtlasV2WrittenParagraph[] = [];
+	for (
+		let start = 0;
+		start < sentences.length;
+		start += MAX_SENTENCES_PER_PARAGRAPH
+	) {
+		paragraphs.push({
+			sentences: sentences.slice(start, start + MAX_SENTENCES_PER_PARAGRAPH),
+		});
+	}
+	return {
+		sectionId: options.sectionId,
+		title: options.title,
+		paragraphs,
+		calculations: [],
 	};
 }
 

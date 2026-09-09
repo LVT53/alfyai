@@ -119,6 +119,8 @@ export interface BuildAtlasV2ProgressDetailsInput {
 	phaseDurationsMs?: Record<string, number>;
 	/** Sections written against sections planned, once the writer has run. */
 	sections?: { written: number; planned: number };
+	/** Writer calls that ran to their output cap, and the repairs they cost. */
+	writerRunaways?: AtlasV2ProgressDetails["writerRunaways"];
 }
 
 export function buildAtlasV2ProgressDetails(
@@ -160,6 +162,9 @@ export function buildAtlasV2ProgressDetails(
 			? { phaseDurationsMs: { ...input.phaseDurationsMs } }
 			: {}),
 		...(input.sections ? { sections: { ...input.sections } } : {}),
+		...(input.writerRunaways
+			? { writerRunaways: { ...input.writerRunaways } }
+			: {}),
 	};
 }
 
@@ -297,8 +302,28 @@ export function sanitizeAtlasV2ProgressDetails(
 	const withSections = sections
 		? { ...withDurations, sections }
 		: withDurations;
+	const writerRunaways = sanitizeWriterRunaways(record.writerRunaways);
+	const withRunaways = writerRunaways
+		? { ...withSections, writerRunaways }
+		: withSections;
 	const evidence = sanitizeEvidence(record.evidence);
-	return evidence ? { ...withSections, evidence } : withSections;
+	return evidence ? { ...withRunaways, evidence } : withRunaways;
+}
+
+/** Writer runaway counters, or null when the job reported none. */
+function sanitizeWriterRunaways(
+	value: unknown,
+): AtlasV2ProgressDetails["writerRunaways"] | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	const keys = ["length", "salvaged", "retried", "fallback"] as const;
+	if (keys.every((key) => record[key] === undefined)) return null;
+	return {
+		length: nonNegativeInteger(record.length),
+		salvaged: nonNegativeInteger(record.salvaged),
+		retried: nonNegativeInteger(record.retried),
+		fallback: nonNegativeInteger(record.fallback),
+	};
 }
 
 /** Sections written against sections planned, or null when absent. */

@@ -1,4 +1,5 @@
 import type { ModelId } from "$lib/model-types";
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getAtlasProfileRuntimeConfig } from "./config";
 import type { AtlasPipelineStage, AtlasProfile } from "./types";
 
@@ -25,6 +26,13 @@ export interface AtlasNormalChatModelBoundaryInput {
 	messages: Array<{ role: "user" | "system" | "assistant"; content: string }>;
 	system: string;
 	maxOutputTokens: number;
+	/**
+	 * Provider reasoning switch for this ONE call. `undefined` means "say
+	 * nothing about reasoning", which is what v1 has always done and stays the
+	 * default; v2 passes `"off"` on its structured-JSON stages so a thinking
+	 * model does not spend the output budget before the JSON even starts.
+	 */
+	thinkingMode?: ThinkingMode;
 }
 
 export interface AtlasNormalChatModelBoundaryResult {
@@ -63,6 +71,14 @@ export interface RunAtlasModelStageInput {
 	stage?: Exclude<AtlasPipelineStage, "search" | "audit">;
 	/** Required for the `"stage"` variant; ignored for `"audit"`. */
 	system?: string;
+	/**
+	 * Per-call output cap. Defaults to the profile's `maxOutputTokens`, which is
+	 * what v1 uses; v2 sizes it per stage so a runaway costs hundreds of wasted
+	 * tokens instead of sixteen thousand.
+	 */
+	maxOutputTokens?: number;
+	/** Provider reasoning switch; see the boundary input. */
+	thinkingMode?: ThinkingMode;
 	runModel?: (
 		input: AtlasNormalChatModelBoundaryInput,
 	) => Promise<AtlasNormalChatModelBoundaryResult>;
@@ -154,6 +170,7 @@ async function runNormalChatModelBoundary(
 		},
 	);
 
+	const thinkingMode = input.thinkingMode;
 	const stream = model.runStreamingNormalChatModelRun({
 		provider,
 		modelId: resolvedModelId,
@@ -161,6 +178,24 @@ async function runNormalChatModelBoundary(
 		messages: input.messages,
 		system: input.system,
 		maxOutputTokens: input.maxOutputTokens,
+		// Only when a caller asked for one: without this the request carries no
+		// reasoning options at all, which is v1's behaviour, unchanged.
+		// `resolveProviderOptions` rather than a fixed `providerOptions` so the
+		// switch survives a failover onto a different provider — the same shape
+		// the streaming chat path uses.
+		...(thinkingMode
+			? {
+					resolveProviderOptions: (
+						attemptProvider: Parameters<
+							typeof model.buildNormalChatModelRunProviderOptions
+						>[0],
+					) =>
+						model.buildNormalChatModelRunProviderOptions(
+							attemptProvider,
+							thinkingMode,
+						),
+				}
+			: {}),
 	});
 
 	let text = "";
@@ -211,8 +246,10 @@ export async function runAtlasModelStage(
 		modelSelection: input.modelSelection,
 		messages: [{ role: "user", content: input.prompt }],
 		system,
-		maxOutputTokens: getAtlasProfileRuntimeConfig(input.profile)
-			.maxOutputTokens,
+		maxOutputTokens:
+			input.maxOutputTokens ??
+			getAtlasProfileRuntimeConfig(input.profile).maxOutputTokens,
+		...(input.thinkingMode ? { thinkingMode: input.thinkingMode } : {}),
 	});
 	const usage = normalizeUsage(result.usage);
 	const costUsdMicros = await calculateStageCostUsdMicros({

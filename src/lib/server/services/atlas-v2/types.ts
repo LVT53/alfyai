@@ -321,6 +321,18 @@ export interface AtlasV2ProgressDetails {
 	 * reported here so the evaluation sees it without reading the server log.
 	 */
 	sections?: { written: number; planned: number };
+	/**
+	 * Writer calls that ended at their output cap, and what the pipeline did
+	 * about them. Present from the write phase onwards. A non-zero `length` is
+	 * a defect the wall time alone reads as "the model was slow", so it is
+	 * reported where `scripts/atlas-eval.ts` can see it.
+	 */
+	writerRunaways?: {
+		length: number;
+		salvaged: number;
+		retried: number;
+		fallback: number;
+	};
 }
 
 // ---------------------------------------------------------------------------

@@ -321,13 +321,27 @@ describe("buildAtlasV2DocumentSource", () => {
 		const headings = documentSource.blocks
 			.filter((block) => block.type === "heading")
 			.map((block) => (block as { text: string }).text);
-		expect(headings).toEqual([
-			"Executive summary",
-			"Capacity",
-			"Limitations",
-			"Sources",
-		]);
+		// No "Sources" heading block: the source-chips block carries that heading
+		// itself in every renderer, and emitting both produced "## Sources"
+		// immediately followed by "### Sources".
+		expect(headings).toEqual(["Executive summary", "Capacity", "Limitations"]);
 		expect(documentSource.title).toBe("EU solar capacity in 2026");
+	});
+
+	it("writes ONE Sources heading and no per-source reasoning suffix", () => {
+		const markdown =
+			renderStandardReportMarkdown(documentSource).content.toString("utf8");
+		expect(markdown.match(/^#{1,6} Sources\s*$/gm)).toHaveLength(1);
+		expect(markdown).not.toContain("Cited in this report");
+		// The source line is the source, not the source plus a constant.
+		expect(markdown).toContain(
+			"- [Report 2 — source2.example, 2026-04-01](https://source2.example/report)",
+		);
+
+		const html =
+			renderStandardReportHtml(documentSource).content.toString("utf8");
+		expect(html.match(/<h2[^>]*>Sources<\/h2>/g)).toHaveLength(1);
+		expect(html).not.toContain("Cited in this report");
 	});
 
 	it("emits the sources as `title — host, date`", () => {

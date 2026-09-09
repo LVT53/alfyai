@@ -47,7 +47,6 @@ interface AtlasV2RenderChrome {
 	contradiction: (input: AtlasV2Contradiction) => string;
 	cutSentences: (count: number) => string;
 	noLimitations: string;
-	sourceReasoning: string;
 }
 
 const CHROME: Record<SupportedLanguage, AtlasV2RenderChrome> = {
@@ -70,7 +69,6 @@ const CHROME: Record<SupportedLanguage, AtlasV2RenderChrome> = {
 				: `${count} sentences were removed because no cited source supported them.`,
 		noLimitations:
 			"Every cited figure was matched against its source and no contradiction was found.",
-		sourceReasoning: "Cited in this report",
 	},
 	hu: {
 		executiveSummary: "Vezetői összefoglaló",
@@ -92,7 +90,6 @@ const CHROME: Record<SupportedLanguage, AtlasV2RenderChrome> = {
 				: `${count} mondatot eltávolítottunk, mert egyik hivatkozott forrás sem támasztotta alá.`,
 		noLimitations:
 			"Minden hivatkozott számot összevetettünk a forrásával, és nem találtunk ellentmondást.",
-		sourceReasoning: "Ebben a jelentésben hivatkozva",
 	},
 };
 
@@ -250,16 +247,19 @@ function paragraphBlock(
 	};
 }
 
-function sourceChip(
-	source: AtlasV2IndexedSource,
-	chrome: AtlasV2RenderChrome,
-): GeneratedDocumentSourceChip {
+/**
+ * No `reasoning`: v1 projects sources from three places (the user's uploads,
+ * the web sweep, the library) and the chip line has to say which, so v1 keeps
+ * its reasoning text. Every v2 source is accepted web evidence the report
+ * cites, so the same text on every line — "Report — host, date - Cited in this
+ * report", once per source — says nothing and only lengthens the list.
+ */
+function sourceChip(source: AtlasV2IndexedSource): GeneratedDocumentSourceChip {
 	return {
 		title: formatSourceLine(source),
 		url: source.canonicalUrl,
 		kind: "web",
 		provided: false,
-		reasoning: chrome.sourceReasoning,
 	};
 }
 
@@ -311,13 +311,15 @@ export function buildAtlasV2DocumentSource(
 	blocks.push({ type: "list", style: "bullet", items: limitations });
 
 	if (input.publication.sources.length > 0) {
-		blocks.push({ type: "heading", level: 2, text: chrome.sources });
+		// The chips block carries the Sources heading itself: the Markdown
+		// renderer writes `### {title}` and the HTML renderer opens its own
+		// `<h2>Sources</h2>` section around a chips block titled "Sources". A
+		// level-2 heading here as well is what produced "## Sources" immediately
+		// followed by "### Sources" in every v2 report.
 		blocks.push({
 			type: "sourceChips",
 			title: chrome.sources,
-			sources: input.publication.sources.map((source) =>
-				sourceChip(source, chrome),
-			),
+			sources: input.publication.sources.map(sourceChip),
 		});
 	}
 

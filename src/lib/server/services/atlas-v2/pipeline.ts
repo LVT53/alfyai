@@ -6,6 +6,7 @@
 // checkpoints, cancel, idempotent kickoff, lifecycle, analytics, file
 // production — is v1's, unchanged.
 
+import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import {
 	detectLanguage,
@@ -22,6 +23,9 @@ import {
 } from "./budget";
 import {
 	ATLAS_V2_COVERAGE_SUFFICIENT_SOURCES,
+	ATLAS_V2_MAX_OUTPUT_TOKENS,
+	atlasV2RunawayRetryMaxOutputTokens,
+	atlasV2SectionMaxOutputTokens,
 	getAtlasV2EntailmentBatchSize,
 	getAtlasV2ProfileConfig,
 	getAtlasV2StaleMonths,
@@ -93,14 +97,20 @@ import {
 	verifyAtlasV2Report,
 } from "./verify";
 import {
+	ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM,
 	ATLAS_V2_REWRITE_SYSTEM,
+	ATLAS_V2_STRICT_JSON_PREFACE,
 	ATLAS_V2_SUMMARY_SYSTEM,
 	ATLAS_V2_WRITER_SYSTEM,
+	buildAtlasV2PlainTextSectionPrompt,
 	buildAtlasV2RewritePrompt,
 	buildAtlasV2SectionPrompt,
 	buildAtlasV2SummaryPrompt,
 	buildWriterEvidenceEntries,
+	countAtlasV2SectionSentences,
+	parseAtlasV2PlainTextSection,
 	parseAtlasV2WrittenSection,
+	salvageAtlasV2WrittenSection,
 } from "./writer";
 
 /** Checkpoint `roundNumber` per phase, so a resume can find the latest. */
@@ -117,16 +127,44 @@ const RESEARCH_CHECKPOINT_BASE = 1;
 const DEFAULT_WRITER_CONCURRENCY = 5;
 /** Section sentences the executive-summary prompt carries, per section. */
 const SUMMARY_SENTENCES_PER_SECTION = 16;
+/**
+ * A section whose own questions found fewer than this many sources is topped up
+ * from the rest of the index. Two sources cannot corroborate anything and leave
+ * the writer nothing to write from but its own knowledge.
+ */
+const MIN_SOURCES_PER_SECTION = 3;
+/** Salvaged sentences below which the repair bought nothing worth publishing. */
+const MIN_SALVAGED_SENTENCES = 2;
 
 export type AtlasV2ModelCall = (input: {
 	stage: string;
 	system: string;
 	prompt: string;
+	/**
+	 * Provider reasoning switch. Every v2 stage asks for structured JSON, so
+	 * every v2 stage passes `"off"`: reasoning ahead of the object is output
+	 * budget spent on text the parser throws away.
+	 */
+	thinkingMode?: ThinkingMode;
+	/** Output cap for this call, sized to the stage. See config.ts. */
+	maxOutputTokens?: number;
 }) => Promise<{
 	text: string;
 	finishReason?: string | null;
 	usage: AtlasV2Usage;
 }>;
+
+/** What one writer call did, for the diagnostics and the harness. */
+export interface AtlasV2WriterRunawayCounters {
+	/** Writer calls that ended at the output cap. */
+	length: number;
+	/** Runaways whose truncated JSON was repaired into a usable section. */
+	salvaged: number;
+	/** Sections retried at a tighter bound after a runaway. */
+	retried: number;
+	/** Sections written through the plain-text fallback. */
+	fallback: number;
+}
 
 export interface RunAtlasV2PipelineInput {
 	job: AtlasPipelineJobContext;
@@ -349,6 +387,9 @@ export async function runAtlasV2Pipeline(
 	// carried by every heartbeat after it: a report short of its outline has to
 	// say so where the evaluation can see it, not only in the server log.
 	let sectionCounts: { written: number; planned: number } | null = null;
+	// Writer calls that ran to their output cap, carried by every heartbeat from
+	// the write phase on. A runaway is invisible in the wall time alone.
+	let writerRunawayCounts: AtlasV2WriterRunawayCounters | null = null;
 	const timePhase = async <T>(
 		name: string,
 		run: () => Promise<T>,
@@ -390,6 +431,7 @@ export async function runAtlasV2Pipeline(
 				evidence: details.evidence,
 				phaseDurationsMs,
 				...(sectionCounts ? { sections: sectionCounts } : {}),
+				...(writerRunawayCounts ? { writerRunaways: writerRunawayCounts } : {}),
 			}),
 		});
 	};
@@ -429,6 +471,8 @@ export async function runAtlasV2Pipeline(
 		const planCall = await timePhase("plan", () =>
 			deps.runControlModel({
 				stage: "plan",
+				thinkingMode: "off",
+				maxOutputTokens: ATLAS_V2_MAX_OUTPUT_TOKENS.plan,
 				system: ATLAS_V2_PLAN_SYSTEM[language],
 				prompt: buildAtlasV2PlanPrompt({
 					query: job.query,
@@ -520,6 +564,8 @@ export async function runAtlasV2Pipeline(
 		const coverageCall = await timePhase("coverage", () =>
 			deps.runControlModel({
 				stage: "coverage",
+				thinkingMode: "off",
+				maxOutputTokens: ATLAS_V2_MAX_OUTPUT_TOKENS.coverage,
 				system: ATLAS_V2_COVERAGE_SYSTEM[language],
 				prompt: buildAtlasV2CoveragePrompt({
 					plan: resolvedPlan,
@@ -642,11 +688,21 @@ export async function runAtlasV2Pipeline(
 		budget,
 		sectionCount: resolvedPlan.sections.length,
 	});
+	// The output cap for one section body, from what that section is asked to
+	// write. Sized here so the runaway retry can step down from a known number.
+	const sectionMaxOutputTokens = atlasV2SectionMaxOutputTokens(
+		sectionBudget.targetWords,
+	);
 	const evidenceBySection = new Map(
 		resolvedPlan.sections.map((section) => [
 			section.id,
 			buildWriterEvidenceEntries(
-				sourcesForSection(index, section.questionIds),
+				sourcesForSectionWithFallback({
+					index,
+					questionIds: section.questionIds,
+					minSources: MIN_SOURCES_PER_SECTION,
+					maxSources: profileConfig.maxSourcesPerSection,
+				}),
 				profileConfig.maxSourcesPerSection,
 			),
 		]),
@@ -658,39 +714,138 @@ export async function runAtlasV2Pipeline(
 	// filtered away in silence — a silently dropped section is how the third
 	// evaluation shipped a six-section plan as a one-section report.
 	const sectionWriteFailures: Array<{ sectionId: string; reason: string }> = [];
+	const writerRunaways: AtlasV2WriterRunawayCounters = {
+		length: 0,
+		salvaged: 0,
+		retried: 0,
+		fallback: 0,
+	};
+	const sectionQuestions = (section: AtlasV2PlanSection) =>
+		resolvedPlan.questions.filter((question) =>
+			section.questionIds.includes(question.id),
+		);
+	/**
+	 * One JSON writer call. `bound` is how tight the sentence budget and the
+	 * output cap are; the retry after a runaway halves the first and cuts the
+	 * second by 30%, and prefaces the system prompt with "the object only".
+	 */
 	const writeSectionOnce = async (
 		section: AtlasV2PlanSection,
 		evidence: ReturnType<typeof buildWriterEvidenceEntries>,
-	): Promise<AtlasV2WrittenSection | null> => {
+		bound: { maxSentences: number; maxOutputTokens: number; strict: boolean },
+	): Promise<{
+		section: AtlasV2WrittenSection | null;
+		finishReason: string | null;
+		outputTokens: number;
+		salvaged: boolean;
+	}> => {
 		const call = await timePhase("write", () =>
 			deps.runWriterModel({
 				stage: `write:${section.id}`,
-				system: ATLAS_V2_WRITER_SYSTEM[language],
+				thinkingMode: "off",
+				maxOutputTokens: bound.maxOutputTokens,
+				system: bound.strict
+					? `${ATLAS_V2_STRICT_JSON_PREFACE[language]}\n${ATLAS_V2_WRITER_SYSTEM[language]}`
+					: ATLAS_V2_WRITER_SYSTEM[language],
 				prompt: buildAtlasV2SectionPrompt({
 					query: job.query,
 					profile: job.profile,
 					language,
 					currentDate: isoDate(now),
 					section,
-					questions: resolvedPlan.questions.filter((question) =>
-						section.questionIds.includes(question.id),
-					),
+					questions: sectionQuestions(section),
 					outline,
 					evidence,
 					targetWords: sectionBudget.targetWords,
-					minSentences: sectionBudget.minSentences,
-					maxSentences: sectionBudget.maxSentences,
+					minSentences: Math.min(
+						sectionBudget.minSentences,
+						bound.maxSentences,
+					),
+					maxSentences: bound.maxSentences,
 					maxParagraphs: budget.maxParagraphsPerSection,
 				}),
 			}),
 		);
 		usage = addUsage(usage, call.usage);
-		return parseAtlasV2WrittenSection(call.text, {
+		const finishReason = call.finishReason ?? null;
+		const parseOptions = {
+			sectionId: section.id,
+			title: section.title,
+			maxSourceNumber,
+			maxSentences: bound.maxSentences,
+			maxParagraphs: budget.maxParagraphsPerSection,
+		};
+		const parsed = parseAtlasV2WrittenSection(call.text, parseOptions);
+		if (parsed) {
+			return {
+				section: parsed,
+				finishReason,
+				outputTokens: call.usage.outputTokens,
+				salvaged: false,
+			};
+		}
+		// A body cut off at the cap is valid JSON up to the cut. Repairing the
+		// prefix is free and usually gives back most of the section; a repair
+		// worth fewer than two sentences is not worth publishing.
+		if (finishReason === "length") {
+			const salvaged = salvageAtlasV2WrittenSection(call.text, parseOptions);
+			if (
+				countAtlasV2SectionSentences(salvaged) >= MIN_SALVAGED_SENTENCES &&
+				salvaged
+			) {
+				return {
+					section: salvaged,
+					finishReason,
+					outputTokens: call.usage.outputTokens,
+					salvaged: true,
+				};
+			}
+		}
+		return {
+			section: null,
+			finishReason,
+			outputTokens: call.usage.outputTokens,
+			salvaged: false,
+		};
+	};
+	/**
+	 * The floor under `unparsable_body`: plain text, one sentence per line, each
+	 * line ending in its `[n]` citations, parsed deterministically. A truncated
+	 * answer still yields a section — the cut line is dropped — so a section with
+	 * evidence is never lost to a JSON writer that will not close its braces.
+	 */
+	const writeSectionAsPlainText = async (
+		section: AtlasV2PlanSection,
+		evidence: ReturnType<typeof buildWriterEvidenceEntries>,
+		maxOutputTokens: number,
+	): Promise<AtlasV2WrittenSection | null> => {
+		const call = await timePhase("write", () =>
+			deps.runWriterModel({
+				stage: `write:plain:${section.id}`,
+				thinkingMode: "off",
+				maxOutputTokens,
+				system: ATLAS_V2_PLAIN_TEXT_WRITER_SYSTEM[language],
+				prompt: buildAtlasV2PlainTextSectionPrompt({
+					query: job.query,
+					profile: job.profile,
+					language,
+					currentDate: isoDate(now),
+					section,
+					questions: sectionQuestions(section),
+					outline,
+					evidence,
+					targetWords: sectionBudget.targetWords,
+					maxSentences: sectionBudget.maxSentences,
+				}),
+			}),
+		);
+		usage = addUsage(usage, call.usage);
+		return parseAtlasV2PlainTextSection(call.text, {
 			sectionId: section.id,
 			title: section.title,
 			maxSourceNumber,
 			maxSentences: sectionBudget.maxSentences,
-			maxParagraphs: budget.maxParagraphsPerSection,
+			truncated: call.finishReason === "length",
 		});
 	};
 	const writtenSections =
@@ -708,26 +863,83 @@ export async function runAtlasV2Pipeline(
 						});
 						return null;
 					}
+					const retryMaxOutputTokens = atlasV2RunawayRetryMaxOutputTokens(
+						sectionMaxOutputTokens,
+					);
 					let lastReason = "unparsable_body";
+					let ranAway = false;
 					// One retry: a writer answer is a single sample, and the same
-					// prompt often parses on the second draw.
+					// prompt often parses on the second draw. After a RUNAWAY the
+					// retry is tighter rather than identical — a second call at the
+					// same bound only truncates at the same place.
 					for (let attempt = 0; attempt < 2; attempt += 1) {
 						try {
-							const written = await writeSectionOnce(section, evidence);
-							if (written) return written;
-							lastReason = "unparsable_body";
+							const result = await writeSectionOnce(section, evidence, {
+								maxSentences:
+									attempt === 0 || !ranAway
+										? sectionBudget.maxSentences
+										: Math.max(3, Math.floor(sectionBudget.maxSentences / 2)),
+								maxOutputTokens:
+									attempt === 0 || !ranAway
+										? sectionMaxOutputTokens
+										: retryMaxOutputTokens,
+								strict: attempt > 0 && ranAway,
+							});
+							if (result.finishReason === "length") {
+								writerRunaways.length += 1;
+								ranAway = true;
+								console.warn("[ATLAS v2] Writer call hit its output cap", {
+									jobId: job.id,
+									sectionId: section.id,
+									attempt,
+									outputTokens: result.outputTokens,
+									salvaged: result.salvaged,
+								});
+							}
+							if (result.section) {
+								if (result.salvaged) writerRunaways.salvaged += 1;
+								return result.section;
+							}
+							lastReason =
+								result.finishReason === "length"
+									? "writer_runaway"
+									: "unparsable_body";
 						} catch (error) {
 							lastReason = `writer_call_failed: ${
 								error instanceof Error ? error.message : String(error)
 							}`;
 						}
 						if (attempt === 0) {
+							writerRunaways.retried += 1;
 							console.warn("[ATLAS v2] Retrying a section the writer lost", {
 								jobId: job.id,
 								sectionId: section.id,
 								reason: lastReason,
 							});
 						}
+					}
+					// Both JSON attempts failed. The evidence is here, so the section
+					// is written from it in a shape no output cap can break.
+					try {
+						const plain = await writeSectionAsPlainText(
+							section,
+							evidence,
+							retryMaxOutputTokens,
+						);
+						if (plain) {
+							writerRunaways.fallback += 1;
+							console.warn("[ATLAS v2] Wrote a section as plain text", {
+								jobId: job.id,
+								sectionId: section.id,
+								reason: lastReason,
+							});
+							return plain;
+						}
+						lastReason = `${lastReason}, fallback_empty`;
+					} catch (error) {
+						lastReason = `${lastReason}, fallback_failed: ${
+							error instanceof Error ? error.message : String(error)
+						}`;
 					}
 					sectionWriteFailures.push({
 						sectionId: section.id,
@@ -744,6 +956,7 @@ export async function runAtlasV2Pipeline(
 		written: writtenSections.length,
 		planned: resolvedPlan.sections.length,
 	};
+	writerRunawayCounts = { ...writerRunaways };
 	// Plan order, not the order the concurrent wave happened to finish in, so
 	// two runs that lose the same sections report the same list.
 	const planOrder = new Map(
@@ -795,6 +1008,8 @@ export async function runAtlasV2Pipeline(
 			}: AtlasV2EntailmentRequest) => {
 				const call = await deps.runAuditModel?.({
 					stage: `entail:${sourceNumber}`,
+					thinkingMode: "off",
+					maxOutputTokens: ATLAS_V2_MAX_OUTPUT_TOKENS.entailment,
 					system: ATLAS_V2_ENTAILMENT_SYSTEM,
 					prompt: buildAtlasV2EntailmentPrompt({
 						claim,
@@ -813,6 +1028,13 @@ export async function runAtlasV2Pipeline(
 		? async (items: AtlasV2EntailmentRequest[]) => {
 				const call = await deps.runAuditModel?.({
 					stage: `entail:batch:${items.length}`,
+					thinkingMode: "off",
+					// One verdict per claim, so the cap scales with the batch — with
+					// the same floor a single check gets.
+					maxOutputTokens: Math.max(
+						ATLAS_V2_MAX_OUTPUT_TOKENS.entailment,
+						items.length * 80,
+					),
 					system: ATLAS_V2_ENTAILMENT_BATCH_SYSTEM,
 					prompt: buildAtlasV2EntailmentBatchPrompt({ items }),
 				});
@@ -849,6 +1071,12 @@ export async function runAtlasV2Pipeline(
 			rewriteSection: async ({ section, failed }) => {
 				const call = await deps.runWriterModel({
 					stage: `rewrite:${section.sectionId}`,
+					thinkingMode: "off",
+					// A rewrite returns only the failed sentences, so it never needs
+					// the whole section's budget.
+					maxOutputTokens: atlasV2RunawayRetryMaxOutputTokens(
+						sectionMaxOutputTokens,
+					),
 					system: ATLAS_V2_REWRITE_SYSTEM[language],
 					prompt: buildAtlasV2RewritePrompt({
 						language,
@@ -1167,6 +1395,10 @@ export async function runAtlasV2Pipeline(
 				// Empty on a healthy run; one entry per section the writer lost,
 				// with why, so a short report names its own cause.
 				sectionsDropped: sectionWriteFailures,
+				// Zeroes on a healthy run. A non-zero `length` is the writer
+				// running to its output cap — the defect that cost the energy
+				// report three of its four sections and 1,001s of write time.
+				writerRunaways: { ...writerRunaways },
 				sourcesDroppedForBudget: capped.droppedForBudget,
 				sentencesDroppedForBudget: bodyCap.droppedSentenceCount,
 				coreAnswerPresent: coreAnswer.present,
@@ -1228,6 +1460,8 @@ async function writeExecutiveSummary(input: {
 	if (sections.length === 0) return null;
 	const call = await input.runWriterModel({
 		stage: input.insistOnCoreAnswer ? "summary:retry" : "summary",
+		thinkingMode: "off",
+		maxOutputTokens: ATLAS_V2_MAX_OUTPUT_TOKENS.summary,
 		system: ATLAS_V2_SUMMARY_SYSTEM[input.language],
 		prompt: buildAtlasV2SummaryPrompt({
 			query: input.query,
@@ -1239,11 +1473,18 @@ async function writeExecutiveSummary(input: {
 		}),
 	});
 	input.onUsage(call.usage);
-	return parseAtlasV2WrittenSection(call.text, {
+	const parseOptions = {
 		sectionId: "summary",
 		title: "summary",
 		maxSourceNumber: input.maxSourceNumber,
-	});
+	};
+	const parsed = parseAtlasV2WrittenSection(call.text, parseOptions);
+	if (parsed) return parsed;
+	// Same repair the sections get: a summary cut off at the cap is still a
+	// summary up to the cut, and losing it costs the report its opening.
+	return call.finishReason === "length"
+		? salvageAtlasV2WrittenSection(call.text, parseOptions)
+		: null;
 }
 
 /** Words in the published body plus the executive summary. */
@@ -1289,6 +1530,37 @@ function sourcesForSection(
 		questionIds.flatMap((questionId) => index.byQuestion[questionId] ?? []),
 	);
 	return index.sources.filter((source) => wanted.has(source.n));
+}
+
+/**
+ * A section's own evidence, topped up from the top of the whole index when its
+ * questions found too little to write from.
+ *
+ * A section handed two sources cannot corroborate anything, and the writer,
+ * asked for a section's worth of prose from them, either pads or writes from
+ * its own knowledge — which the verifier then cuts. The index is ordered
+ * best-first, so the top-up is the report's strongest evidence, and the
+ * section's own sources always come first so the writer sees them first.
+ */
+export function sourcesForSectionWithFallback(input: {
+	index: AtlasV2EvidenceIndex;
+	questionIds: readonly string[];
+	minSources: number;
+	maxSources: number;
+}): AtlasV2IndexedSource[] {
+	const own = sourcesForSection(input.index, input.questionIds);
+	if (own.length >= input.minSources || own.length >= input.maxSources) {
+		return own;
+	}
+	const taken = new Set(own.map((source) => source.n));
+	const topped = [...own];
+	for (const source of input.index.sources) {
+		if (topped.length >= input.maxSources) break;
+		if (taken.has(source.n)) continue;
+		taken.add(source.n);
+		topped.push(source);
+	}
+	return topped;
 }
 
 function citedSources(

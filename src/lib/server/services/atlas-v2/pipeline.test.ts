@@ -529,7 +529,12 @@ describe("runAtlasV2Pipeline", () => {
 				expect.objectContaining({
 					planned: 5,
 					written: 4,
-					dropped: [{ sectionId: "s2", reason: "unparsable_body" }],
+					// The plain-text fallback ran too and gave nothing back, which
+					// the reason says: a section is only ever lost once every writer
+					// shape failed, not on the first unparsable body.
+					dropped: [
+						{ sectionId: "s2", reason: "unparsable_body, fallback_empty" },
+					],
 				}),
 			);
 		} finally {
@@ -544,7 +549,7 @@ describe("runAtlasV2Pipeline", () => {
 		expect(diagnostics?.sectionsPlanned).toBe(5);
 		expect(diagnostics?.sectionsWritten).toBe(4);
 		expect(diagnostics?.sectionsDropped).toEqual([
-			{ sectionId: "s2", reason: "unparsable_body" },
+			{ sectionId: "s2", reason: "unparsable_body, fallback_empty" },
 		]);
 		// The evaluation reads the counts off the progress card, not the log.
 		const renderHeartbeat = heartbeat.mock.calls

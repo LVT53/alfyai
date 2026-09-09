@@ -144,14 +144,22 @@ const INTERROGATIVE_PREFIX: Record<SupportedLanguage, RegExp> = {
 	hu: /^(mi|mik|milyen|mennyi|mekkora|kik|mikor|hol|miért|hogyan|hogy)\b/i,
 };
 
+/**
+ * Two question texts that say the same thing share a key. Case, punctuation and
+ * spacing are noise: the energy plan in the live evaluation asked the SAME
+ * question three times, which cost three research passes and gave three
+ * sections the same evidence.
+ */
+export function atlasV2QuestionKey(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim();
+}
+
 /** True when two question texts say the same thing, modulo punctuation. */
 function sameQuestion(left: string, right: string): boolean {
-	const key = (value: string): string =>
-		value
-			.toLowerCase()
-			.replace(/[^\p{L}\p{N}]+/gu, " ")
-			.trim();
-	return key(left) === key(right);
+	return atlasV2QuestionKey(left) === atlasV2QuestionKey(right);
 }
 
 /**
@@ -202,17 +210,41 @@ export function parseAtlasV2Plan(
 	const ordered = core
 		? [core, ...questionTexts.filter((entry) => !sameQuestion(entry, core))]
 		: questionTexts;
-	const uniqueQuestions = [...new Set(ordered)].slice(
-		0,
-		Math.max(
-			ATLAS_V2_MIN_QUESTIONS,
-			Math.min(ATLAS_V2_MAX_QUESTIONS, options.questionCount),
-		),
+	// Deduped by NORMALISED text, not by exact string: "What is the 2025 target?"
+	// and "What is the 2025 target" are one question, and researching both twice
+	// is what made the energy plan spend three rounds on one answer. The cap is
+	// applied AFTER the dedupe, so a plan full of near-duplicates still gets the
+	// profile's worth of distinct questions.
+	const uniqueQuestions: string[] = [];
+	const seenQuestionKeys = new Set<string>();
+	const questionCap = Math.max(
+		ATLAS_V2_MIN_QUESTIONS,
+		Math.min(ATLAS_V2_MAX_QUESTIONS, options.questionCount),
 	);
+	for (const question of ordered) {
+		if (uniqueQuestions.length >= questionCap) break;
+		const key = atlasV2QuestionKey(question);
+		if (!key || seenQuestionKeys.has(key)) continue;
+		seenQuestionKeys.add(key);
+		uniqueQuestions.push(question);
+	}
 	if (uniqueQuestions.length < ATLAS_V2_MIN_QUESTIONS) return null;
 
 	const questions: AtlasV2PlanQuestion[] = uniqueQuestions.map(
 		(question, index) => ({ id: `q${index + 1}`, question }),
+	);
+	// The model's `sections[].questions` index into ITS OWN question list, which
+	// the dedupe and the cap have both reshaped. Mapping model position -> kept
+	// question id merges the evidence of duplicate questions onto one id instead
+	// of pointing a section at whatever now sits at that position.
+	const questionIdByKey = new Map(
+		questions.map((question) => [
+			atlasV2QuestionKey(question.question),
+			question.id,
+		]),
+	);
+	const questionIdByModelIndex = questionTexts.map(
+		(text) => questionIdByKey.get(atlasV2QuestionKey(text)) ?? null,
 	);
 
 	const rawSections = Array.isArray(record.sections) ? record.sections : [];
@@ -228,15 +260,21 @@ export function parseAtlasV2Plan(
 			if (!title) return null;
 			const indexes = questionIndexes(
 				sectionRecord.questions,
-				questions.length,
+				questionIdByModelIndex.length,
 			);
+			const questionIds: string[] = [];
+			for (const questionIndex of indexes) {
+				const questionId = questionIdByModelIndex[questionIndex];
+				// Null when that question was capped away; duplicates collapse onto
+				// the id their first occurrence was given.
+				if (!questionId || questionIds.includes(questionId)) continue;
+				questionIds.push(questionId);
+			}
 			return {
 				id: `s${index + 1}`,
 				title,
 				brief: cleanLine(sectionRecord.brief, 400) ?? title,
-				questionIds: indexes.map(
-					(questionIndex) => questions[questionIndex].id,
-				),
+				questionIds,
 			};
 		})
 		.filter((section): section is NonNullable<typeof section> =>

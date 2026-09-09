@@ -96,6 +96,17 @@ interface AtlasJobCardLike {
 			phaseDurationsMs?: Record<string, number>;
 			/** Sections written against sections planned, v2 from the writer on. */
 			sections?: { written: number; planned: number };
+			/**
+			 * Writer calls that ended at their output cap, and the repairs they
+			 * cost. A runaway shows up in the wall time as "the model was slow"
+			 * and nowhere else, so the job reports it explicitly.
+			 */
+			writerRunaways?: {
+				length: number;
+				salvaged: number;
+				retried: number;
+				fallback: number;
+			};
 			evidence?: {
 				corroborated: number;
 				single: number;
@@ -179,6 +190,16 @@ interface Metrics {
 	 * defect the word count alone reads as "a bit short".
 	 */
 	sectionsPlanned: number | null;
+	/**
+	 * Writer calls that ran to their output cap, and what it took to recover.
+	 * Null on v1 and on any job that reported none.
+	 */
+	writerRunaways: {
+		length: number;
+		salvaged: number;
+		retried: number;
+		fallback: number;
+	} | null;
 	/** Did the report answer the question that was asked? Null when unchecked. */
 	coreAnswerPresent: boolean | null;
 	/** Disagreement lines in Limitations; the pipeline caps these at 3. */
@@ -606,6 +627,8 @@ function sentencesOf(text: string): string[] {
 function computeMetrics(input: {
 	/** Sections the plan asked for, from the job's own progress card. */
 	sectionsPlanned?: number | null;
+	/** Writer runaway counters, from the job's own progress card. */
+	writerRunaways?: Metrics["writerRunaways"];
 	markdown: string | null;
 	/** Omitted only by the empty-result path. */
 	query?: EvalQuery;
@@ -640,10 +663,15 @@ function computeMetrics(input: {
 		repeatedFactCount: 0,
 		sectionCount: 0,
 		sectionsPlanned: null,
+		writerRunaways: null,
 		coreAnswerPresent: null,
 		contradictionLineCount: 0,
 	};
-	if (!input.markdown) return empty;
+	// A job that ran away and then failed reports nothing but the counters, so
+	// they survive the empty-markdown path.
+	if (!input.markdown) {
+		return { ...empty, writerRunaways: input.writerRunaways ?? null };
+	}
 
 	const body = reportBody(input.markdown);
 	const wordCount = body.split(/\s+/).filter(Boolean).length;
@@ -732,6 +760,7 @@ function computeMetrics(input: {
 		repeatedFactCount: repeatedFactCount(body),
 		sectionCount: countHeadings(input.markdown),
 		sectionsPlanned: input.sectionsPlanned ?? null,
+		writerRunaways: input.writerRunaways ?? null,
 		coreAnswerPresent: input.query
 			? coreAnswerPresent({ markdown: input.markdown, query: input.query })
 			: null,
@@ -872,6 +901,7 @@ async function runQuery(input: {
 			query,
 			evidence: card.progress?.details?.evidence,
 			sectionsPlanned: card.progress?.details?.sections?.planned ?? null,
+			writerRunaways: card.progress?.details?.writerRunaways ?? null,
 		}),
 	};
 }
@@ -894,6 +924,23 @@ function sectionsCell(metrics: Metrics): string {
 	return metrics.sectionCount < metrics.sectionsPlanned ? `**${cell}**` : cell;
 }
 
+/**
+ * "0", or "2 (1 salvaged, 1 plain)" bolded when a writer call ran to its output
+ * cap. A runaway is the defect the wall time reads as "the model was slow": the
+ * body comes back unclosed and the section is written twice or dropped.
+ */
+export function writerRunawaysCell(metrics: Metrics): string {
+	const runaways = metrics.writerRunaways;
+	if (!runaways) return "n/a";
+	if (runaways.length === 0) return "0";
+	const repairs = [
+		runaways.salvaged > 0 ? `${runaways.salvaged} salvaged` : null,
+		runaways.retried > 0 ? `${runaways.retried} retried` : null,
+		runaways.fallback > 0 ? `${runaways.fallback} plain` : null,
+	].filter((part): part is string => part !== null);
+	return `**${runaways.length}${repairs.length > 0 ? ` (${repairs.join(", ")})` : ""}**`;
+}
+
 function percent(value: number | null): string {
 	return value === null ? "n/a" : `${(value * 100).toFixed(0)}%`;
 }
@@ -914,8 +961,8 @@ function buildMarkdownReport(results: QueryResult[]): string {
 		"",
 		"## Comparison",
 		"",
-		"| Query | Kind | Pipeline | Profile | Status | Wall | Tokens in/out | Words | Budget | Sections | Core answer | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Repeated facts | Cut | Disagreements | Sources (cited) | Filtered | Junk |",
-		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+		"| Query | Kind | Pipeline | Profile | Status | Wall | Tokens in/out | Words | Budget | Sections | Writer runaways | Core answer | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Repeated facts | Cut | Disagreements | Sources (cited) | Filtered | Junk |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 	];
 
 	for (const result of results) {
@@ -928,7 +975,7 @@ function buildMarkdownReport(results: QueryResult[]): string {
 					? "yes"
 					: "**NO**";
 		lines.push(
-			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${sectionsCell(metrics)} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
+			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${sectionsCell(metrics)} | ${writerRunawaysCell(metrics)} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
 		);
 	}
 
@@ -979,6 +1026,10 @@ function buildMarkdownReport(results: QueryResult[]): string {
 						entry.metrics.sectionCount < entry.metrics.sectionsPlanned,
 				).length
 			}/${succeeded.length}`,
+			`  - writer calls that ran to the output cap: ${bucket.reduce(
+				(sum, entry) => sum + (entry.metrics.writerRunaways?.length ?? 0),
+				0,
+			)}`,
 			checkedCore.length > 0
 				? `  - answered the core question: ${answered}/${checkedCore.length}`
 				: "  - answered the core question: not checked (no `coreAnswerRegex` in the query file)",
