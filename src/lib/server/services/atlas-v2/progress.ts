@@ -117,6 +117,8 @@ export interface BuildAtlasV2ProgressDetailsInput {
 	evidence?: AtlasV2ProgressEvidence;
 	/** Wall time per phase so far, in milliseconds. */
 	phaseDurationsMs?: Record<string, number>;
+	/** Sections written against sections planned, once the writer has run. */
+	sections?: { written: number; planned: number };
 }
 
 export function buildAtlasV2ProgressDetails(
@@ -157,6 +159,7 @@ export function buildAtlasV2ProgressDetails(
 		...(input.phaseDurationsMs && Object.keys(input.phaseDurationsMs).length > 0
 			? { phaseDurationsMs: { ...input.phaseDurationsMs } }
 			: {}),
+		...(input.sections ? { sections: { ...input.sections } } : {}),
 	};
 }
 
@@ -290,8 +293,25 @@ export function sanitizeAtlasV2ProgressDetails(
 	const withDurations = durations
 		? { ...details, phaseDurationsMs: durations }
 		: details;
+	const sections = sanitizeSectionCounts(record.sections);
+	const withSections = sections
+		? { ...withDurations, sections }
+		: withDurations;
 	const evidence = sanitizeEvidence(record.evidence);
-	return evidence ? { ...withDurations, evidence } : withDurations;
+	return evidence ? { ...withSections, evidence } : withSections;
+}
+
+/** Sections written against sections planned, or null when absent. */
+function sanitizeSectionCounts(
+	value: unknown,
+): { written: number; planned: number } | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	if (record.written === undefined && record.planned === undefined) return null;
+	return {
+		written: nonNegativeInteger(record.written),
+		planned: nonNegativeInteger(record.planned),
+	};
 }
 
 /** Per-phase wall time, bounded to the known phase names. */

@@ -315,6 +315,12 @@ export interface AtlasV2ProgressDetails {
 	 * onwards so `scripts/atlas-eval.ts` can report where a slow run went.
 	 */
 	phaseDurationsMs?: Record<string, number>;
+	/**
+	 * Sections the writer produced against the number the plan promised, present
+	 * from the verify phase onwards. `written < planned` is a defect, and it is
+	 * reported here so the evaluation sees it without reading the server log.
+	 */
+	sections?: { written: number; planned: number };
 }
 
 // ---------------------------------------------------------------------------

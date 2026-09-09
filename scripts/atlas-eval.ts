@@ -550,7 +550,10 @@ function reportSentences(body: string): string[] {
  * The second evaluation's reports said the same thing in three sections — "65.1
  * GW in 2025, down 0.7% from 65.6 GW in 2024" in all three — and then reported
  * themselves as short. A repeated figure set is the cheapest detectable form of
- * that, and it is counted here INDEPENDENTLY of the server's own novelty guard.
+ * that. It is MEASURED here and deliberately not deleted on the server: the
+ * novelty guard that used to delete it made reports shorter without making them
+ * less repetitive, so repetition is now a number the evaluation reports rather
+ * than something the pipeline silently prunes.
  */
 function repeatedFactCount(body: string): number {
 	const seen: Array<Set<string>> = [];

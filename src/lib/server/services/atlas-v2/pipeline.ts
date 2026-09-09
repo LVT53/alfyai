@@ -37,7 +37,6 @@ import {
 	buildAtlasV2CuratedSourcePool,
 	extractAtlasV2LifecycleSeed,
 } from "./lifecycle-seed";
-import { dropRepeatedAtlasV2Sentences } from "./novelty";
 import {
 	ATLAS_V2_PLAN_SYSTEM,
 	buildAtlasV2PlanPrompt,
@@ -74,6 +73,7 @@ import {
 	AtlasV2PipelineError,
 	type AtlasV2PipelineResult,
 	type AtlasV2Plan,
+	type AtlasV2PlanSection,
 	type AtlasV2ProgressEvidence,
 	type AtlasV2QuestionConfidence,
 	type AtlasV2RawSource,
@@ -94,15 +94,12 @@ import {
 } from "./verify";
 import {
 	ATLAS_V2_REWRITE_SYSTEM,
-	ATLAS_V2_SECTION_LEAD_SYSTEM,
 	ATLAS_V2_SUMMARY_SYSTEM,
 	ATLAS_V2_WRITER_SYSTEM,
 	buildAtlasV2RewritePrompt,
-	buildAtlasV2SectionLeadPrompt,
 	buildAtlasV2SectionPrompt,
 	buildAtlasV2SummaryPrompt,
 	buildWriterEvidenceEntries,
-	parseAtlasV2SectionLead,
 	parseAtlasV2WrittenSection,
 } from "./writer";
 
@@ -348,6 +345,10 @@ export async function runAtlasV2Pipeline(
 	// Per-phase wall time, so a slow run can be attributed rather than guessed
 	// at. Reported in progress details and in the render checkpoint.
 	const phaseDurationsMs: Record<string, number> = {};
+	// Sections written against sections planned, set once the writer has run and
+	// carried by every heartbeat after it: a report short of its outline has to
+	// say so where the evaluation can see it, not only in the server log.
+	let sectionCounts: { written: number; planned: number } | null = null;
 	const timePhase = async <T>(
 		name: string,
 		run: () => Promise<T>,
@@ -388,6 +389,7 @@ export async function runAtlasV2Pipeline(
 				confidenceByQuestion: details.confidenceByQuestion,
 				evidence: details.evidence,
 				phaseDurationsMs,
+				...(sectionCounts ? { sections: sectionCounts } : {}),
 			}),
 		});
 	};
@@ -649,45 +651,48 @@ export async function runAtlasV2Pipeline(
 			),
 		]),
 	);
-	// Pass one: one line per section naming the figures it will use. Every body
-	// call then sees every other section's line, so no two sections state the
-	// same fact — and the bodies still run in one concurrent wave.
-	//
-	// Skipped for a one-section plan: there is no other section to inform, and the
-	// call would be pure latency.
-	const sectionGists =
-		resume.sections || resolvedPlan.sections.length < 2
-			? []
-			: (
-					await mapWithConcurrency(
-						resolvedPlan.sections,
-						writerConcurrency,
-						async (section) => {
-							const evidence = evidenceBySection.get(section.id) ?? [];
-							if (evidence.length === 0) return null;
-							const call = await timePhase("lead", () =>
-								deps.runWriterModel({
-									stage: `lead:${section.id}`,
-									system: ATLAS_V2_SECTION_LEAD_SYSTEM[language],
-									prompt: buildAtlasV2SectionLeadPrompt({
-										query: job.query,
-										language,
-										section,
-										evidence,
-									}),
-								}),
-							);
-							usage = addUsage(usage, call.usage);
-							const gist = parseAtlasV2SectionLead(call.text);
-							return gist
-								? { id: section.id, title: section.title, gist }
-								: null;
-						},
-					)
-				).filter(
-					(entry): entry is { id: string; title: string; gist: string } =>
-						entry !== null,
-				);
+	// Every planned section is written in ONE concurrent wave, and a section is
+	// never lost to a single bad model answer: a call that throws, or an answer
+	// that parses to no paragraphs, is retried once before the section is given
+	// up on. Whatever is given up on is RECORDED with its reason rather than
+	// filtered away in silence — a silently dropped section is how the third
+	// evaluation shipped a six-section plan as a one-section report.
+	const sectionWriteFailures: Array<{ sectionId: string; reason: string }> = [];
+	const writeSectionOnce = async (
+		section: AtlasV2PlanSection,
+		evidence: ReturnType<typeof buildWriterEvidenceEntries>,
+	): Promise<AtlasV2WrittenSection | null> => {
+		const call = await timePhase("write", () =>
+			deps.runWriterModel({
+				stage: `write:${section.id}`,
+				system: ATLAS_V2_WRITER_SYSTEM[language],
+				prompt: buildAtlasV2SectionPrompt({
+					query: job.query,
+					profile: job.profile,
+					language,
+					currentDate: isoDate(now),
+					section,
+					questions: resolvedPlan.questions.filter((question) =>
+						section.questionIds.includes(question.id),
+					),
+					outline,
+					evidence,
+					targetWords: sectionBudget.targetWords,
+					minSentences: sectionBudget.minSentences,
+					maxSentences: sectionBudget.maxSentences,
+					maxParagraphs: budget.maxParagraphsPerSection,
+				}),
+			}),
+		);
+		usage = addUsage(usage, call.usage);
+		return parseAtlasV2WrittenSection(call.text, {
+			sectionId: section.id,
+			title: section.title,
+			maxSourceNumber,
+			maxSentences: sectionBudget.maxSentences,
+			maxParagraphs: budget.maxParagraphsPerSection,
+		});
+	};
 	const writtenSections =
 		resume.sections ??
 		(
@@ -696,43 +701,61 @@ export async function runAtlasV2Pipeline(
 				writerConcurrency,
 				async (section) => {
 					const evidence = evidenceBySection.get(section.id) ?? [];
-					if (evidence.length === 0) return null;
-					const call = await timePhase("write", () =>
-						deps.runWriterModel({
-							stage: `write:${section.id}`,
-							system: ATLAS_V2_WRITER_SYSTEM[language],
-							prompt: buildAtlasV2SectionPrompt({
-								query: job.query,
-								profile: job.profile,
-								language,
-								currentDate: isoDate(now),
-								section,
-								questions: resolvedPlan.questions.filter((question) =>
-									section.questionIds.includes(question.id),
-								),
-								outline,
-								evidence,
-								sectionsAlreadyWritten: sectionGists
-									.filter((entry) => entry.id !== section.id)
-									.map((entry) => ({ title: entry.title, gist: entry.gist })),
-								targetWords: sectionBudget.targetWords,
-								minSentences: sectionBudget.minSentences,
-								maxSentences: sectionBudget.maxSentences,
-								maxParagraphs: budget.maxParagraphsPerSection,
-							}),
-						}),
-					);
-					usage = addUsage(usage, call.usage);
-					return parseAtlasV2WrittenSection(call.text, {
+					if (evidence.length === 0) {
+						sectionWriteFailures.push({
+							sectionId: section.id,
+							reason: "no_evidence",
+						});
+						return null;
+					}
+					let lastReason = "unparsable_body";
+					// One retry: a writer answer is a single sample, and the same
+					// prompt often parses on the second draw.
+					for (let attempt = 0; attempt < 2; attempt += 1) {
+						try {
+							const written = await writeSectionOnce(section, evidence);
+							if (written) return written;
+							lastReason = "unparsable_body";
+						} catch (error) {
+							lastReason = `writer_call_failed: ${
+								error instanceof Error ? error.message : String(error)
+							}`;
+						}
+						if (attempt === 0) {
+							console.warn("[ATLAS v2] Retrying a section the writer lost", {
+								jobId: job.id,
+								sectionId: section.id,
+								reason: lastReason,
+							});
+						}
+					}
+					sectionWriteFailures.push({
 						sectionId: section.id,
-						title: section.title,
-						maxSourceNumber,
-						maxSentences: sectionBudget.maxSentences,
-						maxParagraphs: budget.maxParagraphsPerSection,
+						reason: lastReason,
 					});
+					return null;
 				},
 			)
 		).filter((section): section is AtlasV2WrittenSection => section !== null);
+
+	// The plan promised an outline; anything short of it is a defect, so it is
+	// logged with the reason rather than discovered later in a short report.
+	sectionCounts = {
+		written: writtenSections.length,
+		planned: resolvedPlan.sections.length,
+	};
+	if (
+		!resume.sections &&
+		writtenSections.length !== resolvedPlan.sections.length
+	) {
+		console.error("[ATLAS v2] Wrote fewer sections than the plan promised", {
+			jobId: job.id,
+			profile: job.profile,
+			planned: resolvedPlan.sections.length,
+			written: writtenSections.length,
+			dropped: sectionWriteFailures,
+		});
+	}
 
 	if (writtenSections.length === 0) {
 		throw new AtlasV2PipelineError(
@@ -840,25 +863,11 @@ export async function runAtlasV2Pipeline(
 		}),
 	);
 
-	// A fact an earlier section already stated is dropped rather than counted
-	// toward the budget: three sections stating one figure is what made the
-	// second evaluation's reports repetitive AND short.
-	const novelty = dropRepeatedAtlasV2Sentences({
-		sections: verification.sections,
-	});
-	if (novelty.droppedSentenceCount > 0) {
-		console.info("[ATLAS v2] Dropped sentences repeating an earlier section", {
-			jobId: job.id,
-			profile: job.profile,
-			dropped: novelty.droppedSentenceCount,
-		});
-	}
-
 	// The length budget is applied to the VERIFIED sections, before the summary
 	// is written, so the summary never summarises prose the reader will not see.
 	// It only ever TRIMS: a body under the bound is passed through untouched.
 	const bodyCap = capAtlasV2SectionsToWordBudget({
-		sections: novelty.sections,
+		sections: verification.sections,
 		maxWords: bodyWordBudget(budget),
 	});
 	const cappedVerification: AtlasV2VerificationResult = {
@@ -1079,6 +1088,20 @@ export async function runAtlasV2Pipeline(
 	const outputs = await timePhase("render", () =>
 		deps.renderOutputs(documentSource),
 	);
+	// A second render heartbeat, AFTER the files exist: the one above is emitted
+	// before `renderOutputs` runs, so without this the `render` duration never
+	// reached a reader of the progress card at all.
+	await heartbeat("render", {
+		plan: resolvedPlan,
+		round: { current: totalRounds, total: totalRounds },
+		doneQuestionIds: resolvedPlan.questions.map((question) => question.id),
+		sourceCountByQuestion: sourceCountsFromIndex(index),
+		confidenceByQuestion: questionConfidences({
+			index,
+			verification: combinedVerification,
+		}),
+		evidence,
+	});
 
 	const executiveSummaryMarkdown = buildAtlasV2ExecutiveSummaryMarkdown({
 		title,
@@ -1129,9 +1152,13 @@ export async function runAtlasV2Pipeline(
 				wordCount: reportWordCount(combinedVerification, summarySection),
 				wordBudget: budget.maxWords,
 				wordTargetPerSection: sectionBudget.targetWords,
+				sectionsPlanned: resolvedPlan.sections.length,
+				sectionsWritten: writtenSections.length,
+				// Empty on a healthy run; one entry per section the writer lost,
+				// with why, so a short report names its own cause.
+				sectionsDropped: sectionWriteFailures,
 				sourcesDroppedForBudget: capped.droppedForBudget,
 				sentencesDroppedForBudget: bodyCap.droppedSentenceCount,
-				sentencesDroppedAsRepeats: novelty.droppedSentenceCount,
 				coreAnswerPresent: coreAnswer.present,
 				coreAnswerCitesFigure: coreAnswer.citedFigure,
 			},

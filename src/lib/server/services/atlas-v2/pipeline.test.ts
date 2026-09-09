@@ -74,6 +74,28 @@ const PLAN_JSON = JSON.stringify({
 	],
 });
 
+/**
+ * Five sections, one question each, so the plan's outline and the report's
+ * outline can be compared entry for entry. Question 1 is the job's own query:
+ * the plan parser puts the request in front as the core question.
+ */
+const PLAN_JSON_FIVE_SECTIONS = JSON.stringify({
+	questions: [
+		"How much solar capacity did the EU add in 2026?",
+		"What did the regulator require in 2026?",
+		"Which member states led the additions?",
+		"What is the grid connection queue?",
+		"What did the additions cost?",
+	],
+	sections: [
+		{ title: "Capacity added", brief: "How much", questions: [1] },
+		{ title: "Rules", brief: "What governs it", questions: [2] },
+		{ title: "Leaders", brief: "Who led", questions: [3] },
+		{ title: "Queues", brief: "What waits", questions: [4] },
+		{ title: "Costs", brief: "What it cost", questions: [5] },
+	],
+});
+
 const SECTION_JSON = JSON.stringify({
 	paragraphs: [
 		{
@@ -219,6 +241,9 @@ describe("runAtlasV2Pipeline", () => {
 			"write",
 			"verify",
 			"verify",
+			// Twice: once before the files are produced, once after, so the
+			// `render` duration reaches the progress card at all.
+			"render",
 			"render",
 		]);
 		const checkpointPhases = writeCheckpoint.mock.calls.map(
@@ -292,97 +317,28 @@ describe("runAtlasV2Pipeline", () => {
 		expect(sectionCalls).toEqual(["write:s1", "write:s2"]);
 	});
 
-	it("writes a lead per section and hands every body the other leads", async () => {
-		const { runControlModel } = modelDeps();
-		const runWriterModel = vi.fn(
-			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
-				text: stage.startsWith("lead:")
-					? `This section states ${stage === "lead:s1" ? "8 GW of additions" : "an eighteen-month permit wait"}.`
-					: stage === "summary"
-						? SUMMARY_JSON
-						: SECTION_JSON,
-				usage: {
-					...ZERO_USAGE,
-					inputTokens: 20,
-					outputTokens: 8,
-					totalTokens: 28,
-				},
-			}),
-		);
-		await runAtlasV2Pipeline({
-			job: job(),
-			now: NOW,
-			dependencies: {
-				researchWeb: researchWeb(),
-				runControlModel,
-				runWriterModel,
-				writeCheckpoint: async () => {},
-				renderOutputs: async () => ({
-					fileProductionJobId: null,
-					htmlChatGeneratedFileId: null,
-					pdfChatGeneratedFileId: null,
-					markdownChatGeneratedFileId: null,
-				}),
-				profileOverrides: { questions: 4, rounds: 1 },
-			},
-		});
-		const stages = runWriterModel.mock.calls.map(([call]) => call.stage);
-		expect(stages.slice(0, 2).sort()).toEqual(["lead:s1", "lead:s2"]);
-		const secondSection = runWriterModel.mock.calls
-			.map(([call]) => call)
-			.find((call) => call.stage === "write:s2");
-		const prompt = JSON.parse(secondSection?.prompt ?? "{}");
-		expect(prompt.sectionsAlreadyWritten).toEqual([
-			{
-				title: "Capacity added",
-				gist: "This section states 8 GW of additions.",
-			},
-		]);
-	});
+	// --- The collapse the "polish" pass shipped -------------------------------
+	//
+	// A five-section plan came back as a one-section report: the writer answered
+	// some sections with nothing usable, and the pipeline filtered those away in
+	// silence. These three cases pin the contract that replaced it — every
+	// planned section is written, a bad answer costs a retry rather than the
+	// section, and a section keeps the sentences that elaborate on its own lead.
 
-	it("drops a section sentence that restates an earlier section's fact", async () => {
-		const { runControlModel } = modelDeps();
-		const first = JSON.stringify({
-			paragraphs: [
-				{
-					sentences: [
-						{ text: "The union added 8 GW of solar capacity.", citations: [1] },
-					],
-				},
-			],
-		});
-		// The second section restates the first section's figure, then says
-		// something new. The restatement is the one that goes.
-		const second = JSON.stringify({
-			paragraphs: [
-				{
-					sentences: [
-						{
-							text: "Solar capacity added by the union reached 8 GW.",
-							citations: [1],
-						},
-						{
-							text: "Grid connection permits take eighteen months.",
-							citations: [2],
-						},
-					],
-				},
-			],
-		});
-		const runWriterModel = vi.fn(
+	it("writes every section the plan promised, in one wave", async () => {
+		const runControlModel = vi.fn(
 			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
 				text:
-					stage === "summary"
-						? SUMMARY_JSON
-						: stage === "write:s2"
-							? second
-							: first,
-				usage: {
-					...ZERO_USAGE,
-					inputTokens: 20,
-					outputTokens: 8,
-					totalTokens: 28,
-				},
+					stage === "plan"
+						? PLAN_JSON_FIVE_SECTIONS
+						: JSON.stringify({ sufficient: true }),
+				usage: ZERO_USAGE,
+			}),
+		);
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text: stage === "summary" ? SUMMARY_JSON : SECTION_JSON,
+				usage: ZERO_USAGE,
 			}),
 		);
 		const writeCheckpoint = vi.fn(
@@ -406,15 +362,270 @@ describe("runAtlasV2Pipeline", () => {
 					pdfChatGeneratedFileId: null,
 					markdownChatGeneratedFileId: null,
 				}),
+				profileOverrides: { questions: 5, rounds: 1 },
+			},
+		});
+		expect(
+			runWriterModel.mock.calls
+				.map(([call]) => call.stage)
+				.filter((stage) => stage.startsWith("write:")),
+		).toEqual(["write:s1", "write:s2", "write:s3", "write:s4", "write:s5"]);
+		const writeCall = writeCheckpoint.mock.calls
+			.map(([call]) => call)
+			.find((call) => (call.checkpoint as { phase: string }).phase === "write");
+		const written = (writeCall?.checkpoint as { data: { sections: unknown[] } })
+			.data.sections as Array<{ sectionId: string; paragraphs: unknown[] }>;
+		expect(written.map((section) => section.sectionId)).toEqual([
+			"s1",
+			"s2",
+			"s3",
+			"s4",
+			"s5",
+		]);
+		// Every section keeps its sentences; none is reduced to a stub.
+		for (const section of written) {
+			expect(section.paragraphs.length).toBeGreaterThan(0);
+		}
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sectionsPlanned?: number;
+			sectionsWritten?: number;
+			sectionsDropped?: unknown[];
+		};
+		expect(diagnostics?.sectionsPlanned).toBe(5);
+		expect(diagnostics?.sectionsWritten).toBe(5);
+		expect(diagnostics?.sectionsDropped).toEqual([]);
+	});
+
+	it("retries a section whose body call failed rather than dropping it", async () => {
+		const runControlModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "plan"
+						? PLAN_JSON_FIVE_SECTIONS
+						: JSON.stringify({ sufficient: true }),
+				usage: ZERO_USAGE,
+			}),
+		);
+		// s3's first body call throws; its second succeeds. s4 answers with
+		// unparsable prose once, then with a section.
+		let thirdAttempts = 0;
+		let fourthAttempts = 0;
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => {
+				if (stage === "write:s3") {
+					thirdAttempts += 1;
+					if (thirdAttempts === 1) throw new Error("writer timed out");
+				}
+				if (stage === "write:s4") {
+					fourthAttempts += 1;
+					if (fourthAttempts === 1) {
+						return {
+							text: "I could not write this section.",
+							usage: ZERO_USAGE,
+						};
+					}
+				}
+				return {
+					text: stage === "summary" ? SUMMARY_JSON : SECTION_JSON,
+					usage: ZERO_USAGE,
+				};
+			},
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: {
+				stage: string;
+				checkpoint: unknown;
+				qualityDiagnostics: unknown;
+			}) => {},
+		);
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint,
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 5, rounds: 1 },
+			},
+		});
+		// Exactly one retry each: a retry, not a loop.
+		expect(thirdAttempts).toBe(2);
+		expect(fourthAttempts).toBe(2);
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sectionsPlanned?: number;
+			sectionsWritten?: number;
+		};
+		expect(diagnostics?.sectionsPlanned).toBe(5);
+		expect(diagnostics?.sectionsWritten).toBe(5);
+	});
+
+	it("reports a section it could not write instead of losing it quietly", async () => {
+		const runControlModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "plan"
+						? PLAN_JSON_FIVE_SECTIONS
+						: JSON.stringify({ sufficient: true }),
+				usage: ZERO_USAGE,
+			}),
+		);
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "write:s2"
+						? "no JSON here at all"
+						: stage === "summary"
+							? SUMMARY_JSON
+							: SECTION_JSON,
+				usage: ZERO_USAGE,
+			}),
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: {
+				stage: string;
+				checkpoint: unknown;
+				qualityDiagnostics: unknown;
+			}) => {},
+		);
+		const heartbeat = vi.fn(
+			async (_input: {
+				stage: string;
+				progressPercent: number;
+				progressDetails?: unknown;
+			}) => {},
+		);
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await runAtlasV2Pipeline({
+				job: job(),
+				now: NOW,
+				dependencies: {
+					researchWeb: researchWeb(),
+					runControlModel,
+					runWriterModel,
+					writeCheckpoint,
+					heartbeat,
+					renderOutputs: async () => ({
+						fileProductionJobId: null,
+						htmlChatGeneratedFileId: null,
+						pdfChatGeneratedFileId: null,
+						markdownChatGeneratedFileId: null,
+					}),
+					profileOverrides: { questions: 5, rounds: 1 },
+				},
+			});
+			expect(logged).toHaveBeenCalledWith(
+				"[ATLAS v2] Wrote fewer sections than the plan promised",
+				expect.objectContaining({
+					planned: 5,
+					written: 4,
+					dropped: [{ sectionId: "s2", reason: "unparsable_body" }],
+				}),
+			);
+		} finally {
+			vi.restoreAllMocks();
+		}
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sectionsPlanned?: number;
+			sectionsWritten?: number;
+			sectionsDropped?: Array<{ sectionId: string; reason: string }>;
+		};
+		expect(diagnostics?.sectionsPlanned).toBe(5);
+		expect(diagnostics?.sectionsWritten).toBe(4);
+		expect(diagnostics?.sectionsDropped).toEqual([
+			{ sectionId: "s2", reason: "unparsable_body" },
+		]);
+		// The evaluation reads the counts off the progress card, not the log.
+		const renderHeartbeat = heartbeat.mock.calls
+			.map(([call]) => call)
+			.filter((call) => call.stage === "render")
+			.at(-1);
+		expect(
+			(
+				renderHeartbeat?.progressDetails as {
+					sections?: { written: number; planned: number };
+				}
+			)?.sections,
+		).toEqual({ written: 4, planned: 5 });
+	});
+
+	it("keeps a sentence that carries the same figure as its own section lead", async () => {
+		const { runControlModel } = modelDeps();
+		// Both sentences state 8 GW. The novelty guard the polish pass added
+		// deleted the second one; a section elaborating on its own lead is not a
+		// repeated fact, and the sentence stays.
+		const section = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{ text: "The union added 8 GW of solar capacity.", citations: [1] },
+						{
+							text: "That 8 GW of new solar capacity arrived across the union.",
+							citations: [1],
+						},
+					],
+				},
+			],
+		});
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text: stage === "summary" ? SUMMARY_JSON : section,
+				usage: ZERO_USAGE,
+			}),
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: {
+				stage: string;
+				checkpoint: unknown;
+				qualityDiagnostics: unknown;
+			}) => {},
+		);
+		const renderOutputs = vi.fn(async (_source: { blocks: unknown[] }) => ({
+			fileProductionJobId: null,
+			htmlChatGeneratedFileId: null,
+			pdfChatGeneratedFileId: null,
+			markdownChatGeneratedFileId: null,
+		}));
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint,
+				renderOutputs,
 				profileOverrides: { questions: 4, rounds: 1 },
 			},
 		});
+		// Both sections reach the page with both of their sentences.
+		const paragraphs = (
+			renderOutputs.mock.calls[0][0].blocks as Array<{
+				type: string;
+				text?: string;
+			}>
+		)
+			.filter((block) => block.type === "paragraph")
+			.map((block) => block.text ?? "");
+		const bodies = paragraphs.filter((text) => text.includes("8 GW"));
+		expect(bodies).toHaveLength(3);
+		for (const body of bodies.slice(1)) {
+			expect(body).toContain("added 8 GW of solar capacity");
+			expect(body).toContain("That 8 GW of new solar capacity");
+		}
 		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
-			?.qualityDiagnostics as {
-			sentencesDroppedAsRepeats?: number;
-			wordTargetPerSection?: number;
-		};
-		expect(diagnostics?.sentencesDroppedAsRepeats).toBe(1);
+			?.qualityDiagnostics as { wordTargetPerSection?: number };
 		expect(diagnostics?.wordTargetPerSection).toBe(280);
 	});
 
@@ -559,8 +770,8 @@ describe("runAtlasV2Pipeline", () => {
 		});
 		expect(research).not.toHaveBeenCalled();
 		expect(runControlModel).not.toHaveBeenCalled();
-		// A one-section plan gets no lead pass: there is no other section to tell
-		// about it, so the call would be pure latency.
+		// One body call per section, and nothing else: no preparatory pass runs
+		// ahead of the writer.
 		expect(runWriterModel.mock.calls.map(([call]) => call.stage)).toEqual([
 			"write:s1",
 			"summary",
@@ -633,9 +844,12 @@ describe("runAtlasV2Pipeline", () => {
 				profileOverrides: { questions: 4, rounds: 1 },
 			},
 		});
+		// The LAST render heartbeat, which is emitted after the files exist —
+		// otherwise `render` is the one phase whose duration nobody ever sees.
 		const renderHeartbeat = heartbeat.mock.calls
 			.map(([call]) => call)
-			.find((call) => call.stage === "render");
+			.filter((call) => call.stage === "render")
+			.at(-1);
 		const durations = (
 			renderHeartbeat?.progressDetails as {
 				phaseDurationsMs?: Record<string, number>;
@@ -643,8 +857,8 @@ describe("runAtlasV2Pipeline", () => {
 		)?.phaseDurationsMs;
 		expect(Object.keys(durations ?? {}).sort()).toEqual([
 			"index",
-			"lead",
 			"plan",
+			"render",
 			"research",
 			"summary",
 			"verify",
