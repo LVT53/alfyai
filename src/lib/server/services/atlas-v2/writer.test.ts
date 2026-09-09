@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AtlasV2IndexedSource } from "./types";
 import {
+	ATLAS_V2_SECTION_LEAD_SYSTEM,
 	ATLAS_V2_WRITER_SYSTEM,
+	buildAtlasV2SectionLeadPrompt,
+	buildAtlasV2SectionPrompt,
 	buildWriterEvidenceEntries,
+	parseAtlasV2SectionLead,
 	parseAtlasV2WrittenSection,
 } from "./writer";
 
@@ -15,6 +19,136 @@ describe("ATLAS_V2_WRITER_SYSTEM", () => {
 		);
 		expect(ATLAS_V2_WRITER_SYSTEM.en).toContain("'basis'");
 		expect(ATLAS_V2_WRITER_SYSTEM.hu).toContain("basis");
+	});
+
+	it("asks for a word target and forbids restating another section's fact", () => {
+		for (const system of [
+			ATLAS_V2_WRITER_SYSTEM.en,
+			ATLAS_V2_WRITER_SYSTEM.hu,
+		]) {
+			expect(system).toContain("targetWords");
+			expect(system).toContain("minSentences");
+			expect(system).toContain("sectionsAlreadyWritten");
+		}
+	});
+});
+
+describe("buildAtlasV2SectionPrompt", () => {
+	const section = {
+		id: "s2",
+		title: "Prices",
+		brief: "What it costs",
+		questionIds: ["q1"],
+	};
+
+	it("carries the word target, the sentence bounds and the other sections' gists", () => {
+		const prompt = JSON.parse(
+			buildAtlasV2SectionPrompt({
+				query: "What does it cost?",
+				profile: "overview",
+				language: "en",
+				currentDate: "2026-09-09",
+				section,
+				questions: [{ id: "q1", question: "What does it cost?" }],
+				outline: [
+					{ title: "Prices", brief: "What it costs" },
+					{ title: "Rules", brief: "What governs it" },
+				],
+				evidence: [],
+				targetWords: 250,
+				minSentences: 10,
+				maxSentences: 14,
+				sectionsAlreadyWritten: [
+					{ title: "Rules", gist: "Rules state a 30% ceiling." },
+				],
+			}),
+		);
+		expect(prompt.targetWords).toBe(250);
+		expect(prompt.minSentences).toBe(10);
+		expect(prompt.maxSentences).toBe(14);
+		expect(prompt.sectionsAlreadyWritten[0].gist).toContain("30%");
+		// The section never sees itself in either list.
+		expect(
+			prompt.otherSections.map((entry: { title: string }) => entry.title),
+		).toEqual(["Rules"]);
+	});
+
+	it("omits the gist list entirely when no section has been written yet", () => {
+		const prompt = JSON.parse(
+			buildAtlasV2SectionPrompt({
+				query: "What does it cost?",
+				profile: "overview",
+				language: "en",
+				currentDate: "2026-09-09",
+				section,
+				questions: [],
+				outline: [],
+				evidence: [],
+			}),
+		);
+		expect(prompt.sectionsAlreadyWritten).toBeUndefined();
+	});
+});
+
+describe("the section lead pass", () => {
+	it("asks for one plain sentence naming the section's figures", () => {
+		for (const system of [
+			ATLAS_V2_SECTION_LEAD_SYSTEM.en,
+			ATLAS_V2_SECTION_LEAD_SYSTEM.hu,
+		]) {
+			expect(system.toLowerCase()).toMatch(/one sentence|egyetlen/);
+		}
+	});
+
+	it("sends a smaller slice of each source than a body call does", () => {
+		const prompt = JSON.parse(
+			buildAtlasV2SectionLeadPrompt({
+				query: "How much was added?",
+				language: "en",
+				section: {
+					id: "s1",
+					title: "Capacity",
+					brief: "How much",
+					questionIds: ["q1"],
+				},
+				evidence: [
+					{
+						n: 1,
+						title: "Report",
+						host: "iea.org",
+						date: null,
+						text: "x".repeat(3000),
+					},
+				],
+			}),
+		);
+		expect(prompt.evidence[0].text.length).toBe(700);
+	});
+
+	it("reads a bare sentence, a JSON string and a JSON object", () => {
+		expect(parseAtlasV2SectionLead("The union added 65.1 GW in 2025.")).toBe(
+			"The union added 65.1 GW in 2025.",
+		);
+		expect(parseAtlasV2SectionLead('"The union added 65.1 GW."')).toBe(
+			"The union added 65.1 GW.",
+		);
+		expect(
+			parseAtlasV2SectionLead(
+				JSON.stringify({ gist: "Prices start at €999." }),
+			),
+		).toBe("Prices start at €999.");
+	});
+
+	it("returns null when the call came back empty", () => {
+		expect(parseAtlasV2SectionLead("   ")).toBeNull();
+	});
+
+	it("returns null rather than a gist made of the model's own JSON", () => {
+		expect(
+			parseAtlasV2SectionLead(
+				JSON.stringify({ paragraphs: [{ sentences: [{ text: "x" }] }] }),
+			),
+		).toBeNull();
 	});
 });
 

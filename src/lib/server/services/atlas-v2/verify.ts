@@ -289,6 +289,14 @@ export function quantityPhrase(
 		0,
 		Math.max(0, QUANTITY_PHRASE_CONTEXT_WORDS - lead.length),
 	);
+	// A phrase must not end on a dangling article or a stray comma: "…for 2025, a"
+	// reads as a cut sentence, which is the defect this replaced.
+	while (
+		trail.length > 0 &&
+		trail[trail.length - 1].replace(/[^\p{L}\p{N}]/gu, "").length <= 2
+	) {
+		trail.pop();
+	}
 	return [...lead, needle, ...trail]
 		.join(" ")
 		.replace(/^[^\p{L}\p{N}]+/u, "")

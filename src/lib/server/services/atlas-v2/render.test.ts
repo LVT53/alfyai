@@ -6,7 +6,9 @@ import {
 	buildAtlasV2DocumentSource,
 	buildAtlasV2ExecutiveSummaryMarkdown,
 	buildAtlasV2Limitations,
+	publishSentenceCitations,
 	renderSentenceWithCitations,
+	renderSentenceWithCitationTokens,
 	renumberAtlasV2ForPublication,
 } from "./render";
 import type {
@@ -111,6 +113,76 @@ describe("renderSentenceWithCitations", () => {
 		expect(marks[1]).toBe("A claim. [1]ˢ");
 		expect(marks[2]).toBe("A claim. ⁱ");
 		expect(new Set(marks).size).toBe(3);
+	});
+});
+
+describe("renderSentenceWithCitationTokens", () => {
+	it("never prints the last citation twice", () => {
+		// The token itself renders source 3's numbered chip, so writing `[3]`
+		// beside it produced the `[2][3][3]ᶜ` the second evaluation shipped.
+		expect(
+			renderSentenceWithCitationTokens({
+				text: "Capacity reached 8 GW.",
+				citations: [2, 3],
+				confidence: "corroborated",
+			}),
+		).toBe("Capacity reached 8 GW. [2][[cite:3:c]]");
+	});
+
+	it("writes one annotation and no `[n]` for a single citation", () => {
+		expect(
+			renderSentenceWithCitationTokens({
+				text: "Capacity reached 8 GW.",
+				citations: [4],
+				confidence: "single",
+			}),
+		).toBe("Capacity reached 8 GW. [[cite:4:s]]");
+	});
+
+	it("carries a bare annotation when nothing is cited", () => {
+		expect(
+			renderSentenceWithCitationTokens({
+				text: "The picture is mixed.",
+				citations: [],
+				confidence: "inferred",
+			}),
+		).toBe("The picture is mixed. [[cite:i]]");
+	});
+});
+
+describe("publishSentenceCitations", () => {
+	it("deduplicates two indexed sources that collapse onto one published one", () => {
+		expect(
+			publishSentenceCitations({
+				citations: [4, 9],
+				renumberMap: new Map([
+					[4, 2],
+					[9, 2],
+				]),
+			}),
+		).toEqual([2]);
+	});
+
+	it("drops a citation the publication does not carry", () => {
+		expect(
+			publishSentenceCitations({
+				citations: [4, 7],
+				renumberMap: new Map([[4, 1]]),
+			}),
+		).toEqual([1]);
+	});
+
+	it("keeps the cap after the dedupe, in the writer's order", () => {
+		expect(
+			publishSentenceCitations({
+				citations: [9, 4, 6],
+				renumberMap: new Map([
+					[4, 1],
+					[6, 2],
+					[9, 3],
+				]),
+			}),
+		).toEqual([3, 1]);
 	});
 });
 
@@ -291,6 +363,40 @@ describe("buildAtlasV2DocumentSource", () => {
 			renderStandardReportMarkdown(documentSource).content.toString("utf8");
 		expect(markdown).toContain(`[1]${ATLAS_V2_CONFIDENCE_MARKS.single}`);
 		expect(markdown).not.toContain("(Basis:");
+	});
+
+	it("renders a two-source sentence as two distinct citations, not three", () => {
+		const publication = renumberAtlasV2ForPublication({
+			index: index([source(1), source(2), source(3)]),
+			verification: verification({
+				sections: [
+					verifiedSection([
+						{
+							text: "Capacity reached 8 GW.",
+							citations: [2, 3],
+							confidence: "corroborated",
+						},
+					]),
+				],
+				citedSourceNumbers: [2, 3],
+			}),
+		});
+		const markdown = renderStandardReportMarkdown(
+			buildAtlasV2DocumentSource({
+				title: "EU solar capacity",
+				language: "en",
+				date: "2026-09-01",
+				publication,
+				summary: null,
+				thinQuestions: [],
+				cutSentenceCount: 0,
+				staleMonths: 18,
+			}),
+		).content.toString("utf8");
+		expect(markdown).toContain(
+			`Capacity reached 8 GW. [1][2]${ATLAS_V2_CONFIDENCE_MARKS.corroborated}`,
+		);
+		expect(markdown).not.toContain("[2][2]");
 	});
 });
 

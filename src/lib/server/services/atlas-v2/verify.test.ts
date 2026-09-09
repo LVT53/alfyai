@@ -284,6 +284,84 @@ describe("verifyAtlasV2Report — rewrite then cut", () => {
 		expect(rewriteSection).toHaveBeenCalledTimes(1);
 		expect(result.totals.cut).toBe(1);
 	});
+
+	it("accepts a rewrite that returns ONLY the sentences it repaired", async () => {
+		const index = indexOf([
+			raw({ snippets: ["Installed solar capacity reached 6,000 MW by June."] }),
+		]);
+		// The failing sentence is paragraph 1, sentence 0. The writer returns it as
+		// paragraph 0, sentence 0 — which the prompt permits and which used to be
+		// discarded, cutting a sentence the writer had already repaired.
+		const rewriteSection = vi
+			.fn()
+			.mockResolvedValue(
+				section([sentence({ text: "Solar capacity reached 6 GW." })]),
+			);
+		const result = await verifyAtlasV2Report({
+			sections: [
+				{
+					sectionId: "s1",
+					title: "Capacity",
+					paragraphs: [
+						{
+							sentences: [
+								sentence({
+									text: "Capacity was measured in June.",
+									citations: [1],
+								}),
+							],
+						},
+						{ sentences: [sentence()] },
+					],
+					calculations: [],
+				},
+			],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			rewriteSection,
+		});
+		expect(result.totals.cut).toBe(0);
+		expect(result.sections[0].paragraphs[1][0]).toMatchObject({
+			text: "Solar capacity reached 6 GW.",
+			rewritten: true,
+		});
+	});
+
+	it("rewrites failing sections concurrently rather than one after another", async () => {
+		const index = indexOf([
+			raw({ snippets: ["Installed solar capacity reached 6,000 MW by June."] }),
+		]);
+		let inFlight = 0;
+		let peak = 0;
+		const rewriteSection = vi.fn(async ({ section: failing }) => {
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			inFlight -= 1;
+			return {
+				...failing,
+				paragraphs: [
+					{ sentences: [sentence({ text: "Solar capacity reached 6 GW." })] },
+				],
+			};
+		});
+		const result = await verifyAtlasV2Report({
+			sections: [
+				section([sentence()], { sectionId: "s1" }),
+				section([sentence()], { sectionId: "s2" }),
+				section([sentence()], { sectionId: "s3" }),
+			],
+			index,
+			staleMonths: 18,
+			now: NOW,
+			rewriteSection,
+			rewriteConcurrency: 3,
+		});
+		expect(rewriteSection).toHaveBeenCalledTimes(3);
+		expect(peak).toBeGreaterThan(1);
+		expect(result.totals.cut).toBe(0);
+	});
 });
 
 describe("figureCorroboration", () => {
@@ -382,6 +460,35 @@ describe("findContradictions", () => {
 			}),
 		]);
 		expect(contradictions[0].quantity).toContain("8 GW");
+	});
+
+	it("quotes a quantity PHRASE, never a cut sentence", () => {
+		const long =
+			"SolarPower Europe's mid-year report projected 64.2 GW for 2025, a 1.4% drop, while its annual market outlook put 2025 additions for the union at 8 GW across the union in the same series.";
+		const [contradiction] = findContradictions({
+			sentence: long,
+			citedSources: sources,
+		});
+		expect(contradiction.quantity).toBe(
+			"mid-year report projected 64.2 GW for 2025",
+		);
+		// The old character window ended mid-word ("...put 2025 addit") and ran to
+		// 140 characters.
+		expect(contradiction.quantity.length).toBeLessThan(60);
+		for (const word of contradiction.quantity.split(" ")) {
+			expect(long).toContain(word);
+		}
+	});
+
+	it("names the figure alone when it opens the sentence", () => {
+		const [contradiction] = findContradictions({
+			sentence:
+				"8 GW of installed solar capacity was reached across the union.",
+			citedSources: sources,
+		});
+		expect(contradiction.quantity).toBe(
+			"8 GW of installed solar capacity was reached",
+		);
 	});
 
 	it("never scans a source the sentence does not cite", () => {

@@ -232,7 +232,12 @@ export function buildAtlasV2SectionLeadPrompt(input: {
 	});
 }
 
-/** The one-line gist, or null when the call came back empty. */
+/**
+ * The one-line gist, or null when nothing usable came back. A model that
+ * answers with a JSON object carrying no recognisable field yields null rather
+ * than a gist made of its own JSON: the gist goes into another prompt, so junk
+ * here would be junk the body writer has to read.
+ */
 export function parseAtlasV2SectionLead(text: string): string | null {
 	const parsed = parseJsonFromText(text);
 	const raw =
@@ -241,7 +246,8 @@ export function parseAtlasV2SectionLead(text: string): string | null {
 			: parsed && typeof parsed === "object"
 				? firstStringField(parsed as Record<string, unknown>)
 				: text;
-	const cleaned = cleanSentenceText(raw ?? text);
+	if (raw === null) return null;
+	const cleaned = cleanSentenceText(raw);
 	if (!cleaned) return null;
 	return cleaned.slice(0, MAX_LEAD_CHARS);
 }

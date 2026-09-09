@@ -292,6 +292,132 @@ describe("runAtlasV2Pipeline", () => {
 		expect(sectionCalls).toEqual(["write:s1", "write:s2"]);
 	});
 
+	it("writes a lead per section and hands every body the other leads", async () => {
+		const { runControlModel } = modelDeps();
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text: stage.startsWith("lead:")
+					? `This section states ${stage === "lead:s1" ? "8 GW of additions" : "an eighteen-month permit wait"}.`
+					: stage === "summary"
+						? SUMMARY_JSON
+						: SECTION_JSON,
+				usage: {
+					...ZERO_USAGE,
+					inputTokens: 20,
+					outputTokens: 8,
+					totalTokens: 28,
+				},
+			}),
+		);
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint: async () => {},
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const stages = runWriterModel.mock.calls.map(([call]) => call.stage);
+		expect(stages.slice(0, 2).sort()).toEqual(["lead:s1", "lead:s2"]);
+		const secondSection = runWriterModel.mock.calls
+			.map(([call]) => call)
+			.find((call) => call.stage === "write:s2");
+		const prompt = JSON.parse(secondSection?.prompt ?? "{}");
+		expect(prompt.sectionsAlreadyWritten).toEqual([
+			{
+				title: "Capacity added",
+				gist: "This section states 8 GW of additions.",
+			},
+		]);
+	});
+
+	it("drops a section sentence that restates an earlier section's fact", async () => {
+		const { runControlModel } = modelDeps();
+		const first = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{ text: "The union added 8 GW of solar capacity.", citations: [1] },
+					],
+				},
+			],
+		});
+		// The second section restates the first section's figure, then says
+		// something new. The restatement is the one that goes.
+		const second = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{
+							text: "Solar capacity added by the union reached 8 GW.",
+							citations: [1],
+						},
+						{
+							text: "Grid connection permits take eighteen months.",
+							citations: [2],
+						},
+					],
+				},
+			],
+		});
+		const runWriterModel = vi.fn(
+			async ({ stage }: { stage: string; system: string; prompt: string }) => ({
+				text:
+					stage === "summary"
+						? SUMMARY_JSON
+						: stage === "write:s2"
+							? second
+							: first,
+				usage: {
+					...ZERO_USAGE,
+					inputTokens: 20,
+					outputTokens: 8,
+					totalTokens: 28,
+				},
+			}),
+		);
+		const writeCheckpoint = vi.fn(
+			async (_input: {
+				stage: string;
+				checkpoint: unknown;
+				qualityDiagnostics: unknown;
+			}) => {},
+		);
+		await runAtlasV2Pipeline({
+			job: job(),
+			now: NOW,
+			dependencies: {
+				researchWeb: researchWeb(),
+				runControlModel,
+				runWriterModel,
+				writeCheckpoint,
+				renderOutputs: async () => ({
+					fileProductionJobId: null,
+					htmlChatGeneratedFileId: null,
+					pdfChatGeneratedFileId: null,
+					markdownChatGeneratedFileId: null,
+				}),
+				profileOverrides: { questions: 4, rounds: 1 },
+			},
+		});
+		const diagnostics = writeCheckpoint.mock.calls.map(([call]) => call).at(-1)
+			?.qualityDiagnostics as {
+			sentencesDroppedAsRepeats?: number;
+			wordTargetPerSection?: number;
+		};
+		expect(diagnostics?.sentencesDroppedAsRepeats).toBe(1);
+		expect(diagnostics?.wordTargetPerSection).toBe(280);
+	});
+
 	it("runs a coverage check between rounds and researches only thin questions", async () => {
 		const runControlModel = vi.fn(
 			async ({ stage }: { stage: string; system: string; prompt: string }) => ({

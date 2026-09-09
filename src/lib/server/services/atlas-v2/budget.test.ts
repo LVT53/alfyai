@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	ATLAS_V2_BUDGETS,
+	atlasV2SectionWriterBudget,
 	bodyWordBudget,
+	bodyWordTarget,
 	capAtlasV2SectionsToWordBudget,
 	citedNumbersInSections,
 	countWords,
@@ -76,6 +78,64 @@ describe("ATLAS_V2_BUDGETS", () => {
 	});
 });
 
+describe("bodyWordTarget", () => {
+	it("aims at the band's midpoint, not its ceiling", () => {
+		// 700-1100 midpoint is 900; less the 150-word chrome reserve.
+		expect(bodyWordTarget(ATLAS_V2_BUDGETS.overview)).toBe(750);
+		expect(bodyWordTarget(ATLAS_V2_BUDGETS["in-depth"])).toBe(2100);
+	});
+
+	it("sits below the ceiling the post-cap enforces", () => {
+		for (const budget of Object.values(ATLAS_V2_BUDGETS)) {
+			expect(bodyWordTarget(budget)).toBeLessThan(bodyWordBudget(budget));
+			expect(bodyWordTarget(budget)).toBeGreaterThan(0);
+		}
+	});
+});
+
+describe("atlasV2SectionWriterBudget", () => {
+	it("splits the midpoint target over the sections the plan produced", () => {
+		const three = atlasV2SectionWriterBudget({
+			budget: ATLAS_V2_BUDGETS.overview,
+			sectionCount: 3,
+		});
+		expect(three.targetWords).toBe(250);
+		expect(three.minSentences).toBeLessThan(three.maxSentences);
+		// Three sections at the target land inside the 700-1,100 band, which is
+		// what the second evaluation's 219-464 word reports did not.
+		expect(three.targetWords * 3).toBeGreaterThanOrEqual(
+			ATLAS_V2_BUDGETS.overview.minWords - 100,
+		);
+	});
+
+	it("asks a five-section in-depth plan for the whole band", () => {
+		const five = atlasV2SectionWriterBudget({
+			budget: ATLAS_V2_BUDGETS["in-depth"],
+			sectionCount: 5,
+		});
+		expect(five.targetWords).toBe(420);
+		expect(five.targetWords * 5).toBeGreaterThanOrEqual(
+			ATLAS_V2_BUDGETS["in-depth"].minWords,
+		);
+		expect(five.maxSentences).toBeLessThanOrEqual(
+			ATLAS_V2_BUDGETS["in-depth"].maxSentencesPerSection,
+		);
+	});
+
+	it("never asks for more words than its own sentence cap can hold", () => {
+		for (const budget of Object.values(ATLAS_V2_BUDGETS)) {
+			for (const sectionCount of [1, 2, 3, 5, 8, 10]) {
+				const section = atlasV2SectionWriterBudget({ budget, sectionCount });
+				expect(section.maxSentences * 25).toBeGreaterThanOrEqual(
+					section.targetWords,
+				);
+				expect(section.minSentences).toBeLessThanOrEqual(section.maxSentences);
+				expect(section.minSentences).toBeGreaterThanOrEqual(3);
+			}
+		}
+	});
+});
+
 describe("capAtlasV2SectionsToWordBudget", () => {
 	it("leaves a report inside its budget untouched", () => {
 		const sections = [section("s1", [sentence(TEN, [1]), sentence(TEN, [2])])];
@@ -83,6 +143,16 @@ describe("capAtlasV2SectionsToWordBudget", () => {
 		expect(result.sections).toBe(sections);
 		expect(result.droppedSentenceCount).toBe(0);
 		expect(result.wordCount).toBe(20);
+	});
+
+	it("does not trim a report that is merely SHORT", () => {
+		const sections = [section("s1", [sentence(TEN, [1])])];
+		const result = capAtlasV2SectionsToWordBudget({
+			sections,
+			maxWords: 950,
+		});
+		expect(result.sections).toBe(sections);
+		expect(result.droppedSentenceCount).toBe(0);
 	});
 
 	it("drops uncited sentences before cited ones", () => {
@@ -129,6 +199,24 @@ describe("capAtlasV2SectionsToWordBudget", () => {
 				.flat()
 				.map((entry) => entry.text.split(" ")[0]),
 		).toEqual(["first", "third", "fourth"]);
+	});
+
+	it("keeps an early cited sentence rather than a later short one", () => {
+		// The old cap selected forward and skipped anything that did not fit, so a
+		// long cited sentence could be dropped in favour of a short later one.
+		const sections = [
+			section("s1", [
+				sentence(`lead ${TEN}`, [1]),
+				sentence(`long ${TEN} ${TEN}`, [2]),
+				sentence("short tail", [3]),
+			]),
+		];
+		const result = capAtlasV2SectionsToWordBudget({ sections, maxWords: 32 });
+		expect(
+			result.sections[0].paragraphs
+				.flat()
+				.map((entry) => entry.text.split(" ")[0]),
+		).toEqual(["lead", "long"]);
 	});
 
 	it("recomputes which sources the trimmed report still cites", () => {

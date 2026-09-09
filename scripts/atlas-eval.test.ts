@@ -407,7 +407,7 @@ describe("repeatedFactCount", () => {
 				"",
 				"The outlook reports 65.1 GW for 2025 and 65.6 GW for 2024. [1]ᶜ",
 			].join("\n"),
-			evidence: null,
+			evidence: undefined,
 		});
 		expect(metrics.repeatedFactCount).toBe(1);
 	});

@@ -18,10 +18,56 @@
 import { extractFigures, isCheckableFigure } from "./number-match";
 import type { AtlasV2VerifiedSection, AtlasV2VerifiedSentence } from "./types";
 
-/** Share of the shorter sentence's content words the two must share. */
+/**
+ * Share of the shorter sentence's content words the two must share. Two
+ * sentences repeating a whole set of quantities need less prose overlap to be
+ * the same fact than two sharing a single figure, which is often coincidence.
+ */
 const MIN_CONTENT_OVERLAP = 0.5;
+const MIN_CONTENT_OVERLAP_MULTI_FIGURE = 0.35;
 /** Below this many content words a sentence is too short to judge. */
 const MIN_CONTENT_WORDS = 3;
+
+/**
+ * Words that carry no subject matter. Kept short on purpose: this is a novelty
+ * heuristic, not a language model, and every word here is one the two sentences
+ * can no longer be judged by.
+ */
+const FUNCTION_WORDS = new Set([
+	"about",
+	"also",
+	"been",
+	"down",
+	"from",
+	"have",
+	"into",
+	"more",
+	"most",
+	"over",
+	"than",
+	"that",
+	"their",
+	"then",
+	"there",
+	"these",
+	"this",
+	"those",
+	"were",
+	"which",
+	"with",
+	"amely",
+	"azonban",
+	"hogy",
+	"illetve",
+	"lesz",
+	"mint",
+	"volt",
+	"deze",
+	"heeft",
+	"maar",
+	"voor",
+	"werd",
+]);
 
 function normalisedText(text: string): string {
 	return text
@@ -35,7 +81,7 @@ function contentWords(text: string): Set<string> {
 	return new Set(
 		normalisedText(text)
 			.split(" ")
-			.filter((word) => word.length > 3),
+			.filter((word) => word.length > 3 && !FUNCTION_WORDS.has(word)),
 	);
 }
 
@@ -84,7 +130,11 @@ export function isAtlasV2RepeatedFact(later: string, earlier: string): boolean {
 	) {
 		return false;
 	}
-	return overlapShare(laterWords, earlierWords) >= MIN_CONTENT_OVERLAP;
+	const required =
+		laterFigures.size >= 2
+			? MIN_CONTENT_OVERLAP_MULTI_FIGURE
+			: MIN_CONTENT_OVERLAP;
+	return overlapShare(laterWords, earlierWords) >= required;
 }
 
 export interface AtlasV2NoveltyResult {

@@ -16,7 +16,16 @@ export const ATLAS_V2_DEFAULT_STALE_MONTHS = 18;
 
 /** Claims per batched entailment call, and the writer's section concurrency. */
 export const ATLAS_V2_DEFAULT_ENTAILMENT_BATCH = 10;
-export const ATLAS_V2_DEFAULT_WRITER_CONCURRENCY = 3;
+/**
+ * Sections written at once. Five, so a five-section in-depth plan is written in
+ * ONE wave: the second evaluation spent 631s of summed writer time per report
+ * at three, which is two waves and roughly twice the wall time of one.
+ *
+ * NOTE: `ATLAS_V2_WRITER_CONCURRENCY` in env.ts still defaults to 3 and wins
+ * over this constant, so a deployment wanting the one-wave behaviour must set
+ * that env var (or the admin-config knob) to 5.
+ */
+export const ATLAS_V2_DEFAULT_WRITER_CONCURRENCY = 5;
 /**
  * A question with this many indexed sources is never re-researched, whatever
  * the coverage model says: the third round on an already-answered question was
