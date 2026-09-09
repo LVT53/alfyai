@@ -355,6 +355,16 @@ async function executeAtlasV2Job(input: {
 				throw new Error("Atlas job is no longer running.");
 			}
 		},
+		applyGeneratedTitle: async ({ jobId, title }) => {
+			const updated = await applyAtlasGeneratedTitle({
+				jobId,
+				workerId: input.workerId,
+				title,
+			});
+			if (!updated) {
+				throw new Error("Atlas job is no longer running.");
+			}
+		},
 	});
 	const completedJob = await completeAtlasJob({
 		jobId: claimed.job.id,

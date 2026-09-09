@@ -29,6 +29,11 @@ export interface RunAtlasV2PipelineForClaimedJobInput {
 		progressPercent: number;
 		progressDetails?: unknown;
 	}) => Promise<void>;
+	/** Stores the plan's title on the job row so the job card shows it too. */
+	applyGeneratedTitle?: (input: {
+		jobId: string;
+		title: string;
+	}) => Promise<void>;
 }
 
 /**
@@ -127,6 +132,7 @@ export async function runAtlasV2PipelineForClaimedJob(
 			}),
 			runPython: runAtlasV2Calculation,
 			heartbeat: input.heartbeat,
+			applyGeneratedTitle: input.applyGeneratedTitle,
 			writeCheckpoint: (checkpoint) => writeAtlasRoundCheckpoint(checkpoint),
 			loadCheckpoints: async (jobId) => {
 				const checkpoints = await listAtlasRoundCheckpoints(jobId);
