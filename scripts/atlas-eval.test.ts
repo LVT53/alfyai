@@ -11,6 +11,7 @@ import {
 	numbersIn,
 	repeatedFactCount,
 	reportBody,
+	sectionsCell,
 } from "./atlas-eval";
 
 const QUERIES = JSON.parse(
@@ -516,5 +517,29 @@ describe("coreAnswerPresent", () => {
 				},
 			}),
 		).toBeNull();
+	});
+});
+
+describe("sectionsCell", () => {
+	const base = computeMetrics({ markdown: null, evidence: undefined });
+
+	it("shows sections written against sections planned", () => {
+		expect(sectionsCell({ ...base, sectionCount: 5, sectionsPlanned: 5 })).toBe(
+			"5 / 5",
+		);
+	});
+
+	// The collapse the third evaluation shipped: a six-section plan reported as
+	// a one-section report, and nothing in the table said the five were LOST.
+	it("marks a report that lost sections the plan asked for", () => {
+		expect(sectionsCell({ ...base, sectionCount: 1, sectionsPlanned: 6 })).toBe(
+			"**1 / 6**",
+		);
+	});
+
+	it("falls back to the heading count when the job reported no plan", () => {
+		expect(
+			sectionsCell({ ...base, sectionCount: 4, sectionsPlanned: null }),
+		).toBe("4");
 	});
 });

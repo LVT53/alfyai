@@ -94,6 +94,8 @@ interface AtlasJobCardLike {
 			sourcesRead?: number;
 			/** Per-phase wall time, present from the write phase onwards on v2. */
 			phaseDurationsMs?: Record<string, number>;
+			/** Sections written against sections planned, v2 from the writer on. */
+			sections?: { written: number; planned: number };
 			evidence?: {
 				corroborated: number;
 				single: number;
@@ -171,6 +173,12 @@ interface Metrics {
 	/** Sentences whose figure set repeats an earlier sentence's. */
 	repeatedFactCount: number;
 	sectionCount: number;
+	/**
+	 * Sections the plan asked for, when the job reported it. A report with fewer
+	 * headings than the plan promised lost sections in the writer, which is a
+	 * defect the word count alone reads as "a bit short".
+	 */
+	sectionsPlanned: number | null;
 	/** Did the report answer the question that was asked? Null when unchecked. */
 	coreAnswerPresent: boolean | null;
 	/** Disagreement lines in Limitations; the pipeline caps these at 3. */
@@ -596,6 +604,8 @@ function sentencesOf(text: string): string[] {
 }
 
 function computeMetrics(input: {
+	/** Sections the plan asked for, from the job's own progress card. */
+	sectionsPlanned?: number | null;
 	markdown: string | null;
 	/** Omitted only by the empty-result path. */
 	query?: EvalQuery;
@@ -629,6 +639,7 @@ function computeMetrics(input: {
 		wordBudgetOk: false,
 		repeatedFactCount: 0,
 		sectionCount: 0,
+		sectionsPlanned: null,
 		coreAnswerPresent: null,
 		contradictionLineCount: 0,
 	};
@@ -720,6 +731,7 @@ function computeMetrics(input: {
 		wordBudgetOk: budget.ok,
 		repeatedFactCount: repeatedFactCount(body),
 		sectionCount: countHeadings(input.markdown),
+		sectionsPlanned: input.sectionsPlanned ?? null,
 		coreAnswerPresent: input.query
 			? coreAnswerPresent({ markdown: input.markdown, query: input.query })
 			: null,
@@ -859,6 +871,7 @@ async function runQuery(input: {
 			markdown,
 			query,
 			evidence: card.progress?.details?.evidence,
+			sectionsPlanned: card.progress?.details?.sections?.planned ?? null,
 		}),
 	};
 }
@@ -870,6 +883,16 @@ function sleep(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
+
+/**
+ * "5 / 5", or bolded when the report has fewer sections than the plan asked
+ * for. Falls back to the heading count alone on v1, which reports no plan.
+ */
+function sectionsCell(metrics: Metrics): string {
+	if (metrics.sectionsPlanned === null) return String(metrics.sectionCount);
+	const cell = `${metrics.sectionCount} / ${metrics.sectionsPlanned}`;
+	return metrics.sectionCount < metrics.sectionsPlanned ? `**${cell}**` : cell;
+}
 
 function percent(value: number | null): string {
 	return value === null ? "n/a" : `${(value * 100).toFixed(0)}%`;
@@ -905,7 +928,7 @@ function buildMarkdownReport(results: QueryResult[]): string {
 					? "yes"
 					: "**NO**";
 		lines.push(
-			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${metrics.sectionCount} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
+			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${sectionsCell(metrics)} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
 		);
 	}
 
@@ -949,6 +972,13 @@ function buildMarkdownReport(results: QueryResult[]): string {
 				(sum, entry) => sum + entry.metrics.repeatedFactCount,
 				0,
 			)}`,
+			`  - reports missing a section the plan asked for: ${
+				succeeded.filter(
+					(entry) =>
+						entry.metrics.sectionsPlanned !== null &&
+						entry.metrics.sectionCount < entry.metrics.sectionsPlanned,
+				).length
+			}/${succeeded.length}`,
 			checkedCore.length > 0
 				? `  - answered the core question: ${answered}/${checkedCore.length}`
 				: "  - answered the core question: not checked (no `coreAnswerRegex` in the query file)",
@@ -993,9 +1023,20 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			lines.push(`**Phase durations:** ${durations}`, "");
 		}
 		lines.push(
-			`**Length:** ${result.metrics.wordCount} words against the ${result.query.profile} budget — ${result.metrics.wordBudget}; ${result.metrics.sectionCount} sections.`,
+			`**Length:** ${result.metrics.wordCount} words against the ${result.query.profile} budget — ${result.metrics.wordBudget}; ${sectionsCell(result.metrics)} sections written/planned.`,
 			"",
 		);
+		if (
+			result.metrics.sectionsPlanned !== null &&
+			result.metrics.sectionCount < result.metrics.sectionsPlanned
+		) {
+			lines.push(
+				`> **The report is missing ${result.metrics.sectionsPlanned - result.metrics.sectionCount} of the ${result.metrics.sectionsPlanned} sections the plan asked for.**`,
+				"> A section the writer could not produce is logged with its reason by",
+				"> the pipeline; a short report here is a lost section, not a terse one.",
+				"",
+			);
+		}
 		if (result.metrics.repeatedFactCount > 0) {
 			lines.push(
 				`**Repeated facts:** ${result.metrics.repeatedFactCount} sentence(s) restate a figure set an earlier sentence already carried.`,
@@ -1185,6 +1226,7 @@ export {
 	numbersIn,
 	repeatedFactCount,
 	reportBody,
+	sectionsCell,
 	WORD_BUDGETS,
 };
 
