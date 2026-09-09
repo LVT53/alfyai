@@ -298,7 +298,11 @@ export function orderSectionsByRelevance<
 		.map((entry) => entry.section);
 }
 
-export const ATLAS_V2_MAX_TITLE_CHARS = 70;
+/**
+ * Report-title budget. Named apart from progress.ts's `ATLAS_V2_MAX_TITLE_CHARS`
+ * (160), which bounds a SOURCE title on the job row rather than the report's.
+ */
+export const ATLAS_V2_MAX_REPORT_TITLE_CHARS = 70;
 
 /** Words a truncated title must not end on; see `deterministicAtlasV2Title`. */
 const TITLE_TRAILING_WORDS = new Set([
@@ -360,8 +364,8 @@ export function normalizeAtlasV2PlanTitle(value: unknown): string | null {
 	if (/^(untitled|title|report|atlas report|jelentés)$/i.test(stripped)) {
 		return null;
 	}
-	return stripped.length > ATLAS_V2_MAX_TITLE_CHARS
-		? truncateTitleAtWordBoundary(stripped, ATLAS_V2_MAX_TITLE_CHARS)
+	return stripped.length > ATLAS_V2_MAX_REPORT_TITLE_CHARS
+		? truncateTitleAtWordBoundary(stripped, ATLAS_V2_MAX_REPORT_TITLE_CHARS)
 		: stripped;
 }
 
@@ -372,7 +376,7 @@ export function normalizeAtlasV2PlanTitle(value: unknown): string | null {
  */
 export function deterministicAtlasV2Title(
 	query: string,
-	maxChars = ATLAS_V2_MAX_TITLE_CHARS,
+	maxChars = ATLAS_V2_MAX_REPORT_TITLE_CHARS,
 ): string {
 	const normalized = query
 		.replace(/\s+/g, " ")

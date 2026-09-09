@@ -81,6 +81,7 @@ import {
 import {
 	ATLAS_V2_ENTAILMENT_BATCH_SYSTEM,
 	ATLAS_V2_ENTAILMENT_SYSTEM,
+	type AtlasV2EntailmentRequest,
 	buildAtlasV2EntailmentBatchPrompt,
 	buildAtlasV2EntailmentPrompt,
 	checkAtlasV2CoreAnswer,
@@ -134,7 +135,10 @@ export interface RunAtlasV2PipelineInput {
 		runControlModel: AtlasV2ModelCall;
 		/** Sections, executive summary and rewrites: the synthesis model. */
 		runWriterModel: AtlasV2ModelCall;
-		/** Entailment checks: the audit model, one claim per call. */
+		/**
+		 * Entailment checks: the audit model, batched at
+		 * `ATLAS_V2_ENTAILMENT_BATCH` claims per call with a one-claim fallback.
+		 */
 		runAuditModel?: AtlasV2ModelCall;
 		/** Arithmetic, through the same sandbox run_python uses. */
 		runPython?: (input: {
@@ -700,12 +704,7 @@ export async function runAtlasV2Pipeline(
 				sourceNumber,
 				sourceTitle,
 				sourceText,
-			}: {
-				claim: string;
-				sourceNumber: number;
-				sourceTitle: string;
-				sourceText: string;
-			}) => {
+			}: AtlasV2EntailmentRequest) => {
 				const call = await deps.runAuditModel?.({
 					stage: `entail:${sourceNumber}`,
 					system: ATLAS_V2_ENTAILMENT_SYSTEM,
@@ -723,24 +722,11 @@ export async function runAtlasV2Pipeline(
 	// Batched: up to `entailmentBatchSize` claims per call, with the one-claim
 	// path above as the fallback whenever the array answer does not parse.
 	const checkEntailmentBatch = deps.runAuditModel
-		? async (
-				items: Array<{
-					claim: string;
-					sourceTitle: string;
-					sourceText: string;
-				}>,
-			) => {
+		? async (items: AtlasV2EntailmentRequest[]) => {
 				const call = await deps.runAuditModel?.({
 					stage: `entail:batch:${items.length}`,
 					system: ATLAS_V2_ENTAILMENT_BATCH_SYSTEM,
-					prompt: buildAtlasV2EntailmentBatchPrompt({
-						items: items.map((item) => ({
-							claim: item.claim,
-							sourceNumber: 0,
-							sourceTitle: item.sourceTitle,
-							sourceText: item.sourceText,
-						})),
-					}),
+					prompt: buildAtlasV2EntailmentBatchPrompt({ items }),
 				});
 				if (!call) return null;
 				usage = addUsage(usage, call.usage);
