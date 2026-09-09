@@ -3,6 +3,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	computeMetrics,
+	coreAnswerPresent,
+	describeWordBudget,
+	executiveSummarySection,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
@@ -22,6 +25,8 @@ const QUERIES = JSON.parse(
 		language: string;
 		query: string;
 		expectations: string[];
+		coreAnswerRegex?: string;
+		coreAnswerKeywords?: string[];
 	}>;
 };
 
@@ -49,14 +54,39 @@ describe("atlas-eval-queries.json", () => {
 			expect(new Set(QUERIES.queries.map((entry) => entry.id)).size).toBe(10);
 		}
 	});
+
+	it("states what answering the core question looks like, as a valid regex", () => {
+		for (const query of QUERIES.queries) {
+			expect(query.coreAnswerRegex).toBeTruthy();
+			expect(() => new RegExp(query.coreAnswerRegex ?? "", "i")).not.toThrow();
+		}
+	});
 });
 
 describe("numbersIn", () => {
-	it("skips citation markers and confidence keys", () => {
+	it("skips citation markers, confidence keys and the year", () => {
 		expect(numbersIn("Capacity reached 8,000 MW in 2026. [3]ᶜ")).toEqual([
 			"8,000",
-			"2026",
 		]);
+	});
+
+	it("skips a spelled date rather than reading numbers out of it", () => {
+		expect(numbersIn("The laptop shipped on January 21, 2026.")).toEqual([]);
+		expect(numbersIn("Published on 2026-03-14 by the agency.")).toEqual([]);
+	});
+
+	it("skips model and version tokens", () => {
+		expect(numbersIn("The Dell XPS 13 9343 runs GPT-5.6.")).toEqual([]);
+	});
+
+	it("skips an ordinal", () => {
+		expect(numbersIn("France took 3rd place.")).toEqual([]);
+	});
+
+	it("still reads a real quantity in the same sentence", () => {
+		expect(
+			numbersIn("In 2024 the union added 62.8 GW, up from 3rd place."),
+		).toEqual(["62.8"]);
 	});
 });
 
@@ -247,5 +277,181 @@ describe("computeMetrics", () => {
 		expect(metrics.citationDensity).toBe(0);
 		expect(metrics.citationResolutionRate).toBeNull();
 		expect(metrics.sourceCount).toBe(0);
+	});
+
+	it("names the closest figure the cited source states", () => {
+		const metrics = computeMetrics({
+			markdown: [
+				"## Capacity",
+				"",
+				"The union added 8,412 MW of solar capacity. [1]ˢ",
+			].join("\n"),
+			evidence,
+		});
+		expect(metrics.unmatchedNumberNotes[0]).toContain("closest in the cited");
+	});
+
+	it("counts the sections and the Limitations disagreement lines", () => {
+		const metrics = computeMetrics({
+			markdown: [
+				"# EU solar capacity",
+				"",
+				"## Executive summary",
+				"",
+				"The union added 8 GW. [1]ᶜ",
+				"",
+				"## Capacity added",
+				"",
+				"Body text. [1]ˢ",
+				"",
+				"## Rules and queues",
+				"",
+				"More body text. [2]ˢ",
+				"",
+				"## Limitations",
+				"",
+				'- Sources disagree on "additions": [1] says the figure is 8 GW, [2] says it is 6 GW.',
+				'- Sources disagree on "capacity": [1] says the figure is 9 GW, [2] says it is 7 GW.',
+				"- One sentence was removed because no cited source supported it.",
+				"",
+				"## Sources",
+				"",
+				"- [Solar market update](https://iea.org/a)",
+			].join("\n"),
+			evidence,
+		});
+		expect(metrics.sectionCount).toBe(2);
+		expect(metrics.contradictionLineCount).toBe(2);
+	});
+});
+
+describe("describeWordBudget", () => {
+	it("reports ok inside the profile band", () => {
+		expect(describeWordBudget(900, "overview")).toEqual({
+			label: "ok",
+			ok: true,
+		});
+	});
+
+	it("reports how far over or under the band a report landed", () => {
+		expect(describeWordBudget(33_212, "in-depth")).toEqual({
+			label: "over by 30412",
+			ok: false,
+		});
+		expect(describeWordBudget(430, "overview")).toEqual({
+			label: "under by 270",
+			ok: false,
+		});
+	});
+
+	it("uses each profile's own band", () => {
+		expect(describeWordBudget(4000, "exhaustive").ok).toBe(true);
+		expect(describeWordBudget(4000, "in-depth").ok).toBe(false);
+	});
+});
+
+describe("executiveSummarySection", () => {
+	it("returns just the summary, not the rest of the report", () => {
+		const summary = executiveSummarySection(
+			[
+				"# Title",
+				"",
+				"## Executive summary",
+				"",
+				"The union added 65.1 GW in 2025. [1]ᶜ",
+				"",
+				"## Capacity added",
+				"",
+				"Germany led the member states. [2]ˢ",
+			].join("\n"),
+		);
+		expect(summary).toContain("65.1 GW");
+		expect(summary).not.toContain("Germany");
+	});
+
+	it("is empty when the report has no summary", () => {
+		expect(executiveSummarySection("# Title\n\nJust prose.")).toBe("");
+	});
+});
+
+describe("coreAnswerPresent", () => {
+	const query = {
+		id: "energy-statistics",
+		kind: "energy statistics",
+		profile: "overview" as const,
+		language: "en",
+		query: "How much solar PV did the EU add in 2025?",
+		expectations: [],
+		coreAnswerRegex: "\\d{2,3}(?:[.,]\\d+)?\\s?(?:GW|gigawatt)",
+		coreAnswerKeywords: ["2025", "2024"],
+	};
+
+	it("is true when the summary carries the answer", () => {
+		expect(
+			coreAnswerPresent({
+				markdown: [
+					"## Executive summary",
+					"",
+					"The EU added 65.1 GW in 2025, down from 70 GW in 2024. [1]ᶜ",
+				].join("\n"),
+				query,
+			}),
+		).toBe(true);
+	});
+
+	it("is false when the summary answers a different question", () => {
+		expect(
+			coreAnswerPresent({
+				markdown: [
+					"## Executive summary",
+					"",
+					"The evidence points to Germany as the leading member state. [1]ⁱ",
+					"",
+					"## Year-on-year comparison",
+					"",
+					"France overtook Italy. [2]ˢ",
+				].join("\n"),
+				query,
+			}),
+		).toBe(false);
+	});
+
+	it("accepts an answer buried in the body rather than the summary", () => {
+		expect(
+			coreAnswerPresent({
+				markdown: [
+					"## Executive summary",
+					"",
+					"This report reviews the union's solar build-out. [1]ⁱ",
+					"",
+					"## Capacity added",
+					"",
+					"The EU added 65.1 GW in 2025, against 70 GW in 2024. [1]ᶜ",
+				].join("\n"),
+				query,
+			}),
+		).toBe(true);
+	});
+
+	it("is null when the query states no expected answer", () => {
+		expect(
+			coreAnswerPresent({
+				markdown: "## Executive summary\n\nAnything at all.",
+				query: { ...query, coreAnswerRegex: undefined, coreAnswerKeywords: [] },
+			}),
+		).toBeNull();
+	});
+
+	it("is null rather than false when the expectation is a bad regex", () => {
+		expect(
+			coreAnswerPresent({
+				markdown: "## Executive summary\n\nAnything at all.",
+				query: {
+					...query,
+					coreAnswerRegex: "([unclosed",
+					coreAnswerKeywords: [],
+				},
+			}),
+		).toBeNull();
 	});
 });

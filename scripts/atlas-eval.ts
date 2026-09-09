@@ -47,7 +47,29 @@ interface EvalQuery {
 	language: string;
 	query: string;
 	expectations: string[];
+	/**
+	 * What "the report answered the question that was asked" looks like for this
+	 * query, as a regular expression the executive summary must match. Checked
+	 * against the summary first and the whole body second, so a report that
+	 * answers the question late still counts as answering it — badly.
+	 */
+	coreAnswerRegex?: string;
+	/** Alternative to the regex: every keyword must appear. */
+	coreAnswerKeywords?: string[];
 }
+
+/**
+ * The word budget per profile. Duplicated from
+ * `src/lib/server/services/atlas-v2/budget.ts` ON PURPOSE: this harness checks
+ * the server's claim with a second pair of eyes and must not import the
+ * server's own constants to do it.
+ */
+const WORD_BUDGETS: Record<EvalQuery["profile"], { min: number; max: number }> =
+	{
+		overview: { min: 700, max: 1100 },
+		"in-depth": { min: 1800, max: 2800 },
+		exhaustive: { min: 3500, max: 5500 },
+	};
 
 interface EvidenceSource {
 	n: number;
@@ -70,6 +92,8 @@ interface AtlasJobCardLike {
 			pipelineVersion?: number;
 			phase?: string;
 			sourcesRead?: number;
+			/** Per-phase wall time, present from the write phase onwards on v2. */
+			phaseDurationsMs?: Record<string, number>;
 			evidence?: {
 				corroborated: number;
 				single: number;
@@ -110,6 +134,8 @@ interface QueryResult {
 	usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 	markdown: string | null;
 	metrics: Metrics;
+	/** Per-phase wall time the job reported, when it reported any. */
+	phaseDurationsMs: Record<string, number> | null;
 }
 
 interface Metrics {
@@ -136,6 +162,14 @@ interface Metrics {
 	junkSourceNotes: string[];
 	/** Sentences whose figure the cited snippet did not carry. */
 	unmatchedNumberNotes: string[];
+	/** Words against the profile budget: "ok", "over by n" or "under by n". */
+	wordBudget: string;
+	wordBudgetOk: boolean;
+	sectionCount: number;
+	/** Did the report answer the question that was asked? Null when unchecked. */
+	coreAnswerPresent: boolean | null;
+	/** Disagreement lines in Limitations; the pipeline caps these at 3. */
+	contradictionLineCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +266,44 @@ const CONFIDENCE_MARKS = { corroborated: "ᶜ", single: "ˢ", inferred: "ⁱ" };
  * the same matcher. It covers separators, unit spacing, the SI power ladder
  * and scale words — the cases the report actually turns on.
  */
+/**
+ * Runs of digits that are NOT quantities, and so must not be checked against a
+ * source: full dates, bare years, ordinals, and model/version tokens. The first
+ * live evaluation reported "2025", "21, 2026" (out of "January 21, 2026"),
+ * "13 9343" (a Dell model number) and "GPT-5.6" as figures the source did not
+ * carry, which is a false positive every time.
+ */
+const NON_QUANTITY_PATTERNS: RegExp[] = [
+	// ISO and numeric dates.
+	/\b\d{4}-\d{2}-\d{2}\b/g,
+	/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/g,
+	/\b\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/g,
+	// Spelled dates, in the report languages.
+	/\b\d{1,2}\.?\s(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|január|február|március|április|május|június|július|augusztus|szeptember|október|januari|februari|maart|mei|juni|juli|augustus|oktober)[\p{L}]*\.?,?(?:\s\d{4})?/giu,
+	/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|január|február|március|április|május|június|július|augusztus|szeptember|október|januari|februari|maart|mei|juni|juli|augustus|oktober)[\p{L}]*\.?\s\d{1,2}(?:st|nd|rd|th)?,?(?:\s\d{4})?/giu,
+	// Model, version and part numbers.
+	/\b[\p{L}][\p{L}]*-\d+(?:\.\d+)*\b/giu,
+	/\b[\p{L}][\p{L}]*\d+(?:\.\d+)*\b/giu,
+	/\b\d{1,4}\s\d{4,}\b/g,
+	// Ordinals.
+	/\b\d{1,3}(?:st|nd|rd|th)\b/gi,
+	// Bare years.
+	/\b(?:1[89]\d{2}|20\d{2}|21\d{2})\b/g,
+];
+
+/** Blanks out every non-quantity run, so only quantities are left to check. */
+function maskNonQuantities(text: string): string {
+	let masked = text;
+	for (const pattern of NON_QUANTITY_PATTERNS) {
+		masked = masked.replace(pattern, (match) => " ".repeat(match.length));
+	}
+	return masked;
+}
+
 function numbersIn(text: string): string[] {
-	const stripped = text.replace(CITATION_PATTERN, " ").replace(/[ᶜˢⁱ]/g, " ");
+	const stripped = maskNonQuantities(
+		text.replace(CITATION_PATTERN, " ").replace(/[ᶜˢⁱ]/g, " "),
+	);
 	return [
 		...new Set(
 			[...stripped.matchAll(/\d[\d.,\u00a0\u202f ]*\d|\d/g)].map((match) =>
@@ -375,6 +445,81 @@ function reportBody(markdown: string): string {
 		.join("\n");
 }
 
+/** The executive-summary section of the report, or "" when there is none. */
+function executiveSummarySection(markdown: string): string {
+	const match =
+		/\n#{1,3}\s*(?:Executive summary|Vezetői összefoglaló)\b([\s\S]*?)(?=\n#{1,3}\s|$)/i.exec(
+			markdown,
+		);
+	return match ? match[1].trim() : "";
+}
+
+/** The Limitations bullet list, for counting disagreement lines. */
+function limitationsSection(markdown: string): string {
+	const match =
+		/\n#{1,3}\s*(?:Limitations|Korlátok)\b([\s\S]*?)(?=\n#{1,3}\s|$)/i.exec(
+			markdown,
+		);
+	return match ? match[1].trim() : "";
+}
+
+/** Body sections, not counting the summary, Limitations or Sources chrome. */
+function countHeadings(markdown: string): number {
+	return [...markdown.matchAll(/^#{2,3}[ \t]+(.+)$/gm)].filter(
+		(match) =>
+			!/^(executive summary|vezetői összefoglaló|limitations|korlátok|sources|források)/i.test(
+				match[1].trim(),
+			),
+	).length;
+}
+
+/**
+ * Did the report answer the question that was asked? Checked against the
+ * executive summary first, since that is where the answer belongs, then the
+ * whole body — a report that buries the answer still counts as having it.
+ */
+function coreAnswerPresent(input: {
+	markdown: string;
+	query: EvalQuery;
+}): boolean | null {
+	const patterns: RegExp[] = [];
+	if (input.query.coreAnswerRegex) {
+		try {
+			patterns.push(new RegExp(input.query.coreAnswerRegex, "i"));
+		} catch {
+			// A malformed expectation is a harness bug, not a report failure.
+			return null;
+		}
+	}
+	for (const keyword of input.query.coreAnswerKeywords ?? []) {
+		patterns.push(
+			new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+		);
+	}
+	if (patterns.length === 0) return null;
+	const summary = executiveSummarySection(input.markdown);
+	const body = reportBody(input.markdown);
+	return (
+		patterns.every((pattern) => pattern.test(summary)) ||
+		patterns.every((pattern) => pattern.test(body))
+	);
+}
+
+/** "ok", or how far outside the profile band the report landed. */
+function describeWordBudget(
+	wordCount: number,
+	profile: EvalQuery["profile"],
+): { label: string; ok: boolean } {
+	const band = WORD_BUDGETS[profile];
+	if (wordCount > band.max) {
+		return { label: `over by ${wordCount - band.max}`, ok: false };
+	}
+	if (wordCount < band.min) {
+		return { label: `under by ${band.min - wordCount}`, ok: false };
+	}
+	return { label: "ok", ok: true };
+}
+
 function sentencesOf(text: string): string[] {
 	return text
 		.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÖŐÚÜŰ0-9])/)
@@ -384,6 +529,8 @@ function sentencesOf(text: string): string[] {
 
 function computeMetrics(input: {
 	markdown: string | null;
+	/** Omitted only by the empty-result path. */
+	query?: EvalQuery;
 	evidence: AtlasJobCardLike["progress"] extends never
 		? never
 		: NonNullable<
@@ -410,6 +557,11 @@ function computeMetrics(input: {
 		junkSourceCount: 0,
 		junkSourceNotes: [],
 		unmatchedNumberNotes: [],
+		wordBudget: "n/a",
+		wordBudgetOk: false,
+		sectionCount: 0,
+		coreAnswerPresent: null,
+		contradictionLineCount: 0,
 	};
 	if (!input.markdown) return empty;
 
@@ -446,8 +598,11 @@ function computeMetrics(input: {
 				if (numberAppearsIn(number, haystack)) {
 					numbersMatched += 1;
 				} else {
+					const closest = closestNumberIn(number, haystack);
 					unmatchedNumberNotes.push(
-						`"${number}" in: ${sentence.slice(0, 180)}`,
+						closest
+							? `"${number}" (closest in the cited source: "${closest}") in: ${sentence.slice(0, 180)}`
+							: `"${number}" in: ${sentence.slice(0, 180)}`,
 					);
 				}
 			}
@@ -459,6 +614,16 @@ function computeMetrics(input: {
 	const inferred = input.evidence?.inferred ?? 0;
 	const claimTotal = corroborated + single + inferred;
 	const notes = junkSourceNotes(sources);
+	const budget = input.query
+		? describeWordBudget(wordCount, input.query.profile)
+		: { label: "n/a", ok: false };
+	const contradictionLineCount = limitationsSection(input.markdown)
+		.split("\n")
+		.filter((line) =>
+			/^[-*]\s.*(?:sources disagree|a források nem egyeznek)/i.test(
+				line.trim(),
+			),
+		).length;
 
 	return {
 		wordCount,
@@ -482,7 +647,30 @@ function computeMetrics(input: {
 		junkSourceCount: notes.length,
 		junkSourceNotes: notes,
 		unmatchedNumberNotes: unmatchedNumberNotes.slice(0, 12),
+		wordBudget: budget.label,
+		wordBudgetOk: budget.ok,
+		sectionCount: countHeadings(input.markdown),
+		coreAnswerPresent: input.query
+			? coreAnswerPresent({ markdown: input.markdown, query: input.query })
+			: null,
+		contradictionLineCount,
 	};
+}
+
+/** The nearest number the cited source states, for the mismatch note. */
+function closestNumberIn(raw: string, haystack: string): string | null {
+	const target = numericValue(raw);
+	if (target === null) return null;
+	let best: { text: string; distance: number } | null = null;
+	for (const candidate of numbersIn(haystack)) {
+		const value = numericValue(candidate);
+		if (value === null) continue;
+		const distance = Math.abs(value - target);
+		if (!best || distance < best.distance) {
+			best = { text: candidate, distance };
+		}
+	}
+	return best?.text ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +752,7 @@ async function runQuery(input: {
 			wallMs,
 			usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
 			markdown: null,
+			phaseDurationsMs: null,
 			metrics: computeMetrics({ markdown: null, evidence: undefined }),
 		};
 	}
@@ -590,8 +779,10 @@ async function runQuery(input: {
 			totalTokens: card.usage?.totalTokens ?? 0,
 		},
 		markdown,
+		phaseDurationsMs: card.progress?.details?.phaseDurationsMs ?? null,
 		metrics: computeMetrics({
 			markdown,
+			query,
 			evidence: card.progress?.details?.evidence,
 		}),
 	};
@@ -625,15 +816,21 @@ function buildMarkdownReport(results: QueryResult[]): string {
 		"",
 		"## Comparison",
 		"",
-		"| Query | Kind | Pipeline | Status | Wall | Tokens in/out | Words | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Cut | Sources (cited) | Filtered | Junk |",
-		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+		"| Query | Kind | Pipeline | Profile | Status | Wall | Tokens in/out | Words | Budget | Sections | Core answer | Citations | Cites/100w | Resolved | Numbers matched | Corroborated | Cut | Disagreements | Sources (cited) | Filtered | Junk |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 	];
 
 	for (const result of results) {
 		const metrics = result.metrics;
 		const applies = result.pipeline === "v2";
+		const coreAnswer =
+			metrics.coreAnswerPresent === null
+				? "n/a"
+				: metrics.coreAnswerPresent
+					? "yes"
+					: "**NO**";
 		lines.push(
-			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
+			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? "ok" : `**${metrics.wordBudget}**`} | ${metrics.sectionCount} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
 		);
 	}
 
@@ -661,8 +858,21 @@ function buildMarkdownReport(results: QueryResult[]): string {
 					0,
 				) / succeeded.length
 			: 0;
+		const inBudget = succeeded.filter(
+			(entry) => entry.metrics.wordBudgetOk,
+		).length;
+		const checkedCore = succeeded.filter(
+			(entry) => entry.metrics.coreAnswerPresent !== null,
+		);
+		const answered = checkedCore.filter(
+			(entry) => entry.metrics.coreAnswerPresent === true,
+		).length;
 		lines.push(
 			`- **${pipeline}**: ${succeeded.length}/${bucket.length} succeeded · ${minutes(totalWall)} total · ${totalTokens} tokens · ${density.toFixed(1)} citations per 100 words · ${junk} junk sources`,
+			`  - words inside the profile budget: ${inBudget}/${succeeded.length}`,
+			checkedCore.length > 0
+				? `  - answered the core question: ${answered}/${checkedCore.length}`
+				: "  - answered the core question: not checked (no `coreAnswerRegex` in the query file)",
 		);
 	}
 
@@ -696,6 +906,24 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			lines.push(`- [ ] ${expectation}`);
 		}
 		lines.push("");
+		if (result.phaseDurationsMs) {
+			const durations = Object.entries(result.phaseDurationsMs)
+				.sort(([, left], [, right]) => right - left)
+				.map(([phase, ms]) => `${phase} ${(ms / 1000).toFixed(0)}s`)
+				.join(" · ");
+			lines.push(`**Phase durations:** ${durations}`, "");
+		}
+		lines.push(
+			`**Length:** ${result.metrics.wordCount} words against the ${result.query.profile} budget (${WORD_BUDGETS[result.query.profile].min}-${WORD_BUDGETS[result.query.profile].max}) — ${result.metrics.wordBudget}; ${result.metrics.sectionCount} sections.`,
+			"",
+		);
+		if (result.metrics.coreAnswerPresent === false) {
+			lines.push(
+				"> **The report did not answer the core question.** The executive",
+				"> summary matched none of this query's expected-answer patterns.",
+				"",
+			);
+		}
 		if (result.metrics.unmatchedNumberNotes.length > 0) {
 			lines.push("**Numbers the cited source text did not carry:**", "");
 			for (const note of result.metrics.unmatchedNumberNotes) {
@@ -804,6 +1032,7 @@ async function main(): Promise<void> {
 							wallMs: 0,
 							usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
 							markdown: null,
+							phaseDurationsMs: null,
 							metrics: computeMetrics({
 								markdown: null,
 								evidence: undefined,
@@ -863,10 +1092,14 @@ export {
 	buildMarkdownReport,
 	CONFIDENCE_MARKS,
 	computeMetrics,
+	coreAnswerPresent,
+	describeWordBudget,
+	executiveSummarySection,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
 	reportBody,
+	WORD_BUDGETS,
 };
 
 const invokedDirectly = process.argv[1]?.endsWith("atlas-eval.ts");

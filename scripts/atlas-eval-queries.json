@@ -1,5 +1,5 @@
 {
-	"$comment": "Atlas evaluation queries (ADR 0062). Each `expectations` entry is HAND-CHECKABLE: run the eval, open the produced Markdown, and confirm each line yourself. The script does not grade expectations — it measures citation resolution, number matching, corroboration, junk sources and citation density, and prints the expectations next to them for the manual false-claim pass.",
+	"$comment": "Atlas evaluation queries (ADR 0062). Each `expectations` entry is HAND-CHECKABLE: run the eval, open the produced Markdown, and confirm each line yourself. `coreAnswerRegex` and `coreAnswerKeywords` are what the harness DOES grade: the executive summary must match every one of them, or the run is reported as not having answered the question that was asked. Everything else the script measures is citation resolution, number matching, corroboration, junk sources, citation density, length against the profile word budget, and per-phase durations.",
 	"queries": [
 		{
 			"id": "energy-statistics",
@@ -12,7 +12,9 @@
 				"Gives the 2024 comparison figure with a citation.",
 				"The two figures come from the same series (both additions, not one additions and one cumulative).",
 				"If SolarPower Europe and the IEA disagree, both figures appear in one sentence with both citations."
-			]
+			],
+			"coreAnswerRegex": "\\d{2,3}(?:[.,]\\d+)?\\s?(?:GW|gigawatt)",
+			"coreAnswerKeywords": ["2025", "2024"]
 		},
 		{
 			"id": "product-comparison",
@@ -25,7 +27,9 @@
 				"Repairability claims cite a teardown, a manufacturer page or iFixit rather than a review's impression.",
 				"The report does not present a vendor marketing claim as an independent finding.",
 				"No stock photography appears anywhere."
-			]
+			],
+			"coreAnswerRegex": "(?:Framework[\\s\\S]*XPS|XPS[\\s\\S]*Framework)",
+			"coreAnswerKeywords": ["Framework", "XPS"]
 		},
 		{
 			"id": "policy-question",
@@ -37,7 +41,9 @@
 				"Names the specific articles or chapters, cited.",
 				"Gives the application dates, cited, and distinguishes entry into force from applicability.",
 				"Cites the Official Journal text or the Commission rather than only law-firm summaries."
-			]
+			],
+			"coreAnswerRegex": "general-purpose|GPAI",
+			"coreAnswerKeywords": ["2025"]
 		},
 		{
 			"id": "medical-guideline",
@@ -50,7 +56,9 @@
 				"States the first-line recommendation, cited to NICE itself.",
 				"Says the guideline's date and flags it in Limitations if older than the stale window.",
 				"Does not give individual medical advice."
-			]
+			],
+			"coreAnswerRegex": "metformin",
+			"coreAnswerKeywords": ["NICE"]
 		},
 		{
 			"id": "hungarian-query",
@@ -64,7 +72,9 @@
 				"Gives the change against 2025, cited.",
 				"Cites a Hungarian primary source (Magyar Közlöny, KSH or a ministry) rather than only news aggregation.",
 				"The Hungarian decimal comma in a source is matched, not reported as a mismatch."
-			]
+			],
+			"coreAnswerRegex": "\\d{2,3}[\\s .,]?\\d{3}\\s?(?:Ft|forint|HUF)",
+			"coreAnswerKeywords": ["2026"]
 		},
 		{
 			"id": "local-irish-topic",
@@ -76,7 +86,9 @@
 				"Gives the fee with a citation to Cork City Council or the statutory instrument.",
 				"Gives the statutory decision period, cited.",
 				"Distinguishes the statutory period from the observed average, if it gives both."
-			]
+			],
+			"coreAnswerRegex": "(?:€\\s?\\d|\\d+\\s?(?:weeks?|days?|months?))",
+			"coreAnswerKeywords": ["Cork"]
 		},
 		{
 			"id": "dutch-topic",
@@ -88,7 +100,9 @@
 				"States the current percentage and the duration, cited.",
 				"Describes the recent change with its effective date, cited to Belastingdienst or the government.",
 				"Does not present a pre-change rule as current."
-			]
+			],
+			"coreAnswerRegex": "30\\s?%|30 percent",
+			"coreAnswerKeywords": ["2026"]
 		},
 		{
 			"id": "historical-timeline",
@@ -101,7 +115,9 @@
 				"Dates are internally consistent and in order.",
 				"Casualty figures, if given, are attributed to a specific body rather than stated flatly.",
 				"Older sources are expected here and should NOT dominate Limitations as staleness."
-			]
+			],
+			"coreAnswerRegex": "(?:2[56]\\s+April|April\\s+2[56])",
+			"coreAnswerKeywords": ["1986"]
 		},
 		{
 			"id": "fast-moving-tech",
@@ -114,7 +130,8 @@
 				"The report says as-of when.",
 				"It does not mix a deprecated model's price with a current one.",
 				"Where two sources disagree on a price, both appear with both citations."
-			]
+			],
+			"coreAnswerRegex": "(?:\\d{2,3}(?:,\\d{3})?\\s?[kK]\\b|\\d{1,3}(?:,\\d{3})+\\s?token|context window)"
 		},
 		{
 			"id": "thin-niche-topic",
@@ -127,7 +144,8 @@
 				"Limitations names the questions no usable evidence answered.",
 				"Any population claim is cited; no invented trend figure appears.",
 				"A short report here is the correct outcome."
-			]
+			],
+			"coreAnswerRegex": "Geomalacus|Kerry slug"
 		}
 	]
 }
