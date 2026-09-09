@@ -623,7 +623,7 @@ function readConfig(): Config {
 		),
 		atlasV2WriterConcurrency: parsePositiveIntegerEnv(
 			process.env.ATLAS_V2_WRITER_CONCURRENCY,
-			3,
+			5,
 			1,
 		),
 		webPushVapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "",
