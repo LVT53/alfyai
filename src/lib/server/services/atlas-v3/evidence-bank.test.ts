@@ -498,6 +498,192 @@ describe("addAtlasV3Claim, loose identity", () => {
 		expect(state.claims[0].period).toBe("2026");
 		expect(state.claims[0].asOf).toBe("2026-05");
 	});
+
+	it("counts the loose merges it made", () => {
+		const { state, first, second } = repairabilityBank();
+		expect(state.claimsMerged).toBe(0);
+		addAtlasV3Claim(state, c1([first]));
+		addAtlasV3Claim(state, c2([second]));
+		expect(state.claimsMerged).toBe(1);
+		// A strict-key merge is not a loose one.
+		addAtlasV3Claim(state, c1([first]));
+		expect(state.claimsMerged).toBe(1);
+	});
+});
+
+/** The staging bank of 164 claims: same fact, two publishers, no merge. */
+describe("addAtlasV3Claim, the twins the staging bank kept apart", () => {
+	function modelBank() {
+		const state = createAtlasV3Bank();
+		const xalen = addAtlasV3Source(state, {
+			url: "https://xalen.io/models/gpt-4-1",
+			title: "GPT-4.1 in production",
+			publishedAt: "2026-05-01",
+		});
+		const pages = addAtlasV3Source(state, {
+			url: "https://someone.github.io/llm-prices",
+			title: "LLM price and context table",
+			publishedAt: "2026-06-01",
+		});
+		const first = addAtlasV3Quote(state, {
+			sourceId: xalen?.id ?? "",
+			text: "GPT-4.1 accepts a context window of 1M tokens.",
+			goal: "context windows",
+		});
+		const second = addAtlasV3Quote(state, {
+			sourceId: pages?.id ?? "",
+			text: "GPT-4.1 supports a maximum context window of 1M tokens.",
+			goal: "context windows",
+		});
+		return { state, first: first?.id ?? "", second: second?.id ?? "" };
+	}
+
+	it("merges one context window read at two resolutions of period", () => {
+		const { state, first, second } = modelBank();
+		addAtlasV3Claim(state, {
+			entity: "GPT-4.1",
+			metric: "context window length",
+			value: "1M tokens",
+			unit: null,
+			period: "May 2026",
+			asOf: null,
+			series: "max context length",
+			evidenceIds: [first],
+		});
+		const merged = addAtlasV3Claim(state, {
+			entity: "GPT-4.1",
+			metric: "maximum supported context window length",
+			value: "1M tokens",
+			unit: null,
+			period: "2026",
+			asOf: null,
+			series: "max context window",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(1);
+		expect(merged?.status).toBe("verified");
+		expect(state.claimsMerged).toBe(1);
+	});
+
+	it("merges across a series label only one publisher uses", () => {
+		const { state, first, second } = modelBank();
+		addAtlasV3Claim(state, {
+			entity: "Gemini 2.5 Pro",
+			metric: "context window",
+			value: "2M tokens",
+			unit: null,
+			period: "May 2026",
+			asOf: null,
+			series: "max context length",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			entity: "Gemini 2.5 Pro",
+			metric: "maximum context window",
+			value: "2M tokens",
+			unit: null,
+			period: "2026",
+			asOf: null,
+			series: "max context window (beta)",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(1);
+	});
+
+	it("reads a parenthesised model year as the same product", () => {
+		const { state, first, second } = modelBank();
+		addAtlasV3Claim(state, {
+			entity: "Dell XPS 13 (2026)",
+			metric: "list price",
+			value: "699",
+			unit: "USD",
+			period: null,
+			asOf: null,
+			series: null,
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			entity: "Dell XPS 13",
+			metric: "list price",
+			value: "699",
+			unit: "USD",
+			period: null,
+			asOf: null,
+			series: "retail price",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(1);
+	});
+
+	it("still refuses a smaller sibling of the same family", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "context window length",
+			value: "1M tokens",
+			unit: null,
+			period: "2026",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "GPT-4.1",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "GPT-4.1 Mini",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+		expect(state.claimsMerged).toBe(0);
+	});
+
+	it("still refuses two model years of one product", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "list price",
+			value: "699",
+			unit: "USD",
+			period: null,
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Dell XPS 13 (2025)",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Dell XPS 13 (2026)",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+	});
+
+	it("still refuses two different periods that are not one year", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			entity: "GPT-4.1",
+			metric: "context window length",
+			value: "1M tokens",
+			unit: null,
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			period: "May 2026",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			period: "June 2026",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+	});
 });
 
 describe("atlasV3NormalizeWords", () => {

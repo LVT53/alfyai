@@ -452,6 +452,8 @@ export interface AtlasV3QualityDiagnostics {
 	claimCount: number;
 	verifiedClaimCount: number;
 	contestedClaimCount: number;
+	/** Readings joined by the loose identity match, not by the strict key. */
+	claimsMerged: number;
 	answerTableCells: number;
 	derivedFigures: number;
 	criticRounds: number;

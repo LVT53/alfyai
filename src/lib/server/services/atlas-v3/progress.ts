@@ -409,6 +409,7 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 		claimCount: nonNegativeInteger(record.claimCount),
 		verifiedClaimCount: nonNegativeInteger(record.verifiedClaimCount),
 		contestedClaimCount: nonNegativeInteger(record.contestedClaimCount),
+		claimsMerged: nonNegativeInteger(record.claimsMerged),
 		answerTableCells: nonNegativeInteger(record.answerTableCells),
 		derivedFigures: nonNegativeInteger(record.derivedFigures),
 		criticRounds: nonNegativeInteger(record.criticRounds),

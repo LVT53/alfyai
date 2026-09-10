@@ -1148,6 +1148,7 @@ export async function runAtlasV3Pipeline(
 		claimCount: claimCounts.total,
 		verifiedClaimCount: claimCounts.verified,
 		contestedClaimCount: claimCounts.contested,
+		claimsMerged: state.claimsMerged,
 		answerTableCells: verifiedTable
 			? verifiedTable.rows.length * verifiedTable.columns.length
 			: 0,

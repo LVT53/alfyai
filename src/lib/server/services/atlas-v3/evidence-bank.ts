@@ -52,6 +52,12 @@ export const ATLAS_V3_MAX_CLAIMS_PER_READ = 8;
 export interface AtlasV3BankState extends AtlasV3EvidenceBank {
 	/** Next numeric suffix per id prefix. Not part of the durable shape. */
 	counters: { source: number; quote: number; claim: number };
+	/**
+	 * Readings joined by the LOOSE identity match rather than the strict key —
+	 * the corroboration the exact key could never see. Working state, so a
+	 * resumed job counts only what it merged itself.
+	 */
+	claimsMerged: number;
 	/** Canonical URL -> source id. */
 	sourceIdByUrl: Record<string, string>;
 	/** Article identity key -> source id, for CDN/staging duplicates. */
@@ -65,6 +71,7 @@ export function createAtlasV3Bank(): AtlasV3BankState {
 		claims: [],
 		filteredCount: 0,
 		counters: { source: 0, quote: 0, claim: 0 },
+		claimsMerged: 0,
 		sourceIdByUrl: {},
 		sourceIdByArticle: {},
 	};
@@ -321,21 +328,54 @@ export function atlasV3NormalizeField(value: string | null): string {
 	return atlasV3NormalizeWords(value).join(" ");
 }
 
+/**
+ * An entity without the qualifiers one reader adds and another omits: anything
+ * in parentheses, and a trailing model year. "Dell XPS 13 (2026)" and "Dell XPS
+ * 13" are one laptop.
+ *
+ * The test stays EQUALITY, never containment: "GPT-4.1" and "GPT-4.1 Mini" are
+ * two models, and the whole loose match rests on the entity being the same
+ * thing. A year stripped from here is still read by `atlasV3ClaimYears`, so
+ * "Acme 2024" and "Acme 2025" do not become one entity with two figures.
+ */
+export function atlasV3NormalizeEntity(value: string | null): string {
+	const words = atlasV3NormalizeWords(
+		(value ?? "").replace(/\([^)]*\)/gu, " "),
+	);
+	while (words.length > 1 && /^(?:19|20)\d{2}$/.test(words[words.length - 1])) {
+		words.pop();
+	}
+	return words.join(" ");
+}
+
 function isSubset(inner: Set<string>, outer: Set<string>): boolean {
 	if (inner.size === 0) return false;
 	for (const word of inner) if (!outer.has(word)) return false;
 	return true;
 }
 
+/** `2026`, `1999` — a period written as nothing but a calendar year. */
+function isBareYear(words: readonly string[]): boolean {
+	return words.length === 1 && /^(?:19|20)\d{2}$/.test(words[0]);
+}
+
 /**
- * Equal, or one side missing. A null period matches any period — the read that
- * omitted it is not disagreeing about it.
+ * Equal, one side missing, or one side the BARE YEAR the other names. A null
+ * period matches any period — the read that omitted it is not disagreeing about
+ * it — and `2026` inside `May 2026`, `Q3 2026` or `2026-09` is the same period
+ * read at two resolutions. Two staging readings of one context window stayed
+ * separate claims for exactly this: `period:"May 2026"` against `period:"2026"`.
+ *
+ * Two DIFFERENT years still never meet: `yearsAgree` sees them and refuses.
  */
 function periodsAgree(left: string | null, right: string | null): boolean {
-	const leftKey = atlasV3NormalizeField(left);
-	const rightKey = atlasV3NormalizeField(right);
-	if (!leftKey || !rightKey) return true;
-	return leftKey === rightKey;
+	const leftWords = atlasV3NormalizeWords(left);
+	const rightWords = atlasV3NormalizeWords(right);
+	if (leftWords.length === 0 || rightWords.length === 0) return true;
+	if (leftWords.join(" ") === rightWords.join(" ")) return true;
+	if (isBareYear(leftWords)) return rightWords.includes(leftWords[0]);
+	if (isBareYear(rightWords)) return leftWords.includes(rightWords[0]);
+	return false;
 }
 
 /**
@@ -352,18 +392,28 @@ function wordsAgree(left: string | null, right: string | null): boolean {
 }
 
 /**
- * Years named anywhere in a claim's identity: its period, its metric or its
- * series. Readers write the year where they like — `{metric:"revenue 2024"}`
- * and `{metric:"revenue", period:"2025"}` are the same shape to `periodsAgree`,
- * whose null-matches-anything rule then merged a 2024 figure into a 2025 one
- * with the same value. The value is NOT scanned: "2 August 2025" is a date the
- * claim states, not the period it covers.
+ * Years named anywhere in a claim's identity: its period, its metric, its
+ * series or its entity. Readers write the year where they like —
+ * `{metric:"revenue 2024"}` and `{metric:"revenue", period:"2025"}` are the
+ * same shape to `periodsAgree`, whose null-matches-anything rule then merged a
+ * 2024 figure into a 2025 one with the same value. The ENTITY is scanned
+ * because the entity normalisation strips a trailing model year, and a year
+ * that has been stripped must still be able to refuse a merge. The value is not
+ * scanned: "2 August 2025" is a date the claim states, not the period it
+ * covers.
  */
 export function atlasV3ClaimYears(
-	claim: Pick<AtlasV3Claim, "metric" | "period" | "series">,
+	claim: Pick<AtlasV3Claim, "metric" | "period" | "series"> & {
+		entity?: string | null;
+	},
 ): Set<string> {
 	const years = new Set<string>();
-	for (const field of [claim.period, claim.metric, claim.series]) {
+	for (const field of [
+		claim.period,
+		claim.metric,
+		claim.series,
+		claim.entity ?? null,
+	]) {
 		for (const match of (field ?? "").matchAll(/\b(?:19|20)\d{2}\b/gu)) {
 			years.add(match[0]);
 		}
@@ -373,8 +423,8 @@ export function atlasV3ClaimYears(
 
 /** Equal, or one side naming no year at all. */
 function yearsAgree(
-	left: Pick<AtlasV3Claim, "metric" | "period" | "series">,
-	right: Pick<AtlasV3Claim, "metric" | "period" | "series">,
+	left: Parameters<typeof atlasV3ClaimYears>[0],
+	right: Parameters<typeof atlasV3ClaimYears>[0],
 ): boolean {
 	const leftYears = atlasV3ClaimYears(left);
 	const rightYears = atlasV3ClaimYears(right);
@@ -390,31 +440,27 @@ type AtlasV3ClaimIdentity = Pick<
 >;
 
 /**
- * Whether two claims are two readings of ONE measurement: same entity, same
- * value, compatible unit, period and series, the same years named anywhere in
- * their identity, and one metric's words CONTAINED in the other's metric plus
- * series.
- *
- * Containment, not overlap. A half-of-the-words rule merged
- * `{metric:"obligations start date"}` into `{metric:"enforcement start date"}`
- * — two words shared out of four, one date, two entirely different facts about
- * one regulation. Where each side carries a word the other has never heard of,
- * they are not the same measurement however much of the rest they share.
+ * Metric overlap above which two wordings name one measurement. Strictly
+ * above: `obligations start date` and `enforcement start date` share two words
+ * of four, and they are two facts about one regulation that happen to fall on
+ * one date. Exactly a half is where that pair sits, so exactly a half is not
+ * enough.
  */
-export function atlasV3ClaimsMergeLoosely(
+const ATLAS_V3_METRIC_OVERLAP = 0.5;
+
+/**
+ * Whether two metrics name one measurement: one side's words CONTAINED in the
+ * other's metric plus series — so a series that merely qualifies the metric
+ * still matches — or their metric words overlapping by more than half.
+ *
+ * Containment is what the staging pair needed: `context window length` is
+ * inside `maximum supported context window length`, and the two readings of
+ * GPT-4.1's 1M-token window never met without it.
+ */
+function metricsAgree(
 	left: AtlasV3ClaimIdentity,
 	right: AtlasV3ClaimIdentity,
 ): boolean {
-	if (
-		atlasV3NormalizeField(left.entity) !== atlasV3NormalizeField(right.entity)
-	) {
-		return false;
-	}
-	if (!sameValue(left.value, right.value)) return false;
-	if (!wordsAgree(left.unit, right.unit)) return false;
-	if (!periodsAgree(left.period, right.period)) return false;
-	if (!yearsAgree(left, right)) return false;
-	if (!wordsAgree(left.series, right.series)) return false;
 	const leftMetric = new Set(atlasV3NormalizeWords(left.metric));
 	const rightMetric = new Set(atlasV3NormalizeWords(right.metric));
 	const leftContext = new Set([
@@ -425,9 +471,47 @@ export function atlasV3ClaimsMergeLoosely(
 		...rightMetric,
 		...atlasV3NormalizeWords(right.series),
 	]);
-	return (
-		isSubset(leftMetric, rightContext) || isSubset(rightMetric, leftContext)
-	);
+	if (
+		isSubset(leftMetric, rightContext) ||
+		isSubset(rightMetric, leftContext)
+	) {
+		return true;
+	}
+	let shared = 0;
+	for (const word of leftMetric) if (rightMetric.has(word)) shared += 1;
+	const union = leftMetric.size + rightMetric.size - shared;
+	return union > 0 && shared / union > ATLAS_V3_METRIC_OVERLAP;
+}
+
+/**
+ * Whether two claims are two readings of ONE measurement: the same entity once
+ * its qualifiers are stripped, the same value, a compatible unit and period,
+ * the same years named anywhere in their identity, and metrics that name one
+ * measurement.
+ *
+ * The SERIES no longer has to agree. It is a label two publishers pick
+ * independently — `max context length` against `max context window (beta)` for
+ * one 2M-token window — and requiring it to match kept most twins apart in a
+ * bank of 164 claims. Series still decides CONTESTED, through the strict key,
+ * where a disagreement between two series would be invented rather than found.
+ *
+ * The loose match only ever joins EQUAL values, so nothing it does can create a
+ * disagreement.
+ */
+export function atlasV3ClaimsMergeLoosely(
+	left: AtlasV3ClaimIdentity,
+	right: AtlasV3ClaimIdentity,
+): boolean {
+	if (
+		atlasV3NormalizeEntity(left.entity) !== atlasV3NormalizeEntity(right.entity)
+	) {
+		return false;
+	}
+	if (!sameValue(left.value, right.value)) return false;
+	if (!wordsAgree(left.unit, right.unit)) return false;
+	if (!periodsAgree(left.period, right.period)) return false;
+	if (!yearsAgree(left, right)) return false;
+	return metricsAgree(left, right);
 }
 
 /**
@@ -466,13 +550,14 @@ export function addAtlasV3Claim(
 	// The strict key first, then the loose one. Both keep the EARLIER claim's id
 	// and fill its nulls from the newer reading, so a round-1 claim and its
 	// round-3 twin become one claim carrying both publishers.
+	const strict = state.claims.find(
+		(claim) => atlasV3ClaimKey(claim) === key && sameValue(claim.value, value),
+	);
 	const existing =
-		state.claims.find(
-			(claim) =>
-				atlasV3ClaimKey(claim) === key && sameValue(claim.value, value),
-		) ??
+		strict ??
 		state.claims.find((claim) => atlasV3ClaimsMergeLoosely(claim, candidate));
 	if (existing) {
+		if (!strict) state.claimsMerged += 1;
 		for (const id of evidenceIds) {
 			if (!existing.evidenceIds.includes(id)) existing.evidenceIds.push(id);
 		}
