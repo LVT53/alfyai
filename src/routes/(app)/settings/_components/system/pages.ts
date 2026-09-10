@@ -108,6 +108,12 @@ export function pageForKey(key: string): SystemPageId | undefined {
 	return SYSTEM_PAGE_BY_KEY[key];
 }
 
+/** How many keys a page actually renders — the navigator's plain count. */
+export function keyCountForPage(page: SystemPageId): number {
+	return Object.values(SYSTEM_PAGE_BY_KEY).filter((owner) => owner === page)
+		.length;
+}
+
 /** One row in the screen-wide search: a setting, a key, or a provider. */
 export interface SystemSearchItem {
 	id: string;

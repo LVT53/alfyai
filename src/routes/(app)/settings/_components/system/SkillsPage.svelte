@@ -1,5 +1,5 @@
 <script lang="ts">
-import { MoreVertical, Pencil, Plus } from "@lucide/svelte";
+import { Bolt, MoreVertical, Pencil, Plus } from "@lucide/svelte";
 import { slide } from "svelte/transition";
 import type { AdminSystemSkill } from "$lib/client/api/admin";
 import { t } from "$lib/i18n";
@@ -89,8 +89,13 @@ let menuSkillId = $state<string | null>(null);
 						checked={skill.enabled}
 						onchange={(next) => onToggleEnabled(skill, next)}
 					/>
-					<span class="sys-chip sys-chip-live">
-						{$t('admin.system.appliesImmediately')}
+					<span
+						class="sys-chip sys-chip-live"
+						title={$t('admin.system.appliesImmediately')}
+						aria-label={$t('admin.system.appliesImmediately')}
+						role="img"
+					>
+						<Bolt size={10} strokeWidth={2.5} aria-hidden="true" />
 					</span>
 
 					<button

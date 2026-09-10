@@ -5,6 +5,7 @@
 // row rather than a raw `fixed inset-0` overlay.
 import {
 	AlertTriangle,
+	Bolt,
 	ChevronDown,
 	ChevronUp,
 	MoreVertical,
@@ -36,6 +37,7 @@ let {
 	error = "",
 	message = "",
 	openProviderId = $bindable(""),
+	busyProviderId = "",
 	onAdd,
 	onEdit,
 	onDelete,
@@ -53,6 +55,8 @@ let {
 	message?: string;
 	/** Provider whose model drawer is open. */
 	openProviderId?: string;
+	/** Provider currently being deleted — its row's controls go inert. */
+	busyProviderId?: string;
 	onAdd: () => void;
 	onEdit: (provider: Provider) => void;
 	onDelete: (provider: Provider) => void;
@@ -183,8 +187,10 @@ function closeMenu() {
 				<div>
 					<div
 						class="sys-list-row"
+						class:sys-row-busy={busyProviderId === provider.id}
 						style={open ? 'border-radius: var(--radius-md) var(--radius-md) 0 0' : ''}
 						data-testid={`provider-row-${provider.id}`}
+						aria-busy={busyProviderId === provider.id}
 					>
 						<span
 							class="sys-dot"
@@ -261,14 +267,19 @@ function closeMenu() {
 							aria-label={$t('admin.system.providers.toggleA11y', {
 								provider: provider.displayName,
 							})}
-							disabled={togglingId === provider.id}
+							disabled={togglingId === provider.id || busyProviderId === provider.id}
 							data-testid={`provider-toggle-${provider.id}`}
 							onclick={() => handleToggle(provider)}
 						>
 							<span class="sys-toggle-thumb"></span>
 						</button>
-						<span class="sys-chip sys-chip-live" title={$t('admin.system.appliesImmediately')}>
-							{$t('admin.system.appliesImmediately')}
+						<span
+							class="sys-chip sys-chip-live"
+							title={$t('admin.system.appliesImmediately')}
+							aria-label={$t('admin.system.appliesImmediately')}
+							role="img"
+						>
+							<Bolt size={10} strokeWidth={2.5} aria-hidden="true" />
 						</span>
 
 						{#if onReorder}
@@ -305,6 +316,7 @@ function closeMenu() {
 								aria-label={$t('admin.system.providers.menu', {
 									provider: provider.displayName,
 								})}
+								disabled={busyProviderId === provider.id}
 								data-testid={`provider-menu-${provider.id}`}
 								onclick={() =>
 									(menuProviderId = menuProviderId === provider.id ? null : provider.id)}
