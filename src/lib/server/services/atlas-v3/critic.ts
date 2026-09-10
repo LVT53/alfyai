@@ -47,11 +47,66 @@ const REPEAT_SHARED_WORDS = 4;
 export const ATLAS_V3_MIN_SECTION_SENTENCES = 3;
 
 const STOPWORDS = new Set([
-	"the","a","an","of","in","on","at","to","for","and","or","but","is","are",
-	"was","were","be","been","has","have","had","that","this","these","those",
-	"it","its","by","with","as","from","than","which","also","more","most",
-	"a","az","és","hogy","nem","is","de","vagy","egy","ban","ben","ra","re",
-	"val","vel","ról","ről","volt","lesz","mint","már","még","csak","meg",
+	"the",
+	"a",
+	"an",
+	"of",
+	"in",
+	"on",
+	"at",
+	"to",
+	"for",
+	"and",
+	"or",
+	"but",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"has",
+	"have",
+	"had",
+	"that",
+	"this",
+	"these",
+	"those",
+	"it",
+	"its",
+	"by",
+	"with",
+	"as",
+	"from",
+	"than",
+	"which",
+	"also",
+	"more",
+	"most",
+	"a",
+	"az",
+	"és",
+	"hogy",
+	"nem",
+	"is",
+	"de",
+	"vagy",
+	"egy",
+	"ban",
+	"ben",
+	"ra",
+	"re",
+	"val",
+	"vel",
+	"ról",
+	"ről",
+	"volt",
+	"lesz",
+	"mint",
+	"már",
+	"még",
+	"csak",
+	"meg",
 ]);
 
 function contentWords(text: string): Set<string> {
@@ -150,7 +205,6 @@ export function findAtlasV3DeterministicFindings(
 	}
 
 	// -- unsupported figures -------------------------------------------------
-	const quotesById = new Map(input.bank.quotes.map((quote) => [quote.id, quote]));
 	for (const section of input.sections) {
 		for (const sentence of section.paragraphs.flat()) {
 			// A computed figure is checked against the sandbox in verify.ts; a
@@ -217,7 +271,7 @@ const CRITIC_BASE: Record<SupportedLanguage, string[]> = {
 		"missed_requirement: a bemenetben felsorolt kimondatlan elvárás sehol nem jelenik meg a jelentésben.",
 		"register: hivatali nyelv, tautológia, témamegjelölő nyitómondat, adatcímke jellegű szakaszcím, vagy dátum nélküli változékony szám.",
 		"A `quote` a kifogásolt mondat SZÓ SZERINT a jelentésből, vagy null, ha az egész jelentésre vonatkozik.",
-		'Az `instruction.kind` „rewrite”, ha a mondat a már hivatkozott bizonyítékból javítható; „cut”, ha semmit nem mond; „needs_evidence” rövid `query` mezővel, ha a javításhoz hiányzó tény kell.',
+		"Az `instruction.kind` „rewrite”, ha a mondat a már hivatkozott bizonyítékból javítható; „cut”, ha semmit nem mond; „needs_evidence” rövid `query` mezővel, ha a javításhoz hiányzó tény kell.",
 		"Csak azt jelentsd, amire rá tudsz mutatni. Legfeljebb 8 megállapítás. Ha a jelentés rendben van, üres listát adj.",
 		"Soha ne írd át a jelentést. Csak megállapítások.",
 	],
@@ -290,8 +344,9 @@ export function parseAtlasV3Findings(
 		const item = entry as Record<string, unknown>;
 		const code = parseCode(item.code);
 		if (!code) continue;
-		const instruction =
-			(item.instruction ?? {}) as Record<string, unknown> | undefined;
+		const instruction = (item.instruction ?? {}) as
+			| Record<string, unknown>
+			| undefined;
 		const kind = parseKind(instruction?.kind);
 		const query = clean(instruction?.query, 200);
 		findings.push({
@@ -364,7 +419,10 @@ export async function runAtlasV3Critic(
 				language: input.language,
 				hungarianStandardEnabled: input.hungarianStandardEnabled,
 			}),
-			prompt: buildAtlasV3CriticPrompt({ ...input, alreadyFound: deterministic }),
+			prompt: buildAtlasV3CriticPrompt({
+				...input,
+				alreadyFound: deterministic,
+			}),
 		});
 		input.onUsage?.(call.usage);
 		modelFindings = parseAtlasV3Findings(call.text, {

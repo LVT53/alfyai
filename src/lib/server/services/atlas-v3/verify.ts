@@ -17,14 +17,13 @@
 // over a 12,000-character page excerpt.
 
 import {
-	figureAppearsInText,
 	extractFigures,
+	figureAppearsInText,
 	isCheckableFigure,
 } from "../atlas-v2/number-match";
 import { atlasV3PublishersFor } from "./evidence-bank";
 import type {
 	AtlasV3AnswerTable,
-	AtlasV3Confidence,
 	AtlasV3EvidenceBank,
 	AtlasV3Sentence,
 	AtlasV3VerificationResult,
@@ -50,7 +49,9 @@ export interface VerifyAtlasV3ReportInput {
 export function verifyAtlasV3Report(
 	input: VerifyAtlasV3ReportInput,
 ): AtlasV3VerificationResult {
-	const quotesById = new Map(input.bank.quotes.map((quote) => [quote.id, quote]));
+	const quotesById = new Map(
+		input.bank.quotes.map((quote) => [quote.id, quote]),
+	);
 	const sourcesById = new Map(
 		input.bank.sources.map((source) => [source.id, source]),
 	);
@@ -219,7 +220,9 @@ export function verifyAtlasV3AnswerTable(input: {
 	bank: AtlasV3EvidenceBank;
 }): Array<{ column: string; text: string; detail: string }> {
 	if (!input.table) return [];
-	const quotesById = new Map(input.bank.quotes.map((quote) => [quote.id, quote]));
+	const quotesById = new Map(
+		input.bank.quotes.map((quote) => [quote.id, quote]),
+	);
 	const failures: Array<{ column: string; text: string; detail: string }> = [];
 	for (const row of input.table.rows) {
 		for (const column of input.table.columns.slice(1)) {
@@ -368,9 +371,7 @@ export function capAtlasV3ToWordBudget(input: {
 			.map((paragraph, paragraphIndex) =>
 				paragraph.filter(
 					(_sentence, sentenceIndex) =>
-						!dropped.has(
-							`${sectionIndex}:${paragraphIndex}:${sentenceIndex}`,
-						),
+						!dropped.has(`${sectionIndex}:${paragraphIndex}:${sentenceIndex}`),
 				),
 			)
 			.filter((paragraph) => paragraph.length > 0),

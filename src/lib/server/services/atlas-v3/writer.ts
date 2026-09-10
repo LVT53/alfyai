@@ -20,10 +20,10 @@ import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
 import { salvageTruncatedWriterJson } from "../atlas-v2/writer";
 import {
-	type AtlasV3SectionBudget,
 	ATLAS_V3_MAX_EVIDENCE_PER_SENTENCE,
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
 	ATLAS_V3_VERDICT_WINDOW_WORDS,
+	type AtlasV3SectionBudget,
 	atlasV3RunawayRetryMaxOutputTokens,
 	atlasV3SectionMaxOutputTokens,
 } from "./config";
@@ -66,9 +66,9 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"`kind` is `claim` for a fact a quote states, `synthesis` for a conclusion spanning several quotes, `adjudication` for a sentence that names two measurements and says which to believe.",
 		"A `synthesis` sentence MAY carry a figure — that is the point of it — but only a figure its own evidence ids state, or one from `answerTable.derived` named in `calcId`. Never compute a number yourself.",
 		"Every sentence that states a figure, a date, a name or a quantity carries at least one evidence id. At most 3 ids per sentence.",
-		"WRITE ACROSS SOURCES. \"Three trackers put the figure between X and Y; the outlier uses a different denominator\" beats one paragraph per source.",
+		'WRITE ACROSS SOURCES. "Three trackers put the figure between X and Y; the outlier uses a different denominator" beats one paragraph per source.',
 		"ADJUDICATE, DO NOT AVERAGE. When two quotes disagree, name the series or definition that differs and say which to believe, and why: methodology, recency, or proximity to the primary data. Two different measurements are not a disagreement.",
-		"DATE VOLATILE FIGURES INLINE, in one clause: \"65.1 GW (as of December 2025)\".",
+		'DATE VOLATILE FIGURES INLINE, in one clause: "65.1 GW (as of December 2025)".',
 		"DO NOT REPEAT what the sections already written have said. You are shown them. A fact stated once is stated.",
 		"NO HOLLOW SENTENCES. Every sentence carries a fact, a number, a comparison or a judgement. Never open with what the section is about.",
 		'Set "showAnswerTable" to true in AT MOST ONE section — the one whose argument the table IS. Leave it false everywhere else.',
@@ -229,7 +229,9 @@ export function parseAtlasV3Section(
 	const parsed = parseJsonFromText(text);
 	if (!parsed || typeof parsed !== "object") return null;
 	const record = parsed as Record<string, unknown>;
-	const rawParagraphs = Array.isArray(record.paragraphs) ? record.paragraphs : [];
+	const rawParagraphs = Array.isArray(record.paragraphs)
+		? record.paragraphs
+		: [];
 	const known = new Set(options.knownEvidenceIds);
 	const knownCalcs = new Set(options.knownCalcIds ?? []);
 	const paragraphs: AtlasV3Sentence[][] = [];
@@ -363,7 +365,12 @@ export function parseAtlasV3PlainTextSection(
 	const known = new Set(options.knownEvidenceIds);
 	const lines = text
 		.split(/\r?\n/)
-		.map((line) => line.trim().replace(/^(?:[-*•]|#{1,6}|\d+[.)])\s+/, "").trim())
+		.map((line) =>
+			line
+				.trim()
+				.replace(/^(?:[-*•]|#{1,6}|\d+[.)])\s+/, "")
+				.trim(),
+		)
 		.filter((line) => line.length > 0 && !/^(?:```|\{|\}|\[|\])/.test(line));
 	if (lines.length === 0) return null;
 	const usable = options.truncated ? lines.slice(0, -1) : lines;
@@ -435,7 +442,9 @@ export interface WriteAtlasV3ReportResult {
 export async function writeAtlasV3Report(
 	input: WriteAtlasV3ReportInput,
 ): Promise<WriteAtlasV3ReportResult> {
-	const quotesById = new Map(input.bank.quotes.map((quote) => [quote.id, quote]));
+	const quotesById = new Map(
+		input.bank.quotes.map((quote) => [quote.id, quote]),
+	);
 	const sourcesById = new Map(
 		input.bank.sources.map((source) => [source.id, source]),
 	);

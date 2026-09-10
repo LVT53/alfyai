@@ -9,6 +9,8 @@ import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
 import { resolveAtlasPipelineVersion } from "../atlas-v2/config";
 import { AtlasV2PipelineError } from "../atlas-v2/types";
 import { runAtlasV2PipelineForClaimedJob } from "../atlas-v2/worker-bindings";
+import { AtlasV3PipelineError } from "../atlas-v3/types";
+import { runAtlasV3PipelineForClaimedJob } from "../atlas-v3/worker-bindings";
 import {
 	buildAtlasLifecycleContext,
 	writeAtlasRoundCheckpoint,
@@ -119,6 +121,17 @@ export async function executeNextAtlasJob(
 		const pipelineVersion = resolveAtlasPipelineVersion({
 			stampedPipelineVersion: claimed.job.pipelineVersion,
 		});
+		if (pipelineVersion === 3) {
+			return await executeAtlasV3Job({
+				claimed,
+				workerId: input.workerId,
+				now,
+				query,
+				lifecycle,
+				synthesisModel: config.atlasSynthesisModel,
+				auditModel: auditModel.modelSelection,
+			});
+		}
 		if (pipelineVersion === 2) {
 			return await executeAtlasV2Job({
 				claimed,
@@ -286,10 +299,17 @@ export async function executeNextAtlasJob(
 		// v2 raises its own coded failures (ADR 0062); surface the code so the
 		// card says "no usable sources" rather than a generic pipeline failure.
 		const v2Error = error instanceof AtlasV2PipelineError ? error : null;
+		// ADR 0063 raises its own coded failures too — an empty verdict is a
+		// FAILED job on v3, not a report that silently ships without an opening.
+		const v3Error = error instanceof AtlasV3PipelineError ? error : null;
 		await failAtlasJob({
 			jobId: claimed.job.id,
 			workerId: input.workerId,
-			errorCode: qualityError?.code ?? v2Error?.code ?? "atlas_pipeline_failed",
+			errorCode:
+				qualityError?.code ??
+				v3Error?.code ??
+				v2Error?.code ??
+				"atlas_pipeline_failed",
 			errorMessage:
 				error instanceof Error ? error.message : "Atlas pipeline failed.",
 			retryable: true,
@@ -308,6 +328,120 @@ export async function executeNextAtlasJob(
 		});
 		return true;
 	}
+}
+
+/**
+ * Runs a v3 job (ADR 0063) and completes it through the SAME ledger calls v1
+ * and v2 use. The only v3-specific bookkeeping is the abstention flag reaching
+ * the completion log, so an operator can tell a report that answered from one
+ * that honestly could not.
+ */
+async function executeAtlasV3Job(input: {
+	claimed: ClaimedAtlasJob;
+	workerId: string;
+	now: Date;
+	query: string;
+	lifecycle: Awaited<ReturnType<typeof buildAtlasLifecycleContext>>;
+	synthesisModel: ModelId;
+	auditModel: ModelId;
+}): Promise<boolean> {
+	const { claimed } = input;
+	const result = await runAtlasV3PipelineForClaimedJob({
+		job: {
+			id: claimed.job.id,
+			userId: claimed.userId,
+			conversationId: claimed.job.conversationId,
+			assistantMessageId: claimed.job.assistantMessageId,
+			action: claimed.job.action,
+			parentAtlasJobId: claimed.job.parentAtlasJobId,
+			profile: claimed.job.profile,
+			title: claimed.job.title,
+			query: input.query,
+			lifecycle: input.lifecycle,
+		},
+		now: input.now,
+		synthesisModel: input.synthesisModel,
+		auditModel: input.auditModel,
+		heartbeat: async ({ stage, progressPercent, progressDetails }) => {
+			const alive = await heartbeatAtlasJob({
+				jobId: claimed.job.id,
+				workerId: input.workerId,
+				stage,
+				progressPercent,
+				progressDetails: progressDetails as Parameters<
+					typeof heartbeatAtlasJob
+				>[0]["progressDetails"],
+			});
+			if (!alive) {
+				throw new Error("Atlas job is no longer running.");
+			}
+		},
+		applyGeneratedTitle: async ({ jobId, title }) => {
+			const updated = await applyAtlasGeneratedTitle({
+				jobId,
+				workerId: input.workerId,
+				title,
+			});
+			if (!updated) {
+				throw new Error("Atlas job is no longer running.");
+			}
+		},
+	});
+	const completedJob = await completeAtlasJob({
+		jobId: claimed.job.id,
+		workerId: input.workerId,
+		stage: result.stage,
+		progressPercent: 100,
+		inputTokens: result.usage.inputTokens,
+		outputTokens: result.usage.outputTokens,
+		totalTokens: result.usage.totalTokens,
+		costUsdMicros: result.usage.costUsdMicros,
+		localSourceCount: result.sourceCounts.local,
+		webSourceCount: result.sourceCounts.web,
+		acceptedSourceCount: result.sourceCounts.accepted,
+		rejectedSourceCount: result.sourceCounts.rejected,
+		fileProductionJobId: result.outputs.fileProductionJobId,
+		htmlChatGeneratedFileId: result.outputs.htmlChatGeneratedFileId,
+		pdfChatGeneratedFileId: result.outputs.pdfChatGeneratedFileId,
+		markdownChatGeneratedFileId: result.outputs.markdownChatGeneratedFileId,
+		now: new Date(),
+	});
+	if (!completedJob) {
+		console.info("[ATLAS v3] Skipped completion for inactive job", {
+			jobId: claimed.job.id,
+			workerId: input.workerId,
+		});
+		return true;
+	}
+	await recordAtlasJobAnalytics({
+		userId: claimed.userId,
+		conversationId: claimed.job.conversationId,
+		atlasJobId: claimed.job.id,
+		assistantMessageId: claimed.job.assistantMessageId,
+		profile: claimed.job.profile,
+		inputTokens: result.usage.inputTokens,
+		outputTokens: result.usage.outputTokens,
+		totalTokens: result.usage.totalTokens,
+		costUsdMicros: result.usage.costUsdMicros,
+	}).catch((error) => {
+		console.warn("[ATLAS v3] Failed to record job analytics", {
+			jobId: claimed.job.id,
+			error,
+		});
+	});
+	void notifyAtlasCompletion({
+		userId: claimed.userId,
+		conversationId: claimed.job.conversationId,
+		jobId: claimed.job.id,
+		title: completedJob.title,
+	});
+	console.info("[ATLAS v3] Completed job", {
+		jobId: claimed.job.id,
+		workerId: input.workerId,
+		abstained: result.abstained,
+		diagnostics: result.diagnostics,
+	});
+	return true;
 }
 
 /**

@@ -1,0 +1,1011 @@
+// The Atlas v3 content pipeline (ADR 0063).
+//
+// Nine stages, each a durable checkpoint, each cancellable through the existing
+// heartbeat (the worker's heartbeat throws when the job is no longer running).
+// The job infrastructure below this module — ledger, claiming, heartbeats,
+// checkpoints, cancel, idempotent kickoff, lifecycle, analytics, file
+// production — is v1's, unchanged, and shared with v2.
+
+import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
+import { detectLanguage } from "$lib/server/services/language";
+import type { AtlasOutputIds } from "../atlas/renderer-output";
+import type { AtlasPipelineJobContext } from "../atlas/types";
+import {
+	type AtlasV3CalculationRunner,
+	atlasV3AnswerTableEvidenceIds,
+	buildAtlasV3Answer,
+} from "./answer-table";
+import {
+	ATLAS_V3_ASK_SYSTEM,
+	buildAtlasV3AskPrompt,
+	deterministicAtlasV3Title,
+	fallbackAtlasV3Ask,
+	parseAtlasV3Ask,
+} from "./ask";
+import {
+	ATLAS_V3_MAX_OUTPUT_TOKENS,
+	type AtlasV3ProfileConfig,
+	atlasV3BodyWordBudget,
+	atlasV3SectionBudget,
+	getAtlasV3CriticRounds,
+	getAtlasV3HungarianStandardEnabled,
+	getAtlasV3ProfileConfig,
+	getAtlasV3ResearcherConcurrency,
+	getAtlasV3StaleMonths,
+} from "./config";
+import {
+	applyAtlasV3Cuts,
+	atlasV3EvidenceQueries,
+	atlasV3RewriteNodeIds,
+	runAtlasV3Critic,
+} from "./critic";
+import {
+	type AtlasV3BankState,
+	capAtlasV3Bank,
+	createAtlasV3Bank,
+	freezeAtlasV3Bank,
+	thawAtlasV3Bank,
+} from "./evidence-bank";
+import { atlasV3GoalLimitations, runAtlasV3GoalTest } from "./goal";
+import { atlasV3NativeSourcesForRequest } from "./language-standard";
+import {
+	ATLAS_V3_ZERO_USAGE,
+	type AtlasV3ModelCalls,
+	addAtlasV3Usage,
+} from "./model-call";
+import {
+	atlasV3OutlineGaps,
+	reviseAtlasV3Outline,
+	trialWriteAtlasV3Nodes,
+} from "./outline";
+import {
+	ATLAS_V3_PHASE_PROGRESS,
+	atlasV3ClaimCounts,
+	buildAtlasV3ProgressDetails,
+	buildAtlasV3ProgressEvidence,
+} from "./progress";
+import { buildAtlasV3DocumentSource } from "./render";
+import type { AtlasV3ResearchWeb } from "./research-web-adapter";
+import { nextAtlasV3SubQuestions, runAtlasV3Round } from "./rounds";
+import {
+	ATLAS_V3_CHECKPOINT_SCHEMA_VERSION,
+	type AtlasV3AnswerTable,
+	type AtlasV3Ask,
+	type AtlasV3EvidenceBank,
+	type AtlasV3Limitation,
+	type AtlasV3Memo,
+	type AtlasV3Outline,
+	type AtlasV3Phase,
+	AtlasV3PipelineError,
+	type AtlasV3PipelineResult,
+	type AtlasV3ProgressEvidence,
+	type AtlasV3QualityDiagnostics,
+	type AtlasV3Sentence,
+	type AtlasV3Usage,
+	type AtlasV3VerifiedSection,
+	type AtlasV3VerifiedSentence,
+	type AtlasV3WrittenSection,
+} from "./types";
+import {
+	atlasV3WordCount,
+	capAtlasV3ToWordBudget,
+	pruneAtlasV3AnswerTable,
+	verifyAtlasV3AnswerTable,
+	verifyAtlasV3Report,
+} from "./verify";
+import { mergeAtlasV3Memos } from "./workspace";
+import {
+	atlasV3VerdictAnswersInWindow,
+	writeAtlasV3Report,
+	writeAtlasV3Verdict,
+} from "./writer";
+
+/** Checkpoint `roundNumber` per phase, so a resume can find the latest. */
+const CHECKPOINT_ROUND = {
+	ask: 1,
+	research: 10,
+	outline: 20,
+	answer: 21,
+	write: 22,
+	critic: 23,
+	verify: 24,
+	render: 25,
+} as const;
+
+export interface RunAtlasV3PipelineInput {
+	job: AtlasPipelineJobContext;
+	now?: Date;
+	dependencies: {
+		researchWeb: AtlasV3ResearchWeb;
+		/** One model call per task; see config.ts and worker-bindings.ts. */
+		models: AtlasV3ModelCalls;
+		/** Arithmetic, through the same sandbox `run_python` uses. */
+		runPython?: AtlasV3CalculationRunner;
+		heartbeat?: (input: {
+			stage: string;
+			progressPercent: number;
+			progressDetails?: unknown;
+		}) => Promise<void>;
+		writeCheckpoint: (input: {
+			jobId: string;
+			roundNumber: number;
+			stage: string;
+			checkpoint: unknown;
+			curatedSourcePool: unknown;
+			compressedFindings: unknown;
+			usage: AtlasV3Usage;
+			qualityDiagnostics: unknown;
+			documentSourceSummary: unknown;
+		}) => Promise<void>;
+		loadCheckpoints?: (
+			jobId: string,
+		) => Promise<Array<{ roundNumber: number; checkpoint: unknown }>>;
+		applyGeneratedTitle?: (input: {
+			jobId: string;
+			title: string;
+		}) => Promise<void>;
+		renderOutputs: (source: GeneratedDocumentSource) => Promise<AtlasOutputIds>;
+		setAssistantMessageContent?: (input: {
+			messageId: string;
+			content: string;
+		}) => Promise<void>;
+		researcherConcurrency?: number;
+		criticRounds?: number;
+		hungarianStandardEnabled?: boolean;
+		/** Test and eval overrides for the profile knobs. */
+		profileOverrides?: Partial<AtlasV3ProfileConfig>;
+	};
+}
+
+interface ResumeState {
+	ask?: AtlasV3Ask;
+	bank?: AtlasV3EvidenceBank;
+	memo?: AtlasV3Memo;
+	completedRounds?: number;
+	askedQuestions?: string[];
+	outline?: AtlasV3Outline;
+	answerTable?: AtlasV3AnswerTable | null;
+	sections?: AtlasV3WrittenSection[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Rebuilds what earlier phases produced from the durable checkpoints. Anything
+ * that does not parse is simply not resumed — the phase runs again, which is
+ * always correct and only ever costs time.
+ */
+export function readAtlasV3ResumeState(
+	checkpoints: Array<{ roundNumber: number; checkpoint: unknown }>,
+): ResumeState {
+	const state: ResumeState = {};
+	for (const entry of [...checkpoints].sort(
+		(left, right) => left.roundNumber - right.roundNumber,
+	)) {
+		if (!isRecord(entry.checkpoint)) continue;
+		if (entry.checkpoint.schema !== ATLAS_V3_CHECKPOINT_SCHEMA_VERSION)
+			continue;
+		const data = isRecord(entry.checkpoint.data) ? entry.checkpoint.data : {};
+		switch (entry.checkpoint.phase) {
+			case "ask":
+				if (isRecord(data.ask)) state.ask = data.ask as unknown as AtlasV3Ask;
+				break;
+			case "research":
+				if (isRecord(data.bank)) {
+					state.bank = data.bank as unknown as AtlasV3EvidenceBank;
+				}
+				if (isRecord(data.memo)) {
+					state.memo = data.memo as unknown as AtlasV3Memo;
+				}
+				if (typeof data.round === "number") state.completedRounds = data.round;
+				if (Array.isArray(data.asked)) {
+					state.askedQuestions = data.asked as string[];
+				}
+				break;
+			case "outline":
+				if (isRecord(data.outline)) {
+					state.outline = data.outline as unknown as AtlasV3Outline;
+				}
+				break;
+			case "answer":
+				state.answerTable = isRecord(data.answerTable)
+					? (data.answerTable as unknown as AtlasV3AnswerTable)
+					: null;
+				break;
+			case "write":
+				if (Array.isArray(data.sections)) {
+					state.sections = data.sections as AtlasV3WrittenSection[];
+				}
+				break;
+			default:
+				break;
+		}
+	}
+	return state;
+}
+
+function isoDate(now: Date): string {
+	return now.toISOString().slice(0, 10);
+}
+
+function safeNumber(read: () => number, fallback: number): number {
+	try {
+		return read();
+	} catch {
+		return fallback;
+	}
+}
+
+export async function runAtlasV3Pipeline(
+	input: RunAtlasV3PipelineInput,
+): Promise<AtlasV3PipelineResult> {
+	const now = input.now ?? new Date();
+	const { job, dependencies: deps } = input;
+	const language = detectLanguage(job.query);
+	const config = getAtlasV3ProfileConfig(job.profile, deps.profileOverrides);
+	const staleMonths = getAtlasV3StaleMonths();
+	const concurrency =
+		deps.researcherConcurrency ??
+		safeNumber(getAtlasV3ResearcherConcurrency, 3);
+	const criticRounds =
+		deps.criticRounds ?? safeNumber(getAtlasV3CriticRounds, 2);
+	const hungarianStandardEnabled =
+		deps.hungarianStandardEnabled ??
+		safeNumber(() => (getAtlasV3HungarianStandardEnabled() ? 1 : 0), 1) === 1;
+	const nativeSources = atlasV3NativeSourcesForRequest({
+		query: job.query,
+		language,
+	});
+	const preferredSources = nativeSources.flatMap((set) => [
+		...set.preferredNames,
+	]);
+
+	let usage = ATLAS_V3_ZERO_USAGE;
+	const onUsage = (next: AtlasV3Usage) => {
+		usage = addAtlasV3Usage(usage, next);
+	};
+	const phaseDurationsMs: Record<string, number> = {};
+	const timePhase = async <T>(
+		name: string,
+		run: () => Promise<T>,
+	): Promise<T> => {
+		const startedAt = Date.now();
+		try {
+			return await run();
+		} finally {
+			phaseDurationsMs[name] =
+				(phaseDurationsMs[name] ?? 0) + (Date.now() - startedAt);
+		}
+	};
+
+	const resume = deps.loadCheckpoints
+		? readAtlasV3ResumeState(await deps.loadCheckpoints(job.id))
+		: {};
+
+	let sourcesRead = 0;
+	let sectionCounts: { written: number; planned: number } | null = null;
+	let diagnostics: AtlasV3QualityDiagnostics | null = null;
+	let outline: AtlasV3Outline | null = resume.outline ?? null;
+	let subQuestionsInFlight: string[] = [];
+	const runningQuestions = new Set<string>();
+	const doneQuestions = new Set<string>();
+	let roundState = { current: 1, total: config.rounds };
+
+	const heartbeat = async (
+		phase: AtlasV3Phase,
+		extra?: { evidence?: AtlasV3ProgressEvidence },
+	): Promise<void> => {
+		await deps.heartbeat?.({
+			stage: phase,
+			progressPercent: ATLAS_V3_PHASE_PROGRESS[phase],
+			progressDetails: buildAtlasV3ProgressDetails({
+				phase,
+				language,
+				outline,
+				subQuestions: subQuestionsInFlight,
+				runningQuestions: [...runningQuestions],
+				doneQuestions: [...doneQuestions],
+				round: roundState,
+				sourcesRead,
+				phaseDurationsMs,
+				...(extra?.evidence ? { evidence: extra.evidence } : {}),
+				...(sectionCounts ? { sections: sectionCounts } : {}),
+				...(diagnostics ? { qualityDiagnostics: diagnostics } : {}),
+			}),
+		});
+	};
+
+	const checkpoint = async (
+		phase: AtlasV3Phase,
+		roundNumber: number,
+		data: unknown,
+		extras?: {
+			curatedSourcePool?: unknown;
+			compressedFindings?: unknown;
+			documentSourceSummary?: unknown;
+			qualityDiagnostics?: unknown;
+		},
+	): Promise<void> => {
+		await deps.writeCheckpoint({
+			jobId: job.id,
+			roundNumber,
+			stage: phase,
+			checkpoint: {
+				schema: ATLAS_V3_CHECKPOINT_SCHEMA_VERSION,
+				phase,
+				data,
+			},
+			curatedSourcePool: extras?.curatedSourcePool ?? [],
+			compressedFindings: extras?.compressedFindings ?? {},
+			usage,
+			qualityDiagnostics: extras?.qualityDiagnostics ?? {},
+			documentSourceSummary: extras?.documentSourceSummary ?? {},
+		});
+	};
+
+	// -- 1. Understand the ask ----------------------------------------------
+	await heartbeat("ask");
+	let ask = resume.ask ?? null;
+	if (!ask) {
+		ask = await timePhase("ask", async () => {
+			try {
+				const call = await deps.models.ask({
+					stage: "v3:ask",
+					thinkingMode: "off",
+					maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.ask,
+					system: ATLAS_V3_ASK_SYSTEM[language],
+					prompt: buildAtlasV3AskPrompt({
+						query: job.query,
+						profile: job.profile,
+						language,
+						currentDate: isoDate(now),
+						reviseInstruction: job.action === "revise" ? job.query : null,
+						preferredSources,
+					}),
+				});
+				onUsage(call.usage);
+				return (
+					parseAtlasV3Ask(call.text, { query: job.query, language }) ??
+					fallbackAtlasV3Ask({ query: job.query, language })
+				);
+			} catch {
+				return fallbackAtlasV3Ask({ query: job.query, language });
+			}
+		});
+		await checkpoint("ask", CHECKPOINT_ROUND.ask, { ask });
+	}
+	const resolvedAsk: AtlasV3Ask = ask;
+
+	// -- 2/3/4. Research rounds, living outline, goal test -------------------
+	const state: AtlasV3BankState = resume.bank
+		? thawAtlasV3Bank(resume.bank)
+		: createAtlasV3Bank();
+	let memo: AtlasV3Memo | null = resume.memo ?? null;
+	const asked: string[] = [...(resume.askedQuestions ?? [])];
+	let roundsRun = resume.completedRounds ?? 0;
+	let goal = null as ReturnType<typeof runAtlasV3GoalTest> | null;
+
+	const researchRound = async (
+		round: number,
+		subQuestions: string[],
+		previousMemo: AtlasV3Memo | null,
+	) => {
+		subQuestionsInFlight = subQuestions;
+		runningQuestions.clear();
+		for (const question of subQuestions) runningQuestions.add(question);
+		roundState = { current: round, total: config.rounds };
+		await heartbeat("research");
+		return timePhase("research", () =>
+			runAtlasV3Round({
+				round,
+				roundsTotal: config.rounds,
+				subQuestions,
+				coreQuestion: resolvedAsk.coreQuestion,
+				decision: resolvedAsk.decision,
+				language,
+				currentDate: isoDate(now),
+				state,
+				researchWeb: deps.researchWeb,
+				runResearcherModel: deps.models.researcher,
+				runMemoModel: deps.models.outline,
+				searchesPerStep: config.searchesPerStep,
+				pagesPerQuestion: config.pagesPerQuestion,
+				concurrency,
+				previousMemo,
+				nativeSources,
+				preferredSources,
+				alreadyTried: asked,
+				onUsage,
+				onQuestionDone: ({ subQuestion }) => {
+					runningQuestions.delete(subQuestion);
+					doneQuestions.add(subQuestion);
+				},
+				onPageRead: () => {
+					sourcesRead += 1;
+				},
+			}),
+		);
+	};
+
+	if (roundsRun === 0) {
+		// Exhaustive runs INDEPENDENT passes over the same bank and merges their
+		// memos before anything is outlined. Cheapest quality lever we have that
+		// needs no training; gated by profile because it multiplies the cost.
+		const passes: AtlasV3Memo[] = [];
+		for (let pass = 0; pass < config.researchPasses; pass += 1) {
+			const questions = resolvedAsk.subQuestions.slice(
+				0,
+				config.subQuestionsPerRound,
+			);
+			const result = await researchRound(1, questions, null);
+			asked.push(...result.queries);
+			passes.push(result.memo);
+		}
+		memo = mergeAtlasV3Memos(passes);
+		roundsRun = 1;
+		await checkpoint("research", CHECKPOINT_ROUND.research + 1, {
+			round: roundsRun,
+			bank: freezeAtlasV3Bank(state),
+			memo,
+			asked,
+		});
+	}
+
+	for (;;) {
+		const currentMemo: AtlasV3Memo = memo ?? {
+			answerSoFar: "",
+			claimIds: [],
+			openQuestions: resolvedAsk.subQuestions,
+			deadEnds: [],
+			budgetUsed: { searches: 0, pagesRead: 0, rounds: roundsRun },
+		};
+		await heartbeat("outline");
+		outline = await timePhase("outline", () =>
+			reviseAtlasV3Outline({
+				ask: resolvedAsk,
+				memo: currentMemo,
+				bank: freezeAtlasV3Bank(state),
+				language,
+				currentDate: isoDate(now),
+				round: roundsRun,
+				minSections: config.minSections,
+				maxSections: config.maxSections,
+				minEvidencePerNode: config.minEvidencePerNode,
+				previous: outline,
+				runModel: deps.models.outline,
+				onUsage,
+			}),
+		);
+		goal = runAtlasV3GoalTest({
+			memo: currentMemo,
+			outline,
+			bank: freezeAtlasV3Bank(state),
+			config,
+			roundsRun,
+		});
+		if (goal.passed || goal.exhausted) break;
+		const next = nextAtlasV3SubQuestions({
+			gaps: [...goal.gaps, ...atlasV3OutlineGaps(outline)],
+			memo: currentMemo,
+			asked,
+			limit: config.subQuestionsPerRound,
+		});
+		if (next.length === 0) break;
+		roundsRun += 1;
+		const result = await researchRound(roundsRun, next, currentMemo);
+		asked.push(...result.queries);
+		memo = result.memo;
+		await checkpoint("research", CHECKPOINT_ROUND.research + roundsRun, {
+			round: roundsRun,
+			bank: freezeAtlasV3Bank(state),
+			memo,
+			asked,
+		});
+	}
+
+	const resolvedMemo: AtlasV3Memo = memo ?? {
+		answerSoFar: "",
+		claimIds: [],
+		openQuestions: [],
+		deadEnds: [],
+		budgetUsed: { searches: 0, pagesRead: sourcesRead, rounds: roundsRun },
+	};
+	const resolvedGoal =
+		goal ??
+		runAtlasV3GoalTest({
+			memo: resolvedMemo,
+			outline: outline ?? { nodes: [], cut: [] },
+			bank: freezeAtlasV3Bank(state),
+			config,
+			roundsRun,
+		});
+
+	// A thin node that never filled is trial-written once; what cannot carry a
+	// lead is cut with its reason rather than shipped as a section that admits
+	// it found nothing.
+	if (outline) {
+		outline = await timePhase("outline", () =>
+			trialWriteAtlasV3Nodes({
+				outline: outline as AtlasV3Outline,
+				bank: freezeAtlasV3Bank(state),
+				language,
+				runModel: deps.models.outline,
+				onUsage,
+			}),
+		);
+	}
+	const resolvedOutline: AtlasV3Outline = outline ?? { nodes: [], cut: [] };
+	const capped = capAtlasV3Bank({ state, maxSources: config.maxSources });
+	if (capped.dropped > 0) {
+		console.info("[ATLAS v3] Capped the evidence bank to the source budget", {
+			jobId: job.id,
+			profile: job.profile,
+			kept: state.sources.length,
+			dropped: capped.dropped,
+		});
+	}
+	const bank = freezeAtlasV3Bank(state);
+	if (bank.quotes.length === 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_no_evidence",
+			"Atlas found no usable evidence: every page it read was a listing, a stub or a duplicate.",
+		);
+	}
+	await checkpoint("outline", CHECKPOINT_ROUND.outline, {
+		outline: resolvedOutline,
+	});
+
+	// -- 5. Answer table -----------------------------------------------------
+	await heartbeat("answer");
+	const answerTable =
+		resume.answerTable !== undefined
+			? resume.answerTable
+			: await timePhase("answer", () =>
+					buildAtlasV3Answer({
+						ask: resolvedAsk,
+						memo: resolvedMemo,
+						bank,
+						language,
+						currentDate: isoDate(now),
+						runModel: deps.models.writer,
+						runPython: deps.runPython,
+						onUsage,
+					}),
+				);
+	await checkpoint("answer", CHECKPOINT_ROUND.answer, { answerTable });
+
+	// -- 6. Write ------------------------------------------------------------
+	await heartbeat("write");
+	const budget = atlasV3SectionBudget({
+		config,
+		sectionCount: resolvedOutline.nodes.filter((node) => node.status !== "cut")
+			.length,
+	});
+	const written =
+		resume.sections !== undefined
+			? {
+					sections: resume.sections,
+					runaways: { length: 0, salvaged: 0, retried: 0, fallback: 0 },
+					dropped: [],
+				}
+			: await timePhase("write", () =>
+					writeAtlasV3Report({
+						ask: resolvedAsk,
+						outline: resolvedOutline,
+						answerTable,
+						bank,
+						language,
+						currentDate: isoDate(now),
+						budget,
+						maxEvidencePerSection: config.maxEvidencePerSection,
+						hungarianStandardEnabled,
+						runModel: deps.models.writer,
+						onUsage,
+					}),
+				);
+	sectionCounts = {
+		written: written.sections.length,
+		planned: resolvedOutline.nodes.filter((node) => node.status !== "cut")
+			.length,
+	};
+	if (written.dropped.length > 0) {
+		console.error("[ATLAS v3] Wrote fewer sections than the outline promised", {
+			jobId: job.id,
+			profile: job.profile,
+			...sectionCounts,
+			dropped: written.dropped,
+		});
+	}
+	if (written.sections.length === 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_no_sections",
+			"Atlas could not write any section from the evidence it collected.",
+		);
+	}
+	await checkpoint("write", CHECKPOINT_ROUND.write, {
+		sections: written.sections,
+	});
+
+	// -- 7. Verdict ----------------------------------------------------------
+	const limitations: AtlasV3Limitation[] = atlasV3GoalLimitations({
+		verdict: resolvedGoal,
+		outline: resolvedOutline,
+		memo: resolvedMemo,
+	});
+	let sections = written.sections;
+	const firstVerdict = await timePhase("verdict", () =>
+		writeAtlasV3Verdict({
+			ask: resolvedAsk,
+			memo: resolvedMemo,
+			answerTable,
+			sections,
+			evidence: bank.quotes.map((quote) => ({
+				id: quote.id,
+				text: quote.text,
+				publisher:
+					bank.sources.find((source) => source.id === quote.sourceId)
+						?.publisher ?? "",
+			})),
+			language,
+			currentDate: isoDate(now),
+			abstain: resolvedGoal.abstain,
+			limitations,
+			bank,
+			runModel: deps.models.writer,
+			onUsage,
+		}),
+	);
+	// v2 lost its executive summary in 13 of 13 runs because an empty summary was
+	// simply an empty block. Here it is a coded pipeline failure.
+	if (!firstVerdict || firstVerdict.length === 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_no_verdict",
+			"Atlas produced a report with no verdict; a report that does not open with its answer is not shipped.",
+		);
+	}
+	let verdict: AtlasV3Sentence[] = firstVerdict;
+
+	// -- 8. Critic rounds ----------------------------------------------------
+	let criticRoundsRun = 0;
+	let criticFindingCount = 0;
+	let needsEvidenceResolved = 0;
+	for (let round = 1; round <= criticRounds; round += 1) {
+		await heartbeat("critic");
+		const verdictAnswers = atlasV3VerdictAnswersInWindow({ verdict });
+		const findings = await timePhase("critic", () =>
+			runAtlasV3Critic({
+				ask: resolvedAsk,
+				sections,
+				verdict,
+				answerTable,
+				bank: freezeAtlasV3Bank(state),
+				language,
+				currentDate: isoDate(now),
+				round,
+				alreadyFound: [],
+				verdictAnswers,
+				hungarianStandardEnabled,
+				runModel: deps.models.critic,
+				onUsage,
+			}),
+		);
+		if (findings.length === 0) break;
+		criticRoundsRun = round;
+		criticFindingCount += findings.length;
+
+		// `needs_evidence` spends a SMALL targeted research budget and re-enters,
+		// which is the loop v2 never had: its verifier could only delete.
+		const queries = atlasV3EvidenceQueries(findings);
+		if (queries.length > 0) {
+			const before = state.quotes.length;
+			roundsRun += 1;
+			const result = await researchRound(roundsRun, queries, resolvedMemo);
+			asked.push(...result.queries);
+			needsEvidenceResolved += state.quotes.length - before;
+		}
+
+		const cuts = applyAtlasV3Cuts({ sections, findings });
+		sections = cuts.sections;
+
+		// A rewrite is the writer running again over the same nodes, now with the
+		// findings in the outline's `needs` so the instruction reaches the prompt.
+		const rewriteIds = atlasV3RewriteNodeIds(findings);
+		if (rewriteIds.length > 0) {
+			const instructions = new Map<string, string[]>();
+			for (const finding of findings) {
+				if (finding.instruction.kind !== "rewrite" || !finding.nodeId) continue;
+				instructions.set(finding.nodeId, [
+					...(instructions.get(finding.nodeId) ?? []),
+					finding.detail,
+				]);
+			}
+			const rewriteOutline: AtlasV3Outline = {
+				nodes: resolvedOutline.nodes
+					.filter((node) => rewriteIds.includes(node.id))
+					.map((node) => ({
+						...node,
+						needs: [...node.needs, ...(instructions.get(node.id) ?? [])],
+					})),
+				cut: resolvedOutline.cut,
+			};
+			const rewritten = await timePhase("write", () =>
+				writeAtlasV3Report({
+					ask: resolvedAsk,
+					outline: rewriteOutline,
+					answerTable,
+					bank: freezeAtlasV3Bank(state),
+					language,
+					currentDate: isoDate(now),
+					budget,
+					maxEvidencePerSection: config.maxEvidencePerSection,
+					hungarianStandardEnabled,
+					runModel: deps.models.writer,
+					onUsage,
+				}),
+			);
+			const replacements = new Map(
+				rewritten.sections.map((section) => [section.nodeId, section]),
+			);
+			sections = sections.map((section) => {
+				const replacement = replacements.get(section.nodeId);
+				// Only take a rewrite that is at least as substantial as what it
+				// replaces: a rewrite that lost the section is worse than the defect.
+				return replacement &&
+					replacement.paragraphs.flat().length >=
+						section.paragraphs.flat().length
+					? { ...replacement, table: section.table }
+					: section;
+			});
+		}
+
+		// The verdict is rewritten when the critic said it did not answer.
+		if (findings.some((finding) => finding.code === "no_verdict")) {
+			const retry = await timePhase("verdict", () =>
+				writeAtlasV3Verdict({
+					ask: resolvedAsk,
+					memo: resolvedMemo,
+					answerTable,
+					sections,
+					evidence: state.quotes.map((quote) => ({
+						id: quote.id,
+						text: quote.text,
+						publisher:
+							state.sources.find((source) => source.id === quote.sourceId)
+								?.publisher ?? "",
+					})),
+					language,
+					currentDate: isoDate(now),
+					abstain: resolvedGoal.abstain,
+					limitations,
+					bank: freezeAtlasV3Bank(state),
+					runModel: deps.models.writer,
+					onUsage,
+				}),
+			);
+			// Only take a retry that is actually better.
+			if (retry && atlasV3VerdictAnswersInWindow({ verdict: retry })) {
+				verdict = retry;
+			}
+		}
+	}
+	await checkpoint("critic", CHECKPOINT_ROUND.critic, {
+		rounds: criticRoundsRun,
+		findings: criticFindingCount,
+	});
+
+	// -- 9. Verify -----------------------------------------------------------
+	await heartbeat("verify");
+	const finalBank = freezeAtlasV3Bank(state);
+	const verification = await timePhase("verify", async () =>
+		verifyAtlasV3Report({
+			sections,
+			bank: finalBank,
+			answerTable,
+			staleMonths,
+			now,
+			finalPass: true,
+		}),
+	);
+	const verdictVerification = verifyAtlasV3Report({
+		sections: [
+			{
+				nodeId: "verdict",
+				title: "verdict",
+				paragraphs: [verdict],
+				table: null,
+			},
+		],
+		bank: finalBank,
+		answerTable,
+		staleMonths,
+		now,
+		finalPass: true,
+	});
+	const verifiedVerdict: AtlasV3VerifiedSentence[] =
+		verdictVerification.sections[0]?.paragraphs.flat() ?? [];
+	if (verifiedVerdict.length === 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_no_verdict",
+			"Atlas's verdict did not survive verification; a report that does not open with its answer is not shipped.",
+		);
+	}
+	const tableFailures = verifyAtlasV3AnswerTable({
+		table: answerTable,
+		bank: finalBank,
+	});
+	const verifiedTable = pruneAtlasV3AnswerTable({
+		table: answerTable,
+		failures: tableFailures,
+		placeholder: language === "hu" ? "nincs közzétéve" : "not published",
+	});
+	const bodyCap = capAtlasV3ToWordBudget({
+		sections: verification.sections.map((section) => ({
+			...section,
+			table:
+				section.table && verifiedTable
+					? verifiedTable
+					: section.table
+						? verifiedTable
+						: null,
+		})),
+		maxWords: atlasV3BodyWordBudget(config),
+	});
+	const verifiedSections: AtlasV3VerifiedSection[] = bodyCap.sections;
+	if (verifiedSections.length === 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_no_sections",
+			"Atlas's sections did not survive verification.",
+		);
+	}
+	for (const failure of tableFailures) {
+		limitations.push({
+			subject: `${failure.column}: ${failure.text}`,
+			reason: failure.detail,
+		});
+	}
+	for (const entry of verification.needsEvidence) {
+		limitations.push({
+			subject: entry.text.slice(0, 160),
+			reason:
+				language === "hu"
+					? "egyetlen idézet sem támasztotta alá a benne szereplő számot"
+					: "no quote the report holds states the figure in it",
+		});
+	}
+
+	const claimCounts = atlasV3ClaimCounts(finalBank);
+	const evidence = buildAtlasV3ProgressEvidence({
+		bank: finalBank,
+		totals: verification.totals,
+		citedEvidenceIds: [
+			...verifiedVerdict.flatMap((sentence) => sentence.evidenceIds),
+			...verification.citedEvidenceIds,
+			...atlasV3AnswerTableEvidenceIds(verifiedTable),
+		],
+	});
+	diagnostics = {
+		abstained: resolvedGoal.abstain,
+		verdictPresent: verifiedVerdict.length > 0,
+		claimCount: claimCounts.total,
+		verifiedClaimCount: claimCounts.verified,
+		contestedClaimCount: claimCounts.contested,
+		answerTableCells: verifiedTable
+			? verifiedTable.rows.length * verifiedTable.columns.length
+			: 0,
+		derivedFigures: (verifiedTable?.derived ?? []).filter(
+			(entry) => entry.value !== null,
+		).length,
+		criticRounds: criticRoundsRun,
+		criticFindings: criticFindingCount,
+		needsEvidenceResolved,
+		roundsRun,
+		searches: resolvedMemo.budgetUsed.searches,
+		pagesRead: sourcesRead,
+		sectionsPlanned: sectionCounts.planned,
+		sectionsWritten: verifiedSections.length,
+		wordCount: atlasV3WordCount(verifiedSections, verifiedVerdict),
+		writerRunaways: { ...written.runaways },
+	};
+	await heartbeat("verify", { evidence });
+	await checkpoint("verify", CHECKPOINT_ROUND.verify, {
+		totals: verification.totals,
+		staleSourceIds: verification.staleSourceIds,
+	});
+
+	// -- 10. Render ----------------------------------------------------------
+	await heartbeat("render", { evidence });
+	const title =
+		resolvedAsk.title.trim() || deterministicAtlasV3Title(job.query);
+	if (title && title !== job.title) {
+		await deps
+			.applyGeneratedTitle?.({ jobId: job.id, title })
+			.catch((error) => {
+				console.warn("[ATLAS v3] Failed to apply the generated title", {
+					jobId: job.id,
+					error,
+				});
+			});
+	}
+	const rendered = buildAtlasV3DocumentSource({
+		title,
+		language,
+		date: isoDate(now),
+		bank: finalBank,
+		verdict: verifiedVerdict,
+		sections: verifiedSections,
+		limitations,
+		abstained: resolvedGoal.abstain,
+	});
+	const outputs = await timePhase("render", () =>
+		deps.renderOutputs(rendered.documentSource),
+	);
+	await heartbeat("render", { evidence });
+
+	if (rendered.verdictMarkdown && job.assistantMessageId) {
+		await deps
+			.setAssistantMessageContent?.({
+				messageId: job.assistantMessageId,
+				content: rendered.verdictMarkdown,
+			})
+			.catch((error) => {
+				console.warn("[ATLAS v3] Failed to set assistant message content", {
+					jobId: job.id,
+					error,
+				});
+			});
+	}
+
+	await checkpoint(
+		"render",
+		CHECKPOINT_ROUND.render,
+		{ outputs },
+		{
+			curatedSourcePool: finalBank.sources.map((source) => ({
+				url: source.canonicalUrl,
+				title: source.title,
+				host: source.host,
+				date: source.date,
+				tier: source.tier,
+			})),
+			compressedFindings: {
+				coreQuestion: resolvedAsk.coreQuestion,
+				answerSoFar: resolvedMemo.answerSoFar,
+				openQuestions: resolvedMemo.openQuestions,
+				deadEnds: resolvedMemo.deadEnds,
+			},
+			documentSourceSummary: {
+				atlasFamily: job.lifecycle.family,
+				pipelineVersion: 3,
+				title,
+				sourceCount: rendered.citations.sources.length,
+			},
+			qualityDiagnostics: {
+				...diagnostics,
+				goal: resolvedGoal.reason,
+				phaseDurationsMs: { ...phaseDurationsMs },
+				sentencesDroppedForBudget: bodyCap.droppedSentenceCount,
+				sourcesDroppedForBudget: capped.dropped,
+			},
+		},
+	);
+
+	return {
+		status: "succeeded",
+		stage: "render",
+		pipelineVersion: 3,
+		title,
+		executiveSummaryMarkdown: rendered.verdictMarkdown,
+		abstained: resolvedGoal.abstain,
+		outputs,
+		usage,
+		sourceCounts: {
+			local: 0,
+			web: finalBank.sources.length,
+			accepted: rendered.citations.sources.length,
+			rejected: finalBank.filteredCount,
+		},
+		diagnostics,
+	};
+}

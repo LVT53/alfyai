@@ -379,9 +379,7 @@ function sanitizePhaseDurations(value: unknown): Record<string, number> | null {
 	return Object.keys(durations).length > 0 ? durations : null;
 }
 
-function sanitizeDiagnostics(
-	value: unknown,
-): AtlasV3QualityDiagnostics | null {
+function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 	if (!value || typeof value !== "object") return null;
 	const record = value as Record<string, unknown>;
 	const runaways = (record.writerRunaways ?? {}) as Record<string, unknown>;

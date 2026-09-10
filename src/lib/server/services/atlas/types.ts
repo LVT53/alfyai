@@ -1,4 +1,5 @@
 import type { AtlasV2ProgressDetails } from "../atlas-v2/types";
+import type { AtlasV3ProgressDetails } from "../atlas-v3/types";
 
 export const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
 export const ATLAS_ACTIONS = ["create", "continue", "fork", "revise"] as const;
@@ -276,7 +277,8 @@ export interface AtlasV1JobProgressDetails {
 
 export type AtlasJobProgressDetails =
 	| AtlasV1JobProgressDetails
-	| AtlasV2ProgressDetails;
+	| AtlasV2ProgressDetails
+	| AtlasV3ProgressDetails;
 
 export interface AtlasJobSourceCounts {
 	local: number;
@@ -324,8 +326,11 @@ export interface AtlasJobCard {
 	action: AtlasAction;
 	parentAtlasJobId: string | null;
 	profile: AtlasProfile;
-	/** ADR 0062: which content pipeline produced (or is producing) this job. */
-	pipelineVersion: 1 | 2;
+	/**
+	 * Which content pipeline produced (or is producing) this job. 1 and 2 are
+	 * ADR 0062's; 3 is ADR 0063's.
+	 */
+	pipelineVersion: 1 | 2 | 3;
 	title: string;
 	status: AtlasJobStatus;
 	stage: string;

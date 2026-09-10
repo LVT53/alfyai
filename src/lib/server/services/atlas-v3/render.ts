@@ -96,7 +96,10 @@ export const ATLAS_V3_CONFIDENCE_MARKS: Record<AtlasV3Confidence, string> = {
  * put `[2][3][3]ᶜ` in v2's reports.
  */
 export function renderAtlasV3Sentence(input: {
-	sentence: Pick<AtlasV3VerifiedSentence, "text" | "evidenceIds" | "confidence">;
+	sentence: Pick<
+		AtlasV3VerifiedSentence,
+		"text" | "evidenceIds" | "confidence"
+	>;
 	citations: AtlasV3Citations;
 }): string {
 	const code = CONFIDENCE_CODE[input.sentence.confidence];
@@ -108,7 +111,8 @@ export function renderAtlasV3Sentence(input: {
 		if (number !== undefined && !numbers.includes(number)) numbers.push(number);
 	}
 	const last = numbers.at(-1);
-	const token = last === undefined ? `[[cite:${code}]]` : `[[cite:${last}:${code}]]`;
+	const token =
+		last === undefined ? `[[cite:${code}]]` : `[[cite:${last}:${code}]]`;
 	const leading = numbers
 		.slice(0, -1)
 		.map((number) => `[${number}]`)
@@ -118,7 +122,10 @@ export function renderAtlasV3Sentence(input: {
 
 /** The Markdown form, for the assistant message. Same numbering, no tokens. */
 export function renderAtlasV3SentenceMarkdown(input: {
-	sentence: Pick<AtlasV3VerifiedSentence, "text" | "evidenceIds" | "confidence">;
+	sentence: Pick<
+		AtlasV3VerifiedSentence,
+		"text" | "evidenceIds" | "confidence"
+	>;
 	citations: AtlasV3Citations;
 }): string {
 	const mark = ATLAS_V3_CONFIDENCE_MARKS[input.sentence.confidence];
@@ -248,11 +255,7 @@ export function buildAtlasV3DocumentSource(
 				}
 			}
 		}
-		take(
-			section.paragraphs
-				.flat()
-				.flatMap((sentence) => sentence.evidenceIds),
-		);
+		take(section.paragraphs.flat().flatMap((sentence) => sentence.evidenceIds));
 	}
 	const citations = assignAtlasV3CitationNumbers({
 		bank: input.bank,

@@ -73,9 +73,55 @@ export interface AtlasV2ProgressDetailsView extends AtlasV1ProgressDetailsView {
 	};
 }
 
+/**
+ * v3 progress details (ADR 0063). Deliberately v2's shape with a different
+ * version tag and its own phase names, so a client that dispatches on
+ * `pipelineVersion === 2` falls through to the v1 branch — which reads
+ * `queries`, always empty here — instead of crashing on a v3 card.
+ */
+export interface AtlasV3ProgressDetailsView
+	extends Omit<AtlasV2ProgressDetailsView, "pipelineVersion" | "phase"> {
+	pipelineVersion: 3;
+	phase:
+		| "ask"
+		| "research"
+		| "outline"
+		| "answer"
+		| "write"
+		| "critic"
+		| "verify"
+		| "render";
+	/** Present from the verify phase on; see ADR 0063's evaluation section. */
+	qualityDiagnostics?: {
+		abstained: boolean;
+		verdictPresent: boolean;
+		claimCount: number;
+		verifiedClaimCount: number;
+		contestedClaimCount: number;
+		answerTableCells: number;
+		derivedFigures: number;
+		criticRounds: number;
+		criticFindings: number;
+		needsEvidenceResolved: number;
+		roundsRun: number;
+		searches: number;
+		pagesRead: number;
+		sectionsPlanned: number;
+		sectionsWritten: number;
+		wordCount: number;
+		writerRunaways: {
+			length: number;
+			salvaged: number;
+			retried: number;
+			fallback: number;
+		};
+	};
+}
+
 export type AtlasProgressDetailsView =
 	| AtlasV1ProgressDetailsView
-	| AtlasV2ProgressDetailsView;
+	| AtlasV2ProgressDetailsView
+	| AtlasV3ProgressDetailsView;
 
 export interface AtlasJobCard {
 	id: string;
@@ -85,11 +131,11 @@ export interface AtlasJobCard {
 	parentAtlasJobId?: string | null;
 	profile: AtlasProfile;
 	/**
-	 * ADR 0062: 1 for the original pipeline, 2 for the rebuilt one. Optional in
-	 * the client view so a card from a deployment that predates the flag still
-	 * parses; absent means 1.
+	 * 1 for the original pipeline, 2 for ADR 0062's rebuild, 3 for ADR 0063's.
+	 * Optional in the client view so a card from a deployment that predates the
+	 * flag still parses; absent means 1.
 	 */
-	pipelineVersion?: 1 | 2;
+	pipelineVersion?: 1 | 2 | 3;
 	title: string;
 	status: AtlasJobStatus;
 	stage?: string | null;

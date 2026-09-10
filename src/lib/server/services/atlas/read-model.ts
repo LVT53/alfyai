@@ -5,6 +5,10 @@ import {
 	isAtlasV2ProgressDetails,
 	sanitizeAtlasV2ProgressDetails,
 } from "../atlas-v2/progress";
+import {
+	isAtlasV3ProgressDetails,
+	sanitizeAtlasV3ProgressDetails,
+} from "../atlas-v3/progress";
 import type {
 	AtlasAction,
 	AtlasJobCard,
@@ -45,12 +49,18 @@ function parseProgressTextList(value: unknown): string[] {
 
 /**
  * Projects the stored progress-details blob onto the card. ADR 0062 added a
- * second contract shape; `pipelineVersion: 2` selects it, and anything else
- * keeps v1's `{ queries, roundKind, focus }` behaviour byte for byte.
+ * second contract shape and ADR 0063 a third; `pipelineVersion` selects, and
+ * anything else keeps v1's `{ queries, roundKind, focus }` behaviour byte for
+ * byte. v3's shape is v2's with `pipelineVersion: 3`, so a client that
+ * dispatches on `=== 2` degrades to the v1 branch — which reads `queries`,
+ * always empty here — instead of crashing.
  */
 export function sanitizeAtlasJobProgressDetails(
 	value: unknown,
 ): AtlasJobProgressDetails {
+	if (isAtlasV3ProgressDetails(value)) {
+		return sanitizeAtlasV3ProgressDetails(value);
+	}
 	if (isAtlasV2ProgressDetails(value)) {
 		return sanitizeAtlasV2ProgressDetails(value);
 	}
@@ -100,7 +110,8 @@ export function mapAtlasJobRowToCard(
 		action: job.action as AtlasAction,
 		parentAtlasJobId: job.parentAtlasJobId ?? null,
 		profile: job.profile as AtlasProfile,
-		pipelineVersion: job.pipelineVersion === 2 ? 2 : 1,
+		pipelineVersion:
+			job.pipelineVersion === 3 ? 3 : job.pipelineVersion === 2 ? 2 : 1,
 		title: job.title,
 		status: job.status as AtlasJobStatus,
 		stage: job.stage,
