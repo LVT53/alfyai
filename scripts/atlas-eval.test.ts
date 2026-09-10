@@ -681,6 +681,43 @@ describe("verdictInWindow", () => {
 			verdictInWindow(`## Background\n\n${filler}\nIt was 65.1 GW. [1]\n`),
 		).toBe(false);
 	});
+
+	/**
+	 * The staging run's Cork City verdict. It answers the question asked, cites
+	 * what it rests on, and states its quantities in words; the digit-only rule
+	 * scored it NO.
+	 */
+	it("passes a cited answer stated in number words", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nResidential planning permission in Cork City follows an eight-week statutory decision timeline. [1]ˢ\n",
+			),
+		).toBe(true);
+	});
+
+	it("passes a Hungarian answer stated in number words", () => {
+		expect(
+			verdictInWindow(
+				"## Ítélet\n\nA döntés három hónapon belül megszületik a hiánytalan kérelem beérkezésétől. [2]ˢ\n",
+			),
+		).toBe(true);
+	});
+
+	it("still fails a cited sentence carrying no number at all", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nWarranty structures fundamentally shape the repair landscape here. [1]ˢ\n",
+			),
+		).toBe(false);
+	});
+
+	it("still fails a number word with nothing citing it", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nThe process runs to eight weeks, as practitioners describe it. ⁱ\n",
+			),
+		).toBe(false);
+	});
 });
 
 describe("verdictSection", () => {
