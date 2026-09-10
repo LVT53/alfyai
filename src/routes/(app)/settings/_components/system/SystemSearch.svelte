@@ -2,9 +2,15 @@
 // The screen's only search, and it covers the whole screen rather than one
 // table: every setting, its key, and every provider.
 import { Search } from "@lucide/svelte";
+import { fly } from "svelte/transition";
 import { t } from "$lib/i18n";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { SYSTEM_PAGE_LABEL_KEY, type SystemSearchItem } from "./pages";
 import "./system.css";
+
+// The results panel opens and closes on the same helper the rest of the
+// screen uses, so it never snaps in or out.
+const resultsFly = reducedMotionAware(fly);
 
 let {
 	items,
@@ -80,7 +86,12 @@ function onkeydown(event: KeyboardEvent) {
 	/>
 
 	{#if open && query.trim().length >= 2}
-		<div class="sys-search-results" id="sys-search-results" role="listbox">
+		<div
+			class="sys-search-results"
+			id="sys-search-results"
+			role="listbox"
+			transition:resultsFly={{ y: -4, duration: 140 }}
+		>
 			{#if results.length === 0}
 				<p class="sys-search-empty">{$t('admin.system.search.empty', { query })}</p>
 			{:else}

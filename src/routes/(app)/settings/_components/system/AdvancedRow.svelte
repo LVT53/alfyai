@@ -104,7 +104,15 @@ const localError = $derived.by(() => {
 >
 	<td class="sys-td-primary" style="width: 330px">
 		<span class="sys-label">
-			<label for={`adv-${spec.key}`}>{label}</label>
+			<!-- A boolean row's control is a `role="switch"` button and a secret
+			     row's is a Replace button; neither is a labelable element, so a
+			     `for=` on them would be an inert click target. Those two carry
+			     their own aria-label instead. -->
+			{#if spec.control.kind === 'bool' || spec.control.kind === 'secret'}
+				<span>{label}</span>
+			{:else}
+				<label for={`adv-${spec.key}`}>{label}</label>
+			{/if}
 			{#if dirty}
 				<span class="sys-chip sys-chip-dirty">
 					<Pencil size={9} strokeWidth={2.5} aria-hidden="true" />

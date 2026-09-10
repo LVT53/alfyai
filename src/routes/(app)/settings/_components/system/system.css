@@ -761,6 +761,12 @@
 	border-color: color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 
+/* A row whose provider is being deleted: dimmed, and not a click target. */
+.sys-list-row.sys-row-busy {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
 .sys-list-sub {
 	border: none;
 	border-radius: 0;
@@ -919,8 +925,8 @@
 	box-shadow: 0 -4px 16px rgb(0 0 0 / 5%);
 }
 
-:root[data-theme="dark"] .sys-savebar,
-:root:not([data-theme="light"]) .sys-savebar {
+/* The app switches themes with a `.dark` class on <html> (see stores/theme.ts). */
+.dark .sys-savebar {
 	box-shadow: 0 -4px 16px rgb(0 0 0 / 30%);
 }
 

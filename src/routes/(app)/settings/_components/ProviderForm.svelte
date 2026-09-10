@@ -4,7 +4,7 @@
 // become two readable columns plus one grouped sub-card, and the rate-limit
 // fallback keeps every control it had — including the free-text escape hatch.
 import { untrack } from "svelte";
-import { TestTube } from "@lucide/svelte";
+import { Eye, EyeOff, TestTube } from "@lucide/svelte";
 import { fetchProviderModels } from "$lib/client/api/admin";
 import type { Provider, ProviderModel } from "$lib/client/api/admin";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
@@ -51,6 +51,9 @@ let formBaseUrl = $state(
 	untrack(() => provider?.baseUrl ?? "https://api.fireworks.ai/inference/v1"),
 );
 let formApiKey = $state("");
+// Creating a provider means typing a key that is not stored anywhere yet, so
+// the field keeps the old dialog's Show/Hide. On edit, SecretField owns it.
+let revealNewApiKey = $state(false);
 let formIconAssetId = $state(untrack(() => provider?.iconAssetId ?? ""));
 $effect(() => {
 	formIconAssetId = provider?.iconAssetId ?? "";
@@ -262,7 +265,7 @@ function handleTest() {
 							alt=""
 						/>
 					{:else}
-						{(formDisplayName || '??').slice(0, 2).toUpperCase()}
+						{formDisplayName.slice(0, 2).toUpperCase()}
 					{/if}
 				</span>
 				{#if onIconFile}
@@ -295,15 +298,29 @@ function handleTest() {
 			<span class="sys-label" id="provider-form-api-key-label">{$t('admin.apiKey')}</span>
 			<div class="sys-row-control">
 				{#if isCreate}
-					<input
-						id="provider-form-api-key"
-						type="password"
-						class="sys-input sys-input-md"
-						aria-labelledby="provider-form-api-key-label"
-						autocomplete="off"
-						bind:value={formApiKey}
-						placeholder={$t('admin.apiKeyPlaceholder')}
-					/>
+					<span class="sys-field">
+						<input
+							id="provider-form-api-key"
+							type={revealNewApiKey ? 'text' : 'password'}
+							class="sys-input sys-input-md"
+							aria-labelledby="provider-form-api-key-label"
+							autocomplete="off"
+							bind:value={formApiKey}
+							placeholder={$t('admin.apiKeyPlaceholder')}
+						/>
+						<button
+							type="button"
+							class="sys-mini"
+							aria-label={revealNewApiKey ? $t('admin.hide') : $t('admin.show')}
+							onclick={() => (revealNewApiKey = !revealNewApiKey)}
+						>
+							{#if revealNewApiKey}
+								<EyeOff size={12} strokeWidth={2} aria-hidden="true" />
+							{:else}
+								<Eye size={12} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+					</span>
 				{:else}
 					<SecretField
 						inputId="provider-form-api-key"

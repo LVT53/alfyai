@@ -68,6 +68,7 @@ import SystemSaveBar from "./system/SystemSaveBar.svelte";
 import SystemSearch from "./system/SystemSearch.svelte";
 import { buildModelOptionGroups } from "./system/model-options";
 import {
+	keyCountForPage,
 	pageForKey,
 	type SystemPageId,
 	type SystemSearchItem,
@@ -248,6 +249,9 @@ let providerFormTesting = $state(false);
 let providerFormTestError = $state("");
 let providerFormTestMessage = $state("");
 let pendingProviderDelete: Provider | null = $state(null);
+// The row whose delete is in flight — its controls go inert until the list
+// comes back, the way the old list's `deletingId` did.
+let deletingProviderId = $state("");
 let providersMessage = $state("");
 let iconUploading: string | null = $state(null);
 let providersMessageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -548,6 +552,7 @@ async function confirmDeleteProvider() {
 	const provider = pendingProviderDelete;
 	pendingProviderDelete = null;
 	if (!provider) return;
+	deletingProviderId = provider.id;
 	try {
 		await deleteProviderEntry(provider.id);
 		showProvidersMessage($t("admin.providerDeleted"));
@@ -557,6 +562,8 @@ async function confirmDeleteProvider() {
 			error,
 			$t("admin.failedDeleteProvider"),
 		);
+	} finally {
+		deletingProviderId = "";
 	}
 }
 
@@ -956,7 +963,7 @@ function highlight(key: string) {
 	<SystemNav
 		active={activePage}
 		{dirtyByPage}
-		counts={{ skills: systemSkills.length, advanced: ADVANCED_KEY_SPECS.length }}
+		counts={{ skills: systemSkills.length, advanced: keyCountForPage('advanced') }}
 		onselect={(page) => {
 			activePage = page;
 		}}
@@ -990,6 +997,7 @@ function highlight(key: string) {
 						providers={providerConfigs}
 						providerModels={allProviderModels}
 						loading={providerConfigsLoading}
+						busyProviderId={deletingProviderId}
 						error={providerConfigsError}
 						message={providersMessage}
 						bind:openProviderId

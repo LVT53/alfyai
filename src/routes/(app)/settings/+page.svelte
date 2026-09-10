@@ -475,13 +475,22 @@ onMount(() => {
 
 	if (section === "tool-health" && isAdmin) {
 		void handleTabChange("administration");
-		requestAnimationFrame(() => {
+		// The tool-health card no longer exists the frame the tab flips: the
+		// System screen has to mount, read the same query param and switch to
+		// its Diagnostics page first. So look for the card over a few frames
+		// instead of once, or the highlight silently never happens.
+		let framesLeft = 60;
+		const findAndHighlight = () => {
 			const card = document.getElementById("settings-tool-health-card");
-			if (!card) return;
+			if (!card) {
+				if (framesLeft-- > 0) requestAnimationFrame(findAndHighlight);
+				return;
+			}
 			card.scrollIntoView({ behavior: "smooth", block: "start" });
 			card.classList.add("settings-card-highlight");
 			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
-		});
+		};
+		requestAnimationFrame(findAndHighlight);
 		return;
 	}
 

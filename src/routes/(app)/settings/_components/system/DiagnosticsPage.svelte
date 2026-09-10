@@ -249,7 +249,13 @@ const filteredEffectiveConfig = $derived.by(() => {
 			{#if effectiveConfigLoading && !effectiveConfig}
 				<p class="sys-sm sys-muted">{$t('admin.effectiveConfig.loading')}</p>
 			{:else if effectiveConfigError}
+				<!-- Refresh has to live in the error branch too, or a failed read
+				     leaves no way back except a full page reload. -->
 				<p class="sys-error" role="alert">{effectiveConfigError}</p>
+				<button type="button" class="sys-mini" onclick={onRefreshEffectiveConfig}>
+					<RefreshCw size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('admin.effectiveConfig.refresh')}
+				</button>
 			{:else if effectiveConfig}
 				<div class="sys-row-control" style="margin-bottom: 10px">
 					<span class="sys-search" style="max-width: 320px">
