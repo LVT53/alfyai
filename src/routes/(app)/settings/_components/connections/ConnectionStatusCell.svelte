@@ -32,9 +32,13 @@ let {
 
 <style>
 	.status-cell {
-		/* The fixed width the whole redesign hangs on — see the note above. */
-		flex: 0 0 15.5rem;
-		width: 15.5rem;
+		/* The fixed width the whole redesign hangs on — see the note above.
+		   Sized for the longest word plus a two-line sentence at the width the
+		   settings column actually is, which is much narrower than a full-page
+		   mockup suggests. */
+		grid-area: status;
+		flex: 0 0 10.5rem;
+		width: 10.5rem;
 		min-width: 0;
 	}
 
@@ -83,8 +87,11 @@ let {
 		color: var(--text-muted);
 	}
 
-	@media (max-width: 40rem) {
-		.status-cell {
+	/* Matches ConnectionRow's stacking breakpoint: once the row is one column
+	   per line there is no track to be fixed to, and a 10.5rem cell in a
+	   full-width line would wrap the sentence for no reason. */
+	@media (max-width: 44rem) {
+		.status-cell:not(.compact) {
 			flex: 1 1 100%;
 			width: auto;
 		}

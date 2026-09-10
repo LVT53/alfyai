@@ -48,19 +48,10 @@ const chips = $derived(capabilityChipsOf(connection));
 		<span class="connection-mark" data-provider={connection.provider}>
 			<BrandIcon provider={connection.provider} size={17} ariaHidden />
 		</span>
-		<span class="connection-text">
-			<span class="connection-title">
-				<span class="connection-name">{entry.displayName}</span>
-				{#if connection.accountIdentifier}
-					<span class="connection-account">{connection.accountIdentifier}</span>
-				{/if}
-			</span>
-			{#if chips.length > 0}
-				<span class="connection-chips">
-					{#each chips as chip, index (index)}
-						<CapabilityChip {chip} provider={connection.provider} />
-					{/each}
-				</span>
+		<span class="connection-title">
+			<span class="connection-name">{entry.displayName}</span>
+			{#if connection.accountIdentifier}
+				<span class="connection-account">{connection.accountIdentifier}</span>
 			{/if}
 		</span>
 	</button>
@@ -90,13 +81,44 @@ const chips = $derived(capabilityChipsOf(connection));
 			{$t('connections.actions.details')}
 		</button>
 	</div>
+
+	<!-- The chips get their own full-width line rather than sharing the
+	     identity cell. The settings column is far narrower than it looks in a
+	     wide mockup, and squeezing three chips beside a fixed status column and
+	     a fixed action column truncated the account identifier to two
+	     characters. -->
+	{#if chips.length > 0}
+		<div class="connection-chips">
+			{#each chips as chip, index (index)}
+				<CapabilityChip {chip} provider={connection.provider} />
+			{/each}
+		</div>
+	{/if}
 </div>
 
 <style>
+	/* identity | status | actions on the first line, chips spanning the second.
+	   The status column is a fixed track so its word and sentence sit in the
+	   same place on every row, whatever buttons the row happens to carry. */
 	.connection-row {
-		display: flex;
+		display: grid;
+		/* BOTH right-hand tracks are fixed. A fixed status WIDTH is not enough
+		   on its own: with an auto-sized action track, a row carrying a
+		   recovery button pushes the status column left and the word lands in a
+		   different place than on the row above it. */
+		/* Sized against the REAL settings column (a 672px shell, so ~600px of
+		   row), not against a wide mockup: 10.5rem of status + 10.75rem of
+		   actions + gaps leaves the identity ~15rem, enough for a provider
+		   name and a full "levente@gmail.com" beside it. Buying identity width
+		   by narrowing the status column is the right trade — the sentence
+		   wraps, which is what it is meant to do; the column never moves. */
+		grid-template-columns: minmax(0, 1fr) 10.5rem 10.75rem;
+		grid-template-areas:
+			"identity status actions"
+			"chips chips chips";
 		align-items: center;
-		gap: 0.75rem;
+		column-gap: 0.625rem;
+		row-gap: 0.5rem;
 		padding: 0.875rem 1rem;
 	}
 
@@ -105,10 +127,10 @@ const chips = $derived(capabilityChipsOf(connection));
 	}
 
 	.connection-identity {
+		grid-area: identity;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.6875rem;
-		flex: 1 1 auto;
 		min-width: 0;
 		padding: 0.25rem;
 		margin: -0.25rem;
@@ -144,13 +166,6 @@ const chips = $derived(capabilityChipsOf(connection));
 		color: var(--text-secondary);
 	}
 
-	.connection-text {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-		min-width: 0;
-	}
-
 	.connection-title {
 		display: flex;
 		align-items: baseline;
@@ -175,19 +190,19 @@ const chips = $derived(capabilityChipsOf(connection));
 	}
 
 	.connection-chips {
+		grid-area: chips;
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.375rem;
+		padding-left: 2.6875rem;
 	}
 
-	/* Fixed like the status column so the two together form a stable right
-	   edge — the buttons never push the sentence sideways. */
 	.connection-actions {
+		grid-area: actions;
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
 		gap: 0.375rem;
-		flex: 0 0 12.5rem;
 	}
 
 	.row-action {
@@ -234,18 +249,27 @@ const chips = $derived(capabilityChipsOf(connection));
 		background: color-mix(in srgb, var(--danger) 8%, transparent);
 	}
 
-	@media (max-width: 40rem) {
+	/* Below this the shell has stopped being 672px wide and starts eating the
+	   identity column, so drop to one track: identity, status, chips, actions,
+	   each on its own line. Kept in step with ConnectionStatusCell's own
+	   breakpoint — the cell must stop being a fixed track at the same width the
+	   row stops having tracks. */
+	@media (max-width: 44rem) {
 		.connection-row {
-			flex-wrap: wrap;
-		}
-
-		.connection-identity {
-			flex: 1 1 100%;
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-areas:
+				"identity"
+				"status"
+				"chips"
+				"actions";
 		}
 
 		.connection-actions {
-			flex: 1 1 100%;
 			justify-content: flex-start;
+		}
+
+		.connection-chips {
+			padding-left: 0;
 		}
 	}
 </style>
