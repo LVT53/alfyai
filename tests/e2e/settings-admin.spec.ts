@@ -266,10 +266,11 @@ test.describe("Admin user management", () => {
 
 		await openAdministrationUsersPane(page);
 
+		// The pane's description became the account summary line under the title
+		// when the rail turned into a table; the width guard stays, so a squeezed
+		// header column would still fail here.
 		const usersIntroWidth = await page
-			.getByText(
-				"Create accounts, manage admin access, revoke sessions, and remove users when needed.",
-			)
+			.getByText(/\d+ accounts · \d+ admins/)
 			.evaluate((element) => element.getBoundingClientRect().width);
 		expect(usersIntroWidth).toBeGreaterThan(220);
 		await expect(page.getByText("1970")).not.toBeVisible();
@@ -277,7 +278,7 @@ test.describe("Admin user management", () => {
 		await page.getByRole("button", { name: "Create User" }).click();
 		const modalIntroWidth = await page
 			.getByText(
-				"Create a new local account and optionally grant it admin access immediately.",
+				"They can change their name, password and model afterwards. There is no invite email — hand them the password yourself.",
 			)
 			.evaluate((element) => element.getBoundingClientRect().width);
 		expect(modalIntroWidth).toBeGreaterThan(220);
@@ -300,6 +301,9 @@ test.describe("Admin user management", () => {
 			page.getByRole("button", { name: "Promote to Admin" }),
 		).toBeVisible();
 
+		// Promotion is a privilege escalation, so it confirms first.
+		await page.getByRole("button", { name: "Promote to Admin" }).click();
+		await expect(page.getByText(/an admin\?$/)).toBeVisible();
 		await Promise.all([
 			page.waitForResponse(
 				(response) =>
@@ -307,7 +311,7 @@ test.describe("Admin user management", () => {
 					response.request().method() === "PATCH" &&
 					response.status() === 200,
 			),
-			page.getByRole("button", { name: "Promote to Admin" }).click(),
+			page.getByTestId("confirm-delete").click(),
 		]);
 
 		await expect(
@@ -340,6 +344,8 @@ test.describe("Admin user management", () => {
 			page.getByTestId("confirm-delete").click(),
 		]);
 
-		await expect(page.getByText(uniqueEmail)).not.toBeVisible();
+		// The address appears in both the table row and the detail panel while
+		// the account exists, so assert on the count rather than one element.
+		await expect(page.getByText(uniqueEmail)).toHaveCount(0);
 	});
 });

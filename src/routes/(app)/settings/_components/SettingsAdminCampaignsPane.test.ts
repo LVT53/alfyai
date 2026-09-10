@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
 
@@ -19,12 +25,16 @@ vi.mock("$lib/client/api/campaigns", () => ({
 }));
 
 vi.mock("$lib/client/api/campaign-assets", () => ({
+	fetchAdminCampaignAsset: vi.fn(),
 	uploadCampaignAssetSource: vi.fn(),
 	saveCampaignAssetCrop: vi.fn(),
 }));
 
 import { invalidateAll } from "$app/navigation";
-import { uploadCampaignAssetSource } from "$lib/client/api/campaign-assets";
+import {
+	fetchAdminCampaignAsset,
+	uploadCampaignAssetSource,
+} from "$lib/client/api/campaign-assets";
 import {
 	archiveAdminCampaign,
 	deleteAdminCampaignDraft,
@@ -50,7 +60,25 @@ const mockUpdateAdminCampaign = updateAdminCampaign as ReturnType<typeof vi.fn>;
 const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<
 	typeof vi.fn
 >;
+const mockFetchAdminCampaignAsset = fetchAdminCampaignAsset as ReturnType<
+	typeof vi.fn
+>;
 const mockInvalidateAll = invalidateAll as ReturnType<typeof vi.fn>;
+
+/** Waits for the editor to have loaded the selected campaign. */
+async function waitForEditor(name = "Welcome tour") {
+	await waitFor(() => {
+		expect(screen.getAllByRole("heading", { name }).length).toBeGreaterThan(0);
+	});
+}
+
+function openSlideMenu() {
+	return fireEvent.click(screen.getByTestId("campaign-slide-menu"));
+}
+
+function openCampaignMenu() {
+	return fireEvent.click(screen.getByTestId("campaign-menu"));
+}
 
 describe("SettingsAdminCampaignsPane", () => {
 	beforeEach(() => {
@@ -135,22 +163,58 @@ describe("SettingsAdminCampaignsPane", () => {
 			status: "published",
 			slides: [],
 		});
+		mockFetchAdminCampaignAsset.mockResolvedValue({
+			id: "setup-desktop",
+			assetKind: "crop",
+			variant: "desktop",
+			status: "draft",
+			sourceAssetId: "setup-source",
+			originalFilename: "welcome-desk.webp",
+			mimeType: "image/webp",
+			sizeBytes: 148 * 1024,
+			width: 1600,
+			height: 1000,
+		});
 		mockInvalidateAll.mockResolvedValue(undefined);
-		vi.spyOn(window, "confirm").mockReturnValue(true);
 	});
 
-	it("lets admins reorder localized campaign slides and save the draft payload", async () => {
+	it("opens one slide at a time, chosen from the thumbnail rail", async () => {
 		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
+		const thumbs = screen.getAllByTestId("admin-campaign-slide-thumb");
+		expect(thumbs).toHaveLength(2);
+		expect(
+			screen.getByRole("heading", { name: "Slide 1" }),
+		).toBeInTheDocument();
+		expect(screen.getByDisplayValue("Set up AlfyAI")).toBeInTheDocument();
+		expect(
+			screen.queryByDisplayValue("Start chatting"),
+		).not.toBeInTheDocument();
 
-		await fireEvent.click(
-			screen.getByRole("button", { name: /Move Set up AlfyAI down/ }),
-		);
+		await fireEvent.click(thumbs[1]);
+		expect(
+			screen.getByRole("heading", { name: "Slide 2" }),
+		).toBeInTheDocument();
+		expect(screen.getByDisplayValue("Start chatting")).toBeInTheDocument();
+	});
+
+	it("switches the open slide between English and Magyar with two pills", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		expect(screen.getByDisplayValue("Set up AlfyAI")).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("button", { name: "HU" }));
+		expect(screen.getByDisplayValue("AlfyAI beállítása")).toBeInTheDocument();
+		expect(screen.queryByDisplayValue("Set up AlfyAI")).not.toBeInTheDocument();
+	});
+
+	it("reorders slides from the slide ⋯ menu and saves the new payload", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		await openSlideMenu();
+		await fireEvent.click(screen.getByRole("menuitem", { name: /Move down/ }));
 		await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
 		await waitFor(() => {
@@ -186,180 +250,161 @@ describe("SettingsAdminCampaignsPane", () => {
 				sortOrder: 2,
 				semanticRole: "feature",
 				setupControls: ["ui_language", "theme"],
-				titleEn: "Set up AlfyAI",
-				titleHu: "AlfyAI beállítása",
 			}),
 		);
-		expect(screen.getByText("Action URL is required.")).toBeInTheDocument();
 	});
 
-	it("deletes draft campaigns through the draft DELETE route instead of archiving them", async () => {
+	it("sets layout, purpose and setup controls from the slide options dialog", async () => {
 		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
 
+		await openSlideMenu();
+		await fireEvent.click(screen.getByRole("menuitem", { name: /Purpose/ }));
+
+		const dialog = screen.getByRole("dialog");
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Data disclosure" }),
+		);
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Close" }),
+		);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
+			expect(mockUpdateAdminCampaign).toHaveBeenCalled();
 		});
-
-		await fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
-
-		await waitFor(() => {
-			expect(mockDeleteAdminCampaignDraft).toHaveBeenCalledWith("campaign-1");
-		});
-		expect(mockArchiveAdminCampaign).not.toHaveBeenCalled();
+		const [, payload] = mockUpdateAdminCampaign.mock.calls[0];
+		expect(payload.slides[0].semanticRole).toBe("data_disclosure");
 	});
 
-	it("renders campaign analytics from the service summary fields", async () => {
-		render(SettingsAdminCampaignsPane);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
-
-		expect(screen.getByText("7 / 3 / 1 / 2")).toBeInTheDocument();
-	});
-
-	it("keeps published campaign snapshots read-only and disables save/publish controls", async () => {
-		mockFetchAdminCampaigns.mockResolvedValueOnce([
+	it("lets a slide clear setup controls it is no longer allowed to carry", async () => {
+		// A release campaign whose slide still carries a first-run setup control:
+		// the rule blocks publishing, and unchecking has to stay reachable.
+		mockFetchAdminCampaigns.mockResolvedValue([
 			{
 				id: "campaign-1",
-				type: "first_run_onboarding",
-				name: "Welcome tour",
-				status: "published",
-				updatedAt: "2026-05-17T08:00:00.000Z",
+				type: "release_update",
+				name: "Voice input beta",
+				status: "draft",
+				slideCount: 1,
 			},
 		]);
-		mockFetchAdminCampaign.mockResolvedValueOnce({
+		mockFetchAdminCampaign.mockResolvedValue({
 			id: "campaign-1",
-			type: "first_run_onboarding",
-			name: "Welcome tour",
-			status: "published",
+			type: "release_update",
+			name: "Voice input beta",
+			releaseVersion: "2.3.0",
+			status: "draft",
 			slides: [
 				{
-					id: "slide-setup",
-					layoutType: "setup",
+					id: "slide-1",
+					kind: "standard",
 					sortOrder: 1,
-					title: { en: "Set up AlfyAI", hu: "AlfyAI beállítása" },
-					body: {
-						en: "Connect your tools.",
-						hu: "Kapcsold össze az eszközeidet.",
-					},
-					altText: { en: "Setup", hu: "Beállítás" },
+					semanticRole: "feature",
+					setupControls: ["theme"],
+					titleEn: "Talk instead of typing",
+					titleHu: "Beszélj gépelés helyett",
+					bodyEn: "Speech is transcribed.",
+					bodyHu: "A beszédet leírjuk.",
 				},
 			],
 		});
 
 		render(SettingsAdminCampaignsPane);
+		await waitForEditor("Voice input beta");
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
-
-		expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled();
 		expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
-		expect(screen.getByLabelText("Name")).toBeDisabled();
 
-		await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-		expect(mockUpdateAdminCampaign).not.toHaveBeenCalled();
-	});
+		await openSlideMenu();
+		await fireEvent.click(
+			screen.getByRole("menuitem", { name: /Setup controls/ }),
+		);
 
-	it("opens the crop modal immediately while the screenshot source upload is still pending", async () => {
-		mockUploadCampaignAssetSource.mockReturnValue(new Promise(() => {}));
-		render(SettingsAdminCampaignsPane);
-
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
-
-		const uploadLabel = screen
-			.getAllByText("Upload mobile crop")[0]
-			.closest("label");
-		const uploadInput = uploadLabel?.querySelector(
-			'input[type="file"]',
-		) as HTMLInputElement | null;
-		expect(uploadInput).toBeTruthy();
-		if (!uploadInput) throw new Error("Expected upload input");
-
-		await fireEvent.change(uploadInput, {
-			target: {
-				files: [
-					new File(["fake image bytes"], "mobile.png", { type: "image/png" }),
-				],
-			},
-		});
-
-		expect(mockUploadCampaignAssetSource).toHaveBeenCalled();
+		const dialog = screen.getByRole("dialog");
+		const theme = within(dialog).getByRole("checkbox", { name: "Theme" });
+		expect(theme).toBeChecked();
+		// The one that is set can be cleared; the ones that are not stay shut.
+		expect(theme).not.toBeDisabled();
 		expect(
-			screen.getByRole("dialog", { name: "Crop campaign screenshot" }),
-		).toBeInTheDocument();
+			within(dialog).getByRole("checkbox", { name: "Interface language" }),
+		).toBeDisabled();
+
+		await fireEvent.click(theme);
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Close" }),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Publish" }),
+			).not.toBeDisabled();
+		});
 	});
 
-	it("saves current draft edits before publishing the campaign", async () => {
+	it("previews the mobile crop when the device toggle asks for it", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		// The preview <img> follows the toggle, not the browser viewport: the
+		// admin column is narrow inside a wide window, which the modal's own
+		// `<source media>` cannot see.
+		const preview = screen.getByLabelText("Campaign preview and history");
+		const image = () =>
+			preview.querySelector("img.campaign-image") as HTMLImageElement | null;
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-desktop");
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Phone preview" }),
+		);
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-mobile");
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Desktop preview" }),
+		);
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-desktop");
+		});
+	});
+
+	it("offers Seed first-run on an install with no campaigns at all", async () => {
+		// The ⋯ menu that normally carries it needs an open campaign, so a fresh
+		// install — the one place that wants the template — had no way in.
+		mockFetchAdminCampaigns.mockResolvedValue([]);
+		const { seedFirstRunCampaign } = await import("$lib/client/api/campaigns");
+		const mockSeed = seedFirstRunCampaign as ReturnType<typeof vi.fn>;
+		mockSeed.mockResolvedValue({
+			created: true,
+			campaign: { id: "campaign-seeded" },
+		});
+
 		render(SettingsAdminCampaignsPane);
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
+		const seedButton = await screen.findByRole("button", {
+			name: /Seed first-run/,
 		});
+		expect(screen.queryByTestId("campaign-menu")).not.toBeInTheDocument();
 
-		await fireEvent.input(screen.getByLabelText("Name"), {
-			target: { value: "Updated welcome tour" },
-		});
-		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
+		await fireEvent.click(seedButton);
 		await waitFor(() => {
-			expect(mockPublishAdminCampaign).toHaveBeenCalledWith("campaign-1");
+			expect(mockSeed).toHaveBeenCalled();
 		});
-		expect(mockUpdateAdminCampaign).toHaveBeenCalledWith(
-			"campaign-1",
-			expect.objectContaining({ name: "Updated welcome tour" }),
-		);
-		expect(mockUpdateAdminCampaign.mock.invocationCallOrder[0]).toBeLessThan(
-			mockPublishAdminCampaign.mock.invocationCallOrder[0],
-		);
 	});
 
-	it("shows publish validation field errors in the checklist", async () => {
-		mockPublishAdminCampaign.mockRejectedValue(
-			new ApiError("Campaign is not ready to publish.", {
-				status: 400,
-				fieldErrors: {
-					"slides.slide-standard.altText.en":
-						"Localized EN/HU alt text is required when an image is uploaded.",
-				},
-			}),
-		);
+	it("shows the checklist as one line while every check passes", async () => {
 		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
-
-		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-		await waitFor(() => {
-			expect(
-				screen.getByText(
-					"Localized EN/HU alt text is required when an image is uploaded.",
-				),
-			).toBeInTheDocument();
-		});
-		expect(
-			screen.getByText("Campaign is not ready to publish."),
-		).toBeInTheDocument();
+		const checklist = screen.getByTestId("campaign-checklist");
+		expect(within(checklist).getByText(/checks pass/)).toBeInTheDocument();
+		expect(within(checklist).getByText("Ready to publish")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Publish" })).not.toBeDisabled();
 	});
 
-	it("blocks publish locally when uploaded images are missing alt text", async () => {
+	it("opens the checklist on failure, names the slide, and blocks publish", async () => {
 		mockFetchAdminCampaign.mockResolvedValue({
 			id: "campaign-1",
 			type: "first_run_onboarding",
@@ -372,7 +417,6 @@ describe("SettingsAdminCampaignsPane", () => {
 					kind: "setup",
 					sortOrder: 1,
 					semanticRole: "feature",
-					setupControls: ["ui_language", "theme"],
 					titleEn: "Set up AlfyAI",
 					titleHu: "AlfyAI beállítása",
 					bodyEn: "Connect your tools.",
@@ -399,26 +443,362 @@ describe("SettingsAdminCampaignsPane", () => {
 		});
 
 		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
 
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /Welcome tour/ }),
-			).toBeInTheDocument();
-		});
+		const checklist = screen.getByTestId("campaign-checklist");
+		expect(within(checklist).getByText("1 check failing")).toBeInTheDocument();
+		expect(within(checklist).getByText("English alt text")).toBeInTheDocument();
+		expect(within(checklist).getByText("Slide 1")).toBeInTheDocument();
 
 		const publishButton = screen.getByRole("button", { name: "Publish" });
 		expect(publishButton).toBeDisabled();
-		expect(
-			screen.getByText(
-				"Localized EN/HU alt text is required when an image is uploaded.",
-			),
-		).toBeInTheDocument();
-
 		await fireEvent.click(publishButton);
 		expect(mockPublishAdminCampaign).not.toHaveBeenCalled();
 	});
 
-	it("refreshes layout data after publishing a release campaign so the sidebar version can update", async () => {
+	it('says the open slide has no setup controls instead of "— 0"', async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		// Slide 1 is the setup slide and carries two controls.
+		await openSlideMenu();
+		expect(
+			screen.getByRole("menuitem", { name: /Setup controls — 2/ }),
+		).toBeInTheDocument();
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		// Slide 2 has none, and the menu says so in words.
+		await fireEvent.click(
+			screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+		);
+		await openSlideMenu();
+		expect(
+			screen.getByRole("menuitem", { name: /Setup controls — none/ }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("menuitem", { name: /Setup controls — 0/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("falls back to the internal version when a release draft has no version string", async () => {
+		mockFetchAdminCampaigns.mockResolvedValue([
+			{
+				id: "campaign-1",
+				type: "release_update",
+				version: 4,
+				// A release draft created without a version yet: an empty string,
+				// which is not nullish, so `??` would have left the row blank.
+				releaseVersion: "",
+				name: "Unversioned release",
+				status: "draft",
+				slideCount: 1,
+			},
+		]);
+
+		render(SettingsAdminCampaignsPane);
+		await waitFor(() => {
+			expect(screen.getByTestId("admin-campaign-row")).toBeInTheDocument();
+		});
+
+		const row = screen.getByTestId("admin-campaign-row");
+		// …and "1 slide", not "1 slides".
+		expect(within(row).getByText("v4 · 1 slide")).toBeInTheDocument();
+	});
+
+	it("names the ⋯ menu when a first-run rule that lives there fails", async () => {
+		mockFetchAdminCampaign.mockResolvedValue({
+			id: "campaign-1",
+			type: "first_run_onboarding",
+			name: "Welcome tour",
+			status: "draft",
+			slides: [
+				{
+					id: "slide-setup",
+					kind: "setup",
+					sortOrder: 1,
+					semanticRole: "feature",
+					titleEn: "Set up AlfyAI",
+					titleHu: "AlfyAI beállítása",
+					bodyEn: "Connect your tools.",
+					bodyHu: "Kapcsold össze az eszközeidet.",
+				},
+			],
+		});
+
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		const checklist = screen.getByTestId("campaign-checklist");
+		expect(
+			within(checklist).getByText("A data-disclosure slide"),
+		).toBeInTheDocument();
+		expect(
+			within(checklist).getByText("in the slide ⋯ menu"),
+		).toBeInTheDocument();
+
+		// …and the menu entry that fixes it carries the attention dot.
+		await openSlideMenu();
+		const purposeItem = screen.getByRole("menuitem", { name: /Purpose/ });
+		expect(purposeItem.querySelector("span[aria-hidden]")).not.toBeNull();
+	});
+
+	it("deletes a draft from the campaign menu even when it fails validation", async () => {
+		mockFetchAdminCampaign.mockResolvedValue({
+			id: "campaign-1",
+			type: "release_update",
+			name: "",
+			releaseVersion: "",
+			status: "draft",
+			slides: [],
+		});
+
+		render(SettingsAdminCampaignsPane);
+		await waitFor(() => {
+			expect(screen.getByTestId("campaign-menu")).toBeInTheDocument();
+		});
+
+		expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+
+		await openCampaignMenu();
+		await fireEvent.click(
+			screen.getByRole("menuitem", { name: /Delete draft/ }),
+		);
+		await fireEvent.click(screen.getByTestId("confirm-delete"));
+
+		await waitFor(() => {
+			expect(mockDeleteAdminCampaignDraft).toHaveBeenCalledWith("campaign-1");
+		});
+		expect(mockArchiveAdminCampaign).not.toHaveBeenCalled();
+	});
+
+	it("archives a published campaign through a styled confirmation", async () => {
+		mockFetchAdminCampaigns.mockResolvedValue([
+			{
+				id: "campaign-1",
+				type: "release_update",
+				name: "Voice input beta",
+				status: "published",
+			},
+		]);
+		mockFetchAdminCampaign.mockResolvedValue({
+			id: "campaign-1",
+			type: "release_update",
+			name: "Voice input beta",
+			releaseVersion: "2.3.0",
+			status: "published",
+			publishedAt: "2026-09-04T08:00:00.000Z",
+			slides: [
+				{
+					id: "slide-1",
+					layoutType: "standard",
+					sortOrder: 1,
+					title: {
+						en: "Talk instead of typing",
+						hu: "Beszélj gépelés helyett",
+					},
+					body: { en: "Speech is transcribed.", hu: "A beszédet leírjuk." },
+					altText: { en: "Composer", hu: "Szerkesztő" },
+				},
+			],
+		});
+
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor("Voice input beta");
+
+		await openCampaignMenu();
+		await fireEvent.click(screen.getByRole("menuitem", { name: /Archive/ }));
+		await fireEvent.click(screen.getByTestId("confirm-delete"));
+
+		await waitFor(() => {
+			expect(mockArchiveAdminCampaign).toHaveBeenCalledWith("campaign-1");
+		});
+	});
+
+	it("keeps published campaigns read-only, says why, and offers a duplicate", async () => {
+		mockFetchAdminCampaigns.mockResolvedValue([
+			{
+				id: "campaign-1",
+				type: "first_run_onboarding",
+				name: "Welcome tour",
+				status: "published",
+				updatedAt: "2026-05-17T08:00:00.000Z",
+			},
+		]);
+		mockFetchAdminCampaign.mockResolvedValue({
+			id: "campaign-1",
+			type: "first_run_onboarding",
+			name: "Welcome tour",
+			status: "published",
+			analyticsSummary: {
+				autoShown: 412,
+				completed: 293,
+				skipped: 119,
+				replayOpened: 12,
+				completionRate: 0.71,
+			},
+			slides: [
+				{
+					id: "slide-setup",
+					layoutType: "setup",
+					sortOrder: 1,
+					title: { en: "Set up AlfyAI", hu: "AlfyAI beállítása" },
+					body: {
+						en: "Connect your tools.",
+						hu: "Kapcsold össze az eszközeidet.",
+					},
+					altText: { en: "Setup", hu: "Beállítás" },
+				},
+			],
+		});
+
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		expect(
+			screen.getByText(
+				"Published slides can't change. Duplicate as draft to edit.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Save draft" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /Duplicate as draft/ }),
+		).not.toBeDisabled();
+		expect(screen.getByDisplayValue("Set up AlfyAI")).toBeDisabled();
+
+		// Analytics appear once, as the performance card.
+		const performance = screen.getByTestId("campaign-performance");
+		expect(within(performance).getByText("71%")).toBeInTheDocument();
+		expect(within(performance).getByText("412")).toBeInTheDocument();
+		expect(within(performance).getByText("293")).toBeInTheDocument();
+		expect(within(performance).getByText("119")).toBeInTheDocument();
+		expect(within(performance).getByText("12")).toBeInTheDocument();
+	});
+
+	it("opens the crop modal immediately while the screenshot source upload is still pending", async () => {
+		mockUploadCampaignAssetSource.mockReturnValue(new Promise(() => {}));
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		const mobileBlock = screen.getByTestId("campaign-asset-mobile");
+		const uploadInput = mobileBlock.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement | null;
+		expect(uploadInput).toBeTruthy();
+		if (!uploadInput) throw new Error("Expected upload input");
+
+		await fireEvent.change(uploadInput, {
+			target: {
+				files: [
+					new File(["fake image bytes"], "mobile.png", { type: "image/png" }),
+				],
+			},
+		});
+
+		expect(mockUploadCampaignAssetSource).toHaveBeenCalled();
+		expect(
+			screen.getByRole("dialog", { name: "Crop campaign screenshot" }),
+		).toBeInTheDocument();
+	});
+
+	it("names the attached screenshot and can detach it", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		const desktopBlock = screen.getByTestId("campaign-asset-desktop");
+		await waitFor(() => {
+			expect(
+				within(desktopBlock).getByText(/welcome-desk\.webp/),
+			).toBeInTheDocument();
+		});
+
+		await fireEvent.click(
+			within(desktopBlock).getByRole("button", { name: "Remove" }),
+		);
+		await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+		await waitFor(() => {
+			expect(mockUpdateAdminCampaign).toHaveBeenCalled();
+		});
+		const [, payload] = mockUpdateAdminCampaign.mock.calls[0];
+		expect(payload.slides[0].desktopAssetId).toBeNull();
+	});
+
+	it("re-crops an attached screenshot from its original upload", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		const desktopBlock = screen.getByTestId("campaign-asset-desktop");
+		const recrop = within(desktopBlock).getByRole("button", {
+			name: /Re-crop/,
+		});
+		await waitFor(() => {
+			expect(recrop).not.toBeDisabled();
+		});
+		await fireEvent.click(recrop);
+
+		// No new upload: the crop dialog reopens on the stored source asset.
+		expect(mockUploadCampaignAssetSource).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("dialog", { name: "Crop campaign screenshot" }),
+		).toBeInTheDocument();
+	});
+
+	it("saves current draft edits before publishing the campaign", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		await fireEvent.input(screen.getByDisplayValue("Set up AlfyAI"), {
+			target: { value: "Set up your workspace" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+		await waitFor(() => {
+			expect(mockPublishAdminCampaign).toHaveBeenCalledWith("campaign-1");
+		});
+		const [, payload] = mockUpdateAdminCampaign.mock.calls[0];
+		expect(payload.slides[0].titleEn).toBe("Set up your workspace");
+		expect(mockUpdateAdminCampaign.mock.invocationCallOrder[0]).toBeLessThan(
+			mockPublishAdminCampaign.mock.invocationCallOrder[0],
+		);
+	});
+
+	it("shows publish validation field errors returned by the server", async () => {
+		mockPublishAdminCampaign.mockRejectedValue(
+			new ApiError("Campaign is not ready to publish.", {
+				status: 400,
+				fieldErrors: {
+					"slides.slide-standard.altText.en":
+						"Localized EN/HU alt text is required when an image is uploaded.",
+				},
+			}),
+		);
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+		await waitFor(() => {
+			expect(
+				screen.getByText(
+					"Localized EN/HU alt text is required when an image is uploaded.",
+				),
+			).toBeInTheDocument();
+		});
+		expect(
+			screen.getByText("Campaign is not ready to publish."),
+		).toBeInTheDocument();
+	});
+
+	it("shows the server's own validation issues on a locally valid draft", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		expect(screen.getByText("Action URL is required.")).toBeInTheDocument();
+	});
+
+	it("refreshes layout data after publishing a release campaign", async () => {
 		mockFetchAdminCampaigns.mockResolvedValue([
 			{
 				id: "campaign-release",
@@ -459,22 +839,7 @@ describe("SettingsAdminCampaignsPane", () => {
 			type: "release_update",
 			status: "draft",
 			releaseVersion: "1.0.0",
-			slides: [
-				{
-					id: "release-slide",
-					kind: "standard",
-					sortOrder: 1,
-					semanticRole: "feature",
-					titleEn: "AlfyAI 1.0",
-					titleHu: "AlfyAI 1.0",
-					bodyEn: "Production release.",
-					bodyHu: "Production kiadás.",
-					altEn: "Release screenshot",
-					altHu: "Kiadási képernyőkép",
-					desktopAssetId: "release-desktop",
-					mobileAssetId: "release-mobile",
-				},
-			],
+			slides: [],
 		});
 		mockPublishAdminCampaign.mockResolvedValue({
 			id: "campaign-release",
@@ -485,10 +850,7 @@ describe("SettingsAdminCampaignsPane", () => {
 		});
 
 		render(SettingsAdminCampaignsPane);
-
-		await waitFor(() => {
-			expect(screen.getAllByText("AlfyAI 1.0").length).toBeGreaterThan(0);
-		});
+		await waitForEditor("AlfyAI 1.0");
 
 		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 

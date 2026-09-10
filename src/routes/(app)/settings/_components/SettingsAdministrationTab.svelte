@@ -135,7 +135,7 @@ async function loadUsers(
 		usersLoaded = true;
 		syncSelectedUser(nextUsers, preferredId);
 	} catch (error: unknown) {
-		usersError = errorMessage(error, "Failed to load users.");
+		usersError = errorMessage(error, $t("admin.users.errors.load"));
 	} finally {
 		usersLoading = false;
 	}
@@ -168,7 +168,7 @@ async function handleCreateUser() {
 		usersMessage = `Created ${created.email}.`;
 		await refreshUsers(created.id);
 	} catch (error: unknown) {
-		createError = errorMessage(error, "Failed to create user.");
+		createError = errorMessage(error, $t("admin.users.errors.create"));
 	} finally {
 		createLoading = false;
 	}
@@ -188,7 +188,7 @@ async function runUserAction(
 		usersMessage = successMessage;
 		await refreshUsers(preferredId);
 	} catch (error: unknown) {
-		usersError = errorMessage(error, "User action failed.");
+		usersError = errorMessage(error, $t("admin.users.errors.action"));
 	} finally {
 		actionUserId = null;
 	}
@@ -198,7 +198,7 @@ async function handlePromoteUser(userId: string) {
 	await runUserAction(
 		userId,
 		() => updateAdminUserRole(userId, "admin"),
-		"Admin access granted.",
+		$t("admin.users.messages.promoted"),
 	);
 }
 
@@ -206,7 +206,7 @@ async function handleDemoteUser(userId: string) {
 	await runUserAction(
 		userId,
 		() => updateAdminUserRole(userId, "user"),
-		"Admin access removed.",
+		$t("admin.users.messages.demoted"),
 	);
 }
 
@@ -214,7 +214,7 @@ async function handleRevokeSessions(userId: string) {
 	await runUserAction(
 		userId,
 		() => revokeAdminUserSessions(userId),
-		"Active sessions revoked.",
+		$t("admin.users.messages.sessionsRevoked"),
 	);
 }
 
@@ -222,7 +222,7 @@ async function handleDeleteUser(userId: string) {
 	await runUserAction(
 		userId,
 		() => deleteAdminUser(userId),
-		"User deleted.",
+		$t("admin.users.messages.deleted"),
 		selectedUserId === userId ? null : selectedUserId,
 	);
 }

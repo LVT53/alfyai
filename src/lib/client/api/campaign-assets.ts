@@ -76,6 +76,36 @@ function createCampaignAssetCropFormData(
 	return formData;
 }
 
+export type CampaignAssetMetadata = {
+	id: string;
+	assetKind: "source" | "crop" | "model_icon";
+	variant?: CampaignAssetVariant | null;
+	status: "draft" | "published";
+	sourceAssetId?: string | null;
+	originalFilename: string;
+	mimeType: string;
+	sizeBytes: number;
+	width?: number | null;
+	height?: number | null;
+};
+
+/**
+ * Metadata for an attached campaign asset, so the slide editor can name the
+ * screenshot and offer Re-crop (which needs the crop's source asset).
+ */
+export async function fetchAdminCampaignAsset(
+	assetId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<CampaignAssetMetadata> {
+	const response = await requestJson<{ asset: CampaignAssetMetadata }>(
+		`/api/admin/campaigns/assets/${encodeURIComponent(assetId)}`,
+		undefined,
+		"Failed to load campaign screenshot details",
+		fetchImpl,
+	);
+	return response.asset;
+}
+
 export async function uploadCampaignAssetSource(
 	input: {
 		image: File;

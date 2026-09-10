@@ -7,13 +7,19 @@ test.describe("Admin last active tracking", () => {
 		await login(page);
 	});
 
-	test("admin users list shows last active time for all users", async ({
+	test("admin users table shows a last active value for every row", async ({
 		page,
 	}) => {
 		await page.goto("/settings");
 		await page.waitForLoadState("networkidle");
 		await page.getByRole("tab", { name: "Administration" }).click();
 		await page.getByRole("button", { name: "Users" }).click();
+
+		// The rail became a real table, so "last active" is a sortable column
+		// rather than a sentence repeated inside every row.
+		await expect(
+			page.getByRole("button", { name: /^Last active/ }),
+		).toBeVisible();
 
 		const userRows = page.locator('[data-testid="admin-user-row"]');
 		await expect(userRows.first()).toBeVisible();
@@ -22,14 +28,10 @@ test.describe("Admin last active tracking", () => {
 		expect(userCount).toBeGreaterThanOrEqual(1);
 
 		for (let i = 0; i < userCount; i++) {
-			const row = userRows.nth(i);
-			const lastActiveText = row.locator("text=Last active");
-			const joinedText = row.locator("text=Joined");
-
-			const hasLastActive = (await lastActiveText.count()) > 0;
-			const hasJoined = (await joinedText.count()) > 0;
-
-			expect(hasLastActive || hasJoined).toBe(true);
+			// Column 4 is Last active; it always renders something ("Never" for an
+			// account that has not signed in yet).
+			const cell = userRows.nth(i).locator("td").nth(3);
+			await expect(cell).not.toBeEmpty();
 		}
 	});
 
@@ -42,10 +44,13 @@ test.describe("Admin last active tracking", () => {
 		const userRows = page.locator('[data-testid="admin-user-row"]');
 		await expect(userRows.first()).toBeVisible();
 
-		await userRows.first().click();
+		await userRows.first().locator("button").first().click();
 
-		const detailPanel = page.getByText("Last active", { exact: true });
-		await expect(detailPanel).toBeVisible();
+		const detail = page.getByTestId("admin-user-detail");
+		await expect(
+			detail.getByText("Last active", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByTestId("admin-user-last-active")).not.toBeEmpty();
 	});
 
 	test("API returns lastActiveAt as a non-null timestamp", async ({ page }) => {
