@@ -406,6 +406,87 @@ describe("addAtlasV3Claim, loose identity", () => {
 		expect(state.claims).toHaveLength(2);
 	});
 
+	it("keeps two dates of one regulation apart at the same value", () => {
+		const { state, first, second } = repairabilityBank();
+		const base = {
+			entity: "EU AI Act",
+			value: "2 August 2025",
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			metric: "obligations start date",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			metric: "enforcement start date",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+		expect(state.claims.every((claim) => claim.status === "single")).toBe(true);
+	});
+
+	it("keeps a 2024 figure out of a 2025 one with the same value", () => {
+		const { state, first, second } = repairabilityBank();
+		addAtlasV3Claim(state, {
+			entity: "Acme",
+			metric: "revenue 2024",
+			value: "1.2 billion",
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			entity: "Acme",
+			metric: "revenue",
+			value: "1.2 billion",
+			unit: null,
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+		expect(state.claims[0].period).toBeNull();
+	});
+
+	it("keeps two years named in the series apart", () => {
+		const { state, first, second } = repairabilityBank();
+		const base = {
+			entity: "EU-27",
+			metric: "solar additions",
+			value: "65.1",
+			unit: "GW",
+			period: null,
+			asOf: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			series: "grid-connected additions 2024",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			series: "grid-connected additions 2025",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+	});
+
+	it("still merges when only one reading names the year", () => {
+		const { state, first, second } = repairabilityBank();
+		addAtlasV3Claim(state, { ...c1([first]), period: "2026" });
+		const merged = addAtlasV3Claim(state, c2([second]));
+		expect(state.claims).toHaveLength(1);
+		expect(merged?.status).toBe("verified");
+	});
+
 	it("fills the earlier claim's nulls from the newer reading", () => {
 		const { state, first, second } = repairabilityBank();
 		addAtlasV3Claim(state, { ...c1([first]), period: null, asOf: null });
@@ -486,6 +567,82 @@ describe("atlasV3CorroboratingPublishersFor / atlasV3AlsoStatedBy", () => {
 		const { bank, e1, e9 } = factBank();
 		expect(atlasV3AlsoStatedBy(bank, e1)).toEqual([e9]);
 		expect(atlasV3AlsoStatedBy(bank, e9)).toEqual([e1]);
+	});
+
+	/** Two publishers on one side of a disagreement are not a corroboration. */
+	function contestedBank() {
+		const state = createAtlasV3Bank();
+		const iea = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "IEA",
+			publishedAt: "2025-12-01",
+		});
+		const bbc = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/a",
+			title: "BBC",
+			publishedAt: "2025-12-02",
+		});
+		const reuters = addAtlasV3Source(state, {
+			url: "https://reuters.com/a",
+			title: "Reuters",
+			publishedAt: "2025-12-03",
+		});
+		const e1 = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "The EU added 65.1 GW of solar capacity in 2025, the agency reported.",
+			goal: "g",
+		});
+		const e2 = addAtlasV3Quote(state, {
+			sourceId: bbc?.id ?? "",
+			text: "Europe installed 65.1 GW of solar capacity last year, the broadcaster said.",
+			goal: "g",
+		});
+		const e3 = addAtlasV3Quote(state, {
+			sourceId: reuters?.id ?? "",
+			text: "Europe installed 70 GW of solar capacity last year, the agency reported.",
+			goal: "g",
+		});
+		const base = {
+			entity: "EU-27",
+			metric: "solar additions",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: "grid-connected additions",
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			value: "65.1",
+			evidenceIds: [e1?.id ?? "", e2?.id ?? ""],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			value: "70",
+			evidenceIds: [e3?.id ?? ""],
+		});
+		return {
+			bank: freezeAtlasV3Bank(state),
+			e1: e1?.id ?? "",
+			e2: e2?.id ?? "",
+		};
+	}
+
+	it("does not corroborate one side of a contested claim", () => {
+		const { bank, e1 } = contestedBank();
+		expect(bank.claims.every((claim) => claim.status === "contested")).toBe(
+			true,
+		);
+		expect(atlasV3CorroboratingPublishersFor(bank, [e1])).toEqual(["iea"]);
+	});
+
+	it("still counts the publishers a contested sentence cites itself", () => {
+		const { bank, e1, e2 } = contestedBank();
+		expect(atlasV3CorroboratingPublishersFor(bank, [e1, e2])).toHaveLength(2);
+	});
+
+	it("does not offer a contested quote as alsoStatedBy", () => {
+		const { bank, e1 } = contestedBank();
+		expect(atlasV3AlsoStatedBy(bank, e1)).toEqual([]);
 	});
 });
 

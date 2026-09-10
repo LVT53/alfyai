@@ -316,13 +316,6 @@ export function atlasV3NormalizeField(value: string | null): string {
 	return atlasV3NormalizeWords(value).join(" ");
 }
 
-function jaccard(left: Set<string>, right: Set<string>): number {
-	if (left.size === 0 || right.size === 0) return 0;
-	let shared = 0;
-	for (const word of left) if (right.has(word)) shared += 1;
-	return shared / (left.size + right.size - shared);
-}
-
 function isSubset(inner: Set<string>, outer: Set<string>): boolean {
 	if (inner.size === 0) return false;
 	for (const word of inner) if (!outer.has(word)) return false;
@@ -353,6 +346,39 @@ function wordsAgree(left: string | null, right: string | null): boolean {
 	return isSubset(leftWords, rightWords) || isSubset(rightWords, leftWords);
 }
 
+/**
+ * Years named anywhere in a claim's identity: its period, its metric or its
+ * series. Readers write the year where they like — `{metric:"revenue 2024"}`
+ * and `{metric:"revenue", period:"2025"}` are the same shape to `periodsAgree`,
+ * whose null-matches-anything rule then merged a 2024 figure into a 2025 one
+ * with the same value. The value is NOT scanned: "2 August 2025" is a date the
+ * claim states, not the period it covers.
+ */
+export function atlasV3ClaimYears(
+	claim: Pick<AtlasV3Claim, "metric" | "period" | "series">,
+): Set<string> {
+	const years = new Set<string>();
+	for (const field of [claim.period, claim.metric, claim.series]) {
+		for (const match of (field ?? "").matchAll(/\b(?:19|20)\d{2}\b/gu)) {
+			years.add(match[0]);
+		}
+	}
+	return years;
+}
+
+/** Equal, or one side naming no year at all. */
+function yearsAgree(
+	left: Pick<AtlasV3Claim, "metric" | "period" | "series">,
+	right: Pick<AtlasV3Claim, "metric" | "period" | "series">,
+): boolean {
+	const leftYears = atlasV3ClaimYears(left);
+	const rightYears = atlasV3ClaimYears(right);
+	if (leftYears.size === 0 || rightYears.size === 0) return true;
+	if (leftYears.size !== rightYears.size) return false;
+	for (const year of leftYears) if (!rightYears.has(year)) return false;
+	return true;
+}
+
 type AtlasV3ClaimIdentity = Pick<
 	AtlasV3Claim,
 	"entity" | "metric" | "value" | "unit" | "period" | "series"
@@ -360,9 +386,15 @@ type AtlasV3ClaimIdentity = Pick<
 
 /**
  * Whether two claims are two readings of ONE measurement: same entity, same
- * value, compatible unit, period and series, and metrics that either overlap by
- * half their words or where one metric's words are contained in the other's
- * metric plus series.
+ * value, compatible unit, period and series, the same years named anywhere in
+ * their identity, and one metric's words CONTAINED in the other's metric plus
+ * series.
+ *
+ * Containment, not overlap. A half-of-the-words rule merged
+ * `{metric:"obligations start date"}` into `{metric:"enforcement start date"}`
+ * — two words shared out of four, one date, two entirely different facts about
+ * one regulation. Where each side carries a word the other has never heard of,
+ * they are not the same measurement however much of the rest they share.
  */
 export function atlasV3ClaimsMergeLoosely(
 	left: AtlasV3ClaimIdentity,
@@ -376,10 +408,10 @@ export function atlasV3ClaimsMergeLoosely(
 	if (!sameValue(left.value, right.value)) return false;
 	if (!wordsAgree(left.unit, right.unit)) return false;
 	if (!periodsAgree(left.period, right.period)) return false;
+	if (!yearsAgree(left, right)) return false;
 	if (!wordsAgree(left.series, right.series)) return false;
 	const leftMetric = new Set(atlasV3NormalizeWords(left.metric));
 	const rightMetric = new Set(atlasV3NormalizeWords(right.metric));
-	if (jaccard(leftMetric, rightMetric) >= 0.5) return true;
 	const leftContext = new Set([
 		...leftMetric,
 		...atlasV3NormalizeWords(left.series),
@@ -561,6 +593,11 @@ export function atlasV3PublishersFor(
  *
  * One hop only. Two claims sharing a quote are related; the claims THEY share
  * quotes with are not the same fact.
+ *
+ * A CONTESTED claim never widens. Two publishers agreeing on a figure a third
+ * publisher contradicts is not a corroborated figure, it is one side of a
+ * disagreement the writer has to adjudicate, and printing "ᶜ corroborated"
+ * beside it would tell the reader the opposite of what the bank knows.
  */
 export function atlasV3CorroboratingPublishersFor(
 	bank: AtlasV3EvidenceBank,
@@ -570,6 +607,7 @@ export function atlasV3CorroboratingPublishersFor(
 	const cited = new Set(evidenceIds);
 	const widened = new Set(evidenceIds);
 	for (const claim of bank.claims) {
+		if (claim.status === "contested") continue;
 		if (!claim.evidenceIds.some((id) => cited.has(id))) continue;
 		for (const id of claim.evidenceIds) widened.add(id);
 	}
@@ -580,6 +618,9 @@ export function atlasV3CorroboratingPublishersFor(
  * Quote ids from OTHER publishers that state the same claim as `evidenceId`.
  * Handed to the writer as `alsoStatedBy`, so a sentence can say that three
  * trackers agree instead of quoting one and sounding alone.
+ *
+ * A contested claim never contributes: the writer's job there is to adjudicate
+ * the disagreement, not to be told that half of it agrees with itself.
  */
 export function atlasV3AlsoStatedBy(
 	bank: AtlasV3EvidenceBank,
@@ -590,6 +631,7 @@ export function atlasV3AlsoStatedBy(
 	if (!own) return [];
 	const ids: string[] = [];
 	for (const claim of bank.claims) {
+		if (claim.status === "contested") continue;
 		if (!claim.evidenceIds.includes(evidenceId)) continue;
 		for (const id of claim.evidenceIds) {
 			if (id === evidenceId || ids.includes(id)) continue;
