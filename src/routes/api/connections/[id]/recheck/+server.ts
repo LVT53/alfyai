@@ -1,7 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { requireOwnedConnection } from "$lib/server/api/ownership";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
 import { checkConnectionHealth } from "$lib/server/services/connections/health";
+import { checkConnectionRecheckRateLimit } from "$lib/server/services/connections/recheck-rate-limit";
 import { getConnection } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
@@ -25,6 +27,15 @@ export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const userId = user.id;
 	const id = event.params.id;
+
+	// This is the only route on which a client decides that we open an
+	// outbound connection to a third-party provider, so it is capped per user
+	// before anything else happens. A person opening detail dialogs never
+	// reaches the cap; a stuck client looping on it would otherwise hammer the
+	// provider from this server's IP under the user's own credentials.
+	if (!checkConnectionRecheckRateLimit(userId)) {
+		return createJsonErrorResponse("Too many requests", 429);
+	}
 
 	// User-scoped: another user's connection id 404s exactly like a missing
 	// one. checkConnectionHealth scopes by userId too, but the 404 shape has to

@@ -9,6 +9,7 @@ vi.mock("$lib/server/services/connections/health", () => ({
 }));
 
 import { checkConnectionHealth } from "$lib/server/services/connections/health";
+import { _resetConnectionRecheckRateLimitForTests } from "$lib/server/services/connections/recheck-rate-limit";
 import { getConnection } from "$lib/server/services/connections/store";
 import { POST } from "./+server";
 
@@ -53,6 +54,7 @@ function makeEvent(id = "conn-1", userId = "owner-user") {
 describe("POST /api/connections/[id]/recheck", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		_resetConnectionRecheckRateLimitForTests();
 		mockGetConnection.mockResolvedValue(storedConnection);
 		mockCheckHealth.mockResolvedValue({ status: "connected", detail: null });
 	});
@@ -130,5 +132,29 @@ describe("POST /api/connections/[id]/recheck", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.connection.status).toBe("error");
+	});
+
+	// A client decides when this route runs, and running it makes THIS server
+	// call a third-party provider. Without a cap, a stuck tab (or a script)
+	// could hammer the provider from our IP under the user's own credentials.
+	it("caps how often one user can make the server call a provider", async () => {
+		let last: Response | undefined;
+		for (let i = 0; i < 20; i += 1) {
+			last = await POST(makeEvent());
+		}
+
+		expect(last?.status).toBe(429);
+		// The cap is what stops the outbound calls, so it must bite before the
+		// adapter is reached — not merely change the response.
+		expect(mockCheckHealth.mock.calls.length).toBeLessThan(20);
+	});
+
+	it("keeps one user's cap out of another user's way", async () => {
+		for (let i = 0; i < 20; i += 1) {
+			await POST(makeEvent("conn-1", "owner-user"));
+		}
+
+		const other = await POST(makeEvent("conn-2", "second-user"));
+		expect(other.status).toBe(200);
 	});
 });
