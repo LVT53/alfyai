@@ -684,6 +684,149 @@ describe("addAtlasV3Claim, the twins the staging bank kept apart", () => {
 		});
 		expect(state.claims).toHaveLength(2);
 	});
+
+	it("still refuses two quarters of one year", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			entity: "Acme",
+			metric: "revenue",
+			value: "5",
+			unit: "bn USD",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			period: "Q1 2026",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			period: "Q3 2026",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+	});
+
+	it("still refuses two products whose name ENDS in the number", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "desktop share",
+			value: "42",
+			unit: "%",
+			period: "2026",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Windows 11",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Windows 10",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+	});
+
+	it("reads a release-channel qualifier as the same model", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "context window length",
+			value: "200k tokens",
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Claude Opus 4",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Claude Opus 4 (beta)",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(1);
+	});
+
+	/**
+	 * The reading that names no year is not disagreeing about the year, so it
+	 * joins the one that does — including a year the other side parenthesised.
+	 */
+	it("merges a reading that names no period into one that does", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "population",
+			value: "84.7",
+			unit: "million",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Germany",
+			period: null,
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Germany (2024)",
+			period: "2025",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(1);
+		expect(state.claims[0].period).toBe("2025");
+	});
+
+	/**
+	 * Stripping the parentheses is for the qualifier ONE reader adds. Two
+	 * readers who each wrote one, differently, are reading different things: an
+	 * equal sales figure would otherwise have pooled two countries into one
+	 * twice-published claim.
+	 */
+	it("still refuses one name two readers qualified differently", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "unit sales",
+			value: "120000",
+			unit: null,
+			period: "2026",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Renault (France)",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			entity: "Renault (Germany)",
+			evidenceIds: [second],
+		});
+		expect(state.claims).toHaveLength(2);
+		expect(state.claimsMerged).toBe(0);
+	});
+
+	it("still refuses two entities that are nothing but a qualifier", () => {
+		const { state, first, second } = modelBank();
+		const base = {
+			metric: "market share",
+			value: "31",
+			unit: "%",
+			period: "2026",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, { ...base, entity: "(EU)", evidenceIds: [first] });
+		addAtlasV3Claim(state, { ...base, entity: "(US)", evidenceIds: [second] });
+		expect(state.claims).toHaveLength(2);
+	});
 });
 
 describe("atlasV3NormalizeWords", () => {

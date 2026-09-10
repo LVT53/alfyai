@@ -348,6 +348,23 @@ export function atlasV3NormalizeEntity(value: string | null): string {
 	return words.join(" ");
 }
 
+/**
+ * The words a reader put in parentheses: `(beta)`, `(France)`, `(2026)`.
+ * Empty when there are none.
+ *
+ * `atlasV3NormalizeEntity` throws these away, which is right when ONE reader
+ * adds a qualifier the other omits and wrong when both write one. "Renault
+ * (France)" and "Renault (Germany)" are both "renault" once stripped, and one
+ * equal sales figure would have pooled two countries into a single
+ * twice-published claim.
+ */
+export function atlasV3EntityQualifier(value: string | null): string {
+	const inside = [...(value ?? "").matchAll(/\(([^)]*)\)/gu)].map(
+		(match) => match[1],
+	);
+	return atlasV3NormalizeField(inside.join(" "));
+}
+
 function isSubset(inner: Set<string>, outer: Set<string>): boolean {
 	if (inner.size === 0) return false;
 	for (const word of inner) if (!outer.has(word)) return false;
@@ -485,9 +502,14 @@ function metricsAgree(
 
 /**
  * Whether two claims are two readings of ONE measurement: the same entity once
- * its qualifiers are stripped, the same value, a compatible unit and period,
- * the same years named anywhere in their identity, and metrics that name one
- * measurement.
+ * a qualifier only one of them wrote is stripped, the same value, a compatible
+ * unit and period, the same years named anywhere in their identity, and metrics
+ * that name one measurement.
+ *
+ * Stripping the parentheses answers the reader who wrote "Dell XPS 13 (2026)"
+ * where another wrote "Dell XPS 13". It must not answer TWO readers who each
+ * wrote a qualifier: "Renault (France)" and "Renault (Germany)" are two
+ * countries, so a qualifier on both sides has to agree.
  *
  * The SERIES no longer has to agree. It is a label two publishers pick
  * independently — `max context length` against `max context window (beta)` for
@@ -502,9 +524,15 @@ export function atlasV3ClaimsMergeLoosely(
 	left: AtlasV3ClaimIdentity,
 	right: AtlasV3ClaimIdentity,
 ): boolean {
-	if (
-		atlasV3NormalizeEntity(left.entity) !== atlasV3NormalizeEntity(right.entity)
-	) {
+	const entity = atlasV3NormalizeEntity(left.entity);
+	// An entity of nothing but punctuation, stop words and a parenthesis names
+	// no thing at all: "(EU)" and "(US)" both normalise to the empty string, and
+	// two empties are not one entity. The strict key still merges a claim with
+	// the entity written identically twice.
+	if (!entity || entity !== atlasV3NormalizeEntity(right.entity)) return false;
+	const leftQualifier = atlasV3EntityQualifier(left.entity);
+	const rightQualifier = atlasV3EntityQualifier(right.entity);
+	if (leftQualifier && rightQualifier && leftQualifier !== rightQualifier) {
 		return false;
 	}
 	if (!sameValue(left.value, right.value)) return false;
