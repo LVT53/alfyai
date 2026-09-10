@@ -17,6 +17,7 @@ import {
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	sentencesWithTrailingCitations,
 	tableExpectedFor,
 	tablePresent,
 	verdictInWindow,
@@ -717,6 +718,53 @@ describe("verdictInWindow", () => {
 				"## Verdict\n\nThe process runs to eight weeks, as practitioners describe it. ⁱ\n",
 			),
 		).toBe(false);
+	});
+
+	/**
+	 * The citation sits AFTER the full stop, so the fragment it starts also
+	 * carries the whole of the next sentence. Folding that fragment in whole
+	 * gave the citation to the sentence after the one that earned it: a verdict
+	 * whose number and whose citation were in different sentences scored YES,
+	 * and one whose cited answer was followed by any further prose scored NO.
+	 */
+	it("gives a trailing citation to the sentence before it, not after", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nWarranty structures shape the repair landscape. [1]ˢ It runs to eight weeks in practice.\n",
+			),
+		).toBe(false);
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nIt runs to eight weeks in practice. [1]ˢ Warranty structures shape the repair landscape.\n",
+			),
+		).toBe(true);
+	});
+});
+
+describe("sentencesWithTrailingCitations", () => {
+	it("keeps each sentence's own citations with it", () => {
+		expect(
+			sentencesWithTrailingCitations(
+				"It follows an eight-week timeline. [1]ˢ Next sentence. [2][3]ᶜ",
+			),
+		).toEqual([
+			"It follows an eight-week timeline. [1]ˢ",
+			"Next sentence. [2][3]ᶜ",
+		]);
+	});
+
+	it("leaves a sentence that opens the text with its citation", () => {
+		expect(sentencesWithTrailingCitations("[1]ˢ It was 65.1 GW.")).toEqual([
+			"[1]ˢ It was 65.1 GW.",
+		]);
+	});
+
+	it("splits plain prose the way a naive split would", () => {
+		expect(sentencesWithTrailingCitations("One. Two! Three?")).toEqual([
+			"One.",
+			"Two!",
+			"Three?",
+		]);
 	});
 });
 

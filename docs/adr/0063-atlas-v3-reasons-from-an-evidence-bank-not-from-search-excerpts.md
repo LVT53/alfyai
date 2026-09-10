@@ -118,7 +118,9 @@ received only the quotes no earlier node had taken, and one whose quotes were
 all taken was cut. That rule was written when a quote belonged to one claim;
 once claims merged across sources, most quotes belonged to several, and the rule
 starved every node after the first. A node now carries all the quotes behind its
-claims, shared or not, and its status is computed from that full set. A node is
+claims, shared or not, best-supported claim first so the writer's
+`maxEvidencePerSection` cap falls on the least corroborated, and its status is
+computed from that full set. A node is
 cut only when its whole evidence set is inside an earlier KEPT node's set **and**
 the two nodes' title-plus-claim words overlap by a third: two sections arguing
 different things from one teardown are two sections. Cross-section repetition
@@ -134,7 +136,10 @@ carried `minSections` from the start and nothing read it. The outline system
 prompt now states the range and the claim count in words, and after binding, an
 outline below the floor is topped up from the claims whose evidence NO node
 bound, grouped by normalised entity and metric, best-supported group first,
-titled as the deterministic outline titles its own nodes. The count reaches the
+titled as the deterministic outline titles its own nodes. A measurement a
+section already argues is never topped up a second time: the deterministic
+outline writes one section per entity and metric, and a second reading of one
+of them is the duplicate section the merge exists to cut. The count reaches the
 diagnostics as `sectionsSupplemented`.
 
 **Series is a label, not a measurement.** The loose merge required period and
@@ -148,6 +153,9 @@ strictly more, because `obligations start date` and `enforcement start date`
 share exactly half; entities agree after parenthesised qualifiers and a trailing
 model year are stripped, by equality, so `GPT-4.1 Mini` is still not `GPT-4.1`,
 and the year guard reads the entity too so a stripped year can still refuse.
+Stripping answers the qualifier ONE reader adds: where both wrote one and they
+differ, `Renault (France)` stays apart from `Renault (Germany)`, and an entity
+that normalises to nothing — `(EU)` against `(US)` — matches no one.
 Loose merges are counted as `claimsMerged`.
 
 **The evidence card carries what the report cited.** Each source's snippet is

@@ -835,23 +835,38 @@ function verdictInWindow(markdown: string, windowWords = 150): boolean {
 }
 
 /**
+ * A run of citation markers and confidence marks at the start of a fragment —
+ * everything the renderer put AFTER the full stop of the sentence before it.
+ * The confidence marks are modifier LETTERS, so they cannot be found by asking
+ * whether the fragment has any letters in it.
+ */
+const LEADING_CITATIONS = /^(?:\[\d{1,3}\]|[ᶜˢⁱ]|\s)+/u;
+
+/**
  * Sentences, with the citations that FOLLOW the full stop kept on the sentence
  * they belong to. The renderer writes "…decision timeline. [1]ˢ", so a naive
  * split leaves every citation stranded in a fragment of its own and no sentence
  * ever looks cited.
+ *
+ * The markers are peeled off the FRONT of the next fragment rather than the
+ * fragment being folded in whole: "…timeline. [1]ˢ Next sentence." splits into
+ * a fragment that carries both the citation of the first sentence and the whole
+ * of the second, and folding it in gave the citation to the sentence after the
+ * one that earned it.
  */
 function sentencesWithTrailingCitations(text: string): string[] {
 	const sentences: string[] = [];
 	for (const piece of text.split(/(?<=[.!?])\s+/u)) {
-		// The confidence marks are modifier LETTERS, so "[1]ˢ" reads as a word to
-		// `\p{L}` and would start a sentence of its own.
-		const prose = piece.replace(CITATION_PATTERN, " ").replace(/[ᶜˢⁱ]/g, " ");
+		const marks = piece.match(LEADING_CITATIONS)?.[0] ?? "";
+		const lead = marks.trim();
 		const previous = sentences.at(-1);
-		if (previous !== undefined && !/\p{L}/u.test(prose)) {
-			sentences[sentences.length - 1] = `${previous} ${piece}`;
+		if (lead && previous !== undefined) {
+			sentences[sentences.length - 1] = `${previous} ${lead}`;
+			const rest = piece.slice(marks.length).trim();
+			if (rest) sentences.push(rest);
 			continue;
 		}
-		sentences.push(piece);
+		if (piece.trim()) sentences.push(piece);
 	}
 	return sentences;
 }
@@ -1978,6 +1993,7 @@ export {
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	sentencesWithTrailingCitations,
 	tableExpectedFor,
 	tablePresent,
 	verdictInWindow,
