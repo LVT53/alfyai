@@ -21,7 +21,7 @@ function conn(
 function baseProps(overrides: Record<string, unknown> = {}) {
 	return {
 		connections: [conn()],
-		disabledIds: new Set<string>(),
+		flippedIds: new Set<string>(),
 		masterOn: true,
 		onToggleMaster: vi.fn(),
 		onToggleAccount: vi.fn(),
@@ -79,9 +79,26 @@ describe("ConnectionsPopover", () => {
 	it("shows an account switched off for this conversation as off", () => {
 		render(
 			ConnectionsPopover,
-			baseProps({ disabledIds: new Set(["nc"]), masterOn: false }),
+			baseProps({ flippedIds: new Set(["nc"]), masterOn: false }),
 		);
 		const row = screen.getByTestId("connections-popover-account-nc");
+		expect(within(row).getByRole("switch")).toHaveAttribute(
+			"aria-checked",
+			"false",
+		);
+	});
+
+	// The settings dialog promises that an account with "Use it without
+	// asking" off is only used "when you turn connections on for that
+	// message" — so it must open here already off, not on.
+	it("shows an ask-first account as off before anything is touched", () => {
+		render(
+			ConnectionsPopover,
+			baseProps({
+				connections: [conn({ id: "mail", provider: "imap", defaultOn: false })],
+			}),
+		);
+		const row = screen.getByTestId("connections-popover-account-mail");
 		expect(within(row).getByRole("switch")).toHaveAttribute(
 			"aria-checked",
 			"false",

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
 import {
 	capabilitiesForSelection,
+	isAccountOn,
 	masterIsOn,
 	needsAttention,
 	persistDisabledIds,
@@ -42,6 +43,61 @@ const CONNECTIONS: ActiveCapabilitiesConnection[] = [
 		capabilities: [],
 	}),
 ];
+
+// The settings dialog's own words for "Use it without asking": "Off, it only
+// uses {provider} when you turn connections on for that message." So an
+// account with defaultOn=false must start OFF in the composer, and the
+// per-conversation choice is a deviation from that setting, never a
+// replacement for it.
+describe('the account\'s own "Use it without asking" setting', () => {
+	const askFirst = conn({
+		id: "mail",
+		defaultOn: false,
+		capabilities: ["email"],
+	});
+	const automatic = conn({
+		id: "nc",
+		defaultOn: true,
+		capabilities: ["files"],
+	});
+
+	it("starts an ask-first account off and an automatic one on", () => {
+		expect(isAccountOn(automatic, new Set())).toBe(true);
+		expect(isAccountOn(askFirst, new Set())).toBe(false);
+	});
+
+	it("keeps an ask-first account's capabilities off the wire by default", () => {
+		expect(capabilitiesForSelection([automatic, askFirst], new Set())).toEqual([
+			"files",
+		]);
+	});
+
+	it("sends an ask-first account only once it is turned on for this message", () => {
+		const on = toggleAccount(new Set(), "mail");
+		expect(capabilitiesForSelection([automatic, askFirst], on).sort()).toEqual([
+			"email",
+			"files",
+		]);
+	});
+
+	it("counts an ask-first account as off until it is turned on", () => {
+		expect(readyCount([automatic, askFirst], new Set())).toEqual({
+			on: 1,
+			total: 2,
+		});
+	});
+
+	it("turns everything on and back to each account's own setting", () => {
+		const both = [automatic, askFirst];
+		const allOn = toggleMaster(both, toggleMaster(both, new Set()));
+		expect(capabilitiesForSelection(both, allOn).sort()).toEqual([
+			"email",
+			"files",
+		]);
+		const allOff = toggleMaster(both, allOn);
+		expect(capabilitiesForSelection(both, allOff)).toEqual([]);
+	});
+});
 
 describe("capabilitiesForSelection", () => {
 	it("sends every ready account's capabilities when nothing is left out", () => {

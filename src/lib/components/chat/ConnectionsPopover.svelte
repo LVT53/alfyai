@@ -10,21 +10,23 @@
 // and which one needs attention, with a way through to fix it.
 import { AlertTriangle } from "@lucide/svelte";
 import { onMount } from "svelte";
+import { fly } from "svelte/transition";
 import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
 import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import {
+	isAccountOn,
 	isReady,
-	masterIsOn,
 	needsAttention,
 	readyCount,
 } from "$lib/client/connections/composer-selection";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
+import { reducedMotionAware } from "$lib/utils/motion";
 
 let {
 	connections,
-	disabledIds,
+	flippedIds,
 	// Owned by the composer, not derived here: with no per-account list from
 	// the server this is the old all-or-nothing switch's state, and the
 	// popover must show that rather than computing "nothing is on" from an
@@ -36,7 +38,9 @@ let {
 	onClose,
 }: {
 	connections: ActiveCapabilitiesConnection[];
-	disabledIds: ReadonlySet<string>;
+	// The accounts flipped away from their own "Use it without asking"
+	// setting for this conversation — see composer-selection's isAccountOn.
+	flippedIds: ReadonlySet<string>;
 	masterOn: boolean;
 	onToggleMaster: () => void;
 	onToggleAccount: (id: string) => void;
@@ -46,7 +50,15 @@ let {
 
 let root = $state<HTMLDivElement | undefined>(undefined);
 
-const counts = $derived(readyCount(connections, disabledIds));
+// Applied as `transition:` rather than a CSS `animation`, so the popover
+// plays on the way OUT as well as in — the composer's command tray next to it
+// already animates both ways, and a menu that appears softly and then
+// vanishes on a frame reads as a glitch. Wrapped in reducedMotionAware
+// because Svelte's css transitions interpolate styles directly and the
+// app-wide reduced-motion override cannot reach them.
+const popoverFly = reducedMotionAware(fly);
+
+const counts = $derived(readyCount(connections, flippedIds));
 const master = $derived(masterOn);
 const attention = $derived(needsAttention(connections));
 const ready = $derived(connections.filter(isReady));
@@ -80,6 +92,7 @@ onMount(() => {
 <div
 	bind:this={root}
 	class="connections-popover"
+	transition:popoverFly={{ duration: 140, y: 4 }}
 	data-testid="connections-popover"
 	role="group"
 	aria-label={$t('connections.chat.useMyConnections')}
@@ -121,7 +134,7 @@ onMount(() => {
 						<span class="account-caps">· {capabilityList(conn)}</span>
 					</span>
 					<Toggle
-						checked={!disabledIds.has(conn.id)}
+						checked={isAccountOn(conn, flippedIds)}
 						ariaLabel={entry.displayName}
 						onChange={() => onToggleAccount(conn.id)}
 					/>
@@ -172,25 +185,11 @@ onMount(() => {
 		background: color-mix(in srgb, var(--surface-overlay) 92%, var(--surface-page) 8%);
 		box-shadow: 0 14px 30px rgba(0, 0, 0, 0.14);
 		backdrop-filter: blur(14px);
-		animation: connectionsPopoverIn 140ms cubic-bezier(0.22, 1, 0.36, 1);
 	}
 
 	:global(.dark) .connections-popover {
 		background: color-mix(in srgb, var(--surface-page) 92%, #000 8%);
 		box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
-	}
-
-	@keyframes connectionsPopoverIn {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.connections-popover {
-			animation: none;
-		}
 	}
 
 	.master-row {

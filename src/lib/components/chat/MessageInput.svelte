@@ -346,11 +346,13 @@ let connectionsEnabled = $state(true);
 let connectionsSyncedConversationId = $state<string | null>(null);
 // Connections redesign — the plug opens an account list instead of being an
 // all-or-nothing switch, so the composer now tracks WHICH accounts this
-// conversation leaves out. `connectionAccounts` comes from the same
-// active-capabilities fetch; when the server doesn't send it (older build),
-// everything below falls back to the master-switch behaviour above.
+// conversation deviates on. An account starts at its own "Use it without
+// asking" setting; `connectionsFlippedIds` holds the ones the user flipped
+// away from it here (composer-selection's isAccountOn). `connectionAccounts`
+// comes from the same active-capabilities fetch; when the server doesn't send
+// it (older build), everything below falls back to the master switch above.
 let connectionAccounts = $state<ActiveCapabilitiesConnection[]>([]);
-let connectionsDisabledIds = $state<Set<string>>(new Set());
+let connectionsFlippedIds = $state<Set<string>>(new Set());
 let showConnectionsPopover = $state(false);
 // Issue 7.4 fix pass — the cloud-warning check/modal itself now lives at the
 // page level (+page.svelte's ensureCloudWarningAcked), reached through the
@@ -598,7 +600,7 @@ async function loadActiveCapabilities() {
 function computeActiveCapabilities(): Set<string> {
 	if (connectionAccounts.length > 0) {
 		return new Set(
-			capabilitiesForSelection(connectionAccounts, connectionsDisabledIds),
+			capabilitiesForSelection(connectionAccounts, connectionsFlippedIds),
 		);
 	}
 	return connectionsEnabled ? new Set(defaultOnCapabilities) : new Set();
@@ -674,12 +676,12 @@ $effect(() => {
 	}
 
 	// Connections redesign — the per-account half of the same memory. A draft
-	// that had accounts switched off carries them across creation, exactly as
-	// the master switch above does.
-	if (wasDraft && connectionsDisabledIds.size > 0) {
-		persistDisabledIds(boundId, connectionsDisabledIds);
+	// whose accounts were flipped carries the flips across creation, exactly
+	// as the master switch above does.
+	if (wasDraft && connectionsFlippedIds.size > 0) {
+		persistDisabledIds(boundId, connectionsFlippedIds);
 	} else {
-		connectionsDisabledIds = readDisabledIds(boundId);
+		connectionsFlippedIds = readDisabledIds(boundId);
 	}
 });
 
@@ -691,7 +693,7 @@ $effect(() => {
 	void connectionsEnabled;
 	void defaultOnCapabilities;
 	void connectionAccounts;
-	void connectionsDisabledIds;
+	void connectionsFlippedIds;
 	activeCapabilities = computeActiveCapabilities();
 });
 
@@ -723,7 +725,7 @@ function openConnectionsPopover() {
 
 function rememberConnectionSelection() {
 	const id = conversationId ?? resolvedConversationId;
-	if (id) persistDisabledIds(id, connectionsDisabledIds);
+	if (id) persistDisabledIds(id, connectionsFlippedIds);
 }
 
 function handleToggleConnectionsMaster() {
@@ -731,17 +733,17 @@ function handleToggleConnectionsMaster() {
 		toggleConnections();
 		return;
 	}
-	connectionsDisabledIds = toggleMaster(
+	connectionsFlippedIds = toggleMaster(
 		connectionAccounts,
-		connectionsDisabledIds,
+		connectionsFlippedIds,
 	);
-	connectionsEnabled = masterIsOn(connectionAccounts, connectionsDisabledIds);
+	connectionsEnabled = masterIsOn(connectionAccounts, connectionsFlippedIds);
 	rememberConnectionSelection();
 }
 
 function handleToggleConnectionAccount(id: string) {
-	connectionsDisabledIds = toggleAccount(connectionsDisabledIds, id);
-	connectionsEnabled = masterIsOn(connectionAccounts, connectionsDisabledIds);
+	connectionsFlippedIds = toggleAccount(connectionsFlippedIds, id);
+	connectionsEnabled = masterIsOn(connectionAccounts, connectionsFlippedIds);
 	rememberConnectionSelection();
 }
 
@@ -749,7 +751,7 @@ function handleToggleConnectionAccount(id: string) {
 // message without opening anything.
 const activeConnectionCount = $derived(
 	connectionAccounts.length > 0
-		? readyCount(connectionAccounts, connectionsDisabledIds).on
+		? readyCount(connectionAccounts, connectionsFlippedIds).on
 		: connectionsEnabled
 			? defaultOnCapabilities.size
 			: 0,
@@ -2641,9 +2643,9 @@ async function emitDraftChange(force = false) {
 					{#if showConnectionsPopover}
 						<ConnectionsPopover
 							connections={connectionAccounts}
-							disabledIds={connectionsDisabledIds}
+							flippedIds={connectionsFlippedIds}
 							masterOn={connectionAccounts.length > 0
-								? masterIsOn(connectionAccounts, connectionsDisabledIds)
+								? masterIsOn(connectionAccounts, connectionsFlippedIds)
 								: connectionsEnabled}
 							onToggleMaster={handleToggleConnectionsMaster}
 							onToggleAccount={handleToggleConnectionAccount}
