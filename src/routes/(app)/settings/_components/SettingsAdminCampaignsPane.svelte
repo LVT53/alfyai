@@ -1164,6 +1164,7 @@ onMount(() => {
 							preview={true}
 							inline={true}
 							slideIndex={activeSlideIndex}
+							previewVariant={previewDevice}
 							onSlideChange={(index) => (activeSlideIndex = index)}
 						/>
 					</div>

@@ -43,6 +43,7 @@ let {
 	preview = false,
 	inline = false,
 	slideIndex = 0,
+	previewVariant = null,
 	setupPreferences = undefined,
 	onSlideChange,
 	onSlideView,
@@ -56,6 +57,13 @@ let {
 	preview?: boolean;
 	inline?: boolean;
 	slideIndex?: number;
+	/**
+	 * Forces one screenshot variant instead of letting the viewport pick it.
+	 * The admin editor's device toggle narrows a column inside a desktop
+	 * window, which the `<source media>` below cannot see — without this the
+	 * mobile crop is unpreviewable. Left null everywhere else.
+	 */
+	previewVariant?: "desktop" | "mobile" | null;
 	setupPreferences?: SetupPreferences;
 	onSlideChange?: (index: number) => void;
 	onSlideView?: (slide: CampaignSlide, index: number) => void;
@@ -130,9 +138,16 @@ let currentDesktopImageUrl = $derived(
 	campaignImageUrl(currentSlide, "desktop"),
 );
 let currentMobileImageUrl = $derived(campaignImageUrl(currentSlide, "mobile"));
+let forcedImageUrl = $derived(
+	previewVariant === "mobile"
+		? currentMobileImageUrl || currentDesktopImageUrl
+		: previewVariant === "desktop"
+			? currentDesktopImageUrl || currentMobileImageUrl
+			: "",
+);
 let currentImageKey = $derived(
 	currentSlide
-		? `${currentSlide.id ?? safeSlideIndex}:${currentDesktopImageUrl}:${currentMobileImageUrl}`
+		? `${currentSlide.id ?? safeSlideIndex}:${previewVariant ?? "auto"}:${currentDesktopImageUrl}:${currentMobileImageUrl}`
 		: "",
 );
 let settledImageKey = $state("");
@@ -380,12 +395,12 @@ onDestroy(() => {
 					<div class="campaign-image-frame" aria-busy={settledImageKey !== currentImageKey}>
 						{#key currentImageKey}
 							<picture class="campaign-picture" class:campaign-picture-loaded={settledImageKey === currentImageKey}>
-								{#if currentMobileImageUrl}
+								{#if currentMobileImageUrl && !previewVariant}
 									<source media="(max-width: 640px)" srcset={currentMobileImageUrl} />
 								{/if}
 								<img
 									class="campaign-image"
-									src={currentDesktopImageUrl || currentMobileImageUrl}
+									src={forcedImageUrl || currentDesktopImageUrl || currentMobileImageUrl}
 									alt={hasCurrentUploadedImage ? localized(currentSlide, 'alt') : ''}
 									onload={() => markImageSettled(currentImageKey)}
 									onerror={() => markImageSettled(currentImageKey)}

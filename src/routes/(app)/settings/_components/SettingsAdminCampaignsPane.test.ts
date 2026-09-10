@@ -341,6 +341,35 @@ describe("SettingsAdminCampaignsPane", () => {
 		});
 	});
 
+	it("previews the mobile crop when the device toggle asks for it", async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		// The preview <img> follows the toggle, not the browser viewport: the
+		// admin column is narrow inside a wide window, which the modal's own
+		// `<source media>` cannot see.
+		const preview = screen.getByLabelText("Campaign preview and history");
+		const image = () =>
+			preview.querySelector("img.campaign-image") as HTMLImageElement | null;
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-desktop");
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Phone preview" }),
+		);
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-mobile");
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Desktop preview" }),
+		);
+		await waitFor(() => {
+			expect(image()?.getAttribute("src")).toContain("setup-desktop");
+		});
+	});
+
 	it("shows the checklist as one line while every check passes", async () => {
 		render(SettingsAdminCampaignsPane);
 		await waitForEditor();
