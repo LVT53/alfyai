@@ -98,6 +98,28 @@ describe("isLabelShapedTitle", () => {
 		).toBe(true);
 	});
 
+	/**
+	 * The dash rule reads the LEFT of the dash, not the dash itself: a title
+	 * that says something before it is a finding, and rewriting it from the
+	 * claim made the heading worse.
+	 */
+	it("accepts a finding that merely contains a dash", () => {
+		expect(
+			isLabelShapedTitle("Framework 13 vs Dell XPS 13 — repairability"),
+		).toBe(false);
+		expect(
+			isLabelShapedTitle(
+				"Solar additions fell in 2025 — the first drop since 2016",
+			),
+		).toBe(false);
+	});
+
+	it("accepts a hyphenated word", () => {
+		expect(
+			isLabelShapedTitle("Grid-connected additions fell 17% in 2025"),
+		).toBe(false);
+	});
+
 	it("accepts the sentence-shaped replacement", () => {
 		expect(
 			isLabelShapedTitle(

@@ -243,6 +243,22 @@ function stringList(value: unknown, limit: number): string[] {
 // Binding evidence to nodes
 // ---------------------------------------------------------------------------
 
+/** Every calendar year a string names. */
+function yearsIn(value: string): Set<string> {
+	const years = new Set<string>();
+	for (const match of value.matchAll(/\b(?:19|20)\d{2}\b/gu))
+		years.add(match[0]);
+	return years;
+}
+
+/** True when both sides name years and the sets are not the same. */
+function namesDifferentYears(left: Set<string>, right: Set<string>): boolean {
+	if (left.size === 0 || right.size === 0) return false;
+	if (left.size !== right.size) return true;
+	for (const year of left) if (!right.has(year)) return true;
+	return false;
+}
+
 /**
  * Merges outline nodes that are the same section twice.
  *
@@ -253,9 +269,19 @@ function stringList(value: unknown, limit: number): string[] {
  * this, because the model gave the two nodes DIFFERENT claim ids.
  *
  * Two nodes are one when their title-plus-claim word sets overlap by half, or
- * when half the smaller node's claim ids are also the other's. The earlier node
- * wins and takes the union; the loser is recorded in `cut` so Limitations can
- * say what happened to it.
+ * when their claim-id SETS are half the same set. The earlier node wins and
+ * takes the union; the loser is recorded in `cut` so Limitations can say what
+ * happened to it.
+ *
+ * Two guards keep a comparison intact, because a report that compares things
+ * says most of the same words in every section:
+ *
+ *  - nodes naming DIFFERENT years never merge. "2025 additions" and "2024
+ *    additions" share every word but the one that matters.
+ *  - the claim-id rule measures the two sets against their UNION, not against
+ *    the smaller of them. "Half the smaller" merged a lead node resting on one
+ *    claim into any section that also used it, and merged "price" into
+ *    "repairability" the moment they shared one of two claims.
  */
 export function mergeAtlasV3DuplicateNodes(
 	nodes: readonly ParsedAtlasV3OutlineNode[],
@@ -266,18 +292,26 @@ export function mergeAtlasV3DuplicateNodes(
 		new Set(atlasV3NormalizeWords(`${node.title} ${node.claim}`));
 	for (const node of nodes) {
 		const words = wordsOf(node);
+		const years = yearsIn(`${node.title} ${node.claim}`);
 		const twin = kept.find((existing) => {
+			if (
+				namesDifferentYears(
+					years,
+					yearsIn(`${existing.title} ${existing.claim}`),
+				)
+			)
+				return false;
 			const existingWords = wordsOf(existing);
 			let shared = 0;
 			for (const word of words) if (existingWords.has(word)) shared += 1;
 			const union = words.size + existingWords.size - shared;
 			if (union > 0 && shared / union >= 0.5) return true;
-			const smaller = Math.min(node.claimIds.length, existing.claimIds.length);
-			if (smaller === 0) return false;
+			const ids = new Set([...node.claimIds, ...existing.claimIds]);
+			if (ids.size === 0) return false;
 			const overlap = node.claimIds.filter((id) =>
 				existing.claimIds.includes(id),
 			).length;
-			return overlap / smaller >= 0.5;
+			return overlap / ids.size >= 0.5;
 		});
 		if (!twin) {
 			kept.push({
@@ -316,11 +350,22 @@ export function bindAtlasV3Evidence(input: {
 	nodes: ParsedAtlasV3OutlineNode[];
 	bank: AtlasV3EvidenceBank;
 	minEvidencePerNode: number;
+	/**
+	 * Whether to run the duplicate-node merge first. On for a MODEL outline,
+	 * which is where two names for one section come from. Off for the
+	 * deterministic one, whose nodes are one per distinct `entity — metric` by
+	 * construction: fuzzy-merging those threw away "EU AI Act: enforcement date"
+	 * because it shared six words with "EU AI Act: obligations start date".
+	 */
+	mergeDuplicates?: boolean;
 }): AtlasV3Outline {
 	const claimsById = new Map(
 		input.bank.claims.map((claim) => [claim.id, claim]),
 	);
-	const merged = mergeAtlasV3DuplicateNodes(input.nodes);
+	const merged =
+		input.mergeDuplicates === false
+			? { nodes: input.nodes, cut: [] as AtlasV3Outline["cut"] }
+			: mergeAtlasV3DuplicateNodes(input.nodes);
 	const taken = new Set<string>();
 	const nodes: AtlasV3OutlineNode[] = [];
 	const cut: AtlasV3Outline["cut"] = [...merged.cut];
@@ -447,6 +492,7 @@ export function deterministicAtlasV3Outline(input: {
 		nodes: parsed,
 		bank: input.bank,
 		minEvidencePerNode: input.minEvidencePerNode,
+		mergeDuplicates: false,
 	});
 }
 
