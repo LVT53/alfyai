@@ -55,13 +55,18 @@ Two causes. Claims merged only on an exact match of `entity|metric|period|series
 so two readings of one measurement never met; claim identity is now normalised
 (lowercased, punctuation stripped, stop words and naive plurals dropped) and a
 **loose merge** joins two readings when entity and value match, unit, period and
-series are compatible, and the metrics overlap by half their words or one is
-contained in the other's metric plus series. The loose match only ever merges
-EQUAL values, and contested detection keeps the strict identity, so it cannot
-invent a disagreement. Second, sentence confidence counted publishers over the
+series are compatible, no year named anywhere in the two identities disagrees,
+and one metric's words are CONTAINED in the other's metric plus series. The
+loose match only ever merges EQUAL values, and contested detection keeps the
+strict identity, so it cannot invent a disagreement. Containment rather than
+overlap, and the year check, are what keep `obligations start date` out of
+`enforcement start date` and a 2024 figure out of its 2025 twin: where each side
+carries a word the other has never heard of, they are two measurements. Second, sentence confidence counted publishers over the
 ids the writer attached, and writers cite one quote per figure;
 `atlasV3CorroboratingPublishersFor` now counts the publishers of the cited
-quotes plus those of every quote on a claim listing one of them. The writer and
+quotes plus those of every quote on a NON-CONTESTED claim listing one of them —
+two publishers on one side of a disagreement are one side of it, not a
+corroboration. The writer and
 the verdict are shown `alsoStatedBy` so a corroborated figure can be written as
 one.
 
@@ -94,8 +99,12 @@ plus one, which is what stopped the writer padding a two-quote section.
 boundary; a title over fourteen words is replaced by the claim's first clause;
 the deterministic outline builds `Entity: metric value unit` from the
 best-supported claim instead of `entity — metric`, and `isLabelShapedTitle`
-rejects the old form. After binding, nodes whose title-plus-claim word sets or
-claim-id sets overlap by half are merged, recorded as "merged into <title>".
+rejects the old form — a spaced dash whose left side is at most three words, so
+a finding that merely contains a dash is still a heading. After binding, nodes
+whose title-plus-claim word sets overlap by half, or whose claim-id SETS are
+half the same set, are merged, recorded as "merged into <title>". Nodes naming
+different years never merge, and the merge does not run over the deterministic
+outline, whose nodes are one per distinct `entity — metric` already.
 
 ## Consequences
 

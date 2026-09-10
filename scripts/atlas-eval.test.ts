@@ -9,6 +9,7 @@ import {
 	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
+	expectedPipelineVersion,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
@@ -578,6 +579,16 @@ describe("countHeadings", () => {
 				].join("\n\n"),
 			),
 		).toBe(1);
+	});
+});
+
+describe("expectedPipelineVersion", () => {
+	// `v2 ? 2 : 1` flagged EVERY v3 run as mislabelled, which is every run the
+	// harness is used for now.
+	it("maps each pipeline label to the version its jobs stamp", () => {
+		expect(expectedPipelineVersion("v3")).toBe(3);
+		expect(expectedPipelineVersion("v2")).toBe(2);
+		expect(expectedPipelineVersion("v1")).toBe(1);
 	});
 });
 

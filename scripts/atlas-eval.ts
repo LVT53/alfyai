@@ -581,6 +581,11 @@ function limitationsSection(markdown: string): string {
 	return match ? match[1].trim() : "";
 }
 
+/** The `pipeline_version` a job stamped by this pipeline must report. */
+function expectedPipelineVersion(pipeline: EvalPipeline): number {
+	return pipeline === "v3" ? 3 : pipeline === "v2" ? 2 : 1;
+}
+
 /**
  * A heading that is report chrome rather than a body section. v3's are the
  * verdict, its Limitations heading (a sentence, not the word "Limitations") and
@@ -1615,7 +1620,9 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			"",
 		);
 		if (result.reportedPipelineVersion !== null) {
-			const expected = result.pipeline === "v2" ? 2 : 1;
+			// `v2 ? 2 : 1` flagged every v3 run as mislabelled, which is every run
+			// this harness is now used for.
+			const expected = expectedPipelineVersion(result.pipeline);
 			if (result.reportedPipelineVersion !== expected) {
 				lines.push(
 					`> **MISLABELLED RUN.** The job reported \`pipelineVersion: ${result.reportedPipelineVersion}\` but this run is labelled \`${result.pipeline}\`. Check ATLAS_PIPELINE on the deployment.`,
@@ -1865,6 +1872,7 @@ export {
 	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
+	expectedPipelineVersion,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
