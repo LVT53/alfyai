@@ -204,7 +204,7 @@ Notes before the tables:
 | `WORKING_SET_PROMPT_TOKEN_BUDGET` | No | `20000` | Token budget for the overall working-set prompt section | Raise it if more documents should be included in context | Can also be overridden in admin config |
 | `SMALL_FILE_THRESHOLD_CHARS` | No | `5000` | Character threshold below which files are treated as small for extraction | Tune based on typical upload sizes | Can also be overridden in admin config |
 | `PARALLEL_API_KEY` | No | empty | API key for Parallel, which powers web search and page extraction for `research_web`, `fetch_url`, and Atlas | Set it when web search and Atlas should be enabled | Empty disables Parallel-backed web search and reports Atlas as unavailable |
-| `ATLAS_PIPELINE` | No | `v1` | Which Atlas content pipeline a NEW job runs on: `v1` (original) or `v2` (the ADR 0062 rebuild with inline citations, per-claim verification and confidence) | Set it to `v2` once `scripts/atlas-eval.ts` shows v2 ahead of v1 on your deployment | Only the exact value `v2` selects v2. The version is stamped on the job row at kickoff, so a flip never re-routes a queued job, and a Continue/Revise/Fork child stays on its parent's pipeline. Can also be overridden in admin config |
+| `ATLAS_PIPELINE` | No | `v1` | Which Atlas content pipeline a NEW job runs on: `v1` (original), `v2` (the ADR 0062 rebuild with inline citations, per-claim verification and confidence) or `v3` (the ADR 0063 rebuild that reasons from an evidence bank: structured claims, an answer table before any prose, one writer with the whole report in view, and a critic that may order targeted re-search) | Set it to `v3` once `scripts/atlas-eval.ts` shows v3 ahead of v2 on your deployment | Only the exact value `v2` or `v3` selects one. The version is stamped on the job row at kickoff, so a flip never re-routes a queued job, and a Continue/Revise/Fork child stays on its parent's pipeline. Can also be overridden in admin config |
 | `ATLAS_STALE_MONTHS` | No | `18` | Age past which a cited statistic is listed in the report's Limitations section | Lower it for fast-moving subjects | v2 only. Can also be overridden in admin config |
 | `ATLAS_V2_QUESTIONS_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `6` / `10` / `16` | Research questions the v2 plan stage produces per profile | Raise for broader coverage | Clamped to 4-20. Each question costs one `research_web` call per round. Can also be overridden in admin config |
 | `ATLAS_V2_ROUNDS_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `1` / `2` / `3` | Bounded v2 research rounds per profile | Raise when coverage checks keep finding thin questions | Clamped to 1-4. Round 2+ researches only the questions the coverage check named. Can also be overridden in admin config |
@@ -212,6 +212,12 @@ Notes before the tables:
 | `ATLAS_V2_MAX_SOURCES_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `20` / `40` / `80` | Indexed sources carried into the v2 write phase per profile | Raise for broader evidence at more writer tokens | Sources beyond the cap are dropped round-robin across research questions, so every question keeps representation. Env only |
 | `ATLAS_V2_ENTAILMENT_BATCH` | No | `10` | Claims per batched entailment call on the control model | Lower it when the model mangles long JSON arrays | `1` disables batching. A batch whose answer does not parse falls back to one call per claim. Env only |
 | `ATLAS_V2_WRITER_CONCURRENCY` | No | `5` | v2 sections written in parallel | Lower it when the local model is contended | Clamped to 1-8. Env only |
+| `ATLAS_V3_ASK_MODEL` / `_RESEARCHER_MODEL` / `_OUTLINE_MODEL` / `_WRITER_MODEL` / `_CRITIC_MODEL` / `_VERIFIER_MODEL` | No | unset | One model per Atlas v3 task; `model1`, `model2` or `provider:<providerId>:<modelId>` | Point the outline and critic at a stronger model when one is available | Unset means INHERIT: the researcher and writer take `ATLAS_SYNTHESIS_MODEL`, the ask, outline, critic and verifier take `ATLAS_AUDIT_MODEL`. Clearing the value in admin config restores the inherited model rather than pinning `model1`. Can also be overridden in admin config |
+| `ATLAS_V3_CRITIC_ROUNDS` | No | `2` | Whole-report critic rounds; each may order rewrites, cuts and a small targeted research budget | Raise to 3 for exhaustive work, drop to 0 to skip the critic | Clamped to 0-3. Can also be overridden in admin config |
+| `ATLAS_V3_RESEARCHER_CONCURRENCY` | No | `3` | Isolated researcher calls in flight at once | Lower it when the local model is contended | Clamped to 1-8. Can also be overridden in admin config |
+| `ATLAS_V3_SEARCHES_PER_STEP` | No | `3` | Searches one researcher step issues at once | Raise to 5 for hard-to-find figures | Clamped to 3-5. Can also be overridden in admin config |
+| `ATLAS_V3_PAGES_PER_QUESTION_OVERVIEW` / `_IN_DEPTH` / `_EXHAUSTIVE` | No | `2` / `3` / `4` | Pages read per sub-question, spent best-tier-first | Raise for depth at proportionally more wall time | Page reads are v3's marginal cost and marginal latency. Clamped to 0-6. Can also be overridden in admin config |
+| `ATLAS_V3_LANGUAGE_STANDARD_HU` | No | `true` | The Hungarian register rules for the writer and critic, and KSH / Magyar Közlöny / njt.hu / MNB promoted to primary sources | Set `false` to write Hungarian without the standard | Can also be overridden in admin config |
 | `BRAVE_SEARCH_API_KEY` | No | empty | API key for Brave Search image search | Set it when image search should be enabled | Empty disables Brave-backed image search |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
 | `PER_USER_STREAM_LIMIT` | No | `1` | Max concurrent chat streams per user | Lower it to reduce per-user load | Can also be overridden in admin config |
@@ -374,22 +380,25 @@ Playwright runs set `PLAYWRIGHT_TEST=1`, and the conversation-title endpoint ret
 
 ### Atlas Report Quality Evaluation
 
-`scripts/atlas-eval.ts` measures Atlas report quality against a **live** deployment and compares the two content pipelines (ADR 0062). It drives the same HTTP surface a browser does: log in, create a conversation, `POST /api/chat/send` with `atlasMode`, poll `GET /api/conversations/:id` until the job ends, then download the produced Markdown.
+`scripts/atlas-eval.ts` measures Atlas report quality against a **live** deployment and compares the content pipelines (ADR 0062, ADR 0063). It drives the same HTTP surface a browser does: log in, create a conversation, `POST /api/chat/send` with `atlasMode`, poll `GET /api/conversations/:id` until the job ends, then download the produced Markdown.
 
 ```bash
 BASE=https://staging.example EMAIL=admin@example.com PASSWORD=... \
   npx tsx scripts/atlas-eval.ts --pipeline v2 --out /tmp/atlas-eval
 ```
 
-- `--pipeline v1|v2|both` — which pipeline to label the run as (default `both`).
+- `--pipeline v1|v2|v3|all` — which pipeline to label the run as (default: v1 and v2).
 - `--queries <ids>` — a subset of `scripts/atlas-eval-queries.json` (e.g. `energy-statistics,hungarian-query`).
 - `--profile overview|in-depth|exhaustive` — override every query's profile.
 - `--timeout <minutes>` — per-job timeout (default 45).
 - `--concurrency <n>` — jobs in flight (default 1; the Atlas worker's own global limit still applies).
+- `--judge` — also score each report against ADR 0063's rubric. Every score must come back with a verbatim quote from the report; a score whose quote is not in the report is discarded rather than averaged in. The judge runs through the deployment's own chat API, which takes no model parameter, so set the eval account's model to whatever `ATLAS_AUDIT_MODEL` names before judging.
 
 The script does **not** change `ATLAS_PIPELINE` — set it in admin config or the environment first, then pass the matching `--pipeline` value. It reads back each job's `pipelineVersion` and marks a run that does not match as mislabelled rather than reporting it silently.
 
-Output in `--out`: `report.md` (comparison table, totals, and per-query hand-check lists), `results.json`, and each run's Markdown report. Measured per query: wall time, tokens, citation resolution rate, number match rate (checked offline against the per-source snippets the job stores in its progress details), corroboration rate, junk-source count, and inline-citation density. v1 has no `[n]` markers, so its citation, number-match and corroboration columns read `n/a` rather than a misleading `0`.
+Output in `--out`: `report.md` (comparison table, a deterministic quality table, totals, and per-query hand-check lists), `results.json`, and each run's Markdown report. Measured per query: wall time, tokens, citation resolution rate, number match rate (checked offline against the per-source snippets the job stores in its progress details), corroboration rate, junk-source count, and inline-citation density. v1 has no `[n]` markers, so its citation, number-match and corroboration columns read `n/a` rather than a misleading `0`.
+
+The quality table is ADR 0063's deterministic layer and runs on **every** pipeline, so v2 and v3 are graded on the same ruler: is there a conclusion with a figure in the first 150 words, how many sentences restate an earlier section's claim, distinct cited claims per 1,000 words, what share of volatile figures carry an inline date, whether a question that implies a table shipped one, and sections delivered against sections planned.
 
 ## API Note
 
