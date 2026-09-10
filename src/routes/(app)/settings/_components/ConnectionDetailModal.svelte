@@ -18,6 +18,7 @@
 // 5. A switch is disabled while its own write is in flight, and a failed one
 //    says so instead of silently snapping back.
 import { AlertTriangle, Plus, RefreshCw, Unplug, X } from "@lucide/svelte";
+import { untrack } from "svelte";
 import {
 	type ConnectionPublic,
 	fetchNextcloudFolders,
@@ -128,21 +129,38 @@ let ncSuggestionsFailed = $state(false);
 let ncSuggestionsOpen = $state(false);
 let ncActiveIndex = $state(-1);
 
+// Resets the dialog's own view state when a DIFFERENT connection is shown
+// (including "none", i.e. the dialog closing).
+//
+// Keyed on the id, not on the object: the tab hands us a fresh object on
+// every local patch (patchConnectionLocal spreads into a new one), so an
+// effect that merely read `connection` re-ran on every recheck, every
+// capability toggle and every allowlist edit — wiping the folder path the
+// user was halfway through typing, dropping the fetched folder suggestions
+// the second effect had already loaded (it wouldn't refetch, since its own
+// inputs hadn't changed), and clearing `pending` out from under a write that
+// was still in flight.
+let resetForConnectionId: string | null = null;
+
 $effect(() => {
-	void connection;
-	disconnectConfirmOpen = false;
-	newAllowlistEntry = "";
-	ncFolderSuggestions = [];
-	ncSuggestionsLoading = false;
-	ncSuggestionsFailed = false;
-	ncSuggestionsOpen = false;
-	ncActiveIndex = -1;
-	pending = new Set();
-	const lat = connection?.config?.homeLat;
-	const lon = connection?.config?.homeLon;
-	homeLatInput = typeof lat === "number" ? String(lat) : "";
-	homeLonInput = typeof lon === "number" ? String(lon) : "";
-	homeError = null;
+	const id = connection?.id ?? null;
+	if (id === resetForConnectionId) return;
+	resetForConnectionId = id;
+	untrack(() => {
+		disconnectConfirmOpen = false;
+		newAllowlistEntry = "";
+		ncFolderSuggestions = [];
+		ncSuggestionsLoading = false;
+		ncSuggestionsFailed = false;
+		ncSuggestionsOpen = false;
+		ncActiveIndex = -1;
+		pending = new Set();
+		const lat = connection?.config?.homeLat;
+		const lon = connection?.config?.homeLon;
+		homeLatInput = typeof lat === "number" ? String(lat) : "";
+		homeLonInput = typeof lon === "number" ? String(lon) : "";
+		homeError = null;
+	});
 });
 
 $effect(() => {

@@ -358,6 +358,41 @@ describe("ConnectionDetailModal", () => {
 			]);
 		});
 
+		// The tab hands this dialog a FRESH connection object on every local
+		// patch (a recheck landing, a switch saving), so anything that resets
+		// on "the connection changed" must key on its id — otherwise the
+		// half-typed folder path and the already-fetched suggestions vanish
+		// under the user for a change they didn't make.
+		it("keeps the typed folder path and its suggestions when the same connection is patched", async () => {
+			mockFetchNextcloudFolders.mockResolvedValue([
+				{ path: "/Documents", name: "Documents" },
+				{ path: "/Photos", name: "Photos" },
+			]);
+			const props = nextcloudProps();
+			const { rerender } = render(ConnectionDetailModal, props);
+			await waitFor(() => {
+				expect(mockFetchNextcloudFolders).toHaveBeenCalledWith("conn-1");
+			});
+			const input = screen.getByRole("combobox");
+			await fireEvent.focus(input);
+			await fireEvent.input(input, { target: { value: "/Doc" } });
+
+			// Same connection, new object — exactly what patchConnectionLocal
+			// produces when the recheck answers.
+			await rerender({
+				...props,
+				connection: {
+					...(props.connection as ConnectionPublic),
+					lastUsedAt: 1_756_000_100,
+				},
+			});
+
+			expect(screen.getByRole("combobox")).toHaveValue("/Doc");
+			expect(
+				await screen.findByRole("option", { name: "/Documents" }),
+			).toBeInTheDocument();
+		});
+
 		it("offers folder suggestions on focus", async () => {
 			mockFetchNextcloudFolders.mockResolvedValue([
 				{ path: "/Documents", name: "Documents" },
