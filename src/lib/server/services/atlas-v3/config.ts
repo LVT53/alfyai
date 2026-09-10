@@ -323,10 +323,34 @@ export interface AtlasV3SectionBudget {
 	maxParagraphs: number;
 }
 
+/**
+ * A section's sentence floor, capped by the evidence it actually has.
+ *
+ * `minSentences` came from the word share alone, so a node bound to two quotes
+ * was still told to write six sentences — and the writer padded, which is where
+ * the staging run's seven consecutive sentences on quote [3] came from. A
+ * section can honestly carry about one sentence per quote, plus one that draws
+ * them together.
+ */
+export function atlasV3BudgetForNode(
+	budget: AtlasV3SectionBudget,
+	evidenceCount: number,
+): AtlasV3SectionBudget {
+	return {
+		...budget,
+		minSentences: Math.max(
+			2,
+			Math.min(budget.minSentences, Math.max(0, evidenceCount) + 1),
+		),
+	};
+}
+
 /** The budget handed to ONE writer call, derived from the sections planned. */
 export function atlasV3SectionBudget(input: {
 	config: AtlasV3ProfileConfig;
 	sectionCount: number;
+	/** Quote ids bound to the node, when the budget is for one node. */
+	evidenceCount?: number;
 }): AtlasV3SectionBudget {
 	const sections = Math.max(1, input.sectionCount);
 	const share = Math.max(
@@ -348,7 +372,7 @@ export function atlasV3SectionBudget(input: {
 		share,
 		maxSentences * ATLAS_V3_AVERAGE_SENTENCE_WORDS,
 	);
-	return {
+	const budget: AtlasV3SectionBudget = {
 		targetWords,
 		minSentences: Math.max(
 			3,
@@ -360,4 +384,7 @@ export function atlasV3SectionBudget(input: {
 		maxSentences,
 		maxParagraphs: input.config.maxParagraphsPerSection,
 	};
+	return input.evidenceCount === undefined
+		? budget
+		: atlasV3BudgetForNode(budget, input.evidenceCount);
 }

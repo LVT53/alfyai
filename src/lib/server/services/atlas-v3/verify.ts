@@ -70,64 +70,151 @@ export function verifyAtlasV3Report(
 	const needsEvidence: AtlasV3VerificationResult["needsEvidence"] = [];
 	const staleSourceIds = new Set<string>();
 
-	const sections: AtlasV3VerifiedSection[] = input.sections.map((section) => ({
-		nodeId: section.nodeId,
-		title: section.title,
-		table: section.table,
-		paragraphs: section.paragraphs
-			.map((paragraph) =>
-				paragraph
-					.map((sentence) => {
-						const verified = verifyAtlasV3Sentence({
-							sentence,
-							quotesById,
-							derivedById,
-							finalPass: input.finalPass === true,
-						});
-						if (verified.outcome === "cut") {
-							totals.cut += 1;
-							return verified;
-						}
-						if (verified.outcome === "needs_evidence") {
-							totals.needsEvidence += 1;
-							needsEvidence.push({
-								nodeId: section.nodeId,
-								text: sentence.text,
-								query: atlasV3EvidenceQueryFor(sentence, section.title),
-							});
-						}
-						// Corroboration is a property of the FACT, not of how many ids
-						// the writer happened to attach to the sentence.
-						const publishers = atlasV3CorroboratingPublishersFor(
-							input.bank,
-							sentence.evidenceIds,
-						);
-						verified.confidence =
-							publishers.length >= 2
-								? "corroborated"
-								: sentence.evidenceIds.length > 0
-									? "single"
-									: "inferred";
-						totals[verified.confidence] += 1;
-						for (const id of sentence.evidenceIds) {
-							if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
-							const quote = quotesById.get(id);
-							const source = quote
-								? sourcesById.get(quote.sourceId)
-								: undefined;
-							if (
-								source &&
-								isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
-							) {
-								staleSourceIds.add(source.id);
-							}
-						}
-						return verified;
-					})
-					.filter((sentence) => sentence.outcome !== "cut"),
-			)
-			.filter((paragraph) => paragraph.length > 0),
-	}));
+	const finalPass = input.finalPass === true;
+	/** Signatures — cited ids plus stated figures — of every sentence kept. */
+	const keptSignatures = new Set<string>();
+	const sections: AtlasV3VerifiedSection[] = [];
+
+	for (const section of input.sections) {
+		const sentenceCount = section.paragraphs.reduce(
+			(total, paragraph) => total + paragraph.length,
+			0,
+		);
+		// 20% of the section, rounded up, at least one. An inferred sentence is a
+		// sentence no quote backs; a paragraph of them is a paragraph of assertion.
+		const inferredAllowance = Math.max(1, Math.ceil(sentenceCount * 0.2));
+		let inferredKept = 0;
+		let keptInSection = 0;
+		/** Kept sentences resting on each quote, for the saturation rule. */
+		const quoteUse = new Map<string, number>();
+		const figuresInSection = new Set<string>();
+		const paragraphs: AtlasV3VerifiedSentence[][] = [];
+		/** The first sentence that passed verification; a section is never empty. */
+		let firstSurvivor: AtlasV3VerifiedSentence | null = null;
+
+		for (const paragraph of section.paragraphs) {
+			let inferredInParagraph = 0;
+			const kept: AtlasV3VerifiedSentence[] = [];
+			for (const sentence of paragraph) {
+				const verified = verifyAtlasV3Sentence({
+					sentence,
+					quotesById,
+					derivedById,
+					finalPass,
+				});
+				if (verified.outcome === "cut") {
+					totals.cut += 1;
+					continue;
+				}
+				if (verified.outcome === "needs_evidence") {
+					totals.needsEvidence += 1;
+					needsEvidence.push({
+						nodeId: section.nodeId,
+						text: sentence.text,
+						query: atlasV3EvidenceQueryFor(sentence, section.title),
+					});
+				}
+				// Corroboration is a property of the FACT, not of how many ids
+				// the writer happened to attach to the sentence.
+				const publishers = atlasV3CorroboratingPublishersFor(
+					input.bank,
+					sentence.evidenceIds,
+				);
+				verified.confidence =
+					publishers.length >= 2
+						? "corroborated"
+						: sentence.evidenceIds.length > 0
+							? "single"
+							: "inferred";
+				firstSurvivor ??= verified;
+
+				const figures = [
+					...new Set(
+						extractFigures(sentence.text)
+							.filter(isCheckableFigure)
+							.map((figure) => figure.text.toLowerCase()),
+					),
+				].sort();
+				const signature = `${[...sentence.evidenceIds].sort().join(",")}::${figures.join(",")}`;
+				const addsNoFigure = figures.every((figure) =>
+					figuresInSection.has(figure),
+				);
+				const saturated =
+					sentence.evidenceIds.length > 0 &&
+					sentence.evidenceIds.every((id) => (quoteUse.get(id) ?? 0) >= 3);
+				// A sentence carrying a value the sandbox computed is not an
+				// unsupported assertion, whatever its citation count says.
+				const computed =
+					sentence.calcId !== null &&
+					derivedById.get(sentence.calcId)?.value != null;
+				const isInferred = verified.confidence === "inferred" && !computed;
+
+				if (finalPass) {
+					// RESTATEMENT. Three consecutive sentences on one quote, all saying
+					// harmonised standards enter into force on 2 August 2026, is what a
+					// sentence target buys when the evidence has already been spent.
+					if (
+						(figures.length > 0 && keptSignatures.has(signature)) ||
+						(saturated && addsNoFigure)
+					) {
+						totals.repeated += 1;
+						continue;
+					}
+					// INFERENCE. One per paragraph, a fifth of the section, and never
+					// the sentence a section opens with: "Recent generations retain this
+					// soldered RAM design" is a fact, and nothing states it.
+					if (
+						isInferred &&
+						(inferredInParagraph >= 1 ||
+							inferredKept >= inferredAllowance ||
+							keptInSection === 0)
+					) {
+						totals.cut += 1;
+						continue;
+					}
+				}
+
+				totals[verified.confidence] += 1;
+				if (isInferred) {
+					inferredInParagraph += 1;
+					inferredKept += 1;
+				}
+				keptInSection += 1;
+				keptSignatures.add(signature);
+				for (const figure of figures) figuresInSection.add(figure);
+				for (const id of sentence.evidenceIds) {
+					quoteUse.set(id, (quoteUse.get(id) ?? 0) + 1);
+					if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
+					const quote = quotesById.get(id);
+					const source = quote ? sourcesById.get(quote.sourceId) : undefined;
+					if (
+						source &&
+						isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
+					) {
+						staleSourceIds.add(source.id);
+					}
+				}
+				kept.push(verified);
+			}
+			if (kept.length > 0) paragraphs.push(kept);
+		}
+
+		// A section emptied by the quality rules would silently vanish from the
+		// report; the sentence that opened it is kept instead.
+		if (paragraphs.length === 0 && firstSurvivor) {
+			totals[firstSurvivor.confidence] += 1;
+			for (const id of firstSurvivor.evidenceIds) {
+				if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
+			}
+			paragraphs.push([firstSurvivor]);
+		}
+		sections.push({
+			nodeId: section.nodeId,
+			title: section.title,
+			table: section.table,
+			paragraphs,
+		});
+	}
 
 	return {
 		sections,

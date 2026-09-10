@@ -243,6 +243,135 @@ describe("verifyAtlasV3Report", () => {
 		expect(result.staleSourceIds).toEqual(["s2"]);
 	});
 
+	it("cuts a sentence restating an earlier one's ids and figures", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [
+				section([
+					{
+						text: "Harmonised standards enter into force on 65.1 GW terms.",
+						evidenceIds: ["e1"],
+					},
+					{
+						text: "Standards take effect once 65.1 GW is reached.",
+						evidenceIds: ["e1"],
+					},
+				]),
+			],
+		});
+		expect(result.totals.repeated).toBe(1);
+		expect(result.sections[0].paragraphs[0]).toHaveLength(1);
+	});
+
+	it("keeps a restatement before the final pass", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			sections: [
+				section([
+					{ text: "The EU added 65.1 GW.", evidenceIds: ["e1"] },
+					{ text: "Additions reached 65.1 GW.", evidenceIds: ["e1"] },
+				]),
+			],
+		});
+		expect(result.totals.repeated).toBe(0);
+		expect(result.sections[0].paragraphs[0]).toHaveLength(2);
+	});
+
+	it("stops a fourth sentence resting on a quote that adds no figure", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [
+				section([
+					{ text: "The EU added 65.1 GW in 2025.", evidenceIds: ["e1"] },
+					{
+						text: "That total was the first fall since 2016.",
+						evidenceIds: ["e1"],
+					},
+					{
+						text: "Capacity is measured at the grid connection.",
+						evidenceIds: ["e1"],
+					},
+					{
+						text: "The connection point defines the series.",
+						evidenceIds: ["e1"],
+					},
+					{
+						text: "Installers describe the same slowdown.",
+						evidenceIds: ["e1"],
+					},
+				]),
+			],
+		});
+		expect(result.sections[0].paragraphs[0]).toHaveLength(3);
+		expect(result.totals.repeated).toBe(2);
+	});
+
+	it("caps inferred sentences at one per paragraph and a fifth of a section", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [
+				{
+					nodeId: "n1",
+					title: "t",
+					table: null,
+					paragraphs: [
+						[
+							{
+								text: "The EU added 65.1 GW in 2025.",
+								evidenceIds: ["e1"],
+								kind: "claim",
+								calcId: null,
+							},
+							{
+								text: "Demand cooled across the bloc.",
+								evidenceIds: [],
+								kind: "synthesis",
+								calcId: null,
+							},
+							{
+								text: "Installers expect the trend to continue.",
+								evidenceIds: [],
+								kind: "synthesis",
+								calcId: null,
+							},
+						],
+					],
+				},
+			],
+		});
+		const kept = result.sections[0].paragraphs.flat();
+		expect(kept).toHaveLength(2);
+		expect(kept[1].text).toBe("Demand cooled across the bloc.");
+	});
+
+	it("never lets an inferred sentence open a section", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [
+				section([
+					{ text: "Recent generations retain this soldered RAM design." },
+					{ text: "The EU added 65.1 GW in 2025.", evidenceIds: ["e1"] },
+				]),
+			],
+		});
+		expect(result.sections[0].paragraphs.flat().map((s) => s.text)).toEqual([
+			"The EU added 65.1 GW in 2025.",
+		]);
+	});
+
+	it("keeps the section's opening sentence when the rules empty it", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [section([{ text: "Demand cooled across the bloc." }])],
+		});
+		expect(result.sections[0].paragraphs.flat()).toHaveLength(1);
+	});
+
 	it("carries the section's table through", () => {
 		const result = verifyAtlasV3Report({
 			...base,

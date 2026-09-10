@@ -24,6 +24,7 @@ import {
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
 	ATLAS_V3_VERDICT_WINDOW_WORDS,
 	type AtlasV3SectionBudget,
+	atlasV3BudgetForNode,
 	atlasV3RunawayRetryMaxOutputTokens,
 	atlasV3SectionMaxOutputTokens,
 } from "./config";
@@ -75,6 +76,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		'DATE VOLATILE FIGURES INLINE, in one clause: "65.1 GW (as of December 2025)".',
 		"DO NOT REPEAT what the sections already written have said. You are shown them. A fact stated once is stated.",
 		"NO HOLLOW SENTENCES. Every sentence carries a fact, a number, a comparison or a judgement. Never open with what the section is about.",
+		"FEWER SENTENCES THAT EACH CARRY A NEW FIGURE BEAT THE SENTENCE TARGET. Never restate a figure already stated in this section. `budget.minSentences` is a floor, not a quota to fill.",
 		'Set "showAnswerTable" to true in AT MOST ONE section — the one whose argument the table IS. Leave it false everywhere else.',
 	],
 	hu: [
@@ -90,6 +92,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"A VÁLTOZÉKONY SZÁMOKAT DÁTUMOZD egyetlen tagmondatban: „65,1 GW (2025. decemberi adat)”.",
 		"NE ISMÉTELD, amit a már megírt szakaszok kimondtak. Látod őket. Ami egyszer elhangzott, elhangzott.",
 		"SEMMILYEN ÜRES MONDAT. Minden mondat tényt, számot, összevetést vagy ítéletet hordoz. Soha ne kezdd azzal, miről szól a szakasz.",
+		"KEVESEBB MONDAT, AMELYEK MINDEGYIKE ÚJ SZÁMOT HOZ, TÖBBET ÉR A MONDATSZÁMNÁL. Soha ne mondj ki újra olyan számot, amely ebben a szakaszban már elhangzott. A `budget.minSentences` alsó határ, nem kitöltendő keret.",
 		'A "showAnswerTable" LEGFELJEBB EGY szakaszban legyen true — abban, amelynek az érvelése maga a táblázat. Máshol false.',
 	],
 };
@@ -505,13 +508,16 @@ export async function writeAtlasV3Report(
 			dropped.push({ nodeId: node.id, reason: "no_evidence" });
 			continue;
 		}
+		// The sentence FLOOR is what a node's own evidence can carry, not what its
+		// share of the word budget asks for.
+		const nodeBudget = atlasV3BudgetForNode(input.budget, evidence.length);
 		const options: ParseAtlasV3SectionOptions = {
 			nodeId: node.id,
 			title: node.title,
 			knownEvidenceIds: evidence.map((entry) => entry.id),
 			knownCalcIds: calcIds,
-			maxSentences: input.budget.maxSentences,
-			maxParagraphs: input.budget.maxParagraphs,
+			maxSentences: nodeBudget.maxSentences,
+			maxParagraphs: nodeBudget.maxParagraphs,
 		};
 		const prompt = () =>
 			buildAtlasV3SectionPrompt({
@@ -526,7 +532,7 @@ export async function writeAtlasV3Report(
 				evidence,
 				language: input.language,
 				currentDate: input.currentDate,
-				budget: input.budget,
+				budget: nodeBudget,
 				answerTableAvailable,
 			});
 
