@@ -100,6 +100,24 @@ export function verifyAtlasV3Report(
 		const paragraphs: AtlasV3VerifiedSentence[][] = [];
 		/** The first sentence that passed verification; a section is never empty. */
 		let firstSurvivor: AtlasV3VerifiedSentence | null = null;
+		/** Which total the caps charged that sentence to, if they dropped it. */
+		let firstSurvivorCharge: "repeated" | "cut" | null = null;
+		/** Records a kept sentence's citations and the stale sources behind them. */
+		const recordCitations = (sentence: {
+			evidenceIds: readonly string[];
+		}): void => {
+			for (const id of sentence.evidenceIds) {
+				if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
+				const quote = quotesById.get(id);
+				const source = quote ? sourcesById.get(quote.sourceId) : undefined;
+				if (
+					source &&
+					isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
+				) {
+					staleSourceIds.add(source.id);
+				}
+			}
+		};
 
 		for (const paragraph of section.paragraphs) {
 			let inferredInParagraph = 0;
@@ -167,6 +185,7 @@ export function verifyAtlasV3Report(
 						(saturated && addsNoFigure)
 					) {
 						totals.repeated += 1;
+						if (verified === firstSurvivor) firstSurvivorCharge = "repeated";
 						continue;
 					}
 					// INFERENCE. One per paragraph, a fifth of the section, and never
@@ -179,6 +198,7 @@ export function verifyAtlasV3Report(
 							keptInSection === 0)
 					) {
 						totals.cut += 1;
+						if (verified === firstSurvivor) firstSurvivorCharge = "cut";
 						continue;
 					}
 				}
@@ -193,28 +213,22 @@ export function verifyAtlasV3Report(
 				for (const figure of figures) figuresInSection.add(figure);
 				for (const id of sentence.evidenceIds) {
 					quoteUse.set(id, (quoteUse.get(id) ?? 0) + 1);
-					if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
-					const quote = quotesById.get(id);
-					const source = quote ? sourcesById.get(quote.sourceId) : undefined;
-					if (
-						source &&
-						isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
-					) {
-						staleSourceIds.add(source.id);
-					}
 				}
+				recordCitations(sentence);
 				kept.push(verified);
 			}
 			if (kept.length > 0) paragraphs.push(kept);
 		}
 
 		// A section emptied by the quality rules would silently vanish from the
-		// report; the sentence that opened it is kept instead.
+		// report; the sentence that opened it is kept instead. The counter the
+		// caps charged it to is given back: a sentence the report PRINTS is not a
+		// sentence verification removed, and the diagnostics are read as a count
+		// of what the reader lost.
 		if (paragraphs.length === 0 && firstSurvivor) {
+			if (firstSurvivorCharge) totals[firstSurvivorCharge] -= 1;
 			totals[firstSurvivor.confidence] += 1;
-			for (const id of firstSurvivor.evidenceIds) {
-				if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
-			}
+			recordCitations(firstSurvivor);
 			paragraphs.push([firstSurvivor]);
 		}
 		sections.push({

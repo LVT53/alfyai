@@ -389,6 +389,27 @@ describe("verifyAtlasV3Report", () => {
 		expect(result.sections[0].paragraphs.flat()).toHaveLength(1);
 	});
 
+	/**
+	 * The restored opener is a sentence the report PRINTS. Leaving it charged to
+	 * `cut` made the diagnostics claim a removal the reader never suffered.
+	 */
+	it("gives back the count of the sentence it restores", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			sections: [section([{ text: "Demand cooled across the bloc." }])],
+		});
+		const kept = result.sections[0].paragraphs.flat().length;
+		expect(kept).toBe(1);
+		expect(
+			result.totals.corroborated +
+				result.totals.single +
+				result.totals.inferred,
+		).toBe(kept);
+		expect(result.totals.cut).toBe(0);
+		expect(result.totals.repeated).toBe(0);
+	});
+
 	it("carries the section's table through", () => {
 		const result = verifyAtlasV3Report({
 			...base,
