@@ -6,10 +6,13 @@ import {
 	createAtlasV3Bank,
 	freezeAtlasV3Bank,
 } from "./evidence-bank";
+import { isLabelShapedTitle } from "./language-standard";
 import {
+	atlasV3FirstClause,
 	atlasV3OutlineGaps,
 	bindAtlasV3Evidence,
 	buildAtlasV3OutlinePrompt,
+	clampAtlasV3Title,
 	deterministicAtlasV3Outline,
 	parseAtlasV3Outline,
 	parseAtlasV3Trial,
@@ -75,6 +78,76 @@ function bank() {
 		asOf: null,
 		series: "year on year",
 		evidenceIds: [q3?.id ?? ""],
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** Two different claims that rest on the SAME quote. */
+function sharedQuoteBank() {
+	const state = createAtlasV3Bank();
+	const iea = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const quote = addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "The EU added 65.1 GW of solar in 2025, as rooftop installations fell 21%.",
+		goal: "g",
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "solar additions",
+		value: "65.1",
+		unit: "GW",
+		period: "2025",
+		asOf: null,
+		series: "grid-connected",
+		evidenceIds: [quote?.id ?? ""],
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "rooftop additions",
+		value: "-21",
+		unit: "%",
+		period: "2025",
+		asOf: null,
+		series: "year on year",
+		evidenceIds: [quote?.id ?? ""],
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** Four claims on four quotes: c1..c4, each with evidence of its own. */
+function fourClaimBank() {
+	const state = createAtlasV3Bank();
+	const source = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const metrics = [
+		"list price",
+		"repairability score",
+		"panel brightness",
+		"battery capacity",
+	];
+	metrics.forEach((metric, index) => {
+		const quote = addAtlasV3Quote(state, {
+			sourceId: source?.id ?? "",
+			text: `The ${metric} of the reviewed laptop is ${index + 1} in the published table.`,
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "Framework 13",
+			metric,
+			value: `${index + 1}`,
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+			evidenceIds: [quote?.id ?? ""],
+		});
 	});
 	return freezeAtlasV3Bank(state);
 }
@@ -159,7 +232,7 @@ describe("bindAtlasV3Evidence", () => {
 		expect(outline.nodes[0].status).toBe("thin");
 	});
 
-	it("refuses to let two sections rest on the same evidence set", () => {
+	it("merges two sections that rest on the same claims", () => {
 		const outline = bindAtlasV3Evidence({
 			nodes: [
 				{ id: "n1", title: "First", claim: "c", needs: [], claimIds: ["c1"] },
@@ -170,10 +243,10 @@ describe("bindAtlasV3Evidence", () => {
 		});
 		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
 		expect(outline.cut[0].id).toBe("n2");
-		expect(outline.cut[0].reason).toContain("already belongs");
+		expect(outline.cut[0].reason).toBe("merged into First");
 	});
 
-	it("keeps the part of an overlapping set that is still free", () => {
+	it("gives the merged node the union of both claim sets", () => {
 		const outline = bindAtlasV3Evidence({
 			nodes: [
 				{ id: "n1", title: "First", claim: "c", needs: [], claimIds: ["c1"] },
@@ -181,14 +254,143 @@ describe("bindAtlasV3Evidence", () => {
 					id: "n2",
 					title: "Second",
 					claim: "c",
-					needs: [],
+					needs: ["a gap"],
 					claimIds: ["c1", "c2"],
 				},
 			],
 			bank: bank(),
 			minEvidencePerNode: 1,
 		});
-		expect(outline.nodes[1].evidenceIds).toEqual(["e3"]);
+		expect(outline.nodes).toHaveLength(1);
+		expect(outline.nodes[0].evidenceIds).toEqual(["e1", "e2", "e3"]);
+		expect(outline.nodes[0].needs).toEqual(["a gap"]);
+	});
+
+	it("keeps two sections that legitimately share half their claims", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "Price favours the Dell",
+					claim: "The Dell XPS 13 costs less than the Framework 13.",
+					needs: [],
+					claimIds: ["c1", "c2"],
+				},
+				{
+					id: "n2",
+					title: "Repairability favours the Framework",
+					claim: "The Framework 13 scores 10 out of 10 on repairability.",
+					needs: [],
+					claimIds: ["c1", "c3"],
+				},
+			],
+			bank: fourClaimBank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1", "n2"]);
+	});
+
+	it("keeps a lead node resting on one shared claim", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "The verdict: buy the Framework",
+					claim:
+						"The Framework 13 is the better buy for a repair-minded owner.",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Screen quality favours the Dell",
+					claim: "The Dell XPS 13 ships a brighter OLED panel.",
+					needs: [],
+					claimIds: ["c1", "c2", "c3"],
+				},
+			],
+			bank: fourClaimBank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1", "n2"]);
+	});
+
+	it("keeps a 2024 section apart from its 2025 twin", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "2025 additions fell",
+					claim: "Solar additions across the EU fell in 2025.",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "2024 additions rose",
+					claim: "Solar additions across the EU rose in 2024.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+			],
+			bank: bank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1", "n2"]);
+	});
+
+	it("still merges one section written twice under two names", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "Obligations for providers of GPAI models — entry into force",
+					claim:
+						"Obligations for providers of general-purpose AI models enter into force.",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Providers of general-purpose AI models — entry into force",
+					claim:
+						"Obligations for providers of general-purpose AI models enter into force.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+			],
+			bank: bank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
+		expect(outline.cut[0].reason).toContain("merged into");
+	});
+
+	it("still refuses two DISTINCT sections resting on one quote set", () => {
+		// Different claims, same quotes behind them: the exclusivity rule, not the
+		// duplicate merge.
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "Additions fell",
+					claim: "The bloc added less than the year before.",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Rooftop demand cooled",
+					claim: "Household orders thinned as subsidies ended.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+			],
+			bank: sharedQuoteBank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
+		expect(outline.cut[0].reason).toContain("already belongs");
 	});
 
 	it("leaves a node with no claims planned rather than cut", () => {
@@ -199,6 +401,31 @@ describe("bindAtlasV3Evidence", () => {
 		});
 		expect(outline.nodes[0].status).toBe("planned");
 		expect(outline.cut).toEqual([]);
+	});
+});
+
+describe("clampAtlasV3Title / atlasV3FirstClause", () => {
+	it("cuts at a word boundary, never mid-word", () => {
+		const long =
+			"Utility-scale solar additions grew twelve percent across the bloc during 2025, marking an increase";
+		const clamped = clampAtlasV3Title(long);
+		expect(clamped.length).toBeLessThanOrEqual(90);
+		expect(long.startsWith(clamped)).toBe(true);
+		// The character the cut stopped at is a boundary, not the middle of a word.
+		expect(long.slice(clamped.length, clamped.length + 1)).toBe(" ");
+		expect(clamped.endsWith("incr")).toBe(false);
+	});
+
+	it("strips trailing punctuation the cut left behind", () => {
+		expect(clampAtlasV3Title("The rate rose, ")).toBe("The rate rose");
+	});
+
+	it("takes the first clause of a claim", () => {
+		expect(
+			atlasV3FirstClause(
+				"Rooftop demand cooled, and utility-scale capacity grew 12%.",
+			),
+		).toBe("Rooftop demand cooled");
 	});
 });
 
@@ -214,6 +441,81 @@ describe("deterministicAtlasV3Outline", () => {
 		});
 		expect(outline.nodes).toHaveLength(2);
 		expect(outline.nodes[0].title).toContain("solar additions");
+	});
+
+	it("titles a node with the finding, not with `entity — metric`", () => {
+		const outline = deterministicAtlasV3Outline({
+			ask: ASK,
+			memo: MEMO,
+			bank: bank(),
+			minSections: 2,
+			maxSections: 6,
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes[0].title).toBe("EU-27: solar additions 65.1 GW");
+		expect(outline.nodes.every((node) => !isLabelShapedTitle(node.title))).toBe(
+			true,
+		);
+	});
+
+	/**
+	 * The deterministic outline is one node per distinct `entity — metric`
+	 * already, so the duplicate merge must not run over it: two dates of one
+	 * regulation share "EU AI Act", "date" and the value, and the fuzzy word
+	 * rule read that as one section written twice.
+	 */
+	it("keeps two metrics of one entity as two sections", () => {
+		const state = createAtlasV3Bank();
+		const lex = addAtlasV3Source(state, {
+			url: "https://eur-lex.europa.eu/ai-act",
+			title: "AI Act",
+			publishedAt: "2024-07-12",
+		});
+		const commission = addAtlasV3Source(state, {
+			url: "https://digital-strategy.ec.europa.eu/ai-act",
+			title: "AI Act timeline",
+			publishedAt: "2025-02-01",
+		});
+		const first = addAtlasV3Quote(state, {
+			sourceId: lex?.id ?? "",
+			text: "Obligations for providers of general-purpose AI models apply from 2 August 2025.",
+			goal: "g",
+		});
+		const second = addAtlasV3Quote(state, {
+			sourceId: commission?.id ?? "",
+			text: "The Commission's enforcement powers apply from 2 August 2025.",
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU AI Act",
+			metric: "obligations start date",
+			value: "2 August 2025",
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+			evidenceIds: [first?.id ?? ""],
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU AI Act",
+			metric: "enforcement start date",
+			value: "2 August 2025",
+			unit: null,
+			period: null,
+			asOf: null,
+			series: null,
+			evidenceIds: [second?.id ?? ""],
+		});
+		const outline = deterministicAtlasV3Outline({
+			ask: ASK,
+			memo: { ...MEMO, claimIds: ["c1", "c2"] },
+			bank: freezeAtlasV3Bank(state),
+			minSections: 2,
+			maxSections: 6,
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes).toHaveLength(2);
+		expect(outline.cut).toEqual([]);
 	});
 
 	it("falls back to the core question when there are no claims", () => {
@@ -287,6 +589,27 @@ describe("reviseAtlasV3Outline", () => {
 		);
 	});
 
+	it("keeps the label rather than shipping an empty heading", async () => {
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{
+						id: "n1",
+						title: "2025-ös referenciaadat",
+						// A claim whose first clause is empty; the repair has nothing.
+						claim: ", rooftop demand fell while utility-scale grew.",
+						claimIds: ["c2"],
+					},
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			runModel: model.call,
+		});
+		expect(outline.nodes[0].title).toBe("2025-ös referenciaadat");
+	});
+
 	it("falls back to the deterministic outline when nothing parses", async () => {
 		const model = fakeModel({ "v3:outline": "no." });
 		const outline = await reviseAtlasV3Outline({
@@ -322,6 +645,26 @@ describe("reviseAtlasV3Outline", () => {
 			},
 		});
 		expect(outline.nodes.length).toBeGreaterThan(0);
+	});
+
+	it("falls back when EVERY node bound zero quotes", async () => {
+		// The staging failure: the model named claim ids the bank never held, so
+		// each node bound nothing, the writer wrote nothing and the job died.
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{ id: "n1", title: "Population trend", claim: "a", claimIds: [] },
+					{ id: "n2", title: "Survey coverage", claim: "b", claimIds: [] },
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			runModel: model.call,
+		});
+		expect(outline.nodes.some((node) => node.evidenceIds.length > 0)).toBe(
+			true,
+		);
 	});
 });
 

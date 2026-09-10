@@ -315,4 +315,78 @@ describe("atlasV3GoalLimitations", () => {
 			rendered.every((line) => !line.includes("sentences were removed")),
 		).toBe(true);
 	});
+
+	it("names the core claim instead of `the central figure`", () => {
+		const outline: AtlasV3Outline = { nodes: [], cut: [] };
+		const verdict = runAtlasV3GoalTest({
+			memo: { ...MEMO, claimIds: ["c2"] },
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		const limitations = atlasV3GoalLimitations({
+			verdict,
+			outline,
+			memo: { ...MEMO, claimIds: ["c2"] },
+			bank: bank(),
+		});
+		expect(limitations[0].subject).toBe("EU-27: rooftop -21 %");
+	});
+
+	it("falls back to `the central figure` with no bank", () => {
+		const outline: AtlasV3Outline = { nodes: [], cut: [] };
+		const verdict = runAtlasV3GoalTest({
+			memo: { ...MEMO, claimIds: ["c2"] },
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		expect(
+			atlasV3GoalLimitations({
+				verdict,
+				outline,
+				memo: { ...MEMO, claimIds: ["c2"] },
+			})[0].subject,
+		).toBe("the central figure");
+	});
+
+	it("uses the node TITLE when its claim is label-shaped", () => {
+		const outline: AtlasV3Outline = {
+			nodes: [
+				{
+					id: "n2",
+					title: "Providers must publish a training-data summary",
+					claim: "providers — compliance deadline for pre-2025 models",
+					needs: [],
+					evidenceIds: [],
+					status: "planned",
+				},
+			],
+			cut: [],
+		};
+		const verdict = runAtlasV3GoalTest({
+			memo: MEMO,
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		const limitations = atlasV3GoalLimitations({
+			verdict,
+			outline,
+			memo: MEMO,
+			bank: bank(),
+		});
+		expect(
+			limitations.some(
+				(entry) =>
+					entry.subject === "Providers must publish a training-data summary",
+			),
+		).toBe(true);
+		expect(limitations.every((entry) => !entry.subject.includes(" — "))).toBe(
+			true,
+		);
+	});
 });

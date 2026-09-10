@@ -89,6 +89,45 @@ describe("isLabelShapedTitle", () => {
 		expect(isLabelShapedTitle("")).toBe(true);
 	});
 
+	it("rejects the `entity — metric` heading v3 shipped eight times", () => {
+		expect(
+			isLabelShapedTitle("Commission — obligations entry into application"),
+		).toBe(true);
+		expect(
+			isLabelShapedTitle("providers — compliance deadline for pre-2025 models"),
+		).toBe(true);
+	});
+
+	/**
+	 * The dash rule reads the LEFT of the dash, not the dash itself: a title
+	 * that says something before it is a finding, and rewriting it from the
+	 * claim made the heading worse.
+	 */
+	it("accepts a finding that merely contains a dash", () => {
+		expect(
+			isLabelShapedTitle("Framework 13 vs Dell XPS 13 — repairability"),
+		).toBe(false);
+		expect(
+			isLabelShapedTitle(
+				"Solar additions fell in 2025 — the first drop since 2016",
+			),
+		).toBe(false);
+	});
+
+	it("accepts a hyphenated word", () => {
+		expect(
+			isLabelShapedTitle("Grid-connected additions fell 17% in 2025"),
+		).toBe(false);
+	});
+
+	it("accepts the sentence-shaped replacement", () => {
+		expect(
+			isLabelShapedTitle(
+				"Commission: enforcement powers entry into application 2 August 2026",
+			),
+		).toBe(false);
+	});
+
 	it("accepts a title that states a finding", () => {
 		expect(isLabelShapedTitle("Rooftop demand fell, utility-scale grew")).toBe(
 			false,

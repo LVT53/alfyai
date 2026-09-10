@@ -21,7 +21,7 @@ import {
 	figureAppearsInText,
 	isCheckableFigure,
 } from "../atlas-v2/number-match";
-import { atlasV3PublishersFor } from "./evidence-bank";
+import { atlasV3CorroboratingPublishersFor } from "./evidence-bank";
 import type {
 	AtlasV3AnswerTable,
 	AtlasV3EvidenceBank,
@@ -44,6 +44,14 @@ export interface VerifyAtlasV3ReportInput {
 	 * before it, it is handed to the critic as `needs_evidence`.
 	 */
 	finalPass?: boolean;
+	/**
+	 * The final pass's restatement and inference caps. On by default; the VERDICT
+	 * is verified through this function as a one-section report and must not be
+	 * trimmed by rules written for a section — an abstaining verdict opens with
+	 * an uncited sentence by design, and a caller reads a cut verdict sentence as
+	 * a figure verification could not support.
+	 */
+	qualityCaps?: boolean;
 }
 
 export function verifyAtlasV3Report(
@@ -62,6 +70,7 @@ export function verifyAtlasV3Report(
 		corroborated: 0,
 		single: 0,
 		inferred: 0,
+		repeated: 0,
 		cut: 0,
 		needsEvidence: 0,
 	};
@@ -69,62 +78,167 @@ export function verifyAtlasV3Report(
 	const needsEvidence: AtlasV3VerificationResult["needsEvidence"] = [];
 	const staleSourceIds = new Set<string>();
 
-	const sections: AtlasV3VerifiedSection[] = input.sections.map((section) => ({
-		nodeId: section.nodeId,
-		title: section.title,
-		table: section.table,
-		paragraphs: section.paragraphs
-			.map((paragraph) =>
-				paragraph
-					.map((sentence) => {
-						const verified = verifyAtlasV3Sentence({
-							sentence,
-							quotesById,
-							derivedById,
-							finalPass: input.finalPass === true,
-						});
-						if (verified.outcome === "cut") {
-							totals.cut += 1;
-							return verified;
-						}
-						if (verified.outcome === "needs_evidence") {
-							totals.needsEvidence += 1;
-							needsEvidence.push({
-								nodeId: section.nodeId,
-								text: sentence.text,
-								query: atlasV3EvidenceQueryFor(sentence, section.title),
-							});
-						}
-						const publishers = atlasV3PublishersFor(
-							input.bank,
-							sentence.evidenceIds,
-						);
-						verified.confidence =
-							publishers.length >= 2
-								? "corroborated"
-								: sentence.evidenceIds.length > 0
-									? "single"
-									: "inferred";
-						totals[verified.confidence] += 1;
-						for (const id of sentence.evidenceIds) {
-							if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
-							const quote = quotesById.get(id);
-							const source = quote
-								? sourcesById.get(quote.sourceId)
-								: undefined;
-							if (
-								source &&
-								isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
-							) {
-								staleSourceIds.add(source.id);
-							}
-						}
-						return verified;
-					})
-					.filter((sentence) => sentence.outcome !== "cut"),
-			)
-			.filter((paragraph) => paragraph.length > 0),
-	}));
+	const finalPass = input.finalPass === true;
+	const qualityCaps = finalPass && input.qualityCaps !== false;
+	/** Signatures — cited ids plus stated figures — of every sentence kept. */
+	const keptSignatures = new Set<string>();
+	const sections: AtlasV3VerifiedSection[] = [];
+
+	for (const section of input.sections) {
+		const sentenceCount = section.paragraphs.reduce(
+			(total, paragraph) => total + paragraph.length,
+			0,
+		);
+		// 20% of the section, rounded up, at least one. An inferred sentence is a
+		// sentence no quote backs; a paragraph of them is a paragraph of assertion.
+		const inferredAllowance = Math.max(1, Math.ceil(sentenceCount * 0.2));
+		let inferredKept = 0;
+		let keptInSection = 0;
+		/** Kept sentences resting on each quote, for the saturation rule. */
+		const quoteUse = new Map<string, number>();
+		const figuresInSection = new Set<string>();
+		const paragraphs: AtlasV3VerifiedSentence[][] = [];
+		/** The first sentence that passed verification; a section is never empty. */
+		let firstSurvivor: AtlasV3VerifiedSentence | null = null;
+		/** Which total the caps charged that sentence to, if they dropped it. */
+		let firstSurvivorCharge: "repeated" | "cut" | null = null;
+		/** Records a kept sentence's citations and the stale sources behind them. */
+		const recordCitations = (sentence: {
+			evidenceIds: readonly string[];
+		}): void => {
+			for (const id of sentence.evidenceIds) {
+				if (!citedEvidenceIds.includes(id)) citedEvidenceIds.push(id);
+				const quote = quotesById.get(id);
+				const source = quote ? sourcesById.get(quote.sourceId) : undefined;
+				if (
+					source &&
+					isAtlasV3StaleSource(source.date, input.now, input.staleMonths)
+				) {
+					staleSourceIds.add(source.id);
+				}
+			}
+		};
+
+		for (const paragraph of section.paragraphs) {
+			let inferredInParagraph = 0;
+			const kept: AtlasV3VerifiedSentence[] = [];
+			for (const sentence of paragraph) {
+				const verified = verifyAtlasV3Sentence({
+					sentence,
+					quotesById,
+					derivedById,
+					finalPass,
+				});
+				if (verified.outcome === "cut") {
+					totals.cut += 1;
+					continue;
+				}
+				if (verified.outcome === "needs_evidence") {
+					totals.needsEvidence += 1;
+					needsEvidence.push({
+						nodeId: section.nodeId,
+						text: sentence.text,
+						query: atlasV3EvidenceQueryFor(sentence, section.title),
+					});
+				}
+				// Corroboration is a property of the FACT, not of how many ids
+				// the writer happened to attach to the sentence.
+				const publishers = atlasV3CorroboratingPublishersFor(
+					input.bank,
+					sentence.evidenceIds,
+					sentence.text,
+				);
+				verified.confidence =
+					publishers.length >= 2
+						? "corroborated"
+						: sentence.evidenceIds.length > 0
+							? "single"
+							: "inferred";
+				firstSurvivor ??= verified;
+
+				const figures = [
+					...new Set(
+						extractFigures(sentence.text)
+							.filter(isCheckableFigure)
+							.map((figure) => figure.text.toLowerCase()),
+					),
+				].sort();
+				const signature = `${[...sentence.evidenceIds].sort().join(",")}::${figures.join(",")}`;
+				const addsNoFigure = figures.every((figure) =>
+					figuresInSection.has(figure),
+				);
+				const saturated =
+					sentence.evidenceIds.length > 0 &&
+					sentence.evidenceIds.every((id) => (quoteUse.get(id) ?? 0) >= 3);
+				// A sentence carrying a value the sandbox computed is not an
+				// unsupported assertion, whatever its citation count says.
+				const computed =
+					sentence.calcId !== null &&
+					derivedById.get(sentence.calcId)?.value != null;
+				const isInferred = verified.confidence === "inferred" && !computed;
+
+				if (qualityCaps) {
+					// RESTATEMENT. Three consecutive sentences on one quote, all saying
+					// harmonised standards enter into force on 2 August 2026, is what a
+					// sentence target buys when the evidence has already been spent.
+					if (
+						(figures.length > 0 && keptSignatures.has(signature)) ||
+						(saturated && addsNoFigure)
+					) {
+						totals.repeated += 1;
+						if (verified === firstSurvivor) firstSurvivorCharge = "repeated";
+						continue;
+					}
+					// INFERENCE. One per paragraph, a fifth of the section, and never
+					// the sentence a section opens with: "Recent generations retain this
+					// soldered RAM design" is a fact, and nothing states it.
+					if (
+						isInferred &&
+						(inferredInParagraph >= 1 ||
+							inferredKept >= inferredAllowance ||
+							keptInSection === 0)
+					) {
+						totals.cut += 1;
+						if (verified === firstSurvivor) firstSurvivorCharge = "cut";
+						continue;
+					}
+				}
+
+				totals[verified.confidence] += 1;
+				if (isInferred) {
+					inferredInParagraph += 1;
+					inferredKept += 1;
+				}
+				keptInSection += 1;
+				keptSignatures.add(signature);
+				for (const figure of figures) figuresInSection.add(figure);
+				for (const id of sentence.evidenceIds) {
+					quoteUse.set(id, (quoteUse.get(id) ?? 0) + 1);
+				}
+				recordCitations(sentence);
+				kept.push(verified);
+			}
+			if (kept.length > 0) paragraphs.push(kept);
+		}
+
+		// A section emptied by the quality rules would silently vanish from the
+		// report; the sentence that opened it is kept instead. The counter the
+		// caps charged it to is given back: a sentence the report PRINTS is not a
+		// sentence verification removed, and the diagnostics are read as a count
+		// of what the reader lost.
+		if (paragraphs.length === 0 && firstSurvivor) {
+			if (firstSurvivorCharge) totals[firstSurvivorCharge] -= 1;
+			totals[firstSurvivor.confidence] += 1;
+			recordCitations(firstSurvivor);
+			paragraphs.push([firstSurvivor]);
+		}
+		sections.push({
+			nodeId: section.nodeId,
+			title: section.title,
+			table: section.table,
+			paragraphs,
+		});
+	}
 
 	return {
 		sections,
@@ -211,24 +325,98 @@ export function isAtlasV3StaleSource(
 }
 
 /**
- * Cells whose figure no cited quote states. The table is verified with the same
- * rule as the prose, because a table cell is the easiest thing in the report to
- * get wrong and the easiest to check.
+ * What an unsupported cell is replaced by, in either report language. A cell
+ * whose text STARTS with one of these is already an admission that the figure
+ * was not published — "not published (July 2026 range $1,099.99–$1,599.00)" —
+ * and the honest repair is to keep the admission and drop the figures, not to
+ * report the figures as unsupported.
+ */
+export const ATLAS_V3_TABLE_PLACEHOLDERS = [
+	"not published",
+	"nincs közzétéve",
+] as const;
+
+export function isAtlasV3TablePlaceholder(text: string): boolean {
+	const normalized = text.trim().toLowerCase();
+	return ATLAS_V3_TABLE_PLACEHOLDERS.some((placeholder) =>
+		normalized.startsWith(placeholder),
+	);
+}
+
+export interface AtlasV3TableFailure {
+	column: string;
+	/** The column's own label, for a Limitations line a reader can follow. */
+	columnLabel: string;
+	/** The row's label-column text. */
+	rowLabel: string;
+	text: string;
+	detail: string;
+	/**
+	 * `unsupported` — a figure no cited quote states, or a factual cell with no
+	 * evidence at all. `placeholder` — the cell already says "not published" and
+	 * only its trailing figures have to go; no Limitations line is owed.
+	 */
+	kind: "unsupported" | "placeholder";
+}
+
+/**
+ * Cells the table may not keep. The table is verified with the same rule as the
+ * prose, because a table cell is the easiest thing in the report to get wrong
+ * and the easiest to check.
+ *
+ * Two rules beyond v2's figure check, both from the staging run:
+ *
+ *  - a cell that already SAYS "not published" but then lists figures is reduced
+ *    to the placeholder, with no Limitations line; and
+ *  - a non-numeric factual cell with no evidence at all ("Soldered RAM",
+ *    "SSD (replaceable)") is unsupported too. The figure check never saw those,
+ *    so they shipped uncited.
  */
 export function verifyAtlasV3AnswerTable(input: {
 	table: AtlasV3AnswerTable | null;
 	bank: AtlasV3EvidenceBank;
-}): Array<{ column: string; text: string; detail: string }> {
+}): AtlasV3TableFailure[] {
 	if (!input.table) return [];
 	const quotesById = new Map(
 		input.bank.quotes.map((quote) => [quote.id, quote]),
 	);
-	const failures: Array<{ column: string; text: string; detail: string }> = [];
+	const labelKey = input.table.columns[0]?.key ?? "";
+	const failures: AtlasV3TableFailure[] = [];
 	for (const row of input.table.rows) {
+		const rowLabel = (row[labelKey]?.text ?? "").trim();
 		for (const column of input.table.columns.slice(1)) {
 			const cell = row[column.key];
 			if (!cell?.text) continue;
+			const base = {
+				column: column.key,
+				columnLabel: column.label || column.key,
+				rowLabel,
+				text: cell.text,
+			};
 			const figures = extractFigures(cell.text).filter(isCheckableFigure);
+			if (isAtlasV3TablePlaceholder(cell.text)) {
+				if (figures.length > 0) {
+					failures.push({
+						...base,
+						detail: "the cell says the figure is not published",
+						kind: "placeholder",
+					});
+				}
+				continue;
+			}
+			if (cell.evidenceIds.length === 0) {
+				// Non-numeric or numeric alike: a cell outside the label column that
+				// nothing backs is a claim with no source.
+				failures.push({
+					...base,
+					detail:
+						figures.length > 0
+							? `"${figures[0].text}" is stated with no evidence behind it`
+							: "stated with no evidence behind it",
+					kind: "unsupported",
+				});
+				continue;
+			}
 			if (figures.length === 0) continue;
 			const haystack = cell.evidenceIds
 				.map((id) => quotesById.get(id)?.text ?? "")
@@ -237,11 +425,11 @@ export function verifyAtlasV3AnswerTable(input: {
 			for (const figure of figures) {
 				if (figureAppearsInText(figure, haystack)) continue;
 				failures.push({
-					column: column.key,
-					text: cell.text,
+					...base,
 					detail: haystack
 						? `"${figure.text}" does not appear in the quotes this cell cites`
 						: `"${figure.text}" is stated with no evidence behind it`,
+					kind: "unsupported",
 				});
 			}
 		}

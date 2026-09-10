@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { atlasV3SectionBudget, getAtlasV3ProfileConfig } from "./config";
 import {
+	addAtlasV3Claim,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	createAtlasV3Bank,
@@ -12,13 +13,18 @@ import type {
 	AtlasV3Ask,
 	AtlasV3Outline,
 	AtlasV3Sentence,
+	AtlasV3WrittenSection,
 } from "./types";
 import {
+	ATLAS_V3_ABSTENTION_SENTENCE,
 	atlasV3VerdictAnswersInWindow,
 	atlasV3WriterSystem,
 	buildAtlasV3SectionPrompt,
+	buildAtlasV3VerdictPrompt,
 	cleanSentenceText,
 	countAtlasV3Sentences,
+	deterministicAtlasV3Verdict,
+	dropAtlasV3DanglingAnaphora,
 	parseAtlasV3PlainTextSection,
 	parseAtlasV3Section,
 	parseAtlasV3Verdict,
@@ -63,6 +69,47 @@ function bank() {
 		sourceId: iea?.id ?? "",
 		text: "Rooftop installations fell 21% while utility-scale capacity grew.",
 		goal: "g",
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** The same bank, with e1 and e2 bound into one claim of two publishers. */
+function corroboratedBank() {
+	const state = createAtlasV3Bank();
+	const iea = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const bbc = addAtlasV3Source(state, {
+		url: "https://bbc.com/a",
+		title: "BBC",
+		publishedAt: "2025-12-02",
+	});
+	const first = addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "The EU added 65.1 GW of solar capacity in 2025, the first fall since 2016.",
+		goal: "g",
+	});
+	const second = addAtlasV3Quote(state, {
+		sourceId: bbc?.id ?? "",
+		text: "Europe installed 65.1 GW of solar last year, according to industry data.",
+		goal: "g",
+	});
+	addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "Rooftop installations fell 21% while utility-scale capacity grew.",
+		goal: "g",
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "solar additions",
+		value: "65.1",
+		unit: "GW",
+		period: "2025",
+		asOf: null,
+		series: "grid-connected additions",
+		evidenceIds: [first?.id ?? "", second?.id ?? ""],
 	});
 	return freezeAtlasV3Bank(state);
 }
@@ -333,6 +380,19 @@ describe("writeAtlasV3Report", () => {
 		]);
 	});
 
+	it("tells the writer which other publisher states the same figure", async () => {
+		const model = fakeModel({
+			"v3:write": sectionAnswer("The EU added 65.1 GW in 2025.", ["e1"]),
+		});
+		await writeAtlasV3Report({ ...base(model), bank: corroboratedBank() });
+		const prompt = JSON.parse(
+			model.prompts.find((entry) => entry.stage === "v3:write:n1")?.prompt ??
+				"{}",
+		);
+		expect(prompt.evidence[0].alsoStatedBy).toEqual(["e2"]);
+		expect(prompt.evidence[1].alsoStatedBy).toEqual(["e1"]);
+	});
+
 	it("shows a section what the previous sections already said", async () => {
 		const model = fakeModel({
 			"v3:write": sectionAnswer("The EU added 65.1 GW in 2025.", ["e1"]),
@@ -533,6 +593,196 @@ describe("parseAtlasV3Verdict / writeAtlasV3Verdict", () => {
 				},
 			}),
 		).toBeNull();
+	});
+
+	it("retries once, with the shape restated, when the reply is not JSON", async () => {
+		const model = fakeModel({
+			"v3:verdict:retry": JSON.stringify({
+				sentences: [
+					{ text: "The EU added 65.1 GW in 2025.", evidenceIds: ["e1"] },
+				],
+			}),
+			"v3:verdict": "Here is the verdict: the EU added 65.1 GW.",
+		});
+		const verdict = await writeAtlasV3Verdict({
+			...verdictInput,
+			runModel: model.call,
+		});
+		expect(verdict).toHaveLength(1);
+		expect(model.stages).toEqual(["v3:verdict", "v3:verdict:retry"]);
+		const retry = model.prompts.find(
+			(entry) => entry.stage === "v3:verdict:retry",
+		);
+		expect(retry?.system).toContain("was not valid JSON");
+	});
+
+	it("carries doNotState into the prompt", () => {
+		const prompt = buildAtlasV3VerdictPrompt({
+			...verdictInput,
+			doNotState: ["Providers face fines of up to 3%."],
+		});
+		expect(JSON.parse(prompt).doNotState).toEqual([
+			"Providers face fines of up to 3%.",
+		]);
+	});
+});
+
+describe("deterministicAtlasV3Verdict", () => {
+	const section = (
+		nodeId: string,
+		sentences: AtlasV3Sentence[],
+	): AtlasV3WrittenSection => ({
+		nodeId,
+		title: nodeId,
+		paragraphs: [sentences],
+		table: null,
+	});
+	const claim = (
+		text: string,
+		evidenceIds: string[] = [],
+	): AtlasV3Sentence => ({
+		text,
+		evidenceIds,
+		kind: "claim",
+		calcId: null,
+	});
+
+	it("takes the first cited figure of each section, in section order", () => {
+		const verdict = deterministicAtlasV3Verdict({
+			sections: [
+				section("n1", [
+					claim("This section looks at additions."),
+					claim("The EU added 65.1 GW in 2025.", ["e1"]),
+					claim("Two trackers agree.", ["e2"]),
+				]),
+				section("n2", [claim("Rooftop fell 21%.", ["e5"])]),
+			],
+			language: "en",
+			abstain: false,
+		});
+		expect(verdict.map((sentence) => sentence.text)).toEqual([
+			"The EU added 65.1 GW in 2025.",
+			"Rooftop fell 21%.",
+		]);
+	});
+
+	it("skips a figure no evidence id backs and caps at four sentences", () => {
+		const verdict = deterministicAtlasV3Verdict({
+			sections: [
+				section("n0", [claim("It grew by 4% last year.")]),
+				...["n1", "n2", "n3", "n4", "n5"].map((nodeId, index) =>
+					section(nodeId, [claim(`Figure ${index} is 1${index}.`, ["e1"])]),
+				),
+			],
+			language: "en",
+			abstain: false,
+		});
+		expect(verdict).toHaveLength(4);
+		expect(verdict[0].text).toBe("Figure 0 is 10.");
+	});
+
+	it("opens with an abstention sentence when the goal test abstained", () => {
+		const verdict = deterministicAtlasV3Verdict({
+			sections: [section("n1", [claim("Rooftop fell 21%.", ["e5"])])],
+			language: "hu",
+			abstain: true,
+		});
+		expect(verdict[0].text).toBe(ATLAS_V3_ABSTENTION_SENTENCE.hu);
+		expect(verdict).toHaveLength(2);
+	});
+
+	it("returns nothing when no sentence carries a cited figure", () => {
+		expect(
+			deterministicAtlasV3Verdict({
+				sections: [section("n1", [claim("Prices moved.")])],
+				language: "en",
+				abstain: false,
+			}),
+		).toEqual([]);
+	});
+});
+
+describe("dropAtlasV3DanglingAnaphora", () => {
+	const kept = (text: string) => ({ text });
+
+	it("drops a survivor whose predecessor was cut and which refers back", () => {
+		const written = [
+			{ text: "Providers face six core duties under Article 53." },
+			{ text: "These core duties include technical documentation." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [
+					kept("These core duties include technical documentation."),
+					kept("The Act applies from 2 August 2026."),
+				],
+				language: "en",
+			}).map((sentence) => sentence.text),
+		).toEqual(["The Act applies from 2 August 2026."]);
+	});
+
+	it("keeps a survivor whose predecessor survived", () => {
+		const written = [
+			{ text: "Providers face six core duties under Article 53." },
+			{ text: "These core duties include technical documentation." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: written.map((sentence) => kept(sentence.text)),
+				language: "en",
+			}),
+		).toHaveLength(2);
+	});
+
+	/**
+	 * `az` is the Hungarian definite article before a vowel. Reading it as a
+	 * demonstrative dropped sentences that stand perfectly on their own — and
+	 * the guard against an empty verdict hid it whenever only one survived.
+	 */
+	it("keeps a Hungarian sentence opening with the definite article", () => {
+		const written = [
+			{ text: "A rendelet 2025. augusztus 2-án lép hatályba." },
+			{ text: "Az Európai Bizottság 2026-tól bírságolhat." },
+			{ text: "A tagállamok 2026 augusztusáig jelölik ki a hatóságokat." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [kept(written[1].text), kept(written[2].text)],
+				language: "hu",
+			}).map((sentence) => sentence.text),
+		).toEqual([written[1].text, written[2].text]);
+	});
+
+	it("still drops a Hungarian demonstrative whose antecedent was cut", () => {
+		const written = [
+			{ text: "A szolgáltatók hat alapkötelezettséget viselnek." },
+			{ text: "Ezek a kötelezettségek műszaki dokumentációt is jelentenek." },
+			{ text: "A rendelet 2026. augusztus 2-án alkalmazandó." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [kept(written[1].text), kept(written[2].text)],
+				language: "hu",
+			}).map((sentence) => sentence.text),
+		).toEqual([written[2].text]);
+	});
+
+	it("never returns an empty verdict", () => {
+		const written = [
+			{ text: "The rate rose." },
+			{ text: "Ez a rendelet 2026-ban lép hatályba." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [kept("Ez a rendelet 2026-ban lép hatályba.")],
+				language: "hu",
+			}),
+		).toHaveLength(1);
 	});
 });
 

@@ -102,6 +102,7 @@ describe("buildAtlasV3ProgressEvidence", () => {
 				corroborated: 1,
 				single: 0,
 				inferred: 0,
+				repeated: 0,
 				cut: 0,
 				needsEvidence: 0,
 			},
@@ -115,6 +116,36 @@ describe("buildAtlasV3ProgressEvidence", () => {
 		expect(evidence.sources[1].cited).toBe(false);
 		// The harness re-checks figures against the QUOTES, not a page dump.
 		expect(evidence.sources[0].snippet).toContain("65.1 GW");
+	});
+
+	/**
+	 * An abstaining report numbers sources no sentence cites — the pages it
+	 * read. Rebuilding the card's order from quotes alone gave those a different
+	 * `[n]` than the report printed, which reads as a citation mismatch.
+	 */
+	it("keeps the numbers the report minted for uncited sources", () => {
+		const reportCitations = assignAtlasV3CitationNumbers({
+			bank: bank(),
+			citedEvidenceIds: [],
+			extraSourceIds: ["s2", "s1"],
+		});
+		const evidence = buildAtlasV3ProgressEvidence({
+			bank: bank(),
+			totals: {
+				corroborated: 0,
+				single: 0,
+				inferred: 2,
+				repeated: 0,
+				cut: 0,
+				needsEvidence: 0,
+			},
+			citations: reportCitations,
+		});
+		expect(reportCitations.numberBySourceId.get("s2")).toBe(1);
+		expect(evidence.sources.map((source) => source.host)).toEqual([
+			"bbc.com",
+			"iea.org",
+		]);
 	});
 });
 

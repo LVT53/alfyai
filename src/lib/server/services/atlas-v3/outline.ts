@@ -15,10 +15,12 @@
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
 import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
+import { atlasV3NormalizeWords } from "./evidence-bank";
 import { isLabelShapedTitle } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
 import type {
 	AtlasV3Ask,
+	AtlasV3Claim,
 	AtlasV3EvidenceBank,
 	AtlasV3Memo,
 	AtlasV3Outline,
@@ -29,12 +31,49 @@ import type {
 const MAX_NEEDS_PER_NODE = 4;
 const MAX_TITLE_CHARS = 90;
 const MAX_CLAIM_CHARS = 240;
+/** Above this a "title" is a sentence; the claim's first clause reads better. */
+const MAX_TITLE_WORDS = 14;
+
+/**
+ * A title cut to fit, at a WORD boundary, with trailing punctuation removed.
+ *
+ * `slice(0, 90)` shipped "…marking an incr" as a section heading. A heading is
+ * the one string in the report a reader scans rather than reads, so a
+ * half-written last word is the most visible defect the pipeline had.
+ */
+export function clampAtlasV3Title(
+	value: string,
+	maxChars = MAX_TITLE_CHARS,
+): string {
+	const normalized = value.replace(/\s+/g, " ").trim();
+	const trimTail = (text: string) => text.replace(/[\s,;:—–-]+$/u, "");
+	if (normalized.length <= maxChars) return trimTail(normalized);
+	const cut = normalized.slice(0, maxChars);
+	const lastSpace = cut.lastIndexOf(" ");
+	return trimTail(lastSpace > 0 ? cut.slice(0, lastSpace) : cut);
+}
+
+/** The first clause of a claim: up to the first comma, semicolon, colon or dash. */
+export function atlasV3FirstClause(claim: string): string {
+	const normalized = claim.replace(/\s+/g, " ").trim();
+	const break_ = /[,;:]|\s[—–]\s/u.exec(normalized);
+	return break_ ? normalized.slice(0, break_.index).trim() : normalized;
+}
+
+function wordCount(value: string): number {
+	return value.split(/\s+/).filter(Boolean).length;
+}
+
+/** Capitalises the first letter without touching the rest. */
+function capitalise(value: string): string {
+	return value ? value[0].toUpperCase() + value.slice(1) : value;
+}
 
 export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 	en: [
 		"You plan the sections of a research report. Return STRICT JSON only, no prose and no code fence.",
 		'Shape: {"nodes":[{"id":"n1","title":"...","claim":"...","needs":["..."],"claimIds":["c1"]}],"cut":[{"id":"n4","reason":"..."}]}',
-		"A section is a CLAIM the report will defend, not a topic. `claim` is one falsifiable sentence. `title` names that finding in the reader's words — never a data label, never a bare year.",
+		"A section is a CLAIM the report will defend, not a topic. `claim` is one falsifiable sentence. `title` names that finding in the reader's words, in AT MOST TEN WORDS — never a data label, never a bare year, never `entity — metric`.",
 		"Order the sections by the DECISION the reader faces: the answer first, then what drives it, then what would change it.",
 		"`needs` is what this section still lacks, as searchable questions. Empty when the evidence shown already supports the claim.",
 		"`claimIds` are the claims from the memo this section rests on. Two sections may NOT rest on the same set — if they would, merge them.",
@@ -44,7 +83,7 @@ export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 	hu: [
 		"Egy kutatási jelentés szakaszait tervezed. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
 		'Alak: {"nodes":[{"id":"n1","title":"...","claim":"...","needs":["..."],"claimIds":["c1"]}],"cut":[{"id":"n4","reason":"..."}]}',
-		"A szakasz egy ÁLLÍTÁS, amelyet a jelentés megvéd, nem téma. A `claim` egy cáfolható mondat. A `title` ezt a megállapítást nevezi meg az olvasó szavaival — soha nem adatcímke, soha nem puszta évszám.",
+		"A szakasz egy ÁLLÍTÁS, amelyet a jelentés megvéd, nem téma. A `claim` egy cáfolható mondat. A `title` ezt a megállapítást nevezi meg az olvasó szavaival, LEGFELJEBB TÍZ SZÓBAN — soha nem adatcímke, soha nem puszta évszám, soha nem „entitás — mérőszám”.",
 		"A szakaszokat a DÖNTÉS szerint rendezd: előbb a válasz, aztán ami mozgatja, végül ami megváltoztatná.",
 		"A `needs` az, ami a szakaszból még hiányzik, kereshető kérdésként. Üres, ha a bemutatott bizonyíték már alátámasztja az állítást.",
 		"A `claimIds` a feljegyzés azon állításai, amelyeken a szakasz nyugszik. Két szakasz NEM nyugodhat ugyanazon a halmazon — ilyenkor vond össze őket.",
@@ -133,13 +172,23 @@ export function parseAtlasV3Outline(
 	for (const entry of record.nodes) {
 		if (!entry || typeof entry !== "object") continue;
 		const node = entry as Record<string, unknown>;
-		const title = clean(node.title, MAX_TITLE_CHARS);
-		const claim = clean(node.claim, MAX_CLAIM_CHARS) || title;
+		const claim = clean(node.claim, MAX_CLAIM_CHARS);
+		const rawTitle = clean(node.title, MAX_CLAIM_CHARS);
+		if (!rawTitle && !claim) continue;
+		// A "title" of twenty words is a sentence the model put in the wrong
+		// field; the claim's first clause is the heading it meant to write.
+		const title = clampAtlasV3Title(
+			rawTitle && wordCount(rawTitle) <= MAX_TITLE_WORDS
+				? rawTitle
+				: claim
+					? atlasV3FirstClause(claim)
+					: rawTitle,
+		);
 		if (!title) continue;
 		nodes.push({
 			id: clean(node.id, 12) || `n${nodes.length + 1}`,
 			title,
-			claim,
+			claim: claim || title,
 			needs: stringList(node.needs, MAX_NEEDS_PER_NODE),
 			claimIds: Array.isArray(node.claimIds)
 				? node.claimIds
@@ -194,6 +243,99 @@ function stringList(value: unknown, limit: number): string[] {
 // Binding evidence to nodes
 // ---------------------------------------------------------------------------
 
+/** Every calendar year a string names. */
+function yearsIn(value: string): Set<string> {
+	const years = new Set<string>();
+	for (const match of value.matchAll(/\b(?:19|20)\d{2}\b/gu))
+		years.add(match[0]);
+	return years;
+}
+
+/** True when both sides name years and the sets are not the same. */
+function namesDifferentYears(left: Set<string>, right: Set<string>): boolean {
+	if (left.size === 0 || right.size === 0) return false;
+	if (left.size !== right.size) return true;
+	for (const year of left) if (!right.has(year)) return true;
+	return false;
+}
+
+/**
+ * Merges outline nodes that are the same section twice.
+ *
+ * One staging report shipped both "Obligations for Providers of General-Purpose
+ * AI Models — entry into force date" and "Providers of general-purpose AI
+ * models — entry into application of obligations"; its cross-section repeat
+ * count reached 22 sentences. The evidence-exclusivity rule below cannot catch
+ * this, because the model gave the two nodes DIFFERENT claim ids.
+ *
+ * Two nodes are one when their title-plus-claim word sets overlap by half, or
+ * when their claim-id SETS are half the same set. The earlier node wins and
+ * takes the union; the loser is recorded in `cut` so Limitations can say what
+ * happened to it.
+ *
+ * Two guards keep a comparison intact, because a report that compares things
+ * says most of the same words in every section:
+ *
+ *  - nodes naming DIFFERENT years never merge. "2025 additions" and "2024
+ *    additions" share every word but the one that matters.
+ *  - the claim-id rule measures the two sets against their UNION, not against
+ *    the smaller of them. "Half the smaller" merged a lead node resting on one
+ *    claim into any section that also used it, and merged "price" into
+ *    "repairability" the moment they shared one of two claims.
+ */
+export function mergeAtlasV3DuplicateNodes(
+	nodes: readonly ParsedAtlasV3OutlineNode[],
+): { nodes: ParsedAtlasV3OutlineNode[]; cut: AtlasV3Outline["cut"] } {
+	const kept: ParsedAtlasV3OutlineNode[] = [];
+	const cut: AtlasV3Outline["cut"] = [];
+	const wordsOf = (node: ParsedAtlasV3OutlineNode) =>
+		new Set(atlasV3NormalizeWords(`${node.title} ${node.claim}`));
+	for (const node of nodes) {
+		const words = wordsOf(node);
+		const years = yearsIn(`${node.title} ${node.claim}`);
+		const twin = kept.find((existing) => {
+			if (
+				namesDifferentYears(
+					years,
+					yearsIn(`${existing.title} ${existing.claim}`),
+				)
+			)
+				return false;
+			const existingWords = wordsOf(existing);
+			let shared = 0;
+			for (const word of words) if (existingWords.has(word)) shared += 1;
+			const union = words.size + existingWords.size - shared;
+			if (union > 0 && shared / union >= 0.5) return true;
+			const ids = new Set([...node.claimIds, ...existing.claimIds]);
+			if (ids.size === 0) return false;
+			const overlap = node.claimIds.filter((id) =>
+				existing.claimIds.includes(id),
+			).length;
+			return overlap / ids.size >= 0.5;
+		});
+		if (!twin) {
+			kept.push({
+				...node,
+				claimIds: [...node.claimIds],
+				needs: [...node.needs],
+			});
+			continue;
+		}
+		for (const claimId of node.claimIds) {
+			if (!twin.claimIds.includes(claimId)) twin.claimIds.push(claimId);
+		}
+		for (const need of node.needs) {
+			if (!twin.needs.includes(need)) twin.needs.push(need);
+		}
+		cut.push({
+			id: node.id,
+			title: node.title,
+			reason: `merged into ${twin.title}`,
+		});
+	}
+	return { nodes: kept, cut };
+}
+
 /**
  * Binds quote ids to nodes and enforces the rule the model cannot keep: **two
  * sections may not rest on the same evidence set.**
@@ -208,15 +350,27 @@ export function bindAtlasV3Evidence(input: {
 	nodes: ParsedAtlasV3OutlineNode[];
 	bank: AtlasV3EvidenceBank;
 	minEvidencePerNode: number;
+	/**
+	 * Whether to run the duplicate-node merge first. On for a MODEL outline,
+	 * which is where two names for one section come from. Off for the
+	 * deterministic one, whose nodes are one per distinct `entity — metric` by
+	 * construction: fuzzy-merging those threw away "EU AI Act: enforcement date"
+	 * because it shared six words with "EU AI Act: obligations start date".
+	 */
+	mergeDuplicates?: boolean;
 }): AtlasV3Outline {
 	const claimsById = new Map(
 		input.bank.claims.map((claim) => [claim.id, claim]),
 	);
+	const merged =
+		input.mergeDuplicates === false
+			? { nodes: input.nodes, cut: [] as AtlasV3Outline["cut"] }
+			: mergeAtlasV3DuplicateNodes(input.nodes);
 	const taken = new Set<string>();
 	const nodes: AtlasV3OutlineNode[] = [];
-	const cut: AtlasV3Outline["cut"] = [];
+	const cut: AtlasV3Outline["cut"] = [...merged.cut];
 
-	for (const node of input.nodes) {
+	for (const node of merged.nodes) {
 		const wanted: string[] = [];
 		for (const claimId of node.claimIds) {
 			for (const evidenceId of claimsById.get(claimId)?.evidenceIds ?? []) {
@@ -251,6 +405,39 @@ export function bindAtlasV3Evidence(input: {
 	return { nodes, cut };
 }
 
+/** The claim of a group a title should be built from: best supported first. */
+function bestSupportedClaim(
+	claims: ReadonlyArray<AtlasV3Claim | undefined>,
+): AtlasV3Claim | null {
+	const live = claims.filter((claim): claim is AtlasV3Claim => Boolean(claim));
+	const rank: Record<AtlasV3Claim["status"], number> = {
+		verified: 0,
+		single: 1,
+		contested: 2,
+		open: 3,
+	};
+	return (
+		[...live].sort(
+			(left, right) =>
+				rank[left.status] - rank[right.status] ||
+				right.evidenceIds.length - left.evidenceIds.length,
+		)[0] ?? null
+	);
+}
+
+/**
+ * A sentence-shaped heading from one claim: `Entity: metric value unit`. Same
+ * word order in both report languages — the value is what the reader is
+ * scanning for, and it belongs at the end where the eye stops.
+ */
+export function atlasV3ClaimTitle(claim: AtlasV3Claim | null): string {
+	if (!claim) return "";
+	const body = `${claim.entity}: ${claim.metric} ${claim.value}${
+		claim.unit ? ` ${claim.unit}` : ""
+	}`;
+	return clampAtlasV3Title(capitalise(body.replace(/\s+/g, " ").trim()));
+}
+
 /**
  * The outline when the model gives nothing usable: one node per distinct metric
  * in the memo's claims, ordered best-supported first, plus a lead node for the
@@ -276,17 +463,26 @@ export function deterministicAtlasV3Outline(input: {
 	}
 	const parsed: ParsedAtlasV3OutlineNode[] = [...byMetric.entries()]
 		.slice(0, input.maxSections)
-		.map(([key, claimIds], position) => ({
-			id: `n${position + 1}`,
-			title: key,
-			claim: key,
-			needs: [],
-			claimIds,
-		}));
+		.map(([key, claimIds], position) => {
+			// `entity — metric` is a database label, and eight of them opened one
+			// staging report. The best-supported claim of the group states the
+			// finding instead: "Commission: enforcement powers entry into
+			// application 2 August 2026".
+			const title = atlasV3ClaimTitle(
+				bestSupportedClaim(claimIds.map((id) => claimsById.get(id))),
+			);
+			return {
+				id: `n${position + 1}`,
+				title: title || clampAtlasV3Title(key),
+				claim: title || key,
+				needs: [],
+				claimIds,
+			};
+		});
 	if (parsed.length === 0) {
 		parsed.push({
 			id: "n1",
-			title: input.ask.coreQuestion.slice(0, MAX_TITLE_CHARS),
+			title: clampAtlasV3Title(input.ask.coreQuestion),
 			claim: input.ask.coreQuestion.slice(0, MAX_CLAIM_CHARS),
 			needs: input.memo.openQuestions.slice(0, MAX_NEEDS_PER_NODE),
 			claimIds: input.memo.claimIds,
@@ -296,6 +492,7 @@ export function deterministicAtlasV3Outline(input: {
 		nodes: parsed,
 		bank: input.bank,
 		minEvidencePerNode: input.minEvidencePerNode,
+		mergeDuplicates: false,
 	});
 }
 
@@ -450,32 +647,52 @@ export async function reviseAtlasV3Outline(
 	}
 	if (!parsed) return fallback();
 	// A label-shaped title is a v2 defect with a name; it is repaired from the
-	// node's own claim rather than sent back for another call.
-	const nodes = parsed.nodes.map((node) => ({
-		...node,
-		title: isLabelShapedTitle(node.title)
-			? node.claim.slice(0, MAX_TITLE_CHARS)
-			: node.title,
-	}));
+	// node's own claim rather than sent back for another call. A claim that
+	// opens with its own punctuation has an EMPTY first clause, and an empty
+	// title renders as an empty heading — the label is the lesser defect.
+	const nodes = parsed.nodes.map((node) => {
+		if (!isLabelShapedTitle(node.title)) return node;
+		const repaired = clampAtlasV3Title(atlasV3FirstClause(node.claim));
+		return { ...node, title: repaired || node.title };
+	});
 	const bound = bindAtlasV3Evidence({
 		nodes,
 		bank: input.bank,
 		minEvidencePerNode: input.minEvidencePerNode,
 	});
-	const cutFromModel = parsed.cut.map((entry) => ({
-		id: entry.id,
-		title:
-			input.previous?.nodes.find((node) => node.id === entry.id)?.title ??
-			entry.id,
-		reason: entry.reason,
-	}));
+	// A `cut` id the model invented — often a CLAIM id, `c2` — has no title, and
+	// the fallback published the raw id: "c2 — Redundant with c1" appeared in a
+	// shipped Limitations list. A cut entry is only meaningful for a node that
+	// existed.
+	const knownNodeIds = new Set([
+		...(input.previous?.nodes.map((node) => node.id) ?? []),
+		...parsed.nodes.map((node) => node.id),
+	]);
+	const cutFromModel = parsed.cut
+		.filter((entry) => knownNodeIds.has(entry.id))
+		.map((entry) => ({
+			id: entry.id,
+			title:
+				input.previous?.nodes.find((node) => node.id === entry.id)?.title ??
+				parsed.nodes.find((node) => node.id === entry.id)?.title ??
+				entry.id,
+			reason: entry.reason,
+		}));
 	const outline: AtlasV3Outline = {
 		nodes: bound.nodes,
 		cut: [...bound.cut, ...cutFromModel],
 	};
 	// An outline with nothing left is not an outline; the deterministic one at
-	// least names what the evidence actually holds.
-	return outline.nodes.length > 0 ? outline : fallback();
+	// least names what the evidence actually holds. An outline whose every node
+	// bound ZERO quotes is the same failure wearing titles: it is what the
+	// staging run's thin-evidence query produced, and the writer then wrote
+	// nothing and the job died.
+	const anyEvidenceBound = outline.nodes.some(
+		(node) => node.evidenceIds.length > 0,
+	);
+	if (outline.nodes.length > 0 && anyEvidenceBound) return outline;
+	const deterministic = fallback();
+	return deterministic.nodes.length > 0 ? deterministic : outline;
 }
 
 /** Node ids that still need evidence, with what they need. */

@@ -581,13 +581,29 @@ function limitationsSection(markdown: string): string {
 	return match ? match[1].trim() : "";
 }
 
-/** Body sections, not counting the summary, Limitations or Sources chrome. */
+/** The `pipeline_version` a job stamped by this pipeline must report. */
+function expectedPipelineVersion(pipeline: EvalPipeline): number {
+	return pipeline === "v3" ? 3 : pipeline === "v2" ? 2 : 1;
+}
+
+/**
+ * A heading that is report chrome rather than a body section. v3's are the
+ * verdict, its Limitations heading (a sentence, not the word "Limitations") and
+ * the evidence card.
+ */
+const CHROME_HEADING =
+	/^(executive summary|vezetői összefoglaló|verdict|ítélet|limitations|korlátok|what this report could not establish|amit ez a jelentés nem tudott megállapítani|sources|források)\b/i;
+
+/**
+ * Body sections, not counting chrome.
+ *
+ * Only `##` counts. A `###` is the answer table's own title INSIDE a section,
+ * and counting it said "11 / 8 sections" for a report with eight, which read as
+ * the writer inventing sections it was never asked for.
+ */
 function countHeadings(markdown: string): number {
-	return [...markdown.matchAll(/^#{2,3}[ \t]+(.+)$/gm)].filter(
-		(match) =>
-			!/^(executive summary|vezetői összefoglaló|limitations|korlátok|sources|források)/i.test(
-				match[1].trim(),
-			),
+	return [...markdown.matchAll(/^##[ \t]+(.+)$/gm)].filter(
+		(match) => !CHROME_HEADING.test(match[1].trim()),
 	).length;
 }
 
@@ -1357,6 +1373,15 @@ async function runQuery(input: {
 			card.status === "failed" ||
 			card.status === "cancelled"
 		) {
+			// A failure printed nothing while the run continued, so a two-hour
+			// evaluation only revealed its dead jobs in the final table.
+			if (card.status !== "succeeded") {
+				process.stdout.write(
+					`  ${query.id}: ${card.status} · ${card.error?.code ?? "no_error_code"} · ${
+						card.error?.message ?? "no error message"
+					}\n`,
+				);
+			}
 			break;
 		}
 	}
@@ -1595,7 +1620,9 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			"",
 		);
 		if (result.reportedPipelineVersion !== null) {
-			const expected = result.pipeline === "v2" ? 2 : 1;
+			// `v2 ? 2 : 1` flagged every v3 run as mislabelled, which is every run
+			// this harness is now used for.
+			const expected = expectedPipelineVersion(result.pipeline);
 			if (result.reportedPipelineVersion !== expected) {
 				lines.push(
 					`> **MISLABELLED RUN.** The job reported \`pipelineVersion: ${result.reportedPipelineVersion}\` but this run is labelled \`${result.pipeline}\`. Check ATLAS_PIPELINE on the deployment.`,
@@ -1841,9 +1868,11 @@ export {
 	claimsPerThousandWords,
 	computeMetrics,
 	coreAnswerPresent,
+	countHeadings,
 	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
+	expectedPipelineVersion,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,

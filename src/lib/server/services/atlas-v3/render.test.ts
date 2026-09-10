@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildAtlasV3AbstentionReport } from "./abstain";
 import {
 	addAtlasV3Quote,
 	addAtlasV3Source,
@@ -250,6 +251,41 @@ describe("buildAtlasV3DocumentSource", () => {
 	it("returns an empty message when there is no verdict", () => {
 		const result = buildAtlasV3DocumentSource({ ...base, verdict: [] });
 		expect(result.verdictMarkdown).toBe("");
+	});
+
+	/**
+	 * The abstaining report bypasses verification, so the renderer is the first
+	 * thing that sees it. Every source it read must reach the Sources list, and
+	 * a source no sentence can cite must still be published.
+	 */
+	it("renders an abstention report, sources and all", () => {
+		const abstention = buildAtlasV3AbstentionReport({
+			coreQuestion: "What is the Kerry slug population trend since 2015?",
+			subQuestions: ["Kerry slug population survey", "NPWS monitoring"],
+			bank: bank(),
+			language: "en",
+			searches: 12,
+			pagesRead: 8,
+		});
+		const result = buildAtlasV3DocumentSource({
+			...base,
+			verdict: abstention.verdict,
+			sections: abstention.sections,
+			limitations: [],
+			abstained: true,
+			extraSourceIds: abstention.extraSourceIds,
+		});
+		expect(result.documentSource.blocks[0].type).toBe("callout");
+		const heading = result.documentSource.blocks.find(
+			(block) => block.type === "heading" && block.text === "What was searched",
+		);
+		expect(heading).toBeTruthy();
+		const chips = result.documentSource.blocks.find(
+			(block) => block.type === "sourceChips",
+		);
+		if (chips?.type !== "sourceChips") throw new Error("expected chips");
+		expect(chips.sources).toHaveLength(2);
+		expect(result.verdictMarkdown).toContain("does not answer the question");
 	});
 
 	it("falls back to a reassuring Limitations line when nothing is missing", () => {

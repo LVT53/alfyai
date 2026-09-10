@@ -277,6 +277,22 @@ export function isLabelShapedTitle(title: string): boolean {
 	// No verb, three words or fewer, or a bare year/data label.
 	if (/^\d{4}(-(e|a)s)?\b/u.test(normalized)) return true;
 	if (/^(reference|referencia)\b/iu.test(normalized)) return true;
+	// `entity — metric`: a spaced dash whose LEFT side is a bare noun phrase of
+	// at most three words. This is what the deterministic outline used to mint
+	// and what the staging reports shipped eight times ("providers — compliance
+	// deadline for pre-2025 models"). The sentence-shaped replacement uses a
+	// COLON — "Commission: enforcement powers entry into application 2 August
+	// 2026" — so a colon exempts a title.
+	//
+	// The left-side count is what keeps a finding that merely CONTAINS a dash:
+	// "Framework 13 vs Dell XPS 13 — repairability" and "Solar additions fell in
+	// 2025 — the first drop since 2016" both say something before the dash, and
+	// rewriting them from the claim made the heading worse, not better.
+	const dash = /\s[—–-]\s/u.exec(normalized);
+	if (dash && !normalized.includes(":")) {
+		const lead = normalized.slice(0, dash.index).trim().split(/\s+/u).length;
+		if (lead <= 3) return true;
+	}
 	return false;
 }
 

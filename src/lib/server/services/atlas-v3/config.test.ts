@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	ATLAS_V3_MODEL_TASKS,
+	atlasV3BudgetForNode,
 	atlasV3RunawayRetryMaxOutputTokens,
 	atlasV3SectionBudget,
 	atlasV3SectionMaxOutputTokens,
@@ -96,6 +97,30 @@ describe("atlasV3SectionBudget", () => {
 		const config = getAtlasV3ProfileConfig("exhaustive");
 		const budget = atlasV3SectionBudget({ config, sectionCount: 1 });
 		expect(budget.targetWords).toBeLessThanOrEqual(budget.maxSentences * 20);
+	});
+
+	it("holds the sentence floor to the evidence the node actually has", () => {
+		const config = getAtlasV3ProfileConfig("in-depth");
+		const budget = atlasV3SectionBudget({ config, sectionCount: 3 });
+		expect(budget.minSentences).toBeGreaterThan(3);
+		// Two quotes buy three sentences, never the word share's target.
+		expect(atlasV3BudgetForNode(budget, 2).minSentences).toBe(3);
+		expect(atlasV3BudgetForNode(budget, 0).minSentences).toBe(2);
+		// A node with plenty of evidence keeps the budget's own floor.
+		expect(atlasV3BudgetForNode(budget, 40).minSentences).toBe(
+			budget.minSentences,
+		);
+		expect(atlasV3BudgetForNode(budget, 2).maxSentences).toBe(
+			budget.maxSentences,
+		);
+	});
+
+	it("applies the floor from the builder too", () => {
+		const config = getAtlasV3ProfileConfig("in-depth");
+		expect(
+			atlasV3SectionBudget({ config, sectionCount: 3, evidenceCount: 1 })
+				.minSentences,
+		).toBe(2);
 	});
 });
 

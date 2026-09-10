@@ -374,6 +374,8 @@ export interface AtlasV3VerificationTotals {
 	corroborated: number;
 	single: number;
 	inferred: number;
+	/** Sentences the final pass cut as restatement or over-quota inference. */
+	repeated: number;
 	cut: number;
 	needsEvidence: number;
 }
@@ -438,6 +440,10 @@ export interface AtlasV3QualityDiagnostics {
 	/** True when the goal test failed and the report says so. */
 	abstained: boolean;
 	verdictPresent: boolean;
+	/** True when the verdict was assembled from the sections, not written. */
+	verdictFallback: boolean;
+	/** Sentences the final pass cut as restatement or over-quota inference. */
+	repeatedSentences: number;
 	claimCount: number;
 	verifiedClaimCount: number;
 	contestedClaimCount: number;

@@ -11,6 +11,11 @@ import { detectLanguage } from "$lib/server/services/language";
 import type { AtlasOutputIds } from "../atlas/renderer-output";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
+	type AtlasV3AbstentionReport,
+	atlasV3BankIsUnusable,
+	buildAtlasV3AbstentionReport,
+} from "./abstain";
+import {
 	type AtlasV3CalculationRunner,
 	atlasV3AnswerTableEvidenceIds,
 	buildAtlasV3Answer,
@@ -41,6 +46,7 @@ import {
 } from "./critic";
 import {
 	type AtlasV3BankState,
+	atlasV3AlsoStatedBy,
 	capAtlasV3Bank,
 	createAtlasV3Bank,
 	freezeAtlasV3Bank,
@@ -96,6 +102,9 @@ import {
 import { mergeAtlasV3Memos } from "./workspace";
 import {
 	atlasV3VerdictAnswersInWindow,
+	deterministicAtlasV3Verdict,
+	deterministicAtlasV3VerifiedVerdict,
+	dropAtlasV3DanglingAnaphora,
 	writeAtlasV3Report,
 	writeAtlasV3Verdict,
 } from "./writer";
@@ -258,7 +267,12 @@ function verdictEvidence(input: {
 	sections: readonly AtlasV3WrittenSection[];
 	answerTable: AtlasV3AnswerTable | null;
 	limit?: number;
-}): Array<{ id: string; text: string; publisher: string }> {
+}): Array<{
+	id: string;
+	text: string;
+	publisher: string;
+	alsoStatedBy?: string[];
+}> {
 	const wanted: string[] = [];
 	for (const id of [
 		...input.sections.flatMap((section) =>
@@ -272,13 +286,17 @@ function verdictEvidence(input: {
 		.slice(0, input.limit ?? 30)
 		.map((id) => input.bank.quotes.find((quote) => quote.id === id))
 		.filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
-		.map((quote) => ({
-			id: quote.id,
-			text: quote.text,
-			publisher:
-				input.bank.sources.find((source) => source.id === quote.sourceId)
-					?.publisher ?? "",
-		}));
+		.map((quote) => {
+			const alsoStatedBy = atlasV3AlsoStatedBy(input.bank, quote.id);
+			return {
+				id: quote.id,
+				text: quote.text,
+				publisher:
+					input.bank.sources.find((source) => source.id === quote.sourceId)
+						?.publisher ?? "",
+				...(alsoStatedBy.length > 0 ? { alsoStatedBy } : {}),
+			};
+		});
 }
 
 export async function runAtlasV3Pipeline(
@@ -603,20 +621,25 @@ export async function runAtlasV3Pipeline(
 				})),
 			}
 		: { nodes: [], cut: [] };
-	if (bank.quotes.length === 0) {
+	// Zero SOURCES is the only state that has nothing to report — not even what
+	// was searched. Anything above that abstains instead of failing (ADR 0063's
+	// abstention outcome), which is why the check is on sources and not quotes.
+	if (bank.sources.length === 0) {
 		throw new AtlasV3PipelineError(
 			"atlas_v3_no_evidence",
 			"Atlas found no usable evidence: every page it read was a listing, a stub or a duplicate.",
 		);
 	}
+	const bankUsable = !atlasV3BankIsUnusable(bank);
 	await checkpoint("outline", CHECKPOINT_ROUND.outline, {
 		outline: resolvedOutline,
 	});
 
 	// -- 5. Answer table -----------------------------------------------------
 	await heartbeat("answer");
-	const answerTable =
-		resume.answerTable !== undefined
+	const answerTable = !bankUsable
+		? null
+		: resume.answerTable !== undefined
 			? resume.answerTable
 			: await timePhase("answer", () =>
 					buildAtlasV3Answer({
@@ -639,8 +662,13 @@ export async function runAtlasV3Pipeline(
 		sectionCount: resolvedOutline.nodes.filter((node) => node.status !== "cut")
 			.length,
 	});
-	const written =
-		resume.sections !== undefined
+	const written: Awaited<ReturnType<typeof writeAtlasV3Report>> = !bankUsable
+		? {
+				sections: [],
+				runaways: { length: 0, salvaged: 0, retried: 0, fallback: 0 },
+				dropped: [],
+			}
+		: resume.sections !== undefined
 			? {
 					sections: resume.sections,
 					runaways: { length: 0, salvaged: 0, retried: 0, fallback: 0 },
@@ -674,11 +702,30 @@ export async function runAtlasV3Pipeline(
 			dropped: written.dropped,
 		});
 	}
-	if (written.sections.length === 0) {
-		throw new AtlasV3PipelineError(
-			"atlas_v3_no_sections",
-			"Atlas could not write any section from the evidence it collected.",
-		);
+	// Research that produced nothing writable ABSTAINS; it does not fail. What
+	// was searched, and the sources reached, are the report.
+	const abstention: AtlasV3AbstentionReport | null =
+		written.sections.length === 0
+			? buildAtlasV3AbstentionReport({
+					coreQuestion: resolvedAsk.coreQuestion || job.query,
+					subQuestions:
+						resolvedAsk.subQuestions.length > 0
+							? resolvedAsk.subQuestions
+							: asked,
+					bank,
+					language,
+					searches: resolvedMemo.budgetUsed.searches,
+					pagesRead: sourcesRead,
+				})
+			: null;
+	if (abstention) {
+		console.warn("[ATLAS v3] Abstaining: no section could be written", {
+			jobId: job.id,
+			profile: job.profile,
+			sources: bank.sources.length,
+			quotes: bank.quotes.length,
+			claims: bank.claims.length,
+		});
 	}
 	await checkpoint("write", CHECKPOINT_ROUND.write, {
 		sections: written.sections,
@@ -689,39 +736,56 @@ export async function runAtlasV3Pipeline(
 		verdict: resolvedGoal,
 		outline: resolvedOutline,
 		memo: resolvedMemo,
+		bank,
 	});
 	let sections = written.sections;
-	const firstVerdict = await timePhase("verdict", () =>
-		writeAtlasV3Verdict({
-			ask: resolvedAsk,
-			memo: resolvedMemo,
-			answerTable,
-			sections,
-			evidence: verdictEvidence({ bank, sections, answerTable }),
-			language,
-			currentDate: isoDate(now),
-			abstain: resolvedGoal.abstain,
-			limitations,
-			bank,
-			runModel: deps.models.writer,
-			onUsage,
-		}),
-	);
-	// v2 lost its executive summary in 13 of 13 runs because an empty summary was
-	// simply an empty block. Here it is a coded pipeline failure.
-	if (!firstVerdict || firstVerdict.length === 0) {
-		throw new AtlasV3PipelineError(
-			"atlas_v3_no_verdict",
-			"Atlas produced a report with no verdict; a report that does not open with its answer is not shipped.",
+	let verdictFallback = false;
+	let verdict: AtlasV3Sentence[] = [];
+	if (!abstention) {
+		const firstVerdict = await timePhase("verdict", () =>
+			writeAtlasV3Verdict({
+				ask: resolvedAsk,
+				memo: resolvedMemo,
+				answerTable,
+				sections,
+				evidence: verdictEvidence({ bank, sections, answerTable }),
+				language,
+				currentDate: isoDate(now),
+				abstain: resolvedGoal.abstain,
+				limitations,
+				bank,
+				jobId: job.id,
+				runModel: deps.models.writer,
+				onUsage,
+			}),
 		);
+		// v2 lost its executive summary in 13 of 13 runs because an empty summary
+		// was simply an empty block. Losing it is still not acceptable — but a
+		// verdict assembled from the sections the report already carries beats
+		// throwing away five finished stages of work.
+		if (firstVerdict && firstVerdict.length > 0) {
+			verdict = firstVerdict;
+		} else {
+			verdict = deterministicAtlasV3Verdict({
+				sections,
+				language,
+				abstain: resolvedGoal.abstain,
+			});
+			verdictFallback = verdict.length > 0;
+		}
+		if (verdict.length === 0) {
+			throw new AtlasV3PipelineError(
+				"atlas_v3_no_verdict",
+				"Atlas produced a report with no verdict; a report that does not open with its answer is not shipped.",
+			);
+		}
 	}
-	let verdict: AtlasV3Sentence[] = firstVerdict;
 
 	// -- 8. Critic rounds ----------------------------------------------------
 	let criticRoundsRun = 0;
 	let criticFindingCount = 0;
 	let needsEvidenceResolved = 0;
-	for (let round = 1; round <= criticRounds; round += 1) {
+	for (let round = 1; round <= criticRounds && !abstention; round += 1) {
 		await heartbeat("critic");
 		const verdictAnswers = atlasV3VerdictAnswersInWindow({ verdict });
 		const findings = await timePhase("critic", () =>
@@ -872,6 +936,7 @@ export async function runAtlasV3Pipeline(
 					abstain: resolvedGoal.abstain,
 					limitations,
 					bank: freezeAtlasV3Bank(state),
+					jobId: job.id,
 					runModel: deps.models.writer,
 					onUsage,
 				}),
@@ -879,6 +944,7 @@ export async function runAtlasV3Pipeline(
 			// Only take a retry that is actually better.
 			if (retry && atlasV3VerdictAnswersInWindow({ verdict: retry })) {
 				verdict = retry;
+				verdictFallback = false;
 			}
 		}
 	}
@@ -890,38 +956,109 @@ export async function runAtlasV3Pipeline(
 	// -- 9. Verify -----------------------------------------------------------
 	await heartbeat("verify");
 	const finalBank = freezeAtlasV3Bank(state);
-	const verification = await timePhase("verify", async () =>
+	const verification = abstention
+		? {
+				sections: abstention.sections,
+				totals: abstention.totals,
+				citedEvidenceIds: [],
+				needsEvidence: [],
+				staleSourceIds: [],
+			}
+		: await timePhase("verify", async () =>
+				verifyAtlasV3Report({
+					sections,
+					bank: finalBank,
+					answerTable,
+					staleMonths,
+					now,
+					finalPass: true,
+				}),
+			);
+
+	/** One verification pass over the verdict alone, as its own section. */
+	const verifyVerdict = (
+		candidate: readonly AtlasV3Sentence[],
+	): AtlasV3VerifiedSentence[] =>
 		verifyAtlasV3Report({
-			sections,
+			sections: [
+				{
+					nodeId: "verdict",
+					title: "verdict",
+					paragraphs: [[...candidate]],
+					table: null,
+				},
+			],
 			bank: finalBank,
 			answerTable,
 			staleMonths,
 			now,
 			finalPass: true,
-		}),
-	);
-	const verdictVerification = verifyAtlasV3Report({
-		sections: [
-			{
-				nodeId: "verdict",
-				title: "verdict",
-				paragraphs: [verdict],
-				table: null,
-			},
-		],
-		bank: finalBank,
-		answerTable,
-		staleMonths,
-		now,
-		finalPass: true,
-	});
-	const verifiedVerdict: AtlasV3VerifiedSentence[] =
-		verdictVerification.sections[0]?.paragraphs.flat() ?? [];
-	if (verifiedVerdict.length === 0) {
-		throw new AtlasV3PipelineError(
-			"atlas_v3_no_verdict",
-			"Atlas's verdict did not survive verification; a report that does not open with its answer is not shipped.",
+			// The verdict is six sentences, not a section: the restatement and
+			// inference caps would trim an abstaining opener, and the caller reads
+			// a cut sentence as one whose FIGURE could not be supported.
+			qualityCaps: false,
+		}).sections[0]?.paragraphs.flat() ?? [];
+
+	let verifiedVerdict: AtlasV3VerifiedSentence[] = abstention
+		? abstention.verdict
+		: verifyVerdict(verdict);
+	if (!abstention) {
+		// A verdict that lost a sentence is not a shorter verdict: it is a verdict
+		// whose remaining sentences may now refer to a figure nobody stated. One
+		// shipped report opened "These core duties include technical
+		// documentation…" for exactly this reason. Regenerate once, naming what may
+		// not be stated; then drop whatever still dangles.
+		const cut = verdict.filter(
+			(sentence) =>
+				!verifiedVerdict.some((kept) => kept.text === sentence.text),
 		);
+		if (cut.length > 0) {
+			const rewritten = await timePhase("verdict", () =>
+				writeAtlasV3Verdict({
+					ask: resolvedAsk,
+					memo: resolvedMemo,
+					answerTable,
+					sections,
+					evidence: verdictEvidence({ bank: finalBank, sections, answerTable }),
+					language,
+					currentDate: isoDate(now),
+					abstain: resolvedGoal.abstain,
+					limitations,
+					doNotState: cut.map((sentence) => sentence.text),
+					bank: finalBank,
+					jobId: job.id,
+					runModel: deps.models.writer,
+					onUsage,
+				}),
+			);
+			if (rewritten && rewritten.length > 0) {
+				const reverified = verifyVerdict(rewritten);
+				if (reverified.length > 0) {
+					verdict = rewritten;
+					verifiedVerdict = reverified;
+					verdictFallback = false;
+				}
+			}
+			verifiedVerdict = dropAtlasV3DanglingAnaphora({
+				written: verdict,
+				kept: verifiedVerdict,
+				language,
+			});
+		}
+		if (verifiedVerdict.length === 0) {
+			verifiedVerdict = deterministicAtlasV3VerifiedVerdict({
+				sections: verification.sections,
+				language,
+				abstain: resolvedGoal.abstain,
+			});
+			verdictFallback = verifiedVerdict.length > 0;
+		}
+		if (verifiedVerdict.length === 0) {
+			throw new AtlasV3PipelineError(
+				"atlas_v3_no_verdict",
+				"Atlas's verdict did not survive verification; a report that does not open with its answer is not shipped.",
+			);
+		}
 	}
 	const tableFailures = verifyAtlasV3AnswerTable({
 		table: answerTable,
@@ -932,15 +1069,17 @@ export async function runAtlasV3Pipeline(
 		failures: tableFailures,
 		placeholder: language === "hu" ? "nincs közzétéve" : "not published",
 	});
-	const bodyCap = capAtlasV3ToWordBudget({
-		// The section that owns the table now carries the PRUNED table: a cell no
-		// quote supports says "not published" rather than stating a figure.
-		sections: verification.sections.map((section) => ({
-			...section,
-			table: section.table ? verifiedTable : null,
-		})),
-		maxWords: atlasV3BodyWordBudget(config),
-	});
+	const bodyCap = abstention
+		? { sections: abstention.sections, droppedSentenceCount: 0 }
+		: capAtlasV3ToWordBudget({
+				// The section that owns the table now carries the PRUNED table: a cell
+				// no quote supports says "not published" rather than stating a figure.
+				sections: verification.sections.map((section) => ({
+					...section,
+					table: section.table ? verifiedTable : null,
+				})),
+				maxWords: atlasV3BodyWordBudget(config),
+			});
 	const verifiedSections: AtlasV3VerifiedSection[] = bodyCap.sections;
 	if (verifiedSections.length === 0) {
 		throw new AtlasV3PipelineError(
@@ -949,8 +1088,11 @@ export async function runAtlasV3Pipeline(
 		);
 	}
 	for (const failure of tableFailures) {
+		// A cell that already said "not published" owes the reader nothing: the
+		// prune keeps the admission and drops the figures after it.
+		if (failure.kind !== "unsupported") continue;
 		limitations.push({
-			subject: `${failure.column}: ${failure.text}`,
+			subject: `${failure.rowLabel} · ${failure.columnLabel}`.trim(),
 			reason: failure.detail,
 		});
 	}
@@ -963,6 +1105,16 @@ export async function runAtlasV3Pipeline(
 					: "no quote the report holds states the figure in it",
 		});
 	}
+	if (verdictFallback) {
+		limitations.push({
+			subject:
+				language === "hu" ? "a jelentés nyitása" : "the report's opening",
+			reason:
+				language === "hu"
+					? "a szakaszok saját mondataiból állt össze, mert az ítélet nem készült el"
+					: "it was assembled from the sections because the verdict could not be written",
+		});
+	}
 
 	// The document is built BEFORE the evidence card, because the card's source
 	// numbers must be the numbers the report actually printed: the evaluation
@@ -970,6 +1122,7 @@ export async function runAtlasV3Pipeline(
 	// independent orderings would make every citation look like a mismatch.
 	const title =
 		resolvedAsk.title.trim() || deterministicAtlasV3Title(job.query);
+	const abstained = resolvedGoal.abstain || abstention !== null;
 	const rendered = buildAtlasV3DocumentSource({
 		title,
 		language,
@@ -978,7 +1131,8 @@ export async function runAtlasV3Pipeline(
 		verdict: verifiedVerdict,
 		sections: verifiedSections,
 		limitations,
-		abstained: resolvedGoal.abstain,
+		abstained,
+		extraSourceIds: abstention?.extraSourceIds ?? [],
 	});
 	const claimCounts = atlasV3ClaimCounts(finalBank);
 	const evidence = buildAtlasV3ProgressEvidence({
@@ -987,8 +1141,10 @@ export async function runAtlasV3Pipeline(
 		citations: rendered.citations,
 	});
 	diagnostics = {
-		abstained: resolvedGoal.abstain,
+		abstained,
 		verdictPresent: verifiedVerdict.length > 0,
+		verdictFallback,
+		repeatedSentences: verification.totals.repeated,
 		claimCount: claimCounts.total,
 		verifiedClaimCount: claimCounts.verified,
 		contestedClaimCount: claimCounts.contested,
@@ -1086,7 +1242,7 @@ export async function runAtlasV3Pipeline(
 		pipelineVersion: 3,
 		title,
 		executiveSummaryMarkdown: rendered.verdictMarkdown,
-		abstained: resolvedGoal.abstain,
+		abstained,
 		outputs,
 		usage,
 		sourceCounts: {

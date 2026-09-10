@@ -202,7 +202,13 @@ export function buildAtlasV3ProgressEvidence(input: {
 	citations: AtlasV3Citations;
 }): AtlasV3ProgressEvidence {
 	// Uncited sources are appended AFTER the cited ones, so a cited source keeps
-	// the number the report gave it.
+	// the number the report gave it. The report's OWN source order comes first,
+	// because a report may number a source no sentence cites — an abstaining
+	// report lists the pages it read that way — and rebuilding the order from
+	// quotes alone would give the card a different `[n]` for it.
+	const reportOrder = [...input.citations.numberBySourceId.entries()]
+		.sort((left, right) => left[1] - right[1])
+		.map(([sourceId]) => sourceId);
 	const citations = assignAtlasV3CitationNumbers({
 		bank: input.bank,
 		citedEvidenceIds: [...input.citations.numberByEvidenceId.keys()].sort(
@@ -210,7 +216,10 @@ export function buildAtlasV3ProgressEvidence(input: {
 				(input.citations.numberByEvidenceId.get(left) ?? 0) -
 				(input.citations.numberByEvidenceId.get(right) ?? 0),
 		),
-		extraSourceIds: input.bank.sources.map((source) => source.id),
+		extraSourceIds: [
+			...reportOrder,
+			...input.bank.sources.map((source) => source.id),
+		],
 	});
 	const citedSourceIds = new Set(input.citations.numberBySourceId.keys());
 	const sources: AtlasV3ProgressEvidenceSource[] = citations.sources.map(
@@ -395,6 +404,8 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 	return {
 		abstained: record.abstained === true,
 		verdictPresent: record.verdictPresent === true,
+		verdictFallback: record.verdictFallback === true,
+		repeatedSentences: nonNegativeInteger(record.repeatedSentences),
 		claimCount: nonNegativeInteger(record.claimCount),
 		verifiedClaimCount: nonNegativeInteger(record.verifiedClaimCount),
 		contestedClaimCount: nonNegativeInteger(record.contestedClaimCount),

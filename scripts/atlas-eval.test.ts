@@ -5,9 +5,11 @@ import {
 	claimsPerThousandWords,
 	computeMetrics,
 	coreAnswerPresent,
+	countHeadings,
 	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
+	expectedPipelineVersion,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
@@ -526,6 +528,67 @@ describe("coreAnswerPresent", () => {
 				},
 			}),
 		).toBeNull();
+	});
+});
+
+describe("countHeadings", () => {
+	/** A v3 report's real chrome: a verdict, a table title, a Limitations line. */
+	const report = [
+		"# EU AI Act General-Purpose AI Provider Obligations",
+		"",
+		"## Verdict",
+		"",
+		"Obligations applied from 2 August 2025. [1]ᶜ",
+		"",
+		"## Providers must publish a training-data summary",
+		"",
+		"The summary is mandatory. [2]ˢ",
+		"",
+		"## The Commission gains enforcement powers in 2026",
+		"",
+		"### EU AI Act Regulatory Obligations & Effective Dates",
+		"",
+		"| Duty | Date |",
+		"| --- | --- |",
+		"| Documentation | 2 August 2025 [1] |",
+		"",
+		"## What this report could not establish",
+		"",
+		"- the central figure — only one publisher",
+		"",
+		"### Sources",
+		"",
+		"- [OJ](https://eur-lex.europa.eu/a)",
+	].join("\n");
+
+	it("counts body sections only, not the table title or the chrome", () => {
+		expect(countHeadings(report)).toBe(2);
+	});
+
+	it("counts the Hungarian chrome as chrome", () => {
+		expect(
+			countHeadings(
+				[
+					"## Ítélet",
+					"A minimálbér 2026-ban 320 000 Ft. [1]ᶜ",
+					"## A béremelés 16%-os volt",
+					"Az emelés 16%. [2]ˢ",
+					"## Amit ez a jelentés nem tudott megállapítani",
+					"- semmi",
+					"### Források",
+				].join("\n\n"),
+			),
+		).toBe(1);
+	});
+});
+
+describe("expectedPipelineVersion", () => {
+	// `v2 ? 2 : 1` flagged EVERY v3 run as mislabelled, which is every run the
+	// harness is used for now.
+	it("maps each pipeline label to the version its jobs stamp", () => {
+		expect(expectedPipelineVersion("v3")).toBe(3);
+		expect(expectedPipelineVersion("v2")).toBe(2);
+		expect(expectedPipelineVersion("v1")).toBe(1);
 	});
 });
 

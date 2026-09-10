@@ -44,6 +44,68 @@ A per-language writer and critic addendum (`language-standard.ts`) carries regis
 
 `progress_details_json` keeps v2's shape with `pipelineVersion: 3`, so a client written against v2 degrades gracefully: `phase`, `plan` (outline nodes rendered as questions), `round`, `sourcesRead`, `next`, `evidence`, `phaseDurationsMs`, plus `qualityDiagnostics`. `queries` stays empty for the same reason it does on v2.
 
+## Amendments (2026-09-10)
+
+A ten-query staging evaluation on the local model found six defects, all
+structural and all fixed mechanically — no new model call was added.
+
+**Corroboration is a property of the fact, not of the citation.** One in-depth
+run read 59 pages from 27 sources and produced `corroborated: 0, single: 53`.
+Two causes. Claims merged only on an exact match of `entity|metric|period|series`,
+so two readings of one measurement never met; claim identity is now normalised
+(lowercased, punctuation stripped, stop words and naive plurals dropped) and a
+**loose merge** joins two readings when entity and value match, unit, period and
+series are compatible, no year named anywhere in the two identities disagrees,
+and one metric's words are CONTAINED in the other's metric plus series. The
+loose match only ever merges EQUAL values, and contested detection keeps the
+strict identity, so it cannot invent a disagreement. Containment rather than
+overlap, and the year check, are what keep `obligations start date` out of
+`enforcement start date` and a 2024 figure out of its 2025 twin: where each side
+carries a word the other has never heard of, they are two measurements. Second, sentence confidence counted publishers over the
+ids the writer attached, and writers cite one quote per figure;
+`atlasV3CorroboratingPublishersFor` now counts the publishers of the cited
+quotes plus those of every quote on a NON-CONTESTED claim listing one of them —
+two publishers on one side of a disagreement are one side of it, not a
+corroboration. The writer and
+the verdict are shown `alsoStatedBy` so a corroborated figure can be written as
+one.
+
+**A verdict that does not parse is not a dead job.** `writeAtlasV3Verdict` logs
+what came back, retries once with the JSON shape restated, and the pipeline
+falls back to a deterministic verdict assembled from the first load-bearing
+sentence of each section (`verdictFallback: true` in the diagnostics, plus a
+Limitations line). Only an empty fallback still throws.
+
+**A verdict is coherent as a unit.** When verification cuts a verdict sentence,
+the verdict is regenerated once with the cut text under `doNotState`; whatever
+still opens with a reference back to a cut sentence is dropped.
+
+**Abstention is now built, not only promised.** An outline that binds no
+evidence falls back to the deterministic one, and a run that can write no
+section produces an ABSTAINING report — a verdict saying so with what was spent,
+one "what was searched" section listing the sub-questions and the strongest
+sources read, and the sources rendered as `[n]`. `atlas_v3_no_sections` survives
+only for a bank with no sources at all.
+
+**Restatement and inference are capped mechanically.** The final verification
+pass cuts a sentence whose cited ids and stated figures a kept sentence already
+carried, and one resting only on quotes that already back three kept sentences
+in the section when it adds no new figure (`repeated` in the totals). An
+inferred sentence is capped at one per paragraph and a fifth of a section, and
+may never open one. `minSentences` is capped at the node's bound evidence count
+plus one, which is what stopped the writer padding a two-quote section.
+
+**Headings are findings and the outline deduplicates.** Titles are cut at a word
+boundary; a title over fourteen words is replaced by the claim's first clause;
+the deterministic outline builds `Entity: metric value unit` from the
+best-supported claim instead of `entity — metric`, and `isLabelShapedTitle`
+rejects the old form — a spaced dash whose left side is at most three words, so
+a finding that merely contains a dash is still a heading. After binding, nodes
+whose title-plus-claim word sets overlap by half, or whose claim-id SETS are
+half the same set, are merged, recorded as "merged into <title>". Nodes naming
+different years never merge, and the merge does not run over the deterministic
+outline, whose nodes are one per distinct `entity — metric` already.
+
 ## Consequences
 
 - Token cost per report rises against v2 (the critic and the answer table spend tokens on reasoning) and stays far below v1. Page reads remain the marginal cost and are capped by tier.
