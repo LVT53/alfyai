@@ -8,9 +8,10 @@
 //
 // A v3 node is a CLAIM the report will defend, it lists the evidence it needs,
 // it carries the evidence ids it has, and it is rewritten after every research
-// round. Two nodes may not rest on the same evidence set — enforced
-// deterministically, after the model answers, because it is the rule the model
-// is least able to keep.
+// round. Two nodes may not make the same ARGUMENT from the same evidence —
+// enforced deterministically, after the model answers, because it is the rule
+// the model is least able to keep. Resting on the same quotes is allowed and
+// ordinary: a comparison reads one teardown for price and for repairability.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";

@@ -200,7 +200,10 @@ export interface AtlasV3OutlineNode {
 	claim: string;
 	/** What this node still needs, in the researcher's words. */
 	needs: string[];
-	/** Quote ids bound to this node. Two nodes may not share a set. */
+	/**
+	 * Quote ids bound to this node: every quote behind the claims it named. Two
+	 * nodes may share them; what they may not share is the ARGUMENT as well.
+	 */
 	evidenceIds: string[];
 	status: AtlasV3NodeStatus;
 }
