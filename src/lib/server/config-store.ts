@@ -166,6 +166,23 @@ export const ADMIN_CONFIG_KEYS = [
 	"FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES",
 	"ANALYTICS_EXCLUDED_USER_IDS",
 	"CONTEXT_DIAGNOSTICS_DEBUG",
+	// Admin System redesign: keys that were env-only but are read live through
+	// getConfig() on every call, so an admin_config row is enough — no restart.
+	// Each one is surfaced on the System → Advanced page.
+	"TEI_TIMEOUT_MS",
+	"MEMORY_MAINTENANCE_INTERVAL_MINUTES",
+	"ATLAS_V2_MAX_WORDS_OVERVIEW",
+	"ATLAS_V2_MAX_WORDS_IN_DEPTH",
+	"ATLAS_V2_MAX_WORDS_EXHAUSTIVE",
+	"ATLAS_V2_MAX_SOURCES_OVERVIEW",
+	"ATLAS_V2_MAX_SOURCES_IN_DEPTH",
+	"ATLAS_V2_MAX_SOURCES_EXHAUSTIVE",
+	"ATLAS_V2_ENTAILMENT_BATCH",
+	"ATLAS_V2_WRITER_CONCURRENCY",
+	"ATTACHMENT_TRACE_DEBUG",
+	"NORMAL_CHAT_DEBUG_OUTBOUND",
+	"CONCURRENT_STREAM_LIMIT",
+	"PER_USER_STREAM_LIMIT",
 ] as const;
 
 export type AdminConfigKey = (typeof ADMIN_CONFIG_KEYS)[number];
@@ -222,6 +239,17 @@ export interface RuntimeConfig {
 	atlasV2RoundsOverview: number;
 	atlasV2RoundsInDepth: number;
 	atlasV2RoundsExhaustive: number;
+	// Word ceilings, indexed-source caps and the two concurrency knobs the v2
+	// budget resolver reads. Promoted out of env-only so they can be retuned
+	// from System → Advanced; every consumer reads them through getConfig().
+	atlasV2MaxWordsOverview: number;
+	atlasV2MaxWordsInDepth: number;
+	atlasV2MaxWordsExhaustive: number;
+	atlasV2MaxSourcesOverview: number;
+	atlasV2MaxSourcesInDepth: number;
+	atlasV2MaxSourcesExhaustive: number;
+	atlasV2EntailmentBatch: number;
+	atlasV2WriterConcurrency: number;
 	// ADR 0063: Atlas v3's per-task models and knobs. A null model inherits.
 	atlasV3AskModel: ModelId | null;
 	atlasV3ResearcherModel: ModelId | null;
@@ -1158,6 +1186,75 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	CONTEXT_DIAGNOSTICS_DEBUG: (config, value) => {
 		config.contextDiagnosticsDebug = value === "true";
 	},
+	TEI_TIMEOUT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) config.teiTimeoutMs = Math.max(100, parsed);
+	},
+	MEMORY_MAINTENANCE_INTERVAL_MINUTES: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.memoryMaintenanceIntervalMinutes = Math.max(0, parsed);
+		}
+	},
+	ATLAS_V2_MAX_WORDS_OVERVIEW: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxWordsOverview = Math.max(200, parsed);
+	},
+	ATLAS_V2_MAX_WORDS_IN_DEPTH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxWordsInDepth = Math.max(200, parsed);
+	},
+	ATLAS_V2_MAX_WORDS_EXHAUSTIVE: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxWordsExhaustive = Math.max(200, parsed);
+	},
+	ATLAS_V2_MAX_SOURCES_OVERVIEW: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxSourcesOverview = Math.max(1, parsed);
+	},
+	ATLAS_V2_MAX_SOURCES_IN_DEPTH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxSourcesInDepth = Math.max(1, parsed);
+	},
+	ATLAS_V2_MAX_SOURCES_EXHAUSTIVE: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2MaxSourcesExhaustive = Math.max(1, parsed);
+	},
+	ATLAS_V2_ENTAILMENT_BATCH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2EntailmentBatch = Math.min(25, Math.max(1, parsed));
+	},
+	ATLAS_V2_WRITER_CONCURRENCY: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.atlasV2WriterConcurrency = Math.min(8, Math.max(1, parsed));
+	},
+	ATTACHMENT_TRACE_DEBUG: (config, value) => {
+		config.attachmentTraceDebug = value === "true";
+	},
+	// The env var is read as the literal "1" (see env.ts), so both spellings
+	// are accepted here rather than only the admin UI's "true".
+	NORMAL_CHAT_DEBUG_OUTBOUND: (config, value) => {
+		const normalized = value.trim().toLowerCase();
+		config.normalChatDebugOutbound =
+			normalized === "true" || normalized === "1";
+	},
+	CONCURRENT_STREAM_LIMIT: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.concurrentStreamLimit = Math.max(1, parsed);
+	},
+	PER_USER_STREAM_LIMIT: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) config.perUserStreamLimit = Math.max(1, parsed);
+	},
 };
 
 export async function refreshConfig(): Promise<void> {
@@ -1279,6 +1376,33 @@ export function getAtlasV2ProfileKnobs(): {
 			inDepth: runtimeConfig.atlasV2RoundsInDepth,
 			exhaustive: runtimeConfig.atlasV2RoundsExhaustive,
 		},
+	};
+}
+
+/**
+ * The v2 budget knobs — word ceiling and indexed-source cap per profile, plus
+ * the entailment batch and writer concurrency. Read live so an admin change on
+ * System → Advanced applies to the next report without a restart.
+ */
+export function getAtlasV2BudgetKnobs(): {
+	maxWords: { overview: number; inDepth: number; exhaustive: number };
+	maxSources: { overview: number; inDepth: number; exhaustive: number };
+	entailmentBatch: number;
+	writerConcurrency: number;
+} {
+	return {
+		maxWords: {
+			overview: runtimeConfig.atlasV2MaxWordsOverview,
+			inDepth: runtimeConfig.atlasV2MaxWordsInDepth,
+			exhaustive: runtimeConfig.atlasV2MaxWordsExhaustive,
+		},
+		maxSources: {
+			overview: runtimeConfig.atlasV2MaxSourcesOverview,
+			inDepth: runtimeConfig.atlasV2MaxSourcesInDepth,
+			exhaustive: runtimeConfig.atlasV2MaxSourcesExhaustive,
+		},
+		entailmentBatch: runtimeConfig.atlasV2EntailmentBatch,
+		writerConcurrency: runtimeConfig.atlasV2WriterConcurrency,
 	};
 }
 
@@ -1623,6 +1747,22 @@ export function getResolvedAdminConfigValues(
 			config.analyticsExcludedUserIds,
 		),
 		CONTEXT_DIAGNOSTICS_DEBUG: String(config.contextDiagnosticsDebug),
+		TEI_TIMEOUT_MS: String(config.teiTimeoutMs),
+		MEMORY_MAINTENANCE_INTERVAL_MINUTES: String(
+			config.memoryMaintenanceIntervalMinutes,
+		),
+		ATLAS_V2_MAX_WORDS_OVERVIEW: String(config.atlasV2MaxWordsOverview),
+		ATLAS_V2_MAX_WORDS_IN_DEPTH: String(config.atlasV2MaxWordsInDepth),
+		ATLAS_V2_MAX_WORDS_EXHAUSTIVE: String(config.atlasV2MaxWordsExhaustive),
+		ATLAS_V2_MAX_SOURCES_OVERVIEW: String(config.atlasV2MaxSourcesOverview),
+		ATLAS_V2_MAX_SOURCES_IN_DEPTH: String(config.atlasV2MaxSourcesInDepth),
+		ATLAS_V2_MAX_SOURCES_EXHAUSTIVE: String(config.atlasV2MaxSourcesExhaustive),
+		ATLAS_V2_ENTAILMENT_BATCH: String(config.atlasV2EntailmentBatch),
+		ATLAS_V2_WRITER_CONCURRENCY: String(config.atlasV2WriterConcurrency),
+		ATTACHMENT_TRACE_DEBUG: String(config.attachmentTraceDebug),
+		NORMAL_CHAT_DEBUG_OUTBOUND: String(config.normalChatDebugOutbound),
+		CONCURRENT_STREAM_LIMIT: String(config.concurrentStreamLimit),
+		PER_USER_STREAM_LIMIT: String(config.perUserStreamLimit),
 	};
 }
 

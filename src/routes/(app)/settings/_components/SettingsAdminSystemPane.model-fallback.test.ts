@@ -18,6 +18,13 @@ vi.mock("$lib/client/api/admin", () => ({
 	updateProviderModel: vi.fn(),
 }));
 
+vi.mock("$lib/client/api/admin-system-health", () => ({
+	fetchAdminConfigOverrideMeta: vi.fn(() => Promise.resolve({})),
+	fetchAdminEffectiveConfig: vi.fn(),
+	fetchAdminToolHealth: vi.fn(),
+	validateProviderConnection: vi.fn(() => Promise.resolve({ valid: true })),
+}));
+
 vi.mock("$lib/client/api/campaign-assets", () => ({
 	saveModelIconAssetCrop: vi.fn(),
 	uploadCampaignAssetSource: vi.fn(),
@@ -145,7 +152,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 	});
 
 	it("shows fallback compatibility warnings and disables incompatible fallback targets", async () => {
-		const { getByRole, getByText, getByTitle, getAllByTitle, getAllByRole } =
+		const { getByRole, getByText, getByTitle, getAllByTitle, getByTestId } =
 			render(SettingsAdminSystemPane, {
 				adminConfig: {
 					COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
@@ -156,21 +163,23 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				onSaveAdminConfig: vi.fn(),
 			});
 
+		await fireEvent.click(getByTestId("system-nav-models"));
+
 		await waitFor(() => {
 			expect(
 				getAllByTitle("Some models have no compatible fallback"),
 			).not.toHaveLength(0);
 		});
 
-		await fireEvent.click(getAllByRole("button", { name: "Manage models" })[0]);
+		// The models of a provider open in a drawer on its row now.
+		await fireEvent.click(getByTestId("provider-models-provider-1"));
 		await waitFor(() => {
 			expect(getByText("Source Model")).toBeInTheDocument();
 		});
 
 		expect(getByTitle("No compatible fallback")).toBeInTheDocument();
 
-		const editButtons = getAllByRole("button", { name: "Edit" });
-		await fireEvent.click(editButtons[editButtons.length - 1]);
+		await fireEvent.click(getByRole("button", { name: "Edit Source Model" }));
 		await waitFor(() => {
 			expect(
 				getByText(
@@ -193,7 +202,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 	});
 
 	it("does not render provider-only timeout failover options when provider models exist", async () => {
-		const { getByRole, getAllByRole } = render(SettingsAdminSystemPane, {
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
 			adminConfig: {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
 				MODEL_2_ENABLED: "true",
@@ -212,21 +221,21 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			onSaveAdminConfig: vi.fn(),
 		});
 
-		const select = getByRole("combobox", {
-			name: "Global fallback model",
-		}) as HTMLSelectElement;
+		await fireEvent.click(getByTestId("system-nav-models"));
 		await waitFor(() => {
-			expect(
-				getAllByRole("button", { name: "Manage models" }),
-			).not.toHaveLength(0);
+			expect(getByTestId("provider-models-provider-1")).toBeInTheDocument();
 		});
-		const manageModelsButton = getAllByRole("button", {
-			name: "Manage models",
-		})[0];
+
+		// "Retry on" is the timeout-failover target, on its own card below the
+		// provider list rather than inside it.
+		const select = getByRole("combobox", {
+			name: "Retry on",
+		}) as HTMLSelectElement;
+		const providerRowButton = getByTestId("provider-models-provider-1");
 
 		expect(
-			select.compareDocumentPosition(manageModelsButton) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
+			select.compareDocumentPosition(providerRowButton) &
+				Node.DOCUMENT_POSITION_PRECEDING,
 		).not.toBe(0);
 
 		expect(Array.from(select.options).map((option) => option.value)).toEqual([
@@ -242,7 +251,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 	});
 
 	it("renders the memory judge and consolidation model selectors with the failover option set", async () => {
-		const { getByRole, getAllByRole } = render(SettingsAdminSystemPane, {
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
 			adminConfig: {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
 				MODEL_2_ENABLED: "true",
@@ -262,10 +271,9 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			onSaveAdminConfig: vi.fn(),
 		});
 
+		await fireEvent.click(getByTestId("system-nav-aiTasks"));
 		await waitFor(() => {
-			expect(
-				getAllByRole("button", { name: "Manage models" }),
-			).not.toHaveLength(0);
+			expect(getByTestId("system-page-ai-tasks")).toBeInTheDocument();
 		});
 
 		const judgeSelect = getByRole("combobox", {
@@ -294,7 +302,7 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			MEMORY_JUDGE_MODEL: "provider:stale-provider:stale-model",
 		};
 
-		const { getByRole } = render(SettingsAdminSystemPane, {
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
 			adminConfig,
 			envDefaults: {},
 			availableModels: [
@@ -302,6 +310,11 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				{ id: "model2", displayName: "Model 2" },
 			],
 			onSaveAdminConfig: vi.fn(),
+		});
+
+		await fireEvent.click(getByTestId("system-nav-aiTasks"));
+		await waitFor(() => {
+			expect(getByTestId("system-page-ai-tasks")).toBeInTheDocument();
 		});
 
 		const judgeSelect = getByRole("combobox", {
@@ -314,5 +327,49 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 				(option) => option.value === "provider:stale-provider:stale-model",
 			),
 		).toBe(true);
+	});
+
+	it("keeps EVERY stale id visible, not only the first select's", async () => {
+		// The three selects share one option list. Rescuing one configured id
+		// left the others with no matching option, and a select with no matching
+		// option renders whatever happens to be first — so the screen said
+		// "Model 1" while the stored config still named the deleted model.
+		const adminConfig = {
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
+			MODEL_2_ENABLED: "true",
+			MEMORY_JUDGE_MODEL: "model1",
+			MEMORY_CONSOLIDATION_MODEL: "provider:gone:consolidation-model",
+			MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "provider:gone:failover-model",
+		};
+
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: {},
+			availableModels: [
+				{ id: "model1", displayName: "Model 1" },
+				{ id: "model2", displayName: "Model 2" },
+			],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await fireEvent.click(getByTestId("system-nav-aiTasks"));
+		await waitFor(() => {
+			expect(getByTestId("system-page-ai-tasks")).toBeInTheDocument();
+		});
+
+		const consolidationSelect = getByRole("combobox", {
+			name: "Memory consolidation model",
+		}) as HTMLSelectElement;
+		expect(consolidationSelect.value).toBe("provider:gone:consolidation-model");
+
+		await fireEvent.click(getByTestId("system-nav-models"));
+		await waitFor(() => {
+			expect(getByTestId("system-page-models")).toBeInTheDocument();
+		});
+
+		const failoverSelect = getByRole("combobox", {
+			name: "Retry on",
+		}) as HTMLSelectElement;
+		expect(failoverSelect.value).toBe("provider:gone:failover-model");
 	});
 });

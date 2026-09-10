@@ -1,17 +1,21 @@
 <script lang="ts">
+// The provider dialog on the app's own DialogShell chassis (focus trap,
+// Escape, backdrop) instead of its private modal CSS. Thirteen stacked fields
+// become two readable columns plus one grouped sub-card, and the rate-limit
+// fallback keeps every control it had — including the free-text escape hatch.
 import { untrack } from "svelte";
-import { get } from "svelte/store";
-import { t } from "$lib/i18n";
-import type { Provider, ProviderModel } from "$lib/client/api/admin";
+import { Eye, EyeOff, TestTube } from "@lucide/svelte";
 import { fetchProviderModels } from "$lib/client/api/admin";
-
-const tVal = get(t);
-
-function handleKeydown(e: KeyboardEvent) {
-	if (e.key === "Escape") {
-		onClose?.();
-	}
-}
+import type { Provider, ProviderModel } from "$lib/client/api/admin";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
+import { t } from "$lib/i18n";
+import {
+	regionCodeToFlag,
+	regionDisplayName,
+} from "$lib/services/processing-region";
+import SecretField from "./system/SecretField.svelte";
+import SystemToggle from "./system/SystemToggle.svelte";
+import "./system/system.css";
 
 let {
 	provider = null,
@@ -47,6 +51,9 @@ let formBaseUrl = $state(
 	untrack(() => provider?.baseUrl ?? "https://api.fireworks.ai/inference/v1"),
 );
 let formApiKey = $state("");
+// Creating a provider means typing a key that is not stored anywhere yet, so
+// the field keeps the old dialog's Show/Hide. On edit, SecretField owns it.
+let revealNewApiKey = $state(false);
 let formIconAssetId = $state(untrack(() => provider?.iconAssetId ?? ""));
 $effect(() => {
 	formIconAssetId = provider?.iconAssetId ?? "";
@@ -82,12 +89,11 @@ let formRateLimitFallbackTimeoutMs = $state(
 	),
 );
 let fallbackProviderModels = $state<ProviderModel[]>([]);
-let showApiKey = $state(false);
-let showFallbackApiKey = $state(false);
-let showFallbackSection = $state(false);
+let fallbackFreeText = $state(false);
 let localError = $state("");
 
 let visibleError = $derived(error || localError);
+const regionName = $derived(regionDisplayName(formProcessingRegionCode));
 
 function handleSave() {
 	localError = "";
@@ -163,302 +169,332 @@ function handleTest() {
 }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-label={isCreate ? $t('admin.addProvider') : $t('admin.editProvider')}>
-	<div class="modal-card">
-		<div class="modal-header">
-			<h2 class="modal-title">{isCreate ? $t('admin.addProvider') : $t('admin.editProvider')}</h2>
-			<button class="modal-close" onclick={onClose} aria-label={$t('common.close')}>&times;</button>
+<DialogShell
+	title={isCreate ? $t('admin.addProvider') : $t('admin.editProvider')}
+	description={$t('admin.system.dialog.savedHere')}
+	maxWidthClass="max-w-[840px]"
+	zIndexClass="z-[100]"
+	{onClose}
+>
+	<div class="sys-grid2">
+		<div>
+			<label class="sys-label" for="provider-form-display-name">
+				{$t('admin.displayName')}
+			</label>
+			<input
+				id="provider-form-display-name"
+				type="text"
+				class="sys-input sys-input-wide"
+				bind:value={formDisplayName}
+				placeholder={$t('admin.displayNamePlaceholder')}
+			/>
 		</div>
-		<div class="modal-body">
-			<div class="flex flex-col gap-3">
-				<div>
-					<label class="settings-label" for="provider-form-name">{$t('admin.nameId')}</label>
-					<input
-						id="provider-form-name"
-						type="text"
-						class="settings-input"
-						bind:value={formName}
-						placeholder={$t('admin.nameIdPlaceholder')}
-						disabled={!isCreate}
-					/>
-					{#if isCreate}
-						<p class="mt-1 text-xs text-text-muted">{$t('admin.nameIdDescription')}</p>
+
+		<div>
+			<label class="sys-label" for="provider-form-processing-region">
+				{$t('admin.providerProcessingRegion')}
+			</label>
+			<span class="sys-field">
+				<input
+					id="provider-form-processing-region"
+					type="text"
+					class="sys-input sys-input-sm"
+					style="text-transform: uppercase"
+					bind:value={formProcessingRegionCode}
+					placeholder={$t('admin.providerProcessingRegionPlaceholder')}
+					maxlength="2"
+				/>
+				{#if regionName}
+					<span class="sys-xs sys-muted">
+						{regionCodeToFlag(formProcessingRegionCode)} {regionName}
+					</span>
+				{/if}
+			</span>
+			<p class="sys-help">{$t('admin.providerProcessingRegionDescription')}</p>
+		</div>
+
+		<div>
+			<label class="sys-label" for="provider-form-name">{$t('admin.nameId')}</label>
+			<input
+				id="provider-form-name"
+				type="text"
+				class="sys-input sys-input-wide"
+				bind:value={formName}
+				placeholder={$t('admin.nameIdPlaceholder')}
+				disabled={!isCreate}
+			/>
+			<p class="sys-help">
+				{isCreate
+					? $t('admin.nameIdDescription')
+					: $t('admin.system.dialog.providerIdFixed')}
+			</p>
+		</div>
+
+		<div>
+			<label class="sys-label" for="provider-form-privacy-policy">
+				{$t('admin.providerPrivacyPolicy')}
+			</label>
+			<input
+				id="provider-form-privacy-policy"
+				type="url"
+				class="sys-input sys-input-wide"
+				bind:value={formPrivacyPolicyUrl}
+				placeholder={$t('admin.providerPrivacyPolicyPlaceholder')}
+			/>
+			<p class="sys-help">{$t('admin.providerPrivacyPolicyDescription')}</p>
+		</div>
+
+		<div>
+			<label class="sys-label" for="provider-form-base-url">{$t('admin.baseUrl')}</label>
+			<input
+				id="provider-form-base-url"
+				type="url"
+				class="sys-input sys-input-wide sys-input-mono"
+				bind:value={formBaseUrl}
+				placeholder={$t('admin.baseUrlPlaceholder')}
+			/>
+		</div>
+
+		<div>
+			<span class="sys-label">{$t('admin.system.dialog.icon')}</span>
+			<div class="sys-row-control">
+				<span class="sys-avatar">
+					{#if formIconAssetId}
+						<img
+							src={`/api/campaign-assets/${encodeURIComponent(formIconAssetId)}/content`}
+							alt=""
+						/>
+					{:else}
+						{formDisplayName.slice(0, 2).toUpperCase()}
 					{/if}
-				</div>
-
-				<div>
-					<label class="settings-label" for="provider-form-display-name">{$t('admin.displayName')}</label>
+				</span>
+				{#if onIconFile}
+					<label class="sys-mini" for="provider-form-icon">
+						{formIconAssetId
+							? $t('admin.system.dialog.iconReplace')
+							: $t('admin.modelIcon')}
+					</label>
 					<input
-						id="provider-form-display-name"
-						type="text"
-						class="settings-input"
-						bind:value={formDisplayName}
-						placeholder={$t('admin.displayNamePlaceholder')}
+						id="provider-form-icon"
+						type="file"
+						accept="image/*"
+						class="sr-only"
+						onchange={onIconFile}
 					/>
-				</div>
-
-				<div>
-					<label class="settings-label" for="provider-form-base-url">{$t('admin.baseUrl')}</label>
-					<input
-						id="provider-form-base-url"
-						type="url"
-						class="settings-input"
-						bind:value={formBaseUrl}
-						placeholder={$t('admin.baseUrlPlaceholder')}
-					/>
-				</div>
-
-				<div>
-					<label class="settings-label" for="provider-form-api-key">{$t('admin.apiKey')}</label>
-					<div class="flex items-center gap-2">
-						<input
-							id="provider-form-api-key"
-							type={showApiKey ? 'text' : 'password'}
-							class="settings-input flex-1"
-							bind:value={formApiKey}
-							placeholder={provider && !isCreate ? $t('admin.unchanged') : $t('admin.apiKeyPlaceholder')}
-						/>
-						<button type="button" class="btn-secondary" onclick={() => (showApiKey = !showApiKey)}>
-							{showApiKey ? $t('admin.hide') : $t('admin.show')}
-						</button>
-					</div>
-				</div>
-
-				<div>
-					<label class="settings-label" for="provider-form-icon">{$t('admin.modelIcon')}</label>
-					<div class="flex items-center gap-3">
-						{#if formIconAssetId}
-							<img
-								src={`/api/campaign-assets/${encodeURIComponent(formIconAssetId)}/content`}
-								alt=""
-								class="h-10 w-10 rounded object-cover"
-							/>
-						{/if}
-						{#if onIconFile}
-							<input
-								id="provider-form-icon"
-								type="file"
-								accept="image/*"
-								class="settings-input"
-								onchange={onIconFile}
-							/>
-						{/if}
-					</div>
-				</div>
-
-				<div class="grid gap-3 md:grid-cols-2">
-					<div>
-						<label class="settings-label" for="provider-form-processing-region">
-							{$t('admin.providerProcessingRegion')}
-						</label>
-						<input
-							id="provider-form-processing-region"
-							type="text"
-							class="settings-input uppercase"
-							bind:value={formProcessingRegionCode}
-							placeholder={$t('admin.providerProcessingRegionPlaceholder')}
-							maxlength="2"
-						/>
-						<p class="mt-1 text-xs text-text-muted">{$t('admin.providerProcessingRegionDescription')}</p>
-					</div>
-
-					<div>
-						<label class="settings-label" for="provider-form-privacy-policy">
-							{$t('admin.providerPrivacyPolicy')}
-						</label>
-						<input
-							id="provider-form-privacy-policy"
-							type="url"
-							class="settings-input"
-							bind:value={formPrivacyPolicyUrl}
-							placeholder={$t('admin.providerPrivacyPolicyPlaceholder')}
-						/>
-						<p class="mt-1 text-xs text-text-muted">{$t('admin.providerPrivacyPolicyDescription')}</p>
-					</div>
-				</div>
-
-				<div class="flex items-center gap-2">
-					<input id="provider-form-enabled" type="checkbox" bind:checked={formEnabled} />
-					<label class="settings-label mb-0" for="provider-form-enabled">{$t('admin.enabled')}</label>
-				</div>
-
-				<div class="mt-2 border-t border-border pt-3">
+				{/if}
+				{#if formIconAssetId}
 					<button
 						type="button"
-						class="flex w-full items-center justify-between text-sm font-medium text-text-primary"
-						onclick={() => (showFallbackSection = !showFallbackSection)}
+						class="sys-mini sys-mini-danger"
+						onclick={() => (formIconAssetId = '')}
 					>
-						<span>{$t('admin.rateLimitFallback')}</span>
-						<span class="text-text-muted">{showFallbackSection ? '▾' : '▸'}</span>
+						{$t('admin.system.dialog.iconRemove')}
 					</button>
-
-					{#if showFallbackSection}
-						<div class="mt-3 flex flex-col gap-2">
-							<div class="flex items-center justify-between gap-3">
-								<div>
-									<label class="settings-label mb-0" for="provider-form-fallback-enabled">
-										{$t('admin.rateLimitFallbackEnabled')}
-									</label>
-									<p class="text-xs text-text-muted">{$t('admin.rateLimitFallbackDescription')}</p>
-								</div>
-								<input
-									id="provider-form-fallback-enabled"
-									type="checkbox"
-									bind:checked={formRateLimitFallbackEnabled}
-								/>
-							</div>
-
-							{#if formRateLimitFallbackEnabled}
-								<div>
-									<label class="settings-label" for="provider-form-fallback-provider">
-										{$t('admin.rateLimitFallbackProvider')}
-									</label>
-									<select
-										id="provider-form-fallback-provider"
-										class="settings-input"
-										bind:value={formRateLimitFallbackBaseUrl}
-										onchange={(e) => {
-											const selectedId = e.currentTarget.value;
-											const picked = allProviders.find(p => p.baseUrl === selectedId);
-											if (picked) {
-												formRateLimitFallbackBaseUrl = picked.baseUrl;
-												formRateLimitFallbackApiKey = "";
-												formRateLimitFallbackModelName = "";
-												fallbackProviderModels = [];
-												fetchProviderModels(picked.id).then(models => {
-													fallbackProviderModels = models;
-												}).catch(() => {});
-											}
-										}}
-									>
-										<option value="">{$t('admin.selectProvider')}</option>
-										{#each allProviders.filter(p => !provider || p.id !== provider.id) as p}
-											<option value={p.baseUrl}>{p.displayName}</option>
-										{/each}
-									</select>
-									<p class="mt-1 text-xs text-text-muted">{$t('admin.rateLimitFallbackProviderDesc')}</p>
-								</div>
-
-								{#if fallbackProviderModels.length > 0}
-									<div>
-										<label class="settings-label" for="provider-form-fallback-model">
-											{$t('admin.rateLimitFallbackModelName')}
-										</label>
-										<select
-											id="provider-form-fallback-model"
-											class="settings-input"
-											value={formRateLimitFallbackModelName}
-											onchange={(e) => {
-												formRateLimitFallbackModelName = e.currentTarget.value;
-											}}
-										>
-											<option value="">{$t('admin.selectModel')}</option>
-											{#each fallbackProviderModels as m}
-												<option value={m.name}>{m.displayName || m.name}</option>
-											{/each}
-										</select>
-									</div>
-								{:else if formRateLimitFallbackBaseUrl}
-									<div>
-										<label class="settings-label" for="provider-form-fallback-model-name">
-											{$t('admin.rateLimitFallbackModelName')}
-										</label>
-										<input
-											id="provider-form-fallback-model-name"
-											type="text"
-											class="settings-input"
-											bind:value={formRateLimitFallbackModelName}
-											placeholder={$t('admin.modelNamePlaceholderProvider')}
-										/>
-									</div>
-								{/if}
-
-								<div>
-									<label class="settings-label" for="provider-form-fallback-timeout">
-										{$t('admin.rateLimitFallbackTimeoutMs')}
-									</label>
-									<input
-										id="provider-form-fallback-timeout"
-										type="number"
-										class="settings-input"
-										bind:value={formRateLimitFallbackTimeoutMs}
-										placeholder="30000"
-										min="1000"
-									/>
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
+				{/if}
 			</div>
+		</div>
 
-			{#if visibleError}
-				<p class="mt-4 text-sm text-danger">{visibleError}</p>
-			{/if}
+		<div>
+			<span class="sys-label" id="provider-form-api-key-label">{$t('admin.apiKey')}</span>
+			<div class="sys-row-control">
+				{#if isCreate}
+					<span class="sys-field">
+						<input
+							id="provider-form-api-key"
+							type={revealNewApiKey ? 'text' : 'password'}
+							class="sys-input sys-input-md"
+							aria-labelledby="provider-form-api-key-label"
+							autocomplete="off"
+							bind:value={formApiKey}
+							placeholder={$t('admin.apiKeyPlaceholder')}
+						/>
+						<button
+							type="button"
+							class="sys-mini"
+							aria-label={revealNewApiKey ? $t('admin.hide') : $t('admin.show')}
+							onclick={() => (revealNewApiKey = !revealNewApiKey)}
+						>
+							{#if revealNewApiKey}
+								<EyeOff size={12} strokeWidth={2} aria-hidden="true" />
+							{:else}
+								<Eye size={12} strokeWidth={2} aria-hidden="true" />
+							{/if}
+						</button>
+					</span>
+				{:else}
+					<SecretField
+						inputId="provider-form-api-key"
+						label={$t('admin.apiKey')}
+						value={provider ? 'set' : ''}
+						onchange={(next) => (formApiKey = next)}
+						onCancelReplace={() => (formApiKey = '')}
+					/>
+				{/if}
+			</div>
+		</div>
 
-			{#if testMessage}
-				<p class="mt-4 text-sm text-success">{testMessage}</p>
-			{/if}
-			{#if testError}
-				<p class="mt-4 text-sm text-danger">{testError}</p>
-			{/if}
-
-			<div class="mt-4 flex flex-wrap gap-2">
-				<button class="btn-primary flex-1" onclick={handleSave} disabled={saving}>
-					{saving ? $t('common.saving') : $t('admin.saveChanges')}
-				</button>
-			<button class="btn-secondary" onclick={handleTest} disabled={testing || !formBaseUrl || isCreate}>
-				{testing ? $t('common.loading') : $t('common.test')}
-			</button>
-				<button class="btn-secondary" onclick={onClose}>{$t('common.cancel')}</button>
+		<div>
+			<span class="sys-label">{$t('admin.system.dialog.availability')}</span>
+			<div class="sys-row-control">
+				<SystemToggle
+					id="provider-form-enabled"
+					label={$t('admin.system.dialog.enabledForEveryone')}
+					checked={formEnabled}
+					onchange={(next) => (formEnabled = next)}
+				/>
+				<span class="sys-xs sys-muted">{$t('admin.system.dialog.enabledForEveryone')}</span>
 			</div>
 		</div>
 	</div>
-</div>
 
-<style>
-	.modal-overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 100;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(0, 0, 0, 0.45);
-		backdrop-filter: blur(4px);
-	}
-	.modal-card {
-		background: var(--surface-overlay);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-lg);
-		width: min(32rem, calc(100vw - 2rem));
-		max-height: calc(100vh - 4rem);
-		overflow-y: auto;
-	}
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem 1.25rem;
-		border-bottom: 1px solid var(--border-default);
-	}
-	.modal-title {
-		font-size: 1.1rem;
-		font-weight: 600;
-	}
-	.modal-close {
-		font-size: 1.5rem;
-		line-height: 1;
-		padding: 0.25rem;
-		background: none;
-		border: none;
-		cursor: pointer;
-		color: var(--text-muted);
-	}
-	.modal-body {
-		padding: 1.25rem;
-	}
-</style>
+	<section class="sys-card" style="margin-top: var(--space-md)">
+		<div class="sys-card-head" style="margin-bottom: 10px">
+			<span class="sys-grow">
+				<h3 class="sys-card-title">{$t('admin.rateLimitFallback')}</h3>
+				<p class="sys-card-desc">{$t('admin.system.dialog.fallbackDescription')}</p>
+			</span>
+			<span class="sys-card-actions">
+				<SystemToggle
+					id="provider-form-fallback-enabled"
+					label={$t('admin.rateLimitFallbackEnabled')}
+					checked={formRateLimitFallbackEnabled}
+					onchange={(next) => (formRateLimitFallbackEnabled = next)}
+				/>
+			</span>
+		</div>
+
+		{#if formRateLimitFallbackEnabled}
+			<div class="sys-grid3">
+				<div>
+					<label class="sys-label" for="provider-form-fallback-provider">
+						{$t('admin.rateLimitFallbackProvider')}
+					</label>
+					<select
+						id="provider-form-fallback-provider"
+						class="sys-input sys-input-wide"
+						bind:value={formRateLimitFallbackBaseUrl}
+						onchange={(event) => {
+							const selectedId = event.currentTarget.value;
+							const picked = allProviders.find((p) => p.baseUrl === selectedId);
+							if (picked) {
+								formRateLimitFallbackBaseUrl = picked.baseUrl;
+								formRateLimitFallbackApiKey = '';
+								formRateLimitFallbackModelName = '';
+								fallbackProviderModels = [];
+								fallbackFreeText = false;
+								fetchProviderModels(picked.id)
+									.then((models) => {
+										fallbackProviderModels = models;
+									})
+									.catch(() => {});
+							}
+						}}
+					>
+						<option value="">{$t('admin.selectProvider')}</option>
+						{#each allProviders.filter((p) => !provider || p.id !== provider.id) as p (p.id)}
+							<option value={p.baseUrl}>{p.displayName}</option>
+						{/each}
+					</select>
+					<p class="sys-help">{$t('admin.rateLimitFallbackProviderDesc')}</p>
+				</div>
+
+				<div>
+					<label class="sys-label" for="provider-form-fallback-model">
+						{$t('admin.rateLimitFallbackModelName')}
+					</label>
+					{#if fallbackProviderModels.length > 0 && !fallbackFreeText}
+						<select
+							id="provider-form-fallback-model"
+							class="sys-input sys-input-wide"
+							value={formRateLimitFallbackModelName}
+							onchange={(event) => {
+								formRateLimitFallbackModelName = event.currentTarget.value;
+							}}
+						>
+							<option value="">{$t('admin.selectModel')}</option>
+							{#each fallbackProviderModels as m (m.id)}
+								<option value={m.name}>{m.displayName || m.name}</option>
+							{/each}
+						</select>
+						<button
+							type="button"
+							class="sys-mini"
+							style="margin-top: 6px"
+							onclick={() => (fallbackFreeText = true)}
+						>
+							{$t('admin.system.dialog.useFreeText')}
+						</button>
+					{:else}
+						<input
+							id="provider-form-fallback-model"
+							type="text"
+							class="sys-input sys-input-wide"
+							bind:value={formRateLimitFallbackModelName}
+							placeholder={$t('admin.modelNamePlaceholderProvider')}
+						/>
+						{#if fallbackProviderModels.length > 0}
+							<button
+								type="button"
+								class="sys-mini"
+								style="margin-top: 6px"
+								onclick={() => (fallbackFreeText = false)}
+							>
+								{$t('admin.system.dialog.usePicker')}
+							</button>
+						{/if}
+					{/if}
+				</div>
+
+				<div>
+					<label class="sys-label" for="provider-form-fallback-timeout">
+						{$t('admin.system.dialog.fallbackWait')}
+					</label>
+					<span class="sys-field">
+						<input
+							id="provider-form-fallback-timeout"
+							type="number"
+							class="sys-input sys-input-sm"
+							bind:value={formRateLimitFallbackTimeoutMs}
+							placeholder="30000"
+							min="1000"
+						/>
+						<span class="sys-unit">{$t('admin.system.unit.ms')}</span>
+					</span>
+				</div>
+			</div>
+		{/if}
+	</section>
+
+	{#if visibleError}
+		<p class="sys-error" style="margin-top: var(--space-md)" role="alert">{visibleError}</p>
+	{/if}
+
+	<div
+		class="sys-row-control"
+		style="margin-top: var(--space-lg); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle)"
+	>
+		<button
+			type="button"
+			class="btn-secondary btn-sm"
+			onclick={handleTest}
+			disabled={testing || !formBaseUrl || isCreate}
+		>
+			<TestTube size={13} strokeWidth={2} aria-hidden="true" />
+			{testing ? $t('common.loading') : $t('admin.system.providers.test')}
+		</button>
+		{#if testMessage}
+			<span class="sys-xs" style="color: var(--success)" role="status">{testMessage}</span>
+		{/if}
+		{#if testError}
+			<span class="sys-xs" style="color: var(--danger)" role="alert">{testError}</span>
+		{/if}
+
+		<span class="sys-grow"></span>
+		<button type="button" class="btn-secondary btn-sm" onclick={onClose}>
+			{$t('common.cancel')}
+		</button>
+		<button type="button" class="btn-primary btn-sm" onclick={handleSave} disabled={saving}>
+			{saving ? $t('common.saving') : $t('admin.system.dialog.saveProvider')}
+		</button>
+	</div>
+</DialogShell>

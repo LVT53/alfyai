@@ -117,7 +117,13 @@ describe("SettingsAdminRoutingRegions", () => {
 		expect(screen.getByText("extract checksum mismatch")).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 		await waitFor(() => expect(mockRetry).toHaveBeenCalledWith("germany"));
+		// Removing a region deletes a downloaded extract and a built graph, so it
+		// now asks in a styled dialog instead of a bare window.confirm().
 		await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+		await waitFor(() =>
+			expect(screen.getByText("Remove Germany?")).toBeInTheDocument(),
+		);
+		await fireEvent.click(screen.getByTestId("confirm-delete"));
 		await waitFor(() => expect(mockRemove).toHaveBeenCalledWith("germany"));
 	});
 

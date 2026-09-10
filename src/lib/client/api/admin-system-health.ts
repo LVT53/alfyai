@@ -64,3 +64,47 @@ export async function fetchAdminEffectiveConfig(
 		models: Array.isArray(response.models) ? response.models : [],
 	};
 }
+
+export interface AdminConfigOverrideMeta {
+	updatedAt: string;
+	updatedBy: string;
+}
+
+interface AdminConfigResponse {
+	overrides?: Record<string, string>;
+	overrideMeta?: Record<string, AdminConfigOverrideMeta>;
+}
+
+/**
+ * When each admin_config override was last written. The System screen shows it
+ * on secret rows, where the value is masked and the date is the only evidence
+ * that a key is set at all.
+ */
+export async function fetchAdminConfigOverrideMeta(
+	fetchImpl: FetchLike = fetch,
+): Promise<Record<string, AdminConfigOverrideMeta>> {
+	const response = await requestJson<AdminConfigResponse>(
+		"/api/admin/config",
+		undefined,
+		"Failed to load admin configuration",
+		fetchImpl,
+	);
+	return response.overrideMeta ?? {};
+}
+
+/**
+ * Runs the provider's own connection check (GET /v1/models with its stored
+ * key). The endpoint existed but nothing called it: the Test button in the old
+ * provider dialog was wired to a handler the pane never passed.
+ */
+export async function validateProviderConnection(
+	providerId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<{ valid: boolean; error?: string }> {
+	return requestJson<{ valid: boolean; error?: string }>(
+		`/api/admin/providers/${encodeURIComponent(providerId)}/validate`,
+		{ method: "POST" },
+		"Failed to validate provider",
+		fetchImpl,
+	);
+}

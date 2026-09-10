@@ -197,6 +197,12 @@ const clearWorkspaceLoading = $derived(
 let adminConfig = $state<Record<string, string>>(
 	initialCurrentConfigValues ? { ...initialCurrentConfigValues } : {},
 );
+// What the server last confirmed. The System pane measures "unsaved" against
+// this, and it lives HERE rather than inside the pane because switching to the
+// Users or Campaigns sub-tab unmounts the pane: a baseline that died with the
+// component would come back re-snapshotted from the already-edited
+// `adminConfig`, and every pending edit would read as saved and be dropped.
+let adminConfigSaved = $state<Record<string, string>>({});
 let adminSaving = $state(false);
 let adminMessage = $state("");
 let adminError = $state("");
@@ -371,9 +377,11 @@ async function loadAllAdminUsers() {
 
 async function handleExcludedUsersChange(userIds: string[]) {
 	excludedAnalyticsUserIds = userIds;
+	// Only this key: spreading `adminConfig` after it put the OLD value back
+	// (so the change never persisted), and `adminConfig` now also carries the
+	// System pane's unsaved edits, which this call must not commit.
 	await updateAdminConfig({
 		ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(userIds),
-		...adminConfig,
 	});
 	adminConfig = {
 		...adminConfig,
@@ -504,13 +512,22 @@ onMount(() => {
 
 	if (section === "tool-health" && isAdmin) {
 		void handleTabChange("administration");
-		requestAnimationFrame(() => {
+		// The tool-health card no longer exists the frame the tab flips: the
+		// System screen has to mount, read the same query param and switch to
+		// its Diagnostics page first. So look for the card over a few frames
+		// instead of once, or the highlight silently never happens.
+		let framesLeft = 60;
+		const findAndHighlight = () => {
 			const card = document.getElementById("settings-tool-health-card");
-			if (!card) return;
+			if (!card) {
+				if (framesLeft-- > 0) requestAnimationFrame(findAndHighlight);
+				return;
+			}
 			card.scrollIntoView({ behavior: "smooth", block: "start" });
 			card.classList.add("settings-card-highlight");
 			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
-		});
+		};
+		requestAnimationFrame(findAndHighlight);
 		return;
 	}
 
@@ -873,20 +890,28 @@ async function downloadArchiveFromDestructiveModal() {
 	}
 }
 
-async function saveAdminConfig() {
+// `patch` is what the admin System pane changed. Called without one (any other
+// caller), it still writes the whole config, exactly as before. Returns whether
+// the write landed: the System pane must keep its edits pending when it did
+// not, or a rejected save would quietly read as "all saved".
+async function saveAdminConfig(
+	patch?: Record<string, string>,
+): Promise<boolean> {
 	adminSaving = true;
 	adminMessage = "";
 	adminError = "";
 	try {
-		const configToSave = { ...adminConfig };
+		const configToSave = patch ? { ...patch } : { ...adminConfig };
 		if (configToSave.WEB_PUSH_VAPID_PRIVATE_KEY === "[set]") {
 			delete configToSave.WEB_PUSH_VAPID_PRIVATE_KEY;
 		}
 		await updateAdminConfig(configToSave);
 		await invalidate("app:shell");
 		showAdminMessage("Configuration saved.");
+		return true;
 	} catch (error: unknown) {
 		adminError = errorMessage(error);
+		return false;
 	} finally {
 		adminSaving = false;
 	}
@@ -1068,6 +1093,7 @@ $effect(() => {
 				{modelNames}
 				{availableModels}
 				bind:adminConfig
+				bind:adminConfigSaved
 				envDefaults={(data as SettingsPageData).envDefaults ?? {}}
 				{adminSaving}
 				{adminMessage}

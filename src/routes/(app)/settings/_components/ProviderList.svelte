@@ -1,22 +1,34 @@
 <script lang="ts">
-import { untrack } from "svelte";
-import { get } from "svelte/store";
-import { t } from "$lib/i18n";
+// The provider list, rebuilt to the board: one row per provider with three
+// controls instead of nine — models, on/off, and a menu holding Discover,
+// Manage, Edit, Test and Delete — and the models themselves in a drawer on the
+// row rather than a raw `fixed inset-0` overlay.
 import {
 	AlertTriangle,
+	Bolt,
 	ChevronDown,
 	ChevronUp,
+	MoreVertical,
 	Pencil,
+	Plus,
+	RefreshCw,
+	Search,
+	SlidersHorizontal,
+	TestTube,
 	Trash2,
 } from "@lucide/svelte";
+import { slide } from "svelte/transition";
 import type { Provider, ProviderModel } from "$lib/client/api/admin";
+import { t } from "$lib/i18n";
 import {
 	regionCodeToFlag,
 	regionDisplayName,
 } from "$lib/services/processing-region";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { providerHasFallbackWarning } from "./model-fallback";
+import "./system/system.css";
 
-const tVal = get(t);
+const drawerSlide = reducedMotionAware(slide);
 
 let {
 	providers = [],
@@ -24,6 +36,8 @@ let {
 	loading = false,
 	error = "",
 	message = "",
+	openProviderId = $bindable(""),
+	busyProviderId = "",
 	onAdd,
 	onEdit,
 	onDelete,
@@ -31,12 +45,18 @@ let {
 	onDiscover,
 	onManageModels,
 	onReorder,
+	onTest,
+	drawer,
 }: {
 	providers: Provider[];
 	providerModels?: ProviderModel[];
 	loading?: boolean;
 	error?: string;
 	message?: string;
+	/** Provider whose model drawer is open. */
+	openProviderId?: string;
+	/** Provider currently being deleted — its row's controls go inert. */
+	busyProviderId?: string;
 	onAdd: () => void;
 	onEdit: (provider: Provider) => void;
 	onDelete: (provider: Provider) => void;
@@ -50,15 +70,32 @@ let {
 		providerId: string,
 		direction: "up" | "down",
 	) => void | Promise<void>;
+	onTest?: (provider: Provider) => void | Promise<void>;
+	/** Rendered inside the open provider's drawer. */
+	drawer?: import("svelte").Snippet<[string]>;
 } = $props();
 
-let deletingId = $state<string | null>(null);
 let togglingId = $state<string | null>(null);
 let discoveringId = $state<string | null>(null);
 let movingId = $state<string | null>(null);
+let menuProviderId = $state<string | null>(null);
+let enabledOnly = $state(false);
+
+const shown = $derived(
+	enabledOnly ? providers.filter((provider) => provider.enabled) : providers,
+);
 
 function truncateUrl(url: string, max = 48): string {
 	return url.length > max ? `${url.slice(0, max)}…` : url;
+}
+
+function initials(provider: Provider): string {
+	return provider.displayName.slice(0, 2).toUpperCase();
+}
+
+function modelCount(providerId: string): number {
+	return providerModels.filter((model) => model.providerId === providerId)
+		.length;
 }
 
 async function handleMove(provider: Provider, direction: "up" | "down") {
@@ -80,6 +117,7 @@ async function handleToggle(provider: Provider) {
 }
 
 async function handleDiscover(provider: Provider) {
+	menuProviderId = null;
 	discoveringId = provider.id;
 	try {
 		await onDiscover(provider);
@@ -88,149 +126,310 @@ async function handleDiscover(provider: Provider) {
 	}
 }
 
-async function handleDelete(provider: Provider) {
-	if (
-		!confirm($t("admin.deleteProviderConfirm", { name: provider.displayName }))
-	)
-		return;
-	deletingId = provider.id;
-	try {
-		await onDelete(provider);
-	} finally {
-		deletingId = null;
-	}
+function toggleDrawer(provider: Provider) {
+	openProviderId = openProviderId === provider.id ? "" : provider.id;
+	if (openProviderId) onManageModels?.(provider.id);
+}
+
+function closeMenu() {
+	menuProviderId = null;
 }
 </script>
 
-<div class="flex flex-col gap-3">
-	<div class="flex items-center justify-between">
-		<h3 class="text-sm font-medium text-text-primary">{$t('admin.providers')}</h3>
-		<button class="btn-sm" onclick={onAdd}>{$t('admin.addProvider')}</button>
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key === 'Escape') closeMenu();
+	}}
+/>
+
+<div class="sys-stack" data-testid="provider-list">
+	<div class="sys-card-head" style="margin-bottom: 0">
+		<span class="sys-grow">
+			<h3 class="sys-card-title">{$t('admin.system.providers.title')}</h3>
+			<p class="sys-card-desc">{$t('admin.system.providers.description')}</p>
+		</span>
+		<span class="sys-card-actions">
+			<button
+				type="button"
+				class="sys-mini"
+				class:sys-mini-on={enabledOnly}
+				aria-pressed={enabledOnly}
+				onclick={() => (enabledOnly = !enabledOnly)}
+			>
+				<SlidersHorizontal size={12} strokeWidth={2} aria-hidden="true" />
+				{$t('admin.system.providers.enabledOnly')}
+			</button>
+			<button type="button" class="btn-primary btn-sm" onclick={onAdd}>
+				<Plus size={13} strokeWidth={2} aria-hidden="true" />
+				{$t('admin.system.providers.add')}
+			</button>
+		</span>
 	</div>
 
 	{#if loading}
-		<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
+		<p class="sys-sm sys-muted">{$t('common.loading')}</p>
 	{:else if error}
-		<p class="text-sm text-danger">{error}</p>
+		<p class="sys-error" role="alert">{error}</p>
 	{:else if providers.length === 0}
-		<div class="rounded-md border border-border bg-surface-page px-4 py-6 text-center">
-			<p class="text-sm text-text-muted">{$t('admin.noProvidersYet')}</p>
-			<button class="btn-secondary mt-3" onclick={onAdd}>{$t('admin.addProvider')}</button>
+		<div class="sys-empty">
+			<p style="margin: 0 0 10px">{$t('admin.noProvidersYet')}</p>
+			<button type="button" class="btn-secondary btn-sm" onclick={onAdd}>
+				{$t('admin.system.providers.add')}
+			</button>
 		</div>
+	{:else if shown.length === 0}
+		<div class="sys-empty">{$t('admin.system.providers.emptyFiltered')}</div>
 	{:else}
-	<div class="flex flex-col gap-2">
-			{#each providers as provider (provider.id)}
-				<div
-					class="flex flex-col gap-2 rounded-md border border-border bg-surface-page px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-				>
-					<div class="flex min-w-0 items-center gap-3">
+		<div class="sys-list">
+			{#each shown as provider, index (provider.id)}
+				{@const count = modelCount(provider.id)}
+				{@const open = openProviderId === provider.id}
+				<div>
+					<div
+						class="sys-list-row"
+						class:sys-row-busy={busyProviderId === provider.id}
+						style={open ? 'border-radius: var(--radius-md) var(--radius-md) 0 0' : ''}
+						data-testid={`provider-row-${provider.id}`}
+						aria-busy={busyProviderId === provider.id}
+					>
 						<span
-							class="inline-block h-2 w-2 shrink-0 rounded-full"
-							class:bg-success={provider.enabled}
-							class:bg-text-muted={!provider.enabled}
+							class="sys-dot"
+							class:sys-dot-on={provider.enabled}
+							class:sys-dot-off={!provider.enabled}
 						></span>
-						<div class="flex min-w-0 flex-col">
-							<span class="flex min-w-0 items-center gap-2">
-								<span class="truncate text-sm font-medium text-text-primary">
-									{provider.displayName}
-								</span>
+						<span class="sys-avatar" aria-hidden="true">
+							{#if provider.iconAssetId}
+								<img
+									src={`/api/campaign-assets/${encodeURIComponent(provider.iconAssetId)}/content`}
+									alt=""
+								/>
+							{:else}
+								{initials(provider)}
+							{/if}
+						</span>
+
+						<span class="sys-grow" style="min-width: 0">
+							<span class="sys-label">
+								<span class="sys-truncate">{provider.displayName}</span>
 								{#if provider.processingRegionCode}
 									<span
-										class="shrink-0 text-sm"
+										class="sys-pill sys-pill-outline"
 										title={$t('modelSelector.processingRegion', {
-											region: regionDisplayName(provider.processingRegionCode),
-										})}
-										aria-label={$t('modelSelector.processingRegion', {
 											region: regionDisplayName(provider.processingRegionCode),
 										})}
 									>
 										{regionCodeToFlag(provider.processingRegionCode)}
+										{provider.processingRegionCode.toUpperCase()}
 									</span>
 								{/if}
 								{#if providerHasFallbackWarning(provider.id, providerModels)}
 									<span
-										class="inline-flex shrink-0 text-danger"
+										class="sys-nowrap"
+										style="color: var(--danger); display: inline-flex"
 										title={$t('admin.modelFallbackProviderWarning')}
 										aria-label={$t('admin.modelFallbackProviderWarning')}
 										role="img"
 									>
-										<AlertTriangle class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
+										<AlertTriangle size={14} strokeWidth={2} aria-hidden="true" />
 									</span>
 								{/if}
 							</span>
-							<span class="truncate text-xs text-text-muted">
-								{provider.name} &bull; {truncateUrl(provider.baseUrl)}
+							<span class="sys-key">
+								{provider.name} · {truncateUrl(provider.baseUrl)}
 							</span>
-						</div>
-					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						<label class="relative inline-flex cursor-pointer items-center">
-							<input
-								type="checkbox"
-								class="peer sr-only"
-								checked={provider.enabled}
-								disabled={togglingId === provider.id}
-								onchange={() => handleToggle(provider)}
-							/>
-							<div
-								class="peer h-5 w-9 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"
-							></div>
-						</label>
+						</span>
+
 						<button
-							class="btn-sm whitespace-nowrap"
-							disabled={discoveringId === provider.id}
-							onclick={() => handleDiscover(provider)}
+							type="button"
+							class="sys-mini"
+							aria-expanded={open}
+							aria-label={$t('admin.system.providers.expandA11y', {
+								provider: provider.displayName,
+							})}
+							data-testid={`provider-models-${provider.id}`}
+							onclick={() => toggleDrawer(provider)}
 						>
-							{discoveringId === provider.id ? $t('common.loading') : $t('admin.discoverModels')}
-						</button>
-						{#if onManageModels}
-							<button
-								class="btn-sm whitespace-nowrap"
-								onclick={() => onManageModels(provider.id)}
-							>
-								{$t('admin.manageModels')}
-							</button>
-						{/if}
-						{#if onReorder}
-							<button
-								class="btn-sm whitespace-nowrap"
-								disabled={movingId === provider.id || providers.indexOf(provider) === 0}
-								onclick={() => handleMove(provider, "up")}
-								title="Move up"
-							>
-								<ChevronUp class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
-							</button>
-							<button
-								class="btn-sm whitespace-nowrap"
-								disabled={movingId === provider.id || providers.indexOf(provider) === providers.length - 1}
-								onclick={() => handleMove(provider, "down")}
-								title="Move down"
-							>
-								<ChevronDown class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
-							</button>
-						{/if}
-						<button class="btn-sm whitespace-nowrap" onclick={() => onEdit(provider)} title="Edit">
-							<Pencil class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
-						</button>
-						<button
-							class="btn-sm whitespace-nowrap text-danger"
-							disabled={deletingId === provider.id}
-							onclick={() => handleDelete(provider)}
-							title="Delete"
-						>
-							{#if deletingId === provider.id}
-								…
+							{count === 1
+								? $t('admin.system.providers.modelCountOne')
+								: $t('admin.system.providers.modelCount', { count: String(count) })}
+							{#if open}
+								<ChevronUp size={12} strokeWidth={2} aria-hidden="true" />
 							{:else}
-								<Trash2 class="h-4 w-4" size={16} strokeWidth={2} aria-hidden="true" />
+								<ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
 							{/if}
 						</button>
+
+						<button
+							type="button"
+							role="switch"
+							class="sys-toggle"
+							aria-checked={provider.enabled}
+							aria-label={$t('admin.system.providers.toggleA11y', {
+								provider: provider.displayName,
+							})}
+							disabled={togglingId === provider.id || busyProviderId === provider.id}
+							data-testid={`provider-toggle-${provider.id}`}
+							onclick={() => handleToggle(provider)}
+						>
+							<span class="sys-toggle-thumb"></span>
+						</button>
+						<span
+							class="sys-chip sys-chip-live"
+							title={$t('admin.system.appliesImmediately')}
+							aria-label={$t('admin.system.appliesImmediately')}
+							role="img"
+						>
+							<Bolt size={10} strokeWidth={2.5} aria-hidden="true" />
+						</span>
+
+						{#if onReorder}
+							<button
+								type="button"
+								class="sys-mini"
+								disabled={movingId === provider.id || index === 0}
+								aria-label={$t('admin.system.providers.moveUp', {
+									provider: provider.displayName,
+								})}
+								onclick={() => handleMove(provider, 'up')}
+							>
+								<ChevronUp size={13} strokeWidth={2} aria-hidden="true" />
+							</button>
+							<button
+								type="button"
+								class="sys-mini"
+								disabled={movingId === provider.id || index === shown.length - 1}
+								aria-label={$t('admin.system.providers.moveDown', {
+									provider: provider.displayName,
+								})}
+								onclick={() => handleMove(provider, 'down')}
+							>
+								<ChevronDown size={13} strokeWidth={2} aria-hidden="true" />
+							</button>
+						{/if}
+
+						<span style="position: relative">
+							<button
+								type="button"
+								class="sys-mini"
+								aria-haspopup="menu"
+								aria-expanded={menuProviderId === provider.id}
+								aria-label={$t('admin.system.providers.menu', {
+									provider: provider.displayName,
+								})}
+								disabled={busyProviderId === provider.id}
+								data-testid={`provider-menu-${provider.id}`}
+								onclick={() =>
+									(menuProviderId = menuProviderId === provider.id ? null : provider.id)}
+							>
+								<MoreVertical size={14} strokeWidth={2} aria-hidden="true" />
+							</button>
+							{#if menuProviderId === provider.id}
+								<div
+									class="sys-menu"
+									role="menu"
+									transition:drawerSlide={{ duration: 140 }}
+								>
+									<button
+										type="button"
+										role="menuitem"
+										class="sys-menu-item"
+										disabled={discoveringId === provider.id}
+										onclick={() => handleDiscover(provider)}
+									>
+										<Search size={14} strokeWidth={2} aria-hidden="true" />
+										{discoveringId === provider.id
+											? $t('common.loading')
+											: $t('admin.system.providers.discover')}
+									</button>
+									<button
+										type="button"
+										role="menuitem"
+										class="sys-menu-item"
+										onclick={() => {
+											closeMenu();
+											openProviderId = provider.id;
+											onManageModels?.(provider.id);
+										}}
+									>
+										<SlidersHorizontal size={14} strokeWidth={2} aria-hidden="true" />
+										{$t('admin.system.providers.manage')}
+									</button>
+									<button
+										type="button"
+										role="menuitem"
+										class="sys-menu-item"
+										onclick={() => {
+											closeMenu();
+											onEdit(provider);
+										}}
+									>
+										<Pencil size={14} strokeWidth={2} aria-hidden="true" />
+										{$t('admin.system.providers.edit')}
+									</button>
+									{#if onTest}
+										<button
+											type="button"
+											role="menuitem"
+											class="sys-menu-item"
+											onclick={() => {
+												closeMenu();
+												void onTest?.(provider);
+											}}
+										>
+											<TestTube size={14} strokeWidth={2} aria-hidden="true" />
+											{$t('admin.system.providers.test')}
+										</button>
+									{/if}
+									<span class="sys-menu-sep"></span>
+									<button
+										type="button"
+										role="menuitem"
+										class="sys-menu-item sys-menu-item-danger"
+										data-testid={`provider-delete-${provider.id}`}
+										onclick={() => {
+											closeMenu();
+											onDelete(provider);
+										}}
+									>
+										<Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+										{$t('admin.system.providers.delete')}
+									</button>
+								</div>
+							{/if}
+						</span>
 					</div>
+
+					{#if open}
+						<div class="sys-list-drawer" transition:drawerSlide={{ duration: 180 }}>
+							<div class="sys-list-drawer-head">
+								<span class="sys-eyebrow sys-grow">
+									{$t('admin.system.providers.modelsOn', {
+										provider: provider.displayName,
+									})}
+								</span>
+								<button
+									type="button"
+									class="sys-mini"
+									disabled={discoveringId === provider.id}
+									onclick={() => handleDiscover(provider)}
+								>
+									<RefreshCw size={12} strokeWidth={2} aria-hidden="true" />
+									{$t('admin.system.providers.discover')}
+								</button>
+							</div>
+							<div style="padding: 10px 12px">
+								{#if drawer}
+									{@render drawer(provider.id)}
+								{/if}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
 	{/if}
 
 	{#if message}
-		<p class="text-sm text-success">{message}</p>
+		<p class="sys-sm" style="color: var(--success)" role="status">{message}</p>
 	{/if}
 </div>

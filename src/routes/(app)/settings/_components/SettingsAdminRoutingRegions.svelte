@@ -1,6 +1,19 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import {
+	ChevronDown,
+	ChevronUp,
+	ExternalLink,
+	Plus,
+	RefreshCw,
+	RotateCcw,
+	Trash2,
+} from "@lucide/svelte";
+import { slide } from "svelte/transition";
+import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
+import { reducedMotionAware } from "$lib/utils/motion";
+import "./system/system.css";
 import {
 	fetchRoutingRegions,
 	refreshRoutingRegionTransit,
@@ -19,6 +32,18 @@ let busyId = $state<string | null>(null);
 let error = $state("");
 let message = $state("");
 let newRegionId = $state("");
+// The 60-second poll rebuilds the table; keeping the open feed lists in state
+// (rather than in a <details> element) means a refresh no longer closes them.
+let expandedRegions = $state<string[]>([]);
+let pendingRemove = $state<RoutingRegionSummary | null>(null);
+
+const feedSlide = reducedMotionAware(slide);
+
+function toggleFeeds(regionId: string) {
+	expandedRegions = expandedRegions.includes(regionId)
+		? expandedRegions.filter((id) => id !== regionId)
+		: [...expandedRegions, regionId];
+}
 
 async function load() {
 	loading = true;
@@ -105,7 +130,7 @@ async function refreshTimetable(id: string) {
 }
 
 async function remove(id: string) {
-	if (!confirm($t("admin.routingRegions.confirmRemove"))) return;
+	pendingRemove = null;
 	busyId = id;
 	error = "";
 	try {
@@ -139,20 +164,14 @@ async function retryFeed(regionId: string, feedId: string) {
 
 // A feed's own state, which is finer than the region's: "stale" and "error"
 // on a feed that still has a zip on disk are warnings, not outages.
-function feedClass(status: string): string {
-	if (status === "ready") return "text-green-700 dark:text-green-300";
-	if (status === "error") return "text-red-700 dark:text-red-300";
-	return "text-amber-700 dark:text-amber-300";
-}
-
-function statusClass(status: string): string {
-	if (status === "ready")
-		return "bg-green-500/15 text-green-700 dark:text-green-300";
-	if (status === "error") return "bg-red-500/15 text-red-700 dark:text-red-300";
-	// "none" is not a problem — the region simply has no GTFS feed configured,
-	// so it must not wear the amber "in progress" colour.
-	if (status === "none") return "bg-surface-muted text-text-secondary";
-	return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
+// One status vocabulary for regions and for the feeds inside them. "none" is
+// not a problem — the region simply has no GTFS feed configured — so it must
+// not wear the amber "in progress" colour.
+function statusPill(status: string): string {
+	if (status === "ready" || status === "fresh") return "sys-pill-ok";
+	if (status === "error" || status === "failed") return "sys-pill-danger";
+	if (status === "none") return "sys-pill-muted";
+	return "sys-pill-warn";
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -201,172 +220,248 @@ onMount(() => {
 });
 </script>
 
-<section class="settings-card mb-4" data-testid="routing-regions-section">
-	<div class="mb-2 flex items-center justify-between gap-3">
-		<h2 class="settings-section-title mb-0">{$t('admin.routingRegions.title')}</h2>
-		<button type="button" class="btn-secondary text-xs" onclick={() => void load()} disabled={loading}>
-			{$t('admin.routingRegions.refresh')}
-		</button>
+<div data-testid="routing-regions-section">
+	<div class="sys-card-head" style="margin-bottom: 10px">
+		<span class="sys-grow">
+			<p class="sys-card-desc" style="margin-top: 0">
+				{$t('admin.routingRegions.description')}
+			</p>
+			<p class="sys-xs sys-muted" style="margin: 4px 0 0">
+				{$t('admin.system.diagnostics.routingNote')}
+			</p>
+		</span>
+		<span class="sys-card-actions">
+			<button type="button" class="sys-mini" onclick={() => void load()} disabled={loading}>
+				<RefreshCw size={12} strokeWidth={2} aria-hidden="true" />
+				{$t('admin.system.diagnostics.refreshNow')}
+			</button>
+		</span>
 	</div>
-	<p class="mb-3 text-sm text-text-secondary">{$t('admin.routingRegions.description')}</p>
 
 	{#if !configured}
-		<p class="text-sm text-text-secondary">{$t('admin.routingRegions.notConfigured')}</p>
+		<p class="sys-sm sys-muted">{$t('admin.routingRegions.notConfigured')}</p>
 	{:else}
-		<div class="mb-3 flex flex-wrap items-center gap-2">
+		<div class="sys-row-control" style="margin-bottom: 10px">
 			<input
-				class="input-base w-64 text-sm"
+				class="sys-input sys-input-md"
 				placeholder={$t('admin.routingRegions.idPlaceholder')}
+				aria-label={$t('admin.routingRegions.idPlaceholder')}
 				bind:value={newRegionId}
 				onkeydown={(event) => {
-					if (event.key === "Enter") void request();
+					if (event.key === 'Enter') void request();
 				}}
 			/>
 			<button
 				type="button"
-				class="btn-primary text-xs"
+				class="sys-mini sys-mini-on"
 				onclick={() => void request()}
 				disabled={busyId !== null || !newRegionId.trim()}
 			>
+				<Plus size={12} strokeWidth={2} aria-hidden="true" />
 				{$t('admin.routingRegions.request')}
 			</button>
 			<a
-				class="text-xs text-text-secondary underline"
+				class="sys-mini"
 				href="https://download.geofabrik.de/"
 				target="_blank"
 				rel="noreferrer"
 			>
+				<ExternalLink size={12} strokeWidth={2} aria-hidden="true" />
 				{$t('admin.routingRegions.catalogue')}
 			</a>
 		</div>
 
 		{#if error}
-			<p class="mb-2 text-sm text-red-600" role="alert">{error}</p>
+			<p class="sys-error" role="alert">{error}</p>
 		{/if}
 		{#if message}
-			<p class="mb-2 text-sm text-text-secondary">{message}</p>
+			<p class="sys-sm sys-muted" role="status">{message}</p>
 		{/if}
 
-		<div class="overflow-x-auto">
-			<table class="w-full text-left text-sm">
+		<div class="sys-table-scroll">
+			<table class="sys-table">
 				<thead>
-					<tr class="text-xs uppercase text-text-secondary">
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colRegion')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colStatus')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colResident')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colGeocoder')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colTransit')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colSize')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colEndpoint')}</th>
-						<th class="py-1 pr-3">{$t('admin.routingRegions.colLastUsed')}</th>
-						<th class="py-1"></th>
+					<tr>
+						<th>{$t('admin.routingRegions.colRegion')}</th>
+						<th>{$t('admin.routingRegions.colStatus')}</th>
+						<th>{$t('admin.routingRegions.colResident')}</th>
+						<th>{$t('admin.routingRegions.colGeocoder')}</th>
+						<th>{$t('admin.routingRegions.colTransit')}</th>
+						<th>{$t('admin.routingRegions.colSize')}</th>
+						<th>{$t('admin.routingRegions.colEndpoint')}</th>
+						<th>{$t('admin.routingRegions.colLastUsed')}</th>
+						<th></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each regions as region (region.id)}
-						<tr class="border-t border-border-subtle align-top">
-							<td class="py-2 pr-3">
-								<div class="font-medium">{region.name}</div>
-								<div class="text-xs text-text-secondary">{region.id}{region.managed ? '' : ` · ${$t('admin.routingRegions.legacy')}`}</div>
+						<tr>
+							<td class="sys-td-primary">
+								<span class="sys-label">{region.name}</span>
+								<span class="sys-key">
+									{region.id}{region.managed ? '' : ` · ${$t('admin.routingRegions.legacy')}`}
+								</span>
 								{#if region.error}
-									<div class="mt-1 text-xs text-red-600">{region.error}</div>
+									<p class="sys-error">{region.error}</p>
 								{/if}
 							</td>
-							<td class="py-2 pr-3">
-								<span class={`rounded px-2 py-0.5 text-xs ${statusClass(region.status)}`}>{region.status}</span>
+							<td>
+								<span class={`sys-pill ${statusPill(region.status)}`}>{region.status}</span>
 								{#if statusDetail(region)}
-									<div class="mt-1 text-xs text-text-secondary">{statusDetail(region)}</div>
+									<p class="sys-xs sys-muted" style="margin: 4px 0 0">{statusDetail(region)}</p>
 								{/if}
 							</td>
-							<td class="py-2 pr-3 text-xs">
+							<td>
 								{#if region.managed}
-									<label class="flex items-center gap-1">
-										<input
-											type="checkbox"
-											checked={region.resident}
-											disabled={busyId === region.id}
-											onchange={() => void toggleResident(region)}
-											aria-label={$t('admin.routingRegions.colResident')}
-										/>
-										<span class="sr-only">{$t('admin.routingRegions.colResident')}</span>
-									</label>
+									<button
+										type="button"
+										role="switch"
+										class="sys-toggle"
+										aria-checked={region.resident}
+										aria-label={$t('admin.routingRegions.colResident')}
+										disabled={busyId === region.id}
+										onclick={() => void toggleResident(region)}
+									>
+										<span class="sys-toggle-thumb"></span>
+									</button>
 								{:else}
 									—
 								{/if}
 							</td>
-							<td class="py-2 pr-3 text-xs">{region.geocoderStatus}</td>
-							<td class="py-2 pr-3 text-xs" data-testid={`transit-${region.id}`}>
-								<span class={`rounded px-2 py-0.5 ${statusClass(region.transitStatus)}`}>{region.transitStatus}</span>
+							<td class="sys-xs">{region.geocoderStatus}</td>
+							<td class="sys-xs" data-testid={`transit-${region.id}`}>
+								<span class={`sys-pill ${statusPill(region.transitStatus)}`}>
+									{region.transitStatus}
+								</span>
 								{#if region.gtfsDownloadedAt}
-									<div class="mt-1 text-text-secondary">{formatDate(region.gtfsDownloadedAt)}</div>
+									<p class="sys-xs sys-muted" style="margin: 4px 0 0">
+										{formatDate(region.gtfsDownloadedAt)}
+									</p>
 								{/if}
 								{#if region.feeds?.length}
-									<details class="mt-1">
-										<summary class="cursor-pointer text-text-secondary">
-											{$t('admin.routingRegions.feedCount', {
-												ready: String(region.feeds.filter((feed) => feed.status !== 'error' && feed.status !== 'pending').length),
-												total: String(region.feeds.length),
-											})}
-										</summary>
-										<ul class="mt-1 space-y-1">
+									<button
+										type="button"
+										class="sys-mini"
+										style="margin-top: 4px"
+										aria-expanded={expandedRegions.includes(region.id)}
+										onclick={() => toggleFeeds(region.id)}
+									>
+										{#if expandedRegions.includes(region.id)}
+											<ChevronUp size={12} strokeWidth={2} aria-hidden="true" />
+										{:else}
+											<ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
+										{/if}
+										{$t('admin.routingRegions.feedCount', {
+											ready: String(
+												region.feeds.filter(
+													(feed) => feed.status !== 'error' && feed.status !== 'pending',
+												).length,
+											),
+											total: String(region.feeds.length),
+										})}
+									</button>
+									{#if expandedRegions.includes(region.id)}
+										<ul
+											class="sys-stack"
+											style="gap: 4px; list-style: none; padding: 6px 0 0; margin: 0"
+											transition:feedSlide={{ duration: 160 }}
+										>
 											{#each region.feeds as feed (feed.id)}
-												<li data-testid={`feed-${region.id}-${feed.id}`}>
-													<span class={feedClass(feed.status)}>{feed.status}</span>
-													<span class="ml-1">{feed.name}</span>
+												<li
+													class="sys-row-control"
+													data-testid={`feed-${region.id}-${feed.id}`}
+												>
+													<span class={`sys-pill ${statusPill(feed.status)}`}>{feed.status}</span>
+													<span class="sys-grow sys-truncate">{feed.name}</span>
 													{#if feed.downloadedAt}
-														<span class="ml-1 text-text-secondary">{formatDate(new Date(feed.downloadedAt).toISOString())}</span>
+														<span class="sys-xs sys-muted">
+															{formatDate(new Date(feed.downloadedAt).toISOString())}
+														</span>
 													{/if}
 													{#if feed.bytes}
-														<span class="ml-1 text-text-secondary">{formatSize(feed.bytes)}</span>
-													{/if}
-													{#if feed.error}
-														<div class="text-red-700 dark:text-red-300">{feed.error}</div>
+														<span class="sys-xs sys-muted">{formatSize(feed.bytes)}</span>
 													{/if}
 													<button
 														type="button"
-														class="btn-secondary ml-1 text-xs"
+														class="sys-mini"
 														onclick={() => void retryFeed(region.id, feed.id)}
 														disabled={busyId === region.id}
 													>
 														{$t('admin.routingRegions.retryFeed')}
 													</button>
+													{#if feed.error}
+														<p class="sys-error" style="flex-basis: 100%">{feed.error}</p>
+													{/if}
 												</li>
 											{/each}
 										</ul>
-									</details>
+									{/if}
 								{/if}
 							</td>
-							<td class="py-2 pr-3 text-xs">{formatSize(region.pbfSizeBytes)}</td>
-							<td class="py-2 pr-3 text-xs">{region.baseUrl ?? '—'}</td>
-							<td class="py-2 pr-3 text-xs">{formatDate(region.lastUsedAt)}</td>
-							<td class="py-2 text-right whitespace-nowrap">
-								{#if region.transitStatus !== 'none'}
-									<button
-										type="button"
-										class="btn-secondary text-xs"
-										onclick={() => void refreshTimetable(region.id)}
-										disabled={busyId === region.id}
-									>
-										{$t('admin.routingRegions.refreshTransit')}
-									</button>
-								{/if}
-								{#if region.managed}
-									{#if region.status === 'error' || (region.status === 'queued' && region.nextAttemptAt)}
-										<button type="button" class="btn-secondary text-xs" onclick={() => void retry(region.id)} disabled={busyId === region.id}>
-											{$t('admin.routingRegions.retry')}
+							<td class="sys-xs sys-num">{formatSize(region.pbfSizeBytes)}</td>
+							<td class="sys-xs sys-mono-text">{region.baseUrl ?? '—'}</td>
+							<td class="sys-xs">{formatDate(region.lastUsedAt)}</td>
+							<td>
+								<span class="sys-row-control" style="justify-content: flex-end">
+									{#if region.transitStatus !== 'none'}
+										<button
+											type="button"
+											class="sys-mini"
+											aria-label={$t('admin.routingRegions.refreshTransit')}
+											title={$t('admin.routingRegions.refreshTransit')}
+											onclick={() => void refreshTimetable(region.id)}
+											disabled={busyId === region.id}
+										>
+											<RefreshCw size={12} strokeWidth={2} aria-hidden="true" />
 										</button>
 									{/if}
-									<button type="button" class="btn-secondary ml-1 text-xs" onclick={() => void remove(region.id)} disabled={busyId === region.id}>
-										{$t('admin.routingRegions.remove')}
-									</button>
-								{/if}
+									{#if region.managed}
+										{#if region.status === 'error' || (region.status === 'queued' && region.nextAttemptAt)}
+											<button
+												type="button"
+												class="sys-mini"
+												aria-label={$t('admin.routingRegions.retry')}
+												title={$t('admin.routingRegions.retry')}
+												onclick={() => void retry(region.id)}
+												disabled={busyId === region.id}
+											>
+												<RotateCcw size={12} strokeWidth={2} aria-hidden="true" />
+											</button>
+										{/if}
+										<button
+											type="button"
+											class="sys-mini sys-mini-danger"
+											aria-label={$t('admin.routingRegions.remove')}
+											title={$t('admin.routingRegions.remove')}
+											onclick={() => (pendingRemove = region)}
+											disabled={busyId === region.id}
+										>
+											<Trash2 size={12} strokeWidth={2} aria-hidden="true" />
+										</button>
+									{/if}
+								</span>
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="9" class="py-2 text-sm text-text-secondary">{$t('admin.routingRegions.empty')}</td></tr>
+						<tr>
+							<td colspan="9" class="sys-sm sys-muted">
+								{$t('admin.routingRegions.empty')}
+							</td>
+						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 	{/if}
-</section>
+</div>
+
+{#if pendingRemove}
+	<ConfirmDialog
+		title={$t('admin.system.removeRegion.title', { name: pendingRemove.name })}
+		message={$t('admin.system.removeRegion.message')}
+		confirmText={$t('admin.routingRegions.remove')}
+		confirmVariant="danger"
+		onConfirm={() => void remove(pendingRemove?.id ?? '')}
+		onCancel={() => (pendingRemove = null)}
+	/>
+{/if}

@@ -110,7 +110,7 @@ test.describe("Big Patch integration — cross-feature workflow", () => {
 
 		await expect(async () => {
 			await page.getByRole("tab", { name: "Administration" }).click();
-			await expect(page.getByText("Add Provider")).toBeVisible({
+			await expect(page.getByTestId("admin-system-screen")).toBeVisible({
 				timeout: 1000,
 			});
 		}).toPass({ timeout: 10000 });

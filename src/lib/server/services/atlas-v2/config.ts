@@ -5,9 +5,9 @@
 
 import {
 	getAtlasStaleMonths,
+	getAtlasV2BudgetKnobs,
 	getAtlasV2ProfileKnobs,
 } from "$lib/server/config-store";
-import { config as envConfig } from "$lib/server/env";
 import type { AtlasProfile } from "../atlas/types";
 import { ATLAS_V2_BUDGETS, type AtlasV2Budget } from "./budget";
 import type { AtlasPipelineVersion } from "./types";
@@ -224,26 +224,38 @@ function safeEnvNumber(read: () => number | undefined): number | undefined {
 	}
 }
 
+// The budget knobs live in the runtime config singleton, which a pure unit-test
+// process may never have bootstrapped — same guard as safeProfileKnobs below.
+function safeBudgetKnobs(): ReturnType<typeof getAtlasV2BudgetKnobs> | null {
+	try {
+		return getAtlasV2BudgetKnobs();
+	} catch {
+		return null;
+	}
+}
+
 /**
  * The per-profile budget, with the two operationally interesting numbers —
  * the word ceiling and the indexed-source cap — overridable from the
- * environment so a live deployment can retune length without a redeploy.
+ * environment OR from admin config (System → Advanced), so a live deployment
+ * can retune length without a redeploy or a restart.
  */
 export function resolveAtlasV2Budget(profile: AtlasProfile): AtlasV2Budget {
 	const base = ATLAS_V2_BUDGETS[profile];
+	const knobs = safeBudgetKnobs();
 	const maxWords = safeEnvNumber(() =>
 		profile === "overview"
-			? envConfig.atlasV2MaxWordsOverview
+			? knobs?.maxWords.overview
 			: profile === "in-depth"
-				? envConfig.atlasV2MaxWordsInDepth
-				: envConfig.atlasV2MaxWordsExhaustive,
+				? knobs?.maxWords.inDepth
+				: knobs?.maxWords.exhaustive,
 	);
 	const maxSources = safeEnvNumber(() =>
 		profile === "overview"
-			? envConfig.atlasV2MaxSourcesOverview
+			? knobs?.maxSources.overview
 			: profile === "in-depth"
-				? envConfig.atlasV2MaxSourcesInDepth
-				: envConfig.atlasV2MaxSourcesExhaustive,
+				? knobs?.maxSources.inDepth
+				: knobs?.maxSources.exhaustive,
 	);
 	return {
 		...base,
@@ -256,7 +268,7 @@ export function resolveAtlasV2Budget(profile: AtlasProfile): AtlasV2Budget {
 /** Claims per batched entailment call. */
 export function getAtlasV2EntailmentBatchSize(): number {
 	return clamp(
-		safeEnvNumber(() => envConfig.atlasV2EntailmentBatch) ??
+		safeEnvNumber(() => safeBudgetKnobs()?.entailmentBatch) ??
 			ATLAS_V2_DEFAULT_ENTAILMENT_BATCH,
 		1,
 		25,
@@ -266,7 +278,7 @@ export function getAtlasV2EntailmentBatchSize(): number {
 /** Sections written in parallel. */
 export function getAtlasV2WriterConcurrency(): number {
 	return clamp(
-		safeEnvNumber(() => envConfig.atlasV2WriterConcurrency) ??
+		safeEnvNumber(() => safeBudgetKnobs()?.writerConcurrency) ??
 			ATLAS_V2_DEFAULT_WRITER_CONCURRENCY,
 		1,
 		8,

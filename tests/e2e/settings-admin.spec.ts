@@ -72,19 +72,23 @@ async function setAdminOverrideViaApi(page: Page, key: string, value: string) {
 	).toBe(true);
 }
 
-async function openAdministrationTab(page: Page) {
+// The System screen opens on its General page; every other setting is one
+// navigator click away.
+async function openAdministrationTab(page: Page, section = "general") {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
 	await page.getByRole("tab", { name: "Administration" }).click();
-	// Wait for the Models section header to be visible (always present on the System tab)
-	await expect(page.getByText("Add Provider")).toBeVisible();
+	await expect(page.getByTestId("admin-system-screen")).toBeVisible();
+	if (section !== "general") {
+		await page.getByTestId(`system-nav-${section}`).click();
+	}
 }
 
 async function openAdministrationUsersPane(page: Page) {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
 	await page.getByRole("tab", { name: "Administration" }).click();
-	await expect(page.getByText("Add Provider")).toBeVisible();
+	await expect(page.getByTestId("admin-system-screen")).toBeVisible();
 	await page.getByRole("button", { name: "Users" }).click();
 	await expect(page.getByRole("button", { name: "Create User" })).toBeVisible();
 }
@@ -101,24 +105,28 @@ async function savePromptFromUi(page: Page, value: string) {
 				response.request().method() === "PUT" &&
 				response.status() === 200,
 		),
-		page.getByRole("button", { name: "Save Configuration" }).click(),
+		// The bar names what it is about to write.
+		page.getByTestId("system-save").click(),
 	]);
 
 	await expect(page.getByText("Configuration saved.")).toBeVisible();
 }
 
-async function reloadAdministrationTab(page: Page) {
+async function reloadAdministrationTab(page: Page, section = "general") {
 	await page.reload();
 	await page.waitForLoadState("networkidle");
 	await page.getByRole("tab", { name: "Administration" }).click();
-	await expect(page.getByText("Add Provider")).toBeVisible();
+	await expect(page.getByTestId("admin-system-screen")).toBeVisible();
+	if (section !== "general") {
+		await page.getByTestId(`system-nav-${section}`).click();
+	}
 }
 
 test.describe("Admin prompt settings", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 		await setPromptOverrideViaApi(page, "");
-		await openAdministrationTab(page);
+		await openAdministrationTab(page, "aiTasks");
 	});
 
 	test.afterEach(async ({ page }) => {
@@ -134,6 +142,10 @@ test.describe("Admin prompt settings", () => {
 			normalizeSystemPromptReference(initialConfig.envDefaults.SYSTEM_PROMPT) ??
 			initialConfig.envDefaults.SYSTEM_PROMPT;
 
+		// The save bar only writes what changed, so re-saving an untouched field
+		// is a no-op now. Go via a custom prompt and back, which is the path an
+		// admin actually takes to end up storing the built-in one.
+		await savePromptFromUi(page, "A temporary prompt, so the field is dirty.");
 		await savePromptFromUi(page, builtInPrompt);
 
 		const savedConfig = await fetchAdminConfig(page);
@@ -143,7 +155,7 @@ test.describe("Admin prompt settings", () => {
 			expect(savedConfig.overrides.SYSTEM_PROMPT).toBeUndefined();
 		}
 
-		await reloadAdministrationTab(page);
+		await reloadAdministrationTab(page, "aiTasks");
 		await expect(page.locator("#SYSTEM_PROMPT")).toHaveValue(builtInPrompt);
 	});
 
@@ -156,7 +168,7 @@ test.describe("Admin prompt settings", () => {
 		const savedConfig = await fetchAdminConfig(page);
 		expect(savedConfig.overrides.SYSTEM_PROMPT).toBe(customPrompt);
 
-		await reloadAdministrationTab(page);
+		await reloadAdministrationTab(page, "aiTasks");
 		await expect(page.locator("#SYSTEM_PROMPT")).toHaveValue(customPrompt);
 	});
 
@@ -172,7 +184,7 @@ test.describe("Admin prompt settings", () => {
 		const savedConfig = await fetchAdminConfig(page);
 		expect(savedConfig.overrides.SYSTEM_PROMPT).toBeUndefined();
 
-		await reloadAdministrationTab(page);
+		await reloadAdministrationTab(page, "aiTasks");
 		await expect(page.locator("#SYSTEM_PROMPT")).toHaveValue(builtInPrompt);
 	});
 });
@@ -186,7 +198,7 @@ test.describe("Admin model routing settings", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 		await setAdminOverrideViaApi(page, "MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS", "");
-		await openAdministrationTab(page);
+		await openAdministrationTab(page, "models");
 	});
 
 	test.afterEach(async ({ page }) => {
@@ -206,15 +218,17 @@ test.describe("Admin model routing settings", () => {
 					response.request().method() === "PUT" &&
 					response.status() === 200,
 			),
-			page.getByRole("button", { name: "Save Configuration" }).click(),
+			page.getByTestId("system-save").click(),
 		]);
 
 		const savedConfig = await fetchAdminConfig(page);
 		expect(savedConfig.overrides.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS).toBe(
 			"4500",
 		);
+		// Only the edited key was written.
+		expect(savedConfig.overrides.MAX_MESSAGE_LENGTH).toBeUndefined();
 
-		await reloadAdministrationTab(page);
+		await reloadAdministrationTab(page, "models");
 		await expect(
 			page.locator("#MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS"),
 		).toHaveValue("4500");
@@ -244,7 +258,7 @@ test.describe("Admin app version settings", () => {
 					response.request().method() === "PUT" &&
 					response.status() === 200,
 			),
-			page.getByRole("button", { name: "Save Configuration" }).click(),
+			page.getByTestId("system-save").click(),
 		]);
 
 		await page.getByRole("button", { name: "Expand sidebar" }).click();

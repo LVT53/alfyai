@@ -267,24 +267,19 @@ test.describe("Core user flows smoke", () => {
 			await page.goto("/settings", { waitUntil: "domcontentloaded" });
 			await page.waitForLoadState("networkidle");
 			await page.getByRole("tab", { name: "Administration" }).click();
-			await expect(page.getByText("Add Provider")).toBeVisible({
+			await expect(page.getByTestId("admin-system-screen")).toBeVisible({
 				timeout: 10000,
 			});
-			const row = page
-				.getByText(displayName)
-				.locator(
-					"xpath=ancestor::div[contains(@class, 'items-center') and contains(@class, 'justify-between')][1]",
-				);
+			await page.getByTestId("system-nav-models").click();
+
+			const row = page.getByTestId(`provider-row-${providerId}`);
 			await expect(row).toBeVisible({ timeout: 15000 });
-			await row.getByRole("button", { name: "Manage models" }).click();
-			const modelManager = page.locator(".fixed.inset-0").filter({
-				has: page.getByRole("heading", { name: "Models", exact: true }),
-			});
+			await expect(row.getByText(displayName)).toBeVisible();
+
+			// The provider's models open in a drawer on its own row.
+			await page.getByTestId(`provider-models-${providerId}`).click();
 			await expect(
-				modelManager.getByRole("heading", { name: "Models", exact: true }),
-			).toBeVisible({ timeout: 10000 });
-			await expect(
-				modelManager.getByText("Smoke Provider Chat Model", { exact: true }),
+				page.getByText("Smoke Provider Chat Model", { exact: true }),
 			).toBeVisible({ timeout: 10000 });
 		} finally {
 			if (providerId) {

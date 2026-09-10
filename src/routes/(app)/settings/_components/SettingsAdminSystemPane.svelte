@@ -1,24 +1,40 @@
 <script lang="ts">
+// The admin System screen.
+//
+// Thirteen stacked cards became seven named pages behind a left navigator plus
+// one read-only Diagnostics page. Nothing was removed: the same config keys are
+// here, grouped by the concern they belong to instead of the order they were
+// written in, and the navigator carries an unsaved-count badge per page so a
+// pending edit on another page can never be lost silently.
+import { beforeNavigate, goto } from "$app/navigation";
+import { get } from "svelte/store";
 import {
+	batchCreateProviderModels,
 	createAdminSystemSkill,
-	fetchAdminSystemSkills,
-	updateAdminConfig,
-	updateAdminSystemSkill,
-	fetchPersonalityProfiles,
 	createProviderEntry,
 	deleteProviderEntry,
 	discoverProviderModels,
-	batchCreateProviderModels,
+	fetchAdminSystemSkills,
+	fetchPersonalityProfiles,
 	fetchProviderList,
 	fetchProviderModels,
+	updateAdminConfig,
+	updateAdminSystemSkill,
 	updateProviderEntry,
 	updateProviderModel as updateModelProvider,
 	type AdminSystemSkill,
 	type AdminSystemSkillDraft,
-	type PersonalityProfileSummary,
 	type Provider,
 	type ProviderModel,
 } from "$lib/client/api/admin";
+import {
+	fetchAdminConfigOverrideMeta,
+	fetchAdminEffectiveConfig,
+	fetchAdminToolHealth,
+	validateProviderConnection,
+	type EffectiveConfigReport,
+	type ToolHealthSnapshot,
+} from "$lib/client/api/admin-system-health";
 import {
 	saveModelIconAssetCrop,
 	uploadCampaignAssetSource,
@@ -26,28 +42,44 @@ import {
 	type CampaignAsset,
 	type CampaignAssetCropGeometry,
 } from "$lib/client/api/campaign-assets";
+import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
+import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import {
-	fetchAdminEffectiveConfig,
-	fetchAdminToolHealth,
-	type BuiltinModelResolution,
-	type EffectiveConfigReport,
-	type EffectiveConfigSource,
-	type ToolHealthSnapshot,
-	type ToolHealthStatus,
-} from "$lib/client/api/admin-system-health";
-import { get } from "svelte/store";
+	ADVANCED_KEY_SPECS,
+	validateAdminConfigValue,
+} from "$lib/config/admin-config-registry";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
-import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
-import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import ModelList from "./ModelList.svelte";
 import ProviderForm from "./ProviderForm.svelte";
 import ProviderList from "./ProviderList.svelte";
-import ModelList from "./ModelList.svelte";
+import AdvancedPage from "./system/AdvancedPage.svelte";
+import AiTasksPage from "./system/AiTasksPage.svelte";
+import DiagnosticsPage from "./system/DiagnosticsPage.svelte";
+import GeneralPage from "./system/GeneralPage.svelte";
+import IntegrationsPage from "./system/IntegrationsPage.svelte";
+import LeaveGuardDialog from "./system/LeaveGuardDialog.svelte";
+import LimitsPage from "./system/LimitsPage.svelte";
+import ModelsPage from "./system/ModelsPage.svelte";
+import SkillDialog from "./system/SkillDialog.svelte";
+import SkillsPage from "./system/SkillsPage.svelte";
+import SystemNav from "./system/SystemNav.svelte";
+import SystemSaveBar from "./system/SystemSaveBar.svelte";
+import SystemSearch from "./system/SystemSearch.svelte";
+import { buildModelOptionGroups } from "./system/model-options";
+import {
+	keyCountForPage,
+	pageForKey,
+	type SystemPageId,
+	type SystemSearchItem,
+} from "./system/pages";
+import "./system/system.css";
 
 const tVal = get(t);
 
 let {
 	adminConfig = $bindable(),
+	adminConfigSaved = $bindable({}),
 	envDefaults = {},
 	availableModels = [],
 	adminSaving = false,
@@ -56,6 +88,14 @@ let {
 	onSaveAdminConfig,
 }: {
 	adminConfig: Record<string, string>;
+	/**
+	 * The values the server last confirmed. It is a prop, not local state,
+	 * because opening the Users or Campaigns sub-tab unmounts this pane: a
+	 * baseline that died with the component would be re-snapshotted from the
+	 * already-edited `adminConfig` on the way back, and every pending edit
+	 * would read as saved and never be sent.
+	 */
+	adminConfigSaved?: Record<string, string>;
 	envDefaults?: Record<string, string>;
 	availableModels?: Array<{
 		id: ModelId;
@@ -65,14 +105,170 @@ let {
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
-	onSaveAdminConfig: () => void | Promise<void>;
+	// Widened additively: the pane sends only what changed, so an untouched key
+	// never gets an admin_config row (and a masked secret is never re-sent).
+	// An explicit `false` result means the write was rejected and the edits
+	// stay pending. `unknown` rather than a union: a handler that returns
+	// nothing (every test mock does) must stay assignable.
+	onSaveAdminConfig: (patch?: Record<string, string>) => unknown;
 } = $props();
+
+// --- page + pending-change state -----------------------------------------
+
+let activePage = $state<SystemPageId>("general");
+let diagnosticsTab = $state("toolHealth");
+let highlightKey = $state("");
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+
+// The editable copy. The prop is written through on every edit (so the page
+// that owns it, and anything else reading it, stays in step), but the screen
+// reads THIS, which is reactive whatever the parent passed in.
+let draft = $state<Record<string, string>>({});
+let baselineReady = $state(false);
+let lastSavedAt = $state("");
+let leaveGuardOpen = $state(false);
+let pendingNavigation: (() => void) | null = null;
+
+// The baseline lives on the parent (`adminConfigSaved`) so it survives this
+// pane being unmounted and remounted by a sub-tab switch.
+const baseline = $derived(adminConfigSaved ?? {});
+
+/** Written in place, so the parent's object is updated whether it was bound
+ *  with `bind:` or handed over as a plain record. */
+function commitSaved(next: Record<string, string>) {
+	const target = adminConfigSaved;
+	if (!target) return;
+	for (const key of Object.keys(target)) delete target[key];
+	Object.assign(target, next);
+}
+
+$effect(() => {
+	// The page load hands over the resolved values once; that snapshot is what
+	// "unsaved" is measured against. On a REMOUNT `adminConfig` already carries
+	// the pending edits, so only the draft is re-taken — the saved snapshot is
+	// whatever the parent still holds.
+	if (baselineReady) return;
+	const snapshot = { ...adminConfig };
+	if (Object.keys(snapshot).length === 0) return;
+	draft = { ...snapshot };
+	if (Object.keys(baseline).length === 0) commitSaved(snapshot);
+	baselineReady = true;
+});
+
+function asString(value: unknown): string {
+	return value === undefined || value === null ? "" : String(value);
+}
+
+const dirtyKeys = $derived.by(() => {
+	if (!baselineReady) return [] as string[];
+	const keys = new Set([...Object.keys(baseline), ...Object.keys(draft)]);
+	return [...keys].filter(
+		(key) => asString(draft[key]) !== asString(baseline[key]),
+	);
+});
+
+const dirtySet = $derived(new Set(dirtyKeys));
+
+function isDirty(key: string): boolean {
+	return dirtySet.has(key);
+}
+
+const dirtyByPage = $derived.by(() => {
+	const counts: Partial<Record<SystemPageId, number>> = {};
+	for (const key of dirtyKeys) {
+		const page = pageForKey(key) ?? "advanced";
+		counts[page] = (counts[page] ?? 0) + 1;
+	}
+	return counts;
+});
+
+const invalidKeys = $derived.by(() =>
+	ADVANCED_KEY_SPECS.filter((spec) => {
+		if (!dirtySet.has(spec.key)) return false;
+		return !validateAdminConfigValue(spec, asString(draft[spec.key])).ok;
+	}).map((spec) => spec.key),
+);
+
+function setValue(key: string, value: string) {
+	draft[key] = value;
+	adminConfig[key] = value;
+}
+
+/** Explicit reset: an empty value deletes the override on the next save. */
+function resetValue(key: string) {
+	setValue(key, "");
+}
+
+/** Cancel a pending edit without touching what is stored. */
+function revertValue(key: string) {
+	setValue(key, baseline[key] ?? "");
+}
+
+function discardAll() {
+	for (const key of dirtyKeys) {
+		setValue(key, baseline[key] ?? "");
+	}
+}
+
+async function saveChanges() {
+	if (dirtyKeys.length === 0 || invalidKeys.length > 0) return;
+	const patch: Record<string, string> = {};
+	for (const key of dirtyKeys) {
+		const value = asString(draft[key]);
+		// The server masks some secrets as "[set]"; sending that back would store
+		// the sentinel as the key. An untouched secret is simply not in the patch.
+		if (value === "[set]") continue;
+		patch[key] = value;
+	}
+	const saved = await onSaveAdminConfig(patch);
+	// A rejected write must not clear the pending marks: the admin would be
+	// told everything is saved while the server still holds the old values.
+	if (saved === false) return;
+	commitSaved({ ...draft });
+	lastSavedAt = new Date().toLocaleTimeString(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+	void loadOverrideMeta();
+}
+
+// Guarded: several component tests mock `$app/navigation` with only the
+// exports they use, and touching a missing export on that mock throws.
+try {
+	beforeNavigate((navigation) => {
+		if (dirtyKeys.length === 0 || leaveGuardOpen) return;
+		if (navigation.type === "leave") return;
+		navigation.cancel();
+		const target = navigation.to?.url;
+		pendingNavigation = target ? () => void goto(target) : null;
+		leaveGuardOpen = true;
+	});
+} catch {
+	// No navigation guard available; the save bar still reports what is pending.
+}
+
+function leaveNow() {
+	const go = pendingNavigation;
+	pendingNavigation = null;
+	leaveGuardOpen = false;
+	go?.();
+}
+
+const leaveItems = $derived(
+	dirtyKeys.slice(0, 12).map((key) => ({
+		key,
+		label: searchLabelFor(key),
+		page: pageForKey(key) ?? ("advanced" as SystemPageId),
+	})),
+);
+
+// --- providers ------------------------------------------------------------
 
 let providerConfigs: Provider[] = $state([]);
 let providerConfigsLoading = $state(false);
 let providerConfigsError = $state("");
-let providerConfigsMessage = $state("");
 let allProviderModels: ProviderModel[] = $state([]);
+let openProviderId = $state("");
 let showProviderForm = $state(false);
 let providerFormProvider: Provider | null = $state(null);
 let providerFormIsCreate = $state(false);
@@ -81,42 +277,48 @@ let providerFormError = $state("");
 let providerFormTesting = $state(false);
 let providerFormTestError = $state("");
 let providerFormTestMessage = $state("");
-let showModelList = $state(false);
-let modelListProviderId = $state("");
-let modelListKey = $state(0);
-let adminPersonalities: PersonalityProfileSummary[] = $state([]);
-let systemSkills: AdminSystemSkill[] = $state([]);
-let systemSkillsLoading = $state(false);
-let systemSkillsError = $state("");
-let systemSkillsMessage = $state("");
-let editingSystemSkillId: string | null = $state(null);
-let systemSkillSaving = $state(false);
-let systemSkillDraft: AdminSystemSkillDraft & {
-	activationExamplesText: string;
-} = $state({
-	displayName: "",
-	description: "",
-	instructions: "",
-	activationExamplesText: "",
-	enabled: true,
-	published: false,
-	durationPolicy: "next_message",
-	questionPolicy: "ask_when_needed",
-	notesPolicy: "none",
-	sourceScope: "selected_sources_only",
-});
-
-$effect(() => {
-	void fetchPersonalityProfiles()
-		.then((p) => {
-			adminPersonalities = p;
-		})
-		.catch(() => {});
-});
+let pendingProviderDelete: Provider | null = $state(null);
+// The row whose delete is in flight — its controls go inert until the list
+// comes back, the way the old list's `deletingId` did.
+let deletingProviderId = $state("");
 let providersMessage = $state("");
 let iconUploading: string | null = $state(null);
 let providersMessageTimer: ReturnType<typeof setTimeout> | undefined;
 let systemSkillsMessageTimer: ReturnType<typeof setTimeout> | undefined;
+let overrideMeta = $state<Record<string, { updatedAt: string }>>({});
+
+const secretChangedAt = $derived.by(() => {
+	const map: Record<string, string> = {};
+	for (const [key, meta] of Object.entries(overrideMeta)) {
+		const date = new Date(meta.updatedAt);
+		map[key] = Number.isNaN(date.getTime())
+			? ""
+			: date.toLocaleDateString(undefined, {
+					year: "numeric",
+					month: "short",
+					day: "numeric",
+				});
+	}
+	return map;
+});
+
+// Kept because the endpoint is part of the screen's contract; the old pane
+// fetched it into state that nothing ever rendered.
+$effect(() => {
+	void fetchPersonalityProfiles().catch(() => {});
+});
+
+async function loadOverrideMeta() {
+	try {
+		overrideMeta = await fetchAdminConfigOverrideMeta();
+	} catch {
+		overrideMeta = {};
+	}
+}
+
+$effect(() => {
+	void loadOverrideMeta();
+});
 
 type ModelIconTarget =
 	| { kind: "built-in"; modelName: "model1" | "model2" }
@@ -154,24 +356,6 @@ function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
 
-function campaignAssetContentUrl(
-	assetId: string | null | undefined,
-): string | null {
-	return assetId
-		? `/api/campaign-assets/${encodeURIComponent(assetId)}/content`
-		: null;
-}
-
-function builtInIconAssetId(modelName: "model1" | "model2"): string | null {
-	const key =
-		modelName === "model1" ? "MODEL_1_ICON_ASSET_ID" : "MODEL_2_ICON_ASSET_ID";
-	return adminConfig[key] || null;
-}
-
-function builtInIconUrl(modelName: "model1" | "model2"): string | null {
-	return campaignAssetContentUrl(builtInIconAssetId(modelName));
-}
-
 function isSvgFile(file: File): boolean {
 	return (
 		file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg")
@@ -184,7 +368,9 @@ async function applyModelIconAsset(target: ModelIconTarget, assetId: string) {
 			target.modelName === "model1"
 				? "MODEL_1_ICON_ASSET_ID"
 				: "MODEL_2_ICON_ASSET_ID";
-		adminConfig[configKey] = assetId;
+		// Icon uploads PATCH immediately, so the new value is the saved value.
+		setValue(configKey, assetId);
+		baseline[configKey] = assetId;
 		await updateAdminConfig({ [configKey]: assetId });
 	} else if (target.kind === "provider") {
 		await updateProviderEntry(target.providerId, { iconAssetId: assetId });
@@ -215,7 +401,6 @@ async function handleModelIconFile(event: Event, target: ModelIconTarget) {
 				: `model:${target.modelId}`;
 	iconUploading = key;
 	providerConfigsError = "";
-	providerConfigsMessage = "";
 	try {
 		if (isSvgFile(file)) {
 			const asset = await uploadModelIconAsset({ image: file });
@@ -338,6 +523,7 @@ function handleProviderIconFile(event: Event) {
 		providerId: providerFormProvider.id,
 	});
 }
+
 function closeProviderForm() {
 	showProviderForm = false;
 	providerFormProvider = null;
@@ -349,7 +535,6 @@ function closeProviderForm() {
 async function handleProviderFormSave(data: Record<string, unknown>) {
 	providerFormSaving = true;
 	providerFormError = "";
-	providerConfigsMessage = "";
 	try {
 		if (providerFormIsCreate) {
 			await createProviderEntry(
@@ -372,8 +557,31 @@ async function handleProviderFormSave(data: Record<string, unknown>) {
 	}
 }
 
-async function handleDeleteProviderConfig(provider: Provider) {
-	providerConfigsMessage = "";
+async function handleTestProvider(provider: Provider | null) {
+	const target = provider ?? providerFormProvider;
+	if (!target) return;
+	providerFormTesting = true;
+	providerFormTestError = "";
+	providerFormTestMessage = "";
+	try {
+		const result = await validateProviderConnection(target.id);
+		if (result.valid) {
+			providerFormTestMessage = $t("admin.providerTestOk");
+		} else {
+			providerFormTestError = result.error || $t("admin.providerTestFailed");
+		}
+	} catch (error: unknown) {
+		providerFormTestError = errorMessage(error, $t("admin.providerTestFailed"));
+	} finally {
+		providerFormTesting = false;
+	}
+}
+
+async function confirmDeleteProvider() {
+	const provider = pendingProviderDelete;
+	pendingProviderDelete = null;
+	if (!provider) return;
+	deletingProviderId = provider.id;
 	try {
 		await deleteProviderEntry(provider.id);
 		showProvidersMessage($t("admin.providerDeleted"));
@@ -383,6 +591,8 @@ async function handleDeleteProviderConfig(provider: Provider) {
 			error,
 			$t("admin.failedDeleteProvider"),
 		);
+	} finally {
+		deletingProviderId = "";
 	}
 }
 
@@ -405,23 +615,24 @@ async function handleDiscoverProviderConfig(provider: Provider) {
 	try {
 		const models = await discoverProviderModels(provider.id);
 		if (models.length === 0) {
-			showProvidersMessage("No models discovered.");
+			showProvidersMessage($t("admin.discoverNone"));
 			return;
 		}
-		showProvidersMessage(`Discovered ${models.length} model(s). Creating...`);
+		showProvidersMessage(
+			$t("admin.discoverFound", { count: String(models.length) }),
+		);
 		const created = await batchCreateProviderModels(provider.id, models);
 		showProvidersMessage(
-			`Created ${created.length} model(s). Refresh the model list to see them.`,
+			$t("admin.discoverCreated", { count: String(created.length) }),
 		);
+		await loadProviderConfigs();
 	} catch (error: unknown) {
-		providerConfigsError = errorMessage(error, "Failed to discover models.");
+		providerConfigsError = errorMessage(error, $t("admin.discoverFailed"));
 	}
 }
 
 function handleManageModels(providerId: string) {
-	modelListProviderId = providerId;
-	showModelList = true;
-	modelListKey += 1;
+	openProviderId = providerId;
 }
 
 async function handleReorderProvider(
@@ -446,21 +657,44 @@ async function handleReorderProvider(
 		updateProviderEntry(a.id, { sortOrder: targetIdx }),
 		updateProviderEntry(b.id, { sortOrder: idx }),
 	]).catch((err) => {
-		providerConfigsError = errorMessage(err, "Failed to reorder");
+		providerConfigsError = errorMessage(err, $t("admin.reorderFailed"));
 	});
-}
-
-function closeModelList() {
-	showModelList = false;
-	modelListProviderId = "";
 }
 
 function handleModelModelIconFile(event: Event, modelId: string) {
 	handleModelIconFile(event, {
 		kind: "model",
 		modelId,
-		providerId: modelListProviderId,
+		providerId: openProviderId,
 	});
+}
+
+// --- skills ---------------------------------------------------------------
+
+let systemSkills: AdminSystemSkill[] = $state([]);
+let systemSkillsLoading = $state(false);
+let systemSkillsError = $state("");
+let systemSkillsMessage = $state("");
+let editingSystemSkillId: string | null = $state(null);
+let systemSkillSaving = $state(false);
+let showSkillDialog = $state(false);
+let systemSkillDraft: AdminSystemSkillDraft & {
+	activationExamplesText: string;
+} = $state(emptySkillDraft());
+
+function emptySkillDraft() {
+	return {
+		displayName: "",
+		description: "",
+		instructions: "",
+		activationExamplesText: "",
+		enabled: true,
+		published: false,
+		durationPolicy: "next_message" as const,
+		questionPolicy: "ask_when_needed" as const,
+		notesPolicy: "none" as const,
+		sourceScope: "selected_sources_only" as const,
+	};
 }
 
 async function loadSystemSkills() {
@@ -478,20 +712,11 @@ async function loadSystemSkills() {
 	}
 }
 
-function resetSystemSkillDraft() {
+function openNewSkill() {
 	editingSystemSkillId = null;
-	systemSkillDraft = {
-		displayName: "",
-		description: "",
-		instructions: "",
-		activationExamplesText: "",
-		enabled: true,
-		published: false,
-		durationPolicy: "next_message",
-		questionPolicy: "ask_when_needed",
-		notesPolicy: "none",
-		sourceScope: "selected_sources_only",
-	};
+	systemSkillDraft = emptySkillDraft();
+	systemSkillsError = "";
+	showSkillDialog = true;
 }
 
 function editSystemSkill(skill: AdminSystemSkill) {
@@ -509,6 +734,7 @@ function editSystemSkill(skill: AdminSystemSkill) {
 		notesPolicy: skill.notesPolicy,
 		sourceScope: skill.sourceScope,
 	};
+	showSkillDialog = true;
 }
 
 function systemSkillPayload(): AdminSystemSkillDraft {
@@ -540,7 +766,9 @@ async function saveSystemSkill() {
 			await createAdminSystemSkill(systemSkillPayload());
 			showSystemSkillsMessage($t("admin.systemSkills.created"));
 		}
-		resetSystemSkillDraft();
+		showSkillDialog = false;
+		editingSystemSkillId = null;
+		systemSkillDraft = emptySkillDraft();
 		await loadSystemSkills();
 	} catch (error: unknown) {
 		systemSkillsError = errorMessage(
@@ -569,131 +797,6 @@ async function updateSystemSkillFlags(
 	}
 }
 
-function modelNameDisplay(name: string): string {
-	return name === "model1"
-		? adminConfig.MODEL_1_DISPLAY_NAME || "Model 1"
-		: name === "model2"
-			? adminConfig.MODEL_2_DISPLAY_NAME || "Model 2"
-			: name;
-}
-
-function adminModelOptions(): Array<{
-	id: ModelId;
-	displayName: string;
-}> {
-	const options = new Map<ModelId, string>();
-	for (const model of availableModels) {
-		options.set(model.id, model.displayName);
-	}
-	if (!options.has("model1")) {
-		options.set("model1", adminConfig.MODEL_1_DISPLAY_NAME || "Model 1");
-	}
-	if (adminConfig.MODEL_2_ENABLED !== "false" && !options.has("model2")) {
-		options.set("model2", adminConfig.MODEL_2_DISPLAY_NAME || "Model 2");
-	}
-	for (const provider of providerConfigs) {
-		if (!provider.enabled) continue;
-		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
-	}
-	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
-}
-
-function isExplicitProviderModelId(modelId: ModelId): boolean {
-	return modelId.startsWith("provider:") && modelId.split(":").length >= 3;
-}
-
-function timeoutFailoverTargetModelOptions(): Array<{
-	id: ModelId;
-	displayName: string;
-}> {
-	return availableModels
-		.filter(
-			(model) =>
-				model.id === "model1" ||
-				model.id === "model2" ||
-				isExplicitProviderModelId(model.id),
-		)
-		.map((model) => ({
-			id: model.id,
-			displayName: model.displayName,
-		}));
-}
-
-function timeoutFailoverTargetModelValue(): ModelId {
-	const configured = adminConfig.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL || "";
-	const options = timeoutFailoverTargetModelOptions();
-	if (options.some((model) => model.id === configured)) {
-		return configured as ModelId;
-	}
-	return options[0]?.id ?? "model2";
-}
-
-function memoryModelOptions(
-	key: "MEMORY_JUDGE_MODEL" | "MEMORY_CONSOLIDATION_MODEL",
-): Array<{
-	id: ModelId;
-	displayName: string;
-}> {
-	const options = timeoutFailoverTargetModelOptions();
-	const configured = adminConfig[key] || "";
-	if (configured && !options.some((model) => model.id === configured)) {
-		return [...options, { id: configured as ModelId, displayName: configured }];
-	}
-	return options;
-}
-
-function memoryModelValue(
-	key: "MEMORY_JUDGE_MODEL" | "MEMORY_CONSOLIDATION_MODEL",
-): ModelId {
-	const configured = adminConfig[key] || "";
-	// memoryModelOptions() appends any stale/unknown configured id, so a
-	// non-empty value always matches an option. Fall back to the first option
-	// (never a blank, index -1 select) if the config is somehow empty — matches
-	// the sibling failover/default-user-model value getters.
-	if (configured) {
-		return configured as ModelId;
-	}
-	return memoryModelOptions(key)[0]?.id ?? "model1";
-}
-
-function defaultNewUserModelOptions(): Array<{
-	id: ModelId;
-	displayName: string;
-}> {
-	const options = new Map<ModelId, string>();
-	for (const provider of providerConfigs) {
-		if (!provider.enabled) continue;
-		options.set(`provider:${provider.id}` as ModelId, provider.displayName);
-	}
-	for (const model of adminModelOptions()) {
-		if (!options.has(model.id)) {
-			options.set(model.id, model.displayName);
-		}
-	}
-	return Array.from(options, ([id, displayName]) => ({ id, displayName }));
-}
-
-function defaultNewUserModelValue(): ModelId {
-	const configured = (adminConfig.DEFAULT_NEW_USER_MODEL ||
-		envDefaults.DEFAULT_NEW_USER_MODEL ||
-		"model1") as ModelId;
-	const options = defaultNewUserModelOptions();
-	return options.some((model) => model.id === configured)
-		? configured
-		: (options[0]?.id ?? "model1");
-}
-
-function atlasModelValue(
-	key: "ATLAS_SYNTHESIS_MODEL" | "ATLAS_AUDIT_MODEL",
-): ModelId {
-	const configured = (adminConfig[key] ||
-		envDefaults[key] ||
-		"model1") as ModelId;
-	return adminModelOptions().some((model) => model.id === configured)
-		? configured
-		: "model1";
-}
-
 $effect(() => {
 	void loadProviderConfigs();
 });
@@ -702,7 +805,7 @@ $effect(() => {
 	void loadSystemSkills();
 });
 
-// --- Tool health + effective configuration (read-only diagnostics) ---------
+// --- diagnostics ----------------------------------------------------------
 
 let toolHealth: ToolHealthSnapshot | null = $state(null);
 let toolHealthLoading = $state(false);
@@ -711,35 +814,6 @@ let toolHealthError = $state("");
 let effectiveConfig: EffectiveConfigReport | null = $state(null);
 let effectiveConfigLoading = $state(false);
 let effectiveConfigError = $state("");
-let effectiveConfigFilter = $state("");
-
-const TOOL_HEALTH_STATUS_LABEL: Record<ToolHealthStatus, I18nKey> = {
-	healthy: "admin.toolHealth.status.healthy",
-	degraded: "admin.toolHealth.status.degraded",
-	unconfigured: "admin.toolHealth.status.unconfigured",
-};
-
-const TOOL_HEALTH_STATUS_CLASS: Record<ToolHealthStatus, string> = {
-	healthy: "border-success/40 bg-success/10 text-success",
-	degraded: "border-danger/40 bg-danger/10 text-danger",
-	unconfigured: "border-border bg-surface-page text-text-muted",
-};
-
-const EFFECTIVE_CONFIG_SOURCE_LABEL: Record<EffectiveConfigSource, I18nKey> = {
-	admin_config: "admin.effectiveConfig.source.admin_config",
-	env: "admin.effectiveConfig.source.env",
-	default: "admin.effectiveConfig.source.default",
-};
-
-const EFFECTIVE_CONFIG_RESOLVED_FROM_LABEL: Record<
-	BuiltinModelResolution["resolvedFrom"],
-	I18nKey
-> = {
-	providers_table: "admin.effectiveConfig.models.resolvedFrom.providers_table",
-	admin_config_env:
-		"admin.effectiveConfig.models.resolvedFrom.admin_config_env",
-	unresolved: "admin.effectiveConfig.models.resolvedFrom.unresolved",
-};
 
 async function loadToolHealth(refresh = false) {
 	if (refresh) toolHealthRefreshing = true;
@@ -778,951 +852,377 @@ $effect(() => {
 	void loadEffectiveConfig();
 });
 
-function formatCheckedAt(iso: string): string {
-	if (!iso) return "";
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return iso;
-	return date.toLocaleTimeString(undefined, {
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
-}
-
-function formatLatency(latencyMs: number | null): string {
-	return latencyMs === null ? "—" : `${Math.round(latencyMs)} ms`;
-}
-
-const filteredEffectiveConfig = $derived.by(() => {
-	const entries = effectiveConfig?.entries ?? [];
-	const needle = effectiveConfigFilter.trim().toLowerCase();
-	if (!needle) return entries;
-	return entries.filter(
-		(entry) =>
-			entry.key.toLowerCase().includes(needle) ||
-			entry.effectiveValue.toLowerCase().includes(needle) ||
-			(entry.adminOverride ?? "").toLowerCase().includes(needle),
-	);
+// The Knowledge/tool deep link (/settings?section=tool-health) opens the
+// read-only page rather than scrolling a card into the middle of a form.
+$effect(() => {
+	if (typeof window === "undefined") return;
+	const section = new URLSearchParams(window.location.search).get("section");
+	if (section === "tool-health") {
+		activePage = "diagnostics";
+		diagnosticsTab = "toolHealth";
+	}
 });
 
-function configLabelKey(key: string): I18nKey {
-	const map: Record<string, string> = {
-		MODEL_1_BASEURL: "admin.model1BaseUrl",
-		MODEL_1_API_KEY: "admin.model1ApiKey",
-		MODEL_1_NAME: "admin.model1Name",
-		MODEL_1_DISPLAY_NAME: "admin.model1DisplayName",
-		MODEL_1_ICON_ASSET_ID: "admin.model1IconAssetId",
-		MODEL_1_SYSTEM_PROMPT: "admin.model1SystemPrompt",
-		MODEL_2_BASEURL: "admin.model2BaseUrl",
-		MODEL_2_API_KEY: "admin.model2ApiKey",
-		MODEL_2_NAME: "admin.model2Name",
-		MODEL_2_DISPLAY_NAME: "admin.model2DisplayName",
-		MODEL_2_ICON_ASSET_ID: "admin.model2IconAssetId",
-		MODEL_2_SYSTEM_PROMPT: "admin.model2SystemPrompt",
-		MODEL_1_ENABLED: "admin.model1Enabled",
-		MODEL_2_ENABLED: "admin.model2Enabled",
-		COMPOSER_COMMAND_REGISTRY_ENABLED: "admin.composerCommandRegistryEnabled",
-		APP_VERSION_OVERRIDE: "admin.appVersionOverride",
-		MODEL_1_MAX_MODEL_CONTEXT: "admin.model1MaxModelContext",
-		MODEL_1_COMPACTION_UI_THRESHOLD: "admin.model1CompactionThreshold",
-		MODEL_1_TARGET_CONSTRUCTED_CONTEXT: "admin.model1TargetContext",
-		MODEL_1_MAX_MESSAGE_LENGTH: "admin.model1MaxMessageLength",
-		MODEL_2_MAX_MODEL_CONTEXT: "admin.model2MaxModelContext",
-		MODEL_2_COMPACTION_UI_THRESHOLD: "admin.model2CompactionThreshold",
-		MODEL_2_TARGET_CONSTRUCTED_CONTEXT: "admin.model2TargetContext",
-		MODEL_2_MAX_MESSAGE_LENGTH: "admin.model2MaxMessageLength",
-		TITLE_GEN_URL: "admin.titleGenUrl",
-		TITLE_GEN_MODEL: "admin.titleGenModel",
-		CONTEXT_SUMMARIZER_URL: "admin.contextSummarizerUrl",
-		CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
-		PARALLEL_API_KEY: "admin.parallelApiKey",
-		BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
-		TITLE_GEN_SYSTEM_PROMPT_EN: "admin.titleGenPromptEn",
-		TITLE_GEN_SYSTEM_PROMPT_HU: "admin.titleGenPromptHu",
-		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN: "admin.titleGenCodeAppendixEn",
-		TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_HU: "admin.titleGenCodeAppendixHu",
-		MINERU_API_URL: "admin.mineruApiUrl",
-		MINERU_TIMEOUT_MS: "admin.mineruTimeoutMs",
-		MAX_MODEL_CONTEXT: "admin.maxModelContext",
-		COMPACTION_UI_THRESHOLD: "admin.compactionUiThreshold",
-		TARGET_CONSTRUCTED_CONTEXT: "admin.targetConstructedContext",
-		MAX_MESSAGE_LENGTH: "admin.maxMessageLength",
-		MAX_FILE_UPLOAD_SIZE: "admin.maxFileUploadSize",
-		REQUEST_TIMEOUT_MS: "admin.requestTimeoutMs",
-		MODEL_TIMEOUT_FAILOVER_ENABLED: "admin.modelTimeoutFailoverEnabled",
-		MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS: "admin.modelTimeoutFailoverTimeoutMs",
-		MODEL_TIMEOUT_FAILOVER_TARGET_MODEL:
-			"admin.modelTimeoutFailoverTargetModel",
-		SYSTEM_PROMPT: "admin.systemPromptLabel",
-		DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
-		ATLAS_WORKER_ENABLED: "admin.atlasWorkerEnabled",
-		ATLAS_GLOBAL_ACTIVE_LIMIT: "admin.atlasGlobalActiveLimit",
-		ATLAS_SEARCH_CONCURRENCY: "admin.atlasSearchConcurrency",
-		ATLAS_SEARCH_BATCH_DELAY_MS: "admin.atlasSearchBatchDelayMs",
-		ATLAS_SYNTHESIS_MODEL: "admin.atlasSynthesisModel",
-		ATLAS_AUDIT_MODEL: "admin.atlasAuditModel",
-		MEMORY_JUDGE_MODEL: "admin.memoryJudgeModel",
-		MEMORY_CONSOLIDATION_MODEL: "admin.memoryConsolidationModel",
-		WEB_PUSH_VAPID_PUBLIC_KEY: "admin.webPushVapidPublicKey",
-		WEB_PUSH_VAPID_PRIVATE_KEY: "admin.webPushVapidPrivateKey",
-		WEB_PUSH_VAPID_SUBJECT: "admin.webPushVapidSubject",
-	};
-	return (map[key] ?? key) as I18nKey;
+// --- model option groups --------------------------------------------------
+
+const modelGroups = $derived(
+	buildModelOptionGroups({
+		availableModels,
+		providers: providerConfigs,
+		providerModels: allProviderModels,
+		adminConfig: draft,
+		freeLabel: tVal("admin.system.modelFree"),
+	}),
+);
+
+// The failover target and the memory models must name a concrete model, not a
+// provider — the same rule the old `timeoutFailoverTargetModelOptions` had.
+const failoverModelGroups = $derived(
+	buildModelOptionGroups({
+		availableModels,
+		providers: providerConfigs,
+		providerModels: allProviderModels,
+		adminConfig: draft,
+		freeLabel: tVal("admin.system.modelFree"),
+		includeProviderLevel: false,
+		// All three selects that share this list, not just the first non-empty
+		// one: a stale id with no matching option renders as the wrong model.
+		configuredValues: [
+			draft.MEMORY_JUDGE_MODEL,
+			draft.MEMORY_CONSOLIDATION_MODEL,
+			draft.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL,
+		],
+	}),
+);
+
+const defaultUserModelGroups = $derived(modelGroups);
+
+// --- search ---------------------------------------------------------------
+
+const NAMED_KEY_LABEL: Record<string, I18nKey> = {
+	COMPOSER_COMMAND_REGISTRY_ENABLED: "admin.composerCommandRegistryEnabled",
+	APP_VERSION_OVERRIDE: "admin.appVersionOverride",
+	MODEL_TIMEOUT_FAILOVER_ENABLED: "admin.modelTimeoutFailoverEnabled",
+	MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS: "admin.modelTimeoutFailoverTimeoutMs",
+	MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "admin.modelTimeoutFailoverTargetModel",
+	DEFAULT_NEW_USER_MODEL: "admin.defaultNewUserModel",
+	ATLAS_WORKER_ENABLED: "admin.atlasWorkerEnabled",
+	ATLAS_GLOBAL_ACTIVE_LIMIT: "admin.atlasGlobalActiveLimit",
+	ATLAS_SEARCH_CONCURRENCY: "admin.atlasSearchConcurrency",
+	ATLAS_SEARCH_BATCH_DELAY_MS: "admin.atlasSearchBatchDelayMs",
+	ATLAS_SYNTHESIS_MODEL: "admin.atlasSynthesisModel",
+	ATLAS_AUDIT_MODEL: "admin.atlasAuditModel",
+	ATLAS_PIPELINE: "admin.system.atlas.pipeline.label",
+	MEMORY_JUDGE_MODEL: "admin.memoryJudgeModel",
+	MEMORY_CONSOLIDATION_MODEL: "admin.memoryConsolidationModel",
+	TITLE_GEN_MODEL: "admin.titleGenModel",
+	TITLE_GEN_SYSTEM_PROMPT_EN: "admin.titleGenPromptEn",
+	TITLE_GEN_SYSTEM_PROMPT_HU: "admin.titleGenPromptHu",
+	TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN: "admin.titleGenCodeAppendixEn",
+	TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_HU: "admin.titleGenCodeAppendixHu",
+	CONTEXT_SUMMARIZER_MODEL: "admin.contextSummarizerModel",
+	SYSTEM_PROMPT: "admin.systemPromptLabel",
+	PARALLEL_API_KEY: "admin.parallelApiKey",
+	BRAVE_SEARCH_API_KEY: "admin.braveSearchApiKey",
+	MINERU_API_URL: "admin.mineruApiUrl",
+	MINERU_TIMEOUT_MS: "admin.mineruTimeoutMs",
+	WEB_PUSH_VAPID_PUBLIC_KEY: "admin.webPushVapidPublicKey",
+	WEB_PUSH_VAPID_PRIVATE_KEY: "admin.webPushVapidPrivateKey",
+	WEB_PUSH_VAPID_SUBJECT: "admin.webPushVapidSubject",
+	MAX_MESSAGE_LENGTH: "admin.maxMessageLength",
+	MAX_FILE_UPLOAD_SIZE: "admin.maxFileUploadSize",
+	REQUEST_TIMEOUT_MS: "admin.requestTimeoutMs",
+};
+
+function searchLabelFor(key: string): string {
+	const named = NAMED_KEY_LABEL[key];
+	if (named) return tVal(named);
+	const spec = ADVANCED_KEY_SPECS.find((entry) => entry.key === key);
+	if (spec) return tVal(`admin.system.keys.${key}.label` as I18nKey);
+	return key;
 }
 
-const NUMBER_KEYS = new Set([
-	"MAX_MODEL_CONTEXT",
-	"COMPACTION_UI_THRESHOLD",
-	"TARGET_CONSTRUCTED_CONTEXT",
-	"MAX_MESSAGE_LENGTH",
-	"MINERU_TIMEOUT_MS",
-	"MAX_FILE_UPLOAD_SIZE",
-	"REQUEST_TIMEOUT_MS",
-	"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
-	"ATLAS_GLOBAL_ACTIVE_LIMIT",
-	"ATLAS_SEARCH_CONCURRENCY",
-	"ATLAS_SEARCH_BATCH_DELAY_MS",
-]);
+const searchItems = $derived.by(() => {
+	const items: SystemSearchItem[] = [];
+	for (const key of Object.keys(NAMED_KEY_LABEL)) {
+		items.push({
+			id: `key:${key}`,
+			label: $t(NAMED_KEY_LABEL[key]),
+			sub: key,
+			page: pageForKey(key) ?? "advanced",
+		});
+	}
+	for (const spec of ADVANCED_KEY_SPECS) {
+		if (NAMED_KEY_LABEL[spec.key]) continue;
+		items.push({
+			id: `key:${spec.key}`,
+			label: $t(`admin.system.keys.${spec.key}.label` as I18nKey),
+			sub: spec.key,
+			page: pageForKey(spec.key) ?? "advanced",
+		});
+	}
+	for (const provider of providerConfigs) {
+		items.push({
+			id: `provider:${provider.id}`,
+			label: provider.displayName,
+			sub: provider.name,
+			page: "models",
+		});
+	}
+	return items;
+});
 
-function placeholderFor(key: string): string {
-	return envDefaults[key] ?? "";
+function goToSearchResult(item: SystemSearchItem) {
+	activePage = item.page;
+	if (item.id.startsWith("provider:")) {
+		openProviderId = item.id.slice("provider:".length);
+		return;
+	}
+	const key = item.sub ?? "";
+	highlight(key);
+}
+
+function highlight(key: string) {
+	highlightKey = key;
+	clearTimeout(highlightTimer);
+	requestAnimationFrame(() => {
+		const node = document.querySelector(`[data-config-key="${key}"]`);
+		node?.scrollIntoView({ behavior: "smooth", block: "center" });
+	});
+	highlightTimer = setTimeout(() => {
+		highlightKey = "";
+	}, 2400);
 }
 </script>
 
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.providers')}</h2>
-	<div class="mb-4 rounded-md border border-border bg-surface-page p-3">
-		<div class="flex items-center justify-between gap-3">
-			<div>
-				<label class="settings-label mb-0" for="MODEL_TIMEOUT_FAILOVER_ENABLED">{$t('admin.modelTimeoutFailoverEnabled')}</label>
-				<p class="text-xs text-text-tertiary">{$t('admin.modelTimeoutFailoverDescription')}</p>
-			</div>
-			<label class="relative inline-flex cursor-pointer items-center">
-				<input
-					id="MODEL_TIMEOUT_FAILOVER_ENABLED"
-					type="checkbox"
-					class="peer sr-only"
-					checked={adminConfig.MODEL_TIMEOUT_FAILOVER_ENABLED === 'true'}
-					onchange={(event) => {
-						adminConfig.MODEL_TIMEOUT_FAILOVER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-					}}
-				/>
-				<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-			</label>
-		</div>
-		<div class="mt-3 grid gap-3 md:grid-cols-2">
-			<div>
-				<label class="settings-label" for="MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS">{$t('admin.modelTimeoutFailoverTimeoutMs')}</label>
-				<input
-					id="MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS"
-					type="number"
-					min="1000"
-					class="settings-input"
-					bind:value={adminConfig.MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS}
-					placeholder={placeholderFor('MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS')}
-				/>
-			</div>
-			<div>
-				<label class="settings-label" for="MODEL_TIMEOUT_FAILOVER_TARGET_MODEL">{$t('admin.modelTimeoutFailoverTargetModel')}</label>
-				<select
-					id="MODEL_TIMEOUT_FAILOVER_TARGET_MODEL"
-					class="settings-input"
-					value={timeoutFailoverTargetModelValue()}
-					onchange={(event) => {
-						adminConfig.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL = event.currentTarget.value;
-					}}
-				>
-					{#each timeoutFailoverTargetModelOptions() as model}
-						<option value={model.id}>{model.displayName}</option>
-					{/each}
-				</select>
-			</div>
-		</div>
-	</div>
-	<ProviderList
-		providers={providerConfigs}
-		providerModels={allProviderModels}
-		loading={providerConfigsLoading}
-		error={providerConfigsError}
-		message={providersMessage}
-		onAdd={openAddProviderConfig}
-		onEdit={openEditProviderConfig}
-		onDelete={handleDeleteProviderConfig}
-		onToggleEnabled={handleToggleProviderConfig}
-		onDiscover={handleDiscoverProviderConfig}
-		onManageModels={handleManageModels}
-		onReorder={handleReorderProvider}
-	/>
-</section>
-
-<!-- Default model for new users -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.defaultNewUserModel')}</h2>
-	<p class="text-xs text-text-tertiary">{$t('admin.defaultNewUserModelDescription')}</p>
-	<select
-		id="DEFAULT_NEW_USER_MODEL"
-		class="settings-input mt-2"
-		value={defaultNewUserModelValue()}
-		onchange={(event) => {
-			adminConfig.DEFAULT_NEW_USER_MODEL = event.currentTarget.value;
+<div class="sys-shell" data-testid="admin-system-screen">
+	<SystemNav
+		active={activePage}
+		{dirtyByPage}
+		counts={{ skills: systemSkills.length, advanced: keyCountForPage('advanced') }}
+		onselect={(page) => {
+			activePage = page;
 		}}
-	>
-		{#each defaultNewUserModelOptions() as model}
-			<option value={model.id}>{model.displayName}</option>
-		{/each}
-	</select>
-</section>
+	/>
 
-<!-- Composer Command Registry feature flag -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.composerCommandRegistry')}</h2>
-	<div class="flex items-center justify-between">
-		<div>
-			<label class="settings-label mb-0" for="COMPOSER_COMMAND_REGISTRY_ENABLED">
-				{$t('admin.composerCommandRegistryEnabled')}
-			</label>
-			<p class="text-xs text-text-tertiary">{$t('admin.composerCommandRegistryDescription')}</p>
-		</div>
-		<label class="relative inline-flex cursor-pointer items-center">
-			<input
-				id="COMPOSER_COMMAND_REGISTRY_ENABLED"
-				type="checkbox"
-				class="peer sr-only"
-				checked={adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED === 'true'}
-				onchange={(event) => {
-					adminConfig.COMPOSER_COMMAND_REGISTRY_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-				}}
+	<div class="sys-main">
+		<SystemSearch items={searchItems} onselect={goToSearchResult} />
+
+		{#if activePage === 'general'}
+			<GeneralPage
+				adminConfig={draft}
+				{envDefaults}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
 			/>
-			<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-		</label>
-	</div>
-</section>
-
-<!-- Application Version -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.appVersion')}</h2>
-	<div>
-		<label class="settings-label" for="APP_VERSION_OVERRIDE">{$t('admin.appVersionOverride')}</label>
-		<input
-			id="APP_VERSION_OVERRIDE"
-			type="text"
-			class="settings-input"
-			bind:value={adminConfig.APP_VERSION_OVERRIDE}
-			placeholder={placeholderFor('APP_VERSION_OVERRIDE')}
-			autocomplete="off"
-		/>
-		<p class="mt-1 text-xs text-text-muted">{$t('admin.appVersionOverrideDescription')}</p>
-	</div>
-</section>
-
-<!-- System Skills -->
-<section class="settings-card mb-4">
-	<div class="mb-3 flex items-center justify-between gap-3">
-		<div>
-			<h2 class="settings-section-title mb-0">{$t('admin.systemSkills.title')}</h2>
-			<p class="text-xs text-text-tertiary">{$t('admin.systemSkills.description')}</p>
-		</div>
-		<button class="btn-sm" onclick={resetSystemSkillDraft}>
-			{$t('admin.systemSkills.new')}
-		</button>
-	</div>
-
-	{#if systemSkillsLoading}
-		<p class="text-sm text-text-secondary">{$t('admin.systemSkills.loading')}</p>
-	{:else if systemSkillsError}
-		<p class="text-sm text-danger">{systemSkillsError}</p>
-	{:else if systemSkills.length === 0}
-		<p class="text-sm text-text-muted">{$t('admin.systemSkills.empty')}</p>
-	{:else}
-		<div class="mb-4 flex flex-col gap-2">
-			{#each systemSkills as skill}
-				<div class="rounded-md border border-border bg-surface-page px-3 py-2">
-					<div class="flex flex-wrap items-start justify-between gap-3">
-						<div class="min-w-0 flex-1">
-							<div class="flex flex-wrap items-center gap-2">
-								<span class="text-sm font-medium text-text-primary">{skill.displayName}</span>
-								<span class={`text-xs ${skill.published ? 'text-success' : 'text-text-muted'}`}>
-									{skill.published ? $t('admin.systemSkills.status.published') : $t('admin.systemSkills.status.draft')}
-								</span>
-								<span class={`text-xs ${skill.enabled ? 'text-success' : 'text-text-muted'}`}>
-									{skill.enabled ? $t('skills.status.enabled') : $t('skills.status.disabled')}
-								</span>
-							</div>
-							<p class="mt-1 text-xs text-text-muted">{skill.description}</p>
-						</div>
-						<div class="flex flex-wrap items-center gap-2">
-							<button
-								class="btn-sm"
-								aria-label={$t('skills.editA11y', { name: skill.displayName })}
-								onclick={() => editSystemSkill(skill)}
-							>
-								{$t('common.edit')}
-							</button>
-							<button
-								class="btn-sm"
-								aria-label={skill.enabled ? $t('skills.disableA11y', { name: skill.displayName }) : $t('skills.enableA11y', { name: skill.displayName })}
-								onclick={() => updateSystemSkillFlags(skill, { enabled: !skill.enabled })}
-							>
-								{skill.enabled ? $t('skills.disable') : $t('skills.enable')}
-							</button>
-							{#if !skill.published}
-								<button
-									class="btn-sm"
-									aria-label={$t('admin.systemSkills.publishA11y', { name: skill.displayName })}
-									onclick={() => updateSystemSkillFlags(skill, { published: true, enabled: true })}
-								>
-									{$t('admin.systemSkills.publish')}
-								</button>
-							{/if}
-						</div>
-					</div>
-				</div>
-			{/each}
-		</div>
-	{/if}
-
-	<div class="border-t border-border pt-4">
-		<h3 class="text-sm font-medium text-text-primary">
-			{editingSystemSkillId ? $t('admin.systemSkills.editTitle') : $t('admin.systemSkills.createTitle')}
-		</h3>
-		<div class="mt-3 grid gap-3 md:grid-cols-2">
-			<div>
-				<label class="settings-label" for="SYSTEM_SKILL_DISPLAY_NAME">{$t('skills.displayName')}</label>
-				<input
-					id="SYSTEM_SKILL_DISPLAY_NAME"
-					class="settings-input"
-					bind:value={systemSkillDraft.displayName}
-					placeholder={$t('admin.systemSkills.displayNamePlaceholder')}
-				/>
-			</div>
-			<div>
-				<label class="settings-label" for="SYSTEM_SKILL_EXAMPLES">{$t('skills.activationExamples')}</label>
-				<input
-					id="SYSTEM_SKILL_EXAMPLES"
-					class="settings-input"
-					bind:value={systemSkillDraft.activationExamplesText}
-					placeholder={$t('skills.activationExamplesPlaceholder')}
-				/>
-			</div>
-		</div>
-		<div class="mt-3">
-			<label class="settings-label" for="SYSTEM_SKILL_DESCRIPTION">{$t('skills.description')}</label>
-			<input
-				id="SYSTEM_SKILL_DESCRIPTION"
-				class="settings-input"
-				bind:value={systemSkillDraft.description}
-				placeholder={$t('admin.systemSkills.descriptionPlaceholder')}
-			/>
-		</div>
-		<div class="mt-3">
-			<label class="settings-label" for="SYSTEM_SKILL_INSTRUCTIONS">{$t('skills.instructions')}</label>
-			<textarea
-				id="SYSTEM_SKILL_INSTRUCTIONS"
-				class="settings-input min-h-[140px]"
-				bind:value={systemSkillDraft.instructions}
-				placeholder={$t('admin.systemSkills.instructionsPlaceholder')}
-				rows="6"
-			></textarea>
-		</div>
-		<div class="mt-3 grid gap-3 md:grid-cols-2">
-			<label class="flex items-center gap-2 text-sm text-text-secondary">
-				<input type="checkbox" bind:checked={systemSkillDraft.enabled} />
-				{$t('skills.enabled')}
-			</label>
-			<label class="flex items-center gap-2 text-sm text-text-secondary">
-				<input type="checkbox" bind:checked={systemSkillDraft.published} />
-				{$t('admin.systemSkills.published')}
-			</label>
-		</div>
-		<div class="mt-4 flex flex-wrap gap-2">
-			<button class="btn-primary" onclick={saveSystemSkill} disabled={systemSkillSaving}>
-				{systemSkillSaving ? $t('common.saving') : $t('admin.systemSkills.save')}
-			</button>
-			{#if editingSystemSkillId}
-				<button class="btn-secondary" onclick={resetSystemSkillDraft}>
-					{$t('common.cancel')}
-				</button>
-			{/if}
-		</div>
-		{#if systemSkillsMessage}
-			<p class="mt-3 text-sm text-success">{systemSkillsMessage}</p>
-		{/if}
-	</div>
-</section>
-
-<!-- Atlas -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.atlas')}</h2>
-	<p class="mb-3 text-xs text-text-muted">{$t('admin.atlasDescription')}</p>
-	<div class="flex flex-col gap-4">
-		<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-page p-3">
-			<div>
-				<label class="settings-label mb-0" for="ATLAS_WORKER_ENABLED">{$t(configLabelKey('ATLAS_WORKER_ENABLED'))}</label>
-				<p class="text-xs text-text-tertiary">{$t('admin.atlasWorkerDescription')}</p>
-			</div>
-			<label class="relative inline-flex cursor-pointer items-center">
-				<input
-					id="ATLAS_WORKER_ENABLED"
-					type="checkbox"
-					class="peer sr-only"
-					checked={adminConfig.ATLAS_WORKER_ENABLED !== 'false'}
-					onchange={(event) => {
-						adminConfig.ATLAS_WORKER_ENABLED = event.currentTarget.checked ? 'true' : 'false';
-					}}
-				/>
-				<div class="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-accent peer-checked:after:translate-x-full"></div>
-			</label>
-		</div>
-
-		<div class="grid gap-3 md:grid-cols-2">
-			<div>
-				<label class="settings-label" for="ATLAS_SYNTHESIS_MODEL">{$t(configLabelKey('ATLAS_SYNTHESIS_MODEL'))}</label>
-				<select
-					id="ATLAS_SYNTHESIS_MODEL"
-					class="settings-input"
-					value={atlasModelValue('ATLAS_SYNTHESIS_MODEL')}
-					onchange={(event) => {
-						adminConfig.ATLAS_SYNTHESIS_MODEL = event.currentTarget.value;
-					}}
-				>
-					{#each adminModelOptions() as model}
-						<option value={model.id}>{model.displayName}</option>
-					{/each}
-				</select>
-				<p class="mt-1 text-xs text-text-muted">{$t('admin.atlasSynthesisModelDescription')}</p>
-			</div>
-			<div>
-				<label class="settings-label" for="ATLAS_AUDIT_MODEL">{$t(configLabelKey('ATLAS_AUDIT_MODEL'))}</label>
-				<select
-					id="ATLAS_AUDIT_MODEL"
-					class="settings-input"
-					value={atlasModelValue('ATLAS_AUDIT_MODEL')}
-					onchange={(event) => {
-						adminConfig.ATLAS_AUDIT_MODEL = event.currentTarget.value;
-					}}
-				>
-					{#each adminModelOptions() as model}
-						<option value={model.id}>{model.displayName}</option>
-					{/each}
-				</select>
-				<p class="mt-1 text-xs text-text-muted">{$t('admin.atlasAuditModelDescription')}</p>
-			</div>
-		</div>
-
-		<div class="grid gap-3 md:grid-cols-3">
-			{#each ['ATLAS_GLOBAL_ACTIVE_LIMIT', 'ATLAS_SEARCH_CONCURRENCY', 'ATLAS_SEARCH_BATCH_DELAY_MS'] as key}
-				<div>
-					<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-					<input
-						id={key}
-						type="number"
-						min={key === 'ATLAS_SEARCH_BATCH_DELAY_MS' ? '0' : '1'}
-						class="settings-input"
-						bind:value={adminConfig[key]}
-						placeholder={placeholderFor(key)}
-					/>
-				</div>
-			{/each}
-		</div>
-		<p class="text-xs text-text-muted">{$t('admin.atlasLimitsDescription')}</p>
-		<p class="text-xs text-text-muted">{$t('admin.atlasParallelDependency')}</p>
-
-		<div class="grid gap-3 md:grid-cols-3">
-			<div>
-				<label class="settings-label" for="WEB_PUSH_VAPID_PUBLIC_KEY">{$t(configLabelKey('WEB_PUSH_VAPID_PUBLIC_KEY'))}</label>
-				<input
-					id="WEB_PUSH_VAPID_PUBLIC_KEY"
-					type="text"
-					class="settings-input"
-					bind:value={adminConfig.WEB_PUSH_VAPID_PUBLIC_KEY}
-					placeholder={placeholderFor('WEB_PUSH_VAPID_PUBLIC_KEY')}
-					autocomplete="off"
-				/>
-			</div>
-			<div>
-				<label class="settings-label" for="WEB_PUSH_VAPID_PRIVATE_KEY">{$t(configLabelKey('WEB_PUSH_VAPID_PRIVATE_KEY'))}</label>
-				<input
-					id="WEB_PUSH_VAPID_PRIVATE_KEY"
-					type="password"
-					class="settings-input"
-					value={adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY === '[set]' ? '' : adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY}
-					placeholder={adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY === '[set]' ? $t('admin.secretConfigured') : placeholderFor('WEB_PUSH_VAPID_PRIVATE_KEY')}
-					autocomplete="off"
-					oninput={(event) => {
-						adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY = event.currentTarget.value;
-					}}
-				/>
-			</div>
-			<div>
-				<label class="settings-label" for="WEB_PUSH_VAPID_SUBJECT">{$t(configLabelKey('WEB_PUSH_VAPID_SUBJECT'))}</label>
-				<input
-					id="WEB_PUSH_VAPID_SUBJECT"
-					type="text"
-					class="settings-input"
-					bind:value={adminConfig.WEB_PUSH_VAPID_SUBJECT}
-					placeholder={placeholderFor('WEB_PUSH_VAPID_SUBJECT')}
-					autocomplete="off"
-				/>
-			</div>
-		</div>
-		<p class="text-xs text-text-muted">{$t('admin.atlasWebPushDescription')}</p>
-	</div>
-</section>
-
-<!-- Memory -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.memory')}</h2>
-	<div class="grid gap-3 md:grid-cols-2">
-		<div>
-			<label class="settings-label" for="MEMORY_JUDGE_MODEL">{$t(configLabelKey('MEMORY_JUDGE_MODEL'))}</label>
-			<select
-				id="MEMORY_JUDGE_MODEL"
-				class="settings-input"
-				value={memoryModelValue('MEMORY_JUDGE_MODEL')}
-				onchange={(event) => {
-					adminConfig.MEMORY_JUDGE_MODEL = event.currentTarget.value;
-				}}
+		{:else if activePage === 'models'}
+			<ModelsPage
+				adminConfig={draft}
+				{envDefaults}
+				{failoverModelGroups}
+				{defaultUserModelGroups}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
 			>
-				{#each memoryModelOptions('MEMORY_JUDGE_MODEL') as model}
-					<option value={model.id}>{model.displayName}</option>
-				{/each}
-			</select>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.memoryJudgeModelDescription')}</p>
-		</div>
-		<div>
-			<label class="settings-label" for="MEMORY_CONSOLIDATION_MODEL">{$t(configLabelKey('MEMORY_CONSOLIDATION_MODEL'))}</label>
-			<select
-				id="MEMORY_CONSOLIDATION_MODEL"
-				class="settings-input"
-				value={memoryModelValue('MEMORY_CONSOLIDATION_MODEL')}
-				onchange={(event) => {
-					adminConfig.MEMORY_CONSOLIDATION_MODEL = event.currentTarget.value;
-				}}
-			>
-				{#each memoryModelOptions('MEMORY_CONSOLIDATION_MODEL') as model}
-					<option value={model.id}>{model.displayName}</option>
-				{/each}
-			</select>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.memoryConsolidationModelDescription')}</p>
-		</div>
-	</div>
-</section>
-
-<!-- Title Generator -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.titleGenerator')}</h2>
-	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="TITLE_GEN_MODEL">{$t(configLabelKey('TITLE_GEN_MODEL'))}</label>
-			<select
-				id="TITLE_GEN_MODEL"
-				class="settings-input"
-				value={adminConfig['TITLE_GEN_MODEL'] || ''}
-				onchange={(event) => {
-					adminConfig['TITLE_GEN_MODEL'] = event.currentTarget.value;
-				}}
-			>
-				{#each adminModelOptions() as model}
-					<option value={model.id}>{model.displayName}</option>
-				{/each}
-			</select>
-		</div>
-		{#each [
-			'TITLE_GEN_SYSTEM_PROMPT_EN',
-			'TITLE_GEN_SYSTEM_PROMPT_HU',
-			'TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_EN',
-			'TITLE_GEN_SYSTEM_PROMPT_CODE_APPENDIX_HU',
-		] as key}
-			<div>
-				<label class="settings-label" for={key}>{$t(configLabelKey(key))}</label>
-				<textarea
-					id={key}
-					class="settings-input min-h-[120px]"
-					bind:value={adminConfig[key]}
-					rows="5"
-				></textarea>
-				{#if key === 'TITLE_GEN_SYSTEM_PROMPT_EN' || key === 'TITLE_GEN_SYSTEM_PROMPT_HU'}
-					<p class="mt-1 text-xs text-text-muted">{$t('admin.basePromptDescription')}</p>
-				{:else}
-					<p class="mt-1 text-xs text-text-muted">{$t('admin.codeAppendixDescription')}</p>
-				{/if}
-			</div>
-		{/each}
-	</div>
-</section>
-
-<!-- Context Summarizer -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.contextSummarizer')}</h2>
-	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="CONTEXT_SUMMARIZER_MODEL">{$t(configLabelKey('CONTEXT_SUMMARIZER_MODEL'))}</label>
-			<select
-				id="CONTEXT_SUMMARIZER_MODEL"
-				class="settings-input"
-				value={adminConfig['CONTEXT_SUMMARIZER_MODEL'] || ''}
-				onchange={(event) => {
-					adminConfig['CONTEXT_SUMMARIZER_MODEL'] = event.currentTarget.value;
-				}}
-			>
-				{#each adminModelOptions() as model}
-					<option value={model.id}>{model.displayName}</option>
-				{/each}
-			</select>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.summarizerModelDescription')}</p>
-		</div>
-	</div>
-</section>
-
-<!-- Web Research -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.webResearch')}</h2>
-	<p class="mb-3 text-xs text-text-muted">{$t('admin.webResearchDescription')}</p>
-	<div class="grid gap-3 md:grid-cols-2">
-		<div>
-			<label class="settings-label" for="PARALLEL_API_KEY">{$t('admin.parallelApiKey')}</label>
-			<input
-				id="PARALLEL_API_KEY"
-				type="password"
-				class="settings-input"
-				bind:value={adminConfig.PARALLEL_API_KEY}
-				placeholder={placeholderFor('PARALLEL_API_KEY')}
-				autocomplete="off"
+				{#snippet providerList()}
+					<ProviderList
+						providers={providerConfigs}
+						providerModels={allProviderModels}
+						loading={providerConfigsLoading}
+						busyProviderId={deletingProviderId}
+						error={providerConfigsError}
+						message={providersMessage}
+						bind:openProviderId
+						onAdd={openAddProviderConfig}
+						onEdit={openEditProviderConfig}
+						onDelete={(provider) => (pendingProviderDelete = provider)}
+						onToggleEnabled={handleToggleProviderConfig}
+						onDiscover={handleDiscoverProviderConfig}
+						onManageModels={handleManageModels}
+						onReorder={handleReorderProvider}
+						onTest={(provider) => handleTestProvider(provider)}
+					>
+						{#snippet drawer(providerId)}
+							<ModelList
+								{providerId}
+								models={allProviderModels}
+								allModels={allProviderModels}
+								allProviders={providerConfigs}
+								onIconFile={handleModelModelIconFile}
+								onRefresh={loadProviderConfigs}
+								{modelIconAssetSaved}
+							/>
+						{/snippet}
+					</ProviderList>
+				{/snippet}
+			</ModelsPage>
+		{:else if activePage === 'aiTasks'}
+			<AiTasksPage
+				adminConfig={draft}
+				{envDefaults}
+				{modelGroups}
+				{failoverModelGroups}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
 			/>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.parallelApiKeyDescription')}</p>
-		</div>
-		<div>
-			<label class="settings-label" for="BRAVE_SEARCH_API_KEY">{$t('admin.braveSearchApiKey')}</label>
-			<input
-				id="BRAVE_SEARCH_API_KEY"
-				type="password"
-				class="settings-input"
-				bind:value={adminConfig.BRAVE_SEARCH_API_KEY}
-				placeholder={placeholderFor('BRAVE_SEARCH_API_KEY')}
-				autocomplete="off"
+		{:else if activePage === 'integrations'}
+			<IntegrationsPage
+				adminConfig={draft}
+				{envDefaults}
+				{secretChangedAt}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
+				{revertValue}
 			/>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.braveSearchApiKeyDescription')}</p>
-		</div>
-	</div>
-</section>
-
-<!-- MinerU Document Extraction -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.mineruDocumentExtraction')}</h2>
-	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="MINERU_API_URL">{$t('admin.mineruApiUrl')}</label>
-			<input
-				id="MINERU_API_URL"
-				type="text"
-				class="settings-input"
-				bind:value={adminConfig.MINERU_API_URL}
-				placeholder={placeholderFor('MINERU_API_URL')}
+		{:else if activePage === 'limits'}
+			<LimitsPage
+				adminConfig={draft}
+				{envDefaults}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
 			/>
-			<p class="mt-1 text-xs text-text-muted">
-				{$t('admin.mineruApiDescription')}
-			</p>
-		</div>
-		<div>
-			<label class="settings-label" for="MINERU_TIMEOUT_MS">{$t('admin.mineruTimeoutMs')}</label>
-			<input
-				id="MINERU_TIMEOUT_MS"
-				type="number"
-				class="settings-input"
-				bind:value={adminConfig.MINERU_TIMEOUT_MS}
-				placeholder={placeholderFor('MINERU_TIMEOUT_MS')}
+		{:else if activePage === 'skills'}
+			<SkillsPage
+				skills={systemSkills}
+				loading={systemSkillsLoading}
+				error={systemSkillsError}
+				message={systemSkillsMessage}
+				onNew={openNewSkill}
+				onEdit={editSystemSkill}
+				onToggleEnabled={(skill, enabled) =>
+					updateSystemSkillFlags(skill, { enabled })}
+				onTogglePublished={(skill, published) =>
+					updateSystemSkillFlags(
+						skill,
+						published ? { published: true, enabled: true } : { published: false },
+					)}
 			/>
-			<p class="mt-1 text-xs text-text-muted">
-				{$t('admin.mineruTimeoutDescription')}
-			</p>
-		</div>
-	</div>
-</section>
-
-<!-- System Prompt -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.systemPrompt')}</h2>
-	<div>
-		<label class="settings-label" for="SYSTEM_PROMPT">{$t('admin.systemPromptLabel')}</label>
-		<textarea
-			id="SYSTEM_PROMPT"
-			class="settings-input min-h-[200px]"
-			bind:value={adminConfig.SYSTEM_PROMPT}
-			rows="10"
-			placeholder={placeholderFor('SYSTEM_PROMPT')}
-		></textarea>
-		<p class="mt-1 text-xs text-text-muted">{$t('admin.systemPromptDescription')}</p>
-	</div>
-</section>
-
-<!-- Rate & Size Limits -->
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('admin.rateSizeLimits')}</h2>
-	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="MAX_MESSAGE_LENGTH">{$t('admin.maxMessageLength')}</label>
-			<input
-				id="MAX_MESSAGE_LENGTH"
-				type="number"
-				min="1"
-				class="settings-input"
-				bind:value={adminConfig.MAX_MESSAGE_LENGTH}
-				placeholder={placeholderFor('MAX_MESSAGE_LENGTH')}
+		{:else if activePage === 'advanced'}
+			<AdvancedPage
+				adminConfig={draft}
+				{envDefaults}
+				{secretChangedAt}
+				{highlightKey}
+				{isDirty}
+				{setValue}
+				{resetValue}
+				{revertValue}
 			/>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.maxMessageLengthDescription')}</p>
-		</div>
-		<div>
-			<label class="settings-label" for="MAX_FILE_UPLOAD_SIZE">{$t('admin.maxFileUploadSize')}</label>
-			<input
-				id="MAX_FILE_UPLOAD_SIZE"
-				type="number"
-				class="settings-input"
-				bind:value={adminConfig.MAX_FILE_UPLOAD_SIZE}
-				placeholder={placeholderFor('MAX_FILE_UPLOAD_SIZE')}
-			/>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.maxFileUploadDescription')}</p>
-		</div>
-		<div>
-			<label class="settings-label" for="REQUEST_TIMEOUT_MS">{$t('admin.requestTimeoutMs')}</label>
-			<input
-				id="REQUEST_TIMEOUT_MS"
-				type="number"
-				class="settings-input"
-				bind:value={adminConfig.REQUEST_TIMEOUT_MS}
-				placeholder={placeholderFor('REQUEST_TIMEOUT_MS')}
-			/>
-			<p class="mt-1 text-xs text-text-muted">{$t('admin.requestTimeoutDescription')}</p>
-		</div>
-	</div>
-</section>
-
-
-<!-- Tool health -->
-<section class="settings-card mb-4" id="settings-tool-health-card" data-testid="tool-health-section">
-	<div class="mb-3 flex items-center justify-between gap-3">
-		<div>
-			<h2 class="settings-section-title mb-0">{$t('admin.toolHealth.title')}</h2>
-			<p class="text-xs text-text-tertiary">{$t('admin.toolHealth.description')}</p>
-		</div>
-		<button
-			class="btn-sm"
-			onclick={() => loadToolHealth(true)}
-			disabled={toolHealthLoading || toolHealthRefreshing}
-		>
-			{toolHealthRefreshing ? $t('admin.toolHealth.refreshing') : $t('admin.toolHealth.refresh')}
-		</button>
-	</div>
-
-	{#if toolHealthLoading && !toolHealth}
-		<p class="text-sm text-text-secondary">{$t('admin.toolHealth.loading')}</p>
-	{:else if toolHealthError}
-		<p class="text-sm text-danger" role="alert">{toolHealthError}</p>
-	{:else if !toolHealth || toolHealth.tools.length === 0}
-		<p class="text-sm text-text-muted">{$t('admin.toolHealth.empty')}</p>
-	{:else}
-		<p class="mb-2 text-xs text-text-muted">
-			{$t('admin.toolHealth.lastChecked', { time: formatCheckedAt(toolHealth.checkedAt) })}
-		</p>
-		<div class="overflow-x-auto">
-			<table class="w-full text-left text-sm" data-testid="tool-health-table">
-				<thead>
-					<tr class="border-b border-border text-xs text-text-muted">
-						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.tool')}</th>
-						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.backend')}</th>
-						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.status')}</th>
-						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.latency')}</th>
-						<th class="py-2 pr-3 font-medium">{$t('admin.toolHealth.columns.detail')}</th>
-						<th class="py-2 font-medium">{$t('admin.toolHealth.columns.checked')}</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each toolHealth.tools as tool (tool.id)}
-						<tr class="border-b border-border/60 align-top" data-testid={`tool-health-row-${tool.id}`}>
-							<td class="py-2 pr-3 font-mono text-xs text-text-primary">{tool.tool}</td>
-							<td class="py-2 pr-3 text-text-secondary">{tool.backend}</td>
-							<td class="py-2 pr-3">
-								<span
-									class={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${TOOL_HEALTH_STATUS_CLASS[tool.status]}`}
-									data-status={tool.status}
-								>
-									{$t(TOOL_HEALTH_STATUS_LABEL[tool.status])}
-								</span>
-							</td>
-							<td class="py-2 pr-3 tabular-nums text-text-secondary">{formatLatency(tool.latencyMs)}</td>
-							<td class="max-w-[28rem] break-words py-2 pr-3 text-xs text-text-muted">{tool.detail ?? '—'}</td>
-							<td class="py-2 tabular-nums text-xs text-text-muted">{formatCheckedAt(tool.checkedAt)}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</section>
-
-<!-- Effective configuration -->
-<section class="settings-card mb-4" data-testid="effective-config-section">
-	<div class="mb-3 flex items-center justify-between gap-3">
-		<div>
-			<h2 class="settings-section-title mb-0">{$t('admin.effectiveConfig.title')}</h2>
-			<p class="text-xs text-text-tertiary">{$t('admin.effectiveConfig.description')}</p>
-		</div>
-		<button class="btn-sm" onclick={() => loadEffectiveConfig()} disabled={effectiveConfigLoading}>
-			{$t('admin.effectiveConfig.refresh')}
-		</button>
-	</div>
-
-	{#if effectiveConfigLoading && !effectiveConfig}
-		<p class="text-sm text-text-secondary">{$t('admin.effectiveConfig.loading')}</p>
-	{:else if effectiveConfigError}
-		<p class="text-sm text-danger" role="alert">{effectiveConfigError}</p>
-	{:else if effectiveConfig}
-		{#if effectiveConfig.models.length > 0}
-			<div class="mb-4 rounded-md border border-border bg-surface-page px-3 py-2">
-				<h3 class="text-sm font-medium text-text-primary">{$t('admin.effectiveConfig.models.title')}</h3>
-				<ul class="mt-1 flex flex-col gap-1 text-xs text-text-secondary">
-					{#each effectiveConfig.models as model (model.key)}
-						<li data-testid={`effective-config-model-${model.key}`}>
-							<span class="font-mono text-text-primary">{model.key}</span>
-							<span class="mx-1">·</span>
-							<span>
-								{model.providerRowFound
-									? model.providerEnabled
-										? $t('admin.effectiveConfig.models.enabled')
-										: $t('admin.effectiveConfig.models.disabled')
-									: $t('admin.effectiveConfig.models.missing')}
-							</span>
-							<span class="mx-1">·</span>
-							<span>{$t(EFFECTIVE_CONFIG_RESOLVED_FROM_LABEL[model.resolvedFrom])}</span>
-							{#if model.resolvedModelId}
-								<span class="mx-1">·</span>
-								<span>{$t('admin.effectiveConfig.models.resolvesTo', { model: model.resolvedModelId })}</span>
-							{/if}
-							{#if model.shadowedOverrides.length > 0}
-								<p class="mt-0.5 text-[var(--warning)]">
-									{$t('admin.effectiveConfig.models.shadowed', { keys: model.shadowedOverrides.join(', ') })}
-								</p>
-							{/if}
-							{#if model.error}
-								<p class="mt-0.5 text-danger">{model.error}</p>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{/if}
-
-		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-			<input
-				class="settings-input max-w-xs"
-				type="search"
-				placeholder={$t('admin.effectiveConfig.filter')}
-				aria-label={$t('admin.effectiveConfig.filterA11y')}
-				bind:value={effectiveConfigFilter}
-			/>
-			<span class="text-xs text-text-muted">
-				{$t('admin.effectiveConfig.generatedAt', { time: formatCheckedAt(effectiveConfig.generatedAt) })}
-			</span>
-		</div>
-
-		{#if filteredEffectiveConfig.length === 0}
-			<p class="text-sm text-text-muted">{$t('admin.effectiveConfig.empty')}</p>
 		{:else}
-			<div class="max-h-[32rem] overflow-auto">
-				<table class="w-full text-left text-sm" data-testid="effective-config-table">
-					<thead>
-						<tr class="border-b border-border text-xs text-text-muted">
-							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.key')}</th>
-							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.value')}</th>
-							<th class="py-2 pr-3 font-medium">{$t('admin.effectiveConfig.columns.source')}</th>
-							<th class="py-2 font-medium">{$t('admin.effectiveConfig.columns.override')}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each filteredEffectiveConfig as entry (entry.key)}
-							<tr class="border-b border-border/60 align-top" data-testid={`effective-config-row-${entry.key}`}>
-								<td class="py-1.5 pr-3 font-mono text-xs text-text-primary">{entry.key}</td>
-								<td class="max-w-[28rem] break-all py-1.5 pr-3 font-mono text-xs text-text-secondary">
-									{entry.effectiveValue === '' ? $t('admin.effectiveConfig.notSet') : entry.effectiveValue}
-								</td>
-								<td class="py-1.5 pr-3 text-xs text-text-muted" data-source={entry.source}>
-									{$t(EFFECTIVE_CONFIG_SOURCE_LABEL[entry.source])}
-								</td>
-								<td class="max-w-[16rem] break-all py-1.5 font-mono text-xs text-text-muted">
-									{entry.adminOverride ?? '—'}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			<DiagnosticsPage
+				bind:activeTab={diagnosticsTab}
+				{toolHealth}
+				{toolHealthLoading}
+				{toolHealthRefreshing}
+				{toolHealthError}
+				{effectiveConfig}
+				{effectiveConfigLoading}
+				{effectiveConfigError}
+				onRefreshToolHealth={() => loadToolHealth(true)}
+				onRefreshEffectiveConfig={() => loadEffectiveConfig()}
+			/>
 		{/if}
-	{/if}
-</section>
+
+		<SystemSaveBar
+			pending={dirtyKeys.length}
+			pendingByPage={dirtyByPage}
+			saving={adminSaving}
+			invalid={invalidKeys.length}
+			{lastSavedAt}
+			message={adminMessage}
+			error={adminError}
+			onSave={() => void saveChanges()}
+			onDiscard={discardAll}
+		/>
+	</div>
+</div>
 
 {#if showProviderForm}
 	<ProviderForm
 		provider={providerFormProvider}
 		isCreate={providerFormIsCreate}
 		saving={providerFormSaving}
+		testing={providerFormTesting}
 		error={providerFormError}
 		testError={providerFormTestError}
 		testMessage={providerFormTestMessage}
 		onSave={handleProviderFormSave}
 		onClose={closeProviderForm}
+		onTest={() => handleTestProvider(providerFormProvider)}
 		onIconFile={handleProviderIconFile}
 		allProviders={providerConfigs}
 	/>
 {/if}
 
-{#if showModelList}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={closeModelList} onkeydown={(e) => e.key === 'Escape' && closeModelList()}>
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-lg border border-border bg-surface-page p-6 shadow-xl" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-			{#key modelListKey}
-				<ModelList
-					providerId={modelListProviderId}
-					models={allProviderModels}
-					allModels={allProviderModels}
-					allProviders={providerConfigs}
-					onClose={closeModelList}
-					onIconFile={handleModelModelIconFile}
-					onRefresh={loadProviderConfigs}
-					modelIconAssetSaved={modelIconAssetSaved}
-				/>
-			{/key}
-		</div>
-	</div>
+{#if pendingProviderDelete}
+	<ConfirmDialog
+		title={$t('admin.system.deleteProvider.title', {
+			name: pendingProviderDelete.displayName,
+		})}
+		message={$t('admin.system.deleteProvider.message')}
+		confirmText={$t('common.delete')}
+		confirmVariant="danger"
+		onConfirm={confirmDeleteProvider}
+		onCancel={() => (pendingProviderDelete = null)}
+	/>
 {/if}
 
-<!-- Sticky Save button -->
-<div class="sticky bottom-0 z-10 border-t border-border bg-surface-page py-4">
-	{#if adminMessage}
-		<p class="mb-3 text-sm text-success">{adminMessage}</p>
-	{/if}
-	{#if adminError}
-		<p class="mb-3 text-sm text-danger">{adminError}</p>
-	{/if}
-	<button class="btn-primary w-full" onclick={onSaveAdminConfig} disabled={adminSaving}>
-		{adminSaving ? $t('common.saving') : $t('admin.saveConfiguration')}
-	</button>
-</div>
+{#if showSkillDialog}
+	<SkillDialog
+		bind:draft={systemSkillDraft}
+		isEdit={Boolean(editingSystemSkillId)}
+		saving={systemSkillSaving}
+		error={systemSkillsError}
+		onSave={saveSystemSkill}
+		onClose={() => {
+			showSkillDialog = false;
+			editingSystemSkillId = null;
+		}}
+	/>
+{/if}
+
+{#if leaveGuardOpen}
+	<LeaveGuardDialog
+		pending={dirtyKeys.length}
+		items={leaveItems}
+		saving={adminSaving}
+		onKeepEditing={() => {
+			leaveGuardOpen = false;
+			pendingNavigation = null;
+		}}
+		onDiscard={() => {
+			discardAll();
+			leaveNow();
+		}}
+		onSave={async () => {
+			await saveChanges();
+			leaveNow();
+		}}
+	/>
+{/if}
 
 {#if modelIconCropJob}
 	<div class="fixed inset-0 z-[110]">
 		<CampaignCropModal
-		imageSrc={modelIconCropJob.imageSrc}
-		ratio={1}
-		title={$t('admin.modelIconCropTitle')}
-		metadata={$t('campaignCrop.modelIconMetadata')}
-		outputFilename="model-icon.webp"
-		outputWidth={512}
-		outputHeight={512}
-		onSave={saveModelIconCrop}
-		onCancel={cancelModelIconCrop}
-	/>
+			imageSrc={modelIconCropJob.imageSrc}
+			ratio={1}
+			title={$t('admin.modelIconCropTitle')}
+			metadata={$t('campaignCrop.modelIconMetadata')}
+			outputFilename="model-icon.webp"
+			outputWidth={512}
+			outputHeight={512}
+			onSave={saveModelIconCrop}
+			onCancel={cancelModelIconCrop}
+		/>
 	</div>
 {/if}
-
-<style>
-</style>
