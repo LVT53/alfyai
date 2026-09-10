@@ -108,7 +108,9 @@ test.describe(() => {
 
 			await page.getByTestId("system-nav-models").click();
 			await page.getByRole("button", { name: "Add provider" }).click();
-			await page.waitForTimeout(300);
+			// Long enough for the dialog's backdrop fade to finish, or the shot
+			// catches the page mid-wash.
+			await page.waitForTimeout(700);
 			await page.screenshot({
 				path: `${OUT}/system-provider-dialog-${theme}.png`,
 			});
@@ -116,7 +118,7 @@ test.describe(() => {
 
 			await page.getByTestId("system-nav-skills").click();
 			await page.getByRole("button", { name: "New skill" }).click();
-			await page.waitForTimeout(300);
+			await page.waitForTimeout(700);
 			await page.screenshot({
 				path: `${OUT}/system-skill-dialog-${theme}.png`,
 			});
@@ -133,7 +135,7 @@ test.describe(() => {
 			});
 
 			await page.getByRole("button", { name: "New chat" }).click();
-			await page.waitForTimeout(400);
+			await page.waitForTimeout(700);
 			await page.screenshot({
 				path: `${OUT}/system-leave-guard-${theme}.png`,
 			});
