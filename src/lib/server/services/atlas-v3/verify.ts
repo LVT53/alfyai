@@ -21,7 +21,7 @@ import {
 	figureAppearsInText,
 	isCheckableFigure,
 } from "../atlas-v2/number-match";
-import { atlasV3PublishersFor } from "./evidence-bank";
+import { atlasV3CorroboratingPublishersFor } from "./evidence-bank";
 import type {
 	AtlasV3AnswerTable,
 	AtlasV3EvidenceBank,
@@ -96,7 +96,9 @@ export function verifyAtlasV3Report(
 								query: atlasV3EvidenceQueryFor(sentence, section.title),
 							});
 						}
-						const publishers = atlasV3PublishersFor(
+						// Corroboration is a property of the FACT, not of how many ids
+						// the writer happened to attach to the sentence.
+						const publishers = atlasV3CorroboratingPublishersFor(
 							input.bank,
 							sentence.evidenceIds,
 						);

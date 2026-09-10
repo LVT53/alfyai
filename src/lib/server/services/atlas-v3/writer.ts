@@ -27,6 +27,7 @@ import {
 	atlasV3RunawayRetryMaxOutputTokens,
 	atlasV3SectionMaxOutputTokens,
 } from "./config";
+import { atlasV3AlsoStatedBy } from "./evidence-bank";
 import { atlasV3LanguageStandard } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
 import {
@@ -69,6 +70,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"A `synthesis` sentence MAY carry a figure — that is the point of it — but only a figure its own evidence ids state, or one from `answerTable.derived` named in `calcId`. Never compute a number yourself.",
 		"Every sentence that states a figure, a date, a name or a quantity carries at least one evidence id. At most 3 ids per sentence.",
 		'WRITE ACROSS SOURCES. "Three trackers put the figure between X and Y; the outlier uses a different denominator" beats one paragraph per source.',
+		"`alsoStatedBy` on a quote lists OTHER publishers' quotes stating the same figure. Cite them alongside it: a figure two independent publishers state should say so and carry both ids.",
 		"ADJUDICATE, DO NOT AVERAGE. When two quotes disagree, name the series or definition that differs and say which to believe, and why: methodology, recency, or proximity to the primary data. Two different measurements are not a disagreement.",
 		'DATE VOLATILE FIGURES INLINE, in one clause: "65.1 GW (as of December 2025)".',
 		"DO NOT REPEAT what the sections already written have said. You are shown them. A fact stated once is stated.",
@@ -83,6 +85,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"A `synthesis` mondat TARTALMAZHAT számot — épp ez a lényege —, de csak olyat, amelyet a saját bizonyítékai kimondanak, vagy amely az `answerTable.derived` egyik eleme a `calcId` alapján. Te magad ne számolj.",
 		"Minden mondat, amely számot, dátumot, nevet vagy mennyiséget állít, legalább egy bizonyítékazonosítót visel. Mondatonként legfeljebb 3.",
 		"FORRÁSOKON ÁTÍVELVE ÍRJ. „Három adatszolgáltató X és Y közé teszi; a kilógó más nevezőt használ” jobb, mint forrásonként egy bekezdés.",
+		"Az idézeten szereplő `alsoStatedBy` MÁS közzétevők ugyanazt a számot állító idézeteit sorolja fel. Hivatkozd őket együtt: ha két független közzétevő is kimondja a számot, mondd ki ezt, és vidd mindkét azonosítót.",
 		"DÖNTS, NE ÁTLAGOLJ. Ha két idézet eltér, nevezd meg az eltérő adatsort vagy definíciót, és mondd meg, melyiket kell elhinni és miért: módszertan, frissesség, vagy az elsődleges adathoz való közelség. Két különböző mérés nem ellentmondás.",
 		"A VÁLTOZÉKONY SZÁMOKAT DÁTUMOZD egyetlen tagmondatban: „65,1 GW (2025. decemberi adat)”.",
 		"NE ISMÉTELD, amit a már megírt szakaszok kimondtak. Látod őket. Ami egyszer elhangzott, elhangzott.",
@@ -147,6 +150,8 @@ export interface BuildAtlasV3SectionPromptInput {
 		publisher: string;
 		tier: string;
 		date: string | null;
+		/** Ids of other publishers' quotes stating the same claim. */
+		alsoStatedBy?: string[];
 	}>;
 	language: SupportedLanguage;
 	currentDate: string;
@@ -483,12 +488,17 @@ export async function writeAtlasV3Report(
 			.slice(0, input.maxEvidencePerSection)
 			.map((quote) => {
 				const source = sourcesById.get(quote.sourceId);
+				// The writer cannot see that a figure is corroborated unless it is
+				// told; without this every sentence was written as if one publisher
+				// had said it, and the confidence dots said so too.
+				const alsoStatedBy = atlasV3AlsoStatedBy(input.bank, quote.id);
 				return {
 					id: quote.id,
 					text: quote.text,
 					publisher: source?.publisher ?? "",
 					tier: source?.tier ?? "press",
 					date: source?.date ?? null,
+					...(alsoStatedBy.length > 0 ? { alsoStatedBy } : {}),
 				};
 			});
 		if (evidence.length === 0) {
@@ -640,7 +650,12 @@ export interface BuildAtlasV3VerdictPromptInput {
 	memo: AtlasV3Memo;
 	answerTable: AtlasV3AnswerTable | null;
 	sections: AtlasV3WrittenSection[];
-	evidence: Array<{ id: string; text: string; publisher: string }>;
+	evidence: Array<{
+		id: string;
+		text: string;
+		publisher: string;
+		alsoStatedBy?: string[];
+	}>;
 	language: SupportedLanguage;
 	currentDate: string;
 	/** True when the goal test failed and the verdict must say so. */

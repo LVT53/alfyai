@@ -16,7 +16,10 @@
 // report that answered.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { atlasV3PublishersFor, formatAtlasV3SourceLine } from "./evidence-bank";
+import {
+	atlasV3CorroboratingPublishersFor,
+	formatAtlasV3SourceLine,
+} from "./evidence-bank";
 import type {
 	AtlasV3EvidenceBank,
 	AtlasV3Source,
@@ -115,7 +118,10 @@ function sentence(input: {
 	evidenceIds: string[];
 	bank: AtlasV3EvidenceBank;
 }): AtlasV3VerifiedSentence {
-	const publishers = atlasV3PublishersFor(input.bank, input.evidenceIds);
+	const publishers = atlasV3CorroboratingPublishersFor(
+		input.bank,
+		input.evidenceIds,
+	);
 	return {
 		text: input.text,
 		evidenceIds: input.evidenceIds,

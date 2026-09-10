@@ -46,6 +46,7 @@ import {
 } from "./critic";
 import {
 	type AtlasV3BankState,
+	atlasV3AlsoStatedBy,
 	capAtlasV3Bank,
 	createAtlasV3Bank,
 	freezeAtlasV3Bank,
@@ -266,7 +267,12 @@ function verdictEvidence(input: {
 	sections: readonly AtlasV3WrittenSection[];
 	answerTable: AtlasV3AnswerTable | null;
 	limit?: number;
-}): Array<{ id: string; text: string; publisher: string }> {
+}): Array<{
+	id: string;
+	text: string;
+	publisher: string;
+	alsoStatedBy?: string[];
+}> {
 	const wanted: string[] = [];
 	for (const id of [
 		...input.sections.flatMap((section) =>
@@ -280,13 +286,17 @@ function verdictEvidence(input: {
 		.slice(0, input.limit ?? 30)
 		.map((id) => input.bank.quotes.find((quote) => quote.id === id))
 		.filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
-		.map((quote) => ({
-			id: quote.id,
-			text: quote.text,
-			publisher:
-				input.bank.sources.find((source) => source.id === quote.sourceId)
-					?.publisher ?? "",
-		}));
+		.map((quote) => {
+			const alsoStatedBy = atlasV3AlsoStatedBy(input.bank, quote.id);
+			return {
+				id: quote.id,
+				text: quote.text,
+				publisher:
+					input.bank.sources.find((source) => source.id === quote.sourceId)
+						?.publisher ?? "",
+				...(alsoStatedBy.length > 0 ? { alsoStatedBy } : {}),
+			};
+		});
 }
 
 export async function runAtlasV3Pipeline(

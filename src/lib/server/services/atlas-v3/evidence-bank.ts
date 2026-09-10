@@ -249,13 +249,148 @@ export function addAtlasV3Quote(
 // Claims
 // ---------------------------------------------------------------------------
 
-/** Identity of a measurement: same entity, metric, period and series. */
+/**
+ * Identity of a measurement: same entity, metric, period and series, each
+ * NORMALISED (see `atlasV3NormalizeField`). The raw strings never matched
+ * across two reads of the same page.
+ */
 export function atlasV3ClaimKey(
 	claim: Pick<AtlasV3Claim, "entity" | "metric" | "period" | "series">,
 ): string {
-	return [claim.entity, claim.metric, claim.period ?? "", claim.series ?? ""]
-		.map((part) => part.toLowerCase().replace(/\s+/g, " ").trim())
+	return [claim.entity, claim.metric, claim.period, claim.series]
+		.map((part) => atlasV3NormalizeField(part ?? null))
 		.join("|");
+}
+
+// ---------------------------------------------------------------------------
+// Loose claim identity: the merge the strict key cannot make
+// ---------------------------------------------------------------------------
+//
+// The strict key is an EXACT string match on four fields, and two reads of the
+// same fact never phrase it the same way. On the staging in-depth run, 59 pages
+// and 65 claims produced ZERO corroborated sentences, because
+// `{metric:"repairability score", unit:"/10", series:"iFixit repairability
+// score"}` and `{metric:"Repairability Score", unit:"out of 10",
+// series:"repairability score"}` stayed two claims of one publisher each rather
+// than one claim of two.
+//
+// The loose match below only ever merges claims with the SAME VALUE. Conflict
+// detection keeps the strict key: a looser rule for disagreement would invent
+// contradictions between measurements that merely sound alike.
+
+/** Words that carry no identity. Dropped before any comparison. */
+const ATLAS_V3_CLAIM_STOP_WORDS = new Set([
+	"the",
+	"a",
+	"an",
+	"of",
+	"for",
+	"in",
+	"on",
+	"to",
+	"and",
+	"per",
+	"total",
+	"official",
+]);
+
+/**
+ * A field's identity words: lowercased, punctuation stripped, whitespace
+ * collapsed, naive plurals singularised, stop words dropped.
+ */
+export function atlasV3NormalizeWords(value: string | null): string[] {
+	if (!value) return [];
+	return value
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}\s]+/gu, " ")
+		.split(/\s+/)
+		.filter(Boolean)
+		.map((word) =>
+			word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word,
+		)
+		.filter((word) => !ATLAS_V3_CLAIM_STOP_WORDS.has(word));
+}
+
+/** The same words, joined. Two fields are the same field when these match. */
+export function atlasV3NormalizeField(value: string | null): string {
+	return atlasV3NormalizeWords(value).join(" ");
+}
+
+function jaccard(left: Set<string>, right: Set<string>): number {
+	if (left.size === 0 || right.size === 0) return 0;
+	let shared = 0;
+	for (const word of left) if (right.has(word)) shared += 1;
+	return shared / (left.size + right.size - shared);
+}
+
+function isSubset(inner: Set<string>, outer: Set<string>): boolean {
+	if (inner.size === 0) return false;
+	for (const word of inner) if (!outer.has(word)) return false;
+	return true;
+}
+
+/**
+ * Equal, or one side missing. A null period matches any period — the read that
+ * omitted it is not disagreeing about it.
+ */
+function periodsAgree(left: string | null, right: string | null): boolean {
+	const leftKey = atlasV3NormalizeField(left);
+	const rightKey = atlasV3NormalizeField(right);
+	if (!leftKey || !rightKey) return true;
+	return leftKey === rightKey;
+}
+
+/**
+ * Equal, one missing, or one written as a QUALIFIED form of the other: "/10" is
+ * "out of 10", and "iFixit repairability score" is "repairability score" with
+ * the publisher named. `installed capacity` and `grid-connected additions`
+ * share no word either way and stay two series.
+ */
+function wordsAgree(left: string | null, right: string | null): boolean {
+	const leftWords = new Set(atlasV3NormalizeWords(left));
+	const rightWords = new Set(atlasV3NormalizeWords(right));
+	if (leftWords.size === 0 || rightWords.size === 0) return true;
+	return isSubset(leftWords, rightWords) || isSubset(rightWords, leftWords);
+}
+
+type AtlasV3ClaimIdentity = Pick<
+	AtlasV3Claim,
+	"entity" | "metric" | "value" | "unit" | "period" | "series"
+>;
+
+/**
+ * Whether two claims are two readings of ONE measurement: same entity, same
+ * value, compatible unit, period and series, and metrics that either overlap by
+ * half their words or where one metric's words are contained in the other's
+ * metric plus series.
+ */
+export function atlasV3ClaimsMergeLoosely(
+	left: AtlasV3ClaimIdentity,
+	right: AtlasV3ClaimIdentity,
+): boolean {
+	if (
+		atlasV3NormalizeField(left.entity) !== atlasV3NormalizeField(right.entity)
+	) {
+		return false;
+	}
+	if (!sameValue(left.value, right.value)) return false;
+	if (!wordsAgree(left.unit, right.unit)) return false;
+	if (!periodsAgree(left.period, right.period)) return false;
+	if (!wordsAgree(left.series, right.series)) return false;
+	const leftMetric = new Set(atlasV3NormalizeWords(left.metric));
+	const rightMetric = new Set(atlasV3NormalizeWords(right.metric));
+	if (jaccard(leftMetric, rightMetric) >= 0.5) return true;
+	const leftContext = new Set([
+		...leftMetric,
+		...atlasV3NormalizeWords(left.series),
+	]);
+	const rightContext = new Set([
+		...rightMetric,
+		...atlasV3NormalizeWords(right.series),
+	]);
+	return (
+		isSubset(leftMetric, rightContext) || isSubset(rightMetric, leftContext)
+	);
 }
 
 /**
@@ -291,15 +426,23 @@ export function addAtlasV3Claim(
 		evidenceIds,
 	};
 	const key = atlasV3ClaimKey(candidate);
-	const existing = state.claims.find(
-		(claim) => atlasV3ClaimKey(claim) === key && sameValue(claim.value, value),
-	);
+	// The strict key first, then the loose one. Both keep the EARLIER claim's id
+	// and fill its nulls from the newer reading, so a round-1 claim and its
+	// round-3 twin become one claim carrying both publishers.
+	const existing =
+		state.claims.find(
+			(claim) =>
+				atlasV3ClaimKey(claim) === key && sameValue(claim.value, value),
+		) ??
+		state.claims.find((claim) => atlasV3ClaimsMergeLoosely(claim, candidate));
 	if (existing) {
 		for (const id of evidenceIds) {
 			if (!existing.evidenceIds.includes(id)) existing.evidenceIds.push(id);
 		}
 		existing.asOf ??= candidate.asOf;
 		existing.unit ??= candidate.unit;
+		existing.period ??= candidate.period;
+		existing.series ??= candidate.series;
 		existing.status = atlasV3ClaimStatus(state, existing);
 		return existing;
 	}
@@ -404,6 +547,60 @@ export function atlasV3PublishersFor(
 			publishers.add(source.publisher);
 	}
 	return [...publishers];
+}
+
+/**
+ * Publishers behind a FACT, not behind a citation.
+ *
+ * A writer cites one quote per figure — that is the whole point of a quote id —
+ * so counting publishers over the ids one sentence carries said "single" for
+ * every sentence in a report whose claims held four publishers each. The
+ * corroboration a sentence inherits is the corroboration of the CLAIMS its
+ * quotes belong to: publishers of the cited quotes, plus publishers of every
+ * quote on any claim that lists one of them.
+ *
+ * One hop only. Two claims sharing a quote are related; the claims THEY share
+ * quotes with are not the same fact.
+ */
+export function atlasV3CorroboratingPublishersFor(
+	bank: AtlasV3EvidenceBank,
+	evidenceIds: readonly string[],
+): string[] {
+	if (evidenceIds.length === 0) return [];
+	const cited = new Set(evidenceIds);
+	const widened = new Set(evidenceIds);
+	for (const claim of bank.claims) {
+		if (!claim.evidenceIds.some((id) => cited.has(id))) continue;
+		for (const id of claim.evidenceIds) widened.add(id);
+	}
+	return atlasV3PublishersFor(bank, [...widened]);
+}
+
+/**
+ * Quote ids from OTHER publishers that state the same claim as `evidenceId`.
+ * Handed to the writer as `alsoStatedBy`, so a sentence can say that three
+ * trackers agree instead of quoting one and sounding alone.
+ */
+export function atlasV3AlsoStatedBy(
+	bank: AtlasV3EvidenceBank,
+	evidenceId: string,
+	limit = 3,
+): string[] {
+	const own = atlasV3SourceForQuote(bank, evidenceId);
+	if (!own) return [];
+	const ids: string[] = [];
+	for (const claim of bank.claims) {
+		if (!claim.evidenceIds.includes(evidenceId)) continue;
+		for (const id of claim.evidenceIds) {
+			if (id === evidenceId || ids.includes(id)) continue;
+			const source = atlasV3SourceForQuote(bank, id);
+			if (!source || source.publisher === own.publisher) continue;
+			if (!tierCanCorroborate(source.tier)) continue;
+			ids.push(id);
+			if (ids.length >= limit) return ids;
+		}
+	}
+	return ids;
 }
 
 /** `title — host, date`, the Sources-section line format ADR 0062 defined. */
@@ -637,6 +834,10 @@ export function fileAtlasV3Read(input: {
 		const filed = addAtlasV3Claim(input.state, { ...claim, evidenceIds });
 		if (filed) claims.push(filed);
 	}
+	// A merge can lift an EARLIER claim to `verified` by giving it a second
+	// publisher; rescoring after the read is what makes the corroboration in the
+	// bank match the corroboration in the sources.
+	if (claims.length > 0) rescoreAtlasV3Claims(input.state);
 	return { quotes: added, claims };
 }
 

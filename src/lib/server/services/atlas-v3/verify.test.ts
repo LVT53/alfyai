@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addAtlasV3Claim,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	createAtlasV3Bank,
@@ -42,6 +43,42 @@ function bank() {
 		sourceId: bbc?.id ?? "",
 		text: "Europe installed 65.1 GW of solar last year, according to industry data.",
 		goal: "g",
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** The same two quotes, now bound into ONE claim of two publishers. */
+function bankWithClaim() {
+	const state = createAtlasV3Bank();
+	const iea = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const bbc = addAtlasV3Source(state, {
+		url: "https://bbc.com/a",
+		title: "BBC",
+		publishedAt: "2019-01-01",
+	});
+	const first = addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "The EU added 65.1 GW of solar capacity in 2025, the first fall since 2016.",
+		goal: "g",
+	});
+	const second = addAtlasV3Quote(state, {
+		sourceId: bbc?.id ?? "",
+		text: "Europe installed 65.1 GW of solar last year, according to industry data.",
+		goal: "g",
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "solar additions",
+		value: "65.1",
+		unit: "GW",
+		period: "2025",
+		asOf: null,
+		series: "grid-connected additions",
+		evidenceIds: [first?.id ?? "", second?.id ?? ""],
 	});
 	return freezeAtlasV3Bank(state);
 }
@@ -118,6 +155,21 @@ describe("verifyAtlasV3Report", () => {
 		expect(sentence.confidence).toBe("corroborated");
 		expect(result.totals.corroborated).toBe(1);
 		expect(result.citedEvidenceIds).toEqual(["e1", "e2"]);
+	});
+
+	it("corroborates from the CLAIM when the sentence cites one quote", () => {
+		// The writer cites one quote per figure. Corroboration is a property of the
+		// fact: e1's claim also holds e2, from a second publisher.
+		const result = verifyAtlasV3Report({
+			...base,
+			bank: bankWithClaim(),
+			sections: [
+				section([
+					{ text: "The EU added 65.1 GW in 2025.", evidenceIds: ["e1"] },
+				]),
+			],
+		});
+		expect(result.sections[0].paragraphs[0][0].confidence).toBe("corroborated");
 	});
 
 	it("calls one publisher single", () => {

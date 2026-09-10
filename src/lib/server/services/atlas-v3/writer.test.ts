@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { atlasV3SectionBudget, getAtlasV3ProfileConfig } from "./config";
 import {
+	addAtlasV3Claim,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	createAtlasV3Bank,
@@ -68,6 +69,47 @@ function bank() {
 		sourceId: iea?.id ?? "",
 		text: "Rooftop installations fell 21% while utility-scale capacity grew.",
 		goal: "g",
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** The same bank, with e1 and e2 bound into one claim of two publishers. */
+function corroboratedBank() {
+	const state = createAtlasV3Bank();
+	const iea = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const bbc = addAtlasV3Source(state, {
+		url: "https://bbc.com/a",
+		title: "BBC",
+		publishedAt: "2025-12-02",
+	});
+	const first = addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "The EU added 65.1 GW of solar capacity in 2025, the first fall since 2016.",
+		goal: "g",
+	});
+	const second = addAtlasV3Quote(state, {
+		sourceId: bbc?.id ?? "",
+		text: "Europe installed 65.1 GW of solar last year, according to industry data.",
+		goal: "g",
+	});
+	addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "Rooftop installations fell 21% while utility-scale capacity grew.",
+		goal: "g",
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "solar additions",
+		value: "65.1",
+		unit: "GW",
+		period: "2025",
+		asOf: null,
+		series: "grid-connected additions",
+		evidenceIds: [first?.id ?? "", second?.id ?? ""],
 	});
 	return freezeAtlasV3Bank(state);
 }
@@ -336,6 +378,19 @@ describe("writeAtlasV3Report", () => {
 		expect(second.evidence.map((entry: { id: string }) => entry.id)).toEqual([
 			"e3",
 		]);
+	});
+
+	it("tells the writer which other publisher states the same figure", async () => {
+		const model = fakeModel({
+			"v3:write": sectionAnswer("The EU added 65.1 GW in 2025.", ["e1"]),
+		});
+		await writeAtlasV3Report({ ...base(model), bank: corroboratedBank() });
+		const prompt = JSON.parse(
+			model.prompts.find((entry) => entry.stage === "v3:write:n1")?.prompt ??
+				"{}",
+		);
+		expect(prompt.evidence[0].alsoStatedBy).toEqual(["e2"]);
+		expect(prompt.evidence[1].alsoStatedBy).toEqual(["e1"]);
 	});
 
 	it("shows a section what the previous sections already said", async () => {
