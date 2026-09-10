@@ -763,12 +763,14 @@ async function downloadArchiveFromDestructiveModal() {
 	}
 }
 
-async function saveAdminConfig() {
+// `patch` is what the admin System pane changed. Called without one (any other
+// caller), it still writes the whole config, exactly as before.
+async function saveAdminConfig(patch?: Record<string, string>) {
 	adminSaving = true;
 	adminMessage = "";
 	adminError = "";
 	try {
-		const configToSave = { ...adminConfig };
+		const configToSave = patch ? { ...patch } : { ...adminConfig };
 		if (configToSave.WEB_PUSH_VAPID_PRIVATE_KEY === "[set]") {
 			delete configToSave.WEB_PUSH_VAPID_PRIVATE_KEY;
 		}

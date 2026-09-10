@@ -39,6 +39,7 @@ let {
 	allProviders = [],
 	saving = false,
 	error = "",
+	focusPriceWindows = false,
 	onSave,
 	onClose,
 	onIconFile,
@@ -49,6 +50,8 @@ let {
 	allProviders?: Provider[];
 	saving?: boolean;
 	error?: string;
+	/** Opened from the list's "Price windows" button: scroll that group in. */
+	focusPriceWindows?: boolean;
 	onSave?: (data: ProviderModelUpdate) => void | Promise<void>;
 	onClose?: () => void;
 	onIconFile?: (event: Event) => void;
@@ -449,6 +452,17 @@ function handlePriceWindowsToggle(event: Event) {
 	}
 }
 
+let priceWindowsDetails = $state<HTMLDetailsElement | null>(null);
+
+// Opened from the list's "Price windows" button: open the disclosure, load the
+// windows, and put the group on screen instead of leaving the admin to find it.
+$effect(() => {
+	if (!focusPriceWindows || !priceWindowsDetails) return;
+	priceWindowsDetails.open = true;
+	void loadPriceWindows();
+	priceWindowsDetails.scrollIntoView({ block: "center" });
+});
+
 function addPriceWindowRow() {
 	priceWindowRows = [...priceWindowRows, emptyWindowRow()];
 	priceWindowsSaved = false;
@@ -847,6 +861,7 @@ async function handleSavePriceWindows() {
 				{#if !isCreate && model?.id}
 					<div class="mt-2 border-t border-border pt-3">
 						<details
+							bind:this={priceWindowsDetails}
 							class="rounded-md border border-border bg-surface-page px-3 py-2"
 							ontoggle={handlePriceWindowsToggle}
 						>

@@ -12,7 +12,6 @@ import { t } from "$lib/i18n";
 import CreateUserModal from "./CreateUserModal.svelte";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
 import SettingsAdminSystemPane from "./SettingsAdminSystemPane.svelte";
-import SettingsAdminRoutingRegions from "./SettingsAdminRoutingRegions.svelte";
 import SettingsAdminUsersPane from "./SettingsAdminUsersPane.svelte";
 import SettingsSystemAnalytics from "./SettingsSystemAnalytics.svelte";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
@@ -54,7 +53,8 @@ let {
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
-	onSaveAdminConfig: () => void | Promise<void>;
+	// Optional patch: the System pane sends only the keys it changed.
+	onSaveAdminConfig: (patch?: Record<string, string>) => void | Promise<void>;
 	systemAnalyticsData?: AnalyticsResponse | null;
 	systemAnalyticsLoading?: boolean;
 	systemAnalyticsError?: string;
@@ -260,6 +260,9 @@ async function handleDeleteUser(userId: string) {
 </div>
 
 {#if activePane === 'system'}
+	<!-- Routing coverage is no longer a sibling card: it is a read-only -->
+	<!-- diagnostic, so it lives on the System pane's Diagnostics page with -->
+	<!-- tool health and the effective-config readout. -->
 	<SettingsAdminSystemPane
 		bind:adminConfig
 		{envDefaults}
@@ -269,7 +272,6 @@ async function handleDeleteUser(userId: string) {
 		{adminError}
 		{onSaveAdminConfig}
 	/>
-	<SettingsAdminRoutingRegions />
 {:else if activePane === 'users'}
 	<SettingsAdminUsersPane
 		{currentUserId}
