@@ -277,6 +277,12 @@ export function isLabelShapedTitle(title: string): boolean {
 	// No verb, three words or fewer, or a bare year/data label.
 	if (/^\d{4}(-(e|a)s)?\b/u.test(normalized)) return true;
 	if (/^(reference|referencia)\b/iu.test(normalized)) return true;
+	// `entity — metric`: a spaced dash joining two noun phrases. This is what the
+	// deterministic outline used to mint and what the staging reports shipped
+	// eight times ("providers — compliance deadline for pre-2025 models"). The
+	// sentence-shaped replacement uses a COLON — "Commission: enforcement powers
+	// entry into application 2 August 2026" — so a colon exempts a title.
+	if (/\s[—–-]\s/u.test(normalized) && !normalized.includes(":")) return true;
 	return false;
 }
 

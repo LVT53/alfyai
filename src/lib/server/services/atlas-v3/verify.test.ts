@@ -306,6 +306,69 @@ describe("pruneAtlasV3AnswerTable", () => {
 	});
 });
 
+describe("verifyAtlasV3AnswerTable, uncited and placeholder cells", () => {
+	const cellTable = (
+		text: string,
+		evidenceIds: string[],
+	): AtlasV3AnswerTable => ({
+		kind: "comparison",
+		title: "t",
+		columns: [
+			{ key: "model", label: "Model" },
+			{ key: "memory", label: "Memory" },
+		],
+		rows: [
+			{
+				model: { text: "Dell XPS 13", evidenceIds: [] },
+				memory: { text, evidenceIds },
+			},
+		],
+		derived: [],
+	});
+
+	it("fails a non-numeric factual cell with no evidence at all", () => {
+		const failures = verifyAtlasV3AnswerTable({
+			table: cellTable("Soldered RAM", []),
+			bank: bank(),
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0].kind).toBe("unsupported");
+		expect(failures[0].rowLabel).toBe("Dell XPS 13");
+		expect(failures[0].columnLabel).toBe("Memory");
+		expect(failures[0].detail).toBe("stated with no evidence behind it");
+	});
+
+	it("leaves a cited non-numeric cell alone", () => {
+		expect(
+			verifyAtlasV3AnswerTable({
+				table: cellTable("Soldered RAM", ["e1"]),
+				bank: bank(),
+			}),
+		).toEqual([]);
+	});
+
+	it("treats a placeholder that then lists figures as the placeholder", () => {
+		const failures = verifyAtlasV3AnswerTable({
+			table: cellTable(
+				"not published (July 2026 range $1,099.99-$1,599.00)",
+				[],
+			),
+			bank: bank(),
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0].kind).toBe("placeholder");
+	});
+
+	it("says nothing about a bare placeholder", () => {
+		expect(
+			verifyAtlasV3AnswerTable({
+				table: cellTable("nincs közzétéve", []),
+				bank: bank(),
+			}),
+		).toEqual([]);
+	});
+});
+
 describe("isAtlasV3StaleSource", () => {
 	it("measures months, not days, and ignores an unknown date", () => {
 		expect(isAtlasV3StaleSource("2024-01-01", NOW, 18)).toBe(true);

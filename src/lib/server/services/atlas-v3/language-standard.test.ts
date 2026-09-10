@@ -89,6 +89,23 @@ describe("isLabelShapedTitle", () => {
 		expect(isLabelShapedTitle("")).toBe(true);
 	});
 
+	it("rejects the `entity — metric` heading v3 shipped eight times", () => {
+		expect(
+			isLabelShapedTitle("Commission — obligations entry into application"),
+		).toBe(true);
+		expect(
+			isLabelShapedTitle("providers — compliance deadline for pre-2025 models"),
+		).toBe(true);
+	});
+
+	it("accepts the sentence-shaped replacement", () => {
+		expect(
+			isLabelShapedTitle(
+				"Commission: enforcement powers entry into application 2 August 2026",
+			),
+		).toBe(false);
+	});
+
 	it("accepts a title that states a finding", () => {
 		expect(isLabelShapedTitle("Rooftop demand fell, utility-scale grew")).toBe(
 			false,

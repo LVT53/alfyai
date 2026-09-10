@@ -6,10 +6,13 @@ import {
 	createAtlasV3Bank,
 	freezeAtlasV3Bank,
 } from "./evidence-bank";
+import { isLabelShapedTitle } from "./language-standard";
 import {
+	atlasV3FirstClause,
 	atlasV3OutlineGaps,
 	bindAtlasV3Evidence,
 	buildAtlasV3OutlinePrompt,
+	clampAtlasV3Title,
 	deterministicAtlasV3Outline,
 	parseAtlasV3Outline,
 	parseAtlasV3Trial,
@@ -75,6 +78,42 @@ function bank() {
 		asOf: null,
 		series: "year on year",
 		evidenceIds: [q3?.id ?? ""],
+	});
+	return freezeAtlasV3Bank(state);
+}
+
+/** Two different claims that rest on the SAME quote. */
+function sharedQuoteBank() {
+	const state = createAtlasV3Bank();
+	const iea = addAtlasV3Source(state, {
+		url: "https://iea.org/a",
+		title: "IEA",
+		publishedAt: "2025-12-01",
+	});
+	const quote = addAtlasV3Quote(state, {
+		sourceId: iea?.id ?? "",
+		text: "The EU added 65.1 GW of solar in 2025, as rooftop installations fell 21%.",
+		goal: "g",
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "solar additions",
+		value: "65.1",
+		unit: "GW",
+		period: "2025",
+		asOf: null,
+		series: "grid-connected",
+		evidenceIds: [quote?.id ?? ""],
+	});
+	addAtlasV3Claim(state, {
+		entity: "EU-27",
+		metric: "rooftop additions",
+		value: "-21",
+		unit: "%",
+		period: "2025",
+		asOf: null,
+		series: "year on year",
+		evidenceIds: [quote?.id ?? ""],
 	});
 	return freezeAtlasV3Bank(state);
 }
@@ -159,7 +198,7 @@ describe("bindAtlasV3Evidence", () => {
 		expect(outline.nodes[0].status).toBe("thin");
 	});
 
-	it("refuses to let two sections rest on the same evidence set", () => {
+	it("merges two sections that rest on the same claims", () => {
 		const outline = bindAtlasV3Evidence({
 			nodes: [
 				{ id: "n1", title: "First", claim: "c", needs: [], claimIds: ["c1"] },
@@ -170,10 +209,10 @@ describe("bindAtlasV3Evidence", () => {
 		});
 		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
 		expect(outline.cut[0].id).toBe("n2");
-		expect(outline.cut[0].reason).toContain("already belongs");
+		expect(outline.cut[0].reason).toBe("merged into First");
 	});
 
-	it("keeps the part of an overlapping set that is still free", () => {
+	it("gives the merged node the union of both claim sets", () => {
 		const outline = bindAtlasV3Evidence({
 			nodes: [
 				{ id: "n1", title: "First", claim: "c", needs: [], claimIds: ["c1"] },
@@ -181,14 +220,43 @@ describe("bindAtlasV3Evidence", () => {
 					id: "n2",
 					title: "Second",
 					claim: "c",
-					needs: [],
+					needs: ["a gap"],
 					claimIds: ["c1", "c2"],
 				},
 			],
 			bank: bank(),
 			minEvidencePerNode: 1,
 		});
-		expect(outline.nodes[1].evidenceIds).toEqual(["e3"]);
+		expect(outline.nodes).toHaveLength(1);
+		expect(outline.nodes[0].evidenceIds).toEqual(["e1", "e2", "e3"]);
+		expect(outline.nodes[0].needs).toEqual(["a gap"]);
+	});
+
+	it("still refuses two DISTINCT sections resting on one quote set", () => {
+		// Different claims, same quotes behind them: the exclusivity rule, not the
+		// duplicate merge.
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "Additions fell",
+					claim: "The bloc added less than the year before.",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Rooftop demand cooled",
+					claim: "Household orders thinned as subsidies ended.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+			],
+			bank: sharedQuoteBank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
+		expect(outline.cut[0].reason).toContain("already belongs");
 	});
 
 	it("leaves a node with no claims planned rather than cut", () => {
@@ -199,6 +267,31 @@ describe("bindAtlasV3Evidence", () => {
 		});
 		expect(outline.nodes[0].status).toBe("planned");
 		expect(outline.cut).toEqual([]);
+	});
+});
+
+describe("clampAtlasV3Title / atlasV3FirstClause", () => {
+	it("cuts at a word boundary, never mid-word", () => {
+		const long =
+			"Utility-scale solar additions grew twelve percent across the bloc during 2025, marking an increase";
+		const clamped = clampAtlasV3Title(long);
+		expect(clamped.length).toBeLessThanOrEqual(90);
+		expect(long.startsWith(clamped)).toBe(true);
+		// The character the cut stopped at is a boundary, not the middle of a word.
+		expect(long.slice(clamped.length, clamped.length + 1)).toBe(" ");
+		expect(clamped.endsWith("incr")).toBe(false);
+	});
+
+	it("strips trailing punctuation the cut left behind", () => {
+		expect(clampAtlasV3Title("The rate rose, ")).toBe("The rate rose");
+	});
+
+	it("takes the first clause of a claim", () => {
+		expect(
+			atlasV3FirstClause(
+				"Rooftop demand cooled, and utility-scale capacity grew 12%.",
+			),
+		).toBe("Rooftop demand cooled");
 	});
 });
 
@@ -214,6 +307,21 @@ describe("deterministicAtlasV3Outline", () => {
 		});
 		expect(outline.nodes).toHaveLength(2);
 		expect(outline.nodes[0].title).toContain("solar additions");
+	});
+
+	it("titles a node with the finding, not with `entity — metric`", () => {
+		const outline = deterministicAtlasV3Outline({
+			ask: ASK,
+			memo: MEMO,
+			bank: bank(),
+			minSections: 2,
+			maxSections: 6,
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes[0].title).toBe("EU-27: solar additions 65.1 GW");
+		expect(outline.nodes.every((node) => !isLabelShapedTitle(node.title))).toBe(
+			true,
+		);
 	});
 
 	it("falls back to the core question when there are no claims", () => {
