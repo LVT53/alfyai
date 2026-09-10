@@ -847,6 +847,609 @@ const settingsDict = {
 		settings_usersTab: "Users",
 		settings_yourName: "Your name",
 		settings_yourPasswordPlaceholder: "Your password",
+		// ---------------------------------------------------------------
+		// Admin System screen redesign. Appended as one block so the three
+		// redesign branches do not collide in the middle of the file.
+		// ---------------------------------------------------------------
+		"admin.system.nav.title": "System configuration",
+		"admin.system.nav.readOnly": "Read-only",
+		"admin.system.nav.a11y": "System configuration pages",
+		"admin.system.pages.general": "General",
+		"admin.system.pages.models": "Models & providers",
+		"admin.system.pages.aiTasks": "AI tasks",
+		"admin.system.pages.integrations": "Integrations & keys",
+		"admin.system.pages.limits": "Limits",
+		"admin.system.pages.skills": "Skills",
+		"admin.system.pages.advanced": "Advanced",
+		"admin.system.pages.diagnostics": "Diagnostics",
+		"admin.system.search.placeholder": "Search every setting, key or provider",
+		"admin.system.search.a11y": "Search system settings",
+		"admin.system.search.empty": "Nothing matches “{query}”.",
+		"admin.system.search.results": "{count} settings match",
+		"admin.system.search.goTo": "Go to {page}",
+		"admin.system.appliesImmediately": "Applies immediately",
+		"admin.system.appliesImmediatelyLegend":
+			"marks the controls that write the moment you change them — everything else waits for Save.",
+		"admin.system.unsaved": "Unsaved",
+		"admin.system.unsavedRow": "{label} has unsaved changes",
+		"admin.system.defaultLabel": "Default",
+		"admin.system.valueLabel": "Value",
+		"admin.system.settingLabel": "Setting",
+		"admin.system.takesEffect": "Takes effect",
+		"admin.system.effect.live": "live",
+		"admin.system.effect.nextRun": "next run",
+		"admin.system.effect.restart": "restart",
+		"admin.system.effect.liveHint":
+			"Read fresh on the next call — saving is enough.",
+		"admin.system.effect.nextRunHint":
+			"Applied when the scheduler computes its next run.",
+		"admin.system.effect.restartHint": "Read at start-up — needs a restart.",
+		"admin.system.resetToDefault": "Reset to default",
+		"admin.system.resetToDefaultA11y": "Reset {label} to its default",
+		"admin.system.emptyValue": "not set",
+		"admin.system.invalid.number": "Whole number required.",
+		"admin.system.invalid.min": "Must be at least {limit}.",
+		"admin.system.invalid.max": "Must be at most {limit}.",
+		"admin.system.invalid.option": "Pick one of the listed values.",
+		"admin.system.invalidCount": "{count} value cannot be saved",
+		"admin.system.invalidCountPlural": "{count} values cannot be saved",
+		"admin.system.unit.ms": "ms",
+		"admin.system.unit.s": "s",
+		"admin.system.unit.min": "min",
+		"admin.system.unit.days": "days",
+		"admin.system.unit.months": "months",
+		"admin.system.unit.mb": "MB",
+		"admin.system.unit.chars": "chars",
+		"admin.system.unit.tokens": "tok",
+		"admin.system.unit.words": "words",
+		"admin.system.save.allSaved": "All changes saved",
+		"admin.system.save.lastSaved": "Last saved {time}",
+		"admin.system.save.pendingOne": "1 unsaved change",
+		"admin.system.save.pendingMany": "{count} unsaved changes",
+		"admin.system.save.button": "Save {count} changes",
+		"admin.system.save.buttonOne": "Save 1 change",
+		"admin.system.save.nothing": "Save",
+		"admin.system.save.discard": "Discard",
+		"admin.system.save.savingOne": "Saving 1 change…",
+		"admin.system.save.savingMany": "Saving {count} changes…",
+		"admin.system.save.savingDetail":
+			"Writing admin_config, then reloading the shell",
+		"admin.system.save.pageBreakdown": "{page} · {count}",
+		"admin.system.leave.titleOne": "Leave 1 unsaved change?",
+		"admin.system.leave.titleMany": "Leave {count} unsaved changes?",
+		"admin.system.leave.description":
+			"They are listed so you can decide, rather than being described as “changes”.",
+		"admin.system.leave.keepEditing": "Keep editing",
+		"admin.system.leave.discardAndLeave": "Discard and leave",
+		"admin.system.leave.saveAndLeave": "Save and leave",
+		"admin.system.secret.set": "Set",
+		"admin.system.secret.notSet": "Not set",
+		"admin.system.secret.replace": "Replace",
+		"admin.system.secret.add": "Add key",
+		"admin.system.secret.cancel": "Keep current",
+		"admin.system.secret.lastChanged": "last changed {date}",
+		"admin.system.secret.writeOnly":
+			"Write-only — it is never sent back to the browser.",
+		"admin.system.secret.newValue": "New value for {label}",
+		"admin.system.general.title": "General",
+		"admin.system.general.description":
+			"The two settings that belong to the application itself rather than to a model.",
+		"admin.system.providers.title": "Providers",
+		"admin.system.providers.description":
+			"Order is failover order — move a provider to change it. Every model select on this screen is built from the providers that are switched on here.",
+		"admin.system.providers.enabledOnly": "Enabled only",
+		"admin.system.providers.add": "Add provider",
+		"admin.system.providers.modelCount": "{count} models",
+		"admin.system.providers.modelCountOne": "1 model",
+		"admin.system.providers.modelsOn": "Models on {provider}",
+		"admin.system.providers.menu": "More actions for {provider}",
+		"admin.system.providers.discover": "Discover models from /models",
+		"admin.system.providers.manage": "Manage models & pricing",
+		"admin.system.providers.edit": "Edit provider",
+		"admin.system.providers.test": "Test connection",
+		"admin.system.providers.delete": "Delete provider…",
+		"admin.system.providers.moveUp": "Move {provider} up",
+		"admin.system.providers.moveDown": "Move {provider} down",
+		"admin.system.providers.toggleA11y": "Enable {provider}",
+		"admin.system.providers.expandA11y": "Show models on {provider}",
+		"admin.system.providers.priceWindows": "Price windows · {count}",
+		"admin.system.providers.hidden": "Hidden",
+		"admin.system.providers.default": "Default",
+		"admin.system.providers.perMillion": "{input} / {output} per 1M in/out",
+		"admin.system.providers.emptyFiltered": "No provider is switched on.",
+		"admin.system.failover.title": "Timeout failover",
+		"admin.system.failover.description":
+			"A rule about all models, so it is its own card.",
+		"admin.system.failover.summary":
+			"If a model has not started answering within {seconds} s, the request is retried once on {model}. The user sees one answer, never an error.",
+		"admin.system.failover.summaryOff":
+			"Switched off: a slow model is not retried anywhere else.",
+		"admin.system.failover.enabled": "Retry slow requests on another model",
+		"admin.system.failover.timeout": "Give up after",
+		"admin.system.failover.timeoutMeaning":
+			"Measured to the first token, not to completion.",
+		"admin.system.failover.target": "Retry on",
+		"admin.system.failover.targetMeaning":
+			"Pick something cheap and always-on.",
+		"admin.system.newAccounts.title": "New accounts",
+		"admin.system.newAccounts.description":
+			"What a person gets before they change anything.",
+		"admin.system.newAccounts.meaning":
+			"Existing accounts keep the model they chose.",
+		"admin.system.atlas.title": "Atlas research reports",
+		"admin.system.atlas.description": "Six stages, six model choices.",
+		"admin.system.atlas.workerEnabled": "Worker enabled",
+		"admin.system.atlas.tabs.models": "Models per task",
+		"admin.system.atlas.tabs.worker": "Worker & limits",
+		"admin.system.atlas.tabs.depth": "Research depth",
+		"admin.system.atlas.tabs.prompts": "Pipeline",
+		"admin.system.atlas.taskColumn": "Task",
+		"admin.system.atlas.modelColumn": "Model",
+		"admin.system.atlas.inherit": "Inherit — {model}",
+		"admin.system.atlas.inheritNote":
+			"A task left on Inherit follows the Atlas synthesis or audit model it belongs to. Those two are on the Worker & limits tab.",
+		"admin.system.atlas.v3Only": "Used by the v3 pipeline only.",
+		"admin.system.atlas.tasks.ask.label": "Ask",
+		"admin.system.atlas.tasks.ask.meaning":
+			"Turns the request into a research brief and asks the clarifying question.",
+		"admin.system.atlas.tasks.researcher.label": "Researcher",
+		"admin.system.atlas.tasks.researcher.meaning":
+			"Runs each research question against the web and reads the pages.",
+		"admin.system.atlas.tasks.outline.label": "Outline",
+		"admin.system.atlas.tasks.outline.meaning":
+			"Decides the sections the report will have, and their order.",
+		"admin.system.atlas.tasks.writer.label": "Writer",
+		"admin.system.atlas.tasks.writer.meaning":
+			"Writes each section from the evidence index, sentence by sentence.",
+		"admin.system.atlas.tasks.critic.label": "Critic",
+		"admin.system.atlas.tasks.critic.meaning":
+			"Reviews coverage and asks for the rounds that are still missing.",
+		"admin.system.atlas.tasks.verifier.label": "Verifier",
+		"admin.system.atlas.tasks.verifier.meaning":
+			"Checks every cited figure against the source that is cited for it.",
+		"admin.system.atlas.pipeline.label": "Report pipeline",
+		"admin.system.atlas.pipeline.meaning":
+			"Stamped when a report starts, so reports already queued keep the pipeline they began with.",
+		"admin.system.atlas.searchMath": "Questions × rounds = web searches",
+		"admin.system.atlas.searchMathRow":
+			"{profile} {questions} × {rounds} = {total}",
+		"admin.system.atlas.profile.overview": "Overview",
+		"admin.system.atlas.profile.inDepth": "In depth",
+		"admin.system.atlas.profile.exhaustive": "Exhaustive",
+		"admin.system.memory.title": "Memory",
+		"admin.system.memory.description":
+			"Decides what is worth remembering, and merges duplicates overnight.",
+		"admin.system.titles.title": "Conversation titles",
+		"admin.system.titles.description": "Names a chat after the first exchange.",
+		"admin.system.titles.promptSection": "Prompt",
+		"admin.system.titles.langEn": "English",
+		"admin.system.titles.langHu": "Magyar",
+		"admin.system.titles.complete": "complete",
+		"admin.system.titles.incomplete": "empty",
+		"admin.system.titles.basePrompt": "System prompt",
+		"admin.system.titles.appendix": "Code appendix",
+		"admin.system.summarizer.title": "Context summarizer",
+		"admin.system.summarizer.description":
+			"Compresses long conversations when the window fills.",
+		"admin.system.systemPrompt.title": "System prompt",
+		"admin.system.systemPrompt.description":
+			"Prepended to every normal chat. Atlas and the tasks above use their own prompts.",
+		"admin.system.charCount": "{count} / {max} characters",
+		"admin.system.integrations.title": "Integrations & keys",
+		"admin.system.integrations.description":
+			"Every secret in the product, in one place and one idiom.",
+		"admin.system.integrations.webResearch": "Web research",
+		"admin.system.integrations.documentExtraction": "Document extraction",
+		"admin.system.integrations.webPush": "Web push notifications",
+		"admin.system.limits.title": "Limits",
+		"admin.system.limits.description":
+			"Hard ceilings. Every one of them is felt by a user as a refusal, so each says what the refusal looks like.",
+		"admin.system.skills.title": "Skills",
+		"admin.system.skills.description":
+			"Editing a skill opens the dialog instead of growing a form inside the list, so the list never moves under you.",
+		"admin.system.skills.new": "New skill",
+		"admin.system.skills.editTitle": "Edit skill",
+		"admin.system.skills.createTitle": "New skill",
+		"admin.system.skills.dialogHint":
+			"Changes here are saved with this dialog, not with the page's Save bar.",
+		"admin.system.skills.menu": "More actions for {name}",
+		"admin.system.skills.unpublish": "Unpublish",
+		"admin.system.skills.policyNote":
+			"These four already exist on every skill you create — they were posted as silent defaults with no control anywhere in the product.",
+		"admin.system.skills.durationPolicy": "Duration policy",
+		"admin.system.skills.questionPolicy": "Question policy",
+		"admin.system.skills.notesPolicy": "Notes policy",
+		"admin.system.skills.sourceScope": "Source scope",
+		"admin.system.skills.duration.next_message": "Next message only",
+		"admin.system.skills.duration.session": "Whole session",
+		"admin.system.skills.question.none": "Never ask",
+		"admin.system.skills.question.ask_when_needed": "Ask when needed",
+		"admin.system.skills.notes.none": "Keep no notes",
+		"admin.system.skills.notes.create_private_notes": "Keep working notes",
+		"admin.system.skills.scope.selected_sources_only": "Selected sources only",
+		"admin.system.skills.scope.all_sources": "All sources",
+		"admin.system.skills.scope.web_and_files": "Web and files",
+		"admin.system.skills.activationHint": "One per line.",
+		"admin.system.advanced.title": "Advanced",
+		"admin.system.advanced.restartFree": "Restart-free",
+		"admin.system.advanced.description":
+			"{count} settings that used to exist only in the environment file. Every one of them is read fresh on the next call, so saving here is enough — no restart, no deploy.",
+		"admin.system.advanced.search":
+			"Search advanced settings, keys and defaults",
+		"admin.system.advanced.effectiveConfig": "Effective config",
+		"admin.system.advanced.keyCount": "{count} keys",
+		"admin.system.advanced.collapse": "Collapse {group}",
+		"admin.system.advanced.expand": "Expand {group}",
+		"admin.system.advanced.groups.limits": "Resource limits",
+		"admin.system.advanced.groups.atlas": "Atlas internals",
+		"admin.system.advanced.groups.embeddings": "Embeddings & reranker",
+		"admin.system.advanced.groups.memory": "Memory & working set",
+		"admin.system.advanced.groups.routing": "Routing tuning",
+		"admin.system.advanced.groups.models": "Built-in model tuning",
+		"admin.system.advanced.groups.integrations": "Integrations",
+		"admin.system.advanced.groups.debug": "Debug & stream limits",
+		"admin.system.advanced.sandboxTitle": "Sandbox — compiled in",
+		"admin.system.advanced.sandboxNote":
+			"Not settable anywhere. Whichever limit is tighter bites first — which is why the numbers on the left can look ignored.",
+		"admin.system.advanced.teiWarning":
+			"Changing the embedder model does not re-embed anything. Stored vectors stay in the old model's space and stop matching new ones until they are rebuilt.",
+		"admin.system.advanced.contextRule":
+			"Change the context window and the other three re-derive — warn at 80%, fill to 90%, message length from that. Set one yourself and it stays. But if the fill point or the warning is not below the window, the whole set silently reverts to the environment values, with no error.",
+		"admin.system.advanced.routingReference":
+			"Shown for reference, set in the environment:",
+		"admin.system.advanced.owntracksWarning":
+			"Not URL-checked — the server will fetch whatever you put here.",
+		"admin.system.advanced.model1": "Model 1",
+		"admin.system.advanced.model2": "Model 2",
+		"admin.system.advanced.envOnlyTitle": "Environment only",
+		"admin.system.advanced.envOnlyNote":
+			"These stay in the environment file on purpose: they choose what container runs, where it binds, which container gets a command, or they are the key that encrypts every stored provider secret. A restart is required for any of them.",
+		"admin.system.diagnostics.title": "Diagnostics",
+		"admin.system.diagnostics.description":
+			"Read-only. Nothing on this page is a setting — it is what the system currently is.",
+		"admin.system.diagnostics.rerun": "Re-run checks",
+		"admin.system.diagnostics.checked": "Checked {time}",
+		"admin.system.diagnostics.tabs.toolHealth": "Tool health",
+		"admin.system.diagnostics.tabs.effectiveConfig": "Effective configuration",
+		"admin.system.diagnostics.tabs.routing": "Routing coverage",
+		"admin.system.diagnostics.degradedOne": "1 degraded.",
+		"admin.system.diagnostics.degradedMany": "{count} degraded.",
+		"admin.system.diagnostics.degradedDetail":
+			"Every one of them is visible from the chat as a slower or missing result.",
+		"admin.system.diagnostics.generated": "Generated {time} · {count} keys",
+		"admin.system.diagnostics.filter.overridden": "Overridden only · {count}",
+		"admin.system.diagnostics.filter.env": "Set by env · {count}",
+		"admin.system.diagnostics.filter.hidden":
+			"Never surfaced in the UI · {count}",
+		"admin.system.diagnostics.filter.all": "All keys",
+		"admin.system.diagnostics.overridesEnv": "overrides env {value}",
+		"admin.system.diagnostics.noOverride": "no admin override",
+		"admin.system.diagnostics.builtInNote":
+			"Built-in model resolution: each built-in key with what it resolves to, where from, and a warning when an admin value shadows a working env value.",
+		"admin.system.diagnostics.routingNote":
+			"Refreshes every 60 s · open feed lists stay open",
+		"admin.system.diagnostics.refreshNow": "Refresh now",
+		"admin.system.dialog.savedHere":
+			"Changes here are saved with this dialog, not with the page's Save bar.",
+		"admin.system.dialog.providerIdFixed":
+			"Fixed after creation — config keys point at it.",
+		"admin.system.dialog.availability": "Availability",
+		"admin.system.dialog.enabledForEveryone": "Enabled for everyone",
+		"admin.system.dialog.icon": "Icon",
+		"admin.system.dialog.iconReplace": "Replace",
+		"admin.system.dialog.iconRecrop": "Re-crop",
+		"admin.system.dialog.iconRemove": "Remove",
+		"admin.system.dialog.lastTest": "Last test {time}",
+		"admin.system.dialog.saveProvider": "Save provider",
+		"admin.system.dialog.freeText":
+			"Or type a model name that is not in the list",
+		"admin.system.dialog.useFreeText": "Use free text instead",
+		"admin.system.dialog.usePicker": "Pick from the list instead",
+		"admin.system.dialog.fallbackWait": "Wait before falling back",
+		"admin.system.dialog.fallbackDescription":
+			"Used when this provider answers 429. Separate from the global timeout failover.",
+		"admin.system.deleteProvider.title": "Delete {name}?",
+		"admin.system.deleteProvider.message":
+			"Its models and pricing go with it. Any model select still pointing at it falls back to the default model.",
+		"admin.system.deleteModel.title": "Delete {name}?",
+		"admin.system.deleteModel.message":
+			"The model and its price windows are removed from this provider.",
+		"admin.system.removeRegion.title": "Remove {name}?",
+		"admin.system.removeRegion.message":
+			"The downloaded extract and the built graph are deleted. Requesting the region again re-downloads and rebuilds it.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUTS.label": "Files per run",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUTS.meaning":
+			"How many files one request may produce.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES.label":
+			"Source data cap",
+		"admin.system.keys.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES.meaning":
+			"Largest payload a run may read from the conversation.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PROJECTION_BYTES.label":
+			"Derived data cap",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PROJECTION_BYTES.meaning":
+			"Largest projection built from that payload.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PDF_PAGES.label": "Pages per PDF",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PDF_PAGES.meaning":
+			"Hard stop for a generated document.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_ROWS.label": "Rows per table",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_ROWS.meaning":
+			"Rows in one generated spreadsheet or table.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_COLUMNS.label":
+			"Columns per table",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_COLUMNS.meaning":
+			"Columns in that table.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_DATA_POINTS.label":
+			"Points per chart",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_DATA_POINTS.meaning":
+			"Data points across all series.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_SERIES.label":
+			"Series per chart",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_SERIES.meaning":
+			"Lines or bar groups in one chart.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_COUNT.label":
+			"Images per document",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_COUNT.meaning":
+			"Pictures embeddable in one file.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_BYTES.label": "Image size",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_BYTES.meaning":
+			"Per-picture ceiling.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES.label":
+			"All images",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES.meaning":
+			"Combined picture bytes in one run.",
+		"admin.system.keys.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS.label":
+			"Generation timeout",
+		"admin.system.keys.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS.meaning":
+			"Wall clock for the code that builds the file.",
+		"admin.system.keys.FILE_PRODUCTION_RENDERER_TIMEOUT_MS.label":
+			"Render timeout",
+		"admin.system.keys.FILE_PRODUCTION_RENDERER_TIMEOUT_MS.meaning":
+			"Wall clock for turning it into a document.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES.label":
+			"Output file size",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES.meaning":
+			"Ceiling for one produced file.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.label":
+			"All outputs",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
+			"Combined bytes one run may write to disk.",
+		"admin.system.keys.ATLAS_PIPELINE.label": "Report pipeline",
+		"admin.system.keys.ATLAS_PIPELINE.meaning":
+			"Which pipeline a new report is stamped with.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.label":
+			"Research questions · overview",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.meaning":
+			"Questions the plan stage writes for an overview report.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.label":
+			"Research questions · in depth",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.meaning":
+			"Questions the plan stage writes for an in-depth report.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.label":
+			"Research questions · exhaustive",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.meaning":
+			"Questions the plan stage writes for an exhaustive report.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.label":
+			"Research rounds · overview",
+		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.meaning":
+			"How many times an overview report goes back for more sources.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.label":
+			"Research rounds · in depth",
+		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.meaning":
+			"How many times an in-depth report goes back for more sources.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.label":
+			"Research rounds · exhaustive",
+		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.meaning":
+			"How many times an exhaustive report goes back for more sources.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.label":
+			"Length ceiling · overview",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.meaning":
+			"Hard word ceiling for an overview report.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.label":
+			"Length ceiling · in depth",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.meaning":
+			"Hard word ceiling for an in-depth report.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.label":
+			"Length ceiling · exhaustive",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.meaning":
+			"Hard word ceiling for an exhaustive report.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.label":
+			"Indexed sources · overview",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.meaning":
+			"Sources carried into the write phase of an overview report.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.label":
+			"Indexed sources · in depth",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.meaning":
+			"Sources carried into the write phase of an in-depth report.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.label":
+			"Indexed sources · exhaustive",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.meaning":
+			"Sources carried into the write phase of an exhaustive report.",
+		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.label":
+			"Claims per entailment call",
+		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.meaning":
+			"How many claims are checked in one call. 1 disables batching.",
+		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.label":
+			"Sections written at once",
+		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.meaning":
+			"Sections the writer produces in parallel.",
+		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.label":
+			"Answer length ceiling · overview",
+		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.meaning":
+			"Output tokens the writer may spend on an overview report.",
+		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.label":
+			"Answer length ceiling · in depth",
+		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.meaning":
+			"Output tokens the writer may spend on an in-depth report.",
+		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.label":
+			"Answer length ceiling · exhaustive",
+		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.meaning":
+			"Output tokens the writer may spend on an exhaustive report.",
+		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.label":
+			"Writer prompt cap",
+		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.meaning":
+			"Characters of research handed to the writer at once.",
+		"admin.system.keys.ATLAS_STALE_MONTHS.label":
+			"Call a statistic stale after",
+		"admin.system.keys.ATLAS_STALE_MONTHS.meaning":
+			"Older figures are moved into Limitations.",
+		"admin.system.keys.TEI_EMBEDDER_URL.label": "Embedder endpoint",
+		"admin.system.keys.TEI_EMBEDDER_URL.meaning":
+			"Where text is turned into vectors. Empty switches semantic search off.",
+		"admin.system.keys.TEI_EMBEDDER_MODEL.label": "Embedder model",
+		"admin.system.keys.TEI_EMBEDDER_MODEL.meaning":
+			"The served model name at that endpoint.",
+		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.label": "Texts per embed call",
+		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.meaning":
+			"Must not exceed the server's own batch limit.",
+		"admin.system.keys.TEI_RERANKER_URL.label": "Reranker endpoint",
+		"admin.system.keys.TEI_RERANKER_URL.meaning":
+			"Re-scores search hits. Empty switches reranking off.",
+		"admin.system.keys.TEI_RERANKER_MODEL.label": "Reranker model",
+		"admin.system.keys.TEI_RERANKER_MODEL.meaning":
+			"The served model name there.",
+		"admin.system.keys.TEI_RERANKER_MAX_TEXTS.label": "Candidates per rerank",
+		"admin.system.keys.TEI_RERANKER_MAX_TEXTS.meaning":
+			"Hits sent for re-scoring at once.",
+		"admin.system.keys.TEI_TIMEOUT_MS.label": "Embedding timeout",
+		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
+			"Wall clock for one embedder or reranker call.",
+		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Judge dry run",
+		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
+			"The judge decides and logs, but writes nothing to the profile.",
+		"admin.system.keys.MEMORY_JUDGE_IDLE_MINUTES.label": "Wait before judging",
+		"admin.system.keys.MEMORY_JUDGE_IDLE_MINUTES.meaning":
+			"Quiet minutes after a conversation before memories are extracted.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.label":
+			"Consolidation sweep",
+		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
+			"How often stored memories are merged and tidied.",
+		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
+			"Maintenance sweep",
+		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
+			"Per-user upkeep, such as embedding backfill. 0 switches it off.",
+		"admin.system.keys.WORKING_SET_DOCUMENT_TOKEN_BUDGET.label":
+			"Tokens per document",
+		"admin.system.keys.WORKING_SET_DOCUMENT_TOKEN_BUDGET.meaning":
+			"How much of one attached document reaches the prompt.",
+		"admin.system.keys.WORKING_SET_PROMPT_TOKEN_BUDGET.label":
+			"Tokens for the whole working set",
+		"admin.system.keys.WORKING_SET_PROMPT_TOKEN_BUDGET.meaning":
+			"Raising this crowds out conversation history.",
+		"admin.system.keys.SMALL_FILE_THRESHOLD_CHARS.label": "Inline a file below",
+		"admin.system.keys.SMALL_FILE_THRESHOLD_CHARS.meaning":
+			"Shorter files go in whole instead of being chunked.",
+		"admin.system.keys.ORS_COVERAGE_LABEL.label": "Coverage label",
+		"admin.system.keys.ORS_COVERAGE_LABEL.meaning":
+			"Region name the model is told about, so it can say why a route is missing.",
+		"admin.system.keys.ROUTING_REGION_IDLE_MINUTES.label":
+			"Stop idle regions after",
+		"admin.system.keys.ROUTING_REGION_IDLE_MINUTES.meaning":
+			"An unused region container is stopped.",
+		"admin.system.keys.ROUTING_GTFS_REFRESH_DAYS.label": "Timetable refresh",
+		"admin.system.keys.ROUTING_GTFS_REFRESH_DAYS.meaning":
+			"Age at which a transit feed is downloaded again, overnight.",
+		"admin.system.keys.ROUTING_GTFS_MAX_MB.label": "Timetable download cap",
+		"admin.system.keys.ROUTING_GTFS_MAX_MB.meaning":
+			"Ceiling for one feed download.",
+		"admin.system.keys.ROUTING_REGION_MAX_PBF_MB.label": "Map extract cap",
+		"admin.system.keys.ROUTING_REGION_MAX_PBF_MB.meaning":
+			"Ceiling for one region download.",
+		"admin.system.keys.ROUTING_GTFS_FEED_EXCLUDE.label": "Excluded timetables",
+		"admin.system.keys.ROUTING_GTFS_FEED_EXCLUDE.meaning":
+			"Feeds to leave out — this is where a licence problem is fixed.",
+		"admin.system.keys.MODEL_1_MAX_TOKENS.label": "Max output tokens",
+		"admin.system.keys.MODEL_1_MAX_TOKENS.meaning":
+			"Output ceiling sent to the provider. Empty uses the provider default.",
+		"admin.system.keys.MODEL_1_REASONING_EFFORT.label": "Reasoning effort",
+		"admin.system.keys.MODEL_1_REASONING_EFFORT.meaning":
+			"Provider option for how hard the model thinks.",
+		"admin.system.keys.MODEL_1_THINKING_TYPE.label": "Thinking",
+		"admin.system.keys.MODEL_1_THINKING_TYPE.meaning":
+			"The thinking.type provider option, for Anthropic-shaped APIs.",
+		"admin.system.keys.MODEL_1_MAX_MODEL_CONTEXT.label": "Context window",
+		"admin.system.keys.MODEL_1_MAX_MODEL_CONTEXT.meaning":
+			"The model's own context window, in tokens.",
+		"admin.system.keys.MODEL_1_COMPACTION_UI_THRESHOLD.label":
+			"Warn the user at",
+		"admin.system.keys.MODEL_1_COMPACTION_UI_THRESHOLD.meaning":
+			"Where the UI says the context is filling up.",
+		"admin.system.keys.MODEL_1_TARGET_CONSTRUCTED_CONTEXT.label":
+			"Fill the prompt to",
+		"admin.system.keys.MODEL_1_TARGET_CONSTRUCTED_CONTEXT.meaning":
+			"Prompt-assembly target before the output reserve.",
+		"admin.system.keys.MODEL_1_MAX_MESSAGE_LENGTH.label": "Longest message",
+		"admin.system.keys.MODEL_1_MAX_MESSAGE_LENGTH.meaning":
+			"Longest user message this model accepts.",
+		"admin.system.keys.MODEL_2_MAX_TOKENS.label": "Max output tokens",
+		"admin.system.keys.MODEL_2_MAX_TOKENS.meaning":
+			"Output ceiling sent to the provider. Empty uses the provider default.",
+		"admin.system.keys.MODEL_2_REASONING_EFFORT.label": "Reasoning effort",
+		"admin.system.keys.MODEL_2_REASONING_EFFORT.meaning":
+			"Provider option for how hard the model thinks.",
+		"admin.system.keys.MODEL_2_THINKING_TYPE.label": "Thinking",
+		"admin.system.keys.MODEL_2_THINKING_TYPE.meaning":
+			"The thinking.type provider option, for Anthropic-shaped APIs.",
+		"admin.system.keys.MODEL_2_MAX_MODEL_CONTEXT.label": "Context window",
+		"admin.system.keys.MODEL_2_MAX_MODEL_CONTEXT.meaning":
+			"The model's own context window, in tokens.",
+		"admin.system.keys.MODEL_2_COMPACTION_UI_THRESHOLD.label":
+			"Warn the user at",
+		"admin.system.keys.MODEL_2_COMPACTION_UI_THRESHOLD.meaning":
+			"Where the UI says the context is filling up.",
+		"admin.system.keys.MODEL_2_TARGET_CONSTRUCTED_CONTEXT.label":
+			"Fill the prompt to",
+		"admin.system.keys.MODEL_2_TARGET_CONSTRUCTED_CONTEXT.meaning":
+			"Prompt-assembly target before the output reserve.",
+		"admin.system.keys.MODEL_2_MAX_MESSAGE_LENGTH.label": "Longest message",
+		"admin.system.keys.MODEL_2_MAX_MESSAGE_LENGTH.meaning":
+			"Longest user message this model accepts.",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_ID.label": "Google app id",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_ID.meaning":
+			"Identifies this server to Google when someone connects Calendar or Contacts.",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.label": "Google app secret",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.meaning":
+			"Empty means the Google connector reports “not configured”.",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.label": "OneDrive app id",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning": "Same, for OneDrive files.",
+		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label": "OneDrive app secret",
+		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":
+			"Empty means the OneDrive connector reports “not configured”.",
+		"admin.system.keys.OWNTRACKS_RECORDER_URL.label": "OwnTracks recorder",
+		"admin.system.keys.OWNTRACKS_RECORDER_URL.meaning":
+			"Location history source.",
+		"admin.system.keys.OWNTRACKS_RECORDER_USER.label": "OwnTracks user",
+		"admin.system.keys.OWNTRACKS_RECORDER_USER.meaning":
+			"Basic-auth user for the recorder.",
+		"admin.system.keys.OWNTRACKS_RECORDER_PASS.label": "OwnTracks password",
+		"admin.system.keys.OWNTRACKS_RECORDER_PASS.meaning":
+			"Basic-auth password for the recorder.",
+		"admin.system.keys.NATIVE_HISTORY_ENABLED.label":
+			"Send history as messages",
+		"admin.system.keys.NATIVE_HISTORY_ENABLED.meaning":
+			"Off falls back to one flattened text block. This flag is the rollback.",
+		"admin.system.keys.TITLE_GEN_URL.label": "Title model endpoint",
+		"admin.system.keys.TITLE_GEN_URL.meaning":
+			"Where conversation titles are generated.",
+		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Summarizer endpoint",
+		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
+			"Where long context is compacted. Falls back to the title endpoint.",
+		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.label": "Context diagnostics",
+		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.meaning":
+			"Extra logging about how each prompt was assembled.",
+		"admin.system.keys.ATTACHMENT_TRACE_DEBUG.label": "Attachment tracing",
+		"admin.system.keys.ATTACHMENT_TRACE_DEBUG.meaning":
+			"Logs how an upload becomes a ready attachment.",
+		"admin.system.keys.NORMAL_CHAT_DEBUG_OUTBOUND.label":
+			"Outbound shape logging",
+		"admin.system.keys.NORMAL_CHAT_DEBUG_OUTBOUND.meaning":
+			"Logs roles, part types and token estimates — never message content.",
+		"admin.system.keys.CONCURRENT_STREAM_LIMIT.label": "Concurrent answers",
+		"admin.system.keys.CONCURRENT_STREAM_LIMIT.meaning":
+			"Chat answers streaming at once across the whole server.",
+		"admin.system.keys.PER_USER_STREAM_LIMIT.label":
+			"Concurrent answers per person",
+		"admin.system.keys.PER_USER_STREAM_LIMIT.meaning":
+			"Chat answers one account may stream at once.",
 	},
 	hu: {
 		"admin.activeSessions": "Aktív munkamenetek",
@@ -1711,6 +2314,637 @@ const settingsDict = {
 		settings_usersTab: "Felhasználók",
 		settings_yourName: "A neved",
 		settings_yourPasswordPlaceholder: "A jelszavad",
+		// ---------------------------------------------------------------
+		// Admin System screen redesign. Appended as one block so the three
+		// redesign branches do not collide in the middle of the file.
+		// ---------------------------------------------------------------
+		"admin.system.nav.title": "Rendszerbeállítások",
+		"admin.system.nav.readOnly": "Csak olvasható",
+		"admin.system.nav.a11y": "Rendszerbeállítási oldalak",
+		"admin.system.pages.general": "Általános",
+		"admin.system.pages.models": "Modellek és szolgáltatók",
+		"admin.system.pages.aiTasks": "AI-feladatok",
+		"admin.system.pages.integrations": "Integrációk és kulcsok",
+		"admin.system.pages.limits": "Korlátok",
+		"admin.system.pages.skills": "Képességek",
+		"admin.system.pages.advanced": "Haladó",
+		"admin.system.pages.diagnostics": "Diagnosztika",
+		"admin.system.search.placeholder":
+			"Keresés minden beállításban, kulcsban vagy szolgáltatóban",
+		"admin.system.search.a11y": "Keresés a rendszerbeállításokban",
+		"admin.system.search.empty": "Nincs találat erre: „{query}”.",
+		"admin.system.search.results": "{count} beállítás illeszkedik",
+		"admin.system.search.goTo": "Ugrás ide: {page}",
+		"admin.system.appliesImmediately": "Azonnal érvénybe lép",
+		"admin.system.appliesImmediatelyLegend":
+			"azokat a vezérlőket jelöli, amelyek azonnal mentenek — minden más a Mentésre vár.",
+		"admin.system.unsaved": "Nincs mentve",
+		"admin.system.unsavedRow": "{label}: nem mentett módosítás",
+		"admin.system.defaultLabel": "Alapérték",
+		"admin.system.valueLabel": "Érték",
+		"admin.system.settingLabel": "Beállítás",
+		"admin.system.takesEffect": "Érvénybe lép",
+		"admin.system.effect.live": "azonnal",
+		"admin.system.effect.nextRun": "következő futáskor",
+		"admin.system.effect.restart": "újraindítás után",
+		"admin.system.effect.liveHint":
+			"A következő híváskor frissen olvasva — elég menteni.",
+		"admin.system.effect.nextRunHint":
+			"Az ütemező következő futásának számításakor lép érvénybe.",
+		"admin.system.effect.restartHint":
+			"Induláskor olvasva — újraindítás szükséges.",
+		"admin.system.resetToDefault": "Visszaállítás alapértékre",
+		"admin.system.resetToDefaultA11y": "{label} visszaállítása az alapértékre",
+		"admin.system.emptyValue": "nincs beállítva",
+		"admin.system.invalid.number": "Egész szám szükséges.",
+		"admin.system.invalid.min": "Legalább {limit} lehet.",
+		"admin.system.invalid.max": "Legfeljebb {limit} lehet.",
+		"admin.system.invalid.option": "Válassz a felsorolt értékek közül.",
+		"admin.system.invalidCount": "{count} érték nem menthető",
+		"admin.system.invalidCountPlural": "{count} érték nem menthető",
+		"admin.system.unit.ms": "ms",
+		"admin.system.unit.s": "mp",
+		"admin.system.unit.min": "perc",
+		"admin.system.unit.days": "nap",
+		"admin.system.unit.months": "hónap",
+		"admin.system.unit.mb": "MB",
+		"admin.system.unit.chars": "karakter",
+		"admin.system.unit.tokens": "token",
+		"admin.system.unit.words": "szó",
+		"admin.system.save.allSaved": "Minden változás mentve",
+		"admin.system.save.lastSaved": "Utoljára mentve: {time}",
+		"admin.system.save.pendingOne": "1 nem mentett változás",
+		"admin.system.save.pendingMany": "{count} nem mentett változás",
+		"admin.system.save.button": "{count} változás mentése",
+		"admin.system.save.buttonOne": "1 változás mentése",
+		"admin.system.save.nothing": "Mentés",
+		"admin.system.save.discard": "Elvetés",
+		"admin.system.save.savingOne": "1 változás mentése…",
+		"admin.system.save.savingMany": "{count} változás mentése…",
+		"admin.system.save.savingDetail":
+			"admin_config írása, majd a felület újratöltése",
+		"admin.system.save.pageBreakdown": "{page} · {count}",
+		"admin.system.leave.titleOne": "Elhagyod az 1 nem mentett változást?",
+		"admin.system.leave.titleMany":
+			"Elhagyod a(z) {count} nem mentett változást?",
+		"admin.system.leave.description":
+			"Felsoroljuk őket, hogy dönthess — nem csak annyit írunk, hogy „változások”.",
+		"admin.system.leave.keepEditing": "Szerkesztés folytatása",
+		"admin.system.leave.discardAndLeave": "Elvetés és kilépés",
+		"admin.system.leave.saveAndLeave": "Mentés és kilépés",
+		"admin.system.secret.set": "Beállítva",
+		"admin.system.secret.notSet": "Nincs beállítva",
+		"admin.system.secret.replace": "Csere",
+		"admin.system.secret.add": "Kulcs hozzáadása",
+		"admin.system.secret.cancel": "Marad a jelenlegi",
+		"admin.system.secret.lastChanged": "utoljára módosítva: {date}",
+		"admin.system.secret.writeOnly":
+			"Csak írható — soha nem kerül vissza a böngészőbe.",
+		"admin.system.secret.newValue": "{label} új értéke",
+		"admin.system.general.title": "Általános",
+		"admin.system.general.description":
+			"Az a két beállítás, amely magához az alkalmazáshoz tartozik, nem egy modellhez.",
+		"admin.system.providers.title": "Szolgáltatók",
+		"admin.system.providers.description":
+			"A sorrend a feladatátvétel sorrendje — mozgasd a szolgáltatót a módosításhoz. A képernyő összes modellválasztója az itt bekapcsolt szolgáltatókból épül fel.",
+		"admin.system.providers.enabledOnly": "Csak a bekapcsoltak",
+		"admin.system.providers.add": "Szolgáltató hozzáadása",
+		"admin.system.providers.modelCount": "{count} modell",
+		"admin.system.providers.modelCountOne": "1 modell",
+		"admin.system.providers.modelsOn": "{provider} modelljei",
+		"admin.system.providers.menu": "További műveletek: {provider}",
+		"admin.system.providers.discover":
+			"Modellek felderítése a /models végpontról",
+		"admin.system.providers.manage": "Modellek és árazás kezelése",
+		"admin.system.providers.edit": "Szolgáltató szerkesztése",
+		"admin.system.providers.test": "Kapcsolat tesztelése",
+		"admin.system.providers.delete": "Szolgáltató törlése…",
+		"admin.system.providers.moveUp": "{provider} mozgatása felfelé",
+		"admin.system.providers.moveDown": "{provider} mozgatása lefelé",
+		"admin.system.providers.toggleA11y": "{provider} bekapcsolása",
+		"admin.system.providers.expandA11y":
+			"{provider} modelljeinek megjelenítése",
+		"admin.system.providers.priceWindows": "Ársávok · {count}",
+		"admin.system.providers.hidden": "Rejtett",
+		"admin.system.providers.default": "Alapértelmezett",
+		"admin.system.providers.perMillion":
+			"{input} / {output} 1M be/ki tokenenként",
+		"admin.system.providers.emptyFiltered":
+			"Egyetlen szolgáltató sincs bekapcsolva.",
+		"admin.system.failover.title": "Időtúllépési átterelés",
+		"admin.system.failover.description":
+			"Ez minden modellre vonatkozó szabály, ezért külön kártyán van.",
+		"admin.system.failover.summary":
+			"Ha egy modell {seconds} másodpercen belül nem kezd válaszolni, a kérés egyszer újra lefut ezen: {model}. A felhasználó egy választ lát, hibát soha.",
+		"admin.system.failover.summaryOff":
+			"Kikapcsolva: a lassú modellt nem próbáljuk újra máshol.",
+		"admin.system.failover.enabled":
+			"Lassú kérések újrapróbálása másik modellen",
+		"admin.system.failover.timeout": "Feladás ennyi után",
+		"admin.system.failover.timeoutMeaning":
+			"Az első tokenig mérve, nem a teljes válaszig.",
+		"admin.system.failover.target": "Újrapróbálás ezen",
+		"admin.system.failover.targetMeaning":
+			"Válassz valami olcsót, ami mindig elérhető.",
+		"admin.system.newAccounts.title": "Új fiókok",
+		"admin.system.newAccounts.description":
+			"Amit egy felhasználó kap, mielőtt bármit módosítana.",
+		"admin.system.newAccounts.meaning":
+			"A meglévő fiókok megtartják a választott modelljüket.",
+		"admin.system.atlas.title": "Atlas kutatási jelentések",
+		"admin.system.atlas.description": "Hat szakasz, hat modellválasztás.",
+		"admin.system.atlas.workerEnabled": "Feldolgozó bekapcsolva",
+		"admin.system.atlas.tabs.models": "Modellek feladatonként",
+		"admin.system.atlas.tabs.worker": "Feldolgozó és korlátok",
+		"admin.system.atlas.tabs.depth": "Kutatási mélység",
+		"admin.system.atlas.tabs.prompts": "Folyamat",
+		"admin.system.atlas.taskColumn": "Feladat",
+		"admin.system.atlas.modelColumn": "Modell",
+		"admin.system.atlas.inherit": "Öröklés — {model}",
+		"admin.system.atlas.inheritNote":
+			"Az Öröklésen hagyott feladat az Atlas szintézis- vagy ellenőrző modelljét követi. Ez a kettő a Feldolgozó és korlátok fülön van.",
+		"admin.system.atlas.v3Only": "Csak a v3 folyamat használja.",
+		"admin.system.atlas.tasks.ask.label": "Kérdés",
+		"admin.system.atlas.tasks.ask.meaning":
+			"Kutatási feladatleírássá alakítja a kérést, és felteszi a tisztázó kérdést.",
+		"admin.system.atlas.tasks.researcher.label": "Kutató",
+		"admin.system.atlas.tasks.researcher.meaning":
+			"Minden kutatási kérdést lefuttat a weben, és elolvassa az oldalakat.",
+		"admin.system.atlas.tasks.outline.label": "Vázlat",
+		"admin.system.atlas.tasks.outline.meaning":
+			"Eldönti, milyen fejezetei lesznek a jelentésnek, és milyen sorrendben.",
+		"admin.system.atlas.tasks.writer.label": "Író",
+		"admin.system.atlas.tasks.writer.meaning":
+			"Mondatról mondatra megírja a fejezeteket a bizonyítékindex alapján.",
+		"admin.system.atlas.tasks.critic.label": "Bíráló",
+		"admin.system.atlas.tasks.critic.meaning":
+			"Átnézi a lefedettséget, és bekéri a még hiányzó köröket.",
+		"admin.system.atlas.tasks.verifier.label": "Ellenőr",
+		"admin.system.atlas.tasks.verifier.meaning":
+			"Minden hivatkozott adatot összevet a hozzá megadott forrással.",
+		"admin.system.atlas.pipeline.label": "Jelentésfolyamat",
+		"admin.system.atlas.pipeline.meaning":
+			"A jelentés indulásakor rögzül, így a már sorban álló jelentések a saját folyamatukkal futnak végig.",
+		"admin.system.atlas.searchMath": "Kérdések × körök = webes keresések",
+		"admin.system.atlas.searchMathRow":
+			"{profile} {questions} × {rounds} = {total}",
+		"admin.system.atlas.profile.overview": "Áttekintés",
+		"admin.system.atlas.profile.inDepth": "Részletes",
+		"admin.system.atlas.profile.exhaustive": "Kimerítő",
+		"admin.system.memory.title": "Memória",
+		"admin.system.memory.description":
+			"Eldönti, mit érdemes megjegyezni, és éjszaka összevonja a duplikátumokat.",
+		"admin.system.titles.title": "Beszélgetéscímek",
+		"admin.system.titles.description":
+			"Az első üzenetváltás után nevet ad a beszélgetésnek.",
+		"admin.system.titles.promptSection": "Prompt",
+		"admin.system.titles.langEn": "Angol",
+		"admin.system.titles.langHu": "Magyar",
+		"admin.system.titles.complete": "kész",
+		"admin.system.titles.incomplete": "üres",
+		"admin.system.titles.basePrompt": "Rendszerprompt",
+		"admin.system.titles.appendix": "Kódfüggelék",
+		"admin.system.summarizer.title": "Kontextus-összefoglaló",
+		"admin.system.summarizer.description":
+			"Tömöríti a hosszú beszélgetéseket, amikor megtelik az ablak.",
+		"admin.system.systemPrompt.title": "Rendszerprompt",
+		"admin.system.systemPrompt.description":
+			"Minden normál beszélgetés elé kerül. Az Atlas és a fenti feladatok saját promptot használnak.",
+		"admin.system.charCount": "{count} / {max} karakter",
+		"admin.system.integrations.title": "Integrációk és kulcsok",
+		"admin.system.integrations.description":
+			"A termék összes titkos kulcsa egy helyen, egyféle módon.",
+		"admin.system.integrations.webResearch": "Webes kutatás",
+		"admin.system.integrations.documentExtraction": "Dokumentumkivonatolás",
+		"admin.system.integrations.webPush": "Webes push-értesítések",
+		"admin.system.limits.title": "Korlátok",
+		"admin.system.limits.description":
+			"Kemény korlátok. Mindegyiket elutasításként éli meg a felhasználó, ezért mindegyiknél leírjuk, hogyan néz ki az elutasítás.",
+		"admin.system.skills.title": "Képességek",
+		"admin.system.skills.description":
+			"A képesség szerkesztése párbeszédablakot nyit, nem a listán belül növő űrlapot, így a lista sosem mozdul el alattad.",
+		"admin.system.skills.new": "Új képesség",
+		"admin.system.skills.editTitle": "Képesség szerkesztése",
+		"admin.system.skills.createTitle": "Új képesség",
+		"admin.system.skills.dialogHint":
+			"Az itteni módosításokat ez a párbeszédablak menti, nem az oldal mentősávja.",
+		"admin.system.skills.menu": "További műveletek: {name}",
+		"admin.system.skills.unpublish": "Publikálás visszavonása",
+		"admin.system.skills.policyNote":
+			"Ez a négy minden létrehozott képességnél létezik — eddig néma alapértékként kerültek mentésre, bárhol elérhető vezérlő nélkül.",
+		"admin.system.skills.durationPolicy": "Időtartam-szabály",
+		"admin.system.skills.questionPolicy": "Kérdezési szabály",
+		"admin.system.skills.notesPolicy": "Jegyzetelési szabály",
+		"admin.system.skills.sourceScope": "Forráskör",
+		"admin.system.skills.duration.next_message": "Csak a következő üzenet",
+		"admin.system.skills.duration.session": "A teljes munkamenet",
+		"admin.system.skills.question.none": "Soha ne kérdezzen",
+		"admin.system.skills.question.ask_when_needed": "Kérdezzen, ha kell",
+		"admin.system.skills.notes.none": "Ne készítsen jegyzetet",
+		"admin.system.skills.notes.create_private_notes":
+			"Készítsen munkajegyzetet",
+		"admin.system.skills.scope.selected_sources_only":
+			"Csak a kijelölt források",
+		"admin.system.skills.scope.all_sources": "Minden forrás",
+		"admin.system.skills.scope.web_and_files": "Web és fájlok",
+		"admin.system.skills.activationHint": "Soronként egy.",
+		"admin.system.advanced.title": "Haladó",
+		"admin.system.advanced.restartFree": "Újraindítás nélkül",
+		"admin.system.advanced.description":
+			"{count} beállítás, amely korábban csak a környezeti fájlban létezett. Mindegyiket frissen olvassuk a következő híváskor, így elég itt menteni — nincs újraindítás, nincs telepítés.",
+		"admin.system.advanced.search":
+			"Keresés a haladó beállítások, kulcsok és alapértékek között",
+		"admin.system.advanced.effectiveConfig": "Tényleges konfiguráció",
+		"admin.system.advanced.keyCount": "{count} kulcs",
+		"admin.system.advanced.collapse": "{group} összecsukása",
+		"admin.system.advanced.expand": "{group} kinyitása",
+		"admin.system.advanced.groups.limits": "Erőforráskorlátok",
+		"admin.system.advanced.groups.atlas": "Atlas belső beállítások",
+		"admin.system.advanced.groups.embeddings": "Beágyazás és újrarangsorolás",
+		"admin.system.advanced.groups.memory": "Memória és munkakészlet",
+		"admin.system.advanced.groups.routing": "Útvonaltervezés hangolása",
+		"admin.system.advanced.groups.models": "Beépített modellek hangolása",
+		"admin.system.advanced.groups.integrations": "Integrációk",
+		"admin.system.advanced.groups.debug": "Hibakeresés és folyamkorlátok",
+		"admin.system.advanced.sandboxTitle": "Homokozó — beépítve",
+		"admin.system.advanced.sandboxNote":
+			"Sehol nem állítható. Mindig a szigorúbb korlát érvényesül — ezért tűnhet úgy, hogy a bal oldali számokat figyelmen kívül hagyja a rendszer.",
+		"admin.system.advanced.teiWarning":
+			"A beágyazó modell cseréje nem építi újra a meglévő vektorokat. A tárolt vektorok a régi modell terében maradnak, és nem illeszkednek az újakhoz, amíg újra nem épülnek.",
+		"admin.system.advanced.contextRule":
+			"Ha módosítod a kontextusablakot, a másik három újraszámolódik — figyelmeztetés 80%-nál, feltöltés 90%-ig, üzenethossz ebből. Amit magad állítasz be, az marad. De ha a feltöltési pont vagy a figyelmeztetés nem kisebb az ablaknál, az egész hármas némán visszaáll a környezeti értékekre, hibaüzenet nélkül.",
+		"admin.system.advanced.routingReference":
+			"Tájékoztatásul, a környezetben beállítva:",
+		"admin.system.advanced.owntracksWarning":
+			"Nincs URL-ellenőrzés — a szerver azt tölti le, amit ide írsz.",
+		"admin.system.advanced.model1": "1. modell",
+		"admin.system.advanced.model2": "2. modell",
+		"admin.system.advanced.envOnlyTitle": "Csak környezeti változó",
+		"admin.system.advanced.envOnlyNote":
+			"Ezek szándékosan a környezeti fájlban maradnak: azt választják meg, milyen konténer fut, hova köt, melyik konténer kap parancsot — vagy éppen az a kulcs, amely minden tárolt szolgáltatói titkot titkosít. Bármelyikükhöz újraindítás kell.",
+		"admin.system.diagnostics.title": "Diagnosztika",
+		"admin.system.diagnostics.description":
+			"Csak olvasható. Ezen az oldalon semmi sem beállítás — ez a rendszer jelenlegi állapota.",
+		"admin.system.diagnostics.rerun": "Ellenőrzések újrafuttatása",
+		"admin.system.diagnostics.checked": "Ellenőrizve: {time}",
+		"admin.system.diagnostics.tabs.toolHealth": "Eszközök állapota",
+		"admin.system.diagnostics.tabs.effectiveConfig": "Tényleges konfiguráció",
+		"admin.system.diagnostics.tabs.routing": "Útvonal-lefedettség",
+		"admin.system.diagnostics.degradedOne": "1 romlott állapotú.",
+		"admin.system.diagnostics.degradedMany": "{count} romlott állapotú.",
+		"admin.system.diagnostics.degradedDetail":
+			"Mindegyik lassabb vagy hiányzó eredményként jelenik meg a beszélgetésben.",
+		"admin.system.diagnostics.generated": "Létrehozva: {time} · {count} kulcs",
+		"admin.system.diagnostics.filter.overridden": "Csak felülírt · {count}",
+		"admin.system.diagnostics.filter.env": "Környezetből · {count}",
+		"admin.system.diagnostics.filter.hidden":
+			"Sehol nem szerkeszthető · {count}",
+		"admin.system.diagnostics.filter.all": "Minden kulcs",
+		"admin.system.diagnostics.overridesEnv":
+			"felülírja a környezeti értéket: {value}",
+		"admin.system.diagnostics.noOverride": "nincs admin felülírás",
+		"admin.system.diagnostics.builtInNote":
+			"Beépített modellek feloldása: melyik beépített kulcs mire és honnan oldódik fel, és figyelmeztetés, ha egy admin érték elfed egy működő környezeti értéket.",
+		"admin.system.diagnostics.routingNote":
+			"60 másodpercenként frissül · a nyitott listák nyitva maradnak",
+		"admin.system.diagnostics.refreshNow": "Frissítés most",
+		"admin.system.dialog.savedHere":
+			"Az itteni módosításokat ez a párbeszédablak menti, nem az oldal mentősávja.",
+		"admin.system.dialog.providerIdFixed":
+			"Létrehozás után rögzített — a konfigurációs kulcsok erre mutatnak.",
+		"admin.system.dialog.availability": "Elérhetőség",
+		"admin.system.dialog.enabledForEveryone": "Mindenki számára bekapcsolva",
+		"admin.system.dialog.icon": "Ikon",
+		"admin.system.dialog.iconReplace": "Csere",
+		"admin.system.dialog.iconRecrop": "Újravágás",
+		"admin.system.dialog.iconRemove": "Eltávolítás",
+		"admin.system.dialog.lastTest": "Utolsó teszt: {time}",
+		"admin.system.dialog.saveProvider": "Szolgáltató mentése",
+		"admin.system.dialog.freeText":
+			"Vagy írj be egy modellnevet, amely nincs a listában",
+		"admin.system.dialog.useFreeText": "Szabad szöveg használata",
+		"admin.system.dialog.usePicker": "Válassz inkább a listából",
+		"admin.system.dialog.fallbackWait": "Várakozás átterelés előtt",
+		"admin.system.dialog.fallbackDescription":
+			"Akkor lép életbe, ha ez a szolgáltató 429-cel válaszol. Független a globális időtúllépési átterelést.",
+		"admin.system.deleteProvider.title": "Törlöd ezt: {name}?",
+		"admin.system.deleteProvider.message":
+			"A modelljei és az árazása is törlődik. Minden rá mutató modellválasztó az alapértelmezett modellre vált.",
+		"admin.system.deleteModel.title": "Törlöd ezt: {name}?",
+		"admin.system.deleteModel.message":
+			"A modell és az ársávjai eltávolításra kerülnek ettől a szolgáltatótól.",
+		"admin.system.removeRegion.title": "Eltávolítod ezt: {name}?",
+		"admin.system.removeRegion.message":
+			"A letöltött kivonat és a felépített gráf törlődik. A régió újbóli kérése újra letölti és újraépíti.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUTS.label": "Fájl futásonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUTS.meaning":
+			"Hány fájlt hozhat létre egy kérés.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES.label":
+			"Forrásadat-korlát",
+		"admin.system.keys.FILE_PRODUCTION_MAX_SOURCE_JSON_BYTES.meaning":
+			"A legnagyobb adatcsomag, amelyet egy futás beolvashat a beszélgetésből.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PROJECTION_BYTES.label":
+			"Származtatott adat korlátja",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PROJECTION_BYTES.meaning":
+			"A legnagyobb vetület, amely abból az adatcsomagból épül.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PDF_PAGES.label": "Oldal PDF-enként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_PDF_PAGES.meaning":
+			"Kemény korlát a generált dokumentumra.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_ROWS.label":
+			"Sor táblázatonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_ROWS.meaning":
+			"Sorok száma egy generált táblázatban.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_COLUMNS.label":
+			"Oszlop táblázatonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TABLE_COLUMNS.meaning":
+			"Oszlopok száma abban a táblázatban.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_DATA_POINTS.label":
+			"Adatpont diagramonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_DATA_POINTS.meaning":
+			"Adatpontok az összes adatsorban.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_SERIES.label":
+			"Adatsor diagramonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_CHART_SERIES.meaning":
+			"Vonalak vagy oszlopcsoportok egy diagramon.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_COUNT.label":
+			"Kép dokumentumonként",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_COUNT.meaning":
+			"Egy fájlba beágyazható képek száma.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_BYTES.label": "Képméret",
+		"admin.system.keys.FILE_PRODUCTION_MAX_IMAGE_BYTES.meaning":
+			"Képenkénti felső korlát.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES.label":
+			"Összes kép",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_IMAGE_BYTES.meaning":
+			"A képek együttes mérete egy futásban.",
+		"admin.system.keys.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS.label":
+			"Generálási időkorlát",
+		"admin.system.keys.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS.meaning":
+			"A fájlt előállító kód futásideje.",
+		"admin.system.keys.FILE_PRODUCTION_RENDERER_TIMEOUT_MS.label":
+			"Renderelési időkorlát",
+		"admin.system.keys.FILE_PRODUCTION_RENDERER_TIMEOUT_MS.meaning":
+			"A dokumentummá alakítás futásideje.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES.label":
+			"Kimeneti fájlméret",
+		"admin.system.keys.FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES.meaning":
+			"Egy előállított fájl felső korlátja.",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.label":
+			"Összes kimenet",
+		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
+			"Amennyit egy futás összesen lemezre írhat.",
+		"admin.system.keys.ATLAS_PIPELINE.label": "Jelentésfolyamat",
+		"admin.system.keys.ATLAS_PIPELINE.meaning":
+			"Melyik folyamattal indul egy új jelentés.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.label":
+			"Kutatási kérdések · áttekintés",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.meaning":
+			"Ennyi kérdést ír a tervezési szakasz áttekintő jelentéshez.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.label":
+			"Kutatási kérdések · részletes",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.meaning":
+			"Ennyi kérdést ír a tervezési szakasz részletes jelentéshez.",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.label":
+			"Kutatási kérdések · kimerítő",
+		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.meaning":
+			"Ennyi kérdést ír a tervezési szakasz kimerítő jelentéshez.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.label":
+			"Kutatási körök · áttekintés",
+		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.meaning":
+			"Hányszor tér vissza az áttekintő jelentés újabb forrásokért.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.label":
+			"Kutatási körök · részletes",
+		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.meaning":
+			"Hányszor tér vissza a részletes jelentés újabb forrásokért.",
+		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.label":
+			"Kutatási körök · kimerítő",
+		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.meaning":
+			"Hányszor tér vissza a kimerítő jelentés újabb forrásokért.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.label":
+			"Hosszkorlát · áttekintés",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.meaning":
+			"Kemény szókorlát az áttekintő jelentésre.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.label":
+			"Hosszkorlát · részletes",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.meaning":
+			"Kemény szókorlát a részletes jelentésre.",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.label":
+			"Hosszkorlát · kimerítő",
+		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.meaning":
+			"Kemény szókorlát a kimerítő jelentésre.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.label":
+			"Indexelt források · áttekintés",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.meaning":
+			"Ennyi forrás jut el az áttekintő jelentés írási szakaszába.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.label":
+			"Indexelt források · részletes",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.meaning":
+			"Ennyi forrás jut el a részletes jelentés írási szakaszába.",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.label":
+			"Indexelt források · kimerítő",
+		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.meaning":
+			"Ennyi forrás jut el a kimerítő jelentés írási szakaszába.",
+		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.label":
+			"Állítás következtetési hívásonként",
+		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.meaning":
+			"Hány állítást ellenőriz egy hívás. Az 1 kikapcsolja a kötegelést.",
+		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.label":
+			"Egyszerre írt fejezetek",
+		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.meaning":
+			"Hány fejezetet ír az író párhuzamosan.",
+		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.label":
+			"Válaszhossz-korlát · áttekintés",
+		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.meaning":
+			"Ennyi kimeneti tokent költhet az író áttekintő jelentésre.",
+		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.label":
+			"Válaszhossz-korlát · részletes",
+		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.meaning":
+			"Ennyi kimeneti tokent költhet az író részletes jelentésre.",
+		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.label":
+			"Válaszhossz-korlát · kimerítő",
+		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.meaning":
+			"Ennyi kimeneti tokent költhet az író kimerítő jelentésre.",
+		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.label":
+			"Írói prompt korlátja",
+		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.meaning":
+			"Ennyi karakternyi kutatás kerül egyszerre az íróhoz.",
+		"admin.system.keys.ATLAS_STALE_MONTHS.label":
+			"Ennyi idő után elavult egy adat",
+		"admin.system.keys.ATLAS_STALE_MONTHS.meaning":
+			"A régebbi adatok a Korlátok szakaszba kerülnek.",
+		"admin.system.keys.TEI_EMBEDDER_URL.label": "Beágyazó végpont",
+		"admin.system.keys.TEI_EMBEDDER_URL.meaning":
+			"Itt lesz a szövegből vektor. Üresen a szemantikus keresés kikapcsol.",
+		"admin.system.keys.TEI_EMBEDDER_MODEL.label": "Beágyazó modell",
+		"admin.system.keys.TEI_EMBEDDER_MODEL.meaning":
+			"A végponton kiszolgált modell neve.",
+		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.label":
+			"Szöveg beágyazási hívásonként",
+		"admin.system.keys.TEI_EMBEDDER_BATCH_SIZE.meaning":
+			"Nem haladhatja meg a szerver saját kötegkorlátját.",
+		"admin.system.keys.TEI_RERANKER_URL.label": "Újrarangsoroló végpont",
+		"admin.system.keys.TEI_RERANKER_URL.meaning":
+			"Újrapontozza a találatokat. Üresen az újrarangsorolás kikapcsol.",
+		"admin.system.keys.TEI_RERANKER_MODEL.label": "Újrarangsoroló modell",
+		"admin.system.keys.TEI_RERANKER_MODEL.meaning":
+			"Az ott kiszolgált modell neve.",
+		"admin.system.keys.TEI_RERANKER_MAX_TEXTS.label":
+			"Jelölt újrarangsorolásonként",
+		"admin.system.keys.TEI_RERANKER_MAX_TEXTS.meaning":
+			"Ennyi találat megy egyszerre újrapontozásra.",
+		"admin.system.keys.TEI_TIMEOUT_MS.label": "Beágyazási időkorlát",
+		"admin.system.keys.TEI_TIMEOUT_MS.meaning":
+			"Egy beágyazó- vagy újrarangsoroló-hívás futásideje.",
+		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.label": "Bíráló próbafutás",
+		"admin.system.keys.MEMORY_JUDGE_DRY_RUN.meaning":
+			"A bíráló dönt és naplóz, de semmit nem ír a profilba.",
+		"admin.system.keys.MEMORY_JUDGE_IDLE_MINUTES.label":
+			"Várakozás a bírálat előtt",
+		"admin.system.keys.MEMORY_JUDGE_IDLE_MINUTES.meaning":
+			"Ennyi csendes perc után vonjuk ki az emlékeket egy beszélgetésből.",
+		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.label":
+			"Összevonási körút",
+		"admin.system.keys.MEMORY_CONSOLIDATION_INTERVAL_MINUTES.meaning":
+			"Milyen gyakran vonjuk össze és rendezzük a tárolt emlékeket.",
+		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.label":
+			"Karbantartási körút",
+		"admin.system.keys.MEMORY_MAINTENANCE_INTERVAL_MINUTES.meaning":
+			"Felhasználónkénti karbantartás, például beágyazások pótlása. A 0 kikapcsolja.",
+		"admin.system.keys.WORKING_SET_DOCUMENT_TOKEN_BUDGET.label":
+			"Token dokumentumonként",
+		"admin.system.keys.WORKING_SET_DOCUMENT_TOKEN_BUDGET.meaning":
+			"Egy csatolt dokumentumból ennyi jut el a promptba.",
+		"admin.system.keys.WORKING_SET_PROMPT_TOKEN_BUDGET.label":
+			"Token a teljes munkakészletre",
+		"admin.system.keys.WORKING_SET_PROMPT_TOKEN_BUDGET.meaning":
+			"Ha növeled, kiszorítja a beszélgetés előzményeit.",
+		"admin.system.keys.SMALL_FILE_THRESHOLD_CHARS.label":
+			"Fájl beillesztése ez alatt",
+		"admin.system.keys.SMALL_FILE_THRESHOLD_CHARS.meaning":
+			"A rövidebb fájlok egyben kerülnek be, nem darabolva.",
+		"admin.system.keys.ORS_COVERAGE_LABEL.label": "Lefedettség megnevezése",
+		"admin.system.keys.ORS_COVERAGE_LABEL.meaning":
+			"A modell ezt a régiónevet ismeri, így meg tudja mondani, miért nincs útvonal.",
+		"admin.system.keys.ROUTING_REGION_IDLE_MINUTES.label":
+			"Tétlen régiók leállítása ennyi után",
+		"admin.system.keys.ROUTING_REGION_IDLE_MINUTES.meaning":
+			"A használaton kívüli régiókonténer leáll.",
+		"admin.system.keys.ROUTING_GTFS_REFRESH_DAYS.label": "Menetrend frissítése",
+		"admin.system.keys.ROUTING_GTFS_REFRESH_DAYS.meaning":
+			"Ilyen idős menetrendet töltünk le újra, éjszaka.",
+		"admin.system.keys.ROUTING_GTFS_MAX_MB.label":
+			"Menetrend-letöltés korlátja",
+		"admin.system.keys.ROUTING_GTFS_MAX_MB.meaning":
+			"Egy menetrendletöltés felső korlátja.",
+		"admin.system.keys.ROUTING_REGION_MAX_PBF_MB.label":
+			"Térképkivonat korlátja",
+		"admin.system.keys.ROUTING_REGION_MAX_PBF_MB.meaning":
+			"Egy régió letöltésének felső korlátja.",
+		"admin.system.keys.ROUTING_GTFS_FEED_EXCLUDE.label":
+			"Kihagyott menetrendek",
+		"admin.system.keys.ROUTING_GTFS_FEED_EXCLUDE.meaning":
+			"Kihagyandó menetrendek — itt orvosolható egy licencprobléma.",
+		"admin.system.keys.MODEL_1_MAX_TOKENS.label": "Max. kimeneti token",
+		"admin.system.keys.MODEL_1_MAX_TOKENS.meaning":
+			"A szolgáltatónak küldött kimeneti korlát. Üresen a szolgáltató alapértéke.",
+		"admin.system.keys.MODEL_1_REASONING_EFFORT.label":
+			"Gondolkodási erőfeszítés",
+		"admin.system.keys.MODEL_1_REASONING_EFFORT.meaning":
+			"Szolgáltatói beállítás arról, mennyit gondolkodjon a modell.",
+		"admin.system.keys.MODEL_1_THINKING_TYPE.label": "Gondolkodás",
+		"admin.system.keys.MODEL_1_THINKING_TYPE.meaning":
+			"A thinking.type szolgáltatói beállítás, Anthropic-alakú API-khoz.",
+		"admin.system.keys.MODEL_1_MAX_MODEL_CONTEXT.label": "Kontextusablak",
+		"admin.system.keys.MODEL_1_MAX_MODEL_CONTEXT.meaning":
+			"A modell saját kontextusablaka tokenben.",
+		"admin.system.keys.MODEL_1_COMPACTION_UI_THRESHOLD.label":
+			"Figyelmeztetés ennél",
+		"admin.system.keys.MODEL_1_COMPACTION_UI_THRESHOLD.meaning":
+			"Itt jelzi a felület, hogy telik a kontextus.",
+		"admin.system.keys.MODEL_1_TARGET_CONSTRUCTED_CONTEXT.label":
+			"Prompt feltöltése eddig",
+		"admin.system.keys.MODEL_1_TARGET_CONSTRUCTED_CONTEXT.meaning":
+			"A promptösszeállítás célértéke a kimeneti tartalék előtt.",
+		"admin.system.keys.MODEL_1_MAX_MESSAGE_LENGTH.label": "Leghosszabb üzenet",
+		"admin.system.keys.MODEL_1_MAX_MESSAGE_LENGTH.meaning":
+			"A leghosszabb felhasználói üzenet, amit ez a modell elfogad.",
+		"admin.system.keys.MODEL_2_MAX_TOKENS.label": "Max. kimeneti token",
+		"admin.system.keys.MODEL_2_MAX_TOKENS.meaning":
+			"A szolgáltatónak küldött kimeneti korlát. Üresen a szolgáltató alapértéke.",
+		"admin.system.keys.MODEL_2_REASONING_EFFORT.label":
+			"Gondolkodási erőfeszítés",
+		"admin.system.keys.MODEL_2_REASONING_EFFORT.meaning":
+			"Szolgáltatói beállítás arról, mennyit gondolkodjon a modell.",
+		"admin.system.keys.MODEL_2_THINKING_TYPE.label": "Gondolkodás",
+		"admin.system.keys.MODEL_2_THINKING_TYPE.meaning":
+			"A thinking.type szolgáltatói beállítás, Anthropic-alakú API-khoz.",
+		"admin.system.keys.MODEL_2_MAX_MODEL_CONTEXT.label": "Kontextusablak",
+		"admin.system.keys.MODEL_2_MAX_MODEL_CONTEXT.meaning":
+			"A modell saját kontextusablaka tokenben.",
+		"admin.system.keys.MODEL_2_COMPACTION_UI_THRESHOLD.label":
+			"Figyelmeztetés ennél",
+		"admin.system.keys.MODEL_2_COMPACTION_UI_THRESHOLD.meaning":
+			"Itt jelzi a felület, hogy telik a kontextus.",
+		"admin.system.keys.MODEL_2_TARGET_CONSTRUCTED_CONTEXT.label":
+			"Prompt feltöltése eddig",
+		"admin.system.keys.MODEL_2_TARGET_CONSTRUCTED_CONTEXT.meaning":
+			"A promptösszeállítás célértéke a kimeneti tartalék előtt.",
+		"admin.system.keys.MODEL_2_MAX_MESSAGE_LENGTH.label": "Leghosszabb üzenet",
+		"admin.system.keys.MODEL_2_MAX_MESSAGE_LENGTH.meaning":
+			"A leghosszabb felhasználói üzenet, amit ez a modell elfogad.",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_ID.label":
+			"Google alkalmazásazonosító",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_ID.meaning":
+			"Ez azonosítja a szervert a Google felé, amikor valaki Naptárt vagy Névjegyeket csatlakoztat.",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.label":
+			"Google alkalmazástitok",
+		"admin.system.keys.GOOGLE_OAUTH_CLIENT_SECRET.meaning":
+			"Üresen a Google-kapcsolat „nincs beállítva” állapotot jelez.",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.label":
+			"OneDrive alkalmazásazonosító",
+		"admin.system.keys.ONEDRIVE_CLIENT_ID.meaning":
+			"Ugyanez, a OneDrive-fájlokhoz.",
+		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.label":
+			"OneDrive alkalmazástitok",
+		"admin.system.keys.ONEDRIVE_CLIENT_SECRET.meaning":
+			"Üresen a OneDrive-kapcsolat „nincs beállítva” állapotot jelez.",
+		"admin.system.keys.OWNTRACKS_RECORDER_URL.label": "OwnTracks rögzítő",
+		"admin.system.keys.OWNTRACKS_RECORDER_URL.meaning":
+			"A helyelőzmények forrása.",
+		"admin.system.keys.OWNTRACKS_RECORDER_USER.label": "OwnTracks felhasználó",
+		"admin.system.keys.OWNTRACKS_RECORDER_USER.meaning":
+			"A rögzítő basic-auth felhasználója.",
+		"admin.system.keys.OWNTRACKS_RECORDER_PASS.label": "OwnTracks jelszó",
+		"admin.system.keys.OWNTRACKS_RECORDER_PASS.meaning":
+			"A rögzítő basic-auth jelszava.",
+		"admin.system.keys.NATIVE_HISTORY_ENABLED.label":
+			"Előzmények natív üzenetként",
+		"admin.system.keys.NATIVE_HISTORY_ENABLED.meaning":
+			"Kikapcsolva egyetlen lapos szövegblokk megy. Ez a kapcsoló a visszaállás.",
+		"admin.system.keys.TITLE_GEN_URL.label": "Címgeneráló végpont",
+		"admin.system.keys.TITLE_GEN_URL.meaning":
+			"Itt készülnek a beszélgetéscímek.",
+		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Összefoglaló végpont",
+		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
+			"Itt tömörödik a hosszú kontextus. Alapból a címgeneráló végpontra esik vissza.",
+		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.label":
+			"Kontextus-diagnosztika",
+		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.meaning":
+			"Extra naplózás arról, hogyan állt össze egy-egy prompt.",
+		"admin.system.keys.ATTACHMENT_TRACE_DEBUG.label": "Csatolmány-nyomkövetés",
+		"admin.system.keys.ATTACHMENT_TRACE_DEBUG.meaning":
+			"Naplózza, hogyan lesz a feltöltésből kész csatolmány.",
+		"admin.system.keys.NORMAL_CHAT_DEBUG_OUTBOUND.label":
+			"Kimenő üzenet naplózása",
+		"admin.system.keys.NORMAL_CHAT_DEBUG_OUTBOUND.meaning":
+			"Szerepeket, résztípusokat és tokenbecslést naplóz — üzenettartalmat soha.",
+		"admin.system.keys.CONCURRENT_STREAM_LIMIT.label": "Egyidejű válaszok",
+		"admin.system.keys.CONCURRENT_STREAM_LIMIT.meaning":
+			"Ennyi beszélgetésválasz futhat egyszerre az egész szerveren.",
+		"admin.system.keys.PER_USER_STREAM_LIMIT.label":
+			"Egyidejű válasz felhasználónként",
+		"admin.system.keys.PER_USER_STREAM_LIMIT.meaning":
+			"Ennyi választ streamelhet egyszerre egy fiók.",
 	},
 } as const;
 

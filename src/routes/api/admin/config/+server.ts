@@ -24,6 +24,22 @@ export const GET: RequestHandler = async (event) => {
 	const overrides: Record<string, string> = Object.fromEntries(
 		rows.map((r) => [r.key, r.value]),
 	);
+	// Additive: when each override was last written, and by whom. The redesigned
+	// System screen shows it on secret rows ("Set · last changed <date>"), where
+	// the value itself is masked and the date is the only evidence of a write.
+	const overrideMeta: Record<string, { updatedAt: string; updatedBy: string }> =
+		Object.fromEntries(
+			rows.map((r) => [
+				r.key,
+				{
+					updatedAt:
+						r.updatedAt instanceof Date
+							? r.updatedAt.toISOString()
+							: new Date(r.updatedAt).toISOString(),
+					updatedBy: r.updatedBy,
+				},
+			]),
+		);
 	const envDefaults = getEnvDefaults();
 	const currentValues = getResolvedAdminConfigValues();
 
@@ -31,6 +47,7 @@ export const GET: RequestHandler = async (event) => {
 		keys: ADMIN_CONFIG_KEYS,
 		currentValues,
 		overrides,
+		overrideMeta,
 		envDefaults,
 		atlas: {
 			overviewMaxOutputTokens: getAtlasOverviewMaxOutputTokens(),
