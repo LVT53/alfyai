@@ -303,8 +303,17 @@ function scheduleNextPoll() {
 	}, pollIntervalMs);
 }
 
+// One poll in flight at a time. "I've approved it" clears the pending timer
+// and polls immediately, so two quick presses (or a press landing while a
+// scheduled poll is still awaiting) used to leave two poll loops running,
+// each scheduling its own timer into the single `ncTimer` slot: the elapsed
+// clock then ran at double speed and onDestroy could only clear one of them,
+// leaving an orphan polling on after the dialog closed.
+let ncPolling = false;
+
 async function pollOnce() {
-	if (ncPhase !== "waiting") return;
+	if (ncPhase !== "waiting" || ncPolling) return;
+	ncPolling = true;
 	try {
 		const result = await pollNextcloudConnect({
 			serverUrl: ncPollServerUrl,
@@ -329,6 +338,8 @@ async function pollOnce() {
 		}
 		// Otherwise keep waiting: the login link is still minted and the user
 		// may already be approving it in the other tab.
+	} finally {
+		ncPolling = false;
 	}
 	ncElapsedMs += pollIntervalMs;
 	if (ncElapsedMs >= pollTimeoutMs) {
