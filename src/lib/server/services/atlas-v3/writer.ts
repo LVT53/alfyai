@@ -925,10 +925,15 @@ export function deterministicAtlasV3VerifiedVerdict(input: {
  * Words that make a sentence depend on the one before it. A shipped verdict
  * opened "These core duties include technical documentation..." because
  * verification cut the sentence those duties were named in.
+ *
+ * `az` is NOT on the Hungarian list, and must not be: it is the definite
+ * article before a vowel, so "Az Európai Bizottság 2026-tól bírságolhat." — a
+ * sentence that stands perfectly on its own — was read as a dangling reference
+ * and dropped. Only the demonstratives count.
  */
 const ATLAS_V3_ANAPHORA: Record<SupportedLanguage, RegExp> = {
 	en: /^\s*(these|this|that|those|it|they|such)\b/i,
-	hu: /^\s*(ezek|ez|az|azok|ezen)\b/i,
+	hu: /^\s*(ezek|ezeket|ezen|ezt|ez|azok|azokat|ilyen|ilyenek)\b/i,
 };
 
 /**

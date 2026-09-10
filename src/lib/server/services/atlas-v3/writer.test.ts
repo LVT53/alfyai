@@ -736,6 +736,41 @@ describe("dropAtlasV3DanglingAnaphora", () => {
 		).toHaveLength(2);
 	});
 
+	/**
+	 * `az` is the Hungarian definite article before a vowel. Reading it as a
+	 * demonstrative dropped sentences that stand perfectly on their own — and
+	 * the guard against an empty verdict hid it whenever only one survived.
+	 */
+	it("keeps a Hungarian sentence opening with the definite article", () => {
+		const written = [
+			{ text: "A rendelet 2025. augusztus 2-án lép hatályba." },
+			{ text: "Az Európai Bizottság 2026-tól bírságolhat." },
+			{ text: "A tagállamok 2026 augusztusáig jelölik ki a hatóságokat." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [kept(written[1].text), kept(written[2].text)],
+				language: "hu",
+			}).map((sentence) => sentence.text),
+		).toEqual([written[1].text, written[2].text]);
+	});
+
+	it("still drops a Hungarian demonstrative whose antecedent was cut", () => {
+		const written = [
+			{ text: "A szolgáltatók hat alapkötelezettséget viselnek." },
+			{ text: "Ezek a kötelezettségek műszaki dokumentációt is jelentenek." },
+			{ text: "A rendelet 2026. augusztus 2-án alkalmazandó." },
+		];
+		expect(
+			dropAtlasV3DanglingAnaphora({
+				written,
+				kept: [kept(written[1].text), kept(written[2].text)],
+				language: "hu",
+			}).map((sentence) => sentence.text),
+		).toEqual([written[2].text]);
+	});
+
 	it("never returns an empty verdict", () => {
 		const written = [
 			{ text: "The rate rose." },
