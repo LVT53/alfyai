@@ -961,6 +961,7 @@ const settingsDict = {
 		"admin.system.providers.expandA11y": "Show models on {provider}",
 		"admin.system.providers.priceWindows": "Price windows · {count}",
 		"admin.system.priceWindows": "Price windows",
+		"admin.system.modelFree": "free",
 		"admin.system.providers.hidden": "Hidden",
 		"admin.system.providers.default": "Default",
 		"admin.system.providers.perMillion": "{input} / {output} per 1M in/out",
@@ -2468,6 +2469,7 @@ const settingsDict = {
 			"{provider} modelljeinek megjelenítése",
 		"admin.system.providers.priceWindows": "Ársávok · {count}",
 		"admin.system.priceWindows": "Ársávok",
+		"admin.system.modelFree": "ingyenes",
 		"admin.system.providers.hidden": "Rejtett",
 		"admin.system.providers.default": "Alapértelmezett",
 		"admin.system.providers.perMillion":

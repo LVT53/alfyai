@@ -28,19 +28,31 @@ export interface ModelOptionInput {
 	providers: Provider[];
 	providerModels: ProviderModel[];
 	adminConfig: Record<string, string>;
+	/** Localised word for a model that costs nothing; shown as its price hint. */
+	freeLabel?: string;
 	/** Include the `provider:<id>` entries that mean "this provider's model". */
 	includeProviderLevel?: boolean;
-	/** Keep this value selectable even when it matches nothing else. */
-	configuredValue?: string;
+	/**
+	 * Keep these values selectable even when they match nothing else. Every
+	 * select that shares one group list must contribute its own configured id:
+	 * one rescued id is not enough, and a stale id with no option silently
+	 * renders as whichever model happens to be first.
+	 */
+	configuredValues?: ReadonlyArray<string | undefined>;
 }
 
 export function isExplicitProviderModelId(modelId: string): boolean {
 	return modelId.startsWith("provider:") && modelId.split(":").length >= 3;
 }
 
-function priceHint(model: ProviderModel): string | undefined {
+function priceHint(
+	model: ProviderModel,
+	freeLabel: string,
+): string | undefined {
 	const format = (micros: number) => `$${(micros / 1_000_000).toFixed(2)}`;
-	if (!model.inputUsdMicrosPer1m && !model.outputUsdMicrosPer1m) return "free";
+	if (!model.inputUsdMicrosPer1m && !model.outputUsdMicrosPer1m) {
+		return freeLabel;
+	}
 	return `${format(model.inputUsdMicrosPer1m)} / ${format(model.outputUsdMicrosPer1m)}`;
 }
 
@@ -65,8 +77,9 @@ export function buildModelOptionGroups(
 		providers,
 		providerModels,
 		adminConfig,
+		freeLabel = "free",
 		includeProviderLevel = true,
-		configuredValue,
+		configuredValues = [],
 	} = input;
 
 	const seen = new Set<string>();
@@ -113,7 +126,7 @@ export function buildModelOptionGroups(
 			options.push({
 				id,
 				label: fromAvailable?.displayName || model.displayName || model.name,
-				hint: priceHint(model),
+				hint: priceHint(model, freeLabel),
 			});
 		}
 
@@ -144,11 +157,14 @@ export function buildModelOptionGroups(
 		});
 	}
 
-	if (configuredValue && !seen.has(configuredValue)) {
-		groups.push({
-			label: "",
-			options: [{ id: configuredValue as ModelId, label: configuredValue }],
-		});
+	const rescued: ModelOption[] = [];
+	for (const configured of configuredValues) {
+		if (!configured || seen.has(configured)) continue;
+		seen.add(configured);
+		rescued.push({ id: configured as ModelId, label: configured });
+	}
+	if (rescued.length > 0) {
+		groups.push({ label: "", options: rescued });
 	}
 
 	return groups;

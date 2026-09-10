@@ -886,6 +886,10 @@
 	cursor: pointer;
 }
 
+.sys-group-head:hover {
+	color: var(--accent);
+}
+
 .sys-group-head:focus-visible {
 	outline: none;
 	box-shadow: 0 0 0 2px var(--focus-ring);
@@ -894,7 +898,9 @@
 
 .sys-group-chevron {
 	display: inline-flex;
-	color: var(--icon-muted);
+	/* currentColor so the head's hover carries the chevron with it. */
+	color: currentcolor;
+	opacity: 0.55;
 	transition: transform var(--duration-standard) var(--ease-out);
 }
 
