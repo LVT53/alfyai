@@ -119,6 +119,50 @@ describe("buildAtlasV3ProgressEvidence", () => {
 	});
 
 	/**
+	 * Eight sources hit the old 1200-character cap on one staging job, and the
+	 * evaluation then reported figures a CITED quote states as unsupported.
+	 */
+	it("writes the cited quotes first, before the cap can reach them", () => {
+		const state = createAtlasV3Bank();
+		const source = addAtlasV3Source(state, {
+			url: "https://nice.org.uk/guidance/ng28",
+			title: "NG28",
+			publishedAt: "2026-01-01",
+		});
+		const padding = Array.from({ length: 12 }, (_unused, index) =>
+			addAtlasV3Quote(state, {
+				sourceId: source?.id ?? "",
+				text: `Background paragraph ${index} of the guideline committee's discussion of the evidence it reviewed, at length.`,
+				goal: "g",
+			}),
+		);
+		const cited = addAtlasV3Quote(state, {
+			sourceId: source?.id ?? "",
+			text: "Major adverse cardiovascular events fall from 123 to 107-115 per 1,000.",
+			goal: "g",
+		});
+		expect(padding.at(-1)?.id).toBeDefined();
+		const bankState = freezeAtlasV3Bank(state);
+		const evidence = buildAtlasV3ProgressEvidence({
+			bank: bankState,
+			totals: {
+				corroborated: 0,
+				single: 1,
+				inferred: 0,
+				repeated: 0,
+				cut: 0,
+				needsEvidence: 0,
+			},
+			citations: assignAtlasV3CitationNumbers({
+				bank: bankState,
+				citedEvidenceIds: [cited?.id ?? ""],
+			}),
+		});
+		expect(evidence.sources[0].snippet.startsWith("Major adverse")).toBe(true);
+		expect(evidence.sources[0].snippet).toContain("107-115 per 1,000");
+	});
+
+	/**
 	 * An abstaining report numbers sources no sentence cites — the pages it
 	 * read. Rebuilding the card's order from quotes alone gave those a different
 	 * `[n]` than the report printed, which reads as a citation mismatch.

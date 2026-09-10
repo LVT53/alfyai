@@ -585,6 +585,27 @@ describe("runAtlasV3Pipeline", () => {
 		expect(rewrites.length).toBeGreaterThan(1);
 		expect(rewrites.at(-1)?.prompt).toContain("needs a second publisher");
 	});
+
+	it("checkpoints the critic's research round like any other", async () => {
+		const { checkpoints } = await run({
+			criticFindings: [
+				{
+					code: "unsupported_figure",
+					nodeId: "n2",
+					quote: "Rooftop installations fell 21% across the bloc.",
+					detail: "the 21% figure needs a second publisher",
+					instruction: {
+						kind: "needs_evidence",
+						query: "EU rooftop solar 2025",
+					},
+				},
+			],
+		});
+		const research = checkpoints.filter((entry) => entry.phase === "research");
+		// Round one, plus the critic's; the quotes it fetched are on the row.
+		expect(research.length).toBeGreaterThan(1);
+		expect(research.map((entry) => entry.roundNumber)).toContain(12);
+	});
 });
 
 // ---------------------------------------------------------------------------

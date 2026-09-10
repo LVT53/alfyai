@@ -836,6 +836,16 @@ export async function runAtlasV3Pipeline(
 			const result = await researchRound(roundsRun, queries, resolvedMemo);
 			asked.push(...result.queries);
 			needsEvidenceResolved += state.quotes.length - before;
+			// The critic's round is a research round: without its own checkpoint the
+			// quotes it fetched are invisible to a post-mortem, and a resume would
+			// pay for them twice. The memo stays the pipeline's own — the critic's
+			// research answers a finding, it does not rewrite the answer so far.
+			await checkpoint("research", CHECKPOINT_ROUND.research + roundsRun, {
+				round: roundsRun,
+				bank: freezeAtlasV3Bank(state),
+				memo: resolvedMemo,
+				asked,
+			});
 			for (const note of result.notes) {
 				const nodeId = nodeByQuery.get(note.subQuestion);
 				if (!nodeId || note.quotes.length === 0) continue;
