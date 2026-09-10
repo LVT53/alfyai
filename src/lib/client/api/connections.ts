@@ -264,7 +264,14 @@ export async function startEmailConnect(params: {
 	);
 }
 
-export type OwnTracksDevice = { otUser: string; otDevice: string };
+export type OwnTracksDevice = {
+	otUser: string;
+	otDevice: string;
+	// Connections redesign — epoch seconds of the device's last fix, when the
+	// recorder had one. Optional: the picker shows the "Last seen …" line only
+	// when it is present rather than inventing one.
+	lastSeen?: number;
+};
 
 // GET /api/connections/owntracks/devices — src/routes/api/connections/owntracks/devices/+server.ts
 export async function fetchOwnTracksDevices(): Promise<OwnTracksDevice[]> {
