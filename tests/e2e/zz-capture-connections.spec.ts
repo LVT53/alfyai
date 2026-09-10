@@ -11,6 +11,16 @@
 //
 //   CONNECTIONS_CAPTURE=1 npx playwright test tests/e2e/zz-capture-connections.spec.ts
 import { expect, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import {
+	connectionPendingWrites,
+	conversations,
+	messages,
+	providerModels,
+	providers,
+	users,
+} from "../../src/lib/server/db/schema";
 
 import { login } from "./helpers";
 
@@ -219,6 +229,28 @@ async function closeDialogs(page: Page) {
 	await page.waitForTimeout(150);
 }
 
+// Rows are inserted directly rather than through the conversation/message
+// services: those run a sequence-repair statement that better-sqlite3 refuses
+// inside the Playwright RUNNER process, and nothing here needs the services'
+// behaviour — only the rows.
+async function adminId(): Promise<string> {
+	const [admin] = await db
+		.select()
+		.from(users)
+		.where(eq(users.email, "admin@local"))
+		.limit(1);
+	expect(admin, "the e2e admin must exist").toBeTruthy();
+	return admin.id;
+}
+
+async function seedConversation(userId: string, id: string, title: string) {
+	const now = new Date();
+	await db
+		.insert(conversations)
+		.values({ id, userId, title, createdAt: now, updatedAt: now });
+	return id;
+}
+
 async function openTab(page: Page) {
 	await page.goto("/settings?section=connections", {
 		waitUntil: "domcontentloaded",
@@ -300,6 +332,18 @@ for (const theme of ["light", "dark"] as const) {
 			await page.waitForTimeout(300);
 			await page.screenshot({
 				path: `${OUT}/08-wizard-not-set-up-${theme}.png`,
+			});
+			await closeDialogs(page);
+
+			// Wizard — OneDrive, whose keys live on a DIFFERENT Administration
+			// page than Google's. The notice has to name the right one.
+			await page.getByTestId("connections-add-onedrive").click();
+			await page.waitForTimeout(250);
+			await page.getByRole("button", { name: /Continue to OneDrive/ }).click();
+			await expect(page.getByTestId("wizard-not-set-up")).toBeVisible();
+			await page.waitForTimeout(300);
+			await page.screenshot({
+				path: `${OUT}/08b-wizard-onedrive-not-set-up-${theme}.png`,
 			});
 			await closeDialogs(page);
 
@@ -477,6 +521,216 @@ for (const theme of ["light", "dark"] as const) {
 				path: `${OUT}/17-composer-connections-${theme}.png`,
 				clip: { x: 0, y: 420, width: 1280, height: 680 },
 			});
+		});
+
+		// The write-confirm cards render from real rows: a pending write is
+		// created by a write tool mid-turn and backfilled with the assistant
+		// message id when the turn finalizes, so there is no client-side way to
+		// fabricate one. Seeding the database is how the rest of this suite
+		// stages server state (see playwright.config.ts's note about the runner
+		// sharing the e2e database).
+		test(`write confirmations in the reply (${theme})`, async ({ page }) => {
+			await login(page);
+			await setTheme(page, theme);
+
+			const userId = await adminId();
+			const conversationId = await seedConversation(
+				userId,
+				`conv-writes-${theme}`,
+				`Write confirmations (${theme})`,
+			);
+			const assistantId = `msg-assistant-${theme}`;
+			const now = new Date();
+			await db.insert(messages).values([
+				{
+					id: `msg-user-${theme}`,
+					conversationId,
+					messageSequence: 1,
+					role: "user",
+					content: "Save the Atlas report to Nextcloud and clear those photos.",
+					createdAt: now,
+				},
+				{
+					id: assistantId,
+					conversationId,
+					messageSequence: 2,
+					role: "assistant",
+					content: "Two things need your OK first.",
+					createdAt: now,
+				},
+			]);
+
+			// One reversible write and one destructive one, so the badges can be
+			// seen to appear only when they are true.
+			await db.insert(connectionPendingWrites).values([
+				{
+					id: `pw-save-${theme}`,
+					userId,
+					connectionId: "conn-nextcloud",
+					provider: "nextcloud",
+					opJson: JSON.stringify({ kind: "put" }),
+					idempotencyKey: `idem-save-${theme}`,
+					status: "pending",
+					previewJson: JSON.stringify({
+						title: "Save this report to Nextcloud?",
+						detail: "/AlfyAI/Reports/atlas-2026-09.pdf — new file, 148 KB.",
+						reversible: true,
+						destructive: false,
+						withinAllowlist: true,
+						warnings: [],
+					}),
+					conversationId,
+					assistantMessageId: assistantId,
+				},
+				{
+					id: `pw-delete-${theme}`,
+					userId,
+					connectionId: "conn-immich",
+					provider: "immich",
+					opJson: JSON.stringify({ kind: "delete" }),
+					idempotencyKey: `idem-delete-${theme}`,
+					status: "pending",
+					previewJson: JSON.stringify({
+						title: "Delete 3 photos from Immich?",
+						detail: "IMG_2291, IMG_2292 and IMG_2294, taken 4 August.",
+						reversible: false,
+						destructive: true,
+						withinAllowlist: null,
+						warnings: [],
+					}),
+					conversationId,
+					assistantMessageId: assistantId,
+				},
+			]);
+
+			await page.goto(`/chat/${conversationId}`, {
+				waitUntil: "domcontentloaded",
+			});
+			await expect(
+				page.getByText("Save this report to Nextcloud?"),
+			).toBeVisible({ timeout: 20000 });
+			await expect(
+				page.getByText("Delete 3 photos from Immich?"),
+			).toBeVisible();
+			await page.waitForTimeout(400);
+			await page.screenshot({
+				path: `${OUT}/18-write-confirm-${theme}.png`,
+				fullPage: true,
+			});
+		});
+
+		test(`the cloud-model warning (${theme})`, async ({ page }) => {
+			await login(page);
+			await setTheme(page, theme);
+
+			// The gate needs (a) at least one active connector capability and
+			// (b) a CLOUD model selected. The preference endpoint only accepts a
+			// model that actually exists, so a throwaway provider is seeded and
+			// removed again — this database is shared with the rest of the
+			// suite, and a stray cloud provider would change what other specs
+			// see in the model picker.
+			const providerId = `prov-capture-${theme}`;
+			const modelRowId = `model-capture-${theme}`;
+			const modelId = `provider:${providerId}:${modelRowId}`;
+			const seededAt = new Date();
+			await db.insert(providers).values({
+				id: providerId,
+				name: `capture-${theme}`,
+				displayName: "Anthropic",
+				baseUrl: "https://api.anthropic.invalid",
+				apiKeyEncrypted: "unused",
+				apiKeyIv: "unused",
+				createdAt: seededAt,
+				updatedAt: seededAt,
+			});
+			await db.insert(providerModels).values({
+				id: modelRowId,
+				providerId,
+				name: "claude-capture",
+				displayName: "Claude",
+				createdAt: seededAt,
+				updatedAt: seededAt,
+			});
+			await page.route(
+				"**/api/connections/active-capabilities",
+				async (route) => {
+					await route.fulfill({
+						status: 200,
+						contentType: "application/json",
+						body: JSON.stringify({
+							served: ["files", "calendar", "email"],
+							defaultOn: ["files", "calendar", "email"],
+							accounts: [],
+							connections: [
+								{
+									id: "nc",
+									label: "Nextcloud",
+									provider: "nextcloud",
+									accountIdentifier: "cloud.alfy.hu",
+									status: "connected",
+									defaultOn: true,
+									capabilities: ["files"],
+								},
+							],
+						}),
+					});
+				},
+			);
+			await page.route("**/api/connections/cloud-warning", async (route) => {
+				await route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({ shouldWarn: true }),
+				});
+			});
+
+			const conversationId = await seedConversation(
+				await adminId(),
+				`conv-cloud-${theme}`,
+				`Cloud warning (${theme})`,
+			);
+
+			try {
+				const picked = await page.evaluate(async (id) => {
+					const response = await fetch("/api/settings/preferences", {
+						method: "PATCH",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ preferredModel: id }),
+					});
+					return response.ok;
+				}, modelId);
+				expect(picked, "the seeded cloud model must be selectable").toBe(true);
+
+				await page.goto(`/chat/${conversationId}`, {
+					waitUntil: "domcontentloaded",
+				});
+				const input = page.getByTestId("message-input");
+				await expect(input).toBeEnabled({ timeout: 20000 });
+				await input.fill("What did I promise Anna about the report?");
+				const send = page.getByTestId("send-button");
+				await expect(send).toBeEnabled({ timeout: 10000 });
+				await send.click();
+
+				await expect(page.getByTestId("cloud-connector-warning")).toBeVisible({
+					timeout: 15000,
+				});
+				await page.waitForTimeout(300);
+				await page.screenshot({ path: `${OUT}/19-cloud-warning-${theme}.png` });
+			} finally {
+				// Put the account and the model list back the way the rest of the
+				// suite expects to find them.
+				await page.evaluate(async () => {
+					await fetch("/api/settings/preferences", {
+						method: "PATCH",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ preferredModel: null }),
+					});
+				});
+				await db
+					.delete(providerModels)
+					.where(eq(providerModels.id, modelRowId));
+				await db.delete(providers).where(eq(providers.id, providerId));
+			}
 		});
 	});
 }
