@@ -647,13 +647,14 @@ export async function reviseAtlasV3Outline(
 	}
 	if (!parsed) return fallback();
 	// A label-shaped title is a v2 defect with a name; it is repaired from the
-	// node's own claim rather than sent back for another call.
-	const nodes = parsed.nodes.map((node) => ({
-		...node,
-		title: isLabelShapedTitle(node.title)
-			? clampAtlasV3Title(atlasV3FirstClause(node.claim))
-			: node.title,
-	}));
+	// node's own claim rather than sent back for another call. A claim that
+	// opens with its own punctuation has an EMPTY first clause, and an empty
+	// title renders as an empty heading — the label is the lesser defect.
+	const nodes = parsed.nodes.map((node) => {
+		if (!isLabelShapedTitle(node.title)) return node;
+		const repaired = clampAtlasV3Title(atlasV3FirstClause(node.claim));
+		return { ...node, title: repaired || node.title };
+	});
 	const bound = bindAtlasV3Evidence({
 		nodes,
 		bank: input.bank,

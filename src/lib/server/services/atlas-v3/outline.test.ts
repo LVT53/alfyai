@@ -589,6 +589,27 @@ describe("reviseAtlasV3Outline", () => {
 		);
 	});
 
+	it("keeps the label rather than shipping an empty heading", async () => {
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{
+						id: "n1",
+						title: "2025-ös referenciaadat",
+						// A claim whose first clause is empty; the repair has nothing.
+						claim: ", rooftop demand fell while utility-scale grew.",
+						claimIds: ["c2"],
+					},
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			runModel: model.call,
+		});
+		expect(outline.nodes[0].title).toBe("2025-ös referenciaadat");
+	});
+
 	it("falls back to the deterministic outline when nothing parses", async () => {
 		const model = fakeModel({ "v3:outline": "no." });
 		const outline = await reviseAtlasV3Outline({
